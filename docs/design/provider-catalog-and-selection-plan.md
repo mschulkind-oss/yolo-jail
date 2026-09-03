@@ -3,12 +3,12 @@ title: "Plan: catalog and selection"
 date: 2026-09-01
 status: shipped
 tags: [plan, providers, profiles, derives, selection]
-summary: "Implementation plan for provider-catalog-and-selection.md — env-emitting derives, deleting the placeholder vocabulary, and the use_profiles rename. The research step that gated build order step 1 closed 2026-09-02, and every step has since run."
+summary: "Implementation plan for providers.md — env-emitting derives, deleting the placeholder vocabulary, and the use_profiles rename. The research step that gated build order step 1 closed 2026-09-02, and every step has since run."
 ---
 
 # Plan: catalog and selection
 
-**Design:** [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) (all nine ruled)
+**Design:** [`providers.md`](../reference/providers.md) (all nine ruled)
 · **Status:** SHIPPED 2026-09-02 — step 1's research closed from source (`070a3574`), the
 `use_profiles` rename landed whole (`43d24e9e`), the env-emitting derives replaced `env_shape` in
 both notches (`f55f2109`, `3144fbed`), codex and then pi/opencode got their selection keys

@@ -324,7 +324,7 @@ func identArg(e ast.Expr) string {
 	return ""
 }
 
-// THE PROFILE SELECTOR, AFTER OQ-PT5 (provider-table-fidelity.md §5.2). The
+// THE PROFILE SELECTOR, AFTER OQ-PT5 (docs/reference/providers.md). The
 // startup-timing report moved to --timing, so --profile and -p have ONE meaning
 // left: take the next token as the name. profileValueAt — which looked ahead and
 // refused to read a `-`-prefixed token, the injected "run", or the separator as a

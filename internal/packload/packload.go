@@ -385,7 +385,7 @@ type EnvFoldEntry struct {
 // pass, profileActive's wide half — when it is active for ANY bin at all, which is
 // what makes a CLI-less pack's gated env reachable: packs/zai installs nothing, so
 // keying on its own bins could never fire (the reachability defect
-// provider-table-fidelity.md §5.4 measures for the kind). The gate asks the launch's
+// docs/reference/providers.md measures for the kind). The gate asks the launch's
 // table, not the target surface's agent — an env has no surface to name one, which is
 // the one way it differs from config-overlay's gate (packoverlay.go).
 //

@@ -173,7 +173,7 @@ existing check or gives an existing namespace the check its neighbours already h
 | **After** | `[FAIL] config.providers.bedrock.wire_api: unknown protocol 'totally-not-a-wire-api' — expected one of: anthropic, openai-chat, openai-completions, responses` |
 | **Where** | `yolo check`, at parse time. It is a closed enum; nothing needs resolving. |
 
-> **CORRECTED 2026-09-02 by OQ-PT1 in [`provider-table-fidelity.md`](provider-table-fidelity.md)
+> **CORRECTED 2026-09-02 by OQ-PT1 in [`providers.md`](../reference/providers.md)
 > §3.0a/§3.1.** This mock-up is where the enum's four values were minted, and the list it quoted is
 > retired: `anthropic`, `openai-chat`, `openai-completions` and `responses` were the union of the
 > spellings three agents happened to use, in which two names covered ONE protocol and the protocol
@@ -267,7 +267,7 @@ The honest list. Each of these is a config that launches now and will not after.
 | An active profile whose key was never hydrated | launches, fails at the agent | **refused** | populate the `env_sources` file |
 | A pack tree newer than the image | any of the above, unexplained | **refused, naming `just load`** | `just load` on the host |
 
-> **CORRECTED 2026-09-02 by OQ-PT1 in [`provider-table-fidelity.md`](provider-table-fidelity.md)
+> **CORRECTED 2026-09-02 by OQ-PT1 in [`providers.md`](../reference/providers.md)
 > §3.0a/§3.4.** Row 2's "four known protocols" and its recovery column are both retired. The
 > vocabulary is the three canonical names above (§4.2's note), and adding one is **not** "a
 > one-line enum addition": it is a line in `packdecl`'s `knownWireAPIs` **plus a dialect row in

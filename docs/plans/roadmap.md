@@ -49,7 +49,7 @@ in.
 > `cee9c1fc`), D7 (`714e987e`, with `886a9191` taking the flag's other meaning) and D10/D11
 > (`7fa624ba`); D8's remaining half (the secret on the
 > container argv) and D9 (the ungated derive) are recorded where they belong —
-> [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) §5.5 and
+> the provider reference's credential warning and
 > [`trust-paths.md`](../design/trust-paths.md) row 26. The catalog row's selection half — the
 > reason it existed — shipped for all four agents (`58437e8b`, `6d1d7c54`, `3c6ed6f1`); its one
 > residue, §8 step 4's explicit disable, is named unbuilt in that doc rather than re-rowed here.
@@ -188,7 +188,7 @@ What is still open:
   left is promoting the record into a row `install` obeys, and it should be one design with
   program-delivery §10's *user-scope gap receipt* step (📦 below).
 - **OQ-TP8** *(new 2026-09-02, executing D9 of
-  [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) §5.6 — the review row that
+  trust-paths.md row 26 — the review row that
   found it left this file when the work shipped)* — **pack-shipped `derive.lua` runs ungated for
   every origin, and its census row did not exist.** Row 26 now records the facts: sandboxed
   allowlist Lua (no `os`/`io`/`require`, timeout-bounded), executed in-jail every boot, host-side

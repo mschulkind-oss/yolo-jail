@@ -566,7 +566,7 @@ func providerErrors(t *testing.T, body string) []string {
 	return out
 }
 
-// wire_api is yolo's CANONICAL protocol name (provider-table-fidelity.md §3.4 / OQ-PT1):
+// wire_api is yolo's CANONICAL protocol name (docs/reference/providers.md — canonical vocabulary, OQ-PT1):
 // the derives translate it into each agent's own spelling, and a name outside the set
 // translates to nothing, so it would reach every consumer as no protocol — silently, from
 // a jail that booted green. The vocabulary is closed for the reason Rule 4 closes any
@@ -703,7 +703,7 @@ func TestValidateProvidersBaseURLAndEndpointsTogetherIsRefused(t *testing.T) {
 	if !strings.Contains(errs[0], "endpoints") {
 		t.Errorf("the coexistence refusal must point at endpoints: %s", errs[0])
 	}
-	// The words are packdecl's, not this layer's own literal (provider-table-fidelity.md
+	// The words are packdecl's, not this layer's own literal (docs/reference/providers.md
 	// §4.1, OQ-PT2): composition can manufacture this pair out of two legal inputs, and
 	// packload.ComposeProviders refuses the output. Quoting the const here is the pin —
 	// if either layer rewords its half, this fails and the two have to be re-agreed.
@@ -721,7 +721,7 @@ func TestValidateProvidersWithNoAddressIsLegal(t *testing.T) {
 	}
 }
 
-// `options` is the profile surface a provider DECLARES (provider-catalog-and-selection.md
+// `options` is the profile surface a provider DECLARES (docs/reference/providers.md
 // §5.2, OQ-CS4): a flat map of option name to default, with null meaning *declared, no
 // default* rather than delete (OQ-CS7). It is a config key as well as a manifest field —
 // a user may declare a provider of their own, or add an option to one a pack ships — and

@@ -1,6 +1,6 @@
 -- codex: project MCP servers and model_providers into codex's TOML format.
 
--- The DIALECT MAP (provider-table-fidelity.md §3.4 / OQ-PT1): yolo's canonical wire_api
+-- The DIALECT MAP (docs/reference/providers.md §3.4 / OQ-PT1): yolo's canonical wire_api
 -- → the value codex reads from model_providers.<id>.wire_api. Every row is a measured
 -- fact about codex, carried here because a dialect map with no provenance is the same
 -- unverified assertion in a new location:
@@ -130,7 +130,7 @@ yolo.derive("codex", "config", function(ctx)
 
   -- 3. The selection — model_provider and model, codex's OWN selection keys, verified from
   -- the codex CLI binary 2026-08-20 (docs/research/local-model-endpoints.md §"Codex CLI";
-  -- provider-catalog-and-selection.md §3 codex row). An active profile names the provider
+  -- docs/reference/providers.md §3 codex row). An active profile names the provider
   -- it selects; a provider codex can reach becomes the selection, and the model is the id
   -- under the alias the profile's `model` option names (OQ-CS4: what an option means is
   -- the derive's business), or under the provider's declared `default` alias when the
@@ -142,7 +142,7 @@ yolo.derive("codex", "config", function(ctx)
   -- re-asserted by every boot — right for an MCP table, which is yolo's own output, and
   -- exactly wrong for a model the user can change interactively mid-session (`/model`), so
   -- that a key yolo re-asserted would silently revert their choice on the next launch
-  -- (provider-catalog-and-selection.md §5.1, the hazard OQ-CS2 names). The stateful render
+  -- (docs/reference/providers.md §5.1, the hazard OQ-CS2 names). The stateful render
   -- takes the namespace, decides per key — write on activation, never on absence, and a
   -- user's interactive edit stands until a NEW selection value differs from the last one
   -- yolo wrote — and lifts the winners onto the surface root, so config.toml still shows
@@ -151,7 +151,7 @@ yolo.derive("codex", "config", function(ctx)
   --
   -- OQ-CS2 is the GUARD, not a default: when no profile is active at codex's CLI name,
   -- nothing selection-shaped is written — not a default, not a clear. The no-profile case
-  -- is the agent's own (provider-catalog-and-selection.md §5.1). And when the selected
+  -- is the agent's own (docs/reference/providers.md — Selection: write on activation, never on absence). And when the selected
   -- provider is not codex-reachable, the SAME gate that keeps it out of the catalog keeps
   -- it out of the selection: no keys at all, never a `model_provider` naming a provider
   -- whose row the catalog dropped — codex refuses that config at startup.

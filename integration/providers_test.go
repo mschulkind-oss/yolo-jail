@@ -57,7 +57,7 @@ func renderedSurface(t *testing.T, dir string, rel ...string) []byte {
 }
 
 // TestProvidersRenderInTheAgentsOwnVocabulary is the integration tier D1 skipped
-// (provider-table-fidelity.md §5.3): the provider table is delivered in each agent's own
+// (docs/reference/providers.md): the provider table is delivered in each agent's own
 // vocabulary, and only a rendered file can say so. Every unit test in the delivery chain
 // validates a value against a set YOLO owns; the defect is that the consumer owns a
 // different set, so the whole chain went green while writing values the agents refuse.

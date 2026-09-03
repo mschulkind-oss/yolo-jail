@@ -223,7 +223,7 @@ func requirePiSelection(t *testing.T, settings, models map[string]any, provider,
 	t.Helper()
 	if absentOr(settings["defaultProvider"]) != provider {
 		t.Errorf("settings.json defaultProvider = %v, want %q (pi 0.84.4 settings-manager "+
-			"keys, provider-catalog-and-selection.md §3 pi row)", settings["defaultProvider"], provider)
+			"keys, docs/reference/providers.md pi row)", settings["defaultProvider"], provider)
 	}
 	if absentOr(settings["defaultModel"]) != model {
 		t.Errorf("settings.json defaultModel = %v, want %q — the model id must match the "+

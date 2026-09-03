@@ -1,5 +1,7 @@
 package packload
 
+// Provider composition and preflight: docs/reference/providers.md
+
 // providers.go composes the PROVIDERS table a launch feeds its derives: the packs'
 // shipped `kind: "provider"` service facts, laid UNDER the user's `providers` config
 // entries (profiles-as-pack-variants.md §4.1 as ruled, OQ-12).
@@ -35,7 +37,7 @@ import (
 // removed without restating the aliases around it.
 //
 // The merge REFUSES a composed entry that ends up carrying both `base_url` and
-// `endpoints` (provider-table-fidelity.md §4.1, OQ-PT2). Each half is legal alone — the
+// `endpoints` (docs/reference/providers.md, OQ-PT2). Each half is legal alone — the
 // config validator takes them one at a time — but composed they are the pair it refuses,
 // and the consumers genuinely disagree about which wins: the derives prefer the shorthand
 // and fall back to `endpoints`, agentenv reads `endpoints` only. Per-field composition
@@ -136,7 +138,7 @@ func (p *Pack) installsBin(bin string) bool {
 }
 
 // requiredProviders is what the COMPOSED CATALOG demands of this launch's environment
-// (provider-catalog-and-selection.md §4, OQ-PT4): every entry of the composed providers
+// (docs/reference/providers.md, OQ-PT4): every entry of the composed providers
 // table that is cataloged — present AND carrying at least one endpoint — in catalog order,
 // attributed to the pack that shipped it, or to the user's config when no selected pack
 // did.
@@ -145,7 +147,7 @@ func (p *Pack) installsBin(bin string) bool {
 // do not — and it replaces the pack-declaration walk this used to be, which required every
 // provider a selected pack SHIPS and so refused a launch whose user had dropped that
 // provider with `providers.<name>: null`: the pack still declared it, so the null bought a
-// refusal naming the provider it had just removed (provider-table-fidelity.md §5.1, D4).
+// refusal naming the provider it had just removed (docs/reference/providers.md, D4).
 // Keyed to the table instead, the null removes the requirement with the entry.
 //
 // "Carries at least one endpoint" is the launch-level union of the predicate each derive
@@ -359,13 +361,13 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 // two dialects of "no": `providers.zai: null` removes a provider, while
 // `providers.zai.models.fast: null` composed a literal `"fast": null` — an alias whose
 // value is nothing, which no reader of the composed table has a meaning for
-// (provider-catalog-and-selection.md §4, note). Merge-patch's own rule (RFC 7386 §2) is
+// (docs/reference/providers.md, note). Merge-patch's own rule (RFC 7386 §2) is
 // the same one, and for the same reason: a null member name defines the member's
 // removal.
 //
 // ONE key steps outside that rule, and it is the one whose null has its own ruling:
 // under `options`, a null means *declared, no default*, deliberately NOT the delete
-// (provider-catalog-and-selection.md §9 OQ-CS7). mergeOptionDefaults is the whole of the
+// (docs/reference/providers.md OQ-CS7). mergeOptionDefaults is the whole of the
 // exception — the map itself (`providers.zai.options: null`) still deletes, like every
 // other field, because the ruling is about a value IN the map and not about the map.
 func mergeUnder(dst, src *jsonx.OrderedMap) {

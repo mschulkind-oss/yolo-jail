@@ -99,14 +99,14 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 	}
 }
 
-// The requirement follows CATALOG MEMBERSHIP (provider-table-fidelity.md §5.1 / D4, ruled
-// by OQ-PT4; provider-catalog-and-selection.md §4): in a dictionary means you need the
+// The requirement follows CATALOG MEMBERSHIP (docs/reference/providers.md / D4, ruled
+// by OQ-PT4; docs/reference/providers.md): in a dictionary means you need the
 // key; not in one means you do not. Three sides of that one sentence, pinned at the seam
 // that consumes the answer:
 //
 //   - a provider the user null-drops left the composed table, and the requirement left
 //     with it. The design measured the shape refusing before the rule moved
-//     (provider-table-fidelity.md §5.1: packs: ["claude"] with providers: {"bedrock":
+//     (docs/reference/providers.md: packs: ["claude"] with providers: {"bedrock":
 //     null} came out as "…and the composed providers table has no entry by that name"),
 //     the user's own "no" read back as a fault. This fixture is that shape on the zai pack
 //     the rest of this file uses;

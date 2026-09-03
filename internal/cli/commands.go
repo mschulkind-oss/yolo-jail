@@ -563,7 +563,7 @@ func runRun(args []string) int {
 	// Nothing here can fail: the fold makes no refusal, so a mistyped flag is either
 	// swallowed or read as the command it follows, never an early exit. The one
 	// refusal the fold used to make (a -p with no readable name) went with the
-	// heuristic that needed it — provider-table-fidelity.md OQ-PT5.
+	// heuristic that needed it — docs/reference/providers.md OQ-PT5.
 	parseRunArgs(args, &opts)
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's

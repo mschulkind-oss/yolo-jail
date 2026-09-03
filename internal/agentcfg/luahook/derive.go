@@ -1,5 +1,7 @@
 package luahook
 
+// Derive registrations and ctx: docs/reference/providers.md
+
 // derive.go is the PRODUCER half of the Lua slot, distinct from the mutator
 // (transform) half in vm.go.
 //
@@ -61,7 +63,7 @@ type DeriveCtx struct {
 	ProfileName string
 
 	// Profile is the ACTIVE profile's resolved option map (the provider-declared defaults
-	// with the profile's own values over them — provider-catalog-and-selection.md §5.2),
+	// with the profile's own values over them — docs/reference/providers.md),
 	// exposed as ctx.profile. ALWAYS a table, empty when no profile is active, so a derive
 	// can read ctx.profile.model without a nil guard and "no profile" is the same world to
 	// it as "a profile with no options". What the options MEAN — which one is the

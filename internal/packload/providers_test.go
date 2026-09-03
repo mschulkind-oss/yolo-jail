@@ -113,7 +113,7 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 }
 
 // TestComposeProvidersHonorTheNullDropBelowTheTopLevel pins the merge's own convention one
-// level under the entry (provider-catalog-and-selection.md §4's note, provider-table-
+// level under the entry (docs/reference/providers.md's note, provider-table-
 // fidelity-plan.md step 4): a null in the user's override is a DELETE wherever it appears,
 // not a value. At the top level ComposeProviders already dropped the whole entry; below it
 // the per-field fold set the key to a literal null instead — `models.fast: null` composed
@@ -200,7 +200,7 @@ func TestComposeProvidersRendersTheDeclaredOptionsBlock(t *testing.T) {
 	}
 }
 
-// TestComposeProvidersRefusesAManufacturedAddressPair pins D2 (provider-table-fidelity.md
+// TestComposeProvidersRefusesAManufacturedAddressPair pins D2 (docs/reference/providers.md
 // §4.1, OQ-PT2): the shorthand and the endpoint map are each legal alone, and the config
 // validator refuses them together in an entry a user wrote — but this merge is PER FIELD,
 // so a user `base_url` over a pack that ships `endpoints` used to compose exactly the
@@ -312,7 +312,7 @@ func TestProviderClaimIsSoleOwnedByName(t *testing.T) {
 }
 
 // TestProviderCredentialGapsFollowCatalogMembership pins the requirement rule (OQ-PT4,
-// provider-catalog-and-selection.md §4): what owes a credential is an entry of the COMPOSED
+// docs/reference/providers.md): what owes a credential is an entry of the COMPOSED
 // table carrying an endpoint — not a provider a selected pack declares. In a dictionary
 // means you need the key; not in one means you do not. Nothing here looks at a declaration
 // directly, so deleting the walk over the composed table (or the endpoint predicate that

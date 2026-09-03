@@ -92,7 +92,7 @@ var runFlags = []string{"--new", "--profile", "--timing", "--dry-run", "--networ
 // so `yolo run --network -h` reads `-h` as the network mode and `yolo -p -h` as a
 // profile named "-h" — neither is the mistyped help request it might look like. -p
 // and --profile used to be gentler here: a token that could not be a name left -h
-// reachable, so the mistyped help got answered. OQ-PT5 (provider-table-fidelity.md
+// reachable, so the mistyped help got answered. OQ-PT5 (docs/reference/providers.md
 // §5.2) took away their other meaning, and with it the reason to second-guess the
 // next token; they are value flags now, indistinguishable from --network.
 func runHelpRequested(args []string) bool {
@@ -144,7 +144,7 @@ func runHelp(args []string, out io.Writer) bool {
 // The fold makes NO refusal. Every value flag takes its value from the next token
 // when there is one and silently takes none when there is not: --network and
 // --pack-profile have always worked that way, and since OQ-PT5
-// (provider-table-fidelity.md §5.2) --profile and -p do too. The asymmetry the old
+// (docs/reference/providers.md) --profile and -p do too. The asymmetry the old
 // note here reported is gone rather than copied — it existed only because a bare
 // --profile meant something else (the startup-timing report, now --timing), which
 // gave the parser a second reading to protect and a heuristic (profileValueAt) to

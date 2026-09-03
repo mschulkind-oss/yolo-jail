@@ -917,7 +917,7 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 		// The message is packdecl's, not a local literal: composition can MANUFACTURE
 		// this pair from two legal inputs (a user base_url over a pack that ships
 		// endpoints), and packload.ComposeProviders refuses the output with the same
-		// words (provider-table-fidelity.md §4.1, OQ-PT2). Sharing the text is what stops
+		// words (docs/reference/providers.md — composition refusals, OQ-PT2). Sharing the text is what stops
 		// the two layers drifting into disagreeing about whether the pair is a defect.
 		if hasBase && base != nil && hasEndpoints && endpoints != nil {
 			add(errs, path+": "+packdecl.ProviderAddressConflictMessage)
@@ -1038,7 +1038,7 @@ func validateProviderEndpoints(v any, path string, errs *[]string) {
 
 // validateWireAPI checks the wire protocol a provider speaks. A closed vocabulary rather
 // than a free string because the value is the CANONICAL name the derives translate from
-// (provider-table-fidelity.md §3.4 / OQ-PT1): a name outside the set translates to
+// (docs/reference/providers.md — canonical vocabulary, OQ-PT1): a name outside the set translates to
 // nothing, so it would reach every agent as no protocol at all — silently, from a jail
 // that booted green. Rule 4, applied to a fixed slot.
 //
@@ -1057,7 +1057,7 @@ func validateWireAPI(w any, path string, errs *[]string) {
 }
 
 // validateProviderOptions checks the profile surface a provider DECLARES
-// (provider-catalog-and-selection.md §5.2, OQ-CS4): a FLAT map of option name to default
+// (docs/reference/providers.md — profiles and options, OQ-CS4): a FLAT map of option name to default
 // value, shaped exactly like its neighbour `models` except that a null is LEGAL here.
 //
 // Two checks, neither of which invents a vocabulary:

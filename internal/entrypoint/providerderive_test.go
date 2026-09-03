@@ -63,7 +63,7 @@ func zaiEndpointsTable() map[string]map[string]any {
 
 // TestProviderDerivesResolveAnEndpointsOnlyProvider pins the resolution half of the
 // endpoints schema (zai-plumbing.md §5, closure rule 2) against the canonical vocabulary
-// (provider-table-fidelity.md §3.4): the composed wire_api is YOLO's canonical protocol
+// (docs/reference/providers.md): the composed wire_api is YOLO's canonical protocol
 // name, so what reaches an agent is that agent's own spelling of the protocol its endpoint
 // resolves to — or, when the agent cannot speak it, NO entry at all.
 func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
@@ -96,7 +96,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 				"the canonical openai-chat-completions translated, never passed through "+
 				"(nothing consumes yolo's spelling)", zai["api"])
 		}
-		// pi has no apiKeyEnv field (provider-table-fidelity.md §3.5 D11): its env
+		// pi has no apiKeyEnv field (docs/reference/providers.md D11): its env
 		// indirection is the config-value syntax ON apiKey, so the credential reaches pi
 		// as "${ZAI_API_KEY}" — a reference pi expands at read time — and never as a
 		// separate field pi's schema has no entry for.
@@ -147,7 +147,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 		if !ok {
 			t.Fatalf("provider.zai missing: %#v", provs)
 		}
-		// opencode reads baseURL/apiKey only inside `options` (provider-table-fidelity.md
+		// opencode reads baseURL/apiKey only inside `options` (docs/reference/providers.md
 		// §3.5 D10): the loader merges only provider.options and resolveSDK reads
 		// { ...provider.options }, so a top-level value lists in /models and never dials.
 		opts, ok := zai["options"].(map[string]any)
@@ -261,7 +261,7 @@ func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 }
 
 // TestProviderDerivesTranslateTheCanonicalVocabulary is the dialect map, asserted row by
-// row (provider-table-fidelity.md §3.4, OQ-PT1): yolo's canonical protocol name goes IN,
+// row (docs/reference/providers.md, OQ-PT1): yolo's canonical protocol name goes IN,
 // each agent's own spelling comes OUT, and a canonical value the agent cannot speak
 // produces NO entry rather than a half-configured one. Every row runs both derives over
 // the same provider, so a translation added for one agent and forgotten for the other

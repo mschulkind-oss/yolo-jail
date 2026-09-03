@@ -68,7 +68,7 @@ var knownTopLevelConfigKeys = set(
 	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
 	// always CLI names, and core knows packs, not agents — docs/design/
 	// profiles-as-pack-variants.md §3.3), which was itself renamed to `use_profiles`
-	// on 2026-09-02 (provider-catalog-and-selection.md §5.4: `pack` named neither of
+	// on 2026-09-02 (docs/reference/providers.md — Profiles and options: `pack` named neither of
 	// the two things the key holds). NEITHER intermediate name ever shipped in a
 	// release, which is why `pack_profiles` earns no census entry of its own — see
 	// knownProviderKeys below for the rule. `agent_profiles` KEEPS its entry: that

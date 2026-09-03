@@ -212,7 +212,7 @@ func (m *Manifest) retiredFieldProblems() []string {
 			problems = append(problems, fmt.Sprintf(
 				"contributes[%d]: \"requires_provider\" is no longer a contribution field — "+
 					"a kind \"profile\" is a SELECTION over a provider, so the field is now "+
-					"spelled \"provider\" and MANDATORY (provider-catalog-and-selection.md "+
+					"spelled \"provider\" and MANDATORY (docs/reference/providers.md "+
 					"§5.2). Write {\"kind\": \"profile\", \"name\": %q, \"provider\": %q}",
 				i, c.Name, c.RequiresProvider))
 		}

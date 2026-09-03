@@ -7,7 +7,7 @@
 // Var + Apply are the ONE spelling both notches consume: `yolo host` overlays the vars
 // on top of os.Environ() before exec, and the jail notch's argv block emits the same
 // vars as `-e KEY=VAL` pairs. What COMPOSES the vars is the env-derive runner
-// (internal/packload AgentEnv, provider-catalog-and-selection.md §3.1 and §9 OQ-CS8):
+// (internal/packload AgentEnv, docs/reference/providers.md — Derives and Why it's this way, OQ-CS8):
 // the agent's own pack states the provider→environment binding in its derive.lua, and
 // both notches run that one producer — one runner, one Lua producer — which is what
 // docs/design/host-agent-environment.md §2.2 claims as jail/host parity: `yolo --

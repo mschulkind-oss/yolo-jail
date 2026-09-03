@@ -17,7 +17,7 @@ implementation rides the parent doc's build order.
 > codex's and pi's config files verbatim, and the four canonical values match neither agent's
 > vocabulary. §2's OQ-Z1 measurement is unaffected and load-bearing; what it does **not** support is
 > the inference that codex accepts `openai-chat`. See
-> [`provider-table-fidelity.md`](provider-table-fidelity.md) §3, and 💬 18 on the roadmap.
+> [`providers.md`](../reference/providers.md) §3, and 💬 18 on the roadmap.
 
 Nothing here is built beyond what it inherits
 from the shipped `providers` key and the three derives. This doc is the **first real consumer**
@@ -47,7 +47,7 @@ The schema confusion is real and it is one word doing three jobs. Separated:
 | :--- | :--- | :--- |
 | **the provider name** | the key in the `providers` map (`providers.zai`) | pure namespace. The derives iterate it and it lands in each agent's file as the provider/model id. Nothing resolves it; it is what other things reference. |
 | **`requires_provider`** | a field on a `kind: "profile"` declaration | an **assertion, not a definition and not a reference anything follows**: when that profile is ACTIVE, `providers.zai` must exist and its `api_key_env_name` must be hydrated in the launch environment, or the launch refuses (the [§6.2 preflight](profiles-as-pack-variants.md#62-an-activated-profile-with-no-credential-is-a-preflight-failure)). It demands; it does not supply. |
-| **the profile name `zai`** | the selector value `-p` sets | gates `kind: "profile"` contributions and reaches every selected pack's derive as `ctx.use_profiles[c] == "zai"` — globally, declared or not (OQ-5's ruling, 2026-08-31). *(Field name corrected 2026-09-02: this row said `ctx.pack_profiles`, renamed `use_profiles` the same day, every spelling at once — [provider-catalog-and-selection.md](provider-catalog-and-selection.md) §5.4, OQ-CS5's naming half — so the config key, `YOLO_USE_PROFILES` and this Lua field moved together and no alias remains.)* |
+| **the profile name `zai`** | the selector value `-p` sets | gates `kind: "profile"` contributions and reaches every selected pack's derive as `ctx.use_profiles[c] == "zai"` — globally, declared or not (OQ-5's ruling, 2026-08-31). *(Field name corrected 2026-09-02: this row said `ctx.pack_profiles`, renamed `use_profiles` the same day, every spelling at once — [providers.md](../reference/providers.md) §5.4, OQ-CS5's naming half — so the config key, `YOLO_USE_PROFILES` and this Lua field moved together and no alias remains.)* |
 
 > [!IMPORTANT]
 > **What already ships, and it is more than the parent doc advertises:** all three derives
@@ -74,7 +74,7 @@ while `/v4/chat/completions` returns a real completion on the same host** (a key
 cannot settle this — z.ai's edge 401s garbage paths too, authenticating before routing).
 
 > [!IMPORTANT]
-> **SUPERSEDED, 2026-09-02** — [`provider-table-fidelity.md`](provider-table-fidelity.md) §3.4 /
+> **SUPERSEDED, 2026-09-02** — [`providers.md`](../reference/providers.md) §3.4 /
 > OQ-PT1 retired the vocabulary this block was written in, and with it the claim. `openai-chat`
 > is a RETIRED spelling (refused at decode, in user config too), and codex's derive default is
 > **`"responses"` again — because it is the one value codex accepts**. An agent whose vocabulary
@@ -162,7 +162,7 @@ superseded by uniformity, and the token alias is superseded by launch-time env c
 *(Superseded again 2026-09-02, OQ-CS8/OQ-PT9: the `env_shape` block in the excerpt below and the
 gated `config-overlay` described in the payload-split paragraph are BOTH deleted — the whole
 delivery is the agent pack's own env derive now, run host-side at both notches
-([provider-catalog-and-selection.md](provider-catalog-and-selection.md) §3.1). The excerpt stays
+([providers.md](../reference/providers.md) §3.1). The excerpt stays
 as the historical shape; [`packs/zai/pack.json`](../../packs/zai/pack.json) is the current one.)*
 
 ```jsonc

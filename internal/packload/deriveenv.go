@@ -1,7 +1,9 @@
 package packload
 
-// deriveenv.go is the ENV-EMITTING DERIVE (provider-catalog-and-selection.md §3.1 and
-// §9 OQ-CS8; provider-table-fidelity.md OQ-PT9): the ONE runner both notches compose an
+// The env-derive runner: docs/reference/providers.md
+
+// deriveenv.go is the ENV-EMITTING DERIVE (docs/reference/providers.md and
+// §9 OQ-CS8; docs/reference/providers.md OQ-PT9): the ONE runner both notches compose an
 // agent's provider environment through. The binding lives in the agent's OWN pack, as a
 // yolo.env(agent, fn) registration in its derive.lua — the producer reads the composed
 // providers table and returns the variables the agent's process needs — so no manifest
@@ -52,7 +54,7 @@ func DeriveScript(p *Pack) string {
 // config derives read as YOLO_PROVIDERS — but the copy handed to the producer is
 // HYDRATED: each entry that names an api_key_env_name the lookup can find carries
 // api_key = that value. The credential crosses into the derive invocation ONLY; the
-// table itself stays secret-free (provider-table-fidelity.md §5.5, D8) and is never
+// table itself stays secret-free (docs/reference/providers.md, D8) and is never
 // mutated. A lookup that finds nothing composes no api_key at all — an empty credential
 // is the pre-flight's refusal to make, not a token to hand an agent. useProfiles is the
 // effective profile table in ProfileTable's shape, exposed as ctx.use_profiles; the

@@ -6,7 +6,7 @@ as the roadmap's **N2** `11f8bb72` and **N1** `23cee7a6`, both 2026-08-05). **OQ
 doc could not pick — is ANSWERED BY EVENTS as of 2026-09-02:** the host notch is a place agents
 *run*. The launch verb shipped 2026-08-30 as `yolo host -- <cmd>` (`--at host --` as its alias),
 and the maintainer's 2026-09-01 rulings in
-[`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) treat host launches as a
+[`providers.md`](../reference/providers.md) treat host launches as a
 peer of jail launches (*"why would we NOT support env on the host too?"* — the withdrawn OQ-CS10,
 whose plan carries "the host notch runs the env derive" as a constraint, not a choice). See the
 Decision Ledger. **Six questions live, three settled.** Option 3's *installer* half is a separate

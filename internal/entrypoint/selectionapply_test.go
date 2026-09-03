@@ -238,7 +238,7 @@ func TestSelectionWritesNoRecordWhenNothingIsSelected(t *testing.T) {
 	got := r.render(t, ``)
 	if _, present := got["model_provider"]; present {
 		t.Errorf("model_provider = %v, want absent — the no-profile case is the agent's own "+
-			"(provider-catalog-and-selection.md §5.1 OQ-CS2)", got["model_provider"])
+			"(docs/reference/providers.md OQ-CS2)", got["model_provider"])
 	}
 	if _, present := got["model"]; present {
 		t.Errorf("model = %v, want absent", got["model"])

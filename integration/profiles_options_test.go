@@ -1,7 +1,7 @@
 package integration
 
 // profiles_options_test.go is the container tier of the profiles/options step
-// (provider-catalog-and-selection.md §5.2, OQ-CS4/5/6/7). Four things only a running
+// (docs/reference/providers.md — Profiles and options, OQ-CS4/5/6/7). Four things only a running
 // container can say:
 //
 //  1. the launch is ACCEPTED with a user-declared profile over a shipped provider pack —
@@ -19,7 +19,7 @@ package integration
 //     internal/entrypoint/pioencodeselection_test.go pins at the boot loop, and codex's
 //     half of the same launch asserts the negative: a profile whose provider codex cannot
 //     speak writes nothing selection-shaped there, even with the option resolved
-//     (codex_selection_test.go owns the codex-only cases; provider-table-fidelity.md
+//     (codex_selection_test.go owns the codex-only cases; docs/reference/providers.md
 //     §3.3 is the fact about the world that makes it so).
 
 import (

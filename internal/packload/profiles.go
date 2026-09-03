@@ -1,8 +1,10 @@
 package packload
 
+// Profile lowering and option census: docs/reference/providers.md
+
 // profiles.go resolves the PROFILES table a launch feeds its derives: what each
 // profile NAME means, as a provider plus the option values that are active under it
-// (provider-catalog-and-selection.md §5.2 — a profile is a NAMED SELECTION OVER A
+// (docs/reference/providers.md — a profile is a NAMED SELECTION OVER A
 // PROVIDER, user intent over a surface the provider defines).
 //
 // The resolution happens HERE, in the host CLI, exactly once per launch, and its output

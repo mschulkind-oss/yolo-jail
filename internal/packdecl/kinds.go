@@ -110,7 +110,7 @@ const (
 	// packs the way a second config writer would.
 	KindAutonomy Kind = "autonomy"
 	// KindProfile: a NAMED SELECTION OVER A PROVIDER
-	// (provider-catalog-and-selection.md §5.2) — `name` is the selector `-p` sets and
+	// (docs/reference/providers.md §5.2) — `name` is the selector `-p` sets and
 	// `provider` is what it selects. THAT IS THE WHOLE BODY, since OQ-PT8 shrank the kind
 	// (the sibling doc's §5.4 note is the ruling): everything a `kind: "profile"` used to
 	// carry besides — a config patch, launch flags, a static env map — was never a profile

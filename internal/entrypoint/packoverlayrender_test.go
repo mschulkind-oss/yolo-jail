@@ -559,7 +559,7 @@ func TestHostRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
 }
 
 // packs/zai's profile-gated overlay — this file's first real consumer — was deleted with
-// the env_shape vocabulary on 2026-09-02 (provider-catalog-and-selection.md §3.1): the
+// the env_shape vocabulary on 2026-09-02 (docs/reference/providers.md): the
 // endpoint now reaches claude through the agent pack's own env derive
 // (internal/packload AgentEnv) at BOTH notches, so there is no settings key for a bare
 // `claude` to read. The gate MECHANISM keeps its fixture tests above; what shipped

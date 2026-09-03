@@ -700,7 +700,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 	if o.Timing {
 		// Named for the flag that used to own this meaning (--profile, before
-		// provider-table-fidelity.md OQ-PT5 renamed it --timing). Nothing in the image
+		// docs/reference/providers.md OQ-PT5 renamed it --timing). Nothing in the image
 		// reads it, so it stays put rather than gaining a rename this step does not own.
 		runCmd = append(runCmd, "-e", "YOLO_PROFILE=1")
 	}

@@ -76,7 +76,7 @@ var provisionScript = "" +
 // the provisioning message → provision_script → mise activate → executing
 // message → target command. displayCmd is target_cmd with single quotes escaped
 // as '\”. timing wraps each phase in timers (the timing branch; --timing since
-// provider-table-fidelity.md OQ-PT5 — the in-jail report it prints still says
+// docs/reference/providers.md OQ-PT5 — the in-jail report it prints still says
 // "YOLO Jail Profile", which is a name this step did not own).
 //
 // THIS is where the "frozen bytes" claim the three constants above make actually

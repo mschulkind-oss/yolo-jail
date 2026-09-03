@@ -1,5 +1,7 @@
 package packdecl
 
+// Provider/profile manifest schema: docs/reference/providers.md
+
 // contributes.go is the manifest shape: one `contributes` list of typed
 // contributions, each with an explicit `kind` from the closed core-owned set
 // (kinds.go). See docs/design/pack-system.md §2-§3.
@@ -209,7 +211,7 @@ type Contribution struct {
 	// The value is an OptionDefault and not a string for one reason: null is LEGAL here
 	// and means something no other null in this config means (see that type).
 	Options map[string]OptionDefault `json:"options,omitempty"`
-	// --- profile (provider-catalog-and-selection.md §5.2) ---
+	// --- profile (docs/reference/providers.md §5.2) ---
 	// Provider is the profile's WHOLE BODY since OQ-PT8 shrank the kind (the sibling
 	// doc's §5.4 note is the ruling): a profile is a NAMED SELECTION OVER A PROVIDER —
 	// `name` is the selector the user types, `provider` is what it selects — and
@@ -579,7 +581,7 @@ func (m *Manifest) PostureFor(autonomy bool) *AutonomyPosture {
 // map[string]string collapse the null to "".
 //
 // THE NULL MEANS *DECLARED, NO DEFAULT* — a decision on the record rather than an
-// accident of sharing a decoder (provider-catalog-and-selection.md §9 OQ-CS7, note): an
+// accident of sharing a decoder (docs/reference/providers.md §9 OQ-CS7, note): an
 // option a profile may set, and whose absence hands the derive nothing. It is NOT the
 // merge-patch delete convention that null carries almost everywhere else in this
 // config. The reason to depart: un-declaring an option is something nobody wants (an
@@ -700,7 +702,7 @@ type ProviderEndpoint struct {
 	// would disagree about what a provider is. It is a protocol name, NOT a wire value:
 	// nothing consumes it verbatim. Each agent's derive translates it into that agent's
 	// own spelling and emits no entry at all for a protocol that agent cannot speak
-	// (provider-table-fidelity.md §3.4 / OQ-PT1).
+	// (docs/reference/providers.md §3.4 / OQ-PT1).
 	WireAPI string `json:"wire_api,omitempty"`
 }
 
@@ -1522,7 +1524,7 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 // The wire_api half is closed because the value is TRANSLATED, not passed through: it
 // composes into the providers table, the table crosses to the jail as YOLO_PROVIDERS with
 // no re-validation, and each derive maps it onto that agent's own spelling — emitting no
-// entry at all for a protocol that agent cannot speak (provider-table-fidelity.md §3.4).
+// entry at all for a protocol that agent cannot speak (docs/reference/providers.md §3.4).
 // A name outside the set is therefore one NO derive can translate: it would reach every
 // consumer as no protocol, silently, from a jail that booted green. The enum is the same
 // one internal/config enforces for user-written providers (validateWireAPI asks
@@ -1540,7 +1542,7 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 // validateProviders spends it on an entry a user wrote; packload.ComposeProviders spends
 // it on the same entry COMPOSED — a user `base_url` over a pack that ships `endpoints`
 // merges per field into exactly the pair this names, which is the pair the validator
-// refuses (provider-table-fidelity.md §4.1, OQ-PT2). One text, not two wordings, because
+// refuses (docs/reference/providers.md §4.1, OQ-PT2). One text, not two wordings, because
 // a message stated twice is the same drift a vocabulary stated twice is: the layer that
 // refuses the input and the layer that composes the output would come to disagree about
 // whether the pair is a defect at all.
@@ -1588,7 +1590,7 @@ func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoi
 	return problems
 }
 
-// knownWireAPIs is THE canonical protocol vocabulary (provider-table-fidelity.md §3.0a,
+// knownWireAPIs is THE canonical protocol vocabulary (docs/reference/providers.md §3.0a,
 // OQ-PT1): three PROTOCOL-shaped names, chosen to be NOBODY'S dialect, so a derive cannot
 // pass one through and have it work by accident. `openai-chat` and `openai-completions`
 // were one protocol under two agents' spellings and collapse into `openai-chat-completions`;

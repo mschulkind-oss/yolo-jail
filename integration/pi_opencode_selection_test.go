@@ -32,7 +32,7 @@ const piAndOpencodePacks = `{"packs": ["pi", "opencode", "zai"]}`
 // with the keys a selection must and must not add. The `selection` key is the reserved
 // namespace as the FILE would spell it: it must never appear, because the namespace is an
 // implementation detail of the computed layer, never of the file
-// (provider-catalog-and-selection.md §5.1).
+// (docs/reference/providers.md — Selection: write on activation, never on absence).
 type pioencodeSurface struct {
 	raw       map[string]any
 	provider  string
@@ -143,7 +143,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		if piSettings.provider != "zai" || piSettings.model != "glm-5.3[1m]" {
 			t.Errorf("after an unprofiled relaunch pi's pair = %q/%q, want the selection the "+
 				"first launch wrote left standing — deactivation clears nothing "+
-				"(provider-catalog-and-selection.md §5.1 OQ-CS2)",
+				"(docs/reference/providers.md — Selection: write on activation, OQ-CS2)",
 				piSettings.provider, piSettings.model)
 		}
 		ocConfig = readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")

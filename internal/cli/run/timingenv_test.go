@@ -46,7 +46,7 @@ func assembleWithTiming(t *testing.T, timing bool) []string {
 
 // timingEnvName is the env var the timing launch sets. It still spells "PROFILE": it
 // was named for the flag that used to own this meaning (--profile, before
-// provider-table-fidelity.md OQ-PT5 renamed it --timing), nothing in the image reads
+// docs/reference/providers.md OQ-PT5 renamed it --timing), nothing in the image reads
 // it, and a rename is a host→jail contract change no step here owns. If it ever moves,
 // this constant and the assemble.go site are the two places to change together.
 const timingEnvName = "YOLO_PROFILE"

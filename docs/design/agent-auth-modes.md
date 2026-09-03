@@ -13,7 +13,7 @@ summary: "A unified design for declarative cloud provider switching (Anthropic T
 > [!NOTE]
 > **Vocabulary drift (2026-09-02).** This doc's spellings are the 2026-08-29 design as accepted;
 > the implementation renamed several of them within days, and the provider-catalog work
-> ([`provider-catalog-and-selection.md`](provider-catalog-and-selection.md)) supersedes parts of
+> ([`providers.md`](../reference/providers.md)) supersedes parts of
 > §4/§5. When the body below disagrees with the code, the code is right:
 >
 > - `agent_profiles` → `pack_profiles` (2026-08-31) → **`use_profiles`** (2026-09-02, `43d24e9e`);
@@ -162,7 +162,7 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
 > `anthropic`, `openai-chat-completions`, `openai-responses` — three names chosen to be
 > **nobody's dialect** (defined: a name that names a protocol, never a value an agent's config
 > file reads), so a value cannot pass through and work by accident
-> ([`provider-table-fidelity.md`](provider-table-fidelity.md) §3.0a, OQ-PT1). Translation, not
+> ([`providers.md`](../reference/providers.md) §3.0a, OQ-PT1). Translation, not
 > pass-through, is the contract: each derive maps canonical → its own agent's spelling and emits
 > nothing for a protocol that agent cannot speak (§3.4) — which is also why the Codex row of §5.1
 > still says `responses`: that is codex's own dialect, the derive's output, not yolo's input.

@@ -968,7 +968,7 @@ func TestHostEnvIsNotGatedByTheCredentialPreflight(t *testing.T) {
 // The composition refusal reaches the HOST notch too. composedHostProviders is this
 // notch's one provider composition, and a user `base_url` over the local zai pack's
 // `endpoints` is the pair per-field composition manufactures out of two legal inputs
-// (provider-table-fidelity.md §4.1, OQ-PT2) — here handed to agentenv, which reads
+// (docs/reference/providers.md, OQ-PT2) — here handed to agentenv, which reads
 // endpoints only, with the derives preferring the shorthand. The exec refuses rather
 // than run on a table the launch cannot resolve consistently.
 func TestHostExecRefusesAManufacturedAddressPair(t *testing.T) {

@@ -1,7 +1,7 @@
 -- pi: render ~/.pi/agent/models.json from declared providers, and write the selection
 -- pair into ~/.pi/agent/settings.json when a profile is active at pi's CLI name.
 
--- The DIALECT MAP (provider-table-fidelity.md §3.4 / OQ-PT1): yolo's canonical wire_api
+-- The DIALECT MAP (docs/reference/providers.md §3.4 / OQ-PT1): yolo's canonical wire_api
 -- → the value pi reads from providers.<id>.api. Every row is a measured fact about pi,
 -- carried here because a dialect map with no provenance is the same unverified assertion
 -- in a new location. PROVENANCE: pi's api vocabulary is a RUNTIME registry, not the
@@ -130,7 +130,7 @@ end)
 -- (`===`) against the provider's model list, and pi's own interactive writer persists
 -- exactly this pair (core/settings-manager.js:460-475) — so the pair this writes is
 -- byte-for-byte the shape pi itself would write, never a yolo spelling of it
--- (provider-catalog-and-selection.md §3 pi row). Two verification notes that shaped the
+-- (docs/reference/providers.md §3 pi row). Two verification notes that shaped the
 -- surface rather than this function: a project-scope twin (.pi/settings.json in the
 -- working directory) deep-merges over the global file, so the GLOBAL file is the right
 -- surface for a jail-wide default; and pi resolves a saved default only when the
@@ -142,7 +142,7 @@ end)
 -- re-asserted by every boot — right for models.json, which is yolo's own output, and
 -- exactly wrong for a model the user can change interactively mid-session — so a key yolo
 -- re-asserted would silently revert their choice on the next launch
--- (provider-catalog-and-selection.md §5.1, the hazard OQ-CS2 names). The stateful render
+-- (docs/reference/providers.md §5.1, the hazard OQ-CS2 names). The stateful render
 -- takes the namespace, decides per key — write on activation, never on absence, and a
 -- user's interactive edit stands until a NEW selection value differs from the last one
 -- yolo wrote — and lifts the winners onto the surface root, so settings.json shows

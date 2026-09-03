@@ -201,7 +201,7 @@ func writeUserConfig(t *testing.T, home, body string) {
 	}
 }
 
-// THE COMPOSITION's own refusal, pinned at the dispatch (provider-table-fidelity.md §4.1,
+// THE COMPOSITION's own refusal, pinned at the dispatch (docs/reference/providers.md,
 // OQ-PT2). Every test above drives a channel that COMPOSED and asks what the credential
 // pre-flight says about it; this one drives a launch whose composition refuses, and asks
 // that no backend ever see it.

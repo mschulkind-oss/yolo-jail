@@ -1,5 +1,7 @@
 package entrypoint
 
+// Surface derive driving and selection resolution: docs/reference/providers.md
+
 // packsurfaces.go renders every pack-declared surface in one loop, which is what
 // replaced the switch on six hardcoded names.
 //
@@ -237,7 +239,7 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 // ctx.profile_name and ctx.selected_provider — the same two fields the env path
 // (packload.AgentEnv) hands its producer, set here so a surface derive reads one
 // resolution rule instead of re-deriving the provider from ctx.use_profiles in Lua
-// (provider-catalog-and-selection.md §5.1, §9 OQ-CS3).
+// (docs/reference/providers.md, §9 OQ-CS3).
 //
 // "Resolved" is the operative word, and it is why the surface loop computes this rather
 // than leaving the derive to read the profile table itself: the provider is NOT

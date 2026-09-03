@@ -1,8 +1,10 @@
 package agentcfg
 
+// The selection namespace and its apply rules: docs/reference/providers.md
+
 // selection.go is the RESERVED SELECTION namespace of a computed layer, and the
 // edge-triggered apply that lifts it onto a stateful surface's root
-// (docs/design/provider-catalog-and-selection.md §5.1).
+// (docs/design/docs/reference/providers.md §5.1).
 //
 // A pack's derive may return its selection under one reserved top-level key rather
 // than as ordinary computed keys:
@@ -71,7 +73,7 @@ func TakeSelection(computed map[string]any) (rest, selection map[string]any, pro
 	if !isMap {
 		return rest, nil, []string{
 			"reserved " + SelectionKey + " key is not a table; dropped — it must be a flat " +
-				"map of scalar key to value (docs/design/provider-catalog-and-selection.md §5.1)",
+				"map of scalar key to value (docs/design/docs/reference/providers.md §5.1)",
 		}
 	}
 	selection = map[string]any{}
@@ -101,7 +103,7 @@ func DropSelection(computed map[string]any) (map[string]any, []string) {
 	}
 	return withoutKey(computed, SelectionKey), []string{
 		"derive emitted the reserved " + SelectionKey + " namespace, which only a stateful " +
-			"surface applies; dropped (docs/design/provider-catalog-and-selection.md §5.1)",
+			"surface applies; dropped (docs/design/docs/reference/providers.md §5.1)",
 	}
 }
 

@@ -79,7 +79,7 @@ yolo.derive("opencode", "config", function(ctx)
   -- installed release (upstream v1.18.18, the tag the shipped binary reports):
   -- packages/core/src/v1/config/config.ts:74-76 declares it "Model to use in the format
   -- of provider/model", split on the FIRST slash at model.ts:33-39, and an unknown prefix
-  -- is a ModelNotFoundError with no silent fallback (provider-catalog-and-selection.md §3
+  -- is a ModelNotFoundError with no silent fallback (docs/reference/providers.md §3
   -- opencode row). The provider half is the catalog key above, the model half is a bare
   -- model id, and one slash joins them.
   --
@@ -87,7 +87,7 @@ yolo.derive("opencode", "config", function(ctx)
   -- and pi's do, and for the same reason: a plain computed key is re-asserted by every
   -- boot, and opencode lets a user change the model interactively mid-session, so a key
   -- yolo re-asserted would silently revert that choice on the next launch
-  -- (provider-catalog-and-selection.md §5.1, the hazard OQ-CS2 names). The stateful render
+  -- (docs/reference/providers.md §5.1, the hazard OQ-CS2 names). The stateful render
   -- takes the namespace, decides per key, and lifts the winner onto the surface root —
   -- opencode.json shows `model` at top level, where opencode reads it. The namespace is an
   -- implementation detail of the layer, never of the file.

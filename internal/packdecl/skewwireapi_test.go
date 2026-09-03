@@ -2,7 +2,7 @@ package packdecl
 
 // skewwireapi_test.go pins the WIRE_API-level half of the skew rule — the third closed
 // VALUE set a manifest carries, after the kinds and a program's `via`. An endpoint's `wire_api` names which protocol that URL speaks, in yolo's
-// CANONICAL protocol vocabulary (provider-table-fidelity.md §3.0a / OQ-PT1 — nobody's
+// CANONICAL protocol vocabulary (docs/reference/providers.md §3.0a / OQ-PT1 — nobody's
 // dialect, so no agent could consume it verbatim by accident): what crosses into the
 // composed providers table is TRANSLATED per agent, each derive emitting its own spelling
 // or nothing at all. A name outside the set is one no derive can translate, so the strict

@@ -3,7 +3,7 @@ package entrypoint
 // codexselection_test.go pins the codex half of OQ-CS1: a profile active at codex's CLI
 // name writes codex's OWN selection keys — `model_provider` and `model` in config.toml,
 // verified from the codex CLI binary 2026-08-20 (docs/research/local-model-endpoints.md
-// §"Codex CLI"; provider-catalog-and-selection.md §3 codex row) — and the two cases that
+// §"Codex CLI"; docs/reference/providers.md codex row) — and the two cases that
 // must write NOTHING: no active profile (OQ-CS2) and a selected provider codex cannot
 // reach (the catalog's own gate, so a selection can never name a row the catalog dropped).
 //
@@ -169,7 +169,7 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 		},
 		{
 			// The shipped pairing that cannot work: z.ai speaks chat completions, codex
-			// speaks responses, no wire_api value bridges them (provider-table-fidelity.md
+			// speaks responses, no wire_api value bridges them (docs/reference/providers.md
 			// §3.3 — a fact about the world, recorded). Selecting zai for codex therefore
 			// writes nothing, rather than a model_provider whose provider row the catalog
 			// drops — which codex refuses at startup. The speakable neighbour in the same
@@ -209,11 +209,11 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 			// An absent TOML key decodes as nil, which is what absence reads as here.
 			if absentOr(got["model_provider"]) != tc.wantProvider {
 				t.Errorf("model_provider = %v, want %q — a selection codex cannot honour "+
-					"must be absent, never half-written (provider-catalog-and-selection.md "+
+					"must be absent, never half-written (docs/reference/providers.md "+
 					"§5.1 OQ-CS2)", got["model_provider"], tc.wantProvider)
 			}
 			if absentOr(got["model"]) != tc.wantModel {
-				t.Errorf("model = %v, want %q (provider-catalog-and-selection.md §9 OQ-CS3: "+
+				t.Errorf("model = %v, want %q (docs/reference/providers.md OQ-CS3: "+
 					"the fallback is the derive's business)", got["model"], tc.wantModel)
 			}
 			// The keys are LIFTED out of the layer's reserved namespace before the render,
@@ -266,7 +266,7 @@ func TestCodexSelectionDeactivatesAcrossRenders(t *testing.T) {
 	got := r.render(t, ``)
 	if absentOr(got["model_provider"]) != "llamacpp" || absentOr(got["model"]) != "llama" {
 		t.Errorf("after deactivation model_provider/model = %v/%v, want the selection left "+
-			"standing — deactivation clears nothing (provider-catalog-and-selection.md §5.1 "+
+			"standing — deactivation clears nothing (docs/reference/providers.md "+
 			"OQ-CS2)", got["model_provider"], got["model"])
 	}
 	if _, leaked := got["selection"]; leaked {

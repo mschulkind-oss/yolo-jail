@@ -3,12 +3,12 @@ title: "Plan: provider table fidelity"
 date: 2026-09-01
 status: shipped
 tags: [plan, providers, packs, derives]
-summary: "Implementation plan for provider-table-fidelity.md's nine defects: the wire_api dialect translation, the composer's three composition bugs, the --profile split, and the census. Written against 578c7e5f."
+summary: "Implementation plan for providers.md's nine defects: the wire_api dialect translation, the composer's three composition bugs, the --profile split, and the census. Written against 578c7e5f."
 ---
 
 # Plan: provider table fidelity
 
-**Design:** [`provider-table-fidelity.md`](provider-table-fidelity.md) · **Status:** SHIPPED
+**Design:** [`providers.md`](../reference/providers.md) · **Status:** SHIPPED
 2026-09-02 — every step landed: the regression test (`cee9c1fc`), the pi/opencode source
 verification that was step 2's blocker (`070a3574`, written up in `4f580756`), the canonical
 `wire_api` vocabulary with per-agent translation (`0f04632d`), the composer slice (`5d8bd1fe`,

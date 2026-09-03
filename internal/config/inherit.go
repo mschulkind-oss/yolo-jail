@@ -230,7 +230,7 @@ var inheritCensus = map[string]keyDisposition{
 	"journal":        {reason: "RETIRED — the switch moved to loopholes.journal.enabled and the mode to its settings; emitting it would re-trigger the retirement error"},
 	// `agent_profiles` joined them on 2026-09-01, renamed to `pack_profiles` — the
 	// keys were always CLI names and core knows packs, not agents — which was itself
-	// renamed to `use_profiles` on 2026-09-02 (provider-catalog-and-selection.md §5.4:
+	// renamed to `use_profiles` on 2026-09-02 (docs/reference/providers.md — Profiles and options:
 	// `pack` named neither of the two things the key holds). `pack_profiles` is gone
 	// with no census entry at all: it never shipped in a release, so the old spelling is
 	// an ordinary unknown key (config.go's rule comment).

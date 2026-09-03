@@ -43,7 +43,7 @@ end)
 -- env: the provider environment claude's own process launches with. The variable NAMES
 -- are Claude Code's facts, not any provider's, so the binding lives HERE — in the agent
 -- pack, where a rename of what claude reads is one edit — rather than in a manifest
--- vocabulary every provider would restate (provider-catalog-and-selection.md §3.1,
+-- vocabulary every provider would restate (docs/reference/providers.md §3.1,
 -- OQ-CS8). The producer reads the composed table; a selected provider's api_key arrives
 -- hydrated for this invocation only, and never crosses in the wire table itself (D8).
 -- An input that is absent drops its variable: an empty base URL is a request to the

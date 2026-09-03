@@ -173,7 +173,7 @@ wrapper actually does, it covers one:
   `unset`, and the subshell isolation. Not a fallback — the only channel that can do these.
 * **Jail & Host Parity**: `yolo -- claude` and `yolo host -- claude` run the SAME producer — the
   agent pack's own `yolo.env` derive, through `packload.AgentEnv` at both notches
-  (provider-catalog-and-selection.md §3.1 / OQ-CS8; the twin ruling is provider-table-fidelity.md
+  (providers.md §3.1 / OQ-CS8; the twin ruling is providers.md
   OQ-PT9) — over the same resolved profile. "Same environment" is not a resemblance maintained by
   two implementations; it is one function with two callers (restated 2026-09-02, when the
   `env_shape` vocabulary that used to feed the jail notch was deleted).

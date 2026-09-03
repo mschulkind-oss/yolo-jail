@@ -225,7 +225,7 @@ func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 }
 
 // TestBedrockProfilePatchesItsOwnSettingsEnv ports the config-surface half of the payload
-// split (provider-catalog-and-selection.md §5.2, D8, OQ-4) onto the declaration that ships
+// split (docs/reference/providers.md, D8, OQ-4) onto the declaration that ships
 // it: the NON-SECRET half of a profile routes into the pack's own config file as well as
 // the process env, because the settings env block is honored before the first API call
 // while process env needs yolo in the launch path — a bare `claude`, cron, or an IDE's

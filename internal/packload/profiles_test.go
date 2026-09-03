@@ -1,7 +1,7 @@
 package packload
 
 // profiles_test.go pins ResolveProfiles' merge order and its two refusals. The merge
-// order is the one a reader of provider-catalog-and-selection.md §5.2 will assume —
+// order is the one a reader of docs/reference/providers.md will assume —
 // declared defaults UNDER the profile's own values — so each test asserts the ORDER,
 // not merely membership: the value that wins a colliding key is the assertion.
 

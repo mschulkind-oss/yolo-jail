@@ -9,7 +9,7 @@ package integration
 //
 // Launches are per-workspace on purpose: OQ-CS2 is a statement about a LAUNCH with no
 // active profile, and a second launch reusing a workspace would read yolo's capture of
-// in-jail edits rather than the rule (provider-catalog-and-selection.md §5.1).
+// in-jail edits rather than the rule (docs/reference/providers.md — Selection: write on activation, never on absence).
 
 import (
 	"regexp"
@@ -63,7 +63,7 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 		config := string(renderedSurface(t, dir, "codex", "config.toml"))
 
 		// z.ai speaks chat completions only and codex speaks responses only — no wire_api
-		// value bridges them (provider-table-fidelity.md §3.3, a fact about the world).
+		// value bridges them (docs/reference/providers.md — the codex/z.ai note, a fact about the world).
 		// The selection therefore writes NOTHING, not a model_provider naming a provider
 		// whose catalog row the same gate dropped: codex refuses that config at startup,
 		// which is a half-selection that kills the launch rather than a request.

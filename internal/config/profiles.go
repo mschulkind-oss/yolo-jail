@@ -1,7 +1,9 @@
 package config
 
+// The profiles/use_profiles config keys: docs/reference/providers.md
+
 // profiles.go implements the `profiles` config key: the USER-declared half of a profile
-// (provider-catalog-and-selection.md §5.2 — a profile is a named selection over a
+// (docs/reference/providers.md — Profiles and options: a profile is a named selection over a
 // provider, user intent over a surface the provider defines).
 //
 // SCOPE, and it is the same security model `packs` runs (packs.go's header carries the
