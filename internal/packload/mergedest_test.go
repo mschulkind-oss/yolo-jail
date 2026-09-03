@@ -46,6 +46,40 @@ func zeroCeremonyPack(t *testing.T, name string, skills, prose bool) *Pack {
 	return &Pack{Name: name, Root: root, Decl: &packdecl.Manifest{}}
 }
 
+// addressedPack writes a pack tree from a path→body map and takes an IN-MEMORY manifest: the
+// shape briefing-audiences.md §4.1 gives a content pack — source files at paths of its own
+// choosing, and contributions that name an AUDIENCE (`agents`) instead of a path.
+//
+// Deliberately NOT the conventional layout zeroCeremonyPack writes, and deliberately not routed
+// through LoadDir. The point of every fixture below is a pack whose content is somewhere only its
+// own `from` can find, which is precisely what the conventional-source probe cannot see.
+func addressedPack(t *testing.T, name string, files map[string]string,
+	contributes ...packdecl.Contribution) *Pack {
+	t.Helper()
+	root := t.TempDir()
+	for rel, body := range files {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return &Pack{Name: name, Root: root, Decl: &packdecl.Manifest{Contributes: contributes}}
+}
+
+// froms is the `from` of every contribution of one kind, positionally matching intos().
+func froms(cs []packdecl.Contribution, kind packdecl.Kind) []string {
+	var out []string
+	for _, c := range cs {
+		if c.Kind == kind {
+			out = append(out, c.From)
+		}
+	}
+	return out
+}
+
 // intos is the `into` of every contribution of one kind, for comparing against a want list.
 func intos(cs []packdecl.Contribution, kind packdecl.Kind) []string {
 	var out []string
@@ -222,6 +256,262 @@ func TestResolveDestinationsReportsAnUnmatchedAudience(t *testing.T) {
 		d.Orphaned[0] != want[0] {
 		t.Errorf("Orphaned = %v, want %v — a pack whose whole content reaches nothing must "+
 			"never be silent about it", d.Orphaned, want)
+	}
+}
+
+// AN ADDRESSED CONTRIBUTION NAMES ITS OWN SOURCE, AND THAT IS THE WHOLE POINT OF `from` +
+// `agents` (briefing-audiences.md §4.1 line 194: `{from: "prose/claude.md", agents: ["claude"]}`).
+//
+// Two production chokepoints have to give way for this shape to route at all, and each was
+// written for the ZERO-CEREMONY pack, which by construction has no `from`:
+//
+//   - the content probe asked only whether the pack holds content at the CONVENTIONAL location, so
+//     a pack whose only prose is `prose/claude.md` looked empty and `ResolveDestinations` skipped
+//     it BEFORE the orphan branch — nothing delivered and nothing reported;
+//   - the synthesized contribution left `from` EMPTY on purpose, which is right when the
+//     destination is borrowed and the content is conventional, and wrong here: the addressed
+//     contribution named its source, so blanking it delivers somebody else's file.
+//
+// The assertion that pins the second half is the resolved prose, not the field: `From` is only
+// evidence, and BriefingProseFor is what the host render actually calls per contribution
+// (ComposeHostBriefings) to decide what lands.
+func TestResolveDestinationsRoutesAnAddressedBriefingFrom(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	pi := agentPack(t, "pi", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".pi/agent/AGENTS.md", Agent: "pi"})
+	// No AGENTS.md at the root: the ONLY prose this pack has is the addressed one.
+	house := addressedPack(t, "house",
+		map[string]string{"prose/claude.md": "claude house rules\n"},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/claude.md",
+			Agents: []string{"claude"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, pi, house})
+	if len(d.Orphaned) != 0 {
+		t.Fatalf("Orphaned = %v — claude declared `agent: claude` and a destination, so this "+
+			"prose has somewhere to go", d.Orphaned)
+	}
+	if want := []string{".claude/CLAUDE.md"}; !sameStrings(
+		intos(d.Inferred, packdecl.KindBriefing), want) {
+		t.Fatalf("inferred briefing = %v, want %v — a contribution that names a source and an "+
+			"audience carries no conventional file, and must still route",
+			intos(d.Inferred, packdecl.KindBriefing), want)
+	}
+	text, prob := d.Pack.BriefingProseFor(d.Inferred[0])
+	if text != "claude house rules" {
+		t.Errorf("resolved prose = %q, want %q — the ADDRESSED source is what the destination "+
+			"receives; a synthesized `from` of \"\" delivers the convention instead", text,
+			"claude house rules")
+	}
+	if prob != "" {
+		t.Errorf("resolved prose problem = %q, want none", prob)
+	}
+}
+
+// The WRONG-CONTENT half on its own: the pack also happens to carry a conventional AGENTS.md, so
+// the inference succeeds either way and only the CONTENT tells the two apart. This is the case
+// that stays green when the routing is fixed and the synthesis is not.
+func TestResolveDestinationsAddressedBriefingBeatsTheConventionalFile(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	house := addressedPack(t, "house", map[string]string{
+		"AGENTS.md":       "everyone\n",
+		"prose/claude.md": "claude only\n",
+	}, packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/claude.md",
+		Agents: []string{"claude"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, house})
+	if len(d.Inferred) != 1 {
+		t.Fatalf("Inferred = %v, want one briefing destination", d.Inferred)
+	}
+	if got := d.Inferred[0].From; got != "prose/claude.md" {
+		t.Errorf("inferred from = %q, want %q — the destination is borrowed, but the SOURCE was "+
+			"declared and must survive the synthesis", got, "prose/claude.md")
+	}
+	text, _ := d.Pack.BriefingProseFor(d.Inferred[0])
+	if text != "claude only" {
+		t.Errorf("resolved prose = %q, want %q — a pack that happens to own an AGENTS.md must "+
+			"not have it substituted for the file its contribution named", text, "claude only")
+	}
+}
+
+// `skills` TAKES THE SAME FIELD AND THE PARALLEL IS EXACT (§4.1 line 195, OQ-BA4). Same two
+// chokepoints, same fix: the source probe must ask the contribution's `from` (SkillsSourceDir
+// already honors it) and the synthesis must carry it.
+func TestResolveDestinationsRoutesAnAddressedSkillsFrom(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindSkills,
+		From: "skills", Into: ".claude/skills", Agent: "claude"})
+	pi := agentPack(t, "pi", packdecl.Contribution{Kind: packdecl.KindSkills,
+		From: "skills", Into: ".pi/agent/skills", Agent: "pi"})
+	// No conventional `skills/` dir — only the addressed one.
+	house := addressedPack(t, "house",
+		map[string]string{"skills-claude/review/SKILL.md": "body\n"},
+		packdecl.Contribution{Kind: packdecl.KindSkills, From: "skills-claude",
+			Agents: []string{"claude"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, pi, house})
+	if len(d.Orphaned) != 0 {
+		t.Fatalf("Orphaned = %v — claude declared a skills destination and `agent: claude`",
+			d.Orphaned)
+	}
+	if want := []string{".claude/skills"}; !sameStrings(
+		intos(d.Inferred, packdecl.KindSkills), want) {
+		t.Fatalf("inferred skills = %v, want %v", intos(d.Inferred, packdecl.KindSkills), want)
+	}
+	dir, prob := d.Pack.SkillsSourceDir(d.Inferred[0])
+	if want := filepath.Join(house.Root, "skills-claude"); dir != want {
+		t.Errorf("resolved skills source = %q, want %q — the declared `from` is what "+
+			"hostskills.ComposeHostSkills reads per contribution", dir, want)
+	}
+	if prob != "" {
+		t.Errorf("resolved skills problem = %q, want none", prob)
+	}
+}
+
+// AN ADDRESSED CONTRIBUTION THAT MATCHES NOTHING IS REPORTED, NOT SILENT (risk R1) — even when
+// the pack has no conventional file at all.
+//
+// This is the silent-skip defect at its sharpest: the content probe ran BEFORE the orphan branch,
+// so a pack whose only content is addressed died at the probe and never reached the report. Both
+// kinds, because both took the same skip.
+func TestResolveDestinationsReportsAnAddressedSourceNothingCanDeliver(t *testing.T) {
+	claude := agentPack(t, "claude",
+		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md",
+			Agent: "claude"},
+		packdecl.Contribution{Kind: packdecl.KindSkills, From: "skills",
+			Into: ".claude/skills", Agent: "claude"})
+	house := addressedPack(t, "house", map[string]string{
+		"prose/codex.md":               "codex only\n",
+		"skills-codex/review/SKILL.md": "body\n",
+	},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/codex.md",
+			Agents: []string{"codex"}},
+		packdecl.Contribution{Kind: packdecl.KindSkills, From: "skills-codex",
+			Agents: []string{"codex"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, house})
+	if len(d.Inferred) != 0 {
+		t.Errorf("Inferred = %v for content addressed to an agent this set does not have",
+			d.Inferred)
+	}
+	got := map[packdecl.Kind]int{}
+	for _, k := range d.Orphaned {
+		got[k]++
+	}
+	for _, want := range []packdecl.Kind{packdecl.KindBriefing, packdecl.KindSkills} {
+		if got[want] != 1 {
+			t.Errorf("Orphaned = %v, want %q exactly once — a pack whose whole content reaches "+
+				"nothing must never go inert quietly, and must not be reported twice for one kind",
+				d.Orphaned, want)
+		}
+	}
+}
+
+// EACH ADDRESSED CONTRIBUTION IS RESOLVED ON ITS OWN — the multi-entry shape §4.1 shows, where one
+// pack briefs claude from one file and pi from another. A union over the kind's audiences cannot
+// express it: it yields both destinations with one source, so whichever file the union picked
+// would reach both agents. The pairing is the assertion.
+func TestResolveDestinationsPairsEachAddressedSourceWithItsOwnAudience(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	pi := agentPack(t, "pi", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".pi/agent/AGENTS.md", Agent: "pi"})
+	house := addressedPack(t, "house", map[string]string{
+		"prose/claude.md": "for claude\n",
+		"prose/pi.md":     "for pi\n",
+	},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/claude.md",
+			Agents: []string{"claude"}},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/pi.md",
+			Agents: []string{"pi"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, pi, house})
+	if want := []string{".claude/CLAUDE.md", ".pi/agent/AGENTS.md"}; !sameStrings(
+		intos(d.Inferred, packdecl.KindBriefing), want) {
+		t.Fatalf("inferred briefing = %v, want %v", intos(d.Inferred, packdecl.KindBriefing), want)
+	}
+	if want := []string{"prose/claude.md", "prose/pi.md"}; !sameStrings(
+		froms(d.Inferred, packdecl.KindBriefing), want) {
+		t.Fatalf("inferred from = %v, want %v — each destination gets the source addressed to IT",
+			froms(d.Inferred, packdecl.KindBriefing), want)
+	}
+	for i, want := range []string{"for claude", "for pi"} {
+		if text, _ := d.Pack.BriefingProseFor(d.Inferred[i]); text != want {
+			t.Errorf("prose at %s = %q, want %q", d.Inferred[i].Into, text, want)
+		}
+	}
+}
+
+// SILENCE IS PER CONTRIBUTION: an addressed contribution is routed even when the pack ALSO
+// declares an `into` for the same kind. A whole-kind "did this pack name a destination?" gate
+// answers yes here and drops the addressed entry without a word — the same delivery-to-nowhere
+// the `Into != ""` tightening exists to prevent, reached from the other side. The declared
+// contribution is still honored EXACTLY: not rerouted, not duplicated, not widened.
+func TestResolveDestinationsRoutesAnAddressedContributionBesideADeclaredOne(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	pi := agentPack(t, "pi", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".pi/agent/AGENTS.md", Agent: "pi"})
+	house := addressedPack(t, "house", map[string]string{
+		"prose/house.md":  "house wide\n",
+		"prose/claude.md": "claude only\n",
+	},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/house.md",
+			Into: ".house/AGENTS.md"},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/claude.md",
+			Agents: []string{"claude"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, pi, house})
+	if want := []string{".claude/CLAUDE.md"}; !sameStrings(
+		intos(d.Inferred, packdecl.KindBriefing), want) {
+		t.Fatalf("inferred briefing = %v, want %v — a declared `into` elsewhere in the manifest "+
+			"must not silence the addressed entry beside it",
+			intos(d.Inferred, packdecl.KindBriefing), want)
+	}
+	if got := intos(d.Pack.Decl.Contributions(), packdecl.KindBriefing); !sameStrings(got,
+		[]string{".house/AGENTS.md", "", ".claude/CLAUDE.md"}) {
+		t.Errorf("resolved contributions = %v, want the two declared ones untouched plus one "+
+			"inferred destination", got)
+	}
+}
+
+// THE ZERO-CEREMONY PATH IS UNCHANGED, and it is the case the empty `from` was right about: a pack
+// with no manifest borrows the DESTINATION and never the content. The declaring pack here names a
+// `from` of its own on BOTH kinds — the mutation that would copy it is invisible against the
+// shipped `from: "skills"`, which is the conventional value the borrower resolves to anyway.
+func TestResolveDestinationsZeroCeremonyBorrowsTheDestinationAndNotTheSource(t *testing.T) {
+	claude := agentPack(t, "claude",
+		packdecl.Contribution{Kind: packdecl.KindSkills, From: "vendor/skills",
+			Into: ".claude/skills", Agent: "claude"},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "vendor/prose.md",
+			Into: ".claude/CLAUDE.md", Agent: "claude"})
+	zc := zeroCeremonyPack(t, "zc", true, true)
+
+	d := zc.ResolveDestinations([]*Pack{claude, zc})
+	if len(d.Inferred) != 2 {
+		t.Fatalf("Inferred = %v, want one skills and one briefing destination", d.Inferred)
+	}
+	for _, c := range d.Inferred {
+		if c.From != "" {
+			t.Errorf("inferred %s from = %q, want empty — a pack with no manifest named no source, "+
+				"and the declaring pack's `from` is about ITS tree", string(c.Kind), c.From)
+		}
+	}
+	// And the empty `from` still resolves to this pack's OWN conventional content, which is the
+	// property the emptiness exists for.
+	for _, c := range d.Inferred {
+		switch c.Kind {
+		case packdecl.KindSkills:
+			dir, prob := d.Pack.SkillsSourceDir(c)
+			if want := filepath.Join(zc.Root, "skills"); dir != want || prob != "" {
+				t.Errorf("zero-ceremony skills source = %q (problem %q), want %q", dir, prob, want)
+			}
+		case packdecl.KindBriefing:
+			text, prob := d.Pack.BriefingProseFor(c)
+			if text != "# prose" || prob != "" {
+				t.Errorf("zero-ceremony prose = %q (problem %q), want %q", text, prob, "# prose")
+			}
+		}
 	}
 }
 
