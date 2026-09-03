@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 12 needing you · 6 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 5 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-03** (host-apply staleness designed and landed in 📦 with zero open
 questions after four same-day restatements; the temp-dir leak it surfaced added beside it. Every
@@ -611,21 +611,31 @@ requirement on the jail's pack set — and therefore whether addressed content p
 
 # 📦 Up next
 
-**Six items.** **C4 and C5 are
+**Five items.** **C4 and C5 are
 deliberately NOT here**: their go/no-go moved to 🧊 as an explicit row — the shape is ruled, the
 measurement is taken, and queueing them before you call it would be queueing a question.
+
+**Three more shipped on 2026-09-03** and left under the rule at the top of this file: the
+`packload.Embedded()` temp-dir leak (`afd48ffc` — and the mechanism was *package init*, not the
+subcommands: `hostFileWritableRoots` at `internal/config/hostfiles.go:1069` is a package-level var
+reaching `Embedded()` before argv is parsed, so **`yolo --version` leaked too**; measured at zero
+across four commands afterwards), the launcher-template splices (`41b60475` — 18 splice sites
+audited, 11 were raw, and 17 of the 18 quoting calls are individually mutation-pinned), and the
+orphan message (`bc22862e` — which needed a new `packload.Orphan{Kind, Agents}` type, because
+`Orphaned []Kind` could not express *which* cause and the kind is the one thing both causes share).
+Those three closed the "Small repairs" row entirely; what the shquote pass found on its way out is
+the new top row above.
 
 **Nine of this section's items shipped on 2026-09-02 and left under the rule at the top of this
 file** — the warning channel, three of the four small repairs, the tar-eviction race, the `$GOBIN`
 catalog walk, program-delivery §10 step 1, and briefing-audiences steps 1–2. What is below is what
 survived that pass, restated against the tree rather than against the queue it used to be.
 
-**Ordering basis:** what unblocks the most other work first, then what is cheapest. The host-launch
-gate is first because its design closed with zero open questions and its step 1 improves a shipping
-command on its own; the temp-dir leak follows because it is a live bug measured today and nearly
-free to fix; the one remaining
-small repair follows because it is also nearly free and closes a shell-injection surface; the disk
-and program-delivery rows come after; briefing-audiences is last only because it is the largest.
+**Ordering basis:** what unblocks the most other work first, then what is cheapest. The `ShimContent`
+injection is first because it is a demonstrated shell injection and the fix is small; the host-launch
+gate follows because its design closed with zero open questions and its step 1 improves a shipping
+command on its own; the disk and program-delivery rows come after; briefing-audiences is last only
+because it is the largest.
 
 - 📦 **The host launch should re-render, gated exactly the way a jail launch is.** 📄
   [`host-apply-staleness.md`](../design/host-apply-staleness.md) — **DECIDED**, eleven rulings, zero
@@ -658,44 +668,25 @@ and program-delivery rows come after; briefing-audiences is last only because it
   the wrapper exec path — never `yolo run`, never `yolo host apply`, both of which take the flag —
   so one `.bashrc` line cannot pre-approve every jail launch on the machine.
 
-- 📦 **`packload.Embedded()` leaks a temp dir on every call, and nothing ever removes them.**
-  `os.MkdirTemp` + a full copy of the embedded pack tree at `internal/packload/embedded.go:55`, with
-  a second prefix at `internal/cli/surfaces.go:44`, and no cleanup on either. Found while measuring
-  💬 21 ([`host-apply-staleness.md`](../design/host-apply-staleness.md) §6); a **standalone
-  pre-existing bug**, and *not* a prerequisite for that work — the first draft made it one because a
-  per-command render would have leaked on every `yolo` invocation, and the collapsed design renders
-  once per agent launch.
+- 📦 **`ShimContent` splices agent-editable text raw into a `/bin/sh` script — injection CONFIRMED
+  by demonstration 2026-09-03.** `internal/entrypoint/shims.go:136,147,162` embed `msg`/`sug`
+  verbatim inside `echo "…"`, declared at `:117-118` as *"no shell escaping (the frozen contract)"*.
+  Those values arrive from `YOLO_BLOCK_CONFIG`, whose workspace half the code itself calls
+  **agent-editable** (`:74-78`, in the comment guarding the sibling `name` field).
 
-  **Measured 2026-09-03 in this jail:** 592 `/tmp/yolo-embedded-*` + 11 `yolo-embedded-packs-*` + 22
-  `yolo-cli-packs-*` = **625 directories, 109 MB**. Confirmed as exactly one per invocation by
-  direct test — `yolo pack ls` took the count from 626 to 627 — and about sixty of those were minted
-  by the twenty benchmark runs that produced 💬 21's timing table. Every `yolo pack ls`, `config ls`,
-  `host apply` and `describe` on every machine has been doing this for the life of the feature.
+  **Demonstrated, not inferred.** A `message` of `oops"; touch <path>; echo "done` emits
+  `echo "oops"; touch <path>; echo "done" >&2`, and the `touch` ran.
 
-  Needs no ruling. The regression test is a loop asserting the `/tmp` count is flat across N
-  invocations.
+  ⚠ **Severity is lower than that sounds, and the reason matters for how it gets fixed.** In-jail
+  (`boot.go:437`) the privilege gain is **nil** — an agent that can edit the workspace config
+  already has a shell in that jail. `yolo check`'s probe (`check/entrypoint.go:70`) generates into a
+  temp dir and never executes it. **The one context that leaves a container is `darwin.go:50`**, the
+  macos-user backend, which writes these shims into the `_yolojail` *host* account's home to be run
+  as that account. That is the case worth fixing for, not the trust delta.
 
-- 📦 **Small repairs — what is left of the five.** Three shipped 2026-09-02 (port gate `4877bf93`,
-  dead PATH write `e2263c4a`, npm selector shape `3b5bfcea`) and a fourth turned out to be already
-  built (`supersedes` in `footprint`, see below). **Two remain, both needing no ruling:**
-  - **`shquote` the launcher-template splices** — *the one carried over, and the only one with a
-    security surface:* `__YOLO_URL__` lands raw on a `curl` argv
-    (`shims.go:817`) and `__YOLO_PKG__`/`__YOLO_SPEC__` raw inside double quotes (`:579-580`),
-    beside receipt fields that are correctly quoted — and one generator quotes `STAMP_DIR` while
-    two splice it raw. Post-approval surface, so no ruling; wants its own careful pass because
-    tests pin template fragments.
-  - **The orphan message names the wrong cause for an unmatched audience** *(new 2026-09-02, found
-    while building briefing-audiences)*. `internal/cli/apply.go:597-608` says *"no pack in `packs`
-    names a %s destination"* — true for a zero-ceremony orphan, misleading now that a contribution
-    can be orphaned because a destination **exists** and nobody owns the agent name it addressed.
-    Wants a second phrasing keyed on whether the orphaned contribution carried `agents`.
-  - ~~**npm selector shape check**~~ — **shipped** `3b5bfcea`: refuses whitespace, quotes, control
-    chars and `@@`, accepts `@scope/name@1.2.3` / `name@latest` / `name@^1.0.0`.
-  - ~~**`yolo pack footprint` prints `supersedes`**~~ — **not work at all: already shipped**
-    (`d776c902`, 2026-08-15). This bullet existed because the audit grepped `internal/cli/pack.go`
-    for *supersede* and found nothing, while the claim reaches the output through
-    `packload.FootprintOf` and a renderer that formats `string(c.Kind)` generically. Closed
-    2026-09-02 with a surface test instead of a feature.
+  One thing to settle when building it: the docstring calls the raw splice a *frozen contract* and
+  `shims_behavior_test.go` pins the emitted grammar. Quoting the values should not disturb that
+  grammar — if it turns out it does, the contract needs a ruling rather than a workaround.
 
 - 📦 **Minimal disk footprint — OQ-5's ruling, which is broader than the tars.** 📄
   [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md). The ruling is *"bug, for sure …
