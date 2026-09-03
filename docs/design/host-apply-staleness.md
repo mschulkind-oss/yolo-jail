@@ -1,30 +1,33 @@
-# The host launch should re-render, the way a jail launch does
+# The host launch should re-render — gated exactly the way a jail launch is
 
-**Status:** DESIGN, 2026-09-03, **third restatement the same day** — the second one argued for
-staleness *detection* and was wrong about why (§3.2 ⚠ Retracted). Nothing built. Six rulings taken;
-two questions open.
+**Status:** DESIGN, 2026-09-03, **fourth restatement the same day.** Nothing built. Nine rulings
+taken; one question open (OQ-HS9). Two arguments retracted in place, at §1 and §3.2 — both are kept
+rather than deleted because each is cheap to re-derive and expensive to re-argue.
 
 **The short version.** `yolo host apply` renders pack surfaces into your real `$HOME` and then never
-looks again, so the rendered state and the would-be-rendered state drift apart silently. Two drafts
-of this doc tried to *detect* that drift — first on every `yolo` command, then at the launch — and
-both were solving a problem that does not need to exist. **The host launch should simply re-render,
-exactly as every jail launch already does.** Once the user has run `host apply`, wholesale
-regeneration is policy, not risk — the repo ruled that on 2026-08-02 and `confirmHostLosses`
-implements it. Re-rendering makes staleness *unrepresentable* instead of detectable, and deletes the
-detection machinery, the change predicate, the prompt, and the notice along with it.
+looks again, so the rendered and would-be-rendered states drift apart silently. Every generated
+wrapper already execs `yolo host -- <bin>`, and that is the only moment the content matters — agents
+read config at startup and do not reload. So the host launch should behave like a jail launch:
+**opt in with a user-level key, prompt-and-block on a TTY when a re-apply would change something,
+refuse off a TTY unless the approval flag was given.** Consent stays per-launch; the key enables the
+mechanism, never the approval.
 
-**The most important section is §3.2.** It is where the previous draft's central argument is
-retracted, and the retraction is the whole reason this design is small.
+**The most important section is §4.3.** It holds the TTY/non-TTY table and the one genuinely new
+problem: the approval flag **cannot reach a generated wrapper**, because the wrapper hands everything
+after `--` to the agent. The resolution is that the flag lives on the explicit apply and the launch
+becomes a tripwire that names it.
 
 **Reads with:** [`host-render-target.md`](host-render-target.md) (what a host render is and what the
-`KindHost` notch refuses), [`config-safety.md`](config-safety.md) (the jail's launch-time config
-approval, which is a different mechanism than this).
+`KindHost` notch refuses), [`config-safety.md`](config-safety.md) (the jail's launch-time approval,
+whose mechanism this mirrors and whose flag ruling it inherits).
 
 ---
 
 ## 1. Verdict, and the principles it rests on
 
-Re-render at the host launch chokepoint. No detection, no predicate, no prompt, no stored state.
+**Re-render at the host launch, and make it behave exactly like a jail launch.** Opt in with a
+user-level config key; on a TTY a needed change prompts and blocks; off a TTY it refuses unless the
+approval flag was passed. No per-command checking, no fingerprint, no standalone notice.
 
 **P1. The launch is the only moment that matters.** Agents read their config at startup and do not
 reload it mid-run. A host render that is stale while nothing reads it is not a problem; the same
@@ -32,17 +35,40 @@ render stale at the instant an agent starts is the whole problem. That is why pe
 was deleted from the first draft, and the reasoning survives into this one intact.
 
 **P2. Consent, not disposability, is what licenses a write.** The operative question is never "is
-this home precious" — it is "did the user opt in." `host apply` is the opt-in, and a generated
-wrapper's existence is proof it happened. §3.2.
+this home precious" — it is "did the user opt in." §3.2 is where the disposability argument is
+retracted.
 
-**P3. Make the bad state unrepresentable rather than detectable.** A drift you cannot get into needs
-no detector, no predicate, no diff renderer, and no prompt. Every line of the previous draft's
-mechanism existed to observe a condition this design removes.
+**P3. Measure the home, do not model its inputs.** Every fingerprint alternative — mtime+size,
+content hashes, an input closure — is a *model* of "would a re-apply change anything," and each
+carries a false-positive rate plus a state file to keep. An observe render answers the question
+directly for 11.4 ms (§5). This is the one principle that survived all four drafts unchanged.
 
-**P4. A wrapper must never be the reason an agent fails to start.** It is on `PATH` under a name the
-user did not choose. Every failure path — a bad manifest, an unwritable home, a fail-closed
-confirmation with no TTY — ends in *exec the program anyway*. See §4.3, which is the one place this
-design adds a genuinely new failure mode.
+> [!NOTE]
+> An earlier draft carried a P3 reading *"make the bad state unrepresentable rather than
+> detectable"*, on the strength of a silent always-re-render. Under §4.3's gate drift **is** still
+> representable — the key can be off, a prompt can be declined, a non-TTY launch can refuse — so the
+> design detects it and says so. Unrepresentability was a property of the design that got retracted,
+> not a goal of this one.
+
+**P4. Consent is per-launch, never standing.** The approval is a **flag**, never an env var and
+never a config key — `internal/config/snapshot.go:67-81` rules this for the jail and the reasoning
+transfers whole: *"An env var is inherited by every child process and survives in a shell for the
+rest of a session — precisely the property a per-launch approval must not have."* The opt-in key
+(§4.2) enables the **mechanism**; it does not pre-grant the **approval**.
+
+> [!WARNING]
+> **⚠ Retracted (2026-09-03): "the opt-in key is standing consent."** An earlier turn of this design
+> proposed treating the config key as a blanket pre-authorization, so a launch would never prompt
+> and never refuse. That is precisely what `snapshot.go:67-81` refuses, and for the reason quoted
+> above. The tempting variant is equally out: having the wrapper generator bake
+> `--accept-config-changes` into the wrapper body when a key says so is standing consent written to
+> a file. Do not.
+
+**P5. A refusal must be actionable at the surface the user typed.** This design's refusals reach
+someone who typed `claude`, not `yolo` — so an unexplained failure reads as "claude is broken."
+Every refusal names the two commands that fix it (§4.3). This replaces an earlier P4 that said a
+wrapper must never be the reason an agent fails to start; that is **overruled** — the jail refuses
+in the same situation, and consistency with `yolo run` beats a special case here.
 
 ---
 
@@ -83,7 +109,7 @@ wrapper path is agent launches** — a human starting a session, not a hot loop.
 Whether the wrapper dir is on `PATH` is opt-in (`config.HostWrappersEnabled`,
 `internal/config/hostwrappers.go:33`) and observed by `sectionHostWrappers`
 (`internal/cli/check/section_hostwrappers.go`), which WARNs when the feature is on but the dir is
-not on `PATH`. That is this design's coverage boundary, inherited whole — §7.2.
+not on `PATH`. That is this design's coverage boundary, inherited whole — §7.1.
 
 ### 2.3 What does not exist
 
@@ -94,8 +120,9 @@ it is written. And no receipt records what the render was computed from: the thr
 explicit that this is *"deliberately WEAK evidence"* which *"can go stale in ordinary use"*, and so
 authorizes archiving rather than deletion.
 
-Both facts stop mattering under this design — they were inputs to a detector, and there is no
-detector. They are kept here because the next person to propose a fingerprint will want them.
+Neither fact licenses a fingerprint: this design measures the home directly rather than modelling
+its inputs (§1 P3). They are recorded because the next person to propose one will reach for exactly
+these, and because OQ-HS9's option (a) would add a host approval snapshot alongside them.
 
 ---
 
@@ -156,23 +183,55 @@ same operation the user already authorized.
 > `confirmHostLosses` existing at all makes it feel confirmed. The check that settles it is four
 > lines of gate, and reading them is faster than re-arguing this.
 
-### 3.3 What this deletes
+### 3.3 What `FirstApply` means, and why idempotency does not make it moot
 
-The previous draft's central claim — that `Action` is `"would render"` unconditionally, so a
-byte-for-byte correct surface and one needing a whole new key are indistinguishable, and therefore
-a **change predicate** must be built — was *correct as a description of the observe pass* and is
-now **irrelevant to this feature**. If the launch always renders, nothing needs to ask whether a
-render would change anything.
+`firstApply := !hostProvenanceExists(e, s)` (`internal/entrypoint/hostrender.go:225`) — the
+**absence of a provenance record** at `<home>/.local/share/yolo-jail/host-provenance/<agent>-<name>.provenance`
+(`internal/render/target.go:292`, leaf const at `:223`). It is **per surface**, not per home.
 
-The predicate survives only as optional polish: `yolo host apply --dry-run` currently prints five
-identical-looking `would render` lines, and *"3 in sync, 2 would change"* would be better. That is a
-nice-to-have on an existing command (§6), not a prerequisite for anything.
+So **"first" is epistemic, not temporal**, and that is why idempotency does not dissolve it:
 
-Also deleted: the per-command eligibility apparatus (a deny-set for machine-consumed stdout, the
-`--help` side-effect hazard, the `eval "$(yolo host env)"` trap), the diff renderer, the prompt, the
-notice, and the user-level enable key that was going to gate the notice. **OQ-HS2's ruling — a key,
-default off, advertised in `yolo check` — is superseded**, because there is no notice to enable; what
-remains is the different question of whether *re-rendering itself* is opt-in (OQ-HS8).
+| | Question it answers | Settled by |
+|---|---|---|
+| Idempotency | does a second render write the same **content**? | the bytes |
+| `FirstApply` | does yolo know which keys in this file are **its own**? | the record |
+
+Before any apply, every key in `~/.claude/settings.json` is the user's, so replacing one is data
+loss. After one apply, provenance says which keys yolo owns, so replacing those is policy
+(`hostrender.go:98-102`). A byte-identical second render does not help answer *"was this value mine
+or theirs?"* — nothing in the content carries that, which is the whole reason a separate record
+exists.
+
+> [!NOTE]
+> **`FirstApply` can become true again**, so "first" really means "no record right now." Prune or
+> delete the state dir, or share one config across two machines, and the record is gone and the
+> confirmation returns. That is the same *"deliberately WEAK evidence"* property
+> `internal/hostskills/manifest.go:13-17` documents for the manifests — a record that can go stale
+> in ordinary use, which is why it authorizes a reversible act rather than a destructive one.
+
+### 3.4 What the retraction deleted, and what came back
+
+Deleted by §3.2: the per-command eligibility apparatus (a deny-set for machine-consumed stdout, the
+`--help` side-effect hazard, the `eval "$(yolo host env)"` trap), the standalone staleness notice,
+and the idea that a fingerprint of any kind is needed.
+
+**Not deleted — resurrected by the ruling in §4.3: the change predicate.** An earlier turn of this
+design said the predicate was gone, on the strength of "always re-render, never ask." The moment the
+launch *prompts when a change is needed*, something must decide **whether** a change is needed and
+**what to show** — and that is exactly the predicate. See OQ-HS9, which is where the two candidate
+answers live.
+
+The predicate itself: `Action` is `"would render"` unconditionally for any surface not skipped or
+refused, and `Overwrites` is documented *"empty when the render only adds keys or re-asserts
+identical values"* — so a byte-for-byte correct surface and one needing a whole new key are
+indistinguishable today. **The change predicate** *(coined here)* is the per-destination answer to
+*"would `--assert` write bytes that differ from what is on disk right now?"*, computed by comparing
+rendered result against current content rather than by inspecting which report fields are populated.
+
+Two carve-outs, which belong in the field's own doc comment or a future reader will "fix" them:
+`Formatting` losses alone do not count (a comment-only TOML re-emit would prompt forever on a config
+the user is happy with), and `Pruned` does not count (a `${workspace}`-keyed key with no host
+referent is dropped on every render by design).
 
 ---
 
@@ -180,86 +239,112 @@ remains is the different question of whether *re-rendering itself* is opt-in (OQ
 
 ### 4.1 The whole design
 
-**At `yolo host -- <bin>`, run the host apply, then exec.** `yolo host apply` and `yolo apply` are
-excluded — the user is already applying.
+**At `yolo host -- <bin>`, behave like a jail launch, then exec.** `yolo host apply` and `yolo apply`
+are excluded — the user is already applying.
 
 ```mermaid
 flowchart TD
-    A["yolo host -- claude"] --> B{re-render enabled?}
+    A["yolo host -- claude"] --> B{opt-in key set?}
     B -->|no| X[exec, unchanged]
-    B -->|yes| C[host apply, all four kinds]
-    C --> D{TTY?}
-    D -->|no| E[skip any confirmation;<br/>apply what needs no consent]
-    D -->|yes| F[first-apply confirmations<br/>as they work today]
-    E --> X2[exec]
-    F --> X2
+    B -->|yes| C{would a re-apply<br/>change anything?}
+    C -->|no| X
+    C -->|yes| D{TTY?}
+    D -->|yes| E[show diff, prompt]
+    D -->|no| F{approval flag<br/>reachable?}
+    E -->|accept| G[apply, then exec]
+    E -->|decline| H[abort — mirrors the jail]
+    F -->|no| I["refuse, naming the two<br/>commands that fix it"]
 ```
 
-**Zero stored state.** No fingerprint, no baseline, no timestamp, no sentinel — there is nothing to
-compare, because nothing is being detected.
+**Zero stored state** on the render side: nothing is fingerprinted, because the predicate measures
+the home directly. Whether an *approval snapshot* is kept — the jail's `approvals/<name>.json` shape
+— is OQ-HS9's second half.
 
-### 4.2 Trigger, precisely
+### 4.2 The opt-in key
 
-Every invocation of a generated wrapper, before the exec. Not on a timer, not once per session, not
-on any other `yolo` command.
+A host-only boolean in the user config, **default off**, mirroring `host_wrappers` in shape and read
+through a sibling of `config.HostWrappersEnabled` (`internal/config/hostwrappers.go:33`). `yolo
+check` prints a line when the feature is available and off, naming where to learn to turn it on.
 
-### 4.3 The one new failure mode, and it is the important part of this doc
+> [!IMPORTANT]
+> **The key enables the mechanism; it does not grant the approval** (P4). A launch under an enabled
+> key still prompts on a TTY and still refuses without one. A key that pre-approved would be
+> standing consent, which §1's retraction forbids.
 
-`confirmHostLosses` ends in `promptYesNo` (`internal/cli/pack.go:1281`), documented fail-closed: a
-nil or EOF stdin reads as **NO**, and a NO aborts the apply. On the explicit `apply` path that is
-right — *"a CI or scripted `yolo host apply --assert` aborts rather than silently destroying a
-server because no human was present"* (`apply.go:504-506`).
+### 4.3 TTY, non-TTY, and the flag that cannot reach a wrapper
 
-Move the apply onto the launch path and the same rule produces a new outcome: **add a pack, then let
-CI launch a wrapped agent, and the launch fails.** The new pack's surface is `FirstApply` with
-`EntryLosses`, there is no TTY, fail-closed returns NO, and the apply aborts. A wrapper that refuses
-to start the program because a config confirmation could not be asked violates P4 outright.
+Mirroring `config.CheckConfigChanges` (`internal/config/snapshot.go:177`) exactly:
 
-**The resolution, per P4: on a non-TTY launch, skip the confirmation-requiring part of the apply and
-exec anyway.** Fail-closed stays exactly as it is for the explicit `apply` path, where a human is
-the expected caller. The drift persists until someone applies interactively — which is strictly
-better than a broken launch, and is the same posture §4.4 takes for every other error.
+| Situation | Behavior |
+|---|---|
+| Nothing would change | Silent; exec. |
+| TTY, change needed | Show the diff, prompt. Accept → apply, exec. Decline → **abort**, as the jail does (`internal/cli/run/preflight.go:298`, *"Config changes rejected. Exiting."*). |
+| No TTY, change needed, no approval | **Refuse.** Do not apply, do not exec. |
+| No TTY, change needed, approval given | Apply, exec. |
 
-What that leaves undecided is *how much* of the apply proceeds when a confirmation is skipped —
-everything that needs no consent, or nothing at all. That is OQ-HS7.
+**The mechanical problem, and it is the reason this section exists.** The wrapper body is fixed —
+`exec yolo host -- claude "$@"` (`internal/hostwrap/hostwrap.go:41`) — and `hostMain`
+(`internal/cli/host.go:84`) splits on the first `--`, handing everything after it to the program. A
+user typing `claude --print foo` therefore has **no slot for a yolo-level flag**. There is a pre-`--`
+slot (`hostExecFlags` carries `profile` today) but the generator emits nothing into it and the user
+cannot reach it.
+
+**So the approval flag does not live on the launch. It lives on the explicit apply:**
+
+```console
+$ yolo host apply --assert --accept-config-changes   # the approval, where a flag can be passed
+$ claude --print …                                    # now in sync: no prompt, no refusal
+```
+
+That makes the launch a **tripwire** for non-interactive callers — "your host home is out of sync,
+apply first" — which is the same two-step shape a scripted `yolo run` already needs. Per P5 the
+refusal must name both commands; the precedent is `snapshot.go`, which composes its refusal in the
+package owning the flag constant *"so the flag a user is told to pass and the flag the parser
+accepts cannot drift apart."*
+
+> [!WARNING]
+> **Do not solve this by baking the flag into the wrapper body** when a config key says so. It is
+> the obvious fix and it is standing consent written to a file — see §1's retraction.
 
 ### 4.4 Other failure paths
 
-**The check may never be the reason an agent fails to start** (P4). A malformed pack manifest, an
-unreadable home, an unresolvable `file://` pack, a permission error, a partially-completed write —
-all end in *exec*, with at most one line to stderr.
+Distinguish two classes, because they end differently:
 
-**A budget, and abandonment.** The apply must not hang a launch on a cold or network-mounted `$HOME`.
-Default budget **1 s** — deliberately looser than the previous draft's 250 ms, because this path now
-writes rather than only observing — after which it abandons and execs. A stuck-detector, not a
-tuning knob.
+- **Cannot determine** — a malformed pack manifest, an unreadable home, an unresolvable `file://`
+  pack, a budget overrun. The predicate has no answer, so there is no change to refuse over: **exec**,
+  with at most one line to stderr. Per `internal/version/srcskew.go`'s house rule, a gate that cannot
+  prove its condition does not fire.
+- **Determined, and a change is needed** — §4.3's table. This is the only path that can stop a
+  launch, and it stops it *with a remedy*.
 
-**Partial application is possible and acceptable.** An abandoned or failed apply can leave some
-surfaces rendered and others not. That is already true of an interrupted `yolo host apply`, the
-render is idempotent (§2.1), and the next launch converges. It must not, however, leave a *single
-file* half-written — that is the renderer's existing atomicity concern, unchanged by this.
+**A budget.** The predicate must not hang a launch on a cold or network-mounted `$HOME`. Default
+**1 s**, then treat as cannot-determine and exec. A stuck-detector, not a tuning knob.
+
+**Partial application** after an accepted prompt is possible if the apply fails midway. Already true
+of an interrupted `yolo host apply`; the render is idempotent (§2.1) and the next launch converges.
+It must not leave a *single file* half-written — the renderer's existing atomicity concern, unchanged.
 
 ### 4.5 Degenerate inputs
 
 | Case | Behavior |
 |---|---|
-| Re-render disabled | Exec, unchanged. |
+| Key off | Exec, unchanged. The default. |
 | No packs configured | Nothing to render; exec. |
 | A `fetched` pack not yet installed | Skipped — `packForCheckDeps` returns nil, and it is `yolo check`'s problem. |
-| A local `file://` pack whose dir is unreachable | That pack contributes nothing this launch; the rest render. Real: two of this user's ten packs are unreachable from inside a jail. |
+| A local `file://` pack whose dir is unreachable | Cannot-determine for that pack (§4.4). Real: two of this user's ten packs are unreachable from inside a jail. |
 | Home not resolvable | Exec. |
-| Never applied to this home at all | Every surface is `FirstApply`. On a TTY, today's confirmations apply. Off a TTY, §4.3. Note the wrapper's existence implies a prior `host apply`, so a *wholly* unapplied home reaching this path is already unusual. |
-| A new pack added since the last apply | Its surfaces are `FirstApply` in an otherwise-managed home. This is the case §4.3 is about. |
+| Never applied to this home at all | Every surface is `FirstApply`; a TTY gets today's confirmations, a non-TTY refuses. Note the wrapper's existence implies a prior `host apply`, so a wholly unapplied home reaching this path is unusual. |
+| A new pack added since the last apply | Its surfaces are `FirstApply` in an otherwise-managed home — the case §4.3's non-TTY row is really about. |
 
 ### 4.6 Concurrency
 
-Two wrapped agents launched at once would both apply. The render is idempotent, so the outcome
-converges — but two concurrent writers to one file is not something idempotence alone makes safe.
-`applyHost` has no lock today because its caller was always a human running one command.
-**One writer must be named:** serialize host applies on a lockfile keyed by the resolved home, and
-let a launch that cannot take the lock skip the apply and exec (P4). The natural home is beside the
-existing per-workspace lock convention (`internal/cli/run/run.go` takes
-`locks/<container-name>.lock`).
+Two wrapped agents launched at once would both apply. The render is idempotent, so content
+converges — but idempotence alone does not make two concurrent writers to one file safe.
+`applyHost` has no lock today because its caller was always a human running one command. **One writer
+must be named:** serialize host applies on a lockfile keyed by the resolved home, and let a launch
+that cannot take the lock treat it as cannot-determine and exec (§4.4). The natural spelling is
+beside the existing per-workspace lock convention (`internal/cli/run/run.go:572` takes
+`locks/<container-name>.lock` under `paths.GlobalStorage()`).
 
 ---
 
@@ -274,27 +359,24 @@ Measured 2026-09-03, in this jail, 20 runs each, warm page cache, against `/bin/
 | `yolo config drift` | 3.43 | 3.77 | 4.22 ms |
 | `yolo host apply --dry-run` | 10.04 | **11.43** | 11.95 ms |
 
-**11.4 ms is the observe cost, once per agent launch.** An `--assert` is somewhat more, since it
-writes — unmeasured, because writing into this jail's own live home during a benchmark is not a
-thing to do casually. Against starting `claude` neither number is a tradeoff.
+**11.4 ms is the observe cost, once per agent launch** — and under this design the observe pass runs
+on every enabled launch, since it is what computes the predicate. An accepted prompt then adds an
+`--assert`, unmeasured because writing into this jail's own live home during a benchmark is not a
+thing to do casually. Against starting `claude`, neither number is a tradeoff.
 
 Three caveats:
 
 1. **Understated.** Eight of ten packs rendered; the two `file://` packs are unreachable in-jail. A
    real host renders all ten, across all four written kinds.
 2. **Warm cache.** Caches could not be dropped in this container. A cold `$HOME` on network storage
-   will be I/O-bound — §4.4's budget is the answer.
+   is I/O-bound — §4.4's budget is the answer.
 3. **Dep resolution should be excluded.** `resolveHostDeps` shells out via `exec.LookPath`
-   (`internal/depcheck/depcheck.go:122,180`) once per declared binary, which answers *"does this
-   host have the tools"* — a different question owned by `yolo check`.
+   (`internal/depcheck/depcheck.go:122,180`) once per declared binary, answering *"does this host
+   have the tools"* — a different question owned by `yolo check`.
 
 ---
 
-## 6. Two things worth doing that this no longer needs
-
-**The change predicate** (§3.3). `yolo host apply --dry-run` prints `would render` for every surface
-that is not skipped or refused, so in-sync and about-to-change look identical. *"3 in sync, 2 would
-change"* is a real improvement to a shipping command. It is no longer load-bearing for anything.
+## 6. Adjacent work this does not need
 
 **The temp-dir leak.** `packload.Embedded()` (`internal/packload/embedded.go:55`) does
 `os.MkdirTemp` plus a full copy of the embedded pack tree on every call and never removes it;
@@ -302,41 +384,42 @@ change"* is a real improvement to a shipping command. It is no longer load-beari
 2026-09-03 in this jail: 592 `/tmp/yolo-embedded-*` + 11 `yolo-embedded-packs-*` + 22
 `yolo-cli-packs-*` = **625 directories, 109 MB**, confirmed at exactly one per invocation (`yolo
 pack ls` took the count 626 → 627). About sixty were minted by §5's twenty benchmark runs. A
-pre-existing bug, tracked separately, and never a prerequisite for this.
+pre-existing bug, tracked separately.
+
+**Config surfaces never archive.** `hostskills.Archive` has call sites for skills
+(`internal/hostskills/deliver.go:272`), the `files` kind (`internal/entrypoint/hostfilestree.go:138`),
+briefings (`internal/entrypoint/hostbriefing.go:335`) and retirement
+(`internal/cli/applyhostprune.go:170`) — and **none in `hostrender.go` or `prism.go`**. So an
+`EntryLoss` on a config surface is irreversible, which is exactly why `confirmHostLosses`
+distinguishes it from a reversible `Overwrite`. Recorded as an observation: with prompts restored by
+§4.3 the guard is back where it always was, so archiving config surfaces is a possible future
+softening and not a dependency of this design.
 
 ---
 
 ## 7. What this does NOT do
 
-- **It does not detect staleness.** There is nothing to detect; §3.3.
-- **It does not check on every command.** P1.
-- **It does not prompt anything new.** The only confirmations are the ones `applyHost` already has,
-  reached on the paths they already guard.
-- **It does not refuse a launch.** P4, and §4.3 is the case that tests it.
+- **It does not detect staleness on any other command.** P1.
+- **It does not grant a standing approval.** P4, and §1's retraction.
 - **It does not change the explicit `apply` path.** `yolo host apply` keeps observe-by-default and
-  keeps fail-closed confirmations.
+  keeps its fail-closed confirmations.
+- **It does not add a second confirmation.** The prompt is the existing one, reached at a new moment.
 - **It does not check the jail.** In-jail is a hard no-op: `render.Host` targets the invoking user's
   real home, and `paths.Home()` in-jail is `/home/agent`. The discriminator is `inJail()`
   (`internal/config/load.go:315`).
+- **It does not answer "does this host have the tools."** `check-deps` and `yolo check` own that.
 - **It does not introduce a daemon, a timer, or a background process.**
 
-### 7.1 Why there is no gate to place
-
-The previous draft argued this via [`gate-placement-principle.md`](gate-placement-principle.md)'s
-Test 1 — a gate aimed at an actor who already holds the authority is theatre. That reasoning was
-sound and is now moot: this design adds no gate at all. It performs an operation the user already
-authorized, on the schedule the jail already uses.
-
-### 7.2 The coverage boundary, stated plainly
+### 7.1 The coverage boundary, stated plainly
 
 This sees a launch **only if it goes through a generated wrapper.** An agent started by a binary the
 user invokes directly (wrapper dir not on `PATH`), by an IDE extension, or by a desktop app is not
 observed and runs against whatever the last explicit apply left.
 
-That is the same boundary `host_wrappers` already has, and `sectionHostWrappers` already WARNs when
-the dir is not on `PATH`, so the gap is announced by an existing channel. It is a real limit and the
-price of the approach: a per-command notice would have caught drift *sometime*, just never at a
-moment tied to a launch.
+That is the same boundary `host_wrappers` already has, and `sectionHostWrappers`
+(`internal/cli/check/section_hostwrappers.go`) already WARNs when the dir is not on `PATH`, so the
+gap is announced by an existing channel. It is the price of the approach: a per-command notice would
+have caught drift *sometime*, just never at a moment tied to a launch.
 
 ---
 
@@ -344,13 +427,14 @@ moment tied to a launch.
 
 | Alternative | Verdict |
 |---|---|
-| **Re-render at the launch** (this design) | **Accepted.** Makes staleness unrepresentable, matches the jail, and rests on a maintainer ruling already in the code (§3.2). |
-| **Detect drift and prompt at the launch** (draft 2) | **Rejected.** Its justification was §3.2's retracted argument. With regeneration established as policy post-opt-in, a prompt asks permission for something already granted — and it required building a change predicate to decide when to ask. |
-| **A per-command staleness notice** (draft 1) | **Rejected.** The host launches through shims, agents do not reload config mid-run, and an explicit apply is always available; there is no clear moment the files need to be fresh other than a launch. It also dragged in an eligibility apparatus protecting commands that never needed checking. |
-| **Input fingerprint (mtime+size)**, ~0.25–0.6 ms | **Rejected twice over.** Structurally blind to a hand-edited destination, false-positive on `touch`/`cp -p`, needs a state file and a migration — and now has nothing to be an input to. |
+| **Jail-shaped launch gate** (this design) | **Accepted.** Consistency with `yolo run` beats a host special case, and the prompt is the guard that makes an irreversible `EntryLoss` safe. |
+| **Re-render silently at the launch, no prompt** | **Rejected.** Required treating the opt-in key as standing consent, which `snapshot.go:67-81` refuses. Would also let an irreversible `EntryLoss` happen with no undo (§6). |
+| **A per-command staleness notice** (draft 1) | **Rejected.** Agents do not reload config mid-run and an explicit apply is always available, so no moment but a launch needs the files fresh. It also dragged in an eligibility apparatus protecting commands that never needed checking. |
+| **Bake the approval flag into the wrapper body** behind a config key | **Rejected.** Standing consent written to a file; §4.3's warning. |
+| **Input fingerprint (mtime+size)**, ~0.25–0.6 ms | **Rejected.** Blind to a hand-edited destination, false-positive on `touch`/`cp -p`, and needs a state file and a migration to be less correct than measuring the home. |
 | **Input content hash including the binary**, ~9.5 ms | **Rejected outright.** 7.7 ms of it is sha256 over a 16.7 MB binary whose identity is free: `version.GitCommit` and `buildVersion` are `-ldflags -X` stamps (`internal/version/version.go:20,26`) and the 12 packs are embedded in it. |
 | **A background daemon watching the inputs** | **Rejected as disproportionate.** |
-| **Config surfaces only, deferring the other three kinds** | **Rejected.** Two tiers of "up to date" is a word that does not mean what the reader thinks — and under this design there is one tier by construction. |
+| **Config surfaces only, deferring the other three kinds** | **Rejected.** Two tiers of "up to date" is a word that does not mean what the reader thinks. |
 
 ---
 
@@ -358,67 +442,67 @@ moment tied to a launch.
 
 | Risk | Mitigation |
 |---|---|
-| **R1. A launch fails because a confirmation could not be asked.** The one new failure mode; §4.3. | Skip the confirmation and exec (P4). OQ-HS7 settles how much of the apply proceeds. |
-| **R2. Two concurrent launches write one home.** Idempotence does not make concurrent writers safe. | §4.6 — a per-home lock, and a launch that cannot take it skips and execs. |
-| **R3. A launch feels slow on a cold or network `$HOME`.** | §4.4's 1 s budget and abandonment. |
-| **R4. An unwanted write on a machine the user wanted left alone.** | OQ-HS8 — whether re-rendering is opt-in. |
-| **R5. Coverage depends on the shim being in the launch path.** | §7.2, plus the existing `sectionHostWrappers` WARN. |
-| **R6. Someone re-derives the retracted argument** and reverts this to a detector. | §3.2 exists to be cited, and says which four lines settle it. |
+| **R1. A scripted launch refuses and the caller cannot pass the flag.** The genuinely new failure mode; §4.3. | The flag lives on the explicit apply, and the refusal names both commands (P5). Accepted as the cost of matching the jail. |
+| **R2. The refusal reads as "claude is broken."** The user typed `claude`, not `yolo`. | P5 — every refusal is actionable at the surface the user typed. |
+| **R3. The predicate is wrong and every launch prompts.** | Byte comparison, not field inspection (§3.4). Carve-outs named in code. Minimum bar: a test that renders twice and asserts the second reports zero changes. |
+| **R4. Two concurrent launches write one home.** Idempotence does not make concurrent writers safe. | §4.6 — a per-home lock; a launch that cannot take it execs. |
+| **R5. A launch feels slow on a cold or network `$HOME`.** | §4.4's 1 s budget, then cannot-determine. |
+| **R6. Coverage depends on the shim being in the launch path.** | §7.1, plus the existing `sectionHostWrappers` WARN. |
+| **R7. Someone re-derives a retracted argument** — either disposability, or standing consent. | §3.2 and §1 both exist to be cited, and each names what settles it. |
 
 ---
 
 ## 10. What I would build, in order
 
-1. **The launch hook** — `yolo host -- <bin>` runs the apply, then execs. With P4's rule wired from
-   the start: every error path execs.
-2. **The non-TTY split** (§4.3) once OQ-HS7 is ruled.
-3. **The per-home lock** (§4.6).
-4. Independently, whenever: the change predicate and the temp-dir leak (§6).
+1. **The change predicate** (§3.4), all four written kinds, with both carve-outs documented. Land it
+   with `yolo host apply --dry-run` reporting *"N in sync, M would change"* — a standalone
+   improvement to a shipping command, and the honest way to verify it before anything depends on it.
+   Blocked on OQ-HS9's first half only if the answer is the config-snapshot shape.
+2. **The opt-in key** (§4.2), default off, plus the `yolo check` line and the `config-ref` entry.
+3. **The launch hook** (§4.1) with §4.3's table and §4.4's two classes.
+4. **The per-home lock** (§4.6).
+5. Independently, whenever: the temp-dir leak (§6).
 
 ## 11. What done looks like
 
-- With re-render on: edit `~/.claude/settings.json` by hand, launch `claude` through the wrapper, and
-  the file is back to what your packs declare — with no prompt, because the home is already managed.
-- Launching twice in a row writes byte-identical content the second time and takes no visible extra
-  time.
-- Add a pack, then launch a wrapped agent **from a script with no TTY**: the agent starts. *(This is
-  R1 — check it first.)*
-- Add a pack interactively where an MCP entry would be destroyed: today's confirmation appears.
-- `yolo host apply` behaves exactly as it does now, observe-by-default and fail-closed.
+- Key on, TTY: edit `~/.claude/settings.json` by hand, launch `claude` through the wrapper — the diff
+  appears and the launch waits. Accept and it launches with the file restored; decline and it aborts.
+- Key on, TTY, freshly-applied home: launching prompts **not at all**, ever, until something actually
+  changes. *(Check this first — it is R3.)*
+- Key on, no TTY, drift present: the launch refuses and names `yolo host apply --assert
+  --accept-config-changes`. Running that, then launching, succeeds silently.
+- Key off (the default): no launch and no command mentions any of this, and `yolo check` says the
+  feature exists and is off.
+- A malformed pack manifest makes the launch proceed, not fail.
 - Two wrapped agents launched simultaneously both start, and the home is not corrupt.
+- `yolo host apply` behaves exactly as it does today.
 - In-jail, nothing re-renders a host home.
 
 ---
 
 ## Open Questions
 
-1. 💬 **OQ-HS7: On a non-TTY launch, how much of the apply proceeds?** §4.3 establishes that the
-   launch must not fail when a confirmation cannot be asked. What it does not settle is whether the
-   apply then does *everything that needs no consent* (every surface that is not `FirstApply`, plus
-   `FirstApply` surfaces with no `EntryLosses`) and skips only the confirmation-requiring surfaces —
-   or skips the whole apply for that launch.
+1. 💬 **OQ-HS9: What is the launch comparing — the render, or the config?** "Work like jail launches"
+   admits two readings, and they differ in what they catch and what they cost.
 
-   _Leaning:_ **Partial — apply everything that needs no consent.** It is the outcome closest to
-   what the user asked for, and the skipped surfaces are exactly the ones whose written record
-   already says "a human must look at this." The counter-argument is that a partially-applied home
-   is harder to reason about than an unapplied one; I think idempotence and convergence-on-next-launch
-   answer that, but it is a judgement about how much implicitness you want on a path with no human
-   watching.
+   **(a) Config-approval shape — the truest mirror.** The jail does not ask "would the render
+   change?"; it asks *"did your config change since you last approved?"* (`SnapshotJSON` vs
+   `approvals/<name>.json`, `internal/config/snapshot.go:177`). A host analogue keeps a host
+   approval snapshot and prompts when the config moved. Cheap, needs no change predicate, and
+   reuses machinery whole. **But it does not deliver "host is always up to date if an agent
+   launches"**: a hand-edited `~/.claude/settings.json` leaves the config untouched, so nothing
+   prompts and the drift persists — and that hand-edit case is the one an approval snapshot is
+   structurally blind to.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **(b) Render-diff shape.** Compute whether a re-apply would change any of the four kinds, and
+   prompt with that. Catches every cause including the hand-edit. Costs the change predicate (§3.4)
+   and an observe render per launch (11.4 ms, §5).
 
-2. 💬 **OQ-HS8: Is re-rendering at the launch opt-in, or the behavior?** This supersedes OQ-HS2,
-   which put a key on a *notice* that no longer exists. Arguments for making it the behavior: it is
-   what the jail does, it is what makes `host apply` mean something durable, and the wrapper only
-   exists because the user opted into both `host apply` and `host_wrappers` — a double opt-in
-   already. Arguments for a key: a wrapper that writes to `$HOME` on every launch is a surprising
-   thing for a wrapper to do, and someone may want wrappers for their env composition without
-   wanting config rewritten under them.
-
-   _Leaning:_ **Make it the behavior, no key.** The double opt-in is real consent, a third switch is
-   a switch nobody finds, and the alternative leaves the drift this doc is about in place by default.
-   If you want a key anyway, it should default **on** — a default-off key ships the problem.
+   _Leaning:_ **(b).** Your sentence was *"host is always up to date if an agent launches,"* and only
+   (b) makes that literally true. (a) mirrors the jail's *implementation* while (b) mirrors its
+   *guarantee*, and the guarantee is the thing worth having — in the jail the two coincide only
+   because the jail re-renders unconditionally afterwards, which is exactly what the host does not
+   do. Note this resurrects the predicate I earlier called deleted (§3.4).
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -429,10 +513,12 @@ moment tied to a launch.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-HS0 | Accuracy over approximation: run the real render rather than a stat or hash fingerprint. Rules out the three-tier design and the fingerprint file. | 2026-09-03 | §1 P3, §8 |
-| OQ-HS1 | The launch chokepoint is the only trigger. Per-command checking deleted. | 2026-09-03 | §1 P1, §4.2, §8 |
-| OQ-HS2 | *(Superseded by OQ-HS8.)* Was: a user-level key, default off, advertised in `yolo check`. The notice it gated no longer exists. | 2026-09-03 | §3.3 |
-| OQ-HS3 | *(Superseded.)* Was: prompt at the launch rather than notice on unrelated commands. The launch re-renders instead, so there is nothing to prompt about. | 2026-09-03 | §3.2, §8 |
-| OQ-HS4 | Everything is covered — all four written kinds. No two tiers of "up to date". | 2026-09-03 | §3.3, §4.1 |
-| OQ-HS5 | *(Moot.)* Was: does declining the prompt still launch? There is no prompt. The surviving half — a launch must never fail on a config confirmation — is now P4. | 2026-09-03 | §1 P4, §4.3 |
-| OQ-HS6 | *(Reframed as OQ-HS7.)* Was: what does a non-TTY launch do? Answered in part — it execs — with the residue being how much of the apply proceeds. | 2026-09-03 | §4.3 |
+| OQ-HS0 | Accuracy over approximation: measure the real thing rather than a stat or hash fingerprint. Rules out the three-tier design and the fingerprint file. | 2026-09-03 | §1 P3, §8 |
+| OQ-HS1 | The launch chokepoint is the only trigger. Per-command checking deleted. | 2026-09-03 | §1 P1, §4.1, §8 |
+| OQ-HS2 | A user-level opt-in key, **default off**, advertised in `yolo check` when available-and-off. The key enables the mechanism only — it never grants the approval. | 2026-09-03 | §4.2 |
+| OQ-HS3 | The launch behaves like a jail launch: TTY prompts and blocks, non-TTY refuses unless approved. Not a silent re-render, and not a notice. | 2026-09-03 | §4.1, §4.3 |
+| OQ-HS4 | Everything is covered — all four written kinds. No two tiers of "up to date". | 2026-09-03 | §3.4, §4.1 |
+| OQ-HS5 | Declining aborts the launch, as it does in the jail. | 2026-09-03 | §4.3 |
+| OQ-HS6 | A non-TTY launch with a needed change **refuses**; nothing partial is applied. Supersedes the earlier "always exec" rule (the retracted P4). | 2026-09-03 | §1 P5, §4.3 |
+| OQ-HS7 | *(Moot.)* Was: how much of the apply proceeds on a non-TTY launch? None — OQ-HS6 refuses instead. | 2026-09-03 | §4.3 |
+| OQ-HS8 | *(Answered by OQ-HS2.)* Was: is re-rendering opt-in? Yes, a key, default off. Standing consent is **refused** — the approval stays a per-launch flag. | 2026-09-03 | §1 P4, §4.2 |

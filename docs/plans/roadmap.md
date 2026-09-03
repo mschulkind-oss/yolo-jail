@@ -608,50 +608,52 @@ requirement on the jail's pack set — and therefore whether addressed content p
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 21 — The host launch should re-render, the way a jail launch does
+### 💬 21 — The host launch should re-render, gated exactly the way a jail launch is
 
-📄 [`host-apply-staleness.md`](../design/host-apply-staleness.md) — `OQ-HS7 · OQ-HS8`
-(`OQ-HS0`–`OQ-HS6` ruled or superseded 2026-09-03, in that doc's ledger)
+📄 [`host-apply-staleness.md`](../design/host-apply-staleness.md) — `OQ-HS9`
+(`OQ-HS0`–`OQ-HS8` ruled or superseded 2026-09-03, in that doc's ledger)
 
 `yolo host apply` writes pack surfaces into your real `$HOME` and then never looks again, so the
 rendered and would-be-rendered states drift apart silently. This jail's own home is drifted right
 now — three surfaces would overwrite live values, measured 2026-09-03.
 
-**Three drafts in one day, and the third deleted the feature the first two were designing.** Draft 1
-proposed a per-command staleness notice; draft 2 collapsed it to a prompt at the launch. Both were
-building *detection*. The review question that ended it — *"if you use host apply, it's because yolo
-manages everything for you, so why is the gate wrong?"* — is answered by the code: **once the user
-has opted in, wholesale regeneration is policy, not risk.** So the host launch should simply
-re-render, exactly as every jail launch already does, which makes staleness **unrepresentable**
-rather than detectable.
+**Four drafts in one day; the last two each retracted the one before.** Draft 1 proposed a
+per-command staleness notice, draft 2 a prompt at the launch, draft 3 a silent always-re-render.
+The settled shape is **the jail's**: opt in with a user-level key (default off), prompt-and-block on
+a TTY when a re-apply would change something, refuse off a TTY unless the approval flag was given.
+Consent is per-launch — the key enables the mechanism, never the approval.
 
-⚠ **Draft 2's central argument is retracted, and the retraction is kept in §3.2 rather than deleted**
-— the intuition is a strong one and cheap to re-derive. It claimed a silent re-apply *"would fire the
-one-way door on every launch with nobody asked."* False: `confirmHostLosses` gates on
-`!r.FirstApply || len(r.EntryLosses) == 0` (`internal/cli/apply.go:532`), and `FirstApply` is only
-true where yolo has never asserted that surface — so on a managed home the gate never fires. What the
-argument got wrong precisely: it treated *preciousness* as what licenses a write, when the operative
-property is *consent*. The maintainer ruling is already in the tree at `apply.go:493` (2026-08-02),
-and the render is idempotent with three tests for it.
+⚠ **Two arguments are retracted in place rather than deleted**, because each is cheap to re-derive
+and expensive to re-argue.
+- *"The real `$HOME` is not disposable, so re-applying is unsafe"* (§3.2). False:
+  `confirmHostLosses` gates on `!r.FirstApply || len(r.EntryLosses) == 0`
+  (`internal/cli/apply.go:532`), so on a managed home it never fires. The error was treating
+  *preciousness* as what licenses a write when the operative property is *consent* — and the
+  maintainer ruling saying so was already at `apply.go:493` (2026-08-02).
+- *"The opt-in key is standing consent"* (§1). Refused by `internal/config/snapshot.go:67-81`, which
+  makes the jail's approval a **flag and not an env var** precisely so it cannot outlive one launch.
+  The tempting variant — baking `--accept-config-changes` into the wrapper body behind a key — is
+  the same thing written to a file.
 
-**What that deletes:** the change predicate (draft 2 called it "the work"), the diff renderer, the
-prompt, the notice, the per-command eligibility apparatus, and the enable key OQ-HS2 ruled on. The
-predicate survives only as optional polish on `--dry-run` output, alongside the temp-dir leak, both
-in §6 as work worth doing that this no longer needs.
+⚠ **The genuinely new problem, and it needed no new mechanism to solve.** The approval flag
+**cannot reach a generated wrapper**: the body is fixed at `exec yolo host -- <bin> "$@"`
+(`internal/hostwrap/hostwrap.go:41`) and `hostMain` (`internal/cli/host.go:84`) hands everything
+after `--` to the agent, so someone typing `claude --print foo` has no slot for a yolo flag. So the
+flag lives on the **explicit apply** and the launch becomes a tripwire naming it — the same two-step
+a scripted `yolo run` already needs. The refusal has to be legible to someone who typed `claude`,
+not `yolo`, or it reads as "claude is broken" (§1 P5).
 
-⚠ **One genuinely new failure mode, and it is the reason this row still needs you.**
-`confirmHostLosses` ends in a fail-closed `promptYesNo` — right for an explicit `apply`, where *"a CI
-or scripted `yolo host apply --assert` aborts rather than silently destroying a server"*
-(`apply.go:504-506`). Move the apply onto the launch path and the same rule means: **add a pack, let
-CI launch a wrapped agent, and the launch fails.** A wrapper that refuses to start the program
-because a confirmation could not be asked is the one outcome it must never produce. The doc rules
-that the launch always execs (P4); what is open is how much of the apply proceeds when a
-confirmation is skipped (`OQ-HS7`), and whether re-rendering is opt-in at all (`OQ-HS8`, which
-supersedes OQ-HS2 — leaning: no key, and if there is one it defaults **on**, since a default-off key
-ships the problem).
+**One question left, and it is the one that decides how much gets built.** *"Work like jail
+launches"* admits two readings: compare the **config** against a host approval snapshot (the truest
+mirror of `CheckConfigChanges`, cheap, needs no change predicate — but structurally blind to a
+hand-edited `~/.claude/settings.json`), or compare the **render** (catches every cause, costs the
+change predicate and an 11.4 ms observe per launch). Leaning: the render, because *"host is always
+up to date if an agent launches"* is only literally true that way — the jail's two readings coincide
+only because it re-renders unconditionally afterwards, which is exactly what the host does not do.
+Note this **resurrects the change predicate** that draft 3 had deleted as unnecessary.
 
-**What it decides:** whether `host apply` means a durable state or a one-time act — and what a
-scripted agent launch does when yolo wants consent and no human is there.
+**What it decides:** whether `host apply` means a durable state or a one-time act — and whether the
+guarantee is "your config was approved" or "your home is current."
 
 **Answer:**
 > _(empty — fill in when decided)_
