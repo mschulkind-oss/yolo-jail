@@ -285,6 +285,38 @@ func FixPermissionsScript(root, group string) string {
 		"echo \"Done.\"\n"
 }
 
+// WorkspaceGrantedScript returns a bash test that exits 0 when `dir` carries an
+// ACE granting the sandbox group, and non-zero when it does not.
+//
+// WHY THIS IS NEEDED AT ALL, and it is the whole point: macOS applies an
+// inheriting ACL at CREATION TIME and never retroactively. SharedRootProvision-
+// Commands sets `chmod +a` on the shared ROOT only (no -R, deliberately — a
+// per-run walk of every workspace is what the inheriting ACE exists to avoid), so
+// a directory that already existed under that root when the ACEs were added never
+// receives them. "Projects created under it are shared automatically" is true, and
+// says nothing about projects created BEFORE.
+//
+// Measured 2026-09-03 on the first real end-to-end launch: a checkout created
+// 2026-07-14 carried only the host user's inherited ACEs, so the sandbox uid had
+// `other` = r-x and nothing more. The launch spent a sudo prompt, staged, ran the
+// bootstrap, and died six generators deep with
+// `mkdir <ws>/.yolo/prism: permission denied` — a message that names neither ACLs
+// nor `yolo macos-fix-permissions`, the command that already existed to fix it.
+//
+// WHAT THIS DOES AND DOES NOT PROVE. It detects the KNOWN cause — the ACE yolo
+// itself applies is absent — and it is exact for that. It is not a general
+// writability oracle: only the sandbox uid can answer that, and probing as it
+// would cost a sudo prompt of its own before the one the launch already spends.
+// So the bootstrap's own failure remains the backstop for everything else, and
+// this exists to convert the common case from a dead end into one command.
+func WorkspaceGrantedScript(dir, group string) string {
+	if group == "" {
+		group = SandboxGroup
+	}
+	return "/bin/ls -lde " + shQuote(dir) +
+		" | /usr/bin/grep -q " + shQuote("group:"+group+" allow") + "\n"
+}
+
 // WorkspaceACLStripScript returns the find-based bash script that removes ALL
 // ACLs from the workspace (chmod -h -N).
 func WorkspaceACLStripScript(workspace string) string {

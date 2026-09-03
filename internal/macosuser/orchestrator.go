@@ -293,6 +293,31 @@ func RunMacosUser(deps Deps, opts Options) int {
 			"`docs/design/macos-no-vm-direction.md`).", SandboxUser)
 		return 1
 	}
+	// THE WORKSPACE MUST BE REACHABLE BY THE SANDBOX, and this is the cheapest
+	// place to learn it is not. macOS applies an inheriting ACL only at creation
+	// time, so a workspace that predates `yolo macos-setup` (or predates the ACEs
+	// it applies) never inherited them — see WorkspaceGrantedScript for the
+	// measurement. Without this the launch spends a sudo prompt, a nix build, the
+	// staging and the whole bootstrap before failing on `mkdir …: permission
+	// denied`, six generators at a time, naming neither ACLs nor the remedy.
+	//
+	// Refuse rather than self-heal: applying ACLs walks the tree and needs sudo,
+	// and doing that implicitly inside a launch would make `yolo` mutate the
+	// permissions of a directory the user only asked it to run in. The remedy is
+	// one command and it already exists; naming it is the fix.
+	if deps.RunBash(WorkspaceGrantedScript(opts.Workspace, "")) != 0 {
+		out.printf("[bold red]The sandbox user cannot write %s.[/bold red]\n"+
+			"It carries no ACL entry for the [bold]%s[/bold] group, which means it was "+
+			"created before `yolo macos-setup` applied one. macOS grants an\n"+
+			"inheriting ACL at creation time only — it never reaches a directory that "+
+			"already existed.\n\n"+
+			"Fix it once, then relaunch:\n"+
+			"  [bold]yolo macos-fix-permissions %s[/bold]\n\n"+
+			"[dim]With no path it retrofits the whole shared root (%s), which is slower "+
+			"but covers every workspace at once.[/dim]",
+			opts.Workspace, SandboxGroup, opts.Workspace, SharedRootDefault())
+		return 1
+	}
 
 	// Materialize `packages:` as native darwin nix for THIS Mac's arch (the
 	// acceptance bar). Runs nix on the HOST user before any sandbox; on failure

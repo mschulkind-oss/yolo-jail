@@ -28,6 +28,11 @@ var commandHelp = []struct{ name, blurb string }{
 	{"pack", "Add shared skills and agent config via packs: 'pack --help', 'ls', 'install'"},
 	{"config-ref", "Print the full configuration reference"},
 	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
+	// Listed because it is the REMEDY a launch names: a workspace created before
+	// macos-setup never inherited the sandbox group's ACL (macOS applies one at
+	// creation time only), and the launch now refuses with this command. A remedy
+	// a user cannot find in `yolo --help` is a dead end with extra steps.
+	{"macos-fix-permissions", "Retrofit the sandbox-group ACL onto an existing workspace"},
 }
 
 // usageText renders the top-level `yolo` usage string. Pure (no I/O) so it is
