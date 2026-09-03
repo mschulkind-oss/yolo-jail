@@ -12,14 +12,6 @@ import (
 // sandboxUser is the dedicated macOS sandbox account.
 const sandboxUser = "_yolojail"
 
-// pythonCandidates are the interpreters probed for the sandbox user, in
-// preference order — with /usr/bin/python3 LAST (it may be the xcode-select stub).
-var pythonCandidates = []string{
-	"/opt/homebrew/bin/python3",
-	"/usr/local/bin/python3",
-	"/usr/bin/python3",
-}
-
 // sandboxUserExists reports whether `id <user>` returns 0.
 func (o *Options) sandboxUserExists() bool {
 	res := o.Exec([]string{"id", sandboxUser}, "", nil, 5*time.Second)
@@ -29,20 +21,18 @@ func (o *Options) sandboxUserExists() bool {
 	return res.RC == 0
 }
 
-// resolvePython returns the first existing candidate
-// interpreter, or "" if none exist.
-func (o *Options) resolvePython() string {
-	for _, cand := range pythonCandidates {
-		if o.PathExists(cand) {
-			return cand
-		}
-	}
-	return ""
-}
-
 // checkMacosUserBackend probes readiness of the
-// native macos-user backend (OS, Seatbelt, sandbox account, interpreter, nix +
-// flake.lock, and the resolved `packages:` profile). Never runs inside a jail.
+// native macos-user backend (OS, Seatbelt, sandbox account, nix + flake.lock,
+// and the resolved `packages:` profile). Never runs inside a jail.
+//
+// NO INTERPRETER PROBE. It had one until this comment was written, hard-FAILing
+// a python3-less Mac — and it had been dead since J2 swapped the launch path to
+// self-exec of the staged Go binary (544a8069, 2026-07-21). Nothing the backend
+// runs has needed python since; `MacosSetup` already says so in as many words
+// ("No interpreter readiness check is needed: the sandbox self-execs the staged
+// yolo binary", internal/macosuser/commands.go). check was the last caller of a
+// requirement the backend had already dropped, which is the worst polarity for a
+// readiness probe: it refuses a host that would have launched fine.
 func (o *Options) checkMacosUserBackend(r *reporter) {
 	r.line(r.style("macOS-user backend", ansiBold) + " " + r.style("(experimental)", ansiDim))
 	if o.inJail() {
@@ -72,14 +62,6 @@ func (o *Options) checkMacosUserBackend(r *reporter) {
 	} else {
 		r.warn("Sandbox user '"+sandboxUser+"' not provisioned",
 			"Run `yolo macos-setup` to create it.")
-	}
-	interp := o.resolvePython()
-	if interp == "" {
-		r.fail("no python3 interpreter found for the sandbox user",
-			"Install one (`brew install python` or `xcode-select --install`); "+
-				"the bare /usr/bin/python3 stub can't run as a service account.")
-	} else {
-		r.ok("Interpreter for sandbox user: " + interp)
 	}
 	if _, ok := o.LookPath("nix"); ok {
 		r.ok("nix available (native package materialization)")
