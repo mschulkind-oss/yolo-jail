@@ -608,42 +608,48 @@ requirement on the jail's pack set — and therefore whether addressed content p
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 21 — The host render goes stale in silence, and nothing on any path re-checks it
+### 💬 21 — The host render goes stale in silence; catch it at the launch, not on every command
 
-📄 [`host-apply-staleness.md`](../design/host-apply-staleness.md) — `OQ-HS1 · OQ-HS2 · OQ-HS3 · OQ-HS4`
+📄 [`host-apply-staleness.md`](../design/host-apply-staleness.md) — `OQ-HS5 · OQ-HS6`
+(`OQ-HS0`–`OQ-HS4` ruled 2026-09-03, in that doc's ledger)
 
-`yolo host apply` writes pack surfaces into your real `$HOME` and then never looks again. Nothing
-in the run pipeline, in `yolo check`, or on any launch path asks whether what it wrote still matches
+`yolo host apply` writes pack surfaces into your real `$HOME` and then never looks again. Nothing in
+the run pipeline, in `yolo check`, or on any launch path asks whether what it wrote still matches
 what it *would* write — so a host render rots quietly, and this jail's own home is rotten right now
 (three surfaces would overwrite live values, measured 2026-09-03).
 
-**The premise is already ruled** and it is the cheap half of the news: a full observe render — the
-existing `--dry-run` posture, which writes nothing — costs **11.4 ms p50 against a 3.9 ms baseline**,
-so the check can simply run the real thing on every command and keep **no fingerprint, no baseline,
-and no heuristic**. That kills the input-hashing designs outright, and with them the state file, its
-format, its migration, and its false positives. It also answers a case an input fingerprint
-structurally cannot: a destination someone edited by hand.
+**Five rulings landed on review the same day, and the fourth one deleted most of the design.** The
+first draft proposed a per-command staleness notice on every `yolo` invocation. The review answer:
+the host already launches through shims, so `yolo host -- <bin>` is a chokepoint yolo controls;
+agents read config at startup and do not reload; and you can always apply explicitly — so *"it's not
+clear when you would need these files updated on the host if you're not about to run an agent."*
+The design collapsed to a prompt at the launch, mirroring what the jail already does, behind a
+user-level key defaulting **off** with a `yolo check` line advertising it. That took the whole
+eligibility apparatus with it — the machine-consumed-stdout deny-set, the `--help` side-effect
+hazard, the `eval "$(yolo host env)"` trap — all of which existed only to protect commands that
+never needed checking.
 
-⚠ **The gap is not where I first said it was.** My first read was that the observe pass already knew
-the answer and needed only exposing. It does not. `Action` is `"would render"` unconditionally for
-any surface that is not skipped or refused, and `Overwrites` is documented as *"empty when the
-render only adds keys or re-asserts identical values"* — so a surface that is byte-for-byte correct
-and one that needs a whole new key are indistinguishable today. **The predicate the feature is
-entirely about does not exist**, and a naive check would fire on every command on every machine
-forever — the precise failure `confirmHostLosses` was written to avoid
-(`internal/cli/apply.go:496-500`). Building that predicate is the work; §3.2 of the doc is the whole
-argument.
+⚠ **The gap is not where I first said it was, and that part survived the collapse.** `Action` is
+`"would render"` unconditionally for any surface not skipped or refused, and `Overwrites` is
+documented as *"empty when the render only adds keys or re-asserts identical values"* — so a
+byte-for-byte correct surface and one needing a whole new key are indistinguishable today. **The
+predicate the feature is entirely about does not exist**, and a naive check would prompt at every
+agent launch forever, the precise failure `confirmHostLosses` was written to avoid
+(`internal/cli/apply.go:496-500`). Building it is the work; §3.4 is the argument.
 
-**Two steps need no ruling and are startable now** — the temp-dir leak below (a hard prerequisite),
-and the change predicate itself, which lands as a standalone improvement to `yolo host apply
---dry-run` (*"3 in sync, 2 would change"* instead of five identical `would render` lines). The four
-questions are all about **posture, not mechanism**: whether the wrapper hot path pays 7.5 ms
-(`OQ-HS1`), whether a home you have deliberately never applied to gets nagged (`OQ-HS2`), whether
-there is an interactive offer or only a notice (`OQ-HS3`), and whether skills/briefings/files count
-or config surfaces only (`OQ-HS4`).
+⚠ **One simplification to resist, written up as a warning in §3.2**: making the host launch always
+re-apply, the way a jail launch always re-renders. The jail's home is disposable and the real `$HOME`
+is not — a host render can destroy an atomic entry, which is why apply defaults to observe and
+`confirmHostLosses` exists. Prompting is not ceremony there; it is the only safe way to write.
 
-**What it decides:** whether yolo tells you your host config has drifted, and how loudly — not
-whether it can.
+**Step 1 needs no ruling and is startable now:** the change predicate, all four written kinds,
+landing as a standalone improvement to `yolo host apply --dry-run` (*"3 in sync, 2 would change"*
+instead of five identical `would render` lines). The two open questions are both about the
+**non-happy paths** — whether declining the prompt still launches (`OQ-HS5`), and what a non-TTY
+launch from a script or CI does (`OQ-HS6`).
+
+**What it decides:** how yolo behaves when you launch an agent against host config that has drifted
+— not whether it can tell.
 
 **Answer:**
 > _(empty — fill in when decided)_
@@ -660,15 +666,17 @@ catalog walk, program-delivery §10 step 1, and briefing-audiences steps 1–2. 
 survived that pass, restated against the tree rather than against the queue it used to be.
 
 **Ordering basis:** what unblocks the most other work first, then what is cheapest. The temp-dir
-leak is first because it is a live bug measured today and a hard prerequisite for 💬 21; the one
-remaining small repair follows because it is nearly free and closes a shell-injection surface; the
-disk and program-delivery rows come after; briefing-audiences is last only because it is the largest.
+leak is first because it is a live bug measured today and nearly free to fix; the one remaining
+small repair follows because it is also nearly free and closes a shell-injection surface; the disk
+and program-delivery rows come after; briefing-audiences is last only because it is the largest.
 
-- 📦 **`packload.Embedded()` leaks a temp dir on every call, and nothing ever removes them.** 📄
-  [`host-apply-staleness.md`](../design/host-apply-staleness.md) §6 (where it was found, and why it
-  gates that work — but this is a **standalone pre-existing bug**, not part of that design).
+- 📦 **`packload.Embedded()` leaks a temp dir on every call, and nothing ever removes them.**
   `os.MkdirTemp` + a full copy of the embedded pack tree at `internal/packload/embedded.go:55`, with
-  a second prefix at `internal/cli/surfaces.go:44`, and no cleanup on either.
+  a second prefix at `internal/cli/surfaces.go:44`, and no cleanup on either. Found while measuring
+  💬 21 ([`host-apply-staleness.md`](../design/host-apply-staleness.md) §6); a **standalone
+  pre-existing bug**, and *not* a prerequisite for that work — the first draft made it one because a
+  per-command render would have leaked on every `yolo` invocation, and the collapsed design renders
+  once per agent launch.
 
   **Measured 2026-09-03 in this jail:** 592 `/tmp/yolo-embedded-*` + 11 `yolo-embedded-packs-*` + 22
   `yolo-cli-packs-*` = **625 directories, 109 MB**. Confirmed as exactly one per invocation by
@@ -677,7 +685,7 @@ disk and program-delivery rows come after; briefing-audiences is last only becau
   `host apply` and `describe` on every machine has been doing this for the life of the feature.
 
   Needs no ruling. The regression test is a loop asserting the `/tmp` count is flat across N
-  invocations — which is also the test 💬 21 step 1 needs, so it is written once either way.
+  invocations.
 
 - 📦 **Small repairs — what is left of the five.** Three shipped 2026-09-02 (port gate `4877bf93`,
   dead PATH write `e2263c4a`, npm selector shape `3b5bfcea`) and a fourth turned out to be already
