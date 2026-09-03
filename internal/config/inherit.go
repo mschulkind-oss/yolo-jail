@@ -190,6 +190,14 @@ var inheritCensus = map[string]keyDisposition{
 	// have in here, over programs the jail runs through its own launchers instead. Neither
 	// half of the key has a referent in a container.
 	"host_wrappers": {reason: "enables wrappers on the host's PATH, which a jail has neither of"},
+	// `host_apply_on_launch`: the same class again, and the sharpest of the three. It gates a
+	// re-render of the invoking user's REAL home at `yolo host -- <bin>`, and in a jail
+	// paths.Home() is /home/agent — so the key's referent rebinds to the container's own
+	// disposable home exactly as host_files' does, while the mechanism it gates (a wrapped host
+	// launch) does not exist in here at all. Inheriting it would hand a nested launcher a
+	// standing licence to write a home the key was never about.
+	"host_apply_on_launch": {reason: "gates a re-render of the HOST's real home at a wrapped " +
+		"host launch — a jail has neither the home nor the launch"},
 	// `mounts`: host paths again. Measured to warn "host path does not exist and will be
 	// skipped" for every host path in an in-jail check.
 	"mounts": {reason: "host paths absent in the container; validation warns on every one"},

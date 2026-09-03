@@ -124,11 +124,65 @@ func TestHostWrappersPassesWhenOnPath(t *testing.T) {
 		return ""
 	}
 	o.sectionHostWrappers(r)
-	if r.passed != 1 || r.warned != 0 {
-		t.Errorf("passed=%d warned=%d, want 1/0:\n%s", r.passed, r.warned, buf.String())
+	// TWO passes: the wrap dir being on PATH, and host_apply_on_launch's own row
+	// (hostApplyOnLaunchRow — it shares this section because it shares its coverage boundary).
+	if r.passed != 2 || r.warned != 0 {
+		t.Errorf("passed=%d warned=%d, want 2/0:\n%s", r.passed, r.warned, buf.String())
 	}
 	if !strings.Contains(buf.String(), "[PASS]") {
 		t.Errorf("no PASS badge:\n%s", buf.String())
+	}
+}
+
+// TestHostApplyOnLaunchRowSaysItIsOffAndHowToLearn is §4.2's requirement: a line when the
+// feature is AVAILABLE AND OFF, naming where to learn to turn it on.
+//
+// Available-and-off is the state that needs saying, because with the key off nothing ever
+// re-checks a host render — the drift the whole design is about is silent by construction, so
+// this row is the only place a user meets it.
+func TestHostApplyOnLaunchRowSaysItIsOffAndHowToLearn(t *testing.T) {
+	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, "host_apply_on_launch is off") {
+		t.Errorf("the section must say the feature exists and is off:\n%s", out)
+	}
+	if !strings.Contains(out, "config-ref") {
+		t.Errorf("the row must name where to learn what the key does:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join(".config", "yolo-jail")) {
+		t.Errorf("the row must name the USER config — the only scope the key is read from:\n%s", out)
+	}
+}
+
+// TestHostApplyOnLaunchRowSaysItIsOn is the other half, and it is not symmetry for its own
+// sake: an enabled key means a launch can STOP AND ASK, which is a behaviour change to
+// `claude` that someone debugging a paused terminal has to be able to find in `yolo check`.
+func TestHostApplyOnLaunchRowSaysItIsOn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"host_wrappers": true, "host_apply_on_launch": true}`
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	o := &Options{Getenv: func(k string) string {
+		if k == "PATH" {
+			return "/bin"
+		}
+		return ""
+	}}
+	o.sectionHostWrappers(newReporter(&buf, false))
+	out := buf.String()
+	if !strings.Contains(out, "host_apply_on_launch is on") {
+		t.Errorf("an enabled key must be reported as on:\n%s", out)
+	}
+	if strings.Contains(out, "is off") {
+		t.Errorf("the off wording must not appear with the key on:\n%s", out)
 	}
 }
 

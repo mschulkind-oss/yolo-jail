@@ -47,6 +47,7 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	names, dirErr := wrapperNames(dir)
 
 	r.section("Host launch wrappers")
+	hostApplyOnLaunchRow(r)
 
 	if dirErr != nil && os.IsNotExist(dirErr) {
 		r.warn("host_wrappers is on but no wrapper directory exists yet",
@@ -76,6 +77,36 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 			"  "+hostwrap.PathLine(dir)+"\n"+
 			"`yolo host apply --shell-init` will append it for you. Either way "+
 			dir+"/"+names[0]+" works right now as an absolute path.")
+}
+
+// hostApplyOnLaunchRow says whether a wrapped launch re-checks its own render before exec'ing
+// (docs/design/host-apply-staleness.md §4.2, which asks for a line "when the feature is
+// available and off, naming where to learn to turn it on").
+//
+// AVAILABLE-AND-OFF IS THE CASE THAT NEEDS SAYING, and the reason is the whole point of the
+// feature: `yolo host apply` writes into the real home once and, with this key off, nothing
+// ever looks again — so the state the row describes is silent by construction. A user who has
+// wrappers on their PATH has already asked for their launches to go through yolo; telling them
+// that those launches do not notice a stale render is the one fact they cannot observe.
+//
+// It rides the wrappers SECTION rather than one of its own, because it shares that section's
+// coverage boundary exactly (§7.1): the mechanism is only reached through a generated wrapper,
+// so a jail, a direct binary invocation and an IDE launch are all outside it — and this
+// section is already where that boundary is reported.
+//
+// [OK] when on, not silence: an enabled key means a launch can stop and ask, which is a
+// behaviour change to `claude` that a reader debugging a paused terminal has to be able to
+// find. Neither state is a WARN — one is opted out of and the other is working.
+func hostApplyOnLaunchRow(r *reporter) {
+	if config.HostApplyOnLaunchEnabled() {
+		r.ok("host_apply_on_launch is on — a wrapped launch re-checks the render first, and " +
+			"stops to ask when it would change something")
+		return
+	}
+	r.ok("host_apply_on_launch is off (the default) — a wrapped launch execs whatever the last " +
+		"`yolo host apply --assert` left, however stale.\n" +
+		"  Turn it on in " + paths.UserConfigPath() + " to have a launch notice; see " +
+		"`yolo config-ref` for what it does and does not grant.")
 }
 
 // wrapperNames lists the generated wrappers in dir, sorted.
