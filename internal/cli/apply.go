@@ -590,10 +590,36 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 // silently, which is the whole defect. `len(Contributions()) == 0` is the honest test for it
 // rather than a heuristic — after ResolveDestinations a pack's declaration is everything it will
 // ever be asked to do, so an empty one means it will do nothing.
+// An ADDRESSED contribution is the third half, added by briefing-audiences.md, and it needed
+// its own line rather than a wider one: "declares no destination" is FALSE of it. A pack
+// saying `agents: ["claude"]` declared exactly who its prose is for and deliberately not where
+// that prose goes (P4), so reporting it as silence describes the opposite of what the author
+// did — and leaves them unable to tell a working selector from a typo, since both produce the
+// same line. The audience is named, so the report answers "did my selector reach claude?".
 func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) int {
+	// Destinations an ADDRESSED contribution accounted for. Subtracted from the silent-inference
+	// line below so one delivery is not reported twice, in two voices — a pack MAY carry both a
+	// bare into-less contribution (broadcast) and an addressed one, in which case the addressed
+	// line names its destinations and the broadcast line names the rest.
+	addressed := map[string]bool{}
+	for _, a := range d.Addressed {
+		for _, into := range a.Into {
+			addressed[string(a.Kind)+"\x00"+into] = true
+		}
+		if len(a.Into) == 0 {
+			continue // R1 — reported by the orphan branch below, which carries the severity
+		}
+		pr.Printf("  [dim]%-10s %s addresses %s — %s reaches %s, and nothing else[/dim]",
+			string(a.Kind), d.Pack.Name, strings.Join(a.Agents, ", "),
+			addressedSourceLabel(a.From), strings.Join(a.Into, ", "))
+	}
+
 	byKind := map[packdecl.Kind][]string{}
 	var order []packdecl.Kind
 	for _, c := range d.Inferred {
+		if addressed[string(c.Kind)+"\x00"+c.Into] {
+			continue
+		}
 		if _, seen := byKind[c.Kind]; !seen {
 			order = append(order, c.Kind)
 		}
@@ -624,6 +650,16 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 		return 1
 	}
 	return 0
+}
+
+// addressedSourceLabel names the file an addressed contribution delivers, for the report. An
+// absent `from` is the pack's CONVENTIONAL source, and saying so beats printing `""` — the
+// author who omitted the field is the one most likely to be checking which file was read.
+func addressedSourceLabel(from string) string {
+	if from == "" {
+		return "its conventional source"
+	}
+	return from
 }
 
 // embeddedPacksForPrune returns the packs yolo SHIPS, as prune candidates. A pack the user
