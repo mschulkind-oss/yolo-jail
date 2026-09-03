@@ -97,7 +97,7 @@ func briefingWithHostFile(t *testing.T, hostContent string, generated bool,
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
-	body, err := os.ReadFile(filepath.Join(staging, briefingStagingName("claude")))
+	body, err := os.ReadFile(filepath.Join(staging, briefingStagingName(claudeBriefingDest)))
 	if err != nil {
 		t.Fatalf("no briefing was written for the claude pack: %v", err)
 	}

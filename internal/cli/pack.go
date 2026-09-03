@@ -433,8 +433,8 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// 1. DOES THIS PACK DO ANYTHING? Zero declared contributions AND nothing a reader picks
 	//    up by convention. Both halves are required: the pack `pack init` scaffolds has no
 	//    pack.json at all, and the jail's zero-ceremony merge still delivers its skills/ tree
-	//    and its AGENTS.md (packload.SkillsSourceDirs' and packload.BriefingProse's undeclared
-	//    fallbacks) — so "declares nothing" alone would fail-lint the scaffold.
+	//    and its AGENTS.md (packload.SkillsSourceDirs' and packload.BriefingProseFor's
+	//    undeclared fallbacks) — so "declares nothing" alone would fail-lint the scaffold.
 	case len(pack.Decl.Contributions()) == 0 && len(claimed) == 0:
 		msg := "pack declares ZERO contributions and ships nothing read by convention — it " +
 			"would do nothing in a jail. Add a contributes[] entry to pack.json " +
@@ -645,8 +645,9 @@ func stagedContent(staged []string, pack *packload.Pack, skillRoots []string) (c
 	// `briefing.from` names a file and `skills.from` names a dir.
 	sources := append([]string{}, skillRoots...)
 	// The conventional briefing file is read whether or not a `briefing` contribution names
-	// it: a pack with no manifest at all still contributes it (packload.BriefingProse's
-	// undeclared fallback), and a declared `from` falls back to it (BriefingCandidates).
+	// it: a pack with no manifest at all still contributes it (the undeclared fallback both
+	// notches apply — run.packBriefingProses and packload.ResolveDestinations), and a declared
+	// `from` falls back to it (BriefingCandidates).
 	//
 	// READ FROM packdecl, never re-listed here. This was a hardcoded {"AGENTS.md",
 	// "CLAUDE.md"} and it went stale the day CLAUDE.md left DefaultBriefingFiles

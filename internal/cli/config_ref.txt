@@ -850,7 +850,17 @@
                     pack with no manifest merges its skills/ dir.  A `from` naming a dir
                     the pack lacks delivers nothing and says so (except the CONVENTIONAL
                     skills/, whose absence is normal for a pack that only names a dest).
-      briefing      {from, into, after:"host:<path>" to prepend your own file first}
+      briefing      {from, into, after:"host:<path>" to prepend your own file first,
+                    agent, agents}.  `agent` is the IDENTITY a destination declares for
+                    itself — the launcher command whose agent reads that `into`, declared
+                    by the pack that OWNS the name.  `agents` is the AUDIENCE a
+                    contribution names: deliver this prose only where a matching `agent`
+                    was declared.  A contribution gives `into` OR `agents`, never both —
+                    naming who it is for is what makes the destination inferable, and a
+                    content pack has no business naming a path it cannot keep current.
+                    NO `agents` means BROADCAST, which is what every pack does today.
+                    One name has exactly ONE owning pack, across `program`, `launch`,
+                    `briefing` and `skills`; two claimants is a launch error naming both.
       files         {from, into} — an opaque tree the pack owns, bind-mounted :ro at
                     `into` in the jail.  Unlike skills/briefing, `from` IS honored (a
                     file or a dir).  Sole-owned: two packs claiming one `into` is a
@@ -933,9 +943,10 @@
                     device.  `state_files` needs no claim (it stays inside yolo's own
                     state tree).  Refused at the host notch: a loophole is a host daemon
                     whose only client is a container, so with no jail there is no client.
-    NOTE (shipped behavior): a JAIL still reads briefing prose from a root AGENTS.md
-    regardless of `from` (the host notch honors it); and two packs declaring a skills
-    `into` at the SAME path fail the jail at boot.
+    NOTE (shipped behavior): two packs declaring a skills `into` at the SAME path fail
+    the jail at boot.  (This note also said a jail ignored `briefing.from` and read a
+    root AGENTS.md regardless.  That was fixed 2026-08-04 — both notches resolve
+    through one candidate chain, declared `from` first, the convention behind it.)
     Entry forms — a bare name, a source string, or an object:
       source      required unless the entry is a bare embedded-pack name.
                   file:///abs/path (local) or
@@ -954,7 +965,9 @@
     is built-in skills < pack skills < your own ~/.<agent>/skills, so a pack may
     override a yolo built-in but never a skill you wrote.
     Pack prose is appended to each briefing under a "from pack: NAME" header, so a
-    rule an agent follows is always traceable to its source.
+    rule an agent follows is always traceable to its source.  To EACH briefing unless
+    the contribution named an audience: prose carrying `agents` reaches only the
+    destinations whose owner declared a matching `agent`, at both notches.
     Tooling: [bold]yolo pack init|lint|ls|explain|footprint[/bold].  `lint` runs the real
     staging rules (the escaping-symlink refusal) AND validates the pack.json
     manifest (unknown kind, missing field, unknown key — every problem, not the

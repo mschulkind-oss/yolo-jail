@@ -6,7 +6,7 @@ package packload
 // A pack that is just a `skills/` tree and an AGENTS.md — no pack.json at all — is the entry
 // point `yolo pack --help` and the migration guide both promote, and in a jail it works: the
 // boot path collects every selected pack's skills source (SkillsSourceDirs' `if !declared`
-// fallback) and its prose (ComposePackBriefings), then merges the union into every destination
+// fallback) and its prose (run.packBriefingProses), then merges the union into every destination
 // any pack DECLARED. The host render did not, because it iterates `Decl.Contributions()` and a
 // manifest-less pack has none — so `pack lint` said `✓ pack ok`, the apply printed nothing
 // about it, and a real $HOME received zero files (docs/plans/feedback-real-pack-adoption.md F1).

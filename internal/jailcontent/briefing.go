@@ -551,15 +551,40 @@ func WorkspaceIsYoloSourceTree(workspace string) bool {
 }
 
 // PackBriefing is one pack's contribution to an agent briefing (C3).
+//
+// ONE PER CONTRIBUTION since briefing-audiences.md, where it used to be one per PACK. That is
+// the limit §5 lifts: with a single (pack, text) pair, a pack declaring two briefing
+// contributions with two different `from` files could deliver only the first into a jail,
+// while the host render honored both. The caller (run.packBriefingProses) is what enumerates
+// them; this type only had to stop being the bottleneck.
 type PackBriefing struct {
 	// Name is the pack's name, used for the provenance header.
 	Name string
 	// Text is the pack's AGENTS.md prose, already read.
 	Text string
+	// Agents is the AUDIENCE this prose names — the launcher commands it is FOR. EMPTY MEANS
+	// BROADCAST, which is the pre-field behavior and the only behavior a pack with no
+	// pack.json can ask for (briefing-audiences.md P2).
+	//
+	// It holds the audience rather than a resolved destination because a content pack names
+	// WHO and never WHERE: where an agent reads is that agent pack's business and changes
+	// when the agent changes (P4). ComposePackBriefings matches it against the identity the
+	// DESTINATION declared.
+	Agents []string
 }
 
-// ComposePackBriefings appends each pack's prose to a briefing, in config order,
-// under a provenance header naming the pack.
+// ComposePackBriefings appends each pack's prose to ONE DESTINATION's briefing, in config
+// order, under a provenance header naming the pack.
+//
+// `agent` is the identity that destination declared for itself, or "" for a destination that
+// declared none. It is what makes this per-DESTINATION rather than per-jail, and moving that
+// call inside the write loop is the jail half of briefing-audiences.md: before, one body was
+// composed once and written to every destination, so a pack whose rules applied to one agent
+// had to broadcast them to all of them.
+//
+// THE MATCH IS AGAINST A DECLARED STRING, never anything derived (OQ-BA2). So a destination
+// that declares no identity is simply never named by any selector (R4) — an addressed
+// contribution skips it, and a broadcast one still reaches it.
 //
 // The header is not decoration. Pack prose is INSTRUCTIONS an agent will follow, and
 // a jail may carry several packs plus yolo's own briefing plus the user's — so
@@ -569,9 +594,12 @@ type PackBriefing struct {
 //
 // Empty text is skipped rather than emitting an empty section: a pack with no
 // briefing should leave no trace.
-func ComposePackBriefings(base string, packs []PackBriefing) string {
+func ComposePackBriefings(base string, packs []PackBriefing, agent string) string {
 	out := base
 	for _, p := range packs {
+		if !addressesAgent(p.Agents, agent) {
+			continue
+		}
 		text := strings.TrimRight(p.Text, " \t\r\n")
 		if text == "" {
 			continue
@@ -580,4 +608,23 @@ func ComposePackBriefings(base string, packs []PackBriefing) string {
 			"<!-- from pack: " + p.Name + " -->\n" + text + "\n"
 	}
 	return out
+}
+
+// addressesAgent reports whether prose naming `agents` belongs at a destination whose declared
+// identity is `agent`.
+//
+// NIL/EMPTY IS BROADCAST, and the whole safety of landing the field ahead of any pack adopting
+// it rests on this line: a jail full of packs that name no audience composes exactly what it
+// did before. An empty `agent` (a destination declaring no identity) therefore still receives
+// every broadcast and no addressed prose — the two halves of R4 in one predicate.
+func addressesAgent(agents []string, agent string) bool {
+	if len(agents) == 0 {
+		return true
+	}
+	for _, a := range agents {
+		if a == agent {
+			return true
+		}
+	}
+	return false
 }

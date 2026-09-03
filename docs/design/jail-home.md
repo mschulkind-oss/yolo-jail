@@ -387,9 +387,13 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   the same pack manifests — not from a registry, which is why `CtxPath` is
   deliberately the single definition both sides call — and reads
   `settings.json` fail-open from the mount.
-- **Briefings**: per `briefing` contribution,
-  `AGENTS_DIR/<cname>/briefing-<pack>.md` → `/home/agent/<into>` **ro**
-  (assemble.go's briefing loop; staging name is `briefingStagingName`).
+- **Briefings**: per DESTINATION,
+  `AGENTS_DIR/<cname>/briefing-<escaped into>` → `/home/agent/<into>` **ro**
+  (assemble.go's briefing loop; the destination list and the staging name both come
+  from `briefingDestinations`/`briefingStagingName` in
+  `internal/cli/run/briefingdest.go`, which the write half also calls). The key was
+  the PACK until 2026-09-03; it moved because the composed content now varies per
+  destination (`briefing-audiences.md` §5), so a pack no longer identifies a file.
   Destinations are pack data, not pairs in a table:
   claude→`.claude/CLAUDE.md`, copilot→`.copilot/copilot-instructions.md`,
   codex→`.codex/AGENTS.md`, opencode→`.config/opencode/AGENTS.md`,

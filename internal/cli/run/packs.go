@@ -165,9 +165,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	var briefings []jailcontent.PackBriefing
 	for _, p := range loaded {
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
-		if text := o.packBriefingProse(p); text != "" {
-			briefings = append(briefings, jailcontent.PackBriefing{Name: p.Name, Text: text})
-		}
+		briefings = append(briefings, o.packBriefingProses(p.Name, p)...)
 	}
 
 	// The lockfile records which fetched packs the user approved host access for, and
@@ -229,9 +227,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		loaded = append(loaded, p)
 
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
-		if text := o.packBriefingProse(p); text != "" {
-			briefings = append(briefings, jailcontent.PackBriefing{Name: entry.Name, Text: text})
-		}
+		briefings = append(briefings, o.packBriefingProses(entry.Name, p)...)
 	}
 	// THE REFUSAL, and it comes FIRST of the pre-flights: the four below are about pack
 	// MECHANICS (two packs claiming one destination, a name that shadows a reserved one) and
@@ -964,20 +960,77 @@ func packRoot(entry config.PackEntry, getenv func(string) string) (string, error
 	return res.Root, nil
 }
 
-// packBriefingProse is the pack's briefing prose for THIS launch, honoring each briefing
-// contribution's declared `from` and warning about one that cannot be honored.
+// packBriefingProses is every briefing prose this pack delivers into a JAIL — one entry per
+// briefing CONTRIBUTION that resolves to content, each carrying the AUDIENCE that
+// contribution named.
 //
-// It replaces a reader that took a DIRECTORY and scanned `AGENTS.md`/`CLAUDE.md`
-// unconditionally, so a pack declaring `from: "house-rules.md"` had it honored at the host
-// notch and silently IGNORED here (roadmap.md §6a-4). Both readers now go through
-// packload, which is the same convergence `skills` needed for the same reason — three
+// It honors each contribution's declared `from` and warns about one that cannot be honored,
+// which is what it replaced a reader for: that reader took a DIRECTORY and scanned
+// `AGENTS.md`/`CLAUDE.md` unconditionally, so a pack declaring `from: "house-rules.md"` had it
+// honored at the host notch and silently IGNORED here (roadmap.md §6a-4). Both readers go
+// through packload, which is the same convergence `skills` needed for the same reason — three
 // hardcoded conventional-source joins are how the field came to be validated and ignored.
-func (o *Options) packBriefingProse(p *packload.Pack) string {
-	text, problems := p.BriefingProse()
-	for _, prob := range problems {
-		o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
+//
+// ONE ENTRY PER CONTRIBUTION, where packload.BriefingProse returns one per PACK. That
+// function's own docstring records why: "the jail's composition takes one (pack, text) pair
+// per pack, so a pack declaring two briefing contributions with two different `from` files
+// cannot deliver both there … making the jail match would mean composing per destination,
+// which is a larger change". This is that larger change (briefing-audiences.md §5), so the
+// per-pack reader is no longer the right one and is no longer called from the launch path.
+//
+// IDENTICAL PROSE IS DELIVERED ONCE, with the audiences UNIONED and a BROADCAST absorbing
+// every audience. That is not tidiness, it is the regression the per-contribution reading
+// would otherwise introduce: two contributions that name no `from` both resolve to the same
+// conventional AGENTS.md, so a pack naming two destinations and no source would have its prose
+// composed TWICE into every briefing — something the old first-non-empty-wins reader could not
+// do. Deduping on the resolved TEXT rather than on the source path is deliberate: the source a
+// contribution resolved to is not returned by BriefingProseFor (its precedence is a fallback
+// chain), and two files with identical content are one delivery either way.
+func (o *Options) packBriefingProses(name string, p *packload.Pack) []jailcontent.PackBriefing {
+	var out []jailcontent.PackBriefing
+	index := map[string]int{}
+	add := func(text string, agents []string) {
+		text = strings.TrimRight(text, " \t\r\n")
+		if text == "" {
+			return
+		}
+		if i, seen := index[text]; seen {
+			if len(out[i].Agents) == 0 || len(agents) == 0 {
+				out[i].Agents = nil // a broadcast reaches everywhere an audience could
+				return
+			}
+			out[i].Agents = append(out[i].Agents, agents...)
+			return
+		}
+		index[text] = len(out)
+		out = append(out, jailcontent.PackBriefing{Name: name, Text: text, Agents: agents})
 	}
-	return text
+	warn := func(prob string) {
+		if prob != "" {
+			o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
+		}
+	}
+	declared := false
+	for _, c := range p.Decl.Contributions() {
+		if c.Kind != packdecl.KindBriefing {
+			continue
+		}
+		declared = true
+		text, prob := p.BriefingProseFor(c)
+		warn(prob)
+		add(text, c.Agents)
+	}
+	if !declared {
+		// THE ZERO-CEREMONY PACK, and the fallback lives here for the reason
+		// packload.BriefingProse's does: the call site that forgot it would silently drop
+		// every manifest-less pack's prose. It has no manifest to name a source OR an
+		// audience in, so it is a broadcast of the conventional file — which is exactly what
+		// P2 promises keeps working untouched.
+		text, prob := p.BriefingProseFor(packdecl.Contribution{Kind: packdecl.KindBriefing})
+		warn(prob)
+		add(text, nil)
+	}
+	return out
 }
 
 // copyTree copies a staged pack tree to dest at mode 0o644, or 0o755 for a file whose

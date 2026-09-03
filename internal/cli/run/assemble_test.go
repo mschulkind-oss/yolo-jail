@@ -540,9 +540,13 @@ func podmanLinuxGolden(home string) []string {
 	// skills mount (claude has .claude/skills).
 	add("-v", agentsPath+"/skills-claude:/home/agent/.claude/skills:ro")
 	// PACK-DECLARED briefing mount: the claude pack declares AGENTS.md -> .claude/CLAUDE.md.
-	// The staged name is per-PACK (briefing-<pack>.md) so two packs cannot collide on
-	// one staged file, which the old per-agent name could not guarantee.
-	add("-v", agentsPath+"/briefing-claude.md:/home/agent/.claude/CLAUDE.md:ro")
+	// The staged name is per-DESTINATION since briefing-audiences.md — RFC 6901-escaped (`/`
+	// → `~1`), injective, computed by run.briefingStagingName, which the write half uses too.
+	// It was per-PACK while every destination received the same composed body; once the body
+	// varies with the destination's audience, the pack no longer identifies a file. The literal
+	// is spelled out rather than computed so this golden still pins the ENCODING: a change to
+	// the escape is a host-side staging rename, and R2 is about exactly that going unnoticed.
+	add("-v", agentsPath+"/briefing-.claude~1CLAUDE.md:/home/agent/.claude/CLAUDE.md:ro")
 	// image + entrypoint. The ref is the fixture's, NOT a constant: since C2 the
 	// image is addressed by the hash of the store path it was built from, so an
 	// assembler that re-derived a name here — the pre-C2 jailImageRef(rt) — would
@@ -590,6 +594,13 @@ func TestUserConfigMountDeliversBothTheGeneratedConfigAndConfigLua(t *testing.T)
 // credentials dir), so the fixture has to come from the real pack manifest rather than
 // a hand-written stub — otherwise the golden would pin what the test author believed
 // the pack says instead of what it says.
+// claudeBriefingDest is the destination packs/claude declares for its briefing, and since
+// briefing-audiences.md it is also the STAGING KEY (briefingStagingName is keyed by
+// destination, not by pack — the composed content now varies per destination, so the pack no
+// longer identifies a file). Named rather than repeated in five test files so a change to the
+// shipped pack's `into` breaks in one place.
+const claudeBriefingDest = ".claude/CLAUDE.md"
+
 func claudePackFixture(t *testing.T) []*packload.Pack {
 	t.Helper()
 	loaded, problems := packload.MaterializeEmbedded(officialpacks.FS, t.TempDir())

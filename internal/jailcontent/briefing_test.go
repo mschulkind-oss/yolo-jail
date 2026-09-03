@@ -117,7 +117,7 @@ func TestComposePackBriefingsAttributesEachPack(t *testing.T) {
 	got := ComposePackBriefings("BASE BRIEFING\n", []PackBriefing{
 		{Name: "acme", Text: "Always use rg.\n"},
 		{Name: "team-rust", Text: "Prefer thiserror.\n"},
-	})
+	}, "claude")
 	for _, want := range []string{
 		"BASE BRIEFING",
 		"<!-- from pack: acme -->",
@@ -138,7 +138,7 @@ func TestComposePackBriefingsAttributesEachPack(t *testing.T) {
 
 // A pack with no briefing must leave no trace — no empty attributed section.
 func TestComposePackBriefingsSkipsEmpty(t *testing.T) {
-	got := ComposePackBriefings("BASE\n", []PackBriefing{{Name: "quiet", Text: "  \n"}})
+	got := ComposePackBriefings("BASE\n", []PackBriefing{{Name: "quiet", Text: "  \n"}}, "claude")
 	if strings.Contains(got, "quiet") {
 		t.Errorf("an empty pack briefing must emit nothing:\n%s", got)
 	}
