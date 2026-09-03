@@ -1,12 +1,37 @@
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Status:** IN PROGRESS — restamped **2026-08-23** (written 2026-07-21; body
+**Status:** IN PROGRESS — restamped **2026-09-03** (written 2026-07-21; body
 below is the original plan except where a dated annotation says otherwise).
 Tracks J and M are done. Track D's engineering is done, but **two of its four
 steps were later reverted or superseded** and the header this line replaces did
 not say so. **A2 and Track L part 1 are still open**, so that header's closing
 claim — *"nothing engineering-side fully open"* — was **false**; it is retracted
 in §*Retracted claims* below.
+
+> [!IMPORTANT]
+> **2026-09-03: the Mac is back on the product, and this changes what "Mac-gated"
+> means for everything below.** Measured on the maintainer's Apple Silicon Mac
+> (macOS 26.5, arm64): the installed `yolo` is `0.8.0+881.ga6f61864` — **exactly
+> HEAD**, not the 531-commits-stale build the 2026-08-19 note recorded — and the
+> config has moved off the removed `agents` key. `yolo check --no-build` under
+> `YOLO_RUNTIME=macos-user` reports **29 passed, 6 warnings, 0 failed**, with the
+> macOS-user readiness section green throughout (`sandbox-exec`, `_yolojail`, nix
+> daemon trusted, `flake.lock`), and `yolo run --dry-run` renders a complete,
+> invariant-clean plan **in 0.093s**. The Mac-gated proofs in this plan are
+> therefore *runnable* again; they are not yet *run*.
+>
+> **What still blocks a real launch there is not yolo.** The maintainer's user
+> config selects packs by `file:///home/matt/.dotfiles/yolo-packs/…` — Linux
+> paths, from a dotfiles tree shared with the Linux host — and `/home/matt` does
+> not exist on macOS, so pack resolution fails before the backend is reached.
+> yolo has no `~`/env expansion for a `file://` pack source, so the config cannot
+> currently name one tree on both machines. Whether that is fixed in the dotfiles
+> (a machine-local `overrides.jsonc`, which that config already includes) or in
+> yolo (expansion in a local pack source) is a maintainer decision, and it is the
+> single thing standing between this plan and a live macos-user session.
+>
+> **Two defects were found by that measurement and fixed the same day** — see the
+> two `2026-09-03` rows in the table below.
 
 **The short version.** The revival landed: macos-user is a real, real-HW-proven
 backend and the distribution regression is closed by a baked prebuilt bundle
@@ -44,6 +69,9 @@ reading code or `git log`; nothing here is carried over on trust.
 | A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go:286` |
 | Track L part 1 (framework plumbing) | **NOT STARTED** | `startLoopholesDisclosed` is called once, at `internal/cli/run/run.go:569`, inside `runContainer` (`run.go:308`); `macosuser.EndpointGrantCommands` (`macosuser.go:430`) has **zero call sites** |
 | Track L part 2 (scoping proxy) | **BLOCKED on OQ-L1** | unchanged |
+| check's python3 probe | **DELETED 2026-09-03** | it hard-FAILed a python-less Mac for a requirement J2 dropped on 2026-07-21 (`544a8069`); `internal/cli/check/sections_macos.go` |
+| macos-user repo-root gate for `packages:` | **FIXED 2026-09-03** | an unresolved root reached `darwinpkg.Materialize("")` → empty `cmd.Dir` → nix evaluated the user's cwd; `internal/cli/run/run.go`, `internal/darwinpkg/materialize.go` |
+| macos-user self-hosting (jail-in-jail) | **STRUCTURALLY BLOCKED; the workaround was proposed and REJECTED** | measured 2026-09-03 — see §*Self-hosting*, OQ-SH-1 |
 
 **D4, stated honestly.** The substituter is live and the flake's own cache is
 honored on every nix invocation. `handoff-cachix-cache.md` records the cache,
@@ -608,14 +636,15 @@ Apple Silicon (macOS 26.5).** Recipe + e2e results:
 The bullets below are the original plan; see that runbook for what actually ran.
 
 > [!WARNING]
-> **M2's dogfood flip has lapsed on the machine that proved it (measured
-> 2026-08-19).** The 07-21 proof is real and stands for the build it tested; it
-> is not a description of that Mac today. Its installed `yolo` was **531 commits
-> stale** and its `~/.config/yolo-jail/config.jsonc` still uses the **removed
-> `agents` key**, so every current `yolo` — on every backend, including `yolo
-> check` — refuses with the config-invalid fatal. All four names it selects
-> (`claude`, `pi`, `codex`, `agy`) exist as packs, so the fix is renaming the key
-> to `packs` and nothing else. **Not applied — the maintainer's config.**
+> **M2's dogfood flip lapsed (2026-08-19) and has since been half-recovered
+> (measured 2026-09-03).** The 07-21 proof is real and stands for the build it
+> tested. As of today the machine is back on current code — installed `yolo` is
+> `0.8.0+881.ga6f61864`, matching HEAD, and the config is on the `packs` key — so
+> the "531 commits stale / removed `agents` key" reading of this row is **retired**.
+> What has NOT been recovered is a live session: the config's `file:///home/matt/…`
+> pack sources do not resolve on macOS (see the header), so the launch still stops
+> at pack resolution rather than at the backend. **M2 is one config edit away, and
+> that edit is the maintainer's.**
 >
 > What the 2026-08-19 session *did* prove, by extracting the profile a real
 > `--dry-run` emits and running the work under `sandbox-exec`: the **Seatbelt
@@ -661,9 +690,20 @@ The bullets below are the original plan; see that runbook for what actually ran.
 
 ## Track L — loophole framework on macos-user (future; use-case-gated)
 
-> **Status: NOT STARTED.** Not sequenced into the J/D/M ladder — this is a
-> forward-looking capability, not a revival blocker. Recorded 2026-07-23 from the
-> `macos-user-nix-and-features.md` §3.5 discussion.
+> **Status: NOT STARTED. Sequencing UNCHANGED** — recorded 2026-07-23 from the
+> `macos-user-nix-and-features.md` §3.5 discussion, still a forward-looking
+> capability and not a revival blocker.
+>
+> **2026-09-03, and read this before reusing part 1 for anything:** a revision of
+> §*Self-hosting* earlier that day re-sequenced this track to "dev-loop enabler",
+> on the theory that a host-side daemon is how a macos-user jail could start a jail.
+> **That was retracted the same day** — a daemon that starts jails on request from
+> inside a jail is the `docker.sock` antipattern, and the CVE history of the closest
+> real analogue (`com.docker.vmnetd`, CVE-2020-15360) is the failure mode. Track L
+> part 1 remains what it was: transport plumbing for loopholes whose host daemon
+> mediates a *narrow, named* resource. **"Start a jail" is not such a resource**, and
+> the distinction — a daemon that does one bounded thing vs. one that does whatever
+> the caller describes — is the line part 1 must not cross.
 >
 > **Still NOT STARTED, rechecked 2026-08-23.** The loophole host-service
 > lifecycle is called exactly once, at `internal/cli/run/run.go:569`
@@ -719,6 +759,216 @@ credential and never lets it cross into the jail.
 
 ---
 
+## Self-hosting: can a macos-user jail launch a macos-user jail?
+
+> **Measured 2026-09-03** on the maintainer's Mac (macOS 26.5, arm64), against the
+> Seatbelt profile a real `--dry-run` emits. Every table row below is an observed
+> result, not a reading of Apple's docs.
+
+**The ask.** The Linux dev loop verifies `internal/` changes by launching a nested
+jail, and AGENTS.md makes that mandatory. If macos-user could do the same, the
+loop would be dramatically faster — this backend builds no image at all, and its
+whole plan renders in **0.093s** against ~45s+ for a nested Linux image rebuild.
+It would also be fully agent-driven, with no human at a sudo prompt.
+
+**It cannot, and there are two independent structural reasons.**
+
+### 1. `sudo` cannot exec inside any Seatbelt sandbox
+
+Not "is not authorized" — the exec itself is refused, and it is refused under a
+profile that allows everything:
+
+```console
+$ sandbox-exec -p '(version 1)(allow default)' /bin/sh -c '/usr/bin/sudo -n true'
+/bin/sh: /usr/bin/sudo: Operation not permitted
+```
+
+Seatbelt denies setuid exec regardless of profile content, so no profile edit
+reaches it. Every macos-user launch step is privileged — the root-owned staging
+into `/var/yolo-jail` (`StageBinaryCommands`, `StagePackCommands`), the 0444
+profile install, and `sudo --user=_yolojail` itself — so the entire privileged
+half of the launch is unreachable from inside a jail.
+
+### 2. Seatbelt does not nest a *different* profile
+
+`sandbox_apply` refuses any profile that is not effectively identical to the one
+already applied. This is an **equality** constraint, not a "may only narrow" one —
+which is the surprise, and it is why "just hand the inner jail a stricter profile"
+is not an option:
+
+| outer profile | inner profile | result |
+| :--- | :--- | :--- |
+| `(allow default)` | `(allow default)` | applies |
+| `(allow default)` | `(allow default)` + one extra `deny` | `sandbox_apply: Operation not permitted` |
+| yolo's profile | yolo's profile | applies (and the outer denies still hold in the child) |
+| yolo's profile | yolo's profile + one extra `deny` | `Operation not permitted` |
+| yolo's profile | `(allow default)` | `Operation not permitted` |
+
+Row 3 is why an early reading of this looked like "nesting works": re-applying the
+*same* profile succeeds, because it is a no-op. Nothing that would make the inner
+jail different from the outer one is permitted. This matches the general finding
+that macOS sandboxes do not nest.
+
+### The helper-daemon idea, and why it is REJECTED
+
+> **⚠ Retracted 2026-09-03, the same day it was written.** An earlier revision of
+> this section recommended a host-side helper daemon as the unblocker, on the
+> strength of a working measurement. The measurement stands; the recommendation
+> was wrong, and it was wrong on the axis the measurement could not see.
+
+The mechanism does work. A process under yolo's profile can connect to a unix
+socket, and an unsandboxed helper on the other end can spawn a `sandbox-exec` child
+under a *different* profile — because that child is a sibling of the caller, not a
+descendant, so no `sandbox_apply` happens in a sandboxed process at all:
+
+```
+sandboxed client ──unix socket──► unsandboxed helper ──sandbox-exec──► fresh jail
+   (profile A)                      (no profile)                        (profile B)
+```
+
+**And that is precisely the shape of the worst-known container antipattern.**
+Bind-mounting `/var/run/docker.sock` into a container is root-equivalent for exactly
+this reason: the container needs no privilege, no capability and no namespace
+escape — *it asks a privileged daemon to do the work*. A yolo helper that accepts
+"start a jail" from inside a jail is the same object with a different noun. Three
+specific problems, none of which the socket experiment touches:
+
+1. **The policy must not come from the caller, and it is not obvious what else it
+   can come from.** If the jail supplies the profile, it supplies `(allow default)`
+   and the confinement is over. If the helper derives the profile, it derives it
+   from a workspace path the jail names — so the jail names `/Users/matt` and the
+   confinement is over again. The only sound rule is *inner ⊆ outer*, which is the
+   check Seatbelt would have performed if it could nest, now reimplemented in our
+   code, in SBPL, correctly, forever.
+2. **On this backend the helper cannot tell WHICH jail is calling.** `SandboxUser`
+   is the constant `_yolojail`; every jail on the machine is that one uid, so peer
+   credentials on the socket identify the account and not the session. Per-session
+   endpoint files (which `EndpointGrantCommands` grants by ACE) are grants to the
+   same uid, so any jail can read any of them. This is OQ-L1's "how does it
+   authenticate which jail is calling" question, arriving early and with no answer.
+3. **The precedent is bad.** `com.docker.vmnetd` — the closest real analogue, a
+   macOS privileged helper for a container runtime — shipped a local privilege
+   escalation *for lack of client verification* (CVE-2020-15360), which is failure
+   mode 2 above, in production, in the product that invented this pattern.
+
+A root helper would additionally be a permanent, always-listening escalation path
+on the host, added to buy a *development convenience*. That trade is not close.
+
+### What podman-in-podman actually gives, and the macOS shape of it
+
+The Linux loop does not delegate. **The jail runs its own container engine** —
+`--userns=host`, `--net=host`, `--cgroups=disabled`, and the inner container is a
+child of the outer, bounded by it. No host daemon is asked for anything, so the
+host gains no request surface. That difference — *run your own engine* vs *ask a
+privileged one* — is the whole security story, and it is why the Linux loop is fine
+and the helper is not.
+
+It is also what makes loophole development work there: the outer jail IS the host
+for the inner container, which is exactly the trick AGENTS.md documents for the
+reachability carve-out (bind a listener on the jail's own loopback, dial it from a
+`podman run` container). A helper-spawned sibling reproduces none of that — it
+shares the outer jail's uid AND its home (`SandboxHome()` is a constant), so the
+boundary under test would not be the boundary that exists.
+
+**There is a macOS analogue, and it is the same shape.** A Seatbelt-sandboxed
+process CAN start a VM through `Virtualization.framework` — no helper, no daemon,
+no privilege change — once the profile grants what the framework needs. The
+reported denial is an XPC lookup, and the reported fix is four SBPL rules:
+
+```scheme
+(allow mach-lookup (global-name "com.apple.Virtualization.VirtualMachine"))
+(allow mach-task-name)
+(allow generic-issue-extension (extension-class "com.apple.virtualization.extension.fuse") …)
+;; plus writable paths for the VM's own disk/cache dirs
+```
+
+Verified here only that a yolo profile carrying the first two **parses and applies**
+(2026-09-03); the VM start itself is NOT reproduced on this machine and the source
+is a single write-up ([brentfitzgerald.com](https://brentfitzgerald.com/posts/lima-vms-from-a-sandboxed-agent/),
+2026-05-27). `mach-task-name` is broad and cannot be scoped to one executable —
+that author says so too.
+
+If it holds, a macos-user jail can host a **podman machine or Apple Container**
+inside itself, and a nested `yolo` on those runtimes behaves exactly as it does on
+Linux. The authority stays with the jail's own uid; nothing outside the sandbox
+gains a new thing it will do on request. That is the property the helper lacks.
+
+### What CAN be developed inside a macos-user jail — measured, and it is most of it
+
+The nesting answer above is about launching a *whole* jail. That is not the same
+question as "can this backend be developed from inside itself", and the second
+question has a much better answer. Measured 2026-09-03, from inside a real
+macos-user Seatbelt profile:
+
+| Piece of a macos-user launch | Inside a jail? | How |
+| :--- | :--- | :--- |
+| config load, validation, pack staging, plan build | **yes** | `yolo run --dry-run` runs unmodified — 0.093s, invariants and all |
+| **the entire bootstrap** — shims, `.bashrc`/`.zshrc`/`.zprofile`, mise config, MCP wrappers, `yolo-log`, launcher dirs | **yes** | `yolo internal darwin-bootstrap` with `HOME`/`JAIL_HOME` pointed at a writable temp dir. It took its whole contract from env vars already |
+| the generated blockers actually blocking | **yes** | exec the generated `~/.yolo/bin/block/grep` — it refused and printed its suggestion |
+| **the staging commands, really executed** | **yes** | take the argv the plan prints, drop the `sudo` prefix, redirect `/var/yolo-jail` → a writable path. Verifies the commands, the `a+rX` mode, AND the J2 fresh-inode rule (re-staging over a prior stage still execs — the macOS vnode signature-cache trap) |
+| profile GENERATION | **yes** | a pure function over `(workspace, home, readonly)` |
+| profile SEMANTICS | **partly** | not for an arbitrary profile (no nesting), but the jail you are sitting in is a live specimen of one — which is exactly what the 2026-08-19 session measured |
+| `sudo` itself | **no** | setuid exec is denied in any Seatbelt sandbox |
+| the `sudo -u _yolojail` identity switch | **no** | same |
+| applying a NEW Seatbelt profile | **no** | the equality constraint above |
+
+The irreducible remainder is therefore narrow and nameable: **"does the privilege
+transition work"** — three lines of the launch, not a development loop. Everything
+around it is exercisable in-jail today, with no product changes, because these
+pieces already take their inputs from env and argv rather than from ambient state.
+
+**The gap worth closing is automated coverage, not capability.** `rg darwin-bootstrap
+--type go` finds tests in `internal/entrypoint` only, and `integration/` has no
+macos-user file at all — so none of the three green rows above is pinned by anything
+that runs in CI. A darwin-gated harness that (1) bootstraps into a temp home and
+asserts the generated tree, and (2) runs the staging argv against a temp dest and
+asserts mode + fresh inode, would convert this section from "an agent can check by
+hand" into a regression suite, and it needs no privilege to run.
+
+**One thing NOT to build:** a `--no-confine` launch mode that skips the sudo and
+sandbox-exec steps so the "whole thing" appears to run in-jail. It would be a mode
+that looks like a jail and is not one, which is the exact failure class
+`workspace_readonly`-on-macos-user was fixed for (`d0961f2c`, *stop
+`workspace_readonly` lying*). Keep the remainder visible as a remainder.
+
+### And the option that needs no new code at all
+
+**Develop yolo on the Mac in a podman jail, not a macos-user jail.** The Mac has
+`podman` (applehv provider) and Apple Container; a container-backend jail there
+gives the Linux dev loop unchanged, podman-in-podman included, under the agent's
+full control and with no sudo. macos-user then stops being the *development*
+environment and is only the backend *under test* — which is what it is anyway,
+since a macos-user jail cannot verify a macos-user change no matter how the nesting
+question is answered. Requires `podman machine init` on that Mac (measured
+2026-09-03: the binary is installed, no machine is created).
+
+### OQ-SH-1 — is macos-user self-hosting worth pursuing at all? (maintainer)
+
+Ranked, after the retraction above:
+
+0. **Develop the PIECES in a macos-user jail — available today, nothing to build.**
+   Bootstrap, staging, plan and profile generation all run in there (§*What CAN be
+   developed inside a macos-user jail*). This is the answer to "I want to develop
+   macos-user inside a jail"; what it cannot cover is the privilege transition, and
+   nothing can.
+1. **Develop in a podman jail on the Mac** when a WHOLE nested jail is the point —
+   loophole development, launch-path end-to-end. No new code, no new attack surface,
+   genuine nesting. One `podman machine init`.
+2. **VM-in-sandbox** (the four SBPL rules), if a macos-user jail specifically needs
+   to host an inner jail. Needs reproducing on real hardware first; widens the
+   profile in named, bounded ways; keeps authority inside the jail's own uid.
+3. **Scoped `NOPASSWD` sudoers drop-in** — orthogonal to all of the above. It buys
+   a prompt-free OUTER launch and nothing else, and it is NOT free: the staging argv
+   includes `cp -f <source> /var/yolo-jail/yolo.new` followed by a root `mv`, which
+   is a write-anything-as-root primitive unless the rule pins the source path
+   exactly. Worth doing, worth pinning.
+4. **The helper daemon — do not build.** See the retraction.
+
+**Not blocking anything.** Every Mac-gated proof in this plan is performed from an
+unsandboxed Mac shell, which needs none of this.
+
+---
+
 ## Sequencing at a glance
 
 ```
@@ -737,7 +987,10 @@ LATER:           Track L part 1 (framework plumbing on the macos-user launch pat
 ```
 
 **The one live engineering item is A2's second half** — independent, pure-Go /
-flake-only, Linux-jail-developable + testable. It carries a Track M checklist
+flake-only, Linux-jail-developable + testable. *(Amended 2026-09-03: still true of
+the items this plan had ALREADY scoped, but Track L part 1 is now a live candidate
+too — see §Self-hosting. And two smaller defects were found and fixed on
+2026-09-03; they were never in this list because nobody had measured them.)* It carries a Track M checklist
 line (confirm the hard error fires live on a genuinely darwin-less package —
 never exercised on M1). *The DONE row is "landed at some point", not "in the
 tree today": read the daggers.* Verified 2026-08-23.
@@ -850,9 +1103,18 @@ tree today": read the daggers.* Verified 2026-08-23.
   runners cannot nest a VM for Podman Machine — so when 26.05 lapses the choice
   is a self-hosted arm64 Mac runner or macos-user-only macOS tests. A deadline,
   not a bug.
-- **NEW — the Mac that proved Track M has drifted off the product.** At
-  2026-08-19 its installed `yolo` was 531 commits stale and its config still
-  used the removed `agents` key, so no current `yolo` launches there. The next
-  Mac session starts with that config rename, or nothing else in this plan can
-  be re-measured. **Not applied — the maintainer's config, the maintainer's
-  call.**
+- ~~**NEW — the Mac that proved Track M has drifted off the product.**~~ —
+  **LARGELY CLOSED 2026-09-03.** The binary is current (HEAD) and the config is
+  on `packs`. What survives is narrower and different in kind: the config's
+  `file://` pack sources are absolute **Linux** paths in a dotfiles tree shared
+  with the Linux host, and yolo expands neither `~` nor env vars in a local pack
+  source — so one config genuinely cannot name one pack tree on both machines.
+  The failure is loud and early (`local pack /home/matt/… is not a directory`),
+  which is why it is a risk item and not a defect. **Still the maintainer's
+  config, the maintainer's call** — but it is now the ONLY thing between this
+  plan and a live macos-user session.
+- **NEW — `sandbox-exec` deprecation is now load-bearing, not just accepted.**
+  The self-hosting analysis below turns on Seatbelt's inability to nest, and any
+  successor confinement API Apple ships would reopen that question. The risk was
+  already on this list as "accepted, no action"; what changed is that a decision
+  now depends on it.

@@ -649,14 +649,16 @@ largest reclaim available; the two repairs after that are cheap and independent.
   **Two things stand between that and a working `yolo -- claude` ON THE MAC, and only the first
   needs you:**
 
-  1. 💬 **The Mac's `~/.config/yolo-jail/config.jsonc` still uses the REMOVED `agents` key**, so
-     *no* current yolo launches on that machine, on any backend — `yolo check` and every `yolo` run
-     refuse with the config-invalid fatal. All four names (`claude`, `pi`, `codex`, `agy`) exist as
-     packs, so the fix is renaming the key to `packs`; nothing else in that file needs to change.
-     **Not applied — your config, your call.** (The Mac's installed `yolo` was **531 commits stale**
-     at 2026-08-19, which is why the refusal has not surfaced there in daily use. The Linux host is
-     unaffected on both counts — measured 2026-08-23 from a running jail's inherited config
-     snapshot: `packs` key, `yolo` at `0.8.0+412.gaef73cce`.)
+  1. 💬 ~~**The Mac's config still uses the REMOVED `agents` key**~~ — **CLOSED 2026-09-03, and
+     replaced by a narrower one.** Measured on the Mac: installed `yolo` is `0.8.0+881.ga6f61864`
+     (HEAD — the "531 commits stale" reading is retired) and the config is on `packs`.
+     `yolo check --no-build` under `YOLO_RUNTIME=macos-user` is **29 passed, 6 warnings, 0 failed**.
+     What still stops a launch is the pack SOURCES: they are `file:///home/matt/.dotfiles/yolo-packs/…`,
+     absolute **Linux** paths in a dotfiles tree shared with this host, and `/home/matt` does not
+     exist on macOS — so resolution fails with `local pack … is not a directory` before the backend
+     is reached. yolo expands neither `~` nor env vars in a local pack source, so one config cannot
+     currently name one tree on both machines. Fix it in the dotfiles (that config already includes
+     a machine-local `overrides.jsonc`) or in yolo. **Still your config, your call.**
   2. **A toolchain has to come from `packages:`, not the Mac's home.** `deny file-read* (subpath
      "/Users")` blocks `~/.local/share/mise`, so that host's mise-shimmed `go`/`just` are invisible
      inside the sandbox — correctly. Everything above was measured with `go`, `just` and `git`
@@ -669,14 +671,30 @@ largest reclaim available; the two repairs after that are cheap and independent.
   bootstrap path); the Seatbelt confinement is proven, the user-switch around it is not, and that is
   the remaining item in the row below.
 
+  **And the loop cannot close on itself — measured 2026-09-03.** A macos-user jail cannot launch a
+  macos-user jail: `sudo` cannot exec inside ANY Seatbelt sandbox (refused even under a bare
+  `(allow default)` profile), and `sandbox_apply` refuses any profile that is not effectively
+  identical to the active one — an equality constraint, so "hand the inner jail a stricter profile"
+  is not available either. A helper OUTSIDE the sandbox spawning the inner jail on request DOES
+  work mechanically, and was **proposed and rejected the same day**: it is the `docker.sock`
+  antipattern (the jail asks a privileged daemon instead of holding a privilege), and on this
+  backend the daemon cannot even tell WHICH jail is calling — every jail is the one `_yolojail`
+  uid. What podman-in-podman actually gives is the opposite shape: the jail runs its OWN engine,
+  so the host gains no request surface. The macOS analogue is a VM started from inside the sandbox
+  (four SBPL rules, no daemon, unreproduced here), and the option needing no code at all is to
+  develop on the Mac in a **podman** jail, leaving macos-user as the backend under test. 📄
+  [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) §Self-hosting,
+  **OQ-SH-1**.
+
 - 🔒 **On a Mac — three things need the hardware, and the first is a config rename.** *(The
   headline used to announce what had LEFT this row, which tells a reader nothing about what is in
   it. For the record: the two lib-farm assertions were never darwin assertions — they failed
   because the image build did, and both went green the moment `x86_64-darwin` could evaluate again.
   Nothing about the lib farm was wrong.)*
 
-  Three items remain, all genuinely host-gated — and **before any of them, that Mac's config still
-  uses the removed `agents` key, so no `yolo` launches there at all** (see the sandbox row above).
+  Three items remain, all genuinely host-gated — and **before any of them, that Mac's config names
+  its packs by Linux paths, so no `yolo` launches there at all** (see the sandbox row above; the
+  `agents`-key blocker this line used to name was closed on 2026-09-03).
   The three: the `macos-user` acceptance matrix, Track D4's download proof, and the guest-notch
   handoff (whose §2 item 1.4 — do packs reach a macos-user sandbox? — is still the first thing to
   run there). 📄
