@@ -1,9 +1,10 @@
 # Roadmap
 
-**Status: 13 needing you · 5 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 6 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-03** (💬 21 and the temp-dir leak added; every other row untouched and
-unre-verified since 2026-09-02). Counts tallied from this file, not asserted — one per `### 💬` heading,
+Last updated **2026-09-03** (host-apply staleness designed and landed in 📦 with zero open
+questions after four same-day restatements; the temp-dir leak it surfaced added beside it. Every
+other row untouched and unre-verified since 2026-09-02). Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
 in.
 
@@ -162,7 +163,7 @@ heading anchors. All five, and the allowlists they need, are in
 > was about, found by an adversarial re-check of the pass itself. If you add a heading style, check
 > the count moves.
 
-**Thirteen rows below is what the blocking subset groups into** — the rest are named
+**Twelve rows below is what the blocking subset groups into** — the rest are named
 in *What the roadmap does not cover* at the end, deliberately. The gap between 100 and 12 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 **💬 6's four rulings closed a whole row in a single turn**, and the 2026-09-02 audit closed four
@@ -608,59 +609,9 @@ requirement on the jail's pack set — and therefore whether addressed content p
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 21 — The host launch should re-render, gated exactly the way a jail launch is
-
-📄 [`host-apply-staleness.md`](../design/host-apply-staleness.md) — `OQ-HS9`
-(`OQ-HS0`–`OQ-HS8` ruled or superseded 2026-09-03, in that doc's ledger)
-
-`yolo host apply` writes pack surfaces into your real `$HOME` and then never looks again, so the
-rendered and would-be-rendered states drift apart silently. This jail's own home is drifted right
-now — three surfaces would overwrite live values, measured 2026-09-03.
-
-**Four drafts in one day; the last two each retracted the one before.** Draft 1 proposed a
-per-command staleness notice, draft 2 a prompt at the launch, draft 3 a silent always-re-render.
-The settled shape is **the jail's**: opt in with a user-level key (default off), prompt-and-block on
-a TTY when a re-apply would change something, refuse off a TTY unless the approval flag was given.
-Consent is per-launch — the key enables the mechanism, never the approval.
-
-⚠ **Two arguments are retracted in place rather than deleted**, because each is cheap to re-derive
-and expensive to re-argue.
-- *"The real `$HOME` is not disposable, so re-applying is unsafe"* (§3.2). False:
-  `confirmHostLosses` gates on `!r.FirstApply || len(r.EntryLosses) == 0`
-  (`internal/cli/apply.go:532`), so on a managed home it never fires. The error was treating
-  *preciousness* as what licenses a write when the operative property is *consent* — and the
-  maintainer ruling saying so was already at `apply.go:493` (2026-08-02).
-- *"The opt-in key is standing consent"* (§1). Refused by `internal/config/snapshot.go:67-81`, which
-  makes the jail's approval a **flag and not an env var** precisely so it cannot outlive one launch.
-  The tempting variant — baking `--accept-config-changes` into the wrapper body behind a key — is
-  the same thing written to a file.
-
-⚠ **The genuinely new problem, and it needed no new mechanism to solve.** The approval flag
-**cannot reach a generated wrapper**: the body is fixed at `exec yolo host -- <bin> "$@"`
-(`internal/hostwrap/hostwrap.go:41`) and `hostMain` (`internal/cli/host.go:84`) hands everything
-after `--` to the agent, so someone typing `claude --print foo` has no slot for a yolo flag. So the
-flag lives on the **explicit apply** and the launch becomes a tripwire naming it — the same two-step
-a scripted `yolo run` already needs. The refusal has to be legible to someone who typed `claude`,
-not `yolo`, or it reads as "claude is broken" (§1 P5).
-
-**One question left, and it is the one that decides how much gets built.** *"Work like jail
-launches"* admits two readings: compare the **config** against a host approval snapshot (the truest
-mirror of `CheckConfigChanges`, cheap, needs no change predicate — but structurally blind to a
-hand-edited `~/.claude/settings.json`), or compare the **render** (catches every cause, costs the
-change predicate and an 11.4 ms observe per launch). Leaning: the render, because *"host is always
-up to date if an agent launches"* is only literally true that way — the jail's two readings coincide
-only because it re-renders unconditionally afterwards, which is exactly what the host does not do.
-Note this **resurrects the change predicate** that draft 3 had deleted as unnecessary.
-
-**What it decides:** whether `host apply` means a durable state or a one-time act — and whether the
-guarantee is "your config was approved" or "your home is current."
-
-**Answer:**
-> _(empty — fill in when decided)_
-
 # 📦 Up next
 
-**Five items.** **C4 and C5 are
+**Six items.** **C4 and C5 are
 deliberately NOT here**: their go/no-go moved to 🧊 as an explicit row — the shape is ruled, the
 measurement is taken, and queueing them before you call it would be queueing a question.
 
@@ -669,10 +620,43 @@ file** — the warning channel, three of the four small repairs, the tar-evictio
 catalog walk, program-delivery §10 step 1, and briefing-audiences steps 1–2. What is below is what
 survived that pass, restated against the tree rather than against the queue it used to be.
 
-**Ordering basis:** what unblocks the most other work first, then what is cheapest. The temp-dir
-leak is first because it is a live bug measured today and nearly free to fix; the one remaining
+**Ordering basis:** what unblocks the most other work first, then what is cheapest. The host-launch
+gate is first because its design closed with zero open questions and its step 1 improves a shipping
+command on its own; the temp-dir leak follows because it is a live bug measured today and nearly
+free to fix; the one remaining
 small repair follows because it is also nearly free and closes a shell-injection surface; the disk
 and program-delivery rows come after; briefing-audiences is last only because it is the largest.
+
+- 📦 **The host launch should re-render, gated exactly the way a jail launch is.** 📄
+  [`host-apply-staleness.md`](../design/host-apply-staleness.md) — **DECIDED**, eleven rulings, zero
+  open questions.
+
+  `yolo host apply` writes pack surfaces into your real `$HOME` and then never looks again, so the
+  rendered and would-be-rendered states drift apart silently — this jail's own home is drifted right
+  now, three surfaces would overwrite live values (measured 2026-09-03). The shape: opt in with a
+  user-level key (default off), compare the **render**, prompt-and-block on a TTY, refuse off a TTY
+  unless `YOLO_ACCEPT_CONFIG_CHANGES` is set. Build order is §10 — the change predicate first, since
+  it improves `yolo host apply --dry-run` on its own (*"3 in sync, 2 would change"* instead of five
+  identical `would render` lines).
+
+  **Four restatements in one day, three of which retracted the one before**, so the doc's value is
+  as much in what it refuses as what it proposes. Two arguments are retracted in place rather than
+  deleted, each because it is cheap to re-derive and expensive to re-argue: *"the real `$HOME` is not
+  disposable, so re-applying is unsafe"* (false — `confirmHostLosses` gates on
+  `!r.FirstApply || len(r.EntryLosses) == 0`, `internal/cli/apply.go:532`, so on a managed home it
+  never fires; the operative property is **consent**, not preciousness, and the ruling saying so was
+  already at `apply.go:493`), and *"the opt-in key is standing consent"* (refused — a key is read
+  forever with no act of granting).
+
+  ⚠ **One deliberate divergence from a written ruling, and the doc has to carry the reconciliation
+  or it reads as a bug.** `internal/config/snapshot.go:67-81` makes the jail's approval *"A FLAG AND
+  NOT AN ENVIRONMENT VARIABLE, deliberately."* This path uses an env var anyway, because **no flag
+  can reach a generated wrapper**: the body is fixed at `exec yolo host -- <bin> "$@"`
+  (`internal/hostwrap/hostwrap.go:41`) and `hostMain` (`internal/cli/host.go:84`) hands everything
+  after `--` to the agent. So the choice is env-var-vs-nothing rather than flag-vs-env-var, and
+  "nothing" means a scripted agent launch can never proceed. Contained by honoring it **only** on
+  the wrapper exec path — never `yolo run`, never `yolo host apply`, both of which take the flag —
+  so one `.bashrc` line cannot pre-approve every jail launch on the machine.
 
 - 📦 **`packload.Embedded()` leaks a temp dir on every call, and nothing ever removes them.**
   `os.MkdirTemp` + a full copy of the embedded pack tree at `internal/packload/embedded.go:55`, with

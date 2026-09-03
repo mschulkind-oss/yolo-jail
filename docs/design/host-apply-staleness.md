@@ -1,21 +1,25 @@
 # The host launch should re-render — gated exactly the way a jail launch is
 
-**Status:** DESIGN, 2026-09-03, **fourth restatement the same day.** Nothing built. Nine rulings
-taken; one question open (OQ-HS9). Two arguments retracted in place, at §1 and §3.2 — both are kept
-rather than deleted because each is cheap to re-derive and expensive to re-argue.
+**Status:** **DECIDED**, 2026-09-03 — eleven rulings, zero open questions. Nothing built. Two
+arguments are retracted in place, at §1 and §3.2, and one principle was replaced (§1 P3's note);
+all three are kept rather than deleted because each is cheap to re-derive and expensive to
+re-argue. Reached DECIDED through four restatements in one day, three of which retracted the one
+before — the Decision Ledger is the record of what moved.
 
 **The short version.** `yolo host apply` renders pack surfaces into your real `$HOME` and then never
 looks again, so the rendered and would-be-rendered states drift apart silently. Every generated
 wrapper already execs `yolo host -- <bin>`, and that is the only moment the content matters — agents
 read config at startup and do not reload. So the host launch should behave like a jail launch:
 **opt in with a user-level key, prompt-and-block on a TTY when a re-apply would change something,
-refuse off a TTY unless the approval flag was given.** Consent stays per-launch; the key enables the
-mechanism, never the approval.
+refuse off a TTY unless the approval is in the environment.** What it compares is the **render**, not
+the config — only that makes "up to date whenever an agent launches" literally true. Consent stays
+per-launch; the key enables the mechanism, never the approval.
 
 **The most important section is §4.3.** It holds the TTY/non-TTY table and the one genuinely new
-problem: the approval flag **cannot reach a generated wrapper**, because the wrapper hands everything
-after `--` to the agent. The resolution is that the flag lives on the explicit apply and the launch
-becomes a tripwire that names it.
+problem: no flag can reach a generated wrapper, because the wrapper hands everything after `--` to
+the agent. So the approval is an environment variable on that path and nowhere else — which reads
+like a contradiction of the jail's flag-not-env-var ruling and is not; §1 P4 is where that is
+settled.
 
 **Reads with:** [`host-render-target.md`](host-render-target.md) (what a host render is and what the
 `KindHost` notch refuses), [`config-safety.md`](config-safety.md) (the jail's launch-time approval,
@@ -26,8 +30,9 @@ whose mechanism this mirrors and whose flag ruling it inherits).
 ## 1. Verdict, and the principles it rests on
 
 **Re-render at the host launch, and make it behave exactly like a jail launch.** Opt in with a
-user-level config key; on a TTY a needed change prompts and blocks; off a TTY it refuses unless the
-approval flag was passed. No per-command checking, no fingerprint, no standalone notice.
+user-level config key, default off; on a TTY a needed change prompts and blocks; off a TTY it
+refuses unless the approval is in the environment. The comparison is against the rendered home, not
+against the config. No per-command checking, no fingerprint, no standalone notice.
 
 **P1. The launch is the only moment that matters.** Agents read their config at startup and do not
 reload it mid-run. A host render that is stale while nothing reads it is not a problem; the same
@@ -50,25 +55,46 @@ directly for 11.4 ms (§5). This is the one principle that survived all four dra
 > design detects it and says so. Unrepresentability was a property of the design that got retracted,
 > not a goal of this one.
 
-**P4. Consent is per-launch, never standing.** The approval is a **flag**, never an env var and
-never a config key — `internal/config/snapshot.go:67-81` rules this for the jail and the reasoning
-transfers whole: *"An env var is inherited by every child process and survives in a shell for the
-rest of a session — precisely the property a per-launch approval must not have."* The opt-in key
-(§4.2) enables the **mechanism**; it does not pre-grant the **approval**.
+**P4. The approval is granted per launch, in the strongest spelling the launch channel allows.** A
+flag where a flag can be passed; an **environment variable** on the wrapper path, where none can
+(§4.3). Never a config key — that is the one spelling that is genuinely standing consent, and it
+stays refused.
+
+> [!IMPORTANT]
+> **This does NOT contradict `internal/config/snapshot.go:67-81`, and the doc must say why or the
+> two look like a bug.** That ruling makes the jail's approval *"A FLAG AND NOT AN ENVIRONMENT
+> VARIABLE, deliberately"*, because *"an env var is inherited by every child process and survives in
+> a shell for the rest of a session — precisely the property a per-launch approval must not have."*
+> Every word of that still holds. **It answers a different question**: for `yolo run` the choice is
+> flag-vs-env-var, and there the env var is pure cost. On a generated wrapper there is no flag
+> channel at all (§4.3), so the choice is **env-var-vs-nothing** — and "nothing" means a scripted
+> agent launch can never proceed. The jail ruling says *prefer a flag when you have one*; this path
+> has none, so it takes what the principle leaves.
+>
+> **The cost is real and is accepted knowingly** (maintainer ruling 2026-09-03: *"just do what every
+> other package does… it's a low use case, that's fine"*). Exported in a shell profile, the variable
+> becomes de facto standing consent for every wrapped launch in that shell. Two containments follow,
+> and they are the reason this is tolerable rather than a hole:
+> 1. **It is honored ONLY on the wrapper exec path**, never by `yolo run` and never by
+>    `yolo host apply`. Both of those take the flag, so extending the variable to them would buy
+>    nothing and would hand a `.bashrc` line the power to pre-approve every jail launch on the
+>    machine — the blast radius `snapshot.go` was written to prevent.
+> 2. **The `[!WARNING]` below still stands**: the wrapper body must not bake the grant in.
 
 > [!WARNING]
-> **⚠ Retracted (2026-09-03): "the opt-in key is standing consent."** An earlier turn of this design
-> proposed treating the config key as a blanket pre-authorization, so a launch would never prompt
-> and never refuse. That is precisely what `snapshot.go:67-81` refuses, and for the reason quoted
-> above. The tempting variant is equally out: having the wrapper generator bake
-> `--accept-config-changes` into the wrapper body when a key says so is standing consent written to
-> a file. Do not.
+> **⚠ Retracted (2026-09-03): "the opt-in key is standing consent."** An earlier turn proposed
+> treating the config key as blanket pre-authorization, so a launch would never prompt and never
+> refuse. Refused: a key is read on every launch forever with no act of granting, which is the
+> property P4 forbids. The env var above is *not* the same thing — it is an act, per shell, by
+> someone who had to type it. The tempting variant is equally out: having the wrapper generator bake
+> the grant into the wrapper body when a key says so is a config key wearing a flag's clothes.
 
 **P5. A refusal must be actionable at the surface the user typed.** This design's refusals reach
 someone who typed `claude`, not `yolo` — so an unexplained failure reads as "claude is broken."
-Every refusal names the two commands that fix it (§4.3). This replaces an earlier P4 that said a
-wrapper must never be the reason an agent fails to start; that is **overruled** — the jail refuses
-in the same situation, and consistency with `yolo run` beats a special case here.
+Every refusal names the remedy in the spelling its reader can actually use: the two-step apply for
+an interactive reader, the environment variable for a scripted one (§4.3). This replaces an earlier
+P4 that said a wrapper must never be the reason an agent fails to start; that is **overruled** — the
+jail refuses in the same situation, and consistency with `yolo run` beats a special case here.
 
 ---
 
@@ -215,11 +241,16 @@ Deleted by §3.2: the per-command eligibility apparatus (a deny-set for machine-
 `--help` side-effect hazard, the `eval "$(yolo host env)"` trap), the standalone staleness notice,
 and the idea that a fingerprint of any kind is needed.
 
-**Not deleted — resurrected by the ruling in §4.3: the change predicate.** An earlier turn of this
-design said the predicate was gone, on the strength of "always re-render, never ask." The moment the
-launch *prompts when a change is needed*, something must decide **whether** a change is needed and
-**what to show** — and that is exactly the predicate. See OQ-HS9, which is where the two candidate
-answers live.
+**Not deleted — resurrected by §4.3's gate: the change predicate.** An earlier turn said the
+predicate was gone, on the strength of "always re-render, never ask." The moment the launch *prompts
+when a change is needed*, something must decide **whether** a change is needed and **what to show**
+— and that is exactly the predicate. **Ruled 2026-09-03 (OQ-HS9): the launch compares the RENDER,
+not the config.** The rejected alternative was a host approval snapshot mirroring the jail's
+`approvals/<name>.json`, which is cheaper and needs no predicate but is structurally blind to a
+hand-edited `~/.claude/settings.json` — the config never moved, so nothing would prompt. Only the
+render comparison makes *"the host is up to date whenever an agent launches"* literally true; the
+jail's two readings coincide only because it re-renders unconditionally afterwards, which is exactly
+what the host does not do.
 
 The predicate itself: `Action` is `"would render"` unconditionally for any surface not skipped or
 refused, and `Overwrites` is documented *"empty when the render only adds keys or re-asserts
@@ -271,7 +302,7 @@ check` prints a line when the feature is available and off, naming where to lear
 > key still prompts on a TTY and still refuses without one. A key that pre-approved would be
 > standing consent, which §1's retraction forbids.
 
-### 4.3 TTY, non-TTY, and the flag that cannot reach a wrapper
+### 4.3 TTY, non-TTY, and the env var that carries the approval
 
 Mirroring `config.CheckConfigChanges` (`internal/config/snapshot.go:177`) exactly:
 
@@ -280,31 +311,50 @@ Mirroring `config.CheckConfigChanges` (`internal/config/snapshot.go:177`) exactl
 | Nothing would change | Silent; exec. |
 | TTY, change needed | Show the diff, prompt. Accept → apply, exec. Decline → **abort**, as the jail does (`internal/cli/run/preflight.go:298`, *"Config changes rejected. Exiting."*). |
 | No TTY, change needed, no approval | **Refuse.** Do not apply, do not exec. |
-| No TTY, change needed, approval given | Apply, exec. |
+| No TTY, change needed, approval in the environment | Apply, exec. |
 
-**The mechanical problem, and it is the reason this section exists.** The wrapper body is fixed —
+**Why the approval is an env var here and a flag everywhere else.** The wrapper body is fixed —
 `exec yolo host -- claude "$@"` (`internal/hostwrap/hostwrap.go:41`) — and `hostMain`
 (`internal/cli/host.go:84`) splits on the first `--`, handing everything after it to the program. A
 user typing `claude --print foo` therefore has **no slot for a yolo-level flag**. There is a pre-`--`
-slot (`hostExecFlags` carries `profile` today) but the generator emits nothing into it and the user
-cannot reach it.
+slot (`hostExecFlags` carries `profile` today), but the generator emits nothing into it and the user
+cannot reach it, so a flag is not merely inconvenient on this path — it is unreachable.
 
-**So the approval flag does not live on the launch. It lives on the explicit apply:**
+The environment is the only channel that survives an `exec` through a fixed wrapper, which is why
+every other tool in this position uses one. So:
 
 ```console
-$ yolo host apply --assert --accept-config-changes   # the approval, where a flag can be passed
-$ claude --print …                                    # now in sync: no prompt, no refusal
+$ YOLO_ACCEPT_CONFIG_CHANGES=1 claude --print …    # the approval, on the only channel there is
 ```
 
-That makes the launch a **tripwire** for non-interactive callers — "your host home is out of sync,
-apply first" — which is the same two-step shape a scripted `yolo run` already needs. Per P5 the
-refusal must name both commands; the precedent is `snapshot.go`, which composes its refusal in the
-package owning the flag constant *"so the flag a user is told to pass and the flag the parser
-accepts cannot drift apart."*
+Requirements on it, each with a reason:
+
+- **Scoped to this path.** Honored on the wrapper exec path only — not `yolo run`, not
+  `yolo host apply`. Both of those accept the flag, so honoring the variable there would add nothing
+  and would let one `.bashrc` line pre-approve every jail launch on the machine (§1 P4).
+- **Named to match the flag it stands in for**, so the two are legibly one grant in two spellings,
+  and so a refusal can name whichever channel its reader can actually use. `--accept-config-changes`
+  → `YOLO_ACCEPT_CONFIG_CHANGES`; the exact spelling is the implementer's.
+- **The spelling lives as a named constant beside the refusal that names it**, following
+  `snapshot.go`'s rule for exactly this: *"the flag a user is told to pass and the flag the parser
+  accepts cannot drift apart."* Its reader is by construction someone who could not be prompted.
+- **Presence, not truth-parsing.** Any non-empty value grants, matching
+  `YOLO_ALLOW_STALE_IMAGE`'s consent probe (*"consent is about intent, not about the token"*). A
+  variable set to `0` by someone expecting it to mean "off" is the one plausible objection; the
+  house precedent goes the other way and consistency wins.
+
+The two-step remedy remains available and is what an interactive refusal should suggest first, since
+it leaves nothing behind in the environment:
+
+```console
+$ yolo host apply --assert --accept-config-changes
+$ claude --print …
+```
 
 > [!WARNING]
-> **Do not solve this by baking the flag into the wrapper body** when a config key says so. It is
-> the obvious fix and it is standing consent written to a file — see §1's retraction.
+> **Do not bake the grant into the wrapper body** when a config key says so. It is the obvious fix
+> and it converts a per-shell act into a permanent one — see §1's retraction. The env var is
+> tolerable *because* someone has to type it.
 
 ### 4.4 Other failure paths
 
@@ -480,35 +530,6 @@ have caught drift *sometime*, just never at a moment tied to a launch.
 
 ---
 
-## Open Questions
-
-1. 💬 **OQ-HS9: What is the launch comparing — the render, or the config?** "Work like jail launches"
-   admits two readings, and they differ in what they catch and what they cost.
-
-   **(a) Config-approval shape — the truest mirror.** The jail does not ask "would the render
-   change?"; it asks *"did your config change since you last approved?"* (`SnapshotJSON` vs
-   `approvals/<name>.json`, `internal/config/snapshot.go:177`). A host analogue keeps a host
-   approval snapshot and prompts when the config moved. Cheap, needs no change predicate, and
-   reuses machinery whole. **But it does not deliver "host is always up to date if an agent
-   launches"**: a hand-edited `~/.claude/settings.json` leaves the config untouched, so nothing
-   prompts and the drift persists — and that hand-edit case is the one an approval snapshot is
-   structurally blind to.
-
-   **(b) Render-diff shape.** Compute whether a re-apply would change any of the four kinds, and
-   prompt with that. Catches every cause including the hand-edit. Costs the change predicate (§3.4)
-   and an observe render per launch (11.4 ms, §5).
-
-   _Leaning:_ **(b).** Your sentence was *"host is always up to date if an agent launches,"* and only
-   (b) makes that literally true. (a) mirrors the jail's *implementation* while (b) mirrors its
-   *guarantee*, and the guarantee is the thing worth having — in the jail the two coincide only
-   because the jail re-renders unconditionally afterwards, which is exactly what the host does not
-   do. Note this resurrects the predicate I earlier called deleted (§3.4).
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
----
-
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in |
@@ -521,4 +542,6 @@ have caught drift *sometime*, just never at a moment tied to a launch.
 | OQ-HS5 | Declining aborts the launch, as it does in the jail. | 2026-09-03 | §4.3 |
 | OQ-HS6 | A non-TTY launch with a needed change **refuses**; nothing partial is applied. Supersedes the earlier "always exec" rule (the retracted P4). | 2026-09-03 | §1 P5, §4.3 |
 | OQ-HS7 | *(Moot.)* Was: how much of the apply proceeds on a non-TTY launch? None — OQ-HS6 refuses instead. | 2026-09-03 | §4.3 |
-| OQ-HS8 | *(Answered by OQ-HS2.)* Was: is re-rendering opt-in? Yes, a key, default off. Standing consent is **refused** — the approval stays a per-launch flag. | 2026-09-03 | §1 P4, §4.2 |
+| OQ-HS8 | *(Answered by OQ-HS2.)* Was: is re-rendering opt-in? Yes, a key, default off. A config key granting the approval is **refused** — that is the one spelling that is genuinely standing consent. | 2026-09-03 | §1 P4, §4.2 |
+| OQ-HS9 | The launch compares the **render**, not the config. Only that makes "up to date whenever an agent launches" literally true; a config-approval snapshot is blind to a hand-edited destination. **Resurrects the change predicate** an earlier draft had deleted. | 2026-09-03 | §3.4, §4.1 |
+| OQ-HS10 | The non-TTY approval is an **environment variable** on the wrapper path — *"just do what every other package does… it's a low use case, that's fine."* Not a contradiction of `snapshot.go:67-81` but the answer to a different question: on a fixed wrapper the choice is env-var-vs-nothing, because no flag can reach the process. Scoped to that path only, so a `.bashrc` line cannot pre-approve jail launches. | 2026-09-03 | §1 P4, §4.3 |
