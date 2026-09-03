@@ -44,18 +44,15 @@ Flags:
                      already running for this workspace.
   --network <mode>   Override the network mode for this launch
                      (also --network=<mode>).
-  --profile <name>   Select active profile or provider preset for this launch (also -p <name>,
-                     --profile=<name>, -p=<name>). The name is whatever token follows —
-                     there is nothing else the flag can mean. With a command, keys the
-                     profile to that command's binary; with no command, applies it to
-                     every pack this launch selects. Like --network and --pack-profile, a
-                     --profile or -p with no token after it selects nothing.
+  --profile <sel>   Select the active profile for this launch (also -p <sel>,
+                     --profile=<sel>, -p=<sel>). Two spellings of the value: a bare
+                     NAME selects it for every pack this launch selects;
+                     <cli>=<name> (e.g. claude=zai, comma-separated, repeatable)
+                     selects it for the named CLI only. A --profile or -p with no
+                     token after it selects nothing.
   --timing           Report startup performance timings: the host-side total, plus the
                      in-container breakdown (entrypoint config generation, mise, the
                      command itself).
-  --pack-profile <cli>=<name>
-                     Select the profile for one CLI (e.g. pi=glm,claude=bedrock). The key is
-                     the binary a pack installs; an unknown one is refused at launch.
   --dry-run          macos-user runtime only: print the plan without launching.
   --accept-config-changes
                      Approve a changed jail config on a launch with no terminal
@@ -73,7 +70,27 @@ Global options are listed by 'yolo --help'; the full config reference is
 // runFlags is every flag runRun itself consumes. It exists so the usage text and
 // the parser cannot drift apart silently (TestRunUsageListsEveryRunFlag), and so
 // runHelpRequested's "keep scanning past a run flag" branch has one definition.
-var runFlags = []string{"--new", "--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--pack-profile"}
+var runFlags = []string{"--new", "--profile", "--timing", "--dry-run", "--network", "--accept-config-changes"}
+
+// applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,
+// repeatable) merges into the per-CLI selection table, anything else is a bare
+// profile name. Names refuse "=" at declaration (config profiles + the pack
+// manifest), so a value containing "=" is unambiguously the pair grammar and a
+// name can never collide with it.
+func applyProfileValue(v string, opts *run.Options) {
+	if !strings.Contains(v, "=") {
+		opts.ProfileName = v
+		return
+	}
+	if opts.UseProfiles == nil {
+		opts.UseProfiles = make(map[string]string)
+	}
+	for _, pair := range strings.Split(v, ",") {
+		if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
+			opts.UseProfiles[parts[0]] = parts[1]
+		}
+	}
+}
 
 // runHelpRequested reports whether args (the rewritten argv[1:], so it may carry
 // the injected "run" token anywhere before `--`) asks for RUN's help rather than
@@ -106,7 +123,7 @@ func runHelpRequested(args []string) bool {
 			return true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
-		case a == "--network" || a == "--pack-profile" || a == "--profile" || a == "-p":
+		case a == "--network" || a == "--profile" || a == "-p":
 			i++ // its value, whatever it looks like
 		case len(a) > 1 && a[0] == '-':
 			// Another flag (a run flag, or a stray one runRun ignores). Keep scanning:
@@ -142,21 +159,19 @@ func runHelp(args []string, out io.Writer) bool {
 // the command.
 //
 // The fold makes NO refusal. Every value flag takes its value from the next token
-// when there is one and silently takes none when there is not: --network and
-// --pack-profile have always worked that way, and since OQ-PT5
-// (docs/reference/providers.md) --profile and -p do too. The asymmetry the old
-// note here reported is gone rather than copied — it existed only because a bare
-// --profile meant something else (the startup-timing report, now --timing), which
-// gave the parser a second reading to protect and a heuristic (profileValueAt) to
-// guess which one the user meant. That heuristic cost two fix commits (bd2186d1,
-// 8868326a) and is deleted rather than made more careful: with one meaning left,
-// the next token is a name, and a missing one selects nothing.
+// when there is one and silently takes none when there is not, --network and the
+// profile flags alike. The value's GRAMMAR dispatches on itself (2026-09-03 ruling):
+// a token containing "=" is <cli>=<name> pair list (comma-separated, repeatable —
+// the old --pack-profile spelling, deleted 2026-09-03: it never shipped in a
+// release and -p/--profile carry both grammars); anything else is a bare profile
+// name. Profile names refuse "=" at declaration, so the two grammars cannot be
+// ambiguous. The bare name never keys on the command after "--" — a short option
+// whose meaning depends on a token further down the argv is the confusion the
+// ruling removed; name the CLI explicitly when the distinction matters.
 //
-// KNOWN TRANSIENT, deliberately not coded around: `yolo -p -- claude` reaches this
-// as [-p, run, --, claude], so -p reads the injected "run" as a profile name. The
-// guard that used to catch it is superseded later in this same cycle by mandatory
-// profile declaration (provider-catalog-and-selection-plan.md step 6, OQ-CS6), which
-// makes an undeclared name a reportable error at launch.
+// `yolo -p -- claude` reaches this as [-p, run, --, claude], so -p reads the
+// injected "run" as a profile name; mandatory declaration (OQ-CS6) refuses it at
+// launch, naming what IS declared.
 func parseRunArgs(args []string, opts *run.Options) {
 	afterDashDash := false
 	sawRun := false
@@ -176,40 +191,19 @@ func parseRunArgs(args []string, opts *run.Options) {
 			opts.New = true
 		case a == "--timing":
 			opts.Timing = true
-		// An ordinary value flag, in both spellings: the next token is the name, glued
-		// or not, exactly as --network and --pack-profile read theirs. No look-ahead
-		// and no fallback — see the function comment for what that replaced.
+		// An ordinary value flag, in both spellings, glued or not. The value's
+		// grammar dispatches on itself: "cli=name" pairs (comma-separated) merge into
+		// the per-CLI table; a bare name is the selection for every selected pack.
+		// See the function comment for the ruling and the ambiguity guard.
 		case a == "--profile" || a == "-p":
 			if i+1 < len(args) {
 				i++
-				opts.ProfileName = args[i]
+				applyProfileValue(args[i], opts)
 			}
 		case len(a) > len("--profile=") && strings.HasPrefix(a, "--profile="):
-			opts.ProfileName = strings.TrimPrefix(a, "--profile=")
+			applyProfileValue(strings.TrimPrefix(a, "--profile="), opts)
 		case len(a) > len("-p=") && strings.HasPrefix(a, "-p="):
-			opts.ProfileName = strings.TrimPrefix(a, "-p=")
-		case a == "--pack-profile":
-			if i+1 < len(args) {
-				i++
-				if opts.UseProfiles == nil {
-					opts.UseProfiles = make(map[string]string)
-				}
-				for _, pair := range strings.Split(args[i], ",") {
-					if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
-						opts.UseProfiles[parts[0]] = parts[1]
-					}
-				}
-			}
-		case len(a) > len("--pack-profile=") && strings.HasPrefix(a, "--pack-profile="):
-			if opts.UseProfiles == nil {
-				opts.UseProfiles = make(map[string]string)
-			}
-			val := strings.TrimPrefix(a, "--pack-profile=")
-			for _, pair := range strings.Split(val, ",") {
-				if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
-					opts.UseProfiles[parts[0]] = parts[1]
-				}
-			}
+			applyProfileValue(strings.TrimPrefix(a, "-p="), opts)
 		case a == "--dry-run":
 			opts.DryRun = true
 		// Spelled as a LITERAL, not as config.AcceptConfigChangesFlag, even though

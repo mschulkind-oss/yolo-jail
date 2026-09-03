@@ -116,7 +116,7 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	// container command, which runYolo's shape does not allow. Both CLIs in one flag, the
 	// spelling a user types.
 	r := runCommand(t, dir, append(jailRunArgs(),
-		"--pack-profile", "pi=zai-fast,codex=zai-fast", "--", "true"))
+		"-p", "pi=zai-fast,codex=zai-fast", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("profiled three-pack launch failed: rc %d\n%s", r.rc, r.combined())
 	}

@@ -56,7 +56,7 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 		packHome(t, `{"packs": ["claude", "zai", "codex", "pi", "opencode"]}`)
 		// runCommand rather than runYolo/runYoloDirect: the flag goes BEFORE the `--`
 		// that starts the container command, which neither wrapper's shape allows.
-		r := runCommand(t, dir, append(jailRunArgs(), "--pack-profile", "codex=zai", "--", "true"))
+		r := runCommand(t, dir, append(jailRunArgs(), "-p", "codex=zai", "--", "true"))
 		if r.rc != 0 {
 			t.Fatalf("profiled five-pack launch failed: rc %d\n%s", r.rc, r.combined())
 		}

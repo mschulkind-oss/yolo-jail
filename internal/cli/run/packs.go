@@ -393,7 +393,7 @@ func (o *Options) checkProfileTargets() error {
 		if installed[cli] {
 			continue
 		}
-		problems = append(problems, fmt.Sprintf("--pack-profile %s=%s: no pack installs a "+
+		problems = append(problems, fmt.Sprintf("-p %s=%s: no pack installs a "+
 			"CLI named %q (installed: %s)", cli, o.UseProfiles[cli], cli, have))
 	}
 	// -p <name> -- <bin>: the COMMAND's basename is the CLI name, the same keying

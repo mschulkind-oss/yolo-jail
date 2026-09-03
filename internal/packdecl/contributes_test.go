@@ -693,3 +693,19 @@ func TestProviderMakesNoHostAccessClaim(t *testing.T) {
 		t.Errorf("a provider makes no host-access claim, got %v", c)
 	}
 }
+
+// Same refusal, manifest side: a kind:"profile" name carrying "=" is unspellable on
+// the launch flags (the -p/--profile value grammar dispatches on it).
+func TestProfileNameRefusesThePairSeparator(t *testing.T) {
+	c := Contribution{Kind: KindProfile, Name: "claude=zai", Provider: "zai"}
+	problems := validateContribution("test", c)
+	found := false
+	for _, p := range problems {
+		if strings.Contains(p, "must not contain '='") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("problems = %v, want the = refusal", problems)
+	}
+}

@@ -36,9 +36,9 @@ func TestRewriteArgvSkipsFlagValues(t *testing.T) {
 			want: []string{"--profile", "check", "run", "--", "bash"},
 		},
 		{
-			name: "--pack-profile value",
-			in:   []string{"--pack-profile", "run", "--", "bash"},
-			want: []string{"--pack-profile", "run", "run", "--", "bash"},
+			name: "-p value",
+			in:   []string{"-p", "run", "--", "bash"},
+			want: []string{"-p", "run", "run", "--", "bash"},
 		},
 		{
 			name: "a real leading subcommand still suppresses the rewrite",
@@ -111,7 +111,7 @@ func TestSubcommandSkipsFlagValues(t *testing.T) {
 // added there and not here, `yolo --newflag host -- bash` silently relocates again.
 func TestValueTakingFlagsCoverRunHelpSkips(t *testing.T) {
 	// The flags runHelpRequested consumes a value for, transcribed from its switch.
-	runHelpSkips := []string{"--network", "--pack-profile", "--profile", "-p"}
+	runHelpSkips := []string{"--network", "--profile", "-p"}
 	for _, f := range runHelpSkips {
 		if !valueTakingFlags[f] {
 			t.Errorf("runHelpRequested skips %q's value but valueTakingFlags does not — "+

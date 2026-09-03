@@ -124,7 +124,7 @@ var hostUnimplemented = map[packdecl.Kind]string{
 	// future `yolo host -- <program>`) is where a selection exists to be honored.
 	packdecl.KindProfile: "a profile is a VARIANT of this pack's own config, selected at " +
 		"launch — and `yolo host apply` selects none, so it writes the pack's base surfaces " +
-		"only. Launch a jail with `-p <name>` (or `--pack-profile <cli>=<name>`) to apply the " +
+		"only. Launch a jail with `-p <name>` (or `-p <cli>=<name>`) to apply the " +
 		"variant",
 }
 

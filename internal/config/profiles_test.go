@@ -237,3 +237,13 @@ func TestLoadProfilesWarnsAndSkipsAMalformedEntry(t *testing.T) {
 		t.Errorf("the skip should be loud and name the reason, got %v", warned)
 	}
 }
+
+// A declared profile name carrying "=" is unspellable on the launch flags: the
+// -p/--profile value grammar dispatches on it (bare name vs cli=name). Refused at
+// declaration so the two grammars cannot be ambiguous.
+func TestProfileNameRefusesThePairSeparator(t *testing.T) {
+	_, problem := checkProfileEntry("claude=zai", map[string]any{"provider": "zai"})
+	if problem == "" || !strings.Contains(problem, "must not contain \"=\"") {
+		t.Fatalf("problem = %q, want the = refusal", problem)
+	}
+}

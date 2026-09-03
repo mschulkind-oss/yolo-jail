@@ -225,11 +225,13 @@ first-slash model format and options nesting; codex's binary-verified `responses
 model a selection names is resolved IN THE DERIVE — alias = the profile's `model` option or
 `default`, then the provider's `models` map; core resolves no model.
 
-The user-facing spellings: `--pack-profile <cli>=<name>` selects for one CLI per-launch;
-`-p <name>` / `--profile <name>` take a bare NAME (with a command, keyed to that command's
-binary; without one, applied to every selected pack); the persistent form is `use_profiles` in
-user config. `-p` never takes `cli=name` and never means startup timing — that flag is
-`--timing`.
+The user-facing spellings: `-p <sel>` / `--profile <sel>` take BOTH grammars — a bare
+NAME selects that profile for every selected pack (uniformly, whether or not a command
+follows `--`), and `cli=name` (comma-separated, repeatable) selects for the named CLI only.
+The persistent form is `use_profiles` in user config. Profile names refuse `=` at
+declaration so the two grammars cannot be ambiguous, and neither flag means startup
+timing — that is `--timing`. (The former third spelling `--pack-profile` is deleted —
+never in a release, and redundant once `-p` carried both grammars.)
 
 ## Profiles and options
 

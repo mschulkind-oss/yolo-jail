@@ -26,6 +26,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -103,6 +104,11 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 	path := "config." + profilesKey + "." + name
 	if name == "" {
 		return packload.UserProfile{}, "config." + profilesKey + `: a profile name must not be ""`
+	}
+	if strings.Contains(name, "=") {
+		return packload.UserProfile{}, path + `: a profile name must not contain "=" — the ` +
+			`-p/--profile value grammar dispatches on it (bare name = every selected ` +
+			`pack; cli=name = one CLI), and a name carrying it would be unspellable`
 	}
 	m, ok := raw.(*jsonx.OrderedMap)
 	if !ok {

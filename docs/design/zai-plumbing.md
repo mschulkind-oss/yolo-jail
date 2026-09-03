@@ -289,7 +289,8 @@ key, nothing else)*:
 ZAI_API_KEY=<key>                          # the ONLY secret, spelled once
 ```
 
-Then `yolo -p zai` (or `--pack-profile claude=zai -- claude`) fires every selected agent that can
+Then `yolo -p zai` (or `-p claude=zai -- claude`; the `--pack-profile` spelling this
+example originally used is deleted, 2026-09-03) fires every selected agent that can
 reach z.ai at GLM: claude via the anthropic endpoint (`ANTHROPIC_BASE_URL` +
 `ANTHROPIC_AUTH_TOKEN`, launch-composed by `packs/claude`'s own env derive — corrected
 2026-09-02, OQ-CS8: the `env_shape` this example named is deleted), pi and opencode via the

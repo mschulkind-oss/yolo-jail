@@ -516,3 +516,42 @@ func TestRunHelpAnsweredWithoutConfig(t *testing.T) {
 		t.Errorf("runRun([run --help]) printed no usage:\n%s", out)
 	}
 }
+
+// The 2026-09-03 ruling: -p/--profile take BOTH value grammars. A value containing
+// "=" is a cli=name pair list (the deleted --pack-profile's grammar); anything else
+// is a bare name. Deleting the call to applyProfileValue fails every case below.
+func TestProfileFlagTakesBothGrammars(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		wantName  string
+		wantPairs map[string]string
+	}{
+		{"bare name", []string{"-p", "zai"}, "zai", nil},
+		{"bare name glued", []string{"--profile=zai"}, "zai", nil},
+		{"pair", []string{"-p", "claude=zai"}, "", map[string]string{"claude": "zai"}},
+		{"pair glued", []string{"--profile=claude=zai"}, "", map[string]string{"claude": "zai"}},
+		{"short glued", []string{"-p=claude=zai"}, "", map[string]string{"claude": "zai"}},
+		{"pair list", []string{"-p", "claude=zai,pi=glm"}, "",
+			map[string]string{"claude": "zai", "pi": "glm"}},
+		{"pair list with a malformed element skips it, as --pack-profile always did",
+			[]string{"-p", "claude=zai,bare"}, "", map[string]string{"claude": "zai"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var opts run.Options
+			parseRunArgs(tc.args, &opts)
+			if opts.ProfileName != tc.wantName {
+				t.Errorf("ProfileName = %q, want %q", opts.ProfileName, tc.wantName)
+			}
+			if len(opts.UseProfiles) != len(tc.wantPairs) {
+				t.Fatalf("UseProfiles = %v, want %v", opts.UseProfiles, tc.wantPairs)
+			}
+			for k, v := range tc.wantPairs {
+				if opts.UseProfiles[k] != v {
+					t.Errorf("UseProfiles[%q] = %q, want %q", k, opts.UseProfiles[k], v)
+				}
+			}
+		})
+	}
+}

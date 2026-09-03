@@ -847,20 +847,18 @@ func (o *Options) effectiveUseProfiles(cfg *jsonx.OrderedMap, packs []*packload.
 		out.Set(k, v)
 	}
 	if o.ProfileName != "" {
-		if len(o.Args) == 0 {
-			// GLOBAL -p (§3.3, OQ-5): with no command there is no bin to key on, so the
-			// name is the selected profile of EVERY selected pack. The key is the CLI
-			// name each pack installs, not the pack slug — the table's keys are CLI
-			// names everywhere else, and a derive reads its own bin. A pack that
-			// installs nothing gets no key, because there is no CLI to select for;
-			// it is still a receiver of the table, which is what the launch line says.
-			for _, p := range packs {
-				for _, bin := range p.InstallBins() {
-					out.Set(bin, o.ProfileName)
-				}
+		// A bare -p <name> selects that profile for EVERY selected pack (2026-09-03
+		// ruling). The key is the CLI name each pack installs, not the pack slug — the
+		// table's keys are CLI names everywhere else, and a derive reads its own bin.
+		// A pack that installs nothing gets no key (no CLI to select for) but is still
+		// a receiver of the table, which is what the launch line says. It never keys
+		// on the command after `--`: a short option whose meaning depends on a token
+		// further down the argv is the confusion the ruling removed — name the CLI
+		// explicitly with -p <cli>=<name> when the distinction matters.
+		for _, p := range packs {
+			for _, bin := range p.InstallBins() {
+				out.Set(bin, o.ProfileName)
 			}
-		} else {
-			out.Set(filepath.Base(o.Args[0]), o.ProfileName)
 		}
 	}
 	return out

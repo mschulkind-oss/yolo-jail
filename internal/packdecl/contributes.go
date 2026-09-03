@@ -1460,6 +1460,13 @@ func validateContribution(label string, c Contribution) []string {
 		// gates nothing.
 		req("name", c.Name)
 		req("provider", c.Provider)
+		// A name containing "=" is unspellable on the launch flags: -p/--profile
+		// dispatch their value grammar on it (bare name vs cli=name).
+		if strings.Contains(c.Name, "=") {
+			problems = append(problems, label+": kind \"profile\" name "+strconv.Quote(c.Name)+
+				" must not contain '=' — the -p/--profile value grammar dispatches on it "+
+				"(bare name = every selected pack; cli=name = one CLI)")
+		}
 		// `config` is a body half the kind carried before OQ-PT8 and the one tombstone
 		// cannot catch, because `config` is a live field on two other kinds. Here it is
 		// the old variant patch, and the migration is the modifier.

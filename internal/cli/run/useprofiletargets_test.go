@@ -161,7 +161,11 @@ func TestAssembleGlobalProfileReachesEverySelectedPack(t *testing.T) {
 // -p WITH a command keeps the bin keying, and only the pack owning that bin gets the
 // name — the other selected packs are untouched. Pinned beside the global form so the
 // two branches cannot quietly converge.
-func TestAssembleProfileWithACommandKeysOnlyThatBin(t *testing.T) {
+func TestAssembleBareProfileKeysEveryBinEvenWithACommand(t *testing.T) {
+	// 2026-09-03 ruling: a bare -p <name> is the selection for EVERY selected pack,
+	// uniformly — it never keys on the command after `--`. A short option whose
+	// meaning depends on a token further down the argv is the confusion this
+	// deleted; the per-CLI spelling is -p <cli>=<name>.
 	packs := packsFixture(t, "claude", "pi")
 	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
 		o.ProfileName = "bedrock"
@@ -171,8 +175,8 @@ func TestAssembleProfileWithACommandKeysOnlyThatBin(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("YOLO_USE_PROFILES emitted %q, want exactly one", got)
 	}
-	if got[0] != `YOLO_USE_PROFILES={"claude": "bedrock"}` {
-		t.Errorf("-p with a command must key only that bin, got %s", got[0])
+	if got[0] != `YOLO_USE_PROFILES={"claude": "bedrock", "pi": "bedrock"}` {
+		t.Errorf("bare -p must key every selected pack's bin, got %s", got[0])
 	}
 }
 

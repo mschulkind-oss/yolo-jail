@@ -86,7 +86,7 @@ effect, with a "kind" from a closed set:
   autonomy         the agent's autonomous/guarded permission postures (notch-selected)
   profile          a named selection over a provider — name plus provider, and the
                    provider is required — selected at launch with -p <name> (or
-                   --pack-profile <cli>=<name>); a profile nothing selects does nothing
+                   -p <cli>=<name>); a profile nothing selects does nothing
   provider         ship a provider's service facts: endpoints by wire protocol, model
                    aliases, and the option names a profile may set; the credential is
                    an env-var NAME only you hydrate

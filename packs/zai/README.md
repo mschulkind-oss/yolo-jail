@@ -60,7 +60,7 @@ selection key too, per agent, in that agent's own dialect. This pack ships no pe
 config-overlay — the one that carried claude's endpoint was deleted with `env_shape`
 (2026-09-02, [`zai-plumbing.md`](../../docs/design/zai-plumbing.md) §4).
 
-Selecting it — `-p zai` before the `--`, or `--pack-profile pi=zai` for one agent, or the
+Selecting it — `-p zai` before the `--`, or `-p pi=zai` for one agent, or the
 persistent `"use_profiles": {"pi": "zai"}` — is what makes each agent's derive write its own
 selection key (pi's `defaultProvider`/`defaultModel`, opencode's `model`) from the provider's
 `default` alias, or from whichever alias a profile's `model` option names: the provider
@@ -80,7 +80,7 @@ Your own profile states the option rather than overriding the pack's:
 
 A profile that selects nothing does nothing, and deactivating one does not write the
 agent's surface back — whatever a selection wrote stays until the agent's own choice
-replaces it. Claude is selected by the same spellings (`-p zai`, `--pack-profile
+replaces it. Claude is selected by the same spellings (`-p zai`, `-p
 claude=zai`, `"use_profiles": {"claude": "zai"}`) and reads none of those keys — it has no
 catalog and no selection key, and the env derive in the table above is its whole delivery —
 but it is not outside the option: its `ANTHROPIC_DEFAULT_OPUS_MODEL` is the same alias

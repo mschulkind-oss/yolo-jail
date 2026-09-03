@@ -259,7 +259,7 @@ yolo host -p local -- pi
 
 #### Pros & Cons:
 * 👍 **Pros:**
-  * **100% parity with container jail launches:** Supports all launch flags (`-p`, `--profile`, `--pack-profile`).
+  * **100% parity with container jail launches:** Supports the launch profile flags (`-p`, `--profile`).
   * **Zero disk side-effects:** Does not mutate `settings.json` or shell RC files.
   * **Completely reliable:** No shim traps, no PATH order dependencies.
 * 👎 **Cons:**

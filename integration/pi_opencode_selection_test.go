@@ -95,7 +95,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		// container command, which runYolo's shape does not allow. Both agents' profiles in
 		// one flag, the spelling a user types.
 		r := runCommand(t, dir, append(jailRunArgs(),
-			"--pack-profile", "pi=zai,opencode=zai", "--", "true"))
+			"-p", "pi=zai,opencode=zai", "--", "true"))
 		if r.rc != 0 {
 			t.Fatalf("profiled three-pack launch failed: rc %d\n%s", r.rc, r.combined())
 		}
