@@ -136,7 +136,7 @@ func localPackSkillsPath(home string) string {
 // no-packs-configured caller and fails safe everywhere else.
 func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded, candidates []*packload.Pack, active, configured map[string]bool, complete bool,
-	home, stamp string, write bool, reload func() []*packload.Pack) int {
+	home, stamp string, write bool, reload func() []*packload.Pack, survey *hostApplySurvey) int {
 	composedPath := hostComposedSkillsManifestPath(home)
 	composed, err := hostskills.LoadManifest(composedPath)
 	if err != nil {
@@ -189,7 +189,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// A plugin the user authored is left alone at every posture — never adopted, never
 		// composed over — so it is reported once here rather than inside the render loop, where a
 		// reader would take it for an entry the composition considered and declined.
-		printSkillResult(pr, r)
+		printSkillResult(pr, survey, r)
 	}
 	if len(adoptions) > 0 {
 		if !write {
@@ -198,7 +198,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			reportSkillAdoptions(pr, adoptions, req.LocalPackSkills)
 			mres, _ := hostskills.MigrateHostSkills(adoptions, req, true)
 			for _, r := range mres {
-				printSkillResult(pr, r)
+				printSkillResult(pr, survey, r)
 			}
 		} else if !confirmSkillAdoption(pr, out, stdin, adoptions, req.LocalPackSkills) {
 			// Declining is a legitimate answer and leaves the destinations alone — including the
@@ -215,7 +215,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		} else {
 			mres, merr := hostskills.MigrateHostSkills(adoptions, req, false)
 			for _, r := range mres {
-				printSkillResult(pr, r)
+				printSkillResult(pr, survey, r)
 			}
 			if merr != nil {
 				pr.Printf("  [red]skills     migrate failed[/red] — %v", merr)
@@ -252,7 +252,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	sres, serr := hostskills.RenderHostSkills(dests, req, !write)
 	for _, r := range sres {
-		printSkillResult(pr, r)
+		printSkillResult(pr, survey, r)
 		if r.Action == hostskills.ActionRefused {
 			rc = 1
 		}
@@ -269,7 +269,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	// (they are in the local pack, which does not stop existing when a pack is dropped).
 	pres, perr := hostskills.PruneHostSkills(candidates, active, home, req, !write)
 	for _, r := range pres {
-		printSkillResult(pr, r)
+		printSkillResult(pr, survey, r)
 	}
 	if perr != nil {
 		pr.Printf("  [red]skills prune refused[/red] — %v", perr)
@@ -358,8 +358,14 @@ func confirmSkillAdoption(pr richtext.Printer, out io.Writer, stdin io.Reader,
 }
 
 // printSkillResult renders one entry's outcome, colored by whether it is a write, a hands-off, or
-// a problem.
-func printSkillResult(pr richtext.Printer, r hostskills.Result) {
+// a problem, and records its change predicate in the apply's roll-up.
+//
+// THE SURVEY IS FED HERE, at the one place every skills result is printed, rather than at the
+// six loops that print them. That is what makes the kind's coverage structural: a stage that
+// reports results goes through this function or it does not report at all, so it cannot
+// contribute lines to the report and nothing to the predicate the launch gate reads.
+func printSkillResult(pr richtext.Printer, survey *hostApplySurvey, r hostskills.Result) {
+	survey.note(string(packdecl.KindSkills), r.Name, r.Path, r.WouldChange)
 	color := "yellow"
 	switch r.Action {
 	case hostskills.ActionWrote, hostskills.ActionWouldWrite:

@@ -111,6 +111,34 @@ type HostRenderResult struct {
 	// deserves to know they will not survive, in observe, before the write. Empty for every
 	// JSON surface (JSON has no comments) and for an uncommented TOML one.
 	Formatting []string
+	// WouldChange is THE CHANGE PREDICATE (docs/design/host-apply-staleness.md §3.4, coined
+	// there): would an `--assert` alter this destination's CONTENT, as it stands on disk right
+	// now? False means "in sync" — the render is a no-op and nothing needs the user's
+	// attention.
+	//
+	// It exists because no other field on this struct answers that question. `Action` reads
+	// "would render" for every surface not skipped or refused, and `Overwrites` is empty both
+	// when the render re-asserts an identical value AND when it only adds keys — so a
+	// byte-for-byte correct surface and one needing a whole new key were indistinguishable.
+	// It is computed by COMPARING CONTENT, never by inspecting which of the fields above are
+	// populated (§3.4); hostSurfaceWouldChange is the config-surface computation and states how.
+	//
+	// TWO CARVE-OUTS, which are the difference between a predicate and a prompt that never
+	// stops. Both are stated here because a future reader will otherwise "fix" them:
+	//
+	//	Formatting  a loss that is purely about the file's PROSE AND LAYOUT — a dropped TOML
+	//	            comment, a re-indented JSON file, a re-sorted TOML table — does NOT count.
+	//	            Nothing the user configured changes, so a launch gate reading this field
+	//	            would prompt forever on a config they are perfectly happy with.
+	//	Pruned      a ${workspace}-keyed key with no host referent is dropped from the layers
+	//	            on EVERY render, by design (pruneWorkspaceKeyed). It is a declaration yolo
+	//	            never honors at this notch, so it is never a pending change.
+	//
+	// Populated in both postures, from the file as it stands BEFORE any write, so the observe
+	// preview and the assert run cannot disagree about it. A skipped or refused surface is not
+	// a written destination and is always false: a render that will not happen cannot be a
+	// change that is pending (§4.4's cannot-determine class).
+	WouldChange bool
 }
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
@@ -242,11 +270,24 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// both postures for the same reason the overwrites are: the point is to see it before
 		// the write.
 		formatting := hostFormattingLosses(e, s, path, tableLayer, surfaceOverlays)
+		// THE CHANGE PREDICATE, computed before the write for both postures — see
+		// HostRenderResult.WouldChange for what it means and hostSurfaceWouldChange for how.
+		wouldChange := hostSurfaceWouldChange(e, s, path, tableLayer, surfaceOverlays)
 		if observe {
-			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render",
+			// `in sync` rather than `would render` when nothing would change. The unconditional
+			// "would render" was the honest report of a render that could not tell the two apart;
+			// now that it can, a dry-run over an already-applied home must not read as a list of
+			// pending writes (§10 step 1). The two kinds that share this struct — `briefing` and
+			// `files` — already said `unchanged` for their own no-op, so this is one vocabulary
+			// across all three rather than a new word.
+			action := "would render"
+			if !wouldChange {
+				action = "unchanged"
+			}
+			out = append(out, HostRenderResult{Surface: id, Path: path, Action: action,
 				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
 				Outranked: outranked, Pruned: pruned, EntryLosses: losses,
-				FirstApply: firstApply, Formatting: formatting})
+				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange})
 			continue
 		}
 		// Pure RMW into the real home. The `computed` slot carries ONLY the wholesale table
@@ -271,7 +312,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
 			Outranked: outranked, Pruned: pruned, EntryLosses: losses,
-			FirstApply: firstApply, Formatting: formatting})
+			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange})
 	}
 	return out, nil
 }
@@ -296,6 +337,71 @@ func hostRMWRefusal(s manifest.Surface, path string) *rmwRefusedError {
 		}
 	}
 	return nil
+}
+
+// hostSurfaceWouldChange is the CONFIG-SURFACE half of the change predicate: would an
+// --assert alter the content of the file at path? (HostRenderResult.WouldChange is the field
+// it fills; read that first for what the answer is used for and which carve-outs apply.)
+//
+// # It measures the render, not the declarations
+//
+// It runs the WRITER'S OWN fold — applyRMWLayers, the same function renderSurfaceRMWSurface
+// calls, over a scratch decode — and then encodes the result. Nothing here re-derives what a
+// render "would" do from the surface's layers, for hostFormattingLosses' reason: a second
+// model of the write is a second thing to drift out of step with the write.
+//
+// # BOTH SIDES GO THROUGH THE SAME ENCODER, and that is the whole carve-out
+//
+// The comparison is `encode(folded)` against `encode(unfolded)` — NOT against the file's raw
+// bytes. Encoding the pre-render object through the identical codec is what makes every
+// difference that is purely about layout cancel out instead of registering as a change:
+//
+//   - TOML KEY ORDER IS NOT PRESERVED (see encodeSurfaceObject) — the emitter is canonical and
+//     sorts. Against raw bytes, every hand-written TOML config would differ forever.
+//   - JSON INDENTATION IS CANONICAL (dumpJSONIndent2, 2 spaces). Against raw bytes, a
+//     4-space or tab-indented ~/.claude/settings.json would differ forever.
+//   - A COMMENT LOSS THE FILE CAUSES cancels: when scanTOMLTrivia cannot read the comment
+//     positions, reattachTOMLComments drops them on BOTH sides. What does NOT cancel is a
+//     comment dropped because the value above it CHANGED (E4's rule ①) — and there the value
+//     changed, so the surface would have counted as changed anyway.
+//
+// That is `Formatting`'s carve-out implemented structurally rather than checked: there is no
+// "is this difference only formatting?" test to get wrong, because a formatting-only
+// difference cannot reach the comparison. `Pruned`'s carve-out needs nothing at all — the
+// caller has already pruned those branches out of s, so they are not in the fold.
+//
+// # Every failure answers "no change"
+//
+// A file that cannot be read, decoded, or encoded is a surface the render REFUSES (see
+// hostRMWRefusal, which the caller runs first), and a refusal is not a pending change. So
+// every error here returns false rather than defaulting to true: a gate that cannot prove its
+// condition does not fire (§4.4).
+//
+// The provenance record is deliberately NOT part of the answer. It is yolo's own bookkeeping
+// under the state dir, not one of the destinations this predicate is about, so a first-ever
+// apply into a home whose files already hold exactly what the packs declare correctly reports
+// nothing to change (§4.1's "zero stored state on the render side").
+func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed map[string]any,
+	overlays []agentcfg.Overlay) bool {
+	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
+	orig, obj, before, err := readRMWSource(s, path)
+	if err != nil {
+		return false
+	}
+	// The BASELINE, encoded before the fold: `before` is an independent decode of the same
+	// bytes (readRMWSource decodes twice precisely so this one shares nothing with `obj`), and
+	// passing it as its own before-snapshot means the trivia keeper sees no changed value and
+	// keeps every comment it can place.
+	baseline, _, err := encodeSurfaceObjectReporting(s, before, orig, before)
+	if err != nil {
+		return false
+	}
+	applyRMWLayers(e, s, obj, computed, overlays)
+	rendered, _, err := encodeSurfaceObjectReporting(s, obj, orig, before)
+	if err != nil {
+		return false
+	}
+	return rendered != baseline
 }
 
 // hostFormattingLosses names what a codec-canonical re-emit costs beyond values — today,

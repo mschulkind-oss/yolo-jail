@@ -136,10 +136,13 @@ func clearDanglingDirs(skillsDir, dir string, observe bool) []Result {
 			Name: filepath.Base(l.Path), Path: l.Path, Action: clearedAction(observe),
 			Detail: l.Path + " was → " + l.Target + ", which no longer exists — nothing to " +
 				"archive, clearing it so the directory can be created",
+			// An unlink in a real home is a change even though nothing is copied in — see
+			// Result.WouldChange.
+			WouldChange: true,
 		}
 		if !observe {
 			if err := clearLinks([]clearedLink{l}); err != nil {
-				r.Action, r.Detail = ActionRefused, err.Error()
+				r.Action, r.Detail, r.WouldChange = ActionRefused, err.Error(), false
 			}
 		}
 		out = append(out, r)

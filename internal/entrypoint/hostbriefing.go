@@ -302,13 +302,13 @@ func MigrateHostBriefings(adoptions []HostBriefingAdoption, req HostBriefingRequ
 		if req.LocalPackAGENTS == "" {
 			// No local pack location: fall back to the archive, which loses nothing but does
 			// not preserve behavior. Named as the fallback so the difference is visible.
-			res.Action = hostBriefingArchiveAction(a.Path, req, observe,
+			res.Action, res.WouldChange = hostBriefingArchiveAction(a.Path, req, observe,
 				"archived (no local pack to move it into)")
 			out = append(out, res)
 			continue
 		}
 		if observe {
-			res.Action = "would move your prose into " + req.LocalPackAGENTS
+			res.Action, res.WouldChange = "would move your prose into "+req.LocalPackAGENTS, true
 			out = append(out, res)
 			continue
 		}
@@ -316,27 +316,32 @@ func MigrateHostBriefings(adoptions []HostBriefingAdoption, req HostBriefingRequ
 			// A failed move must not silently become a wholesale overwrite of the user's file
 			// on the render that follows. Archive instead — the fallback exists for exactly
 			// this — and report both halves so the user knows which one ran.
-			res.Action = hostBriefingArchiveAction(a.Path, req, observe,
+			res.Action, res.WouldChange = hostBriefingArchiveAction(a.Path, req, observe,
 				fmt.Sprintf("archived (could not move it into the local pack: %v)", err))
 			out = append(out, res)
 			continue
 		}
-		res.Action = "moved your prose into " + req.LocalPackAGENTS
+		res.Action, res.WouldChange = "moved your prose into "+req.LocalPackAGENTS, true
 		out = append(out, res)
 	}
 	return out, nil
 }
 
-// hostBriefingArchiveAction archives a path and returns the action line, or a refusal.
-func hostBriefingArchiveAction(path string, req HostBriefingRequest, observe bool, label string) string {
+// hostBriefingArchiveAction archives a path and returns the action line, or a refusal —
+// together with the change predicate for it (HostRenderResult.WouldChange).
+//
+// The predicate is returned rather than derived from the string by the caller, so a new
+// wording here cannot silently reclassify itself: only the refusal changes nothing.
+func hostBriefingArchiveAction(path string, req HostBriefingRequest, observe bool,
+	label string) (string, bool) {
 	if observe {
-		return "would archive your prose"
+		return "would archive your prose", true
 	}
 	at, err := hostskills.Archive(req.ArchiveRoot, req.Stamp, "briefing", path)
 	if err != nil {
-		return "refused: could not archive your existing prose: " + err.Error()
+		return "refused: could not archive your existing prose: " + err.Error(), false
 	}
-	return label + " → " + at
+	return label + " → " + at, true
 }
 
 // appendToLocalPackBriefing appends one adopted destination's prose to the local pack's
@@ -408,7 +413,12 @@ func RenderHostBriefings(packs []*packload.Pack, homeDir string, req HostBriefin
 			// match already must not stay stuck behind the adoption gate forever.
 			req.Manifest.Record(d.Path, HostBriefingOwner)
 		}
-		out = append(out, HostRenderResult{Surface: id, Path: d.Path, Action: action})
+		// THE CHANGE PREDICATE for a composed briefing, and it needs no new comparison: this
+		// destination is a WHOLESALE yolo-owned file, so writeHostBriefingFile has already
+		// compared the composed content against the file's own bytes and returned `unchanged`
+		// when they match. See HostRenderResult.WouldChange.
+		out = append(out, HostRenderResult{Surface: id, Path: d.Path, Action: action,
+			WouldChange: action != "unchanged"})
 	}
 	return out, nil
 }
@@ -499,6 +509,7 @@ func PruneHostBriefings(candidates []*packload.Pack, active map[string]bool, hom
 		res := HostRenderResult{Surface: "briefing/retire", Path: path}
 		if observe {
 			res.Action = "would archive (no pack contributes briefing prose here any more)"
+			res.WouldChange = true
 			out = append(out, res)
 			continue
 		}
@@ -513,6 +524,7 @@ func PruneHostBriefings(candidates []*packload.Pack, active map[string]bool, hom
 		// up from.
 		req.Manifest.Forget(path)
 		res.Action = "archived (no pack contributes briefing prose here any more) → " + at
+		res.WouldChange = true
 		out = append(out, res)
 	}
 	return out, nil

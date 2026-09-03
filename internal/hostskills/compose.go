@@ -481,6 +481,8 @@ func Adoptions(dests []Destination, req ComposeRequest) (adoptions []Adoption, p
 					Name: name, Path: path, Action: ActionSkippedUser,
 					Detail: "a plugin you authored — yolo composes SKILLS here and does not " +
 						"model a plugin's components, so it is left exactly as it is",
+					// Left alone at every posture, so never a pending change.
+					WouldChange: false,
 				})
 				continue
 			}
@@ -520,8 +522,8 @@ func MigrateHostSkills(adoptions []Adoption, req ComposeRequest, observe bool) (
 		if req.LocalPackSkills == "" {
 			// No local pack location: fall back to the archive, which loses nothing but does not
 			// preserve behavior. Named as the fallback so the difference is visible.
-			res.Action, res.Detail = archivedAction(observe),
-				skillsArchiveDetail(a.Path, req, observe, "no local pack to move it into")
+			res.Action, res.Detail, res.WouldChange = archivedAction(observe),
+				skillsArchiveDetail(a.Path, req, observe, "no local pack to move it into"), true
 			out = append(out, res)
 			continue
 		}
@@ -530,8 +532,8 @@ func MigrateHostSkills(adoptions []Adoption, req ComposeRequest, observe bool) (
 			// Unreadable content cannot be compared, so it cannot be unioned. Archiving it is the
 			// fallback the ruling reserves for exactly this, and leaving it in place would let the
 			// render compose over content nobody proved anything about.
-			res.Action, res.Detail = archivedAction(observe),
-				skillsArchiveDetail(a.Path, req, observe, "could not read it: "+derr.Error())
+			res.Action, res.Detail, res.WouldChange = archivedAction(observe),
+				skillsArchiveDetail(a.Path, req, observe, "could not read it: "+derr.Error()), true
 			out = append(out, res)
 			continue
 		}
@@ -542,15 +544,17 @@ func MigrateHostSkills(adoptions []Adoption, req ComposeRequest, observe bool) (
 			// Already in the local pack, byte-identical. The entry here is a redundant per-agent
 			// copy — exactly the duplication the ruling is about — so it is simply removed, which
 			// is what makes the union silent in the common case.
-			res.Action = unionedAction(observe)
+			// A MIGRATION is a change even though nothing is copied in: the entry leaves the
+			// user's agent dir. See Result.WouldChange's last paragraph.
+			res.Action, res.WouldChange = unionedAction(observe), true
 			res.Detail = "an identical copy is already in your local pack (" + dest + ")"
 			if !observe {
 				if err := os.RemoveAll(a.Path); err != nil {
-					res.Action, res.Detail = ActionRefused, err.Error()
+					res.Action, res.Detail, res.WouldChange = ActionRefused, err.Error(), false
 				}
 			}
 		case renamed != "":
-			res.Action = renamedAction(observe)
+			res.Action, res.WouldChange = renamedAction(observe), true
 			res.Detail = "kept BOTH: " + renamed + " already holds a DIFFERENT skill of this " +
 				"name, so this one moves to " + dest
 			if !observe {
@@ -561,7 +565,7 @@ func MigrateHostSkills(adoptions []Adoption, req ComposeRequest, observe bool) (
 				}
 			}
 		default:
-			res.Action = movedAction(observe)
+			res.Action, res.WouldChange = movedAction(observe), true
 			res.Detail = "moved to " + dest + " — yolo composes it back into every destination"
 			if !observe {
 				if err := moveTree(a.Path, dest); err != nil {
@@ -860,7 +864,7 @@ func retireComposed(dir string, want map[string]string, req ComposeRequest, obse
 			continue
 		}
 		r := Result{Name: filepath.Base(path), Path: path, Action: archivedAction(observe),
-			Detail: "no pack composes it here any more"}
+			Detail: "no pack composes it here any more", WouldChange: true}
 		if target := danglingLink(path); target != "" {
 			// A retiring entry that has become a dangling link is CLEARED, not archived: renaming
 			// a broken link into the archive would report "moved to <path>" as though the content
@@ -870,7 +874,7 @@ func retireComposed(dir string, want map[string]string, req ComposeRequest, obse
 				"any more and there is nothing to archive"
 			if !observe {
 				if err := clearLinks([]clearedLink{{Path: path, Target: target}}); err != nil {
-					r.Action, r.Detail = ActionRefused, err.Error()
+					r.Action, r.Detail, r.WouldChange = ActionRefused, err.Error(), false
 				} else {
 					req.Composed.Forget(path)
 				}
@@ -951,10 +955,19 @@ func PruneHostSkills(candidates []*packload.Pack, active map[string]bool, homeDi
 // deployment is a tree of links: two agents' copies of one skill that link to the SAME source are
 // the same skill, and two that link to different sources are not. Following them would make every
 // such pair compare equal to whatever they happen to point at today.
-func treeDigest(root string) (string, error) {
+func treeDigest(root string) (string, error) { return treeDigestSkipping(root, nil) }
+
+// treeDigestSkipping is treeDigest omitting a set of RELATIVE paths (and their subtrees)
+// entirely — not just their content, but their names, matching copyTreeExcept, which returns
+// before it so much as creates an excluded directory. See changedExcept for the one caller
+// that passes a set and why omitting content is honest there.
+func treeDigestSkipping(root string, skip map[string]bool) (string, error) {
 	h := sha256.New()
 	var walk func(rel string) error
 	walk = func(rel string) error {
+		if skip[rel] {
+			return nil
+		}
 		path := filepath.Join(root, rel)
 		fi, err := os.Lstat(path)
 		if err != nil {

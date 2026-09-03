@@ -85,7 +85,7 @@ func localPackBriefingPath(home string) string {
 // pre-migration set is still rendered).
 func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded, candidates []*packload.Pack, active map[string]bool, complete bool,
-	home, stamp string, write bool, reload func() []*packload.Pack) int {
+	home, stamp string, write bool, reload func() []*packload.Pack, survey *hostApplySurvey) int {
 	manPath := hostBriefingManifestPath(home)
 	man, err := hostskills.LoadManifest(manPath)
 	if err != nil {
@@ -114,6 +114,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			reportBriefingAdoptions(pr, adoptions, req.LocalPackAGENTS)
 			mres, _ := entrypoint.MigrateHostBriefings(adoptions, req, true)
 			for _, r := range mres {
+				survey.note(string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 				pr.Printf("  [yellow]%-20s %s[/yellow]  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 			}
 		} else if !confirmBriefingAdoption(pr, out, stdin, adoptions, req.LocalPackAGENTS) {
@@ -155,6 +156,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	bres, berr := entrypoint.RenderHostBriefings(loaded, home, req, !write)
 	for _, r := range bres {
+		survey.note(string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if berr != nil {
@@ -167,6 +169,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	// byte yolo wrote — there is no user content in a wholesale-composed file to ask about.
 	pres, perr := entrypoint.PruneHostBriefings(candidates, active, home, req, !write)
 	for _, r := range pres {
+		survey.note(string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 		pr.Printf("  [yellow]%-20s %s[/yellow]  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if perr != nil {

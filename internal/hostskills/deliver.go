@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Action is what a delivery did (or would do) to one entry.
@@ -61,6 +62,20 @@ const (
 	// ActionRenamed is a real name conflict resolved by keeping BOTH under a suffix. The loudest
 	// migration outcome, and the only one the user has to make a judgement about.
 	ActionRenamed Action = "kept both (renamed)"
+	// ActionUnchanged is an entry ALREADY byte-identical to what this composition would write —
+	// yolo's own output from a previous apply, unedited since. Nothing is copied and nothing is
+	// archived.
+	//
+	// It is the skills spelling of the change predicate (Result.WouldChange), and it is the
+	// action the other two host kinds already had: `files` (hostfilestree.go) and `briefing`
+	// (hostbriefing.go) both compared content and reported `unchanged` long before this one did,
+	// while skills reported `rendered` for every entry on every apply — so a dry run over an
+	// already-applied home read as a list of pending writes.
+	//
+	// POSTURE-INDEPENDENT, like ActionSkippedUser and ActionRefused and for the same reason: it
+	// describes the ABSENCE of a write, so there is no tense to correct. "would leave unchanged"
+	// would imply the assert run might do something else.
+	ActionUnchanged Action = "unchanged"
 )
 
 // The OBSERVE-posture wordings. The tense lives in the ACTION, not only in the detail, because
@@ -137,6 +152,19 @@ type Result struct {
 	// Detail carries the reason for a refusal, the archive path for an archived entry, or
 	// the qualified invocation name for a tier-A write — whatever makes the line useful.
 	Detail string
+	// WouldChange is THE CHANGE PREDICATE for this entry (docs/design/host-apply-staleness.md
+	// §3.4): would an --assert alter the home here? False means "in sync".
+	//
+	// It is the skills half of the same question entrypoint.HostRenderResult.WouldChange
+	// answers for the other three written kinds, and it is likewise computed from CONTENT: the
+	// write paths compare the source tree against the destination (Changed, a digest) and
+	// report ActionUnchanged when they match, so this field cannot say "changed" for an entry
+	// nothing would be copied over.
+	//
+	// A refusal, a skipped user entry and an authored plugin left alone are all false — they
+	// describe the absence of a write. An archive, a clear and a migration are all true: they
+	// move content out of the home, which is a change even though nothing is copied in.
+	WouldChange bool
 }
 
 // Request is one pack's delivery into one skills dir.
@@ -252,6 +280,14 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 	nested := filepath.Join(packDir, "skills")
 	claim(req, packDir)
 
+	// Whether the subtree's plugin manifest is MISSING, read before the write below creates it.
+	// It is part of every entry's change predicate (Result.WouldChange) because the manifest is
+	// what makes the subtree loadable: a skill sitting inside a subtree with no manifest is not
+	// in sync, however byte-identical its own directory is. It has no Result line of its own to
+	// carry the fact, so it rides the entries' — which is also the aggregate answer the
+	// predicate exists to produce.
+	manifestMissing := !hasPluginManifest(packDir)
+
 	// Clear dangling directory links FIRST, before the retire scan reads the subtree: a stale
 	// link at <skillsDir>, at <skillsDir>/<pack> or at its skills/ is a name MkdirAll can
 	// neither use nor create, which aborted the whole delivery with `mkdir …: file exists`.
@@ -267,11 +303,12 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 				continue
 			}
 			stale := filepath.Join(nested, e.Name())
-			r := Result{Name: e.Name(), Path: stale, Action: archivedAction(req.Observe)}
+			r := Result{Name: e.Name(), Path: stale, Action: archivedAction(req.Observe),
+				WouldChange: true}
 			if !req.Observe {
 				at, aerr := Archive(req.ArchiveRoot, req.Stamp, req.Pack, stale)
 				if aerr != nil {
-					r.Action, r.Detail = ActionRefused, aerr.Error()
+					r.Action, r.Detail, r.WouldChange = ActionRefused, aerr.Error(), false
 				} else {
 					r.Detail = "moved to " + at
 				}
@@ -311,7 +348,17 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 		dest := filepath.Join(nested, name)
 		r := Result{
 			Name: name, Path: dest, Action: wroteAction(req.Observe),
-			Detail: "invoke as /" + req.Pack + ":" + name,
+			Detail: "invoke as /" + req.Pack + ":" + name, WouldChange: true,
+		}
+		// ALREADY WHAT THE PACK SHIPS. Compared BEFORE the observe branch, so a dry run
+		// predicts the same no-op the assert makes, and skipped rather than re-copied: the
+		// RemoveAll + copyTree below is a delete-and-rewrite of a directory in a real home, and
+		// doing it for content that has not moved is churn the user pays mtimes for. See
+		// ActionUnchanged.
+		if !manifestMissing && !Changed(skills[name], dest) {
+			r.Action, r.Detail, r.WouldChange = ActionUnchanged, "invoke as /"+req.Pack+":"+name, false
+			out = append(out, r)
+			continue
 		}
 		if !req.Observe {
 			// Replace yolo's own previous copy wholesale. Safe here and only here: the
@@ -319,12 +366,12 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 			// also clears a dangling link at this name without following it, and needs no
 			// report: inside yolo's own subtree it was never the user's to begin with.
 			if err := os.RemoveAll(dest); err != nil {
-				r.Action, r.Detail = ActionRefused, err.Error()
+				r.Action, r.Detail, r.WouldChange = ActionRefused, err.Error(), false
 				out = append(out, r)
 				continue
 			}
 			if err := copyTree(skills[name], dest); err != nil {
-				r.Action, r.Detail = ActionRefused, err.Error()
+				r.Action, r.Detail, r.WouldChange = ActionRefused, err.Error(), false
 			}
 		}
 		out = append(out, r)
@@ -368,11 +415,13 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 					Name: name, Path: dest, Action: clearedAction(req.Observe),
 					Detail: "was → " + target + ", which no longer exists (a stale dotfile-manager " +
 						"link, most likely) — nothing to archive, delivering over it",
+					WouldChange: true,
 				})
 				if !req.Observe {
 					if err := clearLinks([]clearedLink{{Path: dest, Target: target}}); err != nil {
 						out[len(out)-1].Action = ActionRefused
 						out[len(out)-1].Detail = err.Error()
+						out[len(out)-1].WouldChange = false
 						continue
 					}
 				}
@@ -400,7 +449,18 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			continue
 		}
 		r := Result{Name: name, Path: dest, Action: wroteAction(req.Observe),
-			Detail: "invoke as /" + name}
+			Detail: "invoke as /" + name, WouldChange: true}
+		// ALREADY WHAT THE COMPOSITION WOULD WRITE: yolo's own entry from a previous apply,
+		// unedited. Compared BEFORE the observe branch so a dry run predicts the same no-op, and
+		// skipped rather than re-copied. The name is still CLAIMED below, which is what keeps
+		// retireComposed from reading an in-sync entry as one no pack composes any more. See
+		// ActionUnchanged.
+		if occupied && !changedExcept(skills[name], dest, req.excludePaths) {
+			r.Action, r.WouldChange = ActionUnchanged, false
+			claim(req, dest)
+			out = append(out, r)
+			continue
+		}
 		if !req.Observe {
 			// Ours from a PREVIOUS APPLY, and about to CHANGE: archive the old copy before replacing
 			// it, so an in-place edit the user made to a yolo-written skill is recoverable. Two
@@ -413,13 +473,13 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			//     unchanged home grew one archive copy of every skill per `yolo host apply` forever.
 			//     Pre-existing, and composition made it louder rather than caused it: this pass now
 			//     visits every destination in one run instead of one pack's at a time.
-			if occupied && req.PreOwned[dest] && Changed(skills[name], dest) {
+			if occupied && req.PreOwned[dest] && changedExcept(skills[name], dest, req.excludePaths) {
 				if at, aerr := Archive(req.ArchiveRoot, req.Stamp, "skills", dest); aerr == nil {
 					r.Detail += " (previous copy archived to " + at + ")"
 				}
 			}
 			if err := copyTreeExcept(skills[name], dest, req.excludePaths); err != nil {
-				r.Action, r.Detail = ActionRefused, err.Error()
+				r.Action, r.Detail, r.WouldChange = ActionRefused, err.Error(), false
 				out = append(out, r)
 				continue
 			}
@@ -496,9 +556,53 @@ func forget(req Request, dest string) {
 // destination on EVERY apply because it asked only whether the path was occupied — see F7. The
 // two kinds ask the same question of a tree, so a second digest would be a second thing to drift.
 func Changed(src, dest string) bool {
-	a, aerr := treeDigest(src)
-	b, berr := treeDigest(dest)
+	return changedExcept(src, dest, nil)
+}
+
+// changedExcept is Changed for a delivery that does NOT copy the whole source: exclude names
+// absolute paths under src that copyTreeExcept leaves behind, and they are skipped on BOTH
+// sides so the content that was deliberately omitted does not read as content that went
+// missing.
+//
+// Without it the flat plugin delivery (Request.excludePaths) compared a filtered copy against
+// an unfiltered source and reported CHANGED forever — which as a mere archive gate cost one
+// spurious archive per apply, and as a change predicate would make every launch prompt
+// (docs/design/host-apply-staleness.md R3).
+// The skip applies to the SOURCE only, because an excluded path never reaches the
+// destination at all (copyTreeExcept returns before it creates one). A difference that must
+// be held aside on both sides is changedTreeSkipping's case.
+func changedExcept(src, dest string, exclude []string) bool {
+	skip := skipSetUnder(src, exclude)
+	a, aerr := treeDigestSkipping(src, skip)
+	b, berr := treeDigestSkipping(dest, nil)
 	return aerr != nil || berr != nil || a != b
+}
+
+// changedTreeSkipping compares two trees with the same RELATIVE paths held aside on both
+// sides — for a delivery whose destination differs from its source at a known path by design.
+// Its one caller is changedPluginTree; see there for what that path is and why.
+func changedTreeSkipping(src, dest string, skip map[string]bool) bool {
+	a, aerr := treeDigestSkipping(src, skip)
+	b, berr := treeDigestSkipping(dest, skip)
+	return aerr != nil || berr != nil || a != b
+}
+
+// skipSetUnder turns copyTreeExcept's absolute exclude list into the RELATIVE paths
+// treeDigestSkipping compares against, so the two sides of a digest can be walked from
+// different roots. An entry outside src contributes nothing.
+func skipSetUnder(src string, exclude []string) map[string]bool {
+	if len(exclude) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, ex := range exclude {
+		rel, err := filepath.Rel(filepath.Clean(src), filepath.Clean(ex))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		out[rel] = true
+	}
+	return out
 }
 
 // collectSkills walks the source dirs in order and returns {skill name -> source path},

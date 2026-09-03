@@ -126,6 +126,12 @@ func renderOneHostFile(pack, srcPath, dest string, req HostFilesRequest, observe
 		return res
 	}
 
+	// Past the two no-op branches above, the write is real: an absent path gets created, and an
+	// owned-but-differing one gets replaced. So the change predicate is simply "we got here"
+	// (HostRenderResult.WouldChange) — the content comparison that decides it is
+	// hostskills.Changed, three lines up, and it is the same digest the archive gate reads.
+	res.WouldChange = true
+
 	if observe {
 		res.Action = "would render"
 		return res
@@ -140,17 +146,23 @@ func renderOneHostFile(pack, srcPath, dest string, req HostFilesRequest, observe
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		res.Action = "refused: " + err.Error()
+		// A refusal is not a pending change, whatever the predicate concluded before the
+		// write was attempted — see HostRenderResult.WouldChange's last paragraph.
+		res.Action, res.WouldChange = "refused: "+err.Error(), false
 		return res
 	}
 	mode, err := hostFileTreeMode(srcPath)
 	if err != nil {
-		res.Action = "refused: " + err.Error()
+		// A refusal is not a pending change, whatever the predicate concluded before the
+		// write was attempted — see HostRenderResult.WouldChange's last paragraph.
+		res.Action, res.WouldChange = "refused: "+err.Error(), false
 		return res
 	}
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		res.Action = "refused: " + err.Error()
+		// A refusal is not a pending change, whatever the predicate concluded before the
+		// write was attempted — see HostRenderResult.WouldChange's last paragraph.
+		res.Action, res.WouldChange = "refused: "+err.Error(), false
 		return res
 	}
 	// A prior render left the file read-only (see hostFileTreeMode), and a non-root user
@@ -160,11 +172,15 @@ func renderOneHostFile(pack, srcPath, dest string, req HostFilesRequest, observe
 		_ = os.Chmod(dest, 0o644)
 	}
 	if err := os.WriteFile(dest, data, mode); err != nil {
-		res.Action = "refused: " + err.Error()
+		// A refusal is not a pending change, whatever the predicate concluded before the
+		// write was attempted — see HostRenderResult.WouldChange's last paragraph.
+		res.Action, res.WouldChange = "refused: "+err.Error(), false
 		return res
 	}
 	if err := os.Chmod(dest, mode); err != nil {
-		res.Action = "refused: " + err.Error()
+		// A refusal is not a pending change, whatever the predicate concluded before the
+		// write was attempted — see HostRenderResult.WouldChange's last paragraph.
+		res.Action, res.WouldChange = "refused: "+err.Error(), false
 		return res
 	}
 	if req.Manifest != nil {
