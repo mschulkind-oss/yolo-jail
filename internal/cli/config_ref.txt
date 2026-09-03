@@ -653,10 +653,12 @@
     program.  So on THAT PATH ONLY the approval may come from the environment:
       YOLO_ACCEPT_CONFIG_CHANGES=1 claude --print ...
     Any non-empty value grants it, for this process.  It is honored by the wrapped
-    launch and NOWHERE else — never by `yolo` and never by `yolo host apply`, both
-    of which take the flag.  Exported in a shell rc it becomes standing consent for
-    every wrapped launch in that shell; the two-step remedy leaves nothing behind:
-      yolo host apply --assert --accept-config-changes
+    launch and NOWHERE else — never by `yolo`, which takes the flag, and never by
+    `yolo host apply`, which needs no approval of its own: applying is what you
+    asked it to do.  Exported in a shell rc the variable becomes standing consent
+    for every wrapped launch in that shell, so the two-step remedy is the better
+    habit — it leaves nothing behind:
+      yolo host apply --assert
       claude --print ...
 
     What it compares is the RENDER, not your config — so a file you hand-edited is
