@@ -185,6 +185,16 @@ func (o *Options) sectionPacks(r *reporter) {
 			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
 	}
 
+	// Agent-NAME exclusivity over the same selected set, and fatal here for the same reason:
+	// the launch refuses it (the seventh pre-flight in internal/cli/run/packs.go), so
+	// reporting it as a warning would mean `yolo check` passing on a config that cannot start
+	// a jail. Over `loaded` rather than Embedded() because the interesting case is a user's
+	// own agent pack against a shipped one — two packs that both want to be `claude`.
+	for _, c := range packload.AgentNameCollisions(loaded) {
+		r.fail("agent name "+c.Target+" has more than one owning pack",
+			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
+	}
+
 	// Drift last, so it reads as a summary rather than interleaving with per-pack
 	// results. It is a WARNING, not a failure: the jail will still start, using the
 	// config address — the user just has not fetched what they asked for.

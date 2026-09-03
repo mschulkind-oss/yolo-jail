@@ -399,3 +399,57 @@ func TestSectionPacksStillFailsWhenNothingWasStagedEither(t *testing.T) {
 		t.Errorf("a pack that is neither resolvable nor staged is broken:\n%s", buf.String())
 	}
 }
+
+// `yolo check` must catch an agent NAME with two owning packs, for the reason the surface
+// check above exists: the LAUNCH refuses it (the seventh pre-flight,
+// internal/cli/run/packs.go), so a passing check would pass on a config that cannot start a
+// jail. briefing-audiences.md OQ-BA6/BA7.
+//
+// The fixture is the design's own §4.2 example: the shipped `claude` pack, plus a user pack
+// declaring `agent: "claude"` on its own briefing destination. Neither declaration is
+// individually invalid — only the SET is, which is why nothing below the config layer can see
+// it and why this check has to run over the SELECTED packs.
+func TestSectionPacksFailsOnDuplicateAgentNameOwner(t *testing.T) {
+	pack := filepath.Join(t.TempDir(), "claude-fork")
+	if err := os.MkdirAll(pack, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"claude-fork","contributes":[` +
+		`{"kind":"briefing","into":".claude-fork/AGENTS.md","agent":"claude"}]}`
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "AGENTS.md"), []byte("Fork prose.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packsFixture(t, `{"packs": ["claude", "file://`+pack+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r)
+
+	if r.failed == 0 {
+		t.Fatalf("an agent name claimed by two packs must FAIL check — the launch refuses it, "+
+			"so a passing check would be a lie:\n%s", buf.String())
+	}
+	for _, want := range []string{"agent name claude", "claude-fork", "exactly ONE owning pack"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("check output missing %q — it has to name the name, the packs, and the "+
+				"rule:\n%s", want, buf.String())
+		}
+	}
+}
+
+// The shipped set alone must pass this one too: every agent pack claims its own name through
+// both `program` and its briefing's `agent`, so an over-claiming pass would fail here.
+func TestSectionPacksShippedSetHasNoAgentNameCollision(t *testing.T) {
+	packsFixture(t, `{"packs": ["claude", "copilot", "opencode", "pi", "codex", "agy"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r)
+	if r.failed != 0 {
+		t.Errorf("the six shipped packs each own their own name and must not collide:\n%s",
+			buf.String())
+	}
+}

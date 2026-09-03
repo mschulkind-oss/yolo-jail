@@ -341,6 +341,28 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(conflicts, "\npacks: "))
 	}
 
+	// THE SEVENTH bespoke pre-flight: an AGENT NAME claimed by two packs
+	// (briefing-audiences.md OQ-BA6/BA7). Beside the others, for the reason all seven are
+	// here — this is where the pack set becomes complete, and it covers attach too — and
+	// FATAL because every consumer of the name resolves it by literal against whichever
+	// declaration it happens to read: `-p claude=<profile>`, `use_profiles.claude`, and now
+	// an `agents: ["claude"]` selector routing prose to "where claude reads". Two owners
+	// make all three ambiguous with nothing reported.
+	//
+	// Its own pass rather than a row in packload.Collisions for that function's own two
+	// reasons (AgentNameCollisions' docstring has them): Collisions is never consulted at
+	// launch, and it could not see this claim anyway — it keys by `(kind, target)` and skips
+	// non-exclusive kinds, while an agent name is claimed across FOUR kinds, two of which
+	// merge by design.
+	if cols := packload.AgentNameCollisions(loaded); len(cols) > 0 {
+		var msgs []string
+		for _, c := range cols {
+			msgs = append(msgs, fmt.Sprintf("agent name %s claimed by %s — %s",
+				c.Target, strings.Join(c.Packs, ", "), c.Reason))
+		}
+		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
+	}
+
 	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with
 	// each one's origin gate already evaluated. THE convergence point

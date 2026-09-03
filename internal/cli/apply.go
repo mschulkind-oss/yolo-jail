@@ -283,6 +283,19 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			"owner. Nothing was written.[/bold red]", len(cols))
 		return 1
 	}
+	// And REFUSE an agent NAME claimed by two packs, for the same reason and in the same
+	// position (briefing-audiences.md OQ-BA6/BA7). It matters most at THIS notch: the render
+	// below routes an addressed contribution to "where <name> reads", so with two owners the
+	// prose lands wherever the resolution loop saw first — in a real home, with nothing said.
+	if cols := packload.AgentNameCollisions(loaded); len(cols) > 0 {
+		for _, c := range cols {
+			pr.Printf("  [red]agent      refused[/red] — name %s claimed by %s: %s",
+				c.Target, strings.Join(c.Packs, ", "), c.Reason)
+		}
+		pr.Printf("[bold red]host apply: refused — %d agent name(s) with more than one "+
+			"owning pack. Nothing was written.[/bold red]", len(cols))
+		return 1
+	}
 	// The §4.2 autonomy policy comes from THIS apply's render target, not from the `false`
 	// that used to sit here (C3, plan §6c step 1). It resolves to OFF — the guarded posture
 	// — so the owner set matches the surfaces RenderHostPack will actually produce, which is
