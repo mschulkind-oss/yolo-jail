@@ -40,7 +40,7 @@ import (
 // the model half of both selections.
 const zaiReachableJSON = `{"zai":{
   "api_key_env_name":"ZAI_API_KEY",
-  "models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash"},
+  "models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash[1m]"},
   "endpoints":{
     "anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
     "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}
@@ -302,7 +302,7 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			profiles:     `{"pi":"zai"}`,
 			wire:         `{"zai": {"provider": "zai", "model": "fast"}}`,
 			wantProvider: "zai",
-			wantModel:    "glm-5.3-flash",
+			wantModel:    "glm-5.3-flash[1m]",
 		},
 		{
 			// An option naming an alias the provider does not declare is not a licence to
@@ -429,7 +429,7 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 			providers: zaiReachableJSON,
 			profiles:  `{"opencode":"zai"}`,
 			wire:      `{"zai": {"provider": "zai", "model": "fast"}}`,
-			wantModel: "zai/glm-5.3-flash",
+			wantModel: "zai/glm-5.3-flash[1m]",
 		},
 		{
 			// An option naming an alias the provider does not declare asks a question the
@@ -544,9 +544,9 @@ func TestPiSelectionSurvivesAUserEdit(t *testing.T) {
 	r.render(t, `{"pi":"zai"}`)
 	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3[1m]")
 
-	r.edit(t, piSettings, "defaultModel", "glm-5.3-flash")
+	r.edit(t, piSettings, "defaultModel", "glm-5.3-flash[1m]")
 
-	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3-flash")
+	requirePiSelection(t, r.piSettings(t), r.piModels(t), "zai", "glm-5.3-flash[1m]")
 }
 
 // TestPiAndOpencodeWriteNoRecordWhenNothingIsSelected pins the quiet half for these two

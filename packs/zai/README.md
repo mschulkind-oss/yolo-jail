@@ -39,7 +39,7 @@ Then `yolo -p zai` (or the persistent spelling, `"use_profiles": {"claude": "zai
 
 | Agent | What it gets | Channel |
 |---|---|---|
-| claude | `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_DEFAULT_OPUS_MODEL` = the id under the alias the profile's `model` option names (`glm-5.3[1m]`; `glm-5.3-flash` for `"model": "fast"`). zai declares no `sonnet`/`haiku` aliases, so those two routing names get nothing. | the agent pack's own env derive (`yolo.env` in `packs/claude/derive.lua`), composed at launch — the endpoint is configuration, the token is relayed from the hydrated variable, and nothing is written to a file |
+| claude | `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_DEFAULT_OPUS_MODEL` = the id under the alias the profile's `model` option names (`glm-5.3[1m]`; `glm-5.3-flash[1m]` for `"model": "fast"`). zai declares no `sonnet`/`haiku` aliases, so those two routing names get nothing. | the agent pack's own env derive (`yolo.env` in `packs/claude/derive.lua`), composed at launch — the endpoint is configuration, the token is relayed from the hydrated variable, and nothing is written to a file |
 | pi | a `zai` catalog entry pointing at the openai route — `api: "openai-completions"`, `apiKey: "${ZAI_API_KEY}"` (the reference, not the value: pi expands it at read time) — plus `defaultProvider`/`defaultModel` in `settings.json` when a profile is selected | its derive, reading `YOLO_PROVIDERS` (the composed table) |
 | opencode | a `zai` catalog entry pointing at the openai route — `baseURL` and `apiKey: "{env:ZAI_API_KEY}"`, both under `options` because opencode reads them nowhere else — plus `model = "zai/<id>"` when a profile is selected | its derive, reading `YOLO_PROVIDERS` (the composed table) |
 | codex | **nothing — no entry and no selection** | codex speaks `responses` only and z.ai's openai route speaks chat completions only, so no `wire_api` value makes the pairing work — the derive emits no entry rather than one that 404s at first request ([provider-table-fidelity.md](../../docs/design/provider-table-fidelity.md) §3.3), and the same reachability gate keeps the selection off with it. Codex has no z.ai route; the anthropic endpoint is claude's, via claude's env derive. |
@@ -65,7 +65,7 @@ persistent `"use_profiles": {"pi": "zai"}` — is what makes each agent's derive
 selection key (pi's `defaultProvider`/`defaultModel`, opencode's `model`) from the provider's
 `default` alias, or from whichever alias a profile's `model` option names: the provider
 declares a `model` option whose declared default is the alias named `default`
-(`"options": {"model": "default"}`) and ships `fast` → `glm-5.3-flash` beside `default` →
+(`"options": {"model": "default"}`) and ships `fast` → `glm-5.3-flash[1m]` beside `default` →
 `glm-5.3[1m]`, so a profile stating `"model": "fast"` selects the air model.
 
 Your own profile states the option rather than overriding the pack's:

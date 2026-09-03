@@ -16,7 +16,7 @@ func shippedZaiPack(t *testing.T) *Pack {
 	   "endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
 	                "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},
 	   "api_key_env_name":"ZAI_API_KEY",
-	   "models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash"}}]}`)}
+	   "models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash[1m]"}}]}`)}
 }
 
 // shippedBedrockPack returns a pack declaring a REGIONAL provider — one whose address is
@@ -74,7 +74,7 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	// Key ORDER is pinned too: the entry is serialized into an env var the derives read,
 	// so a run that reshuffles it would turn every jail's provider table into a diff.
 	want := `{"zai": {"api_key_env_name": "ZAI_API_KEY", ` +
-		`"models": {"default": "glm-5.3[1m]", "fast": "glm-5.3-flash"}, ` +
+		`"models": {"default": "glm-5.3[1m]", "fast": "glm-5.3-flash[1m]"}, ` +
 		`"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}, ` +
 		`"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}}}}`
 	if s := dump(t, got); s != want {

@@ -48,7 +48,7 @@ func zaiEndpointsTable() map[string]map[string]any {
 		manifest.SourceProviders: {
 			"zai": map[string]any{
 				"api_key_env_name": "ZAI_API_KEY",
-				"models":           map[string]any{"default": "glm-5.3[1m]", "fast": "glm-5.3-flash"},
+				"models":           map[string]any{"default": "glm-5.3[1m]", "fast": "glm-5.3-flash[1m]"},
 				"endpoints": map[string]any{
 					"anthropic": map[string]any{"base_url": "https://api.z.ai/api/anthropic"},
 					"openai": map[string]any{

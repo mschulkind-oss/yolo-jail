@@ -29,7 +29,7 @@ func providerEnvPack(t *testing.T, name string) *packload.Pack {
 		`"endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},` +
 		`"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},` +
 		`"api_key_env_name":"ZAI_API_KEY",` +
-		`"models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash"}}]}`
+		`"models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash[1m]"}}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

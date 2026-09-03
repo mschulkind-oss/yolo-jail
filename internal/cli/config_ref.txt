@@ -996,7 +996,7 @@
     pack's decision (its yolo.env producer) — this key carries facts, not bindings.
     Example: {"zai": {"base_url": "https://api.z.ai/api/paas/v4",
               "api_key_env_name": "ZAI_API_KEY",
-              "models": {"default": "glm-5.3[1m]", "fast": "glm-5.3-flash"},
+              "models": {"default": "glm-5.3[1m]", "fast": "glm-5.3-flash[1m]"},
               "options": {"model": "default"}}}
 
   [bold]profiles[/bold] (object): Your own NAMED SELECTIONS over providers — profile

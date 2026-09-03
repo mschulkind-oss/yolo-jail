@@ -14,7 +14,7 @@
       "kind": "provider",
       "models": {
         "default": "glm-5.3[1m]",
-        "fast": "glm-5.3-flash"
+        "fast": "glm-5.3-flash[1m]"
       },
       "name": "zai",
       "options": {
