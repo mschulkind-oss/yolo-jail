@@ -403,6 +403,11 @@ func Main(args []string) error {
 		command = strings.Join(args, " ")
 	}
 
+	// Covers the REFUSAL path (genFailuresError below returns before the exec). The
+	// successful path releases explicitly just above execBash, since a deferred call never
+	// runs once this process has been replaced. ReleaseEmbedded is idempotent, so both.
+	defer packload.ReleaseEmbedded()
+
 	e := EnvFromOS()
 	// Everything the boot says now also lands in <workspace>/.yolo/boot.log, which
 	// outlives the container and is therefore readable after a boot that REFUSED —
@@ -572,6 +577,12 @@ func Main(args []string) error {
 	// deferred close would never run and the log would end mid-sentence on every
 	// SUCCESSFUL boot — the opposite of the signal it exists to carry.
 	blog.finish(nil)
+	// Released for the same reason, and the deferred release above is what covers the
+	// refusal path instead. Safe here rather than earlier because the boot renders from the
+	// MOUNTED tree (LoadJailPacks): the only thing this process took from the embedded copy
+	// is EmbeddedRetireMiseTools, a list of tool-name strings, so no path into it survives
+	// into the shell we are about to become.
+	packload.ReleaseEmbedded()
 	return execBash(e, command)
 }
 
