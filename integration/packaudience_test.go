@@ -12,6 +12,13 @@ package integration
 //
 // TWO agent packs are the whole fixture design. "Reached only its audience" is not a
 // measurement in a one-agent jail: every possible bug looks like a pass.
+//
+// THE `file://` ENTRIES ARE NAMED, and that is not decoration. A bare `"file://<dir>"` entry
+// takes its name from the source directory's BASENAME, and t.TempDir() hands out numeric
+// names (`.../TestName/002`) — so the refusal under test read `pack 002`, which is a fixture
+// artifact rather than a product defect, but it also revealed one: Pack.Name is documented
+// "config override, else manifest, else dir" and the manifest's own `name` did NOT beat the
+// dir here. Naming the entry is what a user does; the residual question is its own item.
 
 import (
 	"os"
@@ -56,7 +63,8 @@ func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 	}
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "codex", "file://`+pack+`"]}`)
+	packHome(t, `{"packs": ["claude", "codex", `+
+		`{"source":"file://`+pack+`","name":"house"}]}`)
 
 	// One command, four facts. `rg -c` exits non-zero on no match, so the negatives are
 	// spelled as explicit `|| echo`, not as an exit code — a bare `!rg` would make a missing
@@ -111,7 +119,8 @@ func TestPackAudienceRefusesAnAgentTheJailDoesNotHave(t *testing.T) {
 	}
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
+	packHome(t, `{"packs": ["claude", `+
+		`{"source":"file://`+pack+`","name":"house"}]}`)
 
 	r := runYolo(t, dir, "true")
 	if r.rc == 0 {
