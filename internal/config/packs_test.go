@@ -109,7 +109,11 @@ func TestDefaultPackNameUsesGitSubpath(t *testing.T) {
 
 func TestCheckPacksRejectsBadEntries(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
-		{`["/no/scheme"]`, "expected a URL with a scheme"},
+		// "/no/scheme" moved from REFUSED to ACCEPTED on 2026-09-03: a bare absolute
+		// path is a local pack, because checkPackName forbids "/" in a name so an
+		// entry with a separator can never be an embedded one. The refusal that
+		// survives is the RELATIVE path, which has no anchor.
+		{`["./relative"]`, "has no anchor"},
 		{`["http://example.com/pack"]`, "unsupported scheme"},
 		{`[{"name": "x"}]`, `missing required "source"`},
 		{`[{"source": "file:///p", "bogus": 1}]`, "unknown key"},
@@ -329,17 +333,39 @@ func TestUnknownBareNameListsWhatShips(t *testing.T) {
 	}
 }
 
-// TestPathShapedEntryAsksForAScheme: someone who wrote "/no/scheme" or "./pack" forgot a
-// URL scheme; offering them a list of tool names answers a question they did not ask.
-func TestPathShapedEntryAsksForAScheme(t *testing.T) {
-	for _, bad := range []string{"/no/scheme", "./relative", "../up", "host:path"} {
+// TestPathShapedEntryGetsAPathHint: someone who wrote "./pack" was reaching for a path,
+// not for a tool name; offering them a list of tool names answers a question they did not
+// ask. The hint changed with the entry grammar on 2026-09-03 — it used to demand a URL
+// scheme, and a bare absolute path now needs none — so what it must offer is the two
+// spellings that WORK, plus why a relative one cannot.
+func TestPathShapedEntryGetsAPathHint(t *testing.T) {
+	for _, bad := range []string{"./relative", "../up", "host:path"} {
 		_, problems := checkPacks(listOf(bad))
 		if len(problems) != 1 {
 			t.Fatalf("%s: want 1 problem, got %v", bad, problems)
 		}
-		if !strings.Contains(problems[0], "expected a URL with a scheme") {
-			t.Errorf("%s: want a scheme hint, got %q", bad, problems[0])
+		if !strings.Contains(problems[0], "~/dotfiles/packs/mine") {
+			t.Errorf("%s: want the working path spelling, got %q", bad, problems[0])
 		}
+	}
+}
+
+// TestBareAbsolutePathIsALocalPack: the other half of the same change. A bare "/abs/path"
+// is accepted, normalized to file://, and classified LOCAL — so it takes the no-fetch
+// path and may grant host files, exactly as the file:// spelling always did.
+func TestBareAbsolutePathIsALocalPack(t *testing.T) {
+	entries, problems := checkPacks(listOf("/opt/packs/mine"))
+	if len(problems) != 0 {
+		t.Fatalf("bare absolute path refused: %v", problems)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	if entries[0].Source != "file:///opt/packs/mine" {
+		t.Errorf("Source = %q, want the normalized file:// form", entries[0].Source)
+	}
+	if entries[0].Origin() != OriginLocal {
+		t.Errorf("Origin() = %v, want OriginLocal", entries[0].Origin())
 	}
 }
 

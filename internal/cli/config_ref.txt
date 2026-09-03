@@ -871,6 +871,15 @@
     With no packs configured a jail has no coding agent, and says so at launch.  That
     is the honest default: activating agents nobody asked for would put six tools and
     their config files in every jail.
+    A pack from ELSEWHERE is named by a PATH — [bold]~/dotfiles/packs/mine[/bold] or
+    [bold]/opt/packs/mine[/bold] — or, for a remote one, a git address
+    [bold]git+ssh://git@host/org/repo//sub?ref=main[/bold].  The "~/" is expanded against your
+    home at load, so ONE config can name one pack tree on machines whose homes differ
+    (/home/you vs /Users/you) — the reason it exists.  A path needs no scheme: a pack
+    NAME can never contain "/", so an entry with a separator is always a path.
+    [bold]file:///abs/path[/bold] still works and means the same thing.  Two refusals, both
+    naming the fix: [bold]file://~/…[/bold] (not a valid URL — the "~" parses as the host;
+    drop the scheme) and relative paths ./x and ../x (no anchor this key can honor).
     Host access = a reads-host file, a `mount` of a host dir, an installer program, or
     a host-prepending briefing.  An EMBEDDED or LOCAL (file://) pack may read the host
     unconditionally.  A FETCHED (git) pack may too, but only for the claims you APPROVE

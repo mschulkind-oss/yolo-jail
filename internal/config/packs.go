@@ -37,6 +37,7 @@ import (
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
 // packsKey is the top-level config key.
@@ -81,8 +82,12 @@ var knownPackKeys = set(
 // into each agent that has a skills dir), so the config-side filter was a second,
 // weaker copy of a decision already made downstream.
 type PackEntry struct {
-	// Source is the pack address. Always set. Either a `file://` URL (a local path,
-	// the only form phase 0 fetches) or a `git+<transport>://` URL.
+	// Source is the pack address. Always set, and always ABSOLUTE: either a `file://`
+	// URL (a local path, the only form phase 0 fetches) or a `git+<transport>://` URL.
+	// A config may write a local pack as a plain path — `~/dotfiles/packs/mine` or
+	// `/opt/packs/mine` — and lowerPackSource normalizes it to the file:// form
+	// before this field is set, so no consumer sees a bare path or a `~`
+	// (localPackAddress has the reasoning).
 	Source string `json:"source"`
 
 	// Name is the pack's short name, used for the staging dir, `yolo pack ls`, and
@@ -389,12 +394,85 @@ func checkPackEntry(raw any, itemPath string) (PackEntry, string) {
 	return entry, ""
 }
 
+// localPackAddress normalizes a LOCAL pack address written as a plain filesystem
+// path — "~/dotfiles/packs/mine" or "/opt/packs/mine" — into the `file://` form the
+// rest of the pipeline speaks. Anything else is returned unchanged, and a
+// `file://~/…` is REFUSED with a non-empty reason.
+//
+// WHY A BARE PATH IS ACCEPTED AT ALL. The `packs` value is a union: a bare word
+// selects an EMBEDDED pack ("claude"), an address selects an external one. The
+// `file://` scheme was carrying that disambiguation — but it never had to, because
+// checkPackName forbids "/" "\\" and ":" in a pack name, so an entry containing a
+// separator cannot be an embedded name and cannot become one later. The scheme is
+// therefore load-bearing only for `git+…://`, where the string is genuinely not a
+// path. `file://` keeps working (every existing config uses it); it is now the long
+// spelling of the short thing.
+//
+// WHY "~/" IS THE POINT. A `packs` entry is user-scope config, and the same user
+// config already names host files and env_sources with "~/" — so this was the one
+// path surface refusing the spelling its neighbours accept. The cost was concrete: a
+// dotfiles tree shared between a Linux host and a Mac cannot name one pack directory
+// with an absolute path, because "/home/matt" and "/Users/matt" are not the same
+// string (macos-revival-and-distribution-plan.md, 2026-09-03).
+//
+// IT GRANTS NO NEW AUTHORITY. `packs` is user-scope only and a user config could
+// already name any absolute path on the machine, so this is a spelling and not a
+// widening (gate-placement-principle.md test 1). A workspace config still cannot
+// name a pack at all, which is the boundary that matters.
+//
+// `file://~/…` IS REFUSED, NOT EXPANDED. It is a malformed URL — RFC 8089 reads the
+// "~" as the authority — and an earlier cut of this function accepted it anyway, on
+// the grounds that packsrc's parseFile would otherwise force-absolutize it to the
+// literal path "/~/x" and fail as "not a directory". That reasoning was wrong in a
+// specific way worth keeping: accepting a malformed URL means yolo's reading of a
+// string and every other URL parser's reading of it disagree, and a config that
+// works here and breaks in any other tool is a worse outcome than a clear refusal.
+// The silent "/~/x" mis-parse is fixed by REFUSING here, before packsrc ever sees
+// it, and naming the one-word fix.
+//
+// NOT relative paths. "./x" and "../x" stay refused: the anchor a relative entry
+// would need is "beside the declaring file" (the ruling env_sources implements,
+// docs/design/envsource-relative-paths.md), packs loads through loadUserScopeConfig
+// rather than the LoadJSONCWithIncludes funnel anchoring lives in, and packsrc.Parse
+// rejects ".." outright — so the natural spelling for a tree outside
+// ~/.config/yolo-jail/ would be refused a layer down even if the anchor existed.
+//
+// paths.Home() rather than os.UserHomeDir(): it carries the Python-parity resolution
+// the rest of the path layer depends on (see paths.home).
+func localPackAddress(source string) (normalized, refuse string) {
+	if rest, ok := strings.CutPrefix(source, "file://"); ok {
+		if rest == "~" || strings.HasPrefix(rest, "~/") {
+			return "", "a home-relative path takes no file:// scheme " +
+				"(it is not a valid URL — the \"~\" parses as the host); write " +
+				pytext.Repr(rest) + " on its own"
+		}
+		return source, ""
+	}
+	switch {
+	case source == "~":
+		return "file://" + filepath.ToSlash(paths.Home()), ""
+	case strings.HasPrefix(source, "~/"):
+		return "file://" + filepath.ToSlash(
+			filepath.Join(paths.Home(), strings.TrimPrefix(source, "~/"))), ""
+	case strings.HasPrefix(source, "/"):
+		return "file://" + filepath.ToSlash(filepath.Clean(source)), ""
+	}
+	return source, ""
+}
+
 // lowerPackSource validates an address and derives the default name.
 func lowerPackSource(source, name, itemPath string) (PackEntry, string) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return PackEntry{}, itemPath + ".source: must not be empty"
 	}
+	// Before the scheme check, so a bare "~/path" or "/abs/path" reaches the file://
+	// arm instead of the embedded-name arm's "no pack named …" message.
+	normalized, refuse := localPackAddress(source)
+	if refuse != "" {
+		return PackEntry{}, itemPath + ".source: " + refuse
+	}
+	source = normalized
 	scheme, _, hasScheme := strings.Cut(source, "://")
 	if !hasScheme {
 		// A BARE NAME selects an EMBEDDED pack — `packs: ["claude"]`. This is the whole
@@ -620,8 +698,9 @@ func unknownEmbeddedMessage(s string) string {
 	pathShaped := len(names) == 0 ||
 		strings.ContainsAny(s, "/\\.") || strings.Contains(s, ":")
 	if pathShaped {
-		return "expected a URL with a scheme, e.g. file:///path/to/pack or " +
-			"git+ssh://git@host/org/repo//sub?ref=main"
+		return "expected a path (~/dotfiles/packs/mine or /opt/packs/mine) or a " +
+			"git address (git+ssh://git@host/org/repo//sub?ref=main); a relative " +
+			"path has no anchor this key can honor"
 	}
 	return fmt.Sprintf("no pack named %q ships with yolo (available: %s); for a pack from "+
 		"elsewhere, give a full address like file:///path/to/pack or "+
