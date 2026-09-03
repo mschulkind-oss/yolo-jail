@@ -161,7 +161,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		loaded = append(loaded, selected)
 	}
 
-	var skillDirs []string
+	var skillDirs []jailcontent.PackSkillSource
 	var briefings []jailcontent.PackBriefing
 	for _, p := range loaded {
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
@@ -825,12 +825,18 @@ func resolvePackSupersessions() []loopholes.PackSupersession {
 // Reads p.Root, which for both branches of the caller is the STAGED tree — so an
 // only/exclude filter that removed the skills dir is reported here rather than surfacing as
 // a pack that "does nothing".
-func (o *Options) packSkillSourceDirs(p *packload.Pack) []string {
-	dirs, problems := p.SkillsSourceDirs()
+func (o *Options) packSkillSourceDirs(p *packload.Pack) []jailcontent.PackSkillSource {
+	sources, problems := p.SkillsSources()
 	for _, prob := range problems {
 		o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
 	}
-	return dirs
+	// The two types are field-identical on purpose (jailcontent.PackSkillSource says why the
+	// second one exists), so the conversion is a copy and there is nothing here to get wrong.
+	out := make([]jailcontent.PackSkillSource, 0, len(sources))
+	for _, src := range sources {
+		out = append(out, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents})
+	}
+	return out
 }
 
 // livePackSlugs is the set of staging-dir names the CURRENT config still claims.

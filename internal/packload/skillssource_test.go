@@ -39,18 +39,31 @@ func skillsPack(t *testing.T, manifest string, skillDirs ...string) *Pack {
 // THE BUG: `from` on a `skills` contribution was accepted and silently ignored — every
 // reader hardcoded <packRoot>/skills. A pack declaring a non-default source got skills/
 // read instead, with no warning anywhere.
+// sourceDirs is p.SkillsSources() projected back to the bare dir list these tests were
+// written against. The AUDIENCE the sources now carry has its own tests
+// (TestSkillsSourcesCarryTheDeclaredAudience); everything here is about the `from`
+// resolution, which the audience did not change.
+func sourceDirs(p *Pack) ([]string, []string) {
+	sources, problems := p.SkillsSources()
+	dirs := make([]string, 0, len(sources))
+	for _, src := range sources {
+		dirs = append(dirs, src.Dir)
+	}
+	return dirs, problems
+}
+
 func TestSkillsSourceHonorsFrom(t *testing.T) {
 	p := skillsPack(t,
 		`{"contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`,
 		"my-skills")
 
-	dirs, problems := p.SkillsSourceDirs()
+	dirs, problems := sourceDirs(p)
 	if len(problems) > 0 {
 		t.Fatalf("unexpected problems: %v", problems)
 	}
 	want := filepath.Join(p.Root, "my-skills")
 	if len(dirs) != 1 || dirs[0] != want {
-		t.Fatalf("SkillsSourceDirs() = %v, want [%s] — `from` must be honored, not ignored "+
+		t.Fatalf("SkillsSources() = %v, want [%s] — `from` must be honored, not ignored "+
 			"in favor of the conventional skills/ dir", dirs, want)
 	}
 }
@@ -66,13 +79,13 @@ func TestSkillsSourceDefaultsToConvention(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := skillsPack(t, tc.manifest, "skills")
-			dirs, problems := p.SkillsSourceDirs()
+			dirs, problems := sourceDirs(p)
 			if len(problems) > 0 {
 				t.Fatalf("unexpected problems: %v", problems)
 			}
 			want := filepath.Join(p.Root, "skills")
 			if len(dirs) != 1 || dirs[0] != want {
-				t.Fatalf("SkillsSourceDirs() = %v, want [%s]", dirs, want)
+				t.Fatalf("SkillsSources() = %v, want [%s]", dirs, want)
 			}
 		})
 	}
@@ -104,9 +117,9 @@ func TestSkillsSourceReportsMissingDeclaredDir(t *testing.T) {
 		`{"contributes":[{"kind":"skills","from":"my-skills","into":".x/skills"}]}`,
 		"skills") // the CONVENTIONAL dir exists; the declared one does not
 
-	dirs, problems := p.SkillsSourceDirs()
+	dirs, problems := sourceDirs(p)
 	if len(dirs) != 0 {
-		t.Errorf("SkillsSourceDirs() = %v, want none — a missing declared source must NOT "+
+		t.Errorf("SkillsSources() = %v, want none — a missing declared source must NOT "+
 			"silently fall back to skills/, which is the bug being fixed", dirs)
 	}
 	if len(problems) != 1 || !strings.Contains(problems[0], "my-skills") {
@@ -119,9 +132,9 @@ func TestSkillsSourceReportsMissingDeclaredDir(t *testing.T) {
 // no skills at all. Warning there would fire on every launch of a stock config.
 func TestSkillsSourceSilentOnAbsentConvention(t *testing.T) {
 	p := skillsPack(t, `{"contributes":[{"kind":"skills","from":"skills","into":".x/skills"}]}`)
-	dirs, problems := p.SkillsSourceDirs()
+	dirs, problems := sourceDirs(p)
 	if len(dirs) != 0 {
-		t.Errorf("SkillsSourceDirs() = %v, want none", dirs)
+		t.Errorf("SkillsSources() = %v, want none", dirs)
 	}
 	if len(problems) != 0 {
 		t.Errorf("problems = %v, want none — an absent CONVENTIONAL skills dir is the "+
@@ -148,7 +161,7 @@ func TestShippedPacksProduceNoSkillsSourceProblems(t *testing.T) {
 		t.Fatal("no shipped packs materialized — this test would cover nothing")
 	}
 	for _, p := range shipped {
-		if _, problems := p.SkillsSourceDirs(); len(problems) > 0 {
+		if _, problems := p.SkillsSources(); len(problems) > 0 {
 			t.Errorf("shipped pack %s reports skills-source problems %v — a warning on a "+
 				"stock config trains users to ignore warnings", p.Name, problems)
 		}
@@ -161,7 +174,7 @@ func TestSkillsSourceReportsFileNotDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(p.Root, "my-skills"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dirs, problems := p.SkillsSourceDirs()
+	dirs, problems := sourceDirs(p)
 	if len(dirs) != 0 {
 		t.Errorf("dirs = %v, want none", dirs)
 	}
@@ -194,7 +207,7 @@ func TestSkillsSourceDedupesRepeatedSource(t *testing.T) {
 	p := skillsPack(t, `{"contributes":[
 		{"kind":"skills","from":"my-skills","into":".claude/skills"},
 		{"kind":"skills","from":"my-skills","into":".codex/skills"}]}`, "my-skills")
-	dirs, problems := p.SkillsSourceDirs()
+	dirs, problems := sourceDirs(p)
 	if len(problems) > 0 {
 		t.Fatalf("problems: %v", problems)
 	}
@@ -208,7 +221,7 @@ func TestSkillsSourceKeepsDistinctSources(t *testing.T) {
 	p := skillsPack(t, `{"contributes":[
 		{"kind":"skills","from":"a-skills","into":".claude/skills"},
 		{"kind":"skills","from":"b-skills","into":".codex/skills"}]}`, "a-skills", "b-skills")
-	dirs, problems := p.SkillsSourceDirs()
+	dirs, problems := sourceDirs(p)
 	if len(problems) > 0 {
 		t.Fatalf("problems: %v", problems)
 	}

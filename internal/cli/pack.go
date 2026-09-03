@@ -72,8 +72,8 @@ effect, with a "kind" from a closed set:
 
   program          install a tool onto PATH
   requires         a tool that must already exist
-  skills           merge a skills tree
-  briefing         prose for the briefing
+  skills           merge a skills tree (optionally addressed: "agents")
+  briefing         prose for the briefing (optionally addressed: "agents")
   files            own a file tree, bind-mounted :ro in the jail
   config           a composed config surface
   config-overlay   keys on a config surface another pack owns
@@ -243,7 +243,10 @@ func packInit(args []string, out, errw io.Writer) int {
 		{"AGENTS.md", "# " + name + "\n\n" +
 			"Prose here is appended to every selected agent's briefing, under a\n" +
 			"`<!-- from pack: " + name + " -->` header so its origin stays traceable.\n" +
-			"Write instructions an agent should follow in every project using this pack.\n"},
+			"Write instructions an agent should follow in every project using this pack.\n\n" +
+			"To address ONE agent instead, declare a briefing that names its audience and\n" +
+			"no path: {\"kind\": \"briefing\", \"from\": \"prose/claude.md\",\n" +
+			"\"agents\": [\"claude\"]} — where that agent reads is its own pack's business.\n"},
 		{filepath.Join("skills", "example", "SKILL.md"), "---\n" +
 			"name: example\n" +
 			"description: Replace this with when the agent should read this skill. This line is what an agent sees when deciding whether to open it, so make it specific.\n" +
@@ -516,8 +519,8 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		if c.Kind == packdecl.KindSkills {
 			kindSrc = "skills/"
 		}
-		pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q is already declared by the %s pack — root-level %s in your pack is routed to every destination the selected packs declare, so this line adds nothing (drop it, unless you need the destination when %s is NOT selected)",
-			i, c.Kind, c.Into, owner, kindSrc, owner)
+		pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q is already declared by the %s pack — root-level %s in your pack is routed to every destination the selected packs declare, so this line adds nothing (drop it, unless you need the destination when %s is NOT selected; to reach %s and NOTHING ELSE, replace `into` with `agents: [\"%s\"]`)",
+			i, c.Kind, c.Into, owner, kindSrc, owner, owner, owner)
 	}
 
 	// The footprint: what this pack CLAIMS on the environment. An author who never

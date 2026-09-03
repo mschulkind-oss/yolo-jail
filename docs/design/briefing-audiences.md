@@ -8,8 +8,10 @@ summary: "A pack's briefing prose and skills reach every agent in the jail, so c
 
 # Audiences: a pack's content should be able to name who it is for
 
-**Status:** DECIDED, 2026-08-31 — all seven questions this doc asked are settled (Decision
-Ledger, at the foot). Nothing built; §9 is the build order.
+**Status:** BUILT, 2026-09-03. All seven questions are settled (Decision Ledger, at the foot)
+and all seven steps of §9 have landed. What each step cost, and what building it corrected, is
+in the note below; the body still describes the design as decided rather than as built, so read
+it with that note beside it.
 
 **The short version.** Every pack's briefing prose is composed **once** and written to
 **every** destination, so a pack whose rules apply to one agent must broadcast them to all
@@ -39,8 +41,9 @@ which govern any new name-a-component-by-string field),
 ---
 
 > [!IMPORTANT]
-> **Built 2026-09-02, and building it found two things this document does not say.** Steps 1–2 of
-> §9 shipped (`e93387c7`, `3afc10cb`); steps 3–7 remain.
+> **BUILT, and building it corrected this document in five places.** §9 steps 1 and 3 (the field,
+> the validation, the routing) shipped 2026-09-02; steps 2 and 4–7 shipped 2026-09-03. The two
+> findings below are from the first day; three more follow them.
 >
 > 1. **§4.1/§4.2 name two `mergedest` changes; four were needed.** The two named — `declares()`
 >    testing `Into != ""`, and filtering borrowed destinations by the selector — are necessary and
@@ -57,11 +60,36 @@ which govern any new name-a-component-by-string field),
 > 2. **`Orphaned []Kind` cannot express risk R1.** With two addressed entries of one kind, one
 >    matched and one not, the report can only name the kind. Deduped per kind and commented in the
 >    code rather than hidden; making R1's promise literal means the type carries the contribution.
+>    **Now it does** — `Destinations.Addressed` is per CONTRIBUTION, carrying the audience, the
+>    source, and the destinations it reached (empty when none did).
+> 3. **The contradiction roadmap 💬 20 recorded is RESOLVED, and neither sentence lost.** P3 makes
+>    an unenabled *name* fatal; R1 describes an addressed contribution that matched no destination
+>    as *reported*. They are answers to two different questions, and the severity splits exactly
+>    where the user's REMEDY splits. *Is the name in the vocabulary?* — decidable from the claim
+>    set, **fatal**, and the fix is a line in the addressing pack. *Did the name reach a
+>    destination of this kind?* — can be no for a perfectly good name, **reported**, and the fix is
+>    an `agent` on the OWNING pack's contribution of that kind, so refusing would punish the wrong
+>    author (R4). `Destinations.Addressed` is what made the second half expressible;
+>    `internal/packload/agentaudience.go`'s package doc is the standing statement of the split.
+> 4. **§5's "the host notch is a filter" describes a filter that must NOT be added.** The check it
+>    places beside `ComposeHostBriefings`' `prose == ""` skip would be dead code: an addressed
+>    contribution carries no `into`, so it never reaches that per-destination loop at all. The
+>    narrowing already happens upstream in `borrowedDestinations` — the same filter §4.1 asks for —
+>    so the host half's real content was the PAIRING (resolve, then compose) and the pin on it,
+>    which R3 asks for per notch and which nothing had. §5's *jail* half was exactly right.
+> 5. **§4.2's five claiming kinds are four: `requires` is not a claim on an agent name.** Two
+>    reductios. `docs/examples/claude-fzf-pack` declares `requires fzf` and `requires fd`, so
+>    counting it refuses a launch for two packs that merely need one tool; and a content pack
+>    asserting `requires claude` beside the pack that PROVIDES claude is the most ordinary
+>    dependency a pack can declare. `requires` is `CombineShared` for exactly that reason. Nothing
+>    is lost — P5's "whether it `program`s the binary or `requires` it" case still collides, through
+>    the `agent` its briefing or skills declares — so including it would be a no-op wherever it is
+>    right and a regression wherever it is not.
 >
-> **And one contradiction is now a live question — roadmap 💬 20.** P3 makes an unenabled *name*
-> fatal; risk R1 describes an addressed contribution that matched no destination as *reported*. Both
-> sentences are in this document, they disagree, and the difference is whether a launch happens.
-> Shipped behavior takes R1's side by default, because `Orphaned` was the only disposition available.
+> **One thing the jail half cost that §5 did not price:** the staging key moved from the PACK to
+> the DESTINATION, and the obvious escape for it is not injective. Doubling `~` and mapping `/` to
+> `~` sends both `a/~b` and `a~/b` to `a~~~b`; two destinations sharing a staging file deliver one
+> agent's briefing to the other, silently. It is RFC 6901's escape now.
 
 ## 1. Verdict, and the principles it rests on
 

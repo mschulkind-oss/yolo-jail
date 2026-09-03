@@ -263,8 +263,14 @@ func withSkillTargets(t *testing.T, dests ...string) {
 // ~/.<agent>/skills tree used to supply directly (S3: that layer read the DESTINATION, which
 // `yolo host apply` now generates). The user's own skills reach a jail as the LOCAL PACK, which is an
 // ordinary entry in this list — appended last by config.LoadPacks.
+// Each dir is registered with NO audience, i.e. as a BROADCAST — which is what every pack
+// that ships does, and what every test here was written against (P2).
 func withPackSkillDirs(t *testing.T, dirs ...string) {
 	t.Helper()
-	SetPackSkillDirs(dirs)
+	sources := make([]PackSkillSource, 0, len(dirs))
+	for _, dir := range dirs {
+		sources = append(sources, PackSkillSource{Dir: dir})
+	}
+	SetPackSkillDirs(sources)
 	t.Cleanup(func() { SetPackSkillDirs(nil) })
 }

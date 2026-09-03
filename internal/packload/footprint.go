@@ -125,6 +125,50 @@ const AgentNameClaimKind = packdecl.Kind("agent")
 // A pack of scripts should not push its other claims off the reader's screen.
 const execClaimListCap = 5
 
+// audienceTarget is the TARGET column for a `briefing`/`skills` claim: the destination it
+// names, or — for an ADDRESSED contribution, which names an audience and deliberately no path
+// (briefing-audiences.md P4) — the audience itself.
+//
+// Without this, an addressed contribution's footprint line had a BLANK target: `into` is the
+// target for these kinds and an addressed contribution has none, so `yolo pack lint` and
+// `yolo pack footprint` printed the kind, a blank, and the detail. That is the reporting gap
+// §9 step 7 names, and it is the worst place for it — the single-pack views are exactly where
+// an author checks what their manifest does before configuring it.
+//
+// Display only, safe by construction: `briefing` is CombineConcat and `skills` is CombineMerge,
+// so Collisions' generic exclusive loop skips both kinds and never compares these strings.
+func audienceTarget(c packdecl.Contribution) string {
+	if c.Into != "" {
+		return c.Into
+	}
+	if len(c.Agents) > 0 {
+		return "→ " + strings.Join(c.Agents, ", ")
+	}
+	return "" // neither: the zero-ceremony broadcast, which names nothing by design
+}
+
+// audienceDetail appends this contribution's TARGETING to the kind's own detail — the audience
+// it addresses, or the identity it declares for the destination it owns.
+//
+// Both halves are reported because both are invisible otherwise and both change delivery. An
+// author reading `briefing  .claude/CLAUDE.md  concat` cannot tell whether that destination is
+// addressable at all, which is R4's whole complaint: a third-party agent pack that declares no
+// identity is silently unaddressable, and its users cannot tell why a scoped pack skipped it.
+func audienceDetail(c packdecl.Contribution, base string) string {
+	switch {
+	case len(c.Agents) > 0:
+		return base + " — addressed to " + strings.Join(c.Agents, ", ") +
+			" (destination inferred from the pack that owns that name)"
+	case c.Agent != "":
+		return base + " — this destination IS " + c.Agent + "'s (`agents: [\"" + c.Agent +
+			"\"]` reaches it)"
+	case c.Into != "":
+		return base + " — declares no `agent`, so no `agents` selector can name it"
+	default:
+		return base
+	}
+}
+
 // FootprintOf reads a pack's typed contributions (via packdecl.Contributions())
 // and returns its claims, dispatching on each contribution's kind.
 //
@@ -165,15 +209,16 @@ func FootprintOf(p *Pack) Footprint {
 			// let it stay hidden — an author who moved their skills to `my-skills/` saw a
 			// claim identical to the one a working pack makes. Resolved through the same
 			// helper delivery uses, so the line cannot claim a source delivery would not read.
-			add(packdecl.KindSkills, c.Into,
-				"from "+c.SkillsSource()+"/ — merged (built-in < pack < user)", false)
+			add(packdecl.KindSkills, audienceTarget(c),
+				audienceDetail(c, "from "+c.SkillsSource()+"/ — merged (built-in < pack < user)"),
+				false)
 		case packdecl.KindBriefing:
 			detail := "concat"
 			review := strings.HasPrefix(c.After, "host:")
 			if review {
 				detail = "concat after " + c.After
 			}
-			add(packdecl.KindBriefing, c.Into, detail, review)
+			add(packdecl.KindBriefing, audienceTarget(c), audienceDetail(c, detail), review)
 		case packdecl.KindFiles:
 			add(packdecl.KindFiles, c.Into, "read-only tree", false)
 		case packdecl.KindState:

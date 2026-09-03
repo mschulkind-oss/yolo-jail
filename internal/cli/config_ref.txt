@@ -850,6 +850,9 @@
                     pack with no manifest merges its skills/ dir.  A `from` naming a dir
                     the pack lacks delivers nothing and says so (except the CONVENTIONAL
                     skills/, whose absence is normal for a pack that only names a dest).
+                    Takes `agent` and `agents` on the same terms as `briefing` below: the
+                    owning pack declares which agent reads a destination, and a content
+                    pack addresses its tree to a name instead of a path.
       briefing      {from, into, after:"host:<path>" to prepend your own file first,
                     agent, agents}.  `agent` is the IDENTITY a destination declares for
                     itself — the launcher command whose agent reads that `into`, declared

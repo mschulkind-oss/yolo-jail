@@ -20,6 +20,7 @@
       "kind": "briefing"
     },
     {
+      "agent": "pi",
       "into": ".pi/agent/skills",
       "kind": "skills"
     },

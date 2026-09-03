@@ -81,8 +81,31 @@ func (p *Pack) SkillsSourceDir(c packdecl.Contribution) (string, string) {
 	}
 }
 
-// SkillsSourceDirs returns every source dir this pack's skills come from, in declaration
-// order and deduplicated, plus one problem per declaration that could not be honored.
+// SkillsSource is one resolved skills source: the absolute directory, and the AUDIENCE the
+// contribution that named it declared.
+//
+// The audience travels WITH the source because that is the only place it can travel: the jail
+// merges every selected pack's skills into every declared destination through one global list
+// (jailcontent's packSkillDirs), so a source that arrived as a bare path had no way to say who
+// it was for — which is `skills`' half of the defect briefing-audiences.md closes, and it is
+// the same shape jailcontent.PackBriefing needed for `briefing`.
+type SkillsSource struct {
+	// Dir is the absolute source directory.
+	Dir string
+	// Agents is the audience the declaring contribution named. EMPTY MEANS BROADCAST — the
+	// pre-field behavior, and the only behavior a zero-ceremony pack can ask for (P2).
+	Agents []string
+}
+
+// SkillsSources is the resolved sources, in declaration order and deduplicated by DIR, plus
+// one problem per declaration that could not be honored.
+//
+// DEDUPLICATED BY DIR, WITH THE AUDIENCES UNIONED and a broadcast absorbing every audience —
+// the same rule run.packBriefingProses applies to identical prose, and needed for the same
+// reason: two contributions may name the same source (or omit `from` twice and get the
+// conventional dir twice), and copying that tree once per contribution would be one delivery
+// reported as several. A broadcast wins because it already reaches everywhere an audience
+// could.
 //
 // A pack declaring NO skills contribution falls back to the conventional dir, which is the
 // zero-ceremony merge the jail path depends on: a pack that is just a `skills/` tree and an
@@ -90,18 +113,26 @@ func (p *Pack) SkillsSourceDir(c packdecl.Contribution) (string, string) {
 // the destination. That fallback lives here rather than at the call site because both jail
 // call sites need it identically, and the one that forgot it would silently drop every
 // manifest-less pack's skills.
-func (p *Pack) SkillsSourceDirs() (dirs []string, problems []string) {
-	seen := map[string]bool{}
+func (p *Pack) SkillsSources() (sources []SkillsSource, problems []string) {
+	index := map[string]int{}
 	add := func(c packdecl.Contribution) {
 		dir, prob := p.SkillsSourceDir(c)
 		if prob != "" {
 			problems = append(problems, prob)
 		}
-		if dir == "" || seen[dir] {
+		if dir == "" {
 			return
 		}
-		seen[dir] = true
-		dirs = append(dirs, dir)
+		if i, seen := index[dir]; seen {
+			if len(sources[i].Agents) == 0 || len(c.Agents) == 0 {
+				sources[i].Agents = nil
+				return
+			}
+			sources[i].Agents = append(sources[i].Agents, c.Agents...)
+			return
+		}
+		index[dir] = len(sources)
+		sources = append(sources, SkillsSource{Dir: dir, Agents: c.Agents})
 	}
 	declared := false
 	for _, c := range p.Decl.Contributions() {
@@ -112,8 +143,9 @@ func (p *Pack) SkillsSourceDirs() (dirs []string, problems []string) {
 		add(c)
 	}
 	if !declared {
-		// Zero-ceremony: no manifest (or none mentioning skills) still merges skills/.
+		// Zero-ceremony: no manifest (or none mentioning skills) still merges skills/, and it
+		// has no manifest to name an audience in, so it broadcasts.
 		add(packdecl.Contribution{Kind: packdecl.KindSkills})
 	}
-	return dirs, problems
+	return sources, problems
 }

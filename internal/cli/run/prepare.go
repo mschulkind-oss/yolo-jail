@@ -474,7 +474,7 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 				continue
 			}
 			out = append(out, jailcontent.SkillTarget{
-				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into,
+				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into, Agent: c.Agent,
 			})
 		}
 	}

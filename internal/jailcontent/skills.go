@@ -17,7 +17,7 @@ import (
 // *inside* each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a
 // running jail's bind mount captured its inode and a fresh inode would silently
 // detach attach-time refreshes.
-// packSkillDirs are the per-pack `skills/` directories to layer in, in config
+// packSkillDirs are the per-pack `skills/` sources to layer in, in config
 // order (C3). Threaded as a package-level var rather than a parameter so the
 // existing four-arg signature and its callers stay untouched; the CLI sets it once
 // per run, before PrepareSkills.
@@ -27,17 +27,38 @@ import (
 // So a pack may override a built-in — a legitimate reason to ship one — and the
 // user's own copy still outranks a shared pack's. There is no fourth layer: the one
 // that read the destination back in was S3's defect.
-var packSkillDirs []string
+//
+// IT CARRIES AN AUDIENCE PER SOURCE since briefing-audiences.md, where it was a flat
+// []string. A flat list was the `skills` half of the same defect the briefing half had: the
+// list is GLOBAL — every selected pack's skills reach every destination — so a source that
+// arrived as a bare path had no way to say who it was for, and a claude-specific skill was
+// copied into ~/.pi/agent/skills with nothing able to stop it.
+var packSkillDirs []PackSkillSource
 
-// SetPackSkillDirs sets the pack skills dirs consulted by the next PrepareSkills.
+// PackSkillSource is one skills SOURCE to layer in, and the audience it names.
+//
+// A re-declaration of packload.SkillsSource rather than a use of it, and that is not
+// duplication for its own sake: jailcontent is core's own content package and does not import
+// packload (the boot path stages a tree and this reads it), so the two types meet at the CLI,
+// which resolves one into the other. The FIELDS are deliberately identical so the conversion
+// is a copy with nothing to get wrong.
+type PackSkillSource struct {
+	// Dir is the absolute source directory to copy skill subdirs from.
+	Dir string
+	// Agents is the audience this source names. EMPTY MEANS BROADCAST (P2) — every pack that
+	// ships today, and the only thing a pack with no pack.json can ask for.
+	Agents []string
+}
+
+// SetPackSkillDirs sets the pack skills sources consulted by the next PrepareSkills.
 // Passing nil clears them.
-func SetPackSkillDirs(dirs []string) { packSkillDirs = dirs }
+func SetPackSkillDirs(sources []PackSkillSource) { packSkillDirs = sources }
 
-// PackSkillDirs returns what SetPackSkillDirs last set — the SOURCE dirs the next
+// PackSkillDirs returns what SetPackSkillDirs last set — the SOURCES the next
 // PrepareSkills will copy from. Exported so the CLI's own tests can assert which dir a
 // pack's `skills` contribution resolved to, which is otherwise observable only by
 // inspecting the staged output after a full PrepareSkills run.
-func PackSkillDirs() []string { return packSkillDirs }
+func PackSkillDirs() []PackSkillSource { return packSkillDirs }
 
 // SkillTarget is one pack-declared skills destination: which staging dir to build, and
 // the jail path it will be mounted at.
@@ -46,6 +67,13 @@ type SkillTarget struct {
 	Staging string
 	// Dest is the home-relative jail path the staged dir is mounted at.
 	Dest string
+	// Agent is the IDENTITY the declaring pack gave this destination — the launcher command
+	// whose agent reads it — or "" for a destination that declared none.
+	//
+	// "" is not an error: it means no `agents` selector can name this destination, which is
+	// the state every pack.json was in before the field existed (R4). Such a destination
+	// still receives every broadcast source; it just cannot be addressed.
+	Agent string
 
 	// A HostSource FIELD USED TO LIVE HERE, naming "the user's OWN skills tree to layer in
 	// last" — and it was set to the DESTINATION (run.packSkillTargets), i.e. the host's own
@@ -109,13 +137,41 @@ func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) 
 		//    by config.LoadPacks, so a personal skill still outranks every shared pack's. The
 		//    layer that used to follow this one read the DESTINATION and is gone — see
 		//    SkillTarget for why that was circular.
-		for _, dir := range packSkillDirs {
-			if err := copySkillSubdirs(dir, skillsDir); err != nil {
+		for _, src := range packSkillDirs {
+			// THE AUDIENCE FILTER, and it is the whole `skills` half of
+			// briefing-audiences.md. The list is global, so this is the only point at which
+			// "who is this content for?" can be asked — and it is asked against the string
+			// the DESTINATION declared about itself, never anything derived (OQ-BA2).
+			if !sourceAddressesAgent(src.Agents, target.Agent) {
+				continue
+			}
+			if err := copySkillSubdirs(src.Dir, skillsDir); err != nil {
 				return "", err
 			}
 		}
 	}
 	return staging, nil
+}
+
+// sourceAddressesAgent reports whether a source naming `agents` belongs in the staging dir of
+// a destination whose declared identity is `agent`.
+//
+// The `skills` twin of briefing.go's addressesAgent, and identical by intent: EMPTY IS
+// BROADCAST, so a jail of packs that name nobody stages exactly what it did before, and an
+// empty `agent` receives every broadcast and no addressed source. It is a second small
+// predicate rather than a shared one because the two live in the same package and neither
+// imports the other's type — folding them would mean a shared helper over two field lists,
+// which is more coupling than the four lines are worth.
+func sourceAddressesAgent(agents []string, agent string) bool {
+	if len(agents) == 0 {
+		return true
+	}
+	for _, a := range agents {
+		if a == agent {
+			return true
+		}
+	}
+	return false
 }
 
 // clearDirContents removes every entry inside dir, leaving dir itself intact.
