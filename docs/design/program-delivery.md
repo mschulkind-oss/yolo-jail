@@ -11,8 +11,11 @@ summary: "Four delivery classes, one of which keeps no record and is never re-de
 **Status:** DECIDED, 2026-08-24; implementation underway the same day. All ten questions are
 ruled (the [Decision Ledger](#decision-ledger)). Shipped: the mise half of step one and the
 evergreen removal (`a16403e2`), the §6.2 tolerance (`0a4d241c`), step one's receipts and step
-four's informational catalog (`af46c9b4`); the reconcile verb, the removal act, obey, and capture
-remain — [§10](#10-what-i-would-build-in-order). Every fact below is labelled
+four's informational catalog (`af46c9b4`), and **the reconcile verb (`43f28ce8`)**; the removal act,
+obey, and capture remain — [§10](#10-what-i-would-build-in-order). ⚠ *This line listed the reconcile
+as remaining until 2026-09-03; it had shipped (`internal/entrypoint/reconcile.go:83`). The roadmap
+credited `0eabeabc`, which resolves as an object but is **not an ancestor of HEAD** — a pre-rebase
+SHA left behind.* Every fact below is labelled
 **MEASURED** (observed in this development jail, 2026-08-24), **READ FROM CODE** (traced but not
 observed running) or **NOT MEASURED**.
 
