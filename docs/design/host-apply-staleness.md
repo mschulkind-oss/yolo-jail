@@ -1,6 +1,8 @@
 # The host launch should re-render — gated exactly the way a jail launch is
 
-**Status:** **DECIDED**, 2026-09-03 — eleven rulings, zero open questions. Nothing built. Two
+**Status:** **IMPLEMENTED**, 2026-09-03 — eleven rulings, zero open questions, all four §10 steps
+shipped (`015527be` predicate · `76c8d16e` opt-in key · `eb796e99` launch hook · `fe30ba1c`
+per-home lock · `ebdf0784` config-ref fix). Ready to graduate to a `system-doc`. Two
 arguments are retracted in place, at §1 and §3.2, and one principle was replaced (§1 P3's note);
 all three are kept rather than deleted because each is cheap to re-derive and expensive to
 re-argue. Reached DECIDED through four restatements in one day, three of which retracted the one
@@ -347,9 +349,21 @@ The two-step remedy remains available and is what an interactive refusal should 
 it leaves nothing behind in the environment:
 
 ```console
-$ yolo host apply --assert --accept-config-changes
+$ yolo host apply --assert
 $ claude --print …
 ```
+
+> [!WARNING]
+> **⚠ Corrected in implementation (2026-09-03): this block used to read `yolo host apply --assert
+> --accept-config-changes`, which does not run.** `hostApply`'s parser accepts only `--assert`,
+> `--dry-run` and `--shell-init`, and exits 2 on anything else — measured. Teaching it the flag
+> would make that flag stand in for the explicit apply's own **fail-closed one-way-door
+> confirmations**, which §7 forbids ("keeps its fail-closed confirmations") and
+> `TestApplyHostFirstApplyFailsClosedWithoutStdin` exists to hold. It is also unnecessary:
+> `--accept-config-changes` grants the *jail's* config approval, and an explicit host apply has
+> none. **Resolved in favour of §7** — the refusal names the bare `--assert`, and a test asserts the
+> flag is not offered. This doc violated its own P5 (a refusal must name a remedy that runs), which
+> is exactly the check P5 exists to force.
 
 > [!WARNING]
 > **Do not bake the grant into the wrapper body** when a config key says so. It is the obvious fix
@@ -519,8 +533,8 @@ have caught drift *sometime*, just never at a moment tied to a launch.
   appears and the launch waits. Accept and it launches with the file restored; decline and it aborts.
 - Key on, TTY, freshly-applied home: launching prompts **not at all**, ever, until something actually
   changes. *(Check this first — it is R3.)*
-- Key on, no TTY, drift present: the launch refuses and names `yolo host apply --assert
-  --accept-config-changes`. Running that, then launching, succeeds silently.
+- Key on, no TTY, drift present: the launch refuses and names `yolo host apply --assert` (see
+  §4.3's correction — the flag form does not run). Running that, then launching, succeeds silently.
 - Key off (the default): no launch and no command mentions any of this, and `yolo check` says the
   feature exists and is off.
 - A malformed pack manifest makes the launch proceed, not fail.
@@ -545,3 +559,9 @@ have caught drift *sometime*, just never at a moment tied to a launch.
 | OQ-HS8 | *(Answered by OQ-HS2.)* Was: is re-rendering opt-in? Yes, a key, default off. A config key granting the approval is **refused** — that is the one spelling that is genuinely standing consent. | 2026-09-03 | §1 P4, §4.2 |
 | OQ-HS9 | The launch compares the **render**, not the config. Only that makes "up to date whenever an agent launches" literally true; a config-approval snapshot is blind to a hand-edited destination. **Resurrects the change predicate** an earlier draft had deleted. | 2026-09-03 | §3.4, §4.1 |
 | OQ-HS10 | The non-TTY approval is an **environment variable** on the wrapper path — *"just do what every other package does… it's a low use case, that's fine."* Not a contradiction of `snapshot.go:67-81` but the answer to a different question: on a fixed wrapper the choice is env-var-vs-nothing, because no flag can reach the process. Scoped to that path only, so a `.bashrc` line cannot pre-approve jail launches. | 2026-09-03 | §1 P4, §4.3 |
+| OQ-HS11 | The comparison **normalizes both sides through the same codec** rather than comparing against the file's raw bytes. A literal byte comparison reports a change forever for canonical-TOML key reordering and any non-2-space JSON, with `Formatting` empty — R3 by the back door. This makes the `Formatting` carve-out **structural** instead of checked. Corrects §1 P3/R3's "byte comparison", whose contrast was meant to be with *field inspection*, not an assertion about raw bytes. | 2026-09-03 | §3.4, `hostSurfaceWouldChange` |
+| OQ-HS12 | The **wrapper dir is a fifth surveyed destination**, beyond §3.4's four kinds: `applyHost` writes it, `hostwrap.Plan.Changed()` is already an exact predicate, and a pack added since the last apply has no wrapper — nothing else would say so. | 2026-09-03 | §3.4 |
+| OQ-HS13 | "TTY" means **stdin**, matching the jail's `IsTTYStdin` — `claude --print foo > out.txt` has a redirected stdout and a usable terminal. | 2026-09-03 | §4.3 |
+| OQ-HS14 | An apply that **fails after an accepted prompt aborts the launch** (§4.3's table did not cover it). The user asked for apply-then-launch; exec'ing against a half-applied home is the failure the gate exists to remove. | 2026-09-03 | §4.3, §4.4 |
+| OQ-HS15 | The lock is the **launch path's, not the command's** — an explicit `yolo host apply` alongside a gated launch stays unserialized. Closing it means either making the command wait on a launch that may be prompting (unbounded) or making it refuse (a new failure mode §7 asks this design not to introduce). | 2026-09-03 | §4.6 |
+| OQ-HS16 | The gate shows a **change list, not a unified diff**, and names `yolo host apply --dry-run` for per-key detail. A second diff renderer at a surface that interrupts someone starting an agent is both duplication and too long to read. | 2026-09-03 | §4.3 |
