@@ -18,6 +18,7 @@ import (
 	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/crossaudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -39,6 +40,15 @@ func Main(argv []string) int {
 	// create no log and no directory. Audit-only throughout — see
 	// internal/crossaudit.
 	crossaudit.Install()
+
+	// The embedded pack tree is already ON DISK by the time we get here — internal/config's
+	// hostFileWritableRoots is a package-level var whose initializer reaches
+	// packload.Embedded — so this releases it for EVERY subcommand, `--version` included.
+	// Nothing after Main can read a Pack.Root, and a later Embedded() re-materializes, so
+	// the process's exit is the earliest safe point and the only one that covers every
+	// command. Without it each `yolo` invocation left a permanent ~200 KB temp directory
+	// behind (measured live 2026-09-03: 625 of them, 109 MB).
+	defer packload.ReleaseEmbedded()
 
 	if cwd := InvocationCWD(); cwd != "" {
 		_ = os.Chdir(cwd)

@@ -21,13 +21,10 @@ package entrypoint
 
 import (
 	"fmt"
-	"os"
-	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
-	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // ConfigurePackByName renders every surface the named EMBEDDED pack declares, then runs
@@ -86,11 +83,7 @@ func ConfigurePackByName(e *Env, name string) error {
 	return nil
 }
 
-// embeddedPack materializes the embedded official packs once and returns the one named.
-//
-// Materialized once per process (not per call) because ConfigurePackByName is called
-// repeatedly across a test's boots, and re-copying the tree each time would be wasted work
-// on the path that is meant to mirror what the boot loop does with a mounted tree.
+// embeddedPack returns the one embedded pack named, out of the process's materialized set.
 func embeddedPack(name string) (*packload.Pack, error) {
 	packs, err := embeddedPackSet()
 	if err != nil {
@@ -104,48 +97,28 @@ func embeddedPack(name string) (*packload.Pack, error) {
 	return nil, fmt.Errorf("no embedded pack named %q", name)
 }
 
-// embeddedPackSet materializes the embedded official packs once and returns all of them.
-// Split out of embeddedPack for the one caller that needs the SET rather than a member —
-// the selection a surface derive sees resolves across packs (ConfigurePackByName).
+// embeddedPackSet is every embedded official pack. Split out of embeddedPack for the one
+// caller that needs the SET rather than a member — the selection a surface derive sees
+// resolves across packs (ConfigurePackByName).
+//
+// packload.Embedded, which is the process's ONE materialized copy. These three entry
+// points each used to run their own MaterializeEmbedded — into a shared
+// `yolo-embedded-packs-` temp dir that nothing removed, so `yolo check` re-extracted the
+// ~30-file tree three times per run and left the directory behind. The set is not
+// selection-gated and must not become so (AGENTS.md): `yolo check`'s dry-run probe renders
+// EVERY pack yolo ships, whatever this machine's config selects.
 func embeddedPackSet() ([]*packload.Pack, error) {
-	embeddedOnce.Do(func() {
-		packs, problems := packload.MaterializeEmbedded(officialpacks.FS, embeddedDir())
-		if len(problems) > 0 {
-			embeddedErr = fmt.Errorf("%s", problems[0])
-			return
-		}
-		embeddedPacks = packs
-	})
-	if embeddedErr != nil {
-		return nil, embeddedErr
+	packs := packload.Embedded()
+	if problems := packload.EmbeddedProblems(); len(problems) > 0 {
+		return nil, fmt.Errorf("%s", problems[0])
 	}
-	return embeddedPacks, nil
-}
-
-var (
-	embeddedOnce    sync.Once
-	embeddedPacks   []*packload.Pack
-	embeddedErr     error
-	embeddedRoot    string
-	embeddedDirOnce sync.Once
-)
-
-// embeddedDir is one temp dir per process for the materialized embedded packs, so the
-// several entry points here share one copy rather than each making their own.
-func embeddedDir() string {
-	embeddedDirOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "yolo-embedded-packs-")
-		if err == nil {
-			embeddedRoot = dir
-		}
-	})
-	return embeddedRoot
+	return packs, nil
 }
 
 // EmbeddedPackNames lists the embedded official packs, in a deterministic order.
 func EmbeddedPackNames() []string {
-	packs, problems := packload.MaterializeEmbedded(officialpacks.FS, embeddedDir())
-	if len(problems) > 0 {
+	packs, err := embeddedPackSet()
+	if err != nil {
 		return nil
 	}
 	names := make([]string, 0, len(packs))
@@ -168,8 +141,8 @@ type ProbeSurface struct {
 // resolved against the Env's home, so `yolo check` can validate what was just rendered
 // without knowing any tool's name.
 func EmbeddedPackSurfaces(e *Env) []ProbeSurface {
-	packs, problems := packload.MaterializeEmbedded(officialpacks.FS, embeddedDir())
-	if len(problems) > 0 {
+	packs, err := embeddedPackSet()
+	if err != nil {
 		return nil
 	}
 	var out []ProbeSurface

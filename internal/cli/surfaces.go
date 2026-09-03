@@ -18,13 +18,11 @@ package cli
 // this fetch.
 
 import (
-	"os"
 	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 var (
@@ -34,31 +32,32 @@ var (
 
 // surfaceManifest is core's surfaces merged with every embedded pack's.
 //
-// Cached: the commands here call it several times per invocation and materializing the
-// embedded packs copies a tree. A pack surface REPLACES a core one with the same
+// Cached: the commands here call it several times per invocation and each merge walks
+// every pack's declarations. A pack surface REPLACES a core one with the same
 // (agent, name) — manifest.Merge's rule — so a pack can override, which is the same
 // "later wins" ordering packs already use everywhere else.
+//
+// Through packload.Embedded rather than a MaterializeEmbedded of its own: this file used
+// to copy the whole embedded tree into a second `yolo-cli-packs-` temp dir it never
+// removed, so `yolo config ls` left TWO directories behind instead of one. The packs are
+// registered by internal/packreg's init (internal/config imports it, and this package
+// cannot avoid internal/config), and configdiff_test.go's copilot/claude lookups fail
+// outright if that registration ever stops reaching here.
 func surfaceManifest() *manifest.Manifest {
 	allSurfacesOnce.Do(func() {
 		var extra []manifest.Surface
-		dir, err := os.MkdirTemp("", "yolo-cli-packs-")
-		if err != nil {
-			allSurfacesMan = agentcfg.BuiltinManifest()
-			return
-		}
-		packs, problems := packload.MaterializeEmbedded(officialpacks.FS, dir)
-		if len(problems) == 0 {
-			for _, p := range packs {
-				surfaces, probs := p.Surfaces()
-				if len(probs) > 0 {
-					// A broken embedded pack is a yolo bug. The config commands are
-					// read-mostly reporting tools, so they show what they can rather than
-					// refusing; the boot path fails loudly on the same input (A12), which
-					// is where a hard stop belongs.
-					continue
-				}
-				extra = append(extra, surfaces...)
+		// Empty when materialization failed, which keeps the fallback below: core's own
+		// surfaces rather than a refusal.
+		for _, p := range packload.Embedded() {
+			surfaces, probs := p.Surfaces()
+			if len(probs) > 0 {
+				// A broken embedded pack is a yolo bug. The config commands are
+				// read-mostly reporting tools, so they show what they can rather than
+				// refusing; the boot path fails loudly on the same input (A12), which
+				// is where a hard stop belongs.
+				continue
 			}
+			extra = append(extra, surfaces...)
 		}
 		m, merr := agentcfg.ManifestWith(extra...)
 		if merr != nil {

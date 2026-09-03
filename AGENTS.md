@@ -54,6 +54,17 @@ things worth knowing before you debug:
   lists (`host_files` writable roots, `writable_home_dirs` segments, GlobalHome
   subdirs) cover every pack yolo SHIPS, or a `host_files` entry could claim a
   path a pack added tomorrow needs.
+- **`packload.Embedded()` is ONE temp tree for the WHOLE PROCESS, released on the
+  way out.** It is materialized before argv is even parsed — `internal/config`'s
+  `hostFileWritableRoots` is a package-level var whose initializer reaches it — so
+  every `yolo` invocation pays for it, `--version` included. `Pack.Root` is a
+  handle into that tree, nothing can know when the last read happens, and the only
+  exit paths are `cli.Main` (deferred) and `entrypoint.Main` (explicit, since
+  `execBash` replaces the process). A second process-lifetime copy is the bug to
+  watch for: three call sites made their own, each leaking a never-removed ~200 KB
+  directory per invocation (measured live 2026-09-03: 625 dirs, 109 MB) — call
+  `MaterializeEmbedded` directly only when you delete the dest yourself
+  (`internal/cli/run/packs.go` stages out of one).
 
 `agentcfg.BuiltinManifest()` is now core's own surfaces only (`mise/config`);
 callers wanting the full set merge pack surfaces via `ManifestWith`.
