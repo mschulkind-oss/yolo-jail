@@ -2,6 +2,8 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -136,5 +138,85 @@ func TestRunMacosUserNotGatedOnMissingRepoRoot(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "Cannot find yolo-jail repo root") {
 		t.Errorf("macos-user launch printed the repo-root failure — it must not be gated:\n%s", stderr.String())
+	}
+}
+
+// TestRunMacosUserGatedOnMissingRepoRootWithPackages: the exemption above is
+// CONDITIONAL. A macos-user launch that declares `packages:` builds them from
+// the flake with native nix, so an unresolvable repo root is fatal on that path
+// too — and fatal HERE, where the message can name the fix, rather than three
+// layers down where nix reports the user's own workspace as "not part of a
+// flake" (the measured 2026-09-03 symptom).
+//
+// This pins the CALL SITE, not the callee: darwinpkg.Materialize has its own
+// refusal for an empty root, and a test that only exercised that would still
+// pass with this gate deleted. Deleting the `else if` in run.Run makes this test
+// fail, which is the property AGENTS.md asks for.
+func TestRunMacosUserGatedOnMissingRepoRootWithPackages(t *testing.T) {
+	ws := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"),
+		[]byte(`{"packages": ["fzf"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	o := runFatalOptions(t, ws, "macos-user", &stdout, &stderr)
+
+	reached := false
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
+		reached = true
+		return 0
+	}
+
+	rc := Run(*o)
+
+	if reached {
+		t.Errorf("Run() reached MacosUserRun with `packages:` and no repo root — nix would " +
+			"have resolved a flake from the caller's cwd")
+	}
+	if rc != 1 {
+		t.Errorf("Run() = %d, want 1\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Cannot find yolo-jail repo root") {
+		t.Errorf("missing the actionable repo-root failure on stderr:\n%s", stderr.String())
+	}
+	// The message must explain why THIS backend — which normally needs no repo —
+	// is refusing, or it reads as the container gate misfiring.
+	if !strings.Contains(stderr.String(), "packages:") {
+		t.Errorf("the refusal never names `packages:` as the reason:\n%s", stderr.String())
+	}
+}
+
+// TestRunMacosUserDryRunNotGatedWithPackages: --dry-run materializes nothing
+// (RunMacosUser returns before the nix build), so the gate above must not catch
+// it — refusing a plan render would hide the plan the user asked to inspect.
+func TestRunMacosUserDryRunNotGatedWithPackages(t *testing.T) {
+	ws := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"),
+		[]byte(`{"packages": ["fzf"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	o := runFatalOptions(t, ws, "macos-user", &stdout, &stderr)
+	o.DryRun = true
+
+	reached := false
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, dryRun bool, _ *jsonx.OrderedMap) int {
+		reached = true
+		if !dryRun {
+			t.Errorf("MacosUserRun got dryRun=false, want true")
+		}
+		return 0
+	}
+
+	if rc := Run(*o); rc != 0 {
+		t.Errorf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if !reached {
+		t.Errorf("--dry-run was gated on the missing repo root; it materializes nothing\nstderr:\n%s",
+			stderr.String())
 	}
 }

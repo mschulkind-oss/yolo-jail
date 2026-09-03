@@ -37,11 +37,18 @@ func Run(opts Options) int {
 	// footgun, not a convenience.) The gate is applied below, under an explicit
 	// `rt != "macos-user"` guard rather than by sitting after the macos-user
 	// branch: macos-user with empty `packages:` genuinely needs no repo (it
-	// materializes native darwin packages only when `packages:` is non-empty, and
-	// MaterializeDarwin fails loudly on a bad flake root of its own accord), and
+	// materializes native darwin packages only when `packages:` is non-empty), and
 	// naming that exemption beats encoding it in statement order — which is how it
 	// was expressed until pack staging had to move above the dispatch (B-0), and
 	// what would have silently gated macos-user the moment anything moved again.
+	//
+	// THE EXEMPTION IS CONDITIONAL, and the `else if` below is the other half of
+	// it. This comment used to close with "and MaterializeDarwin fails loudly on a
+	// bad flake root of its own accord" — measured false on 2026-09-03, and it is
+	// what let the gap ship. An EMPTY root is not a bad root: it became an empty
+	// exec.Cmd.Dir, so nix silently resolved a flake from the user's cwd instead.
+	// darwinpkg.Materialize now refuses an empty repoRoot as its own floor, and a
+	// non-empty `packages:` is gated here where the message can be actionable.
 	repoRes, repoRootOK := o.RepoRoot()
 	repoRoot := repoRes.Root
 	if err := ensureStorage(); err != nil {
@@ -98,6 +105,35 @@ func Run(opts Options) int {
 		if o.refuseOnSourceSkew(repoRoot) {
 			return 1
 		}
+	} else if !repoRootOK && !o.DryRun && len(config.EffectivePackages(cfg)) > 0 {
+		// THE OTHER HALF OF THE SAME EXEMPTION. macos-user needs no repo when
+		// `packages:` is empty — that is the whole reason for the guard above — but
+		// a NON-empty `packages:` is materialized by a host-side `nix build` against
+		// this flake, so on that path the repo is exactly as required as it is for an
+		// image build, and the exemption stops applying.
+		//
+		// Un-gated, the launch reached darwinpkg.Materialize with repoRoot "", which
+		// left exec.Cmd.Dir empty — so nix inherited the CALLER's cwd and resolved a
+		// flake from the user's own workspace. Measured 2026-09-03: the failure reads
+		// `path "<workspace>" is not part of a flake`, naming a directory the user
+		// never pointed yolo at and never mentioning the repo root that is actually
+		// missing. Worse than the confusing message: if the workspace HAPPENS to be a
+		// flake, nix evaluates THAT one — an unrelated project's flake, on the one
+		// backend whose build step runs unconfined as the invoking user
+		// (docs/design/macos-user-build-step-threat-model.md Vector A).
+		//
+		// --dry-run stays exempt because it materializes nothing (RunMacosUser
+		// returns before the nix build, with darwin=nil), and refusing a plan render
+		// would hide the very plan a user asked to inspect.
+		o.pr(o.Stderr).print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
+			"The macos-user backend needs no repo to launch, but this config declares\n" +
+			"[bold]packages:[/bold], which are built from the yolo-jail flake with native nix.\n\n" +
+			"Fix: reinstall so the flake bundle ships with the binary (`just install`), or\n" +
+			"point yolo at a checkout with [bold]YOLO_REPO_ROOT[/bold]. The working directory\n" +
+			"is never consulted, so standing in a checkout is not enough:\n" +
+			"  YOLO_REPO_ROOT=~/code/yolo-jail yolo …\n\n" +
+			"Or drop `packages:` — with none declared this backend launches with no repo.")
+		return 1
 	}
 
 	// --- Phase 2: pack staging, BEFORE the backend dispatch ---

@@ -42,6 +42,21 @@ func (e *MaterializeError) Error() string { return e.msg }
 // defaults to NativeSystem(). errStderr defaults to os.Stderr (injectable for
 // tests). The returned error is always a *MaterializeError on failure.
 func Materialize(repoRoot string, packages []any, system string, errStderr io.Writer) (*DarwinPackages, error) {
+	// AN EMPTY repoRoot IS REFUSED, not defaulted. Every nix invocation here sets
+	// cmd.Dir = repoRoot, and an empty Dir does not mean "no directory" — it means
+	// INHERIT THE CALLER'S, so nix would resolve `.#` against whatever the user
+	// happened to be standing in. Measured 2026-09-03 on the macos-user arm: the
+	// launch reported `path "<workspace>" is not part of a flake`, naming the
+	// user's project and never the repo root that was actually missing; had that
+	// workspace been a flake, nix would have evaluated it instead. run.Run gates
+	// this with an actionable message before we get here — this is the floor that
+	// makes the gate's absence unrepresentable rather than merely unlikely, since
+	// the failure mode is silent-wrong-input and not a crash.
+	if repoRoot == "" {
+		return nil, &MaterializeError{msg: "no yolo-jail repo root: native `packages:` are built " +
+			"from the yolo-jail flake, and nix would otherwise evaluate whatever flake is in the " +
+			"current directory. Set YOLO_REPO_ROOT or reinstall so the flake bundle ships with the binary"}
+	}
 	if system == "" {
 		system = NativeSystem()
 	}
