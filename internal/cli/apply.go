@@ -735,7 +735,7 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 		// independently (see Destinations.Addressed) and a future caller may populate one
 		// without the other, at which point the missing guard is a wrong remedy in a refusal
 		// rather than a compile error.
-		if false && (unmatched[o.Kind] || len(o.Agents) > 0) { // MUTATED
+		if unmatched[o.Kind] || len(o.Agents) > 0 {
 			continue
 		}
 		if !inert {
