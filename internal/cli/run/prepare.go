@@ -473,6 +473,21 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 			if c.Kind != packdecl.KindSkills {
 				continue
 			}
+			// A CONTRIBUTION THAT NAMES NO DESTINATION IS NOT A DESTINATION. An ADDRESSED
+			// skills tree (`{"kind":"skills","agents":["claude"]}`) declares who its content
+			// is FOR and never where it goes, because where an agent reads is that agent
+			// pack's business (briefing-audiences.md P4) — so `Into` is empty by design, and
+			// its content reaches real destinations by AUDIENCE MATCHING, not by a mount of
+			// its own.
+			//
+			// Without this guard `Dest` was "", the bind resolved to the home ROOT, and podman
+			// refused every such launch with `"/home/agent": duplicate mount destination`.
+			// Measured 2026-09-03 and reproduced at 49bb2088, so it shipped with
+			// briefing-audiences steps 1-2 on 2026-09-02; an addressed BRIEFING was never
+			// affected because only skills mount.
+			if c.Into == "" {
+				continue
+			}
 			out = append(out, jailcontent.SkillTarget{
 				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into, Agent: c.Agent,
 			})
