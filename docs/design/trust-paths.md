@@ -629,6 +629,18 @@ step. The two should land as one design. For completeness: `mise.lock` covers no
 `{"schema":1,"packs":{}}` with embedded packs explicitly skipped before `lock.Set`
 (`pack.go:1086`).
 
+**A second, structural blocker nobody had recorded (2026-09-02).** **The lockfile has no delivery
+channel into a jail.** Measured: `grep -c packs.lock /proc/self/mountinfo` → **0**, and the in-jail
+`~/.config/yolo-jail/packs.lock.json` is a **2026-07-29 fossil** that no launch refreshes — only
+`config.jsonc` and `inherited-launch.jsonc` arrive as `:ro` single-file binds. Every npm install
+happens **inside** a jail, by a generated launcher, so *"install obeys the record"* requires either
+a fourth single-file bind beside those two, or the pin **baked into the launcher template** at
+generation time (which is what `receiptsFile` already does for the receipts path, for the reason
+`shims.go` gives: a `${YOLO_WORKSPACE:-…}` in the template would have written every macos-user
+jail's receipts to a container path that does not exist there, silently). **This is not a detail to
+settle after the ruling — it may change which of (a)/(b)/(c) is cheapest**, so weigh it when
+answering.
+
 **Answer:**
 > _(empty — fill in when decided)_
 

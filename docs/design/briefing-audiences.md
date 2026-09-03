@@ -38,6 +38,31 @@ which govern any new name-a-component-by-string field),
 
 ---
 
+> [!IMPORTANT]
+> **Built 2026-09-02, and building it found two things this document does not say.** Steps 1–2 of
+> §9 shipped (`e93387c7`, `3afc10cb`); steps 3–7 remain.
+>
+> 1. **§4.1/§4.2 name two `mergedest` changes; four were needed.** The two named — `declares()`
+>    testing `Into != ""`, and filtering borrowed destinations by the selector — are necessary and
+>    not sufficient. Unnamed, and required: the **content probe** (`carries()` asked only whether the
+>    pack had a *conventional* source and never consulted a contribution's declared `from`, so an
+>    addressed pack fell through a `continue` that sits *before* the orphan branch — silent, and not
+>    even reported) and the **synthesized `from`** (`borrowedDestinations` blanked it on purpose,
+>    correctly for a zero-ceremony borrower, wrongly for a contribution that named its own source —
+>    it substituted the pack's conventional `AGENTS.md` for the addressed file). A fourth: the
+>    resolution loop had to become **per borrowing contribution**, because §4.1's own two-entry shape
+>    (claude prose → claude, pi prose → pi) cannot be expressed by a union over the kind. **The first
+>    implementation attempt shipped exactly the gap this list describes** — validation landed,
+>    routing did not.
+> 2. **`Orphaned []Kind` cannot express risk R1.** With two addressed entries of one kind, one
+>    matched and one not, the report can only name the kind. Deduped per kind and commented in the
+>    code rather than hidden; making R1's promise literal means the type carries the contribution.
+>
+> **And one contradiction is now a live question — roadmap 💬 20.** P3 makes an unenabled *name*
+> fatal; risk R1 describes an addressed contribution that matched no destination as *reported*. Both
+> sentences are in this document, they disagree, and the difference is whether a launch happens.
+> Shipped behavior takes R1's side by default, because `Orphaned` was the only disposition available.
+
 ## 1. Verdict, and the principles it rests on
 
 **Build it, as one optional field on `briefing` and `skills`.** No new contribution kind, no

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 11 needing you · 5 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 4 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-02**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -55,6 +55,26 @@ in.
 > residue, §8 step 4's explicit disable, is named unbuilt in that doc rather than re-rowed here.
 > The design docs are the record, not this file.
 >
+> **Then the queue got built, and that is the second half of 2026-09-02.** Nine 📦 items shipped:
+> the warning channel, three of five small repairs, the tar-eviction race, the `$GOBIN` catalog
+> walk, program-delivery §10's reconcile, and briefing-audiences steps 1–2. **Three things that
+> came out of building rather than reading, and that no ruling would have surfaced:**
+>
+> - **💬 20 is new**, and the compiler found it: `briefing-audiences.md`'s P3 and its risk R1 give
+>   *different* dispositions for an addressed contribution that matches nothing, and the difference
+>   is whether a launch happens. Shipped behavior currently takes R1's side by default.
+> - **Two program-delivery steps are BLOCKED on 💬 2's OQ-TP4**, not merely unscheduled — three of
+>   the gap receipt's seven decisions *are* OQ-TP4's options, and `trust-paths.md` forbids either
+>   doc retiring the other's ID. A second, unrecorded blocker turned up with it:
+>   **`packs.lock.json` reaches a jail through no mount at all** (measured: not in `mountinfo`; the
+>   in-jail copy is a 2026-07-29 fossil), so *"install obeys the record"* needs a delivery channel
+>   that does not exist — and which channel may change which OQ-TP4 option is cheapest. **Fold that
+>   into the answer.**
+> - **A design can be thin exactly where it looks finished.** `briefing-audiences.md` names two
+>   `mergedest` changes; four were needed, and the two it omits are precisely what shipped as
+>   "validates but does not route" before a follow-up fixed it. DECIDED is not the same as
+>   specified.
+>
 > *(The 2026-08-25 image-staging rulings that used to fill this box are done history except two
 > residues: OQ-DF3 still gates the retention rule — 💬 16 — and the C4/C5 go/no-go is now an
 > explicit 🧊 row instead of a paragraph here. The 606 GiB tar headline those rulings were made on
@@ -81,10 +101,13 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: the sweep returns 99**, re-run
-2026-09-02 after the audit's edits landed, OQ-GN3's answer, and the provider arc's departure (it
-read 102 before OQ-GN3 was answered later the same day — see the last row of the table — and 101
-before the provider rows left). Against 2026-08-30's **113** it reconciles in two
+**And the real number is now countable rather than estimated: the sweep returns 100**, re-run
+2026-09-02 after both halves of that day. It read **113** on 2026-08-30, fell to 101 across the
+audit and OQ-GN3's answer, then to 99 when the provider arc finished shipping and 💬 18/19 left —
+and came back up by one, because **building** briefing-audiences minted 💬 20. That last move is the
+count behaving correctly: **executing a ruling is what finds the questions the ruling did not
+reach**, and this one was found by the compiler rather than by reading. Against 2026-08-30's **113**
+it reconciles in two
 halves. **−6 before this audit touched anything:**
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) went 5 → 0 (its §14 ledger
 closed six questions on 2026-09-01) and one more moved in other sessions' work. **−5 from the
@@ -99,16 +122,22 @@ audit itself, row-exact:**
 | **+1** | `agent-auth-modes.md` OQ-9 — the AWS-pair question carried back in; the rewrite had dropped it unanswered |
 | **+1** | `trust-paths.md` OQ-TP8 — the pack-Lua census gap, newly named |
 | **−1** | `handoff-guest-notch-macos.md` OQ-GN3 — *has the Cachix cache been pushed to?* Answered from the Actions log the same day: yes, and CI reads from it too |
+| **+1** | 💬 20, minted 2026-09-02 by BUILDING briefing-audiences: P3 and risk R1 give different dispositions for an addressed contribution that matches nothing, and the difference is a launch |
 
 **−2 after the audit, work leaving rather than questions closing:** 💬 18 and 💬 19 were deleted
-with their commits (14 → 12 entries here — both were `### 💬` headings and neither held a live
-question; see the box above). Neither row's design doc lost a question: every OQ they carried was
-ruled on 2026-09-01, which is why the departure counts as shipped work leaving, not a ruling.
+with their commits — both were `### 💬` headings and neither held a live question (see the box
+above). Neither row's design doc lost a question: every OQ they carried was ruled on 2026-09-01,
+which is why the departure counts as shipped work leaving, not a ruling.
+
+**+1 after that, a question arriving from the opposite direction:** 💬 20 was minted by *building*
+briefing-audiences, not by reading it. So this file's own contribution went **14 → 12 → 13 entries**
+across one day (12 `### 💬` headings plus the Mac-config bullet), and the two moves have opposite
+causes — work shipping removes rows, work shipping *mints* them.
 
 > [!WARNING]
 > **A roadmap row and the questions it points at are counted twice, and that is a bias in the tool
 > this file trusts.** A row is a *grouping* of questions that already live in their design docs —
-> 💬 16 and the three live `OQ-DF*` are four entries for one decision. The "gap between 99 and 11"
+> 💬 16 and the three live `OQ-DF*` are four entries for one decision. The "gap between 100 and 12"
 > framing below compares a number against a set that contains it. Not worth redefining mid-sprint —
 > worth saying out loud, because the last time this count was quietly wrong it was wrong by six.
 
@@ -132,8 +161,8 @@ heading anchors. All five, and the allowlists they need, are in
 > was about, found by an adversarial re-check of the pass itself. If you add a heading style, check
 > the count moves.
 
-**Eleven rows below is what the blocking subset groups into** — the rest are named
-in *What the roadmap does not cover* at the end, deliberately. The gap between 99 and 11 is the
+**Twelve rows below is what the blocking subset groups into** — the rest are named
+in *What the roadmap does not cover* at the end, deliberately. The gap between 100 and 12 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 **💬 6's four rulings closed a whole row in a single turn**, and the 2026-09-02 audit closed four
 rows without any ruling at all — the other way the gap earns its keep, since re-verifying a row
@@ -545,47 +574,70 @@ same config now yields three `[FAIL]`s, and the docs' census flips three rows to
 checked here already exists. Not a re-litigation of `env_sources`' permissiveness, which is correct
 and stays (a missing host file is portability, not a typo).
 
+### 💬 20 — An addressed contribution that matches nothing: refuse, or report?
+
+📄 [`briefing-audiences.md`](../design/briefing-audiences.md) — **the design says both**, which is
+why this is yours rather than mine.
+
+Found while building steps 1–2 (2026-09-02), not by reading. **P3 makes an unenabled *name* fatal**
+— naming an agent this jail has not enabled refuses the launch, no laxer tier, no denylist.
+**Risk R1 describes an addressed contribution that matched no destination as *reported***. Those are
+different sentences about the same user mistake, and the difference is whether a launch happens.
+
+**The case that makes them collide:** a content pack ships `{from: "prose/codex.md", agents:
+["codex"]}` into a jail that selected only `claude`. The name `codex` is legitimate — it is a real
+agent, spelled correctly — so P3's typo argument does not obviously reach it, but the prose reaches
+nobody and the author asked for something they did not get.
+
+**What is built today, and what it commits you to:** the unmatched case lands in `Orphaned` and is
+**reported**, because that is the only disposition the existing structure had. Nothing refuses. So
+the R1 reading is shipped by default, and choosing P3 later is a behavior change on a surface users
+will already be using.
+
+_My leaning:_ **report, and keep the fatal for the name.** The two are separable and the split is
+principled — *"`codex` is not a thing"* is a typo and stays fatal; *"`codex` is a thing you did not
+enable here"* is a portability fact, the same shape `env_sources` gets right by warning on a missing
+host file rather than refusing. A content pack that travels between jails with different pack sets
+is the ordinary case, and refusing it would make an addressed pack unusable anywhere but the machine
+it was written on. But P3 is written broadly enough to read the other way, and this is a launch.
+
+**What it decides:** whether an `agents` selector is a portability-safe declaration or a hard
+requirement on the jail's pack set — and therefore whether addressed content packs are shareable.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 # 📦 Up next
 
-**Five items** (was three; the 2026-09-02 audit added two that need no ruling). **C4 and C5 are
+**Four items.** **C4 and C5 are
 deliberately NOT here**: their go/no-go moved to 🧊 as an explicit row — the shape is ruled, the
 measurement is taken, and queueing them before you call it would be queueing a question.
 
-**Ordering basis:** what unblocks the most other work first, then what is cheapest. The warning
-channel is first because every other diagnostic in the tree is worth less while findings are
-invisible; the small repairs are second because they are nearly free and two of them close named
-holes; the disk and program-delivery rows follow as before; briefing-audiences is last only because
-it is the largest.
+**Nine of this section's items shipped on 2026-09-02 and left under the rule at the top of this
+file** — the warning channel, three of the four small repairs, the tar-eviction race, the `$GOBIN`
+catalog walk, program-delivery §10 step 1, and briefing-audiences steps 1–2. What is below is what
+survived that pass, restated against the tree rather than against the queue it used to be.
 
-- 📦 **The warning channel: `yolo check`'s summary counts one of its two diagnostic channels.** 📄
-  [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md) §7 step 1 — the
-  only unshipped step that needs no ruling, and the doc's own sequencing puts it first: bare
-  `Warning:` lines from config resolution and loophole discovery (including the supersession
-  did-you-mean) never reach the summary line (`reporter.go:84-89` is deliberately non-counting;
-  three callers). Route them through the reporter or count them. Interacts with 💬 10's `[SKIP]`
-  vocabulary — building both at once touches the same small file and should be one pass if 💬 10
-  gets ruled first.
+**Ordering basis:** what unblocks the most other work first, then what is cheapest. The one
+remaining small repair is first because it is nearly free and closes a shell-injection surface; the
+disk and program-delivery rows follow; briefing-audiences is last only because it is the largest.
 
-- 📦 **Small repairs — validated, no rulings left, each its own commit.** Four graduated from 💬 11
-  on 2026-09-02 when the audit answered their questions; one is OQ-CAP's residue:
-  - **Port-gate fourth spelling:** the host-side socat spawner re-derives the CONFIGURED net mode
-    inline (`run.go:770-784` today; the row used to say ~:599-621) instead of reading
-    `appliedNetMode` — `a38fe0ab`'s own commit message tracks this residue. Make it read the shared
-    predicate.
-  - **Delete the dead mise-trust PATH block** (`boot.go:527-532`): its subprocess was deleted
-    2026-08-05 (`3a309da4`), its comment ("matches the pre-exec PATH set in main()") was false from
-    its first commit, and nothing between it and the next PATH write execs or looks up anything.
-    Verify that last clause once more in the commit that deletes it.
-  - **`shquote` the launcher-template splices:** `__YOLO_URL__` lands raw on a `curl` argv
+- 📦 **Small repairs — what is left of the five.** Three shipped 2026-09-02 (port gate `4877bf93`,
+  dead PATH write `e2263c4a`, npm selector shape `3b5bfcea`) and a fourth turned out to be already
+  built (`supersedes` in `footprint`, see below). **Two remain, both needing no ruling:**
+  - **`shquote` the launcher-template splices** — *the one carried over, and the only one with a
+    security surface:* `__YOLO_URL__` lands raw on a `curl` argv
     (`shims.go:817`) and `__YOLO_PKG__`/`__YOLO_SPEC__` raw inside double quotes (`:579-580`),
     beside receipt fields that are correctly quoted — and one generator quotes `STAMP_DIR` while
     two splice it raw. Post-approval surface, so no ruling; wants its own careful pass because
     tests pin template fragments.
-  - **npm selector shape check, host-side:** `foo@@1.2.3` still reaches npm in-jail where diagnosis
-    is worst (`splitNpmSpec` is deliberately verbatim; `packdecl` checks presence only). Refuse the
-    shapes npm itself refuses — whitespace, quotes, `@@` — and nothing stricter, which dissolves
-    the old "how strict" hesitation.
+  - **The orphan message names the wrong cause for an unmatched audience** *(new 2026-09-02, found
+    while building briefing-audiences)*. `internal/cli/apply.go:597-608` says *"no pack in `packs`
+    names a %s destination"* — true for a zero-ceremony orphan, misleading now that a contribution
+    can be orphaned because a destination **exists** and nobody owns the agent name it addressed.
+    Wants a second phrasing keyed on whether the orphaned contribution carried `agents`.
+  - ~~**npm selector shape check**~~ — **shipped** `3b5bfcea`: refuses whitespace, quotes, control
+    chars and `@@`, accepts `@scope/name@1.2.3` / `name@latest` / `name@^1.0.0`.
   - ~~**`yolo pack footprint` prints `supersedes`**~~ — **not work at all: already shipped**
     (`d776c902`, 2026-08-15). This bullet existed because the audit grepped `internal/cli/pack.go`
     for *supersede* and found nothing, while the claim reaches the output through
@@ -601,10 +653,15 @@ it is the largest.
 
   ⚠ **The premise is ruled and OQ-DF1 with it; the rest of the mechanism is 💬 16** (`OQ-DF2 ·
   OQ-DF3 · OQ-DF4`). **The streaming half of §10 step 3 (A4) has SHIPPED** as C3 under the OQ-DF1
-  ruling *"stream, keep zero tars"* — podman writes no tar, so that half is off this row. What is
-  left and does not wait on a ruling is **§10 step 2 only: close the tar-eviction race** (P4) before
-  anything becomes automatic — now an Apple-Container-side exposure on the launch path, since podman
-  has no file between the two steps to race for. **Delete-on-success (A3) is OQ-DF2 option (i)**, the
+  ruling *"stream, keep zero tars"* — podman writes no tar, so that half is off this row. ~~What is
+  left and does not wait on a ruling is §10 step 2 only: close the tar-eviction race (P4)~~ —
+  **SHIPPED 2026-09-02 (`cc53b591`)**, and it closed two windows rather than the one this row named:
+  the Apple Container check-then-converter gap, and a podman-fallback one nobody had written down
+  (the cached-tar list could hand `podman load -i` a path a concurrent reclaim had already removed).
+  Bounded at two passes, and it keeps the discriminator that matters — a tar still on disk after a
+  converter failure is a genuine failure, not an eviction, so it stays fatal instead of
+  re-materializing a multi-GB write to hide the fault. **So this row is now entirely gated on
+  💬 16.** **Delete-on-success (A3) is OQ-DF2 option (i)**, the
   component that does the deleting is OQ-DF2's, and the podman-store reach is OQ-DF3's, so **do not
   start there**. The pre-C3 backlog is also still untouched by design: C3 stopped the creation, not
   the accumulation already on disk.
@@ -677,43 +734,64 @@ it is the largest.
   steps shipped the same day (`a16403e2` no more per-launch mise upgrade + committed `mise.lock` ·
   `0a4d241c` unknown-`via` tolerance · `af46c9b4` install receipts + the boot orphan catalog ·
   `28ddea11` the briefing-from-applied item that used to be this section's sole occupant). 📄
-  [`program-delivery.md`](../design/program-delivery.md) §10 — in its own order:
-  the **reconcile** (generalise the LSP sentinel: compare receipts + locks against disk, offline,
-  report only — it also inherits the "newer version available" channel OQ-PD8 found dead);
-  the **user-scope gap receipt** in `packs.lock.json` (the scope split's second half — the
-  workspace JSONL that shipped is the observation log, not the pin); the **removal act** plus the
-  default-off autoprune option (the catalog half shipped and promptly found three orphans nobody
-  knew about); **obey** (install honors the receipt — OQ-PD6/PD7's wiring); and last, the
-  **installer capture** (§6.3, OQ-PD10 — an ephemeral jail as the AUR chroot).
+  [`program-delivery.md`](../design/program-delivery.md) §10. **Re-planned 2026-09-02 against the
+  tree, and the five remaining steps are not equally available:**
 
-- 📦 **Scoping pack content to the agents it is for.** 📄
-  [`briefing-audiences.md`](../design/briefing-audiences.md) — **DECIDED 2026-08-31, all seven
-  questions ruled**; reuses [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md)
-  §2.5's CLI-name namespace and R2 of
-  [`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md).
-  A pack's briefing prose and skills reach **every** agent with no way to say who they are for:
-  prose is composed once and written to every destination
-  ([`prepare.go:154`](../../internal/cli/run/prepare.go#L154), before the per-destination write
-  loop at [`:170`](../../internal/cli/run/prepare.go#L170)), and a pack declaring
-  `into: ".claude/skills"` still merges into `.pi/agent/skills`
-  ([`mergedest.go:74-76`](../../internal/packload/mergedest.go#L74-L76)). Both outcomes are live
-  here — `matt-fzf`'s `fileSuggestion` prose was **deleted** rather than scoped, and
-  `matt-local`'s Pi Agent Config section is **broadcast** to four agents that cannot act on it.
-  The fix is an optional `agents` selector on both kinds, naming **launcher commands** (not the
-  pack slug); the destination **declares** its own `agent` rather than anything being derived; a
-  name has **one owner across all kinds**, since `claude-official` and `claude-matt-fork` both
-  launch as `claude` and cannot both be enabled; naming an agent this jail has not enabled is
-  **fatal**, with no laxer tier and no denylist; and a content pack names its audience, **never a
-  path**. Cheap half first — `ComposeHostBriefings` is already per-destination and takes a filter
-  ([`hostbriefing.go:133-172`](../../internal/entrypoint/hostbriefing.go#L133-L172)) — and the
-  jail half's composition move **lifts a limit already recorded in the tree**
-  ([`briefingsource.go:106-108`](../../internal/packload/briefingsource.go#L106-L108) names
-  per-destination composition as the fix it declined to build). **Review the path-free half
-  hardest** (§9 step 3): `declares`
-  ([`mergedest.go:141-148`](../../internal/packload/mergedest.go#L141-L148)) returns true for
-  *any* contribution of the kind, so an `agents`-only briefing that misses that change skips
-  destination inference and **delivers nowhere**, silently. *(Its code anchors were repinned
-  2026-09-02 in the doc itself — the provider arc moved every file under them.)*
+  - ~~**the reconcile**~~ — **SHIPPED** (`0eabeabc`), plus its prerequisite (`2bc9342d`, below).
+    Report-only made structural, not documented: a test snapshots every file's mtime and size under
+    the home and asserts byte-identical, so a future edit that installs or removes anything fails.
+  - 🔒 **the user-scope gap receipt** and 🔒 **obey** — **BLOCKED on 💬 2's OQ-TP4**, not merely
+    unscheduled. Three of the gap receipt's seven decisions (whether an embedded pack gets a lock
+    row at all; what shape it takes; who writes it) *are* OQ-TP4's options (a)/(b)/(c), and
+    `trust-paths.md` forbids either doc retiring the other's ID unilaterally. Building it answers
+    OQ-TP4 by implementation. **Obey reads the artifact the gap receipt cannot yet create**, so it
+    cannot precede it. *(One line worth having when you rule: exactly one act changes behavior under
+    obey — the cold-install branch. The poll is informational, the PINNED branch already compares
+    offline, and `pack update` WRITES the record rather than reading it. "Install obeys the record"
+    reads far broader than it is.)*
+  - 📦 **the removal act** plus the default-off autoprune option — genuinely unblocked, and the
+    biggest reclaim available: **418 MB of cataloged npm orphans plus ~1.2 GB uncataloged** on a
+    device at 87 %. It is also the only destructive step, and it has a footgun found 2026-09-02:
+    `~/.local/bin/claude` is an **absolute symlink into a versions dir**, so unlinking it strands
+    **1019 MB** with nothing naming it. The act must follow an installer-kind orphan to its versions
+    dir or decline and say why — declining is defensible, silently stranding a gigabyte is not.
+  - 🔒 **the installer capture** (§6.3, OQ-PD10) — **not buildable here.** Its defining act is
+    running an installer in a throwaway sandbox, and the property it exists to establish (*"a jail
+    that writes outside its binds is a finding the capture run reports"*) is only observable by
+    running one. Three pure pieces ARE testable now with no container — the capture manifest, a
+    directory-pair delta (whose symlink case decides the whole relocation design), and the CAS
+    layout with retention wired at birth per R4. The container-dependent remainder has a written
+    five-point handoff, including the unmeasured question of whether the two shipped installers
+    actually stay inside their binds.
+
+- 📦 **Scoping pack content to the agents it is for — steps 3–7.** 📄
+  [`briefing-audiences.md`](../design/briefing-audiences.md) (DECIDED 2026-08-31, OQ-BA1..BA7 all
+  ruled) · plan: [`briefing-audiences-plan.md`](../design/briefing-audiences-plan.md), **delete it
+  when the work lands**.
+
+  **Steps 1–2 shipped 2026-09-02** (`e93387c7` + `3afc10cb`): a briefing or skills contribution can
+  carry `agent` (this destination IS for X) or `agents` (this content is FOR X), naming launcher
+  commands; the host router honors it; and an addressed contribution delivers the source it named.
+  What remains is §9 steps 3–7 — the ownership collision pass, the host-notch filter, the **jail
+  notch move**, resolution/severity, and `skills` by substitution.
+
+  **The jail half is the whole remaining feature, and it is bigger than the design implies.**
+  `ResolveDestinations` is **host-only** (sole production callers `apply.go:246,262`), so nothing
+  that shipped changes what a jail delivers — it still broadcasts. Jail routing comes only from the
+  destination-first restructure in step 5, which moves a host↔jail staging-name contract and is the
+  step the plan says to review hardest.
+
+  ⚠ **Two findings the build turned up that outlive the plan:**
+  - **The design is thin exactly where the first attempt failed.** §4.1/§4.2 name two `mergedest`
+    changes; four were needed — the content probe and the synthesized `from` are named nowhere, and
+    their absence is precisely what shipped as "validates but does not route" and had to be fixed in
+    a follow-up. Fold that into the design before step 5 rather than leaving it in a plan that gets
+    deleted.
+  - **`Orphaned []Kind` cannot express risk R1.** With two addressed entries of one kind, one
+    matched and one not, the report can only name the kind. Deduped per kind and commented rather
+    than hidden; if R1's promise is meant literally the type has to carry the contribution.
+
+  💬 **One question in this row is genuinely yours** — see 💬 20 below.
 
 **What refills this section:** an answer in 💬, or an audit finding work that needs none — **and
 this queue holds both kinds today.** The disk and program-delivery rows are rulings executed; the
