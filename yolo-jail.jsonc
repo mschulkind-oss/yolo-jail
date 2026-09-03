@@ -56,7 +56,6 @@
   },
   "mounts": [
     "~/.local/share/yolo-jail/logs:/ctx/host-yolo-logs",
-    "~/code/backplane/.yolo:/ctx/backplane-yolo"
   ],
   // Environment variables set inside the jail.
   // Ordered list: strings are KEY=VALUE file paths, objects are inline maps.
