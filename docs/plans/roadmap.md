@@ -64,6 +64,14 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
 
+> [!NOTE]
+> **This row aggregates three docs while naming one, and the count below said six where the docs say
+> four** (reconciled 2026-09-03). `trust-paths.md` holds exactly **OQ-TP3, OQ-TP4, OQ-TP7, OQ-TP8**.
+> The other two live elsewhere and are listed here for routing only: **OQ-X1** is
+> [`pack-execution-trust.md`](../design/pack-execution-trust.md) `:316` (the doc this one partly
+> supersedes), and **OQ-LP8 / G2b** is [`loophole-packaging.md`](../design/loophole-packaging.md)
+> `:2516`, marked *mostly covered* in its overview. Read them there; this row is the routing table.
+
 **Two rulings on 2026-08-18, both closing a finding by removing a mechanism rather than adding a
 gate** — and one of them obviated a question rather than answering it:
 
