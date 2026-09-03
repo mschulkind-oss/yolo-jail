@@ -84,7 +84,7 @@ func runRefreshWithHandoff(t *testing.T, handoff string, withBriefingPack bool) 
 	}
 
 	res := handoffResult{stderr: errBuf.String()}
-	if data, err := os.ReadFile(filepath.Join(staging, briefingStagingName("bp"))); err == nil {
+	if data, err := os.ReadFile(filepath.Join(staging, briefingStagingName(claudeBriefingDest))); err == nil {
 		res.briefing = string(data)
 	}
 	if _, err := os.Stat(filepath.Join(yoloDir, handoffPointer)); err == nil {

@@ -17,6 +17,7 @@
       "kind": "briefing"
     },
     {
+      "agent": "codex",
       "into": ".codex/skills",
       "kind": "skills"
     },

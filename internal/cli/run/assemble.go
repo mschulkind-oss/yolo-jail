@@ -9,7 +9,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
@@ -653,42 +652,24 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// materializes the staged briefing into ws_state. Skipping the container branch
 	// silently dropped every briefing on that backend.
 	//
-	// The staging filename must match what refreshJailBriefings wrote
-	// (briefingStagingName), or the mount points at a file that does not exist and the
-	// jail comes up with no briefing at all — silently, since a missing bind source for
-	// a FILE is not an error the way a missing dir is.
-	seenBriefingDest := map[string]bool{}
-	for _, p := range in.packs {
-		for _, c := range p.Decl.Contributions() {
-			// `into` is CHECKED, not assumed, exactly as ComposeHostBriefings and
-			// hostBriefingPaths check it at the host notch. Since briefing-audiences.md a
-			// contribution may legally name an AUDIENCE instead of a destination, and the
-			// line below appends `":/home/agent/" + c.Into`: an empty `into` bind-mounts a
-			// single staged FILE over /home/agent itself, which is the jail's whole home.
-			if c.Kind != packdecl.KindBriefing || c.Into == "" {
-				continue
-			}
-			// DEDUP BY DESTINATION. `briefing` is CombineConcat — several packs contributing
-			// prose at one path is the designed behavior, and refreshJailBriefings has
-			// already merged every pack's prose into the composed content each staging file
-			// holds. So the SECOND mount at a destination is not a second briefing, it is
-			// the same content again — and podman rejects it with "duplicate mount
-			// destination", killing the boot.
-			//
-			// That made a legitimate configuration unlaunchable: an agent pack naming
-			// ~/.claude/CLAUDE.md plus a user pack contributing house rules to it is exactly
-			// what briefings are for. First writer wins the mount; the content is identical
-			// either way.
-			if seenBriefingDest[c.Into] {
-				continue
-			}
-			seenBriefingDest[c.Into] = true
-			staged := filepath.Join(in.agentsPath, briefingStagingName(p.Name))
-			if rt == "container" {
-				acMaterialize(staged, c.Into, in.wsState)
-			} else {
-				runCmd = append(runCmd, "-v", staged+":/home/agent/"+c.Into+":ro")
-			}
+	// The destination list and the staging filename both come from briefingdest.go, which is
+	// the ONE place either is computed — refreshJailBriefings writes through the same two
+	// functions. That coupling used to be a comment saying the names must match, and a
+	// mismatch is silent: a missing bind source for a FILE is not an error the way a missing
+	// dir is, so the jail simply comes up with a blank briefing (briefing-audiences.md R2).
+	//
+	// The DEDUP-BY-DESTINATION that used to sit here is in briefingDestinations now, for the
+	// same reason: `briefing` is CombineConcat — several packs contributing prose at one path
+	// is designed behavior, and the composed staging file already holds all of it — but podman
+	// rejects a duplicate mount destination and kills the boot, so exactly one bind per path
+	// may be emitted. Keeping that rule beside the write half is what makes the file that is
+	// composed and the file that is mounted the same file by construction.
+	for _, d := range briefingDestinations(in.packs) {
+		staged := filepath.Join(in.agentsPath, briefingStagingName(d.Into))
+		if rt == "container" {
+			acMaterialize(staged, d.Into, in.wsState)
+		} else {
+			runCmd = append(runCmd, "-v", staged+":/home/agent/"+d.Into+":ro")
 		}
 	}
 

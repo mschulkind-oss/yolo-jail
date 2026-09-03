@@ -63,7 +63,7 @@ func briefingBodyFor(t *testing.T, rt string) string {
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
-	body, err := os.ReadFile(filepath.Join(staging, briefingStagingName("claude")))
+	body, err := os.ReadFile(filepath.Join(staging, briefingStagingName(claudeBriefingDest)))
 	if err != nil {
 		t.Fatalf("no briefing was written for the claude pack: %v", err)
 	}

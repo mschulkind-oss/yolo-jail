@@ -149,40 +149,47 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	}
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))
-	// Pack prose last, each attributed to its pack (C3): it is instructions the
-	// agent will follow, so it must be traceable to a source.
-	briefingBody = jailcontent.ComposePackBriefings(briefingBody, packBriefings)
 
-	// Write one briefing per PACK-DECLARED briefing mount. The pack says where its
-	// prose goes; core writes the composed content to the matching staging file and
-	// (for a pack whose origin permits it) prepends the user's own host briefing first,
-	// so a personal AGENTS.md still outranks anything a pack ships.
+	// Write one briefing per PACK-DECLARED briefing DESTINATION. The pack says where its
+	// prose goes; core composes that destination's content and writes it to the matching
+	// staging file, and (for a pack whose origin permits it) prepends the user's own host
+	// briefing first, so a personal AGENTS.md still outranks anything a pack ships.
 	//
 	// This is the loop that used to iterate selected agents, which is why a zero-agent
 	// jail wrote NO briefing at all. It now follows declarations, so a pack always gets
 	// its briefing whether or not anything calls it an agent.
+	//
+	// AND IT IS NOW DESTINATION-FIRST, which is the jail half of briefing-audiences.md §5.
+	// Composition used to happen ABOVE this loop — one body, folded once, written to every
+	// destination — so the loop was per (pack, contribution) with a per-PACK staging name and
+	// every file held identical bytes. That is what made scoping impossible: a pack whose
+	// rules apply to one agent had to broadcast them to all of them or drop them. Composing
+	// INSIDE the loop, with the destination's own declared identity as the input, is the whole
+	// mechanism — and it lifts the one-prose-per-pack limit packload.BriefingProse recorded
+	// for free, because the composition input is now a list of contributions rather than one
+	// text per pack.
 	home := homeDir()
 	// The destinations `yolo host apply` composed itself, which must NOT be prepended: they
 	// already hold every pack's prose, and this loop is about to compose the same packs again.
 	// See entrypoint.GeneratedHostBriefings — the briefing half of S3.
 	generated := entrypoint.GeneratedHostBriefings(home)
 	briefingsWritten := 0
-	for _, p := range loadedPacks {
-		for _, c := range p.Decl.Contributions() {
-			if c.Kind != packdecl.KindBriefing {
-				continue
+	for _, d := range briefingDestinations(loadedPacks) {
+		// Pack prose last, each attributed to its pack (C3): it is instructions the agent
+		// will follow, so it must be traceable to a source. `d.Agent` is the identity this
+		// destination declared for itself, and prose that named an audience reaches it only
+		// if that audience names this identity.
+		content := jailcontent.ComposePackBriefings(briefingBody, packBriefings, d.Agent)
+		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" && d.MayAccessHost {
+			if src := filepath.Join(home, hostOverlay); !generated[src] {
+				content = jailcontent.PrependHostBriefing(src, content)
 			}
-			content := briefingBody
-			if hostOverlay := briefingHostOverlay(c); hostOverlay != "" && p.MayAccessHost {
-				if src := filepath.Join(home, hostOverlay); !generated[src] {
-					content = jailcontent.PrependHostBriefing(src, content)
-				}
-			}
-			if err := jailcontent.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
-				return "", err
-			}
-			briefingsWritten++
 		}
+		if err := jailcontent.WriteBriefing(
+			filepath.Join(staging, briefingStagingName(d.Into)), content); err != nil {
+			return "", err
+		}
+		briefingsWritten++
 	}
 
 	// Delivered, so consume: the handoff reached at least one briefing this launch and
@@ -334,14 +341,10 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	for _, target := range packSkillTargets(loadedPacks) {
 		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), filepath.FromSlash(target.Dest)), 0o755)
 	}
-	for _, p := range loadedPacks {
-		for _, c := range p.Decl.Contributions() {
-			if c.Kind == packdecl.KindBriefing && c.Into != "" {
-				dest := filepath.Join(paths.GlobalHome(), filepath.FromSlash(c.Into))
-				_ = os.MkdirAll(filepath.Dir(dest), 0o755)
-				touchFile(dest)
-			}
-		}
+	for _, d := range briefingDestinations(loadedPacks) {
+		dest := filepath.Join(paths.GlobalHome(), filepath.FromSlash(d.Into))
+		_ = os.MkdirAll(filepath.Dir(dest), 0o755)
+		touchFile(dest)
 	}
 	for _, fname := range []string{
 		"bash_history", "yolo-bootstrap.sh", "yolo-venv-precreate.sh",
@@ -441,20 +444,20 @@ func lspServerNames(cfg *jsonx.OrderedMap) []string {
 	return m.Keys()
 }
 
-// briefingHostOverlay returns the host-home path a briefing contribution prepends
-// (its `after: "host:<path>"`), or "" for none. Replaces the old filename-based
+// briefingHostOverlay returns the host-home path a briefing `after` prepends (its
+// `after: "host:<path>"`), or "" for none. Replaces the old filename-based
 // magic-string dispatch (isBriefingMount) — a briefing is now a kind, not a mount
 // whose source happened to be named AGENTS.md/CLAUDE.md.
-func briefingHostOverlay(c packdecl.Contribution) string {
-	if strings.HasPrefix(c.After, "host:") {
-		return strings.TrimPrefix(c.After, "host:")
+//
+// It takes the `after` STRING rather than the contribution because its caller is now
+// destination-first (briefingDest carries the declaring contribution's `after`, since the
+// prepend is a property of the destination and not of every pack that briefs there).
+func briefingHostOverlay(after string) string {
+	if strings.HasPrefix(after, "host:") {
+		return strings.TrimPrefix(after, "host:")
 	}
 	return ""
 }
-
-// briefingStagingName is the staging filename for one pack's briefing. Per-pack rather
-// than per-agent, so two packs cannot collide on one staged file.
-func briefingStagingName(pack string) string { return "briefing-" + pack + ".md" }
 
 // packSkillTargets turns pack mount declarations into skills staging targets.
 //
@@ -471,7 +474,7 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 				continue
 			}
 			out = append(out, jailcontent.SkillTarget{
-				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into,
+				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into, Agent: c.Agent,
 			})
 		}
 	}

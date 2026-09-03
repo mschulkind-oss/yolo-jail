@@ -17,6 +17,7 @@
       "kind": "briefing"
     },
     {
+      "agent": "opencode",
       "into": ".config/opencode/skills",
       "kind": "skills"
     },

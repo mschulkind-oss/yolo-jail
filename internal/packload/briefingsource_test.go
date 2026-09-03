@@ -142,30 +142,3 @@ func TestBriefingProseForRefusesAnEscapingFrom(t *testing.T) {
 		t.Errorf("the refusal must name the cause; got %q", prob)
 	}
 }
-
-// BriefingProse (the JAIL entry) falls back to the convention for a pack that declares NO
-// briefing contribution — the zero-ceremony case both notches depend on.
-func TestBriefingProseZeroCeremonyPack(t *testing.T) {
-	p := &Pack{Name: "p", Decl: &packdecl.Manifest{},
-		Root: proseTree(t, map[string]string{"AGENTS.md": "bare\n"})}
-	got, problems := p.BriefingProse()
-	if got != "bare" || len(problems) != 0 {
-		t.Errorf("BriefingProse = %q, %v; a manifest-less pack must still contribute its "+
-			"AGENTS.md", got, problems)
-	}
-}
-
-// BriefingProse takes the FIRST NON-EMPTY contribution, which is a real limit of the jail's
-// one-text-per-pack composition rather than a resolution rule — stated here so a reader does not
-// mistake it for the host's per-destination behavior.
-func TestBriefingProseTakesTheFirstNonEmptyContribution(t *testing.T) {
-	p := &Pack{Name: "p",
-		Root: proseTree(t, map[string]string{"a.md": "first\n", "b.md": "second\n"}),
-		Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
-			{Kind: packdecl.KindBriefing, From: "a.md", Into: ".claude/CLAUDE.md"},
-			{Kind: packdecl.KindBriefing, From: "b.md", Into: ".codex/AGENTS.md"},
-		}}}
-	if got, _ := p.BriefingProse(); got != "first" {
-		t.Errorf("BriefingProse = %q, want the first contribution's prose", got)
-	}
-}

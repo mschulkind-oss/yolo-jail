@@ -111,9 +111,63 @@ const SupersedesClaimKind = packdecl.Kind("supersedes")
 // deliberately inspecting a pack: `yolo pack footprint` and `yolo pack lint`.
 const ExecutablesClaimKind = packdecl.Kind("executables")
 
+// AgentNameClaimKind is the Claim.Kind an AGENT-NAME collision is reported under.
+//
+// A DISPLAY LABEL, not a packdecl.Kind in the closed registry — the same shape and for the
+// same three reasons as SupersedesClaimKind above. It is emphatically not a contribution
+// kind: an agent name is claimed THROUGH four existing kinds (`program`/`launch` by `bin`,
+// `briefing`/`skills` by `agent`), so `kind: "agent"` in a manifest stays an unknown kind,
+// Collisions' generic loop skips the label, and the per-kind exhaustiveness tests that walk
+// packdecl.KnownKinds() need no entry for it.
+const AgentNameClaimKind = packdecl.Kind("agent")
+
 // execClaimListCap bounds how many paths the executables claim names before it summarizes.
 // A pack of scripts should not push its other claims off the reader's screen.
 const execClaimListCap = 5
+
+// audienceTarget is the TARGET column for a `briefing`/`skills` claim: the destination it
+// names, or — for an ADDRESSED contribution, which names an audience and deliberately no path
+// (briefing-audiences.md P4) — the audience itself.
+//
+// Without this, an addressed contribution's footprint line had a BLANK target: `into` is the
+// target for these kinds and an addressed contribution has none, so `yolo pack lint` and
+// `yolo pack footprint` printed the kind, a blank, and the detail. That is the reporting gap
+// §9 step 7 names, and it is the worst place for it — the single-pack views are exactly where
+// an author checks what their manifest does before configuring it.
+//
+// Display only, safe by construction: `briefing` is CombineConcat and `skills` is CombineMerge,
+// so Collisions' generic exclusive loop skips both kinds and never compares these strings.
+func audienceTarget(c packdecl.Contribution) string {
+	if c.Into != "" {
+		return c.Into
+	}
+	if len(c.Agents) > 0 {
+		return "→ " + strings.Join(c.Agents, ", ")
+	}
+	return "" // neither: the zero-ceremony broadcast, which names nothing by design
+}
+
+// audienceDetail appends this contribution's TARGETING to the kind's own detail — the audience
+// it addresses, or the identity it declares for the destination it owns.
+//
+// Both halves are reported because both are invisible otherwise and both change delivery. An
+// author reading `briefing  .claude/CLAUDE.md  concat` cannot tell whether that destination is
+// addressable at all, which is R4's whole complaint: a third-party agent pack that declares no
+// identity is silently unaddressable, and its users cannot tell why a scoped pack skipped it.
+func audienceDetail(c packdecl.Contribution, base string) string {
+	switch {
+	case len(c.Agents) > 0:
+		return base + " — addressed to " + strings.Join(c.Agents, ", ") +
+			" (destination inferred from the pack that owns that name)"
+	case c.Agent != "":
+		return base + " — this destination IS " + c.Agent + "'s (`agents: [\"" + c.Agent +
+			"\"]` reaches it)"
+	case c.Into != "":
+		return base + " — declares no `agent`, so no `agents` selector can name it"
+	default:
+		return base
+	}
+}
 
 // FootprintOf reads a pack's typed contributions (via packdecl.Contributions())
 // and returns its claims, dispatching on each contribution's kind.
@@ -155,15 +209,16 @@ func FootprintOf(p *Pack) Footprint {
 			// let it stay hidden — an author who moved their skills to `my-skills/` saw a
 			// claim identical to the one a working pack makes. Resolved through the same
 			// helper delivery uses, so the line cannot claim a source delivery would not read.
-			add(packdecl.KindSkills, c.Into,
-				"from "+c.SkillsSource()+"/ — merged (built-in < pack < user)", false)
+			add(packdecl.KindSkills, audienceTarget(c),
+				audienceDetail(c, "from "+c.SkillsSource()+"/ — merged (built-in < pack < user)"),
+				false)
 		case packdecl.KindBriefing:
 			detail := "concat"
 			review := strings.HasPrefix(c.After, "host:")
 			if review {
 				detail = "concat after " + c.After
 			}
-			add(packdecl.KindBriefing, c.Into, detail, review)
+			add(packdecl.KindBriefing, audienceTarget(c), audienceDetail(c, detail), review)
 		case packdecl.KindFiles:
 			add(packdecl.KindFiles, c.Into, "read-only tree", false)
 		case packdecl.KindState:
@@ -625,6 +680,170 @@ func LoopholeNameCollisions(packs []*Pack) []Collision {
 		})
 	}
 	return out
+}
+
+// agentNameClaim is ONE pack's claim on an agent NAME, plus the manifest spelling it came
+// through — which is the line the author edits, and the only thing that distinguishes two
+// claims on one name once the name itself is in the heading.
+type agentNameClaim struct {
+	pack string
+	// through is the field, as an author reads it: "program", "launch", "briefing.agent",
+	// "skills.agent".
+	through string
+}
+
+// agentNameClaims gathers every pack's claims on an agent name, keyed by name, plus the names
+// in first-seen order.
+//
+// ONE GATHERING FOR TWO CALLERS, and that is the point of splitting it out: AgentNameCollisions
+// asks "does one name have two owners" and AgentNames asks "which names does this jail have",
+// and both are questions about the same claim set. Two loops over the same four kinds is how a
+// name becomes an owner for the collision check and a stranger to the audience check.
+//
+// Which kinds claim a name, and why `requires` does not, is AgentNameCollisions' docstring.
+func agentNameClaims(packs []*Pack) (map[string][]agentNameClaim, []string) {
+	byName := map[string][]agentNameClaim{}
+	var order []string
+	claim := func(name, pack, through string) {
+		if name == "" {
+			return // a destination that declares no identity is never named by any selector (R4)
+		}
+		if _, seen := byName[name]; !seen {
+			order = append(order, name)
+		}
+		byName[name] = append(byName[name], agentNameClaim{pack: pack, through: through})
+	}
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			switch c.Kind {
+			case packdecl.KindProgram, packdecl.KindLaunch:
+				claim(c.Bin, p.Name, string(c.Kind))
+			case packdecl.KindBriefing, packdecl.KindSkills:
+				claim(c.Agent, p.Name, string(c.Kind)+".agent")
+			}
+		}
+	}
+	return byName, order
+}
+
+// AgentNames is the AGENT VOCABULARY this pack set has: every name an enabled pack claims,
+// sorted. It is the candidate list an `agents` selector may draw from (briefing-audiences.md
+// P3), and the list a refusal prints.
+//
+// THE SET IS THE SELECTED PACKS AND NOTHING WIDER, which is the whole content of P3: from the
+// jail's point of view `agents: ["cloude"]` and `agents: ["codex"]` in a jail that did not
+// select codex are the same mistake, because the prose names an audience this jail does not
+// have. So callers pass what they LOADED.
+//
+// NOT config.UseProfileCLINames, which answers a neighbouring question with a wider set: it
+// unions packload.Embedded(), deliberately not selection-gated (AGENTS.md), so it accepts
+// `codex` in a jail that never selected codex. That is right for the message it feeds ("no
+// pack installs a CLI named X" is a claim about the universe) and wrong for this one.
+func AgentNames(packs []*Pack) []string {
+	_, order := agentNameClaims(packs)
+	sort.Strings(order)
+	return order
+}
+
+// AgentNameCollisions finds one AGENT NAME claimed by two different packs — the OQ-BA6/BA7
+// exclusivity briefing-audiences.md §4.2 rules fatal.
+//
+// # Why it is its own pass
+//
+// The third instance of the shape pluginNameCollisions and LoopholeNameCollisions already
+// are, and the widest: it spans FOUR kinds rather than sitting inside one. The generic
+// exclusive loop keys claims by `(kind, target)` and skips every kind that is not
+// CombineExclusive, and `briefing`/`skills` are CombineConcat/CombineMerge by design —
+// several packs contributing prose at one path is the whole point — so an `agent` claim
+// inside them is invisible there. Cross-KIND is invisible too even for the two exclusive
+// kinds: `program claude` and `briefing agent: claude` are two different keys.
+//
+// # What claims the name, and what deliberately does not
+//
+// A pack claims a name by OWNING part of that agent's plumbing:
+//
+//   - `program` / `launch` by `bin` — it installs the launcher, or it injects that
+//     launcher's flags.
+//   - `briefing` / `skills` by `agent` — it declares where that agent READS, which is the
+//     identity an `agents: [...]` selector resolves against (borrowedDestinations).
+//
+// `requires` is NOT a claim, and that is a deliberate departure from §4.2's list of five
+// kinds. Reductio, in two shipped shapes: docs/examples/claude-fzf-pack declares
+// `requires fzf` and `requires fd`, so any second pack requiring one of those names — or
+// installing it, which AGENTS.md's PATH-order bullet describes as ordinary — would refuse
+// the launch; and a content pack asserting `requires claude` beside the claude pack that
+// PROVIDES it is the most normal dependency a pack can declare. `requires` is CombineShared
+// for exactly this reason. Nothing is lost by excluding it, because a pack that owns an
+// agent while merely asserting its binary (P5's "whether it `program`s the binary or
+// `requires` it") still claims the name through the `agent` its briefing or skills
+// declares — so including `requires` would be a no-op in every case where it is right and a
+// regression in every case where it is not.
+//
+// # Single-pack groups are SKIPPED, unlike ConfigSurfaceCollisions
+//
+// One pack claiming its own name in four kinds is one pack owning one name (§4.2 names
+// packs/copilot, which declares `copilot` on both `program` and `launch`). That is the
+// generic loop's rule and it is the right question here, which is why this pass groups by
+// pack the way the generic loop does rather than reporting per declaration the way a config
+// surface must.
+//
+// EXPORTED for ConfigSurfaceCollisions' reason: three callers outside the footprint report
+// refuse THIS collision specifically rather than Collisions() wholesale — the launch
+// pre-flight, `yolo host apply` and `yolo check`.
+func AgentNameCollisions(packs []*Pack) []Collision {
+	byName, order := agentNameClaims(packs)
+	sort.Strings(order) // the refusal is user-visible text; map order would make it flap
+
+	var out []Collision
+	for _, name := range order {
+		claims := byName[name]
+		packSet := map[string]struct{}{}
+		for _, cl := range claims {
+			packSet[cl.pack] = struct{}{}
+		}
+		if len(packSet) < 2 {
+			continue
+		}
+		sort.SliceStable(claims, func(i, j int) bool {
+			if claims[i].pack != claims[j].pack {
+				return claims[i].pack < claims[j].pack
+			}
+			return claims[i].through < claims[j].through
+		})
+		out = append(out, Collision{
+			Kind: AgentNameClaimKind, Target: name,
+			Packs:  sortedPackNames(packSet),
+			Reason: agentNameCollisionReason(name, claims),
+		})
+	}
+	return out
+}
+
+// agentNameCollisionReason is the message a user sees. It has to name every claim WITH the
+// field it came through — an author told only "two packs claim claude" has four kinds and
+// two manifests to search — and it has to end in the remedy, which for this rule is not
+// "rename one" (a name is not the pack author's to rename; it is the command the user types)
+// but "these two packs cannot both be selected".
+func agentNameCollisionReason(name string, claims []agentNameClaim) string {
+	var parts []string
+	seen := map[string]bool{}
+	for _, cl := range claims {
+		part := "pack " + cl.pack + " (" + cl.through + ")"
+		if seen[part] {
+			continue
+		}
+		seen[part] = true
+		parts = append(parts, part)
+	}
+	return "an agent name has exactly ONE owning pack, and " + strings.Join(parts, " and ") +
+		" all claim " + name + ". The owner provides everything that goes with that name — " +
+		"where its briefing lands, where its skills land, its config surfaces, its launch " +
+		"flags — and `-p " + name + "=<profile>` and an `agents: [\"" + name + "\"]` selector " +
+		"both resolve THROUGH it, so two owners make every one of those ambiguous. Deselect " +
+		"one of these packs: they cannot both be the " + name + " pack"
 }
 
 // configSurfaceCollisions finds a config surface IDENTITY declared more than once — the

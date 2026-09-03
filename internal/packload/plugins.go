@@ -34,7 +34,16 @@ import (
 // (or the reverse). Problems are dropped here: a pack whose declared source is missing has
 // no plugins to report, and the refusal is printed by the render paths that act on it.
 func (p *Pack) Plugins() []*pluginpack.Plugin {
-	dirs, _ := p.SkillsSourceDirs()
+	sources, _ := p.SkillsSources()
+	dirs := make([]string, 0, len(sources))
+	for _, src := range sources {
+		// The AUDIENCE is deliberately ignored here. A wrapped plugin's NAME is exclusive
+		// across packs and its components are discovered from the tree, so "which agents does
+		// this plugin's skills reach" is a delivery question and this is a footprint one — a
+		// plugin addressed to claude is still a plugin this pack ships, and hiding it from
+		// `pack footprint` would hide exactly the line a reader came for.
+		dirs = append(dirs, src.Dir)
+	}
 	return pluginpack.DiscoverIn(p.Root, dirs)
 }
 

@@ -181,6 +181,16 @@ target combine:
 | `autonomy` | the agent's autonomous/guarded permission postures, notch-selected | **Exclusive** — one per pack |
 | `loophole` | a loophole MODULE dir: a host daemon, TLS intercepts, host binds and devices | **Exclusive** — by loophole NAME (the dir's basename) |
 
+**One namespace is exclusive ACROSS kinds, and it is the only one:** the AGENT NAME. A pack
+claims one by installing its launcher (`program`), injecting that launcher's flags (`launch`),
+or declaring where that agent reads (`briefing`/`skills` `agent`), and two packs claiming one
+name is fatal at launch, at `yolo host apply` and at `yolo check`. The table above cannot see
+it — it keys collisions by `(kind, target)`, and two of the four claiming kinds merge by design
+— so it is its own pass (`packload.AgentNameCollisions`, the third of that shape after
+`pluginNameCollisions` and `LoopholeNameCollisions`). `requires` is deliberately NOT a claim on
+the name: it is Shared for a reason, and a content pack asserting `claude` beside the pack that
+provides it is an ordinary dependency. See [`briefing-audiences.md`](briefing-audiences.md).
+
 The **footprint** is this table applied to a concrete set of packs: the union of every
 claim, plus the collisions where an Exclusive/Scoped target is claimed twice. `yolo pack
 footprint` prints it, and `yolo check` folds it in. Some claims are flagged `⚠ review`
@@ -350,10 +360,13 @@ own tree, so a local skill always wins.
   the validator was the only half of the code that thought the field mattered (§6a-3 of
   `../plans/shipped-2026-08-pack-batch.md` §6a-3). A pack with no manifest at all still merges its `skills/` dir — the
   zero-ceremony case.
-- `into` (required) — home-relative destination.
+- `into` (required, unless the contribution names an `agents` audience instead) —
+  home-relative destination.
+- `agent` / `agents` — the AUDIENCE pair, on the same terms `briefing` describes below.
 
 ```json
-{ "kind": "skills", "from": "skills", "into": ".claude/skills" }
+{ "kind": "skills", "from": "skills", "into": ".claude/skills", "agent": "claude" }
+{ "kind": "skills", "from": "skills/claude", "agents": ["claude"] }
 ```
 
 > **A source that is not there.** A `from` naming a directory the pack does not contain
@@ -382,8 +395,23 @@ GENERATED WHOLESALE at every notch** (ruling 2026-08-04 — see the ownership no
   content falls back to the convention (as the host notch always did) and WARNS, naming the file
   that was not read. `skills` refuses in the same situation; the difference is deliberate,
   because narrowing the briefing chain would break packs that relied on the host behavior.
-- `into` (required — and deliberately NOT conventionalized: a source has one right answer per
-  KIND, a destination one per AGENT, so inferring it would mean inferring the agent set).
+- `into` (required UNLESS the contribution names an `agents` audience — and deliberately NOT
+  conventionalized: a source has one right answer per KIND, a destination one per AGENT, so
+  inferring it would mean inferring the agent set. Naming the audience supplies exactly that
+  missing input, which is why the two are alternatives rather than companions.)
+- `agent` — the IDENTITY this destination declares for itself: the launcher command whose
+  agent reads it, declared by the pack that OWNS that name. Nothing is derived from the pack's
+  `program`/`requires` bins; the string is declared, carried, and compared literally, the way
+  a config surface's `agent` already is.
+- `agents` — the AUDIENCE this contribution names: deliver its content only where a matching
+  `agent` was declared. **ABSENT MEANS BROADCAST**, the pre-field behavior every existing pack
+  keeps. A contribution gives `into` OR `agents`, never both: a content pack that hardcoded
+  `.claude/CLAUDE.md` would be coupled to a fact only the claude pack can keep current.
+  The vocabulary is the SELECTED packs' agent names and nothing wider — naming an agent your
+  `packs` do not provide is fatal at launch and at `yolo host apply`, with one message for a
+  typo and for a real agent you did not select. One name has exactly ONE owning pack, across
+  `program`, `launch`, `briefing` and `skills`. See
+  [`briefing-audiences.md`](briefing-audiences.md).
 - `after` — `"host:<path>"` prepends the user's own briefing at that host path ahead of the
   composed content, so a personal `AGENTS.md` still outranks the pack's. Origin-gated, and
   **JAIL-ONLY**: at the host notch the path it names IS the generated destination, so there is no

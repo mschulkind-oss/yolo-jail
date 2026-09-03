@@ -99,46 +99,6 @@ func missingBriefingFromProblem(pack, from string, missed, fellBack bool) string
 		pack, from)
 }
 
-// BriefingProse resolves the pack's prose for the JAIL, where one composed briefing is written
-// per destination and every pack contributes the same text to all of them.
-//
-// FIRST NON-EMPTY contribution wins, and that is a real limit rather than a resolution rule:
-// the jail's composition takes one (pack, text) pair per pack (jailcontent.ComposePackBriefings), so
-// a pack declaring two briefing contributions with two different `from` files cannot deliver
-// both there. The host render is per-DESTINATION and does honor both (BriefingProseFor); making
-// the jail match would mean composing per destination, which is a larger change than the `from`
-// fix this file is.
-//
-// A pack declaring NO briefing contribution falls back to the convention — the zero-ceremony
-// merge both notches depend on (packload.ResolveDestinations infers the destination; this reads
-// the content). That fallback lives here for the reason SkillsSourceDirs' does: the call site
-// that forgot it would silently drop every manifest-less pack's prose.
-func (p *Pack) BriefingProse() (string, []string) {
-	var problems []string
-	declared := false
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind != packdecl.KindBriefing {
-			continue
-		}
-		declared = true
-		text, prob := p.BriefingProseFor(c)
-		if prob != "" {
-			problems = append(problems, prob)
-		}
-		if text != "" {
-			return text, problems
-		}
-	}
-	if !declared {
-		text, prob := p.BriefingProseFor(packdecl.Contribution{Kind: packdecl.KindBriefing})
-		if prob != "" {
-			problems = append(problems, prob)
-		}
-		return text, problems
-	}
-	return "", problems
-}
-
 // isConventionalBriefingFile reports whether rel names one of the conventional briefing files,
 // so an explicit `from: "AGENTS.md"` is indistinguishable in intent from an omitted one.
 func isConventionalBriefingFile(rel string) bool {

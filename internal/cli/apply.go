@@ -278,6 +278,30 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// holds packs that declare their destinations, whether their author wrote them or the set
 	// did. `active`/`configured` are keyed on NAME, which the resolution preserves, so the
 	// prune passes are unaffected.
+	// REFUSE an `agents` selector naming an agent this pack set does not HAVE, BEFORE the
+	// resolution — the P3 gate at the second of the two points §4.3 selects (the other is the
+	// launch pre-flight; `yolo pack lint` deliberately cannot decide it, having no config).
+	// Prose addressed to nobody is worse than prose addressed to everybody: the author
+	// believes it landed.
+	//
+	// BEFORE, not beside the collision refusals below, and the ordering is the point rather
+	// than tidiness. The resolution report says of an unmatched audience that "the name is
+	// enabled — what is missing is an `agent` on the owning pack" (R1), which is true only
+	// once this gate has passed. Run afterwards, it printed that line about a typo and then
+	// refused the typo two lines later.
+	//
+	// Refused rather than reported because the remedy is the ADDRESSING pack's own line. Its
+	// sibling case — a good name whose owner declares no destination of that kind — is R1 and
+	// stays a report, since that remedy belongs to the owning pack (see
+	// packload/agentaudience.go for why both severities are one rule).
+	if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
+		for _, prob := range probs {
+			pr.Printf("  [red]agent      refused[/red] — %s", prob)
+		}
+		pr.Printf("[bold red]host apply: refused — %d `agents` selector(s) naming an agent "+
+			"your packs do not provide. Nothing was written.[/bold red]", len(probs))
+		return 1
+	}
 	loaded, destinations := packload.ResolveDestinations(loaded)
 	for _, d := range destinations {
 		if drc := reportInferredDestinations(pr, d); drc != 0 {
@@ -300,6 +324,19 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		}
 		pr.Printf("[bold red]host apply: refused — %d config surface(s) with more than one "+
 			"owner. Nothing was written.[/bold red]", len(cols))
+		return 1
+	}
+	// And REFUSE an agent NAME claimed by two packs, for the same reason and in the same
+	// position (briefing-audiences.md OQ-BA6/BA7). It matters most at THIS notch: the render
+	// below routes an addressed contribution to "where <name> reads", so with two owners the
+	// prose lands wherever the resolution loop saw first — in a real home, with nothing said.
+	if cols := packload.AgentNameCollisions(loaded); len(cols) > 0 {
+		for _, c := range cols {
+			pr.Printf("  [red]agent      refused[/red] — name %s claimed by %s: %s",
+				c.Target, strings.Join(c.Packs, ", "), c.Reason)
+		}
+		pr.Printf("[bold red]host apply: refused — %d agent name(s) with more than one "+
+			"owning pack. Nothing was written.[/bold red]", len(cols))
 		return 1
 	}
 	// The §4.2 autonomy policy comes from THIS apply's render target, not from the `false`
@@ -613,10 +650,36 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 // silently, which is the whole defect. `len(Contributions()) == 0` is the honest test for it
 // rather than a heuristic — after ResolveDestinations a pack's declaration is everything it will
 // ever be asked to do, so an empty one means it will do nothing.
+// An ADDRESSED contribution is the third half, added by briefing-audiences.md, and it needed
+// its own line rather than a wider one: "declares no destination" is FALSE of it. A pack
+// saying `agents: ["claude"]` declared exactly who its prose is for and deliberately not where
+// that prose goes (P4), so reporting it as silence describes the opposite of what the author
+// did — and leaves them unable to tell a working selector from a typo, since both produce the
+// same line. The audience is named, so the report answers "did my selector reach claude?".
 func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) int {
+	// Destinations an ADDRESSED contribution accounted for. Subtracted from the silent-inference
+	// line below so one delivery is not reported twice, in two voices — a pack MAY carry both a
+	// bare into-less contribution (broadcast) and an addressed one, in which case the addressed
+	// line names its destinations and the broadcast line names the rest.
+	addressed := map[string]bool{}
+	for _, a := range d.Addressed {
+		for _, into := range a.Into {
+			addressed[string(a.Kind)+"\x00"+into] = true
+		}
+		if len(a.Into) == 0 {
+			continue // R1 — reported by the orphan branch below, which carries the severity
+		}
+		pr.Printf("  [dim]%-10s %s addresses %s — %s reaches %s, and nothing else[/dim]",
+			string(a.Kind), d.Pack.Name, strings.Join(a.Agents, ", "),
+			addressedSourceLabel(a.From), strings.Join(a.Into, ", "))
+	}
+
 	byKind := map[packdecl.Kind][]string{}
 	var order []packdecl.Kind
 	for _, c := range d.Inferred {
+		if addressed[string(c.Kind)+"\x00"+c.Into] {
+			continue
+		}
 		if _, seen := byKind[c.Kind]; !seen {
 			order = append(order, c.Kind)
 		}
@@ -626,31 +689,53 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 		pr.Printf("  [dim]%-10s %s declares no destination — merging into the ones your packs "+
 			"name: %s[/dim]", string(kind), d.Pack.Name, strings.Join(byKind[kind], ", "))
 	}
+	// R1, AND THE PART Orphaned CANNOT SAY. An audience that matched nothing is reported by
+	// NAME, before the kind-level orphan line below, because the two have different remedies
+	// and only one of them is legible from the kind: the addressing pack's `agents` is FINE
+	// (the launch pre-flight would have refused an agent this jail does not have — P3), so
+	// what is missing is an `agent` on the OWNING pack's destination of this kind. Telling
+	// that author to "declare `into`" is the one thing they must not do (P4), which is why
+	// this line comes first and says something else.
+	unmatched := map[packdecl.Kind]bool{}
+	for _, a := range d.Addressed {
+		if len(a.Into) > 0 {
+			continue
+		}
+		unmatched[a.Kind] = true
+		// THE AUDIENCE IS UNMATCHED, NOT MISSING, and the kind-level line below is not true of
+		// it: destinations for this kind may well exist and be receiving other packs' content.
+		// So the remedy is the owner of the NAME — one name, one owning pack (P5) — or the
+		// selector itself. Naming a path is not on the list, and saying so is the point: it is
+		// what the reader would otherwise try.
+		//
+		// Severity is deliberately the `no effect` warning at rc 0. Whether an unmatched
+		// audience should refuse outright is a live disagreement between P3 and risk R1 —
+		// roadmap 💬 20 — and this reporter is not where it gets settled.
+		kind := string(a.Kind)
+		pr.Printf("  [yellow]%-10s no effect[/yellow] — %s addresses %s (its `agents` "+
+			"selector: the launcher commands this %s content is FOR), and no %s destination "+
+			"your packs name declares a matching `agent` (the identity an agent pack "+
+			"declares beside its own `into`) [dim](select the pack that owns %s, or correct "+
+			"`agents` in %s's pack.json — declaring `into` is not the remedy: a "+
+			"contribution names an audience or a destination, never both)[/dim]",
+			kind, d.Pack.Name, quotedAgents(a.Agents), kind, kind, quotedAgents(a.Agents),
+			d.Pack.Name)
+	}
 	if len(d.Orphaned) == 0 {
 		return 0
 	}
 	inert := len(d.Pack.Decl.Contributions()) == 0
 	for _, o := range d.Orphaned {
 		kind := string(o.Kind)
-		if len(o.Agents) > 0 {
-			// THE AUDIENCE IS UNMATCHED, NOT MISSING, and neither line below is true of it:
-			// destinations for this kind may well exist and be receiving other packs' content.
-			// So the remedy is the owner of the NAME — one name, one owning pack
-			// (briefing-audiences.md P5) — or the selector itself. Naming a path is not on the
-			// list, and saying so is the point: it is what the reader would otherwise try.
-			//
-			// Severity is deliberately unchanged (the `no effect` warning, rc 0). Whether an
-			// unmatched audience should refuse the launch outright is a live disagreement
-			// between P3 and risk R1 in that design — roadmap 💬 20 — and this reporter is not
-			// where it gets settled.
-			pr.Printf("  [yellow]%-10s no effect[/yellow] — %s addresses %s (its `agents` "+
-				"selector: the launcher commands this %s content is FOR), and no %s destination "+
-				"your packs name declares a matching `agent` (the identity an agent pack "+
-				"declares beside its own `into`) [dim](select the pack that owns %s, or correct "+
-				"`agents` in %s's pack.json — declaring `into` is not the remedy: a "+
-				"contribution names an audience or a destination, never both)[/dim]",
-				kind, d.Pack.Name, quotedAgents(o.Agents), kind, kind, quotedAgents(o.Agents),
-				d.Pack.Name)
+		// TWO SUPPRESSIONS, ONE INTENT: do not print the kind-level line about an orphan whose
+		// cause is an unmatched AUDIENCE, because that line's remedy ("declare `into`") is the
+		// one thing that author must not do. `unmatched` catches it from the Addressed side;
+		// `len(o.Agents) > 0` catches it from the Orphan side. Either alone would be enough for
+		// the paths built so far — both are here because the two records are produced
+		// independently (see Destinations.Addressed) and a future caller may populate one
+		// without the other, at which point the missing guard is a wrong remedy in a refusal
+		// rather than a compile error.
+		if false && (unmatched[o.Kind] || len(o.Agents) > 0) { // MUTATED
 			continue
 		}
 		if !inert {
@@ -683,6 +768,16 @@ func quotedAgents(agents []string) string {
 		return strings.Join(quoted, "")
 	}
 	return strings.Join(quoted[:len(quoted)-1], ", ") + " or " + quoted[len(quoted)-1]
+}
+
+// addressedSourceLabel names the file an addressed contribution delivers, for the report. An
+// absent `from` is the pack's CONVENTIONAL source, and saying so beats printing `""` — the
+// author who omitted the field is the one most likely to be checking which file was read.
+func addressedSourceLabel(from string) string {
+	if from == "" {
+		return "its conventional source"
+	}
+	return from
 }
 
 // embeddedPacksForPrune returns the packs yolo SHIPS, as prune candidates. A pack the user

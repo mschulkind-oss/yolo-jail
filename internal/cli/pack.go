@@ -72,8 +72,8 @@ effect, with a "kind" from a closed set:
 
   program          install a tool onto PATH
   requires         a tool that must already exist
-  skills           merge a skills tree
-  briefing         prose for the briefing
+  skills           merge a skills tree (optionally addressed: "agents")
+  briefing         prose for the briefing (optionally addressed: "agents")
   files            own a file tree, bind-mounted :ro in the jail
   config           a composed config surface
   config-overlay   keys on a config surface another pack owns
@@ -243,7 +243,10 @@ func packInit(args []string, out, errw io.Writer) int {
 		{"AGENTS.md", "# " + name + "\n\n" +
 			"Prose here is appended to every selected agent's briefing, under a\n" +
 			"`<!-- from pack: " + name + " -->` header so its origin stays traceable.\n" +
-			"Write instructions an agent should follow in every project using this pack.\n"},
+			"Write instructions an agent should follow in every project using this pack.\n\n" +
+			"To address ONE agent instead, declare a briefing that names its audience and\n" +
+			"no path: {\"kind\": \"briefing\", \"from\": \"prose/claude.md\",\n" +
+			"\"agents\": [\"claude\"]} — where that agent reads is its own pack's business.\n"},
 		{filepath.Join("skills", "example", "SKILL.md"), "---\n" +
 			"name: example\n" +
 			"description: Replace this with when the agent should read this skill. This line is what an agent sees when deciding whether to open it, so make it specific.\n" +
@@ -433,8 +436,8 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// 1. DOES THIS PACK DO ANYTHING? Zero declared contributions AND nothing a reader picks
 	//    up by convention. Both halves are required: the pack `pack init` scaffolds has no
 	//    pack.json at all, and the jail's zero-ceremony merge still delivers its skills/ tree
-	//    and its AGENTS.md (packload.SkillsSourceDirs' and packload.BriefingProse's undeclared
-	//    fallbacks) — so "declares nothing" alone would fail-lint the scaffold.
+	//    and its AGENTS.md (packload.SkillsSourceDirs' and packload.BriefingProseFor's
+	//    undeclared fallbacks) — so "declares nothing" alone would fail-lint the scaffold.
 	case len(pack.Decl.Contributions()) == 0 && len(claimed) == 0:
 		msg := "pack declares ZERO contributions and ships nothing read by convention — it " +
 			"would do nothing in a jail. Add a contributes[] entry to pack.json " +
@@ -516,8 +519,8 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		if c.Kind == packdecl.KindSkills {
 			kindSrc = "skills/"
 		}
-		pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q is already declared by the %s pack — root-level %s in your pack is routed to every destination the selected packs declare, so this line adds nothing (drop it, unless you need the destination when %s is NOT selected)",
-			i, c.Kind, c.Into, owner, kindSrc, owner)
+		pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q is already declared by the %s pack — root-level %s in your pack is routed to every destination the selected packs declare, so this line adds nothing (drop it, unless you need the destination when %s is NOT selected; to reach %s and NOTHING ELSE, replace `into` with `agents: [\"%s\"]`)",
+			i, c.Kind, c.Into, owner, kindSrc, owner, owner, owner)
 	}
 
 	// The footprint: what this pack CLAIMS on the environment. An author who never
@@ -645,8 +648,9 @@ func stagedContent(staged []string, pack *packload.Pack, skillRoots []string) (c
 	// `briefing.from` names a file and `skills.from` names a dir.
 	sources := append([]string{}, skillRoots...)
 	// The conventional briefing file is read whether or not a `briefing` contribution names
-	// it: a pack with no manifest at all still contributes it (packload.BriefingProse's
-	// undeclared fallback), and a declared `from` falls back to it (BriefingCandidates).
+	// it: a pack with no manifest at all still contributes it (the undeclared fallback both
+	// notches apply — run.packBriefingProses and packload.ResolveDestinations), and a declared
+	// `from` falls back to it (BriefingCandidates).
 	//
 	// READ FROM packdecl, never re-listed here. This was a hardcoded {"AGENTS.md",
 	// "CLAUDE.md"} and it went stale the day CLAUDE.md left DefaultBriefingFiles

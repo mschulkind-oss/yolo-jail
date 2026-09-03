@@ -155,8 +155,10 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string) []HostBriefing
 			// look ownerless the moment the content pack was the only one listed.
 			d.Packs = append(d.Packs, p.Name)
 			// One section per CONTRIBUTION, so a pack declaring two destinations delivers to
-			// both — the host render is per-destination and can honor that where the jail's
-			// one-text-per-pack composition cannot (see packload.BriefingProse).
+			// both. This was the host's own asymmetry for a while — the jail's composition took
+			// one (pack, text) pair and could deliver only the first — and briefing-audiences.md
+			// §5 closed it: run.packBriefingProses now enumerates per contribution too, so both
+			// notches honor a pack's second `from`.
 			prose, _ := p.BriefingProseFor(c)
 			if prose == "" {
 				continue

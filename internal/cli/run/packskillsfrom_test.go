@@ -59,7 +59,12 @@ func stagedSkillDirs(t *testing.T, o *Options) ([]string, string) {
 	if _, _, _, err := o.stagePacks("yolo-test-skillsfrom"); err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	return jailcontent.PackSkillDirs(), out.String()
+	sources := jailcontent.PackSkillDirs()
+	dirs := make([]string, 0, len(sources))
+	for _, src := range sources {
+		dirs = append(dirs, src.Dir)
+	}
+	return dirs, out.String()
 }
 
 // A CUSTOM `from` is honored: the staged source dir is the declared one.

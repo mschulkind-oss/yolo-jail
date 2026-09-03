@@ -20,6 +20,7 @@
       "kind": "briefing"
     },
     {
+      "agent": "claude",
       "into": ".claude/skills",
       "kind": "skills"
     },

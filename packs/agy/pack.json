@@ -16,6 +16,7 @@
       "kind": "briefing"
     },
     {
+      "agent": "agy",
       "into": ".gemini/config/skills",
       "kind": "skills"
     },

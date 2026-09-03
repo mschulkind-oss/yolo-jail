@@ -39,10 +39,10 @@ func TestAppleContainerMaterializesSingleFiles(t *testing.T) {
 	if err := os.MkdirAll(agentsPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// PACK-DECLARED staging name: the mount reads briefing-<pack>.md, so the fixture
+	// PACK-DECLARED staging name: the mount reads briefingStagingName(<dest>), so the fixture
 	// must write the same file or this asserts a path the assembler never looks at.
 	loadedPacks := claudePackFixture(t)
-	stagedBriefing := filepath.Join(agentsPath, briefingStagingName("claude"))
+	stagedBriefing := filepath.Join(agentsPath, briefingStagingName(claudeBriefingDest))
 	if err := os.MkdirAll(filepath.Dir(stagedBriefing), 0o755); err != nil {
 		t.Fatal(err)
 	}

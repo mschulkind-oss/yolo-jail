@@ -6,7 +6,7 @@ package packload
 // A pack that is just a `skills/` tree and an AGENTS.md — no pack.json at all — is the entry
 // point `yolo pack --help` and the migration guide both promote, and in a jail it works: the
 // boot path collects every selected pack's skills source (SkillsSourceDirs' `if !declared`
-// fallback) and its prose (ComposePackBriefings), then merges the union into every destination
+// fallback) and its prose (run.packBriefingProses), then merges the union into every destination
 // any pack DECLARED. The host render did not, because it iterates `Decl.Contributions()` and a
 // manifest-less pack has none — so `pack lint` said `✓ pack ok`, the apply printed nothing
 // about it, and a real $HOME received zero files (docs/plans/feedback-real-pack-adoption.md F1).
@@ -73,6 +73,24 @@ type Destinations struct {
 	// content pack selected with no agent pack delivers nothing, which is F1 reached by a
 	// different route.
 	Orphaned []Orphan
+	// Addressed is one entry per ADDRESSED contribution — the audience it declared, and the
+	// destinations that audience reached.
+	//
+	// It DUPLICATES destinations that are already in Inferred, and that is deliberate rather
+	// than sloppy: a synthesized contribution deliberately does not carry `agents`
+	// (borrowedDestinations says why — after this function a resolved pack must be an
+	// ORDINARY declaring pack), so Inferred alone cannot tell an addressed delivery from a
+	// silent one. Without this, `yolo host apply` reports "declares no destination" about a
+	// pack that declared exactly who its prose was for — which is the opposite of what it did.
+	//
+	// EMPTY `Into` IS THE R1 CASE — and so is an Orphan carrying a non-empty Agents. **Both
+	// survive, deliberately**: they were built the same day by different hands, and they are
+	// not redundant. Orphan answers *"this kind reached nothing, and here is the audience to
+	// blame"*, which is what the refusal message keys on. AddressedDelivery answers *"here is
+	// every addressed contribution and everywhere it landed"* — including the SUCCESSFUL
+	// deliveries an Orphan by definition cannot describe. A reader asking "did my audience
+	// work?" needs this field; one asking "why did nothing arrive?" needs the other.
+	Addressed []AddressedDelivery
 }
 
 // Orphan is one kind of content that reached no destination, together with the reason — which
@@ -94,6 +112,24 @@ type Orphan struct {
 	// named no audience, so it was eligible for every destination of its kind and there were
 	// none.
 	Agents []string
+}
+
+// AddressedDelivery is what ONE addressed contribution resolved to: the audience it named,
+// the source it named, and the destinations that matched.
+//
+// Per CONTRIBUTION, matching the unit of inference (ResolveDestinations' last paragraph): a
+// pack addressing claude with one file and pi with another is two entries, and folding them
+// into one would lose exactly the pairing the per-contribution loop exists to keep.
+type AddressedDelivery struct {
+	// Kind is the contribution's kind — `briefing` or `skills`.
+	Kind packdecl.Kind
+	// Agents is the audience the contribution declared, verbatim.
+	Agents []string
+	// From is the source it named, or "" for the pack's conventional one.
+	From string
+	// Into is every destination the audience matched, in set order. EMPTY means the audience
+	// named no destination this pack set declares — nothing was delivered, which is risk R1.
+	Into []string
 }
 
 // ResolveDestinations resolves this pack's delivery destinations against `set`, the packs the
@@ -137,6 +173,19 @@ func (p *Pack) ResolveDestinations(set []*Pack) Destinations {
 				continue
 			}
 			dests := borrowedDestinations(src, p, set)
+			if len(src.Agents) > 0 {
+				// Recorded whether or not anything matched, because both outcomes are things
+				// the user has to be able to see: a delivery that reads as "declares no
+				// destination" is a lie about an addressed pack, and one that matched nothing
+				// is R1.
+				into := make([]string, 0, len(dests))
+				for _, d := range dests {
+					into = append(into, d.Into)
+				}
+				out.Addressed = append(out.Addressed, AddressedDelivery{
+					Kind: kind, Agents: src.Agents, From: src.From, Into: into,
+				})
+			}
 			if len(dests) == 0 {
 				// Reported, never silent (R1) — and this is the branch the old
 				// conventional-source-only probe hid an ADDRESSED contribution from: it skipped

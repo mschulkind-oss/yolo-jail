@@ -56,7 +56,7 @@ func appliedBriefing(t *testing.T, o *Options, rt string, cfg *jsonx.OrderedMap)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
-	body, err := os.ReadFile(filepath.Join(staging, briefingStagingName("claude")))
+	body, err := os.ReadFile(filepath.Join(staging, briefingStagingName(claudeBriefingDest)))
 	if err != nil {
 		t.Fatalf("no briefing was written for the claude pack: %v", err)
 	}

@@ -145,9 +145,9 @@ each file from four parts, in order:
 3. **`agents_md_extra`**, appended verbatim — the config key
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
    arbitrary extra instructions into every generated briefing.
-4. **Each selected pack's own prose**, appended last, in config order, under a
-   `<!-- from pack: NAME -->` provenance header
-   (`ComposePackBriefings`, `internal/jailcontent/briefing.go:572`). The header is
+4. **Each selected pack's prose that this destination's audience admits**, appended
+   last, in config order, under a `<!-- from pack: NAME -->` provenance header
+   (`ComposePackBriefings`, `internal/jailcontent/briefing.go`). The header is
    not decoration: pack prose is *instructions an agent will follow*, so a reader
    hitting a surprising rule must be able to find out which pack shipped it. This
    is also the route the **user's own** instructions take on any machine where
@@ -155,33 +155,63 @@ each file from four parts, in order:
    (`~/.config/yolo-jail/local/AGENTS.md`), which composes here like any other
    pack rather than through part 1.
 
-The same jail content goes to every briefing destination; only the prepended
-host file differs per destination (each pack's prose reaches every destination
-that pack declares).
+**Parts 1–3 are the same at every destination; part 4 is not** (changed 2026-09-03,
+[`briefing-audiences.md`](briefing-audiences.md) §5). A `briefing` contribution may
+carry `agents: [...]` — the launcher commands its prose is *for* — and it then
+reaches only the destinations whose owning pack declared a matching `agent`. A
+contribution naming no audience broadcasts, which is what every shipped pack does,
+so the default composition is unchanged.
+
+That is why composition happens **inside** the per-destination write loop
+(`refreshJailBriefings`) rather than once above it. Composing once was what made
+scoping impossible: a pack whose rules applied to one agent had to broadcast them
+to all of them or drop them. Two consequences of the move are worth knowing:
+
+- The composition input is now one entry **per `briefing` contribution** rather than
+  one text per pack (`run.packBriefingProses`), so a pack declaring two contributions
+  with two different `from` files delivers **both**. That was a live limit of the jail
+  notch — the host render always honored both — and it lifted with the restructure.
+- Identical prose from one pack is composed **once** per destination, with the
+  audiences unioned and a broadcast absorbing every audience. Two contributions that
+  name no `from` resolve to the same conventional `AGENTS.md`, so without this a pack
+  naming two destinations and no source would say everything twice.
+
+Only the prepended host file also differs per destination, and it always did.
 
 ## Where the files live and how they get into the jail
 
 Generated files land host-side in `AGENTS_DIR/<container-name>/`
-(`~/.local/share/yolo-jail/agents/<cname>/`), one staging file **per `briefing`
-contribution**, named `briefing-<pack>.md` (`briefingStagingName`), then
-bind-mounted **read-only** into the jail at that contribution's `into`:
+(`~/.local/share/yolo-jail/agents/<cname>/`), one staging file **per
+DESTINATION**, named by escaping the destination path (`briefingStagingName`,
+`internal/cli/run/briefingdest.go`), then bind-mounted **read-only** into the jail
+there:
 
 ```
-AGENTS_DIR/<cname>/briefing-claude.md    →  /home/agent/.claude/CLAUDE.md:ro
-AGENTS_DIR/<cname>/briefing-copilot.md   →  /home/agent/.copilot/copilot-instructions.md:ro
-AGENTS_DIR/<cname>/briefing-codex.md     →  /home/agent/.codex/AGENTS.md:ro
-AGENTS_DIR/<cname>/briefing-opencode.md  →  /home/agent/.config/opencode/AGENTS.md:ro
-AGENTS_DIR/<cname>/briefing-pi.md        →  /home/agent/.pi/agent/AGENTS.md:ro
-AGENTS_DIR/<cname>/briefing-agy.md       →  /home/agent/.gemini/config/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-.claude~1CLAUDE.md                  →  /home/agent/.claude/CLAUDE.md:ro
+AGENTS_DIR/<cname>/briefing-.copilot~1copilot-instructions.md   →  /home/agent/.copilot/copilot-instructions.md:ro
+AGENTS_DIR/<cname>/briefing-.codex~1AGENTS.md                   →  /home/agent/.codex/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-.config~1opencode~1AGENTS.md        →  /home/agent/.config/opencode/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-.pi~1agent~1AGENTS.md               →  /home/agent/.pi/agent/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-.gemini~1config~1AGENTS.md          →  /home/agent/.gemini/config/AGENTS.md:ro
 ```
+
+The escape is RFC 6901's (`~`→`~0`, `/`→`~1`), for one reason: it must be
+**injective**, because two destinations sharing a staging file would deliver one
+agent's composed briefing to the other, silently. Nothing decodes it — the name is
+written by `refreshJailBriefings` and read by `assembleRunCmd`, both through the
+same function, and `TestJailBriefingStagingNameAgreesWithTheMount` asserts on the
+filesystem that they agree (a missing bind source for a *file* is not an error, so a
+mismatch produces a blank briefing rather than a failed launch).
 
 > [!WARNING]
-> **The old per-agent staging names (`CLAUDE.md`, `AGENTS-copilot.md`, …) and the
-> `~/.gemini/AGENTS.md` destination are both gone** (corrected 2026-08-23). Names
-> are keyed on the *pack*, not the agent, because two packs may brief one
-> destination. And `~/.gemini/` is now **agy's** tree — the gemini agent was
-> removed, and agy keeps its state one level down under `antigravity-cli/` so the
-> two never collided (`internal/entrypoint/env.go:280-290`).
+> **The staging key has changed twice, and both old spellings are gone.** It was
+> per-AGENT (`CLAUDE.md`, `AGENTS-copilot.md`, …) until 2026-08-23, then per-PACK
+> (`briefing-<pack>.md`) until 2026-09-03. Per-pack was sufficient only while every
+> destination received identical bytes; once part 4 of the composition varies with
+> the destination's audience, the pack no longer identifies a file. Also note
+> `~/.gemini/` is **agy's** tree — the gemini agent was removed, and agy keeps its
+> state one level down under `antigravity-cli/` so the two never collided
+> (`internal/entrypoint/env.go`).
 
 The read-only mount is why an in-jail agent gets `Read-only file system`
 if it tries to edit its own briefing — that's kernel-enforced and
@@ -310,7 +340,7 @@ propagates on the next `yolo` invocation like any other briefing edit.
 - **2026-08-23 audit:** all Python source-of-truth pointers replaced with their Go
   equivalents; the `agents` config key retracted (it is now a hard error naming
   `packs`); `gemini` removed as an agent (`~/.gemini/` is agy's tree now); staging
-  filenames corrected to `briefing-<pack>.md`
+  filenames corrected to `briefing-<pack>.md` (per-DESTINATION since 2026-09-03)
 - The Handoff section has no standing counterpart line, and its pointer is consumed only once a briefing has actually been written — a jail with no briefing destination leaves it fresh (host-to-jail-handoff.md §9)
 - Deleted the `jail-startup` skill; the one-time host→jail handoff is now a conditional **Handoff** section in the briefing, consumed by the run pipeline on the launch that reads it (host-to-jail-handoff.md)
 - Agent library model: briefings/skills are now generated only for the agents selected in the `agents` config (default claude), driven by the agent registry (`src/entrypoint/agent_registry.py`); added opencode + pi

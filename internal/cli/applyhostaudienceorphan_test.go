@@ -63,29 +63,45 @@ func reportHasAll(t *testing.T, report string, markers []string) {
 	}
 }
 
-// AN UNMATCHED AUDIENCE NAMES THE AUDIENCE AND THE OWNER, not `into`. `claude` is selected, so a
-// briefing destination exists and is being written to — what nothing owns is the name `codex`.
+// AN UNMATCHED AUDIENCE NAMES THE AUDIENCE AND THE OWNER, not `into`.
+//
+// THE NAME MUST BE ONE THE PACK SET PROVIDES, and this test used to get that wrong: it
+// addressed `codex` with only `claude` selected, which step 6's resolution pass now REFUSES
+// outright (AgentAudienceProblems — a name outside the vocabulary is the addressing pack's
+// typo, and fatal). That is `TestApplyHostRefusesAnAudienceNoPackProvides`' case, not this
+// one. The *reported* case needs a name that exists and simply routes nowhere for this KIND,
+// so `beta` claims its name on its SKILLS destination and leaves its briefing unclaimed —
+// then a briefing addressed to `beta` is a good name with no matching destination, and the
+// remedy belongs to beta's author (R4), not to house's.
 func TestApplyHostUnmatchedAudienceNamesTheAudienceNotInto(t *testing.T) {
 	home := t.TempDir()
-	packDir := filepath.Join(t.TempDir(), "house")
+	base := t.TempDir()
+	agentPack := filepath.Join(base, "beta")
+	writeFile(t, filepath.Join(agentPack, "pack.json"),
+		`{"name":"beta","description":"a","contributes":[`+
+			`{"kind":"skills","into":".beta/skills","agent":"beta"},`+
+			`{"kind":"briefing","into":".beta/AGENTS.md"}]}`)
+	packDir := filepath.Join(base, "house")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"house","description":"d","contributes":[`+
-			`{"kind":"briefing","from":"prose/codex.md","agents":["codex"]}]}`)
-	writeFile(t, filepath.Join(packDir, "prose", "codex.md"), "Codex house rules.\n")
-	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"house"}`)
+			`{"kind":"briefing","from":"prose/beta.md","agents":["beta"]}]}`)
+	writeFile(t, filepath.Join(packDir, "prose", "beta.md"), "Beta house rules.\n")
+	selectPacks(t, home,
+		`{"source":"file://`+agentPack+`","name":"beta"},`+
+			`{"source":"file://`+packDir+`","name":"house"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
-	// SEVERITY IS UNCHANGED by this fix: an unmatched audience is a named warning, not a
-	// refusal. Whether it should refuse the launch is the live disagreement between P3 and risk
-	// R1 in briefing-audiences.md (roadmap 💬 20), and is not settled here.
+	// A GOOD NAME THAT ROUTED NOWHERE IS REPORTED, NOT REFUSED — the split step 6 settled, and
+	// the half of roadmap 💬 20 that stays a warning: the fix is an `agent` on the OWNING pack's
+	// briefing contribution, so refusing would punish the wrong author (R4).
 	if rc != 0 {
-		t.Fatalf("host apply --assert rc=%d — an unmatched audience is reported, not refused "+
-			"(roadmap 💬 20 owns that question)\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d — a name the set PROVIDES that reached no briefing "+
+			"destination is reported, not refused\n%s", rc, report)
 	}
 	reportHasAll(t, report, unmatchedAudienceMarkers)
-	if !strings.Contains(report, `house addresses "codex"`) {
+	if !strings.Contains(report, `house addresses "beta"`) {
 		t.Errorf("the report does not name the pack and the audience it addressed:\n%s", report)
 	}
 	if !strings.Contains(report, "correct `agents` in house's pack.json") {
@@ -96,10 +112,10 @@ func TestApplyHostUnmatchedAudienceNamesTheAudienceNotInto(t *testing.T) {
 
 	// And the prose really did go nowhere: the destination that exists must not have received
 	// content addressed to a name it does not answer to.
-	brief, _ := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md"))
-	if strings.Contains(string(brief), "Codex house rules.") {
-		t.Errorf("prose addressed to `codex` reached claude's destination — the report would be "+
-			"describing a delivery that happened:\n%s", brief)
+	brief, _ := os.ReadFile(filepath.Join(home, ".beta", "AGENTS.md"))
+	if strings.Contains(string(brief), "Beta house rules.") {
+		t.Errorf("prose addressed to `beta` reached beta's unclaimed briefing destination — the "+
+			"report would be describing a delivery that happened:\n%s", brief)
 	}
 }
 
@@ -129,21 +145,33 @@ func TestApplyHostNoDestinationKeepsTheIntoRemedy(t *testing.T) {
 		"this contribution named no audience, so there is no selector to correct")
 }
 
-// BOTH CAUSES IN ONE PACK GET BOTH MESSAGES. `claude` declares a briefing destination and owns
-// the name `claude`, and declares a skills destination too — but the pack addresses `codex` for
-// its prose and declares nothing for its `skills/` tree, which claude's own skills destination
-// then receives. So the briefing is an unmatched audience while the skills are delivered, and
-// the report must not describe one cause for the other's kind.
+// BOTH CAUSES IN ONE PACK GET BOTH MESSAGES, each attributed to its own kind — the case neither
+// of step 6's two audience tests covers, since both of those carry a single cause.
+//
+// `beta` claims its name on its SKILLS destination and leaves its briefing unclaimed (see
+// TestApplyHostUnmatchedAudienceNamesTheAudienceNotInto for why the name must be one the set
+// provides). So `both`'s addressed briefing is a good name that routed nowhere, while its
+// unaddressed `skills/` tree borrows beta's skills destination and is DELIVERED. One pack, one
+// reported audience, one silent inference — and the report must not describe either cause for
+// the other's kind.
 func TestApplyHostReportsEachOrphanCauseForItsOwnKind(t *testing.T) {
 	home := t.TempDir()
-	packDir := filepath.Join(t.TempDir(), "both")
+	base := t.TempDir()
+	agentPack := filepath.Join(base, "beta")
+	writeFile(t, filepath.Join(agentPack, "pack.json"),
+		`{"name":"beta","description":"a","contributes":[`+
+			`{"kind":"skills","into":".beta/skills","agent":"beta"},`+
+			`{"kind":"briefing","into":".beta/AGENTS.md"}]}`)
+	packDir := filepath.Join(base, "both")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"both","description":"d","contributes":[`+
-			`{"kind":"briefing","from":"prose/codex.md","agents":["codex"]}]}`)
-	writeFile(t, filepath.Join(packDir, "prose", "codex.md"), "Codex only.\n")
+			`{"kind":"briefing","from":"prose/beta.md","agents":["beta"]}]}`)
+	writeFile(t, filepath.Join(packDir, "prose", "beta.md"), "Beta only.\n")
 	writeFile(t, filepath.Join(packDir, "skills", "bskill", "SKILL.md"),
 		"---\nname: bskill\ndescription: d\n---\nbody\n")
-	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"both"}`)
+	selectPacks(t, home,
+		`{"source":"file://`+agentPack+`","name":"beta"},`+
+			`{"source":"file://`+packDir+`","name":"both"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
@@ -153,8 +181,8 @@ func TestApplyHostReportsEachOrphanCauseForItsOwnKind(t *testing.T) {
 	}
 	// The unaddressed skills tree borrowed claude's destination, so it is INFERRED, not
 	// orphaned — which is what makes the briefing line's cause the only one in the report.
-	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "bskill", "SKILL.md")); err != nil {
-		t.Fatalf("the unaddressed skills tree did not reach claude's destination: %v\n%s",
+	if _, err := os.Stat(filepath.Join(home, ".beta", "skills", "bskill", "SKILL.md")); err != nil {
+		t.Fatalf("the unaddressed skills tree did not reach beta's destination: %v\n%s",
 			err, report)
 	}
 	reportHasAll(t, report, unmatchedAudienceMarkers)
