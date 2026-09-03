@@ -77,7 +77,7 @@ func renderCodexConfig(t *testing.T, providersJSON, profilesJSON, wireProfiles s
 // cataloged while the selected provider is not.
 const zaiProviderJSON = `{"zai":{
   "api_key_env_name":"ZAI_API_KEY",
-  "models":{"default":"glm-4.7","fast":"glm-4.7-air"},
+  "models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash"},
   "endpoints":{
     "anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
     "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}

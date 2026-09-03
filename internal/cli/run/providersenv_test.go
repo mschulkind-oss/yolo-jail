@@ -29,7 +29,7 @@ func providerEnvPack(t *testing.T, name string) *packload.Pack {
 		`"endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},` +
 		`"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},` +
 		`"api_key_env_name":"ZAI_API_KEY",` +
-		`"models":{"default":"glm-4.7","fast":"glm-4.7-air"}}]}`
+		`"models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash"}}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestAssembleEmitsComposedProvidersTable(t *testing.T) {
 		`"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}`, // pack fact survives
 		`"wire_api": "openai-chat-completions"`,                       // pack fact survives
 		`"fast": "glm-5"`,                                             // user override wins
-		`"default": "glm-4.7"`,                                        // pack alias the user did not mention survives
+		`"default": "glm-5.3[1m]"`,                                    // pack alias the user did not mention survives
 		`"api_key_env_name": "ZAI_API_KEY"`,                           // the credential POINTER, never a key
 	} {
 		if !strings.Contains(env, want) {

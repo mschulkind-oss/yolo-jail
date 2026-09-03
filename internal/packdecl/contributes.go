@@ -192,7 +192,7 @@ type Contribution struct {
 	// overrides it like any other field.
 	Region string `json:"region,omitempty"`
 	// Models maps a model ALIAS an agent asks for to the provider's model ID —
-	// "default"/"fast" → "glm-4.7". Alias names are open vocabulary: which aliases a
+	// "default"/"fast" → "glm-5.3[1m]". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
 	Models map[string]string `json:"models,omitempty"`
 	// Options is the profile surface the provider DECLARES (provider-catalog-and-

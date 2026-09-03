@@ -13,8 +13,8 @@
       },
       "kind": "provider",
       "models": {
-        "default": "glm-4.7",
-        "fast": "glm-4.7-air"
+        "default": "glm-5.3[1m]",
+        "fast": "glm-5.3-flash"
       },
       "name": "zai",
       "options": {

@@ -13,7 +13,7 @@ package integration
 // zai is the provider under test because it is the shipped pairing that WORKS for these two
 // (it is the one codex cannot speak — codex_selection_test.go): pi translates z.ai's
 // openai-chat-completions wire_api into its own openai-completions, opencode consumes no
-// wire_api at all, and packs/zai declares `models: {default: glm-4.7, ...}`, which is the
+// wire_api at all, and packs/zai declares `models: {default: glm-5.3[1m], ...}`, which is the
 // model half of both selections.
 
 import (
@@ -105,9 +105,9 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 			t.Errorf("pi settings.json defaultProvider = %q, want the provider the variant "+
 				"delivers — OQ-CS1: activating a profile works for all", piSettings.provider)
 		}
-		if piSettings.model != "glm-4.7" {
+		if piSettings.model != "glm-5.3[1m]" {
 			t.Errorf("pi settings.json defaultModel = %q, want packs/zai's declared `default` "+
-				"alias glm-4.7 — the model id must match pi's provider list exactly "+
+				"alias glm-5.3[1m] — the model id must match pi's provider list exactly "+
 				"(OQ-CS3: the fallback is the derive's business)", piSettings.model)
 		}
 		// The catalog and the selection are DIFFERENT FILES for pi: yolo's computed
@@ -120,10 +120,10 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
 
 		ocConfig := readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
-		if ocConfig.slashJoin != "zai/glm-4.7" {
+		if ocConfig.slashJoin != "zai/glm-5.3[1m]" {
 			t.Errorf("opencode.json model = %q, want %q — \"<provider>/<model>\", split on "+
 				"the first slash (v1.18.18 config.ts:74-76, model.ts:33-39)",
-				ocConfig.slashJoin, "zai/glm-4.7")
+				ocConfig.slashJoin, "zai/glm-5.3[1m]")
 		}
 		// ~/.config is ONE shared overlay, so this file's host-side path runs through
 		// "config" (providers_test.go); its catalog row is read from the same file.
@@ -140,14 +140,14 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 		}
 
 		piSettings = readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
-		if piSettings.provider != "zai" || piSettings.model != "glm-4.7" {
+		if piSettings.provider != "zai" || piSettings.model != "glm-5.3[1m]" {
 			t.Errorf("after an unprofiled relaunch pi's pair = %q/%q, want the selection the "+
 				"first launch wrote left standing — deactivation clears nothing "+
 				"(provider-catalog-and-selection.md §5.1 OQ-CS2)",
 				piSettings.provider, piSettings.model)
 		}
 		ocConfig = readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
-		if ocConfig.slashJoin != "zai/glm-4.7" {
+		if ocConfig.slashJoin != "zai/glm-5.3[1m]" {
 			t.Errorf("after an unprofiled relaunch opencode's model = %q, want the selection "+
 				"the first launch wrote left standing (OQ-CS2)", ocConfig.slashJoin)
 		}

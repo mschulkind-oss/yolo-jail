@@ -16,7 +16,7 @@ func shippedZaiPack(t *testing.T) *Pack {
 	   "endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
 	                "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},
 	   "api_key_env_name":"ZAI_API_KEY",
-	   "models":{"default":"glm-4.7","fast":"glm-4.7-air"}}]}`)}
+	   "models":{"default":"glm-5.3[1m]","fast":"glm-5.3-flash"}}]}`)}
 }
 
 // shippedBedrockPack returns a pack declaring a REGIONAL provider — one whose address is
@@ -74,7 +74,7 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	// Key ORDER is pinned too: the entry is serialized into an env var the derives read,
 	// so a run that reshuffles it would turn every jail's provider table into a diff.
 	want := `{"zai": {"api_key_env_name": "ZAI_API_KEY", ` +
-		`"models": {"default": "glm-4.7", "fast": "glm-4.7-air"}, ` +
+		`"models": {"default": "glm-5.3[1m]", "fast": "glm-5.3-flash"}, ` +
 		`"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}, ` +
 		`"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}}}}`
 	if s := dump(t, got); s != want {
@@ -84,11 +84,11 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	// User overrides: one alias re-pointed, one added, one endpoint's URL re-pointed —
 	// everything else survives from the pack.
 	user := userProviders(t, `{"zai":{
-	  "models":{"fast":"glm-5","coder":"glm-4.7-coder"},
+	  "models":{"fast":"glm-5","coder":"glm-5.3[1m]-coder"},
 	  "endpoints":{"openai":{"base_url":"https://proxy.example.internal/v4"}}}}`)
 	got = compose(t, user, []*Pack{pack})
 	if s := dump(t, got); !strings.Contains(s, `"fast": "glm-5"`) ||
-		!strings.Contains(s, `"coder": "glm-4.7-coder"`) || !strings.Contains(s, `"default": "glm-4.7"`) {
+		!strings.Contains(s, `"coder": "glm-5.3[1m]-coder"`) || !strings.Contains(s, `"default": "glm-5.3[1m]"`) {
 		t.Errorf("models should merge per alias, got %s", s)
 	}
 	if s := dump(t, got); !strings.Contains(s, `"openai": {"base_url": "https://proxy.example.internal/v4", "wire_api": "openai-chat-completions"}`) {
@@ -127,7 +127,7 @@ func TestComposeProvidersHonorTheNullDropBelowTheTopLevel(t *testing.T) {
 	if s := dump(t, got); strings.Contains(s, "fast") {
 		t.Errorf("a null model alias must delete the alias, got %s", s)
 	}
-	if s := dump(t, got); !strings.Contains(s, `"default": "glm-4.7"`) {
+	if s := dump(t, got); !strings.Contains(s, `"default": "glm-5.3[1m]"`) {
 		t.Errorf("the alias beside the null must survive, got %s", s)
 	}
 
@@ -146,7 +146,7 @@ func TestComposeProvidersHonorTheNullDropBelowTheTopLevel(t *testing.T) {
 	}
 
 	user = userProviders(t, `{"zai":{"models":null}}`)
-	if s := dump(t, compose(t, user, []*Pack{pack})); strings.Contains(s, "glm-4.7") {
+	if s := dump(t, compose(t, user, []*Pack{pack})); strings.Contains(s, "glm-5.3[1m]") {
 		t.Errorf("a null over a whole subtree must delete the subtree, got %s", s)
 	}
 

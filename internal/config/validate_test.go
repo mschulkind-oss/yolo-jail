@@ -746,8 +746,8 @@ func TestValidateProvidersOptionsRefusesANonScalarValue(t *testing.T) {
 	for name, value := range map[string]string{
 		"number": `{"model": 3}`,
 		"bool":   `{"model": true}`,
-		"object": `{"model": {"alias": "glm-4.7"}}`,
-		"array":  `{"model": ["glm-4.7"]}`,
+		"object": `{"model": {"alias": "glm-5.3[1m]"}}`,
+		"array":  `{"model": ["glm-5.3[1m]"]}`,
 	} {
 		errs := providerErrors(t, `{"zai": {"options": `+value+`}}`)
 		found := ""

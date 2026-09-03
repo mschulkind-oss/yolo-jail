@@ -126,10 +126,10 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 		t.Errorf("pi settings.json defaultProvider = %q, want the provider the profile "+
 			"selects", piSettings.provider)
 	}
-	if piSettings.model != "glm-4.7-air" {
-		t.Errorf("pi settings.json defaultModel = %q, want glm-4.7-air — the id under the "+
+	if piSettings.model != "glm-5.3-flash" {
+		t.Errorf("pi settings.json defaultModel = %q, want glm-5.3-flash — the id under the "+
 			"alias the profile's `model` option names (packs/zai declares models: "+
-			"{default: glm-4.7, fast: glm-4.7-air}), not the declared default glm-4.7",
+			"{default: glm-5.3[1m], fast: glm-5.3-flash}), not the declared default glm-5.3[1m]",
 			piSettings.model)
 	}
 	// The vacuity guard reads the file the catalog lands in: pi's providers table is
