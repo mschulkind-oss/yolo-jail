@@ -1,8 +1,9 @@
 # Roadmap
 
-**Status: 12 needing you · 4 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 13 needing you · 5 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-02**. Counts tallied from this file, not asserted — one per `### 💬` heading,
+Last updated **2026-09-03** (💬 21 and the temp-dir leak added; every other row untouched and
+unre-verified since 2026-09-02). Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
 in.
 
@@ -161,7 +162,7 @@ heading anchors. All five, and the allowlists they need, are in
 > was about, found by an adversarial re-check of the pass itself. If you add a heading style, check
 > the count moves.
 
-**Twelve rows below is what the blocking subset groups into** — the rest are named
+**Thirteen rows below is what the blocking subset groups into** — the rest are named
 in *What the roadmap does not cover* at the end, deliberately. The gap between 100 and 12 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 **💬 6's four rulings closed a whole row in a single turn**, and the 2026-09-02 audit closed four
@@ -607,9 +608,49 @@ requirement on the jail's pack set — and therefore whether addressed content p
 **Answer:**
 > _(empty — fill in when decided)_
 
+### 💬 21 — The host render goes stale in silence, and nothing on any path re-checks it
+
+📄 [`host-apply-staleness.md`](../design/host-apply-staleness.md) — `OQ-HS1 · OQ-HS2 · OQ-HS3 · OQ-HS4`
+
+`yolo host apply` writes pack surfaces into your real `$HOME` and then never looks again. Nothing
+in the run pipeline, in `yolo check`, or on any launch path asks whether what it wrote still matches
+what it *would* write — so a host render rots quietly, and this jail's own home is rotten right now
+(three surfaces would overwrite live values, measured 2026-09-03).
+
+**The premise is already ruled** and it is the cheap half of the news: a full observe render — the
+existing `--dry-run` posture, which writes nothing — costs **11.4 ms p50 against a 3.9 ms baseline**,
+so the check can simply run the real thing on every command and keep **no fingerprint, no baseline,
+and no heuristic**. That kills the input-hashing designs outright, and with them the state file, its
+format, its migration, and its false positives. It also answers a case an input fingerprint
+structurally cannot: a destination someone edited by hand.
+
+⚠ **The gap is not where I first said it was.** My first read was that the observe pass already knew
+the answer and needed only exposing. It does not. `Action` is `"would render"` unconditionally for
+any surface that is not skipped or refused, and `Overwrites` is documented as *"empty when the
+render only adds keys or re-asserts identical values"* — so a surface that is byte-for-byte correct
+and one that needs a whole new key are indistinguishable today. **The predicate the feature is
+entirely about does not exist**, and a naive check would fire on every command on every machine
+forever — the precise failure `confirmHostLosses` was written to avoid
+(`internal/cli/apply.go:496-500`). Building that predicate is the work; §3.2 of the doc is the whole
+argument.
+
+**Two steps need no ruling and are startable now** — the temp-dir leak below (a hard prerequisite),
+and the change predicate itself, which lands as a standalone improvement to `yolo host apply
+--dry-run` (*"3 in sync, 2 would change"* instead of five identical `would render` lines). The four
+questions are all about **posture, not mechanism**: whether the wrapper hot path pays 7.5 ms
+(`OQ-HS1`), whether a home you have deliberately never applied to gets nagged (`OQ-HS2`), whether
+there is an interactive offer or only a notice (`OQ-HS3`), and whether skills/briefings/files count
+or config surfaces only (`OQ-HS4`).
+
+**What it decides:** whether yolo tells you your host config has drifted, and how loudly — not
+whether it can.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
 # 📦 Up next
 
-**Four items.** **C4 and C5 are
+**Five items.** **C4 and C5 are
 deliberately NOT here**: their go/no-go moved to 🧊 as an explicit row — the shape is ruled, the
 measurement is taken, and queueing them before you call it would be queueing a question.
 
@@ -618,9 +659,25 @@ file** — the warning channel, three of the four small repairs, the tar-evictio
 catalog walk, program-delivery §10 step 1, and briefing-audiences steps 1–2. What is below is what
 survived that pass, restated against the tree rather than against the queue it used to be.
 
-**Ordering basis:** what unblocks the most other work first, then what is cheapest. The one
-remaining small repair is first because it is nearly free and closes a shell-injection surface; the
-disk and program-delivery rows follow; briefing-audiences is last only because it is the largest.
+**Ordering basis:** what unblocks the most other work first, then what is cheapest. The temp-dir
+leak is first because it is a live bug measured today and a hard prerequisite for 💬 21; the one
+remaining small repair follows because it is nearly free and closes a shell-injection surface; the
+disk and program-delivery rows come after; briefing-audiences is last only because it is the largest.
+
+- 📦 **`packload.Embedded()` leaks a temp dir on every call, and nothing ever removes them.** 📄
+  [`host-apply-staleness.md`](../design/host-apply-staleness.md) §6 (where it was found, and why it
+  gates that work — but this is a **standalone pre-existing bug**, not part of that design).
+  `os.MkdirTemp` + a full copy of the embedded pack tree at `internal/packload/embedded.go:55`, with
+  a second prefix at `internal/cli/surfaces.go:44`, and no cleanup on either.
+
+  **Measured 2026-09-03 in this jail:** 592 `/tmp/yolo-embedded-*` + 11 `yolo-embedded-packs-*` + 22
+  `yolo-cli-packs-*` = **625 directories, 109 MB**. Confirmed as exactly one per invocation by
+  direct test — `yolo pack ls` took the count from 626 to 627 — and about sixty of those were minted
+  by the twenty benchmark runs that produced 💬 21's timing table. Every `yolo pack ls`, `config ls`,
+  `host apply` and `describe` on every machine has been doing this for the life of the feature.
+
+  Needs no ruling. The regression test is a loop asserting the `/tmp` count is flat across N
+  invocations — which is also the test 💬 21 step 1 needs, so it is written once either way.
 
 - 📦 **Small repairs — what is left of the five.** Three shipped 2026-09-02 (port gate `4877bf93`,
   dead PATH write `e2263c4a`, npm selector shape `3b5bfcea`) and a fourth turned out to be already
