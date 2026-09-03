@@ -94,3 +94,75 @@ func TestApplyHostReportNamesAnAddressedContributionsAudience(t *testing.T) {
 			"what the author did:\n%s", report)
 	}
 }
+
+// P3 AT THE HOST NOTCH: an `agents` selector naming an agent this machine's packs do not
+// provide REFUSES the apply, and writes nothing. The second of the two gates §4.3 selects.
+func TestApplyHostRefusesAnAudienceNoPackProvides(t *testing.T) {
+	home := audienceFixture(t, `"alphaclu"`) // a typo for alphacli
+	before := treeHashes(t, home)
+
+	rc, report := applyWith(t, true, strings.NewReader("y\n"))
+	if rc == 0 {
+		t.Fatalf("host apply --assert accepted prose addressed to nobody:\n%s", report)
+	}
+	for _, want := range []string{
+		"alphaclu",
+		"pack house",
+		`did you mean "alphacli"`,
+		"Agents your `packs` provide",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q; got:\n%s", want, report)
+		}
+	}
+	if after := treeHashes(t, home); len(after) != len(before) {
+		t.Errorf("the refused apply changed the home: %d files before, %d after",
+			len(before), len(after))
+	}
+	if _, err := os.Stat(filepath.Join(home, ".alpha", "AGENTS.md")); err == nil {
+		t.Error("the refused apply generated a briefing anyway")
+	}
+}
+
+// R1, AND THE HALF `Orphaned []Kind` CANNOT SAY. The name is fine — the pre-flight above would
+// have refused it otherwise — but the owning pack declares no destination of that KIND with
+// that identity. So the apply must not refuse (the remedy belongs to the OWNING pack, R4), and
+// must not print the kind-level "declare `into` in house's pack.json" advice either, since
+// naming a path is the one thing an addressed pack must never do (P4).
+func TestApplyHostReportsAnAudienceThatReachedNoDestinationOfThatKind(t *testing.T) {
+	home := t.TempDir()
+	base := t.TempDir()
+	// alphacli owns the name and declares an identity on its BRIEFING only.
+	agent := filepath.Join(base, "alphacli")
+	writeFile(t, filepath.Join(agent, "pack.json"),
+		`{"name":"alphacli","description":"a","contributes":[`+
+			`{"kind":"program","bin":"alphacli","via":"npm","package":"alphacli"},`+
+			`{"kind":"briefing","into":".alpha/AGENTS.md","agent":"alphacli"},`+
+			`{"kind":"skills","into":".alpha/skills"}]}`)
+	// house addresses its SKILLS to alphacli, which no destination claims.
+	house := filepath.Join(base, "house")
+	writeFile(t, filepath.Join(house, "pack.json"),
+		`{"name":"house","description":"h","contributes":[`+
+			`{"kind":"skills","from":"skills","agents":["alphacli"]}]}`)
+	writeFile(t, filepath.Join(house, "skills", "demo", "SKILL.md"), "---\nname: demo\n---\n")
+	selectPacks(t, home,
+		`{"source":"file://`+agent+`","name":"alphacli"},`+
+			`{"source":"file://`+house+`","name":"house"}`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	rc, report := applyWith(t, false, strings.NewReader(""))
+	if rc != 0 {
+		t.Fatalf("a GOOD name that reached no destination must be reported, not refused — the "+
+			"remedy is an `agent` on the owning pack's skills contribution (R4); rc=%d\n%s",
+			rc, report)
+	}
+	if n := countLines(report, "house", "addresses alphacli", "declares that identity"); n != 1 {
+		t.Fatalf("want exactly one line naming the audience that reached nothing, got %d:\n%s",
+			n, report)
+	}
+	if n := countLines(report, "house", "declare `into`"); n != 0 {
+		t.Errorf("the kind-level orphan advice reached an ADDRESSED contribution — telling this "+
+			"author to name a path is the one thing P4 forbids:\n%s", report)
+	}
+}

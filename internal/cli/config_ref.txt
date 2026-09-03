@@ -861,6 +861,12 @@
                     NO `agents` means BROADCAST, which is what every pack does today.
                     One name has exactly ONE owning pack, across `program`, `launch`,
                     `briefing` and `skills`; two claimants is a launch error naming both.
+                    The vocabulary is the packs you SELECTED and nothing wider: naming an
+                    agent your `packs` do not provide is fatal at launch and at `yolo host
+                    apply`, with one message for a typo and for a real agent you did not
+                    select — they are the same mistake, with the same two remedies.  `yolo
+                    pack lint` reports the targeting and refuses nothing: it reads one pack
+                    root with no config, so it cannot know what you selected.
       files         {from, into} — an opaque tree the pack owns, bind-mounted :ro at
                     `into` in the jail.  Unlike skills/briefing, `from` IS honored (a
                     file or a dir).  Sole-owned: two packs claiming one `into` is a

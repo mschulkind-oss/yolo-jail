@@ -359,6 +359,25 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
 	}
 
+	// THE EIGHTH bespoke pre-flight, and the other half of the same namespace: an `agents`
+	// selector naming an agent this jail does not HAVE (briefing-audiences.md P3, OQ-BA3).
+	// The vocabulary is the SELECTED packs' claims and nothing wider, so a typo and a name
+	// belonging to a pack the user did not select fail identically — from the jail's point of
+	// view they are the same mistake, with the same two remedies.
+	//
+	// FATAL, like the seven above, and for the reason `checkProfileTargets` is (its nearest
+	// twin — "a selector keyed to a CLI name no pack installs"): a silently inert selector is
+	// indistinguishable from a working one. Prose addressed to nobody is worse than prose
+	// addressed to everybody, because the author believes it was delivered.
+	//
+	// What is NOT refused here is a name whose pack IS selected but which declares no
+	// destination of that kind — that is R1, reported through the resolution outcome, because
+	// the remedy is a line in the OWNING pack (AgentAudienceProblems' package doc has the
+	// split, and why keeping both severities is what makes P3 and R1 one rule).
+	if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
+		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(probs, "\npacks: "))
+	}
+
 	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with
 	// each one's origin gate already evaluated. THE convergence point

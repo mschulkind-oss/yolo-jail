@@ -647,6 +647,62 @@ type agentNameClaim struct {
 	through string
 }
 
+// agentNameClaims gathers every pack's claims on an agent name, keyed by name, plus the names
+// in first-seen order.
+//
+// ONE GATHERING FOR TWO CALLERS, and that is the point of splitting it out: AgentNameCollisions
+// asks "does one name have two owners" and AgentNames asks "which names does this jail have",
+// and both are questions about the same claim set. Two loops over the same four kinds is how a
+// name becomes an owner for the collision check and a stranger to the audience check.
+//
+// Which kinds claim a name, and why `requires` does not, is AgentNameCollisions' docstring.
+func agentNameClaims(packs []*Pack) (map[string][]agentNameClaim, []string) {
+	byName := map[string][]agentNameClaim{}
+	var order []string
+	claim := func(name, pack, through string) {
+		if name == "" {
+			return // a destination that declares no identity is never named by any selector (R4)
+		}
+		if _, seen := byName[name]; !seen {
+			order = append(order, name)
+		}
+		byName[name] = append(byName[name], agentNameClaim{pack: pack, through: through})
+	}
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			switch c.Kind {
+			case packdecl.KindProgram, packdecl.KindLaunch:
+				claim(c.Bin, p.Name, string(c.Kind))
+			case packdecl.KindBriefing, packdecl.KindSkills:
+				claim(c.Agent, p.Name, string(c.Kind)+".agent")
+			}
+		}
+	}
+	return byName, order
+}
+
+// AgentNames is the AGENT VOCABULARY this pack set has: every name an enabled pack claims,
+// sorted. It is the candidate list an `agents` selector may draw from (briefing-audiences.md
+// P3), and the list a refusal prints.
+//
+// THE SET IS THE SELECTED PACKS AND NOTHING WIDER, which is the whole content of P3: from the
+// jail's point of view `agents: ["cloude"]` and `agents: ["codex"]` in a jail that did not
+// select codex are the same mistake, because the prose names an audience this jail does not
+// have. So callers pass what they LOADED.
+//
+// NOT config.UseProfileCLINames, which answers a neighbouring question with a wider set: it
+// unions packload.Embedded(), deliberately not selection-gated (AGENTS.md), so it accepts
+// `codex` in a jail that never selected codex. That is right for the message it feeds ("no
+// pack installs a CLI named X" is a claim about the universe) and wrong for this one.
+func AgentNames(packs []*Pack) []string {
+	_, order := agentNameClaims(packs)
+	sort.Strings(order)
+	return order
+}
+
 // AgentNameCollisions finds one AGENT NAME claimed by two different packs — the OQ-BA6/BA7
 // exclusivity briefing-audiences.md §4.2 rules fatal.
 //
@@ -693,30 +749,7 @@ type agentNameClaim struct {
 // refuse THIS collision specifically rather than Collisions() wholesale — the launch
 // pre-flight, `yolo host apply` and `yolo check`.
 func AgentNameCollisions(packs []*Pack) []Collision {
-	byName := map[string][]agentNameClaim{}
-	var order []string
-	claim := func(name, pack, through string) {
-		if name == "" {
-			return // a destination that declares no identity is never named by any selector (R4)
-		}
-		if _, seen := byName[name]; !seen {
-			order = append(order, name)
-		}
-		byName[name] = append(byName[name], agentNameClaim{pack: pack, through: through})
-	}
-	for _, p := range packs {
-		if p == nil || p.Decl == nil {
-			continue
-		}
-		for _, c := range p.Decl.Contributions() {
-			switch c.Kind {
-			case packdecl.KindProgram, packdecl.KindLaunch:
-				claim(c.Bin, p.Name, string(c.Kind))
-			case packdecl.KindBriefing, packdecl.KindSkills:
-				claim(c.Agent, p.Name, string(c.Kind)+".agent")
-			}
-		}
-	}
+	byName, order := agentNameClaims(packs)
 	sort.Strings(order) // the refusal is user-visible text; map order would make it flap
 
 	var out []Collision
