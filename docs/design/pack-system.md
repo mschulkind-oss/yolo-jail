@@ -789,6 +789,19 @@ The contract:
   `ctx.empty_array` is the sentinel for an intentional empty JSON array (Lua cannot
   distinguish an empty array from an empty object).
 - It runs in the sandboxed Lua VM, and it must be deterministic.
+- **The `yolo.*` set is a version boundary, and it reads tolerantly on the rendering side.**
+  A `derive.lua` is staged by the host and executed by the in-jail entrypoint, which is
+  baked at the last `just load` — so a script may legitimately call an API newer than the
+  build running it. Reading a member this build never registered yields a no-op and one
+  warning naming it (`pack derive for <agent>: skipping unknown API yolo.<name> …`), rather
+  than failing the boot; the surface's own producer still runs. This is the same ruling
+  `packdecl.DecodeTolerant` makes for unknown contribution *kinds*, and it was added after
+  `yolo.env` arriving in `packs/claude/derive.lua` bricked every jail on an older image with
+  `<string>:51: attempt to call a non-function object`. The trade is the same one the kind
+  rule makes: a **typo** in a registration is now a warning at boot (and at `yolo check`,
+  which runs the same dry-run render) rather than an error. The one strict reader left is
+  the host-side env composition, `packload.AgentEnv`, which refuses an unknown member by
+  name.
 
 This is the whole of pack-supplied logic. There is no reshape op DSL and no pack-supplied
 effect code; a projection that a fixed combine rule cannot express is a `derive` function,

@@ -288,6 +288,16 @@ func surfaceSelectionFor(resolved map[string]packload.ResolvedProfile,
 // sel is the resolved selection the ctx exposes (surfaceSelection); the env path's
 // producer reads the same fields, so neither derive path can grow a private answer to
 // "which provider is active".
+//
+// The derive runs TOLERANT of an unknown `yolo.<name>` (DeriveCtx.UnknownAPI), and this
+// is the call site that decides that — the same ruling LoadJailPacks applies to the
+// manifest vocabulary one line up (packload.TolerateSkew), for the same reason and at the
+// same boundary. A derive.lua is staged by the HOST and executed HERE, so the script can
+// legitimately be newer than the build reading it; refusing an API this build lacks means
+// the jail does not start, and when the script is one yolo SHIPS there is no way for the
+// user to route around it. Measured: yolo.env arriving in packs/claude/derive.lua killed
+// every jail on a pre-f55f2109 image with a Lua type error at line 51, and took both
+// claude surfaces down over a producer the entrypoint never even invokes.
 func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, sel surfaceSelection, tables map[string]map[string]any) (map[string]any, error) {
 	if deriveScript == "" {
 		return nil, nil
@@ -299,11 +309,32 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		SelectedProvider: sel.Provider,
 		Profile:          activeProfileOptions(e, sel.Profile),
 		Tables:           tables,
+		UnknownAPI:       func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 	})
 	if err != nil {
 		return nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
 	}
 	return out, nil
+}
+
+// unknownDeriveAPINote is the skew line for one `yolo.<name>` this build does not know,
+// worded in the vocabulary the manifest skips already use (packdecl.DecodeTolerant) so a
+// boot that skips a kind and an API reads as one story rather than two.
+//
+// It is keyed by AGENT and not by surface because a derive.lua is per-PACK: the unknown
+// call is a property of the script, and one script serves every surface its pack declares.
+// Prefixing with the surface would print the same finding once per surface — the
+// repetition warnOnce exists to prevent.
+//
+// It names the REMEDY, which the other skew notes do not have to: a skipped kind leaves a
+// jail that works minus one contribution, where an unknown API is the shape that used to
+// refuse the boot outright, and a user reading it cannot be expected to know that "version
+// skew" means "your image predates your yolo".
+func unknownDeriveAPINote(agent, api string) string {
+	return fmt.Sprintf("pack derive for %s: skipping unknown API yolo.%s — this build does "+
+		"not know it, so the call does nothing (version skew; a build that knows the API "+
+		"will run it). The jail's image is older than the yolo that staged this pack: "+
+		"restart the jail to rebuild it.", agent, api)
 }
 
 // activeProfileOptions returns the resolved option map of the named profile, read off
