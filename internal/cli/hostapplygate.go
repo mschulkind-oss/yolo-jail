@@ -116,6 +116,43 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 		return true
 	}
 
+	// ONE WRITER PER HOME (§4.6, hostapplylock.go), taken around the WHOLE observe-then-write
+	// sequence rather than around the write alone. Locking only the apply would leave the
+	// window that matters open: this launch's survey could read a home another process is
+	// halfway through applying, conclude "out of date", and then prompt about drift that no
+	// longer exists by the time it asks.
+	//
+	// Resolved the same way applyHost resolves it — os.UserHomeDir, not paths.Home() — so the
+	// lock and the render cannot end up keyed to two different homes. A home yolo cannot even
+	// resolve is cannot-determine on its own terms; applyHost would fail on it too.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host: could not check your host render (cannot resolve your "+
+			"home: %v) — launching %s anyway.\n", err, bin)
+		return true
+	}
+	lock := tryHostApplyLock(home)
+	if lock == nil {
+		// Another process holds it (or the state dir is unwritable). Not a state this launch
+		// can resolve or describe — §4.4's cannot-determine class, so exec and let the other
+		// writer finish.
+		fmt.Fprintf(errw, "yolo host: another `yolo host apply` is running for %s — launching "+
+			"%s without re-checking the render.\n", home, bin)
+		return true
+	}
+	// Held for exactly this function, which ends before the exec. Go opens with O_CLOEXEC so
+	// the kernel would drop the fd at exec anyway, but a lock whose lifetime is "until this
+	// function returns" is one a reader can reason about without knowing that.
+	//
+	// THE LOCK IS THE LAUNCH PATH'S, NOT THE COMMAND'S, and that boundary is §4.6's own: the
+	// concurrent writer this design introduces is the wrapped launch, while `yolo host apply`
+	// *"has no lock today because its caller was always a human running one command."* So an
+	// explicit apply run alongside a gated launch is still unserialised. Closing that would
+	// mean either making the command WAIT on a launch that may be sitting at a [y/N] — an
+	// unbounded pause on someone else's terminal — or making it refuse, which is a new failure
+	// mode for a shipping command that §7 asks this design not to touch.
+	defer lock.Close()
+
 	survey, why := surveyHostApplyWithinBudget()
 	if survey == nil {
 		// CANNOT DETERMINE (§4.4): a malformed pack manifest, an unreadable home, an
