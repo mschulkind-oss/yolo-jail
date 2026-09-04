@@ -313,8 +313,20 @@ func WorkspaceGrantedScript(dir, group string) string {
 	if group == "" {
 		group = SandboxGroup
 	}
+	// `(inherited )?` is LOAD-BEARING and was missing in the first cut. `ls -lde`
+	// renders a directly-applied ACE as "group:g allow …" and an INHERITED one as
+	// "group:g inherited allow …" — so a literal match on the first spelling
+	// false-negatives every workspace that inherited correctly, which is the
+	// common good case this check exists to wave through. Measured 2026-09-03
+	// against real `ls` output; the first cut's unit test stubbed RunBash and so
+	// never ran the grep against anything.
+	//
+	// Matching the NAME rather than a uuid is also what makes this catch a stale
+	// grant: an ACE naming a principal that no longer exists renders as a bare
+	// uuid (ls cannot resolve it), so it matches nothing here — which is correct,
+	// because it grants the current sandbox account nothing.
 	return "/bin/ls -lde " + shQuote(dir) +
-		" | /usr/bin/grep -q " + shQuote("group:"+group+" allow") + "\n"
+		" | /usr/bin/grep -qE " + shQuote("group:"+group+" (inherited )?allow") + "\n"
 }
 
 // WorkspaceACLStripScript returns the find-based bash script that removes ALL

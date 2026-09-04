@@ -142,8 +142,13 @@ func TestRunDoesNoACLWorkOnASharedWorkspace(t *testing.T) {
 // the worst shape for a preflight.
 func TestWorkspaceGrantedScriptMatchesTheProvisionedACE(t *testing.T) {
 	script := WorkspaceGrantedScript("/Users/Shared/yolo/ws", "")
-	if !strings.Contains(script, "group:"+SandboxGroup+" allow") {
-		t.Errorf("probe does not look for the granted ACE: %s", script)
+	// The optional "inherited " is the whole point: ls renders a directly-applied
+	// ACE and an inherited one differently, and matching only the first
+	// false-negatives every correctly-provisioned workspace. Behaviour is pinned
+	// against real `ls` output in workspacegrantreal_test.go; this pins that the
+	// script keeps naming the right principal.
+	if !strings.Contains(script, "group:"+SandboxGroup+" (inherited )?allow") {
+		t.Errorf("probe does not look for the granted ACE in both spellings: %s", script)
 	}
 	if !strings.Contains(script, "/Users/Shared/yolo/ws") {
 		t.Errorf("probe does not name the workspace: %s", script)
