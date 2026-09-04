@@ -18,7 +18,7 @@ ruling **OQ-PD13** · **Status:** shipped in part · Written against `a25e718b`,
 > | :--- | :--- |
 > | 1 · delete claude's `managed.preferences` | ✅ shipped. Re-measured against the ELF this jail runs (**2.1.261**, not the 2.1.260 the plan read): `"preferences"` still appears **zero** times, `autoUpdaterStatus` twice, both in the `~/.claude.json` migration. Thirteen tests pinned the key as a specimen and were repointed at `permissions.defaultMode`. |
 > | 2 · flip `codex` | ✅ shipped. `chatgpt.com/codex/install.sh` re-fetched 2026-09-04 (200, `text/x-sh`, 30285 bytes); `BIN_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"` with **no root branch**, so the default landing path is the launcher's `REAL_BIN`. |
-> | 3 · flip `copilot` | ⛔ **REFUSED — the flip would make copilot uninstallable.** See below. It is not a `--no-auto-update` judgement call; that question is now moot for this plan. |
+> | 3 · flip `copilot` | ⛔ **REFUSED — the flip would make copilot uninstallable.** See below. It never reached the `--no-auto-update` question, which stays **open and undecided** (Blockers). |
 >
 > **Why copilot cannot flip, and what the plan's Traps were missing.** Trap 1 names the constraint
 > — the installer's *default* must land the binary at `$HOME/.local/bin/$BIN` — and the plan's
@@ -42,15 +42,10 @@ ruling **OQ-PD13** · **Status:** shipped in part · Written against `a25e718b`,
 > `REAL_BIN`?** Three facts, and the verification table has a column for none of them. Ask them of
 > `opencode` too before its blockers are called closed.
 >
-> **`--no-auto-update`, answered rather than guessed** (measured statically in the installed
-> `@github/copilot` 1.0.48, no CLI started): `index.js` computes auto-update as
-> `if (argv.includes("--no-auto-update") || argv.includes("--prefer-version")) return false`, and
-> `app.js`'s updater is additionally gated on `Aq() = require("node:sea").isSea()` — under npm that
-> gate is false and the updater only *notifies* (`"Update not supported when running js directly"`).
-> So the flag **does** suppress the self-updater, in **both** builds, and the plan's reading of the
-> contradiction was right. It is moot only because copilot stays on npm, where the updater is inert
-> anyway. Whoever lands copilot's flip must drop `--no-auto-update` in the same commit, or buy the
-> native installer and switch off the only thing it was bought for.
+> **`--no-auto-update`: MEASURED, NOT DECIDED.** The mechanics are now facts rather than guesses —
+> see the Blockers bullet for them and for the four options they frame. The choice is left to a
+> human: it changes what a shipped agent does on a user's machine, and nothing forces it while
+> copilot stays on npm.
 >
 > **What is inert until the sibling plan lands** (both stated in the flip's commit body):
 > [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared update verb means codex's
@@ -217,10 +212,34 @@ edit, so each step's proof is its own CI cell on both arches.
 - **OQ-PD12a / B2 (launch dir ahead of the install prefixes)**, same sibling plan, is what makes
   the flip reach an existing workspace. Without it, steps 2 and 3 are correct for new workspaces and inert for old
   ones. Not a reason to hold the flip — a reason to say so in the commit body.
-- **~~Stop and ask: copilot's `--no-auto-update`.~~ ANSWERED 2026-09-04, and moot.** The flag does
-  suppress the vendor's self-updater — `index.js`'s auto-update predicate returns false on
-  `--no-auto-update`, in both the npm and the SEA build — so keeping both *would* have been
-  contradictory. It is moot because copilot did not flip (see the outcome box at the top), and
-  under npm the updater is inert regardless: `app.js` gates it on `node:sea.isSea()`. Read
-  statically out of the installed 1.0.48 bundle; no CLI was started, so the "no agent tests" rule
-  is intact. **The question returns with copilot's flip, and the answer is: drop the flag.**
+- **Stop and ask: copilot's `--no-auto-update`. STILL OPEN — the MEASUREMENT is closed, the
+  DECISION is not, and this plan does not take it.** Nothing forces it today: copilot did not flip
+  (see the outcome box), so the flag currently suppresses an updater that is inert anyway. It binds
+  the moment copilot flips.
+
+  **What is now fact** (read statically out of the installed `@github/copilot` 1.0.48 — `index.js`
+  and `app.js`; no CLI was started, so the no-agent-tests rule is intact):
+
+  - `--no-auto-update` **does** disable the self-updater, and does it in **both** builds:
+    `if (argv.includes("--no-auto-update") || argv.includes("--prefer-version")) return false`.
+    `COPILOT_AUTO_UPDATE=false` is the env spelling of the same switch.
+  - The updater is **additionally** gated on `Aq() = require("node:sea").isSea()`. Under npm that
+    is false and it only *notifies* — `"Update not supported when running js directly"`. That gate
+    flipping true is the entire thing OQ-PD13 buys for copilot.
+  - It is off in CI regardless of either: the default consults
+    `!(CI || BUILD_NUMBER || RUN_ID || SYSTEM_COLLECTIONURI)`.
+
+  **The options, none of them picked here:**
+
+  | | Choice | What it costs |
+  | :--- | :--- | :--- |
+  | A | Flip, and **drop** the flag | The vendor's updater runs on a user's machine on its own schedule, outside yolo's record — the native launcher's vendor self-updates deliberately emit no receipt ([§6.3](../design/program-delivery.md)), so drift becomes the reconcile's problem. This is where OQ-PD13's rationale points. |
+  | B | Flip, and **keep** the flag | Buys the SEA build, `VERSION=` pinning and a single binary, but **not** evergreen — the one thing the flip was bought for. Evergreen would then have to come from [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared verb (`/update`, or re-running the installer), which has the merit of making an update something yolo triggers and can record. |
+  | C | Flip, keep the flag, pin with `VERSION=` | Reproducible copilot. **Not expressible** — the manifest cannot pass env to an installer, the same wall the flip already hits. |
+  | D | Do not flip | Where the tree is, and where it stays until the `PREFIX=` problem is solved regardless. |
+
+  **A and B are a real fork, not a formality:** they disagree about whether an agent CLI updating
+  itself unobserved is acceptable — a question about the scope of
+  [P6](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
+  not about copilot. Worth settling alongside OQ-PD14, since B only makes sense once the declared
+  verb exists.

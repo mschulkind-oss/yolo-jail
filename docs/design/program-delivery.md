@@ -570,7 +570,23 @@ get the same bytes?"* — no, and nothing anywhere notices.
 > never the reason the pack's key is dead.)*
 >
 > Removal is still correct, and it is narrow: delete `managed.preferences`, keep the surface, whose
-> `retireOnFirstRender` is load-bearing.
+> `retireOnFirstRender` is load-bearing. **DONE 2026-09-04** — the block is gone and the surface
+> stands.
+>
+> ⚠ **THREE SWITCHES AIMED AT CLAUDE'S AUTO-UPDATER, AND EXACTLY ONE OF THEM WORKED.** The two
+> findings above are the same intent and opposite mechanics, which is why they had to be diagnosed
+> separately and why neither explains the other:
+>
+> | Switch | Where it lived | Live reader? | What it actually did |
+> | :--- | :--- | :--- | :--- |
+> | `env.DISABLE_AUTOUPDATER=1` | a per-workspace prism overlay, captured from one in-jail edit | **YES** — an exported env reader; `if (xe(process.env.DISABLE_AUTOUPDATER)) return {type:"env", …}`, 8 hits in 2.1.261 | froze ONE workspace's claude at 2.1.220 for six weeks; cleared 2026-09-03, current within hours |
+> | `preferences.autoUpdaterStatus: "disabled"` | `packs/claude/pack.json`, managed, every jail | **NO** — the `"preferences"` wrapper is 0 hits in 2.1.220, 2.1.260 **and** 2.1.261 | nothing, ever; deleted 2026-09-04 |
+> | `autoUpdaterStatus` (unwrapped) | `~/.claude.json`'s global-config object | YES, but only as a one-way migration (`case "disabled": autoUpdates=false`) | not something yolo writes |
+>
+> **The lesson is about EVIDENCE, not about auto-updaters.** A switch that is declared, managed,
+> and rendered on every boot looks identical in `yolo config render` to one that works; only the
+> binary can tell you which it is. The freeze was blamed on the pack's key for weeks because the
+> key was *visible* and the overlay was not — and the key had never done anything at all.
 >
 > **The threat no-evergreen was built to stop never happened; the freeze it caused did.** That
 > asymmetry is the whole argument for [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03).
