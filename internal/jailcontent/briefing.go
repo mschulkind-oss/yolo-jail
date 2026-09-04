@@ -78,6 +78,12 @@ type BriefingInput struct {
 	// host agent something dangerously false.
 	Confinement string
 
+	// BackendLimits are this backend's standing constraints, in the agent's voice —
+	// the facts the launch prints to the human on stderr, which the agent never sees.
+	// Empty for every container backend, because they impose none beyond what the rest
+	// of the briefing already describes.
+	BackendLimits []string
+
 	// NoContainer is true when the backend running this jail has no container around
 	// it — macos-user today, and every notch below `jail` when they land.
 	//
@@ -384,6 +390,16 @@ func BriefingContent(in BriefingInput) string {
 		"",
 	)
 
+	// BEFORE the capability sections, deliberately: these are constraints that change
+	// how everything below them should be read, and a constraint discovered after the
+	// capability it qualifies has already been read too late.
+	if len(in.BackendLimits) > 0 {
+		lines = append(lines, "## What this environment does NOT do for you", "")
+		for _, l := range in.BackendLimits {
+			lines = append(lines, "- "+l)
+		}
+		lines = append(lines, "")
+	}
 	if len(in.Loopholes) > 0 {
 		lines = append(lines, "## Loopholes — host capabilities wired into this jail", "")
 		for _, lh := range in.Loopholes {

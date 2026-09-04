@@ -18,6 +18,27 @@ the build/deploy traps that have no `yolo --help` home — the authoritative
 version lives in `/workspace/AGENTS.md` (bind-mounted, always current); read it
 for the full detail.
 
+## Verifying a change on macos-user
+
+A macos-user jail **cannot launch a jail**, so the nested-jail loop does not exist
+there. Two kernel rules, not a missing feature: `sudo` cannot exec inside any
+Seatbelt sandbox, and `sandbox_apply` refuses a profile that differs from the active
+one. Nesting is unavailable however the code is written.
+
+What DOES work from inside, and covers most of the backend:
+
+- `yolo run --dry-run` — the whole plan, invariants included.
+- `yolo internal darwin-bootstrap` with `HOME`/`JAIL_HOME` pointed at a temp dir —
+  the real generators, the real shims, the real overlay install.
+- the staging argv from the plan, with `sudo` dropped and the destination
+  redirected — the copies, the modes, and the fresh-inode rule.
+
+Both of the last two are automated (`internal/entrypoint/darwinbootstrap_darwin_test.go`,
+`internal/macosuser/staging_darwin_test.go`) and run on any Mac with no privilege.
+
+What is left needs a password and is four commands:
+`docs/plans/runbooks/macos-user-manual-checks.md`.
+
 ## Build vs. deploy — they are not the same
 
 - `just build-go` → `dist-go/<goos>-<goarch>/` — the **cross-compile** step,
