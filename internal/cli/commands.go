@@ -118,8 +118,9 @@ func runMacosFixPermissions(args []string) int {
 const pruneUsage = `Usage: yolo prune [flags]
 
 Reclaim disk that yolo is holding: stale containers, old jail images, the image
-tarball cache, nix build/image GC roots, shadowed jail homes, and heavy tool
-caches.
+tarball cache, nix build/image GC roots, shadowed jail homes, heavy tool caches,
+and superseded install captures (every store entry but the newest per program —
+what a materialize would never choose again).
 
 DRY-RUN BY DEFAULT. With no flags it reports what it WOULD reclaim and deletes
 nothing; --apply is the only thing that removes anything.
@@ -154,8 +155,26 @@ func runPrune(args []string) int {
 	if answerHelp("prune", args, os.Stdout) {
 		return 0
 	}
+	return prune.Run(pruneOptions(args))
+}
+
+// pruneOptions turns `yolo prune`'s argv into the engine's Options — the flags plus the three
+// things prune cannot resolve for itself (the config-aware runtime, the relocated cache dirs,
+// and the capture-receipt reader).
+//
+// SPLIT OUT OF runPrune SO THE WIRING IS TESTABLE. Each of those three is a line that can be
+// deleted with prune's own suite still green and a whole section of the report silently
+// degraded; a test that constructs the Options and inspects them is the only thing that fails
+// when one goes missing.
+func pruneOptions(args []string) prune.Options {
 	opts := prune.NewDefaultOptions()
 	opts.Color = true
+	// The superseded-capture sweep's receipt reader. prune does not import the receipt
+	// schema (it lives in internal/entrypoint, which pulls internal/config), so the front
+	// door hands over the one adapter the materialize path already uses — the same reader,
+	// so the resolver and the reaper cannot disagree about which lines are records. Without
+	// it the section declines and says so; see prune.Options.CaptureRecords.
+	opts.CaptureRecords = captureRecords
 	// args: ["prune", <flags>...]
 	for i := 1; i < len(args); i++ {
 		a := args[i]
@@ -238,7 +257,7 @@ func runPrune(args []string) int {
 		}
 		opts.CacheRelocations = m
 	}
-	return prune.Run(opts)
+	return opts
 }
 
 const brokerUsage = `Usage: yolo broker <subcommand>

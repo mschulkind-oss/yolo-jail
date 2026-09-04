@@ -88,6 +88,7 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		"Legacy build-root staging dirs",
 		"Dangling build out-links",
 		"Orphaned agent staging",
+		"Superseded install captures",
 		"Shadowed seed subtrees",
 		"  targets: .cache, .npm, .npm-global, .local, go (each overlay-masked at runtime)",
 		"Cache purge  (subdirs=uv,pip,npm,go-build,mise,pex,pants,node-gyp,gopls, age > 30d)",

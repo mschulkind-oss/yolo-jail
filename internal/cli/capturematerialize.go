@@ -157,62 +157,65 @@ func materializeCapture(a materializeArgs, errw io.Writer) int {
 // resolveCaptureFor answers the one question the content-addressed store cannot: WHICH ENTRY
 // holds <bin> for <platform>?
 //
-// BY SCANNING THE ENTRIES' OWN RECEIPTS, and there is deliberately no index.
+// THE RULE ITSELF IS capture.Select — newest `record` receipt per (bin, platform), by a scan
+// of the entries' own receipts with deliberately no index. It lives in internal/capture rather
+// than here because it has a second caller whose whole definition is this one's complement:
+// capture.PruneSupersededCaptures reaps every entry Select would not name (program-delivery.md
+// OQ-PD17). Derived rather than agreed with, the reader and the reaper cannot drift.
 //
-// The store is content-addressed, so no key is computable from a program name; slice 3 put
-// the (bin, platform, key) triple in each entry's `receipts.jsonl` and left the lookup to
-// slice 4. The two candidate answers were an index file beside the store and this scan, and
-// the scan wins on all three counts that matter here:
-//
-//   - COST. The question is asked from a launcher's cold `if [ ! -x "$REAL_BIN" ]` branch —
-//     once per program per workspace, never on a warm launch — and the work is one ReadDir
-//     plus one small file read per entry. An index would save microseconds on a path that
-//     runs a handful of times in a workspace's life.
-//   - CORRECTNESS. An index is a second record that admit AND the GC slice would both have
-//     to keep true, and a stale one is a WRONG ANSWER (a key that no longer exists, or an
-//     entry reaped out from under it). The receipts live INSIDE the entry they describe, so
-//     they cannot go stale relative to it: deleting the entry deletes the claim.
-//   - SCHEMA. install-capture.md's Blockers say to stop and ask before adding per-entry
-//     metadata a later yolo must parse. A scan adds none.
-//
-// NEWEST WINS, by receipt time, with the greater key breaking a tie — the stamp has
-// one-second resolution, so two captures in one second are possible and an arbitrary answer
-// would make a re-capture's effect depend on directory order. An entry whose receipt is
-// missing or unreadable is simply not a candidate: it is in the store, but nothing attributes
-// it to a program, which is a miss and not an error.
-func resolveCaptureFor(store *capture.Store, bin, platform string) (*capture.Entry, *entrypoint.CaptureReceipt, error) {
-	keys, err := store.EntryKeys()
+// What stays here is what is local to the materialize path: turning "no entry for this
+// program" into a MISS whose message names the act that fixes it.
+func resolveCaptureFor(store *capture.Store, bin, platform string) (*capture.Entry, *capture.Record, error) {
+	selected, err := capture.Select(store, captureRecords)
 	if err != nil {
 		return nil, nil, err
 	}
-	var bestKey string
-	var best entrypoint.CaptureReceipt
-	for _, key := range keys {
-		recs, rerr := entrypoint.ReadCaptureReceipts(capture.ReceiptsPath(store.EntryDir(key)))
-		if rerr != nil {
-			continue
-		}
-		for i := range recs {
-			r := recs[i]
-			if r.Bin != bin || r.Platform != platform || r.Act != entrypoint.ReceiptActRecord {
-				continue
-			}
-			if bestKey == "" || r.Time.After(best.Time) ||
-				(r.Time.Equal(best.Time) && key > bestKey) {
-				bestKey, best = key, r
-			}
-		}
-	}
-	if bestKey == "" {
+	best, ok := selected[capture.Program{Bin: bin, Platform: platform}]
+	if !ok {
 		return nil, nil, fmt.Errorf("nothing in %s records one (run `yolo capture %s` to make it)",
 			store.Dir, bin)
 	}
 	// Through Resolve, so "listed" and "usable" are one answer: the completion marker is
 	// the only thing that says an entry exists, and a receipt beside a torn tree would
 	// otherwise be enough to select it.
-	entry, err := store.Resolve(bestKey)
+	entry, err := store.Resolve(best.Key)
 	if err != nil {
 		return nil, nil, err
 	}
-	return entry, &best, nil
+	return entry, &best.Record, nil
+}
+
+// captureRecords is THE ADAPTER between the receipt schema and the capture store's selection:
+// it reads one entry's `receipts.jsonl` with the schema's one reader and hands back the
+// `record` lines as capture.Records.
+//
+// ONE ADAPTER, TWO CALLERS — resolveCaptureFor above and `yolo prune`'s superseded-capture
+// sweep (internal/cli/commands.go wires it into prune.Options) — because the moment there were
+// two of these, the resolver and the reaper could disagree about which lines count as a
+// record.
+//
+// It lives at the CLI boundary rather than in internal/capture because the store must not
+// import internal/entrypoint: that is the jail provisioner, it sits above a content-addressed
+// directory rather than below it, and it pulls internal/config, whose package init
+// materializes the embedded pack tree. internal/prune, the sweep's other consumer,
+// deliberately imports neither. See capture.Records.
+//
+// FILTERING IS THE SELECTION'S PRECONDITION, NOT A SECOND RULE: only `act:"record"` lines
+// describe a capture that was made (the other act is `materialize`, written per workspace and
+// never beside an entry), so anything else is not a candidate for any question.
+func captureRecords(entryDir string) ([]capture.Record, error) {
+	recs, err := entrypoint.ReadCaptureReceipts(capture.ReceiptsPath(entryDir))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]capture.Record, 0, len(recs))
+	for _, r := range recs {
+		if r.Act != entrypoint.ReceiptActRecord {
+			continue
+		}
+		out = append(out, capture.Record{
+			Bin: r.Bin, Platform: r.Platform, Time: r.Time, Digest: r.Digest,
+		})
+	}
+	return out, nil
 }

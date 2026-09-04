@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -111,6 +112,18 @@ type Options struct {
 	// consumer on the machine vanishes from the report and the heavy purge
 	// no-ops while claiming success.
 	CacheRelocations map[string]string
+	// CaptureRecords reads the `record` receipts beside one install-capture entry —
+	// the attribution the superseded-capture sweep selects on (capture.Select).
+	//
+	// A SEAM FOR THE SAME REASON CacheRelocations IS PLAIN DATA: the receipt schema has
+	// exactly one reader in this repo and it lives in internal/entrypoint, the jail
+	// provisioner, which pulls internal/config — so prune does not import it and the CLI
+	// front door hands over the reader it already has (internal/cli's captureRecords).
+	//
+	// nil DECLINES THE WHOLE SECTION, loudly. It is not a "read nothing" default: with no
+	// reader every entry looks attributed to no program, and the complement of an empty
+	// selection is the entire store.
+	CaptureRecords capture.Records
 	// RelayBase is the dir scanned for orphaned broker-relay PID files left by a
 	// PRE-broker-conversion yolo (see ReapRelayOrphans — this is a legacy sweep;
 	// nothing writes these files any more). "" =>
@@ -207,6 +220,11 @@ const (
 	// more buys little. Three covers "I applied, noticed, applied again, then looked".
 	hostArchiveKeep     = 3
 	imagesHintThreshold = 20 * (1 << 30)
+	// capturesLeaf is the install-capture store's directory name under the global storage
+	// root. It MUST be paths.CapturesDir()'s last segment — pinned by
+	// TestCapturesLeafMatchesPathsSpelling, because a drifted spelling here reports "none"
+	// forever while the real store grows.
+	capturesLeaf = "captures"
 )
 
 // Run executes `yolo prune`, writing the report to Out, and returns the exit
@@ -498,6 +516,60 @@ func Run(opts Options) int {
 			p.line("  [dim]none[/dim]")
 		}
 		totalSaved += loopholeStateBytes
+	}
+
+	// --- Superseded install captures ---
+	// The machine-wide install-capture store (<gs>/captures, program-delivery.md §6.3): a
+	// vendor installer run once in a throwaway jail, content-addressed, then reflinked into
+	// every workspace instead of re-downloaded. Entries are gigabytes (claude: 1.2 GB), so
+	// something has to remove them.
+	//
+	// THE REAP RULE IS THE COMPLEMENT OF THE RESOLVER (OQ-PD17), which is why this section
+	// owns no policy of its own — no keep-N flag, no age floor. capture.Select is the only
+	// code that reads the store, it takes the newest `record` receipt per (bin, platform),
+	// and capture.PruneSupersededCaptures deletes exactly what it would not return. There is
+	// no unreferenced oracle and none is needed: a reflinked destination survives its
+	// source's unlink byte-identical, so the store is a cache, not an allocator, and the
+	// worst case of reaping an entry is that the next COLD install re-downloads.
+	//
+	// IN-JAIL THIS IS A NO-OP BY CONSTRUCTION, not by a refusal: gs is the jail's own
+	// per-workspace storage, whose captures/ boot creates and leaves empty, while the machine
+	// store arrives as a read-only /ctx/captures bind that is not under gs at all.
+	var captureBytes int64
+	{
+		p.line("")
+		p.line("[bold]Superseded install captures[/bold]")
+		if opts.CaptureRecords == nil {
+			// Never silence: unwired, this section would read every entry as attributed
+			// to nothing and reap the whole store, so it declines and says who must fix
+			// it. See Options.CaptureRecords.
+			p.line("  [dim]skipped — no capture-receipt reader wired (the CLI front door sets it)[/dim]")
+		} else {
+			reap, err := capture.PruneSupersededCaptures(joinPath(gs, capturesLeaf), opts.CaptureRecords, apply)
+			switch {
+			case err != nil:
+				p.line(fmt.Sprintf("  [dim]skipped — %v[/dim]", err))
+			case len(reap.Entries) == 0:
+				p.line(fmt.Sprintf("  [dim]none  (%s entry(ies) kept — the newest per program)[/dim]",
+					fmtComma(reap.Kept)))
+			default:
+				captureBytes = reap.Bytes
+				p.line(fmt.Sprintf("  %s: %s across %s entry(ies)  [dim](%s kept — the newest per program)[/dim]",
+					verb(apply, "would remove", "removed"), FmtBytes(reap.Bytes),
+					fmtComma(len(reap.Entries)), fmtComma(reap.Kept)))
+				// NO SILENT CAPS: name every entry and why it went. A capture is a
+				// gigabyte of someone's download; "reclaimed 2.4 GB" is not auditable.
+				for _, e := range reap.Entries {
+					line := fmt.Sprintf("    • %s  %s  [dim]%s[/dim]", e.Key, FmtBytes(e.Bytes), e.Reason())
+					if e.Err != nil {
+						line += fmt.Sprintf("  [yellow](NOT removed: %v)[/yellow]", e.Err)
+					}
+					p.line(line)
+				}
+				p.line("  [dim]the capture manifest survives each reap — drift comparison keeps working, for kilobytes[/dim]")
+			}
+			totalSaved += captureBytes
+		}
 	}
 
 	// --- Orphaned image GC roots ---

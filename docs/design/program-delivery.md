@@ -1153,7 +1153,7 @@ capture (explicit act, network OK):  fresh sandbox → run installer → delta �
                                                 file manifest, platform, time)
 materialize (per jail, offline):     REFLINK the capture into the home (see the amendment below)
 update:                              a NEW capture, on an explicit act — never in place
-remove:                              delete the materialized tree; CAS entry GC'd when unreferenced
+remove:                              delete the materialized tree; CAS entry reaped when SUPERSEDED
 ```
 
 **AMENDMENT, 2026-09-04 — *materialize* is REFLINK, and the CAS is MOUNTED**
@@ -1192,6 +1192,15 @@ workspace at once. Entry files are still frozen read-only at admit, which is wha
 hardlink arm safe. And **the GC's reference oracle cannot be `st_nlink`**: a reflinked file leaves
 the entry's link count at 1 while very much referencing it. That is a blocking correction to the
 remove step above, recorded in the plan's slice 5.
+
+**AMENDMENT, 2026-09-04 — *remove* is not reference-counted** ([OQ-PD17](#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink--resolved-2026-09-04),
+[`install-capture.md`](../plans/install-capture.md) slice 5). The line above read *"CAS entry GC'd
+when unreferenced"*, and there is no unreferenced oracle — under reflink a fully-referenced entry
+has `nlink == 1`, and the alternatives were all retired. **`yolo prune` reaps every entry the
+resolver would not select**: `capture.Select` takes the newest `record` receipt per (bin, platform),
+and `capture.PruneSupersededCaptures` deletes the complement of exactly that, `K = 1`, with no age
+floor. It keeps each reaped entry's `capture-manifest.json` — that file sits beside `tree/`, not in
+it — so drift comparison against a version no longer stored costs kilobytes.
 
 **The prior art is Arch's.** An AUR `PKGBUILD` runs upstream's opaque payload in a clean chroot
 (`makechrootpkg`), and the *output* is an ordinary pacman package with a file manifest — the
@@ -1425,9 +1434,10 @@ here is the same wiring for everything else.
 **Sixth as written — now SEVENTH and TRAILING, per [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04) (2026-09-04) — the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package),
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
 *record* + *materialize* and depends on nothing above except the receipt schema. **Slices one
-through four are landed** ([`install-capture.md`](../plans/install-capture.md)). Slices one to
-three changed nothing about a normal launch — a capture happened only when a human ran
-`yolo capture <bin>`. **Slice four is where a launch changes**, and it is the slice that pays.
+through six are landed** ([`install-capture.md`](../plans/install-capture.md); six's RECORDING half
+only). Slices one to three changed nothing about a normal launch — a capture happened only when a
+human ran `yolo capture <bin>`. **Slice four is where a launch changes**, and it is the slice that
+pays.
 
 Slice one is substrate: `internal/treedigest` (the canonical tree digest, lifted out of
 `hostskills`), `paths.CapturesDir()` and its boot `MkdirAll`, and `internal/capture`'s store —
@@ -1474,6 +1484,15 @@ the receipts cannot go stale relative to the entry they live inside. And the CAP
 one launch that does NOT get the mount — the installer a capture runs is that same launcher, so a
 store in reach would let it materialize the previous entry and record it as a fresh capture, which
 would also make *update* ("a NEW capture, on an explicit act") impossible.
+
+Slice five is **remove**, and it is the complement of slice four rather than a mechanism of its
+own: `yolo prune` reaps every entry `capture.Select` would not return — newest `record` receipt per
+(bin, platform), `K = 1`, no age floor, no reference oracle ([OQ-PD17](#decision-ledger)). Deriving
+the reap from the READER is the whole design: a change to newest-wins moves the reap set in the same
+commit, and the two cannot drift into deleting something the launcher would still resolve. It keeps
+each reaped entry's manifest, which sits beside the tree rather than in it, so drift comparison
+against a version no longer stored costs kilobytes. **It reclaims nothing on any machine today** —
+that is [OQ-PD18](#decision-ledger), not a defect in the sweep.
 
 **Seventh as written — now SIXTH and THE NEXT THING TO BUILD, per
 [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)

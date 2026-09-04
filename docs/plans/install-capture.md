@@ -30,7 +30,7 @@ wrong one to sequence on.
 | :--- | :--- |
 | `internal/treedigest/` | **new** — `treeDigest`/`treeDigestSkipping` lifted out of `internal/hostskills/compose.go:958,964` verbatim |
 | `internal/hostskills/compose.go` | call the new package; delete the local copies |
-| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_other.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader), `inner.go` (the backend-neutral driver), `gc.go` (~~`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`~~ ⚠ *slice 5 drops `keep` and `olderThan` — `K = 1` and no age floor; prefer `PruneSupersededCaptures`*) |
+| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_other.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader), `inner.go` (the backend-neutral driver), `gc.go` (~~`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`~~ ⚠ *shipped as `PruneSupersededCaptures(root, read, apply)` — no `keep`, no age floor, `K = 1`*), `select.go` (**new**, slice 5 — the selection rule `gc.go` is the complement of, moved out of `resolveCaptureFor` so there is one of it: see 5(a)/(b)) |
 | `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a); **new** `GlobalStorageRel()` and `WorkspaceStateDir`/`WorkspaceHomeState`, per slice 3's corrections (a) and (b) |
 | `internal/prune/prune.go` | derive `dedupeSubtrees` from `paths.HomeSurfaces()` rather than re-typing it |
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
@@ -42,14 +42,14 @@ wrong one to sequence on.
 | `internal/cli/dispatch.go` | register `capture` (`:15-35`) |
 | `internal/cli/help.go` | one `commandHelp` row (`:10-31`) |
 | `internal/cli/internal.go` | add `capture-run` to the hidden namespace switch (`:28`, `:32`); slice 4 adds `capture-materialize` beside it |
-| `internal/cli/capturematerialize.go` | **new** (slice 4) — `yolo internal capture-materialize`, the argv the generated launcher emits, plus the bin+platform → key lookup (a scan, not an index — see 4(e)) |
+| `internal/cli/capturematerialize.go` | **new** (slice 4) — `yolo internal capture-materialize`, the argv the generated launcher emits, plus the bin+platform → key lookup (a scan, not an index — see 4(e)). ⚠ *Slice 5 moved the lookup's RULE to `capture.Select` and left the miss message here; what this file now owns of it is `captureRecords`, the one adapter between the receipt schema and the store* |
 | `internal/cli/run/captures.go` | **new** (slice 4) — the `:ro` `/ctx/captures` bind and `entrypoint.CapturesDirEnv`, with the Apple Container host-path branch |
 | `internal/cli/run/runcmd.go`, `run.go`, `assemble.go` | slice 4: the `Options.CapturesDir` seam, its `fillDefaults` default, the `assembleInput` field and the one emitter call |
 | `internal/entrypoint/shims.go` | ~~factor the `nativeLauncherTemplate` install body into a shared const~~ — **not needed, see slice 3(d)**: the capture RUNS the launcher. What landed instead is `InstallOnlyEnv` and its branch in the template. Slice 4 added the materialize-from-CAS branch, `CapturesDirEnv`, and a 19th splice sentinel (`__YOLO_CAPTURES_DIR__`) |
 | `internal/entrypoint/capturereceipt.go` | **new** (slice 3) — the `kind:"capture"` writer, the only receipt in this repo written from Go |
 | `internal/entrypoint/receiptread.go` | extend the reader for `kind:"capture"`, `act:"record"`/`act:"materialize"`, and the new `platform` field |
-| `internal/prune/prunecmd.go`, `pathsref.go` | new `Options.CapturesDir func() string` seam + one report section |
-| `internal/cli/commands.go` | `pruneUsage` (`:117`) + the flag parse in `runPrune` (`:149`) |
+| `internal/prune/prunecmd.go` | one report section + an `Options.CaptureRecords` seam. ⚠ *Not the planned `CapturesDir func() string`: the store is `<gs>/captures`, so the section derives it from the storage root every other section already takes — which also means a test pointing `GlobalStorage` at a temp dir cannot reach the real store. What DOES need a seam is the receipt READER, for the import reason in 5(b). `pathsref.go` was not touched* |
+| `internal/cli/commands.go` | `pruneUsage` + `runPrune`. ⚠ *Slice 5 added NO prune flag (5(d)); what it added is `pruneUsage`'s new clause, the `opts.CaptureRecords` wiring, and the `pruneOptions(args)` split that makes that wiring testable (5(c))* |
 | `internal/macosuser/seatbeltcapture.go` | **new** (slice 6) — `SeatbeltCaptureProfile(stagingRoot)`. ⚠ *Its own file, not `seatbelt.go`, and it takes the staging ROOT: see slice 6(a)* |
 | `internal/macosuser/capture.go` | **new** (slice 6) — the capture plan, its invariants, and the executor over the existing `Deps` seams |
 | `internal/macosuser/runplan.go`, `macosuser.go` | slice 6 lifted `buildBootstrapEnv` (home is now a parameter) and `sandboxEnvPairs` out; no behavior change |
@@ -76,7 +76,9 @@ wrong one to sequence on.
 - **`prune.inode()`** (`internal/prune/inode.go:12`) — the lstat behind the `st_nlink` GC oracle.
   ⚠ *There is no `st_nlink` GC oracle any more, and there is no replacement oracle either — GC is
   the complement of the resolver (build-order 5, [OQ-PD17](../design/program-delivery.md#decision-ledger)).
-  The helper is still the right lstat wrapper for whatever slice 5 uses instead.*
+  Slice 5 used no lstat wrapper at all: it stats nothing to DECIDE, only to size what it is about to
+  remove. `inode()` keeps its two existing callers (`prune.go:165,170`, `report.go:178,188`) and was
+  neither touched nor deleted.*
 - **`dedupeSubtrees = []string{"npm-global","local","go"}`** (was `internal/prune/prune.go:24`) is
   already the exact capture surface set. Import that spelling rather than a fourth one.
   ⚠ *Corrected while building slice 2 — see build-order 2(a).* Those are the HOST spellings and the
@@ -364,7 +366,7 @@ wrong one to sequence on.
    podman argv. Delete that line and the unit suite stays green; `integration/capturematerialize_test.go`
    goes red, because the jail then has no store and both workspaces download. The file comment in
    `capturesmount_test.go` says so at the site.
-5. **Remove + GC — UNBLOCKED AND RESCOPED 2026-09-04 by
+5. **Remove + GC — LANDED 2026-09-04, having been UNBLOCKED AND RESCOPED the same day by
    [OQ-PD17](../design/program-delivery.md#decision-ledger).** This slice was written around
    `st_nlink == 1` as the unreferenced oracle and then blocked when slice 4 measured that materialize
    is a **reflink**, whose destination gets its own inode: an entry materialized into every workspace
@@ -405,8 +407,10 @@ wrong one to sequence on.
    group by `(bin, platform)`, keep the max, reap the rest. An entry with no readable receipt is
    already not a selection candidate and is reapable on the same rule — no second rule for it.
    `PruneUnreferencedCaptures` keeps its name only if it stops claiming to know about references;
-   prefer `PruneSupersededCaptures`. → `go test ./internal/prune ./internal/capture`, then
-   `yolo prune` dry-run
+   prefer `PruneSupersededCaptures`. → `go test ./internal/capture ./internal/prune ./internal/cli`
+   (⚠ *the plan named the first two only; the front door's one wiring line lives in the third, and a
+   suite that skipped it would pin the callee with the call site unpinned — the same correction slice
+   6 made*), then `yolo prune` dry-run
 
    ⚠ **This slice reclaims nothing on any machine today, and that is not its bug.** `yolo capture` is
    the store's only writer, no launch path calls it, and the maintainer had never run it — so every
@@ -414,6 +418,68 @@ wrong one to sequence on.
    [OQ-PD18](../design/program-delivery.md#decision-ledger), which is
    unruled. Build this slice anyway: it is small now, and it must exist before anything starts
    populating the store automatically.
+
+   **LANDED 2026-09-04.** `capture.PruneSupersededCaptures(root, read, apply)` plus the `yolo prune`
+   section that calls it. *Six corrections from building it, and the first is the one that makes the
+   ruling true of the code rather than of a comment.*
+
+   **(a) THE RULE MOVED OUT OF THE RESOLVER, into `internal/capture/select.go`.** "GC is the
+   complement of the resolver" is only a fact about the code if there is ONE selection function, so
+   `capture.Select` is now newest-wins-per-(bin, platform) for the WHOLE store and
+   `resolveCaptureFor` is a map lookup in its result plus the miss message. `PruneSupersededCaptures`
+   reaps the complement of the same map, from the same scan. Both go red together — MEASURED by
+   inverting the tie-break in `selectFrom`: `internal/capture`'s partition test AND
+   `internal/prune`'s section test fail, because the reap set moved with the reader.
+
+   **(b) THE STORE CANNOT IMPORT THE RECEIPT READER, so it takes a `Records` seam.** The plan's
+   *"reuse it, do not write a second reader"* is right and the import is not: every importer of
+   `internal/entrypoint` today is a CLI-layer package (`go list`/`rg`, 2026-09-04 — `internal/cli`,
+   `internal/cli/run`, `internal/cli/check`, `cmd/yolo-entrypoint`), it pulls `internal/config`,
+   whose package-level `hostFileWritableRoots` initializer materializes the embedded pack tree
+   (`internal/config/hostfiles.go:1069`, AGENTS.md's one-tree-per-process note) — and
+   `internal/prune`, which this slice makes import `capture`, deliberately imports neither. So
+   `capture.Records` is a `func(entryDir) ([]capture.Record, error)`, and the ONE adapter over
+   `entrypoint.ReadCaptureReceipts` lives at the CLI boundary
+   (`internal/cli/capturematerialize.go`'s `captureRecords`), where both callers reach it. There is
+   still exactly one parser of the schema.
+
+   **(c) THE WIRING LINE NEEDED ITS OWN TEST, so `runPrune` split in two.** `opts.CaptureRecords =
+   captureRecords` is one line whose deletion leaves every test in `internal/prune` and
+   `internal/capture` green while the section declines on every real machine — the shape AGENTS.md
+   calls "a test that pins the callee while the call site is unpinned". `pruneOptions(args)` is now
+   the argv→Options half of `runPrune`, so a test can build the Options and assert the reader is
+   wired (and read a real receipt log through it). The same hole covers the two seams that were
+   already there (`DetectRuntime`, `CacheRelocations`).
+
+   **(d) NO FLAG AT ALL, not even `--captures-keep`.** K = 1 is ruled, so the knob has nothing to
+   set; and the section follows the two most recently added ones (host-render archive, retired
+   loophole state), which have no `--no-x` either. Dry-run by default like every other section, bytes
+   folded into the reclaim total, and the golden-pinned summary SENTENCE untouched — it names nine
+   categories (hardlinks, containers, images, image tars, legacy build-root dirs, agent staging
+   dirs, shadowed seed paths, cache files, agent log files) and has never named those two either.
+
+   **(e) A NIL READER IS REFUSED, not defaulted.** With no attribution every entry reads as
+   unattributed, and the complement of an empty selection is the whole store. `capture` returns an
+   error, and the prune section prints `skipped — no capture-receipt reader wired`.
+
+   **(f) `prune.inode()` IS STILL USED** — the plan wondered. It is the dedup's same-inode guard
+   (`internal/prune/prune.go:165,170`) and `report.go:178,188`'s device probe; nothing about it was
+   ever GC's. Two things this slice did NOT need: an lstat wrapper, and `FindYoloWorkspaces`.
+
+   **Two leaks this sweep deliberately does not close, named rather than left to be discovered.** A
+   TORN entry is invisible to it, because `EntryKeys` is the candidate list and a torn entry and an
+   in-flight admit are the same observation — the marker's whole job, and the reason no age floor is
+   needed. An admit killed between the rename and the marker therefore leaks a tree until the next
+   capture of the same content (`Admit` clears it). And a stale `staging/<id>` is out of scope for a
+   stronger reason: deleting one CAN be a correctness event — it breaks the capture that owns it —
+   and telling a live one from an abandoned one needs exactly the liveness-or-age rule
+   [OQ-PD17](../design/program-delivery.md#decision-ledger) declined. Both are bounded by
+   `Store.Stage`/`Admit` clearing the previous attempt on the next capture.
+
+   Two small properties the tests pin that nothing else did: a reaped entry keeps its
+   `capture-manifest.json` (and its receipts) while reading as ABSENT, and an admitted tree — whose
+   files `Admit` froze read-only — is still removable, which is exactly what `store.go`'s "directories
+   keep their write bit, because GC has to be able to unlink the entry" promises.
 
 6. **`macos-user`. — LANDED 2026-09-04, RECORDING HALF ONLY.** `SeatbeltCaptureProfile`:
    `deny file-write* /` then allow only the staging dir + `/tmp` + `/var/folders` — the shared
@@ -642,8 +708,12 @@ wrong one to sequence on.
 - **Docs:** `../design/program-delivery.md` §10 step six status; `../design/storage-and-config.md`
   §2's `<gs>` table (line 112 — already 9 dirs stale, so add `captures/` and say the table was
   incomplete); `roadmap.md:550`'s program-delivery row; `../guides/USER_GUIDE.md` for the new verb.
-- **Surfaces:** `yolo capture --help`; `yolo prune --captures-keep N`, default **1** (per OQ-PD4's "autoprune is an
-  option nobody gets by default"); `<CapturesDir>` layout is a documented on-disk contract; the receipt
+- **Surfaces:** `yolo capture --help`; ~~`yolo prune --captures-keep N`, default **1**~~ ⚠ *no such
+  flag shipped — `K = 1` is ruled ([OQ-PD17](../design/program-delivery.md#decision-ledger)), so the
+  knob would have had one legal value; the sweep is a `yolo prune` section, dry-run by default like
+  every other one (slice 5(d)). OQ-PD4's "autoprune is an option nobody gets by default" is satisfied
+  by `--apply`, which is what "nobody gets by default" means for every other reclaimer in that
+  report*; `<CapturesDir>` layout is a documented on-disk contract; the receipt
   gains `kind:"capture"`, `act:"materialize"`, and §6.3's two new tuple members (`file manifest`,
   `platform`) — reader and writer move together or the round-trip goes red.
 - **Invariants to satisfy, cite by ID:** `../design/minimal-disk-footprint.md` §5 **P2** (fail-safe on
