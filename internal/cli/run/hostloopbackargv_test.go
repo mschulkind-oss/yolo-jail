@@ -135,6 +135,16 @@ func pastaHostOptionsWithHelp(t *testing.T, ws, home string, containerenv bool, 
 // slirp4netns installed.
 func pastaHostOptionsWithHelps(t *testing.T, ws, home string, containerenv bool, pastaHelp, slirpHelp string) (*Options, *[]string) {
 	t.Helper()
+	return podmanHostOptions(t, ws, home, containerenv, podmanInfoFixture, pastaHelp, slirpHelp)
+}
+
+// podmanHostOptions is pastaHostOptionsWithHelps with `podman info`'s own answer as
+// a parameter too. It exists for the host shape whose answer is the thing under test
+// rather than a constant: a podman below minPodmanReportingVersion names no rootless
+// stack at all, so the fixture — not the helper --help output — is what puts the
+// launch on the unnamed-backend path.
+func podmanHostOptions(t *testing.T, ws, home string, containerenv bool, info, pastaHelp, slirpHelp string) (*Options, *[]string) {
+	t.Helper()
 
 	var ran []string
 	o := goldenOptions(ws, home)
@@ -149,7 +159,7 @@ func pastaHostOptionsWithHelps(t *testing.T, ws, home string, containerenv bool,
 		ran = append(ran, joined)
 		switch joined {
 		case "/usr/bin/podman info --format json":
-			return ExecResult{Ran: true, RC: 0, Stdout: podmanInfoFixture}
+			return ExecResult{Ran: true, RC: 0, Stdout: info}
 		case pastaFixtureExe + " --help":
 			return ExecResult{Ran: true, RC: 0, Stdout: pastaHelp}
 		case slirpFixtureExe + " --help":

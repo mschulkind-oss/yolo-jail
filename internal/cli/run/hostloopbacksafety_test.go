@@ -96,6 +96,13 @@ func TestAssembleRunCmdAdverseHostsKeepTodaysArgv(t *testing.T) {
 	const podmanInfoSlirpBackend = `{"host":{"rootlessNetworkCmd":"slirp4netns","security":{"rootless":true},
 	  "slirp4netns":{"executable":"` + slirpExe + `","version":"slirp4netns version 0.3.0\n"}}}`
 
+	// podmanInfoOldNoSlirp is a podman below minPodmanReportingVersion — no
+	// rootlessNetworkCmd key at all — on a host where podman found no slirp4netns
+	// either. Both halves of the rescue's bar fail, so it is the shape that must
+	// stay in today's silence.
+	const podmanInfoOldNoSlirp = `{"host":{"security":{"rootless":true},
+	  "slirp4netns":{"executable":"","package":"","version":""}},"version":{"Version":"4.3.1"}}`
+
 	cases := []struct {
 		name string
 		rt   string
@@ -232,6 +239,30 @@ func TestAssembleRunCmdAdverseHostsKeepTodaysArgv(t *testing.T) {
 		},
 		wantDisposition: paths.HostLoopbackUnsupported,
 	}, {
+		// A podman below minPodmanReportingVersion names no stack, which is the
+		// shape the rescue exists for — but the rescue's bar is podman's OWN
+		// slirp4netns, and podman reports none here. `--network=slirp4netns:…` on
+		// this host is a container that never starts, so silence is the only
+		// answer, and it is the pre-feature argv exactly.
+		name:     "a podman too old to name its stack, with no slirp4netns podman can name",
+		rt:       "podman",
+		lookPath: map[string]string{"podman": "/usr/bin/podman", "slirp4netns": "/usr/bin/slirp4netns"},
+		exec: map[string]ExecResult{
+			podmanInfoCmd: {Ran: true, RC: 0, Stdout: podmanInfoOldNoSlirp},
+			// Answered on purpose: a PATH lookup that reached this would emit a flag
+			// for a binary podman will not exec, which is the failure the empty
+			// fallback list exists to make unrepresentable.
+			"/usr/bin/slirp4netns --help": {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
+		},
+	}, {
+		name:     "a podman too old to name its stack whose slirp4netns lacks the control",
+		rt:       "podman",
+		lookPath: map[string]string{"podman": "/usr/bin/podman"},
+		exec: map[string]ExecResult{
+			podmanInfoCmd:        {Ran: true, RC: 0, Stdout: podmanInfoOldFixture},
+			slirpExe + " --help": {Ran: true, RC: 0, Stdout: "Usage: slirp4netns [OPTION]... PID\n--netns-type\n"},
+		},
+	}, {
 		// The fallback is pasta-only: a slirp4netns HOST that cannot be confirmed has
 		// nothing to fall back to, and must not borrow pasta's capability.
 		name:     "a slirp4netns host whose binary does not advertise host-loopback control",
@@ -302,7 +333,10 @@ func TestAssembleRunCmdAdverseHostsKeepTodaysArgv(t *testing.T) {
 // The two confirmed shapes are the only ones that may emit anything at all.
 func TestAssembleRunCmdConfirmedHostsAddOnlyTheReviewedFlags(t *testing.T) {
 	cases := []struct {
-		name      string
+		name string
+		// info defaults to podmanInfoFixture — a podman that names pasta. Only the
+		// unnamed-backend case has a reason to vary it.
+		info      string
 		pastaHelp string
 		slirpHelp string
 		want      []string
@@ -318,6 +352,16 @@ func TestAssembleRunCmdConfirmedHostsAddOnlyTheReviewedFlags(t *testing.T) {
 			slirpHelp: slirpHelpWithFlag,
 			want:      slirpArgs,
 		},
+		{
+			// A podman below minPodmanReportingVersion: it names no rootless stack,
+			// so nothing here is decided by a pasta at all. The argv it may add is
+			// the SAME reviewed pair as the fallback's — a third door into one
+			// mechanism, not a third mechanism.
+			name:      "a podman too old to name its stack, rescued by slirp4netns",
+			info:      podmanInfoOldFixture,
+			slirpHelp: slirpHelpWithFlag,
+			want:      slirpArgs,
+		},
 	}
 
 	for _, tc := range cases {
@@ -327,8 +371,12 @@ func TestAssembleRunCmdConfirmedHostsAddOnlyTheReviewedFlags(t *testing.T) {
 			emptyLoopholeDirs(t)
 			wsState := t.TempDir()
 
+			info := tc.info
+			if info == "" {
+				info = podmanInfoFixture
+			}
 			base := todaysArgv(t, home, wsState, "podman")
-			o, _ := pastaHostOptionsWithHelps(t, "/ws", home, false, tc.pastaHelp, tc.slirpHelp)
+			o, _ := podmanHostOptions(t, "/ws", home, false, info, tc.pastaHelp, tc.slirpHelp)
 			var stdout strings.Builder
 			o.Stdout = &stdout
 

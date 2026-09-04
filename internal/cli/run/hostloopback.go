@@ -90,6 +90,26 @@ package run
 // slirp4netnsHostAddr: the option alone forwards a loopback nothing in the jail
 // dials.
 //
+// # A PODMAN TOO OLD TO NAME ITS STACK gets the same rescue
+//
+// `rootlessNetworkCmd` is not an old field: measured against containers/podman's
+// libpod/define/info.go on 2026-09-04, it is absent at v4.9.3 and v5.0.0 and
+// present at v5.1.0. Every podman below that answers `podman info` perfectly well
+// and names no stack, so the backend read "" and landed in the
+// unrecognised-backend silence below — Ubuntu 24.04 LTS's stock podman is 4.9.3,
+// so an LTS host had every jail-facing service silently down.
+//
+// That is not an unrecognised backend, it is an UNREAD one, and the difference is
+// exactly what backendUnnamed carries. The rescue is the fallback above, reached
+// by a second door and held to the same positive bar — podman's own slirp4netns
+// executable, advertising host-loopback control — so the worst case is unchanged:
+// a host with no usable slirp4netns keeps today's silence.
+//
+// This is also the shape GitHub's hosted runners took on 2026-08-31, when the
+// ubuntu-24.04 images downgraded podman 5.8.4 → 4.9.3
+// (actions/runner-images#14642) and `TestInJailServiceReachability` went red on
+// both arches with nothing in this repo having changed.
+//
 // # What this decision TELLS THE JAIL, and why it has to
 //
 // "Unsupported is not broken" is a distinction only this file can draw. From
@@ -195,6 +215,15 @@ const (
 	// version the user can act on, so this string is user-facing.
 	minPasstVersion = "2024_08_21"
 
+	// minPodmanReportingVersion is the podman release that added
+	// `rootlessNetworkCmd` to `podman info`. Measured against
+	// containers/podman's libpod/define/info.go on 2026-09-04: the field is
+	// ABSENT at v4.9.3 and v5.0.0, PRESENT at v5.1.0. Below it yolo cannot READ
+	// this host's rootless stack, which is a different fact from the host not
+	// having one — see backendUnnamed. User-facing, for the same reason
+	// minPasstVersion is.
+	minPodmanReportingVersion = "5.1"
+
 	// hostLoopbackOptOutEnv is the escape hatch. Any non-empty value (the
 	// YOLO_ALLOW_STALE_IMAGE convention) drops back to today's behaviour.
 	hostLoopbackOptOutEnv = "YOLO_NO_HOST_LOOPBACK"
@@ -235,6 +264,17 @@ type hostLoopbackFacts struct {
 	// backend is `podman info` host.rootlessNetworkCmd, verbatim. "" when it
 	// could not be read, which is treated exactly like an unrecognised backend.
 	backend string
+	// backendUnnamed is podman ANSWERING and naming no rootless stack: `podman
+	// info` parsed, host.security.rootless was true, and rootlessNetworkCmd was
+	// empty. That field only exists from podman minPodmanReportingVersion, so on
+	// every older podman — Ubuntu 24.04 LTS's stock podman is 4.9.3 — backend
+	// reads "" and the decision would fall through to the
+	// unrecognised-backend silence, leaving every jail-facing service down on a
+	// host that can forward perfectly well. This is the fact that separates those
+	// two, and it is POSITIVE rather than the absence of one: a podman that did
+	// not run, would not answer, answered non-JSON, or is ROOTFUL never sets it,
+	// so every one of those keeps today's silence.
+	backendUnnamed bool
 	// rootless is host.security.rootless. False disables everything here.
 	rootless bool
 	// support is the capability verdict for backend.
@@ -256,6 +296,11 @@ type hostLoopbackFacts struct {
 	// version is the backend version `podman info` reported, first line only.
 	// Diagnostic sugar: it is what turns "upgrade passt" into "you have X".
 	version string
+	// podmanVersion is `podman info` version.Version. Diagnostic sugar too — NO
+	// BRANCH READS IT — so a podman that stops reporting it costs a nicer
+	// sentence and never a decision. Deciding on a parsed version number is the
+	// guess-the-default this whole file refuses to make.
+	podmanVersion string
 	// optOut is hostLoopbackOptOutEnv being set.
 	optOut bool
 }
@@ -417,6 +462,27 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 			disposition: paths.HostLoopbackUnsupported,
 		}
 	default:
+		// A podman too old to NAME its rootless stack is not a host without one.
+		// It reaches here as backend "" — indistinguishable, at this layer, from a
+		// podman that never answered — which is why backendUnnamed exists and why
+		// the emptiness is re-checked here rather than trusted from the flag alone.
+		//
+		// The rescue is the mechanism the old-pasta fallback already uses, on the
+		// same positive bar: PODMAN'S OWN slirp4netns executable, advertising
+		// host-loopback control. Nothing weaker may emit, because a --network=
+		// naming a stack the host cannot start is a jail that does not start.
+		//
+		// What yolo does NOT know here is whether this switched stacks: below
+		// podman 5.0 slirp4netns is the rootless default and only the forwarding
+		// is new, at 5.0.x pasta is and this moves off it. The note says so rather
+		// than picking one — see unnamedBackendNotice.
+		if f.backend == "" && f.backendUnnamed && f.fallbackSupport == supportConfirmed {
+			return hostLoopbackPlan{
+				args:        slirpForwardingArgs(),
+				warning:     unnamedBackendNotice(f),
+				disposition: paths.HostLoopbackRequested,
+			}
+		}
 		// Unrecognised backend — including "" from a podman that would not answer.
 		// Silence is the correct output: this is today's behaviour exactly, and
 		// warning about a stack we failed to identify would fire on every macOS
@@ -535,6 +601,41 @@ func slirpFallbackNotice(f hostLoopbackFacts) string {
 		"  docs/design/loopback-tls-reachability.md[/cyan]"
 }
 
+// unnamedBackendNotice is slirpFallbackNotice's twin for a podman too old to say
+// what its rootless stack is, and a note rather than a warning for the same
+// reason: nothing is broken, the jail works, and a yellow "Warning:" on a healthy
+// launch teaches the reader to skip the line.
+//
+// It may not borrow the other one's sentence. That one KNOWS the host's stack is
+// pasta and says yolo moved off it; here yolo does not know what it moved off, or
+// whether it moved at all — below podman 5.0 slirp4netns IS the rootless default
+// and only the forwarding option is new, at 5.0.x pasta is and this does switch
+// stacks. Claiming either would be inventing the fact the rest of this file
+// refuses to invent, so the note states both readings and names the upgrade that
+// lets yolo read the stack instead of asking for one.
+func unnamedBackendNotice(f hostLoopbackFacts) string {
+	return "[cyan]Note: this host's podman" + podmanVersionSuffix(f) + " does not report which rootless\n" +
+		"  network stack it uses (`podman info` gained rootlessNetworkCmd in podman " +
+		minPodmanReportingVersion + "),\n" +
+		"  so yolo asked for slirp4netns by name — it does forward the host's loopback, so\n" +
+		"  jail-facing services (Claude OAuth broker, yolo-ps, yolo-journalctl) work.\n" +
+		"  On podman 4.x that is the stack this jail would have had anyway; on 5.0.x it is\n" +
+		"  the older and slower one.\n" +
+		"  Upgrade podman to " + minPodmanReportingVersion + " or newer and yolo reads the stack instead of asking;\n" +
+		"  " + hostLoopbackOptOutEnv + "=1 turns this off.\n" +
+		"  docs/design/loopback-tls-reachability.md[/cyan]"
+}
+
+// podmanVersionSuffix renders " (4.9.3)" when podman reported a version, and
+// nothing when it did not. Same rule as versionSuffix: a diagnostic never
+// fabricates the thing it is diagnosing.
+func podmanVersionSuffix(f hostLoopbackFacts) string {
+	if f.podmanVersion == "" {
+		return ""
+	}
+	return " (" + f.podmanVersion + ")"
+}
+
 // pastaFallbackReason keeps the note honest about WHY the fallback was taken. An
 // unprobeable pasta is not a proven-old one, and saying so would be the kind of
 // invented fact the rest of this file refuses. Both readings still lead here: with
@@ -598,6 +699,14 @@ type podmanInfo struct {
 		Pasta       podmanHelperInfo `json:"pasta"`
 		Slirp4netns podmanHelperInfo `json:"slirp4netns"`
 	} `json:"host"`
+	// Version is podman's own version block. The inner key really is capitalised
+	// inside a lower-cased outer one — verified against a live `podman info
+	// --format json` (podman 5.8.4, 2026-09-04) — and getting that wrong would
+	// silently cost the diagnostic rather than the decision, which is why nothing
+	// branches on it.
+	Version struct {
+		Version string `json:"Version"`
+	} `json:"version"`
 }
 
 // podmanHelperInfo is podman's per-helper block. `executable` is why this is
@@ -659,13 +768,33 @@ func (o *Options) hostLoopbackFactsFor(rt, netMode string) hostLoopbackFacts {
 	}
 	f.backend = info.Host.RootlessNetworkCmd
 	f.rootless = info.Host.Security.Rootless
-	if !f.rootless || !mappableBackend(f.backend) {
+	f.podmanVersion = firstLine(info.Version.Version)
+	if !f.rootless {
+		return f
+	}
+	// Recorded HERE, where "podman answered and is rootless" is still in hand.
+	// One layer down only backend "" survives, and "" is also what a podman that
+	// never ran leaves behind — so this is the last point at which the two can be
+	// told apart at all.
+	f.backendUnnamed = f.backend == ""
+	if !f.backendUnnamed && !mappableBackend(f.backend) {
 		return f
 	}
 	// The capability probe only ever gates the default path. On an explicit
 	// network.mode the decision is already made (the user's), so spending a
 	// second subprocess to learn a fact nothing will read is pure launch latency.
 	if netMode != "bridge" {
+		return f
+	}
+
+	// A podman that named no stack has no backend helper to interrogate, so the
+	// only question left is the fallback one, asked exactly as the pasta arm asks
+	// it below: podman's own executable path, no PATH lookup. There is no
+	// f.version to set either — naming a helper version for a stack yolo did not
+	// establish is the invented fact this file exists to avoid.
+	if f.backendUnnamed {
+		f.fallbackSupport, _ = o.probeHostLoopbackSupport(
+			info.Host.Slirp4netns.Executable, nil, slirp4netnsHostLoopbackFlag)
 		return f
 	}
 
@@ -709,11 +838,13 @@ func (o *Options) hostLoopbackFactsFor(rt, netMode string) hostLoopbackFacts {
 // removed — yolo emits podman's `allow_host_loopback=true`, which podman
 // implements by dropping `--disable-host-loopback` from the argv it builds — so
 // this confirms the mechanism exists without proving podman parses the option
-// key. The gap is covered from the other side: `rootlessNetworkCmd` only appears
-// in `podman info` on podman versions long past the one that added
-// allow_host_loopback (podman 1.6, 2019), so a podman that got us here knows the
-// key. If that ever turns out to be wrong the failure is a refused launch, which
-// is what hostLoopbackOptOutEnv exists for.
+// key. The gap is covered from the other side by podman's own age: podman added
+// allow_host_loopback in 1.6 (2019), so every podman modern enough to be run at
+// all knows the key. That used to be argued from `rootlessNetworkCmd` being
+// present, which was wrong in the direction that matters — the field only exists
+// from minPodmanReportingVersion, and the backendUnnamed path is precisely the
+// one where it is missing. If the key ever turns out to be unparsed the failure
+// is a refused launch, which is what hostLoopbackOptOutEnv exists for.
 //
 // The exit status is deliberately ignored: some builds print usage to stderr and
 // exit non-zero, and the OUTPUT is the evidence either way. What is not ignored

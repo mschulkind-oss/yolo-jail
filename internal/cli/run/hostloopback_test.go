@@ -129,6 +129,72 @@ func TestDecideHostLoopback(t *testing.T) {
 			warn: slirpArgs[0],
 		},
 
+		// --- a podman too old to NAME its rootless stack (below podman 5.1) ---
+		{
+			// The CI regression of 2026-09-03, as a decision: GitHub's runner images
+			// downgraded podman 5.8.4 → 4.9.3, whose `podman info` has no
+			// rootlessNetworkCmd, and every jail-facing service went unreachable
+			// while nothing in this repo had changed.
+			name: "a podman that names no stack is rescued by its own slirp4netns",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "", rootless: true,
+				backendUnnamed: true, fallbackSupport: supportConfirmed,
+				podmanVersion: "4.9.3"},
+			args: slirpArgs,
+			warn: "does not report which rootless",
+			disp: paths.HostLoopbackRequested,
+		},
+		{
+			name: "the rescue names the podman version so the user knows what they have",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "", rootless: true,
+				backendUnnamed: true, fallbackSupport: supportConfirmed,
+				podmanVersion: "4.9.3"},
+			args: slirpArgs,
+			warn: "podman (4.9.3) does not report",
+			disp: paths.HostLoopbackRequested,
+		},
+		{
+			// The bar is podman's OWN slirp4netns, advertising the control. Without
+			// it there is nothing to ask for, and silence is byte-for-byte today's
+			// behaviour — the one outcome this file may always produce.
+			name: "a podman that names no stack and has no usable slirp4netns stays silent",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "", rootless: true,
+				backendUnnamed: true, fallbackSupport: supportUnknown},
+			args: nil,
+		},
+		{
+			name: "a podman that names no stack whose slirp4netns lacks the control stays silent",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "", rootless: true,
+				backendUnnamed: true, fallbackSupport: supportAbsent},
+			args: nil,
+		},
+		{
+			// The whole point of the flag being POSITIVE. An empty backend with no
+			// backendUnnamed is a podman that never answered, and it must stay in the
+			// silence it has always had even with a confirmed slirp4netns beside it.
+			name: "an empty backend WITHOUT the unnamed fact is still a podman that said nothing",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "", rootless: true,
+				fallbackSupport: supportConfirmed},
+			args: nil,
+		},
+		{
+			name: "a rootful podman that names no stack is never touched",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "", rootless: false,
+				backendUnnamed: true, fallbackSupport: supportConfirmed},
+			args: nil,
+		},
+		{
+			name: "an explicit network.mode keeps the rescue away too, and silently",
+			f: hostLoopbackFacts{netMode: "none", backend: "", rootless: true,
+				backendUnnamed: true, fallbackSupport: supportConfirmed},
+			args: nil,
+		},
+		{
+			name: "the opt-out suppresses the rescue and names the argv it suppressed",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "", rootless: true,
+				backendUnnamed: true, fallbackSupport: supportConfirmed, optOut: true},
+			warn: slirpArgs[0],
+		},
+
 		// --- capability not positively confirmed: emit nothing, say why ---
 		{
 			name: "pasta without the flag warns with the version and the check command",
@@ -315,10 +381,20 @@ func forEveryHostLoopbackFact(fn func(hostLoopbackFacts)) {
 				for _, fallback := range supports {
 					for _, rootless := range []bool{true, false} {
 						for _, optOut := range []bool{true, false} {
-							fn(hostLoopbackFacts{
-								netMode: netMode, backend: backend, rootless: rootless,
-								support: support, fallbackSupport: fallback, optOut: optOut,
-							})
+							// backendUnnamed is the SEVENTH dimension, and it is swept
+							// against every backend rather than only against "" on
+							// purpose: production sets it only when the backend is
+							// empty, so the combinations that cannot happen are exactly
+							// the ones where a decision reading the flag without
+							// re-checking the backend would show up as an emission
+							// nobody intended.
+							for _, unnamed := range []bool{true, false} {
+								fn(hostLoopbackFacts{
+									netMode: netMode, backend: backend, rootless: rootless,
+									support: support, fallbackSupport: fallback,
+									backendUnnamed: unnamed, optOut: optOut,
+								})
+							}
 						}
 					}
 				}
@@ -387,8 +463,15 @@ func TestDecideHostLoopbackOnlyEmitsOnPositiveFacts(t *testing.T) {
 		// never for an unrecognised backend, a rootful podman, or an explicit mode.
 		confirmed := f.support == supportConfirmed ||
 			(f.backend == backendPasta && f.fallbackSupport == supportConfirmed)
+		// The UNNAMED-backend arm is the only shape that may emit without a
+		// recognised backend, and it is spelled out as its own term rather than
+		// folded into mappableBackend: what makes it safe is not that yolo
+		// recognised a stack — it did not — but that podman positively produced a
+		// slirp4netns that advertises host-loopback control.
+		unnamed := f.backend == "" && f.backendUnnamed &&
+			f.fallbackSupport == supportConfirmed
 		wantEmit := f.netMode == "bridge" && f.rootless && !f.optOut &&
-			confirmed && mappableBackend(f.backend)
+			((confirmed && mappableBackend(f.backend)) || unnamed)
 		got := decideHostLoopback(f)
 		if wantEmit != (len(got.args) > 0) {
 			t.Errorf("%+v: emitted %v, wantEmit=%v", f, got.args, wantEmit)
@@ -411,7 +494,12 @@ func TestDecideHostLoopbackOnlyEmitsOnPositiveFacts(t *testing.T) {
 func TestDecideHostLoopbackNeverSwitchesStacksSilently(t *testing.T) {
 	forEveryHostLoopbackFact(func(f hostLoopbackFacts) {
 		got := decideHostLoopback(f)
-		fellBack := slices.Equal(got.args, slirpArgs) && f.backend == backendPasta
+		// Any slirp4netns argv emitted for a host whose stack yolo did NOT read as
+		// slirp4netns is a stack yolo chose on the host's behalf — the old-pasta
+		// fallback and the unnamed-backend rescue alike. Stated as "not
+		// slirp4netns" rather than as a list of the two so a third door into the
+		// same argv cannot be added silently.
+		fellBack := slices.Equal(got.args, slirpArgs) && f.backend != backendSlirp4netns
 		if fellBack && !strings.Contains(got.warning, "slirp4netns") {
 			t.Errorf("%+v: switched this jail to slirp4netns without saying so: %q", f, got.warning)
 		}
@@ -460,6 +548,53 @@ func TestParsePodmanInfo(t *testing.T) {
 	}
 	if got := firstLine(info.Host.Pasta.Version); got != "pasta 2026_07_16.090d739" {
 		t.Errorf("firstLine(version) = %q", got)
+	}
+}
+
+// podmanInfoOldFixture is `podman info --format json` from a podman BELOW
+// minPodmanReportingVersion — the shape Ubuntu 24.04 LTS's stock podman (4.9.3)
+// presents, and the one GitHub's hosted runners went back to on 2026-08-31. The load-bearing difference from podmanInfoFixture is a NEGATIVE:
+// there is no `rootlessNetworkCmd` key at all, because libpod/define/info.go did
+// not have the field until v5.1.0 (checked 2026-09-04 against v4.9.3, v5.0.0 and
+// v5.1.0). Everything else is present and healthy, which is the whole point —
+// this host can forward the loopback, yolo just could not read which stack it
+// would use.
+const podmanInfoOldFixture = `{
+  "host": {
+    "security": {"rootless": true, "seccompEnabled": true},
+    "slirp4netns": {
+      "executable": "/bin/slirp4netns",
+      "package": "slirp4netns-1.2.1-1build2",
+      "version": "slirp4netns version 1.2.1\ncommit: 09e31e92fa3d2a1d3ca8a5d6dbf6e5e2b3c5"
+    }
+  },
+  "store": {"graphDriverName": "overlay"},
+  "version": {"APIVersion": "4.9.3", "Version": "4.9.3", "Os": "linux"}
+}`
+
+// TestParsePodmanInfoReadsAPodmanTooOldToNameItsStack pins the parse half of the
+// rescue: the missing key decodes to "" without an error (so the info is USABLE,
+// not garbage), rootlessness and the slirp4netns executable still arrive, and the
+// version block — whose inner key is capitalised inside a lower-cased outer one —
+// is read for the diagnostic.
+func TestParsePodmanInfoReadsAPodmanTooOldToNameItsStack(t *testing.T) {
+	info, ok := parsePodmanInfo(podmanInfoOldFixture)
+	if !ok {
+		t.Fatal("a podman below 5.1 answers perfectly good JSON; it must parse")
+	}
+	if info.Host.RootlessNetworkCmd != "" {
+		t.Errorf("rootlessNetworkCmd = %q, want empty — the field does not exist below podman %s",
+			info.Host.RootlessNetworkCmd, minPodmanReportingVersion)
+	}
+	if !info.Host.Security.Rootless {
+		t.Error("expected rootless=true")
+	}
+	if info.Host.Slirp4netns.Executable != "/bin/slirp4netns" {
+		t.Errorf("slirp4netns executable = %q", info.Host.Slirp4netns.Executable)
+	}
+	if info.Version.Version != "4.9.3" {
+		t.Errorf("version.Version = %q, want 4.9.3 — the inner key is capitalised",
+			info.Version.Version)
 	}
 }
 
@@ -761,6 +896,109 @@ func TestHostLoopbackFactsForSlirpFallback(t *testing.T) {
 	}
 	if !slices.Contains(ran, "/bin/slirp4netns --help") {
 		t.Errorf("the fallback must be probed on this host, ran: %v", ran)
+	}
+}
+
+// TestHostLoopbackFactsForPodmanTooOldToNameItsStack walks the gathering path on
+// the host class that shipped this regression: a rootless podman below
+// minPodmanReportingVersion, so `podman info` names no stack at all, with a
+// slirp4netns podman knows about that advertises host-loopback control.
+//
+// It is driven through the SEAMS rather than by handing decideHostLoopback a
+// fact struct, because the fact struct is the easy half. What can silently
+// unbuild this is the gathering: an early return that treats an empty backend as
+// "nothing more to learn" puts the host back in the unrecognised-backend silence
+// with the decision still perfectly correct — which is exactly what it did before
+// backendUnnamed existed.
+func TestHostLoopbackFactsForPodmanTooOldToNameItsStack(t *testing.T) {
+	var ran []string
+	o := &Options{}
+	fillDefaults(o)
+	o.Getenv = func(string) string { return "" }
+	o.LookPath = func(name string) (string, bool) {
+		if name == "podman" {
+			return "/usr/bin/podman", true
+		}
+		// A slirp4netns only YOLO can find is not evidence: podman is the process
+		// that will exec it. An answer here would be a bug, and the assertion
+		// below that the probe ran podman's path is what would catch it.
+		return "/usr/bin/slirp4netns", true
+	}
+	o.Exec = recordingHostExec(map[string]ExecResult{
+		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoOldFixture},
+		"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
+	}, &ran)
+
+	f := o.hostLoopbackFactsFor("podman", "bridge")
+	if !f.backendUnnamed || f.backend != "" || !f.rootless {
+		t.Fatalf("facts = %+v, want a rootless podman that named no stack", f)
+	}
+	if f.fallbackSupport != supportConfirmed {
+		t.Fatalf("fallbackSupport = %v, want confirmed — podman named a slirp4netns "+
+			"that advertises the control", f.fallbackSupport)
+	}
+	if f.podmanVersion != "4.9.3" {
+		t.Errorf("podmanVersion = %q, want 4.9.3 for the diagnostic", f.podmanVersion)
+	}
+	if !slices.Contains(ran, "/bin/slirp4netns --help") {
+		t.Errorf("the rescue must probe PODMAN's slirp4netns, ran: %v", ran)
+	}
+	if slices.Contains(ran, "/usr/bin/slirp4netns --help") {
+		t.Errorf("the rescue must never probe a binary podman did not name, ran: %v", ran)
+	}
+
+	plan := decideHostLoopback(f)
+	if !slices.Equal(plan.args, slirpArgs) {
+		t.Errorf("args = %v, want the slirp4netns pair %v", plan.args, slirpArgs)
+	}
+	if plan.disposition != paths.HostLoopbackRequested {
+		t.Errorf("disposition = %q, want %q — the forwarding option DID go out",
+			plan.disposition, paths.HostLoopbackRequested)
+	}
+	if !strings.Contains(plan.warning, "4.9.3") {
+		t.Errorf("the note must name the podman the user has:\n%s", plan.warning)
+	}
+}
+
+// TestHostLoopbackFactsForOldPodmanWithNoSlirp4netns is the other half of the
+// rescue's bar, and the one that keeps it safe: the same old podman with NO
+// slirp4netns podman can name must land back in silence. Emitting
+// `--network=slirp4netns:…` on that host is a container that never starts, which
+// is the single outcome hostloopback.go may not produce.
+func TestHostLoopbackFactsForOldPodmanWithNoSlirp4netns(t *testing.T) {
+	const infoNoSlirp = `{
+  "host": {
+    "security": {"rootless": true},
+    "slirp4netns": {"executable": "", "package": "", "version": ""}
+  },
+  "version": {"Version": "4.3.1"}
+}`
+	o := &Options{}
+	fillDefaults(o)
+	o.Getenv = func(string) string { return "" }
+	o.LookPath = func(name string) (string, bool) {
+		if name == "podman" {
+			return "/usr/bin/podman", true
+		}
+		return "", false
+	}
+	o.Exec = fakeHostExec(map[string]ExecResult{
+		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: infoNoSlirp},
+	})
+
+	f := o.hostLoopbackFactsFor("podman", "bridge")
+	if !f.backendUnnamed {
+		t.Fatalf("facts = %+v, want the unnamed-backend fact recorded", f)
+	}
+	plan := decideHostLoopback(f)
+	if len(plan.args) != 0 {
+		t.Errorf("emitted %v, want nothing — podman named no slirp4netns to ask for", plan.args)
+	}
+	if plan.warning != "" {
+		t.Errorf("expected silence, got:\n%s", plan.warning)
+	}
+	if plan.disposition != "" {
+		t.Errorf("disposition = %q, want no conclusion carried into the jail", plan.disposition)
 	}
 }
 

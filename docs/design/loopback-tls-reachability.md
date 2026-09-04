@@ -8,11 +8,13 @@ summary: "yolo's host daemons bind the host's loopback and tell the jail to dial
 
 # Loopback-TLS reachability — how a jail reaches a host daemon
 
-**Status:** DECIDED and BUILT, 2026-08-18 (frontmatter `status: accepted`). Zero open questions —
-ten rulings, all shipped, including the fatal witness. **Two things in it are still unverified on
-hardware nobody here has**, and both are 🔒 rows in [`../plans/roadmap.md`](../plans/roadmap.md)
-rather than open questions: the slirp4netns fallback (§3.2.1) has never run on a real old-passt
-host, and the fatal witness reaches your own jails only after a host `just load`.
+**Status:** DECIDED and BUILT — 2026-08-18, reopened once and closed again 2026-09-04 (frontmatter
+`status: accepted`). Zero open questions; **eight rulings**, all shipped, counting the ledger rows
+below. **Three things in it are still unverified on hardware nobody here has**, and none is an open
+question: the slirp4netns fallback (§3.2.1) has never run on a real old-passt host, the
+unnamed-backend rescue ([§6.2](#62-a-podman-too-old-to-name-its-stack), added 2026-09-04) has never
+run on a real podman below 5.1, and the fatal witness reaches your own jails only after a host
+`just load`. The first and last are 🔒 rows in [`../plans/roadmap.md`](../plans/roadmap.md).
 
 > [!WARNING]
 > **A nested jail gives this entire document a free green.** Podman-in-podman forces `--net=host`,
@@ -32,8 +34,11 @@ from every jail from `58ce9ee` (2026-08-13) until the fix landed.
 `internal/svcendpoint` is untouched.
 
 > [!NOTE]
-> **None of this was unknowable.** `podman info` reports `rootlessNetworkCmd` on every host. The
-> design hardcoded one stack's behaviour as if it were the only one and never asked — see [§4](#4-where-the-premise-fails).
+> **None of this was unknowable.** `podman info` reports `rootlessNetworkCmd` on every host modern
+> enough to have the field. The design hardcoded one stack's behaviour as if it were the only one and
+> never asked — see [§4](#4-where-the-premise-fails). The qualifier is not pedantry: the field only
+> exists from **podman 5.1**, and reading its absence as "unrecognised stack" is the second outage,
+> [§6.2](#62-a-podman-too-old-to-name-its-stack).
 
 **Start with [§2](#2-the-mental-model-two-namespaces-two-loopbacks)** if the networking is the unclear
 part; everything else depends on it. **Reads with**
@@ -53,6 +58,7 @@ Settled and folded into the body. IDs are load-bearing — code comments cite th
 | **OQ-R4** | **all three** fault classes escalate, not just the dial failing | [§7.3](#73-which-fault-classes-escalate) |
 | **OQ-R5** | a jail sharing the launcher's netns **is** escalatable — no host-stack excuse exists there | [§7.2](#72-what-may-escalate) |
 | **OQ-R6** | the launcher's decision rides on the wire with **every state spelled**; only positive facts escalate | [§7.2](#72-what-may-escalate) |
+| **OQ-R7** | a podman too old to **name** its rootless stack is an UNREAD backend, not an unrecognised one, and gets the same slirp4netns rescue | [§6.2](#62-a-podman-too-old-to-name-its-stack) |
 
 **Nothing is open, and nothing is left to build** — [§10](#10-status) is the ledger of what landed.
 
@@ -357,7 +363,8 @@ outcome this area may never produce.
 2. **else slirp4netns, if podman itself reports the binary** →
    `--network=slirp4netns:allow_host_loopback=true` **and**
    `--add-host=host.containers.internal:10.0.2.2` — both flags, per §3.2.1
-3. **else** warn and launch
+3. **a podman that named no stack at all** → rung 2, on the same bar ([§6.2](#62-a-podman-too-old-to-name-its-stack))
+4. **else** warn and launch
 
 Availability at rung 2 is **podman's own answer, never a PATH lookup**: podman is the process that
 execs the helper, so a binary yolo can see and podman cannot is a container that fails to start.
@@ -368,6 +375,43 @@ positive fact.
 requirement that survives is on the *message*: it names what breaks, the passt version that fixes it,
 and the command that checks — and it must not read as an error, because launching is correct and the
 user has done nothing wrong.
+
+### 6.2 A podman too old to NAME its stack
+
+**`rootlessNetworkCmd` is not an old field.** Read from `libpod/define/info.go` in
+`containers/podman` at three tags on 2026-09-04: **absent at `v4.9.3`, absent at `v5.0.0`, present at
+`v5.1.0`**. Ubuntu 24.04 LTS's stock podman is `4.9.3+ds1-1ubuntu0.2`, so an LTS host answers
+`podman info` perfectly well and names no stack.
+
+The launcher read that empty string as *"unrecognised backend"* and emitted nothing — rung 4 of the
+ladder, byte-for-byte today's argv, silence. Correct for a podman that would not answer; wrong here,
+because this host **has** a rootless stack and can forward the loopback. Every jail-facing service was
+down on it, exactly as in §1, and nothing said so at launch.
+
+**OQ-R7 — an UNREAD backend is not an unrecognised one.** The two are the same empty string one layer
+down, so the launcher records the difference where it can still see it: `podman info` parsed, the host
+is rootless, and `rootlessNetworkCmd` was empty. That fact — `backendUnnamed` — is positive in the
+same sense every other fact here is, so a podman that did not run, would not answer, answered
+non-JSON, or is rootful never sets it and keeps its silence.
+
+The rescue is **rung 2 reached by a second door**, not a new mechanism: the same two flags, the same
+bar (podman's own `host.slirp4netns.executable`, that binary's own `--help`), so the worst case is
+unchanged — no usable slirp4netns means silence.
+
+What yolo cannot know here is whether this **switched stacks**. Below podman 5.0 slirp4netns is the
+rootless default and only the forwarding option is new; at 5.0.x pasta is, and the rescue moves off
+it. Picking one would be the guess-the-default this whole area refuses, so the launch note states
+both readings and names the upgrade (`podman` ≥ 5.1) that lets yolo read the stack instead of asking
+for one.
+
+> [!NOTE]
+> **This is how it was found.** GitHub's hosted runner images downgraded podman **5.8.4 → 4.9.3** on
+> 2026-08-31 ([actions/runner-images#14642](https://github.com/actions/runner-images/issues/14642)),
+> and `TestInJailServiceReachability` went red on both arches from the next push. The correlation is
+> with the **runner image version**, not with any commit: jobs on `ubuntu-24.04(-arm) 20260823.*`
+> pass and jobs on `20260831.*` fail, and the diff across the last-green→first-red range touches no
+> file under `internal/cli/run`, `internal/svcendpoint`, `internal/hostservice` or
+> `internal/entrypoint/reachability.go`. The suite was right and the launcher was wrong.
 
 ---
 
@@ -599,5 +643,15 @@ are invisible until the fatal is on: `shared` joined the escalating set
 typo was deleted by the change it was guarding, which is how it was meant to be passed; the
 observation it was holding out for is recorded in §7.4.
 
+**Built 2026-09-04 — OQ-R7**, the unnamed-backend rescue ([§6.2](#62-a-podman-too-old-to-name-its-stack)),
+found by CI going red on a runner-image podman downgrade rather than by anyone's host.
+
 **Not built:** nothing. Every question this document raised is answered and every ruling in the
 ledger is in the code.
+
+**Still unverified on hardware nobody here has:** OQ-R7 joins the slirp4netns fallback in that column.
+The rescue emits the flags the fallback already emits, and its decision and gathering are pinned by
+unit tests through the production seams — but no one here has a podman below 5.1 to launch on, and a
+nested jail is structurally blind to this whole class ([§7.5](#75-a-nested-jail-is-structurally-blind-to-this)).
+The measurement that would settle it is CI's own `TestInJailServiceReachability` on a `20260831.*`
+runner image.
