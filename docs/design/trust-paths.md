@@ -753,6 +753,12 @@ which is a pinning argument, not an approval argument.
 > pack reads this launch stays. Disclosure is not consent, costs nothing, and is what actually tells
 > a user what crossed.
 >
+> **And it inherits a ruling.** [`pack-execution-trust.md`](pack-execution-trust.md) §6 — *"approval
+> must be readable"*, RULED and never built — was aimed at the terse one-token-per-line claim strings
+> the prompt printed. TP9 deletes that renderer, but the ruling is **retargeted, not retired**: the
+> banner (`packload.FootprintOf`, a separate rendering) becomes the ONLY place a user sees what a
+> pack reaches, so "understandable by a new user" now applies to it and matters more than it did.
+>
 > **What this retires:** [OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04)
 > entirely (no refusal to predict, no approve path to be unreachable). **What it leaves standing:**
 > [OQ-TP6](#decision-ledger)'s rule — a refused contribution refuses the launch — which is about

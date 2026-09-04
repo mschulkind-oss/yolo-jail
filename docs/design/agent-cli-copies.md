@@ -274,7 +274,7 @@ correctness on any arm.** OQ-PD17's stakes line (*"whether captures can be recla
 accumulate with no way to remove them"*) overstates it: entries can always be removed; what is at
 stake is only whether a removal is *wasteful*. That is answerable by the two idioms the plan already
 calls safe under any oracle — keep-newest-K per (bin, platform) and an age floor — and it does not
-need candidate (a), (b) or (c). See [OQ-CP3](#-oq-cp3--is-oq-pd17-answered-by-no-oracle-bound-by-policy).
+need candidate (a), (b) or (c). See [OQ-CP3](#-oq-cp3--is-oq-pd17-answered-by-no-oracle-bound-by-policy--resolved-2026-09-04).
 
 ---
 
@@ -657,7 +657,7 @@ row, which is why this is a question and not a footnote.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 OQ-CP3 — is OQ-PD17 answered by "no oracle, bound by policy"?
+### ✅ OQ-CP3 — is OQ-PD17 answered by "no oracle, bound by policy"? — RESOLVED (2026-09-04)
 
 [OQ-PD17](program-delivery.md#decision-ledger)
 asks which of three candidates supplies an *unreferenced* oracle for a capture entry, and states that
