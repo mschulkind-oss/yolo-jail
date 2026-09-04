@@ -1006,7 +1006,9 @@ const CapturesDirEnv = "YOLO_CAPTURES_DIR"
 // with the four properties §3.5 requires of an update: bounded (UPDATE_TIMEOUT),
 // serialized against the other writers of this install prefix (LOCK_DIR), scoped to the
 // invocation rather than to the jail, and not run at all when the jail's `agent_updates`
-// policy says so (UPDATES_ENABLED).
+// policy says so (UPDATES_ENABLED). A7's V-axis prune rides the same success paths
+// (_prune_versions), because the act that creates a version is the one that knows to
+// delete the one it superseded.
 const nativeLauncherTemplate = `#!/bin/bash
 # Lazy-update launcher — installs/updates on first use, not at boot. BIN names the program.
 set -euo pipefail
@@ -1022,6 +1024,11 @@ UPDATE_TIMEOUT=60
 # A lock nobody released — a killed shell, a jail torn down mid-update — must not freeze
 # updates for the life of the home. Ten times the bound on a single attempt.
 STALE_LOCK=600
+# A7's keep-newest-K over the VENDOR's own version directory (agent-cli-copies.md §5.1):
+# the live build plus one rollback target. This K is per workspace and over VERSIONS; it
+# is NOT the capture store's K (OQ-PD17: machine-wide, 1), and neither is the N this
+# corpus uses for the workspace count.
+KEEP_VERSIONS=2
 # 1 when this jail's agent_updates policy lets this pack move. BAKED, so a launcher
 # generated under a frozen policy carries no update branch at all.
 UPDATES_ENABLED=__YOLO_UPDATES_ENABLED__
@@ -1097,6 +1104,63 @@ _take_lock() {
 }
 
 _drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
+
+# _prune_versions is A7, the V-axis prune (agent-cli-copies.md §5.1): keep-newest-K over
+# the vendor's own version directory, run by the act that created the new version, in this
+# workspace, immediately, on success.
+#
+# IT NEEDS NO STORE, NO ORACLE AND NO ENUMERATION, and that is a property of the tree
+# rather than a policy: the referrer set for ~/.local/share/<bin>/versions/* is ONE symlink,
+# ~/.local/bin/<bin>, in the same per-workspace tree, so everything else there is
+# unreferenced BY CONSTRUCTION for this workspace. Measured 2026-09-04 in this development
+# jail: five claude builds totalling 1223.4 MiB, of which 1018.6 MiB — 83.3 % — were
+# unreferenced. It needs no filesystem support either, so it behaves the same on ext4 and
+# btrfs, which capture does not.
+#
+# THE SYMLINK IS ALSO THE GUARD. When $REAL_BIN is not a symlink INTO that directory this
+# does nothing at all: the referrer set is then unknown, and a prune that cannot name the
+# live version has no business deleting anything. That is what makes it safe to call for
+# every native program, including the ones that keep no version directory.
+_prune_versions() {
+    local vdir="$HOME/.local/share/$BIN/versions"
+    [ -d "$vdir" ] || return 0
+    local live
+    live=$(readlink "$REAL_BIN" 2>/dev/null) || return 0
+    [ -n "$live" ] || return 0
+    case "$live" in
+        /*) ;;
+        *) live="${REAL_BIN%/*}/$live" ;;
+    esac
+    case "$live" in "$vdir"/*) ;; *) return 0 ;; esac
+    # THE LIVE ENTRY IS THE DIRECTORY ENTRY, NOT THE SYMLINK'S TARGET, and conflating the
+    # two deletes the running version. claude's builds are single FILES directly under
+    # versions/ (measured 2026-09-04), so there $live IS the entry; a vendor that keeps a
+    # directory per version has the binary one level deeper, and comparing the whole target
+    # path against the entry then never matches — the guard silently stops guarding, in
+    # exactly the rollback shape where it is the only thing standing between "keep newest K"
+    # and an unusable launcher.
+    local rest live_entry
+    rest=${live#"$vdir"/}
+    live_entry="$vdir/${rest%%/*}"
+    local entry victims
+    victims=$(
+        for entry in "$vdir"/*; do
+            [ -e "$entry" ] || continue
+            printf '%s\t%s\n' "$(_stamp_mtime "$entry")" "$entry"
+        done | sort -rn | tail -n "+$((KEEP_VERSIONS + 1))" | cut -f2-
+    )
+    [ -n "$victims" ] || return 0
+    while IFS= read -r entry; do
+        if [ -n "$entry" ] && [ "$entry" != "$live_entry" ]; then
+            rm -rf -- "$entry"
+            echo "  $BIN: removed superseded version ${entry##*/}" >&2
+        fi
+    done <<YOLO_PRUNE_EOF
+$victims
+YOLO_PRUNE_EOF
+    return 0
+}
+
 
 # _try_materialize puts an already-captured install into this home instead of downloading it
 # (docs/design/program-delivery.md §6.3's *materialize*). Returns 0 only when $REAL_BIN
@@ -1205,6 +1269,7 @@ _do_install() {
     else
         _run_installer || rc=$?
     fi
+    if [ "$rc" = 0 ]; then _prune_versions; fi
     return "$rc"
 }
 
@@ -1232,7 +1297,9 @@ _update() {
         _ACT=update
         _run_installer || rc=$?
     fi
-    if [ "$rc" != 0 ]; then
+    if [ "$rc" = 0 ]; then
+        _prune_versions
+    else
         echo "  ⚠ $BIN: update failed (status $rc) — running the installed version." >&2
     fi
     return "$rc"
