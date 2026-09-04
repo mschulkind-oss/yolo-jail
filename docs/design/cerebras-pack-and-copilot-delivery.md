@@ -124,7 +124,7 @@ paragraph splits (copilot now does; agy still doesn't and never can).
 
 | OQ | Question | Status |
 | :--- | :--- | :--- |
-| OQ-1 | Should yolo ever ship a claude-wire translation proxy so claude can ride chat-completions-only providers? | OPEN — out of scope here; a loophole pack is the natural shape if the want returns |
+| OQ-1 | Should yolo ever ship a claude-wire translation proxy so claude can ride chat-completions-only providers? | **In design** — answered by [`wire-bridge.md`](wire-bridge.md) (2026-09-04), which designs it as a standalone `wire-bridge` pack with preflight-enforced dependency, and revisits D-4 below (the `context_window` option becomes live the day claude can ride the bridge) |
 | OQ-2 | The claude derive emits `ANTHROPIC_AUTH_TOKEN` even when the provider has no anthropic endpoint (recorded in zai-plumbing §3) — selected-for-claude + openai-only provider sends a wrong-token credential to api.anthropic.com. Gate the token on the URL? | OPEN — pre-existing recorded behavior, not this doc's change; flagged because cerebras is the first pack where a user might plausibly `-p cerebras` a claude-selecting launch |
 | OQ-3 | Cerebras's free tier is 5 req/min — thin for an agent loop. Does the pack README say so? | Resolved in the README: yes, with the Developer-tier numbers beside it |
 
