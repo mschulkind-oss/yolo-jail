@@ -187,6 +187,7 @@ func grepDefaults() *jsonx.OrderedMap {
 	m := jsonx.NewOrderedMap()
 	m.Set("message", "grep's recursive mode is blocked. Use ripgrep (rg) for recursive searches; pipe filters and single-file greps pass through.")
 	m.Set("suggestion", "Try: rg <pattern> [path]")
+	m.Set("replacement", "rg")
 	m.Set("block_flags", []any{"--recursive", "-r", "-R", "-*[rR]*"})
 	return m
 }
@@ -195,6 +196,7 @@ func findDefaults() *jsonx.OrderedMap {
 	m := jsonx.NewOrderedMap()
 	m.Set("message", "find is blocked to prevent unintended recursive searches. Use fd for a faster, more intuitive alternative.")
 	m.Set("suggestion", "Try: fd <pattern>")
+	m.Set("replacement", "fd")
 	return m
 }
 

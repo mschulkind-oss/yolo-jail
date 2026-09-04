@@ -3,6 +3,7 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -150,5 +151,74 @@ func TestGenerateShimsSkipsPathyToolNames(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.BlockDir(), "curl")); err != nil {
 		t.Error("the well-formed shim should still be written")
+	}
+}
+
+// A BLOCKER WHOSE REPLACEMENT IS ABSENT MUST NOT BE GENERATED. The defaults block
+// `grep -r` and `find` and point at `rg` and `fd` — sound on the container
+// backends, which BAKE both, and false on macos-user, which bakes nothing.
+// Measured 2026-09-04 on a real Mac launch whose `packages:` held only `just` and
+// `fzf`: the shims were generated, `grep -r` exited 127, and the suggestion named a
+// binary that did not exist. The agent lost the capability AND was sent nowhere.
+func TestShimsSkipABlockerWhoseReplacementIsMissing(t *testing.T) {
+	home := t.TempDir()
+	var warnings strings.Builder
+	// An empty PATH for the agent: nothing is present, so nothing may be blocked.
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":              home,
+		"YOLO_DARWIN_LOGIN_PATH": t.TempDir(),
+		"YOLO_BLOCK_CONFIG": `[{"name":"grep","message":"m","suggestion":"s",` +
+			`"replacement":"rg-not-installed","block_flags":["-r"]}]`,
+	})
+	e.Stderr = &warnings
+
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(e.BlockDir(), "grep")); err == nil {
+		t.Error("generated a grep blocker whose replacement is not on PATH — the agent " +
+			"loses grep -r and is pointed at a binary that does not exist")
+	}
+	if !strings.Contains(warnings.String(), "rg-not-installed") {
+		t.Errorf("skipped the blocker without naming the missing replacement:\n%s", warnings.String())
+	}
+}
+
+// The converse, or the gate would disable blocking everywhere: with the replacement
+// PRESENT, the blocker is generated as before.
+func TestShimsBlockWhenTheReplacementIsPresent(t *testing.T) {
+	home := t.TempDir()
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "rg-installed"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":              home,
+		"YOLO_DARWIN_LOGIN_PATH": binDir,
+		"YOLO_BLOCK_CONFIG": `[{"name":"grep","message":"m","suggestion":"s",` +
+			`"replacement":"rg-installed","block_flags":["-r"]}]`,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(e.BlockDir(), "grep")); err != nil {
+		t.Errorf("did not block grep even though its replacement is on PATH: %v", err)
+	}
+}
+
+// An entry with NO `replacement` always generates — which is every custom entry any
+// user has ever written. The gate is opt-in by declaration, so no existing config
+// changes behaviour.
+func TestShimsAlwaysBlockAnEntryDeclaringNoReplacement(t *testing.T) {
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":              t.TempDir(),
+		"YOLO_DARWIN_LOGIN_PATH": t.TempDir(), // nothing on PATH at all
+		"YOLO_BLOCK_CONFIG":      `[{"name":"curl","message":"no network archaeology"}]`,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(e.BlockDir(), "curl")); err != nil {
+		t.Errorf("an entry with no declared replacement was not blocked: %v", err)
 	}
 }

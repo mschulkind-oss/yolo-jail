@@ -815,7 +815,14 @@
         (``-r``, ``-R``, ``--recursive``, or short-flag bundles like
         ``-rn``).  Pipe filters and single-file greps pass through.
       • find is unconditionally blocked.
-    Conditional: add ``block_flags`` (array of shell case-glob patterns)
+    Conditional on the ALTERNATIVE existing: add ``replacement`` (a bare
+    binary name) and the tool is blocked only when that binary is on the
+    jail's PATH.  The two defaults set it (rg for grep, fd for find), so
+    on a backend that bakes no image — macos-user, where tools come from
+    ``packages`` or not at all — a jail without rg keeps working grep
+    instead of losing it and being pointed at nothing.  An entry with no
+    ``replacement`` always blocks, which is every custom entry.
+    Conditional on FLAGS: add ``block_flags`` (array of shell case-glob patterns)
     to block only when argv contains a matching flag.  Absence means
     "always block" (find's default behavior).  Long options in
     block_flags match exactly; short patterns (starting with ``-``)

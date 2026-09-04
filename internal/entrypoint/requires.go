@@ -54,10 +54,7 @@ func AssertRequiredBins(e *Env) {
 	// store prefix), the same string the login rc files re-prepend — so it is the
 	// honest thing to search when it is set. It is set only by the macos-user
 	// launcher, so the container boot is untouched.
-	path := BootPath(e)
-	if p := e.Vars["YOLO_DARWIN_LOGIN_PATH"]; p != "" {
-		path = p
-	}
+	path := agentPath(e)
 	for _, p := range packs {
 		for _, req := range p.Decl.RequiredBins() {
 			if lookPathIn(path, req.Bin) != "" {
@@ -125,4 +122,27 @@ func sortedHintKeys(hints map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// agentPath is THE PATH the agent will actually have, and the one any "is this
+// tool present" question must be asked against.
+//
+// BootPath is the CONTAINER's answer — the two generated script dirs around
+// $HOME/.local/bin, /bin and /usr/bin. It has no entry for the native nix store,
+// which is exactly where `packages:` materializes on macos-user, so asking it
+// there reports every declared tool missing (measured 2026-09-03: `fzf` was in
+// `packages:`, was built into the store, and warned as absent).
+//
+// $YOLO_DARWIN_LOGIN_PATH is the sandbox's real PATH — SandboxPath(home, store
+// prefix), the same string the login rc files re-prepend — and only the macos-user
+// launcher sets it, so the container boot is unaffected.
+//
+// Two callers now ask this question (the `requires` probe and the blocked-tool
+// replacement gate), which is precisely why it is one function: they must not be
+// able to disagree about which PATH counts.
+func agentPath(e *Env) string {
+	if p := e.Vars["YOLO_DARWIN_LOGIN_PATH"]; p != "" {
+		return p
+	}
+	return BootPath(e)
 }

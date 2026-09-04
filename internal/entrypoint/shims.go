@@ -91,6 +91,29 @@ func GenerateShims(e *Env) error {
 				sug = s
 			}
 		}
+		// A BLOCKER WHOSE REPLACEMENT IS ABSENT IS JUST BREAKAGE. The default
+		// entries block `grep -r` and `find` and tell the agent to use `rg` and
+		// `fd` — which is sound advice on the container backends, where the image
+		// BAKES both, and false on macos-user, which bakes nothing: there the tool
+		// comes from `packages:` or not at all. Measured 2026-09-04 on a real Mac
+		// launch whose `packages:` held only `just` and `fzf`: the shims were
+		// generated, `grep -r` exited 127, and the suggestion named a binary that
+		// did not exist. That is worse than not blocking — the agent loses the
+		// capability AND is sent somewhere empty.
+		//
+		// So a blocker declaring a `replacement` is generated only when that binary
+		// is on the PATH the agent will actually have. An entry with no
+		// `replacement` always generates, which is every custom entry a user has
+		// ever written: the gate is opt-in by declaration, so no existing config
+		// changes behaviour.
+		if repl, present := stringValue(cfg, "replacement"); present && repl != "" &&
+			lookPathIn(agentPath(e), repl) == "" {
+			e.warn("not blocking " + name + ": its replacement " + repl +
+				" is not on PATH in this jail, and a block with no working alternative " +
+				"removes the capability instead of redirecting it (add " + repl +
+				" to `packages` to restore the block)")
+			continue
+		}
 		realBin := ""
 		if name == "grep" || name == "find" {
 			realBin = e.ShimBinPath() + "/" + name
