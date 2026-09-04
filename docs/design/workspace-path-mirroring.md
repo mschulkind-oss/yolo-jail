@@ -3,17 +3,52 @@ title: "Should the jail mount the workspace at the host's own path?"
 date: 2026-09-04
 status: draft
 tags: [mounts, paths, backends, macos-user, state-separation, trust]
-summary: "Mirroring the host workspace path into the jail is cheaper to build than it looks, because ${workspace} and Env.WorkspaceDir() already exist for macos-user. It still does not deliver the property it is sold on — HOME and the toolchain store stay at /home/agent and /mise — it re-opens a shared-store bug class the 2026-07 state-separation bundle closed on purpose, and macos-user refuses the very path it would produce on a Mac. Recommendation: no."
+summary: "Two questions, one verdict. Mirroring just the workspace is a good idea not worth the churn. MAXIMAL mirroring — jail user, home, workspace and toolchain store all matching the host — is mechanically expressible and churn is not the objection; it fails because you can mirror a path NAME but not its CONTENT, so a cross-boundary reference resolves to an ABI-incompatible artifact instead of failing loudly, the credential boundary loses its cheapest signal, and macos-user cannot express the mirrored home. The two arguments expected to carry it (capture relocation, notch portability) come back negative. Recommendation: no; if the goal is one environment at several notches, unify the userland instead."
 ---
 
 # Should the jail mount the workspace at the host's own path?
 
-**Status:** DESIGN SKETCH, 2026-09-04. Nothing built, and my recommendation is that nothing
-should be. This doc exists to make the *no* checkable rather than reflexive — the question
-was asked once before, answered no for reasons that have since expired, and deserves a
-fresh answer rather than a citation.
+**Status:** DESIGN SKETCH, 2026-09-04. **Reopened and extended the same day** — see the
+postscript. Nothing built, and my recommendation is still that nothing should be, but the
+reason has changed completely. This doc exists to make the *no* checkable rather than
+reflexive — the question was asked once before, answered no for reasons that have since
+expired, and deserves a fresh answer rather than a citation.
 
-**The short version.** Mirroring means dropping `/workspace` and bind-mounting the host
+> **Postscript, 2026-09-04 — the question got bigger, and my central argument became a
+> variable.** §1–§11 answer a **narrow** question: mount the *workspace* at the host path,
+> leaving `HOME=/home/agent` and the toolchain at `/mise`. The maintainer's actual proposal is
+> **maximal mirroring** — *"what if we changed anywhere in our design that we need to match
+> paths? The user could have the same name as the host user, we could mirror things there, and
+> elsewhere. Still no benefit? I don't care how much code churn there is."* That moves three
+> things out of the cost column and into the design: the jail home, the toolchain store, and
+> churn. [§12](#12-follow-up-maximal-mirroring) is the re-run, and it **retracts
+> P1, P3 and half of P5**. §1–§11 keep their original tense; read them as the narrow answer,
+> which still stands on its own terms. The verdict below covers both.
+>
+> A later input the same day — *"we may need to make it optional at first, this is going to be
+> a big change"* — is answered in [§12.9](#129-optional-first-transition-or-permanent).
+
+**The short version — maximal mirroring (the live question).** Make every path agree: a jail
+user named after the host user, `HOME=/home/matt`, the workspace beneath it, the toolchain
+store wherever it must be for references to resolve. It is **mechanically expressible** — I
+measured the whole mount stack, including a read-write workspace nested inside a `:ro` home
+base — and with churn off the table my original central objection is dead. **It still fails,
+for a reason I did not have on the first pass: you can mirror the *name* of a path but not its
+*content*.** The host is Arch and the jail is NixOS (measured: the jail's `rg` loads
+`/nix/store/…-glibc-2.42-67/lib64/ld-linux-x86-64.so.2`); on macOS one side is Mach-O and the
+other ELF. So a mirrored reference *resolves* on both sides and yields an ABI-incompatible
+artifact, where today it fails loudly with ENOENT. yolo has shipped code whose entire job is
+to catch exactly this (`internal/cli/run/retire.go`) and whose detection method is the path
+prefix; mirroring degrades it to always-pass. The same argument already killed uv-cache
+sharing (`jail-state-separation-design.md`:325-334 — *"silently reused … persistent, invisible
+cache poisoning"*). **Verdict: no.** And the two arguments that were expected to cut *for* it
+come back negative — mirroring does not delete capture relocation, it *creates* the need for
+it ([§12.6](#126-capture-relocation--chased-hard-it-cuts-the-other-way)). If the real goal is
+one environment at several confinement notches, the lever is **userland unification**
+(`yoloNoncontainerPackages`), not the mount table — [§10 alternative G](#10-alternatives-each-with-a-verdict).
+
+**The short version — the narrow question (§1–§11, superseded in scope but not retracted).**
+Mirroring means dropping `/workspace` and bind-mounting the host
 directory at its own absolute path (`/home/matt/code/yolo-jail` in the jail as well as on
 the host). The build cost is smaller than folklore suggests — `${workspace}` and
 `Env.WorkspaceDir()` already exist because the `macos-user` backend has no `/workspace`, so
@@ -68,6 +103,14 @@ is `/home/matt/code/proj` and whose home is `/home/agent`: a mixed world, not a 
 So the sales pitch, "absolute paths are identical on both sides", is true only of the subtree
 where the two sides already share an inode and a relative path. §5.
 
+> ### ⚠ Retracted 2026-09-04: P1 does not survive the maximal proposal
+>
+> P1 treats `HOME=/home/agent` and `/mise` as fixed. Under maximal mirroring they are exactly
+> what also moves, and I **measured** that the resulting mount stack works
+> ([§12.3](#123-it-is-mechanically-expressible--measured)). P1 is a correct objection to the
+> narrow proposal and a wrong one to the real proposal. Its replacement is
+> [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content).
+
 **P2. It re-opens a bug class that was closed on purpose, and the closing doc says so in as
 many words.** `/workspace` is not merely a name; it is a *namespace-collapsing device*
 *(coined here)* — every workspace on the machine gets the same string inside its own jail,
@@ -85,6 +128,15 @@ carries 12 lines of `YOLO_REPO_ROOT=/workspace`, and the built-in `developing-yo
 skill carries 17 — all of them instructions to be *run inside the jail*, where they are
 correct today and would become unwriteable. §6.3.
 
+> ### ⚠ Retracted 2026-09-04: P3 is withdrawn from the verdict
+>
+> The maintainer removed churn from the cost side explicitly (*"I don't care how much code
+> churn there is"*). §6 stays as **sizing** — it is the honest measure of the work — but it is
+> no longer an argument, and none of §12's reasoning uses it. The one part of P3 that is not
+> churn is that `/workspace` stops being a nameable constant; that is folded into
+> [§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does) as
+> the side-ambiguity problem, where it belongs.
+
 **P4. The confirmed benefit is narrow and mostly purchasable separately.** Three problems
 survived the sweep. One (jail-built Go binaries carrying dead source paths) is fixed by
 adding `-trimpath` to one build script. One (a machine-shared cache directory keyed by the
@@ -99,6 +151,12 @@ exists. It does not survive contact: `macos-user` **refuses a workspace inside a
 home** (`internal/macosuser/runplan.go:301-307`), so `/Users/matt/code/proj` — precisely the
 path mirroring would produce on a Mac — is illegal on that backend today. Mirroring would
 make podman-on-macOS and `macos-user` diverge *more*, not less. §7.2.
+
+> ### ⚠ Partly retracted 2026-09-04: P5's constraint is a decision
+>
+> `macos-user`'s neutral-ground rule is something this repo *chose*, not something macOS
+> imposes, so a maximal proposal may simply revisit it. The half of P5 that survives is
+> narrower and is re-argued at [§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice).
 
 ### 1.1 What would change my mind
 
@@ -723,14 +781,32 @@ directory and I would leave it (`OQ-WP3`). §3.3 is documentation, and the brief
 says the true thing. This is the "targeted fix beats a general one when the general one has a
 worse cost profile" call, and it is a judgement, not a derivation.
 
-**E. Mirror all three path spaces** — workspace *and* home *and* toolchain store. —
-**Not evaluated here; genuinely different proposal.** P1 would not apply to it, which makes
-it more coherent than A, and it would collide head-on with [`jail-home.md`](jail-home.md) and
-[`jail-state-separation-design.md`](jail-state-separation-design.md), which makes it much
-larger. Raised as `OQ-WP6` rather than dismissed.
+**E. Maximal mirroring** — workspace *and* home *and* toolchain store *and* the jail user's
+name. — **Evaluated in [§12](#12-follow-up-maximal-mirroring) (2026-09-04); rejected.** It is
+mechanically expressible (MEASURED, §12.3), so A's P1 does not apply to it, and churn is not
+counted against it. It is rejected because it makes path *names* agree while leaving path
+*contents* side-determined, converting loud ENOENT failures into silent wrong-artifact ones
+(§12.4); because it deletes the cheapest signal the credential boundary has (§12.5); and
+because on `macos-user` the mirrored home is inexpressible three ways over (§12.8). The two
+arguments expected to carry it — capture relocation and notch portability — come back negative
+(§12.6, §12.7). *This entry replaced "not evaluated here"; `OQ-WP6` is answered by §12 and
+re-leaned accordingly.*
 
 **F. Do nothing.** — **Rejected**, narrowly: §3.1 is a real defect with a one-line fix and
 should not ride on this verdict.
+
+**G. Unify the *userland*, and let path agreement follow.** — **Accepted as the direction, if
+the goal is cross-notch portability.** §12.4's objection is that mirroring does the naming
+half of a two-part problem and leaves the dangerous half undone. Doing the other half first
+inverts that: if both sides run the same nix-provided userland, content agrees, and then
+whatever path agreement is needed is safe rather than merely convenient. The mechanism exists
+and is named — `yoloNoncontainerPackages` / `yoloUnavailablePackages`
+(`flake.nix:1204,1210`), the subject of
+[`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), whose OQ-1 was answered
+by events on 2026-09-02 (*"the host notch is a place agents run"*, `yolo host -- <cmd>`
+shipped 2026-08-30). This is a much larger programme than mirroring and I am not proposing it
+here; I am naming it as the place the maintainer's underlying goal actually lives, so that a
+"no" to mirroring is not read as a "no" to that goal. See [`OQ-WP10`](#open-questions).
 
 ---
 
@@ -750,15 +826,421 @@ underestimated.
 | R6 | Workspace-scope `mounts` entries that are inert today become live (§4.4) | Low — measured to fail closed on the worst shape | Give workspace `mounts` a scope rule, which [`trust-paths.md`](trust-paths.md):331 arguably already wants (`OQ-WP4`) |
 | R7 | A host workspace path collides with a jail-fixed path (§7.1) | Low, absurd in practice | An explicit launch-time refusal list (§9) |
 
+**Risks specific to maximal mirroring** (added 2026-09-04 with [§12](#12-follow-up-maximal-mirroring)).
+R2 is withdrawn from this table by the churn ruling; R1, R4, R6 and R7 carry over unchanged.
+
+| # | Risk | Severity | Mitigation |
+| :--- | :--- | :--- | :--- |
+| R8 | A cross-boundary reference resolves to an ABI-incompatible artifact instead of failing with ENOENT (§12.4) | **Critical, and it is the verdict** | None available. The two sides are different userlands by design; only alternative G addresses it |
+| R9 | `retireJailMadeVenv` (`internal/cli/run/retire.go:60`) degrades from a working guard to always-pass (§12.4) | High — a shipped safety net stops working, silently | Replace the path-prefix test with something that survives mirroring. Nothing in the tree offers one; a content probe (`file`, ELF interpreter) would have to be invented |
+| R10 | Host-credential paths and their jail namesakes become the same string, in agent-editable config (§12.5) | High | Scope-rule workspace `mounts` (`OQ-WP4`), which is worth doing regardless and is not sufficient alone |
+| R11 | On `macos-user`, a sandbox home at `/Users/<hostuser>` hands the agent read-write over the human's home via `(subpath <sandboxHome>)` (§12.8) | **Critical, mechanical** | None. `dscl` also refuses the duplicate shortname, so the shape is inexpressible rather than dangerous — but only because macOS stops it, not because yolo does |
+| R12 | Captures and other home-relative artifacts stop being machine-independent, foreclosing cross-machine reuse (§12.6) | Medium, and it is a foreclosure rather than a break | None. It is inherent: the mirrored home embeds the host username |
+| R13 | A "temporary" optional flag becomes permanent, leaving two live path layouts forever (§12.9) | Medium | A removal condition stated as a checkable test, up front — not a date |
+
 ---
+
+---
+
+## 12. Follow-up: maximal mirroring
+
+> Added 2026-09-04, after the maintainer read §1–§11 and said they answered a narrower
+> question than he asked. He is right. This section re-runs the analysis with the home, the
+> toolchain store, and the jail user's *name* all in play, and with churn removed from the
+> cost side by explicit instruction.
+
+### 12.1 What is actually being proposed
+
+*Maximal mirroring* **(coined here, to distinguish it from §1–§11's workspace-only mirroring)**:
+make every absolute path a jail can name equal to the path the host would use for the same
+thing. Concretely, on a Linux host whose user is `matt`:
+
+| | Today | Maximal mirroring |
+| :--- | :--- | :--- |
+| Jail user | `root` (uid 0), `/etc/passwd` baked (`flake.nix:1011`) | a user named `matt`, possibly the host's uid |
+| `HOME` | `/home/agent` (`internal/cli/run/assemble.go:745`) | `/home/matt` |
+| Workspace | `/workspace` | `/home/matt/code/proj` — **beneath the home** |
+| Toolchain store | `/mise` | `/home/matt/.local/share/mise` |
+
+It is not "the jail shares the host's home". The jail's `/home/matt` would still be
+`~/.local/share/yolo-jail/home` on the host — a **different directory wearing the same name**.
+That distinction is the hinge of everything below.
+
+### 12.2 What changed about the evaluation
+
+Three of my five claims are affected, and I have marked each at its original site:
+
+| Claim | Status |
+| :--- | :--- |
+| P1 — "only the workspace would match" | **Retracted.** The other two spaces move too, and the mount stack works (§12.3) |
+| P2 — re-opens the shared-store class | **Survives, and generalizes** (§12.7) |
+| P3 — the prose tax | **Withdrawn from the verdict.** Churn is off the table by instruction; §6 is sizing only |
+| P4 — narrow benefit | **Survives, but is no longer decisive** — §12.10 lists benefits maximal mirroring genuinely adds |
+| P5 — macos-user | **Half retracted, half strengthened into a hard blocker** (§12.8) |
+
+Nothing in §12 rests on file counts.
+
+### 12.3 It is mechanically expressible — MEASURED
+
+I built the maximal shape and ran it (podman 5.8.4 + crun 1.27.1, 2026-09-04): a `:ro`
+GLOBAL_HOME base at `/home/matt`, a **read-write workspace bind nested inside it** at
+`/home/matt/code/proj`, and a rw overlay at `/home/matt/.config` whose host source is itself
+inside the workspace. All three mounted on a `--read-only` rootfs; the workspace and the
+overlay were writable, the home base stayed read-only, and crun created `/home/matt/code`
+inside the `:ro` bind without complaint — so the EROFS caveat at
+`internal/cli/run/assemble_parts.go:144-151` did not bite, consistent with
+[`jail-home.md`](jail-home.md):238-246's finding that it resists reproduction.
+
+**P1 is therefore retracted: the mechanics are not the objection.** Two structural
+consequences are worth recording, because they are new and neither is fatal on its own:
+
+- **The workspace moves inside the home.** Today they are siblings; the whole
+  [`jail-home.md`](jail-home.md) overlay stack assumes a `:ro` home base with rw punches. A rw
+  workspace inside that base is a fourth kind of punch, and the deepest.
+- **The `<ws>/.yolo/home` alias moves inside `$HOME` too, and I measured the cycle.** A file
+  written through `/home/matt/.config` appeared at
+  `/home/matt/code/proj/.yolo/home/config` in the same container. That aliasing exists today
+  (`/workspace/.yolo/home/claude` and `/home/agent/.claude` are one inode — AGENTS.md,
+  Testing), but today it spans two top-level trees. Mirrored, `$HOME` contains a second copy
+  of itself several levels down, so anything that walks `$HOME` — `du`, a backup, an agent
+  running `rg` over its own home — traverses the home twice.
+
+### 12.4 The new central objection: you can mirror a name, but not its content
+
+This is the argument that survives all three changes, and it is the one I did not have.
+
+**The host/jail boundary is not only a naming boundary.** It is an ABI boundary, a userland
+boundary, and a credential boundary. Mirroring can make the *names* agree. It cannot make the
+*contents* agree, because the two sides are deliberately built from different userlands —
+that is what the jail is for.
+
+- **MEASURED, this jail:** `/bin/rg` loads
+  `/nix/store/qqiqd3ah10x8hzsif4j1y4xc1miw23nx-glibc-2.42-67/lib64/ld-linux-x86-64.so.2` and
+  `/nix/store/…-pcre2-10.47/lib/libpcre2-8.so.0`. The jail's mise-installed
+  `/mise/installs/python/3.11.14/bin/python3` links against the jail's own `/lib` farm. None
+  of that resolves on the Arch host.
+- **The repo already says so:** *"host (Arch) and jail (NixOS) are different userlands — a
+  source-built C extension is only correct on the side that built it"*
+  ([`jail-state-separation-design.md`](jail-state-separation-design.md):91). On macOS one side
+  is Mach-O and the other ELF.
+
+So under maximal mirroring a cross-boundary reference **resolves and returns the wrong
+thing**, where today it fails immediately with ENOENT. That is a strictly worse failure mode,
+and it is not hypothetical in this repo:
+
+> [!WARNING]
+> **There is shipped code whose entire job is to catch this class, and mirroring degrades it
+> to always-pass.** `retireJailMadeVenv` (`internal/cli/run/retire.go:18-66`) deletes a
+> workspace venv the jail made, so the host does not use a jail interpreter. Its test is
+> `hasAnyPrefix(home, jailPrefixes) && !fileExists(home)` (`retire.go:60`), where
+> `jailPrefixes` is `{"/workspace/", "/mise/", <host mise dir>}` (`:26-30`) — i.e. **it reads
+> side-ness off the path string, then confirms with an existence check.** Under maximal
+> mirroring both halves fail: the prefix is the same on both sides *by construction*, and the
+> host has a same-named interpreter at that path, so `fileExists` is true and the guard
+> `continue`s. The NixOS-built venv is silently kept and handed to the Arch host.
+
+The same argument, in the same words, is why yolo **refused to share the uv cache**
+([`jail-state-separation-design.md`](jail-state-separation-design.md):325-334): a source-built
+wheel from the Arch host *"would be silently reused inside NixOS jails, and a jail-built one
+(referencing `/nix/store/…`) on the host — the venv cross-OS hazard again, but as persistent,
+invisible cache poisoning."* That decision was made about *content* sharing. Maximal mirroring
+does not share content, but it removes the thing that makes the content mismatch **loud**.
+
+**Stated as a principle:** in a system whose job is a boundary, a path string is the cheapest
+label saying which side something belongs to. Maximal mirroring deletes that label from every
+path at once, and puts nothing in its place.
+
+Two objections I considered and rejected:
+
+- *"The ABI hazard is pre-existing; mirroring only exposes it."* No — today it is not
+  reachable, because the reference does not resolve. Loudness is a mitigation, and
+  `retire.go` is that mitigation shipped. Removing a working mitigation and calling the
+  hazard pre-existing is precisely the reasoning the uv-cache decision rejected.
+- *"Then make the content agree too — one nix userland on both sides."* That is a real and
+  coherent answer, and it is [§10 alternative G](#10-alternatives-each-with-a-verdict). But
+  then path agreement is a *consequence* of userland unification, not a cause of anything.
+  Mirroring paths first is the dangerous half done alone.
+
+### 12.5 The credential boundary — the argument that could have killed it, and does
+
+The coordinator flagged this as the likeliest real objection. It is, and it is concrete.
+
+AGENTS.md's first sentence sells the product as running agents *"without exposing host
+credentials or identity"* (`AGENTS.md:4`). Today that is easy to reason about for a reason
+nobody wrote down: **`/home/agent` and `/home/matt` are different strings, so every path in
+every config, doc, error message and agent instruction is self-labelling about which side it
+names.** A reviewer does not have to know the mount table to see it.
+
+The concrete case, and it is live rather than invented:
+
+- Workspace `mounts` is **agent-editable and not scope-ruled**
+  ([`trust-paths.md`](trust-paths.md):331 classifies it *"host read … implicit at the config
+  diff; **never on a fresh clone** … yes — `git pull`, the agent's own edit"*). Entries are
+  host paths, mounted `:ro` at `/ctx/<basename>` (`internal/cli/run/assemble.go:944`).
+- Today, `"mounts": ["/home/matt/.ssh"]` appearing in a jail's workspace config is
+  *unmistakable*: no jail path begins `/home/matt`, so it can only mean the host's real
+  `~/.ssh`. The review gate is a human skimming a config diff, and this is exactly the kind of
+  line that survives skimming or not depending on whether it looks out of place.
+- Under maximal mirroring the same line is **ambiguous by construction**. `/home/matt/.ssh`
+  is also the jail's own ssh dir (`ws/ssh` → `$HOME/.ssh`, `assemble_parts.go`; **MEASURED**:
+  empty in this jail). It reads as plausibly local and resolves host-side to the real key.
+
+Generalized: mirroring makes *"a path that names host credentials"* and *"a path that names
+the jail's own empty equivalent"* the same string. Every reviewer, every doc, every agent, and
+`internal/config/validate.go:333-335`'s existence check all lose the same signal at once.
+
+> [!NOTE]
+> **yolo has already found and fixed this exact bug shape at a different layer**, which is why
+> I weight it heavily. [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md):640-641
+> diagnoses the autonomy bug as *"The keys that are safe because there is a jail travel,
+> unlabelled, to the notch that has no jail. That is the bug."* The fix was to make the notch
+> decide (`:643`, shipped as env-manager Phase 9). Maximal mirroring re-creates that shape in
+> the one datum that carries no notch label at all — and unlike a config key, a path cannot be
+> tagged with the notch it came from without becoming a different string, which is the thing
+> mirroring exists to abolish.
+
+What does *not* get worse, to be fair: the scope-ruled boundaries are untouched, because they
+are enforced by which file is read, not by classifying strings (`hostwrappers.go:33-35`,
+`hostapplyonlaunch.go:47-49`); and `host_files` destinations are home-relative, with
+`hostFileWritableRoots` keyed on the first home segment (`internal/config/hostfiles.go:1069`),
+so they are mirroring-agnostic.
+
+### 12.6 Capture relocation — chased hard, it cuts the other way
+
+This was expected to be mirroring's strongest concrete win: if all paths agree, does
+[`../plans/install-capture.md`](../plans/install-capture.md)'s slice-6 relocation machinery
+become unnecessary? **No. Chased to the bottom it inverts, twice.**
+
+**First: relocation exists on `macos-user` only, and its prefix mismatch is one yolo creates
+on purpose.** Capture runs the installer under `HOME=<CapturesDir>/staging/<id>` with
+`SeatbeltCaptureProfile(stagingHome)`; materialize lands in the shared `/Users/_yolojail`
+home. The two prefixes differ because a capture **must not** see or write the real home —
+that is the isolation the capture design requires. No amount of host↔jail path mirroring
+dissolves a staging-vs-real distinction *within one side*.
+
+**Second, and this is the inversion: on the container backends relocation is unnecessary
+today precisely because of the property mirroring removes.** A capture is taken in a scratch
+workspace through the ordinary run pipeline, so `HOME` is `/home/agent`; materialize happens
+in a real workspace's jail, where `HOME` is *also* `/home/agent`. Same string, different
+backing — §2.2's collapsing device, doing the work. The capture surfaces are the home-relative
+`dedupeSubtrees` (`npm-global`, `local`, `go`), and the absolute references the plan worries
+about are things like the symlink `~/.local/bin/claude`. Under `/home/agent` those are
+**machine-independent constants**; under mirroring they become `/home/<hostuser>/…` and are
+machine-specific.
+
+Two consequences follow, and both are costs:
+
+- **A capture stops being structurally portable between machines.**
+  [`program-delivery.md`](program-delivery.md):1203-1205 declines cross-machine distribution
+  as *"a provenance question for trust-paths.md"* — a **trust** reason, not a path reason.
+  Today the path half already works. Mirroring adds a second, harder blocker to a future the
+  design deliberately left open.
+- **Mirroring would make slice 6 necessary on the container backends too**, the day anyone
+  wants that future — which is the opposite of deleting it.
+
+**Answer to the deadline question:** slice 6 is **not** deletable under mirroring, so the
+capture work stream is **not** blocked on this decision. I have recorded the dependency
+anyway, inverted, at [`OQ-WP11`](#open-questions) — it is worth one line in the plan that the
+hoped-for deletion is not available, so nobody sequences around it.
+
+### 12.7 The notch model — no statement anywhere names paths as the obstacle
+
+The second argument expected to cut for mirroring. It comes back **negative**, and the
+negative is well-evidenced rather than merely unfound.
+
+A notch is a *confinement level*, deliberately decoupled from mechanism
+(`internal/config/confinement.go:3-6`), and it is a preset over a six-primitive vector
+(`internal/render/confinement.go:19-43`) — **not a path layout**. What the env-manager corpus
+claims is portable is the **declaration**, re-rendered per notch by one renderer:
+*"what is portable is the render"* ([`host-render-target.md`](host-render-target.md):102), and
+*"the batteries are declarative, locked, and portable across confinement levels"*
+([`yolo-as-environment-manager.md`](yolo-as-environment-manager.md):694-695). No built
+artifact is designed to move between notches, and I could find no doc that wishes one would.
+
+The reasons a thing *cannot* cross to the host notch are enumerated, and **none of them is a
+path**. [`host-render-target.md`](host-render-target.md):587 heads the list — *"things whose
+**definition** is jail-shaped"* — and `internal/render/fieldset.go:36-60` is the same census
+in executable form: `mount` needs a mount namespace; `reads-host` *"carries a host file INTO a
+jail — meaningless when there is no jail"* (`:40`); `install` must not mutate a real toolchain;
+a loophole has no client without a container. Nine manifest fields, four meaningless without a
+container, **exactly one target-independent** (`host-render-target.md`:98-100).
+
+Two specifics worth recording because they look like path problems and are not:
+
+- **`${workspace}` is refused at the host notch because the host notch has no workspace at
+  all** — it is user-scoped by ruling: *"What `yolo host apply` asserts is a function of your
+  **user** config + the packs **you** installed, never of the repo you ran it from"*
+  (`docs/plans/environment-manager-plan.md:689-694`, OQ-2, resolved 2026-08-01). Mirroring
+  cannot supply a referent that the design says must not exist.
+- **The computed layer is the one place jail-absolute paths do block a cross-notch move** —
+  `KindHost` is *"no computed layer (its values embed jail-absolute paths)"*
+  (`internal/render/target.go:97-99`; `internal/entrypoint/hostrender.go:23-25`). It is dropped
+  **by declaration** — `render.Host()` passes an empty table — not by a path check. And this is
+  where §12.4 bites hardest: mirroring would make those values *resolve* on the host, turning a
+  refusal that is correct by construction into a write that merely looks plausible. An MCP
+  command at `/home/matt/.npm-global/bin/foo` would name the user's real npm prefix, which may
+  hold nothing, an older version, or something else entirely.
+
+And the practical point: `guest` — the notch that would most benefit from portability — **is
+not built**. `internal/cli/apply.go:106-109` prints *"apply at the guest notch is not built yet
+(env-manager plan Phase 7)"*; `internal/render/target.go:90-95` says it has *"NO constructor
+yet"*. The three-notch story's broken middle is blocked on Phase 7, not on paths.
+
+### 12.8 macos-user's neutral ground: is it a constraint or a choice?
+
+Both, and the two halves point opposite ways. This is where P5 splits.
+
+**The single shared home is a choice, and a weakly-founded one — I withdraw that half of P5.**
+It arrived as SandVault parity with no argument recorded, and it contradicts a stated
+must-keep in [`macos-no-vm-direction.md`](macos-no-vm-direction.md):127-128 (*"Per-workspace
+isolation … not one shared home"*). `SandboxHome()` is a one-line constant. The
+*"load-bearing"* framing in [`backend-parity.md`](backend-parity.md):295-298 is a later
+justification on credential grounds — one login per machine — and it carries a documented
+isolation leak ([`macos-user-nix-and-features.md`](macos-user-nix-and-features.md):341-346:
+*"The denial and the leak are the same content reached two ways"*). A maximal proposal may
+legitimately reopen it.
+
+**Neutral ground is a security decision about grant *routing*, it does not depend on paths
+differing, and under maximal mirroring it becomes a hard blocker.** The origin commit
+`29b00697` (*"feat(macos-user): share only neutral ground, never the host home"*, 2026-07-13)
+states the reason:
+
+> Previously a workspace could live in place inside the host home and we threaded traversal
+> ACLs + Seatbelt file-read-metadata grants through each home ancestor (`/Users/<you>`, …) so
+> a different uid could descend to it — layered access control routed through the most
+> sensitive dir on the machine, exactly where a stray grant silently exposes `~/.ssh`.
+
+The same commit forecloses the "it's an artifact of paths differing" reading by name: macOS
+has no clean overlay or bind, so *"dropping 'appear in two places' is what BUYS the clarity,
+not a limitation"*. There is no path mismatch on that backend to remove — the sandbox path
+already **is** the host path. Making paths match deliberately would only make the illegal path
+legal.
+
+**Then the maintainer's own words — "the user could have the same name as the host user" —
+turn out to be inexpressible on macos-user, for three independent reasons:**
+
+1. **Directory-service uniqueness.** The jail user is a real local account created with
+   `dscl . -create /Users/_yolojail` (`internal/macosuser/macosuser.go:77`). `dscl -create` on
+   the host user's shortname mutates the human's account; it does not make a second one.
+2. **The sharing mechanism needs two distinct principals.** The whole model is "host user and
+   sandbox user are two members of group `_yolojail`" (`macosuser.go:87-89`) plus an inheriting
+   group ACE (`macosuser.go:262`). One identity leaves no cross-uid grant to express — and the tests
+   already pin the sharper corollary that an endpoint grant must be a `user:` ACE, *"never a
+   group one: SandboxGroup contains the HOST user"* (`macosuser_test.go:397-398`).
+3. **Seatbelt would collapse outright.** The profile allows `(subpath <sandboxHome>)` for read
+   *and* write (`internal/macosuser/seatbelt.go:48-50` write, `:76-80` read). A sandbox home at
+   `/Users/matt` therefore grants the agent full read-write over the human's home — the exact
+   outcome `29b00697` exists to prevent, arrived at from the other direction.
+
+Note the shape of that third one: it is §12.4 again, in its purest and most mechanical form.
+The grant is written against a *path*; mirroring changes what that path denotes on one side
+and not the other; the grant stays syntactically identical and becomes catastrophic.
+
+The narrowed invariant that actually survives in the code is worth quoting, because it shows
+the rule is about homes specifically and not about neutrality in general: ancestor grants were
+re-introduced after a measured failure (`2e327fa2`, *git cannot find the repo*), but
+`internal/macosuser/seatbelt.go:155` hard-codes `const base = "/Users/Shared/"` because
+*"a path elsewhere under /Users (a real user's home) must NOT gain traversal grants from
+this"* (`:152`).
+
+### 12.9 Optional first: transition or permanent?
+
+The maintainer added: *"I think if we go with the mirror paths, we may need to make it
+optional at first, this is going to be a big change."* Since my recommendation is **no**, this
+section is conditional — it is the ruling that *would* apply, not an argument that the answer
+is yes.
+
+**Ruling: transition-optional only, never permanently-optional — and a transition with no
+stated removal condition is a permanent option in a costume.** The repo has both patterns and
+they are distinguishable: the five `YOLO_ALLOW_*` variables are permanent narrow exceptions to
+a rule that still holds in every other case, whereas `internal/hostmigrate` and the retired
+`YOLO_IMPL=go` gate are transitions with an end. A path layout is not an exception to a rule;
+it is **the key every downstream artifact is filed under**, so two live layouts means every
+capture, build cache, venv and compiled output must record which layout it was made under and
+refuse or rewrite on mismatch — reinstating exactly the relocation machinery §12.6 shows
+mirroring already fails to delete.
+
+One sharpening the framing deserves, and it cuts against mirroring rather than for it:
+**mandatory mirroring is already multi-layout.** The mirrored path embeds the host username, so
+machine A and machine B have different layouts even with the flag mandatory everywhere.
+"One layout" is not something mirroring can deliver; it is something `/home/agent` and `/mise`
+deliver *today*, and it is what §12.6's portability finding rests on. Optionality adds a second
+axis to a problem mirroring introduces on the first.
+
+If it were pursued anyway, a transition must state all five of these up front, because each is
+a behaviour someone will otherwise choose silently:
+
+1. **The flag and its scope.** A user-scope config key, never workspace-scope — a workspace
+   config is agent-editable and this key changes where every path points, which is precisely
+   the `packs`-class reasoning in [`trust-paths.md`](trust-paths.md):250-256.
+2. **Defaults per stage.** Stage 1 off by default, opt-in per machine. Stage 2 on by default
+   with an opt-out. Stage 3 removed. Say the dates or the conditions, not "eventually".
+3. **What happens to existing state.** `<ws>/.yolo` and the home overlay are keyed host-side by
+   the workspace directory (`internal/cli/run/prepare.go:302`) and do **not** move — see §8.
+   What breaks is content that *recorded* the old layout: `~/.claude.json`'s `projects` key and
+   `~/.claude/projects/-workspace`, `~/.cache/claude-cli-nodejs/-workspace`, venv `pyvenv.cfg`
+   interpreters, and any capture admitted under the old prefix.
+4. **Automatic migration or re-create.** My reading: no automatic migration is possible for the
+   vendor-owned keys (yolo does not own claude's on-disk layout), so the honest answer is a
+   storage-layout-version bump (`internal/storage/ensure.go:22`, currently 2) plus an announced
+   one-time loss of path-keyed agent history.
+5. **The removal condition, stated as a test.** Something checkable — e.g. "no workspace on the
+   maintainer's machines has booted under the old layout for 30 days, and `yolo prune` reports
+   no captures admitted under it". Without a condition of that shape, stage 3 never arrives.
+
+### 12.10 What maximal mirroring genuinely buys
+
+Stated plainly, because the verdict should be judged against the real upside rather than a
+strawman. Beyond §3's three confirmed items, which all still hold:
+
+- **Venv and `node_modules` path agreement becomes possible** — the thing §5 said mirroring
+  could not do. It is real, and it is bounded by §12.4: path agreement is necessary but not
+  sufficient, and the insufficient half (userland/ABI) is the binding constraint for anything
+  with a compiled component. It buys pure-Python and pure-JS trees on a Linux host, and
+  nothing on macOS.
+- **Toolchain-store agreement becomes possible.** Same caveat, harder: the store was split in
+  2026-07 for *version skew* and *binary compatibility*, not for paths, so mirroring its path
+  either re-merges two stores that were separated on purpose, or keeps them separate at one
+  name — which is §12.4's silent-failure case in its most load-bearing location.
+- **Nested-jail path stability** (§4.3), unchanged in strength.
+- **The computed layer could in principle cross to the host notch** (§12.7) — though the
+  design refuses it for a reason that is about correctness, not spelling.
+
+That is a real list. It is not nothing, and if §12.4 and §12.5 did not exist I would call this
+a close call rather than a clear no.
+
+### 12.11 Verdict on maximal mirroring
+
+**No — and now for a reason that does not depend on churn, on the workspace being the only
+space that moves, or on any revisitable backend decision.**
+
+Maximal mirroring makes every path *name* agree while leaving every path's *content*
+determined by which side you are on. In a system whose entire premise is a boundary, the path
+string is the last free signal of which side a thing came from — used by reviewers, by docs, by
+agents, by Seatbelt grants written against literals, and by at least one shipped safety net
+(`retire.go`) that would degrade to always-pass. Mirroring deletes that signal everywhere at
+once and puts nothing in its place, converting a class of loud ENOENT failures into silent
+wrong-artifact ones. yolo already rejected content sharing on exactly this reasoning
+(the uv cache), already found and fixed this bug *shape* at the config layer (autonomy as a
+notch policy), and on `macos-user` the mirrored home is not merely unwise but mechanically
+inexpressible.
+
+The two arguments that were expected to carry it do not: capture relocation is *created* by
+mirroring rather than deleted by it, and nothing in the notch corpus names paths as the
+obstacle to anything.
+
+**If the goal is one environment at several confinement levels — which is a good goal — the
+lever is making the *content* agree, not the names.** That is [alternative G](#10-alternatives-each-with-a-verdict),
+and it already has a home in the tree.
 
 ## Open Questions
 
 1. 💬 **OQ-WP1: Accept the verdict, or is there a fourth problem I did not find?**
    The recommendation rests on the sweep in §3 being close to complete — three confirmed
    cases, seven candidates disproved. A single additional confirmed case with a real payload,
-   especially in the machine-shared cache, changes the arithmetic materially. This is the
-   closure question for the doc.
+   especially in the machine-shared cache, changes the arithmetic materially. **Scoped to the
+   narrow question by the 2026-09-04 reopening** — the closure question for the doc as a whole
+   is now `OQ-WP8`.
 
    _Leaning:_ Accept. But I am asking rather than asserting, because a maintainer's lived
    annoyance is evidence a repo sweep cannot produce, and "this bites me weekly" would
@@ -833,11 +1315,17 @@ underestimated.
    *not* sharing those was worth paying for. Worth a paragraph of intent before anyone
    invests in it.
 
-   _Leaning:_ No, and for a reason worth stating: the jail's separate home is not a cost the
-   design tolerates, it is a feature it sells — credential isolation. Mirroring it would
-   trade the product's premise for path convenience.
+   **Superseded in substance by [§12](#12-follow-up-maximal-mirroring), 2026-09-04** — the
+   question was asked for real and is now analysed rather than deferred. Kept open because the
+   ruling is the maintainer's, and folded into `OQ-WP8`.
 
-   <!-- vantage: oq id=OQ-WP6 leaning="No. The jail's separate home is not a cost the design tolerates, it is a feature it sells — credential isolation. Mirroring all three path spaces would trade the product's premise for path convenience." -->
+   _Leaning (revised 2026-09-04):_ Still no, but my original reason was too glib. It is not
+   that the separate home is sacred — §12.8 shows the *shared-home* half of macos-user's shape
+   is weakly founded and reopenable. It is that mirroring makes names agree while contents
+   stay side-determined (§12.4), which is a worse failure mode than the one it removes, and
+   that on macos-user the mirrored home is mechanically inexpressible (§12.8).
+
+   <!-- vantage: oq id=OQ-WP6 leaning="Still no, but the original reason was too glib. Not because the separate home is sacred — section 12.8 shows macos-user's shared-home half is weakly founded and reopenable. Because mirroring makes names agree while contents stay side-determined, which is a worse failure mode than the one it removes, and because on macos-user the mirrored home is mechanically inexpressible. Folded into OQ-WP8." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -857,6 +1345,92 @@ underestimated.
    **Answer:**
    > _(empty — fill in when decided)_
 
+8. 💬 **OQ-WP8: Accept the verdict on MAXIMAL mirroring, and its reason?** This is the closure
+   question for the doc. [§12](#12-follow-up-maximal-mirroring) says no on grounds that do not
+   use churn, do not assume only the workspace moves, and do not lean on a revisitable backend
+   decision: **you can mirror a path's name but not its content** (§12.4), the credential
+   boundary loses its cheapest signal (§12.5), and `macos-user` cannot express the mirrored
+   home at all (§12.8). Accepting this closes `OQ-WP1` and `OQ-WP6` with it.
+
+   _Leaning:_ Accept. The reason I most want argued with is §12.4 — if the maintainer holds
+   that the ABI hazard is acceptable because a mirrored reference is *usually* right, that is
+   a coherent position and it would flip me, but it should be taken deliberately rather than
+   by omission.
+
+   <!-- vantage: oq id=OQ-WP8 leaning="Accept the no. Maximal mirroring makes path NAMES agree while CONTENTS stay side-determined (Arch host / NixOS jail, Mach-O / ELF), converting loud ENOENT failures into silent wrong-artifact ones; it deletes the credential boundary's cheapest signal; and macos-user cannot express the mirrored home. The point most worth arguing with is whether the ABI hazard is acceptable because a mirrored reference is usually right." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+9. 💬 **OQ-WP9: Harden `retireJailMadeVenv` regardless of the verdict?**
+   `internal/cli/run/retire.go:60` decides whether to delete a workspace venv by testing a
+   **path prefix** plus an existence check. §12.4 uses its degradation under mirroring as
+   evidence, but the guard is already thin: it misses any jail-made venv whose recorded
+   interpreter happens to exist on the host at the same path.
+
+   _Leaning:_ Yes, but as separate, small work, and only if a better oracle exists. Reading
+   the ELF interpreter out of the recorded `home` binary would be one; I have not checked
+   whether that is cheap enough to run on every fresh-container launch, so this is a question
+   rather than a proposal.
+
+   <!-- vantage: oq id=OQ-WP9 leaning="Yes, separately and only with a better oracle. The path-prefix plus existence test at retire.go:60 is already thin — it misses a jail-made venv whose interpreter exists at the same path on the host. Reading the ELF interpreter would be a content-based oracle, but I have not measured whether it is cheap enough for every fresh-container launch." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+10. 💬 **OQ-WP10: Is the real goal alternative G — one userland at several notches?** §12.7
+    found that nothing in the env-manager corpus names paths as the obstacle to notch
+    portability, and §12.4 found that content, not naming, is what blocks an artifact from
+    crossing. If the underlying want is "the same environment at different confinement
+    levels", the lever is `yoloNoncontainerPackages` and
+    [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), not the mount table.
+    Worth knowing whether that is the want, because a no to mirroring should not read as a no
+    to it.
+
+    _Leaning:_ I suspect yes, and that mirroring was a plausible-looking route to it. But I am
+    genuinely unsure whether the goal is portability or simply "paths that make sense to a
+    human", which is a different and smaller want that §3.3 addresses.
+
+    <!-- vantage: oq id=OQ-WP10 leaning="I suspect the underlying goal is cross-notch portability and mirroring looked like a route to it, in which case the lever is userland unification (yoloNoncontainerPackages, noncontainer-nix-environment.md) rather than the mount table. But the want might instead be the smaller one of human-legible paths, which is section 3.3. Worth asking which." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+11. 💬 **OQ-WP11: Record the inverted capture finding in `install-capture.md`?** The hoped-for
+    result was that mirroring makes slice 6 (relocation) deletable. §12.6 finds the opposite:
+    relocation is a `macos-user`-only need created by capture's own staging isolation, and on
+    the container backends it is unnecessary *because* `/home/agent` is a machine-independent
+    constant that mirroring would remove. So slice 6 is not blocked on this decision and the
+    two work streams do not collide.
+
+    _Leaning:_ Yes — one line in [`../plans/install-capture.md`](../plans/install-capture.md)'s
+    build-order step 6 saying the deletion is not available, so nobody sequences around a
+    saving that is not coming. That is an edit to a file another agent is actively working in,
+    so it belongs in their commit, not this one.
+
+    <!-- vantage: oq id=OQ-WP11 leaning="Yes — one line in install-capture.md step 6 recording that mirroring does NOT make relocation deletable, so nobody sequences around a saving that is not coming. It belongs in the capture agent's commit, not this doc's, since they are actively editing that file." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+12. 💬 🤷 **OQ-WP12: Reopen `macos-user`'s single shared home?** A side finding of §12.8,
+    unrelated to mirroring's verdict. The single `/Users/_yolojail` home was inherited from
+    SandVault with no argument recorded, contradicts a stated must-keep in
+    [`macos-no-vm-direction.md`](macos-no-vm-direction.md):127-128 (*"Per-workspace isolation
+    … not one shared home"*), and carries a documented cross-workspace transcript leak
+    ([`macos-user-nix-and-features.md`](macos-user-nix-and-features.md):341-346). Its
+    *"load-bearing"* framing ([`backend-parity.md`](backend-parity.md):295-298) is a later
+    credential-tier justification, not the reason it exists.
+
+    _Leaning:_ The maintainer's call — a tier tradeoff (one login per machine vs. per-workspace
+    isolation), not a technical question. I note only that the bar `backend-parity.md` sets is
+    the right one: restore **both** tiers explicitly, never just split the home.
+
+    <!-- vantage: oq id=OQ-WP12 leaning="Maintainer's call — a tier tradeoff, not a technical question. Worth knowing the single shared home was inherited from SandVault with no argument recorded, contradicts a stated must-keep, and carries a cross-workspace transcript leak; its load-bearing framing is a later justification. If reopened, the bar is to restore both tiers explicitly, not just split the home." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
 ---
 
 ## Decision Ledger
@@ -867,3 +1441,9 @@ doc is built on top of, recorded so it is not silently re-litigated:
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-MP1 | Same-path workspace mount ("option A") rejected; superseded by the state-separation bundle | 2026-07-03 | [`../research/mise-host-jail-path-mismatch.md`](../research/mise-host-jail-path-mismatch.md) · this doc §2.3 re-examines it, because two of its three reasons have expired |
+| OQ-2 (env-manager) | Host management is user-scoped; the workspace contributes nothing, so `${workspace}` surfaces are refused at the host notch | 2026-08-01 | `docs/plans/environment-manager-plan.md:689-694` · §12.7 relies on it: mirroring cannot supply a referent the design says must not exist |
+| — (`29b00697`) | `macos-user` shares only neutral ground, never the host home — because a foreign uid reaching a leaf inside `~` needs traversal on `/Users/<you>`, *"exactly where a stray grant silently exposes `~/.ssh`"* | 2026-07-13 | §12.8 · the reason is grant **routing**, independent of whether paths match |
+
+**Withdrawn by the 2026-09-04 reopening**, recorded so they are not re-cited: **P1** (only the
+workspace would match) and **P3** (the prose tax) are retracted at their original sites, and
+the **churn census in §6 is sizing, not an argument**.
