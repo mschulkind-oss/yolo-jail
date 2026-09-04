@@ -710,6 +710,20 @@ largest reclaim available; the two repairs after that are cheap and independent.
   depth-limited" becomes expressible if anyone ever wants it — without that refactor changing any
   rule, which was the explicit instruction.
 
+- 💬 **macos-user has no package floor and no provisioning stage, so four config keys render and
+  install nothing.** 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
+  **OQ-P1 · OQ-P2 · OQ-P3 · OQ-P4**. A container jail gets tools two ways: an image floor of ~19
+  baked packages (git, node, mise, ripgrep, fd…) and an imperative stage the launch runs inside it
+  (`mise install`, the generated `~/.yolo-bootstrap.sh` that npm-installs LSP servers and MCP
+  presets). This backend has NEITHER — only `packages:`, containing exactly what the user
+  declared. So `mise_tools`, `lsp_servers`, `mcp_presets` and the lazy agent-CLI installers are all
+  inert; four now warn and the agent-CLI case is still silent, which is the one that fails on a
+  user's first real command rather than at launch. **The two halves are strictly ordered** — the
+  stage cannot run without the floor, since `mise install` needs mise and the bootstrap script
+  needs npm — so there is no partial credit. Four rulings needed: how much floor, GNU or BSD
+  userland, where the stage's state lives given one shared home (which blocks on the home split),
+  and whether the stage runs eagerly.
+
 - 💬 **The macos-user home has one tier where it needs two, and content delivery just made it
   bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **OQ-HT-1 ·
   OQ-HT-2 · OQ-HT-3**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine tier
