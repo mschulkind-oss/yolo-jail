@@ -33,6 +33,39 @@ Self-serve from there: e.g. run `mise install` in `/workspace`, then re-run the
 step that failed. (The briefing shows a `⚠ Provisioning failed` banner on the
 next attach after a failed boot.)
 
+## 2b. macOS only: `permission denied` writing inside the workspace
+
+On the **macos-user** backend the jail runs as a separate macOS account
+(`_yolojail`), so the workspace has to be *shared* with it by an ACL entry. If it
+is not, writes fail with `permission denied` — during provisioning (six config
+generators failing at once is the signature) or later, whenever something first
+tries to write a path that was never shared.
+
+```
+yolo macos-fix-permissions <workspace>     # or with no path: every project under the shared root
+```
+
+Idempotent and safe to re-run at any time.
+
+**Why it happens.** macOS applies an inheriting ACL entry when a directory is
+**created**, and never retroactively. `yolo macos-setup` shares everything under
+`/Users/Shared/yolo` and anything created there afterwards inherits the grant — so
+the case left over is a project **moved or copied in** later, because `mv` renames
+rather than creates and inherits nothing. (An ACL also names a UUID rather than a
+name, so entries made before the sandbox account was last deleted and recreated go
+inert while still reading correctly in `ls -le`.)
+
+**Check it yourself:**
+
+```
+ls -lde <path>          # a live grant reads: group:_yolojail [inherited] allow …
+                        # a bare UUID in that column is a dead grant
+```
+
+This backend never applies ACLs during a launch — the walk is ~0.16ms per object,
+so seconds to tens of seconds on a large repo — which is why the fix is a command
+you run once rather than something a launch does for you.
+
 ## 3. A tool is blocked or shimmed
 
 Some tools are intentionally shimmed (e.g. `grep -r` → use `rg`, `find` → use

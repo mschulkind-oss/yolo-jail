@@ -40,12 +40,6 @@ type Deps struct {
 	// RunBash runs `bash -c <script>` and returns the returncode (unshare /
 	// fix-permissions).
 	RunBash func(script string) int
-	// Confirm asks the user a y/N question and reports whether they said yes.
-	// nil means NON-INTERACTIVE: every caller must treat a nil Confirm as "no"
-	// rather than as "yes", so a launch with no terminal to ask on never takes a
-	// mutating branch by default. (Deps is constructed field-by-field in several
-	// places, so nil is the shape an un-wired seam actually has.)
-	Confirm func(prompt string) bool
 	// RunWithProxy launches argv under the TTY proxy and returns the agent exit
 	// code.
 	RunWithProxy func(argv []string) int
@@ -300,65 +294,33 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 	// THE WORKSPACE MUST BE SHARED WITH THE SANDBOX, and this is the cheapest place
-	// to learn it is not. macOS applies an inheriting ACL at CREATION TIME only, so
-	// a directory that already existed when `yolo macos-setup` added the ACEs — or
-	// one moved/`cp -p`'d in afterwards, which does not re-trigger inheritance —
-	// never received them (84c55268 names that second case; the first is the same
-	// mechanism and was measured on 2026-09-03). Without this check the launch
-	// spends a sudo prompt, a nix build, the staging and the whole bootstrap before
-	// failing on `mkdir …: permission denied`, six generators at a time, naming
-	// neither ACLs nor the remedy.
+	// to learn it is not. `macos-setup` shares everything under the shared root, and
+	// anything CREATED there afterwards inherits the grant — so by the time a launch
+	// runs, one route is left: a project MOVED or copied in, because rename() creates
+	// nothing and inherits nothing. That is the case this message assumes, because
+	// after setup it is the only one left.
 	//
-	// IT OFFERS RATHER THAN REFUSES, and that is a deliberate reversal of this
-	// check's first cut. A bare refusal naming `yolo macos-fix-permissions` is a
-	// gate that protects nothing: the person who just ran `yolo` in this workspace
-	// is the admin who would run that command, so requiring them to type it adds a
-	// step and no authority (gate-placement-principle.md test 1). What it is worth
-	// asking about is the MUTATION — yolo changing permissions on the user's tree —
-	// which is one keystroke, once per workspace, in the same y/N idiom the config
-	// diff already uses.
+	// It REFUSES and names the command rather than offering to fix it inline. An
+	// earlier cut prompted y/N here; the command is the better answer because it is
+	// one thing to learn, it is idempotent, `macos-setup` has already named it, and
+	// it is in `yolo --help` and the diagnosing-the-jail skill. A prompt in every
+	// path teaches nothing and still needs the command to exist.
 	//
-	// The retrofit is cheap now, which is why doing it inline is reasonable: the
-	// script batches with `find -exec chmod {} +` rather than the serial per-item
-	// forks that made the ORIGINAL per-run walk a multi-minute hang and a double
-	// password prompt (84c55268, the commit that replaced it with inheritance).
-	// This runs once per workspace, not once per launch — the hot path still does
-	// zero ACL work, which is that commit's whole point and is preserved here.
-	//
-	// A non-interactive launch still refuses and names the command: there is nobody
-	// to ask, and silently rewriting a tree's permissions in CI is the one place
-	// this SHOULD stop.
+	// Refusing also keeps the O(files) walk off the hot path — ~0.16ms per object,
+	// so ~16s on a repo with a fat node_modules, which is what 84c55268 removed by
+	// moving to an inheriting entry. The check itself is one `ls`.
 	if deps.RunBash(WorkspaceGrantedScript(opts.Workspace, "")) != 0 {
-		out.printf("[bold yellow]%s is not shared with the sandbox user yet.[/bold yellow]\n"+
-			"It carries no usable ACL entry for the [bold]%s[/bold] group. Three ways that "+
-			"happens:\n"+
-			"  • it was created before `yolo macos-setup` ran — macOS grants the "+
-			"shared-group ACL\n    when a directory is CREATED and never retroactively;\n"+
-			"  • it was moved in with `mv`, which renames rather than creates, so nothing "+
-			"is inherited;\n"+
-			"  • the sandbox account was recreated — ACLs store a UUID, not a name, so an "+
-			"older\n    grant still LOOKS right in `ls -le` while naming a principal that "+
-			"no longer exists.\n"+
-			"Nothing is broken; this workspace has not been shared yet.",
-			opts.Workspace, SandboxGroup)
-		if deps.Confirm == nil || !deps.Confirm("Share this workspace with the sandbox user? [y/N] ") {
-			out.printf("\n[red]Not shared — the sandbox could not write here, so the launch "+
-				"would fail partway through provisioning.[/red]\n"+
-				"Run it yourself when ready:\n"+
-				"  [bold]yolo macos-fix-permissions %s[/bold]\n\n"+
-				"[dim]With no path it retrofits the whole shared root (%s) — every workspace "+
-				"at once.[/dim]", opts.Workspace, SharedRootDefault())
-			return 1
-		}
-		out.printf("[dim]Applying the shared-group ACL under %s (once per workspace; "+
-			"sudo may prompt).[/dim]", opts.Workspace)
-		if deps.RunBash(FixPermissionsScript(opts.Workspace, "")) != 0 {
-			out.printf("[bold red]Could not apply the ACL under %s.[/bold red]  "+
-				"Run [bold]yolo macos-fix-permissions %s[/bold] directly to see which "+
-				"paths refused.", opts.Workspace, opts.Workspace)
-			return 1
-		}
-		out.print("[green]✓ Shared.[/green]")
+		out.printf("[bold yellow]%s is not shared with the sandbox user.[/bold yellow]\n"+
+			"It carries no usable ACL entry for the [bold]%s[/bold] group, so the sandbox "+
+			"cannot write here\nand the launch would fail partway through provisioning.\n\n"+
+			"Most likely this project was MOVED or copied into %s: macOS applies the\n"+
+			"shared ACL when a directory is CREATED, and a move inherits nothing. (An ACL "+
+			"also names a\nUUID rather than a name, so entries made before the sandbox "+
+			"account was last recreated are\ninert while still looking correct in `ls -le`.)\n\n"+
+			"Share it — idempotent, safe to re-run:\n"+
+			"  [bold]yolo macos-fix-permissions %s[/bold]",
+			opts.Workspace, SandboxGroup, SharedRootDefault(), opts.Workspace)
+		return 1
 	}
 
 	// Materialize `packages:` as native darwin nix for THIS Mac's arch (the
@@ -543,7 +505,6 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		HostUser:          hostUserReal,
 		Run:               runReal,
 		RunBash:           runBashReal,
-		Confirm:           confirmReal,
 		RunWithProxy:      runProxy,
 		InstallRootFile:   installRootFileReal,
 		MaterializeDarwin: materialize,

@@ -53,45 +53,28 @@ func MacosSetup(deps Deps) int {
 		}
 	}
 
-	// 1c. WORKSPACES THAT ARE NOT SHARED YET. Setup has just applied the inheriting
-	// ACEs to the root, which covers everything created FROM NOW ON and nothing that
-	// already exists — macOS applies them at create time and never retroactively. So
-	// after provisioning, any pre-existing child may be unshared, and setup is the
-	// one place that both knows this and has the user's attention.
+	// 1c. SHARE WHAT IS ALREADY THERE. Provisioning the root above covers everything
+	// created FROM NOW ON and nothing that already exists — macOS applies inheritable
+	// ACL entries at create time and never retroactively. So setup finishes the job by
+	// running the same retrofit `yolo macos-fix-permissions` runs, over the same root.
 	//
-	// The REASON a child is unshared does not matter and is deliberately not probed:
-	// created before setup (no ace), moved in with `mv` (rename inherits nothing), or
-	// left by a recreated account (an ace naming a uuid that no longer resolves —
-	// ACLs store uuids, not names, so `macos-teardown` orphans every grant it was
-	// named in). One question answers all three, and it is the same question the
-	// launch asks.
+	// UNCONDITIONAL AND UNPROMPTED, because it is idempotent and because setup is
+	// already the "make this machine ready" command — a user who ran it and then hit
+	// `permission denied` on a workspace that was sitting there the whole time was
+	// told setup was done when it was not. On a fresh machine the root is empty and
+	// this costs nothing; on a populated one it is ~0.16ms per object (measured
+	// 2026-09-03), which is the right price at setup and the wrong one on a launch.
 	//
-	// Bounded by the number of WORKSPACES, not their size: one `ls` per child of the
-	// root. The repair is the O(files) walk, and it happens here — where the user
-	// asked for account surgery and is waiting — rather than on a launch, where it
-	// would cost ~16s on a repo with a fat node_modules (measured 2026-09-03 at
-	// ~0.16ms/object; 84c55268 removed exactly that from the hot path).
-	//
-	// Offered, not automatic: it rewrites permissions across trees the user did not
-	// name, which is more than "create an account" implies.
-	out.printf("\n• Checking which workspaces under %s are shared…", SharedRootDefault())
-	if deps.RunBash(UngrantedChildrenScript(SharedRootDefault(), "")) == 0 {
-		out.print("[bold yellow]The workspaces listed above are not shared with " +
-			SandboxUser + ".[/bold yellow]\nEach will fail a launch with `permission " +
-			"denied` partway through provisioning.")
-		if deps.Confirm != nil &&
-			deps.Confirm("Share them now (walks each tree once)? [y/N] ") {
-			if deps.RunBash(FixPermissionsScript(SharedRootDefault(), "")) != 0 {
-				out.print("[yellow]Some ACL entries could not be applied; the rest were.[/yellow]")
-			} else {
-				out.print("[green]✓ Shared.[/green]")
-			}
-		} else {
-			out.print("[dim]Skipped. Run `yolo macos-fix-permissions` for all of them, " +
-				"or `yolo macos-fix-permissions <path>` for one.[/dim]")
-		}
+	// NOT run under sudo: FixPermissionsScript applies the grant as the invoking
+	// user, and running it as root would assign the shared-workspace ACL to root
+	// instead (the reason refuseIfRoot guards this whole command).
+	out.printf("• Sharing existing projects under [bold]%s[/bold] with %s "+
+		"(idempotent; safe to re-run).", SharedRootDefault(), SandboxUser)
+	if deps.RunBash(FixPermissionsScript(SharedRootDefault(), "")) != 0 {
+		out.print("  [yellow]Some ACL entries could not be applied; the rest were. " +
+			"Re-run `yolo macos-fix-permissions` to see which.[/yellow]")
 	} else {
-		out.print("  [green]all shared[/green]")
+		out.print("  [green]done[/green]")
 	}
 
 	// 2. Readiness checks — report each; neither fatal to setup. No interpreter
@@ -141,6 +124,20 @@ func MacosSetup(deps Deps) int {
 			"[bold]yolo[/bold] to launch.\n"+
 			"[dim]sudo will prompt per run — that's expected (we don't change "+
 			"your sudo policy).[/dim]", SharedRootDefault())
+		// NAME THE RETROFIT HERE, unconditionally, whether or not anything needed
+		// it just now. macOS grants the shared ACL when a directory is CREATED, so
+		// a project MOVED or copied into the shared root later — `mv` renames
+		// rather than creates, and inherits nothing — arrives unshared, and the
+		// symptom is `permission denied` partway through a launch with no hint of
+		// its cause. This is the one moment the user is reading about how sharing
+		// works, so it is where the remedy has to be learnable; a command
+		// mentioned only in a failure is one the reader meets at their worst
+		// moment.
+		out.printf("\n[dim]If you MOVE an existing project into %s later, share it "+
+			"with [bold]yolo macos-fix-permissions <path>[/bold] (or with no path "+
+			"for all of them). Moving a directory does not re-apply the ACL the way "+
+			"creating one does. Idempotent — safe to run any time something under "+
+			"there is unexpectedly unwritable.[/dim]", SharedRootDefault())
 	}
 	return 0
 }
@@ -163,13 +160,13 @@ func MacosTeardown(deps Deps) int {
 		deps.Run(append([]string{"sudo"}, cmd...))
 	}
 	out.printf("[green]✓ Removed sandbox user '%s'.[/green]", SandboxUser)
-	// One line about what survives the account, because it is not obvious and it is
-	// what makes the next `macos-setup`'s offer legible rather than surprising: an
-	// ACL names a UUID, so the grants naming this account outlive it, inert. Not
+	// One line about what survives the account, because it is not obvious: an ACL
+	// names a UUID, so the grants naming this account outlive it and go inert. Not
 	// stripped here — a teardown is often temporary, and walking every workspace to
-	// remove grants the user may want back in an hour is the wrong default.
+	// remove grants the user may want back in an hour is the wrong default; a later
+	// `macos-setup` re-applies them for the current account anyway.
 	out.printf("[dim]ACL entries naming it remain under %s and are now inert (an ACL "+
-		"names a UUID, not a name). A later `yolo macos-setup` offers to re-share; "+
+		"names a UUID, not a name). A later `yolo macos-setup` re-applies them; "+
 		"`yolo macos-unshare <workspace>` removes them now.[/dim]", SharedRootDefault())
 	return 0
 }
