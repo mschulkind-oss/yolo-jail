@@ -103,3 +103,47 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 		t.Errorf(".zprofile missing sandbox PATH:\n%s", rc)
 	}
 }
+
+// The container MCP preset wrappers are Linux-absolute — /usr/bin/chromium,
+// `exec /bin/node`, /etc/fonts/fonts.conf — and this backend bakes no image, so on
+// macOS all three paths are absent. Generating them put three executables in the
+// sandbox home that fail the moment anything execs one.
+//
+// Open Decision #4 is resolved by SKIPPING them and saying so. This pins both
+// halves: no wrapper file appears, and a config that asked for presets is told.
+func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
+	home := t.TempDir()
+	var warnings strings.Builder
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":        home,
+		"YOLO_MCP_PRESETS": `["chrome-devtools"]`,
+	})
+	e.Stderr = &warnings
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", LoginPath: "/usr/bin:/bin"})
+
+	// The wrapper the container path writes must not exist here.
+	if _, err := os.Stat(filepath.Join(e.LocalBin(), "chrome-devtools-mcp-wrapper")); err == nil {
+		t.Error("generated the chrome-devtools wrapper on macos-user — its body execs " +
+			"/usr/bin/chromium, which this backend never provisions")
+	}
+	// And the skip must be reported: an agent told an MCP server exists, whose wrapper
+	// is silently absent, is the same lie in the other direction.
+	if !strings.Contains(warnings.String(), "mcp_presets are not delivered on macos-user") {
+		t.Errorf("skipped the wrappers without saying so:\n%s", warnings.String())
+	}
+}
+
+// No presets configured → no notice. A warning that fires when nothing was asked for
+// is the noise that trains people to skip the line that matters.
+func TestDarwinBootstrapSilentAboutMCPWhenNonePresetsAsked(t *testing.T) {
+	var warnings strings.Builder
+	e := NewEnv(map[string]string{"JAIL_HOME": t.TempDir()})
+	e.Stderr = &warnings
+
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", LoginPath: "/usr/bin:/bin"})
+
+	if strings.Contains(warnings.String(), "mcp_presets") {
+		t.Errorf("warned about mcp_presets when none were configured:\n%s", warnings.String())
+	}
+}

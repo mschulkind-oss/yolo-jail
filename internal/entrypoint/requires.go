@@ -41,7 +41,23 @@ func AssertRequiredBins(e *Env) {
 		// to add here.
 		return
 	}
+	// THE PATH A `requires` PROBE MUST SEARCH IS THE ONE THE AGENT WILL HAVE, and on
+	// macos-user that is not BootPath. BootPath is the container's shape — the two
+	// generated script dirs around $HOME/.local/bin, /bin and /usr/bin — and it has no
+	// entry for the native nix store, which is exactly where `packages:` materializes
+	// on this backend. So every tool a darwin user DECLARED was reported missing:
+	// measured 2026-09-03 on a real launch, `fzf` was in `packages:`, was built, and
+	// warned as absent. Homebrew tools miss for the same reason (/opt/homebrew/bin is
+	// not on BootPath either).
+	//
+	// YOLO_DARWIN_LOGIN_PATH is the sandbox's real PATH — SandboxPath(home, darwin
+	// store prefix), the same string the login rc files re-prepend — so it is the
+	// honest thing to search when it is set. It is set only by the macos-user
+	// launcher, so the container boot is untouched.
 	path := BootPath(e)
+	if p := e.Vars["YOLO_DARWIN_LOGIN_PATH"]; p != "" {
+		path = p
+	}
 	for _, p := range packs {
 		for _, req := range p.Decl.RequiredBins() {
 			if lookPathIn(path, req.Bin) != "" {

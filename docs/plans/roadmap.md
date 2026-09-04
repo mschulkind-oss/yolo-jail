@@ -686,6 +686,22 @@ largest reclaim available; the two repairs after that are cheap and independent.
   [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) §Self-hosting,
   **OQ-SH-1**.
 
+- 💬 **The macos-user home has one tier where it needs two, and content delivery just made it
+  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **OQ-HT-1 ·
+  OQ-HT-2 · OQ-HT-3**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine tier
+  (credentials — correct, and the point of a dedicated account), the workspace tier (pack
+  `state`, agent history) and the session tier are one directory. Two symptoms were static
+  information leakage between workspaces and were warned about. The third is new and is a
+  write-write RACE: since 2026-09-03 skills and briefings are composed and copied over that home
+  on every entry, so a second workspace launching while the first runs replaces its briefing —
+  per-project prose an agent is mid-session reading. The proposal is the two-tier structure the
+  container backends already have, in the one account this backend has: a per-workspace home
+  under `/Users/_yolojail/workspaces/<cname>`, with credentials reached by the symlinks
+  `shared_credentials` already uses. **The trap is that a naive split repairs the workspace tier
+  by breaking the machine one** — the single home IS the credential-sharing mechanism here — so
+  the fix must restore both explicitly, and OQ-HT-2 asks what happens to the credentials already
+  sitting in the old layout.
+
 - 🔒 **On a Mac — three things need the hardware, and the first is a config rename.** *(The
   headline used to announce what had LEFT this row, which tells a reader nothing about what is in
   it. For the record: the two lib-farm assertions were never darwin assertions — they failed

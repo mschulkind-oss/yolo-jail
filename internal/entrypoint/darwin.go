@@ -56,7 +56,26 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 	AssertRequiredBins(e)
 	genStep(e, "generate_bashrc", func() error { return GenerateBashrc(e) })
 	genStep(e, "generate_mise_config", func() error { return ConfigureMisePrism(e) })
-	genStep(e, "generate_mcp_wrappers", func() error { return GenerateMCPWrappers(e) })
+	// NO MCP WRAPPERS HERE (Open Decision #4, resolved 2026-09-03 in favour of the
+	// option the plan recommended: skip and say so).
+	//
+	// Their bodies are Linux-absolute — /usr/bin/chromium (mcp_wrappers.go),
+	// `exec /bin/node`, /etc/fonts/fonts.conf — with no GOOS guard, and this backend
+	// bakes no image, so on macOS all three paths are simply absent (verified on
+	// macOS 26.5). Generating them anyway put three executables in the sandbox home
+	// that fail the moment anything execs one, and "harmless until something execs
+	// one" stopped being true the day mcp_presets reached a real Mac config.
+	//
+	// SKIPPED, NOT PORTED. A darwin variant would have to find Chrome, node and a
+	// fontconfig on a machine yolo did not provision, and guess wrong on most of
+	// them. An absent wrapper that says so beats a present one that lies — the same
+	// ruling `workspace_readonly` got on this backend (d0961f2c).
+	if len(e.LoadMCPPresetNames()) > 0 {
+		e.warn("mcp_presets are not delivered on macos-user: the preset wrappers hardcode " +
+			"Linux paths (/usr/bin/chromium, /bin/node, /etc/fonts) that this backend does " +
+			"not provision. Configure the MCP server directly in `mcp_servers` if you need " +
+			"it here.")
+	}
 	configureGit(e)
 	jailPacks, packErr := LoadJailPacks(e)
 	if packErr != nil {

@@ -1050,6 +1050,14 @@ tree today": read the daggers.* Verified 2026-08-23.
    something execs one**, which is why it has not surfaced; the decision is now
    *"skip, or port, or leave the dead wrappers and say so"* rather than the
    two-way choice recorded in 2026-07.
+   **RESOLVED 2026-09-03 — SKIP AND SAY SO**, which is what this plan's own J2 step 2
+   recommended in the first place. `GenerateMCPWrappers` no longer runs in the darwin
+   bootstrap, and a config that declares `mcp_presets` is told they are not delivered
+   here and pointed at `mcp_servers`. Porting was rejected: a darwin variant would have
+   to locate Chrome, node and a fontconfig on a machine yolo did not provision and would
+   guess wrong on most of them — an absent wrapper that says so beats a present one that
+   lies, the same ruling `workspace_readonly` got on this backend (`d0961f2c`). Verified
+   on macOS 26.5, where all three hardcoded paths are absent.
 5. **Darwin-unavailable packages: warn-and-skip vs aggregated error** (see
    §0) — the written decision says error + per-platform `packages` overrides;
    the shipped code warn-and-skips and the overrides were never built.

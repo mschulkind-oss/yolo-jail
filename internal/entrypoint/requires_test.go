@@ -139,3 +139,55 @@ func TestAssertRequiredBinsIgnoresANonExecutable(t *testing.T) {
 		t.Errorf("a non-executable file must not satisfy a requirement:\n%s", warnings.String())
 	}
 }
+
+// On macos-user the PATH the agent gets is NOT BootPath: `packages:` materializes into
+// the native nix store, which BootPath has no entry for. Searching BootPath there
+// reported every declared tool missing — measured 2026-09-03 on a real launch, where
+// `fzf` was in `packages:`, was built, and warned as absent. Homebrew tools miss for the
+// same reason (/opt/homebrew/bin is not on BootPath either).
+//
+// $YOLO_DARWIN_LOGIN_PATH is the sandbox's real PATH and is set only by the macos-user
+// launcher, so this takes effect there and nowhere else. The binary here lives ONLY on
+// that path — never on BootPath — so a warning proves the probe consulted the wrong one.
+func TestAssertRequiredBinsSearchesTheDarwinLoginPath(t *testing.T) {
+	home := t.TempDir()
+	packRoot := writeRequiresPack(t, "", "fzf-probe")
+
+	storeBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(storeBin, "fzf-probe"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var warnings strings.Builder
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":              home,
+		"YOLO_PACK_ROOT":         packRoot,
+		"YOLO_DARWIN_LOGIN_PATH": storeBin,
+	})
+	e.Stderr = &warnings
+	AssertRequiredBins(e)
+
+	if strings.Contains(warnings.String(), "fzf-probe") {
+		t.Errorf("warned about a tool that IS on the sandbox PATH:\n%s", warnings.String())
+	}
+}
+
+// The converse, or the override above would mask a genuinely missing binary: a tool on
+// neither path must still be reported by name.
+func TestAssertRequiredBinsStillWarnsWhenAbsentFromBothPaths(t *testing.T) {
+	home := t.TempDir()
+	packRoot := writeRequiresPack(t, "", "definitely-not-installed")
+
+	var warnings strings.Builder
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":              home,
+		"YOLO_PACK_ROOT":         packRoot,
+		"YOLO_DARWIN_LOGIN_PATH": t.TempDir(),
+	})
+	e.Stderr = &warnings
+	AssertRequiredBins(e)
+
+	if !strings.Contains(warnings.String(), "definitely-not-installed") {
+		t.Errorf("an absent required binary was not reported:\n%s", warnings.String())
+	}
+}
