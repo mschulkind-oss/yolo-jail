@@ -218,41 +218,58 @@ covered (pi, copilot, codex, opencode) are all in that class.
 
 **RULED ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger), 2026-09-03). Not built.**
 
-- **Trigger:** every jail launch, on the **boot path**, before any agent starts — one update attempt
-  per selected pack that declares a `program`. Not the lazy launcher: that lives at the end of
-  `PATH` and is shadowed by the real binary the moment the first install lands, which is why the
-  hourly poll it hosts has never fired in steady state ([OQ-PD8](#decision-ledger), re-measured
-  2026-09-03 at six weeks across four agents).
-- **Attach is not a launch.** `yolo` attaching to a running jail does not re-run the boot path and
-  therefore does not update. The boundary is the container's lifetime, not the command.
-- **Cold start is the same act.** A program that is absent is installed; a program that is present
-  is updated. One code path, so a fresh workspace and a six-week-old one converge on the same
-  version.
-- **The update verb is the pack's to declare** ([OQ-PD14](#decision-ledger)). Every vendor spells it
-  differently — `claude install`, `pi update --self`, `codex update` — so core cannot hardcode one.
-  A `program` contribution that declares no verb is updated by re-running its installer or its
-  `npm install -g`, whichever its `via` names.
-- **Failure is FATAL, by ruling.** A launch that cannot reach the network refuses, rather than
-  starting a jail whose agents are silently stale. This is a deliberate departure from
-  [§5.4](#54-a4--regenerate-or-reconcile-every-launch)'s *"a launch must not depend on a registry
-  being reachable"*, taken on the maintainer's judgement that an offline jail launch is not a real
-  scenario.
-- **Timeout:** 60 seconds per program, after which that program's update is a failure and the launch
-  refuses under the rule above. A hung vendor updater must not hang a boot indefinitely.
-- **Escape hatch:** `YOLO_ALLOW_STALE_AGENTS=1`, forwarded from the host env, continues with
-  whatever is installed and says so loudly. Every other fatal in this system has one
-  (`YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_ALLOW_STALE_IMAGE`) for the case where the user cannot
-  repair the cause from where they are standing; a fatal with no hatch would be the first.
-- **Opt-out knob:** a config key defaulting to **on**, settable globally and per pack. Turning it off
-  freezes that program at whatever is installed — it does **not** re-enable the old hourly poll,
-  which is deleted.
-- **Forbidden:** the update must never resolve a *project* dependency, never write outside the
-  program's own install prefix, and never run for a pack the config does not select.
-- **Pre-existing state:** the first launch after this ships updates every frozen agent at once. For
-  a workspace last touched in July that is a multi-hundred-megabyte download, and it happens before
-  the agent starts.
-- **Done looks like:** a jail launched twice a week apart runs two different agent versions without
-  anyone typing an update command, with no one having run an update command in between.
+- **Trigger: the AGENT'S OWN INVOCATION, not a jail launch.** Typing `claude` reaches a generated
+  launcher, which decides whether to update, then `exec`s the real binary. A launch that starts no
+  agent updates nothing. **This is the original design of `~/.yolo/bin/launch`, restored** — not a
+  new mechanism.
+- **Throttled by a stamp, not run every time.** The launcher checks at most once per
+  `UPDATE_INTERVAL` (3600s today) per program, exactly as the npm template already does. A second
+  `claude` a minute later does no work.
+- **Cold start is the same act.** A program that is absent is installed; a present one past its
+  stamp is updated. One path, so a fresh workspace and a six-week-old one converge.
+- **The update verb is the pack's to declare** ([OQ-PD14](#decision-ledger)). Vendors disagree
+  (`claude install`, `pi update --self`, `codex update`), so core cannot hardcode one. A `program`
+  declaring no verb is refreshed by re-running its installer or `npm install -g`, per its `via`.
+- **Failure is scoped to the invocation, and is not a jail-level fatal.** Offline with the agent
+  **installed** → run what is there; the user asked to run it, not to update it. Offline with the
+  agent **absent** → that command fails, loudly, naming the network. **No jail refuses to boot over
+  this, and there is no `YOLO_ALLOW_STALE_AGENTS` escape hatch, because nothing global is being
+  killed.**
+- **Timeout:** 60 seconds for the update attempt, after which the launcher proceeds with whatever is
+  installed. A hung vendor updater must not hang the command the user actually typed.
+- **Forbidden:** never resolve a *project* dependency; never write outside the program's own install
+  prefix; never run for a pack the config does not select; **never block on the network when a
+  working binary is already present.**
+- **Pre-existing state:** the first invocation of each agent after this ships pays one update. It is
+  spread across agents and across time rather than landing in one boot.
+- **Done looks like:** `claude` run a week apart is two different versions, nobody typed an update
+  command, and a jail that never starts an agent never touches the network for one.
+
+##### Why the launcher, and what B2 changes about PATH
+
+**The launcher was always the right place; one placement decision defeated it.** It installs the
+real binary into `~/.local/bin` or `$NPM_CONFIG_PREFIX/bin` — both **ahead of**
+`~/.yolo/bin/launch` on `BootPath` — so it mediates the cold start and is unreachable forever after.
+The hourly poll it carries was never wrong; it was in a house nobody visits twice. That is the whole
+of [OQ-PD8](#decision-ledger)'s "unreachable in steady state", and it is a bug about where the
+*installed binary* lands, never an argument for moving the work to boot.
+
+**RULED 2026-09-03 (B2): the launch dir moves ahead of the install prefixes, and a launcher is
+generated only for a name the image does not already provide.** The two halves are one decision —
+the position is what makes the launcher reachable, and the generation-time check is what keeps the
+position safe.
+
+> [!IMPORTANT]
+> **This converts a structural impossibility into a handled case, and that is the honest cost.**
+> Today a pack declaring `program fzf` *cannot* shadow the image's `/bin/fzf`, because the launch dir
+> sits after `/bin` — AGENTS.md describes the failure as "unrepresentable rather than handled". Under
+> B2 the launch dir sits earlier, so the protection moves from **position** to a **check at
+> generation time**: no launcher is written for a name the image provides. Same outcome, weaker
+> guarantee — a bug in the check is now expressible, where before it was not. It needs a test that
+> fails if the check is deleted, not a test that the check works.
+>
+> The blockers keep their position regardless: `~/.yolo/bin/block` stays **first**, ahead of the
+> launch dir, so interception still wins over installation.
 
 ##### The four things an implementer would otherwise have to guess
 
@@ -280,96 +297,84 @@ build reproduces against `pyright`, and a six-week-old language server is a defe
 **not** pack `program` contributions — they arrive through the bootstrap
 (`YOLO_MCP_NPM`, `YOLO_LSP_NPM_INSTALL` in `internal/entrypoint/shell.go`), sentinel-tracked by
 `~/.yolo-installed-lsps` and uninstalled when dropped from config. So evergreen has **two**
-integration points, not one, and the second is a real piece of work rather than a line: the
-bootstrap must resolve current on each launch instead of short-circuiting on the sentinel. The
-sentinel keeps its removal job, which is orthogonal.
+integration points, not one — and **B2's mechanism does not reach the second at all**, because
+nobody types an MCP or LSP server's name. There is no launcher to mediate: the agent spawns them.
+
+> [!WARNING]
+> **This is the one place the lazy architecture leaves a gap, and it must not be papered over.**
+> The agent CLIs get evergreen from the launcher; MCP and LSP servers have no invocation yolo sees.
+> Their only yolo-visible moment is the **bootstrap**, which is a boot step — so for this half,
+> eager-at-boot is not a rejected alternative, it is the only available one. Two consequences:
+> the bootstrap must resolve current instead of short-circuiting on the sentinel, and it inherits
+> the boot-time cost B2 exists to avoid, which is acceptable only because these are small npm
+> packages rather than 250 MB agent binaries. The sentinel keeps its removal job, which is
+> orthogonal.
 
 **3. One writer per install prefix, and only one backend can contend.** On `podman` and `container`
 the prefixes (`~/.local`, `~/.npm-global`, `~/go`) are **per-workspace binds**, so two simultaneous
 launches write different directories and cannot collide. **`macos-user` is the exception**: its home
 is one persistent, machine-constant `/Users/_yolojail` shared by every workspace and every session
 (`internal/macosuser/macosuser.go:53`) — deliberately, since the single home *is* its
-shared-credentials mechanism. Two concurrent launches there would run vendor updaters against the
-same prefix.
+shared-credentials mechanism. Two agents invoked at the same moment there would run vendor updaters
+against the same prefix.
 
 > [!IMPORTANT]
 > **The contention rule, and the one thing it must not do.** Updates serialize on a lock held at the
-> install prefix. A launch that cannot take the lock **waits up to the same 60 seconds and then
-> proceeds WITHOUT updating**, reporting that another launch holds it. It must **not** be fatal:
-> two simultaneous `macos-user` launches are an ordinary thing a user does, and killing one because
-> the other got there first would turn a working setup into a race. This is the single place where
-> "a failed update refuses the launch" does not apply, and the distinction is *whose* failure it is
-> — an unreachable registry is the environment failing, a held lock is yolo already doing the work.
+> install prefix. An invocation that cannot take the lock **proceeds WITHOUT updating** and says so.
+> It must **not** wait long and must **not** fail: the user typed an agent's name, and making them
+> wait — or refusing — because another shell is mid-update would be worse than running the version
+> already on disk. Under B2 this is cheap to state because the failure is already scoped to one
+> command; the same rule under eager-at-boot would have had to argue its way out of a jail-level
+> fatal.
 
 **4. `yolo pack update` stays, with a smaller job.** It is no longer the only way an agent moves, but
 it is still the way to move one **now** — without restarting the jail — and the only way to refresh
 a pack whose `agent_updates` is `false`. Its current npm-only restriction
 (`internal/cli/packupdate.go:141` skips every non-`npm` kind) goes away with OQ-PD14's declared
-verb; it walks the same set the boot path does.
+verb; it walks the same set the launchers do.
 
 > [!NOTE]
-> **Evergreen is bounded by restart frequency, and that is intended.** The update runs on the boot
-> path and attach is not a launch, so a jail left running for a month does not move. This is the
-> right trade — swapping an agent's binary under a live session is worse than staleness — but it
-> means "evergreen" means *"current as of when this jail started"*, never *"current now"*.
-> `yolo pack update` is the escape for anyone who wants the second thing.
+> **Under B2, "evergreen" is bounded by INVOCATION, which is the bound you want.** An agent you run
+> daily is current daily; one you have not run in a month updates the next time you run it, before
+> it starts. A jail left running for weeks is no longer a problem, because the launcher mediates
+> every invocation rather than only the boot. **This is strictly better than the restart-bound
+> semantics eager-at-boot would have given**, and it is the second reason to prefer B2 after cost.
 
-##### What boot actually CALLS — the launcher, by path
+##### What runs the update — the launcher itself, and what that deletes
 
-*Added 2026-09-03. §3.5 said "move the update onto the boot path" without saying what boot invokes,
-which left the reader to imagine either a new in-jail shim or a `yolo` that sniffs its own argv.
-Neither is needed: the mechanism exists and has a caller already.*
+*This subsection replaced an earlier one that had boot invoking launchers by absolute path. That was
+written against the eager-at-boot shape and is wrong under B2: **boot invokes nothing.** The earlier
+version is preserved in git (`5930f6a5`); what follows is what survives it.*
 
-**The launchers are real files in the jail, regenerated every boot.** `~/.yolo/bin/launch/` holds
-one per declared `program` — measured in this jail: `agy`, `claude`, `codex`, `opencode`, `pi`,
-`pnpm` — written by `GenerateAgentLaunchers` (`internal/entrypoint/boot.go:439`).
+**The launcher runs the update, in its own process, when the user invokes the agent.** Nothing needs
+to reach into it. That deletes most of what eager-at-boot required:
 
-**PATH-shadowing does not make them unreachable; it only makes them unreachable BY NAME.** That
-distinction is the whole answer. `yolo pack update` already invokes them with an absolute path and
-an env var — `execLauncherUpdate` runs `exec.Command(path)` with `YOLO_PACK_UPDATE=1`
-(`internal/cli/packupdate.go:108-115`) — and boot does exactly the same thing. The launcher already
-encapsulates every per-agent difference, so **nothing has to detect anything from a command line.**
+| Eager-at-boot needed | Under B2 |
+| :--- | :--- |
+| a new boot genStep | **gone** — no boot step at all |
+| careful ordering after catalog + reconcile | **gone** — they observe at boot, the update happens later, so their "disk = last launch" premise holds by construction |
+| ordering after `GenerateCABundle` | **gone** — the launcher runs long after boot, with the bundle already in the environment |
+| a jail-level fatal and its escape hatch | **gone** — failure is scoped to one command |
 
-**Dispatch comes from the manifest, not from the directory.** `refreshNpmPrograms` walks the staged
-*packs* and reads each `program`'s declaration, precisely because the launcher dir also holds
-native-installer and package-manager launchers and *"running one of those as if it were an npm
-program would exec a tool instead of refreshing it."* It also reads `HonoredInstalls` rather than
-`InstallContributions`, so the origin gate applies to a refresh exactly as it does to an install.
+**What survives, and is still the work:**
 
-So the build is three edits to things that exist, not a new subsystem:
-
-1. **The native template has no update mode** — `nativeLauncherTemplate` only ever calls
-   `"$REAL_BIN" install` on an hourly stamp. It needs the `YOLO_PACK_UPDATE=1` branch the npm
-   template already has, running the pack's declared verb ([OQ-PD14](#decision-ledger)).
-2. **Drop the npm-only skip** (`internal/cli/packupdate.go:141`).
-3. **Lift the walk** so the boot path and `yolo pack update` call one function. Two callers, one
-   mechanism — which is also what keeps them from drifting.
-
-> [!IMPORTANT]
-> **Where the step goes is constrained three ways, and two of them are easy to get wrong.**
->
-> 1. **After the launchers are generated** (`boot.go:439-441`) — obvious, and the only one that is.
-> 2. **After `CatalogInstalledOrphans` and `ReconcileInstalledPrograms`** (`boot.go:456`, `:470`).
->    Both are *observations whose premise is that the disk reflects the PREVIOUS launch* — the
->    catalog's own comment says it runs early because *"what is on disk now is what the LAST launch
->    installed, which is the only state in which 'undeclared' means anything."* An update placed
->    ahead of them would have the reconcile comparing receipts against bytes the same boot just
->    wrote, so it could never report drift again. The reconcile exists to catch vendor
->    self-updates; running our update first would silently retire it. **Observe, report, then act.**
-> 3. **After `GenerateCABundle`** (`boot.go:474-483`), which is deliberately placed *"BEFORE bashrc
->    and before any child spawn, so the env vars we export propagate to every child the entrypoint
->    spawns."* The update spawns `curl` and `npm` children; before this step they have no CA
->    bundle, and an evergreen update that cannot verify TLS is a fatal on every launch.
->
-> That puts the step immediately after the CA bundle and before `generate_bashrc`.
+1. **The native template has no update mode.** `nativeLauncherTemplate` only calls
+   `"$REAL_BIN" install` on an hourly stamp — no `--force`, no target, so it is a **no-op when
+   already installed**. It needs a real update branch running the declared verb.
+2. **PATH order changes**, and the generation-time collision check comes with it (above).
+3. **`yolo pack update` keeps a smaller job** and stops being npm-only
+   (`internal/cli/packupdate.go:141`). It already invokes launchers by absolute path with
+   `YOLO_PACK_UPDATE=1` (`internal/cli/packupdate.go:108-115`) and already dispatches off the
+   **manifest** rather than the directory listing — reading `HonoredInstalls`, so the origin gate
+   applies to a refresh as it does to an install. That machinery is correct and stays; only its
+   `via`-filter goes.
 
 > [!NOTE]
-> **Vocabulary, because the two dirs blur and both come out of `shims.go`.** In this tree a **shim**
-> is a *blocker* — `~/.yolo/bin/block/{grep,find}`, generated by `GenerateShims`, **first** on PATH
-> because interception is its job. A **launcher** is a *lazy installer* — `~/.yolo/bin/launch/*`,
-> generated by `GenerateAgentLaunchers`, **last** on PATH so it is reached only when nothing else
-> provides the name. Evergreen needs the launcher. No new shim is required, and adding one would put
-> an installer in the interception position, which the PATH split exists to prevent.
+> **Vocabulary, because the two dirs blur and both come out of `shims.go`.** A **shim** is a
+> *blocker* — `~/.yolo/bin/block/{grep,find}`, generated by `GenerateShims`, **first** on PATH
+> because interception is its job. A **launcher** is the lazy installer/updater —
+> `~/.yolo/bin/launch/*`, generated by `GenerateAgentLaunchers`. B2 moves the launch dir earlier but
+> never ahead of the blockers.
 
 ##### Per-agent facts, verified 2026-09-03
 
@@ -817,12 +822,13 @@ cleared and re-staged.
 > ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
 > [OQ-PD12](#decision-ledger)).
 >
-> Both objections were answered rather than waved away. *"A launch must not depend on a registry
-> being reachable"* — ruled the other way on the maintainer's judgement that an offline jail launch
-> is not a real scenario, with `YOLO_ALLOW_STALE_AGENTS=1` for the case where it is. *"An install is
-> not free"* — accepted as a real cost and priced twice: boot latency, bounded by a 60-second
-> per-program timeout, and disk, which is [OQ-PD15](#decision-ledger)
-> and the one thing that could still change the sequencing.
+> **Both objections turned out to be answerable without contradicting either.** *"A launch must not
+> depend on a registry being reachable"* — **it does not.** Under B2 ([OQ-PD12a](#decision-ledger))
+> the update happens when the user invokes the agent, so a launch that starts no agent touches no
+> registry, and an offline invocation of an installed agent just runs it. *"An install is not free"*
+> — it is not, so it is paid by whoever asked for it rather than by every boot. An earlier ruling
+> the same day put the update on the boot path and had to buy its way past both objections with a
+> jail-level fatal and an escape hatch; the lazy shape simply does not incur them.
 >
 > **Reconcile is untouched and still the answer for project dependencies** — it stays offline, it
 > still only reports, and it did not move.
@@ -1250,10 +1256,12 @@ ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's 
 ([OQ-PD15](#decision-ledger)) — make agent dependencies evergreen**
 ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
 [OQ-PD12](#decision-ledger)–[OQ-PD14](#decision-ledger)). Four parts, and only the first is
-mechanically interesting: move the update off the shadowed launcher onto the boot path; add the
+mechanically interesting: **un-shadow the launcher** — move the launch dir ahead of the install
+prefixes and add the generation-time collision check ([OQ-PD12a](#decision-ledger)); add the
 pack-declared update verb; flip the agent CLIs that have a native installer off npm
-([OQ-PD13](#decision-ledger)); delete the hourly poll and the `"$REAL_BIN" install` no-op. The
-opt-out knob and the fatal come with it.
+([OQ-PD13](#decision-ledger)); give the native template a real update branch, replacing the
+`"$REAL_BIN" install` no-op. The `agent_updates` knob comes with it. **The MCP/LSP half is separate
+and is a boot step**, since nobody invokes those by name (§3.5).
 
 > [!NOTE]
 > **This step is deliberately LAST, and the ordering was ruled rather than inherited.** Nothing
@@ -1285,7 +1293,8 @@ which was the point.
 | OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | §5.6, §6.3 |
 | OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Resequenced 2026-09-03 by OQ-PD15: capture now ships BEFORE evergreen**, not last — evergreen multiplies exactly the disk cost capture removes. | 2026-08-24 | §6.3, §10 |
 | **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the §6.1 tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
-| **OQ-PD12** | **Agent dependencies are EVERGREEN.** The native update runs on the boot path at every launch, default on, per-pack and global opt-out; **a failed update is FATAL** (offline is judged not a real scenario), 60s per-program timeout, `YOLO_ALLOW_STALE_AGENTS=1` as the hatch. The hourly launcher poll is deleted, not disabled. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), §5.4 |
+| **OQ-PD12** | **Agent dependencies are EVERGREEN, updated LAZILY at the agent's own invocation** (revised the same day — see the row below). The launcher checks at most once per `UPDATE_INTERVAL` per program, then `exec`s; `agent_updates` (user-scope, per-pack or global) opts out; failure is scoped to the command, never to the jail. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), §5.4 |
+| **OQ-PD12a** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. **All four npm packs have one, verified 2026-09-03** (§3.5's table). | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD15** | **Capture FIRST — build the complete version and sequence toward it.** Evergreen lands on a machine-wide content-addressed store rather than per-workspace binds, so the disk cost is paid once. The prune stopgap is deleted, not deferred: under capture there is nothing to prune. Sooner was never the goal | 2026-09-03 | [§10](#10-what-i-would-build-in-order), §6.3 |
