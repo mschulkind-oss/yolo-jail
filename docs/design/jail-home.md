@@ -134,7 +134,7 @@ by `prepareWsState`, internal/cli/run/prepare.go:131-173); `GLOBAL_HOME` =
 | `ws/yolo-venv-precreate.sh` | `/home/agent/.yolo-venv-precreate.sh` | rw | (:50) |
 | `ws/yolo-perf.log` | `/home/agent/.yolo-perf.log` | rw | (:51) |
 | `ws/yolo-socat.log` | `/home/agent/.yolo-socat.log` | rw | (:52) |
-| `ws/yolo-entrypoint.lock` | `/home/agent/.yolo-entrypoint.lock` | rw | (:53) |
+| `ws/yolo-entrypoint.lock` | `/home/agent/.yolo-entrypoint.lock` | rw | **vestige — nothing `flock`s it** (:53; [storage-and-config.md §3](storage-and-config.md#3-per-workspace-state-yolo)) |
 | `ws/yolo-ca-bundle.crt` | `/home/agent/.yolo-ca-bundle.crt` | rw | (:54) |
 | `ws/yolo-installed-lsps` | `/home/agent/.yolo-installed-lsps` | rw | (:55) |
 | `ws/bash_history` | `/home/agent/.bash_history` | rw | (:56) |

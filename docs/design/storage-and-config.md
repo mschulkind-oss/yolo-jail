@@ -160,14 +160,38 @@ mounted per-workspace overlays or shared mounts:
 | `agents/<name>/AGENTS.md` | Per container | Regenerated each run | Read-only (in jail) |
 | `/tmp`, `/var/tmp` | Per container | tmpfs (ephemeral) | Writable |
 
-No cross-jail interference: each jail writes to its own per-workspace
-dirs under `<workspace>/.yolo/home/`. Concurrent startup is safe
-because jails don't share writable paths.
+No cross-jail interference **on the per-workspace tier**: a jail's install prefix
+(`~/.local`, `~/.npm-global`, `~/go`), its overlays and its generated script dirs are all
+backed by `<workspace>/.yolo/home/`, so two jails on different workspaces write different
+directories and cannot collide. **That guarantee is a consequence of the per-workspace
+split, not of a lock** — nothing serializes writes to a path two jails do share.
+
+And three tiers above are shared and writable, so *"jails don't share writable paths"* —
+which this paragraph asserted until 2026-09-04 — is false as a general statement:
+
+- `cache/`, mounted at `~/.cache` (`assemble_parts.go:120`);
+- `mise/`, mounted at `/mise` (`assemble_parts.go:156-161`);
+- every pack `state` contribution declared `scope: "machine"`, mounted from `home/`
+  rather than from the workspace (`assemble.go:298-300`) — today
+  `~/.claude-shared-credentials` and `~/.gemini-shared-credentials`, from
+  `packs/claude/pack.json` and `packs/agy/pack.json`.
+
+The first two are the shared caches the table above names. The credential dirs are not
+caches: the Claude one is precisely what the `claude-oauth-broker` loophole's host-side
+`flock` exists to serialize, because two jails refreshing at once burn a single-use
+refresh token (`internal/oauthbroker/refresh.go`).
 
 The host CLI guards against races on global storage:
 - **image build:** the flake builds in place (`cmd.Dir = repoRoot`, no
   staging dir); Nix's own store handles concurrent builds atomically
 - **run-result link:** per-PID unique path prevents cross-build deletion
+- **two launches of ONE workspace:** an exclusive `flock` on
+  `~/.local/share/yolo-jail/locks/<container-name>.lock`, taken before a fresh launch
+  (`internal/cli/run/flock.go`, acquired at `run.go:654`) and released once the container
+  is visible, so the loser attaches instead of racing. The container name derives from the
+  workspace path (`runtime.FromWorkspace`), so this lock is **per workspace** and says
+  nothing about two different workspaces writing the shared tier above.
+  `~/.yolo-entrypoint.lock` is **not** this lock — see [§3](#3-per-workspace-state-yolo).
 
 ---
 
@@ -190,7 +214,7 @@ Each workspace has a `.yolo/` directory (gitignored) for isolated state:
 │   ├── yolo-venv-precreate.sh    → /home/agent/.yolo-venv-precreate.sh
 │   ├── yolo-perf.log             → /home/agent/.yolo-perf.log
 │   ├── yolo-socat.log            → /home/agent/.yolo-socat.log
-│   ├── yolo-entrypoint.lock      → /home/agent/.yolo-entrypoint.lock
+│   ├── yolo-entrypoint.lock      → /home/agent/.yolo-entrypoint.lock (VESTIGE — see below)
 │   ├── claude.json               → /home/agent/.claude.json
 │   ├── copilot-sessions/         → /home/agent/.copilot/session-state
 │   ├── copilot-command-history   → /home/agent/.copilot/command-history-state.json
@@ -212,6 +236,32 @@ These are mounted as **writable overlays** on top of the read-only global home.
 Each workspace gets its own copy of installed tools, generated configs, and
 history — no cross-jail interference. First boot for a new workspace installs
 tools into empty overlay dirs; subsequent boots reuse cached installs.
+
+> [!WARNING]
+> **`yolo-entrypoint.lock` is a VESTIGE — its name is the only thing that claims a lock.**
+> It is created (`prepare.go:357`), mounted at `~/.yolo-entrypoint.lock`
+> (`assemble_parts.go:138`) and reserved against a user's `writable_home_dirs`
+> (`internal/storage/ensure.go:32`, `internal/config/writablehome.go:73`), and **nothing in
+> Go ever `flock`s it** — the only readers of the path are those four sites and one
+> golden-argv assertion.
+>
+> It is the residue of a real guard in the Python CLI (`c007b09b`, 2026-04-05,
+> *"rmtree+recreate races caused FileNotFoundError"*), which worked because
+> `/home/agent` was then **shared and writable** and every jail's entrypoint regenerated
+> into it — so a lock in `$HOME` was machine-wide. Both premises are gone: `/home/agent` is
+> mounted `:ro`, generation targets the per-workspace overlays above, and this file is
+> itself one of those overlays, so even `flock`ed it could not serialize two workspaces.
+>
+> **It is not the launch lock.** That one is real, host-side, and lives at
+> `~/.local/share/yolo-jail/locks/<container-name>.lock` — see
+> [§2](#isolation-model). The one race left at this file's per-workspace scope is a
+> *same-workspace* one, and it is filed with an open ruling rather than fixed here:
+> [roadmap 💬 11](../plans/roadmap.md#-11--one-that-is-nobody-elses-question) — `GenerateShims`
+> and `GenerateAgentLaunchers` wipe-then-repopulate `~/.yolo/bin/{block,launch}`, and the
+> host lock releases when podman
+> reports the container running, not when provisioning is done, so a second launch's
+> entrypoint can empty the blocker dir mid-populate. Deleting this file is the right end
+> state only once that ruling says the serialization is not being built.
 
 ---
 
@@ -242,7 +292,7 @@ All writable paths are explicitly mounted:
   ├── .yolo-venv-precreate.sh ← PER-WORKSPACE file overlay
   ├── .yolo-perf.log         ← PER-WORKSPACE file overlay
   ├── .yolo-socat.log        ← PER-WORKSPACE file overlay
-  ├── .yolo-entrypoint.lock  ← PER-WORKSPACE file overlay
+  ├── .yolo-entrypoint.lock  ← PER-WORKSPACE file overlay (VESTIGE — nothing flocks it)
   ├── .claude.json           ← PER-WORKSPACE file overlay
   ├── .claude/
   │   ├── projects/          ← PER-WORKSPACE overlay
