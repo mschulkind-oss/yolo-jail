@@ -82,16 +82,11 @@ func runDarwinBootstrap(_ []string) int {
 	os.Setenv("JAIL_HOME", home)
 	os.Setenv("HOME", home)
 
-	e := entrypoint.EnvFromOS()
+	// The env→Env translation lives in ONE place (entrypoint.DarwinEnvFrom) so a test
+	// can exercise the real thing rather than assembling an Env by hand — which was a
+	// second implementation of this contract, and drifted on its first outing.
+	e := entrypoint.DarwinEnvFrom(envMap(os.Environ()), home)
 	e.Stderr = os.Stderr
-	e.Home = home
-	// Native platform values (J2 §1 seams): real workspace, macOS shim bin,
-	// BSD stat.
-	if ws := os.Getenv("YOLO_DARWIN_WORKSPACE"); ws != "" {
-		e.Workspace = ws
-	}
-	e.ShimBinDir = "/usr/bin"
-	e.GNUStat = false
 
 	opts := entrypoint.DarwinBootstrapOptions{
 		MacosLog:      os.Getenv("YOLO_DARWIN_MACOS_LOG"),
@@ -247,6 +242,18 @@ func strAny(ss []string) []any {
 	out := make([]any, len(ss))
 	for i, s := range ss {
 		out[i] = s
+	}
+	return out
+}
+
+// envMap turns os.Environ()'s KEY=VALUE slice into the map the entrypoint Env
+// constructors take.
+func envMap(environ []string) map[string]string {
+	out := make(map[string]string, len(environ))
+	for _, kv := range environ {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			out[k] = v
+		}
 	}
 	return out
 }

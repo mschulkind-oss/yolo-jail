@@ -726,6 +726,15 @@ largest reclaim available; the two repairs after that are cheap and independent.
   the fix must restore both explicitly, and OQ-HT-2 asks what happens to the credentials already
   sitting in the old layout.
 
+- 🔒 **Four manual checks are all that is left on a Mac, and they are written down.** 📄
+  [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md). Everything that
+  could be automated was, on 2026-09-04: two darwin-gated harnesses run on any Mac with NO
+  privilege and cover the generated home, a blocker actually refusing, the composed overlay
+  landing and replacing a removed pack's subtree, the staging commands really executing, the mode
+  bits, and the J2 fresh-inode rule. What is left needs root or a kernel — the privilege
+  transition, Seatbelt actually loading, the `packages:` acceptance bar, and content reaching the
+  agent — and it is four commands, not a project.
+
 - 🔒 **On a Mac — three things need the hardware, and the first is a config rename.** *(The
   headline used to announce what had LEFT this row, which tells a reader nothing about what is in
   it. For the record: the two lib-farm assertions were never darwin assertions — they failed

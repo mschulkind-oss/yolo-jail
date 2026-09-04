@@ -37,6 +37,33 @@ type DarwinBootstrapOptions struct {
 	YoloLogScript string
 }
 
+// DarwinEnvFrom builds the bootstrap Env from the launcher's env-var contract, and
+// is the ONE place that translation lives.
+//
+// It exists because the translation is not mechanical — three of these are darwin
+// rebindings the container boot does not make (the real workspace instead of the
+// literal /workspace, /usr/bin instead of /bin for shim realbins, BSD stat instead of
+// GNU) — and a caller that assembled an Env by hand would be a second implementation
+// of that contract, free to drift. It was one, briefly: the first darwin harness
+// built its own Env, left Workspace at the container default, and every generator
+// writing a workspace sidecar failed on `mkdir /workspace: read-only file system`.
+//
+// `lookup` is the environment reader (os.Getenv in production), passed so a test can
+// exercise the real translation on a synthetic environment rather than reimplementing
+// it.
+func DarwinEnvFrom(vars map[string]string, home string) *Env {
+	e := NewEnv(vars)
+	e.Home = home
+	// Native platform values (J2 §1 seams): the real workspace, the macOS shim bin,
+	// and BSD stat.
+	if ws := vars["YOLO_DARWIN_WORKSPACE"]; ws != "" {
+		e.Workspace = ws
+	}
+	e.ShimBinDir = "/usr/bin"
+	e.GNUStat = false
+	return e
+}
+
 // RunDarwinBootstrap generates the sandbox user's jail config natively: the same
 // shims/launchers/bashrc/mise/MCP/identity/per-agent writers the container runs,
 // plus the two macOS-only pieces (yolo-log helper, login-rc PATH re-prepend).
