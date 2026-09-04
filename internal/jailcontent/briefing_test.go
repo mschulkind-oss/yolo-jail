@@ -235,3 +235,45 @@ func index(s, sub string) int {
 	}
 	return -1
 }
+
+// THE JAIL NOTCH WITHOUT A CONTAINER. macos-user runs at `confinement: jail` — the
+// notch dial is a separate axis from the runtime — but there is no container in it.
+// The header claimed "a sandboxed container" there until 2026-09-04, which is the
+// same dangerous falsehood the default branch was rewritten to avoid, arriving
+// through the one branch still allowed to assert it.
+//
+// Caught by running the manual verification checklist on a real Mac, not by a test:
+// the briefing was delivered correctly and said something false.
+func TestJailBriefingDoesNotClaimAContainerWhenThereIsNone(t *testing.T) {
+	got := BriefingContent(BriefingInput{
+		Workspace:   "/Users/Shared/yolo/proj",
+		Confinement: "jail",
+		NoContainer: true,
+	})
+
+	if strings.Contains(got, "sandboxed container") {
+		t.Errorf("claimed a container on a backend that has none:\n%s", got)
+	}
+	// An agent told it is in a disposable container reasons about its home as
+	// throwaway. Here it is neither disposable nor exclusively its own, and both
+	// halves have to be said.
+	for _, want := range []string{"Seatbelt", "PERSISTS", "shares it"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the header does not say %q — an agent would still assume a "+
+				"disposable home:\n%s", want, got)
+		}
+	}
+}
+
+// The container case is UNCHANGED: every other backend still gets the historical
+// header, byte for byte, because that is what the goldens and every existing jail
+// expect.
+func TestJailBriefingStillClaimsAContainerWhenThereIsOne(t *testing.T) {
+	got := BriefingContent(BriefingInput{
+		Workspace:   "/workspace",
+		Confinement: "jail",
+	})
+	if !strings.Contains(got, "You are running inside a YOLO Jail — a sandboxed container.") {
+		t.Errorf("the container header changed for container backends:\n%s", got)
+	}
+}

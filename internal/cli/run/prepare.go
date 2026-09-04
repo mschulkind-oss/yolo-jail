@@ -146,7 +146,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		IsYoloSourceTree:   isSrc,
 		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
 		Confinement:        string(config.ResolveConfinement(cfg)),
-		Handoff:            handoff,
+		// The backend, not the notch: macos-user confines with Seatbelt around a real
+		// account and has no container at all, so the jail-notch header must not claim
+		// one. Read from `rt` rather than from the config, for the same reason the
+		// network and resource fields are: this describes what the launch APPLIES.
+		NoContainer: rt == "macos-user",
+		Handoff:     handoff,
 	}
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))

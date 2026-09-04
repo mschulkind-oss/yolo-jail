@@ -33,10 +33,17 @@ and after it is covered by the harnesses above.
 ## 2. Seatbelt is actually applied
 
 ```console
-$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'ls ~/.ssh; ls /Library/Keychains'
+$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'ls /Users/$(logname)/.ssh; ls /Library/Keychains'
 ```
 
 **Expect:** `Operation not permitted` for both.
+
+> [!WARNING]
+> **Not `~/.ssh`.** Inside the jail `~` is the SANDBOX's home, which has no `.ssh`,
+> so that spelling returns "No such file or directory" — which proves nothing and
+> looks like a pass. The check has to name the HOST user's path explicitly, because
+> the thing being tested is that the sandbox cannot read a home that is not its own.
+> This runbook said `~/.ssh` on its first outing and got exactly that non-answer.
 
 The profile is generated as a pure string and pinned by unit tests; what no test can
 check is that the kernel loaded it. A jail that looks right and confines nothing is
@@ -44,13 +51,26 @@ the failure this catches, and it is silent otherwise.
 
 ## 3. The acceptance bar — `packages:` reaches the agent
 
-With something in `packages:` (say `jq`):
+**Name a package your own config actually declares.** Check first:
 
 ```console
-$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'which jq'
+$ yolo config-dump 2>/dev/null | grep -A5 '"packages"'
 ```
 
-**Expect:** a `/nix/store/…` path, not `/usr/bin/jq` or "not found".
+then ask for one of those:
+
+```console
+$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'which just'   # or any declared package
+```
+
+**Expect:** a `/nix/store/…` path.
+
+> [!WARNING]
+> **A tool macOS already ships proves nothing here.** `which jq` returning
+> `/usr/bin/jq` is not a failure of the acceptance bar — it means `jq` was never in
+> `packages:` and the system copy answered. This runbook suggested `jq` on its first
+> outing and got that non-answer. Use a package the config declares, or the check
+> cannot distinguish "nix delivered it" from "macOS already had it".
 
 This is the backend's founding requirement — it honors `packages:` via native nix or
 it does not ship. It exercises the whole native chain in one command: the build, the

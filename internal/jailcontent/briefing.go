@@ -78,6 +78,15 @@ type BriefingInput struct {
 	// host agent something dangerously false.
 	Confinement string
 
+	// NoContainer is true when the backend running this jail has no container around
+	// it — macos-user today, and every notch below `jail` when they land.
+	//
+	// It is a separate input from Confinement because they are separate axes: the
+	// notch dial says how much the environment is restricted, and this says by WHAT.
+	// macos-user runs at `confinement: jail` with no container in it, and the header
+	// that pairing produced claimed a container that does not exist.
+	NoContainer bool
+
 	// Handoff is the content of a fresh .yolo/handover.md pointer, read by the run
 	// pipeline at launch. Empty in the common case, where the task comes from the user.
 	// When non-empty it is rendered as a prominent Handoff section near the top — the
@@ -119,7 +128,7 @@ type BriefingInput struct {
 // ones whose prose was thin and whose enforcement is genuinely ambiguous — so
 // enforcementLines is appended on the guest/host/unknown paths only, and the jail branch
 // returns its historical literal.
-func confinementHeader(confinement string) []string {
+func confinementHeader(confinement string, noContainer bool) []string {
 	notch, known := render.KindForNotch(confinement)
 	if confinement == "" {
 		// Empty means the default, which is jail — the historical behavior, preserved so a
@@ -145,6 +154,27 @@ func confinementHeader(confinement string) []string {
 			"You are running at the **guest** confinement level: a restricted account on the",
 			"real machine, NOT a disposable container.",
 			"Your home is real and persists; there is no image and no jail to restart.",
+		}, enforcementLines(prof)...)
+	case known && notch == render.KindJail && noContainer:
+		// THE JAIL NOTCH WITHOUT A CONTAINER. macos-user runs at `confinement: jail`
+		// — the notch dial is a separate axis from the runtime, and `guest` is not
+		// wired yet — but there is no container anywhere in it: the boundary is a
+		// Seatbelt profile around a real account whose home persists and is shared by
+		// every workspace on the machine.
+		//
+		// The header below said "a sandboxed container" there until 2026-09-04, which
+		// is the same dangerous falsehood the default branch was rewritten to avoid,
+		// arriving through the one branch that was allowed to keep asserting it. An
+		// agent told it is in a disposable container reasons about its home as
+		// throwaway; here it is neither disposable nor its own.
+		return append([]string{
+			"# YOLO Environment — jail (native, no container)",
+			"",
+			"You are confined by a Seatbelt sandbox on the human's REAL machine, not by a",
+			"container. There is no image and no jail to restart.",
+			"Your home is a real account's home, it PERSISTS between launches, and every",
+			"workspace on this machine shares it — so state you write there is not yours alone.",
+			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
 		}, enforcementLines(prof)...)
 	case known && notch == render.KindJail:
 		// Byte-identical to the historical briefing — see the doc comment.
@@ -304,7 +334,7 @@ func BriefingContent(in BriefingInput) string {
 		}
 	}
 
-	lines := append([]string{}, confinementHeader(in.Confinement)...)
+	lines := append([]string{}, confinementHeader(in.Confinement, in.NoContainer)...)
 	lines = append(lines, provisioningFailed...)
 	// The handoff, if one was handed over for this launch: a one-time transition task,
 	// surfaced once (the run pipeline consumes the pointer once this briefing is written,
