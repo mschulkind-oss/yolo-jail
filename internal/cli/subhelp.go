@@ -73,6 +73,7 @@ var subcommandUsage = map[string]subUsage{
 	// than as a profile named "--help".
 	"host":       {text: hostUsage, valueFlags: []string{"-p", "--profile", "--format", "--agent"}},
 	"capture":    {text: captureUsage},
+	"programs":   {text: programsUsage},
 	"describe":   {text: describeUsage},
 	"check-deps": {text: checkDepsUsage},
 	// Answered via answerHelp, at the top of each handler.

@@ -134,10 +134,10 @@ func autopruneOrphans(e *Env, orphans []Orphan) {
 	}
 	plan := PlanOrphanRemovals(e, orphans)
 	e.warn(autoprunePrefix + "programs.autoprune is ON — removing " +
-		countWord(len(plan), "orphan") + " (" + renderSize(planBytes(plan)) + ")")
+		countWord(len(plan), "orphan") + " (" + RenderSize(planBytes(plan)) + ")")
 	for _, r := range plan {
 		e.warn(autoprunePrefix + "removing " + r.Orphan.Display + " (" +
-			renderSize(r.Bytes) + "): " + strings.Join(r.Paths, " "))
+			RenderSize(r.Bytes) + "): " + strings.Join(r.Paths, " "))
 	}
 	for _, r := range ApplyOrphanRemovals(plan) {
 		if r.Err != nil {

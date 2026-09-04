@@ -414,14 +414,16 @@ func catalogSize(path string) string {
 	if err != nil || !fi.Mode().IsRegular() {
 		return ""
 	}
-	return " (" + renderSize(fi.Size()) + ")"
+	return " (" + RenderSize(fi.Size()) + ")"
 }
 
-// renderSize is the scale itself, split out of catalogSize for the removal act, which
+// RenderSize is the scale itself, split out of catalogSize for the removal act, which
 // measures DIRECTORIES (catalogSize deliberately does not) and prints the number in a
 // sentence rather than in parentheses after a path. One ladder, so a 181 MB orphan reads the
-// same in the catalog line and in the line that says it was deleted.
-func renderSize(n int64) string {
+// same in the boot catalog line, in the line that says it was deleted, and in
+// `yolo programs ls` — which is why it is exported: the CLI renders the same numbers, and a
+// second ladder there would make the same orphan two different sizes.
+func RenderSize(n int64) string {
 	switch {
 	case n < 1024:
 		return fmt.Sprintf("%d B", n)

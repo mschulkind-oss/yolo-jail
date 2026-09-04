@@ -27,6 +27,11 @@ var commandHelp = []struct{ name, blurb string }{
 	// and a blurb promising otherwise sends people down a path that does not exist.
 	{"pack", "Add shared skills and agent config via packs: 'pack --help', 'ls', 'install'"},
 	{"capture", "Record a vendor installer's output once per machine, for reuse by every jail"},
+	// In-jail only, and the blurb says so: the programs it reports on live in a
+	// jail's per-workspace home, and on the host every one of them would read as
+	// undeclared. Listed anyway — an act a user cannot find in `yolo --help` is a
+	// dead end with extra steps, the same argument macos-fix-permissions carries.
+	{"programs", "In a jail: what is installed, what nothing declares, and remove the orphans"},
 	{"config-ref", "Print the full configuration reference"},
 	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
 	// Listed because it is the REMEDY a launch names: a workspace created before
