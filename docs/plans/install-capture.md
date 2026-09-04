@@ -20,7 +20,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | :--- | :--- |
 | `internal/treedigest/` | **new** — `treeDigest`/`treeDigestSkipping` lifted out of `internal/hostskills/compose.go:958,964` verbatim |
 | `internal/hostskills/compose.go` | call the new package; delete the local copies |
-| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_other.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader), `inner.go` (the backend-neutral driver), `gc.go` (`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`) |
+| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_other.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader), `inner.go` (the backend-neutral driver), `gc.go` (~~`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`~~ ⚠ *slice 5 drops `keep` and `olderThan` — `K = 1` and no age floor; prefer `PruneSupersededCaptures`*) |
 | `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a); **new** `GlobalStorageRel()` and `WorkspaceStateDir`/`WorkspaceHomeState`, per slice 3's corrections (a) and (b) |
 | `internal/prune/prune.go` | derive `dedupeSubtrees` from `paths.HomeSurfaces()` rather than re-typing it |
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
@@ -63,7 +63,8 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   paths, and `verb(apply, "would remove", "removed")` (`prunecmd.go:712`). Closest siblings:
   `PruneOrphanImageRoots` (`imageroots.go:38`) and `PruneHostArchive` (`hostarchive.go:80`).
 - **`prune.inode()`** (`internal/prune/inode.go:12`) — the lstat behind the `st_nlink` GC oracle.
-  ⚠ *There is no `st_nlink` GC oracle any more — see the BLOCKING CORRECTION on build-order 5.
+  ⚠ *There is no `st_nlink` GC oracle any more, and there is no replacement oracle either — GC is
+  the complement of the resolver (build-order 5, [OQ-PD17](../design/program-delivery.md#decision-ledger)).
   The helper is still the right lstat wrapper for whatever slice 5 uses instead.*
 - **`dedupeSubtrees = []string{"npm-global","local","go"}`** (was `internal/prune/prune.go:24`) is
   already the exact capture surface set. Import that spelling rather than a fourth one.
@@ -95,10 +96,12 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   surfaces through the workspace bind — the one view that shares a mount with it.*
 - **`FindYoloWorkspaces` (`internal/prune/probes.go:148`) is NOT a reference oracle.** It enumerates
   `podman ps -a`, so a workspace whose container was removed is invisible — GC keyed on it would
-  delete bytes a live workspace still uses. Use `st_nlink` instead (build order 5).
-  ⚠ *`st_nlink` is not one either — see the BLOCKING CORRECTION on build-order 5. Both halves of
+  delete bytes a live workspace still uses. ~~Use `st_nlink` instead (build order 5).~~
+  ⚠ *`st_nlink` is not one either, and build-order 5 no longer looks for one. Both halves of
   this trap are now open: the enumeration is unsafe and the link count is uninformative, so slice 5
-  starts with a reference oracle it does not have.*
+  starts with a reference oracle it does not have — so it stopped needing one: the entries a
+  reap may take are the ones `resolveCaptureFor` would never return, which is decidable from the
+  store alone.*
 - **`receiptsFile` is baked at generation time, never read from env** (`shims.go:416-446`) —
   `YOLO_WORKSPACE` is absent in a live container and macos-user execs launchers under `env -i`. The
   capture driver must bake its output path the same way.
@@ -350,42 +353,57 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    podman argv. Delete that line and the unit suite stays green; `integration/capturematerialize_test.go`
    goes red, because the jail then has no store and both workspaces download. The file comment in
    `capturesmount_test.go` says so at the site.
-5. **Remove + GC.** `st_nlink == 1` on the entry's files **is** the unreferenced oracle: a materialized
-   hardlink keeps the count above 1 from a workspace `yolo` cannot enumerate, so it is fail-safe by
-   construction, and it closes OQ-PD4's back door by construction too — dropping a pack leaves the
-   materialized tree, so the entry stays referenced and GC reclaims nothing. Compose it with the two
-   sibling idioms: an age floor for the in-flight window, keep-newest-N per (bin, platform).
-   A cross-device copy does not bump nlink, so that workspace can see its entry reaped — which strands
-   nothing (it has its own bytes) and only forces a re-capture. → `go test ./internal/prune ./internal/capture`, then `yolo prune` dry-run
+5. **Remove + GC — UNBLOCKED AND RESCOPED 2026-09-04 by
+   [OQ-PD17](../design/program-delivery.md#decision-ledger).** This slice was written around
+   `st_nlink == 1` as the unreferenced oracle and then blocked when slice 4 measured that materialize
+   is a **reflink**, whose destination gets its own inode: an entry materialized into every workspace
+   on the machine still reads `nlink 1` everywhere, so a GC keyed on it deletes the bytes those
+   workspaces are running. The three replacement candidates the block proposed — workspace
+   enumeration via receipts, a store-side reference list, `FIEMAP` extent sharing — are **all
+   retired**, along with the two idioms it called safe under any oracle. Build this instead:
 
-   ⚠ **BLOCKING CORRECTION, filed by slice 4 (2026-09-04): `st_nlink == 1` IS NOT THE UNREFERENCED
-   ORACLE, AND USING IT WOULD REAP LIVE ENTRIES.** Do not build the paragraph above.
+   **THE REAP RULE IS THE COMPLEMENT OF THE RESOLVER: delete every entry `resolveCaptureFor` would
+   not select.** `internal/cli/capturematerialize.go:183` already picks **newest by receipt time per
+   (bin, platform)**, greater key breaking the tie. So every entry that is not the newest for its
+   `(bin, platform)` is *already unreachable by the only code that reads the store* — that is a fact
+   about the selection function, not an estimate about referrers. Deriving GC from the reader is what
+   makes the two unable to drift; do not write a second rule that agrees with it.
 
-   It assumes every materialized file is a HARDLINK to the entry's inode. Since slice 4 it is a
-   REFLINK, and it had to be: `link(2)` compares the MOUNT, so a hardlink from the store's bind into
-   a home surface's bind is impossible from inside a jail, and the mechanism that does work
-   (`FICLONE`) gives the destination **its own inode**. MEASURED 2026-09-04, in a real podman
-   container across exactly those two mounts: a 256 MiB entry file cloned in 3 ms for 32 KiB of new
-   space, and `stat` reported **`nlink 1` on both the source and the destination**. So an entry
-   materialized into every workspace on the machine still reads `st_nlink == 1` on every one of its
-   files, and a GC keyed on that deletes the bytes those workspaces are running.
+   Two properties make this safe to build without any oracle at all:
 
-   The "fail-safe by construction" claim inverts with it: the property came from the KERNEL keeping
-   the count, and nothing keeps a reflink's. Note the copy arm always had the same hole — the line
-   above already says a cross-device copy does not bump nlink, which was written as an edge case
-   and is, on every ext4 machine, now the norm.
+   - **Reclaiming is never a correctness event.** MEASURED 2026-09-04: a reflinked destination
+     survives its source's unlink byte-identical, and the hardlink and copy arms strand nothing
+     either. The worst case of reaping a live entry is that the next COLD install re-downloads. The
+     old paragraph's *"which strands nothing … and only forces a re-capture"* was true of every arm,
+     not just the cross-device copy.
+   - **A miss is already silent and already safe.** GC unlinking an entry mid-materialize is the one
+     real race, and it needs no fix: `_try_materialize` failing is a miss, and a miss falls through
+     to the vendor installer (`internal/entrypoint/shims.go:999-1003`).
 
-   **Slice 5 therefore needs a different reference oracle, and that is a decision rather than a
-   patch.** Three candidates, each costing something `st_nlink` did not, none of them chosen:
-   the `act:"materialize"` receipts slice 4 writes into each workspace's `.yolo/receipts.jsonl`
-   name (workspace → key) exactly, but reading them means ENUMERATING WORKSPACES, which is the
-   thing `FindYoloWorkspaces` is already refused for in the Traps above; a store-side reference
-   list is a second record that must survive a workspace deleted with `rm -rf`; and `FIEMAP`-style
-   extent sharing is real but per-filesystem and answers nothing on the copy arm. **This is now [OQ-PD17](../design/program-delivery.md#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink)**, filed in the
-   design doc where a live question belongs — it sat here without an ID, invisible to the roadmap
-   and to the corpus question count. **Stop and ask before building any of them.** What survives unchanged from the paragraph above is the pair of
-   sibling idioms — an age floor for the in-flight window, keep-newest-N per (bin, platform) — which
-   are safe under any oracle because neither claims an entry is unreferenced.
+   Do **not** build: `K = 2` (the rollback target has nowhere to be used — the store is not a version
+   history, and evergreen re-updates a materialized older version within `UPDATE_INTERVAL`; rollback
+   is the vendor's own per-workspace version dir), or an **age floor** (the completion marker already
+   hides an in-flight entry — `Resolve` reads it and nothing else). `K = 1`.
+
+   **Keep the manifest when you drop the tree.** `capture-manifest.json` sits beside `tree/`, never
+   inside it (`internal/capture/manifest.go:21`), so a reap can `RemoveAll` the tree and clear the
+   completion marker while leaving the manifest in place. Drift comparison against a version no
+   longer stored then costs kilobytes.
+
+   Shape: list `EntryKeys()`, read each entry's receipts (the same read `resolveCaptureFor` does),
+   group by `(bin, platform)`, keep the max, reap the rest. An entry with no readable receipt is
+   already not a selection candidate and is reapable on the same rule — no second rule for it.
+   `PruneUnreferencedCaptures` keeps its name only if it stops claiming to know about references;
+   prefer `PruneSupersededCaptures`. → `go test ./internal/prune ./internal/capture`, then
+   `yolo prune` dry-run
+
+   ⚠ **This slice reclaims nothing on any machine today, and that is not its bug.** `yolo capture` is
+   the store's only writer, no launch path calls it, and the maintainer had never run it — so every
+   store is empty and materialize has never hit. That is
+   [OQ-PD18](../design/program-delivery.md#-oq-pd18--what-populates-the-capture-store), which is
+   unruled. Build this slice anyway: it is small now, and it must exist before anything starts
+   populating the store automatically.
+
 6. **`macos-user`. — LANDED 2026-09-04, RECORDING HALF ONLY.** `SeatbeltCaptureProfile`:
    `deny file-write* /` then allow only the staging dir + `/tmp` + `/var/folders` — the shared
    `/Users/_yolojail` home denied for the duration. Same inner driver, `HOME=<staging>`. Adds
@@ -542,7 +560,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 
 - **Unit:** torn capture (marker absent → redo); admit is idempotent for an identical tree; digest is
   stable across a re-walk and moves on an exec-bit flip; materialize into a populated home; EXDEV
-  falls back to copy; GC with `nlink>1` reaps nothing; GC dry-run and `--apply` report identical
+  falls back to copy; GC leaves the newest entry per (bin, platform) and reaps only superseded ones; GC dry-run and `--apply` report identical
   numbers; relocation rewrite of an absolute symlink; `relocatable:false` refusal.
   *Slice 6 shipped the record side of the last two:* an absolute symlink AND a file-content
   reference recorded with `relocatable:true`; a reference inside a non-text file recorded with
@@ -564,13 +582,16 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 - **Docs:** `../design/program-delivery.md` §10 step six status; `../design/storage-and-config.md`
   §2's `<gs>` table (line 112 — already 9 dirs stale, so add `captures/` and say the table was
   incomplete); `roadmap.md:550`'s program-delivery row; `../guides/USER_GUIDE.md` for the new verb.
-- **Surfaces:** `yolo capture --help`; `yolo prune --captures-keep N` (per OQ-PD4's "autoprune is an
+- **Surfaces:** `yolo capture --help`; `yolo prune --captures-keep N`, default **1** (per OQ-PD4's "autoprune is an
   option nobody gets by default"); `<CapturesDir>` layout is a documented on-disk contract; the receipt
   gains `kind:"capture"`, `act:"materialize"`, and §6.3's two new tuple members (`file manifest`,
   `platform`) — reader and writer move together or the round-trip goes red.
 - **Invariants to satisfy, cite by ID:** `../design/minimal-disk-footprint.md` §5 **P2** (fail-safe on
-  unknown liveness), **P3** (a reclaim never strands a running jail — hardlinks make this structural:
-  unlinking one name frees nothing another name holds), **P7** (safe at an arbitrary moment).
+  unknown liveness), **P3** (a reclaim never strands a running jail — ~~hardlinks make this
+  structural: unlinking one name frees nothing another name holds~~ ⚠ *materialize is a reflink, so
+  this is COW rather than link counting: the destination holds its own inode and its own extents, and
+  MEASURED 2026-09-04 it survives the source's unlink byte-identical*), **P7** (safe at an arbitrary
+  moment).
 - **Norms:** `just check-ci` before each commit (the pre-commit hook runs it); `just format`.
 
 ## Don't

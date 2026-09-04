@@ -1479,18 +1479,20 @@ which was the point.
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD15** | **Capture FIRST — build the complete version and sequence toward it.** Evergreen lands on a machine-wide content-addressed store rather than per-workspace binds, so the disk cost is paid once. The prune stopgap is deleted, not deferred: under capture there is nothing to prune. Sooner was never the goal | 2026-09-03 | [§10](#10-what-i-would-build-in-order), §6.3 |
 | **OQ-PD16** | **Jail-only here; the host notch is owned by [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md)**, which has analysed it since 2026-08-02 and keeps six live questions on it. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose only caller today is `macos-user`. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland (that doc's §4.1) | 2026-09-03 | §3.5, [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) |
+| **OQ-PD17** | **No unreferenced oracle — the reap rule is the COMPLEMENT OF THE RESOLVER.** Reclaiming a capture entry is never a correctness event (measured: a reflinked destination survives its source's unlink byte-identical), and `resolveCaptureFor` already picks *newest-by-receipt-time per (bin, platform)* — so every other entry is already unreachable by the only reader. Delete what the resolver would not select; `K = 1`. Retires all three candidates, **and** `K = 2` and the age floor, which this doc had proposed. ⚠ Surfaced [OQ-PD18](#-oq-pd18--what-populates-the-capture-store): nothing populates the store automatically, so materialize has never hit on any machine. | 2026-09-04 | §6.3, [`agent-cli-copies.md` §4.2](agent-cli-copies.md#42-reclaiming-a-capture-entry-is-never-unsafe--which-reframes-oq-pd17) |
 
 ---
 
 ## Open Questions
 
-**One open — [OQ-PD17](#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink).**
-Ten were ruled 2026-08-24 and six on 2026-09-03 — see the
+**One open — [OQ-PD18](#-oq-pd18--what-populates-the-capture-store).**
+Ten were ruled 2026-08-24, six on 2026-09-03, and one on 2026-09-04 — see the
 [Decision Ledger](#decision-ledger). The two the amendment opened were both ruled the same day and
 are kept below with their reasoning, pending the next compaction. OQ-PD17 was opened 2026-09-04 by
-the capture build.
+the capture build and ruled the same day; ruling it surfaced OQ-PD18, which is the reason the
+subsystem it governs has never run on any machine.
 
-### 💬 OQ-PD17 — what is the unreferenced oracle for a capture entry, now that reflink has retired `st_nlink`?
+### ✅ OQ-PD17 — what is the unreferenced oracle for a capture entry, now that reflink has retired `st_nlink`? — RESOLVED (2026-09-04)
 
 Opened 2026-09-04 by capture slice 4. **This question was living as prose inside
 [`install-capture.md`](../plans/install-capture.md)'s build order with no ID**, which made it
@@ -1516,14 +1518,92 @@ subsystem exists to delete, arriving from the other end.
 | **(b)** | A store-side reference list | A second record that must survive a workspace deleted with `rm -rf`, i.e. it can go stale in the unsafe direction |
 | **(c)** | `FIEMAP` extent sharing | Real, but per-filesystem, and answers nothing on the copy arm |
 
-_Leaning:_ **(b), with the staleness made safe rather than assumed** — a reference list plus a
-cheap existence check of each referrer at GC time, so a `rm -rf`'d workspace drops out on the next
-sweep instead of pinning an entry forever. (a) is the most *accurate* and the least *available*;
-(c) cannot cover the copy arm, which is exactly the arm the least capable filesystems take.
+_Leaning (NOT TAKEN — see the Answer):_ **(b), with the staleness made safe rather than assumed** —
+a reference list plus a cheap existence check of each referrer at GC time. All three candidates were
+retired instead; the leaning was answering a question the system does not ask.
 
-**What survives regardless, and does not wait on this:** the two sibling idioms the plan already
-names — an age floor for the in-flight window, and keep-newest-N per (bin, platform). Neither
-claims an entry is unreferenced, so both are safe under any oracle.
+**Answer:**
+> **No unreferenced oracle, and none is needed. The reap rule is the COMPLEMENT OF THE RESOLVER.**
+>
+> Two facts, both read out of the shipped code, retire the question rather than answering it.
+>
+> **(1) Reclaiming is never a correctness event.** MEASURED 2026-09-04
+> ([`agent-cli-copies.md` §4.2](agent-cli-copies.md#42-reclaiming-a-capture-entry-is-never-unsafe--which-reframes-oq-pd17)):
+> a reflinked destination survives its source's unlink byte-identical, and the hardlink and copy arms
+> strand nothing either. The store is a **cache, not an allocator** — there is no dangling pointer in
+> this system. The term *garbage collection* imported the heap's assumption that reclaiming something
+> still referenced is a failure; here the worst case of reaping a live entry is that the next COLD
+> install re-downloads. This document's own stakes line — *"whether captures can be reclaimed at
+> all"* — was false when written.
+>
+> **(2) The unreachable set is already computable, exactly.** `resolveCaptureFor`
+> (`internal/cli/capturematerialize.go:183`) selects an entry by scanning each entry's own receipts
+> and taking **newest wins by receipt time per (bin, platform)**, greater key breaking the tie. So
+> every entry that is not the newest for its `(bin, platform)` is **already unreachable by the only
+> code that reads the store** — not *probably unreferenced*; unreachable, by the selection function,
+> today. GC is therefore the complement of a rule that already exists, derived from the reader, and
+> cannot disagree with it.
+>
+> **The rule: delete every entry `resolveCaptureFor` would not select.** `K = 1` per
+> `(bin, platform)`. An entry with no readable receipt is already not a selection candidate, and is
+> reapable on the same rule rather than on a second one.
+>
+> **What this deletes.** All three candidates — no workspace enumeration, no store-side reference
+> list, no `FIEMAP`. And both idioms this question called safe under any oracle, neither of which
+> survives contact with the trigger:
+>
+> - **`K = 2`'s rollback target has nowhere to be used.** The store is not a version history; it
+>   holds whatever a human captured. A materialized older version is updated by evergreen within
+>   `UPDATE_INTERVAL` anyway (`internal/entrypoint/shims.go:986`, 3600s). Real rollback is the
+>   vendor's own per-workspace `~/.local/share/<bin>/versions/*` — the V axis, and A7's job
+>   ([`agent-cli-copies.md` §5.1](agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one)).
+> - **The age floor guarded a window the completion marker already covers.** `Resolve` reads the
+>   marker and nothing else, so an in-flight entry is invisible without it. The one real race — GC
+>   unlinking an entry mid-materialize — is not fixed by an age floor and needs no fix: a failed
+>   materialize is a MISS, and a miss falls through to the vendor installer silently, by design
+>   (`internal/entrypoint/shims.go:999-1003`).
+>
+> **What survives.** An entry's `capture-manifest.json` sits BESIDE `tree/`, never inside it
+> (`internal/capture/manifest.go:21`), so a reap can drop `tree/` and clear the completion marker
+> while keeping the manifest. Drift comparison against a version no longer stored then costs
+> kilobytes instead of a retained tree — which is the half of capture's value
+> ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package))
+> that was never a disk property.
+>
+> **The residual, filed as [OQ-PD18](#-oq-pd18--what-populates-the-capture-store).** Every line above
+> assumes entries exist. They do not: `yolo capture` is the store's only populating act, it is a
+> manual host command, and the maintainer had not heard of it — so on every machine today the store
+> is empty and slices 1–4 and 6 are shipped but unreachable.
+
+### 💬 OQ-PD18 — what populates the capture store?
+
+Opened 2026-09-04, ruling OQ-PD17. **Nothing automatic does.** `yolo capture <bin>` is the store's
+only writer (`internal/cli/capturehost.go`), it is a host command with no caller in the run pipeline,
+and a materialize miss is deliberately **silent** — it falls through to the vendor installer without
+saying the store was empty (`internal/entrypoint/shims.go:999-1003`). The consequence measured
+2026-09-04: the maintainer, who commissioned the subsystem, did not know the command existed and has
+never run it, so `_try_materialize` has never once hit on any machine. Corroborated on this
+development jail the same day — `~/.local/share/yolo-jail/captures/entries/` exists (boot creates it,
+`internal/storage/ensure.go:45`) and is **empty**.
+
+**What it decides:** whether capture is a subsystem or a shipped-and-unused one. It is downstream of
+[OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed):
+if capture is not the disk fix, auto-triggering it is less urgent, not more.
+
+| | Candidate | Cost |
+| :--- | :--- | :--- |
+| **(a)** | Leave it manual, and document it | Free. Leaves a subsystem whose value appears only at N≥2 workspaces gated behind a command nobody discovers |
+| **(b)** | **Capture-on-first-install** — when `_do_install` falls through and the vendor installer succeeds, snapshot the delta and admit it | The delta is taken against a **dirty** home, which is the exact thing the throwaway jail exists to avoid; admit is a host act and slice 4(f) gives the capture jail no store mount; and the first cold install on a machine pays a full-size store write for a saving that appears only at the second workspace |
+| **(c)** | **Tell the human.** A selected pack installs `via: "installer"` and no entry resolves → say so, once, naming `yolo capture <bin>` | ~20 lines, no new trust surface, no automatic third-party installer run. Discovers the subsystem without deciding for the user |
+| **(d)** | **Auto-capture on first launch**, host-side, behind a config knob | Preserves the clean-home delta and keeps admit where slice 4(f) put it. Costs an extra throwaway jail + installer download before a first launch the human is already waiting on |
+
+_Leaning:_ **(c) now, (d) behind a knob and default OFF, (b) refused.** (b) is the tempting one and
+the wrong one — it trades the clean baseline for a saving that does not exist yet at N=1. The knob on
+(d) is not timidity: on **ext4, capture ADDS a machine-wide copy** and changes nothing per workspace
+([`agent-cli-copies.md` §4.1](agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for)),
+so an auto-capture defaulting on would make a single-workspace user on the commonest Linux filesystem
+strictly worse off. **Nobody has measured what share of yolo installs are on ext4**, and that
+unmeasured number is the one this default turns on.
 
 **Answer:**
 > _(empty — fill in when decided)_

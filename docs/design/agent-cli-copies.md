@@ -11,7 +11,7 @@ summary: "The 1.2 GB that justified building a content-addressed store decompose
 **Status:** DESIGN, 2026-09-04. **Nothing built here.** Re-examines a premise
 [`program-delivery.md`](program-delivery.md) already ruled on
 ([OQ-PD15](program-delivery.md#decision-ledger)) and holds one of its live questions
-([OQ-PD17](program-delivery.md#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink))
+([OQ-PD17](program-delivery.md#decision-ledger))
 up against the corrected facts. Four of six capture slices are landed
 ([`../plans/install-capture.md`](../plans/install-capture.md)); this doc does not propose
 reverting any of them.
@@ -334,7 +334,7 @@ one agent permanently frozen while looking correct everywhere else.
 Instead of `~/.local`, `~/.npm-global` and `~/go` being per-workspace binds
 (`internal/cli/run/assemble_parts.go:108-110`), a program prefix backed by machine-global storage,
 shared by every jail on the machine. One copy per machine per version, structurally — no CAS, no
-reference oracle, no reflink, and **[OQ-PD17](program-delivery.md#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink)
+reference oracle, no reflink, and **[OQ-PD17](program-delivery.md#decision-ledger)
 ceases to exist rather than being answered**.
 
 **It is not a new sharing mechanism; it is the fourth instance of an existing one.** The same podman
@@ -659,7 +659,7 @@ row, which is why this is a question and not a footnote.
 
 ### 💬 OQ-CP3 — is OQ-PD17 answered by "no oracle, bound by policy"?
 
-[OQ-PD17](program-delivery.md#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink)
+[OQ-PD17](program-delivery.md#decision-ledger)
 asks which of three candidates supplies an *unreferenced* oracle for a capture entry, and states that
 until it is answered *"entries accumulate with no way to remove them."* MEASURED 2026-09-04 (§4.2): a
 reflinked destination survives its source's deletion with identical content, so **reclaiming an entry
@@ -676,7 +676,36 @@ would want the capture author to sanity-check rather than one I would land unila
 question and my measurement.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Yes — and the sanity-check the leaning asked for came back sharper than the leaning.**
+> Ruled 2026-09-04 as [OQ-PD17](program-delivery.md#decision-ledger).
+>
+> The measurement stands: reclaiming is safe on all three arms, so this is a policy question. But
+> *keep-newest-K plus an age floor* is still a policy invented for the store, and the store already
+> has one. `resolveCaptureFor` (`internal/cli/capturematerialize.go:183`) selects **newest by receipt
+> time per (bin, platform)**, so **the reap rule is the complement of the resolver**: delete every
+> entry the resolver would not select. Derived from the reader rather than agreed with it, so the two
+> cannot drift.
+>
+> Both of the leaning's idioms fall out of that, and neither survives:
+>
+> - **`K = 1`, not `K`.** The rollback target has nowhere to be used — the store is not a version
+>   history, and a materialized older version is updated by evergreen within `UPDATE_INTERVAL`
+>   anyway. Rollback lives on the V axis, in the vendor's own version dir, which is
+>   [A7](#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one)'s job.
+> - **No age floor.** It guarded an in-flight window the completion marker already covers, and the
+>   one real race — GC unlinking an entry mid-materialize — is not fixed by it and needs no fix,
+>   because a failed materialize is a miss and a miss falls through to the installer.
+>
+> **The honest counter in this question survives and is answered.** A re-capture is genuinely not
+> free, so eager reaping has a real cost — but the complement rule never reaps anything the resolver
+> could have returned, which is the tightest possible bound on that cost. And keeping each reaped
+> entry's `capture-manifest.json` (it sits beside `tree/`, not in it) preserves drift comparison for
+> kilobytes.
+>
+> **What ruling it surfaced.** Every line above assumes the store has entries. It has none, anywhere:
+> `yolo capture` is its only writer and no launch path calls it — filed as
+> [OQ-PD18](program-delivery.md#-oq-pd18--what-populates-the-capture-store), which is the question
+> that decides whether any of this runs.
 
 ### 💬 OQ-CP4 — does an evergreen update get to materialize from the store?
 
