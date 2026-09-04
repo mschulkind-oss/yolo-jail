@@ -704,7 +704,7 @@ question and my measurement.
 >
 > **What ruling it surfaced.** Every line above assumes the store has entries. It has none, anywhere:
 > `yolo capture` is its only writer and no launch path calls it — filed as
-> [OQ-PD18](program-delivery.md#-oq-pd18--what-populates-the-capture-store), which is the question
+> [OQ-PD18](program-delivery.md#decision-ledger), which is the question
 > that decides whether any of this runs.
 
 ### 💬 OQ-CP4 — does an evergreen update get to materialize from the store?

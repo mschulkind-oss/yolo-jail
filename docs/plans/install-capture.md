@@ -26,6 +26,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
 | `internal/cli/capture.go` | **new** — `yolo internal capture-run`, the inner half (slice 2) |
 | `internal/cli/capturehost.go` | **new** — `yolo capture <bin>`, the host act (slice 3). Split from the file above: one is a hidden in-jail driver entry, the other launches jails |
+| `internal/cli/run/` | **slice 7** — the auto-capture trigger: selected packs' `via: "installer"` programs with no entry for the JAIL's platform, captured before launch, locked, non-fatal, `YOLO_NO_AUTO_CAPTURE=1` to opt out |
 | `internal/cli/hostapplylock.go` | `tryFlockAt` factored out of `tryHostApplyLock` and shared with the per-program capture lock |
 | `internal/cli/subhelp.go` | one `subcommandUsage` row — every registry key must answer `--help` |
 | `internal/cli/dispatch.go` | register `capture` (`:15-35`) |
@@ -400,7 +401,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    ⚠ **This slice reclaims nothing on any machine today, and that is not its bug.** `yolo capture` is
    the store's only writer, no launch path calls it, and the maintainer had never run it — so every
    store is empty and materialize has never hit. That is
-   [OQ-PD18](../design/program-delivery.md#-oq-pd18--what-populates-the-capture-store), which is
+   [OQ-PD18](../design/program-delivery.md#decision-ledger), which is
    unruled. Build this slice anyway: it is small now, and it must exist before anything starts
    populating the store automatically.
 
@@ -539,6 +540,55 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    4. Whether `getpwuid`-based home resolution (as opposed to `$HOME`) trips the `/Users` read deny
       for a vendor installer's shell — the one failure mode designed around rather than observed.
    5. Whether the `EXDEV` refusal in (b) ever fires in practice.
+
+7. **Auto-capture on first launch, DEFAULT ON.** Ruled 2026-09-04 as
+   [OQ-PD18](../design/program-delivery.md#decision-ledger) — *"I want (d) default on."* Until this
+   slice, nothing populated the store: `yolo capture` was its only writer, no launch path called it,
+   and it had never been run, so slices 1–4 and 6 are shipped and unreachable.
+
+   **⚠ PREREQUISITE, not a companion: [A7's V-axis prune](../design/agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one)
+   must land first or with this.** Default-on makes a STALE entry actively harmful. A new workspace
+   materializes the stale version and touches the stamp; within `UPDATE_INTERVAL` evergreen runs the
+   vendor updater and downloads the current one — a copy AND a download where no capture at all
+   would have paid one download. And vendor updaters **retain** old builds (measured 2026-09-03: five
+   claude builds, 1.2 GB, four dead), so the workspace is left holding a corpse nothing removes. The
+   N-axis mechanism seeds V-axis garbage into every workspace it touches. A7 deletes it at the moment
+   the update creates it, on every filesystem, with no store involvement. Do not ship 7 without it.
+
+   **Trigger.** Host side, in the run pipeline, once packs are resolved: for each selected pack's
+   `program` contribution declared `via: "installer"`, ask `resolveCaptureFor(bin, platform)`; a miss
+   is the trigger. **`platform` is the JAIL's, not the host's** — a Mac running the podman backend
+   captures `linux/arm64`, and getting this wrong produces a store that never hits while looking
+   full.
+
+   **Blocking, one program at a time, with a progress line.** The first launch on a fresh machine
+   grows by one installer download per uncaptured program (~205 MiB for claude). That is the honest
+   cost and it is stated at the moment it is paid, not swallowed. A detached child would keep the
+   launch fast and is the obvious follow-up, but it buys invisible failures and a host-process
+   lifecycle yolo does not have today — take it as a second step, on evidence that the wait hurts.
+
+   **Reuses, does not re-implement:** `captureHost` is already the whole act (slice 3). This slice is
+   a caller plus a decision, not a second capture path.
+
+   - **Lock:** the per-program capture flock the Map already specifies (`tryFlockAt`, shared out of
+     `hostapplylock.go`). Two workspaces launching at once must not both capture; the loser skips
+     rather than waits — its launch installs lazily, which is the pre-capture status quo.
+   - **Failure is never fatal.** Network down, installer serves HTML, disk full, `EXDEV` on admit:
+     warn ONCE, name the program, continue the launch. Same discipline as materialize's silent miss
+     (`internal/entrypoint/shims.go:999-1003`), one notch louder because nobody asked for this one.
+   - **Escape hatch: `YOLO_NO_AUTO_CAPTURE=1`**, loud, following `YOLO_NO_HOST_LOOPBACK` /
+     `YOLO_ALLOW_STALE_IMAGE`. Default-on is the ruling; unturnable-offable was not.
+   - **Never in the capture jail itself.** Slice 4(f) suppresses `CapturesDir` there; the trigger
+     must also be suppressed, or a capture recursively triggers a capture.
+
+   **The test that has to exist**, per the repo's rule that a test pinning the callee while the call
+   site is unpinned is not a test: assert the launch triggers a capture for a pack whose program is
+   uncaptured, and confirm it goes RED when the call site is deleted. A unit test on the decision
+   function alone would stay green with the feature switched off wholesale — the exact shape this
+   repo has shipped five times.
+
+   → `go test ./internal/cli ./internal/cli/run ./internal/capture`, then a nested jail from a
+   throwaway workspace with an empty store: the first launch must capture, the second must hit.
 
 ## Verification, honestly
 

@@ -1479,14 +1479,15 @@ which was the point.
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD15** | **Capture FIRST — build the complete version and sequence toward it.** Evergreen lands on a machine-wide content-addressed store rather than per-workspace binds, so the disk cost is paid once. The prune stopgap is deleted, not deferred: under capture there is nothing to prune. Sooner was never the goal | 2026-09-03 | [§10](#10-what-i-would-build-in-order), §6.3 |
 | **OQ-PD16** | **Jail-only here; the host notch is owned by [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md)**, which has analysed it since 2026-08-02 and keeps six live questions on it. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose only caller today is `macos-user`. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland (that doc's §4.1) | 2026-09-03 | §3.5, [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) |
-| **OQ-PD17** | **No unreferenced oracle — the reap rule is the COMPLEMENT OF THE RESOLVER.** Reclaiming a capture entry is never a correctness event (measured: a reflinked destination survives its source's unlink byte-identical), and `resolveCaptureFor` already picks *newest-by-receipt-time per (bin, platform)* — so every other entry is already unreachable by the only reader. Delete what the resolver would not select; `K = 1`. Retires all three candidates, **and** `K = 2` and the age floor, which this doc had proposed. ⚠ Surfaced [OQ-PD18](#-oq-pd18--what-populates-the-capture-store): nothing populates the store automatically, so materialize has never hit on any machine. | 2026-09-04 | §6.3, [`agent-cli-copies.md` §4.2](agent-cli-copies.md#42-reclaiming-a-capture-entry-is-never-unsafe--which-reframes-oq-pd17) |
+| **OQ-PD17** | **No unreferenced oracle — the reap rule is the COMPLEMENT OF THE RESOLVER.** Reclaiming a capture entry is never a correctness event (measured: a reflinked destination survives its source's unlink byte-identical), and `resolveCaptureFor` already picks *newest-by-receipt-time per (bin, platform)* — so every other entry is already unreachable by the only reader. Delete what the resolver would not select; `K = 1`. Retires all three candidates, **and** `K = 2` and the age floor, which this doc had proposed. ⚠ Surfaced [OQ-PD18](#decision-ledger): nothing populates the store automatically, so materialize has never hit on any machine. | 2026-09-04 | §6.3, [`agent-cli-copies.md` §4.2](agent-cli-copies.md#42-reclaiming-a-capture-entry-is-never-unsafe--which-reframes-oq-pd17) |
+| **OQ-PD18** | **(d), DEFAULT ON — auto-capture on first launch, host-side, in the throwaway jail, no knob.** Nothing populated the store before this: `yolo capture` was its only writer, no launch path called it, and it had never been run. ⚠ **Default-on makes a stale entry actively harmful** — the workspace pays a copy AND a download, and is left holding a dead version the vendor updater will not remove — so **A7's V-axis prune is a prerequisite, not a companion**, and [OQ-CP4](agent-cli-copies.md#-oq-cp4--does-an-evergreen-update-get-to-materialize-from-the-store) becomes load-bearing. On ext4 capture costs `+S` at every N and buys `N−1` avoided downloads; the ext4 share of real installs is the unmeasured number that would revisit the default. | 2026-09-04 | §6.3, [`agent-cli-copies.md` §4.1](agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for) |
 
 ---
 
 ## Open Questions
 
-**One open — [OQ-PD18](#-oq-pd18--what-populates-the-capture-store).**
-Ten were ruled 2026-08-24, six on 2026-09-03, and one on 2026-09-04 — see the
+**None open.**
+Ten were ruled 2026-08-24, six on 2026-09-03, and two on 2026-09-04 — see the
 [Decision Ledger](#decision-ledger). The two the amendment opened were both ruled the same day and
 are kept below with their reasoning, pending the next compaction. OQ-PD17 was opened 2026-09-04 by
 the capture build and ruled the same day; ruling it surfaced OQ-PD18, which is the reason the
@@ -1570,12 +1571,12 @@ retired instead; the leaning was answering a question the system does not ask.
 > ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package))
 > that was never a disk property.
 >
-> **The residual, filed as [OQ-PD18](#-oq-pd18--what-populates-the-capture-store).** Every line above
+> **The residual, filed as [OQ-PD18](#decision-ledger).** Every line above
 > assumes entries exist. They do not: `yolo capture` is the store's only populating act, it is a
 > manual host command, and the maintainer had not heard of it — so on every machine today the store
 > is empty and slices 1–4 and 6 are shipped but unreachable.
 
-### 💬 OQ-PD18 — what populates the capture store?
+### ✅ OQ-PD18 — what populates the capture store? — RESOLVED (2026-09-04)
 
 Opened 2026-09-04, ruling OQ-PD17. **Nothing automatic does.** `yolo capture <bin>` is the store's
 only writer (`internal/cli/capturehost.go`), it is a host command with no caller in the run pipeline,
@@ -1597,16 +1598,61 @@ if capture is not the disk fix, auto-triggering it is less urgent, not more.
 | **(c)** | **Tell the human.** A selected pack installs `via: "installer"` and no entry resolves → say so, once, naming `yolo capture <bin>` | ~20 lines, no new trust surface, no automatic third-party installer run. Discovers the subsystem without deciding for the user |
 | **(d)** | **Auto-capture on first launch**, host-side, behind a config knob | Preserves the clean-home delta and keeps admit where slice 4(f) put it. Costs an extra throwaway jail + installer download before a first launch the human is already waiting on |
 
-_Leaning:_ **(c) now, (d) behind a knob and default OFF, (b) refused.** (b) is the tempting one and
-the wrong one — it trades the clean baseline for a saving that does not exist yet at N=1. The knob on
-(d) is not timidity: on **ext4, capture ADDS a machine-wide copy** and changes nothing per workspace
-([`agent-cli-copies.md` §4.1](agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for)),
-so an auto-capture defaulting on would make a single-workspace user on the commonest Linux filesystem
-strictly worse off. **Nobody has measured what share of yolo installs are on ext4**, and that
-unmeasured number is the one this default turns on.
+_Leaning (NOT TAKEN — see the Answer):_ **(c) now, (d) behind a knob and default OFF.** The leaning
+weighted the ext4 row as a reason to withhold the default; the ruling weights the download saving,
+which is filesystem-independent, above it.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **(d), DEFAULT ON.** *"I want (d) default on."* — 2026-09-04.
+>
+> Auto-capture on first launch, host-side, in the throwaway jail, with no knob to turn it on. (c)'s
+> message is subsumed: a human who never has to run the command does not need to be told about it.
+> (b) stays refused — the dirty-home delta is the thing the throwaway jail exists to avoid, and the
+> ruling does not ask for it.
+>
+> **The ext4 objection, restated honestly rather than dropped.** It is narrower than the leaning
+> made it sound. Capture costs **exactly `+S` of disk on ext4, at every N** — it never saves disk
+> there — and buys **`N−1` avoided downloads of ~205 MiB**, which it saves on every filesystem. At
+> N=1 that is pure cost; from N=2 it is a bandwidth-for-disk trade that a machine running several
+> jails wants. The one number that would revisit this is the **ext4 share of real installs**, still
+> unmeasured; if it comes back high AND single-workspace machines turn out to be common, the fix is
+> to gate the *automatic* trigger on reflink availability (`internal/capture/clone_linux.go` already
+> reports the filesystem) and leave manual `yolo capture` always available. Not built now — recorded
+> so the default can be revisited on evidence rather than re-argued.
+>
+> **The trust delta is smaller than this question implied.** The vendor installer runs either way —
+> the launcher downloads and executes it on every cold install today. What (d) adds is an *extra*
+> jailed run at a *different* moment without the human typing anything. It is still jailed, still
+> the same script, still the same URL from the same pack.
+>
+> **⚠ THE CONSEQUENCE THAT IS NOT OPTIONAL: default-on makes a STALE ENTRY ACTIVELY HARMFUL, so
+> [A7's V-axis prune](agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one)
+> becomes a PREREQUISITE of this ruling rather than a companion to it.**
+>
+> Walk a new workspace whose store entry is one release behind. Cold install materializes the stale
+> version and touches the stamp; within `UPDATE_INTERVAL` evergreen runs the vendor updater and
+> downloads the current one. The workspace has now paid **a copy AND a download** where no capture
+> at all would have paid one download — and, because vendor updaters **retain** old builds rather
+> than replacing them (measured 2026-09-03: five claude builds, 1.2 GB, four of them dead), it is
+> left holding a dead version nothing will ever remove. The N-axis mechanism seeds V-axis garbage
+> into every workspace it touches.
+>
+> Two ways to close it, and the cheap one is already recommended elsewhere:
+> 1. **Land A7 with this** — keep-newest-K over the vendor's own version dir, executed by whoever
+>    installed the new one. Deletes the seeded corpse at the moment the update creates it, on every
+>    filesystem, with no store involvement. ~30 lines, and it is already the companion
+>    [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed)
+>    proposes shipping inside evergreen.
+> 2. **Keep the store fresh** — re-capture when the vendor ships a new release. That is
+>    [OQ-CP4](agent-cli-copies.md#-oq-cp4--does-an-evergreen-update-get-to-materialize-from-the-store),
+>    whose leaning was *"leave it one-off, and say so."* This ruling makes that leaning expensive:
+>    one-off means the store rots, and a rotting store is exactly the stale-entry case above. **CP4
+>    is now load-bearing and should be ruled with this.**
+>
+> Also required by default-on, all cheap and none of them design questions: the per-program capture
+> lock the plan already specifies (two workspaces launching at once must not both capture), and a
+> capture failure that **warns once and never fails the launch** — the same discipline materialize's
+> silent miss already follows.
 
 ### ✅ OQ-PD15 — does capture GATE the evergreen rollout, or trail it? — RESOLVED (2026-09-03)
 
