@@ -13,10 +13,10 @@
       },
       "kind": "provider",
       "models": {
-        "default": "glm-5.3[1m]",
-        "fast": "glm-5.3-flash[1m]",
-        "haiku": "glm-5.3-flash[1m]",
-        "sonnet": "glm-5.3[1m]"
+        "default": "glm-5.3",
+        "fast": "glm-5.3-flash",
+        "haiku": "glm-5.3-flash",
+        "sonnet": "glm-5.3"
       },
       "name": "zai",
       "options": {

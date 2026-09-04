@@ -79,6 +79,17 @@ yolo.env("claude", function(ctx)
       out.API_TIMEOUT_MS = ctx.profile.api_timeout_ms
     end
   end
+  -- The model ids the provider declares are WIRE-TRUE — every agent's catalog sends
+  -- them verbatim, and z.ai's routes reject claude-only spellings (measured
+  -- 2026-09-04: "glm-5.3[1m]" is a 400 on both routes; pi and opencode have no
+  -- [1m] handling to strip one). "[1m]" is CLAUDE CODE's syntax: it strips the
+  -- suffix client-side and sends the context-1m beta in its place, which is how a
+  -- 1M-context model gets its full window. So this derive alone re-spells the ids
+  -- claude uses, from the provider's own context_window fact: a provider declaring
+  -- a 1,000,000-token window gets the beta requested; anything smaller gets the
+  -- bare id.
+  local cw = tonumber((ctx.profile and ctx.profile.context_window) or "")
+  local suffix = (cw and cw >= 1000000) and "[1m]" or ""
   if routed then
     -- Z.AI's recommended Claude Code config disables claude's nonessential traffic
     -- (telemetry, update checks) on a routed launch: that traffic targets
@@ -97,13 +108,13 @@ yolo.env("claude", function(ctx)
   -- each tier to the model the provider actually intends for it.
   local alias = (ctx.profile and ctx.profile.model) or "default"
   if m[alias] then
-    out.ANTHROPIC_DEFAULT_OPUS_MODEL = m[alias]
+    out.ANTHROPIC_DEFAULT_OPUS_MODEL = m[alias] .. suffix
   end
   if m.sonnet then
-    out.ANTHROPIC_DEFAULT_SONNET_MODEL = m.sonnet
+    out.ANTHROPIC_DEFAULT_SONNET_MODEL = m.sonnet .. suffix
   end
   if m.haiku then
-    out.ANTHROPIC_DEFAULT_HAIKU_MODEL = m.haiku
+    out.ANTHROPIC_DEFAULT_HAIKU_MODEL = m.haiku .. suffix
   end
   return out
 end)

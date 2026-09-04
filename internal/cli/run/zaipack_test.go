@@ -87,12 +87,15 @@ func bareConfig() *jsonx.OrderedMap {
 // protocol claude speaks, the key relayed from the hydrated env_sources, all three model
 // tiers pinned to the aliases the provider intends (measured 2026-09-04: without
 // ANTHROPIC_DEFAULT_SONNET_MODEL, z.ai serves claude's sonnet-tier names as
-// glm-5.3-flash — the FAST model), and the three knobs Z.AI's own Claude Code guide
-// sets (docs.z.ai/devpack/tool/claude): auto-compact sized to the models' 1M context,
-// the 50-minute API ceiling their reasoning turns need, and nonessential traffic off on
-// a routed launch. Every name is claude's fact, every value the provider's — the
-// provider declares context_window/api_timeout_ms as options, the derive decides what
-// they mean for claude (OQ-CS4).
+// glm-5.3-flash — the FAST model) with the [1m] suffix the derive appends from the
+// provider's context_window fact (claude code's own spelling for the context-1m beta —
+// the manifest's ids are wire-true, and only claude re-spells them), and the three
+// knobs Z.AI's own Claude Code guide sets (docs.z.ai/devpack/tool/claude): auto-compact
+// sized to the models' 1M context, the 50-minute API ceiling their reasoning turns
+// need, and nonessential traffic off on a routed launch. Every variable NAME is
+// claude's fact, every value the provider's — the provider declares
+// context_window/api_timeout_ms as options, the derive decides what they mean for
+// claude (OQ-CS4).
 func TestZaiPackFiresClaudeAtGLM(t *testing.T) {
 	argv := zaiLaunch(t, zaiSelected(t), bareConfig(), hydratedKey(),
 		func(o *Options) { o.ProfileName = "zai" })
@@ -175,6 +178,24 @@ func TestZaiPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 		t.Errorf("openai endpoint = %v, want the canonical name for the chat-completions route "+
 			"the probe measured (OQ-Z1: /v4/responses 404s there) — yolo's vocabulary, which the "+
 			"derives translate, never codex's or pi's spelling", openai)
+	}
+	// The model ids are WIRE-TRUE: pi's and opencode's catalogs send them verbatim,
+	// and z.ai rejects claude's [1m] spellings on both routes (measured 2026-09-04:
+	// glm-5.3[1m] is a 400; neither pi nor opencode strips a suffix). The [1m] claude
+	// emits is composed by claude's own derive from context_window, never shipped here.
+	models, ok := mapGet(zai, "models").(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("zai ships no models map: %v", zai.Keys())
+	}
+	for _, alias := range []string{"default", "fast", "sonnet", "haiku"} {
+		id := mapStr(models, alias)
+		if id == "" {
+			t.Errorf("zai models.%s is empty — claude's derive resolves it and pi/opencode list it", alias)
+		}
+		if strings.Contains(id, "[1m]") {
+			t.Errorf("zai models.%s = %q carries claude's [1m] dialect — the wire id is what every "+
+				"agent's catalog sends verbatim; the suffix is claude's derive's to add", alias, id)
+		}
 	}
 }
 
