@@ -124,21 +124,26 @@ func MacosSetup(deps Deps) int {
 			"[bold]yolo[/bold] to launch.\n"+
 			"[dim]sudo will prompt per run — that's expected (we don't change "+
 			"your sudo policy).[/dim]", SharedRootDefault())
-		// NAME THE RETROFIT HERE, unconditionally, whether or not anything needed
-		// it just now. macOS grants the shared ACL when a directory is CREATED, so
-		// a project MOVED or copied into the shared root later — `mv` renames
-		// rather than creates, and inherits nothing — arrives unshared, and the
-		// symptom is `permission denied` partway through a launch with no hint of
-		// its cause. This is the one moment the user is reading about how sharing
-		// works, so it is where the remedy has to be learnable; a command
-		// mentioned only in a failure is one the reader meets at their worst
-		// moment.
-		out.printf("\n[dim]If you MOVE an existing project into %s later, share it "+
-			"with [bold]yolo macos-fix-permissions <path>[/bold] (or with no path "+
-			"for all of them). Moving a directory does not re-apply the ACL the way "+
-			"creating one does. Idempotent — safe to run any time something under "+
-			"there is unexpectedly unwritable.[/dim]", SharedRootDefault())
+
 	}
+	// NAME THE RETROFIT, and do it OUTSIDE the verdict branches — it belongs on
+	// every setup, warnings or not. It sat inside the no-warnings arm until
+	// 2026-09-03, so a machine missing nix (the common first-run state) got the
+	// warning list and never this line, which is precisely the machine whose owner
+	// is about to move a project in and hit the failure it prevents.
+	//
+	// Printed whether or not anything needed sharing just now: macOS grants the
+	// shared ACL when a directory is CREATED, so a project MOVED or copied into the
+	// root later arrives unshared, and the symptom is `permission denied` partway
+	// through a launch with no hint of its cause. This is the one moment the user is
+	// reading about how sharing works, so it is where the remedy has to be
+	// learnable — a command mentioned only in a failure is one the reader meets at
+	// their worst moment.
+	out.printf("\n[dim]If you MOVE an existing project into %s later, share it with "+
+		"[bold]yolo macos-fix-permissions <path>[/bold] (no path = all of them, and no "+
+		"password needed). Moving a directory does not re-apply the ACL the way "+
+		"creating one does. Idempotent — safe to run any time something under there is "+
+		"unexpectedly unwritable.[/dim]", SharedRootDefault())
 	return 0
 }
 
