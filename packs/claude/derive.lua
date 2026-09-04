@@ -52,8 +52,10 @@ yolo.env("claude", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
   if not p then return {} end
   local out = {}
+  local routed = false -- claude is pointed at a non-first-party Anthropic-wire host
   if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then
     out.ANTHROPIC_BASE_URL = p.endpoints.anthropic.base_url
+    routed = true
   end
   if p.api_key then
     out.ANTHROPIC_AUTH_TOKEN = p.api_key
@@ -61,12 +63,38 @@ yolo.env("claude", function(ctx)
   if p.region then
     out.AWS_REGION = p.region
   end
+  -- Provider FACTS reach the derive as profile options (OQ-CS4: the provider declares
+  -- the knobs, this derive decides what each one means for claude), so the values stay
+  -- the provider's while the variable names stay claude's:
+  --   context_window (tokens) -> the auto-compact threshold, so a 1M-context model
+  --     does not compact at claude's default window (verified against claude 2.1.259:
+  --     CLAUDE_CODE_AUTO_COMPACT_WINDOW is read and "takes precedence");
+  --   api_timeout_ms -> claude's per-request ceiling, for providers whose reasoning
+  --     turns run long.
+  if ctx.profile then
+    if ctx.profile.context_window then
+      out.CLAUDE_CODE_AUTO_COMPACT_WINDOW = ctx.profile.context_window
+    end
+    if ctx.profile.api_timeout_ms then
+      out.API_TIMEOUT_MS = ctx.profile.api_timeout_ms
+    end
+  end
+  if routed then
+    -- Z.AI's recommended Claude Code config disables claude's nonessential traffic
+    -- (telemetry, update checks) on a routed launch: that traffic targets
+    -- api.anthropic.com, which either fails or leaks through a third-party gateway.
+    -- First-party and Bedrock launches keep it (Bedrock's gated env owns that mode).
+    out.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
+  end
   local m = p.models or {}
   -- OPUS takes the alias the active profile's `model` option names (OQ-CS4: what an
   -- option means is the derive's business), falling back to the provider's declared
   -- `default` when the profile carries none (OQ-CS3). SONNET and HAIKU keep their own
   -- aliases: they are Claude's routing names inside the same provider, not a selection
-  -- surface, and no profile option speaks for them.
+  -- surface, and no profile option speaks for them. Declaring them matters even though
+  -- z.ai translates claude's own tier names server-side (measured 2026-09-04:
+  -- claude-sonnet-* serves as glm-5.3-flash — the FAST model), because the aliases pin
+  -- each tier to the model the provider actually intends for it.
   local alias = (ctx.profile and ctx.profile.model) or "default"
   if m[alias] then
     out.ANTHROPIC_DEFAULT_OPUS_MODEL = m[alias]

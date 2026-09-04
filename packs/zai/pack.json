@@ -14,10 +14,14 @@
       "kind": "provider",
       "models": {
         "default": "glm-5.3[1m]",
-        "fast": "glm-5.3-flash[1m]"
+        "fast": "glm-5.3-flash[1m]",
+        "haiku": "glm-5.3-flash[1m]",
+        "sonnet": "glm-5.3[1m]"
       },
       "name": "zai",
       "options": {
+        "api_timeout_ms": "3000000",
+        "context_window": "1000000",
         "model": "default"
       }
     },

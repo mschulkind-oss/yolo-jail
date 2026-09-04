@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-03
-verified_commit: fb7b566d
+verified: 2026-09-04
+verified_commit: 582ae850
 covers:
   - internal/packdecl/contributes.go
   - internal/packload/providers.go
@@ -217,7 +217,7 @@ What each agent actually receives, from one composed table and one selection:
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML) | top-level `model_provider` + `model` |
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids) |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
-| claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `AWS_REGION`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` |
+| claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `AWS_REGION`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` (each tier from its own alias; opus from the profile's `model` option), plus three knobs composed from provider facts: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` ← the provider's `context_window` option, `API_TIMEOUT_MS` ← `api_timeout_ms`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` on any routed (anthropic base_url) launch |
 
 The spellings are facts about each agent, source-verified and carried as provenance comments
 in the derives (pi 0.84.4's settings-manager keys and its ten-id api registry; opencode's
@@ -302,5 +302,6 @@ place the exact spellings are stated.
 | Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` | entrypoint stateful render |
 | User config keys | `providers` (merged-scope), `profiles` / `use_profiles` (user-scope-only) | `internal/config` |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1` | `internal/paths` |
-| zai model aliases | `default: glm-5.3[1m]`, `fast: glm-5.3-flash[1m]` | `packs/zai/pack.json` |
+| zai model aliases | `default`/`sonnet`: `glm-5.3[1m]`, `fast`/`haiku`: `glm-5.3-flash[1m]` | `packs/zai/pack.json` |
+| zai provider options | `model: default`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
 | zai credential variable | `ZAI_API_KEY` | `packs/zai/pack.json` |

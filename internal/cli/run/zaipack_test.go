@@ -83,16 +83,35 @@ func bareConfig() *jsonx.OrderedMap {
 }
 
 // TestZaiPackFiresClaudeAtGLM: `-p zai` on a launch that selected the pack composes
-// claude's anthropic pair onto the argv — the endpoint of the protocol claude speaks, from
-// the manifest the pack ships, and the key relayed from the hydrated env_sources.
+// claude's whole recommended provider environment onto the argv — the endpoint of the
+// protocol claude speaks, the key relayed from the hydrated env_sources, all three model
+// tiers pinned to the aliases the provider intends (measured 2026-09-04: without
+// ANTHROPIC_DEFAULT_SONNET_MODEL, z.ai serves claude's sonnet-tier names as
+// glm-5.3-flash — the FAST model), and the three knobs Z.AI's own Claude Code guide
+// sets (docs.z.ai/devpack/tool/claude): auto-compact sized to the models' 1M context,
+// the 50-minute API ceiling their reasoning turns need, and nonessential traffic off on
+// a routed launch. Every name is claude's fact, every value the provider's — the
+// provider declares context_window/api_timeout_ms as options, the derive decides what
+// they mean for claude (OQ-CS4).
 func TestZaiPackFiresClaudeAtGLM(t *testing.T) {
 	argv := zaiLaunch(t, zaiSelected(t), bareConfig(), hydratedKey(),
 		func(o *Options) { o.ProfileName = "zai" })
 
-	got := envArgValues(argv, "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
+	got := envArgValues(argv,
+		"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+		"API_TIMEOUT_MS")
 	want := []string{
 		"ANTHROPIC_AUTH_TOKEN=tok-9",
 		"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5.3-flash[1m]",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.3[1m]",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.3[1m]",
+		"API_TIMEOUT_MS=3000000",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("zai env args = %q, want %q", got, want)
