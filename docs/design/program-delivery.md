@@ -1132,7 +1132,7 @@ code, not a measurement). That backend has no binds and no ephemeral home: the j
 persistent, machine-constant `/Users/_yolojail` shared by every workspace and every session
 (`internal/macosuser/macosuser.go:52-53`, `internal/cli/run/run.go:156-159`) — deliberately, since
 the single home *is* its shared-credentials mechanism and splitting it is a refused design point
-(`run.go:188-203`). But a capture does not need a bind; it needs a **fresh, enumerable,
+(`run.go:235-250`). But a capture does not need a bind; it needs a **fresh, enumerable,
 kernel-bounded write surface**, and both control points are already this backend's own machinery:
 the Seatbelt profile is generated fresh per session (`internal/macosuser/seatbelt.go:47-55` —
 `deny file-write*` on `/`, then an explicit allow-list) and the launch is `env -i` under

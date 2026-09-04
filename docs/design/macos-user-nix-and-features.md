@@ -350,7 +350,7 @@ of container features:
   mechanism (§3.5: one real `~/.claude/.credentials.json` is what makes the oauth-broker
   unnecessary here). Splitting the home per workspace would break the **machine** tier to
   repair the **workspace** tier. A fix has to restore both tiers explicitly, which is a design
-  change and not a launch-time patch (`internal/cli/run/run.go:188-203`).
+  change and not a launch-time patch (`internal/cli/run/run.go:235-250`).
 - **~~`workspace_readonly`~~ → FIXED 2026-08-23** (`d0961f2c`). It *was* silently inert — built
   only in the container run pipeline — and, as this section predicted, the fix was a wiring gap
   rather than a structural impossibility: the Seatbelt profile is a write deny-list with re-allows,
