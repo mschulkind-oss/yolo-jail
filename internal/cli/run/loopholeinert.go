@@ -294,6 +294,25 @@ func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.Or
 			"has ONE home, a second workspace launched while this one runs replaces them with " +
 			"its own.")
 	}
+	// mise_tools has the SAME defect as lsp_servers below and, until 2026-09-04, none
+	// of the same warning — so a config declaring tools got silence and a jail without
+	// them. Three independent reasons it cannot work here, all verified on a Mac:
+	// nothing provides a `mise` binary the sandbox can reach (no image bakes one, and
+	// /opt/homebrew/bin is not on SandboxPath — nor would the host's own mise state
+	// under /Users be readable if it were); nothing runs `mise install`, which lives in
+	// the CONTAINER command wrapper (setupScript) that this backend never invokes; and
+	// the sandbox home has no mise data dir at all.
+	//
+	// Warned rather than fixed because the fix is a real decision — bake mise, or
+	// install it, or declare the tools in `packages:` instead — and shipping the
+	// warning is what makes the choice visible instead of the absence.
+	if mise := cfgMap(cfg, "mise_tools"); mise != nil && len(mise.Keys()) > 0 {
+		o.pr(o.Stderr).print("[yellow]Warning: mise_tools are NOT installed on macos-user[/yellow] — " +
+			strings.Join(mise.Keys(), ", ") + ". The mise shims dir is on PATH but nothing " +
+			"provides `mise` here and nothing runs `mise install`: that step is part of the " +
+			"container provisioning script this backend does not run. Declare these in " +
+			"`packages:` instead, which this backend DOES materialize natively.")
+	}
 	if lsp := cfgMap(cfg, "lsp_servers"); lsp != nil && len(lsp.Keys()) > 0 {
 		o.pr(o.Stderr).print("[yellow]Warning: lsp_servers CONFIG renders but the binaries are not installed on macos-user[/yellow] — " +
 			strings.Join(lsp.Keys(), ", ") + ". The installer is a generated bootstrap script the " +

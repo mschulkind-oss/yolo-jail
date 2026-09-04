@@ -195,3 +195,47 @@ func TestMacosUserNotesHostByteGaps(t *testing.T) {
 			"file at that path and no reason given.\noutput:\n%s", got)
 	}
 }
+
+// mise_tools had the same defect as lsp_servers and none of the same warning: the
+// shims dir is on the sandbox PATH, so it LOOKS provisioned, while nothing provides
+// a `mise` binary the sandbox can reach and nothing runs `mise install` (that step
+// is in the CONTAINER command wrapper). A config declaring tools got silence and a
+// jail without them.
+//
+// Verified on a Mac 2026-09-04: no mise data dir in the sandbox home, no mise on any
+// path it can read.
+func TestMacosUserWarnsAboutMiseTools(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"),
+		[]byte(`{"mise_tools": {"neovim": "nightly"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	// A workspace config that did not exist before is a CHANGE, and this arm gates on
+	// approval with no terminal to prompt on. The flag is the non-interactive grant.
+	o.AcceptConfigChanges = true
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string,
+		bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+
+	got := stdout.String() + stderr.String()
+	if !strings.Contains(got, "mise_tools are NOT installed on macos-user") {
+		t.Errorf("a config declaring mise tools was told nothing:\n%s", got)
+	}
+	if !strings.Contains(got, "neovim") {
+		t.Errorf("the warning does not name the tools that will be missing:\n%s", got)
+	}
+	// It must point at the mechanism that DOES work here, or the user is left with a
+	// problem and no route out.
+	if !strings.Contains(got, "packages:") {
+		t.Errorf("the warning does not name the working alternative:\n%s", got)
+	}
+}

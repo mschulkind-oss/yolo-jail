@@ -94,6 +94,10 @@ it *for real*, through sudo, into the actual sandbox home.
 
 - **`mcp_presets`** are not delivered here — the wrappers hardcode Linux paths this
   backend never provisions. The launch says so.
+- **`mise_tools` are not installed.** The shims dir is on PATH so it looks
+  provisioned, but nothing provides a `mise` binary the sandbox can reach and nothing
+  runs `mise install` — that step is in the container provisioning script this backend
+  does not run. Declare the tool in `packages:` instead, which IS materialized here.
 - **`per_side_paths`, `resources`, `cache_relocations`** are read and ignored, each
   for a structural reason (no mount namespace, no cgroups, no binds). Each warns.
 - **One home for every workspace.** A second workspace launched concurrently
