@@ -68,8 +68,8 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 > **This row aggregates three docs while naming one** (reconciled 2026-09-03, recounted 2026-09-04).
 > `trust-paths.md` now holds **NO open questions**: TP3/TP4 retired 2026-09-03 under the evergreen
 > ruling, **TP8 and TP9 ruled 2026-09-04**, and **TP7 RETIRED the same day because TP9 deleted its
-> subject**. What is left in this row is routing to **OQ-X1** and **OQ-LP8 / G2b** — and LP8 is now
-> load-bearing rather than a nicety (see TP9).
+> subject**. What is left in this row is routing to **OQ-X1** and **OQ-LP8** — whose two undelivered
+> documentation requirements TP9 makes overdue, and whose **G2b residual TP9 makes moot**.
 > The other two live elsewhere and are listed here for routing only: **OQ-X1** is
 > [`pack-execution-trust.md`](../design/pack-execution-trust.md) `:316` (the doc this one partly
 > supersedes), and **OQ-LP8 / G2b** is [`loophole-packaging.md`](../design/loophole-packaging.md)
@@ -112,8 +112,10 @@ What is still open:
   *by construction*, so an agent cannot add one — and a gate that refuses an actor who already passed
   a stronger one is what `gate-placement-principle.md` **Test 1** exists to delete. `userlayer.go`
   had already applied that test the same way to the sibling route. **Keep** `packs` user-scope-only
-  (that half passes Test 1) and the startup disclosure banner; **the condition is enforcing the
-  commit pin, OQ-LP8/G2b** — the strictly better version of the one thing the prompt did.
+  (that half passes Test 1) and the startup disclosure banner. ⚠ **Corrected the same day:** the
+  follow-on is OQ-LP8's two undelivered DOC requirements, not pin *enforcement* — a launch resolves
+  from the local mirror, which only moves at `pack install`, so content is already frozen between
+  installs; what deleting the gate does is make the lockfile **write-only at launch**. G2b is moot.
 - ⛔ **OQ-TP7 — RETIRED 2026-09-04, subject deleted by TP9.** All six refusal sources gate on
   `p.MayAccessHost` alone, so with no approval there is no refusal for `yolo check` to fail to
   predict and no approve path to be unreachable from CI or offline. Its one durable finding: a future

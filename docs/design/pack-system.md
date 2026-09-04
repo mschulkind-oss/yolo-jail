@@ -920,17 +920,22 @@ refuted in-house by [`pack-execution-trust.md`](pack-execution-trust.md) §2: `n
 `postinstall` from the same fetched pack, ungated, so the set refuses one path to arbitrary in-jail
 execution while permitting another.
 
-### What replaces it: the commit pin
+### What replaces it: the ref you chose, documented
 
 The one thing the prompt did that had content was re-firing when a **moved pin gained a claim**. A
 lockfile pin *consulted at launch* is a strictly better version of that, and covers content drift
 **within** an unchanged claim set, which the prompt never did.
 
-> ⚠ **This is the condition on the ruling, and it is UNBUILT.** The lockfile records the commit and
-> **nothing consults it at launch** — [`loophole-packaging.md`](loophole-packaging.md) OQ-LP8 / G2b,
-> *"recorded and never consulted."* Until it lands, a fetched pack's content is unbounded after the
-> first install. This was already true with the prompt in place; the prompt only ever noticed claim
-> growth, never content change.
+> ⚠ **Corrected 2026-09-04, same day.** This first read *"the lockfile records the commit and nothing
+> consults it at launch"*, which overstates it. A launch resolves a fetched pack from the **local
+> mirror at the config's ref** (`packsrc.Store.resolveFromStore`), and the mirror only moves when
+> `yolo pack install`/`update` runs — the one network step — so content is frozen between installs.
+> What is true: the lockfile's **only** launch-time job today is the approval gate, so **deleting the
+> gate makes it write-only at launch.** The substance was already ruled by
+> [`loophole-packaging-overview.md`](loophole-packaging-overview.md) **OQ-LP8** — *"choosing to follow
+> a branch IS the trust decision"* — with two requirements it never delivered: say that in one plain
+> sentence, and **document tag pins as the shape for a pack carrying host execution.** Those are now
+> the only thing between a user and a mutable ref. **G2b is moot** once the approval is gone.
 
 ### Transparency at every launch
 

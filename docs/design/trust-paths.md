@@ -73,7 +73,7 @@ against exactly one threat, the silent update.
 | **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by `program-delivery.md` OQ-PD12**: all four packs it governed are agent dependencies, which are now ruled **evergreen**, updated on the boot path at every launch. The ruling stands as a description of the code **as it is today** — the reversal is ruled, not built | 2026-08-18 · superseded 2026-09-03 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. Untouched by the evergreen ruling — it is about consent, not cadence | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 | **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` keeps running with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate fails a parity check: `host.go:458` folds each pack's **static** `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive computes a field the manifest can already state literally, and gating the computed path while the literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home at that notch. The disclosure is the commit pin (OQ-LP8), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§12 OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) |
-| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refuses an actor who has already passed a stronger one — [`gate-placement-principle.md`](gate-placement-principle.md) Test 1, already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house by `pack-execution-trust.md` §2 (ungated `npm postinstall` is the same arbitrary in-jail execution). **Keep** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner; **enforce the commit pin (OQ-LP8/G2b)** as the condition — it is the strictly better version of the one thing the prompt did, and covers content drift the prompt never did. ⛔ Retires OQ-TP7 | 2026-09-04 | [§12 OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) |
+| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refuses an actor who has already passed a stronger one — [`gate-placement-principle.md`](gate-placement-principle.md) Test 1, already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house by `pack-execution-trust.md` §2 (ungated `npm postinstall` is the same arbitrary in-jail execution). **Keep** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner; ⚠ **CORRECTED same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on is OQ-LP8's two undelivered DOC requirements, not enforcement; deleting the gate makes the lockfile write-only at launch, and **G2b is moot**. ⛔ Retires OQ-TP7 | 2026-09-04 | [§12 OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) |
 
 > [!NOTE]
 > **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit — anchors
@@ -720,6 +720,29 @@ which is a pinning argument, not an approval argument.
 >    does not work. A consulted pin is a strictly better version of the same notification, and it
 >    also covers content drift **within** an approved claim set, which the prompt never did.
 >
+> [!WARNING]
+> **CORRECTED 2026-09-04, same day, after reading the resolution path.** This ruling first stated the
+> pin as *"recorded and never consulted at launch"* and made enforcing it **the condition**. That
+> overstates it, in a way that matters:
+>
+> - A launch resolves a fetched pack from the **local mirror at the config's ref**
+>   (`packsrc.Store.resolveFromStore` → `resolveCommit(mirror, a.Ref)`), and **the mirror only moves
+>   when `yolo pack install`/`update` runs** — the one network step in the product
+>   (`store.Sync`, `internal/cli/pack.go:1112`). So content is frozen between installs, and the
+>   lock's commit and the mirror's ref agree right after either command writes both.
+> - The lockfile IS read at launch, and today its **only** launch-time job is the approval gate
+>   (`packs.go:175` → `packMayAccessHost`). **Deleting the gate makes the lockfile write-only at
+>   launch**, which is the accurate version of the concern.
+>
+> So the follow-on is **documentation, not enforcement**, and OQ-LP8 already ruled the substance —
+> *"choosing to follow a branch IS the trust decision"* — with two requirements it never delivered:
+> say that in one plain sentence, and **document tag pins as the shape for a pack carrying host
+> execution.** With the prompt gone those are the only thing between a user and a mutable ref, so
+> they are overdue rather than optional. **G2b** (`ApprovedAt` written and read by nothing) is moot
+> once the approval is gone. Making resolution read the lock's commit instead of the mirror's ref is
+> still worth doing — it is what a lockfile means everywhere else — but it is correctness-of-meaning,
+> **not a security fix**, and it is not a condition on this ruling.
+
 > **The prior art, since the challenge named it.** A `nvim` plugin manager clones a git repo and runs
 > its Lua on the **real host**, unsandboxed, with no approval prompt — the act of putting the repo in
 > your config is the consent. yolo's fetched pack runs in a container, and asks anyway. Where that
@@ -733,8 +756,8 @@ which is a pinning argument, not an approval argument.
 > **What this retires:** [OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04)
 > entirely (no refusal to predict, no approve path to be unreachable). **What it leaves standing:**
 > [OQ-TP6](#decision-ledger)'s rule — a refused contribution refuses the launch — which is about
-> consent, not cadence, and stays correct with no subject. **What it makes urgent:** OQ-LP8/G2b,
-> which was *"recorded and never consulted"* and is now the whole guarantee.
+> consent, not cadence, and stays correct with no subject. **What it makes overdue:** OQ-LP8's two
+> undelivered documentation requirements — see the correction above; G2b itself is moot.
 
 ### ✅ OQ-TP8 — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident? — RESOLVED (2026-09-04)
 
