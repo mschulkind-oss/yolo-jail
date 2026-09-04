@@ -53,12 +53,13 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   paths, and `verb(apply, "would remove", "removed")` (`prunecmd.go:712`). Closest siblings:
   `PruneOrphanImageRoots` (`imageroots.go:38`) and `PruneHostArchive` (`hostarchive.go:80`).
 - **`prune.inode()`** (`internal/prune/inode.go:12`) — the lstat behind the `st_nlink` GC oracle.
-- **`dedupeSubtrees = []string{"npm-global","local","go"}`** (`internal/prune/prune.go:24`) is
+- **`dedupeSubtrees = []string{"npm-global","local","go"}`** (was `internal/prune/prune.go:24`) is
   already the exact capture surface set. Import that spelling rather than a fourth one.
   ⚠ *Corrected while building slice 2 — see build-order 2(a).* Those are the HOST spellings and the
   jail-side names differ; the constant was also unexported, and slice 5 makes `prune` import
   `capture`, so importing it the other way would have been a cycle. The pair list now lives in
-  `paths.HomeSurfaces()` and `prune` derives from it; import THAT.
+  `paths.HomeSurfaces()` (`internal/paths/paths.go:383`) and `prune.dedupeSubtrees`
+  (`prune.go:31`) derives from it; import THAT.
 - **Locking:** `tryHostApplyLock` (`internal/cli/hostapplylock.go:80`) — non-blocking, never refuses,
   into `<gs>/locks/`. Two concurrent captures of one bin must not race the admit.
 
