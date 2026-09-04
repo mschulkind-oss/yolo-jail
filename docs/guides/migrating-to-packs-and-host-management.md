@@ -239,6 +239,24 @@ week):
 "packs": ["claude", "git+ssh://git@github.com/me/dotpacks//agent?ref=v1"]
 ```
 
+> [!IMPORTANT]
+> **Following a mutable ref *is* the trust decision.** A `?ref=main` re-fetches whatever the
+> author has pushed since you last looked, and nothing asks you again — putting a branch in
+> your config is the consent, given once, for every commit that ever lands on it.
+>
+> So **pin a tag** for any pack that carries code, and pin it hardest for the kind that runs
+> **on your own machine**: a `loophole` whose module declares a `host_daemon` or a
+> `doctor_cmd`. A `program` matters too — an installer script yolo pipes to a shell, or an npm
+> package whose `postinstall` runs — though that one executes inside the jail. A tag pin is
+> the documented shape for all of them. `?ref=` also takes a full commit SHA, which is the
+> same guarantee spelled out; what a branch name buys you is convenience, and what it costs is
+> this.
+>
+> Nothing refuses a branch ref, and you are not exposed between installs either way: a launch
+> resolves the pack from the **local mirror** and never touches the network, and that mirror
+> only moves when you run `yolo pack install` or `yolo pack update`. The pin is what decides
+> whether *that* command hands you code you have looked at.
+
 `yolo pack install` clones it (host-side; the jail has no git credentials by design),
 pins the commit in a lockfile, and — **if the pack reads your host** (a `reads-host`,
 `mount`, or installer) — shows exactly what it reads and asks once:

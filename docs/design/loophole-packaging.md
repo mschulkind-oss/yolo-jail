@@ -6,15 +6,19 @@ whole landing order has landed** — items 0–9, plus OQ-LP9's three parts. **A
 completed 2026-08-19, so every loophole yolo ships is a pack's and `bundled_loopholes/` no longer
 exists (postscript below). Closes **OQ-CAP2** with
 option **(B)**. Per-section `**Landed**` markers below are the ledger; the landing order at the end of
-the doc is the summary. **ONE thing is deliberately NOT built:** the install-gate invariant **G2b**
-(§4.3 — content-anchored exec approval, which is a maintainer decision under OQ-LP8 rather than
-pending work). **G2a LANDED** — the claim string is the raw, unelided, placeholder-preserving argv,
+the doc is the summary. **NOTHING IS LEFT UNBUILT as of 2026-09-04.** The one item that was — the
+install-gate invariant **G2b** (§4.3, content-anchored exec approval) — is **MOOT**, not pending:
+[`trust-paths.md`](trust-paths.md) OQ-TP9 deleted the fetched-pack approval G2b would have anchored,
+so there is no approval left for a commit to anchor
+([OQ-LP8](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)). **G2a LANDED** — the claim string is the raw, unelided, placeholder-preserving argv,
 pinned by two tests in `packload/loopholesource_test.go`. The pack-shipped subset is now **wired at
 three seams** (§3.1), `audio` ships as an **official pack** (§7), and **OQ-LP9 is built** (§9).
 
-**Live questions as of 2026-08-23: three** — **OQ-LP5** (conditional `jail_env`), **OQ-LP7** (the
-`guest` notch), **OQ-LP8** (an execution approval surviving a moving pin). Everything else is in the
-Decision Ledger in §9.
+**Live questions as of 2026-09-04: two** — **OQ-LP5** (conditional `jail_env`) and **OQ-LP7** (the
+`guest` notch). **OQ-LP8** closed 2026-09-04: its ruling (*following a mutable ref IS the trust
+decision*) was already made, and its two undelivered documentation requirements
+[are now delivered](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04).
+Everything else is in the Decision Ledger in §9.
 
 > [!WARNING]
 > ### Postscript 2026-08-23 — the channel this doc argues about no longer exists
@@ -2386,7 +2390,7 @@ traps that are load-bearing rationale rather than history.
 | **OQ-LP5** | **LIVE** — does `jail_env` stay refused for pack-shipped loopholes? | — | below |
 | OQ-LP6 | Build the capability system (A6) — a loophole manifest is a public surface regardless | 2026-08-14 | §6 |
 | **OQ-LP7** | **LIVE** — does `guest` get its own field census, or keep borrowing `HostFields()`? | — | below |
-| **OQ-LP8** | **LIVE** — how does an execution approval survive a moving pin? G2b unbuilt; `LockEntry.Commit` written but never read at launch | — | below, §4.3 G2b |
+| OQ-LP8 | Following a mutable ref IS the trust decision — accepted, not re-prompted; **tag pins are the documented shape** for a pack carrying code, delivered in the packs guide. G2b is **MOOT**: OQ-TP9 deleted the approval it would have anchored | 2026-09-04 | [overview](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04), §4.3 G2b |
 | OQ-LP9 | Nested jails RECURSE the scope model: inner-scope census + two generated per-consumer files + a global `--user-layer` flag. Built | 2026-08-14 | §9 |
 | OQ-LP10 | Retire the user loopholes dir — a `file://` pack subsumes it. Carried out; `SourceUser` deleted, migration notice left behind | 2026-08-14 | §1, §5.1 |
 | OQ-LP11 | Bundled loopholes become packs. **COMPLETE** — `bundled_loopholes/` deleted, all five shipped loopholes are pack contributions | 2026-08-19 | §5.4, §7, below |
@@ -2397,7 +2401,7 @@ traps that are load-bearing rationale rather than history.
 
 ### Open questions
 
-Three are live: **OQ-LP5**, **OQ-LP7**, **OQ-LP8**. The rest are kept in place, stamped, because
+Two are live: **OQ-LP5** and **OQ-LP7**. The rest are kept in place, stamped, because
 their refuted objections and measured traps are documentation.
 
 **OQ-LP1 — where does the loophole manifest schema live? ✅ RESOLVED BY EXTRACTION, 2026-08-14.**
@@ -2513,8 +2517,11 @@ inventing a third field set with zero consumers is how the vocabulary grows fast
 **Answer:**
 > _(empty — fill in when decided)_
 
-💬 **OQ-LP8 — how does an execution approval survive a moving pin without re-prompting forever? STILL
-OPEN, re-verified 2026-08-23.** §4.3
+✅ **OQ-LP8 — how does an execution approval survive a moving pin without re-prompting forever?
+CLOSED 2026-09-04 — the ruling stands, its two documentation requirements are
+[delivered](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04),
+and G2b is MOOT.** Everything from here to the leaning is the argument as it stood on 2026-08-23,
+kept because it is what the ruling answers; the closing note is at the end of the entry. §4.3
 G2b anchors an exec-bearing approval to the commit, giving `ApprovedAt` its first reader. The cost is
 that a `?ref=main` pack re-prompts on every commit. Alternatives: fold a **digest of the loophole
 module dir** into the claim string (re-prompts only when the daemon's own files change — more
@@ -2543,8 +2550,27 @@ and recoverable, and content-blind approval is neither. Unchanged since 2026-08-
 placement rule narrowed the exposure (the user-scope edit IS the confirmation) but did not remove
 this row, because a *fetched* pack's module dir is not user-scope-edited.
 
-**Answer:**
-> _(empty — fill in when decided)_
+**Answer (2026-09-04):**
+> **Neither anchor. The approval is gone, so there is nothing to anchor — and the ruling this
+> question already had is the whole answer.** The
+> [overview's OQ-LP8](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)
+> ruled *"accept that following a mutable ref IS the trust decision, rather than building
+> re-prompting"*, on two conditions it never delivered: say that in one plain sentence, and document
+> **tag pins** as the shape for a pack carrying host execution. Both are delivered, in the
+> user-facing packs guide rather than only in a design doc.
+>
+> **What changed on 2026-09-04 is that they stopped being optional.**
+> [`trust-paths.md`](trust-paths.md) OQ-TP9 deleted the fetched-pack approval prompt as theatre, and
+> the prompt was the one thing that re-fired when a moved pin gained a claim — so those two sentences
+> are now the only thing between a user and a mutable ref.
+>
+> **G2b is MOOT** for the same reason, not deferred: it would have anchored an exec-bearing approval
+> to the resolved commit, and there is no longer an approval. The ⚠ box above stays as the record of
+> the gap while it existed; note that its `LockEntry.Commit` half is also narrower than it reads — a
+> launch resolves from the local mirror at the config's ref, and the mirror only moves at
+> `yolo pack install`/`update`, so content is frozen between installs. Making resolution read the
+> lock's commit instead of the mirror's ref is still worth doing as **correctness of meaning**, and
+> is not a security fix.
 
 **OQ-LP9 — NESTED JAILS NEED THE SCOPE MODEL TO RECURSE. ✅ BUILT 2026-08-14** (all three parts; the
 Landed note is at the end of this entry). It was the last properly open question, and review grew it.
@@ -2828,8 +2854,10 @@ in revision 2 and are real work draft 1 priced at zero.
 
 **Ledger, 2026-08-14: EVERY ITEM IS DONE — 0 through 10.** Item 9 (`audio` as a real official pack)
 and item 10 (OQ-LP9's three parts, added to this list when it was built) both landed. ONE residual
-sits *inside* a done item and is the whole of what is left: **G2b** is unbuilt — deliberately, as a
-decision under OQ-LP8 rather than as pending work (item 6). **G2a landed** with the loophole claim
+sat *inside* a done item and was the whole of what was left: **G2b** (item 6), and it is **MOOT** as
+of 2026-09-04 rather than pending — OQ-TP9 deleted the approval it would have anchored
+([OQ-LP8](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
+**G2a landed** with the loophole claim
 producer, and the pack-shipped **subset is wired at three seams** (item 5).
 
 **Two findings from the last two batches are NOT work items and must not be read as residuals.** Each
@@ -3079,12 +3107,16 @@ rather than refuse.
    one approved claim, and an expanded one makes the approval machine-specific, so it re-prompts
    forever and `promptYesNo` fails closed on a non-TTY. The rule is not separately asserted for the
    read-only producers, where a claim string is a path and there is nothing to elide.
-   **Still owed from item 6: G2b ALONE, and it is a DECISION rather than pending work.**
-   `ApprovedAt` is written by `pack install` and read by nothing, and `HostAccessApproved` compares
-   claim STRINGS only — so a fetched pack at a mutable ref whose daemon FILE changes under an
-   unchanged argv re-installs with no prompt. Whether to close that is OQ-LP8: content-anchoring may
-   be redundant under §4.3a's ruling that the user-scope edit IS the confirmation, and the placement
-   rule (landed) closes the second-actor gap that argument leaves open. Not implemented on purpose.
+   **G2b was the last thing owed from item 6, and it is MOOT as of 2026-09-04.** OQ-TP9 deleted the
+   fetched-pack approval it would have anchored to a commit, so there is nothing left to anchor
+   ([OQ-LP8](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
+   ⚠ **One claim this bullet made is false, and is corrected rather than deleted, because it is the
+   kind a reader stops checking at.** There is no `ApprovedAt` field to be *"written by
+   `pack install` and read by nothing"* — `04410aa1` (2026-08-15) deleted it for precisely that
+   reason, and `internal/packsrc/lock.go`'s `LockEntry` doc records the deletion (read 2026-09-04).
+   The rest of the bullet was accurate: `HostAccessApproved` compared claim STRINGS only, so a
+   fetched pack at a mutable ref whose daemon FILE changed under an unchanged argv re-installed with
+   no prompt. That exposure is now answered by documentation (pin a tag), not by a prompt.
 7. **`pack-system.md` §12's first invariant, sharpened** (R1) — in the same commit as the kind.
    — **done 2026-08-14**: the invariant now separates the cost of *looking* from the cost of
    *selecting*, and quotes the sentence it replaces so the change is legible.

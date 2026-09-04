@@ -11,8 +11,10 @@ placement rule's config *and* manifest faces, the pack-shipped **subset wired at
 **`audio` as an official pack**, **OQ-LP9's three parts** (the inner-scope census, the two generated
 per-consumer files, and the global `--user-layer` flag), and the earlier batch's front / `publishes` /
 `request_end` / `{loophole_dir}` tokens / unknown-kind skew tolerance / config-block scope model.
-**What is NOT built: one thing, deliberately** — **G2b**, the content-anchored exec approval, which is
-a maintainer decision under OQ-LP8 rather than pending work.
+**What is NOT built: nothing, as of 2026-09-04** — **G2b**, the content-anchored exec approval, was
+the last residual, and it is now **MOOT**: [`trust-paths.md`](trust-paths.md) OQ-TP9 deleted the
+approval it would have anchored, so there is nothing left to anchor
+([OQ-LP8](#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
 
 > [!IMPORTANT]
 > **Both of the two DESIGN findings below are now spent, and both were spent by DELETION rather than
@@ -190,7 +192,9 @@ Four things fall out of that choice, and they are the substance of the design:
 
 **Landed 2026-08-14.** The kind is in `packdecl`'s closed set — `{"kind": "loophole", "from": …}`,
 `from` required, Exclusive by loophole NAME — and all four of the above shipped with it, including
-G2a; the only unbuilt piece of (3) is **G2b** (§4.2), and that is a decision rather than pending work.
+G2a; the one piece of (3) that never shipped is **G2b** (§4.2), and it is **MOOT** rather than
+pending — OQ-TP9 deleted the approval it anchored
+([OQ-LP8](#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
 One thing the proposal did not say and the implementation had to: **the name is knowable without
 decoding the manifest**, because `name` must equal the module dir's basename. That is what lets the
 exclusivity pre-flight run before any loophole is loaded, and what lets a claim be keyed even when the
@@ -1108,7 +1112,7 @@ surface regardless, so `serves` is a field third parties will write even if only
 are ever superseded — and designing that field once, now, is cheaper than retrofitting it around
 whatever the first third-party use turns out to be. A6 proceeds at its narrowed scope.
 
-### OQ-LP8 — how does an execution approval survive a moving pin? ✅ MOSTLY COVERED — one thing to confirm
+### OQ-LP8 — how does an execution approval survive a moving pin? ✅ RULED, and DELIVERED 2026-09-04
 
 **Yes, your LP13 argument covers most of it.** With no content confirmation there is no re-prompt
 loop to design, so the question of how an approval survives a pin move largely stops existing.
@@ -1123,6 +1127,45 @@ choosing to follow a branch *is* the trust decision — and it keeps the frictio
 requires is that the docs say it in one plain sentence, and that **tag pins are the documented shape
 for a pack carrying host execution**. Say the word if you would rather it re-prompt when the commit
 moves; that is the only variant left in this question.
+
+**Both requirements DELIVERED 2026-09-04**, in the user-facing place rather than only here:
+[`migrating-to-packs-and-host-management.md`](../guides/migrating-to-packs-and-host-management.md),
+under *Sharing a pack with other people* — the section that documents the `?ref=` a user actually
+types. It says *"following a mutable ref **is** the trust decision"* in those words, and names the
+**tag pin** as the shape for a pack carrying code: a `program` (an installer script, or an npm
+package whose `postinstall` runs) or a `loophole` module declaring a `host_daemon` or `doctor_cmd`,
+which runs on the user's own machine. It also states the two facts a reader needs to size the risk
+and which nothing else told them — a launch resolves from the **local mirror** and never touches the
+network, and that mirror moves only at `yolo pack install`/`update` (`packsrc.Store.Sync` has
+exactly one caller, the `pack install` handler in `internal/cli/pack.go`) — so the pin decides what
+*that* command hands you,
+not what a launch fetches behind you. A `?ref=` also accepts a full commit SHA
+(`packsrc.Store.resolveCommit` tries the ref as written, then `refs/heads/`, then `refs/tags/`).
+
+**Why they became overdue rather than staying optional.**
+[`trust-paths.md`](trust-paths.md) **OQ-TP9** (2026-09-04) deleted the fetched-pack approval prompt
+as theatre. The prompt was the one thing that re-fired when a moved pin gained a claim, so with it
+gone these two sentences are the **only** thing between a user and a mutable ref.
+
+**⛔ G2b is MOOT, not deferred.** It would have anchored an exec-bearing approval to the resolved
+commit, and OQ-TP9 deletes the approval whole — the install-time y/N, the lockfile record
+(`LockEntry.ApprovedHostAccess`) and the launch gate. With no approval there is nothing for a commit
+to anchor and no invariant left for G2b to hold.
+
+> [!WARNING]
+> **The shorthand for this is wrong, and it is corrected rather than repeated.**
+> G2b is *not* moot because *"`ApprovedAt` is written and read by nothing"*. **There is no
+> `ApprovedAt` field, and has not been since `04410aa1` (2026-08-15),** which deleted it for exactly
+> that reason — *"a trust field that named a guarantee nothing enforced"*. `internal/packsrc/lock.go`
+> says so in the `LockEntry` doc (read 2026-09-04): *"THERE IS DELIBERATELY NO `ApprovedAt` FIELD.
+> One existed, was written on every install, and was read by nothing."* So that phrase describes the
+> state the removal ENDED, three weeks before OQ-TP9. What makes G2b moot is the subject, not the
+> field: the approval is gone. (The same shorthand was written into
+> [`trust-paths.md`](trust-paths.md)'s OQ-TP9 answer and is corrected in place there.)
+
+What survives the deletion is a **correctness-of-meaning** item that is neither G2b nor a security
+fix: resolution reads the mirror's ref rather than the lockfile's commit, which is not what a
+lockfile means anywhere else.
 
 ### OQ-LP9 — nested jails: the outer jail IS the user level for the inner one ✅ BUILT 2026-08-14
 
@@ -1310,8 +1353,8 @@ path inside a jail would hunt for a file that is not there.
 ## 9. The order the work has to land in
 
 Not a task list — the *dependencies*. Rewritten after the rulings, which removed work as often as
-they added it. **ALL EIGHT ITEMS HAVE LANDED** (2026-08-14). One residual sits inside item 6 — **G2b**,
-and it is a decision rather than pending work. The two things this list does *not* contain, because
+they added it. **ALL EIGHT ITEMS HAVE LANDED** (2026-08-14). One residual sat inside item 6 — **G2b** — and it is
+**MOOT** as of 2026-09-04, not pending. The two things this list does *not* contain, because
 neither is an item, are the batch's design findings: **OQ-LP14** (the subset cannot express a
 runtime-dir socket, §5.1) and the placement rule's **bundled exemption** (§4.4).
 
@@ -1356,9 +1399,11 @@ runtime-dir socket, §5.1) and the placement rule's **bundled exemption** (§4.4
    that appeared at no launch). The read/exec split is per **claim**, not per kind. **G2a landed too**
    — the claim string is the raw, unelided, placeholder-preserving argv, pinned by two tests, because
    an elided argv collapses two different daemons onto one approval and an expanded one makes the
-   approval machine-specific. **One residual, and it is a DECISION: G2b** — `ApprovedAt` is written and
-   read by nothing, so a fetched pack at a mutable ref whose daemon *file* changes under an unchanged
-   argv re-installs with no prompt. Whether to close it is OQ-LP8; not implemented on purpose.
+   approval machine-specific. **The one residual, G2b, is MOOT as of 2026-09-04** — it would have
+   anchored an exec-bearing approval to the resolved commit, and OQ-TP9 deleted the approval, so
+   there is nothing left for a commit to anchor. The exposure it named — a fetched pack at a mutable ref
+   whose daemon *file* changes under an unchanged argv — is answered by
+   [OQ-LP8](#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)'s delivered documentation (pin a tag), not by a prompt.
 7. ✅ **`audio` as a real official pack** (LP11), which is both the end-to-end proof and the first step
    of the bundled-to-packs consolidation. — **done 2026-08-14** as `packs/audio`, and it makes §6's
    last bullet false: a pack-shipped loophole now exists and runs. **Two framings this item had were

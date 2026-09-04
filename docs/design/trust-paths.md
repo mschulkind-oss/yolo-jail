@@ -738,7 +738,10 @@ which is a pinning argument, not an approval argument.
 > *"choosing to follow a branch IS the trust decision"* — with two requirements it never delivered:
 > say that in one plain sentence, and **document tag pins as the shape for a pack carrying host
 > execution.** With the prompt gone those are the only thing between a user and a mutable ref, so
-> they are overdue rather than optional. **G2b** (`ApprovedAt` written and read by nothing) is moot
+> they are overdue rather than optional. **G2b** (⚠ *corrected 2026-09-04: not because "`ApprovedAt`
+> is written and read by nothing" — there is no such field, and has not been since `04410aa1`,
+> 2026-08-15, which deleted it for exactly that reason; G2b is moot because it would have anchored an
+> approval that no longer exists*) is moot
 > once the approval is gone. Making resolution read the lock's commit instead of the mirror's ref is
 > still worth doing — it is what a lockfile means everywhere else — but it is correctness-of-meaning,
 > **not a security fix**, and it is not a condition on this ruling.
