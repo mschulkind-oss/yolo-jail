@@ -53,6 +53,7 @@ import (
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -144,6 +145,16 @@ type CaptureOptions struct {
 	// cost is that an installer needing a `packages:`-declared tool fails inside the capture
 	// instead of finding it. The seam is here so wiring it later is a caller change.
 	Darwin *Darwin
+	// BlockedTools are the selected packs' blocked-tool declarations, threaded into the
+	// staging home's YOLO_BLOCK_CONFIG exactly as a launch threads them.
+	//
+	// IT HAS TO BE PASSED, not defaulted. Core blocks nothing on its own any more — the
+	// `grep -r`/`find` rules are a pack contribution — so a capture that left this nil
+	// would bootstrap a staging home with NO blockers while the launch it claims to
+	// reproduce has them. The capture would then record an installer run under a shim set
+	// no real launch ever has, which is the one difference between the two homes this file
+	// exists to prevent (see the bootstrap paragraph in the file comment).
+	BlockedTools []packload.BlockedTool
 }
 
 // CapturePlan is the fully-resolved, ordered artifacts + commands for one install capture — the
@@ -212,8 +223,15 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	// will run in, so the installer the driver runs is the launcher a launch would have run.
 	// Pointed at the shared home instead, the capture would provision the machine's real
 	// agent home and then capture nothing.
+	//
+	// NO HOME OVERLAY (the "" argument). A launch stages the composed CONTENT tree — skills
+	// and briefings — and the bootstrap copies it over the home. A capture wants none of it:
+	// the overlay carries prose for an agent to read, this home exists to run one installer
+	// and be deleted, and naming a tree StageCommands below does not stage would point the
+	// bootstrap's copy at a directory that is not there. Absence is the honest input, the
+	// same way "" means no packs above.
 	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, opts.SandboxEnv,
-		packRoot, stagingHome, darwinPrefix)
+		packRoot, "", stagingHome, darwinPrefix, opts.BlockedTools)
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(stagingRoot, "")
 

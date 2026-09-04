@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -487,7 +488,8 @@ func TestCaptureWiresTheMacosUserBackend(t *testing.T) {
 	// Drive the real closure on its dry-run path. The act sets deps.Out to captureHost's
 	// own stdout writer, so the plan lands in `out`.
 	before := out.Len()
-	_ = seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", true /*dryRun*/, jsonx.NewOrderedMap())
+	_ = seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", "" /*homeOverlay*/, true, /*dryRun*/
+		jsonx.NewOrderedMap(), []packload.BlockedTool{{Name: "probeblocker", Suggestion: "use rg"}})
 	plan := out.String()[before:]
 
 	// The macos-user capture act, and nothing else, prints this banner.
@@ -497,5 +499,17 @@ func TestCaptureWiresTheMacosUserBackend(t *testing.T) {
 	// The refusal must be gone, not merely shadowed.
 	if all := out.String() + errw.String(); strings.Contains(all, "cannot capture yet") {
 		t.Errorf("the slice-3 macos-user refusal is still reachable: %s", all)
+	}
+
+	// THE PACKS' BLOCKED TOOLS MUST REACH THE STAGING HOME. Core blocks nothing on its
+	// own since the rules became a pack contribution, so the pipeline's `blocked` argument
+	// is the ONLY source of them — dropped here (the easy thing to do when adapting to the
+	// wider signature), the capture would bootstrap a home with no shims at all while the
+	// launch it claims to reproduce has the guardrails pack's. This asserts on the printed
+	// bootstrap argv, which is where YOLO_BLOCK_CONFIG is baked, so it fails if the
+	// CaptureOptions field is dropped anywhere between this closure and buildBootstrapEnv.
+	if !strings.Contains(plan, "probeblocker") {
+		t.Errorf("the pipeline's blocked tools did not reach the capture's bootstrap env; "+
+			"the staging home would carry no shims.\nplan: %q", plan)
 	}
 }

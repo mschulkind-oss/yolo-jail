@@ -9,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // capture_test.go pins the macos-user install-capture plan and its executor.
@@ -106,6 +107,48 @@ func TestCapturePlanRefusesTheSharedHome(t *testing.T) {
 	broken.BootstrapArgv = DarwinBootstrapArgv(plan.StagedYolo, SandboxHome(), jsonx.NewOrderedMap(), "")
 	if !anyContains(CapturePlanInvariants(broken), "must never run against the shared sandbox home") {
 		t.Error("a bootstrap pointed at the shared home was not refused")
+	}
+}
+
+// THE BLOCKED-TOOL CALL SITE. Core blocks nothing on its own since the `grep -r`/`find`
+// rules became a pack contribution, so CaptureOptions.BlockedTools is the ONLY thing that
+// can put a shim in the staging home. Drop the argument from the buildBootstrapEnv call —
+// the easy omission when adapting to that wider signature — and the capture bootstraps a
+// home with no blockers while the launch it claims to reproduce has the guardrails pack's,
+// which is exactly the capture-vs-launch difference this file's header forbids.
+//
+// Both halves are asserted because either alone is vacuous: the positive would pass against
+// a config that hard-coded the name, and the negative alone would pass against a call site
+// that never threads anything.
+func TestCapturePlanCarriesThePacksBlockedTools(t *testing.T) {
+	opts := testCaptureOptions()
+	opts.BlockedTools = []packload.BlockedTool{{Name: "probeblocker", Suggestion: "use rg"}}
+	plan := BuildCapturePlan(opts)
+	if !anyContains(plan.BootstrapArgv, "probeblocker") {
+		t.Errorf("the packs' blocked tools did not reach YOLO_BLOCK_CONFIG; the staging "+
+			"home would carry no shims: %v", plan.BootstrapArgv)
+	}
+	bare := BuildCapturePlan(testCaptureOptions())
+	if anyContains(bare.BootstrapArgv, "probeblocker") {
+		t.Errorf("a plan declaring no blocked tools produced one anyway: %v", bare.BootstrapArgv)
+	}
+}
+
+// A CAPTURE STAGES NO HOME OVERLAY, and must therefore NAME none. The overlay is the
+// composed content tree — skills and briefing prose — which a throwaway installer home has
+// no use for; StageCommands below copy the binary and the packs and nothing else. Setting
+// the variable anyway would point the bootstrap's recursive copy at a directory no command
+// created, so the two facts have to move together and this is what fails if only one does.
+func TestCapturePlanNamesNoHomeOverlay(t *testing.T) {
+	plan := BuildCapturePlan(testCaptureOptions())
+	if anyHasPrefix(plan.BootstrapArgv, "YOLO_DARWIN_HOME_OVERLAY=") {
+		t.Errorf("the capture bootstrap names a home overlay it never stages: %v",
+			plan.BootstrapArgv)
+	}
+	for _, cmd := range plan.StageCommands {
+		if anyContains(cmd, homeOverlayLeaf) {
+			t.Errorf("a capture stage command touches the home-overlay tree: %v", cmd)
+		}
 	}
 }
 

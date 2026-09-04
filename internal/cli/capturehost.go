@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -350,12 +351,21 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	// unit-pinned; that Seatbelt HONORS the profile is not, and cannot be from Linux. The
 	// probe that settles it is in install-capture.md slice 6 — a capture that silently wrote
 	// to the shared home looks identical to one that did not.
+	//
+	// The homeOverlay the pipeline composed is DROPPED here, and that is the capture's
+	// choice rather than an oversight: the overlay is skills and briefing prose for an
+	// agent to read, and this jail runs one installer in a home it then deletes. See the
+	// "" argument in macosuser.BuildCapturePlan, which is where the reasoning lives.
+	// `blocked` is NOT dropped — the staging home must carry the same shims a launch
+	// would, and core contributes none of them by itself.
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, _ string, _, _ []string,
-		_, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int {
+		_, packRoot, _ string, dryRun bool, packEnv *jsonx.OrderedMap,
+		blocked []packload.BlockedTool) int {
 		deps := macosuser.RealDeps(nil, nil, color)
 		deps.Out = out
 		return macosuser.RunCaptureAct(deps, macosuser.CaptureOptions{
 			Bin: bin, Config: cfg, HostPackRoot: packRoot, SandboxEnv: packEnv,
+			BlockedTools: blocked,
 		}, filepath.Join(workspace, captureOutLeaf), dryRun)
 	}
 	return captureRunPipeline(opts)
