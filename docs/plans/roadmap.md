@@ -686,6 +686,32 @@ largest reclaim available; the two repairs after that are cheap and independent.
   [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) §Self-hosting,
   **OQ-SH-1**.
 
+- 💬 **`find` is blocked outright while `grep` is blocked by flag, and nobody has examined the
+  asymmetry.** 📄 [`packs/guardrails/pack.json`](../../packs/guardrails/pack.json) — **OQ-GR-1**.
+  Both blocks moved into the `guardrails` pack on 2026-09-04 and were copied across unchanged, so
+  this question is inherited rather than introduced; it dates from whenever the original core
+  default was written.
+
+  **The asymmetry has a real cause**, which is why it is a question and not a bug: `grep` has ONE
+  flag that makes it recursive, so "block when `-r`" is exact. `find` is recursive BY NATURE —
+  no flag turns it on, only flags that limit it — so the analogous rule is not "block when X" but
+  **"block unless limited"**, and `block_flags` has no spelling for that. It matches when a flag
+  is PRESENT; there is no negated form. So option (b) below is not a config change, it is a
+  mechanism change.
+
+  What the current rule costs: `find . -maxdepth 1`, `find -newer`, `find -exec` and every
+  non-recursive use are refused, and `fd` is not a drop-in for them — different syntax, different
+  defaults, and `fd --exec` covers `-exec` with different ergonomics rather than the same ones.
+
+  Three ways out. **(a) Leave it** — the pack is opt-in now, so anyone it annoys can drop the
+  contribution or override it in `security.blocked_tools`, which is a real answer and costs
+  nothing. **(b) Add a negated match** (`unless_flags`, or `block_flags` entries that mean "absent")
+  and block `find` only when it carries no depth limit — closest to the intent, and the only option
+  that needs new mechanism. **(c) Drop `find` from `guardrails`** and keep only the grep rule, on
+  the grounds that the tool being *slow* is not the same as the tool being *wrong*. **My leaning is
+  (a) until someone is actually annoyed**, now that it is opt-in rather than a default — but the
+  reasoning above should be written down before anyone re-derives it, which is why this row exists.
+
 - 💬 **The macos-user home has one tier where it needs two, and content delivery just made it
   bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **OQ-HT-1 ·
   OQ-HT-2 · OQ-HT-3**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine tier

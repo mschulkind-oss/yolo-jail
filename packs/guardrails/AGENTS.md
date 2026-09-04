@@ -10,3 +10,9 @@ outright; `fd` covers its common uses and `fd --exec` covers `find -exec`.
 
 If either replacement is missing from this jail, the block turns itself off rather
 than leaving you with neither — so a refusal here always has somewhere to send you.
+
+Note the asymmetry: `grep` is blocked only for recursive invocations, `find` for all
+of them. That is because `grep` has one flag that makes it recursive while `find` is
+recursive by nature, so there is no equivalent flag to key on. Whether `find` should
+instead be blocked only when it carries no depth limit is an open question —
+OQ-GR-1 in `docs/plans/roadmap.md`.
