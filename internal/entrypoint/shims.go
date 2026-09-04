@@ -286,7 +286,8 @@ func GenerateAgentLaunchers(e *Env) error {
 			var launcher string
 			switch inst.Kind {
 			case "npm":
-				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e))
+				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e),
+					agentUpdatesAllows(e, p.Name))
 			case "native":
 				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e),
 					agentUpdatesAllows(e, p.Name))
@@ -332,7 +333,8 @@ func GenerateAgentLaunchers(e *Env) error {
 // bool, so Quote is the identity on every input it can ever receive. It is quoted anyway so
 // the contract has no exemptions for a reader to memorize; a mutation run will report it as
 // a survivor, and that report is correct.
-func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) string {
+func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
+	updates bool) string {
 	binName := inst.Bin
 	pkgName, pkgVersion := splitNpmSpec(inst.Package)
 	pinned := "0"
@@ -350,6 +352,11 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) str
 		"__YOLO_PINNED__", shquote.Quote(pinned),
 		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_EXTRA__", extraFlags,
+		"__YOLO_UPDATES_ENABLED__", shquote.Quote(boolFlag(updates)),
+		"__YOLO_HAS_UPDATE_VERB__", shquote.Quote(boolFlag(len(inst.UpdateVerb) > 0)),
+		// Join for the same reason `flags` above takes it: a LIST that must reach the
+		// program as several argv words, landing in the bare `UPDATE_VERB=(…)`.
+		"__YOLO_UPDATE_VERB__", shquote.Join(inst.UpdateVerb),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("npm", binName, inst.Package)),
 	)
@@ -726,14 +733,16 @@ _yolo_receipt() {
 // receipt fields in all three templates, plus the package-manager stamp dir. That is what
 // made the other 11 legible as a mistake rather than as a decision.
 //
-// THE LAUNCHER NEVER RESOLVES A NEW VERSION ON ITS OWN (docs/design/trust-paths.md §1
-// row 1, ruled 2026-08-18: "no magical evergreen npm packages"). It installs on first
-// use, it reports when the registry has moved, and the ONE input that makes it resolve
-// anything after that is YOLO_PACK_UPDATE=1 — which `yolo pack update` sets and nothing
-// else does. See _poll_and_report and _update below for the whole of the rule.
+// THE LAUNCHER RESOLVES A NEW VERSION FOR AN UNPINNED PACKAGE, at most once per
+// UPDATE_INTERVAL, when the jail's agent_updates policy allows it (program-delivery.md
+// §3.5, OQ-PD12). It used to only REPORT: trust-paths.md §1 row 1 ("no magical evergreen
+// npm packages", 2026-08-18) took the hourly reinstall away, and OQ-PD3 was narrowed on
+// 2026-09-03 to say that ruling covers PROJECT dependencies and not the agent class.
+// A PINNED package is untouched by any of it — a declared selector already IS the answer
+// to "which version", so there is nothing to resolve.
 const npmLauncherTemplate = `#!/bin/bash
-# Lazy-install launcher — installs on first use, not at boot, and never resolves a new
-# version unless YOLO_PACK_UPDATE=1 asks it to. BIN below names the program.
+# Lazy-install launcher — installs on first use, not at boot, and refreshes an UNPINNED
+# package at most once per UPDATE_INTERVAL. BIN below names the program.
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
@@ -748,11 +757,49 @@ REAL_BIN="$NPM_CONFIG_PREFIX/bin/$BIN"
 PKG=__YOLO_PKG__
 SPEC=__YOLO_SPEC__
 PINNED=__YOLO_PINNED__   # 1 when the declaration carried a version selector
-UPDATE_INTERVAL=3600  # seconds between update CHECKS — a check reports, it never installs
+UPDATE_INTERVAL=3600  # seconds between updates of an UNPINNED package
+UPDATE_TIMEOUT=60     # a hung updater must not hang the command the user typed
+STALE_LOCK=600        # a lock nobody released must not freeze updates forever
+# 1 when this jail's agent_updates policy lets this pack move. BAKED, so a launcher
+# generated under a frozen policy carries no update branch at all.
+UPDATES_ENABLED=__YOLO_UPDATES_ENABLED__
+# The pack's declared update verb (OQ-PD14): the program's own argv, bin omitted. No
+# SHIPPED npm pack declares one — for those the registry IS the vendor's channel, so
+# "npm install -g" below is the fallback and it is the right answer. The branch exists
+# because the projection carries the verb for every via, and a value the manifest
+# accepts and the launcher ignores is a declaration that silently does nothing.
+# HAS_UPDATE_VERB gates every expansion of the array: bash before 4.4 treats "${arr[@]}"
+# on an EMPTY array as unbound under "set -u", and macos-user runs these launchers
+# against a stock /bin/bash 3.2.
+HAS_UPDATE_VERB=__YOLO_HAS_UPDATE_VERB__
+UPDATE_VERB=(__YOLO_UPDATE_VERB__)
+# ONE lock per INSTALL PREFIX: two npm installs into one $NPM_CONFIG_PREFIX at the same
+# moment is what §3.5's contention rule forbids. Per-workspace binds make this unreachable
+# on the container backends; macos-user shares one home across every workspace and session.
+LOCK_DIR="$NPM_CONFIG_PREFIX/.yolo-update.lock"
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 
+# --- re-entry ----------------------------------------------------------------------
+# B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
+# from inside its own update — an npm postinstall that runs the tool, a vendor updater that
+# shells out to itself — now resolves back to this script. The launcher's own calls go
+# through an absolute $REAL_BIN and are safe; nothing else is. Without this guard the first
+# invocation after the reorder is a fork bomb.
+#
+# ONE variable holding a delimited SET, rather than one variable per bin: a bin name may
+# carry characters no shell identifier may (- and .).
+case ":${_YOLO_LAUNCHER_ACTIVE:-}:" in
+    *":$BIN:"*)
+        if [ -x "$REAL_BIN" ]; then exec "$REAL_BIN" "$@"; fi
+        echo "  ⚠ $BIN not available" >&2
+        exit 1
+        ;;
+esac
+export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
+
 mkdir -p "$STAMP_DIR"
+mkdir -p "$NPM_CONFIG_PREFIX"
 ` + stampMtimeFn + receiptShellFns + `
 _installed_version() {
     jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0"
@@ -829,30 +876,53 @@ _do_install() {
     return "$rc"
 }
 
-# _poll_and_report is the hourly registry check, and it is INFORMATIONAL. It asks the
-# registry what its "latest" dist-tag is and PRINTS the answer. It does not install.
-#
-# It used to be _poll_and_update: same "npm view", then a full "npm install -g" whenever
-# the registry had moved. That reinstall is the mechanism docs/design/trust-paths.md §1
-# row 1 deletes, and the objection is not that updating is bad — it is that the binary
-# changed between two invocations WITH NOBODY PRESENT. A silent change has no act to pin
-# to, so no pin, lockfile field or approval prompt can ever cover it; the only fix that
-# works is for the timer to stop being an installer. "yolo pack update" is the act that
-# replaces it, and the message below names it because a report the reader cannot act on
-# is worse than the reinstall it replaces.
-#
-# The stamp is touched on EVERY check, hit or miss — that is the throttle, and it has to
-# be unconditional now that the "hit" branch no longer installs (and so no longer touches
-# the stamp via _do_install). Without it the check would fire on every single invocation
-# once the registry moved, which is both a network round-trip per launch and the exact
-# noise that gets a real notice skimmed past.
-_poll_and_report() {
-    INSTALLED=$(_installed_version)
-    LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
-    if [ "$INSTALLED" != "$LATEST" ]; then
-        echo "  $BIN $INSTALLED → $LATEST is available. Run 'yolo pack update' to install it." >&2
+# _bounded runs its argv under a wall-clock bound where the platform has one. timeout(1)
+# is GNU coreutils: the image bakes it, a stock macOS does not, and running unbounded is a
+# better answer there than not updating at all.
+_bounded() {
+    if command -v timeout >/dev/null 2>&1; then
+        YOLO_BYPASS_SHIMS=1 timeout "$UPDATE_TIMEOUT" "$@"
+    else
+        YOLO_BYPASS_SHIMS=1 "$@"
     fi
-    touch "$STAMP"
+}
+
+# _take_lock is a NON-BLOCKING mkdir, and both halves of that are §3.5's ruling rather than
+# an implementation shortcut: there is no flock in the image and none on a stock macOS, and
+# an invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so.
+_take_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
+    local age
+    age=$(( $(date +%s) - $(_stamp_mtime "$LOCK_DIR") ))
+    if [ "$age" -gt "$STALE_LOCK" ]; then
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+        if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
+    fi
+    return 1
+}
+
+_drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
+
+# _update_due is the throttle. UPDATES_ENABLED is checked FIRST because it is the one gate
+# that is not about time: a jail whose agent_updates policy freezes this pack must not even
+# ask what the stamp says.
+_update_due() {
+    [ "$UPDATES_ENABLED" = "1" ] || return 1
+    [ -f "$STAMP" ] || return 0
+    [ "$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))" -gt "$UPDATE_INTERVAL" ]
+}
+
+# _locked_update holds the install-prefix lock across the whole act, and is the only caller
+# on the launch path.
+_locked_update() {
+    local rc=0
+    if ! _take_lock; then
+        echo "  $BIN: another update is in progress — running the installed version." >&2
+        return 0
+    fi
+    _update || rc=$?
+    _drop_lock
+    return "$rc"
 }
 
 # _update is the ONLY path in this script that resolves a new version, and the only way
@@ -883,6 +953,17 @@ _update() {
     if [ ! -x "$REAL_BIN" ]; then
         _do_install
         return
+    fi
+    if [ "$HAS_UPDATE_VERB" = "1" ]; then
+        # NO RECEIPT FOR THE VERB BRANCH, deliberately, and for the reason the native
+        # template states at length: the verb is the VENDOR's own updater, so what moved,
+        # to what, and where it landed are all its decisions and the launcher observes
+        # none of them. A receipt here would be a guess with a timestamp on it.
+        echo "  Updating $BIN..." >&2
+        local vrc=0
+        _bounded "$REAL_BIN" "${UPDATE_VERB[@]}" >&2 || vrc=$?
+        touch "$STAMP"
+        return "$vrc"
     fi
     INSTALLED=$(_installed_version)
     # A registry that did not answer is NOT "already current", and the two must not share
@@ -943,15 +1024,20 @@ elif [ "$PINNED" = "1" ]; then
     if [ "$(cat "$SPEC_FILE" 2>/dev/null || true)" != "$SPEC" ]; then
         _do_install || true
     fi
-elif [ ! -f "$STAMP" ]; then
-    # First run since jail boot — say whether a newer version exists.
-    _poll_and_report
-else
-    # Check if stamp is stale (older than UPDATE_INTERVAL)
-    STAMP_AGE=$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))
-    if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
-        _poll_and_report
-    fi
+elif _update_due; then
+    # EVERGREEN (§3.5, OQ-PD12). This branch used to be _poll_and_report: an hourly
+    # "npm view" that printed "x -> y is available. Run yolo pack update" and installed
+    # nothing. The ruling it implemented (trust-paths.md §1 row 1, "no magical evergreen
+    # npm packages") is NARROWED by OQ-PD3/PD11: it holds for PROJECT dependencies and
+    # does not reach the agent class, whose members want to be current and have no pin to
+    # be reproducible against.
+    #
+    # The objection the report answered — "the binary changed between two invocations with
+    # nobody present" — is answered differently now rather than ignored: the trigger is the
+    # user's OWN invocation of the agent, so there is always somebody present, and it is
+    # the person who just typed the program's name. A failure here is scoped to that
+    # command and never to the jail.
+    _locked_update || true
 fi
 
 if [ -x "$REAL_BIN" ]; then

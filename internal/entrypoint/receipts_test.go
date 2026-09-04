@@ -867,7 +867,7 @@ func TestBootstrapReceiptPathIsBakedNotRead(t *testing.T) {
 func TestLauncherReceiptPathIsBakedNotRead(t *testing.T) {
 	for name, body := range map[string]string{
 		"npm": npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "t", Package: "t"},
-			"/stamps", "/ws/.yolo/receipts.jsonl"),
+			"/stamps", "/ws/.yolo/receipts.jsonl", true),
 		"native": nativeAgentLauncher(&packdecl.Install{Kind: "native", Bin: "t", InstallerURL: "u"},
 			"/stamps", "/ws/.yolo/receipts.jsonl", "", true),
 	} {
