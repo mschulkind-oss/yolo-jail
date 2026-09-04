@@ -20,26 +20,36 @@ supplies a **region, a credential and a model id**, and never a URL. The **gatew
 ordinary yolo provider today and needs no new machinery at all. The work that is actually
 hard is neither: it is that **the three native clients default to different Bedrock
 endpoint families, and the model id spelling differs between them** — `openai.gpt-5.6-sol`
-on `bedrock-mantle`, `global.openai.gpt-5.6-sol` on `bedrock-runtime`. Pick one family in
-the derives, or one `models` map is right for one agent and a 404 for the next.
+on `bedrock-mantle`, `global.openai.gpt-5.6-sol` on `bedrock-runtime`. So the family and the
+model ids are **one entry, shipped twice**: `-p bedrock-gpt` for runtime,
+`-p bedrock-gpt-mantle` for mantle, both available to measure against each other.
 
-**The most important section is §5** — the endpoint-family pin. Everything else follows
-from it. **§7 is the one to read before writing code**: four traps, two of which are live
-defects in shipped code that no test catches.
+**The most important section is §5** — why the family is a provider entry rather than a
+knob. Everything else follows from it. **§7 is the one to read before writing code**: four
+traps, two of which are live defects in shipped code that no test catches.
+
+**Scope note.** The general problem this doc's P1 names — *a model id is provider-local, so
+every provider switch is a rename, and yolo only does half of it* — is split out into
+[`provider-switching.md`](provider-switching.md). Nothing about it is Bedrock-specific and
+its fix lands in the provider system rather than in a pack. This doc neither depends on that
+one nor blocks it.
 
 **Reads with:** [`../reference/providers.md`](../reference/providers.md) (the provider
 system this extends — catalog, selection, derives, the canonical `wire_api` vocabulary),
 [`zai-plumbing.md`](zai-plumbing.md) (the same exercise for a plain HTTP provider; this doc
 is its sequel and borrows its resolution vocabulary),
 [`../research/local-model-endpoints.md`](../research/local-model-endpoints.md) (the
-per-agent config surfaces, source-verified).
+per-agent config surfaces, source-verified),
+[`provider-switching.md`](provider-switching.md) (the sibling this doc's P1 spawned — tier
+aliases, and the id a deselected profile leaves behind).
 
 ---
 
 ## 1. Verdict and principles
 
-**Build the native arm as two endpoint-less providers and three derive bindings. Ship the
-gateway arm as a documented config recipe, not as code.**
+**Build the native arm as endpoint-less providers — one per model family, one per endpoint
+family — plus three derive bindings. Ship the gateway arm as a documented config recipe,
+not as code.**
 
 The native arm is where the leverage is: three agents already implement Bedrock, and what
 they implement is better than what a gateway gives them — SigV4 or bearer, the AWS
@@ -55,7 +65,8 @@ switch on this machine, where the credential channel and the env moved and the
 Bedrock-shaped model pin stayed behind, failing later as a 404 on an unknown model rather
 than as an auth error. Bedrock hands us the same shape one layer down: the endpoint family
 and the model id are one decision, and a design that lets them be set independently has
-built the same trap again.
+built the same trap again. The general form of this — and the live defect it has already
+left in the selection mechanism — is [`provider-switching.md`](provider-switching.md).
 
 **P2. Where the agent already knows the service, yolo supplies facts, not plumbing.** A
 provider entry with no endpoints is not a degenerate provider — it is the correct
@@ -65,10 +76,12 @@ provider has been exactly this since it shipped (`packs/claude/pack.json:121-124
 treats it correctly: an entry with no endpoints demands no credential
 (`docs/reference/providers.md`, "the credential preflight follows catalog membership").
 
-**P3. One model-id spelling per launch.** Whatever family is pinned, it is pinned for every
-agent in the jail, because the `models` map is one map and the alias a profile names
-resolves through it once. An agent-dependent spelling is not a configuration — it is a
-`models` map that is wrong somewhere.
+**P3. One model-id spelling per provider entry, and every agent that selects it gets that
+one.** The `models` map is one map and the alias a profile names resolves through it once,
+so an agent-dependent spelling is not a configuration — it is a `models` map that is wrong
+somewhere. The corollary is the shape of §5: two endpoint families means two entries, never
+one entry with a switch, because a switch is exactly the thing that could move the endpoint
+and leave the ids.
 
 ---
 
@@ -172,64 +185,84 @@ So with no intervention, `-p bedrock-gpt -- codex` and `-p bedrock-gpt -- openco
 
 ---
 
-## 5. The pin: force `bedrock-runtime`, everywhere
+## 5. Two families, two providers — because the family and the ids are one entry
 
-**The proposal: yolo pins every native binding to `bedrock-runtime`, and the shipped
-`models` map holds `global.`-prefixed cross-Region inference ids.**
+**The proposal: ship BOTH endpoint families, each as its own provider entry, and let a
+profile name pick between them.** `-p bedrock-gpt` is runtime; `-p bedrock-gpt-mantle` is
+mantle. One word apart at the CLI, and both available to try.
 
-This is possible because codex explicitly permits it. Its guard on built-in providers reads,
-verbatim from the binary:
+The reason this is two *providers* rather than one provider with an `endpoint_family`
+option is structural, not stylistic. §2 established that the model id is a function of the
+family — `openai.gpt-5.6-sol` on mantle, `global.openai.gpt-5.6-sol` on runtime — and an
+option **cannot** carry model ids: `options` is a flat name→value map a derive reads, while
+`models` is a provider field the option layer never touches. A family option would therefore
+let a user move the endpoint and leave the ids behind, which is P1's failure with a knob
+attached. Two entries make that unrepresentable: the family and its ids sit in the same
+object, and switching families is switching objects.
+
+Reaching runtime from codex is possible because codex explicitly permits it. Its guard on
+built-in providers reads, verbatim from the binary:
 
 > `` model_providers.<id> only supports changing `base_url`, `auth`, `http_headers`, `aws.profile`, and `aws.region`; other non-default provider fields are not supported ``
 
-`base_url` is the first thing on that list. So the codex derive writes
+`base_url` is the first thing on that list. So for the runtime provider the codex derive
+writes
 `model_providers.amazon-bedrock.base_url = https://bedrock-runtime.{region}.amazonaws.com/openai/v1`
-alongside `aws.region`, and codex's built-in Bedrock client — SigV4, bearer support,
-`auth.json` integration and all — now points at the runtime family. opencode and pi are
-already there. One family, one spelling, one `models` map.
+alongside `aws.region`; for the mantle provider it writes **no `base_url` at all** and lets
+codex's own default stand. Either way codex's built-in Bedrock client — SigV4, bearer
+support, `auth.json` integration — is what does the talking.
 
-Why runtime and not mantle, given that mantle is codex's own default:
+Which family you would reach for:
 
 | | runtime | mantle |
 | :--- | :--- | :--- |
 | Regions for GPT-5.6 | 25+ | 2 (`us-east-1`, `us-east-2`) |
-| Reachable by opencode / pi without an override | yes | no |
 | Cross-Region inference (capacity headroom) | yes | no |
 | Global CRIS price | ≈10% cheaper | n/a |
 | Server-side tools / `background=true` | no | yes |
 | Guardrails, intelligent prompt routing | yes | no |
+| codex | needs the `base_url` override | its own default |
 
-The one column mantle wins — server-side tool use and background inference — is a column no
-coding agent in this repo uses: all four drive **client-side** tools, which both endpoints
-support. Runtime is the right pin, and it is also the maintainer's stated premise for this
-work ("they recently added them to normal bedrock, not just mantle").
+**Not every agent can reach both**, and the derives drop what they cannot — the ordinary
+behaviour for an unreachable provider, no new machinery:
 
-> [!NOTE]
-> **This is a pin, not a wall.** The `endpoint_family` option (§6) exists so a user who
-> wants mantle can have it — they set the option and override `models` in the same config
-> entry. P1 is served by making those two moves *adjacent and documented*, not by
-> forbidding one of them.
+| Agent | runtime | mantle |
+| :--- | :--- | :--- |
+| codex | yes, via the `base_url` override | yes, natively |
+| opencode | yes, natively (its SDK resolves runtime) | **unverified** — it has an `endpoint` option, untested against mantle |
+| pi | yes, via `bedrock-converse-stream` | **no** — the model card marks Converse unsupported on mantle |
+| gateway arm (§6.4) | yes | yes |
+
+**Runtime is the one I would make the recommended default**, and the doc should say so in
+the pack README: 25 regions against two, Global CRIS a little cheaper, reachable by all
+three agents. The column mantle wins — server-side tool use and background inference — is a
+column no coding agent in this repo uses; all four drive **client-side** tools, which both
+endpoints serve. But "recommended" is a sentence in a README, not a constraint in the code:
+both profiles ship, and the maintainer's stated reason for asking is to measure them against
+each other rather than take my word for it.
 
 ---
 
 ## 6. The proposed shape
 
-### 6.1 Two providers, because one `models` map cannot hold two model families
+### 6.1 Three providers, because a `models` map cannot hold two model families
 
-claude on Bedrock wants Anthropic ids (`us.anthropic.claude-opus-5`). codex on Bedrock wants
-GPT ids. Both resolve the alias `default` through the same map. So they are two providers,
-not one — which `internal/packdecl/kinds.go:337` already calls the ordinary case ("one pack
-shipping two names is two contributions").
+claude on Bedrock wants Anthropic ids (`us.anthropic.claude-opus-5`); codex wants GPT ids;
+and the two Bedrock families spell the same GPT model differently. All of them resolve the
+alias `default` through *a* map, so each needs its own — which
+`internal/packdecl/kinds.go:337` already calls the ordinary case ("one pack shipping two
+names is two contributions").
 
-| Provider | Owner | Models | Consumers |
+| Provider | Owner | Models | Reachable by |
 | :--- | :--- | :--- | :--- |
-| `bedrock` | packs/claude, **unchanged** | user-supplied Anthropic ids | claude |
-| `bedrock-openai` *(new)* | a new `bedrock` pack | GPT-5.6 aliases, shipped | codex, pi, opencode |
+| `bedrock` | packs/claude, **unchanged** | Anthropic ids | claude |
+| `bedrock-openai` *(new)* | a new `bedrock` pack | `global.openai.gpt-5.6-*` | codex, pi, opencode |
+| `bedrock-openai-mantle` *(new)* | the same pack | `openai.gpt-5.6-*` | codex, opencode (unverified) |
 
-Keeping `bedrock` exactly where it is avoids a rename of a name users already type and
-sidesteps the sole-ownership collision entirely. The new pack ships one provider, one
-profile, and no CLI — the same shape as `packs/zai`, which is the precedent for a pack
-whose whole content is declarative facts.
+Keeping `bedrock` exactly where it is avoids renaming a name users already type and
+sidesteps the sole-ownership collision entirely. The new pack ships two providers, two
+profiles and no CLI — the same shape as `packs/zai`, the precedent for a pack whose whole
+content is declarative facts.
 
 ```jsonc
 // packs/bedrock/pack.json — the shape, not the file
@@ -237,27 +270,44 @@ whose whole content is declarative facts.
   "name": "bedrock",
   "contributes": [
     { "kind": "provider", "name": "bedrock-openai",
-      "service": "aws-bedrock",                 // the marker — see §6.2, OQ-BR2
+      "service": "aws-bedrock",                  // the marker — see §6.2, OQ-BR2
+      "endpoint_family": "runtime",              // decides the URL, not the ids
       "region": "us-east-1",
       "models": {
         "default":  "global.openai.gpt-5.6-sol",
         "balanced": "global.openai.gpt-5.6-terra",
         "fast":     "global.openai.gpt-5.6-luna"
       },
-      "options": {
-        "model": "default",
-        "endpoint_family": "runtime",           // "runtime" | "mantle"
-        "aws_profile": null                     // declared, no default
-      }
+      "options": { "model": "default", "aws_profile": null }
     },
-    { "kind": "profile", "name": "bedrock-gpt", "provider": "bedrock-openai" }
+    { "kind": "provider", "name": "bedrock-openai-mantle",
+      "service": "aws-bedrock",
+      "endpoint_family": "mantle",
+      "region": "us-east-1",
+      "models": {
+        "default":  "openai.gpt-5.6-sol",
+        "balanced": "openai.gpt-5.6-terra",
+        "fast":     "openai.gpt-5.6-luna"
+      },
+      "options": { "model": "default", "aws_profile": null }
+    },
+    { "kind": "profile", "name": "bedrock-gpt",        "provider": "bedrock-openai" },
+    { "kind": "profile", "name": "bedrock-gpt-mantle", "provider": "bedrock-openai-mantle" }
   ]
 }
 ```
 
+`endpoint_family` is a **provider field, beside `region`**, not a profile option — same
+reasoning as §5, and the same reasoning that put `region` there
+(`internal/packdecl/contributes.go:237-242`: a service fact, saying where the provider
+lives). A field a profile cannot reach is a field that cannot drift away from the `models`
+map next to it. **OQ-BR7** asks whether it is a distinct field at all or just falls out of
+`service`.
+
 `yolo -p bedrock-gpt -- codex` is then the whole user gesture, with the credential arriving
 the way every other credential does — `env_sources` hydrating `AWS_BEARER_TOKEN_BEDROCK`,
-or an ambient AWS chain the jail can see.
+or an ambient AWS chain the jail can see. `-p bedrock-gpt-mantle` is the same gesture
+against the other family, and the two can be compared back to back in one session.
 
 ### 6.2 How a derive recognizes "this is Bedrock"
 
@@ -287,9 +337,9 @@ agent's vocabulary, and core resolves no model.
 
 | Agent | Catalog | Selection | Region / profile |
 | :--- | :--- | :--- | :--- |
-| **codex** | `[model_providers.amazon-bedrock]` with `base_url` (runtime family) and `aws.region`; **no other fields** — codex refuses them | `model_provider = "amazon-bedrock"`, `model = <resolved id>` | `aws.region` from `region`; `aws.profile` from the `aws_profile` option when set |
+| **codex** | `[model_providers.amazon-bedrock]` with `aws.region`, plus `base_url` **only for the runtime family** (the mantle provider writes none, so codex's own default stands); **no other fields** — codex refuses them | `model_provider = "amazon-bedrock"`, `model = <resolved id>` | `aws.region` from `region`; `aws.profile` from the `aws_profile` option when set |
 | **opencode** | `provider["amazon-bedrock"] = { npm: "@ai-sdk/amazon-bedrock", options: { region, profile? }, models: {…} }` — **not** the `@ai-sdk/openai-compatible` + `baseURL` shape the derive writes today | `model = "amazon-bedrock/<resolved id>"` | `options.region`, `options.profile` |
-| **pi** | `providers["bedrock-openai"] = { api: "bedrock-converse-stream", models: [...] }` | `defaultProvider` / `defaultModel` | region via `AWS_REGION` in the jail env |
+| **pi** | `providers["bedrock-openai"] = { api: "bedrock-converse-stream", models: [...] }` — **runtime family only**; the mantle provider yields no pi row, because Converse is not served there | `defaultProvider` / `defaultModel` | region via `AWS_REGION` in the jail env |
 | **claude** | none (claude has no catalog) | env, as today | `AWS_REGION` from `region` |
 
 Selection keys keep riding the reserved `selection` namespace with the edge-triggered apply
@@ -376,7 +426,11 @@ Written for the implementer. Anything not here and not an OQ is theirs.
 - Profile selected for an agent with no native path (copilot, agy) → **nothing written**,
   no warning. Same as any unreachable provider today.
 - Two providers both marked `service: "aws-bedrock"` → both are ordinary catalog rows; only
-  the selected one gets a selection key. Not a collision.
+  the selected one gets a selection key. Not a collision — and it is the **shipped** case,
+  since the two endpoint families are two entries.
+- A provider whose `endpoint_family` an agent cannot serve (mantle for pi) → **no catalog
+  row and no selection key**, through the same gate that drops any unreachable provider. It
+  is not an error: the other agents in the same jail still get theirs.
 
 **Failure paths.**
 - Credential absent: the provider declares no `api_key_env_name` (the native arm's
@@ -393,8 +447,10 @@ Written for the implementer. Anything not here and not an OQ is theirs.
   codex's own *"Amazon Bedrock Mantle does not support region …"*. yolo carries no region
   allowlist of its own — a list that would rot within a quarter.
 
-**Defaults, with units.** `endpoint_family: "runtime"` (enum, not a URL). `region:
-"us-east-1"` (shipped default; overridable per user). `aws_profile: null` — declared, no
+**Defaults, with units.** `endpoint_family` is a provider FIELD with no default — each
+shipped entry states its own (`runtime`, `mantle`), and an entry omitting it is refused
+rather than guessed, because a guessed family is a wrong model id (P1). `region:
+"us-east-1"` (shipped on both entries; overridable per user). `aws_profile: null` — declared, no
 default, meaning "use the chain". Model alias fallback: the profile's `model` option, else
 `default` — the existing OQ-CS3 ladder, unchanged. No timeouts and no retries are introduced
 by this design.
@@ -419,6 +475,9 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    completes one turn against GPT-5.6, and `codex doctor` reports provider
    `amazon-bedrock`, wire api `responses`, endpoint `bedrock-runtime.<region>`.
 2. The same flag on `opencode` and on `pi` completes one turn against the same model id.
+2b. `yolo -p bedrock-gpt-mantle -- codex` completes one turn, and `codex doctor` reports the
+   `bedrock-mantle` endpoint — the two families demonstrably side by side, which is the
+   point of shipping both.
 3. `yolo -p codex=bedrock-gpt -- codex` leaves `CLAUDE_CODE_USE_BEDROCK` **unset** in the
    jail env (D2 closed) — or, if OQ-BR4 rules otherwise, the briefing says why it is set.
 4. Dropping the profile leaves each agent's interactively-chosen model untouched.
@@ -450,8 +509,9 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
 | Alternative | Verdict |
 | :--- | :--- |
 | **Gateway arm only** — one provider with a full `/openai/v1` base URL, no native bindings, no new pack | **Rejected as the primary path, adopted as the escape hatch (§6.4).** It works and costs almost nothing, but it discards SigV4, the credential chain, codex's `auth.json` Bedrock mode and opencode's region/profile options, and it makes yolo the owner of a URL it must keep current. It is the right answer for an agent with no native path. |
-| **Pin `bedrock-mantle`** — keep codex's own default, override opencode's and pi's endpoints instead | **Rejected.** Two regions, no cross-Region inference, no Global CRIS discount, and it inverts the maintainer's premise. Its one advantage — codex's bundled model metadata stays accurate (D4) — is not worth 23 regions. |
-| **One `bedrock` provider for all four agents** | **Rejected.** Claude wants Anthropic ids and codex wants GPT ids through the same `default` alias. Two providers is what the schema already calls the ordinary case. |
+| **Ship one family only** — pick runtime, document mantle as a manual config | **Rejected on the maintainer's ask.** Both are wanted for comparison, and the second entry costs one JSON object plus one line in each derive. Runtime remains the *recommended* one, in the README. |
+| **One provider, `endpoint_family` as a profile OPTION** | **Rejected — it cannot work.** Options are a flat name→value map; `models` is a provider field the option layer never reaches. The option would move the endpoint and leave the ids, which is P1's failure with a knob attached (§5). |
+| **One `bedrock` provider for all four agents** | **Rejected.** Claude wants Anthropic ids and codex wants GPT ids through the same `default` alias. Separate entries is what the schema already calls the ordinary case. |
 | **Move `bedrock` out of packs/claude into the new pack** | **Rejected as unnecessary churn.** Sole ownership means the name can only live in one place, and it already lives somewhere that works. Moving it renames nothing a user types but risks a collision for no gain. |
 | **Match the provider by NAME in each derive** (`if name == "bedrock-openai"`) | **Rejected** — `stringly-typed-references-principle.md` exists for this, and it would silently break the moment a user declares their own Bedrock provider under another name. |
 | **A `bedrock` key in the open `endpoints` map, with no URL** | **Rejected — unrepresentable.** `contributes.go:1670` refuses an endpoint with no `base_url`. |
@@ -463,8 +523,8 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1.** codex tightens its built-in-provider override list and `base_url` stops being permitted — the §5 pin evaporates. | The permitted list is a string in the binary and is re-checkable in seconds (§14). Pin the codex version in the evidence table and re-verify on upgrade; the fallback is the gateway arm under a non-reserved id. |
-| **R2.** D4's fallback metadata makes codex mis-estimate the context window and compact too early or too late against a 1M-token model. | Measurable in one session. If it bites, the escape is a user-supplied `models` map with the bare id plus a mantle family — the two moves P1 insists stay adjacent. |
+| **R1.** codex tightens its built-in-provider override list and `base_url` stops being permitted — the runtime entry loses its way in. | The permitted list is a string in the binary and is re-checkable in seconds (§14). Pin the codex version in the evidence table and re-verify on upgrade; the fallback is the gateway arm under a non-reserved id. |
+| **R2.** D4's fallback metadata makes codex mis-estimate the context window and compact too early or too late against a 1M-token model. | Measurable in one session. If it bites, the escape is already shipped: `-p bedrock-gpt-mantle` is the family whose ids codex's catalog knows, and it moves both halves at once. |
 | **R3.** The three agents' shared `amazon-bedrock` id drifts apart (one renames it). | Each derive already owns its agent's spelling; a rename is one line in one derive, with provenance. |
 | **R4.** No end-to-end request is made during implementation, and this ships on schema reading alone — the standing weakness of every provider integration in this repo. | The done-conditions in §8 are all live turns. `codex doctor` settles codex without burning a turn; the other two need one real request each. |
 | **R5.** Bedrock IAM needs `bedrock:InvokeModel` on the account's **default project** (`arn:aws:bedrock:{region}:{account}:project/default`) in addition to the inference profile — a policy the existing invoke-only `matt-bedrock` IAM user may not carry. | Test with the real account before declaring the arm done; the failure is an AccessDenied naming the project ARN, which is self-diagnosing. |
@@ -478,8 +538,9 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    credential-less, and the gateway arm depends on it. Ship it alone.
 2. **Rule OQ-BR2** (the marker) and add the field to `packdecl` with its tolerance
    behaviour. Nothing renders yet; the schema is the thing three derives will key on.
-3. **The `bedrock` pack** — provider, profile, README. Selecting it changes nothing
-   observable until step 4, which makes it a safe landing.
+3. **The `bedrock` pack** — both providers, both profiles, README (including which family
+   is recommended and why). Selecting either changes nothing observable until step 4, which
+   makes it a safe landing.
 4. **The codex derive binding** — the pin, `aws.region`, the selection. codex first because
    it is the motivating case and because `codex doctor` verifies it cheaply.
 5. **opencode and pi bindings** — mechanically similar, each with its own provenance
@@ -494,18 +555,20 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
 
 ## 13. Open Questions
 
-1. 💬 **OQ-BR1: Provider and profile naming.** The proposal ships provider
-   `bedrock-openai` and profile `bedrock-gpt`, alongside claude's existing `bedrock`/
-   `bedrock`. The profile name is what a user types (`-p bedrock-gpt`), so it is a surface,
-   not an internal id. Stakes: it is the one string in this design that is expensive to
-   change later, and `bedrock` for claude vs `bedrock-gpt` for everything else is an
-   asymmetry a reader will trip on.
+1. 💬 **OQ-BR1: Provider and profile naming.** The proposal ships providers
+   `bedrock-openai` / `bedrock-openai-mantle` and profiles `bedrock-gpt` /
+   `bedrock-gpt-mantle`, alongside claude's existing `bedrock`/`bedrock`. The profile names
+   are what a user types, so they are a surface, not internal ids. Stakes: these are the
+   strings in this design that are expensive to change later, `bedrock-gpt-mantle` is long
+   for something typed often, and `bedrock` for claude vs `bedrock-gpt` for everything else
+   is an asymmetry a reader will trip on.
 
-   _Leaning:_ Ship `bedrock-openai` / `bedrock-gpt` as proposed. It reads correctly at the
-   point of use and leaves claude's shipped name alone. A shorter `-p gpt` is tempting but
-   would collide with a future first-party OpenAI provider.
+   _Leaning:_ Ship them as proposed. They read correctly at the point of use and leave
+   claude's shipped name alone. A shorter `-p gpt` is tempting but would collide with a
+   future first-party OpenAI provider, and the mantle one is typed rarely enough that
+   explicit beats short.
 
-   <!-- vantage: oq id=OQ-BR1 leaning="Ship `bedrock-openai` / `bedrock-gpt` as proposed. It reads correctly at the point of use and leaves claude's shipped `bedrock` name alone. A shorter `-p gpt` is tempting but would collide with a future first-party OpenAI provider." -->
+   <!-- vantage: oq id=OQ-BR1 leaning="Ship bedrock-openai / bedrock-openai-mantle and bedrock-gpt / bedrock-gpt-mantle as proposed. They read correctly at the point of use and leave claude's shipped bedrock name alone. A shorter -p gpt would collide with a future first-party OpenAI provider, and the mantle profile is typed rarely enough that explicit beats short." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -592,6 +655,24 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
    nothing.
 
    <!-- vantage: oq id=OQ-BR6 leaning="Refuse only when the provider declares no `region` AND no `AWS_REGION` / `AWS_DEFAULT_REGION` is in the composed jail environment — both of which yolo can see at launch. Anything beyond that (an `~/.aws/config` region) is unproven, and unproven emits nothing." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+7. 💬 **OQ-BR7: Is `endpoint_family` its own provider field, or does it fall out of the
+   marker?** §6.1 proposes a field beside `region` holding `runtime` | `mantle`, which each
+   derive reads to decide whether to override codex's `base_url` and whether it can serve
+   the entry at all. The alternative is folding it into `service` (`aws-bedrock-runtime` vs
+   `aws-bedrock-mantle`), which adds no field but makes the marker carry two facts. Stakes:
+   one schema field, and whether "is this Bedrock?" and "which Bedrock?" are one question or
+   two — pi has to answer them separately, since it serves one family and not the other.
+
+   <!-- vantage: oq id=OQ-BR7 leaning="Its own field. pi answers 'is this Bedrock' and 'which family' separately — it serves runtime and cannot serve mantle — so a marker carrying both facts would have to be destructured by every consumer anyway. A field beside region also keeps it out of a profile's reach, which is what makes the family and its model ids inseparable." -->
+
+   _Leaning:_ Its own field. pi answers "is this Bedrock?" and "which family?" separately —
+   it serves runtime and cannot serve mantle — so a marker carrying both facts would be
+   destructured by every consumer anyway. A field beside `region` also keeps it out of a
+   profile's reach, which is exactly what makes the family and its ids inseparable (§5).
 
    **Answer:**
    > _(empty — fill in when decided)_
