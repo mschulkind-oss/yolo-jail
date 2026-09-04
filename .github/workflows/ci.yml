@@ -192,6 +192,47 @@ jobs:
       - name: Install Podman and socat
         run: sudo apt-get update && sudo apt-get install -y podman socat
 
+      # The facts a red TestInJailServiceReachability needs, captured while the
+      # runner still exists.  That test's own failure message tells the reader to
+      # run `podman info --format '{{.Host.RootlessNetworkCmd}}'` ON THE HOST —
+      # and nobody can log into a hosted runner after the fact, so the answer has
+      # to be printed on every run, green ones included.
+      #
+      # Not hypothetical: on 2026-08-31 the ubuntu-24.04 images downgraded podman
+      # 5.8.4 -> 4.9.3 (actions/runner-images#14642), which removed
+      # rootlessNetworkCmd from `podman info` entirely (the field only exists from
+      # podman 5.1) and took every jail-facing service down.  Establishing that
+      # from the logs afterwards took correlating four runs against their runner
+      # image versions, because none of them said what stack they were on.
+      #
+      # It can never fail the job: this is a witness, not a gate, and a
+      # diagnostic that turns a red test into a red job before anyone reads it
+      # has made the report worse.  `--format` templates are avoided for the same
+      # reason — a missing field is a template error, which is precisely the case
+      # worth reporting.
+      - name: Rootless network stack (diagnostic)
+        run: |
+          podman --version || true
+          podman info --format json > /tmp/podman-info.json 2>/dev/null || true
+          python3 - <<'PY' || true
+          import json
+          try:
+              info = json.load(open("/tmp/podman-info.json"))
+          except Exception as e:
+              print("podman info unreadable:", e)
+              raise SystemExit(0)
+          host = info.get("host") or {}
+          print("podman version:      ", (info.get("version") or {}).get("Version"))
+          print("rootless:            ", (host.get("security") or {}).get("rootless"))
+          print("rootlessNetworkCmd:  ",
+                host.get("rootlessNetworkCmd", "<absent — podman older than 5.1>"))
+          for helper in ("slirp4netns", "pasta"):
+              h = host.get(helper) or {}
+              print(f"{helper}:".ljust(21),
+                    h.get("executable") or "<none podman can name>",
+                    (h.get("version") or "").splitlines()[:1])
+          PY
+
       - name: Download jail image
         uses: actions/download-artifact@v8
         with:
