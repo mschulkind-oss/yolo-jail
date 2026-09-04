@@ -322,11 +322,12 @@ func CaptureDriverArgv(stagedYolo, stagingHome, outDir, bin, profilePath string,
 
 // captureInstallOnlyVar is entrypoint.InstallOnlyEnv, spelled here rather than imported.
 //
-// macosuser imports entrypoint nowhere and entrypoint must stay importable by it in the other
-// direction (RunDarwinBootstrap takes macosuser-produced strings as parameters for exactly this
-// reason — see DarwinBootstrapOptions.YoloLogScript). A duplicated constant across a boundary
-// that direction is a drift risk, so entrypoint's own test asserts the two spellings agree
-// (TestInstallOnlyEnvMatchesTheMacosUserCaptureArgv).
+// Neither package imports the other, and that is deliberate: entrypoint takes
+// macosuser-produced strings as parameters rather than importing it (see
+// DarwinBootstrapOptions.YoloLogScript), so importing entrypoint here to reach one constant
+// would create the edge that arrangement exists to avoid. A duplicated constant is a drift risk,
+// so capture_test.go's TestInstallOnlyEnvMatchesTheMacosUserCaptureArgv — a TEST-only import,
+// which costs the production graph nothing — asserts the two spellings agree.
 const captureInstallOnlyVar = "YOLO_INSTALL_ONLY"
 
 // CapturePlanInvariants returns static-check violation messages over a CapturePlan.

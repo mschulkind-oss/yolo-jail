@@ -1107,10 +1107,47 @@ on **the capture is the package**:
 capture (explicit act, network OK):  fresh sandbox → run installer → delta → tar+hash → machine CAS
                                      receipt = (declaration, installer URL, capture hash,
                                                 file manifest, platform, time)
-materialize (per jail, offline):     unpack/hardlink the capture into the version-addressed path
+materialize (per jail, offline):     REFLINK the capture into the home (see the amendment below)
 update:                              a NEW capture, on an explicit act — never in place
 remove:                              delete the materialized tree; CAS entry GC'd when unreferenced
 ```
+
+**AMENDMENT, 2026-09-04 — *materialize* is REFLINK, and the CAS is MOUNTED**
+([`install-capture.md`](../plans/install-capture.md) slice 4). The line above read
+*"unpack/hardlink the capture into the version-addressed path"*, and the hardlink half cannot work
+from where [§5.2](#52-a2--lazy-install-from-a-launcher-the-status-quo) requires materialize to
+happen — inside the jail, from the launcher, so that "you pay nothing for a tool you never invoke"
+survives. **`link(2)` compares the MOUNT, not the device.** MEASURED 2026-09-04 in this repo's own
+jail: a hardlink from one bind of a btrfs into another bind of the same btrfs (identical `st_dev`)
+returns `EXDEV`. The store is a host directory a jail can only reach through a bind, so wherever it
+is mounted is one more mount and the hardlink is refused every time.
+
+**`FICLONE` compares the FILESYSTEM** — the kernel's clone path refuses only when the two inodes
+have different superblocks, and every bind of one filesystem shares one. That is exactly the gap
+`link(2)` falls into. Measured the same day in a real podman container, against the two mounts a
+materialize actually uses — a `:ro` bind of the store at `/ctx/captures` and a rw bind of a home
+surface at `/home/agent/.local`, both on one btrfs:
+
+| operation | result |
+| :--- | :--- |
+| `FICLONE` store → home, 256 MiB | **OK** — 3 ms, 32 KiB of new space, destination is its own inode (`nlink` 1) |
+| `link(2)` store → home | `EXDEV` |
+| `cp` store → home, 256 MiB | 98 ms, 262 MiB of new space |
+
+So the verb is a three-step chain, each step measured at the moment it is used rather than
+predicted from a mount table: **reflink → hardlink → copy**. Hardlink stays because it wins where
+the store and the home share a mount; copy stays because ext4 has no reflink at all, which makes it
+a path real machines take and is why it is loud and names both filesystems.
+
+Three consequences this section did not anticipate. **The CAS is mounted into every jail**, `:ro` at
+`/ctx/captures` — the *"no new containment machinery"* paragraph below assumed materialize needed no
+mount, and it needs exactly one. **An installer that opens a materialized file for write is no
+longer a machine-wide hazard**: a reflinked file is its own inode, so the write copies-on-write and
+reaches nobody, where a hardlinked one would have been the running program's bytes in every
+workspace at once. Entry files are still frozen read-only at admit, which is what keeps the
+hardlink arm safe. And **the GC's reference oracle cannot be `st_nlink`**: a reflinked file leaves
+the entry's link count at 1 while very much referencing it. That is a blocking correction to the
+remove step above, recorded in the plan's slice 5.
 
 **The prior art is Arch's.** An AUR `PKGBUILD` runs upstream's opaque payload in a clean chroot
 (`makechrootpkg`), and the *output* is an ordinary pacman package with a file manifest — the
@@ -1130,15 +1167,19 @@ backend's installer pipeline is itself unverified on hardware, per
 [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md), so this is design against read
 code, not a measurement). That backend has no binds and no ephemeral home: the jail home is one
 persistent, machine-constant `/Users/_yolojail` shared by every workspace and every session
-(`internal/macosuser/macosuser.go:52-53`, `internal/cli/run/run.go:156-159`) — deliberately, since
+(`internal/macosuser/macosuser.go:52-53`, `internal/cli/run/run.go:235-250`) — deliberately, since
 the single home *is* its shared-credentials mechanism and splitting it is a refused design point
-(`run.go:235-250`). But a capture does not need a bind; it needs a **fresh, enumerable,
-kernel-bounded write surface**, and both control points are already this backend's own machinery:
-the Seatbelt profile is generated fresh per session (`internal/macosuser/seatbelt.go:47-55` —
-`deny file-write*` on `/`, then an explicit allow-list) and the launch is `env -i` under
-`sandbox-exec` (`macosuser.go:328-377`). So a capture run sets `HOME` to a fresh staging directory
-and carries a narrowed profile in which that directory (plus `/tmp` and `/var/folders` scratch) is
-the **only** writable path. The persistent home is denied for the duration — a capture cannot
+(the same lines). ⚠ *This sentence cited `run.go:156-159` for the shared home until 2026-09-04;
+that range is the profile/provider channel composition and says nothing about a home. The refusal
+is at `:235-250`, which the next clause already cited — one range, cited twice, wrong once.* But a
+capture does not need a bind; it needs a **fresh, enumerable, kernel-bounded write surface**, and
+both control points are already this backend's own machinery: the Seatbelt profile is generated
+fresh per session (`internal/macosuser/seatbelt.go:47-55` — `deny file-write*` on `/`, then an
+explicit allow-list) and the launch is `env -i` under `sandbox-exec` (`macosuser.go`'s
+`LaunchArgv` — cited as `:328-377` until a 2026-09-04 refactor shortened it, which is why it is
+named rather than numbered now). So a capture run sets `HOME` to a fresh staging directory and
+carries a narrowed profile in which that directory (plus `/tmp` and `/var/folders` scratch) is the
+**only** writable path. The persistent home is denied for the duration — a capture cannot
 touch the shared credential store — and an installer that writes elsewhere is refused by the
 kernel up front, a sharper escape signal than a container overlay that silently swallows the stray
 write. The one genuinely new problem is **relocation**: the staging path is not the final home
@@ -1147,6 +1188,17 @@ symlink into its versions directory — MEASURED in this jail), so the manifest 
 references and materialization must rewrite them — the move Homebrew bottles made routine on
 exactly this OS — or flag the tool non-relocatable. On the container backends this problem is
 absent by construction: the capture home and the materialize home are the same `/home/agent`.
+
+**Two things the paragraph above did not foresee, found while building it** (2026-09-04,
+[`install-capture.md`](../plans/install-capture.md) slice 6). *The staging tree cannot live
+where the container backends' does.* `<CapturesDir>` is under the INVOKING user's home, which is
+precisely the home this backend isolates the sandbox uid from — and a writable subtree there
+would also put the machine-wide CAS in reach of a program yolo is running for the first time. So
+a capture stages on neutral ground (`/Users/Shared/yolo-captures`) and the host moves the
+finished proto-entry into the store afterwards, refusing rather than copying if the two are not
+on one mount. *And the staging home needs a bootstrap of its own*: the capture must run the
+GENERATED launcher, which only exists in a home `darwin-bootstrap` has rendered into, so the
+capture bootstraps its throwaway home exactly as a launch bootstraps the shared one.
 
 **Why not image layers** — the obvious-looking alternative, rejected three ways: `macos-user` has
 no image at all; a layer couples every capture to the image rebuild/reload cadence that §5.1
@@ -1328,10 +1380,10 @@ here is the same wiring for everything else.
 
 **Sixth, the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package),
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
-*record* + *materialize* and depends on nothing above except the receipt schema. **Slices one,
-two and three of six are landed** ([`install-capture.md`](../plans/install-capture.md)), and none
-of them changes what a normal launch does — a capture happens only when a human runs
-`yolo capture <bin>`, and nothing yet MATERIALIZES an entry, which is slice four.
+*record* + *materialize* and depends on nothing above except the receipt schema. **Slices one
+through four are landed** ([`install-capture.md`](../plans/install-capture.md)). Slices one to
+three changed nothing about a normal launch — a capture happened only when a human ran
+`yolo capture <bin>`. **Slice four is where a launch changes**, and it is the slice that pays.
 
 Slice one is substrate: `internal/treedigest` (the canonical tree digest, lifted out of
 `hostskills`), `paths.CapturesDir()` and its boot `MkdirAll`, and `internal/capture`'s store —
@@ -1363,6 +1415,21 @@ under a new `YOLO_INSTALL_ONLY=1`, so a capture records exactly what a launch wo
 and the tool is never executed into the surfaces being captured. And yolo's own state dir
 (`~/.local/share/yolo-jail`, inside the `.local` surface) is excluded from every delta, or a
 launcher's receipt append would be filed as the vendor's and hardlinked into every workspace.
+
+Slice four is **materialize**, and it is where the subsystem starts paying: the machine store is
+bound `:ro` into every jail at `/ctx/captures`, the boot bakes that path into each generated native
+launcher, and `_do_install` now tries `yolo internal capture-materialize` BEFORE it downloads —
+falling through to the vendor installer on any miss, because making a capture mandatory for this
+class is a behaviour change [OQ-PD7](#decision-ledger)'s "report first; gate later" does not
+license. The mechanism is the reflink chain the amendment above records, and the acceptance test is
+two workspaces and one download (`integration/capturematerialize_test.go`). Two decisions worth
+naming. The lookup from `(bin, platform)` to a content address is a **scan of each entry's own
+receipt**, with no index: the question is asked once per program per workspace from a cold install
+branch, and an index is a second record that admit and the GC would both have to keep true while
+the receipts cannot go stale relative to the entry they live inside. And the CAPTURE JAIL is the
+one launch that does NOT get the mount — the installer a capture runs is that same launcher, so a
+store in reach would let it materialize the previous entry and record it as a fresh capture, which
+would also make *update* ("a NEW capture, on an explicit act") impossible.
 
 **Seventh — added 2026-09-03, and it comes AFTER the sixth by ruling
 ([OQ-PD15](#decision-ledger)) — make agent dependencies evergreen**

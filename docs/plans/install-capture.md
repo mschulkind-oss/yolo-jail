@@ -36,7 +36,10 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/entrypoint/receiptread.go` | extend the reader for `kind:"capture"`, `act:"record"`/`act:"materialize"`, and the new `platform` field |
 | `internal/prune/prunecmd.go`, `pathsref.go` | new `Options.CapturesDir func() string` seam + one report section |
 | `internal/cli/commands.go` | `pruneUsage` (`:117`) + the flag parse in `runPrune` (`:149`) |
-| `internal/macosuser/seatbelt.go` | **new** `SeatbeltCaptureProfile(stagingHome)` — no workspace write allow |
+| `internal/macosuser/seatbeltcapture.go` | **new** (slice 6) — `SeatbeltCaptureProfile(stagingRoot)`. ⚠ *Its own file, not `seatbelt.go`, and it takes the staging ROOT: see slice 6(a)* |
+| `internal/macosuser/capture.go` | **new** (slice 6) — the capture plan, its invariants, and the executor over the existing `Deps` seams |
+| `internal/macosuser/runplan.go`, `macosuser.go` | slice 6 lifted `buildBootstrapEnv` (home is now a parameter) and `sandboxEnvPairs` out; no behavior change |
+| `internal/capture/relocate.go` | **new** (slice 6) — the file-content reference scan and the relocatable verdict |
 | `docs/design/storage-and-config.md` | §2's `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
 | `docs/design/program-delivery.md` | §10 step six → SHIPPED, per slice |
 
@@ -284,12 +287,138 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    sibling idioms: an age floor for the in-flight window, keep-newest-N per (bin, platform).
    A cross-device copy does not bump nlink, so that workspace can see its entry reaped — which strands
    nothing (it has its own bytes) and only forces a re-capture. → `go test ./internal/prune ./internal/capture`, then `yolo prune` dry-run
-6. **`macos-user`.** `SeatbeltCaptureProfile(stagingHome)`: `deny file-write* /` then allow only the
-   staging dir + `/tmp` + `/var/folders` — the shared `/Users/_yolojail` home denied for the duration.
-   Same inner driver, `HOME=<staging>`. Adds **relocation**: the manifest records every absolute
-   reference to the staging prefix (symlink targets first — `~/.local/bin/claude` is one, confirmed by
-   `ls -l` in this jail) and materialize rewrites them, or the entry is admitted `relocatable:false`
-   and refuses to materialize elsewhere. → `go test ./internal/macosuser ./internal/capture` only
+6. **`macos-user`. — LANDED 2026-09-04, RECORDING HALF ONLY.** `SeatbeltCaptureProfile`:
+   `deny file-write* /` then allow only the staging dir + `/tmp` + `/var/folders` — the shared
+   `/Users/_yolojail` home denied for the duration. Same inner driver, `HOME=<staging>`. Adds
+   **relocation**: the manifest records every absolute reference to the staging prefix (symlink
+   targets first — `~/.local/bin/claude` is one, confirmed by `ls -l` in this jail) and materialize
+   rewrites them, or the entry is admitted `relocatable:false` and refuses to materialize elsewhere.
+   → `go test ./internal/macosuser ./internal/capture ./internal/cli` (the plan said the first two
+   "only"; the `--scan-content-refs` flag parse lives in the third, and a test that skipped it would
+   pin the callee with the call site unpinned)
+
+   *Six corrections and two hand-offs from building it.*
+
+   **(a) The profile takes the staging ROOT, not the staging home.** The capture writes two things
+   — the home the installer runs against and the entry-shaped out dir the delta is moved into — and
+   the profile allows exactly one subtree. Making that subtree the ROOT (`<root>/home`,
+   `<root>/out`) covers both, keeps the out dir OUT of the home being captured, and makes "everything
+   this capture touches is under one allow" a checkable invariant rather than an intention. It also
+   lives in its own `seatbeltcapture.go`: the two profiles share `sbplStr` and `ancestorLiterals` and
+   nothing else, and the file header is where the MEASURED/NOT-MEASURED split has to be stated.
+
+   **(b) THE STAGING TREE CANNOT BE `<CapturesDir>/staging`, which the whole plan assumed.** Slice
+   3's trick — the store's staging dir IS the capture workspace, so admission is a rename — is
+   unavailable here twice over. `paths.CapturesDir()` is under the INVOKING user's home, and this
+   backend exists to keep the sandbox uid out of that home (the same reason `StagePackCommands`
+   copies packs to `/var` instead of pointing the sandbox at `~/.local/share/yolo-jail`); and a
+   writable subtree there would put the machine-wide CAS — every other program's captured bytes —
+   in reach of a vendor installer yolo is running for the first time. **Resolution:** a capture
+   stages on NEUTRAL GROUND at `macosuser.CaptureRootDefault()` = `/Users/Shared/yolo-captures`,
+   provisioned with the same `WorkspaceACLAces` a workspace gets, and the HOST moves the finished
+   proto-entry into `<CapturesDir>/staging/<bin>/out` afterwards. That move **refuses on `EXDEV`
+   rather than copying** — the stance `Store.Admit` already takes about the same rename, and the
+   only honest one for a multi-gigabyte tree.
+   *READ FROM CODE, not measured:* on a stock Mac `/Users/Shared` and `/Users/<admin>` are both on
+   the one APFS Data volume, so the rename should succeed. Nothing here has run a Mac.
+
+   **(c) The staging home needs a bootstrap of its own, so `buildBootstrapEnv` had to take the home
+   as a parameter.** Slice 3(d) established that the capture runs THE GENERATED LAUNCHER, not a
+   second implementation of download-then-run. On this backend that launcher exists only in a home
+   `yolo internal darwin-bootstrap` has rendered into, and `BuildRunPlan` hard-coded `SandboxHome()`
+   in three places. Pointed at the shared home, a capture would provision the machine's real agent
+   home and then capture a delta of it. The extraction is a pure refactor (`48031ef7`); the
+   invariant that fails if it is undone is `TestCapturePlanRefusesTheSharedHome`.
+
+   **(d) `relocatable` needed a second field to be honest, and the contract belongs on the FIELD.**
+   "The entry is admitted `relocatable:false`" is one bit, and one bit cannot distinguish *"we
+   looked and found nothing unrewritable"* from *"we never looked."* Both produce an empty
+   `absoluteRefs`, and only the first licenses moving the tree. So the manifest gains `refScan`
+   (`symlink-targets` | `symlink-targets+file-content`), `relocatable`, and `notRelocatable` (the
+   reasons). **The contract, which slice 4 or whoever builds materialize must implement:**
+
+   > A materialize whose destination home EQUALS `Manifest.Home` ignores `relocatable` entirely. A
+   > materialize into any OTHER home must REFUSE when it is false — printing `notRelocatable` —
+   > and must rewrite every `absoluteRefs` entry from `Manifest.Home` to the destination when it is
+   > true. Nothing else may read the field.
+
+   That is what makes `relocatable:false` free on the container backends: their destination is
+   always the `/home/agent` they were captured in. It is also why a manifest written before these
+   fields existed (slice 3's) reads back false and is still correct.
+
+   **(e) The content scan is OFF by default and the driver takes a flag for it.** Slice 2(e)
+   deliberately left file-content references to this slice. They are needed here — claude's shim
+   embeds its own path — and they cost a read pass over the whole delta, 1.2 GB for claude. So
+   `capture.Options.ScanContentRefs` / `yolo internal capture-run --scan-content-refs`, passed by
+   the macos-user driver argv and by nothing else. A reference in a file that is not text (git's
+   NUL-in-the-first-8000-bytes heuristic) is RECORDED and makes the entry non-relocatable: a prefix
+   substitution in a Mach-O binary is not a string edit, and Homebrew's answer on this same OS was
+   to pad the prefix rather than rewrite it in place. Length checking against a specific
+   destination is the REWRITE's job, not the record's — the manifest must stay target-independent
+   or a content-addressed entry would carry a claim about one machine's home.
+
+   **(f) Two design-doc citations about this backend were wrong** and are fixed in
+   [`program-delivery.md`](../design/program-delivery.md) §6.3. `internal/cli/run/run.go:156-159`,
+   cited for the machine-constant shared home, is the profile/provider channel composition and says
+   nothing about a home; the refusal the next clause cites (`:235-250`) was the right range all
+   along. And `macosuser.go:328-377` for `LaunchArgv` was correct until this slice's refactor
+   shortened it, so it is now named rather than numbered. (This is the third wrong citation about
+   this one paragraph — `ff4730d8` fixed `:188-203` the same week.)
+
+   ### Hand-offs — what is NOT wired, and the exact line that wires it
+
+   **H1. `yolo capture` still refuses on macos-user.** `runCaptureJail`'s `opts.MacosUserRun`
+   closure (`internal/cli/capturehost.go`) prints slice 3's "cannot capture yet" message.
+   `internal/cli/capturehost.go` was being edited by the concurrent materialize slice while this
+   one landed, so the closure was left alone rather than risking a shared-worktree collision.
+   Replacing it is the whole wiring:
+
+   ```go
+   opts.MacosUserRun = func(cfg *jsonx.OrderedMap, _ string, _, _ []string,
+       _, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int {
+       deps := macosuser.RealDeps(nil, nil, color)
+       deps.Out = out
+       return macosuser.RunCaptureAct(deps, macosuser.CaptureOptions{
+           Bin: bin, Config: cfg, HostPackRoot: packRoot, SandboxEnv: packEnv,
+       }, filepath.Join(workspace, captureOutLeaf), dryRun)
+   }
+   ```
+
+   `RunCaptureAct` pulls `SelfExe` and `HostUser` off `deps`, leaves the proto-entry at that path,
+   and sweeps the staging tree — so everything after `runCaptureJail` in `captureHost` (read the
+   manifest, refuse an empty delta, `AdmitEntry`, receipt) already works unchanged. Landing a
+   mechanism ahead of its wiring has precedent in this package: `EndpointGrantCommands` has done
+   exactly this since 2026-08.
+
+   **H2. The REWRITE is not built.** `relocatable:true` entries carry a complete `absoluteRefs`
+   list and nothing consumes it. Materialize into `/Users/_yolojail` from a capture whose
+   `Manifest.Home` is `/Users/Shared/yolo-captures/<bin>/home` must apply the contract in (d) — the
+   symlink refs by re-creating the link with a rewritten target, the file-content refs by
+   substituting the prefix through the file's bytes — or refuse. Until it does, a macos-user
+   capture is a recorded artifact nobody materializes.
+
+   **H3. A capture does not materialize `packages:`.** `CaptureOptions.Darwin` exists and the
+   caller passes nil, so an installer needing a `packages:`-declared tool fails inside the capture
+   rather than finding it. Stated, not hidden: paying a native nix build to run one CDN shell
+   script is the wrong default, and the seam is there when a real installer needs it.
+
+   ### What a human with a Mac must run — nothing below is measured
+
+   Unit tests pin the profile's BYTES, the argvs, the plan invariants and the relocation record.
+   **No kernel has loaded this profile.** After landing H1, on a Mac with `yolo macos-setup` done:
+
+   1. `yolo capture claude --dry-run`-equivalent (H1's closure forwards `dryRun`) — read the
+      printed profile and both argvs before letting anything run.
+   2. `yolo capture claude`, then check: the staging tree existed only for the run; the entry
+      landed under `~/.local/share/yolo-jail/captures/entries/<key>`; the manifest's `relocatable`
+      is `true` and `absoluteRefs` names `.local/bin/claude`.
+   3. **The confinement itself, which is the only claim that matters:** with the capture profile
+      loaded, `sandbox-exec -f <profile> -- /bin/sh -c 'touch /Users/_yolojail/PROBE'` must fail,
+      and `log show --predicate 'sender == "Sandbox"' --last 5m` must show the denial. A capture
+      that silently wrote to the shared home would look identical to a successful one.
+   4. Whether `getpwuid`-based home resolution (as opposed to `$HOME`) trips the `/Users` read deny
+      for a vendor installer's shell — the one failure mode designed around rather than observed.
+   5. Whether the `EXDEV` refusal in (b) ever fires in practice.
 
 ## Verification, honestly
 
@@ -302,7 +431,10 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   and the `os.Rename` admit want one confirmation on a real rootless host.
 - **Slice 6 is design-against-read-code and cannot be tested from here.** macos-user's installer
   pipeline is itself unverified on hardware (`macos-user-nix-and-features.md`); unit tests pin the
-  generated profile string and the relocation rewrite, and nothing pins that Seatbelt honors it.
+  generated profile string and the relocation RECORD, and nothing pins that Seatbelt honors it.
+  ⚠ *This line said "the relocation rewrite". There is no rewrite: slice 6 built the record and
+  handed the rewrite on (slice 6 hand-off H2). Nothing in the tree substitutes a prefix.* The
+  hardware checklist that would close the gap is in slice 6's own section.
 
 ## Ships with
 
@@ -310,6 +442,10 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   stable across a re-walk and moves on an exec-bit flip; materialize into a populated home; EXDEV
   falls back to copy; GC with `nlink>1` reaps nothing; GC dry-run and `--apply` report identical
   numbers; relocation rewrite of an absolute symlink; `relocatable:false` refusal.
+  *Slice 6 shipped the record side of the last two:* an absolute symlink AND a file-content
+  reference recorded with `relocatable:true`; a reference inside a non-text file recorded with
+  `relocatable:false` naming the file; no scan → `relocatable:false` naming the scan; a
+  pre-fields manifest reading back `false`. The REWRITE and its refusal are still owed (H2).
 - **Integration:** `integration/capture_test.go` — capture once, materialize into **two** workspaces,
   assert the second performs no download and that the two files share an inode. That is the test that
   catches a regression to per-workspace refetch; no unit test can.
@@ -352,4 +488,9 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 - **Stop and ask** before adding per-entry metadata a *later* yolo must parse. The receipt schema is
   versioned (`Schema: 1`) and unknown-higher is a hard error in the sibling lockfile
   (`packsrc/lock.go:30`); take the same discipline and say so in the type.
+  *Slice 6 added three MANIFEST-level fields (`refScan`, `relocatable`, `notRelocatable`) and one
+  new `absoluteRefs[].kind` value, and NO new per-entry field — deliberately, against this line.
+  All four are additive, all default to the fail-safe reading, and `ManifestSchema` stays 1
+  because an older reader that ignores them materializes only into the home the capture names,
+  which is what it did before they existed.*
 - No open questions in the design: §6.3 is ruled, and the Open Questions section reads *"None open."*

@@ -303,6 +303,12 @@ of container features:
   > `{workspace, sandbox home, /tmp, /private/tmp, /var/folders, /private/var/folders, /dev}`
   > (`internal/macosuser/seatbelt.go:47-55`), and separately denies reads under `/Volumes`
   > except the boot volume (`internal/macosuser/seatbelt.go:59-60`). Both verified 2026-08-24.
+  > (This describes the SESSION profile, which is the only one a launch uses. Since 2026-09-04
+  > there is a second, narrower one — `SeatbeltCaptureProfile` in
+  > `internal/macosuser/seatbeltcapture.go`, carried only by an install capture, which drops the
+  > workspace and the sandbox home from that set and denies both. See
+  > [`../design/program-delivery.md`](program-delivery.md) §6.3. Like everything else dated after
+  > 2026-08-24 in this doc, it is unit-tested on Linux and **unverified on hardware**.)
   > So a host symlink from `~/.cache/<subdir>` to another disk resolves fine for the invoking
   > user and is refused inside the sandbox — which is the *worse* failure, because the cache
   > then silently stays on the boot volume, the one outcome the feature exists to prevent.
