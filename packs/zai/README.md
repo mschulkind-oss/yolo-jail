@@ -9,11 +9,12 @@ once — and one API key from the z.ai console serves every agent it reaches.
 
 Which agents that is is narrower than the protocol list suggests *(corrected 2026-09-02: this
 paragraph said "every agent you already have can use it except codex", and only the delivery
-below supports that)*. Delivery is per agent pack, and three of the six ship one: **claude**,
-through the claude pack's own env derive; **pi** and **opencode**, a catalog entry plus each
-one's own selection key. **codex** ships a delivery too and is excluded anyway — the pairing is
-unwireable (see the table below). **copilot** and **agy** ship no provider delivery at all, so
-there is nothing for this pack to hand them.
+below supports that; corrected again 2026-09-04 when copilot gained a delivery)*. Delivery is
+per agent pack, and four of the six ship one: **claude** and **copilot**, through their own
+packs' env derives; **pi** and **opencode**, a catalog entry plus each one's own selection
+key. **codex** ships a delivery too and is excluded anyway — the pairing is
+unwireable (see the table below). **agy** ships no provider delivery and never can — its
+only custom-endpoint hook speaks the Gemini protocol.
 
 **What it ships, and what it deliberately does not:** facts and a pointer. The endpoints, the
 wire protocols, the model aliases and *which variable holds the key* are the pack's; the key
@@ -42,6 +43,7 @@ Then `yolo -p zai` (or the persistent spelling, `"use_profiles": {"claude": "zai
 | claude | the full env block [Z.AI's Claude Code guide recommends](https://docs.z.ai/devpack/tool/claude): `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`, `ANTHROPIC_AUTH_TOKEN`, all three `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` (the alias the profile's `model` option names for opus, `sonnet` → the main model, `haiku` → the flash one; measured 2026-09-04: with sonnet unset, z.ai serves claude's sonnet-tier names as the FAST model — so the aliases are not decorative), each carrying claude code's `[1m]` suffix because the provider's `context_window` is 1000000, plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`, `API_TIMEOUT_MS=3000000`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` — the last three composed from the provider's `context_window`/`api_timeout_ms` options and the routed launch itself, never hand-copied. | the agent pack's own env derive (`yolo.env` in `packs/claude/derive.lua`), composed at launch — the endpoint is configuration, the token is relayed from the hydrated variable, and nothing is written to a file |
 | pi | a `zai` catalog entry pointing at the openai route — `api: "openai-completions"`, `apiKey: "${ZAI_API_KEY}"` (the reference, not the value: pi expands it at read time) — plus `defaultProvider`/`defaultModel` in `settings.json` when a profile is selected | its derive, reading `YOLO_PROVIDERS` (the composed table) |
 | opencode | a `zai` catalog entry pointing at the openai route — `baseURL` and `apiKey: "{env:ZAI_API_KEY}"`, both under `options` because opencode reads them nowhere else — plus `model = "zai/<id>"` when a profile is selected | its derive, reading `YOLO_PROVIDERS` (the composed table) |
+| copilot | BYOK env: `COPILOT_PROVIDER_BASE_URL` = the **anthropic** route (the derive prefers it, D-3), `COPILOT_PROVIDER_TYPE=anthropic`, `COPILOT_MODEL=glm-5.3`, `COPILOT_PROVIDER_API_KEY` — no `WIRE_API`, which speaks only to the openai type | the copilot pack's env derive |
 | codex | **nothing — no entry and no selection** | codex speaks `responses` only and z.ai's openai route speaks chat completions only, so no `wire_api` value makes the pairing work — the derive emits no entry rather than one that 404s at first request ([providers.md](../../docs/reference/providers.md) §3.3), and the same reachability gate keeps the selection off with it. Codex has no z.ai route; the anthropic endpoint is claude's, via claude's env derive. |
 
 A launch that selects this pack and never hydrates `ZAI_API_KEY` **refuses outright**

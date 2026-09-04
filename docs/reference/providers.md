@@ -16,6 +16,7 @@ covers:
   - packs/codex/derive.lua
   - packs/pi/derive.lua
   - packs/opencode/derive.lua
+  - packs/copilot/derive.lua
   - packs/zai/pack.json
   - packs/cerebras/pack.json
   - packs/claude/pack.json
@@ -29,7 +30,7 @@ tags: [providers, profiles, packs, derives, selection, zai, cerebras]
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
 credential, and which knobs ("options") a profile may tune. Providers compose into ONE table
-on the host at launch, cross into the jail, and reach four agents through their own packs'
+on the host at launch, cross into the jail, and reach five agents through their own packs'
 derives — each in that agent's own vocabulary. A **profile** is user-declared intent: a named
 selection over a provider. **Catalog** (an agent's directory of providers it *could* use) and
 **selection** (which one it *does* use) are two features with different triggers: catalog rides
@@ -45,7 +46,7 @@ presence, selection is an explicit act.
 | Selection namespace: edge-triggered apply | `internal/agentcfg` (`SelectionKey`, `ApplySelection`) |
 | Surface render + selection lift | `internal/entrypoint` (`ConfigurePackSurfaces`, prism stateful render) |
 | User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`) |
-| The four derives + the provider packs | `packs/{claude,codex,pi,opencode,zai,cerebras}` |
+| The five derives + the provider packs | `packs/{claude,codex,pi,opencode,copilot,zai,cerebras}` |
 
 **Reads with:** [`pack-system.md`](../design/pack-system.md) (what a pack is, how derives are
 loaded), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
@@ -132,6 +133,7 @@ unverified assertion in a new location:
 | pi | `anthropic` → `anthropic-messages`; `openai-chat-completions` → `openai-completions`; `openai-responses` → `openai-responses` | no entry |
 | opencode | consumes no protocol field (URL only) | — |
 | claude | no config dialect; the env derive reads endpoints directly | composes nothing |
+| copilot | `anthropic` → `COPILOT_PROVIDER_TYPE=anthropic`; `openai-chat-completions` → `TYPE=openai` + `COPILOT_PROVIDER_WIRE_API=completions`; `openai-responses` → `TYPE=openai` + `WIRE_API=responses` (provenance in the derive: copilot 1.0.48 help topic) | composes nothing — the one agent speaking both families; nothing only when the provider names no endpoint |
 
 An endpoint that declares **no** `wire_api` gets the derive's own default — codex `responses`
 (its only accepted value), pi `openai-completions` (a legal registry value; pi itself has no
@@ -218,6 +220,7 @@ What each agent actually receives, from one composed table and one selection:
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML) | top-level `model_provider` + `model` |
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids) |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
+| copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` |
 | claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `AWS_REGION`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` (each tier from its own alias; opus from the profile's `model` option; claude's `[1m]` suffix appended when the provider's `context_window` option is ≥ 1000000 — the suffix is claude code's client syntax for the context-1m beta, stripped before the wire), plus three knobs composed from provider facts: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` ← the provider's `context_window` option, `API_TIMEOUT_MS` ← `api_timeout_ms`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` on any routed (anthropic base_url) launch |
 
 The spellings are facts about each agent, source-verified and carried as provenance comments
