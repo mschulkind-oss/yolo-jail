@@ -155,11 +155,47 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
   `shims.go:26`).
 - Don't refresh a server yolo did not install; the sentinel and the preset list are the scope.
 
+## A7 — the V-axis prune, and it ships INSIDE this plan
+
+Added 2026-09-04 by [OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04), which reversed the sequencing on the
+condition that this comes with it. It is **not** a stopgap to be deleted when capture lands.
+
+**The rule.** After an update installs a new version, the act that installed it prunes the program's
+own version directory to keep-newest-K (default **K = 2**: the live one plus one rollback target),
+in the same workspace, immediately, on success.
+
+**Why it needs no store, no oracle and no enumeration.** The referrer set for
+`~/.local/share/<bin>/versions/*` is one symlink, `~/.local/bin/<bin>`, in the same tree. Everything
+else there is unreferenced *by construction for that workspace*. No filesystem support is required,
+so it works identically on ext4 and btrfs — which capture does not
+([`../design/agent-cli-copies.md` §4.1](../design/agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for)).
+
+**Why it is a prerequisite rather than a companion.** [OQ-PD18](../design/program-delivery.md#decision-ledger)
+ruled auto-capture default-on. A new workspace materializes whatever the store holds, then evergreen
+updates past it — so every new workspace is seeded with a superseded version that the vendor updater
+will never remove. **A7 is what deletes it**, at the moment the update creates it. Shipping PD18
+without A7 makes the N-axis mechanism a V-axis garbage generator.
+
+**Size.** ~30 lines. **What it is worth:** 1018.6 of the 1223.4 measured MiB, at K = 1.
+
+> **Two different `K`s, do not merge them.** This one is over the **vendor's version directory**, per
+> workspace, default **2**. [OQ-PD17](../design/program-delivery.md#decision-ledger)'s `K = 1` is over
+> the **capture store**, machine-wide, where a rollback target has nowhere to be used because the
+> store is not a version history. Same letter, different axis, different default — and neither is the
+> `N` this corpus uses for the workspace count.
+
+⚠ **Stop and ask before widening K's default or making the prune cross-workspace.** Per-workspace is
+what makes the referrer set trivially knowable; a cross-workspace version prune is a different
+problem with a different oracle, and it is capture's, not this plan's.
+
 ## Blockers
 
-- **OQ-PD15 sequences this AFTER capture**, because evergreen multiplies the cost capture removes —
-  measured: one workspace holding four claude versions at **1019 MB**, one-time today and recurring
-  under evergreen. Capture is another agent's. **Stop and ask** whether this lands behind it or ahead
-  of it; ahead means shipping the recurring-disk regression the ruling exists to avoid.
+- ✅ **ASKED AND ANSWERED 2026-09-04 — this lands FIRST, ahead of capture** ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)).
+  OQ-PD15 had sequenced it behind capture because evergreen multiplies the cost capture removes; both
+  halves measured false. Capture collapses the **workspace** axis, evergreen multiplies the
+  **version** axis, and *"under capture there is nothing to prune"* is wrong — the vendor's
+  self-updater keeps writing full-size version dirs into the workspace whatever the store holds.
+  **The recurring-disk regression is real and this plan now carries its own fix** — see the A7 item
+  below, which is not optional.
 - **Stop and ask** before widening the collision check past `/bin`, `/usr/bin` and the declared mise
   tools (trap 1). The wrong scope is silent and turns the whole feature off.

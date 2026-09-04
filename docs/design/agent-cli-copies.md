@@ -399,7 +399,7 @@ golden-argv line. Delete the scope and neither goes red for the right reason.
   already implements (`internal/macosuser/seatbeltcapture.go:1-35`).
 
 > **Verdict: not adopted, and not dismissed — costed and held open as
-> [OQ-CP2](#-oq-cp2--should-the-program-prefix-become-machine-global).** It is the *only* option that
+> [OQ-CP2](#-oq-cp2--should-the-program-prefix-become-machine-global--resolved-2026-09-04).** It is the *only* option that
 > collapses the N axis on every filesystem with no store, no oracle and no post-hoc sweep, and the
 > earlier one-line dismissal (*"invents a second sharing mechanism that capture would then replace"*)
 > is both factually wrong — it is the fourth instance of a shipped mechanism with a declared manifest
@@ -609,14 +609,14 @@ is actually for.
 | R4 | **Landing evergreen before capture ships the recurring-disk regression OQ-PD15 exists to avoid.** | Only if the V-axis prune does not land with it — which is why §9 orders the prune *first* and inside the same plan, not after. Without the prune, R4 is real and OQ-PD15 was right. |
 | R5 | **A delete-on-success prune deletes a version something else is using.** A second jail on the same workspace, a running agent process holding the old binary open. | The rule is per-workspace and keeps `K ≥ 2`, so the live symlink target and one predecessor always survive; a running process holds an open fd and survives an unlink on POSIX regardless. The one case to state is a *concurrent launch on the same workspace*, which is [roadmap](../plans/roadmap.md)'s unfiled shim-dir race and needs the same guard. |
 | R6 | **Triggering the hardlink dedup automatically arms a hazard nobody has reviewed.** It creates cross-workspace shared inodes with no admit-time freeze (§3.1's note). | Measure first (§9 step three is a dry run, which mutates nothing), and give the dedup capture's read-only freeze before giving it a trigger. |
-| R7 | **A shared prefix ships on a concurrency guarantee that does not exist.** The install-prefix lock is specified and unbuilt, `storage-and-config.md:163-165` overstates today's isolation, and `.yolo-entrypoint.lock` is mounted but never flocked. | Do not adopt A9 before the lock exists. Named as [OQ-CP2](#-oq-cp2--should-the-program-prefix-become-machine-global) rather than sequenced. The two documentation defects are worth fixing on their own. |
+| R7 | **A shared prefix ships on a concurrency guarantee that does not exist.** The install-prefix lock is specified and unbuilt, `storage-and-config.md:163-165` overstates today's isolation, and `.yolo-entrypoint.lock` is mounted but never flocked. | Do not adopt A9 before the lock exists. Named as [OQ-CP2](#-oq-cp2--should-the-program-prefix-become-machine-global--resolved-2026-09-04) rather than sequenced. The two documentation defects are worth fixing on their own. |
 | R8 | **Filesystem support is asserted, not measured.** Only btrfs was available here. | Stated as NOT MEASURED at the point of use (§4.1). The recommendation is deliberately the one that does not depend on the answer. |
 
 ---
 
 ## 12. Open Questions
 
-### 💬 OQ-CP1 — is the disk justification retracted, and is OQ-PD15 reversed?
+### ✅ OQ-CP1 — is the disk justification retracted, and is OQ-PD15 reversed? — RESOLVED (2026-09-04)
 
 The load-bearing question; everything else is downstream. [OQ-PD15](program-delivery.md#decision-ledger)
 sequenced capture ahead of evergreen on two premises this doc measures as false: that evergreen
@@ -629,13 +629,37 @@ relocation half).
 _Leaning:_ **Reverse it — evergreen next, with the V-axis prune inside it; capture continues in
 parallel.** I hold this firmly on the numbers and loosely on the calendar: if capture's remaining
 slices are days rather than weeks, the ordering costs little and the ruling's *"sooner was never the
-goal"* still applies. What should not survive either way is the **claim** — the ledger row and §6.3
+goal"* still applies. what should not survive either way is the **claim** — the ledger row and §6.3
 should stop saying capture is the disk fix, whatever order the work lands in.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Reversed. Evergreen next, with the V-axis prune inside it; capture continues in parallel.** —
+> 2026-09-04.
+>
+> **Both halves, because the claim matters more than the order.**
+> [OQ-PD15](program-delivery.md#decision-ledger) is amended from *capture FIRST* to *capture trails*,
+> and **the disk justification is RETRACTED** wherever it appears: capture collapses **N**, evergreen
+> multiplies **V**, and on **ext4 capture adds a machine-wide copy and saves no disk at all**
+> ([§4.1](#41-the-ext4-inversion-in-the-terms-p2-asks-for)). What capture actually buys is what
+> [§7](#7-what-capture-buys-that-pruning-and-sharing-do-not) says — a manifest, an offline
+> deterministic materialize, drift against an immutable reference, and a lockable identity for the
+> one class with no native lockfile. None of those is a disk property, which is exactly why the disk
+> argument was the wrong one to sequence on.
+>
+> **[A7](#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one) ships inside
+> evergreen, not beside it.** It is the V-axis prune — keep-newest-K over the vendor's own version
+> dir, executed by whoever installed the new one — and it is where **1018.6 of the 1223.4 measured
+> MiB** actually are. It is also now a hard prerequisite of
+> [OQ-PD18](program-delivery.md#decision-ledger): auto-capture default-on seeds a superseded version
+> into every new workspace, and A7 is what deletes it.
+>
+> **What the reversal does NOT license.** *"Sooner was never the goal"* still stands — this is not a
+> retreat to shipping the quick thing. Capture's remaining slices (5, 7, and slice 6's relocation
+> half) keep their scope and land on their own schedule. What changed is only which of two ruled,
+> unbuilt subsystems goes first, and it changed because the number the original ordering rested on
+> was measured wrong.
 
-### 💬 OQ-CP2 — should the program prefix become machine-global?
+### ✅ OQ-CP2 — should the program prefix become machine-global? — RESOLVED (2026-09-04)
 
 The N axis has four possible answers (capture, dedup, sharing, nothing) and sharing is the only one
 that needs no store, no oracle, no sweep and no reflink — and the only one that works identically on
@@ -655,7 +679,24 @@ worth having anyway, sharing's marginal win over capture is limited to the ext4 
 row, which is why this is a question and not a footnote.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Refused — and refused on the lock and the blast radius, in writing, not on "capture would replace
+> it."** — 2026-09-04.
+>
+> The per-workspace install prefix provides a concurrency guarantee that is **real and currently
+> free**: no two jails write one program tree. Making the prefix machine-global buys that guarantee
+> back with **an install-prefix lock that does not exist** — specified and unbuilt — and this repo has
+> just been shown wrong about its own locking twice ([R7](#11-risks)). It also widens the blast
+> radius from one workspace to every jail on the machine, and the shareable unit is narrower than
+> `~/.local`.
+>
+> **The refusal is not "capture is better."** Sharing's genuine advantage survives the refusal and is
+> recorded here rather than argued away: it is the only N-axis answer needing no store, no oracle, no
+> sweep and no reflink, and **the only one that works identically on ext4 and btrfs**. If capture is
+> ever abandoned, this is the option to reopen — and the thing to build first is the lock.
+>
+> **Two documentation defects R7 names are worth fixing on their own**, independent of this ruling:
+> `storage-and-config.md:163-165` overstates today's isolation, and `.yolo-entrypoint.lock` is
+> mounted but never `flock`ed. Neither is downstream of anything here.
 
 ### ✅ OQ-CP3 — is OQ-PD17 answered by "no oracle, bound by policy"? — RESOLVED (2026-09-04)
 
@@ -707,7 +748,7 @@ question and my measurement.
 > [OQ-PD18](program-delivery.md#decision-ledger), which is the question
 > that decides whether any of this runs.
 
-### 💬 OQ-CP4 — does an evergreen update get to materialize from the store?
+### ✅ OQ-CP4 — does an evergreen update get to materialize from the store? — RESOLVED (2026-09-04)
 
 Capture's materialize branch is reachable only from the cold-install arm
 (`_try_materialize`, `internal/entrypoint/shims.go:1009-1017`, called from `_do_install` at `:1024`;
@@ -727,6 +768,30 @@ serves the cold install, let the V-axis prune handle the rest, and write the lim
 *"what it buys"* list beside the honest limits already there.
 
 **Answer:**
+> **One-off — FOR NOW, and the evolution path is named rather than left implicit.** *"yes, for now.
+> we may evolve this."* — 2026-09-04.
+>
+> The store serves the cold install and nothing after it. An automatic re-capture on every vendor
+> release is a host-side scheduled act running third-party installers unattended — a much larger
+> trust and lifecycle surface than capture has today — and it would make the store grow on the
+> vendor's cadence, reintroducing retention at the machine tier. Written into
+> [§6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s
+> limits.
+>
+> **What makes "for now" safe, and it is not automatic.** Under
+> [OQ-PD18](program-delivery.md#decision-ledger) (auto-capture default-on) a one-off store **ages**,
+> and a new workspace then materializes a superseded version, pays the copy, and downloads the
+> current one anyway — worse than no capture. **[A7](#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one)
+> is what keeps that from accumulating**, by deleting the seeded version at the moment the update
+> creates it. So this ruling is only safe while A7 ships with evergreen, which
+> [OQ-CP1](#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)
+> now requires.
+>
+> **The cheap evolution, when it is wanted — and it is not re-capture.** A capture receipt records
+> its time. **Materialize can decline an entry older than a threshold** and fall through to the
+> vendor installer: local, offline, no scheduled act, no new trust surface, and it bounds the wasted
+> copy to entries young enough to still be current. Reach for that before reaching for automatic
+> re-capture.
 > _(empty — fill in when decided)_
 
 ---

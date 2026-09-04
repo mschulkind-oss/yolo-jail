@@ -569,7 +569,7 @@ largest reclaim available; the two repairs after that are cheap and independent.
 # 🔒 Waiting
 
 - 🔒 **Program delivery §10 — the three steps that are blocked, not merely unscheduled.** 📄
-  [`program-delivery.md`](../design/program-delivery.md) §10. The unblocked step is in 📦.
+  [`program-delivery.md`](../design/program-delivery.md) §10. The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
   - **The user-scope gap receipt** and **obey** — blocked on 💬 2's `OQ-TP4`. Three of the gap
     receipt's seven decisions *are* that OQ's options (a)/(b)/(c), and
     [`trust-paths.md`](../design/trust-paths.md) forbids either doc retiring the other's ID

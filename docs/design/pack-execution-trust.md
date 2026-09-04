@@ -3,13 +3,13 @@ title: "What a fetched pack may execute, and what you are agreeing to"
 date: 2026-08-17
 status: in-review
 tags: [packs, trust, approval, security]
-summary: "SUPERSEDED IN PART. The proposal — replace the mechanism list with one property, a fetched pack may execute only content it pins — rests on a premise that proved false. §5 and OQ-X1 are live, §6 is ruled and unbuilt, §3 and §4 are retired; the supersession map in the header says which is which."
+summary: "SUPERSEDED IN PART. The proposal — replace the mechanism list with one property, a fetched pack may execute only content it pins — rests on a premise that proved false. §5 is live; OQ-X1 was retired 2026-09-04, subsumed by trust-paths.md OQ-TP9, which deleted the gate it asked about; §6 is ruled, unbuilt, and retargeted onto the startup banner; §3 and §4 are retired. The supersession map in the header says which is which."
 ---
 
 # What a fetched pack may execute, and what you are agreeing to
 
 **Status:** SUPERSEDED IN PART, 2026-08-17 — **supersession map and every code anchor re-verified
-2026-08-23.** §5 and OQ-X1 are live; §6 is RULED and still unbuilt; §3's premise is FALSE and §4's
+2026-08-23.** §5 is live; **OQ-X1 was RETIRED 2026-09-04 (subsumed by `trust-paths.md` OQ-TP9)**; §6 is RULED, still unbuilt, and **retargeted by TP9 onto the startup banner**; §3's premise is FALSE and §4's
 table is retired. **Read the map below before trusting any section of this document**, because
 "superseded in part" without saying which part is worse than no warning at all.
 
@@ -303,17 +303,18 @@ settled them; rows ruled inside this document are identified by their **section*
 | **OQ-TP5** | §4 row 3's live hole is closed by **removing the evergreen mechanism**, not by refusing the floating declaration: `install` obeys the record, `yolo pack update` is the only act that resolves, the poll only reports. Built (`b3a29ad8`) | 2026-08-18 | `trust-paths.md` §1 row 1 |
 | **OQ-TP1** | **Obviated** by OQ-TP6 — there is nothing to carry into a jail if no jail starts | 2026-08-18 | `trust-paths.md` §3.1 |
 
-**Still open elsewhere, and this document does not answer them:** `trust-paths.md` **OQ-TP3** (is a
-pack *required* to pin, or merely permitted?), **OQ-TP4** (where an embedded pack's npm pin would
-live), **OQ-TP7** (the fatal's preflight and approve path), **OQ-LP8 / G2b** (the commit pin is never
-consulted at launch), and `program-delivery.md` **OQ-PD1…PD8**, which restate the venue question at
-wider scope than the pack system.
+**Still open elsewhere — RECOUNTED 2026-09-04, and the list is now empty of trust questions.**
+`trust-paths.md` **OQ-TP3** and **OQ-TP4** were RETIRED 2026-09-03 (moot under the evergreen ruling —
+an agent dependency takes no pin); **OQ-TP7** was RETIRED 2026-09-04 because **OQ-TP9** deleted the
+refusal it was about; **OQ-LP8**'s substance is ruled and what remains is two undelivered
+documentation requirements, with **G2b** moot once the approval is gone. `program-delivery.md`
+**OQ-PD1…PD8** are all ruled (2026-08-24). **Both trust docs are at zero open questions.**
 
 ---
 
 ## Open Questions
 
-### 💬 OQ-X1 — does a digest-pinned installer script satisfy P1, given its own fetches are not pinned?
+### ⛔ OQ-X1 — does a digest-pinned installer script satisfy P1, given its own fetches are not pinned? — RETIRED (2026-09-04)
 
 §5 is the tension. A pinned script is strictly better than an unpinned one and strictly worse than a
 pinned binary, and P1 as written does not say which side of the line it falls on.
@@ -321,7 +322,27 @@ pinned binary, and P1 as written does not say which side of the line it falls on
 **What it decides:** whether an agent distributed only by `curl | sh` can be installed by a fetched
 pack at all, or whether such packs must wait for the agent to ship a binary or a pinned npm version.
 
-_Leaning:_ **Allow it, labelled honestly as a shallow pin.** Refusing buys little once pinned `npm`
+> [!IMPORTANT]
+> **RETIRED 2026-09-04, subsumed by [`trust-paths.md`](trust-paths.md) OQ-TP9 — and subsumed in the
+> direction the leaning pointed, only further.** This question asks whether a digest-pinned installer
+> is pinned *enough to be allowed through the origin gate*. **There is no gate.** TP9 deleted the
+> fetched-pack approval and the origin gate on host access, so a fetched pack may declare
+> `program via installer` unconditionally — digest or no digest. The question has no subject, and it
+> was already asking about **P1, a principle this document's own header records as neither adopted
+> nor rejected** (§3's premise is false).
+>
+> **The leaning's argument is what TP9 generalised.** *"We would be refusing the honest spelling
+> while permitting the disguised one"* is [§2](#2-why-that-rationale-does-not-hold)'s
+> npm-`postinstall` point, and it is one of the three pillars TP9 rests on. The inversion this
+> document exists to remove is removed — at the level of the whole gate rather than this one entry.
+>
+> **What survives, and it is the leaning's condition, not its verdict:** *"the approval prose must
+> **say** it is a shallow pin, rather than showing a digest that implies more than it delivers."*
+> The approval prose is gone, so that obligation moves where [§6](#6-approval-must-be-readable--ruled-and-still-unbuilt)'s
+> does — onto the **startup banner**, now the only place a user sees what a pack reaches. A digest
+> shown there must not imply a depth it does not have.
+
+_Leaning (superseded — see above):_ **Allow it, labelled honestly as a shallow pin.** Refusing buys little once pinned `npm`
 is permitted — an npm package's postinstall fetches whatever it likes too, so the second hop exists
 there as well and we would be refusing the honest spelling while permitting the disguised one. That
 is exactly the inversion this document exists to remove. The condition is that the approval prose

@@ -8,11 +8,21 @@ Written against `839d0745`, 2026-09-03.
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and is
 the first thing to be wrong. Never twist code to match it — correct it in the commit.
 
-**Sequencing:** this is §10 step six and lands **before** step seven,
-[`evergreen-agent-updates.md`](evergreen-agent-updates.md) — evergreen multiplies the per-workspace
-disk cost capture removes. Re-measured here
-2026-09-03: `~/.local/share/claude/versions` holds **five** builds at **1.2 GB** (the design measured
-four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
+**Sequencing — REVERSED 2026-09-04 by [OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04).** This plan lands **AFTER**
+[`evergreen-agent-updates.md`](evergreen-agent-updates.md), not before it. The original order rested
+on capture being the disk fix, and it is not: capture collapses the **workspace** axis, evergreen
+multiplies the **version** axis, and on **ext4 capture adds a machine-wide copy and saves no disk at
+all** ([`agent-cli-copies.md` §4.1](../design/agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for)).
+The measurement that moved it is still real and still worth having — `~/.local/share/claude/versions`
+holds **five** builds at **1.2 GB**, and `~/.local` is a per-workspace bind — but **1018.6 of those
+1223.4 MiB are the version axis**, which
+[A7](../design/agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one)
+deletes from inside evergreen, on every filesystem, in ~30 lines.
+
+**What this plan is still for, unchanged:** the manifest, the offline deterministic materialize,
+drift against an immutable reference, and a lockable identity for the one dependency class with no
+native lockfile. None of those is a disk property — which is precisely why the disk argument was the
+wrong one to sequence on.
 
 ## Map
 
@@ -45,7 +55,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/macosuser/runplan.go`, `macosuser.go` | slice 6 lifted `buildBootstrapEnv` (home is now a parameter) and `sandboxEnvPairs` out; no behavior change |
 | `internal/capture/relocate.go` | **new** (slice 6) — the file-content reference scan and the relocatable verdict |
 | `docs/design/storage-and-config.md` | §2's `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
-| `docs/design/program-delivery.md` | §10 step six → SHIPPED, per slice; §6.3's *materialize* verb amended by slice 4 (reflink, not hardlink) |
+| `docs/design/program-delivery.md` | §10's capture step (was six, now seven — OQ-CP1) → SHIPPED, per slice; §6.3's *materialize* verb amended by slice 4 (reflink, not hardlink) |
 
 ## Reuse
 
