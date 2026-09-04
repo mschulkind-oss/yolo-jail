@@ -740,11 +740,11 @@ and `internal/cli/run/assemble.go:603-604`:
 | Thing | Scope | Backing |
 | :--- | :--- | :--- |
 | the declaration (`packs`) | **user** | `~/.config/yolo-jail/config.jsonc` (`internal/config/packs.go:192`; the file header there rules workspace scope inexpressible) |
-| npm programs, installer programs, Go bins | **per workspace** | `<ws>/.yolo/home/{npm-global,local,go}` (`assemble_parts.go:109-111`) |
+| npm programs, installer programs, Go bins | **per workspace** | `<ws>/.yolo/home/{npm-global,local,go}` (`assemble_parts.go:108-110`) |
 | **the npm download cache** | **machine-global** | `NPM_CONFIG_CACHE=$HOME/.cache/npm` (`shims.go:349`); `~/.cache` is `paths.GlobalCache()` (`assemble_parts.go:120`) |
 | **the update stamps and spec records** | **machine-global** | `~/.cache/yolo-agent-stamps` (`shims.go:190`) — beside a per-workspace `REAL_BIN` |
 | **mise tools** | **machine-global, mutated in place** | `/mise` (`assemble_parts.go:156-161`) |
-| the base home | machine-global, **read-only** | `paths.GlobalHome()` mounted `:ro` (`assemble_parts.go:108`) |
+| the base home | machine-global, **read-only** | `paths.GlobalHome()` mounted `:ro` (`assemble_parts.go:107`) |
 | the image | machine-global by **name**, per-config by **content** | one `localhost/yolo-jail:latest` tag; `packages:` is workspace-settable |
 | the pack store / the pack lockfile | machine-global store / **user-scope** lockfile | `paths.PacksDir()` (`paths.go:359`) / `~/.config/yolo-jail/packs.lock.json` |
 | pack trees, skills, surfaces | per workspace, **derived** | cleared and re-staged every launch |
@@ -1157,7 +1157,7 @@ fixed-output derivations and `docker commit` are the same shape from other direc
 
 **The sandbox already exists, and it is yolo's own product.** On the container backends a capture
 is an ephemeral jail whose per-workspace home binds start empty: the existing bind surfaces
-(`~/.local`, `~/.npm-global`, `~/go` — `assemble_parts.go:109-111`) are natural capture surfaces,
+(`~/.local`, `~/.npm-global`, `~/go` — `assemble_parts.go:108-110`) are natural capture surfaces,
 so after the installer runs, **the bind-dir contents ARE the delta** — tar, hash, done. No new
 containment machinery; a jail that writes outside its binds is a finding the capture run reports,
 and a tool that does so is flagged genuinely unmanageable instead of silently half-captured.
