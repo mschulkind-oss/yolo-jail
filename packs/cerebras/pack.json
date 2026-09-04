@@ -1,0 +1,27 @@
+{
+  "contributes": [
+    {
+      "api_key_env_name": "CEREBRAS_API_KEY",
+      "endpoints": {
+        "openai": {
+          "base_url": "https://api.cerebras.ai/v1",
+          "wire_api": "openai-chat-completions"
+        }
+      },
+      "kind": "provider",
+      "models": {
+        "default": "qwen-3.8-27b"
+      },
+      "name": "cerebras",
+      "options": {
+        "model": "default"
+      }
+    },
+    {
+      "kind": "profile",
+      "name": "cerebras",
+      "provider": "cerebras"
+    }
+  ],
+  "name": "cerebras"
+}

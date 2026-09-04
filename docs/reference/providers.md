@@ -17,8 +17,9 @@ covers:
   - packs/pi/derive.lua
   - packs/opencode/derive.lua
   - packs/zai/pack.json
+  - packs/cerebras/pack.json
   - packs/claude/pack.json
-tags: [providers, profiles, packs, derives, selection, zai]
+tags: [providers, profiles, packs, derives, selection, zai, cerebras]
 ---
 
 # The provider system — catalog, composition, and selection
@@ -44,7 +45,7 @@ presence, selection is an explicit act.
 | Selection namespace: edge-triggered apply | `internal/agentcfg` (`SelectionKey`, `ApplySelection`) |
 | Surface render + selection lift | `internal/entrypoint` (`ConfigurePackSurfaces`, prism stateful render) |
 | User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`) |
-| The four derives + the two provider packs | `packs/{claude,codex,pi,opencode,zai}` |
+| The four derives + the provider packs | `packs/{claude,codex,pi,opencode,zai,cerebras}` |
 
 **Reads with:** [`pack-system.md`](../design/pack-system.md) (what a pack is, how derives are
 loaded), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
@@ -305,3 +306,5 @@ place the exact spellings are stated.
 | zai model aliases | `default`/`sonnet`: `glm-5.3`, `fast`/`haiku`: `glm-5.3-flash` — WIRE-TRUE ids; claude's derive alone appends its `[1m]` spelling when `context_window` ≥ 1000000 (the suffix is a 400 on both z.ai routes for anyone else, measured 2026-09-04) | `packs/zai/pack.json` |
 | zai provider options | `model: default`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
 | zai credential variable | `ZAI_API_KEY` | `packs/zai/pack.json` |
+| cerebras model aliases | `default: qwen-3.8-27b` — the one alias; `gpt-oss-120b` deliberately absent (hallucinated tool calls have no tier) | `packs/cerebras/pack.json` |
+| cerebras credential variable | `CEREBRAS_API_KEY` | `packs/cerebras/pack.json` |

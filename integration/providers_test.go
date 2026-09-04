@@ -83,8 +83,8 @@ func renderedSurface(t *testing.T, dir string, rel ...string) []byte {
 //     object (`provider.ts:82-94` of upstream v1.18.18 — the tag the shipped binary
 //     reports), and the derive wrote them top-level. → the fourth subtest
 //
-// One launch, five packs. Selecting a pack RENDERS its surfaces and installs no CLI, so
-// the four agent packs plus zai cost one boot rather than four vendor installs
+// One launch, six packs. Selecting a pack RENDERS its surfaces and installs no CLI, so
+// the four agent packs plus two provider packs cost one boot rather than four vendor installs
 // (agents_test.go TestPackRendersConfigAndLauncher is the same trick, one pack at a
 // time). The composed table needs no user `providers` entry: pack-shipped `kind:
 // "provider"` facts compose in on their own (internal/packload ComposeProviders), and
@@ -94,16 +94,17 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	requireJail(t)
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "zai", "codex", "pi", "opencode"]}`)
-	// zai ships api_key_env_name = ZAI_API_KEY, and the selected-pack credential
-	// preflight refuses a launch whose environment cannot deliver it
+	packHome(t, `{"packs": ["claude", "zai", "cerebras", "codex", "pi", "opencode"]}`)
+	// zai and cerebras ship api_key_env_name entries, and the selected-pack credential
+	// preflight refuses a launch whose environment cannot deliver them
 	// (internal/packload ProviderCredentialGaps). Set before the launch: the refusal is
 	// correct behaviour and is D4's territory to change, not this test's.
 	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("CEREBRAS_API_KEY", "integration-probe-not-a-real-key")
 
 	r := runYolo(t, dir, "true")
 	if r.rc != 0 {
-		t.Fatalf("five-pack launch failed: rc %d\n%s", r.rc, r.combined())
+		t.Fatalf("six-pack launch failed: rc %d\n%s", r.rc, r.combined())
 	}
 
 	codexTOML := renderedSurface(t, dir, "codex", "config.toml")
@@ -229,6 +230,43 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 		if zai.BaseURL != "" {
 			t.Errorf("opencode's zai entry still carries a TOP-LEVEL baseURL = %q; opencode "+
 				"reads it only under options, so a value here is dead configuration (D10)", zai.BaseURL)
+		}
+	})
+
+	// The second provider pack, same launch: cerebras is chat-completions-only, so the
+	// pairing claims that differ from zai's are the interesting ones — pi speaks it (the
+	// same dialect row), opencode speaks it (URL only), and no derive invents an
+	// anthropic route for it. docs/design/cerebras-pack-and-copilot-delivery.md §audit.
+	t.Run("pi cerebras entry is the same chat-completions dialect", func(t *testing.T) {
+		cerebras, ok := piModels.Providers["cerebras"]
+		if !ok {
+			t.Fatalf("pi's models.json has no cerebras entry — the composed provider table "+
+				"did not reach pi's derive; entries: %v", keysOf(piModels.Providers))
+		}
+		if !piBuiltinApis[cerebras.API] {
+			t.Errorf("pi's cerebras entry carries api = %q, which is not one of pi's "+
+				"registered api ids — the dialect map must translate canonical "+
+				"openai-chat-completions to pi's openai-completions", cerebras.API)
+		}
+		if !strings.Contains(cerebras.APIKey, "CEREBRAS_API_KEY") {
+			t.Errorf("pi's cerebras entry carries apiKey = %q; the credential reference must "+
+				"name CEREBRAS_API_KEY in pi's config-value syntax", cerebras.APIKey)
+		}
+	})
+
+	t.Run("opencode cerebras baseURL and apiKey are under options", func(t *testing.T) {
+		cerebras, ok := ocConfig.Provider["cerebras"]
+		if !ok {
+			t.Fatalf("opencode's config has no cerebras provider entry — the composed " +
+				"provider table did not reach opencode's derive at all")
+		}
+		if cerebras.Options == nil || cerebras.Options.BaseURL != "https://api.cerebras.ai/v1" {
+			t.Errorf("opencode's cerebras entry options = %+v; the URL opencode dials must "+
+				"be the measured base URL, under options (D10)", cerebras.Options)
+		}
+		if cerebras.Options == nil || !strings.Contains(cerebras.Options.APIKey, "CEREBRAS_API_KEY") {
+			t.Errorf("opencode's cerebras entry options.apiKey = %+v; the credential must be "+
+				"under options too, naming CEREBRAS_API_KEY (D10)", cerebras.Options)
 		}
 	})
 

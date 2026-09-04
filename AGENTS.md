@@ -5,14 +5,17 @@ workspace, without exposing host credentials or identity.
 
 **AGENTS ARE PACKS. Core does not know what an agent is.** There is no agent
 registry, no `agents` config key, and no `YOLO_AGENTS`. Config carries ONE list
-of `packs`; the twelve that ship with yolo live in `packs/*/pack.json` and are
-selected by BARE NAME — `"packs": ["claude"]` (counted against `ls packs/` 2026-09-02).
+of `packs`; the fourteen that ship with yolo live in `packs/*/pack.json` and are
+selected by BARE NAME — `"packs": ["claude"]` (counted against `ls packs/` 2026-09-04).
 Six install an agent (`claude`, `copilot`, `opencode`, `pi`, `codex`, `agy`) and
-**six install no CLI at all**, in two kinds: `audio`, `host-processes`, `journal`,
+**eight install no CLI at all**, in three kinds: `audio`, `host-processes`, `journal`,
 `cgroup-delegate` and `serial` ship a LOOPHOLE each (`audio` also contributes two env
-vars — the only one of the five that ships anything beside its loophole), and `zai`
-ships neither CLI nor loophole — a provider and a profile, the first
-pack whose whole content is declarative facts. Anything that says "the six" is
+vars — the only one of the five that ships anything beside its loophole); `zai` and
+`cerebras` ship neither CLI nor loophole — a provider and a profile apiece, the two
+packs whose whole content is declarative facts (zai the first, cerebras the second);
+and `guardrails` ships blocked-tool refusals and install requirements (core blocks
+nothing by default since 9caba669 — the blocked tools are opt-in through it).
+Anything that says "the six" is
 describing the agent SUBSET.
 
 **Every loophole yolo ships is a pack's, and there is no other channel** (2026-08-19).

@@ -17,17 +17,21 @@
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
 //
-// NOT EVERY OFFICIAL PACK IS AN AGENT. Thirteen packs are embedded here (counted against
-// `ls packs/` 2026-09-04): six install a CLI and seven do not. Of those six, `audio`,
-// `host-processes`, `journal`, `cgroup-delegate` and `serial` ship a LOOPHOLE (one of
+// NOT EVERY OFFICIAL PACK IS AN AGENT. Fourteen packs are embedded here (counted against
+// `ls packs/` 2026-09-04): six install a CLI and eight do not, in three kinds. Five of
+// those eight — `audio`, `host-processes`, `journal`, `cgroup-delegate` and `serial` —
+// ship a LOOPHOLE (one of
 // eighteen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
 // `audio` also contributes an `env` block, the only one of the five that ships anything
 // beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
 // §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
-// `zai` ships neither CLI nor loophole: a provider and a profile, the
-// first pack whose whole content is declarative facts. Anything here that reasons
-// about "the six agent packs" (a comment, a test's name list) is describing the agent
-// SUBSET, not this list.
+// `zai` and `cerebras` ship neither CLI nor loophole: a provider and a profile —
+// zai was the first pack whose whole content is declarative facts, cerebras the second.
+// `guardrails` ships neither either: blocked-tool refusals and install requirements
+// (9caba669 moved the blocked tools out of core — core blocks nothing by default), the
+// third kind of CLI-less pack.
+// Anything here that reasons about "the six agent packs" (a comment, a test's name
+// list) is describing the agent SUBSET, not this list.
 //
 // AND THE CONVERSE: `claude` is an agent pack that ALSO ships a loophole
 // (`loopholes/claude-oauth-broker`). So "agent pack" and "loophole pack" are not a
@@ -60,5 +64,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:cerebras all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails
 var FS embed.FS
