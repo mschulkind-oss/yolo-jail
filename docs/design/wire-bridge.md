@@ -17,14 +17,15 @@ protocols and yolo's derives translate *configuration*, never wire. The fix is a
 bridge** *(coined here)*: an in-jail daemon that listens on the jail's loopback, speaks the
 Anthropic Messages protocol to claude, and speaks OpenAI chat-completions upstream. The
 provider declares the bridge's loopback URL as its `anthropic` endpoint — the existing
-claude derive needs **zero changes** — and a preflight rule makes the dependency real:
-routing claude at a jail-local anthropic endpoint without the bridge pack selected refuses
-the launch, naming the pack. It is loophole-*shaped* (in-jail daemon, supervised, endpoint
-file) but not a loophole: it crosses no boundary and holds no host grant, which is exactly
-why it should not be called one.
+claude derive needs **zero changes** — and the dependency is REAL PACK VOCABULARY: cerebras
+declares `needs: [{pack: wire-bridge, when_bins: [claude]}]`, and the launcher includes the
+bridge pack automatically when claude is among the launch's agents. It is
+loophole-*shaped* (in-jail daemon, supervised, endpoint file) but not a loophole: it
+crosses no boundary and holds no host grant, which is exactly why it should not be called
+one.
 
-**The most important thing in this doc is §3** (the dependency ruling) — everything else
-follows from it.
+**The most important thing in this doc is §3** (the dependency vocabulary) — everything
+else follows from it.
 
 **Reads with:** [`providers.md`](../reference/providers.md) (the provider system the bridge
 plugs into; §"Per-agent delivery" is why claude is the only consumer),
@@ -70,21 +71,87 @@ It is deliberately **not**:
   routing tables, no failover, no budgets, no model remapping beyond what translation
   requires. A gateway is a product; a bridge is a shim.
 
-## 3. The dependency — selection, enforcement, or fold-in
+## 3. The dependency — real pack vocabulary, conditionally included
 
-The maintainer's sketch: "a proxy pack, and cerebras depends on it if you're using
-claude." There is no pack→pack dependency channel today, and the nearest precedent
-(loophole-activation.md OQ-A10, claude-oauth-broker) *removed* one by folding the daemon
-into the pack that needs it — "selection is the dependency." Three shapes, then:
+**Ruled by the maintainer, 2026-09-04:** "we should have real pack vocab for this, and
+the optional inclusion if claude is in use." The two shapes this doc first drafted —
+fold-in (the OQ-A10 precedent) and *enforcement-as-refusal* (the launch errors if the
+bridge pack is missing) — are both rejected: the first makes cerebras the owner of a
+general capability, and the second expresses dependency as an error message the user has
+to act on rather than as a declaration the launcher acts on. Real vocabulary it is.
 
-| Shape | What it is | Costs | Verdict |
-| :--- | :--- | :--- | :--- |
-| **A. Fold-in** (OQ-A10 pattern) | packs/cerebras contributes the bridge daemon itself; selecting cerebras always runs it | zero new vocabulary; misconfiguration unrepresentable; but every openai-only provider pack duplicates the contribution, the daemon runs even when claude never rides it, and a user-config provider can never get a bridge | **Rejected as the primary shape** — it makes cerebras the owner of a general capability, and the next provider (groq, together, …) copies it |
-| **B. Standalone pack + enforced endpoint** (this design) | a `wire-bridge` pack contributes the daemon; the *cerebras provider* declares the bridge's loopback URL as its `anthropic` endpoint; a preflight rule refuses any launch that routes claude at a jail-local anthropic endpoint while the bridge is absent | one enforcement rule (host-side, `providerpreflight`'s neighborhood); the refusal state must be well-worded | **Proposed** — "depends on it" becomes *a refusal that names the pack*, which is how yolo says dependency everywhere else (missing keys, undeclared profiles) |
-| **C. Capability vocabulary** | as B, but the bridge's manifest `serves: ["anthropic-wire"]` (the existing `Serves` machinery, loopholes.go:134-141) and the preflight checks capability presence rather than pack identity | one step more general than B; no second consumer exists yet | **Rejected for v1** — vocabulary ahead of need; B's rule is one `if`, and C can be retrofitted the day a second bridge ships without moving anything |
+### 3.1 The vocabulary
 
-Under B the moving parts line up without touching the derive — this is the load-bearing
-trick:
+A pack manifest may carry a top-level `needs` array; each entry is a **conditional pack
+dependency**:
+
+```jsonc
+// packs/cerebras/pack.json
+{
+  "name": "cerebras",
+  "needs": [
+    {"pack": "wire-bridge", "when_bins": ["claude"]}
+  ],
+  "contributes": [ ... ]
+}
+```
+
+- **`pack`** names another pack — today, only a pack in the **embedded official set**
+  (WB-D9). A fetched pack `needs`-ing another fetched pack would make selection itself a
+  supply-chain channel; refusing it keeps `packs:` the only place unreviewed code enters a
+  launch.
+- **`when_bins`** is the condition: the need is live only when some *selected* pack
+  installs one of the named bins. Core speaks bins, not agents ("AGENTS ARE PACKS", and
+  the profile-gating `profile:` modifier already keys on bins the same way —
+  packload's `profileActive`); `claude` here means "a selected pack installs the `claude`
+  CLI," which is exactly "claude is in use." Multiple bins are OR. An absent `when_bins`
+  means unconditional — allowed, though nothing ships one yet.
+
+**Resolution** happens host-side, at selection, *before* staging (the mount is the
+filter, so the closure must be computed before `stagePacks` sees a set):
+
+1. Start from the user's `packs` list.
+2. For each selected pack, for each live need (condition evaluated against the selected
+   set), add the named pack if absent.
+3. Repeat until stable — **transitive closure** (WB-D10). A cycle refuses the launch,
+   naming the loop. Idempotent by construction: a pack already selected is a no-op,
+   including a pack the *user* selected (explicit selection is never overridden, only
+   joined).
+4. The launch prints the additions — one line, `+ wire-bridge (needed by cerebras:
+   claude selected)` — and `yolo check` shows the same beside the pack list. Not a
+   config-change confirmation: nothing in the user's config changed, and the banner line
+   is where every other launch-time fact lives.
+5. From there the added pack is *ordinary selection*: staged, footprint-accounted,
+   preflighted, its daemon contributed. No special path after the closure runs.
+
+The trigger, precisely: **on every launch and every `yolo check`**, over the resolved
+selected set, before staging and before any preflight. Not lazily, not at daemon start —
+the daemon list composes from staged manifests, so the closure is upstream of everything.
+
+### 3.2 Why this is the right shape (and what it costs)
+
+The condition is deliberately *coarse* — "claude selected," not "claude's active profile
+routes at a bridged provider." The precision is recovered by the daemon being
+selection-lazy (§3.4): claude selected but riding zai (or nothing) while pi rides cerebras
+includes the bridge, which boots, reads the selection, finds no bridged anthropic route
+for claude, and idles healthy. Coarse condition + lazy daemon = precise behavior with
+vocabulary a manifest can state without knowing anything about profiles.
+
+Costs, named:
+
+- **Manifest vocabulary grows** — a top-level `needs` key, its validation (strict path:
+  refused; skew path: skipped-and-reported like every unknown key), and a resolution step
+  in the launch pipeline. That is the price of "real vocab," paid once.
+- **The selected set is no longer literally the user's list** — which is why the banner
+  line is non-negotiable (a pack nobody typed joining a launch silently is the exact
+  hazard the config-change confirmation exists for; printing is the mitigation).
+- **`yolo pack footprint`/`yolo pack lint`** must present the dependency edge (as an
+  edge, not a claim — `needs` claims nothing itself; it extends selection).
+
+### 3.3 The endpoint trick — unchanged
+
+The moving parts still line up without touching the derive, which remains the
+load-bearing trick:
 
 1. **The URL is a provider fact.** `validateProviderEndpoints` accepts any http/https
    URL without userinfo, so `endpoints.anthropic.base_url:
@@ -94,28 +161,28 @@ trick:
    binds exactly what the URL says. No second knob; one writer.
 2. **The claude derive is unchanged.** It already emits `ANTHROPIC_BASE_URL` from
    `endpoints.anthropic.base_url` (packs/claude/derive.lua). A loopback URL composes like
-   any other. The derive cannot even see whether a bridge exists — and should not; that
-   is enforcement's business (§3's refusal), not composition's.
-3. **The daemon is selection-lazy, not config-lazy.** At boot it reads `YOLO_PROVIDERS` +
-   the resolved selection (`internal/entrypoint/providers.go` already parses both). If
-   claude's active profile names a provider whose `anthropic` endpoint is jail-local, the
-   bridge serves that provider's `openai` endpoint upstream; otherwise it idles healthy.
-   Selecting the pack is opt-in enough; the *use* is decided by the same selection table
-   every agent honors.
+   any other. The derive cannot even see whether a bridge exists — and should not; the
+   closure in §3.1 is what makes the declaration true, not composition's business.
+
+### 3.4 The daemon is selection-lazy, not config-lazy
+
+At boot it reads `YOLO_PROVIDERS` + the resolved selection
+(`internal/entrypoint/providers.go` already parses both). If claude's active profile
+names a provider whose `anthropic` endpoint is jail-local, the bridge serves that
+provider's `openai` endpoint upstream; otherwise it idles healthy. This laziness is what
+licenses the *coarse* `when_bins` condition (§3.2): including the bridge whenever claude
+is selected costs a healthy idle process in the launches where claude rides something
+else, and precision finer than the manifest can state is recovered here, by the same
+selection table every agent honors.
 
 A user-config provider (no pack) can join for free: declare
 `endpoints.anthropic.base_url: "http://127.0.0.1:8214"` on your own provider entry,
 select the bridge pack, and the same machinery serves it. Not a feature; a consequence,
-recorded so nobody mistakes it for an accident to close.
-
-**The enforcement rule, precisely.** Host-side preflight, after composition and selection
-resolve, before any argv: *if claude's effective profile resolves to a provider whose
-`anthropic` endpoint is a loopback address, and no selected pack contributes the bridge
-daemon, refuse*, naming both the provider and the `wire-bridge` pack. Trigger: every
-launch, at the same moment the credential preflight runs. Not claude-only-generalized:
-pi/opencode/copilot resolve `openai` endpoints and never see the loopback URL, so the rule
-is scoped to the one agent whose derive reads the `anthropic` key. (If a future agent
-grows an anthropic derive, the rule widens with it — one place, named.)
+recorded so nobody mistakes it for an accident to close. (User config carries no `needs`
+key — WB-D11 — so a user-configured loopback endpoint with no bridge pack selected is a
+dead URL of the user's own making; `yolo check` reports a jail-local anthropic endpoint
+whose launch selects no bridge as a WARNING, not a refusal. That is the one behavior the
+old enforcement shape guarded, kept as diagnosis instead of error.)
 
 ## 4. What must translate — the protocol surface claude actually utters
 
@@ -214,30 +281,40 @@ one declaration:
 
 ## 8. What I would build, in order
 
-1. **The translator as a library** (pure Go, stdlib `net/http` only — no new vendored
+1. **The `needs` vocabulary** — packdecl schema + validation (strict refuse, tolerant
+   skip-and-report), the selection closure (host-side, before staging; transitive,
+   cycle-refusing, embedded-only per WB-D9/D10), the banner + `yolo check` lines, and
+   `pack footprint`/`pack lint` presenting the edge. Shipped with tests using two fixture
+   packs — a needing pack and a needed pack — and no bridge anywhere yet: the vocabulary
+   is general and lands on its own, exactly because the maintainer asked for vocabulary
+   and not a bridge-shaped special case.
+2. **The translator as a library** (pure Go, stdlib `net/http` only — no new vendored
    deps; the hermetic build stays hermetic), with table tests over recorded
    request/response fixture pairs: every row of §4's table, both directions, streaming
    included. This is where all the protocol risk lives; it is testable without a container.
-2. **The daemon**: subcommand, endpoint file, witness registration, the boot-time table
+3. **The daemon**: subcommand, endpoint file, witness registration, the boot-time table
    read, the key read. Unit tests with an in-memory listener; an integration test that
    curls the bridge with anthropic-shaped fixtures against a stub upstream — **no agent
    ever runs** (the no-agent-tests rule); the stub is an `httptest` server, not cerebras.
-3. **The enforcement rule** (host-side preflight) + **the cerebras manifest change** (the
-   loopback `anthropic` endpoint, `context_window`) in the same commit — the rule and the
-   declaration that trips it cannot ship apart, or there is a window where claude gets a
-   dead URL.
-4. **The pack**: `packs/wire-bridge/` with README (the §2 not-a-loophole paragraph is its
-   opening), census bumps, embed list — the same drumbeat the cerebras pack walked.
+4. **The pack + the cerebras change, in one commit**: `packs/wire-bridge/` with README
+   (the §2 not-a-loophole paragraph is its opening), census bumps, embed list — the same
+   drumbeat the cerebras pack walked — *together with* cerebras's `needs` entry, the
+   loopback `anthropic` endpoint, and `context_window`. The need and the endpoint it
+   makes true cannot ship apart, or there is a window where the closure stages a daemon
+   nothing routes at (harmless) or — the bad direction — the endpoint routes at a daemon
+   no closure includes (the dead URL, now only reachable by hand-editing, which is the
+   user's own config again).
 
 **Done looks like:** in a nested jail (`cd /tmp/yolo-nested && YOLO_REPO_ROOT=/workspace
-yolo -- bash`, never from `/workspace`) with `wire-bridge`, `claude`, and `cerebras`
-selected and `-p cerebras`: `curl $ANTHROPIC_BASE_URL/v1/messages` (anthropic-shaped body)
-returns anthropic-shaped SSE with qwen-3.8-27b content from the real upstream; the
-count_tokens endpoint answers; with the bridge pack dropped from the selection, the same
-launch **refuses** naming `wire-bridge`; the jail without `-p cerebras` boots with the
-bridge idling and nothing routed. Human check beyond that: run claude on a real task —
-which only the maintainer can do, and the doc names it rather than pretending a test
-covers it.
+yolo -- bash`, never from `/workspace`) with `claude` and `cerebras` selected (wire-bridge
+NOT in the config) and `-p cerebras`: the banner prints
+`+ wire-bridge (needed by cerebras: claude selected)`;
+`curl $ANTHROPIC_BASE_URL/v1/messages` (anthropic-shaped body) returns anthropic-shaped
+SSE with qwen-3.8-27b content from the real upstream; the count_tokens endpoint answers;
+the same config minus the `claude` pack stages no bridge at all and routes nothing at
+loopback; without `-p cerebras` the bridge boots, finds no bridged route, and idles.
+Human check beyond that: run claude on a real task — which only the maintainer can do,
+and the doc names it rather than pretending a test covers it.
 
 ## 9. Risks
 
@@ -246,25 +323,22 @@ covers it.
 | Translation drift: claude sends a shape the bridge mishandles (new beta blocks, tool variants) | §4's table is the contract; unknown block types fail **closed** — an anthropic-shaped 400 naming the unrecognized block, never a silently-mistranslated request |
 | Claude Code updates change its dialect | the claude-api surface is stable and small; the fixture tests pin what we translated and break loudly when claude's binary changes what it sends is *not* testable from here — the 400-name-the-block failure keeps a drift visible at first request instead of mysterious |
 | Loopback port collision inside the jail | the manifest URL owns the port (one writer); 8214 chosen clear of baked services; a collision refuses the boot via the witness, not via a mystery failure |
+| An auto-included pack surprises the user | WB-D12: the banner and `yolo check` name every addition with its cause; a silent join is the one forbidden behavior of the closure |
 | The bridge becomes a de-facto gateway (scope creep) | §7 is the fence; a gateway is a different doc |
 | Key exposure grows a new channel | the key rides the 0600 file + boot-time read only; `ps` shows no key; the argv exposure that already exists (claude's token) is unchanged, not extended |
 
 ## Open Questions
 
-1. 💬 **OQ-1: The dependency shape — B (standalone + enforced endpoint) or A (fold-in)?**
-   <!-- vantage: oq id=OQ-1 leaning="Shape B: standalone wire-bridge pack; the dependency is a preflight refusal naming the pack, not a new channel" -->
+1. ✅ **OQ-1: The dependency shape — RESOLVED (2026-09-04): real pack vocabulary, conditionally included.**
 
-   The maintainer's sketch is B-shaped ("a proxy pack, and cerebras depends on it"), and
-   §3 proposes B. But A is the OQ-A10 precedent and is genuinely simpler: no enforcement
-   rule, no refusal state, misconfiguration unrepresentable.
-
-   _Leaning:_ **B.** The precedent folded a *structural* dependency (claude's own oauth);
-   this one is a *shared* capability whose second consumer is a when, not an if. The
-   refusal wording cost is paid once; the duplication cost of A is paid by every future
-   provider pack forever.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+   The question as drafted offered A (fold-in) vs B (standalone + enforcement-as-refusal).
+   The maintainer ruled a third shape, rejecting B's mechanism outright: "I don't
+   understand the dep as enforcement, but we should have real pack vocab for this, and
+   the optional inclusion if claude is in use." A dependency mechanism the manifest cannot
+   state and the maintainer cannot parse from the launch behavior is the wrong mechanism —
+   the vocabulary IS the design (§3.1: top-level `needs` with `when_bins`, auto-included
+   at selection resolution, printed on the banner). My drafted leaning (B) is preserved
+   here only as the rejected alternative it was; §3 carries the ruling.
 
 2. 💬 **OQ-2: New contribution kind (`kind: service`) or loophole-manifest reuse?**
    <!-- vantage: oq id=OQ-2 leaning="Loophole-manifest reuse for v1 with the misnomer recorded in the manifest description; split the kind when a second non-loophole daemon exists" -->
@@ -336,9 +410,13 @@ covers it.
 | :--- | :--- | :--- | :--- |
 | WB-D1 | The bridge translates exactly one protocol pair: anthropic Messages ↔ openai-chat-completions | 2026-09-04 | §2, §7 |
 | WB-D2 | The URL is a provider fact (manifest `endpoints.anthropic.base_url`), the port lives only there, and the claude derive is untouched | 2026-09-04 | §3 |
-| WB-D3 | Enforcement is a host-side preflight refusal naming the pack — never a silent dead URL | 2026-09-04 | §3 |
+| WB-D3 | Dependency is real manifest vocabulary — top-level `needs` with `when_bins` — auto-included at selection resolution and printed on the banner. SUPERSEDES this doc's own first draft (enforcement-as-refusal), rejected by the maintainer 2026-09-04: a mechanism the manifest cannot state is the wrong mechanism | 2026-09-04 | §3.1 |
 | WB-D4 | Inbound auth: none; the jail is the boundary. Outbound key: the 0600 `yolo-user-env.sh`, read once at boot | 2026-09-04 | §4, §5 |
 | WB-D5 | Upstream reasoning content is dropped, not surfaced as thinking blocks; unknown block types fail closed with a named 400 | 2026-09-04 | §4, §9 |
 | WB-D6 | `strict: true` is never sent upstream — claude's schemas contain what qwen's strict mode rejects | 2026-09-04 | §4 |
 | WB-D7 | Build in-repo, stdlib-only. Runtime axis already ruled: Go/Rust over Python (local-model-endpoints.md, 2026-08-20); Bifrost is a framework where a shim is needed; the four community `claude-code-proxy` repos are Python/dormant/wrong-problem | 2026-09-04 | §8 |
 | WB-D8 | cerebras declares `context_window: "65536"` when this ships (reversing cerebras-doc D-4's reasoning for claude-only options, not its method) | 2026-09-04 | §6 |
+| WB-D9 | `needs` may name only embedded official packs — selection must not become a supply-chain channel for unreviewed code | 2026-09-04 | §3.1 |
+| WB-D10 | Needs resolve as a transitive closure at selection, before staging; cycles refuse the launch naming the loop; explicit user selection is joined, never overridden | 2026-09-04 | §3.1 |
+| WB-D11 | User config carries no `needs` key — manifests only. A user-declared loopback anthropic endpoint with no bridge selected is their own dead URL; `yolo check` warns, never refuses | 2026-09-04 | §3.4 |
+| WB-D12 | The auto-inclusion prints on the launch banner and in `yolo check` — non-negotiable: a pack nobody typed must never join a launch silently | 2026-09-04 | §3.1 |
