@@ -301,9 +301,13 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	// The fifth delivery, same acceptance bar: copilot's BYOK is env-var-only, so the
 	// whole delivery is one yolo.env producer — and only a launch proves it survives
 	// to the container argv (copilotbyok_test.go pins the same composition unit-tier).
+	// The grep names the five composed vars exactly, the claude subtest's discipline:
+	// the copilot pack itself contributes COPILOT_ALLOW_ALL=true statically, and a
+	// bare ^COPILOT_ would fold it into the assertion.
 	t.Run("copilot env carries the selected provider's BYOK block", func(t *testing.T) {
 		packHome(t, `{"packs": ["copilot", "cerebras"], "use_profiles": {"copilot": "cerebras"}}`)
-		r := runYolo(t, dir, `env | grep -E '^COPILOT_' | sort`)
+		r := runYolo(t, dir,
+			`env | grep -E '^COPILOT_(MODEL|PROVIDER_API_KEY|PROVIDER_BASE_URL|PROVIDER_TYPE|PROVIDER_WIRE_API)=' | sort`)
 		if r.rc != 0 {
 			t.Fatalf("profiled copilot launch failed: rc %d\n%s", r.rc, r.combined())
 		}
