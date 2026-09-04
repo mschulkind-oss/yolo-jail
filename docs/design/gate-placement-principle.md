@@ -87,10 +87,22 @@ though enable is what starts the daemon: by then the content was already vetted 
 agent flipping it on gains nothing it was not already given. One gate, at the step where the
 authority changed — not one per scary-sounding verb.
 
-**A prompt any pipe defeats.** `yes | yolo pack install` answers the approval prompt. A gate that a
-shell pipeline dismisses is theatre against anything automated; if the answer must come from a
-person, it has to require a terminal and fail closed without one. A gate that cannot tell a human
-from a pipe is not asking a human.
+**A prompt any pipe defeats — and the stronger objection this page missed.** `yes | yolo pack
+install` answers the fetched-pack approval prompt. A gate that a shell pipeline dismisses is theatre
+against anything automated; if the answer must come from a person, it has to require a terminal and
+fail closed without one. A gate that cannot tell a human from a pipe is not asking a human.
+
+> [!IMPORTANT]
+> **That criticism was true and too small, and this page is the reason it should have been caught.**
+> The prompt was **deleted outright on 2026-09-04** ([`trust-paths.md`](trust-paths.md) OQ-TP9),
+> because it fails **Test 1** at the top of this document: selecting a pack means writing `packs` in
+> the user config as the host user, which already exceeds everything the prompt withheld. This page
+> named the prompt as flawed on the *pipe* ground, defended its **neighbour** (`packs` being
+> user-scope-only, which genuinely passes Test 1) two paragraphs earlier, and never ran its own
+> headline test on the prompt itself. **The lesson is about reading, not about packs:** a gate can be
+> criticized on a narrow ground and thereby look *examined*, which stops the next reader from asking
+> the authority question at all. When a gate appears in a worked-example list, run Test 1 on it
+> explicitly, even if some other objection already applies.
 
 **Scope, rebinding one level in.** A nested jail's "user level" is the outer jail, because the outer
 jail is what an inner-jail loophole can damage. Its agent may legitimately own that scope — the same

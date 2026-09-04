@@ -66,8 +66,10 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 
 > [!NOTE]
 > **This row aggregates three docs while naming one** (reconciled 2026-09-03, recounted 2026-09-04).
-> `trust-paths.md` now holds exactly **one** open question, **OQ-TP7** — OQ-TP3 and OQ-TP4 were
-> RETIRED 2026-09-03 as moot under the evergreen ruling, and **OQ-TP8 was RULED 2026-09-04**.
+> `trust-paths.md` now holds **NO open questions**: TP3/TP4 retired 2026-09-03 under the evergreen
+> ruling, **TP8 and TP9 ruled 2026-09-04**, and **TP7 RETIRED the same day because TP9 deleted its
+> subject**. What is left in this row is routing to **OQ-X1** and **OQ-LP8 / G2b** — and LP8 is now
+> load-bearing rather than a nicety (see TP9).
 > The other two live elsewhere and are listed here for routing only: **OQ-X1** is
 > [`pack-execution-trust.md`](../design/pack-execution-trust.md) `:316` (the doc this one partly
 > supersedes), and **OQ-LP8 / G2b** is [`loophole-packaging.md`](../design/loophole-packaging.md)
@@ -105,23 +107,18 @@ What is still open:
 - **OQ-X1** — does a digest-pinned installer script count, given its own fetches are not pinned?
   *(Sharpened: only embedded packs use installers today, and `packdecl` has no digest field at all —
   the scenario is unexpressible until OQ-BP5 lands one.)*
-- **OQ-TP7** *(new, and it is the shipped fatal's own loose end)* — **OQ-TP6 made the refusal fatal
-  and left the loop around it behind.** Re-measured 2026-08-23: `yolo check` still reports `[PASS]`
-  on the very pack the next launch refuses — both loads pass `e.MayGrantHostFiles()`
-  (`check/packs.go:141,173`) and **`packRefusals` has no caller anywhere under `internal/cli/check/`**.
-  The `approve` half has since gone **half-caught-up**, which narrows the question rather than
-  closing it: `resolveHostApproval`'s non-interactive refusal now says *"requires an interactive
-  terminal … rerun from a terminal"* (`pack.go:1253`), while the **launch** refusal still says
-  only "run `yolo pack install`" — so the two ends of one flow now give different amounts of help.
-  The ruling is scope: how much of the loop catches up before "the reader can act on it" is true
-  from everywhere a user meets the refusal.
-- **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
-  `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist. **Verified
-  2026-08-23, and the code says so itself:** `HostAccessApproved` *"COMPARES CLAIM STRINGS ONLY —
-  never the commit the approval was granted against"* (`internal/packsrc/lock.go:78-96`), and the
-  hole is pinned by `TestHostAccessApprovedComparesClaimStringsOnly` rather than only described —
-  **so closing it means changing a test that currently asserts the gap.** That is the good version
-  of this situation: the defect cannot rot silently, and the fix has a named landing site.
+- ✅ **OQ-TP9 — RULED 2026-09-04: the fetched-pack approval prompt is THEATRE, deleted.** Selecting a
+  pack means writing user-scope config as the host user — `packs` is inexpressible at workspace scope
+  *by construction*, so an agent cannot add one — and a gate that refuses an actor who already passed
+  a stronger one is what `gate-placement-principle.md` **Test 1** exists to delete. `userlayer.go`
+  had already applied that test the same way to the sibling route. **Keep** `packs` user-scope-only
+  (that half passes Test 1) and the startup disclosure banner; **the condition is enforcing the
+  commit pin, OQ-LP8/G2b** — the strictly better version of the one thing the prompt did.
+- ⛔ **OQ-TP7 — RETIRED 2026-09-04, subject deleted by TP9.** All six refusal sources gate on
+  `p.MayAccessHost` alone, so with no approval there is no refusal for `yolo check` to fail to
+  predict and no approve path to be unreachable from CI or offline. Its one durable finding: a future
+  preflight predicting a launch refusal must **share** the gate, never copy it —
+  `hostaccessgates_test.go` pins two gates and a third would satisfy it vacuously.
 
 ### 💬 5 — Boundary broker
 

@@ -11,9 +11,8 @@ summary: "Twenty-six paths, enumerated from the code, each with when trust is ex
 **Status:** INVENTORY, 2026-08-17; **compacted 2026-09-03.** Six questions settled, and **two of the
 rulings SHIPPED and are still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both
 2026-08-18, both re-verified against the code **2026-08-23**, anchors repinned **2026-09-02** (the
-provider arc moved several files under them; every behaviour is unchanged). **Seven questions settled** as of 2026-09-04 (OQ-TP8 ruled ungated),
-and **one remains open —
-[OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network)**.
+provider arc moved several files under them; every behaviour is unchanged). **Nine questions settled and NONE open** as of 2026-09-04 — OQ-TP8 ruled ungated, OQ-TP9 deleted the
+fetched-pack approval prompt as theatre, and OQ-TP7 was RETIRED because TP9 removed its subject.
 Beyond the rulings,
 **everything here is inventory** — traced in the code, with the anchors inline.
 
@@ -74,6 +73,7 @@ against exactly one threat, the silent update.
 | **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by `program-delivery.md` OQ-PD12**: all four packs it governed are agent dependencies, which are now ruled **evergreen**, updated on the boot path at every launch. The ruling stands as a description of the code **as it is today** — the reversal is ruled, not built | 2026-08-18 · superseded 2026-09-03 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. Untouched by the evergreen ruling — it is about consent, not cadence | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 | **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` keeps running with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate fails a parity check: `host.go:458` folds each pack's **static** `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive computes a field the manifest can already state literally, and gating the computed path while the literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home at that notch. The disclosure is the commit pin (OQ-LP8), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§12 OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) |
+| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refuses an actor who has already passed a stronger one — [`gate-placement-principle.md`](gate-placement-principle.md) Test 1, already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house by `pack-execution-trust.md` §2 (ungated `npm postinstall` is the same arbitrary in-jail execution). **Keep** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner; **enforce the commit pin (OQ-LP8/G2b)** as the condition — it is the strictly better version of the one thing the prompt did, and covers content drift the prompt never did. ⛔ Retires OQ-TP7 | 2026-09-04 | [§12 OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) |
 
 > [!NOTE]
 > **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit — anchors
@@ -471,7 +471,7 @@ Two properties of the refusal are load-bearing, and any future change must prese
 > the point — but it means the message must name all three choices, the pack, and the specific claim
 > that was not approved. A fatal the reader cannot act on would be worse than the warning it
 > replaces. Whether it succeeds at that from every place a user reads it is
-> [OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network).
+> [OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04).
 
 #### Three things the build found that this section did not say
 
@@ -574,10 +574,26 @@ code" — but it is worth building in the three places of §1 and nowhere else.
 > pinning in the manifest (it makes yolo's release cadence the ceiling on agent-CLI freshness — now
 > an argument **for** evergreen), and TP3's inherited half, ruled as `program-delivery.md` OQ-PD6.
 >
-> **OQ-TP8, below, was RULED 2026-09-04 (ungated) and is kept in place with its reasoning pending the
-> next compaction. OQ-TP7 is the one open question left in this document.**
+> **Nothing below is open.** OQ-TP9 (the approval prompt is theatre) and OQ-TP8 (pack Lua stays
+> ungated) were both ruled 2026-09-04 and are kept in place with their reasoning pending the next
+> compaction; OQ-TP7 is RETIRED because TP9 deleted its subject, and is kept for the third-gate trap
+> its analysis records.
 
-### 💬 OQ-TP7 — `yolo check` cannot predict the fatal refusal, and the refusal names a fix that needs a tty and a network
+### ⛔ OQ-TP7 — `yolo check` cannot predict the fatal refusal, and the refusal names a fix that needs a tty and a network — RETIRED (2026-09-04)
+
+> [!IMPORTANT]
+> **RETIRED, not answered — [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deletes its subject.** Every one of the six refusal
+> sources gates on `p.MayAccessHost` and nothing else (`HonoredHostFiles`, `HonoredMounts`,
+> `HonoredInstalls`, `HonoredLoopholes`, `HonoredPlugins`, `RefusedBriefingOverlays`). With the
+> approval gate gone, `packRefusals` is always empty, `refusedLaunchError` never fires, and there is
+> no refusal for `yolo check` to fail to predict and no approve path to be unreachable from CI or
+> offline. **Both gaps below are dissolved rather than closed.**
+>
+> What must not be re-derived if a future refusal source appears: the **third-gate trap**.
+> `hostaccessgates_test.go:88-93` pins that exactly two gates exist, so a third copied into `check`
+> would satisfy the scan *vacuously* — worse than the silence, because the next producer gets merged
+> into two of three sites. Any future preflight that predicts a launch refusal must SHARE the gate,
+> not copy it. The analysis below is kept for that reason and for its measured citations.
 
 [OQ-TP6](#decision-ledger) made a refused pack contribution **fatal to the launch** (2026-08-18, built
 `6385dfbb`). That ruling holds: every path to the fatal was walked, each is intended, and the two
@@ -654,6 +670,71 @@ them to run before restarting.
 > ⚠ **Citations re-pinned 2026-09-04 and five had drifted** since the 2026-09-02 pass:
 > `check/packs.go` 130→141, 162→173, 157→168, 170→189; `packs_test.go` 250→285; `pack.go`
 > 1240-1246→1253. Cite this cluster by SYMBOL when it moves again.
+
+### ✅ OQ-TP9 — is the fetched-pack approval prompt a gate, or theatre? — RESOLVED (2026-09-04)
+
+Opened and ruled 2026-09-04, from a review challenge: *"an agent can't add packs here unless they
+already have host access. so what's the danger?"*
+
+**The facts.** Selecting a pack means writing `packs` in `~/.config/yolo-jail/config.jsonc`, as the
+host user. `packs` is **user-scope only, and inexpressible at workspace scope by construction** —
+`internal/config/packs.go`'s header calls that *"the whole security model of the feature"*, because
+*"a workspace config travels with the repo and is agent-editable."* The only other route is
+`--user-layer`, which requires the ability to run `yolo`. **An agent cannot add a pack.**
+
+**The principle that decides it already exists in this repo.**
+[`gate-placement-principle.md`](gate-placement-principle.md) **Test 1 — the authority test**: *"If
+performing the guarded act already required at least as much authority as the gate protects, the gate
+is theatre — and worse than nothing, because it looks like protection while the real gap stays
+open."* And `internal/config/userlayer.go` already applies exactly that test to the **sibling** route
+into `packs`, ruling the other way from this prompt: *"A gate here would refuse an actor who has
+already passed a stronger one — pure ceremony, and the kind that teaches people to click through
+prompts."*
+
+**The original rationale was already refuted in-house.** The gate began as a flat refusal of
+`program via installer` to fetched packs, on the ground that it *"would let a git ref execute
+arbitrary code in the jail."*
+[`pack-execution-trust.md`](pack-execution-trust.md) §2 showed `npm install -g` runs `postinstall`
+from the same fetched pack, ungated — *"two cases that should be treated alike, decided oppositely."*
+The split survived 2026-08-18 on a **different** reason (when the bytes change, not whose they are),
+which is a pinning argument, not an approval argument.
+
+**Answer:**
+> **Theatre. Delete the approval prompt; keep the user-scope restriction; enforce the pin instead.**
+>
+> The three parts are one decision:
+>
+> 1. **Delete the prompt and the launch gate.** `resolveHostApproval`'s y/N, the lockfile approval
+>    record, and `packMayAccessHost` go. A fetched pack's `reads-host`, `mount`,
+>    `program via installer`, host-prepending `briefing`, loophole and plugin-hook claims are honored
+>    the same as an embedded pack's. The person who put a git URL in their own user config has
+>    already granted strictly more than the prompt was withholding.
+> 2. **Keep `packs` user-scope-only.** This one PASSES Test 1 and the principle doc says so:
+>    *"the actor genuinely changes: a workspace config travels with a repo and is agent-editable, so
+>    allowing the key would hand an agent something it could not otherwise get."* It is the load-
+>    bearing half, and it is not what this ruling touches.
+> 3. **Enforce the commit pin — [OQ-LP8 / G2b](loophole-packaging.md).** This is the condition, not a
+>    nice-to-have. The one thing the prompt did that had content was re-firing when a **moved pin
+>    gained a claim**; today the lockfile records a commit and *nothing consults it at launch*. So
+>    yolo built a prompt where the obvious prior art built a pin, and the prompt is the part that
+>    does not work. A consulted pin is a strictly better version of the same notification, and it
+>    also covers content drift **within** an approved claim set, which the prompt never did.
+>
+> **The prior art, since the challenge named it.** A `nvim` plugin manager clones a git repo and runs
+> its Lua on the **real host**, unsandboxed, with no approval prompt — the act of putting the repo in
+> your config is the consent. yolo's fetched pack runs in a container, and asks anyway. Where that
+> prior art is *stricter* is exactly yolo's gap: its lockfile pins commits and is **consulted on
+> every load**.
+>
+> **What is kept, and is not a gate.** The startup transparency banner that lists what each loaded
+> pack reads this launch stays. Disclosure is not consent, costs nothing, and is what actually tells
+> a user what crossed.
+>
+> **What this retires:** [OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04)
+> entirely (no refusal to predict, no approve path to be unreachable). **What it leaves standing:**
+> [OQ-TP6](#decision-ledger)'s rule — a refused contribution refuses the launch — which is about
+> consent, not cadence, and stays correct with no subject. **What it makes urgent:** OQ-LP8/G2b,
+> which was *"recorded and never consulted"* and is now the whole guarantee.
 
 ### ✅ OQ-TP8 — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident? — RESOLVED (2026-09-04)
 

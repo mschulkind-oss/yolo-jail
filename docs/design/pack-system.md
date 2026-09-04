@@ -875,61 +875,69 @@ Everything else is offline.
 
 ---
 
-## 9. The credential boundary: origin + approval
+## 9. The credential boundary: the pin, not a prompt
 
-A pack has an **origin**: embedded (ships with yolo), local (a `file://` directory the user
-controls), or fetched (cloned from a git ref). Four contributions constitute **host
-access**, checked through a single predicate so a caller cannot honor some but miss another:
+> [!IMPORTANT]
+> **REWRITTEN 2026-09-04.** This section described an approval prompt that
+> [`trust-paths.md`](trust-paths.md) **OQ-TP9** deleted as theatre, and it had also gone stale on a
+> second point: it said an unapproved fetched pack *"still loads … but its host claims are refused
+> with a printed notice"*, which **OQ-TP6 replaced with a fatal launch refusal on 2026-08-18**
+> (`6385dfbb`) — the code says so in as many words at `run/packrefusal.go:95`. Both are corrected
+> here.
+
+**Host access** is six crossings, checked through a single predicate so a caller cannot honor some
+and miss another:
 
 - `reads-host` — a host file read.
 - `mount` — a host-home directory or file read.
-- `program` via `installer` — a curl-to-shell install URL. (`npm` is *not* gated: a package
-  name is not a host read.)
+- `program` via `installer` — a curl-to-shell install URL. (`npm` is *not* in the set: a package
+  name is not a host read — though see the caveat below, because that distinction did not survive
+  scrutiny.)
 - `briefing` with `after: "host:…"` — prepending the user's own briefing file.
+- a wrapped **plugin's** code-running components.
+- a shipped **loophole's** daemon, intercepts, host binds and devices.
 
-Static `env` is *not* host access — its values are literal strings, so it is honored for
-any origin.
+Static `env` is *not* host access — its values are literal strings — and neither is `derive.lua`
+(OQ-TP8: it is sandboxed, and the static `env` channel already carries the same field literally).
 
-Host access is granted by **origin plus approval**:
+**A pack has an origin**: embedded (ships with yolo), local (a `file://` directory the user
+controls), or fetched (cloned from a git ref). **Origin no longer decides host access.** It names the
+delivery route — a fetched pack must be `yolo pack install`ed to reach the store, and gets a lockfile
+entry with a commit — and nothing more.
 
-- An **embedded or local** pack may access the host unconditionally. Its origin already
-  carries the user's own authority — yolo ships the embedded packs, and a `file://` pack is
-  a directory the user controls.
-- A **fetched** pack may access the host **only for the specific claims the user approved at
-  `yolo pack install`.** Installing a third-party pack no longer means trusting it with your
-  host home by default, but it is no longer a hard refusal either: at install time the pack's
-  host-access claims are shown and the user answers y/N once. The approval — the exact set of
-  claims, and the commit it was granted at — is recorded per-pack in the lockfile.
+### Why there is no approval gate (OQ-TP9, 2026-09-04)
 
-```
-$ yolo pack install
-acme  v2 → a1b2c3d
-  ⚠ pack acme reads your host:
-      mount acme-refs -> /ctx/acme-refs
-      reads-host .config/acme/key
-  Approve host access for acme? [y/N] y
-```
+Selecting a pack means writing `packs` in `~/.config/yolo-jail/config.jsonc`, as the host user.
+`packs` is **user-scope only and inexpressible at workspace scope by construction** — that is the
+load-bearing restriction, and it is the one that survives, because a workspace config travels with a
+repo and is agent-editable. **An agent cannot add a pack.**
 
-**A moving pin re-prompts only when it gains access.** `yolo pack update` pulls a new commit
-and recomputes the pack's host-access claims. If they are a subset of what was approved
-(unchanged, or narrowed), the approval carries forward silently. If the new commit declares a
-claim the user has *not* approved — a benign pack turning to read `~/.ssh` across a ref bump —
-install re-prompts with the full current claim set before recording it.
+So a prompt at `yolo pack install` refuses an actor who has already passed a strictly stronger gate.
+[`gate-placement-principle.md`](gate-placement-principle.md) Test 1 calls that theatre, and
+`internal/config/userlayer.go` already applied the same test, the same way, to `--user-layer` — the
+other route into `packs`. The gate's original rationale (a fetched pack must not `curl | sh`) was
+refuted in-house by [`pack-execution-trust.md`](pack-execution-trust.md) §2: `npm install -g` runs
+`postinstall` from the same fetched pack, ungated, so the set refuses one path to arbitrary in-jail
+execution while permitting another.
 
-At **launch**, a fetched pack's host access is gated on this lockfile approval, not on origin:
-its `mount`/`reads-host`/`installer`/host-`briefing` claims are honored only if the lock
-approves the currently-resolved commit's claims. An unapproved fetched pack still loads — its
-`env`, `skills`, `briefing`, `config`, and other non-host contributions all work — but its
-host claims are refused with a printed notice pointing at `yolo pack install`. The gate
-**fails closed**: no lockfile, a corrupt lockfile, or a non-interactive install all mean "not
-approved". Inside the jail every pack loads as host-permitted, because the host already
-applied the gate by deciding which `/ctx` mounts exist.
+### What replaces it: the commit pin
 
-**Transparency at every launch.** Because a fetched pack *can* now read the host, the startup
-banner lists what each loaded pack reads this launch — its mounts, host-file reads, and env —
-so the effective environment is visible on screen, not just recorded in a lockfile. Only
-honored claims appear (a refused, unapproved claim is not in the footprint), so the banner is
-an accurate picture of what actually crossed into the jail.
+The one thing the prompt did that had content was re-firing when a **moved pin gained a claim**. A
+lockfile pin *consulted at launch* is a strictly better version of that, and covers content drift
+**within** an unchanged claim set, which the prompt never did.
+
+> ⚠ **This is the condition on the ruling, and it is UNBUILT.** The lockfile records the commit and
+> **nothing consults it at launch** — [`loophole-packaging.md`](loophole-packaging.md) OQ-LP8 / G2b,
+> *"recorded and never consulted."* Until it lands, a fetched pack's content is unbounded after the
+> first install. This was already true with the prompt in place; the prompt only ever noticed claim
+> growth, never content change.
+
+### Transparency at every launch
+
+The startup banner lists what each loaded pack reads this launch — its mounts, host-file reads, and
+env — so the effective environment is visible on screen rather than only recorded. **Disclosure is
+not consent**, and that is the point: it stays because it tells the user what actually crossed, which
+no prompt at install time can do.
 
 ---
 
