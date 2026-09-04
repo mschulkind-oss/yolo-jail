@@ -185,9 +185,12 @@ type Contribution struct {
 	// because a block whose alternative is absent removes the capability instead of
 	// redirecting it. Empty means "always block", which is right for a tool being
 	// forbidden outright rather than steered.
-	Message     string `json:"message,omitempty"`
-	Suggestion  string `json:"suggestion,omitempty"`
-	Replacement string `json:"replacement,omitempty"`
+	// AllowFlags exempt an invocation from the block even when block_flags match, or
+	// when the entry blocks unconditionally. Wired and unused — see ShimContent.
+	AllowFlags  []string `json:"allow_flags,omitempty"`
+	Message     string   `json:"message,omitempty"`
+	Suggestion  string   `json:"suggestion,omitempty"`
+	Replacement string   `json:"replacement,omitempty"`
 
 	// --- autonomy (§4.2 / env-manager plan Phase 9) ---
 	// A pack declares BOTH postures; the confinement notch's AgentAutonomy policy

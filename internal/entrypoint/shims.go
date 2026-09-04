@@ -119,8 +119,9 @@ func GenerateShims(e *Env) error {
 			realBin = e.ShimBinPath() + "/" + name
 		}
 		blockFlags := stringList(cfg, "block_flags")
+		allowFlags := stringList(cfg, "allow_flags")
 
-		content := ShimContent(msg, sug, realBin, blockFlags)
+		content := ShimContent(msg, sug, realBin, blockFlags, allowFlags)
 		shimPath := filepath.Join(e.BlockDir(), name)
 		if err := writeExecutable(shimPath, content); err != nil {
 			return err
@@ -139,8 +140,33 @@ func GenerateShims(e *Env) error {
 //
 // msg/sug are embedded verbatim inside `echo "..."` — no shell escaping (the
 // frozen contract).
-func ShimContent(msg, sug, realBin string, blockFlags []string) string {
+func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) string {
 	var lines []string
+	// ALLOW WINS OVER BLOCK, and it is scanned FIRST because a single allowed flag
+	// exempts the whole invocation — `find -maxdepth 1 …` is one command, not a
+	// sequence of args each judged alone. Scanning for it up front also means the
+	// block loop below never has to know about exceptions.
+	//
+	// EXTENSION POINT, WIRED AND UNUSED (2026-09-04). No shipped entry sets
+	// allow_flags; it exists because the shape of the next rule is already visible —
+	// "block find UNLESS it carries a depth limit" — and `block_flags` alone cannot
+	// express it, since it matches on PRESENCE and there is no negated form. Adding
+	// the mechanism now and changing no behaviour is deliberate: the refactor that
+	// moved these rules into a pack is not the place to also change which rules there
+	// are (extension-point-principle.md — design the extension point when you build
+	// the first instance, wire the one edge you need).
+	allowScan := func() []string {
+		if len(allowFlags) == 0 {
+			return nil
+		}
+		return []string{
+			`  for arg in "$@"; do`,
+			`    case "$arg" in`,
+			"      " + strings.Join(allowFlags, "|") + ") exec " + realBin + ` "$@" ;;`,
+			"    esac",
+			"  done",
+		}
+	}
 	if len(blockFlags) > 0 && realBin != "" {
 		var longExact, shortPatterns []string
 		for _, p := range blockFlags {
@@ -152,6 +178,7 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 		}
 		lines = append(lines, "#!/bin/sh")
 		lines = append(lines, `if [ -z "$YOLO_BYPASS_SHIMS" ]; then`)
+		lines = append(lines, allowScan()...)
 		lines = append(lines, `  for arg in "$@"; do`)
 		lines = append(lines, `    case "$arg" in`)
 		if len(longExact) > 0 {
@@ -182,6 +209,12 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 	} else {
 		lines = append(lines, "#!/bin/sh")
 		lines = append(lines, `if [ -z "$YOLO_BYPASS_SHIMS" ]; then`)
+		if realBin != "" {
+			// An always-block entry with exceptions: "refuse, unless the invocation
+			// carries one of these". This is the arm `find` would use to become
+			// "blocked unless depth-limited" — see OQ-GR-1.
+			lines = append(lines, allowScan()...)
+		}
 		lines = append(lines, `  echo "`+msg+`" >&2`)
 		if sug != "" {
 			lines = append(lines, `  echo "Suggestion: `+sug+`" >&2`)

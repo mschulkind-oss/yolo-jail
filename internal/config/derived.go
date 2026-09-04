@@ -263,6 +263,13 @@ func NormalizeBlockedToolsWith(securitySection *jsonx.OrderedMap, packTools []pa
 		if t.Replacement != "" {
 			m.Set("replacement", t.Replacement)
 		}
+		if len(t.AllowFlags) > 0 {
+			allow := make([]any, 0, len(t.AllowFlags))
+			for _, f := range t.AllowFlags {
+				allow = append(allow, f)
+			}
+			m.Set("allow_flags", allow)
+		}
 		if len(t.Flags) > 0 {
 			flags := make([]any, 0, len(t.Flags))
 			for _, f := range t.Flags {

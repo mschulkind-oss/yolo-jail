@@ -222,3 +222,75 @@ func TestShimsAlwaysBlockAnEntryDeclaringNoReplacement(t *testing.T) {
 		t.Errorf("an entry with no declared replacement was not blocked: %v", err)
 	}
 }
+
+// allow_flags is an EXTENSION POINT, wired and unused: no shipped entry sets it.
+// It exists because the next rule's shape is already visible — "block find UNLESS it
+// carries a depth limit" — and block_flags cannot express it, matching on PRESENCE
+// with no negated form. Wiring it while changing no behaviour is the point
+// (extension-point-principle.md); these tests are what keep it working until the
+// first real user arrives.
+func TestShimAllowFlagsExemptAConditionalBlock(t *testing.T) {
+	e := NewEnv(map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		"YOLO_BLOCK_CONFIG": `[{"name":"grep","message":"m","suggestion":"s",` +
+			`"block_flags":["-r"],"allow_flags":["--include"]}]`,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(e.BlockDir(), "grep"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(body)
+	// The exemption must be scanned BEFORE the block loop: one allowed flag exempts
+	// the whole invocation, so a later blocked flag in the same argv must not win.
+	allowAt, blockAt := strings.Index(got, "--include"), strings.Index(got, `"-r")`)
+	if allowAt < 0 {
+		t.Fatalf("allow_flags did not reach the shim:\n%s", got)
+	}
+	if blockAt >= 0 && allowAt > blockAt {
+		t.Errorf("the allow scan comes after the block scan; a blocked flag would win "+
+			"over an exemption in the same argv:\n%s", got)
+	}
+}
+
+// An UNCONDITIONAL block takes exemptions too — this is the arm `find` would use to
+// become "blocked unless depth-limited" without block_flags gaining a negated form.
+func TestShimAllowFlagsExemptAnUnconditionalBlock(t *testing.T) {
+	e := NewEnv(map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		"YOLO_BLOCK_CONFIG": `[{"name":"find","message":"m","suggestion":"s",` +
+			`"allow_flags":["-maxdepth"]}]`,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(e.BlockDir(), "find"))
+	if !strings.Contains(string(body), "-maxdepth") {
+		t.Errorf("an unconditional block ignored its exemptions:\n%s", body)
+	}
+}
+
+// And the shipped rules are UNCHANGED by all of this: neither sets allow_flags, so
+// neither shim mentions one. The refactor that moved these rules into a pack is not
+// the place to change which rules there are.
+func TestShippedBlockersDeclareNoExemptions(t *testing.T) {
+	e := NewEnv(map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		"YOLO_BLOCK_CONFIG": `[{"name":"grep","message":"m","block_flags":["-r"]},` +
+			`{"name":"find","message":"m"}]`,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"grep", "find"} {
+		body, err := os.ReadFile(filepath.Join(e.BlockDir(), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), "exec /bin/"+name+` "$@" ;;`) {
+			t.Errorf("%s gained an exemption arm it never declared:\n%s", name, body)
+		}
+	}
+}

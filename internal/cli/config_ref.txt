@@ -840,6 +840,11 @@
     ``packages`` or not at all — a jail without rg keeps working grep
     instead of losing it and being pointed at nothing.  An entry with no
     ``replacement`` always blocks, which is every custom entry.
+    Exemptions: ``allow_flags`` (same pattern syntax) exempts an invocation
+    even when block_flags match, or when the entry blocks unconditionally.
+    It is scanned FIRST, so one allowed flag exempts the whole command.  This
+    is what expresses "block unless limited" — block_flags matches on a flag
+    being PRESENT and has no negated form.  Nothing yolo ships sets it.
     Conditional on FLAGS: add ``block_flags`` (array of shell case-glob patterns)
     to block only when argv contains a matching flag.  Absence means
     "always block" (find's default behavior).  Long options in

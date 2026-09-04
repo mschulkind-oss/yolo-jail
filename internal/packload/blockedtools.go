@@ -28,6 +28,10 @@ type BlockedTool struct {
 	Replacement string
 	// Flags are argv patterns that trigger the block; empty means "always".
 	Flags []string
+	// AllowFlags exempt an invocation even when Flags match. Wired and unused: the
+	// next rule's shape ("block find UNLESS it is depth-limited") is already visible
+	// and block-on-presence cannot express it.
+	AllowFlags []string
 	// Pack is the declaring pack, for provenance in a collision message.
 	Pack string
 }
@@ -54,6 +58,7 @@ func BlockedTools(packs []*Pack) []BlockedTool {
 				Suggestion:  c.Suggestion,
 				Replacement: c.Replacement,
 				Flags:       append([]string(nil), c.Flags...),
+				AllowFlags:  append([]string(nil), c.AllowFlags...),
 				Pack:        p.Name,
 			})
 		}
