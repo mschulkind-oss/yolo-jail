@@ -349,33 +349,45 @@ func WorkspaceGrantedScript(dir, group string) string {
 		" | /usr/bin/grep -qE " + shQuote("group:"+group+" (inherited )?allow") + "\n"
 }
 
-// StaleGrantScript returns a bash test that exits 0 when `dir` carries an ACE
-// naming a principal that NO LONGER RESOLVES — a grant left behind by a deleted
-// account.
+// UngrantedChildrenScript lists the immediate children of `root` that the sandbox
+// group has no grant on, printing each and exiting 0 when there is at least one
+// (1 when every child is already shared).
 //
-// `ls -le` prints a resolvable principal as "group:name" or "user:name" and an
-// unresolvable one as a bare UUID, because it cannot map the uuid back to a name.
-// A line whose principal field looks like a UUID is therefore a dead grant. That
-// is the whole detection, and it is O(1) on one directory.
+// WHY CHILDREN, AND WHY AT SETUP. An earlier cut of this detected a STALE grant
+// specifically — an ace naming a uuid that no longer resolves, which is what a
+// teardown+setup cycle leaves behind. That was over-clever twice over. It parsed
+// `ls -le` output shape to recognise an unresolvable principal, and it answered a
+// narrower question than the one setup actually has: after provisioning, ANY
+// pre-existing child may be unshared, and the reason does not matter. A workspace
+// that predates setup has no ace at all; one moved in with `mv` has whatever it
+// brought; one left by a recreated account has a dead ace. All three are "not
+// granted", all three have the same fix, and WorkspaceGrantedScript already
+// answers all three — so there is nothing for a second, more fragile detector to
+// add.
 //
-// WHY THIS MATTERS AT SETUP TIME. ACLs store a UUID, not a name, so a grant
-// survives renaming an account and does NOT survive deleting and recreating one —
-// `macos-teardown` removes the account and leaves every ACE it was named in
-// behind, and the next `macos-setup` creates a NEW uuid. Every workspace then
-// carries grants that look right in `ls` and authorize nothing. Measured on the
-// maintainer's Mac 2026-09-03: three workspaces, all carrying inherited aces for
-// uuid 0E7B72D7-…, which resolves to no user and no group.
+// It is O(number of workspaces) — one `ls` each, ~10ms for a handful — because the
+// shared root's children ARE the workspaces. That is what makes it affordable at
+// setup where a full walk is not: the check is bounded by how many projects you
+// have, and only the REPAIR is bounded by how big they are.
 //
-// Setup is the right place to ask about it: it is the moment the account changed,
-// the user is already there expecting provisioning work, and the alternative is
-// discovering it later as `permission denied` in the middle of a launch.
-func StaleGrantScript(dir string) string {
-	// A UUID in the principal position: 8-4-4-4-12 hex at the start of the field
-	// that follows the "N: " index.
-	return "/bin/ls -lde " + shQuote(dir) +
-		" | /usr/bin/grep -qE " +
-		shQuote(`^ *[0-9]+: [0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12} `) +
-		"\n"
+// Reporting by name matters: "2 of 3 workspaces are not shared" plus their names
+// is actionable, where "something under the root needs fixing" sends the user to
+// walk it themselves.
+func UngrantedChildrenScript(root, group string) string {
+	if group == "" {
+		group = SandboxGroup
+	}
+	pat := shQuote("group:" + group + " (inherited )?allow")
+	return "set -u\n" +
+		"found=1\n" +
+		"for d in " + shQuote(root) + "/*/; do\n" +
+		"  [ -d \"$d\" ] || continue\n" +
+		"  if ! /bin/ls -lde \"${d%/}\" | /usr/bin/grep -qE " + pat + "; then\n" +
+		"    echo \"  • ${d%/}\"\n" +
+		"    found=0\n" +
+		"  fi\n" +
+		"done\n" +
+		"exit $found\n"
 }
 
 // WorkspaceACLStripScript returns the find-based bash script that removes ALL

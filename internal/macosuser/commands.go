@@ -53,35 +53,45 @@ func MacosSetup(deps Deps) int {
 		}
 	}
 
-	// 1c. STALE GRANTS, checked here because here is where they are created.
-	// Teardown removes the account and leaves every ACE naming it behind; this
-	// setup just minted a NEW uuid, so those older grants now authorize nothing
-	// while still looking correct in `ls -le`. Detecting it is O(1) on the root
-	// (StaleGrantScript); the repair is the tree walk, which is affordable HERE —
-	// the user asked for account surgery and is waiting on it — and is exactly what
-	// must not happen on a launch (~0.16ms/object, measured 2026-09-03: ~16s on a
-	// repo with a fat node_modules).
+	// 1c. WORKSPACES THAT ARE NOT SHARED YET. Setup has just applied the inheriting
+	// ACEs to the root, which covers everything created FROM NOW ON and nothing that
+	// already exists — macOS applies them at create time and never retroactively. So
+	// after provisioning, any pre-existing child may be unshared, and setup is the
+	// one place that both knows this and has the user's attention.
 	//
-	// Offered, not automatic: it rewrites permissions across every workspace under
-	// the shared root, which is more than "create an account" implies.
-	if deps.RunBash(StaleGrantScript(SharedRootDefault())) == 0 {
-		out.printf("\n[bold yellow]%s carries ACL grants for an account that no longer "+
-			"exists.[/bold yellow]\nACLs store a UUID rather than a name, so grants made "+
-			"before a `yolo macos-teardown`\nsurvive it and then authorize nothing — they "+
-			"still read correctly in `ls -le`.\nEvery workspace under that root is affected, "+
-			"and each will fail a launch with\n`permission denied` partway through "+
-			"provisioning.", SharedRootDefault())
+	// The REASON a child is unshared does not matter and is deliberately not probed:
+	// created before setup (no ace), moved in with `mv` (rename inherits nothing), or
+	// left by a recreated account (an ace naming a uuid that no longer resolves —
+	// ACLs store uuids, not names, so `macos-teardown` orphans every grant it was
+	// named in). One question answers all three, and it is the same question the
+	// launch asks.
+	//
+	// Bounded by the number of WORKSPACES, not their size: one `ls` per child of the
+	// root. The repair is the O(files) walk, and it happens here — where the user
+	// asked for account surgery and is waiting — rather than on a launch, where it
+	// would cost ~16s on a repo with a fat node_modules (measured 2026-09-03 at
+	// ~0.16ms/object; 84c55268 removed exactly that from the hot path).
+	//
+	// Offered, not automatic: it rewrites permissions across trees the user did not
+	// name, which is more than "create an account" implies.
+	out.printf("\n• Checking which workspaces under %s are shared…", SharedRootDefault())
+	if deps.RunBash(UngrantedChildrenScript(SharedRootDefault(), "")) == 0 {
+		out.print("[bold yellow]The workspaces listed above are not shared with " +
+			SandboxUser + ".[/bold yellow]\nEach will fail a launch with `permission " +
+			"denied` partway through provisioning.")
 		if deps.Confirm != nil &&
-			deps.Confirm("Re-apply the shared-group ACL under "+SharedRootDefault()+"? [y/N] ") {
+			deps.Confirm("Share them now (walks each tree once)? [y/N] ") {
 			if deps.RunBash(FixPermissionsScript(SharedRootDefault(), "")) != 0 {
-				out.print("[yellow]Some ACLs could not be applied; the rest were.[/yellow]")
+				out.print("[yellow]Some ACL entries could not be applied; the rest were.[/yellow]")
 			} else {
-				out.print("[green]✓ Re-shared.[/green]")
+				out.print("[green]✓ Shared.[/green]")
 			}
 		} else {
-			out.printf("[dim]Skipped. Run `yolo macos-fix-permissions` when ready — " +
-				"or per-workspace, `yolo macos-fix-permissions <path>`.[/dim]")
+			out.print("[dim]Skipped. Run `yolo macos-fix-permissions` for all of them, " +
+				"or `yolo macos-fix-permissions <path>` for one.[/dim]")
 		}
+	} else {
+		out.print("  [green]all shared[/green]")
 	}
 
 	// 2. Readiness checks — report each; neither fatal to setup. No interpreter
@@ -153,19 +163,14 @@ func MacosTeardown(deps Deps) int {
 		deps.Run(append([]string{"sudo"}, cmd...))
 	}
 	out.printf("[green]✓ Removed sandbox user '%s'.[/green]", SandboxUser)
-	// SAY WHAT THIS LEAVES BEHIND. The account is gone; the ACL grants naming it
-	// are not, and they cannot be — ACLs store a UUID, so every workspace under the
-	// shared root now carries a grant to a principal that no longer exists. They
-	// read correctly in `ls -le` and authorize nothing, and a later `macos-setup`
-	// mints a DIFFERENT uuid rather than reviving them. Left in place rather than
-	// stripped here because a teardown is often temporary, and walking every
-	// workspace to remove grants the user may want back in an hour is the wrong
-	// default. Setup detects and offers to repair this; saying so now is what makes
-	// that later prompt legible instead of surprising.
-	out.printf("[dim]ACL grants naming it remain under %s. They are inert (an ACL "+
-		"names a UUID, and this one is gone) and harmless; a later `yolo macos-setup` "+
-		"will offer to re-apply them. To remove them now, `yolo macos-unshare "+
-		"<workspace>`.[/dim]", SharedRootDefault())
+	// One line about what survives the account, because it is not obvious and it is
+	// what makes the next `macos-setup`'s offer legible rather than surprising: an
+	// ACL names a UUID, so the grants naming this account outlive it, inert. Not
+	// stripped here — a teardown is often temporary, and walking every workspace to
+	// remove grants the user may want back in an hour is the wrong default.
+	out.printf("[dim]ACL entries naming it remain under %s and are now inert (an ACL "+
+		"names a UUID, not a name). A later `yolo macos-setup` offers to re-share; "+
+		"`yolo macos-unshare <workspace>` removes them now.[/dim]", SharedRootDefault())
 	return 0
 }
 
