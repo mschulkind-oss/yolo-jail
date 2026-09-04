@@ -51,7 +51,7 @@ func overlayPrunePack(t *testing.T) *packload.Pack {
 		  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 		   "path":"~/.acme/settings.json","mode":"rmw","managed":{"telemetry":false}}]}]}`)
 	writeHostFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
-	p, problems := packload.LoadDir(dir, "acme", false)
+	p, problems := packload.LoadDir(dir, "acme")
 	if p == nil {
 		t.Fatalf("the fixture pack did not load: %v", problems)
 	}

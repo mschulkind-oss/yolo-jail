@@ -8,8 +8,11 @@
 //
 // ONE DISCOVERY PATH for embedded and configured packs, deliberately: a user pack and
 // an official pack must be the same kind of thing, or "official packs are structurally
-// identical" is marketing. The only difference is ORIGIN, and origin decides exactly
-// one thing — whether a host-access declaration is honored.
+// identical" is marketing. Since OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) ORIGIN
+// decides NOTHING here: it names the delivery route — a fetched pack must be `yolo pack
+// install`ed to reach the store — and a pack's host-crossing declarations are honored the
+// same whoever shipped it, because selecting a pack means writing `packs` in the user
+// config as the host user, which already exceeds anything a gate here could withhold.
 package packload
 
 import (
@@ -36,9 +39,6 @@ type Pack struct {
 	// Decl is the parsed manifest. Never nil — a pack with no pack.json gets an empty
 	// one, because a skills-only pack must stay zero-ceremony.
 	Decl *packdecl.Manifest
-	// MayAccessHost records whether this pack's origin permits host-reading
-	// declarations. Decided by the caller from config.PackEntry.MayGrantHostFiles.
-	MayAccessHost bool
 	// SkewNotes are the version-skew reports from a TOLERANT manifest read
 	// (TolerateSkew): one line per contribution skipped because this build does not
 	// know its kind, each naming the pack and the kind (loophole-packaging §3.3a).
@@ -321,48 +321,30 @@ func (p *Pack) HostFileConflicts() []string {
 	return problems
 }
 
-// HonoredHostFiles returns the host-file grants this pack is ALLOWED to make, and a
-// notice per grant that was refused.
+// HonoredHostFiles returns this pack's host-file grants. Nothing is refused.
 //
-// A refusal is REPORTED, never silent. A pack asking for a host file and not getting
-// one changes what the jail contains, so a user who installed it must be told rather
-// than left to discover the absence.
+// THE ORIGIN REFUSAL IS GONE (OQ-TP9, docs/design/trust-paths.md, 2026-09-04). A fetched
+// pack's grants used to be withheld with a printed notice; the gate refused an actor who
+// had already passed a stronger one, since naming the pack at all means writing `packs` in
+// the user config as the host user. What replaced it is DISCLOSURE, not consent: the launch
+// banner (FootprintOf, run.notePackHostAccess) lists every host file that crosses.
+//
+// THE `refused` RETURN IS RETAINED AND IS ALWAYS NIL, across the whole Honored* family
+// (HonoredHostFiles, HonoredMounts, HonoredInstalls, HonoredLoopholes, HonoredPlugins).
+// Twelve call sites read `granted, _ :=`, one of them in internal/entrypoint, so collapsing
+// the shape is a mechanical follow-up rather than part of the ruling. Nothing reads the
+// second value any more: run/packrefusal.go, the only consumer, was deleted with the gate.
+// A future refusal source must not quietly refill these — it needs its own design ruling,
+// and TestNoPackHostAccessGate (below) goes red if one appears.
 func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string) {
-	hostFiles := p.Decl.HostFileContributions()
-	if len(hostFiles) == 0 {
-		return nil, nil
-	}
-	if p.MayAccessHost {
-		return hostFiles, nil
-	}
-	for _, hf := range hostFiles {
-		refused = append(refused, fmt.Sprintf(
-			"pack %s: refused host file %q — a FETCHED pack cannot read your host home. "+
-				"Installing a pack approves distributing content, not handing that "+
-				"repository your host config.", p.Name, hf.From))
-	}
-	return nil, refused
+	return p.Decl.HostFileContributions(), nil
 }
 
-// HonoredMounts returns the pack's mount contributions if its origin permits them,
-// else refuses each with a reported message. A mount reads the host home (the
-// source may be a whole directory), so it is gated exactly like a host file: a
-// fetched pack gets none.
+// HonoredMounts returns this pack's mount contributions. Nothing is refused — a mount reads
+// the host home exactly like a host file, and OQ-TP9 retired that gate for both. See
+// HonoredHostFiles.
 func (p *Pack) HonoredMounts() (granted []packdecl.HostFile, refused []string) {
-	mounts := p.Decl.HostMountContributions()
-	if len(mounts) == 0 {
-		return nil, nil
-	}
-	if p.MayAccessHost {
-		return mounts, nil
-	}
-	for _, mt := range mounts {
-		refused = append(refused, fmt.Sprintf(
-			"pack %s: refused mount %q — a FETCHED pack cannot read your host home. "+
-				"Installing a pack approves distributing content, not handing that "+
-				"repository your host files.", p.Name, mt.From))
-	}
-	return nil, refused
+	return p.Decl.HostMountContributions(), nil
 }
 
 // EnvFoldEntry is one operation of the pack env fold, in the order it applies. Always an
@@ -476,29 +458,19 @@ func EnvVarsFor(packs []*Pack, profiles map[string]string) map[string]string {
 	return out
 }
 
-// HonoredInstalls returns the install declarations this pack's origin permits, and a
-// notice per declaration that was refused.
+// HonoredInstalls returns this pack's install declarations. Nothing is refused.
 //
-// A native installer is a URL whose contents run as a shell script, so it is gated the
-// same way a host file is: a fetched pack introducing one would let a git ref execute
-// arbitrary code in the jail. An npm install names a registry package and is not
-// origin-gated — it is the same trust as any dependency the user already installs.
+// A `program via installer` — a URL whose contents run as a shell script in the jail — used
+// to be refused for a FETCHED pack, on the ground that a git ref must not execute arbitrary
+// code there. OQ-TP9 deleted that (docs/design/trust-paths.md, 2026-09-04), and the
+// in-house refutation came first: `npm install -g` from the very same fetched tree runs
+// `postinstall`, ungated, so the set refused one path to arbitrary in-jail execution while
+// permitting another (pack-execution-trust.md §2). Two cases that should be treated alike,
+// decided oppositely — now treated alike.
 //
-// THE GATE IS PER CONTRIBUTION, and that is the load-bearing part of the plural form: a
-// pack may mix an npm install with a curl-to-shell installer, and only the second is
-// gated. Deciding once for the whole pack would either refuse the innocent npm install or
-// — far worse — let a fetched pack smuggle an installer URL through beside one.
+// The `refused` return is always nil — see HonoredHostFiles for the family note.
 func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) {
-	for _, in := range p.Decl.InstallContributions() {
-		if in.InstallerURL != "" && !p.MayAccessHost {
-			refused = append(refused, fmt.Sprintf(
-				"pack %s: refused installer %q — a FETCHED pack cannot run a curl-piped "+
-					"installer in the jail.", p.Name, in.InstallerURL))
-			continue
-		}
-		granted = append(granted, in)
-	}
-	return granted, refused
+	return p.Decl.InstallContributions(), nil
 }
 
 // InstallBins lists the binaries this pack installs, sorted — the CLI names it puts on
@@ -523,41 +495,6 @@ func (p *Pack) InstallBins() []string {
 	return bins
 }
 
-// RefusedBriefingOverlays names every `briefing` contribution whose `after: "host:<path>"`
-// this pack's origin does not permit — the FIFTH gated claim, and the only one that had no
-// reporter at all.
-//
-// `briefing host:<path>` is an approvable claim like any other (contributes.go's
-// HostAccessClaims emits it, `pack install` prompts for it, the lockfile records it), and the
-// launch already withheld it for an unapproved pack — silently, in one `&& p.MayAccessHost`
-// inside run/prepare.go's briefing loop. So a pack whose ONLY host claim was "prepend the
-// user's own AGENTS.md before my prose" produced a jail with the pack's prose and none of the
-// user's, and not one line anywhere said so. Under OQ-TP6 that is a partial pack, so it needs
-// a refusal to be fatal ABOUT.
-//
-// A REPORTER, not a gate, which is the one asymmetry with the Honored* family above. The gate
-// stays where it is: prepare.go composes the briefing body and is the only place that knows
-// the host home, and moving the composition here to justify a `granted` return nobody would
-// read would be a worse trade than the asymmetry. What this owes the family is the sentence a
-// user reads, and that is all it returns.
-func (p *Pack) RefusedBriefingOverlays() []string {
-	if p.MayAccessHost {
-		return nil
-	}
-	var refused []string
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind != packdecl.KindBriefing || !strings.HasPrefix(c.After, "host:") {
-			continue
-		}
-		src := strings.TrimPrefix(c.After, "host:")
-		refused = append(refused, fmt.Sprintf(
-			"pack %s: refused briefing overlay %q — a FETCHED pack cannot read your host "+
-				"home, so your own %s would not be prepended to this pack's prose.",
-			p.Name, src, src))
-	}
-	return refused
-}
-
 // LoadDir reads a pack from a directory. A missing pack.json is fine and yields an
 // empty declaration.
 // tolerateUnknownFields makes LoadDir ignore manifest fields — and skip contribution
@@ -576,7 +513,7 @@ var tolerateUnknownFields bool
 // entrypoint calls it at startup; the host CLI never does.
 func TolerateSkew() { tolerateUnknownFields = true }
 
-func LoadDir(root, name string, mayAccessHost bool) (*Pack, []string) {
+func LoadDir(root, name string) (*Pack, []string) {
 	decl := &packdecl.Manifest{}
 	var problems, skewNotes []string
 	var data []byte
@@ -614,8 +551,7 @@ func LoadDir(root, name string, mayAccessHost bool) (*Pack, []string) {
 		name = filepath.Base(root)
 	}
 	return &Pack{
-		Name: name, Root: root, Decl: decl, MayAccessHost: mayAccessHost,
-		SkewNotes: skewNotes,
+		Name: name, Root: root, Decl: decl, SkewNotes: skewNotes,
 	}, problems
 }
 
@@ -647,7 +583,7 @@ func MaterializeEmbedded(embedded fs.FS, dest string) ([]*Pack, []string) {
 		}
 		// Embedded packs ship with yolo, so their declarations carry yolo's own
 		// authority: mayAccessHost is true.
-		p, probs := LoadDir(root, name, true)
+		p, probs := LoadDir(root, name)
 		problems = append(problems, probs...)
 		if p != nil {
 			packs = append(packs, p)

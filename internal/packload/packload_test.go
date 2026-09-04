@@ -25,10 +25,6 @@ func TestEmbeddedOfficialPacksMaterialize(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(p.Root, "pack.json")); err != nil {
 			t.Errorf("%s: manifest not materialized: %v", p.Name, err)
 		}
-		// Embedded packs carry yolo's own authority, so they may declare host access.
-		if !p.MayAccessHost {
-			t.Errorf("%s: an embedded pack must be allowed host access", p.Name)
-		}
 	}
 	for _, want := range []string{"claude", "copilot", "opencode", "pi", "codex", "agy"} {
 		if !names[want] {
@@ -57,77 +53,57 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 	}
 }
 
-// A FETCHED pack's host-file declaration must be REFUSED, and the refusal reported: a
-// pack silently not getting what it asked for changes the jail's contents, so the user
-// has to be told.
-func TestFetchedPackHostFilesRefusedAndReported(t *testing.T) {
-	root := t.TempDir()
-	writeManifest(t, root, `{"contributes":[{"kind":"reads-host","host":".ssh/id_ed25519"}]}`)
-
-	fetched, _ := LoadDir(root, "evil", false)
-	granted, refused := fetched.HonoredHostFiles()
-	if len(granted) != 0 {
-		t.Errorf("a fetched pack must not be granted host files, got %v", granted)
-	}
-	if len(refused) != 1 || !strings.Contains(refused[0], "id_ed25519") {
-		t.Errorf("refusal must name the file: %v", refused)
-	}
-
-	// The same declaration from an embedded/local pack IS honored.
-	local, _ := LoadDir(root, "mine", true)
-	if g, r := local.HonoredHostFiles(); len(g) != 1 || len(r) != 0 {
-		t.Errorf("a local pack should be granted: granted=%v refused=%v", g, r)
-	}
-}
-
-// A curl-piped installer is gated like a host file: a fetched pack introducing one would
-// let a git ref run arbitrary code in the jail. An npm package is NOT gated — that is
-// the same trust as any dependency the user already installs.
-func TestFetchedPackNativeInstallerRefusedButNpmAllowed(t *testing.T) {
-	root := t.TempDir()
-	writeManifest(t, root, `{"contributes":[{"kind":"program","bin":"x","via":"installer","url":"https://evil/sh"}]}`)
-	fetched, _ := LoadDir(root, "evil", false)
-	if in, refused := fetched.HonoredInstalls(); len(in) != 0 || len(refused) != 1 {
-		t.Errorf("a fetched native installer must be refused: in=%v refused=%v", in, refused)
-	}
-
-	npmRoot := t.TempDir()
-	writeManifest(t, npmRoot, `{"contributes":[{"kind":"program","bin":"x","via":"npm","package":"x"}]}`)
-	npm, _ := LoadDir(npmRoot, "ok", false)
-	if in, refused := npm.HonoredInstalls(); len(in) != 1 || len(refused) != 0 {
-		t.Errorf("an npm install must be allowed even when fetched: in=%v refused=%v", in, refused)
-	}
-}
-
-// The origin gate is PER CONTRIBUTION, which only became expressible once the accessor
-// went plural. A fetched pack mixing an npm install with a curl-to-shell installer keeps
-// the npm one and loses ONLY the installer — deciding once for the whole pack would
-// either refuse the innocent npm install or, far worse, smuggle the installer URL through
-// beside it.
-func TestOriginGateIsPerInstallContribution(t *testing.T) {
+// A pack's host-file declaration is HONORED whoever shipped it, and nothing is refused.
+//
+// THREE TESTS USED TO LIVE HERE, all asserting the opposite for a fetched pack:
+// TestFetchedPackHostFilesRefusedAndReported, TestFetchedPackNativeInstallerRefusedButNpmAllowed
+// and TestOriginGateIsPerInstallContribution. OQ-TP9 (docs/design/trust-paths.md,
+// 2026-09-04) deleted the gate all three pinned — it refused an actor who had already
+// passed a stronger one, since naming the pack means editing the user config as the host
+// user — so they are replaced by their inverse, which is what goes red if a gate returns.
+//
+// It asserts through the packload accessors, which is the CALLEE. The call-site half is
+// internal/cli/run/packnohostgate_test.go, where a genuinely fetched pack goes through
+// stagePacks with no lockfile at all.
+func TestHostFilesAndInstallersAreHonoredWithNoOriginGate(t *testing.T) {
 	root := t.TempDir()
 	writeManifest(t, root, `{"contributes":[
+	  {"kind":"reads-host","host":".ssh/id_ed25519"},
 	  {"kind":"program","bin":"safe","via":"npm","package":"safe-pkg"},
-	  {"kind":"program","bin":"sharp","via":"installer","url":"https://evil/sh"}]}`)
+	  {"kind":"program","bin":"sharp","via":"installer","url":"https://acme.test/i.sh"}]}`)
 
-	fetched, _ := LoadDir(root, "mixed", false)
-	granted, refused := fetched.HonoredInstalls()
-	if len(granted) != 1 || granted[0].Bin != "safe" {
-		t.Errorf("the npm install must survive a fetched origin: %+v", granted)
+	p, probs := LoadDir(root, "acme")
+	if len(probs) > 0 {
+		t.Fatalf("fixture: %v", probs)
 	}
-	for _, in := range granted {
-		if in.InstallerURL != "" {
-			t.Errorf("a fetched pack must never be granted an installer URL: %+v", in)
+
+	granted, refused := p.HonoredHostFiles()
+	if len(granted) != 1 || granted[0].From != ".ssh/id_ed25519" {
+		t.Errorf("the host file was not granted: %v", granted)
+	}
+	if len(refused) != 0 {
+		t.Errorf("a host file was REFUSED: %v\nThe origin gate is deleted; a refusal here is "+
+			"a gate that came back without a ruling", refused)
+	}
+
+	installs, refused := p.HonoredInstalls()
+	if len(installs) != 2 {
+		t.Fatalf("want both installs honored, got %d: %+v", len(installs), installs)
+	}
+	var sawInstaller bool
+	for _, in := range installs {
+		if in.InstallerURL == "https://acme.test/i.sh" {
+			sawInstaller = true
 		}
 	}
-	if len(refused) != 1 || !strings.Contains(refused[0], "https://evil/sh") {
-		t.Errorf("the refusal must name the installer URL: %v", refused)
+	if !sawInstaller {
+		t.Errorf("the curl-piped installer was dropped: %+v\nIt was refused for a fetched "+
+			"pack until OQ-TP9, on the ground that a git ref must not execute arbitrary code "+
+			"in the jail — refuted in-house because `npm install -g` from the same tree runs "+
+			"postinstall, ungated (pack-execution-trust.md §2)", installs)
 	}
-
-	// The same pair from a local pack: both honored.
-	local, _ := LoadDir(root, "mixed", true)
-	if granted, refused := local.HonoredInstalls(); len(granted) != 2 || len(refused) != 0 {
-		t.Errorf("a local pack gets both installs: granted=%+v refused=%v", granted, refused)
+	if len(refused) != 0 {
+		t.Errorf("an install was REFUSED: %v", refused)
 	}
 }
 
@@ -138,7 +114,7 @@ func TestPackWithNoManifestIsValid(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "skills", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := LoadDir(root, "", false)
+	p, problems := LoadDir(root, "")
 	if len(problems) != 0 {
 		t.Fatalf("a manifest-less pack must be valid: %v", problems)
 	}
@@ -221,7 +197,7 @@ func TestLoadDirSupportsPackJSONC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, problems := LoadDir(dir, "my-jsonc-pack", false)
+	p, problems := LoadDir(dir, "my-jsonc-pack")
 	if len(problems) != 0 {
 		t.Fatalf("LoadDir failed on pack.jsonc: %v", problems)
 	}

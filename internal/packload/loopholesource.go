@@ -2,21 +2,27 @@ package packload
 
 // loopholesource.go resolves a `loophole` contribution's MODULE DIRECTORY — the
 // pack-relative dir holding `manifest.jsonc` — and turns what that manifest declares
-// into the pack's host-access claims.
+// into the pack's DISCLOSED CROSSINGS: one footprint claim per thing that reaches the
+// host (loophole-packaging.md §3.3).
 //
-// # Why the claims are produced HERE and not in packdecl
+// # These were APPROVAL strings once, and are disclosure only since OQ-TP9
 //
-// `packdecl.Manifest.HostAccessClaims` is a pure walk over decoded `pack.json` bytes.
-// packdecl has zero internal imports by design and a Manifest carries no root path, so
-// it cannot open the module dir at all — a claim computed there would degrade to a bare
-// `loophole acme`: a string that never changes no matter what the daemon becomes, which
-// is content-blind consent (loophole-packaging.md §3.3).
+// Until 2026-09-04 every crossing rendered twice: a display string for
+// `yolo pack footprint` and a raw comparison key the fetched-pack approval prompt showed
+// and the lockfile stored. OQ-TP9 (docs/design/trust-paths.md) deleted the prompt, the
+// lockfile record and the launch gate as theatre, so only the display rendering remains —
+// but the ENUMERATION RULE survives the deletion unchanged and is still total: a crossing
+// that emits no claim is a crossing nobody is told about, and the footprint is now the ONLY
+// place a user sees it.
 //
-// `*Pack` HAS a Root, and the precedent is already in this package:
-// PluginHostAccessClaims (plugins.go) lives here for exactly this reason — a wrapped
-// plugin's code-running components are declared in a file outside pack.json too. So this
-// is the third producer of the same kind of string, and the reason
-// Pack.HostAccessClaims (hostaccess.go) exists to merge all three.
+// # Why the enumeration is produced HERE and not in packdecl
+//
+// packdecl has zero internal imports by design and a Manifest carries no root path, so it
+// cannot open the module dir at all — a claim computed there would degrade to a bare
+// `loophole acme`: a string that never changes no matter what the daemon becomes.
+//
+// `*Pack` HAS a Root, and the precedent is already in this package: plugins.go reads a
+// wrapped plugin's components out of a file outside pack.json for exactly this reason.
 //
 // # Why it may import internal/loopholedecl and must not import internal/loopholes
 //
@@ -24,15 +30,15 @@ package packload
 // registry here is a cycle, measured in loopholedecl's package doc. `internal/loopholedecl`
 // is the schema extracted as a leaf precisely so this file can read a manifest
 // (loophole-packaging.md §3.2, OQ-LP1). Everything it returns is RAW — `{loophole_dir}`
-// unexpanded, `${XDG_RUNTIME_DIR}` unexpanded — which is what the claim strings need (see
-// hostaccess.go's G2a note).
+// unexpanded, `${XDG_RUNTIME_DIR}` unexpanded — which is what a claim TARGET needs: the
+// target is the footprint's collision key, so an expanded, machine-specific path would make
+// one declaration read as a different claim on every machine.
 
 import (
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
@@ -74,9 +80,9 @@ type LoopholeModule struct {
 //     be a declaration that does nothing;
 //   - a directory whose manifest will not load → a WARNING, plus a module with Problem
 //     set and Decl nil. Both halves matter: the report is the diagnostic, and the CLAIM
-//     path needs a module to attach a fail-closed "declaration unreadable" claim to, or
-//     an unreadable manifest would produce an EMPTY claim set — which is exactly
-//     packMayAccessHost's grant-everything case.
+//     path needs a module to attach a "declaration unreadable" claim to, or an unreadable
+//     manifest would disclose NOTHING for a module that will still be discovered — the
+//     one shape §3.3's total enumeration forbids.
 //
 // # Why the split, and why it is not an inconsistency (loophole-packaging.md §3.1)
 //
@@ -126,12 +132,12 @@ func (p *Pack) LoopholeModules() (mods []LoopholeModule, refusals, warnings []st
 			continue
 		}
 		mod := LoopholeModule{From: rel, Name: name, Dir: dir}
-		// TOLERANT, not strict, and the choice is the gate's rather than an author's. A key
+		// TOLERANT, not strict, and the choice is the loader's rather than an author's. A key
 		// only a NEWER build knows is version skew: refusing the manifest here would turn a
-		// working loophole into an unreadable one, re-prompt for approval, and — since
-		// promptYesNo fails closed on a non-TTY — refuse the loophole permanently. Tolerant
+		// working loophole into an unreadable one on the older machine, and downgrade its
+		// disclosure to "declaration UNREADABLE" for a module that loads fine. Tolerant
 		// enumerates exactly what THIS build understands, which is exactly what it will
-		// honor, so the claim set and the effect cannot disagree. An author hears about a
+		// honor, so the disclosed set and the effect cannot disagree. An author hears about a
 		// typo from the STRICT read `yolo pack lint` does (LoopholeDeclProblems).
 		decl, _, derr := loopholedecl.LoadDirTolerant(dir)
 		if derr != nil {
@@ -148,52 +154,27 @@ func (p *Pack) LoopholeModules() (mods []LoopholeModule, refusals, warnings []st
 	return mods, refusals, warnings
 }
 
-// HonoredLoopholes returns the loophole modules this pack's ORIGIN permits, and a notice per
-// module that was refused — the fourth member of the Honored* family (HonoredHostFiles,
-// HonoredMounts, HonoredInstalls) and the one §4.3 G3 asked for and did not get.
+// HonoredLoopholes returns the loophole modules this pack ships. Nothing is refused.
 //
-// # A refusal was SILENT, which is the defect
+// THE ORIGIN REFUSAL IS GONE (OQ-TP9, docs/design/trust-paths.md, 2026-09-04). A FETCHED
+// pack's loophole used to be withheld whole — no daemon, no binds, no devices, no CA, no
+// jail env — until the user approved its claims at `yolo pack install`. That gate refused an
+// actor who had already passed a stronger one: naming the pack means writing `packs` in
+// ~/.config/yolo-jail/config.jsonc as the host user, which is strictly more authority than
+// the gate withheld (gate-placement-principle.md Test 1).
 //
-// G3 says an unapproved fetched pack's loophole is "not discovered at all while its other
-// contributions still work — the same shape `mount` has today, refusals printed per-claim".
-// The withholding shipped; the printing did not. So a user could install a pack whose WHOLE
-// PURPOSE is a loophole, select it, and get a jail where it silently does nothing — no daemon,
-// no binds, no env var, and no line anywhere saying so or naming the fix. That is strictly
-// worse than the `mount` case it was modelled on, because a missing mount is visible as a
-// missing directory while a missing loophole looks like a loophole that does not work.
+// WHAT REPLACES IT IS DISCLOSURE, and for this kind it is louder than for any other. Every
+// crossing a loophole declares is enumerated as a footprint Claim with ReviewWorthy set
+// (see loopholeClaims), `yolo pack footprint` prints them before a user trusts the pack, and
+// the launch prints the host-EXECUTION ones at the spawn boundary, BEFORE the daemon starts
+// (run.startLoopholesDisclosed). Disclosure is not consent — it is the thing that tells a
+// user what actually crossed, which no install-time prompt could.
 //
-// # Per MODULE, not per claim, and the difference is what a user can act on
-//
-// The design's words are "per claim", and the claims are the right unit for APPROVAL — one per
-// bind, per device, per intercept, so each is separately approvable. They are the wrong unit
-// for a REFUSAL: the gate is per PACK (packMayAccessHost decides once, for the whole pack), so
-// a claim-granular refusal would print five identical lines about one decision. The fix is one
-// action ("`yolo pack install` records the approval"), so it is one line per loophole — the
-// unit whose name the user recognizes from their config.
-//
-// # Why it does not read the manifests
-//
-// It reports the DECLARATION, not what the declaration says. An unreadable manifest is still a
-// refused loophole (and is still worth naming), and the discovery layer already warns about the
-// file itself — so resolving it here would add a second complaint about the same thing and make
-// the refusal depend on a file whose contents cannot change it.
+// The `refused` return is always nil — see packload.go's HonoredHostFiles for the family
+// note on why the shape is kept.
 func (p *Pack) HonoredLoopholes() (granted []LoopholeModule, refused []string) {
 	mods, _, _ := p.LoopholeModules()
-	if len(mods) == 0 {
-		return nil, nil
-	}
-	if p.MayAccessHost {
-		return mods, nil
-	}
-	for _, mod := range mods {
-		refused = append(refused, fmt.Sprintf(
-			"pack %s: refused loophole %q (from %q) — a FETCHED pack's loophole runs code on "+
-				"your machine and mounts host paths into the jail, so it is withheld until you "+
-				"approve what it asks for. Nothing of it crossed: no host daemon, no bind "+
-				"mounts, no devices, no CA, no jail env. Run `yolo pack install` to see its "+
-				"claims and approve them.", p.Name, mod.Name, mod.From))
-	}
-	return nil, refused
+	return mods, nil
 }
 
 // LoopholeDeclProblems is the AUTHORING read of every loophole module this pack ships:
@@ -255,70 +236,18 @@ func (p *Pack) LoopholeDeclProblems() []string {
 	return problems
 }
 
-// LoopholeHostAccessClaims returns the approval strings every loophole this pack ships
-// makes on the host — the third producer merged by Pack.HostAccessClaims.
+// loopholeClaim is one crossing a loophole declares, rendered for the footprint.
 //
-// # The enumeration is TOTAL, and that is the load-bearing rule of the design
-//
-// Every declaration that crosses the host boundary emits its OWN claim
-// (loophole-packaging.md §3.3). It has to, because `packMayAccessHost` reads an EMPTY
-// claim set as "reads nothing from the host, runs nothing on it; the gate is moot" and
-// returns TRUE — so a fetched pack shipping a loophole with only `host_bind_mounts` and
-// `host_devices` used to get an arbitrary absolute host path into a UID-0 jail with no
-// prompt, ever. A claim-free crossing must be unrepresentable:
-//
-//	host_daemon.cmd + doctor_cmd  → one base claim, keyed <name>       (host EXECUTION)
-//	intercepts[]                  → one per host,  keyed <name>:intercept:<host>
-//	ca_cert                       → one claim,     keyed <name>:ca:<path>
-//	                                                                 (a TRUSTED CA + a bind)
-//	host_bind_mounts[] (r/w or a  → one per bind,  keyed <name>:ipc:<container>
-//	  socket)                                                          (read-write IPC)
-//	host_bind_mounts[] (:ro)      → one per bind,  keyed <name>:mount:<container>
-//	host_devices[]                → one per node,  keyed <name>:device:<path>
-//
-// `state_files` gets NO claim: it resolves under `StateDirFor(<name>)` inside yolo's own
-// state tree, not a path a user would recognise as theirs. `jail_daemon` gets none
-// either — it is a process inside the container, which is the one place a pack's code
-// was always allowed to run.
-//
-// A loophole that declares none of the above crosses nothing and correctly claims
-// nothing; what §3.3 forbids is a CROSSING that claims nothing.
-//
-// # The strings are RAW (G2a)
-//
-// These are LOCKFILE COMPARISON KEYS, walked for exact matches, not display text. Two
-// consequences, both deliberate:
-//
-//   - Nothing is elided. An ellipsis would collapse two different daemons onto one
-//     approved claim.
-//   - Placeholders stay UNEXPANDED. `{loophole_dir}` resolves to a staging-specific
-//     absolute path, so an expanded claim would be machine-specific: it could never
-//     match an approval recorded elsewhere, would re-prompt forever, and since
-//     promptYesNo fails closed on a non-TTY, `packMayAccessHost` would then refuse the
-//     loophole permanently. For the same reason no claim is conditioned on the PLATFORM:
-//     a manifest's `platforms` list decides whether the loophole runs HERE, and folding
-//     that into the key would make one pack's approved set differ per machine.
-//
-// The footprint's Detail may abbreviate. The two are deliberately not the same string.
-func (p *Pack) LoopholeHostAccessClaims() []string {
-	var out []string
-	for _, c := range p.loopholeClaims() {
-		out = append(out, c.approval)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// loopholeClaim is one crossing a loophole declares, in both of its renderings: the
-// approval string (raw, a comparison key) and the footprint's target+detail (display,
-// may abbreviate). Built together so the two cannot describe different sets.
+// IT USED TO CARRY A SECOND RENDERING — a raw `approval` string the install prompt showed
+// and the lockfile stored, built beside the display one so the two could not describe
+// different sets. OQ-TP9 deleted the prompt and the lockfile record, so the display
+// rendering is the only one left and there is nothing for it to disagree with.
 type loopholeClaim struct {
 	// target is the footprint key: the loophole name for the base claim,
 	// "<name>:<discriminator>" for every other, so a pack with three bind mounts emits
-	// three separately-approvable strings.
-	target   string
-	detail   string
-	approval string
+	// three separately-readable lines rather than one that hides two of them.
+	target string
+	detail string
 	// runsHostCode is true for the base claim only — the one whose crossing is host
 	// EXECUTION (host_daemon.cmd, doctor_cmd) rather than a host read or a passthrough. It
 	// feeds Claim.RunsHostCode, which is what makes the footprint's ⚠ marker say so.
@@ -346,16 +275,14 @@ func (p *Pack) loopholeClaims() []loopholeClaim {
 func moduleClaims(mod LoopholeModule) []loopholeClaim {
 	name := mod.Name
 	if mod.Decl == nil {
-		// FAIL CLOSED. An unreadable declaration is not "no claims" — that is the empty
-		// set the gate reads as consent, and it would let a fetched pack ship a loophole
-		// whose manifest this build cannot parse and get it past the boundary. The string
-		// names the module dir as DECLARED (never the staged absolute path) so it still
-		// compares equal across machines.
+		// FAIL LOUD. An unreadable declaration is not "no claims": the module is still
+		// discovered, so disclosing nothing for it would be the one silence §3.3's total
+		// enumeration forbids — a pack whose manifest this build cannot parse would show a
+		// clean footprint. The string names the module dir as DECLARED (never the staged
+		// absolute path) so it reads the same on every machine.
 		return []loopholeClaim{{
 			target: name,
 			detail: "declaration UNREADABLE — " + mod.Problem,
-			approval: "loophole " + name + " DECLARATION UNREADABLE at " + mod.From +
-				" — its claims cannot be enumerated",
 			// An unenumerable declaration is treated as the sharpest thing it could be: a
 			// manifest yolo cannot read may well declare a host daemon.
 			runsHostCode: true,
@@ -392,7 +319,6 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 		out = append(out, loopholeClaim{
 			target:       name,
 			detail:       "RUNS " + strings.Join(runs, " and ") + " on your machine",
-			approval:     "loophole " + name + " RUNS " + strings.Join(runs, " and ") + " on your machine",
 			runsHostCode: true,
 		})
 	}
@@ -403,24 +329,20 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 	//
 	// `broker_ip` IS FOLDED IN HERE rather than getting a claim of its own, because it is not
 	// a separate crossing — it is WHERE this intercept points. RuntimeArgsFor emits
-	// `--add-host <host>:<broker_ip>`, and with the address left out of the claim two
-	// manifests differing only in broker_ip produced the IDENTICAL approved string: approve an
-	// intercept against `host-gateway` (yolo's own front) and the author can later move the
-	// pin, silently redirecting that hostname to an arbitrary address inside a jail that now
-	// trusts their CA for it, with no re-prompt.
+	// `--add-host <host>:<broker_ip>`, and with the address left out, two manifests differing
+	// only in broker_ip disclose the IDENTICAL line: a reader who checked an intercept against
+	// `host-gateway` (yolo's own front) would see nothing change when the author later
+	// redirects that hostname to an arbitrary address inside a jail that trusts their CA
+	// for it.
 	//
-	// The DEFAULT is spelled out rather than omitted when absent. Two reasons, both about the
-	// string being a comparison key: a reader of a lockfile cannot check "whatever yolo's
-	// default is", and an omitted default would make `broker_ip: "host-gateway"` and no
-	// broker_ip two different approvals for one declaration — a rule about spelling. The
-	// decoder already applies the default (Manifest.BrokerIP is never empty after a successful
-	// decode), so reading it here is reading what the manifest MEANS.
+	// The DEFAULT is spelled out rather than omitted when absent, because a reader cannot
+	// check "whatever yolo's default is". The decoder already applies it (Manifest.BrokerIP is
+	// never empty after a successful decode), so reading it here is reading what the manifest
+	// MEANS.
 	for _, ic := range m.Intercepts {
 		out = append(out, loopholeClaim{
 			target: name + ":intercept:" + ic.Host,
 			detail: "INTERCEPTS " + ic.Host + " -> " + m.BrokerIP +
-				" — installs a CA trusted by every TLS client in the jail",
-			approval: "loophole " + name + " INTERCEPTS " + ic.Host + " -> " + m.BrokerIP +
 				" — installs a CA trusted by every TLS client in the jail",
 		})
 	}
@@ -439,16 +361,14 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 	// intercept at all. The claim therefore names the CAPABILITY, not the mount.
 	//
 	// Keyed by the RAW path, so two different certs are two different claims: for a read the
-	// path IS the risk-bearing fact, and a claim keyed on the loophole name alone would let
-	// an approval of the pack's own bundled cert carry forward to any other file it later
-	// names. Raw for G2a's reason as well — `{state}` and `{loophole_dir}` resolve to
-	// machine-specific absolute paths, and an expanded claim re-prompts forever.
+	// path IS the risk-bearing fact, and a claim keyed on the loophole name alone would show
+	// the same line for the pack's own bundled cert and for any other file it later names.
+	// Raw for the target's sake as well — `{state}` and `{loophole_dir}` resolve to
+	// machine-specific absolute paths, and an expanded target would differ per machine.
 	if m.CACertSet {
 		out = append(out, loopholeClaim{
 			target: name + ":ca:" + m.CACert,
 			detail: "TRUSTS the CA in " + m.CACert +
-				" — mounted from your host and trusted by every node client in the jail",
-			approval: "loophole " + name + " TRUSTS the CA in " + m.CACert +
 				" — mounted from your host and trusted by every node client in the jail",
 		})
 	}
@@ -460,8 +380,6 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 			out = append(out, loopholeClaim{
 				target: name + ":ipc:" + bm.Container,
 				detail: "CONNECTS the jail to the host socket " + bm.Host + " — read-write host IPC",
-				approval: "loophole " + name + " CONNECTS the jail to the host socket " + bm.Host +
-					" at " + bm.Container + " — read-write host IPC",
 			})
 			continue
 		}
@@ -469,9 +387,6 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 			target: name + ":mount:" + bm.Container,
 			detail: "MOUNTS " + bm.Host + " -> " + bm.Container + " (read-only for a file or " +
 				"directory; an AF_UNIX SOCKET here is read-write host IPC regardless of `:ro`)",
-			approval: "loophole " + name + " MOUNTS " + bm.Host + " -> " + bm.Container +
-				" (read-only for a file or directory; an AF_UNIX SOCKET here is read-write " +
-				"host IPC regardless of `:ro`)",
 		})
 	}
 
@@ -482,9 +397,8 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 	// node, which is precisely why it needs the claim.
 	for _, dev := range m.HostDevices {
 		out = append(out, loopholeClaim{
-			target:   name + ":device:" + dev,
-			detail:   "PASSES THROUGH the host device " + dev + " (reads and writes)",
-			approval: "loophole " + name + " PASSES THROUGH the host device " + dev + " (reads and writes)",
+			target: name + ":device:" + dev,
+			detail: "PASSES THROUGH the host device " + dev + " (reads and writes)",
 		})
 	}
 	return out

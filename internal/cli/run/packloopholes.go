@@ -70,7 +70,7 @@ const (
 // test still fails until it is written down here, which is the right pair — correct at
 // runtime, loud in review.
 var disclosureClasses = map[packdecl.Kind]disclosureClass{
-	// Host-crossing. These are exactly the kinds Manifest.HostAccessClaims produces a claim
+	// Host-crossing. These are exactly the kinds the retired Manifest.HostAccessClaims produced a claim
 	// for — the set the user APPROVED at `yolo pack install` — plus env, which is ungated.
 	// Matching the approval set is the whole of G4: the launch discloses what was approved,
 	// so the two can be compared by a human rather than taken on trust.
@@ -183,9 +183,9 @@ type disclosureLine struct{ pack, claim string }
 
 // disclosedClaims collects the claims of the given class across the loaded packs.
 //
-// It reads the FOOTPRINT, which already reflects the approval gate: an unapproved fetched
-// pack has MayAccessHost=false, so its host-read claims are absent from the footprint and
-// correctly do not appear here (they were refused, and the refusal printed its own line).
+// It reads the FOOTPRINT, and since OQ-TP9 every claim in it happens: the origin gate that
+// used to withhold a fetched pack's host reads is gone, so there is nothing left to
+// subtract and this report and `yolo pack footprint` describe the same set.
 //
 // The per-claim filter is `ReviewWorthy || kind == env`, and both halves matter. ReviewWorthy
 // is what distinguishes the instances of a kind that actually cross the boundary from the
@@ -213,52 +213,17 @@ func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosure
 			if !c.ReviewWorthy && c.Kind != packdecl.KindEnv {
 				continue
 			}
-			if !claimWillHappen(p, c) {
-				continue
-			}
-			detail := c.Target
-			if c.Detail != "" {
-				detail += " " + c.Detail
-			}
-			lines = append(lines, disclosureLine{p.Name, string(c.Kind) + " " + detail})
+			// The SENTENCE, not the terse token line. packload.Claim.DisclosureSentence
+			// is the §6 rendering (what is touched, which direction, whose machine); the
+			// kind is kept as a trailing tag because §6 also requires that the
+			// machine-comparable identity stay visible beside the prose — it is what a
+			// reader matches a banner line to in `yolo pack footprint` and in
+			// `yolo config-ref`'s per-kind reference.
+			lines = append(lines, disclosureLine{
+				p.Name, c.DisclosureSentence() + "  [" + string(c.Kind) + "]"})
 		}
 	}
 	return lines
-}
-
-// claimWillHappen reports whether this claim describes something THIS LAUNCH actually does,
-// which is the question the launch disclosure answers and the footprint deliberately does not.
-//
-// # A banner that shows a refused daemon as pending is worse than silence
-//
-// The two reports ask different questions and the difference is load-bearing for exactly one
-// kind. `pack footprint` and `pack install` ask WHAT A PACK WANTS — so FootprintOf keeps a
-// loophole's claims regardless of MayAccessHost, on the stated grounds that hiding a fetched
-// pack's daemon argv would hide the line the reader came for. The launch asks WHAT IS ABOUT TO
-// HAPPEN, and the pre-spawn block's whole value is that every line in it is imminent. Printing
-// a withheld daemon's argv under "This launch runs pack code on your machine" is not a
-// harmless extra line: it is false, in the one place a user reads to decide whether to hit
-// ctrl-c, and it teaches them the block cannot be trusted.
-//
-// # Why only this kind needs the subtraction
-//
-// reads-host and mount are gated INSIDE FootprintOf (`if p.MayAccessHost`), so a refused one
-// is already absent — TestDisclosureOmitsRefusedClaims pins that. env is ungated by design
-// (literal strings, no host read) and always happens. `program via installer` and
-// `briefing after host:` are ungated in the footprint too, but their gate is applied where
-// they are HONORED (HonoredInstalls, BriefingProse), so an ungated claim line there would have
-// the same defect — which is why this predicate keys on the pack's gate for every claim whose
-// kind crosses the boundary, rather than special-casing `loophole` by name.
-func claimWillHappen(p *packload.Pack, c packload.Claim) bool {
-	if p.MayAccessHost {
-		return true
-	}
-	// env is the one host-disclosed class that is not origin-gated: it sets container
-	// variables from literals in pack.json, which a refused pack still gets.
-	if c.Kind == packdecl.KindEnv {
-		return true
-	}
-	return false
 }
 
 // packHostExecClaims returns the host-EXECUTION claim lines for the loaded packs.

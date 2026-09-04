@@ -29,7 +29,7 @@ func skillsPack(t *testing.T, manifest string, skillDirs ...string) *Pack {
 			t.Fatal(err)
 		}
 	}
-	p, probs := LoadDir(root, "sf", true)
+	p, probs := LoadDir(root, "sf")
 	if len(probs) > 0 {
 		t.Fatalf("LoadDir problems: %v", probs)
 	}
@@ -248,7 +248,7 @@ func TestPluginsFollowSkillsFrom(t *testing.T) {
 		[]byte(`{"name":"acme-tools","skills":["./"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, probs := LoadDir(root, "wrapper", true)
+	p, probs := LoadDir(root, "wrapper")
 	if len(probs) > 0 {
 		t.Fatalf("LoadDir: %v", probs)
 	}
@@ -266,7 +266,7 @@ func TestFootprintNamesSkillsSource(t *testing.T) {
 	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindSkills, From: "my-skills", Into: ".claude/skills"},
 	}}
-	fp := FootprintOf(pk("sf", true, m))
+	fp := FootprintOf(pk("sf", m))
 	if len(fp.Claims) != 1 {
 		t.Fatalf("claims = %+v, want one", fp.Claims)
 	}

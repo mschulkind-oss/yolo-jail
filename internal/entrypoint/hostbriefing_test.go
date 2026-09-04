@@ -52,7 +52,6 @@ func briefingPackFrom(t *testing.T, name, into, from, file, prose string) *packl
 			Into:  into,
 			After: "host:" + into,
 		}}},
-		MayAccessHost: true,
 	}
 }
 
@@ -623,11 +622,10 @@ func TestHostBriefingRendersEveryContributionOfOnePack(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := &packload.Pack{Name: "two", Root: root, MayAccessHost: true,
-		Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
-			{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md"},
-			{Kind: packdecl.KindBriefing, From: "house-rules.md", Into: ".codex/AGENTS.md"},
-		}}}
+	p := &packload.Pack{Name: "two", Root: root, Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md"},
+		{Kind: packdecl.KindBriefing, From: "house-rules.md", Into: ".codex/AGENTS.md"},
+	}}}
 	req, _ := briefingReq(t, home)
 	results, err := RenderHostBriefings([]*packload.Pack{p}, home, req, false)
 	if err != nil {

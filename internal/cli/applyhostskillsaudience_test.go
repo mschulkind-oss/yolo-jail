@@ -81,7 +81,7 @@ func TestPackFootprintStatesAContributionsTargeting(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "skills", "demo", "SKILL.md"), "---\nname: demo\n---\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint rc=%d: %s", rc, errw.String())
 	}
 	report := out.String() + errw.String()
@@ -108,7 +108,7 @@ func TestPackFootprintStatesWhetherADestinationIsAddressable(t *testing.T) {
 			`{"kind":"skills","into":".two/skills"}]}`)
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint rc=%d: %s", rc, errw.String())
 	}
 	report := out.String() + errw.String()

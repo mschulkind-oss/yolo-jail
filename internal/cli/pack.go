@@ -35,7 +35,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // packUsage is what `yolo pack --help` prints, and it is also the destination the
@@ -97,8 +96,8 @@ effect, with a "kind" from a closed set:
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
 TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.
-Every one of those is a separate claim you approve, and the daemon claim carries its raw
-argv — so a pack whose daemon changes re-prompts.
+Every one of those is a separate line in the pack's footprint, and the daemon line carries
+its raw argv — so run yolo pack footprint before you select a pack that ships one.
 
 program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
 launcher, last on PATH), requires means it must already be there and yolo installs
@@ -111,26 +110,35 @@ The packs yolo ships are selected by NAME, and none is on by default:
 
   "packs": ["claude"]        # or copilot, codex, opencode, pi, agy
 
-An EMBEDDED or LOCAL (file://) pack may read the host home unconditionally — reads-host,
-mount, an installer program, or a host-prepending briefing. A FETCHED (git) pack may too,
-but only for the claims you APPROVE at install: yolo pack install shows what the pack
-reads and asks y/N once, recording the approval (per commit) in the lockfile. A pin that
-later gains a new host-access claim re-prompts; an unapproved claim is refused at launch,
-with a notice. Static "env" values are never gated (they read nothing from the host), and
-every loaded pack's host access is listed in the startup banner each launch.
+ANY pack may read the host home — reads-host, mount, an installer program, or a
+host-prepending briefing — whoever shipped it. There is no approval prompt: naming a pack
+in "packs" means editing your own user config, which already grants more than a prompt
+could withhold. So READ BEFORE YOU SELECT: yolo pack footprint <ref> prints every claim a
+pack makes, and every loaded pack's host access is listed in the startup banner at each
+launch, with host EXECUTION printed just before it happens.
+
+FOLLOWING A MUTABLE REF IS THE TRUST DECISION. A "?ref=main" re-fetches whatever the author
+has pushed since you last looked, and nothing asks you again — putting a branch in your
+config is the consent, given once, for every commit that ever lands on it. So PIN A TAG for
+any pack that carries code, and pin it hardest for the kind that runs on YOUR OWN MACHINE: a
+loophole whose module declares a host_daemon or a doctor_cmd. ("?ref=" also takes a full
+commit SHA.) You are not exposed between installs either way — a launch resolves from the
+local mirror and never touches the network, and that mirror only moves when you run
+yolo pack install or yolo pack update; the pin is what decides whether THAT command hands
+you code you have looked at.
 
   yolo pack init [dir]        scaffold a pack skeleton (default: current dir)
                               --from-plugin <dir>  wrap an EXISTING agent plugin (a tree with
                               a .claude-plugin/plugin.json) as a pack: its tree is delivered
                               verbatim, so its skills invoke as /<plugin>:<skill> and cannot
                               collide with yours. Components that RUN (hooks, MCP/LSP servers)
-                              are named at init and approved at install.
+                              are named at init and shown in the pack's footprint.
   yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
                               [ref] = an embedded name OR a local path / file:// pack
-  yolo pack install           fetch configured packs, write the lockfile, approve host access.
+  yolo pack install           fetch configured packs and write the lockfile.
                               It NEVER asks a registry what the latest version is
   yolo pack update            install, PLUS the only act that resolves a new version for a
                               pack's npm-declared program. Run it inside the jail — that is
@@ -144,7 +152,7 @@ address for one from elsewhere:
 
   "packs": ["claude",
             "file:///home/me/code/my-pack",
-            "git+ssh://git@github.com/org/repo//subdir?ref=main"]
+            "git+ssh://git@github.com/org/repo//subdir?ref=v1"]
 
 Then run ` + "`yolo pack install`" + ` (fetching only ever happens there, never at launch).
 
@@ -164,15 +172,16 @@ func runPack(args []string) int {
 	if len(rest) > 0 {
 		rest = rest[1:]
 	}
-	return packMain(rest, os.Stdout, os.Stderr, isTTYStdout(), os.Stdin)
+	return packMain(rest, os.Stdout, os.Stderr, isTTYStdout())
 }
 
-// packMain dispatches a pack subcommand. stdin is the reader the install-time
-// host-access approval prompt uses; anything that is not a real terminal — nil
-// (tests), a pipe, a redirect — means "no approval given", so a fetched pack's host
-// access stays refused rather than being granted without a human — fail-closed on
-// the credential boundary (see approvalStdinFrom).
-func packMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+// packMain dispatches a pack subcommand.
+//
+// IT TAKES NO STDIN. It used to, for one reason: the install-time host-access approval
+// prompt, which OQ-TP9 deleted (docs/design/trust-paths.md, 2026-09-04). No `yolo pack`
+// verb asks a question now — `install`/`update` fetch and report, and everything else
+// inspects — so there is no reader to thread.
+func packMain(args []string, out, errw io.Writer, color bool) int {
 	if len(args) == 0 {
 		fmt.Fprintln(out, packUsage)
 		return 0
@@ -192,9 +201,9 @@ func packMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 	// resolve a new version for a pack's npm-declared program — docs/design/
 	// trust-paths.md §1 row 1, and see packupdate.go for the whole of the difference.
 	case "install":
-		return packInstall(out, errw, color, stdin)
+		return packInstall(out, errw, color)
 	case "update":
-		return packUpdate(out, errw, color, stdin)
+		return packUpdate(out, errw, color)
 	case "status":
 		return packStatus(out, errw, color)
 	case "-h", "--help", "help":
@@ -333,7 +342,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		// Validate the manifest from the SOURCE dir, since nothing reached the staging
 		// dir, so a manifest problem is reported beside the staging failure instead of
 		// waiting for the author to fix the first one and run again.
-		_, sourceManifestProblems := packload.LoadDir(dir, filepath.Base(dir), true)
+		_, sourceManifestProblems := packload.LoadDir(dir, filepath.Base(dir))
 		problems = append(problems, sourceManifestProblems...)
 		for _, p := range problems {
 			pr.Printf("[red]✗[/red] %s", p)
@@ -360,7 +369,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// contribution is validated for SHAPE regardless of origin; lint checks the
 	// declaration, and the origin gate (a fetched pack getting it refused) is a
 	// separate, install-time concern.
-	pack, manifestProblems := packload.LoadDir(tmp, filepath.Base(dir), true)
+	pack, manifestProblems := packload.LoadDir(tmp, filepath.Base(dir))
 	problems = append(problems, manifestProblems...)
 
 	// A `loophole` contribution points at a module dir, so validating the pack.json entry is
@@ -970,7 +979,7 @@ func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo pack footprint: %v\n", err)
 		return 1
 	}
-	pack, problems := packload.LoadDir(tmp, filepath.Base(root), true)
+	pack, problems := packload.LoadDir(tmp, filepath.Base(root))
 	if len(problems) > 0 {
 		for _, p := range problems {
 			pr.Printf("[red]✗[/red] %s", p)
@@ -1062,7 +1071,7 @@ func reviewSummary(claims []packload.Claim) string {
 // mid-boot. `update` is the same operation with a different name and intent, so they
 // share this body: the distinction users care about is "did my pins move", and the
 // output reports exactly that.
-func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
+func packInstall(out, errw io.Writer, color bool) int {
 	entries, err := config.LoadPacks(func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
@@ -1115,13 +1124,15 @@ func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
 			rc = 1
 			continue
 		}
-		resolved, err := store.Materialize(addr, commit)
-		if err != nil {
+		// CALLED FOR THE CHECKOUT, not for the path it returns: Materialize is what puts
+		// the commit's content in the store where an offline launch resolves it. The
+		// returned root had one reader, the approval prompt that loaded the tree to
+		// enumerate its claims, and OQ-TP9 deleted that.
+		if _, err := store.Materialize(addr, commit); err != nil {
 			fmt.Fprintf(errw, "yolo pack install: %s: %v\n", e.Name, err)
 			rc = 1
 			continue
 		}
-		treeRoot := resolved.Root
 		// Report whether the pin MOVED, which is the thing a user actually wants to
 		// know from an update — not merely that it succeeded.
 		switch {
@@ -1134,21 +1145,16 @@ func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
 			pr.Printf("[dim]%s unchanged (%s)[/dim]", e.Name, shortSHA(commit))
 		}
 
-		// HOST-ACCESS APPROVAL. A fetched pack may read the host (mount, reads-host,
-		// installer, host-briefing) only with explicit consent, recorded per-commit in
-		// the lockfile. Carry a prior approval forward when the pack asks for nothing
-		// new; prompt when it declares a host-access claim the user has not approved.
-		approved, denied := resolveHostApproval(e.Name, treeRoot, prev, hadPrev, pr,
-			approvalStdinFrom(stdin), out)
-		if denied {
-			// The user declined (or a non-interactive run cannot ask). The pack is still
-			// installed and its non-host contributions work; its host claims will be
-			// refused at launch until approved. Not an install failure.
-			rc = 1
-		}
+		// NO HOST-ACCESS PROMPT. There was one here — it printed every claim the fetched
+		// pack made and asked y/N, recording the answer in the lockfile. OQ-TP9 deleted it
+		// as theatre on 2026-09-04 (docs/design/trust-paths.md): to reach this command with
+		// this pack configured you edited `packs` in ~/.config/yolo-jail/config.jsonc as the
+		// host user, which is strictly more authority than the prompt withheld, so it
+		// refused an actor who had already passed a stronger gate. What a user gets instead
+		// is `yolo pack footprint`, which shows the same claims on demand, and the launch
+		// banner, which shows what actually crossed.
 		lock.Set(packsrc.LockEntry{
 			Name: e.Name, Source: e.Source, Commit: commit, Ref: addr.Ref,
-			ApprovedHostAccess: approved,
 		})
 	}
 
@@ -1167,124 +1173,16 @@ func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
 	return rc
 }
 
-// approvalStdin is the interactive channel the install-time host-access approval
-// prompt reads. reader answers the prompt; isTerminal reports whether that reader is
-// a real terminal, and is a seam so tests can drive both branches. A nil isTerminal
-// (or one answering false) fails closed: the approval this prompt grants means "this
-// pack may read my host or run code on it", and that consent must come from a human
-// at a keyboard — `yes | yolo pack install` is not consent (design §4.4 item 3).
-type approvalStdin struct {
-	reader     io.Reader
-	isTerminal func() bool
-}
-
-// terminal reports whether the reader is a real terminal; a nil seam fails closed.
-func (in approvalStdin) terminal() bool { return in.isTerminal != nil && in.isTerminal() }
-
-// approvalStdinFrom wraps pack install's stdin for the approval gate: isTerminal is
-// true only for an *os.File the tty ioctl confirms is a terminal. A pipe or redirect
-// (`yes |`, a heredoc, CI) has bytes to offer but no human behind them, and any
-// non-File reader cannot be a terminal at all.
-func approvalStdinFrom(stdin io.Reader) approvalStdin {
-	f, ok := stdin.(*os.File)
-	return approvalStdin{
-		reader:     stdin,
-		isTerminal: func() bool { return ok && tty.IsTerminalFile(f) },
-	}
-}
-
-// resolveHostApproval decides which host-access claims are approved for a freshly
-// materialized fetched pack, prompting the user only when the pack declares a claim
-// they have not already approved.
-//
-// treeRoot is the materialized pack tree. prev/hadPrev are the pack's previous
-// lockfile entry. Returns the approved claim set to record, and denied=true when the
-// pack WANTS host access the user did not grant (declined, or no terminal to ask at).
-//
-//   - No host-access claims → approve nothing, denied=false (a pack that reads
-//     nothing from the host needs no consent).
-//   - Every claim already approved (prev.HostAccessApproved) → carry the prior
-//     approval forward silently. This is the "unchanged or narrowed pin" case.
-//   - A claim not previously approved with stdin NOT a terminal → refuse without
-//     reading a byte (denied=true). Piped input must not be able to answer the one
-//     prompt that grants a pack the host.
-//   - A claim not previously approved → show the full claim set and prompt y/N. On
-//     yes, approve the current set (so a later narrowing is remembered too); on no,
-//     keep the prior approvals but do NOT add the new ones (denied=true).
-func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev bool,
-	pr richtext.Printer, stdin approvalStdin, out io.Writer) (approved []string, denied bool) {
-	p, _ := packload.LoadDir(treeRoot, name, true)
-	if p == nil {
-		return prevApproved(prev, hadPrev), false
-	}
-	// EVERY producer's claims, through the ONE merged helper (packload.Pack.HostAccessClaims).
-	// pack.json's contributions are only one of three: a WRAPPED PLUGIN's code-running
-	// components and a SHIPPED LOOPHOLE's daemon/intercepts/binds/devices are declared in
-	// files outside pack.json, so reading only the contributions would let a fetched tree
-	// arrive with code to run and nothing to approve.
-	//
-	// Not appended by hand here, and this is the one gate where that matters most: the union
-	// this prompt records into the lockfile must be the SAME union run.packMayAccessHost
-	// checks at launch, or approving is either insufficient (a claim the launch demands and
-	// this never showed) or vacuous (a claim this recorded and the launch never asks about).
-	// Two hand-built unions had already drifted once; hostaccessgates_test.go now fails if
-	// either site reaches for a producer directly.
-	want := p.HostAccessClaims()
-	if len(want) == 0 {
-		return nil, false // reads nothing from the host, runs nothing on it
-	}
-	if hadPrev && prev.HostAccessApproved(want) {
-		// Nothing new since the last approval — carry it forward, no prompt. Re-record
-		// the CURRENT set so a claim the pack dropped stops being carried.
-		return want, false
-	}
-
-	// New host access: show the full claim set (not just the delta — the user is
-	// approving the whole current footprint) and ask.
-	pr.Printf("  [bold yellow]⚠ pack %s reads your host or runs code on it:[/bold yellow]", name)
-	for _, c := range want {
-		pr.Printf("      [yellow]%s[/yellow]", c)
-	}
-	if !stdin.terminal() {
-		// Refuse BEFORE reading a byte: showing the y/N prompt to a pipe invites the
-		// pipe to answer it, and `yes(1)` would. The claims above still print, so a CI
-		// log shows exactly what is waiting on a human.
-		pr.Printf("  [red]host access NOT approved — approval requires an interactive "+
-			"terminal, and stdin is not one. %s will REFUSE TO LAUNCH until its claims "+
-			"are approved; rerun `yolo pack install` from a terminal[/red]", name)
-		return prevApproved(prev, hadPrev), true
-	}
-	if !promptYesNo(out, stdin.reader, "  Approve host access for "+name+"? [y/N] ") {
-		// Say what actually happens, not what used to. Before OQ-TP6 an unapproved
-		// claim was withheld and the jail started with the pack half-loaded, so
-		// "will be refused at launch" was accurate. It is not any more: a refused
-		// contribution REFUSES THE LAUNCH (docs/design/trust-paths.md §3.1). Leaving
-		// the old wording would tell a user their jail still starts, which is the
-		// single most expensive thing this message could get wrong — they would find
-		// out at the next launch instead of here, where the fix is one command away.
-		pr.Printf("  [red]host access NOT approved — %s will REFUSE TO LAUNCH until its "+
-			"claims are approved. Run `yolo pack install` and approve, edit the pack so "+
-			"it stops asking, or remove it from `packs`[/red]", name)
-		return prevApproved(prev, hadPrev), true
-	}
-	return want, false
-}
-
-// prevApproved returns the previously-approved claim set, or nil when there was no
-// prior entry.
-func prevApproved(prev packsrc.LockEntry, hadPrev bool) []string {
-	if !hadPrev {
-		return nil
-	}
-	return prev.ApprovedHostAccess
-}
-
 // promptYesNo writes a prompt and reads a single line from stdin, returning true
 // only for an explicit yes. A nil stdin (non-interactive, or a test) is a NO — every
-// caller's confirmation fails closed. It does NOT check that stdin is a terminal:
-// the apply-side confirmations accept a scripted answer by contract, while the
-// host-access approval gate requires a real terminal and enforces that BEFORE
-// calling here (resolveHostApproval / approvalStdin).
+// caller's confirmation fails closed.
+//
+// IT DOES NOT CHECK THAT STDIN IS A TERMINAL, and every remaining caller is an
+// apply-side confirmation that accepts a scripted answer by contract. The one caller that
+// did need a human — the fetched-pack host-access approval, which wrapped this in a tty
+// test so `yes | yolo pack install` could not answer it — is gone (OQ-TP9). If a future
+// prompt needs a human rather than an answer, it must bring its own terminal check back:
+// this function cannot tell a person from a pipe and does not try.
 func promptYesNo(out io.Writer, stdin io.Reader, prompt string) bool {
 	if stdin == nil {
 		return false

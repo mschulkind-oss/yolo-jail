@@ -41,7 +41,7 @@ func stageViaSkewPack(t *testing.T) string {
 // by name, never returned as a problem, because a problem fails the boot (A12).
 func TestJailLoadSkipsUnknownViaInsteadOfFailingBoot(t *testing.T) {
 	withSkewTolerance(t, func() {
-		p, problems := LoadDir(stageViaSkewPack(t), "acme", true)
+		p, problems := LoadDir(stageViaSkewPack(t), "acme")
 		if len(problems) != 0 {
 			t.Fatalf("an unknown via under skew must not be a load problem — LoadJailPacks "+
 				"fails the boot on any problem (A12): %v", problems)
@@ -78,7 +78,7 @@ func TestStrictLoadStillRefusesUnknownVia(t *testing.T) {
 	if tolerateUnknownFields {
 		t.Fatal("test precondition: the strict default must be in effect")
 	}
-	_, problems := LoadDir(stageViaSkewPack(t), "acme", true)
+	_, problems := LoadDir(stageViaSkewPack(t), "acme")
 	if len(problems) == 0 {
 		t.Fatal("the strict authoring path must refuse an unknown via")
 	}

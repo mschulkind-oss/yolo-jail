@@ -149,13 +149,17 @@ func TestLocalPackNonDirectoryIsAbsent(t *testing.T) {
 	}
 }
 
-// THE TRUST DECISION. The local pack may read the host, and it gets there by BEING an ordinary
-// local pack: a file:// source means Origin() is OriginLocal and MayGrantHostFiles() is true
-// with no special case. Asserted because it is a trust-boundary property, not an incidental
-// one — the fetched-pack gate exists because installing someone else's pack is not consent to
-// hand that repository your settings; here the author IS the user, and anything the directory
-// could declare they could declare in config.jsonc one level up.
-func TestLocalPackMayAccessTheHostAsAnOrdinaryLocalPack(t *testing.T) {
+// THE LOCAL PACK IS AN ORDINARY LOCAL PACK, with no special case anywhere: a file:// source,
+// so Origin() is OriginLocal and Embedded() is false.
+//
+// It used to assert MayGrantHostFiles() too, and that predicate is deleted — OQ-TP9
+// (docs/design/trust-paths.md, 2026-09-04) ruled the fetched-pack host-access gate theatre,
+// so origin decides nothing about host access and every caller wanted `true`. The argument
+// that made this pack's TRUE obvious is the one that generalised: the author IS the user, and
+// anything the directory could declare they could declare in config.jsonc one level up. What
+// is still worth asserting is that it reaches its status by being an ordinary local pack
+// rather than by a branch somebody has to maintain.
+func TestLocalPackIsAnOrdinaryLocalPack(t *testing.T) {
 	localPackHome(t, `{}`, true)
 	entries, err := LoadPacks(nil)
 	if err != nil {
@@ -172,13 +176,9 @@ func TestLocalPackMayAccessTheHostAsAnOrdinaryLocalPack(t *testing.T) {
 	if local.Origin() != OriginLocal {
 		t.Errorf("origin = %v, want OriginLocal", local.Origin())
 	}
-	if !local.MayGrantHostFiles() {
-		t.Error("the local pack may not grant host files — it is the user's own directory on " +
-			"their own machine, readable by them without yolo's help")
-	}
 	if local.Embedded() {
-		t.Error("the local pack reports Embedded() — it is not shipped with yolo, and embedded " +
-			"origin carries yolo's release authority rather than the user's")
+		t.Error("the local pack reports Embedded() — it is not shipped with yolo, and the " +
+			"embedded origin is the one `pack install` skips because there is nothing to fetch")
 	}
 }
 

@@ -373,7 +373,7 @@ func TestOwnershipIsRecordedThroughTheRealLoader(t *testing.T) {
 	}
 	writeUserPacks(t, home, `[{"name": "acme", "source": "file://`+root+`"}]`)
 
-	p, probs := packload.LoadDir(root, "acme", true)
+	p, probs := packload.LoadDir(root, "acme")
 	if len(probs) > 0 {
 		t.Fatalf("a pack declaring the loophole kind does not load: %v", probs)
 	}
@@ -432,8 +432,7 @@ func writeLoopholePack(t *testing.T, packName, loopholeName, manifestBody string
 		t.Fatal(err)
 	}
 	return &packload.Pack{
-		Name: packName, Root: root, MayAccessHost: true,
-		Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		Name: packName, Root: root, Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
 			{Kind: packdecl.Kind(packLoopholeKindName), From: "loopholes/" + loopholeName},
 		}},
 	}

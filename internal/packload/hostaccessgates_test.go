@@ -1,194 +1,174 @@
 package packload_test
 
-// hostaccessgates_test.go is a SOURCE-LEVEL assertion, and being source-level is the
-// point rather than a shortcut.
+// hostaccessgates_test.go pins an ABSENCE: there is no fetched-pack host-access gate
+// anywhere in yolo's production code, and reintroducing one is a design decision that has
+// to be made deliberately rather than by a commit.
 //
-// What it pins: the two host-access GATES — `internal/cli/pack.go`'s resolveHostApproval
-// (which prompts and records the lockfile) and `internal/cli/run/packs.go`'s
-// packMayAccessHost (which checks the lockfile at launch) — must build their claim set
-// through the ONE merged helper (packload.Pack.HostAccessClaims), never by naming a
-// producer directly.
+// # What this file used to be, and why the inversion is the point
 //
-// # Why a behavioural test cannot express this
+// It asserted that the two host-access GATES — `internal/cli/pack.go`'s
+// resolveHostApproval (which prompted and recorded the lockfile) and
+// `internal/cli/run/packs.go`'s packMayAccessHost (which checked the lockfile at launch) —
+// both built their claim set through one merged helper, so they could not disagree about
+// what a pack asked of the host. That invariant was real and the drift it caught was real.
+// It is also moot: OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) deleted BOTH gates as
+// theatre, on gate-placement-principle.md's Test 1 — selecting a pack means writing `packs`
+// in ~/.config/yolo-jail/config.jsonc as the host user, which is strictly more authority
+// than the gate withheld, so it refused an actor who had already passed a stronger one.
 //
-// The invariant is not "the two gates agree on this pack". It is "the two gates agree on
-// EVERY pack, including the ones a future producer will describe" — and a behavioural test
-// can only compare the two on inputs it constructs. The failure mode being prevented is
-// exactly a producer nobody thought to construct an input for:
+// The old file's own analysis left a trap for whoever comes next, and it is the reason this
+// one exists rather than nothing: it pinned that exactly TWO gates existed, naming them, so
+// a THIRD gate copied into `yolo check` would have satisfied the scan vacuously. A scan that
+// enumerates the gates is only as good as the enumeration. A scan for ZERO gates has no such
+// hole — every reintroduction is a new name, and every new name is a hit.
 //
-//	want := append(p.Decl.HostAccessClaims(), p.PluginHostAccessClaims()...)
+// # Why a source scan and not a behavioural test
 //
-// was inlined at both sites, and the SECOND producer (plugins) had to be added to both by
-// hand. A third — the `loophole` kind, whose claims are host code EXECUTION — makes the
-// cost of missing one stop being a config read:
+// The behavioural half lives beside the launch path
+// (internal/cli/run/packnohostgate_test.go): a genuinely fetched pack, never approved, whose
+// host claims are all honored by `stagePacks`. That is what fails if the launch is re-gated.
 //
-//   - added to the PROMPT only → the user approves a claim the launch gate never asks
-//     about, so an unapproved crossing is honored;
-//   - added to the LAUNCH gate only → the launch demands approval for a claim
-//     `pack install` never showed, so the pack is refused with no route to approving it.
+// It cannot cover the places that have no launch — `yolo check`, `yolo pack install`,
+// `yolo pack footprint`, the entrypoint — and a gate reintroduced at any of those is exactly
+// the shape the retired file's own "third gate" warning was about. So this half asks a
+// question no behavioural test can: does the identifier exist in production code AT ALL.
 //
-// A test over the SOURCE catches the omission at the moment it is written, for a producer
-// that does not exist yet. The design (loophole-packaging.md §3.3) asks for exactly this
-// and says a source-level assertion is acceptable and is the point.
+// # Comments are deliberately exempt
 //
-// It lives in packload because that is where the helper lives, so the test and the thing
-// it protects move together.
-//
-// # WHAT THIS TEST CANNOT SEE, and where the rest of the invariant lives
-//
-// It pins "the gate CALLS the helper". It does NOT pin "the gate ACTS ON THE WHOLE SET", and
-// the gap is reachable by a real change: inserting a POST-HOC FILTER after the merged call —
-//
-//	want := p.HostAccessClaims()
-//	for _, c := range want { if !strings.HasPrefix(c, "loophole ") { keep(c) } }
-//
-// leaves this scan satisfied while every loophole crossing becomes unprompted. Measured: with
-// that filter at run.packMayAccessHost the whole `-short` suite was green.
-//
-// IT CANNOT BE CLOSED STATICALLY, and the attempt is worse than the gap. Seeing the filter
-// requires reasoning about what happens to the VALUE the helper returned — dataflow, not a call
-// scan — and any rule crude enough to express here ("no `range` over the result", "no
-// strings.HasPrefix in this function") forbids ordinary code and breaks on the next legitimate
-// refactor of a security-critical function. A brittle rule that gets deleted the first time it
-// misfires protects nothing.
-//
-// So the other half is BEHAVIOURAL and lives beside the launch gate:
-// internal/cli/run/hostaccessgateeffect_test.go asserts, per producer, that a fetched pack
-// whose ONLY claim comes from that producer is REFUSED without a lockfile approval and GRANTED
-// with one. A filter dropping a producer's claims does not make the gate stricter — it makes it
-// GRANT, because `len(want) == 0` is read as "the gate is moot" — so the refusal case is what
-// catches it. That file also fails when the helper grows a producer no case covers, which is the
-// same protection this scan gives the CALL.
-//
-// Two tests, two different failure modes: this one catches a producer nobody merged, that one
-// catches a merged producer whose claims never reach the decision.
+// Every deletion this ruling made is recorded in prose that NAMES what it deleted — the
+// lockfile's `ApprovedHostAccess`, `config.PackEntry.MayGrantHostFiles`,
+// `packload.Pack.MayAccessHost`. That prose is the whole reason the next reader does not
+// re-derive the gate, so a text grep would forbid the documentation of the ruling it is
+// enforcing. The scan therefore runs over the AST and sees IDENTIFIERS only.
 
 import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// hostAccessProducers are the methods that each produce PART of a pack's host-access claim
-// set. Every one is legitimate INSIDE the merged helper and forbidden at a gate.
-var hostAccessProducers = []string{
-	"HostAccessClaims",         // pack.json's own contributions (packdecl.Manifest)
-	"PluginHostAccessClaims",   // a wrapped agent plugin's code-running components
-	"LoopholeHostAccessClaims", // a shipped loophole's daemon, intercepts, binds, devices
+// retiredGateIdents are the identifiers that MADE UP the fetched-pack host-access gate.
+// Every one is deleted; each row says what it was, so a hit reads as a specific
+// reintroduction rather than as a banned word.
+var retiredGateIdents = map[string]string{
+	"MayGrantHostFiles": "config.PackEntry's origin predicate — the input to every gate",
+	"MayAccessHost":     "packload.Pack's per-pack gate decision, set by the caller",
+	"packMayAccessHost": "internal/cli/run's LAUNCH gate (origin, else the lockfile)",
+	"resolveHostApproval": "internal/cli's INSTALL gate — the y/N prompt and its " +
+		"non-tty refusal",
+	"ApprovedHostAccess": "packsrc.LockEntry's recorded approval set",
+	"HostAccessApproved": "packsrc.LockEntry's superset check over that set",
+	"HostAccessClaims": "the claim set the prompt showed and the lockfile stored " +
+		"(on packdecl.Manifest, packload.Pack and pluginpack.Plugin)",
+	"PluginHostAccessClaims":       "a wrapped plugin's contribution to that set",
+	"LoopholeHostAccessClaims":     "a shipped loophole's contribution to that set",
+	"RefusedBriefingOverlays":      "the briefing-overlay refusal reporter",
+	"packRefusals":                 "the fold of every refusal into one launch fatal",
+	"refusedLaunchError":           "the fatal itself",
+	"NeedsHostAccess":              "packdecl's origin-gate predicate over a manifest",
+	"NeedsHostAccessContributions": "the same predicate expressed over contributions",
 }
 
-// The gates, and the function in each that must call the merged helper. Named individually
-// rather than scanning every file, because "a gate" is a specific role: these two are the
-// ones whose disagreement means an unapproved crossing is honored or an approvable pack is
-// unapprovable.
-var hostAccessGates = []struct {
-	file string // repo-relative
-	fn   string // the gate function
-}{
-	{filepath.Join("internal", "cli", "pack.go"), "resolveHostApproval"},
-	{filepath.Join("internal", "cli", "run", "packs.go"), "packMayAccessHost"},
-}
-
-// TestHostAccessGatesUseTheMergedHelper fails if either gate calls a claim producer
-// directly, or stops calling the merged helper at all.
-func TestHostAccessGatesUseTheMergedHelper(t *testing.T) {
+// TestNoFetchedPackHostAccessGateExists fails if any production file names one of the
+// retired gate identifiers in CODE.
+//
+// A hit is not automatically a bug — it is a claim that the ruling was reversed, and that
+// belongs in docs/design/trust-paths.md before it belongs in a .go file.
+func TestNoFetchedPackHostAccessGateExists(t *testing.T) {
 	root := repoRootFor(t)
-	for _, gate := range hostAccessGates {
-		path := filepath.Join(root, gate.file)
-		fset := token.NewFileSet()
-		parsed, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	var hits []string
+	for _, dir := range []string{"internal", "cmd", "packs"} {
+		walkProductionGo(t, filepath.Join(root, dir), func(rel string, file *ast.File) {
+			ast.Inspect(file, func(n ast.Node) bool {
+				id, ok := n.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				if why, retired := retiredGateIdents[id.Name]; retired {
+					hits = append(hits, rel+": "+id.Name+" — "+why)
+				}
+				return true
+			})
+		})
+	}
+	if len(hits) == 0 {
+		return
+	}
+	t.Errorf("a fetched-pack host-access gate is back in production code:\n  %s\n\n"+
+		"OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) deleted every one of these as "+
+		"THEATRE: naming a pack in `packs` means editing ~/.config/yolo-jail/config.jsonc "+
+		"as the host user, which already grants strictly more than any of them withheld, so "+
+		"a gate here refuses an actor who has already passed a stronger one "+
+		"(gate-placement-principle.md Test 1). What replaced them is DISCLOSURE — "+
+		"packload.FootprintOf, run.notePackHostAccess, run.startLoopholesDisclosed — and "+
+		"disclosure is not subject to that test at all.\n\n"+
+		"If a gate genuinely belongs here now, RULE ON IT FIRST and then delete the row "+
+		"from retiredGateIdents. Do not delete the row to make this pass: the trap the "+
+		"retired version of this file left behind was an enumeration that could be "+
+		"satisfied vacuously, and quietly shortening a list is how that happens.",
+		strings.Join(hits, "\n  "))
+}
+
+// TestTheDisclosureThatReplacedTheGateIsStillWired is the other half of the ruling, and it
+// is here because deleting a gate and deleting the thing that replaced it are one edit
+// apart. OQ-TP9 keeps the transparency banner explicitly — "disclosure is not consent, and
+// it is now the ONLY place a user sees what a pack reaches" — so an empty FootprintOf on
+// this side would make the scan above pass over a strictly worse system.
+func TestTheDisclosureThatReplacedTheGateIsStillWired(t *testing.T) {
+	root := repoRootFor(t)
+	found := map[string]bool{}
+	for _, dir := range []string{"internal", "cmd"} {
+		walkProductionGo(t, filepath.Join(root, dir), func(_ string, file *ast.File) {
+			ast.Inspect(file, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok {
+					found[id.Name] = true
+				}
+				return true
+			})
+		})
+	}
+	for name, why := range map[string]string{
+		"FootprintOf":             "the per-pack claim enumeration every disclosure reads",
+		"notePackHostAccess":      "the launch banner: what each pack READS this launch",
+		"startLoopholesDisclosed": "the pre-spawn block: what RUNS on your machine",
+		"packHostExecClaims":      "the host-execution lines that block prints",
+	} {
+		if !found[name] {
+			t.Errorf("%s is gone — %s. OQ-TP9 deleted the approval gate ON CONDITION that "+
+				"the disclosure stays, because it is now the only thing that tells a user "+
+				"what a pack reaches. Losing both is not what was ruled", name, why)
+		}
+	}
+}
+
+// walkProductionGo parses every non-test .go file under dir and hands each to fn.
+func walkProductionGo(t *testing.T, dir string, fn func(rel string, file *ast.File)) {
+	t.Helper()
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("parsing %s: %v", gate.file, err)
+			return err
 		}
-		body := findFuncBody(parsed, gate.fn)
-		if body == nil {
-			t.Fatalf("%s: function %q not found — it is one of the two host-access gates; if "+
-				"it was renamed or moved, update hostAccessGates so the invariant keeps being "+
-				"checked (do not just delete the row)", gate.file, gate.fn)
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
 		}
-
-		called := calledSelectors(body)
-		if !called["HostAccessClaims"] {
-			t.Errorf("%s: %s does not call the merged helper — it must build its claim set "+
-				"with p.HostAccessClaims() (packload.Pack), so the install gate and the launch "+
-				"gate compare the SAME union. Hand-merging producers is how the two drifted "+
-				"before", gate.file, gate.fn)
+		// parser.SkipObjectResolution and no ParseComments: the scan is over identifiers,
+		// and comments recording the deletion must not read as the deletion being undone.
+		parsed, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if perr != nil {
+			t.Fatalf("parsing %s: %v", path, perr)
 		}
-		// The merged helper is spelled `HostAccessClaims` too (on *Pack, shadowing nothing —
-		// packdecl's is on *Manifest), so the forbidden call is the QUALIFIED one: a producer
-		// reached through `.Decl`, or either of the two whose names are unambiguous.
-		for _, producer := range hostAccessProducers {
-			if producer == "HostAccessClaims" {
-				continue // the merged helper's own name; the qualified form is checked below
-			}
-			if called[producer] {
-				t.Errorf("%s: %s calls %s() directly. Every producer must be merged by "+
-					"packload.Pack.HostAccessClaims and read from there, or this gate and the "+
-					"other one can disagree about what a pack asks of the host — which means "+
-					"either an unapproved crossing is honored, or an approved pack is refused "+
-					"with no way to approve it", gate.file, gate.fn, producer)
-			}
-		}
-		if usesDeclClaims(body) {
-			t.Errorf("%s: %s reads p.Decl.HostAccessClaims() — that is pack.json's claims "+
-				"ALONE, which silently omits every producer whose declaration lives outside "+
-				"pack.json (a wrapped plugin's hooks, a shipped loophole's host daemon). Call "+
-				"p.HostAccessClaims() instead", gate.file, gate.fn)
-		}
-	}
-}
-
-// findFuncBody returns the body of the named top-level function, or nil.
-func findFuncBody(file *ast.File, name string) *ast.BlockStmt {
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name.Name == name {
-			return fn.Body
-		}
-	}
-	return nil
-}
-
-// calledSelectors returns the set of method names called as `x.Name(...)` anywhere in body.
-func calledSelectors(body *ast.BlockStmt) map[string]bool {
-	out := map[string]bool{}
-	ast.Inspect(body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			out[sel.Sel.Name] = true
-		}
-		return true
+		fn(path, parsed)
+		return nil
 	})
-	return out
-}
-
-// usesDeclClaims reports whether body calls `<something>.Decl.HostAccessClaims(...)` — the
-// pack.json-only producer, which is the one whose name collides with the merged helper's
-// and therefore needs the receiver checked rather than the method name.
-func usesDeclClaims(body *ast.BlockStmt) bool {
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "HostAccessClaims" {
-			return true
-		}
-		if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "Decl" {
-			found = true
-		}
-		return true
-	})
-	return found
+	if err != nil {
+		t.Fatalf("walking %s: %v", dir, err)
+	}
 }
 
 // repoRootFor walks up to the dir holding go.mod. (A copy of the package-internal
@@ -208,34 +188,5 @@ func repoRootFor(t *testing.T) string {
 			t.Fatal("go.mod not found")
 		}
 		dir = parent
-	}
-}
-
-// The producer list must not go stale silently: every name in it has to be a real method
-// on *Pack or *packdecl.Manifest. A renamed producer would otherwise make the check above
-// pass vacuously, which is the exact shape of the bug it exists to catch.
-func TestHostAccessProducersExist(t *testing.T) {
-	root := repoRootFor(t)
-	sources := []string{
-		filepath.Join(root, "internal", "packdecl", "contributes.go"),
-		filepath.Join(root, "internal", "packload", "plugins.go"),
-		filepath.Join(root, "internal", "packload", "loopholesource.go"),
-		filepath.Join(root, "internal", "packload", "hostaccess.go"),
-	}
-	var all strings.Builder
-	for _, src := range sources {
-		data, err := os.ReadFile(src)
-		if err != nil {
-			t.Fatal(err)
-		}
-		all.Write(data)
-	}
-	text := all.String()
-	for _, producer := range hostAccessProducers {
-		if !strings.Contains(text, ") "+producer+"()") {
-			t.Errorf("producer %q is not declared in any of the claim-producing files — it was "+
-				"renamed or removed, which makes TestHostAccessGatesUseTheMergedHelper pass "+
-				"vacuously for it", producer)
-		}
 	}
 }

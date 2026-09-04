@@ -186,7 +186,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// destination declared for itself, and prose that named an audience reaches it only
 		// if that audience names this identity.
 		content := jailcontent.ComposePackBriefings(briefingBody, packBriefings, d.Agent)
-		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" && d.MayAccessHost {
+		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" {
 			if src := filepath.Join(home, hostOverlay); !generated[src] {
 				content = jailcontent.PrependHostBriefing(src, content)
 			}

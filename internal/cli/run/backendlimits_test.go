@@ -15,7 +15,7 @@ func limitPack(t *testing.T) *packload.Pack {
 	t.Helper()
 	// MayAccessHost: HonoredHostFiles refuses a FETCHED pack's grants outright, so a
 	// pack without it produces no ungranted list and the test would pass vacuously.
-	return &packload.Pack{Name: "acme", Root: t.TempDir(), MayAccessHost: true, Decl: &packdecl.Manifest{
+	return &packload.Pack{Name: "acme", Root: t.TempDir(), Decl: &packdecl.Manifest{
 		Name: "acme",
 		Contributes: []packdecl.Contribution{
 			{Kind: packdecl.KindState, At: ".acme", Scope: "workspace"},

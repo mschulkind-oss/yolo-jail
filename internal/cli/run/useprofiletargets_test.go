@@ -324,7 +324,7 @@ func profilePackFixture(t *testing.T, name string) *packload.Pack {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, name, false)
+	p, problems := packload.LoadDir(root, name)
 	if len(problems) != 0 {
 		t.Fatalf("loading fixture pack: %v", problems)
 	}

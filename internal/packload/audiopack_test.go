@@ -68,21 +68,13 @@ func embeddedAudioPack(t *testing.T) *packload.Pack {
 	return nil
 }
 
-// The pack is EMBEDDED and carries yolo's own authority, which is what makes it an
-// "official" pack in the one sense that matters (packs/embed.go's package doc).
-//
-// MayAccessHost is the load-bearing half for this pack specifically: it is the gate
-// packLoopholeModules reuses to decide whether a loophole's host access is approved, so an
-// embedded pack shipping a loophole needs no lockfile entry and no prompt — the user's
-// selection IS the approval, because the content shipped with the binary they ran.
-func TestAudioPackIsEmbeddedWithHostAuthority(t *testing.T) {
+// The pack is EMBEDDED, which since OQ-TP9 means exactly one thing: it needs no fetch and
+// records no pin (packs/embed.go's package doc). It used to mean more — it carried yolo's
+// own authority through MayAccessHost, which packLoopholeModules reused to decide whether
+// this loophole's host access was approved — and that gate is deleted, so what is left to
+// assert is that the tree really materialized out of the binary.
+func TestAudioPackIsEmbeddedAndMaterialized(t *testing.T) {
 	p := embeddedAudioPack(t)
-	if !p.MayAccessHost {
-		t.Error("an embedded pack must carry host authority (packload.MaterializeEmbedded " +
-			"passes mayAccessHost=true); without it the loophole's module would be " +
-			"origin-gated against a lockfile that can never have an entry for a pack " +
-			"nobody installs")
-	}
 	if _, err := os.Stat(filepath.Join(p.Root, packdecl.ManifestName)); err != nil {
 		t.Errorf("pack.json not materialized: %v", err)
 	}
@@ -166,45 +158,48 @@ func TestAudioPackClaimTargetsAreExact(t *testing.T) {
 	}
 }
 
-// The approval strings are what `pack install` records and the launch gate compares, so
-// they are pinned separately from the footprint targets: the two renderings are
-// deliberately not the same string (the footprint's Detail may abbreviate; an approval
-// string may not), and a change that collapsed them would be invisible to the test above.
+// The DISCLOSED crossings name the HOST side of every bind, RAW.
 //
-// RAW, with `{loophole_dir}` UNEXPANDED. That is the G2a rule and it is load-bearing: an
-// expanded claim carries a staging path that differs per launch and per machine, so it
-// could never match a recorded approval, would re-prompt forever, and — since promptYesNo
-// fails closed on a non-TTY — would refuse the loophole permanently.
-func TestAudioPackApprovalClaimsAreRawAndSpecific(t *testing.T) {
-	claims := embeddedAudioPack(t).HostAccessClaims()
-	if len(claims) != 4 {
-		t.Fatalf("host-access claims = %v; want the three loophole binds plus the device "+
-			"(env is static and ungated, so it is not an approval claim)", claims)
+// It was TestAudioPackApprovalClaimsAreRawAndSpecific, over the approval strings
+// `pack install` recorded and the launch gate compared. OQ-TP9 deleted both ends, and the
+// one rendering left is the footprint's — but the property it pinned is now MORE load-bearing,
+// not less: the test above pins the claim TARGETS, which key on the CONTAINER path, so
+// without this nothing anywhere says which host path the jail is about to be handed.
+//
+// RAW, with `{loophole_dir}` and `${XDG_RUNTIME_DIR}` UNEXPANDED. Two reasons, both
+// surviving the ruling: the target is a collision key, so an expanded, per-machine path
+// would make one declaration read as a different claim on every machine; and the detail is
+// what a user reads, where the DECLARATION is the thing they can check against the pack's
+// manifest.
+func TestAudioPackDisclosesRawHostPaths(t *testing.T) {
+	var lines []string
+	for _, c := range packload.FootprintOf(embeddedAudioPack(t)).Claims {
+		if c.Kind == packdecl.KindLoophole {
+			lines = append(lines, c.Target+" "+c.Detail)
+		}
 	}
-	joined := strings.Join(claims, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("loophole claims = %v; want the three binds plus the device "+
+			"(env is static and crosses nothing, so it is not a loophole claim)", lines)
+	}
+	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		loopholedecl.TokenLoopholeDir + "/asound.conf",
 		"/etc/alsa/conf.d/50-yolo-audio-alsa.conf",
-		// RAW, with the variable UNEXPANDED — this is the G2a rule doing the work that
-		// OQ-LP14's ruling leans on: the approval records the DECLARATION, so it stays
-		// machine-independent even though the resolved path is /run/user/<uid>/....
 		"${XDG_RUNTIME_DIR}/pulse/native",
 		"${XDG_RUNTIME_DIR}/pipewire-0",
 		"/dev/snd",
 	} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("approval claims must mention %q:\n%s", want, joined)
+			t.Errorf("the disclosed crossings must mention %q:\n%s", want, joined)
 		}
 	}
-	// The resolved spelling must NOT appear: an expanded claim carries a per-machine
-	// path, could never match a recorded approval, and — since promptYesNo fails closed
-	// on a non-TTY — would refuse the loophole permanently.
 	if strings.Contains(joined, "/run/user/") {
-		t.Errorf("an approval claim expanded ${XDG_RUNTIME_DIR}:\n%s", joined)
+		t.Errorf("a claim expanded ${XDG_RUNTIME_DIR} — the target is a collision key and "+
+			"would then differ per machine:\n%s", joined)
 	}
 	if strings.Contains(joined, "/tmp/") || strings.Contains(joined, packsRootHint) {
-		t.Errorf("approval claim leaked a staging path — it must stay machine-independent "+
-			"(G2a), or it can never match a recorded approval:\n%s", joined)
+		t.Errorf("a claim leaked a staging path; it must stay machine-independent:\n%s", joined)
 	}
 }
 
@@ -361,7 +356,7 @@ func TestAudioPackDoesNotCollideWithTheBundledAudioDestinations(t *testing.T) {
 // `:mount:`), so they are distinguishable by key and not merely by prose.
 func TestAudioShapedManifestEnumeratesEveryCrossingClass(t *testing.T) {
 	root := writeLoopholePack(t, map[string]string{"audio-shaped": audioShapedManifest})
-	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	claims := disclosedCrossings(loadPack(t, root))
 	if len(claims) != 4 {
 		t.Fatalf("audio-shaped manifest emits %d claims, want 4 (three binds + /dev/snd):\n%s",
 			len(claims), strings.Join(claims, "\n"))

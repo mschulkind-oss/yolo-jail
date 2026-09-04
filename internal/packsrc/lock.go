@@ -42,57 +42,24 @@ type LockEntry struct {
 	// Ref is the ref as written, kept alongside Commit so the pair reads as
 	// "asked for main, got <sha>".
 	Ref string `json:"ref,omitempty"`
-	// ApprovedHostAccess is the set of SPECIFIC host-access claims
-	// (packdecl.HostAccessClaims — "mount X -> /ctx/Y", "reads-host Z", …) the user
-	// approved for this pack at install time. A fetched pack gets host access at
-	// launch only for the claims recorded here; a new commit whose claims are a
-	// SUPERSET re-prompts. Empty for a pack that reads nothing from the host, and
-	// unused for embedded/local packs (their origin already permits host access).
-	//
-	// Stored sorted, so the JSON is stable and a superset check is a plain walk.
-	ApprovedHostAccess []string `json:"approvedHostAccess,omitempty"`
-	//
-	// THERE IS DELIBERATELY NO `ApprovedAt` FIELD. One existed, was written on every
-	// install, and was read by nothing — so a lockfile carried a field whose name said the
-	// approval was anchored to a commit while HostAccessApproved below compared claim
-	// STRINGS only. A persisted field in a TRUST file is not read as documentation; it is
-	// read as a fact about the system, so the next person to build a gate against it would
-	// have built on a guarantee that was never there
-	// (docs/design/gate-placement-principle.md, "The artifact form").
-	//
-	// The gap it gestured at is real and stays recorded as an ASSERTION instead:
-	// TestHostAccessApprovedComparesClaimStringsOnly. That is
-	// docs/design/loophole-packaging.md §4.3 G2b — a fetched pack at a mutable ref whose
-	// daemon FILE changes under an unchanged argv passes with no re-prompt. Whether to
-	// close it is OQ-LP8, open on purpose. Removing the field costs no compatibility:
-	// decoding does not reject unknown keys, so an existing lockfile keeps a stray
-	// "approvedAt" that nothing reads.
-}
 
-// HostAccessApproved reports whether every claim in `want` (a pack's current
-// HostAccessClaims) is already in this entry's approved set — i.e. the pack asks for
-// nothing the user has not already granted. An empty `want` is trivially approved
-// (the pack reads nothing from the host). A claim in `want` absent from the approved
-// set means the footprint GAINED host access and the caller must re-prompt.
-//
-// IT COMPARES CLAIM STRINGS ONLY — never the commit the approval was granted against. That
-// is §4.3 G2b's open gap, and it is asserted by TestHostAccessApprovedComparesClaimStringsOnly
-// rather than only described, so the hole stays pinned by something that fails if the
-// behaviour changes. See the note on ApprovedHostAccess above for why there is no field.
-func (e LockEntry) HostAccessApproved(want []string) bool {
-	if len(want) == 0 {
-		return true
-	}
-	have := map[string]bool{}
-	for _, c := range e.ApprovedHostAccess {
-		have[c] = true
-	}
-	for _, c := range want {
-		if !have[c] {
-			return false
-		}
-	}
-	return true
+	// THERE IS NO APPROVAL RECORD HERE, and its absence is a ruling rather than an
+	// omission. `ApprovedHostAccess` held the specific host-access claims a user said yes
+	// to at `yolo pack install` ("mount X -> /ctx/Y", "reads-host Z", a loophole's daemon
+	// argv), and `HostAccessApproved` was the launch gate's superset check over it. Both
+	// were deleted on 2026-09-04 with the prompt that wrote them
+	// (docs/design/trust-paths.md OQ-TP9): selecting a pack means writing `packs` in the
+	// user config as the host user, which is strictly more authority than the gate
+	// withheld, so it refused an actor who had already passed a stronger one
+	// (gate-placement-principle.md Test 1). An `ApprovedAt` alongside it had gone the same
+	// way earlier, for the narrower version of the same reason — it was written by every
+	// install and read by nothing.
+	//
+	// DO NOT REINTRODUCE EITHER WITHOUT A DESIGN RULING. A persisted field in a TRUST file
+	// is not read as documentation; it is read as a fact about the system, so a field
+	// asserting an approval nothing enforces is worse than no field. Removing them costs no
+	// compatibility: decoding does not reject unknown keys, so an existing lockfile keeps a
+	// stray "approvedHostAccess"/"approvedAt" that nothing reads.
 }
 
 // Lock is the whole lockfile.

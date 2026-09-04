@@ -78,8 +78,8 @@ var npmRefresh = refreshNpmProgramsFromOS
 // npm half — the two are independent (a pack whose git remote is offline says nothing
 // about whether an agent CLI can reach the npm registry), and an update that silently
 // stopped after the first error would leave the user unable to tell which half ran.
-func packUpdate(out, errw io.Writer, color bool, stdin io.Reader) int {
-	rc := packInstall(out, errw, color, stdin)
+func packUpdate(out, errw io.Writer, color bool) int {
+	rc := packInstall(out, errw, color)
 	if n := npmRefresh(richtext.Printer{W: out, Color: color}, errw); n != 0 && rc == 0 {
 		rc = n
 	}

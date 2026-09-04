@@ -60,11 +60,11 @@ func TestMachineGlobalTierStaysNarrow(t *testing.T) {
 // entirely — a fetched pack naming "../../etc/shadow" is the case that makes this a security
 // property rather than tidiness.
 //
-// It walks NeedsHostAccess's three declarations (hostFiles, mounts[].hostOverlay,
-// install.installerUrl) rather than just the one named "hostFiles", because collapsing the
-// boundary to a single field is the exact mistake the old version was written to prevent —
-// back when it was AgentSpec.HostFiles while Briefing.HostSource and Skills read the host
-// home too.
+// It walks EVERY declaration that reads the host home (host files, mounts[].hostOverlay,
+// hooks' file and sharedDir) rather than just the one named "hostFiles", because collapsing
+// the boundary to a single field is the exact mistake the old version was written to
+// prevent — back when it was AgentSpec.HostFiles while Briefing.HostSource and Skills read
+// the host home too.
 func TestEveryHostHomeReadIsHomeRelative(t *testing.T) {
 	for _, p := range loadAll(t) {
 		for _, hf := range p.Decl.HostFileContributions() {
@@ -161,32 +161,29 @@ func TestHostFileGrantsAreExactlyTwoSettingsFiles(t *testing.T) {
 	}
 }
 
-// TestFetchedPacksGetNoHostAccess is the enforcement half: the identical declaration is
-// HONORED for a pack whose content ships with yolo and REFUSED for one fetched from a git
-// ref. Installing a third-party pack approves distributing content, not handing that
-// repository your host config.
+// TestEveryShippedPacksHostFilesAreHonored is what is left of TestFetchedPacksGetNoHostAccess,
+// which asserted that the identical declaration was HONORED for an embedded pack and REFUSED
+// for one reached as fetched content. OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) deleted
+// that split — origin no longer decides anything — so what remains is the half that was never
+// about origin: a shipped pack's declared host files must actually be delivered.
 //
-// Both directions are asserted from one declaration, because a test that only checked the
-// refusal would pass on an implementation that refused everything.
-func TestFetchedPacksGetNoHostAccess(t *testing.T) {
+// It is not tautological beside the shape check above. That one walks the DECLARATIONS; this
+// one walks what HonoredHostFiles returns, so a gate reintroduced in packload (rather than at
+// a call site, which packnohostgate_test.go covers) turns this red.
+func TestEveryShippedPacksHostFilesAreHonored(t *testing.T) {
 	for _, p := range loadAll(t) {
-		if len(p.Decl.HostFileContributions()) == 0 {
+		want := len(p.Decl.HostFileContributions())
+		if want == 0 {
 			continue
 		}
 		granted, refused := p.HonoredHostFiles()
-		if len(granted) == 0 || len(refused) != 0 {
-			t.Errorf("embedded pack %s: want its host files granted, got %d granted / %d "+
-				"refused", p.Name, len(granted), len(refused))
+		if len(granted) != want {
+			t.Errorf("pack %s declares %d host file(s) and %d were honored", p.Name, want,
+				len(granted))
 		}
-		// The same pack, reached as fetched content.
-		fetched := &packload.Pack{Name: p.Name, Root: p.Root, Decl: p.Decl, MayAccessHost: false}
-		granted, refused = fetched.HonoredHostFiles()
-		if len(granted) != 0 {
-			t.Errorf("as a FETCHED pack, %s must be granted nothing, got %v", p.Name, granted)
-		}
-		if len(refused) != len(p.Decl.HostFileContributions()) {
-			t.Errorf("as a FETCHED pack, %s must report a refusal per declaration: got %d "+
-				"for %d", p.Name, len(refused), len(p.Decl.HostFileContributions()))
+		if len(refused) != 0 {
+			t.Errorf("pack %s had host files REFUSED: %v\nThe origin gate is deleted; a "+
+				"refusal here is a gate that came back without a ruling", p.Name, refused)
 		}
 	}
 }

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // `pack init` must scaffold a pack that `pack lint` accepts. If the scaffold did not
@@ -20,7 +18,7 @@ import (
 func TestPackInitScaffoldLintsClean(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"init", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"init", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("init rc = %d: %s", rc, errw.String())
 	}
 	for _, want := range []string{"AGENTS.md", "SKILL.md", "README.md"} {
@@ -30,7 +28,7 @@ func TestPackInitScaffoldLintsClean(t *testing.T) {
 	}
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("scaffolded pack does not lint clean: rc %d\n%s%s", rc, out.String(), errw.String())
 	}
 }
@@ -40,13 +38,13 @@ func TestPackInitScaffoldLintsClean(t *testing.T) {
 func TestPackInitDoesNotClobber(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	edited := filepath.Join(dir, "AGENTS.md")
 	if err := os.WriteFile(edited, []byte("MY OWN PROSE\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if rc := packMain([]string{"init", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"init", dir}, &out, &errw, false); rc != 0 {
 		t.Fatal(errw.String())
 	}
 	if !strings.Contains(out.String(), "skip AGENTS.md") {
@@ -72,7 +70,7 @@ func TestPackInitDoesNotClobber(t *testing.T) {
 func TestPackLintReportsStagingRefusals(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	outside := filepath.Join(t.TempDir(), "secret")
 	if err := os.WriteFile(outside, []byte("k"), 0o600); err != nil {
 		t.Fatal(err)
@@ -82,7 +80,7 @@ func TestPackLintReportsStagingRefusals(t *testing.T) {
 	}
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatal("expected lint to fail on a symlink escaping the pack root")
 	}
 	report := out.String() + errw.String()
@@ -101,7 +99,7 @@ func TestPackLintReportsStagingRefusals(t *testing.T) {
 func TestPackLintReportsStagingRefusalAndManifestTogether(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	outside := filepath.Join(t.TempDir(), "secret")
 	if err := os.WriteFile(outside, []byte("k"), 0o600); err != nil {
 		t.Fatal(err)
@@ -116,7 +114,7 @@ func TestPackLintReportsStagingRefusalAndManifestTogether(t *testing.T) {
 	}
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatal("expected lint to fail")
 	}
 	report := out.String() + errw.String()
@@ -138,7 +136,7 @@ func TestPackLintReportsStagingRefusalAndManifestTogether(t *testing.T) {
 func TestPackLintAndFootprintAcceptAnExecutable(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	tool := filepath.Join(dir, "skills", "s", "references", "check.sh")
 	if err := os.MkdirAll(filepath.Dir(tool), 0o755); err != nil {
 		t.Fatal(err)
@@ -153,7 +151,7 @@ func TestPackLintAndFootprintAcceptAnExecutable(t *testing.T) {
 	for _, verb := range []string{"lint", "footprint"} {
 		out.Reset()
 		errw.Reset()
-		if rc := packMain([]string{verb, dir}, &out, &errw, false, nil); rc != 0 {
+		if rc := packMain([]string{verb, dir}, &out, &errw, false); rc != 0 {
 			t.Errorf("%s refused a pack shipping a skill's own tool: rc %d\n%s%s",
 				verb, rc, out.String(), errw.String())
 		}
@@ -168,7 +166,7 @@ func TestPackLintAndFootprintAcceptAnExecutable(t *testing.T) {
 func TestPackLintNamesTheOwningPack(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	// One destination an agent pack owns, one nobody owns (agy moved off this path).
 	manifest := `{"name":"t","contributes":[` +
 		`{"kind":"skills","from":"skills","into":".claude/skills"},` +
@@ -178,7 +176,7 @@ func TestPackLintNamesTheOwningPack(t *testing.T) {
 	}
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("lint failed: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	report := out.String()
@@ -203,7 +201,7 @@ func TestPackLintNamesTheOwningPack(t *testing.T) {
 func TestPackLintCatchesSkillDirWithoutManifest(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	broken := filepath.Join(dir, "skills", "broken")
 	if err := os.MkdirAll(broken, 0o755); err != nil {
 		t.Fatal(err)
@@ -212,7 +210,7 @@ func TestPackLintCatchesSkillDirWithoutManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatal("expected lint to flag a skill dir with no SKILL.md")
 	}
 	if !strings.Contains(out.String(), "skills/broken") {
@@ -236,7 +234,7 @@ func TestPackLintFlagsStagedContentNothingReads(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "stray.txt"), "x")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("expected lint to flag staged content nothing reads:\n%s", out.String())
 	}
 	got := out.String()
@@ -261,7 +259,7 @@ func TestPackLintIgnoresNonContentRootFiles(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "LICENSE"), "MIT\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("lint rejected a config pack carrying a README/LICENSE (rc=%d):\n%s",
 			rc, out.String())
 	}
@@ -278,7 +276,7 @@ func TestPackLintDistinguishesDoingNothingFromDoingConfigOnly(t *testing.T) {
 	writeFile(t, filepath.Join(zero, "pack.json"), `{"name":"zero","contributes":[]}`)
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", zero}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", zero}, &out, &errw, false); rc == 0 {
 		t.Fatalf("a pack that does nothing must be flagged:\n%s", out.String())
 	}
 	got := out.String()
@@ -299,7 +297,7 @@ func TestPackLintDistinguishesDoingNothingFromDoingConfigOnly(t *testing.T) {
 		`"managed":{"theme":"dark"}}]}]}`)
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", cfg}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", cfg}, &out, &errw, false); rc != 0 {
 		t.Fatalf("a config-only pack does real work and must lint clean (rc=%d):\n%s",
 			rc, out.String())
 	}
@@ -317,7 +315,7 @@ func TestPackLintAcceptsPureFilesPack(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "tree", "models.json"), "{}\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("lint rejected a files+config-overlay pack (F5) with rc=%d:\n%s",
 			rc, out.String())
 	}
@@ -334,7 +332,7 @@ func TestShippedPacksLintClean(t *testing.T) {
 	}
 	for _, p := range packs {
 		var out, errw bytes.Buffer
-		if rc := packMain([]string{"lint", p.Root}, &out, &errw, false, nil); rc != 0 {
+		if rc := packMain([]string{"lint", p.Root}, &out, &errw, false); rc != 0 {
 			t.Errorf("shipped pack %s does not lint clean (rc=%d):\n%s%s",
 				p.Name, rc, out.String(), errw.String())
 		}
@@ -353,7 +351,7 @@ func TestPackLintAcceptsZeroCeremonyPack(t *testing.T) {
 		"---\nname: example\ndescription: d\n---\nbody\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("lint rejected a zero-ceremony pack (rc=%d):\n%s", rc, out.String())
 	}
 }
@@ -373,7 +371,7 @@ func TestPackLintTracksTheBriefingConvention(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "CLAUDE.md"), "prose\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("lint accepted a pack whose only content is CLAUDE.md; nothing reads that "+
 			"name any more, so the pack does nothing:\n%s", out.String())
 	}
@@ -387,7 +385,7 @@ func TestPackLintTracksTheBriefingConvention(t *testing.T) {
 	writeFile(t, filepath.Join(agents, "AGENTS.md"), "prose\n")
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", agents}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", agents}, &out, &errw, false); rc != 0 {
 		t.Fatalf("lint rejected a pack carrying the conventional AGENTS.md (rc=%d):\n%s",
 			rc, out.String())
 	}
@@ -405,7 +403,7 @@ func TestPackLintTypoedFromDrawsOneDiagnosis(t *testing.T) {
 		"---\nname: example\ndescription: d\n---\nbody\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("a typo'd `from` must still fail lint:\n%s", out.String())
 	}
 	got := out.String()
@@ -423,7 +421,7 @@ func TestPackLintTypoedFromDrawsOneDiagnosis(t *testing.T) {
 func TestPackLintValidatesManifest(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil) // valid skeleton (skills + AGENTS.md)
+	packMain([]string{"init", dir}, &out, &errw, false) // valid skeleton (skills + AGENTS.md)
 
 	// A manifest with an unknown kind AND a missing required field.
 	manifest := `{"contributes":[{"kind":"nonsense"},{"kind":"program","bin":"x"}]}`
@@ -432,7 +430,7 @@ func TestPackLintValidatesManifest(t *testing.T) {
 	}
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("expected lint to fail on a malformed manifest:\n%s%s", out.String(), errw.String())
 	}
 	got := out.String() + errw.String()
@@ -450,14 +448,14 @@ func TestPackLintValidatesManifest(t *testing.T) {
 func TestPackLintPrintsFootprint(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	manifest := `{"contributes":[{"kind":"env","vars":{"ACME_MODE":"fast"}}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("valid manifest should lint clean: rc %d\n%s%s", rc, out.String(), errw.String())
 	}
 	if !strings.Contains(out.String(), "ACME_MODE") {
@@ -470,14 +468,14 @@ func TestPackLintPrintsFootprint(t *testing.T) {
 func TestPackFootprintAcceptsLocalPath(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	manifest := `{"contributes":[{"kind":"mount","host":"datasets/acme","into":"acme-data"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint on a local path failed: rc %d\n%s%s", rc, out.String(), errw.String())
 	}
 	// The mount claim (host read → /ctx) must appear and be flagged for review.
@@ -488,7 +486,7 @@ func TestPackFootprintAcceptsLocalPath(t *testing.T) {
 
 func TestPackUnknownVerbIsAnError(t *testing.T) {
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"frobnicate"}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"frobnicate"}, &out, &errw, false); rc == 0 {
 		t.Error("unknown verb should fail")
 	}
 	if !strings.Contains(errw.String(), "unknown verb") {
@@ -504,7 +502,7 @@ func TestPackExplainReportsFilteredFiles(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	var out, errw bytes.Buffer
-	packMain([]string{"init", pack}, &out, &errw, false, nil)
+	packMain([]string{"init", pack}, &out, &errw, false)
 
 	cfgDir := filepath.Join(home, ".config", "yolo-jail")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
@@ -517,7 +515,7 @@ func TestPackExplainReportsFilteredFiles(t *testing.T) {
 
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"explain", "p"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"explain", "p"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("explain rc = %d: %s", rc, errw.String())
 	}
 	got := out.String()
@@ -541,7 +539,7 @@ func TestPackExplainUnknownNameIsAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"explain", "nope"}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"explain", "nope"}, &out, &errw, false); rc == 0 {
 		t.Error("explain of an unconfigured pack should fail")
 	}
 	if !strings.Contains(errw.String(), "pack ls") {
@@ -562,7 +560,7 @@ func TestPackLsEmptyExplainsWhereToConfigure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"ls"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"ls"}, &out, &errw, false); rc != 0 {
 		t.Fatal(errw.String())
 	}
 	if !strings.Contains(out.String(), "user scope only") {
@@ -622,7 +620,7 @@ func TestPackInstallFetchesAndLocks(t *testing.T) {
 	}
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"install"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("install rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
 	if !strings.Contains(out.String(), "gp") {
@@ -645,7 +643,7 @@ func TestPackInstallFetchesAndLocks(t *testing.T) {
 
 	// Re-install is idempotent and says so, rather than implying it re-fetched.
 	out.Reset()
-	if rc := packMain([]string{"install"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("second install rc = %d: %s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "unchanged") {
@@ -654,7 +652,7 @@ func TestPackInstallFetchesAndLocks(t *testing.T) {
 
 	// status reports the locked commit.
 	out.Reset()
-	if rc := packMain([]string{"status"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"status"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("status rc = %d: %s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), e.Commit[:8]) {
@@ -683,14 +681,14 @@ func TestPackStatusFlagsConfigDrift(t *testing.T) {
 	}
 	var out, errw bytes.Buffer
 	write("main")
-	if rc := packMain([]string{"install"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("install rc = %d: %s", rc, errw.String())
 	}
 
 	// Edit the ref without re-installing.
 	write("some-other-ref")
 	out.Reset()
-	rc := packMain([]string{"status"}, &out, &errw, false, nil)
+	rc := packMain([]string{"status"}, &out, &errw, false)
 	if rc == 0 {
 		t.Error("status should fail when config and lock disagree")
 	}
@@ -720,7 +718,7 @@ func TestPackStatusDoesNotTellYouToInstallTheLocalPack(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	packMain([]string{"status"}, &out, &errw, false, nil)
+	packMain([]string{"status"}, &out, &errw, false)
 	report := out.String()
 
 	local := statusLineFor(t, report, "local")
@@ -767,13 +765,13 @@ func TestPackInstallPrunesRemovedPacks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	packMain([]string{"install"}, &out, &errw, false, nil)
+	packMain([]string{"install"}, &out, &errw, false)
 
 	if err := os.WriteFile(cfg, []byte(`{"packs": []}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	packMain([]string{"install"}, &out, &errw, false, nil)
+	packMain([]string{"install"}, &out, &errw, false)
 
 	lock, err := packsrc.LoadLock(packsrc.LockPath(cfg))
 	if err != nil {
@@ -784,104 +782,28 @@ func TestPackInstallPrunesRemovedPacks(t *testing.T) {
 	}
 }
 
-// resolveHostApproval is the install-time consent gate. These cases pin: a pack
-// reading nothing needs no prompt; a "yes" from a TERMINAL records the current claim
-// set; a "no" (or no stdin) records nothing new; and an unchanged pin carries the
-// prior approval forward without prompting.
+// `yolo pack install` ASKS NOTHING, and records no approval — end to end, through the
+// production path, with a real git pack that declares a host mount.
 //
-// Every case that reaches the prompt must set the isTerminal seam EXPLICITLY: a bare
-// buffer is exactly the piped-stdin shape the gate exists to refuse, so a test that
-// wants the prompt answered has to say "pretend this is a terminal" out loud.
-func TestResolveHostApproval(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pack.json"),
-		[]byte(`{"contributes":[{"kind":"mount","host":"refs","into":"refs"}]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	claim := "mount refs -> /ctx/refs"
-	pr := richtext.Printer{W: &bytes.Buffer{}}
-	terminal := func(r io.Reader) approvalStdin {
-		return approvalStdin{reader: r, isTerminal: func() bool { return true }}
-	}
-
-	// Fresh install, user answers yes at a terminal → the current claim is approved.
-	approved, denied := resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr,
-		terminal(strings.NewReader("y\n")), &bytes.Buffer{})
-	if denied || len(approved) != 1 || approved[0] != claim {
-		t.Errorf("yes should approve the claim: approved=%v denied=%v", approved, denied)
-	}
-
-	// Fresh install, user answers no → nothing approved, denied.
-	approved, denied = resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr,
-		terminal(strings.NewReader("n\n")), &bytes.Buffer{})
-	if !denied || len(approved) != 0 {
-		t.Errorf("no should approve nothing and deny: approved=%v denied=%v", approved, denied)
-	}
-
-	// No stdin (non-interactive) → fail closed, same as no.
-	approved, denied = resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr,
-		approvalStdin{}, &bytes.Buffer{})
-	if !denied || len(approved) != 0 {
-		t.Errorf("nil stdin must fail closed: approved=%v denied=%v", approved, denied)
-	}
-
-	// Unchanged pin: the claim is already approved → carried forward, NO prompt (a
-	// non-terminal empty stdin would be refused at the gate, so reaching approved
-	// proves it never asked).
-	prev := packsrc.LockEntry{Name: "acme", ApprovedHostAccess: []string{claim}}
-	approved, denied = resolveHostApproval("acme", dir, prev, true, pr,
-		approvalStdin{reader: strings.NewReader("")}, &bytes.Buffer{})
-	if denied || len(approved) != 1 || approved[0] != claim {
-		t.Errorf("an already-approved claim must carry forward without prompting: approved=%v denied=%v", approved, denied)
-	}
-}
-
-// The host-access approval prompt is the one `y` that means "this pack may read my
-// host or run code on it", so it must not be answerable by a pipe: `yes | yolo pack
-// install` is not consent (design §4.4 item 3). A stdin with bytes available but no
-// terminal behind it is REFUSED before a byte is read — fail closed, with a message
-// that says approval needs an interactive terminal and names the command to rerun.
-func TestResolveHostApprovalRefusesNonTerminalStdin(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pack.json"),
-		[]byte(`{"contributes":[{"kind":"mount","host":"refs","into":"refs"}]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Both non-terminal shapes: a nil seam (nothing claimed terminal-ness) and a seam
-	// that answers false (a real pipe probed and found wanting).
-	for name, in := range map[string]approvalStdin{
-		"nil seam":   {reader: strings.NewReader("y\n")},
-		"false seam": {reader: strings.NewReader("y\n"), isTerminal: func() bool { return false }},
-	} {
-		var report, out bytes.Buffer
-		pr := richtext.Printer{W: &report}
-		approved, denied := resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr, in, &out)
-		if !denied || len(approved) != 0 {
-			t.Errorf("%s: a piped 'y' must not grant approval: approved=%v denied=%v",
-				name, approved, denied)
-		}
-		if !strings.Contains(report.String(), "interactive terminal") {
-			t.Errorf("%s: refusal must say approval requires an interactive terminal:\n%s",
-				name, report.String())
-		}
-		if !strings.Contains(report.String(), "yolo pack install") {
-			t.Errorf("%s: refusal must name the command to rerun interactively:\n%s",
-				name, report.String())
-		}
-		// Refused BEFORE prompting: the y/N prompt must never have been written, or a
-		// scripted caller would see a question it was not allowed to answer.
-		if strings.Contains(out.String(), "[y/N]") {
-			t.Errorf("%s: the prompt must not be shown to a non-terminal stdin:\n%s",
-				name, out.String())
-		}
-	}
-}
-
-// End to end through `pack install`: the production seam derives terminal-ness from
-// stdin itself, so a buffer full of "y" (the pipe shape) is refused, the install
-// exits non-zero, and the lockfile records NO host-access approval.
-func TestPackInstallRefusesPipedApproval(t *testing.T) {
+// FIVE TESTS USED TO LIVE HERE: TestResolveHostApproval (yes/no/no-stdin/carry-forward),
+// TestResolveHostApprovalRefusesNonTerminalStdin, TestPackInstallRefusesPipedApproval and
+// TestPackInstallRefusesAnOSPipeWithBytesWaiting (the `yes | yolo pack install` shape, in
+// both branches of the deleted approvalStdinFrom). Every one pinned the gate OQ-TP9 deleted
+// as theatre (docs/design/trust-paths.md, 2026-09-04): to reach this command with this pack
+// configured you edited `packs` in ~/.config/yolo-jail/config.jsonc as the host user, which
+// is strictly more authority than the prompt withheld.
+//
+// THE TWO PIPE TESTS ARE THE ONES WORTH REMEMBERING, because their criticism was correct and
+// too small — `yes | yolo pack install` answered the prompt, so the gate could not tell a
+// human from a pipe. That is a true objection that made the gate look EXAMINED, which is
+// exactly what stopped anyone from running the authority test on it for months
+// (gate-placement-principle.md says so about itself). This replacement asserts the outcome
+// they were reaching for by a different route: there is no question for a pipe to answer.
+//
+// Driven through packMain rather than a helper, because the assertion is about the COMMAND: a
+// prompt reintroduced anywhere inside install would either block this test (no stdin is
+// wired any more) or leave its telltale in the output.
+func TestPackInstallNeverPromptsForHostAccess(t *testing.T) {
 	repo := gitHostAccessPackRepo(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -889,92 +811,48 @@ func TestPackInstallRefusesPipedApproval(t *testing.T) {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	cfg := filepath.Join(cfgDir, "config.jsonc")
 	src := "git+file://" + repo + "//hostpack?ref=main"
-	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
+	if err := os.WriteFile(cfg,
 		[]byte(`{"packs": [{"source": "`+src+`", "name": "hp"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var out, errw bytes.Buffer
-	// strings.Reader is the piped shape: bytes available, no terminal behind them.
-	rc := packMain([]string{"install"}, &out, &errw, false, strings.NewReader("y\n"))
-	if rc == 0 {
-		t.Errorf("piped approval must fail closed (rc=0):\n%s%s", out.String(), errw.String())
+	rc := packMain([]string{"install"}, &out, &errw, false)
+	if rc != 0 {
+		t.Errorf("installing a fetched pack that declares a host mount exited %d:\n%s%s\n"+
+			"OQ-TP9 deleted the approval that made this non-zero; a failure here is that gate, "+
+			"back", rc, out.String(), errw.String())
 	}
-	if !strings.Contains(out.String(), "interactive terminal") ||
-		!strings.Contains(out.String(), "yolo pack install") {
-		t.Errorf("refusal must say approval needs an interactive terminal and name the rerun command:\n%s",
-			out.String())
-	}
-
-	// The pack still installs — only its host claims stay unapproved.
-	lock, err := packsrc.LoadLock(packsrc.LockPath(filepath.Join(cfgDir, "config.jsonc")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	e, ok := lock.Get("hp")
-	if !ok {
-		t.Fatalf("pack should still be locked (unapproved, not uninstalled): %+v", lock.Packs)
-	}
-	if len(e.ApprovedHostAccess) != 0 {
-		t.Errorf("piped stdin must not record approvals: %v", e.ApprovedHostAccess)
-	}
-}
-
-// The same refusal driven by a REAL *os.File pipe — the `yes | yolo pack install`
-// shape byte for byte. The test above exercises the non-*os.File branch of
-// approvalStdinFrom (a strings.Reader cannot be a terminal by type); this one takes
-// the other branch, where the answer comes from the tty ioctl on a file descriptor
-// that has bytes waiting. Both branches must refuse, and only one of them was
-// automated.
-func TestPackInstallRefusesAnOSPipeWithBytesWaiting(t *testing.T) {
-	repo := gitHostAccessPackRepo(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfgDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	src := "git+file://" + repo + "//hostpack?ref=main"
-	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
-		[]byte(`{"packs": [{"source": "`+src+`", "name": "hp"}]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Close()
-	// A pipe full of consent, exactly as `yes` would supply it.
-	go func() {
-		defer w.Close()
-		for i := 0; i < 64; i++ {
-			if _, err := w.WriteString("y\n"); err != nil {
-				return
-			}
+	report := out.String() + errw.String()
+	for _, telltale := range []string{"[y/N]", "interactive terminal", "Approve host access"} {
+		if strings.Contains(report, telltale) {
+			t.Errorf("`pack install` prompted for host access (%q):\n%s\n\nThere is nothing "+
+				"to ask: the person who put this git URL in their own user config already "+
+				"granted more than the prompt withheld", telltale, report)
 		}
-	}()
+	}
 
-	var out, errw bytes.Buffer
-	rc := packMain([]string{"install"}, &out, &errw, false, r)
-	if rc == 0 {
-		t.Errorf("an os.Pipe with bytes waiting must still fail closed (rc=0):\n%s%s",
-			out.String(), errw.String())
-	}
-	if !strings.Contains(out.String(), "interactive terminal") {
-		t.Errorf("refusal must name the missing terminal:\n%s", out.String())
-	}
-	lock, err := packsrc.LoadLock(packsrc.LockPath(filepath.Join(cfgDir, "config.jsonc")))
+	// AND THE LOCKFILE RECORDS THE PIN AND NOTHING ELSE. Its approval field is deleted, so
+	// what is checked is the raw JSON — a re-added field would be invisible to a typed read.
+	lock, err := packsrc.LoadLock(packsrc.LockPath(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
 	e, ok := lock.Get("hp")
 	if !ok {
-		t.Fatalf("pack should still be locked (unapproved, not uninstalled): %+v", lock.Packs)
+		t.Fatalf("the pack was not locked: %+v", lock.Packs)
 	}
-	if len(e.ApprovedHostAccess) != 0 {
-		t.Errorf("a pipe must not record approvals: %v", e.ApprovedHostAccess)
+	if e.Commit == "" {
+		t.Error("the lockfile recorded no commit — the pin is the whole of what it is for now")
+	}
+	raw, err := os.ReadFile(packsrc.LockPath(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "approved") {
+		t.Errorf("the lockfile carries an approval field:\n%s", raw)
 	}
 }
 
@@ -1026,7 +904,7 @@ func TestPackLintReadsDeclaredSkillsFrom(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "my-skills", "broken", "notes.md"), "x")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("lint passed a skill dir with no SKILL.md under the declared source:\n%s",
 			out.String())
 	}
@@ -1047,7 +925,7 @@ func TestPackLintFlagsMissingDeclaredSkillsFrom(t *testing.T) {
 		"---\nname: example\ndescription: d\n---\nbody\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("lint passed a pack whose declared skills source is absent:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "my-skills") {
@@ -1066,7 +944,7 @@ func TestPackLintAcceptsConventionalFromWithNoSkills(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("lint rejected a destination-naming pack (rc=%d):\n%s", rc, out.String())
 	}
 }
@@ -1083,7 +961,7 @@ func TestPackLintAcceptsConventionalFromWithNoSkills(t *testing.T) {
 func TestShippedPacksDrawNoMissingSkillsFromComplaint(t *testing.T) {
 	for _, p := range packload.Embedded() {
 		var out, errw bytes.Buffer
-		packMain([]string{"lint", p.Root}, &out, &errw, false, nil)
+		packMain([]string{"lint", p.Root}, &out, &errw, false)
 		if strings.Contains(out.String(), "nothing stages under") {
 			t.Errorf("shipped pack %s draws the missing-skills-source complaint:\n%s",
 				p.Name, out.String())
@@ -1103,7 +981,7 @@ func TestPackLintFootprintNamesSkillsSource(t *testing.T) {
 		"---\nname: example\ndescription: d\n---\nbody\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("lint rc=%d:\n%s", rc, out.String())
 	}
 	if !strings.Contains(out.String(), "from my-skills/") {

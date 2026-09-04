@@ -292,14 +292,19 @@ func TestValidateLoopholesReportsAMissingPackModule(t *testing.T) {
 	}
 }
 
-// THE GATE, and it is the requirement §5.1 states as a hard floor: "until it exists,
-// RunDoctorChecks must take only loopholes whose origin gate has been evaluated."
+// THE ONE REFUSAL LEFT, and it is the requirement §5.1 states as a hard floor: "until it
+// exists, RunDoctorChecks must take only loopholes whose origin gate has been evaluated."
 //
-// Enforced in the CALLEE, because two of the doctor call sites — `yolo check` and
-// `yolo loopholes status` — are commands users and AGENTS.md treat as read-only preflight
-// and neither has pack resolution, a lockfile, or packMayAccessHost anywhere in reach. A
-// rule they were merely asked to follow is a rule the next call site will not know about.
-func TestUnapprovedPackDoctorCmdIsNeverExecuted(t *testing.T) {
+// WHAT `HostExecApproved: false` MEANS NOW is narrower than when this test was written.
+// OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) deleted the fetched-pack origin gate, so no
+// production caller passes false — it means the caller assembled records WITHOUT resolving
+// packs at all, which is a programming error rather than a user's unapproved pack.
+//
+// The enforcement is unchanged and is still enforced in the CALLEE, because two of the doctor
+// call sites — `yolo check` and `yolo loopholes status` — are commands users and AGENTS.md
+// treat as read-only preflight, and a plain []*Loophole carries no provenance. A rule they
+// were merely asked to follow is a rule the next call site will not know about.
+func TestUnvouchedPackDoctorCmdIsNeverExecuted(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
 	sentinel := filepath.Join(t.TempDir(), "ran")
@@ -308,8 +313,8 @@ func TestUnapprovedPackDoctorCmdIsNeverExecuted(t *testing.T) {
 	set := NewSet(DiscoverOptions{PackModules: []PackModule{{Dir: mod, HostExecApproved: false}}})
 	lp, ok := set.Lookup("evil")
 	if !ok {
-		t.Fatal("an UNAPPROVED pack loophole must still be DISCOVERED — 'installed but not " +
-			"approved' has to be visible; it is the EXECUTION that is refused")
+		t.Fatal("a pack loophole nothing vouched for must still be DISCOVERED — a missing " +
+			"entry reads as a pack that failed to stage; it is the EXECUTION that is refused")
 	}
 
 	results := set.RunDoctorChecks([]*Loophole{lp}, 2*time.Second)
@@ -317,16 +322,16 @@ func TestUnapprovedPackDoctorCmdIsNeverExecuted(t *testing.T) {
 		t.Fatalf("want one result, got %d", len(results))
 	}
 	if results[0].RC != nil {
-		t.Errorf("rc = %d; an unapproved pack's doctor_cmd must not run at all", *results[0].RC)
+		t.Errorf("rc = %d; a doctor_cmd nothing vouched for must not run at all", *results[0].RC)
 	}
-	if !strings.Contains(results[0].Output, "not approved") {
+	if !strings.Contains(results[0].Output, "not run") {
 		t.Errorf("the refusal must SAY it was withheld (%q) — silence is indistinguishable from "+
 			"`no-check`, which reads as 'declares no self-check'", results[0].Output)
 	}
 	if _, err := os.Stat(sentinel); err == nil {
 		t.Fatal("THE DOCTOR_CMD RAN. `yolo check` and `yolo loopholes status` are read-only " +
-			"preflight; running an unapproved fetched pack's host code from them is the fork " +
-			"§5.1 refuses to leave open")
+			"preflight; running host code nothing vouched for from them is the fork §5.1 " +
+			"refuses to leave open")
 	}
 }
 

@@ -93,10 +93,14 @@ type Layer struct {
 	// Sources are the pack-relative skills dirs this contribution resolved to, empty when the
 	// declared `from` could not be honored (Problem then says so).
 	Sources []string
-	// Plugins are the wrapped plugin trees this pack's origin permits, and Refusals the
-	// per-component refusals its origin denied.
-	Plugins  []*pluginpack.Plugin
-	Refusals []string
+	// Plugins are the wrapped plugin trees this pack carries, code-running components
+	// included.
+	//
+	// THERE WAS A Refusals BESIDE IT, the per-component refusals a FETCHED pack's origin
+	// denied, rendered as ActionRefused rows below. OQ-TP9 deleted the gate that produced
+	// them (docs/design/trust-paths.md, 2026-09-04), so a wrapped plugin is delivered whole
+	// whoever shipped it.
+	Plugins []*pluginpack.Plugin
 	// Problem is a failure to report about this layer: an unresolvable source.
 	Problem string
 	// Unresolved marks a layer whose DECLARED source could not be read, which is the sharper half
@@ -190,7 +194,7 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 		// Per PACK, not per contribution: a wrapped plugin is carried BY the pack's skills
 		// contributions, so a pack declaring two destinations delivers its plugin to both — the
 		// behavior the per-pack delivery had.
-		plugins, refused := p.HonoredPlugins()
+		plugins, _ := p.HonoredPlugins()
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindSkills || c.Into == "" {
 				continue
@@ -205,7 +209,7 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 			// The tier comes off the PACK, so every layer this pack contributes carries the same
 			// one and its skills are called the same thing wherever they land (S2).
 			l := Layer{Pack: p.Name, Description: p.Decl.Description, Plugins: plugins,
-				Refusals: refused, Tier: PackTier(p.Decl.SkillsTier)}
+				Tier: PackTier(p.Decl.SkillsTier)}
 			src, prob := p.SkillsSourceDir(c)
 			if prob != "" {
 				l.Problem, l.Unresolved = prob, true
@@ -744,10 +748,6 @@ func renderDestination(d Destination, req ComposeRequest, observe bool) ([]Resul
 		if l.Problem != "" {
 			problems = append(problems, Result{Name: l.Pack, Path: d.Dir,
 				Action: ActionRefused, Detail: l.Problem})
-		}
-		for _, msg := range l.Refusals {
-			problems = append(problems, Result{Name: l.Pack, Path: d.Dir,
-				Action: ActionRefused, Detail: msg})
 		}
 		unresolved = unresolved || l.Unresolved
 	}

@@ -257,20 +257,28 @@ week):
 > only moves when you run `yolo pack install` or `yolo pack update`. The pin is what decides
 > whether *that* command hands you code you have looked at.
 
-`yolo pack install` clones it (host-side; the jail has no git credentials by design),
-pins the commit in a lockfile, and — **if the pack reads your host** (a `reads-host`,
-`mount`, or installer) — shows exactly what it reads and asks once:
+`yolo pack install` clones it (host-side; the jail has no git credentials by design) and
+pins the commit in a lockfile:
 
 ```console
 $ yolo pack install
 me/dotpacks  v1 → a1b2c3d
-  ⚠ pack dotpacks reads your host:
-      reads-host .config/acme/key
-  Approve host access for dotpacks? [y/N]
 ```
 
-Approval is recorded per-commit; a later `pack update` that pulls a commit adding a *new*
-host-access claim re-prompts. Static `env` values are never gated (they read nothing).
+**It asks nothing, and there is nothing to approve.** A fetched pack's `reads-host`, `mount`,
+installer, host-prepending briefing, wrapped-plugin hooks and shipped loopholes are all
+honored — the same as a pack yolo ships. There used to be a y/N prompt here, and it was
+deleted on 2026-09-04 as theatre: to install this pack at all you wrote `packs` in
+`~/.config/yolo-jail/config.jsonc` as yourself, which already grants strictly more than the
+prompt withheld. What replaces it is the pin above and two reports:
+
+```console
+$ yolo pack footprint git+ssh://git@github.com/me/dotpacks//agent?ref=v1
+```
+
+`yolo pack footprint` lists every claim a pack makes **before** you put it in your config, and
+every launch prints what each loaded pack reads from your host — with anything that RUNS on
+your machine printed just before it starts, not after.
 
 ---
 

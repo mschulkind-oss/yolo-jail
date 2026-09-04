@@ -102,8 +102,9 @@ type PackEntry struct {
 	Exclude []string `json:"exclude,omitempty"`
 
 	// IsEmbedded marks a pack shipped inside yolo. Set by the embedded-pack loader,
-	// NEVER decoded from config: it grants privileges (see MayGrantHostFiles), so a
-	// user-writable field would be the whole boundary undone. Hence json:"-".
+	// NEVER decoded from config: `yolo pack install` skips it (nothing to fetch, no commit
+	// to pin) and reports treat it as reviewed-with-the-release, so a user-writable field
+	// would let a config line claim a provenance it does not have. Hence json:"-".
 	IsEmbedded bool `json:"-"`
 
 	// There was an AllowExec here (wire name "allowExec", config key "allow_exec"),
@@ -139,8 +140,16 @@ func (p PackEntry) IsLocal() bool {
 	return strings.HasPrefix(p.Source, "file://")
 }
 
-// Origin classifies where a pack's CONTENT came from, which decides what that content
-// is allowed to declare (D4).
+// Origin classifies where a pack's CONTENT came from.
+//
+// IT DECIDES NOTHING ABOUT TRUST any more. Until OQ-TP9 (docs/design/trust-paths.md,
+// 2026-09-04) this was the input to MayGrantHostFiles and through it to every host-access
+// gate in the product; that whole chain is deleted, and a pack's declarations are honored
+// the same whoever shipped it. What origin still names is the DELIVERY ROUTE — a fetched
+// pack has to be `yolo pack install`ed to reach the store and gets a lockfile entry with a
+// commit, an embedded one is already in the binary, a local one is read in place — which is
+// what `pack install`, `pack status` and the drift report key on (through Embedded() and
+// IsLocal(), which are the two questions those paths actually ask).
 type Origin int
 
 const (
@@ -150,7 +159,7 @@ const (
 	// user, and readable by them without yolo's help.
 	OriginLocal
 	// OriginEmbedded is content shipped inside yolo itself: reviewed with the release,
-	// so a declaration from it IS a yolo-shipped decision.
+	// and needing no fetch, so `pack install` records no pin for it.
 	OriginEmbedded
 )
 
@@ -170,23 +179,21 @@ func (p PackEntry) Origin() Origin {
 	}
 }
 
-// MayGrantHostFiles reports whether this pack's content may name a HOST FILE to cross
-// into the jail (D4).
+// THERE IS NO MayGrantHostFiles PREDICATE ANY MORE. It answered "may this pack's content
+// name a HOST FILE to cross into the jail", returning false for a FETCHED pack, and it was
+// the input to every host-access gate in the product. OQ-TP9 deleted those gates on
+// 2026-09-04 (docs/design/trust-paths.md), so every caller wanted `true` and an
+// always-true predicate is worse than none — a reader sees a gate and stops looking
+// (gate-placement-principle.md, "The artifact form").
 //
-// The rule is about the CONTENT channel, not the config channel, and that distinction
-// is the whole of it. Packs being user-scope already means a workspace cannot name a
-// pack — but it does NOT mean a user who installed a third-party pack agreed to hand
-// that repository their ~/.claude/settings.json. Installing a pack approves
-// distributing skills and prose; a host-file grant is a materially stronger permission
-// and no scope rule makes it not so.
-//
-// So: embedded (yolo-shipped, reviewed with the release) and local (the user's own
-// files, which they can already read) may grant. FETCHED content may not, ever —
-// that is the hole a84b11c closed for host_claude_files, and it would be reopened by
-// letting a git ref widen the set.
-func (p PackEntry) MayGrantHostFiles() bool {
-	return p.Origin() != OriginFetched
-}
+// ITS ARGUMENT WAS: installing a third-party pack approves distributing skills and prose,
+// not handing that repository your ~/.claude/settings.json. What refuted it is the actor
+// test, not a change of mind about the stakes — to install that pack at all you edited
+// `packs` in ~/.config/yolo-jail/config.jsonc as the host user, which is strictly more
+// than the predicate withheld. THE HALF THAT SURVIVES IS THE SCOPE RULE ABOVE: `packs` is
+// user-scope only and inexpressible at workspace scope, which passes Test 1 because the
+// actor genuinely changes (a workspace config is agent-editable). Do not weaken that in
+// the belief this predicate is still behind it.
 
 // LoadPacks returns the validated `packs` entries from the USER config only.
 //
@@ -264,16 +271,14 @@ const LocalPackName = "local"
 // had when the user's tree was a separate layer written after the packs: the user's own copy
 // wins. Moving it earlier would silently invert that.
 //
-// TRUST: the local pack MAY read the host, exactly like any other `file://` pack. It gets
-// there by being one — Source is a file:// address, so Origin() is OriginLocal and
-// MayGrantHostFiles() is true with no special case. The reasoning, since this is a
-// trust-boundary decision: the fetched-pack gate exists because installing someone else's
-// pack is not consent to hand THAT REPOSITORY your ~/.claude/settings.json (see
-// MayGrantHostFiles). Here there is no third party at all — it is a directory the user
-// created, inside the config dir yolo already reads their config from, holding files only
-// they can write. A pack cannot gain access its author already has, and the author is the
-// user. Gating it would also be theatre: anything it could declare, the user could declare
-// in config.jsonc one directory up.
+// TRUST: the local pack MAY read the host, exactly like every other pack since OQ-TP9
+// (docs/design/trust-paths.md, 2026-09-04) — but it was the one origin nobody ever argued
+// about, and the reason is worth keeping: it is a directory the user created, inside the
+// config dir yolo already reads their config from, holding files only they can write. A
+// pack cannot gain access its author already has, and the author is the user. Gating it
+// would have been theatre in the plainest possible way: anything it could declare, the user
+// could declare in config.jsonc one directory up. That argument is the one the ruling later
+// found applies to a FETCHED pack too, since naming one means editing the same file.
 //
 // ABSENT IS SILENT AND FREE. Most users will not have this directory; its absence yields no
 // warning, no error, and one Stat. A NON-DIRECTORY at that path (a file, a dangling
@@ -624,7 +629,7 @@ func UseProfileCLINames() ([]string, bool) {
 		if err != nil {
 			return nil, false
 		}
-		p, problems := packload.LoadDir(res.Root, entry.Name, false)
+		p, problems := packload.LoadDir(res.Root, entry.Name)
 		if len(problems) > 0 || p == nil {
 			return nil, false
 		}

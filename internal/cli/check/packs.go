@@ -138,7 +138,7 @@ func (o *Options) sectionPacks(r *reporter) {
 		if res.StagedFrom != "" {
 			r.ok(e.Name + ": staged at " + res.StagedFrom)
 			r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
-			if p, probs := packload.LoadDir(res.StagedFrom, e.Name, e.MayGrantHostFiles()); len(probs) == 0 && p != nil {
+			if p, probs := packload.LoadDir(res.StagedFrom, e.Name); len(probs) == 0 && p != nil {
 				loaded = append(loaded, p)
 			}
 			continue
@@ -167,10 +167,9 @@ func (o *Options) sectionPacks(r *reporter) {
 		}
 		r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(staged.Staged)))
 		// Load the STAGED tree, so the declarations checked are the ones a jail would
-		// render. mayAccessHost matches the launch gate closely enough for a surface
-		// check: origin decides whether a host READ is honored, and a config surface's
-		// identity does not depend on that.
-		if p, probs := packload.LoadDir(dest, e.Name, e.MayGrantHostFiles()); len(probs) == 0 && p != nil {
+		// render. There is nothing origin-dependent left to match: OQ-TP9 deleted the
+		// host-access gate, so `check` and the launch load a pack the same way.
+		if p, probs := packload.LoadDir(dest, e.Name); len(probs) == 0 && p != nil {
 			loaded = append(loaded, p)
 		}
 	}

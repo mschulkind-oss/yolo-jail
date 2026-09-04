@@ -160,17 +160,15 @@ func TestProfileNameDeclaredTwiceByOnePackIsRefused(t *testing.T) {
 	}
 }
 
-// A profile names a provider this pack declares and reads nothing from the host, so it
-// makes no host-access claim and needs no approval at `pack install` (the same absence
-// autonomy has).
-func TestProfileMakesNoHostAccessClaim(t *testing.T) {
+// A profile names a provider this pack declares and reads nothing from the host, so it makes
+// no host crossing and nothing about it reaches the launch disclosure (the same absence
+// autonomy has). It used to be phrased as "needs no approval at `pack install`", which OQ-TP9
+// made moot without changing the fact.
+func TestProfileMakesNoHostCrossing(t *testing.T) {
 	m := &Manifest{Contributes: []Contribution{{Kind: KindProfile, Name: "bedrock",
 		Provider: "bedrock"}}}
-	if r := m.NeedsHostAccess(); len(r) != 0 {
-		t.Errorf("a profile reads nothing from the host, got %v", r)
-	}
-	if c := m.HostAccessClaims(); len(c) != 0 {
-		t.Errorf("a profile makes no host-access claim, got %v", c)
+	if c := hostCrossings(m); len(c) != 0 {
+		t.Errorf("a profile reads nothing from the host, got %v", c)
 	}
 }
 

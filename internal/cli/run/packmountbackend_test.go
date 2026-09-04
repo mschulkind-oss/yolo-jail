@@ -79,11 +79,10 @@ func mountPackFixture(t *testing.T, contribution string) []*packload.Pack {
 		[]byte(`{"contributes":[`+contribution+`]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, probs := packload.LoadDir(root, "acme", true)
+	p, probs := packload.LoadDir(root, "acme")
 	if len(probs) > 0 {
 		t.Fatalf("fixture: %v", probs)
 	}
-	p.MayAccessHost = true
 	return []*packload.Pack{p}
 }
 

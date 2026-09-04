@@ -47,7 +47,7 @@ func profileAcmePack(t *testing.T) *packload.Pack {
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 	   "path":"~/.acme/settings.json","mode":"computed"}]}]}`)
 	writeHostFile(t, filepath.Join(dir, "derive.lua"), profileDeriveLua)
-	p, problems := packload.LoadDir(dir, "acme", false)
+	p, problems := packload.LoadDir(dir, "acme")
 	if p == nil {
 		t.Fatalf("the acme fixture did not load: %v", problems)
 	}

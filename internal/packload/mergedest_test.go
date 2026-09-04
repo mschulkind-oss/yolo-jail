@@ -789,9 +789,9 @@ func TestResolveDestinationsDoesNotMutateTheOriginal(t *testing.T) {
 	if n := len(d.Pack.Decl.Contributions()); n != 1 {
 		t.Errorf("the resolved copy declares %d contribution(s), want 1", n)
 	}
-	// Identity-carrying fields must survive the copy: every downstream pass keys on Name, and
-	// MayAccessHost gates the origin checks.
-	if d.Pack.Name != zc.Name || d.Pack.Root != zc.Root || d.Pack.MayAccessHost != zc.MayAccessHost {
+	// Identity-carrying fields must survive the copy: every downstream pass keys on Name,
+	// and Root is where its content is read from.
+	if d.Pack.Name != zc.Name || d.Pack.Root != zc.Root {
 		t.Errorf("the copy lost pack identity: %+v vs %+v", d.Pack, zc)
 	}
 }

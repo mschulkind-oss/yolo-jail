@@ -49,7 +49,7 @@ func writePackManifestWithDerive(t *testing.T, name, manifest, deriveLua string)
 			t.Fatal(err)
 		}
 	}
-	p, problems := packload.LoadDir(root, name, false)
+	p, problems := packload.LoadDir(root, name)
 	if len(problems) != 0 {
 		t.Fatalf("loading fixture pack: %v", problems)
 	}

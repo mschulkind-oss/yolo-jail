@@ -61,7 +61,7 @@ func withSkewTolerance(t *testing.T, body func()) {
 // problem, because a problem fails the boot (A12).
 func TestJailLoadSkipsUnknownKindInsteadOfFailingBoot(t *testing.T) {
 	withSkewTolerance(t, func() {
-		p, problems := LoadDir(stageSkewPack(t), "acme", true)
+		p, problems := LoadDir(stageSkewPack(t), "acme")
 		if len(problems) != 0 {
 			t.Fatalf("an unknown kind under skew must not be a load problem — LoadJailPacks "+
 				"fails the boot on any problem (A12): %v", problems)
@@ -93,7 +93,7 @@ func TestJailLoadSkipsUnknownKindInsteadOfFailingBoot(t *testing.T) {
 // projections the boot path reads.
 func TestJailLoadKeepsValidSiblingsOfASkippedKind(t *testing.T) {
 	withSkewTolerance(t, func() {
-		p, problems := LoadDir(stageSkewPack(t), "acme", true)
+		p, problems := LoadDir(stageSkewPack(t), "acme")
 		if len(problems) != 0 || p == nil {
 			t.Fatalf("load failed: %v", problems)
 		}
@@ -117,7 +117,7 @@ func TestStrictLoadStillRefusesUnknownKind(t *testing.T) {
 	if tolerateUnknownFields {
 		t.Fatal("test precondition: the strict default must be in effect")
 	}
-	_, problems := LoadDir(stageSkewPack(t), "acme", true)
+	_, problems := LoadDir(stageSkewPack(t), "acme")
 	if len(problems) == 0 {
 		t.Fatal("the strict authoring path must refuse an unknown kind")
 	}

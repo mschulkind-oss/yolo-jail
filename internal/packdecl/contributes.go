@@ -83,9 +83,10 @@ type Contribution struct {
 	// again, so each pack arrived TWICE (measured 2026-08-31). The run pipeline asks
 	// entrypoint.GeneratedHostBriefings before prepending — the briefing half of S3.
 	//
-	// It is still a HOST-ACCESS CLAIM either way (HostAccessClaims, NeedsHostAccessContributions)
-	// — declaring it means reading the host home, which is exactly what a fetched pack needs
-	// approval for, whether or not this launch is in a jail.
+	// It is still a HOST CROSSING either way — declaring it means reading the host home, so
+	// FootprintOf marks it ReviewWorthy and the launch banner discloses it, whether or not
+	// this launch is in a jail. (It was also an approval claim until OQ-TP9 deleted the
+	// fetched-pack prompt — docs/design/trust-paths.md, 2026-09-04.)
 	After string `json:"after,omitempty"`
 
 	// --- audiences (briefing-audiences.md) ---
@@ -947,7 +948,8 @@ func (m *Manifest) HostFileContributions() []HostFile {
 // HostMountContributions returns the mount contributions as {From (host-home
 // source), To (/ctx destination)} pairs. Unlike reads-host the source may be a
 // directory and the destination is an arbitrary /ctx path. Origin-gated: the
-// caller honors these only for a host-permitted pack (see NeedsHostAccess).
+// caller honors these unconditionally since OQ-TP9 retired the origin gate
+// (packload.HonoredHostFiles).
 func (m *Manifest) HostMountContributions() []HostFile {
 	var out []HostFile
 	for _, c := range m.Contributions() {
@@ -1134,50 +1136,6 @@ func (m *Manifest) HookContributions() []Hook {
 		}
 	}
 	return out
-}
-
-// NeedsHostAccessContributions is the origin-gate predicate over contributions: a
-// reads-host, a program installed via a curl-to-shell URL, or a briefing that
-// prepends a host file. Same set NeedsHostAccess covered, expressed over kinds.
-func (m *Manifest) NeedsHostAccessContributions() []string {
-	var reasons []string
-	for _, c := range m.Contributions() {
-		switch {
-		case c.Kind == KindReadsHost:
-			reasons = append(reasons, "reads-host (reads the host home)")
-		case c.Kind == KindMount:
-			reasons = append(reasons, "mount (reads a host-home dir/file)")
-		case c.Kind == KindProgram && c.Via == "installer":
-			reasons = append(reasons, "program via installer (runs a fetched script)")
-		case c.Kind == KindBriefing && strings.HasPrefix(c.After, "host:"):
-			reasons = append(reasons, "briefing after a host file (reads the host home)")
-		}
-	}
-	return reasons
-}
-
-// HostAccessClaims returns the SPECIFIC, stable host-access claims a pack makes —
-// one line per claim, naming the exact target — sorted for deterministic comparison.
-// This is the set a user approves at `pack install`; a pin move whose claims are a
-// superset of the approved set re-prompts, so the strings must be specific (which
-// dir, which file) rather than the generic reasons NeedsHostAccessContributions
-// gives for display. Empty when the pack reads nothing from the host.
-func (m *Manifest) HostAccessClaims() []string {
-	var claims []string
-	for _, c := range m.Contributions() {
-		switch {
-		case c.Kind == KindReadsHost:
-			claims = append(claims, "reads-host "+c.Host)
-		case c.Kind == KindMount:
-			claims = append(claims, "mount "+c.Host+" -> /ctx/"+c.Into)
-		case c.Kind == KindProgram && c.Via == "installer":
-			claims = append(claims, "installer "+c.URL)
-		case c.Kind == KindBriefing && strings.HasPrefix(c.After, "host:"):
-			claims = append(claims, "briefing "+strings.TrimPrefix(c.After, "host:"))
-		}
-	}
-	sort.Strings(claims)
-	return claims
 }
 
 // mergeSurfaceArrays concatenates several JSON arrays of surface DTOs into one

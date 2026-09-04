@@ -75,7 +75,7 @@ func TestInstallAndUpdateAreDifferentActs(t *testing.T) {
 	t.Cleanup(func() { npmRefresh = saved })
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"install"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("pack install rc = %d: %s", rc, errw.String())
 	}
 	if calls != 0 {
@@ -86,7 +86,7 @@ func TestInstallAndUpdateAreDifferentActs(t *testing.T) {
 
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"update"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"update"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("pack update rc = %d: %s", rc, errw.String())
 	}
 	if calls != 1 {
@@ -148,7 +148,7 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 	}
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"install"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("pack install rc = %d: %s", rc, errw.String())
 	}
 	if _, err := os.Stat(record); err == nil {
@@ -158,7 +158,7 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 
 	out.Reset()
 	errw.Reset()
-	if rc := packMain([]string{"update"}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"update"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("pack update rc = %d: %s", rc, errw.String())
 	}
 	got, err := os.ReadFile(record)
@@ -183,7 +183,7 @@ func TestUpdateReportsAFailedRefresh(t *testing.T) {
 	t.Cleanup(func() { npmRefresh = saved })
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"update"}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"update"}, &out, &errw, false); rc == 0 {
 		t.Error("a failed npm refresh must fail the update")
 	}
 }

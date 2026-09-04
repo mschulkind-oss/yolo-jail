@@ -141,9 +141,6 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 	var loaded []*packload.Pack
 	var configured []config.PackEntry
-	// Every claim a configured pack made that yolo understood and declined. Filled in the
-	// staging loop below and turned into the launch refusal immediately after it.
-	var refusals []string
 	for _, entry := range entries {
 		p, isEmbedded := byName[entry.Name]
 		if !isEmbedded || !entry.Embedded() {
@@ -154,7 +151,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		if err := copyTree(p.Root, dest); err != nil {
 			return "", nil, nil, fmt.Errorf("official pack %s: %w", p.Name, err)
 		}
-		selected, probs := packload.LoadDir(dest, p.Name, true)
+		selected, probs := packload.LoadDir(dest, p.Name)
 		for _, prob := range probs {
 			return "", nil, nil, fmt.Errorf("official pack %s: %s", p.Name, prob)
 		}
@@ -168,18 +165,14 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		briefings = append(briefings, o.packBriefingProses(p.Name, p)...)
 	}
 
-	// The lockfile records which fetched packs the user approved host access for, and
-	// at which commit. Launch reads it (never writes it) to gate a fetched pack's host
-	// access on that approval rather than on origin alone. A missing lock is normal
-	// (nothing approved yet) — LoadLock returns an empty one.
-	lock, lockErr := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
-	if lockErr != nil {
-		// A corrupt lock must not silently grant OR silently deny; surface it and treat
-		// every fetched pack as unapproved (fail-closed) for this launch.
-		o.pr(o.Stdout).print("[yellow]Warning: " + lockErr.Error() + "[/yellow]")
-		lock = nil
-	}
-
+	// THE LOCKFILE IS NOT READ HERE, and since OQ-TP9 it is not read on the launch path at
+	// all (docs/design/trust-paths.md, 2026-09-04). Its one launch-time job was the
+	// host-access approval gate, which is deleted: a launch resolves a fetched pack from the
+	// local mirror at the config's ref, and the mirror only moves when `yolo pack
+	// install`/`update` runs, so the lock is written by install and read by `pack status`.
+	// Making resolution read the lock's COMMIT instead of the mirror's ref is worth doing —
+	// it is what a lockfile means everywhere else — but it is correctness-of-meaning, not a
+	// gate, and it is tracked as OQ-LP8 rather than smuggled back in here.
 	for _, entry := range configured {
 		root, err := packRoot(entry, o.Getenv)
 		if err != nil {
@@ -204,44 +197,29 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 					"check its filters[/yellow]", entry.Name, len(res.Excluded)))
 		}
 
-		// A configured pack's host access is gated: an embedded or local pack always
-		// may (its origin already carries the user's authority); a FETCHED pack may
-		// only for the host-access claims the user approved at `yolo pack install`,
-		// recorded per-commit in the lockfile. This is the approval model that lets a
-		// shared pack mount a host dir or set env, without a fetched ref silently
-		// gaining access it did not have when the user last looked.
-		mayHost := packMayAccessHost(entry, dest, lock)
-		p, probs := packload.LoadDir(dest, entry.Name, mayHost)
+		// NO HOST-ACCESS GATE. A configured pack's declarations — its host files, mounts,
+		// installer URLs, host-prepended briefings, wrapped plugin hooks and shipped
+		// loopholes — are honored whoever shipped it, because naming the pack in `packs`
+		// means editing ~/.config/yolo-jail/config.jsonc as the host user, which already
+		// grants strictly more than any gate here could withhold (OQ-TP9,
+		// docs/design/trust-paths.md, 2026-09-04). What the user gets instead is
+		// DISCLOSURE: notePackHostAccess prints what each pack reads at every launch, and
+		// startLoopholesDisclosed prints host EXECUTION before it happens.
+		p, probs := packload.LoadDir(dest, entry.Name)
 		for _, prob := range probs {
 			return "", nil, nil, fmt.Errorf("packs: %s", prob)
 		}
-		// Collect every refused declaration. These used to be printed as warnings and the
-		// pack staged anyway — the split that let a fetched pack's refused installer run in
-		// the jail regardless (docs/design/trust-paths.md §3.1). They are now FATAL, and
-		// accumulated across the whole configured set rather than raised at the first pack,
-		// so a user with two broken packs learns about both in one launch instead of fixing
-		// them one restart at a time. See packrefusal.go for the ruling and for the two
-		// look-alikes (an absent bind source, an unknown contribution kind) that are still
-		// skipped with a warning and must stay that way.
-		refusals = append(refusals, packRefusals(p)...)
 		loaded = append(loaded, p)
 
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		briefings = append(briefings, o.packBriefingProses(entry.Name, p)...)
 	}
-	// THE REFUSAL, and it comes FIRST of the pre-flights: the four below are about pack
-	// MECHANICS (two packs claiming one destination, a name that shadows a reserved one) and
-	// this one is about CONSENT. A user whose pack asks for something they never approved is
-	// answering a different question from a user whose two packs collide, and the consent
-	// question is the one whose answer might be "remove this pack", which retires the
-	// collision too.
+	// THERE USED TO BE A CONSENT PRE-FLIGHT HERE, ahead of the mechanical ones below: every
+	// claim a pack made that yolo understood and declined, folded into one fatal
+	// (refusedLaunchError, OQ-TP6). OQ-TP9 deleted the gate that produced those refusals, so
+	// there is nothing left to fold — the pre-flights below are all about pack MECHANICS now
+	// (two packs claiming one destination, a name that shadows a reserved one).
 	//
-	// Raised here rather than inside the loop so the message can name every refused claim
-	// across every pack at once — see refusedLaunchError for why that message is the entire
-	// user experience of this failure.
-	if len(refusals) > 0 {
-		return "", nil, nil, refusedLaunchError(refusals)
-	}
 	// PRE-FLIGHT: two claims on one home destination. The mount assembler emits one bind
 	// per contribution with no dedup, so this would otherwise surface as podman's
 	// "duplicate mount destination" — a boot failure naming neither pack. Checked here
@@ -620,24 +598,24 @@ func packLoopholeDecls(loaded []*packload.Pack) []PackLoopholeDecl {
 }
 
 // packLoopholeModules is the pre-flight's input carried forward into the converged
-// discovery set, with each module's ORIGIN GATE evaluated here — where the answer is
-// known — rather than at the seven places that consume it.
+// discovery set.
 //
-// The gate is p.MayAccessHost, which packMayAccessHost already decided per pack: an
-// embedded or local pack always may (its origin carries the user's own authority); a
-// FETCHED pack only for the host-access claims the user approved at `yolo pack install`.
-// Reusing that decision is deliberate — a loophole's doctor_cmd and host_daemon are host
-// execution, which is strictly more than the host READS the gate was built for, so a pack
-// that may not read the host certainly may not run a daemon on it. It is the SAME gate,
-// not a second one that could disagree.
+// HostExecApproved IS UNCONDITIONALLY TRUE, and that is a ruling rather than a shortcut.
+// It used to carry p.MayAccessHost — a fetched pack's loophole ran nothing on the host
+// until the user approved its claims at `yolo pack install`. OQ-TP9 deleted that gate
+// (docs/design/trust-paths.md, 2026-09-04), so every pack whose module reaches this
+// function is one the host user selected in their own config, which is the authority the
+// approval was standing in for.
+//
+// THE FIELD IS KEPT because internal/loopholes reads it as "the caller evaluated an origin
+// decision at all": a plain []*Loophole carries no gate, so gateAdmitsCrossing refuses a
+// SourcePack record whose caller passed no Set rather than trusting an unvetted slice.
+// That protection is against a programming error, not against a user's pack, and it is
+// unaffected by the ruling.
 func packLoopholeModules(loaded []*packload.Pack) []loopholes.PackModule {
-	byPack := map[string]bool{}
-	for _, p := range loaded {
-		byPack[p.Name] = p.MayAccessHost
-	}
 	var out []loopholes.PackModule
 	for _, d := range packLoopholeDecls(loaded) {
-		out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: byPack[d.Pack]})
+		out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: true})
 	}
 	return out
 }
@@ -671,21 +649,17 @@ func init() {
 }
 
 // resolvePackLoopholeModules resolves the configured packs' loophole modules from the pack
-// STORE, with each one's origin gate evaluated against the same lockfile the launch uses.
+// STORE.
 //
 // Every failure is SILENT-AND-EMPTY here, which is the opposite of stagePacks' fail-closed
 // contract and deliberately so: this runs behind read-only commands and behind a config
 // validator, where the honest answer to "I cannot resolve your packs" is "I know of no pack
-// loopholes" — not a refused preflight and not, ever, a loophole treated as approved. The
-// real diagnostics belong to the launch path, which fails loudly through stagePacks.
+// loopholes" — never an invented one. The real diagnostics belong to the launch path, which
+// fails loudly through stagePacks.
 func resolvePackLoopholeModules() []loopholes.PackModule {
 	entries, err := config.LoadPacks(func(string) {})
 	if err != nil {
 		return nil
-	}
-	lock, lockErr := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
-	if lockErr != nil {
-		lock = nil // fail-closed: a corrupt lock approves nothing
 	}
 	var out []loopholes.PackModule
 	embedded := embeddedPacksByName()
@@ -711,10 +685,6 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 				continue // named an embedded pack that this build does not carry
 			}
 			for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
-				// Embedded content carries yolo's own authority, so no lockfile entry is
-				// consulted: an embedded pack's MayAccessHost is true by construction
-				// (MaterializeEmbedded), and gating it on an approval that can never be
-				// recorded would make its loophole permanently unapproved.
 				out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: true})
 			}
 			continue
@@ -727,12 +697,14 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 		if rootErr != nil {
 			continue // never fetched, moved remote, offline — not a deactivation signal
 		}
-		p, probs := packload.LoadDir(root, entry.Name, packMayAccessHost(entry, root, lock))
+		p, probs := packload.LoadDir(root, entry.Name)
 		if len(probs) > 0 || p == nil {
 			continue
 		}
 		for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
-			out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: p.MayAccessHost})
+			// HostExecApproved unconditionally — see packLoopholeModules for why the field
+			// survives the deletion of the gate that used to fill it.
+			out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: true})
 		}
 	}
 	return out
@@ -803,7 +775,7 @@ func resolvePackSupersessions() []loopholes.PackSupersession {
 			if rootErr != nil {
 				continue
 			}
-			loaded, probs := packload.LoadDir(root, entry.Name, false)
+			loaded, probs := packload.LoadDir(root, entry.Name)
 			if len(probs) > 0 || loaded == nil {
 				continue
 			}
@@ -902,56 +874,6 @@ func pruneDroppedPackStaging(stagingRoot string, live map[string]bool) ([]string
 	}
 	sort.Strings(pruned)
 	return pruned, nil
-}
-
-// packMayAccessHost decides whether a configured pack gets host access at launch.
-//
-//   - Embedded or local (file://) pack → always: its origin carries the user's own
-//     authority, exactly as before the approval model existed.
-//   - Fetched (git) pack → only when the lockfile records approval for EVERY
-//     host-access claim the staged pack currently makes. A pack that reads nothing
-//     from the host trivially passes (there is nothing to approve). A claim the user
-//     has not approved (a fresh install never run through `pack install`, or a pin
-//     that moved and gained access) fails closed here, and packload refuses those
-//     claims with a printed notice pointing at `yolo pack install`.
-//
-// dest is the STAGED tree, so the claims checked are exactly what would be honored.
-func packMayAccessHost(entry config.PackEntry, dest string, lock *packsrc.Lock) bool {
-	if entry.MayGrantHostFiles() {
-		return true // embedded or local — origin permits
-	}
-	// Fetched. Read the staged pack's host-access claims and check them against the
-	// lockfile approval. A nil lock (missing or corrupt) approves nothing.
-	p, _ := packload.LoadDir(dest, entry.Name, false)
-	if p == nil {
-		return false
-	}
-	// EVERY producer's claims, through the ONE merged helper (packload.Pack.HostAccessClaims):
-	// pack.json's contributions, a wrapped plugin's code-running components, and a shipped
-	// loophole's daemon/intercepts/binds/devices. Both ends of the approval must compute the
-	// same union or the gate disagrees with the prompt — `pack install` approves what the
-	// helper returns, so checking a hand-built subset here would grant a fetched pack's
-	// plugin hooks (or its host daemon) on the strength of an approval that never mentioned
-	// them. hostaccessgates_test.go fails if this line reaches for a producer directly.
-	want := p.HostAccessClaims()
-	if len(want) == 0 {
-		// Reads nothing from the host, runs nothing on it; the gate is moot. Note what this
-		// branch demands of every producer: a crossing that emits NO claim arrives here and is
-		// GRANTED, so "the enumeration is total" is a precondition of this line rather than a
-		// nicety. It was violated once — the `loophole` kind's first draft attached claims to
-		// the daemon argv and the intercepts only, so a loophole declaring just
-		// host_bind_mounts + host_devices landed here and put an arbitrary absolute host path
-		// into a UID-0 jail with no prompt (loophole-packaging.md §3.3).
-		return true
-	}
-	if lock == nil {
-		return false
-	}
-	le, ok := lock.Get(entry.Name)
-	if !ok {
-		return false
-	}
-	return le.HostAccessApproved(want)
 }
 
 // packRoot resolves a pack entry to a directory on disk.

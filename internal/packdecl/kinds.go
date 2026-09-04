@@ -167,10 +167,10 @@ const (
 	// argv, the intercepts, the binds and the devices live in a file OUTSIDE pack.json,
 	// and this package has zero internal imports by design (see the file doc) and no
 	// pack root to resolve a relative path against. So the claim producer is
-	// packload.Pack.LoopholeHostAccessClaims, reading through internal/loopholedecl —
-	// the same layer, and for the same reason, as PluginHostAccessClaims
-	// (loophole-packaging.md §3.3). What this package owns is the DECLARATION: `from`
-	// is required and traversal-guarded like every other path-bearing field.
+	// packload's moduleClaims, reading through internal/loopholedecl — the same layer,
+	// and for the same reason, as the wrapped-plugin components packload/plugins.go
+	// reports (loophole-packaging.md §3.3). What this package owns is the DECLARATION:
+	// `from` is required and traversal-guarded like every other path-bearing field.
 	//
 	// Sole-owned by loophole NAME (the module directory's basename, which loadManifest
 	// already forces the manifest's own `name` to equal). Exclusivity is per NAME, not

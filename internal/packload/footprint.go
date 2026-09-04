@@ -64,6 +64,131 @@ type Footprint struct {
 	Claims []Claim
 }
 
+// DisclosureSentence renders one Claim the way the LAUNCH BANNER prints it: as a
+// sentence naming WHAT is touched, in WHICH DIRECTION, and on WHOSE MACHINE.
+//
+// # Why this exists here, and why now
+//
+// [`pack-execution-trust.md`] §6 ruled that a claim shown to a user must be
+// "understandable by a new user", and its worked example of what BAD looks like is the
+// terse one-token-per-line form — `reads-host .claude/settings.json` — where the kind is
+// jargon, the path is relative to a root nobody states, and nothing says whose machine it
+// is on. That ruling was aimed at the fetched-pack APPROVAL PROMPT.
+// [`trust-paths.md`] OQ-TP9 deleted that prompt as theatre and RETARGETED the ruling here:
+// the startup banner (run.notePackHostAccess and run.notePackHostExec, both through
+// run.disclosedClaims) is now the ONLY place a user sees what a pack reaches, so §6 applies
+// to it and matters more than it did.
+//
+// [`pack-execution-trust.md`]: ../../docs/design/pack-execution-trust.md
+// [`trust-paths.md`]: ../../docs/design/trust-paths.md
+//
+// # The `loophole` kind is passed through on purpose
+//
+// Its Detail is ALREADY a sentence of exactly this shape — "RUNS … on your machine",
+// "TRUSTS the CA in … mounted from your host", "PASSES THROUGH the host device …" — written
+// into loopholeClaims when that kind landed. So five kinds were below the bar and one was
+// already at it; this function raises the five rather than restating the sixth.
+//
+// # The prose is a RENDERING, never the record
+//
+// packdecl.Manifest.HostAccessClaims stays the machine-comparable identity, and this function
+// never feeds it — nothing compares or records a sentence. What §6 demands
+// of a rendering is INJECTIVITY: two claims that differ must never render identically, or the
+// banner shows one line where two things crossed. Every branch below therefore embeds Target
+// verbatim, and embeds Detail verbatim except where Detail is a constant of the kind
+// (reads-host) or is a fixed prefix plus the fact itself (program's installer URL).
+// TestDisclosureSentenceDistinguishesClaimsThatDiffer pins it over the claims FootprintOf
+// actually produces, which is the set the guarantee is about.
+//
+// # No digest is shown for an installer, and that is the honest state
+//
+// §6 also requires that "a pinned thing shows its pin; an unpinned thing must say so in
+// words". No manifest field carries an installer digest today — packdecl.Contribution has
+// `url` and nothing beside it — so the honest rendering is the words NOT PINNED. Whoever adds
+// a digest field must render WHAT THE DIGEST COVERS: the script, not the things the script
+// itself downloads at run time (§5's shallow-pin problem, and the one surviving condition of
+// retired OQ-X1). A bare "pinned: sha256 …" beside an installer URL claims a depth an
+// installer pin does not have, which is worse than the unpinned line it replaced.
+func (c Claim) DisclosureSentence() string {
+	switch c.Kind {
+	case packdecl.KindReadsHost:
+		// Detail is the constant "read-only host file", folded into the prose.
+		return "READS a file from YOUR HOME on this machine (read-only): " + hostHomePath(c.Target)
+	case packdecl.KindMount:
+		// Detail is "read-only → /ctx/<into>": it carries the destination and the mode,
+		// so it is kept verbatim and the target supplies the host-home source.
+		return "SHOWS a path from YOUR HOME on this machine to the jail: " +
+			hostHomePath(c.Target) + " (" + c.Detail + ")"
+	case packdecl.KindProgram:
+		// Only the `via: installer` instance crosses anything, and it is the only one
+		// FootprintOf marks review-worthy — so the others fall through to the terse form
+		// they would have had anyway. INSIDE THE JAIL is stated because it is the fact a
+		// reader is most likely to get backwards: curl-to-shell here is not host execution
+		// (Claim.RunsHostCode is deliberately narrower), and a line that let a user believe
+		// it was would train them to discount the block that means it.
+		if url, ok := strings.CutPrefix(c.Detail, "installer: "); ok {
+			return "RUNS an installer downloaded from the internet, INSIDE THE JAIL " +
+				"(not on your machine), the first time " + c.Target + " is used: " + url +
+				" — NOT PINNED: whatever that URL serves at that moment is what runs"
+		}
+	case packdecl.KindBriefing:
+		// Detail is "concat after host:<host-home path>", optionally with an audience
+		// suffix (audienceDetail). CutPrefix rather than a search-and-replace so the
+		// coupling to FootprintOf's briefing arm further down this file is exact and
+		// one-directional: if that wording changes, this falls back to the terse line
+		// instead of mangling it,
+		// and TestDisclosureSentenceReadsTheProducersBriefingDetail goes red.
+		if src, ok := strings.CutPrefix(c.Detail, "concat after host:"); ok {
+			where := ""
+			if c.Target != "" {
+				where = " at " + c.Target
+			}
+			return "READS a file from YOUR HOME on this machine into the jail's briefing" +
+				where + ": " + hostHomePath(src)
+		}
+	case packdecl.KindEnv:
+		// Detail is "=<value>". env reads nothing on the user's machine and is disclosed
+		// anyway (it changes what the agent sees), so the sentence says which side it lands
+		// on rather than leaving a reader to assume the worst.
+		return "SETS an environment variable inside the jail: " + c.Target + c.Detail
+	case packdecl.KindLoophole:
+		// Target first, because a loophole's Detail names the crossing but not which
+		// loophole made it — and two loopholes can intercept one hostname or trust one CA
+		// path. Dropping it would be the injectivity failure this doc comment forbids.
+		return c.Target + ": " + c.Detail
+	}
+	return c.terseLine()
+}
+
+// terseLine is the rendering every claim had before DisclosureSentence, kept as the
+// fallback for a kind with no sentence of its own.
+//
+// A FALLBACK RATHER THAN A REFUSAL, deliberately: an unclassified kind still crosses the
+// spawn boundary as EXEC (run.disclosureClassOf fails closed that way), so it must still
+// print something. Printing the terse form is strictly better than printing nothing, and it
+// is what the reader of a NEW kind's line would otherwise get: no line at all.
+func (c Claim) terseLine() string {
+	detail := c.Target
+	if c.Detail != "" {
+		detail += " " + c.Detail
+	}
+	return string(c.Kind) + " " + detail
+}
+
+// hostHomePath renders a HOST-HOME-RELATIVE manifest path with the root it is relative to.
+//
+// §6 names the unstated root as one of the three things wrong with the terse form, and the
+// root is knowable rather than assumed: packdecl.appendPathProblems refuses an absolute path
+// and any ".." on the `host` of a reads-host and a mount, so those are always relative to the
+// user's home and "~/" is a fact. A `briefing after host:` path lands in
+// packdecl.Mount.HostOverlay, whose own doc calls it "a host-home path" — the same root.
+func hostHomePath(p string) string {
+	if p == "" {
+		return "~/"
+	}
+	return "~/" + p
+}
+
 // SupersedesClaimKind is the Claim.Kind a `supersedes` entry is reported under.
 //
 // A DISPLAY LABEL, deliberately NOT a packdecl.Kind in the closed registry, and the
@@ -227,14 +352,15 @@ func FootprintOf(p *Pack) Footprint {
 			} else {
 				add(packdecl.KindState, c.At, "per-workspace", false)
 			}
+		// UNGATED SINCE OQ-TP9. These two were the only claims FootprintOf withheld — a
+		// fetched pack's were dropped, because the launch would refuse them anyway and a
+		// footprint promising a read that will not happen is worse than silence. With the
+		// origin gate deleted every declared read happens, so every one is reported, and
+		// the footprint no longer needs to know who shipped the pack.
 		case packdecl.KindReadsHost:
-			if p.MayAccessHost {
-				add(packdecl.KindReadsHost, c.Host, "read-only host file", true)
-			}
+			add(packdecl.KindReadsHost, c.Host, "read-only host file", true)
 		case packdecl.KindMount:
-			if p.MayAccessHost {
-				add(packdecl.KindMount, c.Host, "read-only → /ctx/"+c.Into, true)
-			}
+			add(packdecl.KindMount, c.Host, "read-only → /ctx/"+c.Into, true)
 		case packdecl.KindEnv:
 			for _, k := range sortedMapKeys(c.Vars) {
 				add(packdecl.KindEnv, k, "="+c.Vars[k], false)
@@ -285,8 +411,8 @@ func FootprintOf(p *Pack) Footprint {
 
 	// loophole → SEVERAL claims per contribution, one for every declaration that crosses
 	// the host boundary (loophole-packaging.md §3.3). The enumeration is TOTAL by rule: a
-	// claim-free crossing must be unrepresentable, because the origin gate reads an empty
-	// claim set as consent. See LoopholeHostAccessClaims for the table and the reasons.
+	// claim-free crossing must be unrepresentable, because since OQ-TP9 this report is the
+	// ONLY place a user learns of it. See moduleClaims for the table and the reasons.
 	//
 	// EVERY one is ReviewWorthy, which no other kind can say of all its instances. That is
 	// not severity inflation: the enumeration only emits a claim for something that
@@ -295,11 +421,6 @@ func FootprintOf(p *Pack) Footprint {
 	// following pluginClaimDetail's "RUNS CODE" — because ReviewWorthy is one boolean and
 	// this kind needed two severities' worth of meaning out of it.
 	//
-	// NOT gated on p.MayAccessHost, unlike reads-host/mount. Those two report what WILL be
-	// honored; a loophole claim reports what the pack WANTS, which is the question a
-	// footprint answers (`pack footprint`'s own doc: "the point of showing a footprint is to
-	// see what a pack WANTS before trusting it"). Hiding a fetched pack's daemon argv from
-	// the footprint would hide exactly the line the reader came for.
 	for _, lc := range p.loopholeClaims() {
 		fp.Claims = append(fp.Claims, Claim{
 			Kind: packdecl.KindLoophole, Target: lc.target, Pack: p.Name,
@@ -340,8 +461,7 @@ func FootprintOf(p *Pack) Footprint {
 	// justification travels with the consequence on this surface too.
 	//
 	// NOT ReviewWorthy and NOT RunsHostCode. Both flags mark a claim that WIDENS what the
-	// pack may do to your machine; this narrows it, and there is nothing to approve — see
-	// supersede.go for the full argument and for why it is absent from HostAccessClaims.
+	// pack may do to your machine; this narrows it — see supersede.go for the full argument.
 	// The line prints unconditionally regardless, because every claim does.
 	for _, s := range p.Supersessions() {
 		fp.Claims = append(fp.Claims, Claim{

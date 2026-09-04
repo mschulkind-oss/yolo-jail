@@ -25,7 +25,7 @@ func bedrockDecl() *packdecl.Manifest {
 // The `because` rides in the Detail so the justification travels with the consequence
 // on this surface too, exactly as it does in `yolo loopholes list`.
 func TestSupersedesAppearsInTheFootprint(t *testing.T) {
-	cs := claimSet(FootprintOf(pk("claude-bedrock", true, bedrockDecl())))
+	cs := claimSet(FootprintOf(pk("claude-bedrock", bedrockDecl())))
 	c, ok := cs["supersedes claude-oauth-refresh"]
 	if !ok {
 		t.Fatalf("no supersedes claim in the footprint: %v", cs)
@@ -43,35 +43,41 @@ func TestSupersedesAppearsInTheFootprint(t *testing.T) {
 // nothing is granted, so there is nothing to flag. The line still prints
 // unconditionally, because every claim does.
 func TestSupersedesIsNotReviewWorthy(t *testing.T) {
-	c := claimSet(FootprintOf(pk("claude-bedrock", true, bedrockDecl())))["supersedes claude-oauth-refresh"]
+	c := claimSet(FootprintOf(pk("claude-bedrock", bedrockDecl())))["supersedes claude-oauth-refresh"]
 	if c.ReviewWorthy || c.RunsHostCode {
 		t.Errorf("supersedes claim flagged ReviewWorthy=%v RunsHostCode=%v; it grants nothing",
 			c.ReviewWorthy, c.RunsHostCode)
 	}
-	if len(ReviewWorthy([]*Pack{pk("claude-bedrock", true, bedrockDecl())})) != 0 {
+	if len(ReviewWorthy([]*Pack{pk("claude-bedrock", bedrockDecl())})) != 0 {
 		t.Error("a pack whose only declaration is a supersession has a review summary")
 	}
 }
 
-// TestSupersedesIsNotAHostAccessClaim is the R6 decision, pinned.
+// TestSupersedesIsNotAHostCrossing is the R6 decision, pinned — retargeted from the
+// approval set (deleted by OQ-TP9) onto the flags that survived it.
 //
-// HostAccessClaims is the APPROVAL/LOCKFILE key set: every string in it grants the
-// pack something it may not otherwise have, and it is compared for exact equality at
-// `yolo pack install` and again at launch. Supersession belongs to neither end of
-// that — see packload/supersede.go for the four reasons. The consequence worth
-// pinning: a pack whose ONLY declaration is a supersession asks nothing of the host,
-// so it needs no approval and cannot be refused for lacking one.
-func TestSupersedesIsNotAHostAccessClaim(t *testing.T) {
-	p := pk("claude-bedrock", false, bedrockDecl())
-	if claims := p.HostAccessClaims(); len(claims) != 0 {
-		t.Errorf("HostAccessClaims() = %v; a supersession is not something to approve — "+
-			"it relinquishes rather than grants, and keying an approval on it would be "+
-			"either content-blind (capability alone) or endlessly re-prompting (with the "+
-			"`because`, which an author may reword)", claims)
+// It used to assert that a supersession was absent from HostAccessClaims, the exact-match
+// key set `yolo pack install` prompted on and the lockfile stored. That set is gone; the
+// distinction it encoded is not, and now lives on the footprint Claim: ReviewWorthy and
+// RunsHostCode mark a claim that WIDENS what a pack may do to your machine, and a
+// supersession NARROWS it — see packload/supersede.go. The consequence worth pinning is
+// unchanged in substance: a pack whose only declaration is a supersession crosses nothing,
+// so it must not appear in the launch's "this pack reads/runs" disclosure.
+func TestSupersedesIsNotAHostCrossing(t *testing.T) {
+	p := pk("claude-bedrock", bedrockDecl())
+	for _, c := range FootprintOf(p).Claims {
+		if c.Kind != SupersedesClaimKind {
+			continue
+		}
+		if c.ReviewWorthy || c.RunsHostCode {
+			t.Errorf("the supersedes claim is flagged as a crossing (%+v) — it relinquishes "+
+				"rather than grants, and a disclosure whose value is that every line is a real "+
+				"capability is diluted by a line that is not one", c)
+		}
+		return
 	}
-	if probs := p.Decl.NeedsHostAccess(); len(probs) != 0 {
-		t.Errorf("NeedsHostAccess() = %v for a pack that only supersedes", probs)
-	}
+	t.Error("a pack that only supersedes produced no supersedes claim at all — the claim " +
+		"prints unconditionally, because every claim does")
 }
 
 // TestTwoPacksSupersedingOneCapabilityIsNotACollision: design §5 says any supersession
@@ -80,8 +86,8 @@ func TestSupersedesIsNotAHostAccessClaim(t *testing.T) {
 // kind registry, so the exclusive-target pass skips it — rather than by a special case
 // in Collisions.
 func TestTwoPacksSupersedingOneCapabilityIsNotACollision(t *testing.T) {
-	a := pk("pack-a", true, bedrockDecl())
-	b := pk("pack-b", true, bedrockDecl())
+	a := pk("pack-a", bedrockDecl())
+	b := pk("pack-b", bedrockDecl())
 	if cols := Collisions([]*Pack{a, b}); len(cols) != 0 {
 		t.Errorf("Collisions = %+v; two packs superseding one capability is the design's "+
 			"stated behaviour, not a conflict", cols)
@@ -137,7 +143,7 @@ func TestPackSupersessionsAccessorIsNilSafe(t *testing.T) {
 	if got := (*Pack)(nil).Supersessions(); got != nil {
 		t.Errorf("Supersessions() = %v for a nil pack", got)
 	}
-	if got := pk("p", true, &packdecl.Manifest{}).Supersessions(); len(got) != 0 {
+	if got := pk("p", &packdecl.Manifest{}).Supersessions(); len(got) != 0 {
 		t.Errorf("Supersessions() = %v for a manifest that declares none", got)
 	}
 }

@@ -50,9 +50,8 @@ func packWith(name string, bins ...string) *packload.Pack {
 		contribs = append(contribs, packdecl.Contribution{Kind: packdecl.KindProgram, Bin: b, Via: "npm", Package: b})
 	}
 	return &packload.Pack{
-		Name:          name,
-		MayAccessHost: true,
-		Decl:          &packdecl.Manifest{Name: name, Contributes: contribs},
+		Name: name,
+		Decl: &packdecl.Manifest{Name: name, Contributes: contribs},
 	}
 }
 
@@ -70,18 +69,26 @@ func TestBinsIsSortedDedupedAndSkipsProgramlessPacks(t *testing.T) {
 	}
 }
 
-// TestBinsSkipsRefusedInstaller: a fetched pack cannot introduce a curl-piped installer,
-// and a program yolo refuses to install must not get a launcher advertised for it either.
-func TestBinsSkipsRefusedInstaller(t *testing.T) {
-	fetched := &packload.Pack{
-		Name:          "sketchy",
-		MayAccessHost: false,
+// TestBinsIncludesAnInstallerDeclaredProgram: an installer-declared program gets a host
+// wrapper like any other.
+//
+// It was TestBinsSkipsRefusedInstaller, pinning the other half of the deleted origin gate — a
+// fetched pack's curl-piped installer was refused, so advertising a wrapper for a program
+// yolo would not install was a wrapper that could only fail. OQ-TP9 (docs/design/trust-paths.md,
+// 2026-09-04) deleted the refusal; the program installs, so the wrapper is correct.
+//
+// Bins reads HonoredInstalls rather than InstallContributions, which is why this test lives
+// here at all: it is the assertion that hostwrap and packload agree about what installs.
+func TestBinsIncludesAnInstallerDeclaredProgram(t *testing.T) {
+	p := &packload.Pack{
+		Name: "sketchy",
 		Decl: &packdecl.Manifest{Name: "sketchy", Contributes: []packdecl.Contribution{
-			{Kind: packdecl.KindProgram, Bin: "sketchy", Via: "installer", URL: "https://example.invalid/i.sh"},
+			{Kind: packdecl.KindProgram, Bin: "sketchy", Via: "installer", URL: "https://acme.test/i.sh"},
 		}},
 	}
-	if got := Bins([]*packload.Pack{fetched}); len(got) != 0 {
-		t.Errorf("Bins = %q, want none (the installer is refused for a fetched pack)", got)
+	if got := Bins([]*packload.Pack{p}); !reflect.DeepEqual(got, []string{"sketchy"}) {
+		t.Errorf("Bins = %q, want [sketchy] — the installer is honored, so the wrapper is "+
+			"advertised for a program that will actually be there", got)
 	}
 }
 

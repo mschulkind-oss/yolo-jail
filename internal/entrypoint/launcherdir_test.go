@@ -354,11 +354,19 @@ func TestPackWithTwoProgramsGetsTwoLaunchers(t *testing.T) {
 	}
 }
 
-// TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller: the origin gate is PER
-// contribution, asserted at the generator rather than only at packload, because this is the
-// path that actually writes an executable. A pack mixing an npm install with a
-// curl-to-shell installer must not have the URL smuggled through beside the npm one.
-func TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller(t *testing.T) {
+// EVERY install a pack declares gets a launcher, npm and curl-piped installer alike.
+//
+// It was TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller, pinning the PER-CONTRIBUTION
+// origin gate: a fetched pack's npm install survived and only its installer URL was refused,
+// so an installer could not be smuggled through beside one. OQ-TP9 (docs/design/trust-paths.md,
+// 2026-09-04) deleted the gate — `npm install -g` from the same fetched tree runs
+// `postinstall` ungated, so the set refused one path to arbitrary in-jail execution while
+// permitting another (pack-execution-trust.md §2).
+//
+// The per-contribution SHAPE is what is pinned now, and it still matters: HonoredInstalls
+// returns a slice, and a caller that collapsed it to one decision per pack would drop one of
+// these two launchers.
+func TestBothInstallShapesGetALauncher(t *testing.T) {
 	packRoot := t.TempDir()
 	packDir := filepath.Join(packRoot, "mixed")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
@@ -366,23 +374,29 @@ func TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller(t *testing.T) {
 	}
 	manifest := `{"name":"mixed","contributes":[` +
 		`{"kind":"program","bin":"safe","via":"npm","package":"safe-pkg"},` +
-		`{"kind":"program","bin":"sharp","via":"installer","url":"https://evil/sh"}]}`
+		`{"kind":"program","bin":"sharp","via":"installer","url":"https://acme.test/i.sh"}]}`
 	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// The JAIL loader trusts the staged tree (the host already applied the gate), so drive
-	// the gate directly through a fetched-origin load to assert the per-contribution split.
-	p, probs := packload.LoadDir(packDir, "mixed", false)
+	p, probs := packload.LoadDir(packDir, "mixed")
 	if len(probs) != 0 {
 		t.Fatalf("manifest problems: %v", probs)
 	}
 	granted, refused := p.HonoredInstalls()
-	if len(granted) != 1 || granted[0].Bin != "safe" {
-		t.Errorf("the npm install must survive: %+v", granted)
+	if len(refused) != 0 {
+		t.Errorf("an install was REFUSED: %v\nThe origin gate is deleted; a refusal here is a "+
+			"gate that came back without a ruling", refused)
 	}
-	if len(refused) != 1 || !strings.Contains(refused[0], "https://evil/sh") {
-		t.Errorf("exactly the installer must be refused, naming its URL: %v", refused)
+	bins := map[string]string{}
+	for _, in := range granted {
+		bins[in.Bin] = in.InstallerURL
+	}
+	if _, ok := bins["safe"]; !ok {
+		t.Errorf("the npm install is missing: %+v", granted)
+	}
+	if bins["sharp"] != "https://acme.test/i.sh" {
+		t.Errorf("the curl-piped installer is missing or lost its URL: %+v", granted)
 	}
 }
 

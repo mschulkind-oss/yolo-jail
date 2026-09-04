@@ -356,8 +356,8 @@ func runDoctorChecks(loopholes []*Loophole, timeout time.Duration, gate *Set) []
 		if m.Source == SourcePack && (gate == nil || !gate.MayRunHostCode(m)) {
 			results = append(results, DoctorResult{Loophole: m, RC: nil,
 				Output: "not run: a pack-shipped loophole's self-check is host execution, " +
-					"and this pack's host access is not approved for it " +
-					"(`yolo pack install` records the approval)"})
+					"and this caller resolved no packs, so nothing vouches for the module " +
+					"(a yolo bug, not a config problem — please report it)"})
 			continue
 		}
 		// The PLACEMENT rule, at the doctor face. workspace is "" because no doctor caller

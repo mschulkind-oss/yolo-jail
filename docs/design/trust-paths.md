@@ -87,10 +87,11 @@ against exactly one threat, the silent update.
 > instead of exec'ing; `yolo pack update` is the one setter
 > ([`packupdate.go:60`](../../internal/cli/packupdate.go)); the cold branch
 > ([`shims.go:757-766`](../../internal/entrypoint/shims.go)) is still deliberately untouched.
-> **TP6** — [`run/packs.go:228`](../../internal/cli/run/packs.go) accumulates `packRefusals(p)` and
-> `:247` returns `refusedLaunchError`, ahead of the mechanical pre-flights; the message itself is
-> [`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go) and still names the pack, the
-> claim and all three ways out.
+> **TP6** — `run/packs.go` accumulated `packRefusals(p)` and returned `refusedLaunchError` ahead of
+> the mechanical pre-flights, from a `packrefusal.go` that named the pack, the claim and all three
+> ways out. ⛔ **All of it was DELETED on 2026-09-04 by [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)**, which removed the gate that produced the
+> refusals — TP6's ruling is not overturned, its subject is gone. The file no longer exists;
+> `run/packs.go` says so where the fold used to be.
 
 > [!WARNING]
 > **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
@@ -135,8 +136,8 @@ per row. `LockEntry` ([`lock.go`](../../internal/packsrc/lock.go#L33-L53)) recor
 
 | Field | Enforced at launch? | Evidence |
 | :--- | :--- | :--- |
-| `ApprovedHostAccess` | **Yes** — `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L876)) grants a fetched pack host access only for claims recorded here, and a claim set that grew re-prompts | this is a real gate |
-| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message ([`pack.go:1121-1126`](../../internal/cli/pack.go#L1121-L1126)) and the `pack status` listing ([`pack.go:1350`](../../internal/cli/pack.go#L1350)). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-09-02** (anchors repinned): four readers, all printing |
+| `ApprovedHostAccess` | ⛔ **DELETED 2026-09-04** with `packMayAccessHost`, by [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04). It was the lockfile's only launch-time reader, so **the lockfile is now write-only at launch** — `packsrc.LockEntry`'s doc comment records the deletion and refuses its reintroduction | was a real gate; was theatre |
+| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message and the `pack status` listing, both in [`internal/cli/pack.go`](../../internal/cli/pack.go). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-09-04**. Cited by SYMBOL rather than by line: the four `#L` anchors this row carried all drifted or died within a month |
 
 That split is **OQ-LP8 / G2b**, already open and already ruled in shape. It is the same shape the
 origin gate had before [§3.1](#31-a-refused-contribution-refuses-the-launch-): *true of the decision,
@@ -383,11 +384,14 @@ launcher regardless. The warning was true about the *decision* and false about t
 ruling does not close that gap; it deletes the problem.** There is nothing to carry across the
 boundary if no jail starts.
 
-`stagePacks` now collects every refusal the `Honored*` family reports and returns
-[`refusedLaunchError`](../../internal/cli/run/packrefusal.go) instead of the four warnings it used to
-print — **before** the mechanical pre-flights, because this one is about CONSENT and those are about
-pack mechanics. Refusals accumulate across the whole configured set, so two broken packs cost one
-launch rather than two.
+`stagePacks` collected every refusal the `Honored*` family reported and returned
+`refusedLaunchError` instead of the four warnings it used to print — **before** the mechanical
+pre-flights, because this one was about CONSENT and those are about pack mechanics. Refusals
+accumulated across the whole configured set, so two broken packs cost one launch rather than two.
+
+⛔ **Past tense since 2026-09-04.** [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the gate every one of those refusals came from, so the fold
+is always empty and `internal/cli/run/packrefusal.go` is deleted. The pre-flights that remain in
+`stagePacks` are all about pack mechanics.
 
 **It also retires the partial-pack concept**, which is the deeper change. A pack that half-loads is a
 pack whose behaviour nobody can predict from reading it: the manifest says one thing, the running
@@ -625,9 +629,9 @@ this refusal was a warning. OQ-TP6 made it fatal and left `check` behind.
 
 #### Gap 2 — the refusal's third option is not always available
 
-`refusedLaunchError` ([`packrefusal.go:104`](../../internal/cli/run/packrefusal.go)) offers FIX,
+`refusedLaunchError` (in the since-deleted `internal/cli/run/packrefusal.go`) offered FIX,
 REMOVE, or *"APPROVE — run `yolo pack install`, which shows every claim the pack makes and records
-your yes in the lockfile."* Approve is unavailable in two states, and the message names neither:
+your yes in the lockfile."* Approve was unavailable in two states, and the message named neither:
 
 - **No terminal.** `resolveHostApproval` refuses before reading a byte when stdin is not a tty
   ([`pack.go:1253`](../../internal/cli/pack.go)) — right on its own terms, since `yes | yolo pack

@@ -55,7 +55,7 @@ func selectionAcmePack(t *testing.T) *packload.Pack {
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 	   "path":"~/.acme/settings.json","mode":"computed"}]}]}`)
 	writeHostFile(t, filepath.Join(dir, "derive.lua"), selectionDeriveLua)
-	p, problems := packload.LoadDir(dir, "acme", false)
+	p, problems := packload.LoadDir(dir, "acme")
 	if p == nil {
 		t.Fatalf("the acme fixture did not load: %v", problems)
 	}
@@ -69,7 +69,7 @@ func selectionProviderPack(t *testing.T) *packload.Pack {
 	dir := t.TempDir()
 	writeHostFile(t, filepath.Join(dir, "pack.json"), `{"name":"acme-prov","description":"d","contributes":[
 	  {"kind":"profile","name":"aws","provider":"aws-bedrock"}]}`)
-	p, problems := packload.LoadDir(dir, "acme-prov", false)
+	p, problems := packload.LoadDir(dir, "acme-prov")
 	if p == nil {
 		t.Fatalf("the provider fixture did not load: %v", problems)
 	}

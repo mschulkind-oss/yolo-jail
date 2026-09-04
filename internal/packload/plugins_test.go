@@ -41,7 +41,7 @@ func writeWrapperPack(t *testing.T, name, pluginName, pluginManifest string) str
 func TestFootprintSurfacesPluginHooksAndServers(t *testing.T) {
 	root := writeWrapperPack(t, "wrapper", "acme-tools",
 		`{"name":"acme-tools","hooks":{"PreToolUse":[]},"mcpServers":{"db":{"command":"x"}}}`)
-	p, problems := LoadDir(root, "wrapper", true)
+	p, problems := LoadDir(root, "wrapper")
 	if len(problems) > 0 {
 		t.Fatalf("unexpected manifest problems: %v", problems)
 	}
@@ -75,71 +75,67 @@ func TestFootprintSurfacesPluginHooksAndServers(t *testing.T) {
 // gate nobody reads.
 func TestSkillsOnlyPluginIsNotReviewWorthy(t *testing.T) {
 	root := writeWrapperPack(t, "wrapper", "acme-tools", `{"name":"acme-tools","skills":["./"]}`)
-	p, _ := LoadDir(root, "wrapper", true)
+	p, _ := LoadDir(root, "wrapper")
 	for _, c := range FootprintOf(p).Claims {
 		if c.Target == "plugin:acme-tools" && c.ReviewWorthy {
 			t.Errorf("a skills-only plugin must not be review-worthy: %+v", c)
 		}
 	}
-	if claims := p.PluginHostAccessClaims(); len(claims) != 0 {
-		t.Errorf("PluginHostAccessClaims() = %v, want none for a skills-only plugin", claims)
-	}
 }
 
-// The ORIGIN GATE: a FETCHED pack (MayAccessHost=false) has its plugin's code-running components
-// refused BY NAME, while the plugin's skills still come along. This is the specific hole
-// plugin-as-pack could have opened — a fetched tree running code with no approval.
-func TestFetchedPackPluginCodeIsRefusedByName(t *testing.T) {
+// A WRAPPED PLUGIN IS DELIVERED WHOLE, hooks and servers included, whoever shipped the pack.
+//
+// TWO TESTS USED TO LIVE HERE. TestFetchedPackPluginCodeIsRefusedByName pinned the origin
+// gate: a fetched pack's code-running components were stripped and named in a refusal while
+// its skills came along. TestPluginHostAccessClaimsAreSpecific pinned the approval strings
+// those components contributed to the install prompt and the lockfile. OQ-TP9
+// (docs/design/trust-paths.md, 2026-09-04) deleted the gate, the prompt and the lockfile
+// record, so both are replaced by this — the assertion that goes red if any of it returns.
+//
+// WHAT THE RULING KEPT is the DISCLOSURE, and it is asserted here beside the delivery,
+// because delivering the hook while dropping its footprint line would be strictly worse than
+// the gate: the pack would run code on a lifecycle event with nothing anywhere saying so.
+func TestWrappedPluginCodeIsDeliveredAndDisclosed(t *testing.T) {
 	root := writeWrapperPack(t, "wrapper", "acme-tools",
 		`{"name":"acme-tools","skills":["./"],"hooks":{"PreToolUse":[]},
 		  "mcpServers":{"db":{"command":"x"}},"agents":["./agents"]}`)
 
-	// mayAccessHost=false is what a fetched, unapproved pack gets.
-	fetched, _ := LoadDir(root, "wrapper", false)
-	granted, refused := fetched.HonoredPlugins()
-	if len(refused) != 2 {
-		t.Fatalf("both code-running components must be refused by name, got %v", refused)
+	p, probs := LoadDir(root, "wrapper")
+	if len(probs) > 0 {
+		t.Fatalf("fixture: %v", probs)
 	}
-	joined := strings.Join(refused, "\n")
-	for _, want := range []string{"hooks", "mcpServers", "acme-tools", "FETCHED"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("refusal must name %q so the user knows what was withheld:\n%s", want, joined)
+	granted, refused := p.HonoredPlugins()
+	if len(refused) != 0 {
+		t.Errorf("a wrapped plugin's components were REFUSED: %v\nThe origin gate is deleted; "+
+			"a refusal here is a gate that came back without a ruling", refused)
+	}
+	if len(granted) != 1 {
+		t.Fatalf("the plugin was not delivered, got %d", len(granted))
+	}
+	if !granted[0].RunsCode() {
+		t.Error("the delivered plugin reports RunsCode()=false — its hooks and mcpServers " +
+			"were stripped somewhere between the manifest and here")
+	}
+
+	// The disclosure the gate was traded for.
+	var claim *Claim
+	for i, c := range FootprintOf(p).Claims {
+		if c.Target == "plugin:acme-tools" {
+			claim = &FootprintOf(p).Claims[i]
+			_ = i
 		}
 	}
-	// `agents` is content and is NOT refused — the gate is about code, not about file count.
-	if strings.Contains(joined, "agents") {
-		t.Errorf("content-only components must not be refused:\n%s", joined)
+	if claim == nil {
+		t.Fatal("the wrapped plugin has no footprint claim at all — since OQ-TP9 that report " +
+			"is the only place a user learns this pack ships code that runs")
 	}
-	// The plugin is still delivered: its skills are the reason the user wrapped it.
-	if len(granted) != 1 {
-		t.Errorf("the plugin's skills must still be delivered when its code is refused, got %d",
-			len(granted))
+	if !claim.ReviewWorthy {
+		t.Errorf("the plugin claim is not ReviewWorthy, so it never reaches the launch "+
+			"banner: %+v", *claim)
 	}
-
-	// An APPROVED (or embedded/local) pack gets everything, with nothing refused.
-	approved, _ := LoadDir(root, "wrapper", true)
-	if _, refused := approved.HonoredPlugins(); len(refused) != 0 {
-		t.Errorf("an origin-permitted pack must not have its plugin refused: %v", refused)
-	}
-}
-
-// The approval strings a plugin contributes are SPECIFIC and stable, so a pin that later gains a
-// hook re-prompts while an unchanged one does not.
-func TestPluginHostAccessClaimsAreSpecific(t *testing.T) {
-	root := writeWrapperPack(t, "wrapper", "acme-tools",
-		`{"name":"acme-tools","hooks":{"PreToolUse":[]}}`)
-	p, _ := LoadDir(root, "wrapper", true)
-	claims := p.PluginHostAccessClaims()
-	if len(claims) != 1 {
-		t.Fatalf("claims = %v, want one per code-running component", claims)
-	}
-	if !strings.Contains(claims[0], "acme-tools") || !strings.Contains(claims[0], "hooks") {
-		t.Errorf("claim %q must name both the plugin and the component, or approving it "+
-			"approves something the user cannot identify", claims[0])
-	}
-	// Stable across reads: the lockfile compares these as strings.
-	if again := p.PluginHostAccessClaims(); again[0] != claims[0] {
-		t.Errorf("claims must be stable: %q vs %q", claims[0], again[0])
+	if !strings.Contains(claim.Detail, "hooks") || !strings.Contains(claim.Detail, "mcpServers") {
+		t.Errorf("the claim does not name the code-running components, so a reader cannot "+
+			"tell what runs: %q", claim.Detail)
 	}
 }
 
@@ -149,8 +145,8 @@ func TestPluginHostAccessClaimsAreSpecific(t *testing.T) {
 func TestTwoPacksWrappingOnePluginNameCollide(t *testing.T) {
 	a := writeWrapperPack(t, "packa", "acme-tools", `{"name":"acme-tools"}`)
 	b := writeWrapperPack(t, "packb", "acme-tools", `{"name":"acme-tools"}`)
-	pa, _ := LoadDir(a, "packa", true)
-	pb, _ := LoadDir(b, "packb", true)
+	pa, _ := LoadDir(a, "packa")
+	pb, _ := LoadDir(b, "packb")
 
 	cols := Collisions([]*Pack{pa, pb})
 	var found *Collision
@@ -185,7 +181,7 @@ func TestPackWithoutPluginIsUnaffected(t *testing.T) {
 		[]byte("---\nname: a-skill\ndescription: d\n---\nx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := LoadDir(root, "plain", true)
+	p, _ := LoadDir(root, "plain")
 	if pls := p.Plugins(); len(pls) != 0 {
 		t.Errorf("a plain pack must carry no plugins, got %d", len(pls))
 	}

@@ -39,7 +39,7 @@ func optionsZaiPack(t *testing.T) *packload.Pack {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "zai", false)
+	p, problems := packload.LoadDir(root, "zai")
 	if len(problems) != 0 {
 		t.Fatalf("loading fixture pack: %v", problems)
 	}

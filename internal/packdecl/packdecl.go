@@ -484,20 +484,6 @@ func appendJailPathProblems(problems []string, field, p string) []string {
 	return problems
 }
 
-// NeedsHostAccess reports whether honoring this manifest requires reading the host
-// home or running a fetched installer — the declarations gated on pack ORIGIN.
-//
-// Collected in one predicate so a caller cannot check two of the three and believe it
-// covered the boundary. That mistake already happened once, when "the credential
-// boundary" was treated as AgentSpec.HostFiles alone while Briefing.HostSource and
-// Skills read the host home too.
-func (m *Manifest) NeedsHostAccess() []string {
-	// Routes through the contributions (NeedsHostAccessContributions): the origin
-	// gate is "any reads-host, program-via-installer, or host-prepending briefing"
-	// (docs/design/pack-system.md §9).
-	return m.NeedsHostAccessContributions()
-}
-
 func knownHook(name string) bool {
 	for _, k := range KnownHooks {
 		if k == name {

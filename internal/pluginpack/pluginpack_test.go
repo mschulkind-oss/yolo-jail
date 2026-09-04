@@ -147,30 +147,28 @@ func TestCodeRunningComponentsAreIdentified(t *testing.T) {
 	if !p.RunsCode() {
 		t.Error("a plugin declaring hooks and MCP servers must report RunsCode")
 	}
-	// The approval strings cover the code-running components and ONLY those: content needs
-	// no approval, and a claim set that churned on a docs change would re-prompt for nothing.
-	claims := p.HostAccessClaims()
-	if len(claims) != 3 {
-		t.Errorf("HostAccessClaims() = %v, want one per code-running component", claims)
-	}
-	for _, c := range claims {
-		if !contains(c, "plugin p ") {
-			t.Errorf("claim %q must name the plugin, so a user knows WHICH tree wants this", c)
-		}
-	}
+	// THE APPROVAL STRINGS ARE GONE with the prompt and the lockfile that consumed them
+	// (docs/design/trust-paths.md OQ-TP9, 2026-09-04). Plugin.HostAccessClaims rendered one
+	// per code-running component, naming the plugin; what a user sees now is the pack
+	// footprint's ⚠ RUNS CODE line, built from Components() by packload.FootprintOf and
+	// pinned there (packload/plugins_test.go). Components() and RunsCode(), asserted above,
+	// are the inputs that survived.
 }
 
-// A skills-only plugin makes no code claim at all, so wrapping one needs no approval. If this
-// regressed, every plugin-as-pack would prompt and the prompt would stop meaning anything.
-func TestSkillsOnlyPluginMakesNoClaims(t *testing.T) {
+// A skills-only plugin runs no code, so nothing about it is review-worthy. If this regressed,
+// every plugin-as-pack would carry a ⚠ RUNS CODE line and the marker would stop meaning
+// anything — the same argument that used to be about the prompt, now about the disclosure.
+func TestSkillsOnlyPluginRunsNoCode(t *testing.T) {
 	root := t.TempDir()
 	dir := writePlugin(t, root, "p", `{"name":"p","skills":["./"]}`)
 	p, _ := Load(dir)
 	if p.RunsCode() {
 		t.Error("a skills-only plugin must not report RunsCode")
 	}
-	if claims := p.HostAccessClaims(); len(claims) != 0 {
-		t.Errorf("HostAccessClaims() = %v, want none for a skills-only plugin", claims)
+	for _, c := range p.Components() {
+		if c.RunsCode {
+			t.Errorf("component %q of a skills-only plugin reports RunsCode", c.Name)
+		}
 	}
 }
 
@@ -320,17 +318,4 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-func contains(s, sub string) bool {
-	return len(sub) == 0 || len(s) >= len(sub) && indexOf(s, sub) >= 0
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

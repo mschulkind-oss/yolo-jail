@@ -37,7 +37,6 @@ func filesPack(t *testing.T, name, from, into string, tree map[string]string, mo
 		Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{{
 			Kind: packdecl.KindFiles, From: from, Into: into,
 		}}},
-		MayAccessHost: true,
 	}
 }
 

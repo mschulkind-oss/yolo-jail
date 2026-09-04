@@ -35,7 +35,7 @@ func addressedBriefingPack(t *testing.T, name string, agents ...string) *packloa
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, name, true)
+	p, problems := packload.LoadDir(root, name)
 	if len(problems) != 0 {
 		t.Fatalf("loading the %s fixture pack: %v — an `agents`-only briefing must LOAD, or "+
 			"this test is asserting against a manifest no launch can reach", name, problems)

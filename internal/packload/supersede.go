@@ -6,38 +6,30 @@ package packload
 //
 // # A supersession is a FOOTPRINT claim and NOT a host-access claim
 //
-// It is reported by `yolo pack footprint` (footprint.go emits one Claim per entry),
-// and it is deliberately absent from Pack.HostAccessClaims — the set a user approves
-// at `yolo pack install` and the launch gate re-checks against the lockfile. Four
-// reasons, in the order they decided it:
+// It is reported by `yolo pack footprint` (footprint.go emits one Claim per entry) and it
+// is deliberately NOT ReviewWorthy, so it stays out of the launch disclosure. It was also
+// deliberately absent from the fetched-pack approval set, back when there was one — a
+// decision OQ-TP9 made moot in 2026-09-04 by deleting the whole approval, but whose first
+// two reasons survive as the argument for the ReviewWorthy flag and are kept for that:
 //
-//  1. EVERY OTHER CLAIM IN THAT SET GRANTS THE PACK SOMETHING it may not otherwise
-//     have — a host file read, a daemon argv on your machine, a device node, a
-//     trusted CA. Supersession grants nothing. It RELINQUISHES: it says a job need
-//     not be done, and the thing that stops is yolo's own bundled daemon. An approval
-//     prompt whose value is that every line is a real capability is diluted by a line
-//     that is not one (packRequiresProblems makes the same call about
-//     `requires.file_exists`, which is scoped but claimless).
-//  2. THE FAILURE DIRECTION IS ALREADY SAFE. Withholding a host read means a pack
-//     does not get your credentials. Withholding a supersession means the bundled
-//     broker keeps running — the status quo. There is no privilege to withhold, so
-//     the gate would have nothing to protect.
-//  3. THE KEY WOULD BE CONTENT-BLIND OR ENDLESSLY RE-PROMPTING. An approval string is
-//     an exact-match lockfile key. Key it on `capability` alone and the author can
-//     reword `because` to anything after approval — the content-blind consent
-//     loophole-packaging.md §4 flags as a new invariant. Key it on both and every
-//     wording tweak re-prompts, which since promptYesNo fails closed on a non-TTY
-//     means a reworded sentence permanently refuses the pack.
-//  4. VISIBILITY IS ALREADY SERVED, twice, and unconditionally: the footprint prints
-//     the claim whether or not the pack is approved, and `yolo loopholes list`/
-//     `status` name the pack and print the `because` wherever the supersession takes
-//     effect. The thing an approval would buy — that nobody is surprised — is bought
-//     by the report instead.
+//  1. EVERY REVIEW-WORTHY CLAIM GRANTS THE PACK SOMETHING it may not otherwise have — a
+//     host file read, a daemon argv on your machine, a device node, a trusted CA.
+//     Supersession grants nothing. It RELINQUISHES: it says a job need not be done, and
+//     the thing that stops is yolo's own bundled daemon. A disclosure whose value is that
+//     every line is a real capability is diluted by a line that is not one
+//     (packRequiresProblems makes the same call about `requires.file_exists`, which is
+//     scoped but claimless).
+//  2. THE FAILURE DIRECTION IS ALREADY SAFE. Withholding a host read means a pack does not
+//     get your credentials. Withholding a supersession means the bundled broker keeps
+//     running — the status quo. There is no privilege to withhold.
+//  3. VISIBILITY IS ALREADY SERVED, twice, and unconditionally: the footprint prints the
+//     claim, and `yolo loopholes list`/`status` name the pack and print the `because`
+//     wherever the supersession takes effect.
 //
-// If that ever needs revisiting, the trigger is a supersession that turns off
-// something SECURITY-BEARING rather than something merely useful. Nothing bundled is
-// today: the broker serializes token refreshes, `audio` passes sockets,
-// `host-processes` reads a process list.
+// If that ever needs revisiting, the trigger is a supersession that turns off something
+// SECURITY-BEARING rather than something merely useful. Nothing bundled is today: the
+// broker serializes token refreshes, `audio` passes sockets, `host-processes` reads a
+// process list.
 
 import "github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 

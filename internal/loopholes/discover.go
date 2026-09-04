@@ -350,24 +350,33 @@ type DiscoverOptions struct {
 	PackSupersessions []PackSupersession
 }
 
-// PackModule is one externally-contributed loophole module dir plus the ORIGIN GATE
-// decision the caller made about it.
+// PackModule is one externally-contributed loophole module dir plus the caller's statement
+// that it resolved that module from the user's own selected packs.
 //
 // The bool is in the INPUT rather than derived here because only the caller can know it:
-// deciding it needs the pack's origin and the approval lockfile, both of which live in
-// packages this one cannot import. Making it a required part of the input is what lets
-// RunDoctorChecks refuse to execute a module whose gate nobody evaluated — the
-// "until the convergence exists" guard docs/design/loophole-packaging.md §5.1 asks for,
-// expressed so the unsafe call is unrepresentable rather than merely avoided.
+// answering it needs the `packs` config and the pack store, both in packages this one
+// cannot import. Making it a required part of the input is what lets RunDoctorChecks refuse
+// to execute a module nobody vouched for — the "until the convergence exists" guard
+// docs/design/loophole-packaging.md §5.1 asks for, expressed so the unsafe call is
+// unrepresentable rather than merely avoided.
 type PackModule struct {
 	// Dir is the absolute path to the module directory (holding manifest.jsonc).
 	Dir string
-	// HostExecApproved says the caller EVALUATED this module's origin gate and the
-	// origin may run host code — an embedded or local pack (whose origin carries the
-	// user's own authority), or a fetched pack whose host-access claims the user
-	// approved at `yolo pack install`. FALSE is the safe default: the loophole is still
-	// discovered and LISTED (so "installed but not approved" is visible rather than
-	// missing), but its doctor_cmd never runs.
+	// HostExecApproved says the caller RESOLVED this module from a pack the host user
+	// selected in their own config, and so vouches for running its host code.
+	//
+	// EVERY PRODUCTION CALLER PASSES TRUE, and that is the state OQ-TP9 left behind
+	// (docs/design/trust-paths.md, 2026-09-04). The field used to carry a per-pack ORIGIN
+	// GATE — a fetched pack's loophole ran nothing until the user approved its claims at
+	// `yolo pack install` — and that gate is deleted, because naming the pack in `packs`
+	// already required more authority than the approval withheld.
+	//
+	// THE FIELD IS NOT VESTIGIAL, because false still means something this package must
+	// refuse: a caller that assembled a []*Loophole WITHOUT resolving packs at all. A slice
+	// carries no provenance, so the only place that check cannot be forgotten is inside the
+	// function that acts on the records (see gateAdmitsCrossing and runDoctorChecks). The
+	// loophole is still discovered and LISTED in that state, so a module yolo will not run
+	// is visible rather than missing.
 	HostExecApproved bool
 }
 
@@ -528,9 +537,10 @@ func gateOf(mods []PackModule) map[string]bool {
 //
 // TRUE for everything that did not come from a pack module: bundled loopholes ship with
 // yolo, and a user directory or a user-config entry carries the user's own authority (the
-// same reason a file:// pack does). For a PACK module it is the gate decision the caller
-// recorded — and false for a pack module this Set does not know about, which is the
-// fail-safe branch that makes a Set assembled without gate information unable to execute
+// same reason a pack the user named in their config does). For a PACK module it is what the
+// caller recorded in PackModule.HostExecApproved — true wherever packs were actually
+// resolved, and false for a pack module this Set does not know about, which is the
+// fail-safe branch that makes a Set assembled without pack resolution unable to execute
 // anything a pack shipped.
 func (s Set) MayRunHostCode(lp *Loophole) bool {
 	if lp == nil {

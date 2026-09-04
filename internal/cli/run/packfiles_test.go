@@ -51,7 +51,7 @@ func filesPack(t *testing.T, name, from, into string, contents map[string]string
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, name, true)
+	p, problems := packload.LoadDir(root, name)
 	if len(problems) != 0 {
 		t.Fatalf("loading the %s fixture pack: %v", name, problems)
 	}
@@ -116,7 +116,7 @@ func TestAssemblePackFilesAbsentSourceWarns(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "ghost", true)
+	p, problems := packload.LoadDir(root, "ghost")
 	if len(problems) != 0 {
 		t.Fatalf("loading the ghost pack: %v", problems)
 	}
@@ -232,7 +232,7 @@ func TestPackFilesCollisionWithinOnePack(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "selfish", true)
+	p, problems := packload.LoadDir(root, "selfish")
 	if len(problems) != 0 {
 		t.Fatalf("loading the selfish pack: %v", problems)
 	}
@@ -337,7 +337,7 @@ func TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome(t *testin
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "custom-contributor", true)
+	p, problems := packload.LoadDir(root, "custom-contributor")
 	if len(problems) != 0 {
 		t.Fatalf("loading pack: %v", problems)
 	}

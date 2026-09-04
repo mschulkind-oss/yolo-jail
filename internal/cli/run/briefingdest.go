@@ -37,12 +37,12 @@ type briefingDest struct {
 	Agent string
 	// After is the declaring contribution's `after`, verbatim — `"host:<path>"` to prepend
 	// the user's own file, or "".
+	//
+	// THERE WAS A MayAccessHost BESIDE IT, the declaring pack's origin gate, deciding
+	// whether the `after` host file could be read at all. OQ-TP9 deleted it
+	// (docs/design/trust-paths.md, 2026-09-04): a fetched pack's `after: "host:AGENTS.md"`
+	// is honored like anyone else's, so the destination carries only what it declares.
 	After string
-	// MayAccessHost is the DECLARING pack's origin gate, which is what decides whether the
-	// `after` host file may be read at all. It travels with the destination because the
-	// declaring pack is the one whose claim it is; a later pack contributing prose at the
-	// same path does not get to widen it.
-	MayAccessHost bool
 }
 
 // briefingDestinations enumerates a jail's briefing destinations, deduplicated by path with
@@ -71,9 +71,7 @@ func briefingDestinations(packs []*packload.Pack) []briefingDest {
 				continue
 			}
 			seen[c.Into] = true
-			out = append(out, briefingDest{
-				Into: c.Into, Agent: c.Agent, After: c.After, MayAccessHost: p.MayAccessHost,
-			})
+			out = append(out, briefingDest{Into: c.Into, Agent: c.Agent, After: c.After})
 		}
 	}
 	return out

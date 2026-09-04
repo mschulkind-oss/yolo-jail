@@ -4,21 +4,47 @@ package packload_test
 // load-bearing rule of docs/design/loophole-packaging.md §3.3 — and the resolution
 // behaviour around it.
 //
-// The blocker it guards is worth restating, because a passing test here is what stands
-// between a fetched pack and an unprompted host mount: `packMayAccessHost` returns TRUE on
-// an EMPTY claim set ("reads nothing from the host, runs nothing on it; the gate is moot").
-// So a loophole declaring only `host_bind_mounts` + `host_devices` and emitting no claims
-// put an arbitrary absolute host path into a UID-0 jail with no prompt, ever. Every test
-// below that asserts a claim EXISTS is really asserting that this path stays closed.
+// WHAT THE ENUMERATION IS FOR CHANGED ON 2026-09-04, and the rule got MORE load-bearing
+// rather than less. It used to feed two things: the footprint, and the claim set the
+// fetched-pack approval prompt showed and the lockfile stored. The blocker was that
+// `packMayAccessHost` returned TRUE on an EMPTY set, so a loophole declaring only
+// `host_bind_mounts` + `host_devices` and emitting no claims crossed unprompted. OQ-TP9
+// (docs/design/trust-paths.md) deleted the prompt, the lockfile record and the gate — and
+// left the footprint as the ONLY place a user learns a pack reaches their machine. So a
+// crossing that emits no claim is no longer "waved through a gate"; it is a crossing
+// NOBODY IS TOLD ABOUT. Every test below that asserts a claim EXISTS is asserting that.
+//
+// The claims are read through the FOOTPRINT here, because that is where they are now
+// consumed — see disclosedCrossings.
 
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
+
+// disclosedCrossings renders this pack's `loophole` claims as one line each — the footprint
+// TARGET (the collision key) plus its DETAIL (what a user reads) — sorted.
+//
+// It replaces packload.Pack.LoopholeHostAccessClaims, which produced a second, raw
+// rendering of the same set for the approval prompt and the lockfile. OQ-TP9 deleted both
+// consumers, so the display rendering is the only one left; joining target and detail is
+// what keeps these assertions able to see everything the raw string used to carry.
+func disclosedCrossings(p *packload.Pack) []string {
+	var out []string
+	for _, c := range packload.FootprintOf(p).Claims {
+		if c.Kind == packdecl.KindLoophole {
+			out = append(out, c.Target+" "+c.Detail)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 // writeLoopholePack writes a pack whose pack.json declares one `loophole` contribution per
 // module, with each module's manifest.jsonc body supplied by the caller. Returns the root.
@@ -48,7 +74,7 @@ func writeLoopholePack(t *testing.T, modules map[string]string) string {
 
 func loadPack(t *testing.T, root string) *packload.Pack {
 	t.Helper()
-	p, problems := packload.LoadDir(root, "acme", true)
+	p, problems := packload.LoadDir(root, "acme")
 	if len(problems) > 0 {
 		t.Fatalf("loading pack: %v", problems)
 	}
@@ -86,11 +112,11 @@ func TestBindMountsAndDevicesEachEmitAClaim(t *testing.T) {
 	  ],
 	  "host_devices": ["/dev/snd"]
 	}`})
-	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	claims := disclosedCrossings(loadPack(t, root))
 	if len(claims) != 3 {
 		t.Fatalf("claims = %v (%d), want 3 — one per bind mount and one per device. A "+
-			"crossing with no claim is a crossing packMayAccessHost waves through: it "+
-			"returns TRUE on an empty claim set", claims, len(claims))
+			"crossing with no claim is a crossing nobody is told about: since OQ-TP9 the "+
+			"footprint is the only place this is disclosed", claims, len(claims))
 	}
 	if !hasClaimContaining(claims, "$HOME/.ssh", "/ctx/keys") {
 		t.Errorf("no claim names the ~/.ssh bind: %v", claims)
@@ -112,7 +138,7 @@ func TestInterceptClaimsWithNoDaemon(t *testing.T) {
 	  "transport": "none",
 	  "intercepts": [{"host": "api.acme.com"}, {"host": "cdn.acme.com"}]
 	}`})
-	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	claims := disclosedCrossings(loadPack(t, root))
 	if len(claims) != 2 {
 		t.Fatalf("claims = %v, want one per intercept even with no host_daemon", claims)
 	}
@@ -133,7 +159,7 @@ func TestDaemonClaimSpellsOutHostExecution(t *testing.T) {
 	                  "publishes": "socket"},
 	  "doctor_cmd": ["python3", "{loophole_dir}/doctor.py"]
 	}`})
-	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	claims := disclosedCrossings(loadPack(t, root))
 	if len(claims) != 1 {
 		t.Fatalf("claims = %v, want ONE base claim — doctor_cmd is host execution too, so it "+
 			"joins the daemon's claim rather than getting its own line", claims)
@@ -161,32 +187,32 @@ func TestClaimStringIsRawArgv(t *testing.T) {
 	                  "publishes": "socket"}
 	}`})
 	p := loadPack(t, root)
-	claims := p.LoopholeHostAccessClaims()
+	claims := disclosedCrossings(p)
 	if len(claims) != 1 {
 		t.Fatalf("claims = %v, want 1", claims)
 	}
 	c := claims[0]
 	if strings.Contains(c, "…") || strings.Contains(c, "...") {
-		t.Errorf("claim %q elides — it is a lockfile comparison key, not display text; two "+
-			"different daemons would collapse onto one approved claim", c)
+		t.Errorf("claim %q elides — it is the ONLY place a user sees this argv, and an "+
+			"ellipsis is where the interesting flag hides", c)
 	}
 	if !strings.Contains(c, "{loophole_dir}") {
 		t.Errorf("claim %q does not carry the RAW {loophole_dir} token — an expanded one is a "+
-			"staging-specific absolute path, so the approval is machine-specific and "+
-			"re-prompts forever (and fails closed on a non-TTY)", c)
+			"staging-specific absolute path, so the collision key differs per machine and "+
+			"the line a reader checks against the manifest no longer matches it", c)
 	}
 	if strings.Contains(c, root) {
-		t.Errorf("claim %q contains the pack's absolute staging root — the approved string "+
-			"must compare equal on another machine", c)
+		t.Errorf("claim %q contains the pack's absolute staging root — it must read the same "+
+			"on another machine", c)
 	}
 	for _, flag := range []string{"--flag-one", "--flag-two", "--flag-three"} {
 		if !strings.Contains(c, flag) {
 			t.Errorf("claim %q dropped %s — nothing is elided", c, flag)
 		}
 	}
-	// STABLE: the same tree read twice yields byte-identical claims, or a lockfile
-	// comparison is a coin flip.
-	if again := p.LoopholeHostAccessClaims(); again[0] != c {
+	// STABLE: the same tree read twice yields byte-identical claims, or the collision pass
+	// is a coin flip.
+	if again := disclosedCrossings(p); again[0] != c {
 		t.Errorf("claims are not stable across reads: %q vs %q", c, again[0])
 	}
 }
@@ -203,7 +229,7 @@ func TestDaemonArgvRenderingIsInjective(t *testing.T) {
 		  "name": "acme",
 		  "host_daemon": {"cmd": ` + cmdJSON + `, "publishes": "socket"}
 		}`})
-		claims := loadPack(t, root).LoopholeHostAccessClaims()
+		claims := disclosedCrossings(loadPack(t, root))
 		if len(claims) != 1 {
 			t.Fatalf("claims = %v, want 1", claims)
 		}
@@ -233,7 +259,7 @@ func TestSocketBindIsItsOwnReadWriteClaimClass(t *testing.T) {
 	     "readonly": true}
 	  ]
 	}`})
-	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	claims := disclosedCrossings(loadPack(t, root))
 	if len(claims) != 3 {
 		t.Fatalf("claims = %v, want one per bind", claims)
 	}
@@ -275,7 +301,7 @@ func TestBrokerIPIsFoldedIntoTheInterceptClaim(t *testing.T) {
 			body += `,"broker_ip":"` + brokerIP + `"`
 		}
 		root := writeLoopholePack(t, map[string]string{"proxy": body + "}"})
-		claims := loadPack(t, root).LoopholeHostAccessClaims()
+		claims := disclosedCrossings(loadPack(t, root))
 		if len(claims) != 1 {
 			t.Fatalf("claims = %v, want 1", claims)
 		}
@@ -320,7 +346,7 @@ func TestCACertEmitsItsOwnClaim(t *testing.T) {
 	  "transport": "none",
 	  "ca_cert": "ca.crt"
 	}`})
-	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	claims := disclosedCrossings(loadPack(t, root))
 	if len(claims) != 1 {
 		t.Fatalf("claims = %v (%d), want 1 — a ca_cert with nothing else declared is still a "+
 			"crossing: it is bind-mounted from the host and joined into NODE_EXTRA_CA_CERTS. "+
@@ -366,7 +392,7 @@ func TestCACertClaimDistinguishesThePath(t *testing.T) {
 		root := writeLoopholePack(t, map[string]string{"cahole": `{
 		  "name": "cahole", "transport": "none", "ca_cert": ` + caCert + `
 		}`})
-		claims := loadPack(t, root).LoopholeHostAccessClaims()
+		claims := disclosedCrossings(loadPack(t, root))
 		if len(claims) != 1 {
 			t.Fatalf("claims = %v, want 1", claims)
 		}
@@ -394,7 +420,7 @@ func TestStateFilesAndJailDaemonMakeNoClaim(t *testing.T) {
 	  "state_files": ["ca.crt", "sub/dir/token"],
 	  "jail_daemon": {"cmd": ["{jail_loophole_dir}/in-jail.sh"]}
 	}`})
-	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	claims := disclosedCrossings(loadPack(t, root))
 	if len(claims) != 0 {
 		t.Errorf("claims = %v, want none: state_files stays inside yolo's state tree and a "+
 			"jail_daemon runs in the container — neither crosses to the host", claims)
@@ -440,11 +466,11 @@ func TestUnreadableManifestFailsClosedRatherThanClaimingNothing(t *testing.T) {
 	if len(mods) != 1 || mods[0].Decl != nil {
 		t.Fatalf("mods = %+v, want one module with no decoded manifest", mods)
 	}
-	claims := p.LoopholeHostAccessClaims()
+	claims := disclosedCrossings(p)
 	if len(claims) == 0 {
-		t.Fatal("an unreadable manifest produced ZERO claims — that is exactly the empty set " +
-			"packMayAccessHost reads as consent, so a fetched pack whose manifest this build " +
-			"cannot parse would cross the boundary unprompted")
+		t.Fatal("an unreadable manifest produced ZERO claims — the module is still " +
+			"DISCOVERED, so a pack whose manifest this build cannot parse would show a clean " +
+			"footprint while its loophole crossed")
 	}
 	if !hasClaimContaining(claims, "UNREADABLE") {
 		t.Errorf("claims = %v, want one saying the declaration is unreadable", claims)
@@ -475,7 +501,7 @@ func TestOnePackCannotShipTwoLoopholesWithOneName(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(pj), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "p", true)
+	p, problems := packload.LoadDir(root, "p")
 	if len(problems) > 0 {
 		t.Fatalf("loading pack: %v", problems)
 	}
@@ -506,7 +532,7 @@ func TestTwoPacksOneLoopholeNameCollides(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(pj), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		p, problems := packload.LoadDir(root, pack, true)
+		p, problems := packload.LoadDir(root, pack)
 		if len(problems) > 0 {
 			t.Fatalf("loading pack %s: %v", pack, problems)
 		}
@@ -549,7 +575,7 @@ func TestThreeLoopholesInOnePackIsOrdinary(t *testing.T) {
 	if len(mods) != 3 {
 		t.Fatalf("mods = %d, want 3", len(mods))
 	}
-	if claims := p.LoopholeHostAccessClaims(); len(claims) != 3 {
+	if claims := disclosedCrossings(p); len(claims) != 3 {
 		t.Errorf("claims = %v, want one per loophole's device", claims)
 	}
 	if cols := packload.LoopholeNameCollisions([]*packload.Pack{p}); len(cols) != 0 {
@@ -557,10 +583,15 @@ func TestThreeLoopholesInOnePackIsOrdinary(t *testing.T) {
 	}
 }
 
-// The merged helper is the union of all three producers, sorted and deduplicated. This is
-// the property both gates rely on; hostaccessgates_test.go pins that they READ it, and this
-// pins what they read.
-func TestMergedHostAccessClaimsUnionsEveryProducer(t *testing.T) {
+// ONE FOOTPRINT CARRIES EVERY PRODUCER — pack.json's own contributions AND the loophole
+// modules whose declarations live outside it.
+//
+// It was TestMergedHostAccessClaimsUnionsEveryProducer, over packload.Pack.HostAccessClaims:
+// the union both gates compared, sorted and deduplicated because it was a lockfile key.
+// OQ-TP9 deleted the gates and the helper; the union PROPERTY is what survives, one layer
+// over, because the footprint is now the only report a user gets and a producer missing
+// from it is a crossing with no reader at all.
+func TestTheFootprintCarriesEveryProducersCrossings(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "loopholes", "acme")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -577,22 +608,24 @@ func TestMergedHostAccessClaimsUnionsEveryProducer(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(pj), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "acme", true)
+	p, problems := packload.LoadDir(root, "acme")
 	if len(problems) > 0 {
 		t.Fatalf("loading pack: %v", problems)
 	}
-	claims := p.HostAccessClaims()
-	if !hasClaimContaining(claims, "reads-host", ".config/acme/key") {
-		t.Errorf("merged claims dropped pack.json's own producer: %v", claims)
-	}
-	if !hasClaimContaining(claims, "loophole", "acmed") {
-		t.Errorf("merged claims dropped the loophole producer: %v", claims)
-	}
-	for i := 1; i < len(claims); i++ {
-		if claims[i-1] >= claims[i] {
-			t.Errorf("merged claims are not sorted+deduped (%q then %q) — the set is a "+
-				"lockfile comparison key", claims[i-1], claims[i])
+	var lines []string
+	for _, c := range packload.FootprintOf(p).Claims {
+		if !c.ReviewWorthy {
+			continue
 		}
+		lines = append(lines, string(c.Kind)+" "+c.Target+" "+c.Detail)
+	}
+	if !hasClaimContaining(lines, "reads-host", ".config/acme/key") {
+		t.Errorf("the footprint dropped pack.json's own producer: %v", lines)
+	}
+	if !hasClaimContaining(lines, "loophole", "acmed") {
+		t.Errorf("the footprint dropped the loophole producer, whose declaration lives in a "+
+			"file OUTSIDE pack.json — that is the producer a contributions-only walk misses, "+
+			"and it is the one whose crossing is host EXECUTION: %v", lines)
 	}
 }
 
@@ -604,7 +637,7 @@ func TestNoLoopholeContributionIsSilent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(pj), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "plain", true)
+	p, problems := packload.LoadDir(root, "plain")
 	if len(problems) > 0 {
 		t.Fatalf("loading pack: %v", problems)
 	}
@@ -612,7 +645,7 @@ func TestNoLoopholeContributionIsSilent(t *testing.T) {
 	if len(mods) != 0 || len(refusals) != 0 || len(warnings) != 0 {
 		t.Errorf("mods=%v refusals=%v warnings=%v, want all empty", mods, refusals, warnings)
 	}
-	if claims := p.LoopholeHostAccessClaims(); len(claims) != 0 {
+	if claims := disclosedCrossings(p); len(claims) != 0 {
 		t.Errorf("claims = %v, want none", claims)
 	}
 	if probs := p.LoopholeDeclProblems(); len(probs) != 0 {

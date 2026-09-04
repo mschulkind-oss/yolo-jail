@@ -223,42 +223,47 @@ func decodeAny(t *testing.T, s string) any {
 	return v
 }
 
-// D4: whether a pack may name a HOST FILE depends on its CONTENT ORIGIN, not on the
-// config scope.
+// ORIGIN CLASSIFIES THE DELIVERY ROUTE, and since OQ-TP9 that is ALL it does.
 //
-// The user-scope rule already stops a workspace from naming a pack. It does NOT mean a
-// user who installed a third-party pack agreed to hand that repository their
-// ~/.claude/settings.json — installing a pack approves distributing skills and prose,
-// and a host-file grant is a materially stronger permission. Fetched content may never
-// grant; that is exactly the hole a84b11c closed for host_claude_files.
-func TestMayGrantHostFilesDependsOnOrigin(t *testing.T) {
+// It was TestMayGrantHostFilesDependsOnOrigin, pinning D4: fetched content could never name a
+// host file, because installing a third-party pack was not consent to hand that repository
+// your ~/.claude/settings.json. The predicate is deleted (docs/design/trust-paths.md,
+// 2026-09-04) — to install that pack at all you edited `packs` in your own user config as the
+// host user, which is strictly more authority than it withheld.
+//
+// WHAT IT DOES NOT MEAN, and the reason this test is retargeted rather than dropped: the
+// USER-SCOPE rule above is untouched and is the load-bearing half. `packs` is inexpressible
+// at workspace scope by construction, so an agent cannot add a pack at all — that one passes
+// the authority test, because the actor genuinely changes. Origin now answers a different
+// question: what does yolo have to DO to get this pack's content, which is what `pack
+// install` and `pack status` key on.
+func TestOriginClassifiesTheDeliveryRoute(t *testing.T) {
 	fetched := PackEntry{Source: "git+ssh://git@github.com/acme/mono//p?ref=main"}
-	if fetched.MayGrantHostFiles() {
-		t.Error("FETCHED content must never grant a host file — that reopens a84b11c")
-	}
 	if fetched.Origin() != OriginFetched {
 		t.Errorf("origin = %v, want fetched", fetched.Origin())
 	}
+	if fetched.IsLocal() || fetched.Embedded() {
+		t.Error("a git address must be neither local nor embedded — it is the one origin " +
+			"`pack install` has to fetch and pin")
+	}
 
-	// Local: the user's own files, which they can already read without yolo's help.
+	// Local: the user's own files, read in place, nothing to fetch and no commit to pin.
 	local := PackEntry{Source: "file:///home/me/packs/mine"}
-	if !local.MayGrantHostFiles() {
-		t.Error("a local pack is the user's own content and may grant")
+	if local.Origin() != OriginLocal || !local.IsLocal() {
+		t.Errorf("origin = %v (IsLocal=%v), want local", local.Origin(), local.IsLocal())
 	}
 
-	// Embedded: yolo-shipped, reviewed with the release, so the declaration IS the
-	// yolo-shipped decision — the same authority the Go table has today.
+	// Embedded: yolo-shipped, already in the binary, so `pack install` skips it entirely.
 	embedded := PackEntry{Source: "file:///irrelevant", IsEmbedded: true}
-	if !embedded.MayGrantHostFiles() {
-		t.Error("an embedded official pack may grant")
-	}
-	if embedded.Origin() != OriginEmbedded {
+	if embedded.Origin() != OriginEmbedded || !embedded.Embedded() {
 		t.Errorf("origin = %v, want embedded", embedded.Origin())
 	}
 }
 
-// IsEmbedded must NOT be settable from config: it grants privileges, so a
-// user-writable field would undo the whole boundary. json:"-" enforces it.
+// IsEmbedded must NOT be settable from config. It granted privileges until OQ-TP9 deleted
+// the gate it fed; it still asserts a PROVENANCE — reviewed with the yolo release, nothing
+// fetched, no pin recorded — and a config line that could claim that would be lying about
+// where its content came from in every report that prints it. json:"-" enforces it.
 func TestEmbeddedFlagIsNotDecodableFromConfig(t *testing.T) {
 	// Even a wire form that tries to claim it must not come back embedded.
 	out, err := UnmarshalPacks(`[{"source":"git+https://h/o/r//p?ref=main","name":"evil","IsEmbedded":true,"isEmbedded":true,"embedded":true}]`)
@@ -269,10 +274,11 @@ func TestEmbeddedFlagIsNotDecodableFromConfig(t *testing.T) {
 		t.Fatalf("entries = %v", out)
 	}
 	if out[0].IsEmbedded {
-		t.Error("IsEmbedded was decoded from the wire — a fetched pack could self-grant")
+		t.Error("IsEmbedded was decoded from the wire — a fetched pack could claim to have " +
+			"shipped with yolo")
 	}
-	if out[0].MayGrantHostFiles() {
-		t.Error("a fetched pack claiming embedded must still not be allowed to grant")
+	if out[0].Origin() != OriginFetched {
+		t.Errorf("a fetched pack claiming embedded still resolved as %v", out[0].Origin())
 	}
 }
 
@@ -309,14 +315,12 @@ func TestBareNameSelectsAnEmbeddedPack(t *testing.T) {
 		t.Errorf("Name = %q, want claude", e.Name)
 	}
 	if !e.Embedded() {
-		t.Error("a bare name must resolve to an EMBEDDED pack — origin is what grants it " +
-			"host access, so getting this wrong silently downgrades or upgrades trust")
+		t.Error("a bare name must resolve to an EMBEDDED pack — `pack install` skips those " +
+			"and the launch materializes them out of the binary, so getting this wrong sends " +
+			"yolo looking for a git remote that does not exist")
 	}
 	if e.Origin() != OriginEmbedded {
 		t.Errorf("Origin = %v, want embedded", e.Origin())
-	}
-	if !e.MayGrantHostFiles() {
-		t.Error("an embedded pack must be allowed to name a host file")
 	}
 }
 

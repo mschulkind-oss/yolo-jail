@@ -11,14 +11,10 @@ package cli
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // writeLoopholeModulePack scaffolds a pack whose ONLY contribution is one loophole module,
@@ -59,7 +55,7 @@ func TestLoopholeOnlyPackLintsClean(t *testing.T) {
 	  "transport": "none"
 	}`)
 	var out, errw bytes.Buffer
-	rc := packMain([]string{"lint", dir}, &out, &errw, false, nil)
+	rc := packMain([]string{"lint", dir}, &out, &errw, false)
 	if rc != 0 {
 		t.Fatalf("a pack whose only contribution is a loophole failed lint (rc=%d):\n%s%s",
 			rc, out.String(), errw.String())
@@ -95,7 +91,7 @@ func TestLoopholePackStillFlagsUnclaimedContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("lint accepted a pack whose loophole `from` names nothing it contains:\n%s",
 			out.String())
 	}
@@ -134,12 +130,12 @@ func TestLoopholeClaimsAppearInBothInspectionCommands(t *testing.T) {
 		t.Run(verb, func(t *testing.T) {
 			dir := writeLoopholeModulePack(t, daemonManifest)
 			var out, errw bytes.Buffer
-			if rc := packMain([]string{verb, dir}, &out, &errw, false, nil); rc != 0 {
+			if rc := packMain([]string{verb, dir}, &out, &errw, false); rc != 0 {
 				t.Fatalf("%s rc = %d\n%s%s", verb, rc, out.String(), errw.String())
 			}
 			report := out.String()
 			// Every crossing, one line each. A missing line is a crossing the reader never
-			// sees, and (at the gate) one packMayAccessHost waves through.
+			// sees — and since OQ-TP9 there is no second chance at `pack install`.
 			for _, want := range []string{
 				"acme-proxy",     // the base claim's target: the loophole name
 				"acme-daemon.py", // the daemon argv, in the base claim
@@ -171,7 +167,7 @@ func TestLoopholeClaimsAppearInBothInspectionCommands(t *testing.T) {
 func TestFootprintReviewTailNamesHostExecution(t *testing.T) {
 	dir := writeLoopholeModulePack(t, daemonManifest)
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
 	report := out.String()
@@ -190,7 +186,7 @@ func TestFootprintReviewTailNamesHostExecution(t *testing.T) {
 func TestLintRefusesLoopholeFromNamingNoDirectory(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	packMain([]string{"init", dir}, &out, &errw, false)
 	pj := `{"contributes":[{"kind":"loophole","from":"loopholes/ghost"},` +
 		`{"kind":"skills","from":"skills","into":".acme/skills"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(pj), 0o644); err != nil {
@@ -198,7 +194,7 @@ func TestLintRefusesLoopholeFromNamingNoDirectory(t *testing.T) {
 	}
 	out.Reset()
 	errw.Reset()
-	rc := packMain([]string{"lint", dir}, &out, &errw, false, nil)
+	rc := packMain([]string{"lint", dir}, &out, &errw, false)
 	if rc == 0 {
 		t.Fatalf("lint accepted a loophole `from` naming no directory — a declaration yolo "+
 			"accepts and ignores is the defect the pack system refuses everywhere else:\n%s",
@@ -218,7 +214,7 @@ func TestLintReportsATypoInTheLoopholeManifest(t *testing.T) {
 	  "host_deamon": {"cmd": ["/bin/true"]}
 	}`)
 	var out, errw bytes.Buffer
-	rc := packMain([]string{"lint", dir}, &out, &errw, false, nil)
+	rc := packMain([]string{"lint", dir}, &out, &errw, false)
 	if rc == 0 {
 		t.Fatalf("lint accepted a misspelled manifest key:\n%s", out.String())
 	}
@@ -227,71 +223,56 @@ func TestLintReportsATypoInTheLoopholeManifest(t *testing.T) {
 	}
 }
 
-// THE GATE. A pack shipping a loophole that crosses the boundary reaches the approval
-// prompt, and the recorded claim carries the RAW argv.
+// THE FOOTPRINT IS THE WHOLE OF WHAT A USER GETS about a loophole's crossings, so it must be
+// SPECIFIC ENOUGH TO CHECK: the raw argv, unelided and unexpanded, and one line per crossing.
 //
-// This is the case that used to slip through entirely: with no claims the gate takes the
-// `len(want) == 0` branch, "reads nothing from the host, runs nothing on it", and a fetched
-// pack's host daemon (or its bind of `/`) arrives with nothing to approve.
-func TestLoopholeReachesTheApprovalGate(t *testing.T) {
+// It was TestLoopholeReachesTheApprovalGate, over resolveHostApproval — the prompt OQ-TP9
+// deleted (docs/design/trust-paths.md, 2026-09-04). Two properties it pinned survive the
+// deletion and matter MORE without a prompt in front of them:
+//
+//   - a crossing with no line is a crossing nobody is told about. Under the gate that was a
+//     silent grant (`len(want) == 0` read as "nothing to approve"); now it is a silent
+//     crossing, which is the same hole with one fewer layer above it.
+//   - the argv must be RAW and machine-independent. Under the gate an expanded
+//     {loophole_dir} could never match a recorded approval and re-prompted forever; now it
+//     is what makes the line a reader can compare against the pack's own manifest.
+//
+// Driven through `yolo pack footprint`, the command a user actually runs before selecting a
+// pack, rather than through a producer function.
+func TestLoopholeCrossingsAreShownSpecificallyEnoughToCheck(t *testing.T) {
 	dir := writeLoopholeModulePack(t, daemonManifest)
-	pr := richtext.Printer{W: &bytes.Buffer{}}
-	terminal := func(r io.Reader) approvalStdin {
-		return approvalStdin{reader: r, isTerminal: func() bool { return true }}
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
+		t.Fatalf("footprint rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
-
-	var out bytes.Buffer
-	approved, denied := resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr,
-		terminal(strings.NewReader("y\n")), &out)
-	if denied {
-		t.Fatalf("a `y` at a terminal should approve: approved=%v", approved)
-	}
-	if len(approved) == 0 {
-		t.Fatal("a loophole shipping a host daemon, an intercept, a socket bind and a device " +
-			"produced ZERO approval claims — the gate then takes its len(want)==0 branch and " +
-			"grants a FETCHED pack host access with no prompt, ever")
-	}
-	// The prompt must have been shown at all (an empty claim set skips it silently).
-	if !strings.Contains(out.String(), "[y/N]") {
-		t.Errorf("the approval prompt was never shown:\n%s", out.String())
-	}
-	joined := strings.Join(approved, "\n")
+	report := out.String()
 	for _, want := range []string{
 		"RUNS", "on your machine", "{loophole_dir}/acme-daemon.py",
-		"INTERCEPTS api.acme.com", "/run/acme.sock", "/dev/acme",
+		"api.acme.com", "/run/acme.sock", "/dev/acme",
 	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("approved claim set is missing %q:\n%s", want, joined)
+		if !strings.Contains(report, want) {
+			t.Errorf("the footprint is missing %q:\n%s\nA loophole shipping a host daemon, an "+
+				"intercept, a socket bind and a device has four crossings, and since OQ-TP9 "+
+				"this report is the only place any of them is disclosed", want, report)
 		}
 	}
-	if strings.Contains(joined, dir) {
-		t.Errorf("an approved claim names this machine's staging path (%s), so it can never "+
-			"match an approval recorded elsewhere and would re-prompt forever — and "+
-			"promptYesNo fails closed on a non-TTY, so the loophole would be refused "+
-			"permanently:\n%s", dir, joined)
+	if strings.Contains(report, dir) {
+		t.Errorf("the footprint names this machine's staging path (%s), so the line a reader "+
+			"is meant to compare against the pack's manifest does not match it:\n%s",
+			dir, report)
 	}
-
-	// And an already-approved set carries forward with no prompt: a non-terminal stdin would
-	// be refused at the gate, so reaching approved proves nothing was asked.
-	prev := packsrc.LockEntry{Name: "acme", ApprovedHostAccess: approved}
-	again, denied := resolveHostApproval("acme", dir, prev, true, pr,
-		approvalStdin{reader: strings.NewReader("")}, &bytes.Buffer{})
-	if denied || len(again) != len(approved) {
-		t.Errorf("an unchanged loophole must carry its approval forward without prompting: "+
-			"approved=%v denied=%v", again, denied)
-	}
-
-	// A CHANGED daemon argv is a claim the lockfile does not hold, so the gate must ask
-	// again. This is the property the raw, unelided argv buys: an ellipsis would collapse
-	// two different daemons onto one approved string.
+	// A CHANGED daemon argv must produce a DIFFERENT line. Under the gate this bought a
+	// re-prompt; it now buys the only way a reader who checked once can see it changed. The
+	// raw, unelided argv is what makes it true — an ellipsis would collapse two daemons onto
+	// one string.
 	moved := writeLoopholeModulePack(t, strings.Replace(daemonManifest,
 		"acme-daemon.py", "acme-daemon-v2.py", 1))
-	_, denied = resolveHostApproval("acme", moved, prev, true, pr,
-		approvalStdin{reader: strings.NewReader("")}, &bytes.Buffer{})
-	if !denied {
-		t.Error("a pack whose daemon argv CHANGED was carried forward on the old approval — " +
-			"the claim string must be specific enough that a different daemon is a different " +
-			"claim")
+	var out2 bytes.Buffer
+	if rc := packMain([]string{"footprint", moved}, &out2, &errw, false); rc != 0 {
+		t.Fatalf("footprint rc = %d\n%s", rc, out2.String())
+	}
+	if !strings.Contains(out2.String(), "acme-daemon-v2.py") {
+		t.Errorf("a pack whose daemon argv CHANGED shows the same line as before:\n%s", out2.String())
 	}
 }
 
@@ -305,7 +286,7 @@ func TestLoopholeWithNoCrossingsClaimsNothing(t *testing.T) {
 	  "state_files": ["ca.crt"]
 	}`)
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
 	if strings.Contains(out.String(), "RUNS CODE ON YOUR MACHINE") {

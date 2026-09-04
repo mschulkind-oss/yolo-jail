@@ -59,7 +59,7 @@ func newerAPIPack(t *testing.T) *packload.Pack {
 	  {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
 	   "path":"~/.acme/settings.json","mode":"computed"}]}]}`)
 	writeHostFile(t, filepath.Join(dir, "derive.lua"), newerAPIDeriveLua)
-	p, problems := packload.LoadDir(dir, "acme", false)
+	p, problems := packload.LoadDir(dir, "acme")
 	if p == nil {
 		t.Fatalf("the acme fixture did not load: %v", problems)
 	}
@@ -139,7 +139,7 @@ func TestUnknownDeriveAPIIsStatedOncePerAgentAcrossSurfaces(t *testing.T) {
 	   "path":"~/.acme/config.json","mode":"computed"}]}]}`)
 	writeHostFile(t, filepath.Join(dir, "derive.lua"), newerAPIDeriveLua+
 		"\nyolo.derive(\"acme\", \"config\", function(ctx) return { rendered = \"yes\" } end)\n")
-	p, problems := packload.LoadDir(dir, "acme", false)
+	p, problems := packload.LoadDir(dir, "acme")
 	if p == nil {
 		t.Fatalf("fixture did not load: %v", problems)
 	}
@@ -169,7 +169,7 @@ func TestBootSaysNothingWhenEveryDeriveAPIIsKnown(t *testing.T) {
 	writeHostFile(t, filepath.Join(dir, "derive.lua"),
 		"yolo.derive(\"acme\", \"settings\", function(ctx) return { rendered = \"yes\" } end)\n"+
 			"yolo.env(\"acme\", function(ctx) return {} end)\n")
-	p, problems := packload.LoadDir(dir, "acme", false)
+	p, problems := packload.LoadDir(dir, "acme")
 	if p == nil {
 		t.Fatalf("fixture did not load: %v", problems)
 	}

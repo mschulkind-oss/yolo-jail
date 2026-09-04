@@ -155,94 +155,71 @@ func TestLockPathSitsBesideUserConfig(t *testing.T) {
 	}
 }
 
-// HostAccessApproved is the superset check that decides whether a fetched pack's
-// current host-access claims are all already approved (no re-prompt) or include a
-// new one (re-prompt). The rule the whole approval model turns on.
-func TestHostAccessApprovedSupersetRule(t *testing.T) {
-	e := LockEntry{
-		Name:               "acme",
-		ApprovedHostAccess: []string{"mount refs -> /ctx/refs", "reads-host .config/acme/key"},
-	}
-	cases := []struct {
-		name string
-		want []string
-		ok   bool
-	}{
-		{"reads nothing is always approved", nil, true},
-		{"exact match approved", []string{"mount refs -> /ctx/refs", "reads-host .config/acme/key"}, true},
-		{"a narrowed subset approved", []string{"mount refs -> /ctx/refs"}, true},
-		{"a NEW claim not approved", []string{"mount refs -> /ctx/refs", "reads-host .ssh/id_ed25519"}, false},
-		{"a wholly different claim not approved", []string{"installer https://x/i.sh"}, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := e.HostAccessApproved(tc.want); got != tc.ok {
-				t.Errorf("HostAccessApproved(%v) = %v, want %v", tc.want, got, tc.ok)
-			}
-		})
-	}
-
-	// An entry with NO approvals grants nothing but the empty set.
-	empty := LockEntry{Name: "x"}
-	if empty.HostAccessApproved([]string{"mount a -> /ctx/a"}) {
-		t.Error("an unapproved entry must not approve any host-access claim")
-	}
-	if !empty.HostAccessApproved(nil) {
-		t.Error("an unapproved entry must still approve the empty set (reads nothing)")
-	}
-}
-
-// The approval fields round-trip through save/load so an approval survives across
-// invocations (the whole point — approve once, trusted until the pin moves).
-func TestApprovalFieldsRoundTrip(t *testing.T) {
+// THE LOCKFILE CARRIES NO APPROVAL RECORD, and it is not read at launch at all.
+//
+// THREE TESTS USED TO LIVE HERE: TestHostAccessApprovedSupersetRule (the "no re-prompt unless
+// the claim set grew" rule the whole approval model turned on), TestApprovalFieldsRoundTrip
+// (approve once, trusted until the pin moves) and TestHostAccessApprovedComparesClaimStringsOnly
+// (§4.3 G2b's gap, pinned as an assertion because an `ApprovedAt` field had already been
+// deleted for asserting an anchoring nothing enforced). OQ-TP9 (docs/design/trust-paths.md,
+// 2026-09-04) deleted the prompt that wrote the record and the launch gate that read it, so
+// all three are replaced by this one — the assertion that goes red if any of it comes back.
+//
+// G2b IS MOOT, not deferred: it asked whether an approval should be anchored to a commit, and
+// there is no approval. What survives is OQ-LP8's undelivered documentation requirement —
+// say that following a mutable ref IS the trust decision, and document tag pins as the shape
+// for a pack carrying host execution.
+func TestTheLockfileHoldsNoApprovalRecord(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "packs.lock.json")
 	l := &Lock{Schema: LockSchema, Packs: map[string]LockEntry{}}
-	l.Set(LockEntry{
-		Name: "acme", Source: "git+ssh://h/o/r//p?ref=v1", Commit: "abc123", Ref: "v1",
-		ApprovedHostAccess: []string{"mount refs -> /ctx/refs"},
-	})
+	l.Set(LockEntry{Name: "acme", Source: "git+ssh://h/o/r//p?ref=v1", Commit: "abc123", Ref: "v1"})
 	if err := l.Save(path); err != nil {
 		t.Fatal(err)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"approvedHostAccess", "approvedAt"} {
+		if strings.Contains(string(data), forbidden) {
+			t.Errorf("the lockfile writes %q:\n%s\n\nOQ-TP9 deleted the approval it recorded. "+
+				"A persisted field in a TRUST file is not read as documentation — it is read as "+
+				"a fact about the system, so a field asserting an approval nothing enforces is "+
+				"worse than no field (gate-placement-principle.md, \"The artifact form\")",
+				forbidden, data)
+		}
+	}
+	// The pin itself still round-trips: the lockfile's remaining job is recording WHAT YOU
+	// GOT against what you asked for, which `pack status` and `rollback` read.
 	got, err := LoadLock(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	e, ok := got.Get("acme")
-	if !ok || len(e.ApprovedHostAccess) != 1 ||
-		e.ApprovedHostAccess[0] != "mount refs -> /ctx/refs" {
-		t.Errorf("approval did not round-trip: %+v", e)
+	if !ok || e.Commit != "abc123" || e.Ref != "v1" {
+		t.Errorf("the pin did not round-trip: %+v", e)
 	}
 }
 
-// HostAccessApproved compares CLAIM STRINGS ONLY — never the commit an approval was
-// granted against. That is §4.3 G2b's open gap, stated as a test rather than as a comment.
-//
-// It is asserted rather than described because the codebase used to carry an `ApprovedAt`
-// field for exactly this: written on every install, read by nothing, and named as though
-// the anchoring existed. A persisted field in a trust file is read as a fact about the
-// system, so the gap looked covered (docs/design/gate-placement-principle.md, "The artifact
-// form"). The field is gone; the gap is here, where it fails if the behaviour changes.
-//
-// The risk it records: a fetched pack at a mutable ref whose daemon FILE changes under an
-// unchanged argv passes with no re-prompt.
-//
-// This is a STATEMENT OF CURRENT BEHAVIOUR, not a requirement. G2b is a maintainer decision
-// under OQ-LP8; when it lands, this test changes with it — deliberately, so the change is
-// visible rather than absorbed.
-func TestHostAccessApprovedComparesClaimStringsOnly(t *testing.T) {
-	want := []string{"RUNS 'python3 {loophole_dir}/acme.py'"}
-	sameClaims := LockEntry{Name: "acme", Commit: "def5678", ApprovedHostAccess: want}
-	// The SAME claims recorded against a pack now pinned at a DIFFERENT commit.
-	movedPin := LockEntry{Name: "acme", Commit: "abc1234", ApprovedHostAccess: want}
-
-	if !sameClaims.HostAccessApproved(want) {
-		t.Fatal("an approval with matching claims was not honored; the rest is vacuous")
+// AN OLD LOCKFILE STILL LOADS. Decoding does not reject unknown keys, so a file written by a
+// yolo that recorded approvals keeps a stray "approvedHostAccess" that nothing reads — which
+// is why removing the field cost no compatibility and needed no schema bump.
+func TestLockfileWithARetiredApprovalFieldStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packs.lock.json")
+	old := `{"schema":1,"packs":{"acme":{"name":"acme","source":"git+ssh://h/o/r//p?ref=v1",` +
+		`"commit":"abc123","ref":"v1","approvedHostAccess":["mount refs -> /ctx/refs"],` +
+		`"approvedAt":"abc123"}}}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if !movedPin.HostAccessApproved(want) {
-		t.Fatal("HostAccessApproved now depends on the commit. That is G2b LANDING, which is " +
-			"welcome — update this test and the §4.3 ledger together, and record what the new " +
-			"anchor is where the next reader will look")
+	l, err := LoadLock(path)
+	if err != nil {
+		t.Fatalf("a lockfile from before OQ-TP9 failed to load: %v", err)
+	}
+	e, ok := l.Get("acme")
+	if !ok || e.Commit != "abc123" {
+		t.Fatalf("the pin was lost reading an older lockfile: %+v", e)
 	}
 }

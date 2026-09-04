@@ -1,6 +1,7 @@
 package packdecl
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
@@ -52,11 +53,45 @@ func TestProjectionsFromContributes(t *testing.T) {
 	if !sawSkills || !sawBriefing {
 		t.Errorf("MountContributions missing skills/briefing: %+v", mounts)
 	}
-	// origin gate: reads-host + installer both flagged.
-	reasons := m.NeedsHostAccess()
-	if len(reasons) < 2 {
-		t.Errorf("NeedsHostAccess should flag reads-host + installer: %v", reasons)
+	// host crossings: reads-host + installer both present.
+	if c := hostCrossings(m); len(c) < 2 {
+		t.Errorf("the manifest should declare reads-host + installer crossings: %v", c)
 	}
+}
+
+// hostCrossings enumerates every HOST CROSSING a pack.json can express, as one string each.
+//
+// IT IS A TEST HELPER AND USED TO BE PRODUCTION CODE: packdecl.Manifest.HostAccessClaims,
+// the specific set `yolo pack install` prompted on and the lockfile stored, plus its display
+// twin NeedsHostAccess. OQ-TP9 (docs/design/trust-paths.md, 2026-09-04) deleted the prompt,
+// the lockfile record and the launch gate, and with them both functions — a pack's
+// declarations are honored whoever shipped it.
+//
+// The four shapes are still worth pinning HERE, one layer below the disclosure that replaced
+// the prompt. packload.FootprintOf is what a user actually reads, and it is where the
+// review-worthy flag is asserted (packload/footprint_test.go), but packload imports packdecl
+// and not the reverse — so a kind that must cross NOTHING (`provider`, `profile`, `env`,
+// `skills`) is checked against the raw declarations, where the question has no dependencies.
+func hostCrossings(m *Manifest) []string {
+	var out []string
+	for _, hf := range m.HostFileContributions() {
+		out = append(out, "reads-host "+hf.From)
+	}
+	for _, mt := range m.HostMountContributions() {
+		out = append(out, "mount "+mt.From)
+	}
+	for _, in := range m.InstallContributions() {
+		if in.InstallerURL != "" {
+			out = append(out, "installer "+in.InstallerURL)
+		}
+	}
+	for _, c := range m.Contributions() {
+		if c.Kind == KindBriefing && strings.HasPrefix(c.After, "host:") {
+			out = append(out, "briefing "+strings.TrimPrefix(c.After, "host:"))
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // contributes[] validates per-kind: an unknown kind, and a missing required field.
@@ -180,10 +215,14 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
-// HostAccessClaims returns the SPECIFIC, sorted claims a pack makes on the host —
-// the set a user approves and a pin move is diffed against. Distinct from
-// NeedsHostAccessContributions (generic display reasons).
-func TestHostAccessClaims(t *testing.T) {
+// A manifest's HOST CROSSINGS are exactly the four shapes pack.json can express, and no kind
+// beside those four contributes one.
+//
+// It was TestHostAccessClaims, over packdecl.Manifest.HostAccessClaims — the approval set. The
+// function is deleted with the approval (OQ-TP9); the enumeration is not, because it is the
+// input to the launch disclosure that replaced it, and a shape missing from it is a crossing
+// with no reader at all. See hostCrossings for why the helper lives in the test file now.
+func TestHostCrossingsAreTheFourShapesPackJSONCanExpress(t *testing.T) {
 	m := &Manifest{Contributes: []Contribution{
 		{Kind: KindMount, Host: "datasets/acme", Into: "acme-data"},
 		{Kind: KindReadsHost, Host: ".config/acme/key"},
@@ -192,19 +231,19 @@ func TestHostAccessClaims(t *testing.T) {
 		{Kind: KindEnv, Vars: map[string]string{"ACME_MODE": "fast"}}, // NOT host access
 		{Kind: KindSkills, From: "skills", Into: ".acme/skills"},      // NOT host access
 	}}
-	got := m.HostAccessClaims()
+	got := hostCrossings(m)
 	want := []string{
 		"briefing .acme/A.md",
 		"installer https://acme/i.sh",
-		"mount datasets/acme -> /ctx/acme-data",
+		"mount datasets/acme",
 		"reads-host .config/acme/key",
 	}
 	if len(got) != len(want) {
-		t.Fatalf("HostAccessClaims() = %v, want %v", got, want)
+		t.Fatalf("hostCrossings() = %v, want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("claim[%d] = %q, want %q (must be sorted + specific)", i, got[i], want[i])
+			t.Errorf("crossing[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
 
@@ -213,21 +252,20 @@ func TestHostAccessClaims(t *testing.T) {
 		{Kind: KindEnv, Vars: map[string]string{"X": "1"}},
 		{Kind: KindSkills, From: "skills", Into: ".x/skills"},
 	}}
-	if c := none.HostAccessClaims(); len(c) != 0 {
-		t.Errorf("a pack reading nothing from the host should have no claims, got %v", c)
+	if c := hostCrossings(none); len(c) != 0 {
+		t.Errorf("a pack reading nothing from the host should cross nothing, got %v", c)
 	}
 
 	// A `loophole` contributes NOTHING here, and that absence is the design rather than an
 	// omission: its claims live in a manifest.jsonc outside pack.json, so this package —
 	// which has no pack root and no internal imports — cannot enumerate them. Producing a
-	// bare "loophole acme" here would be WORSE than producing nothing: it is a claim string
-	// that never changes no matter what the daemon becomes, i.e. content-blind consent that
-	// looks like consent. The real producer is packload.Pack.LoopholeHostAccessClaims.
+	// bare "loophole acme" here would be WORSE than producing nothing: it is a string that
+	// never changes no matter what the daemon becomes, so a reader who checked it once would
+	// never see the daemon change under it. The real producer is packload's moduleClaims.
 	lp := &Manifest{Contributes: []Contribution{{Kind: KindLoophole, From: "loopholes/acme"}}}
-	if c := lp.HostAccessClaims(); len(c) != 0 {
-		t.Errorf("packdecl must not emit a loophole claim (%v) — it cannot read the module "+
-			"manifest, so any string it produced would be a consent key blind to the daemon "+
-			"it approves", c)
+	if c := hostCrossings(lp); len(c) != 0 {
+		t.Errorf("packdecl must not emit a loophole crossing (%v) — it cannot read the module "+
+			"manifest, so any string it produced would be blind to the daemon it describes", c)
 	}
 	// What it DOES own is the pointer.
 	if got := lp.LoopholeSources(); len(got) != 1 || got[0] != "loopholes/acme" {
@@ -682,15 +720,12 @@ func TestProviderNameDeclaredTwiceByOnePackIsRefused(t *testing.T) {
 
 // A provider ships SERVICE facts only. It must never read the host: nothing here is
 // machine-local except the credential, and the credential is a NAME the user hydrates.
-func TestProviderMakesNoHostAccessClaim(t *testing.T) {
+func TestProviderMakesNoHostCrossing(t *testing.T) {
 	m := &Manifest{Contributes: []Contribution{{Kind: KindProvider, Name: "acme",
 		Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4"}},
 		APIKeyEnvName: "ACME_API_KEY"}}}
-	if r := m.NeedsHostAccess(); len(r) != 0 {
-		t.Errorf("a provider reads nothing from the host, got %v", r)
-	}
-	if c := m.HostAccessClaims(); len(c) != 0 {
-		t.Errorf("a provider makes no host-access claim, got %v", c)
+	if c := hostCrossings(m); len(c) != 0 {
+		t.Errorf("a provider reads nothing from the host, got %v", c)
 	}
 }
 

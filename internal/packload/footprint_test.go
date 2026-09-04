@@ -9,8 +9,13 @@ import (
 )
 
 // pk builds a *Pack with a manifest for testing the footprint shim.
-func pk(name string, mayHost bool, m *packdecl.Manifest) *Pack {
-	return &Pack{Name: name, Decl: m, MayAccessHost: mayHost}
+//
+// IT TOOK A mayHost BOOL until OQ-TP9 (docs/design/trust-paths.md, 2026-09-04): a pack's
+// origin decided whether its reads-host and mount claims were honored, and FootprintOf
+// withheld the ones that would be refused. With the gate deleted every declared crossing
+// happens, so there is nothing for a fixture to vary.
+func pk(name string, m *packdecl.Manifest) *Pack {
+	return &Pack{Name: name, Decl: m}
 }
 
 // claimSet flattens a footprint to a set of "kind target" strings for assertion.
@@ -39,7 +44,7 @@ func TestFootprintMapsCurrentFields(t *testing.T) {
 		{Kind: packdecl.KindHook, Hook: "shared_credentials"},
 		{Kind: packdecl.KindConfig, Raw: surface},
 	}}
-	cs := claimSet(FootprintOf(pk("claude", true, m)))
+	cs := claimSet(FootprintOf(pk("claude", m)))
 
 	// program from install, review-worthy (installer URL).
 	if c, ok := cs["program claude"]; !ok || !c.ReviewWorthy {
@@ -78,64 +83,61 @@ func TestFootprintMapsCurrentFields(t *testing.T) {
 	}
 }
 
-// A mount reads the host home, so it is origin-gated exactly like reads-host: an
-// embedded/local pack's mount is HONORED, a fetched pack's is REFUSED with a
-// reported message. The env kind is static and never gated.
-func TestMountOriginGateAndEnvUngated(t *testing.T) {
+// A mount and a reads-host are HONORED AND DISCLOSED for every pack, and this is the
+// packload-level half of OQ-TP9 (docs/design/trust-paths.md, 2026-09-04).
+//
+// It used to be TestMountOriginGateAndEnvUngated, asserting the opposite for a fetched
+// pack: its mount came back refused with a printed notice, and FootprintOf dropped the
+// claim so the report would not promise a read that was about to be withheld. The gate is
+// deleted, and the footprint consequence is the one worth pinning — with nothing withheld,
+// a dropped claim would now be a crossing NOBODY IS TOLD ABOUT, in the report the ruling
+// left as the only place a user learns of it.
+func TestHostCrossingsAreHonoredAndDisclosedForEveryPack(t *testing.T) {
 	decl := &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindMount, Host: "datasets/acme", Into: "acme-data"},
+		{Kind: packdecl.KindReadsHost, Host: ".claude/settings.json"},
 		{Kind: packdecl.KindEnv, Vars: map[string]string{"ACME_MODE": "fast"}},
 	}}
+	p := pk("acme", decl)
 
-	local := pk("local", true, decl)
-	granted, refused := local.HonoredMounts()
+	granted, refused := p.HonoredMounts()
 	if len(granted) != 1 || len(refused) != 0 {
-		t.Errorf("local pack: want its mount granted, got %d granted / %d refused", len(granted), len(refused))
+		t.Errorf("want the mount granted and nothing refused, got %d granted / %d refused — "+
+			"OQ-TP9 deleted the origin gate, so a refusal here is a gate that came back",
+			len(granted), len(refused))
+	}
+	if g, r := p.HonoredHostFiles(); len(g) != 1 || len(r) != 0 {
+		t.Errorf("want the reads-host granted and nothing refused, got %d granted / %d refused",
+			len(g), len(r))
+	}
+	if v := EnvVarsFor([]*Pack{p}, nil); v["ACME_MODE"] != "fast" {
+		t.Errorf("env must be honored: %v", v)
 	}
 
-	fetched := pk("fetched", false, decl)
-	granted, refused = fetched.HonoredMounts()
-	if len(granted) != 0 || len(refused) != 1 {
-		t.Errorf("fetched pack: want its mount refused, got %d granted / %d refused", len(granted), len(refused))
-	}
-
-	// env is honored regardless of origin (static values, no host read).
-	if v := EnvVarsFor([]*Pack{fetched}, nil); v["ACME_MODE"] != "fast" {
-		t.Errorf("env must be honored even for a fetched pack: %v", v)
-	}
-
-	// The mount claim is counted in the footprint only when host access is permitted
-	// (matching what actually mounts).
-	if _, ok := claimSet(FootprintOf(local))["mount datasets/acme"]; !ok {
-		t.Error("local pack's mount should appear as a footprint claim")
-	}
-	if _, ok := claimSet(FootprintOf(fetched))["mount datasets/acme"]; ok {
-		t.Error("fetched pack's mount must NOT appear as an honored footprint claim")
-	}
-}
-
-// A pack whose origin does NOT permit host access does not get its reads-host
-// claim counted (matches what actually gets mounted — a fetched pack's grant is
-// refused upstream).
-func TestFootprintOmitsHostReadsWhenOriginForbids(t *testing.T) {
-	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
-		{Kind: packdecl.KindReadsHost, Host: ".claude/settings.json"},
-	}}
-	cs := claimSet(FootprintOf(pk("fetched", false, m)))
-	if _, ok := cs["reads-host .claude/settings.json"]; ok {
-		t.Error("a non-host-permitted pack's hostFiles must not appear as an honored reads-host claim")
+	cs := claimSet(FootprintOf(p))
+	for _, want := range []string{"mount datasets/acme", "reads-host .claude/settings.json"} {
+		c, ok := cs[want]
+		if !ok {
+			t.Fatalf("%q is missing from the footprint. Since OQ-TP9 this report is the ONLY "+
+				"place a user sees that a pack reaches their host — a claim FootprintOf drops "+
+				"is a crossing that happens with nobody told: %v", want, cs)
+		}
+		if !c.ReviewWorthy {
+			t.Errorf("%q is not ReviewWorthy, so it never reaches the launch banner — the "+
+				"disclosure is what the deleted gate was traded for", want)
+		}
 	}
 }
 
 // Two packs claiming the same sole-owned target collide; a merge/concat target
 // does not (that is the feature).
 func TestCollisionsExclusiveOnly(t *testing.T) {
-	a := pk("a", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+	a := pk("a", &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindProgram, Bin: "tool", Via: "npm", Package: "a"},
 		{Kind: packdecl.KindSkills, From: "skills", Into: ".x/skills"},
 		{Kind: packdecl.KindFiles, From: "prompts", Into: ".x/data"},
 	}})
-	b := pk("b", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+	b := pk("b", &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindProgram, Bin: "tool", Via: "npm", Package: "b"}, // same bin → collision
 		{Kind: packdecl.KindSkills, From: "skills", Into: ".x/skills"},      // same skills → fine
 		{Kind: packdecl.KindFiles, From: "prompts", Into: ".x/data"},        // same files-target → collision
@@ -160,10 +162,10 @@ func TestCollisionsExclusiveOnly(t *testing.T) {
 // State claimed at two different scopes (one workspace, one machine) collides;
 // the same scope does not.
 func TestCollisionsStateScope(t *testing.T) {
-	ws := pk("ws", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+	ws := pk("ws", &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindState, At: ".shared", Scope: "workspace"},
 	}})
-	mc := pk("mc", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{
+	mc := pk("mc", &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindState, At: ".shared", Scope: "machine", Why: "x"},
 	}})
 	cols := Collisions([]*Pack{ws, mc})
@@ -178,8 +180,8 @@ func TestCollisionsStateScope(t *testing.T) {
 	}
 
 	// Same scope in both → no collision.
-	a := pk("a", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{{Kind: packdecl.KindState, At: ".dup", Scope: "workspace"}}})
-	b := pk("b", false, &packdecl.Manifest{Contributes: []packdecl.Contribution{{Kind: packdecl.KindState, At: ".dup", Scope: "workspace"}}})
+	a := pk("a", &packdecl.Manifest{Contributes: []packdecl.Contribution{{Kind: packdecl.KindState, At: ".dup", Scope: "workspace"}}})
+	b := pk("b", &packdecl.Manifest{Contributes: []packdecl.Contribution{{Kind: packdecl.KindState, At: ".dup", Scope: "workspace"}}})
 	for _, c := range Collisions([]*Pack{a, b}) {
 		if c.Target == ".dup" {
 			t.Error("same-scope state on one path must not collide (it unions)")
@@ -190,7 +192,7 @@ func TestCollisionsStateScope(t *testing.T) {
 // A single pack repeating a target (e.g. reads-host and the same path elsewhere)
 // is not a cross-pack collision.
 func TestCollisionsIgnoreSinglePack(t *testing.T) {
-	a := pk("solo", false, &packdecl.Manifest{
+	a := pk("solo", &packdecl.Manifest{
 		Contributes: []packdecl.Contribution{{Kind: packdecl.KindProgram, Bin: "tool", Via: "npm", Package: "a"}},
 	})
 	if cols := Collisions([]*Pack{a}); len(cols) != 0 {
@@ -223,7 +225,7 @@ func TestFootprintClaimsGatedConfigOverlay(t *testing.T) {
 		{Kind: packdecl.KindConfigOverlay, Surface: "claude/settings", Profile: "zai",
 			Raw: []byte(`{"managed":{"k":1}}`)},
 	}}
-	cs := claimSet(FootprintOf(pk("zai", true, gated)))
+	cs := claimSet(FootprintOf(pk("zai", gated)))
 	c, ok := cs["config-overlay claude/settings"]
 	if !ok {
 		t.Fatalf("a selected pack's gated overlay must still claim its target: %+v", cs)
@@ -236,7 +238,7 @@ func TestFootprintClaimsGatedConfigOverlay(t *testing.T) {
 	}
 	// Same claim, same target, for the ungated shape — the field adds the gate sentence
 	// and changes nothing else.
-	plain := claimSet(FootprintOf(pk("zai", true, ungated)))["config-overlay claude/settings"]
+	plain := claimSet(FootprintOf(pk("zai", ungated)))["config-overlay claude/settings"]
 	if plain.Target != c.Target || plain.Kind != c.Kind || plain.ReviewWorthy != c.ReviewWorthy {
 		t.Errorf("the gate changed more than the Detail: %+v vs %+v", plain, c)
 	}

@@ -2,10 +2,11 @@
 // binary carries them without a repo checkout.
 //
 // These are "official" in exactly one sense that matters: their content ships with
-// yolo and is reviewed with the release, so a declaration from one carries yolo's own
-// authority (see config.PackEntry.MayGrantHostFiles — an embedded pack may name a host
-// file, a fetched pack may not). Structurally they are ordinary packs, read through
-// the same loader as a user's.
+// yolo and is reviewed with the release. That USED TO decide what they could declare —
+// an embedded pack could name a host file and a fetched one could not — until OQ-TP9
+// deleted the origin gate (docs/design/trust-paths.md, 2026-09-04). What remains is a
+// provenance claim and a delivery route: nothing to fetch, no pin to record.
+// Structurally they are ordinary packs, read through the same loader as a user's.
 //
 // The embed list is EXPLICIT so editor droppings or a stray __pycache__ never get baked
 // into a release binary. The cost is that a NEW pack directory must be added below;

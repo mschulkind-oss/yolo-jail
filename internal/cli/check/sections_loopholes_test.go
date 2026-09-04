@@ -1092,7 +1092,7 @@ func TestCheckLoopholesWithholdsAnUnapprovedPackSelfCheck(t *testing.T) {
 			"refuses to leave open")
 	}
 	if r.warned != 1 || !strings.Contains(out, "self-check could not run") ||
-		!strings.Contains(out, "not approved") {
+		!strings.Contains(out, "not run") {
 		t.Errorf("the withheld self-check is not reported with its reason (warned=%d):\n%s",
 			r.warned, out)
 	}

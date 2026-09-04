@@ -1,23 +1,21 @@
 package packload
 
-// plugins.go is the ORIGIN GATE over a pack that wraps an existing agent plugin.
+// plugins.go is the packload side of a pack that WRAPS an existing agent plugin: finding
+// the plugin trees in the pack's skills sources, and reporting what they run.
 //
-// A wrapped plugin is a different trust question from ordinary pack content, and the
-// difference is not the file format — it is that a plugin manifest can declare
-// `hooks`/`mcpServers`/`lspServers`, i.e. PROCESSES THAT RUN on the user's behalf. That is
-// the same line the pack system already draws between an npm package (content the user
-// already trusts a registry for) and a curl-piped installer (arbitrary code from a URL): a
-// FETCHED pack cannot introduce one without the user's explicit approval.
+// IT WAS AN ORIGIN GATE until OQ-TP9 (docs/design/trust-paths.md, 2026-09-04). A plugin
+// manifest can declare `hooks`/`mcpServers`/`lspServers` — PROCESSES THAT RUN on the user's
+// behalf — and a FETCHED pack's were stripped, with a printed refusal, until the user
+// approved them at `yolo pack install`. The ruling deleted that: the person who put a git
+// URL in `packs` in their own user config already granted strictly more than the prompt
+// withheld, and `npm install -g` from the same tree ran `postinstall` ungated anyway
+// (pack-execution-trust.md §2).
 //
-// This is here rather than in internal/pluginpack because it is the same shape as
-// HonoredHostFiles / HonoredMounts / HonoredInstall and belongs beside them: pluginpack knows
-// what a plugin declares, packload knows whether this pack's ORIGIN permits it. Getting that
-// split wrong is how plugin-as-pack would have become the one path by which a fetched tree
-// runs code with no approval — which is precisely the hole the trust gate exists to close.
+// What remains here is DISCLOSURE, which is why the split is still packload's: pluginpack
+// knows what a plugin declares, packload knows which pack carries it, and FootprintOf turns
+// that into a ⚠ RUNS CODE line a reader sees before selecting the pack.
 
 import (
-	"fmt"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
@@ -47,52 +45,16 @@ func (p *Pack) Plugins() []*pluginpack.Plugin {
 	return pluginpack.DiscoverIn(p.Root, dirs)
 }
 
-// HonoredPlugins returns the wrapped plugins whose CODE-RUNNING components this pack's origin
-// permits, and one reported refusal per component that was denied.
+// HonoredPlugins returns the wrapped plugins this pack carries, code-running components
+// included. Nothing is refused.
 //
-// A plugin declaring no hooks and no servers is honored regardless of origin: skills, commands
-// and sub-agents are content, and content is the thing a pack distributes. A plugin that runs
-// code is honored only for a pack whose origin carries the user's own authority — embedded,
-// local, or a fetched pack whose claims the user approved at `yolo pack install` (which is
-// what MayAccessHost already encodes at launch, per commit, from the lockfile).
+// A FETCHED pack's hooks and servers used to be stripped here, each with a printed refusal,
+// until the user approved them at `yolo pack install`. OQ-TP9 deleted that gate — see the
+// file header for why it was theatre — so a wrapped plugin is delivered whole whoever
+// shipped it, and FootprintOf's ⚠ RUNS CODE line is what a user reads instead.
 //
-// The plugin is still DELIVERED when its code-running components are refused: the skills are
-// the reason the user wrapped it, and withholding those too would punish them for a hook they
-// did not ask for. What the refusal buys is that the components which RUN are named, not
-// quietly delivered — the caller strips them and says so.
+// The `refused` return is always nil — see packload.go's HonoredHostFiles for the family
+// note on why the shape is kept.
 func (p *Pack) HonoredPlugins() (granted []*pluginpack.Plugin, refused []string) {
-	plugins := p.Plugins()
-	if len(plugins) == 0 {
-		return nil, nil
-	}
-	for _, pl := range plugins {
-		if !pl.RunsCode() || p.MayAccessHost {
-			granted = append(granted, pl)
-			continue
-		}
-		for _, c := range pl.Components() {
-			if !c.RunsCode {
-				continue
-			}
-			refused = append(refused, fmt.Sprintf(
-				"pack %s: refused plugin %s's %q — it %s, and a FETCHED pack cannot run code "+
-					"you have not approved. Run `yolo pack install` to review and approve it; "+
-					"the plugin's skills are delivered either way.",
-				p.Name, pl.Name(), c.Name, c.Detail))
-		}
-		granted = append(granted, pl)
-	}
-	return granted, refused
-}
-
-// PluginHostAccessClaims returns the specific approval strings every wrapped plugin's
-// code-running components make, for the `pack install` prompt and the lockfile. Merged into
-// the pack's own HostAccessClaims by the caller, so a plugin gaining a hook on a later commit
-// re-prompts exactly the way a pack gaining a `reads-host` does.
-func (p *Pack) PluginHostAccessClaims() []string {
-	var out []string
-	for _, pl := range p.Plugins() {
-		out = append(out, pl.HostAccessClaims()...)
-	}
-	return out
+	return p.Plugins(), nil
 }

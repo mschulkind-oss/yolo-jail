@@ -56,7 +56,7 @@ func writeSupersedesPack(t *testing.T, manifest string) string {
 	t.Helper()
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"init", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"init", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("pack init rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
@@ -77,7 +77,7 @@ func TestSupersedesPrintsAtBothInspectionCommands(t *testing.T) {
 	for _, verb := range []string{"lint", "footprint"} {
 		t.Run(verb, func(t *testing.T) {
 			var out, errw bytes.Buffer
-			if rc := packMain([]string{verb, dir}, &out, &errw, false, nil); rc != 0 {
+			if rc := packMain([]string{verb, dir}, &out, &errw, false); rc != 0 {
 				t.Fatalf("%s rc = %d\n%s%s", verb, rc, out.String(), errw.String())
 			}
 			report := out.String()
@@ -103,7 +103,7 @@ func TestSupersedesPrintsAtBothInspectionCommands(t *testing.T) {
 func TestSupersedesIsNotFlaggedForReview(t *testing.T) {
 	dir := writeSupersedesPack(t, supersedesManifest)
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
 	report := out.String()
@@ -131,7 +131,7 @@ func TestSupersedesIsNotFlaggedForReview(t *testing.T) {
 func TestNoSupersedesPrintsNothingExtra(t *testing.T) {
 	dir := writeSupersedesPack(t, noSupersedesManifest)
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
 	if report := out.String(); strings.Contains(report, "supersedes") {
@@ -151,7 +151,7 @@ func TestNoSupersedesPrintsNothingExtra(t *testing.T) {
 func TestSupersedesLineSurvivesTheGenericRenderer(t *testing.T) {
 	dir := writeSupersedesPack(t, supersedesManifest)
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"footprint", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("footprint rc = %d\n%s%s", rc, out.String(), errw.String())
 	}
 	report := out.String()

@@ -46,7 +46,7 @@ func zaiPackFixture(t *testing.T, name, provider, keyEnv string) *packload.Pack 
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, name, false)
+	p, problems := packload.LoadDir(root, name)
 	if len(problems) != 0 {
 		t.Fatalf("loading fixture pack: %v", problems)
 	}
@@ -153,7 +153,7 @@ func TestCheckProviderCredentialsFollowCatalogMembership(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ghost, problems := packload.LoadDir(root, "ghost", false)
+	ghost, problems := packload.LoadDir(root, "ghost")
 	if len(problems) != 0 {
 		t.Fatalf("loading fixture pack: %v", problems)
 	}
@@ -262,7 +262,7 @@ func TestCheckProviderCredentialsExistenceOnlyWithoutAKeyVariable(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, problems := packload.LoadDir(root, "aws", false)
+	p, problems := packload.LoadDir(root, "aws")
 	if len(problems) != 0 {
 		t.Fatalf("loading fixture pack: %v", problems)
 	}

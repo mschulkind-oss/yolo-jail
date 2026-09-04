@@ -138,7 +138,7 @@ func packForCheckDeps(e config.PackEntry) *packload.Pack {
 	// A local (file://) pack: read its manifest straight from the source dir. Dep
 	// requirements are declared in pack.json, so no staging is needed to inspect them.
 	root := strings.TrimPrefix(e.Source, "file://")
-	p, _ := packload.LoadDir(root, e.Name, e.MayGrantHostFiles())
+	p, _ := packload.LoadDir(root, e.Name)
 	return p
 }
 

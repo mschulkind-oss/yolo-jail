@@ -37,7 +37,7 @@ func TestPackLintDoesNotRefuseAnUnknownAgentName(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "prose", "x.md"), "House rules.\n")
 
 	var out, errw bytes.Buffer
-	rc := packMain([]string{"lint", dir}, &out, &errw, false, nil)
+	rc := packMain([]string{"lint", dir}, &out, &errw, false)
 	report := out.String() + errw.String()
 	if rc != 0 {
 		t.Fatalf("`pack lint` refused an agent name it cannot possibly adjudicate — it takes a "+
@@ -65,7 +65,7 @@ func TestPackLintStillRefusesAgentsBesideInto(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "AGENTS.md"), "House rules.\n")
 
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
 		t.Fatalf("`into` and `agents` are two answers to one question and lint can see both "+
 			"without any config, so it must refuse:\n%s", out.String()+errw.String())
 	}

@@ -86,27 +86,32 @@ func TestUnclassifiedKindDefaultsToExec(t *testing.T) {
 	}
 }
 
-// The claim kinds a fetched pack needs APPROVAL for are exactly the kinds the launch
-// discloses. The disclosure is the transparency half of the approval model, so an approved
-// claim class the launch does not print is a lockfile entry with no launch-time counterpart —
-// which is the state §4.3 G4 calls out by name.
-func TestEveryApprovableClaimClassIsDisclosed(t *testing.T) {
-	// A pack declaring one contribution of every host-access-claiming shape.
+// EVERY host-crossing claim class is disclosed at the launch.
+//
+// It was TestEveryApprovableClaimClassIsDisclosed, keyed off packdecl.Manifest.HostAccessClaims
+// — the set `pack install` prompted on — so an approved class with no launch-time counterpart
+// (§4.3 G4) failed here. OQ-TP9 deleted the prompt and that helper, and the property got MORE
+// load-bearing rather than less: the banner is now the only place a user learns any of this,
+// so the four classes are enumerated directly and the count is an equality.
+func TestEveryHostCrossingClaimClassIsDisclosed(t *testing.T) {
+	// A pack declaring one contribution of every host-crossing shape pack.json can express.
+	// (The two crossings declared OUTSIDE pack.json — a wrapped plugin's code-running
+	// components and a shipped loophole's daemon/binds/devices — are covered where their
+	// fixtures live: packnohostgate_test.go and loopholenoorigingate_test.go.)
 	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindReadsHost, Host: ".claude/settings.json"},
 		{Kind: packdecl.KindMount, Host: "datasets/acme", Into: "acme"},
 		{Kind: packdecl.KindProgram, Bin: "acme", Via: "installer", URL: "https://x/i.sh"},
 		{Kind: packdecl.KindBriefing, Into: "AGENTS.md", After: "host:AGENTS.md"},
 	}}
-	if claims := m.HostAccessClaims(); len(claims) != 4 {
-		t.Fatalf("fixture produced %d approval claims, want 4: %v", len(claims), claims)
-	}
-	p := &packload.Pack{Name: "acme", Decl: m, MayAccessHost: true}
+	p := &packload.Pack{Name: "acme", Decl: m}
 	lines := disclosedClaims([]*packload.Pack{p}, disclosureRead)
 	joined := renderLines(lines)
-	// Each approval claim's kind must appear. Matching the KIND rather than the exact string
-	// is deliberate: G2a rules the approval string raw and unelided while the display detail
-	// may abbreviate, so the two are explicitly not the same text.
+	if len(lines) != 4 {
+		t.Fatalf("the launch disclosed %d of the fixture's 4 crossings:\n%s", len(lines), joined)
+	}
+	// Matching the KIND rather than an exact string: the display detail may abbreviate, and
+	// pinning its wording here would make every copy-edit a test failure.
 	for _, want := range []string{"reads-host", "mount", "program", "briefing"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the launch disclosure never mentions %q:\n%s", want, joined)
@@ -118,7 +123,7 @@ func TestEveryApprovableClaimClassIsDisclosed(t *testing.T) {
 // curl-to-shell installer and a host-prepended briefing both read the user's host and were
 // invisible at every launch.
 func TestDisclosureCoversTheKindsTheHardcodedSwitchDropped(t *testing.T) {
-	p := &packload.Pack{Name: "acme", MayAccessHost: true, Decl: &packdecl.Manifest{
+	p := &packload.Pack{Name: "acme", Decl: &packdecl.Manifest{
 		Contributes: []packdecl.Contribution{
 			{Kind: packdecl.KindProgram, Bin: "acme", Via: "installer", URL: "https://acme.test/i.sh"},
 			{Kind: packdecl.KindBriefing, Into: "AGENTS.md", After: "host:AGENTS.md"},
@@ -128,7 +133,11 @@ func TestDisclosureCoversTheKindsTheHardcodedSwitchDropped(t *testing.T) {
 	if !strings.Contains(got, "acme.test/i.sh") {
 		t.Errorf("a curl-to-shell installer is not disclosed:\n%s", got)
 	}
-	if !strings.Contains(got, "host:AGENTS.md") {
+	// "~/AGENTS.md", not "host:AGENTS.md": since 2026-09-04 the banner renders a claim as a
+	// SENTENCE (packload.Claim.DisclosureSentence), and one of the three things
+	// pack-execution-trust.md §6 required was that a host path show the root it is relative
+	// to instead of the `host:` prefix a manifest spells it with.
+	if !strings.Contains(got, "~/AGENTS.md") {
 		t.Errorf("a host-prepended briefing is not disclosed:\n%s", got)
 	}
 }
@@ -153,27 +162,32 @@ func TestDisclosureSilentForJailInternalClaims(t *testing.T) {
 	}
 }
 
-// An UNAPPROVED fetched pack's host reads are absent from the disclosure, because they were
-// REFUSED — the footprint already reflects the gate, and printing a refused claim would read
-// as "this happened".
-func TestDisclosureOmitsRefusedClaims(t *testing.T) {
+// EVERY pack's host reads are disclosed, whoever shipped it.
+//
+// It was TestDisclosureOmitsRefusedClaims, and its subject was a real asymmetry: an
+// unapproved fetched pack's mount was about to be REFUSED, so printing it would have read as
+// "this happened". OQ-TP9 deleted the refusal, and the same reasoning now runs the other way
+// — every declared mount happens, so omitting one would HIDE a crossing rather than avoid
+// announcing a non-event. run.claimWillHappen, the predicate that did the subtracting, is
+// deleted with it.
+//
+// Asserted on a Pack constructed by hand, carrying no provenance at all, because that is what
+// pins the property: disclosedClaims consults NOTHING about where the pack came from, so an
+// `if <origin>` reintroduced in claimWillHappen's old position turns this red.
+func TestDisclosureIncludesEveryPacksHostReads(t *testing.T) {
 	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindMount, Host: "datasets/acme", Into: "acme"},
 	}}
-	refused := &packload.Pack{Name: "acme", Decl: m, MayAccessHost: false}
-	if got := disclosedClaims([]*packload.Pack{refused}, disclosureRead); len(got) != 0 {
-		t.Errorf("a refused mount was disclosed as if it happened: %v", got)
-	}
-	granted := &packload.Pack{Name: "acme", Decl: m, MayAccessHost: true}
-	if got := disclosedClaims([]*packload.Pack{granted}, disclosureRead); len(got) != 1 {
-		t.Errorf("an APPROVED mount was not disclosed: %v", got)
+	p := &packload.Pack{Name: "acme", Decl: m}
+	if got := disclosedClaims([]*packload.Pack{p}, disclosureRead); len(got) != 1 {
+		t.Errorf("a declared mount was not disclosed: %v", got)
 	}
 }
 
 // The read disclosure goes to STDERR, like every other launch notice: a launch is usually
 // `yolo -- cmd` and the user redirects the COMMAND's stdout.
 func TestDisclosureWritesToStderr(t *testing.T) {
-	p := &packload.Pack{Name: "acme", MayAccessHost: true, Decl: &packdecl.Manifest{
+	p := &packload.Pack{Name: "acme", Decl: &packdecl.Manifest{
 		Contributes: []packdecl.Contribution{{Kind: packdecl.KindReadsHost, Host: ".netrc"}},
 	}}
 	var outBuf, errBuf bytes.Buffer
@@ -294,7 +308,7 @@ func TestStartLoopholesHasOneDisclosedCallSite(t *testing.T) {
 // The exec disclosure is SILENT when nothing runs on the host — the ordinary case for every
 // pack shipped today, so it must not add a line to every launch.
 func TestHostExecDisclosureSilentWithNoExecClaims(t *testing.T) {
-	p := &packload.Pack{Name: "acme", MayAccessHost: true, Decl: &packdecl.Manifest{
+	p := &packload.Pack{Name: "acme", Decl: &packdecl.Manifest{
 		Contributes: []packdecl.Contribution{{Kind: packdecl.KindReadsHost, Host: ".netrc"}},
 	}}
 	var errBuf bytes.Buffer
@@ -477,7 +491,7 @@ func writeRealLoopholePack(t *testing.T, packName, loopholeName, manifestBody st
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, probs := packload.LoadDir(root, packName, true)
+	p, probs := packload.LoadDir(root, packName)
 	if len(probs) > 0 {
 		t.Fatalf("the loophole pack fixture does not load: %v", probs)
 	}

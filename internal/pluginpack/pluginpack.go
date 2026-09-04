@@ -17,12 +17,13 @@
 //     qualify the plugin's skills with (`<name>:<skill>`);
 //   - WHICH COMPONENTS are declared, because some of them are CODE THAT RUNS. A plugin is
 //     someone else's repo, and `hooks`/`mcpServers`/`lspServers` mean processes started on
-//     the user's behalf. Those are the claims the trust gate reports and approves
-//     (packload.HonoredPlugins), and recognizing a manifest yolo failed to notice would be
-//     a manifest whose hooks nobody approved.
+//     the user's behalf. Those are what the footprint's ⚠ RUNS CODE line reports
+//     (packload.FootprintOf), and a manifest yolo failed to notice would be hooks nobody
+//     was told about. They were an APPROVAL question until OQ-TP9 deleted the prompt
+//     (docs/design/trust-paths.md, 2026-09-04); they are a DISCLOSURE question now.
 //
 // It is dependency-free on the rest of the repo, for the same reason packdecl is: both the
-// host CLI (footprint, install approval, `pack init`) and the host renderer read it.
+// host CLI (footprint, `pack init`) and the host renderer read it.
 package pluginpack
 
 import (
@@ -169,26 +170,6 @@ func (p *Plugin) RunsCode() bool {
 		}
 	}
 	return false
-}
-
-// HostAccessClaims returns the SPECIFIC, stable claims a plugin's code-running components
-// make — the strings a user approves at `yolo pack install` and that are recorded in the
-// lockfile.
-//
-// Only the code-running components appear. That is the same line the origin gate already
-// draws between an npm package and a curl-piped installer: content is content whatever its
-// source, and a process running on the user's behalf is a different question. A plugin
-// gaining a `hooks` entry on a later commit therefore re-prompts, which is the whole point.
-func (p *Plugin) HostAccessClaims() []string {
-	var out []string
-	for _, c := range p.Components() {
-		if !c.RunsCode {
-			continue
-		}
-		out = append(out, "plugin "+p.Name()+" "+c.Name+" ("+c.Detail+")")
-	}
-	sort.Strings(out)
-	return out
 }
 
 // SkillRoots resolves the manifest's `skills` paths to absolute directories, plus a problem

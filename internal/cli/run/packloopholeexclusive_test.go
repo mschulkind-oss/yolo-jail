@@ -228,35 +228,37 @@ func TestPackLoopholeDeclsResolveAgainstStagedRoot(t *testing.T) {
 	}
 }
 
-// The ORIGIN GATE carried into the converged set is the pack's own MayAccessHost — the same
-// decision packMayAccessHost already made — not a second gate that could disagree with it.
-// A loophole's doctor_cmd and host_daemon are host EXECUTION, strictly more than the host
-// READS that gate governs, so a pack that may not read the host certainly may not run a
-// daemon on it.
-func TestPackLoopholeModulesCarryTheOriginGate(t *testing.T) {
-	approved := &packload.Pack{Name: "trusted", Root: t.TempDir(), MayAccessHost: true,
-		Decl: &packdecl.Manifest{Name: "trusted",
-			Contributes: []packdecl.Contribution{{Kind: packLoopholeKind, From: "loopholes/ok"}}}}
-	refused := &packload.Pack{Name: "unapproved", Root: t.TempDir(), MayAccessHost: false,
-		Decl: &packdecl.Manifest{Name: "unapproved",
-			Contributes: []packdecl.Contribution{{Kind: packLoopholeKind, From: "loopholes/nope"}}}}
+// EVERY resolved module is vouched for, because reaching this function AT ALL means the pack
+// was resolved from `packs` in the host user's own config.
+//
+// It was TestPackLoopholeModulesCarryTheOriginGate, asserting the split: a pack whose origin
+// permitted host access got HostExecApproved, an unapproved fetched one did not. OQ-TP9
+// (docs/design/trust-paths.md, 2026-09-04) deleted the origin gate, so both packs here get
+// the same answer and the field means something narrower — see PackModule.HostExecApproved.
+//
+// FALSE STILL MEANS SOMETHING, and it is why the field survives rather than being deleted
+// with the gate: a caller that assembled a []*Loophole without resolving packs at all vouches
+// for nothing, and internal/loopholes refuses to run host code for it. That case is pinned
+// where it lives — loopholenoorigingate_test.go's
+// TestPackLoopholeWithNoOriginDecisionIsStillListed — and it is unreachable from here, which
+// is the point: this function only ever sees packs the user selected.
+func TestPackLoopholeModulesVouchForEveryResolvedModule(t *testing.T) {
+	a := &packload.Pack{Name: "one", Root: t.TempDir(), Decl: &packdecl.Manifest{Name: "one",
+		Contributes: []packdecl.Contribution{{Kind: packLoopholeKind, From: "loopholes/ok"}}}}
+	b := &packload.Pack{Name: "two", Root: t.TempDir(), Decl: &packdecl.Manifest{Name: "two",
+		Contributes: []packdecl.Contribution{{Kind: packLoopholeKind, From: "loopholes/nope"}}}}
 
-	mods := packLoopholeModules([]*packload.Pack{approved, refused})
+	mods := packLoopholeModules([]*packload.Pack{a, b})
 	if len(mods) != 2 {
 		t.Fatalf("want one module per declaration, got %d", len(mods))
 	}
-	byDir := map[string]bool{}
 	for _, m := range mods {
-		byDir[filepath.Base(m.Dir)] = m.HostExecApproved
-	}
-	if !byDir["ok"] {
-		t.Error("a pack whose origin permits host access must have its loophole approved for " +
-			"host execution — that is the same gate, not a second one")
-	}
-	if byDir["nope"] {
-		t.Error("an UNAPPROVED pack's loophole must not be approved for host execution: a " +
-			"doctor_cmd is host execution, which is strictly more than the host reads the gate " +
-			"governs")
+		if !m.HostExecApproved {
+			t.Errorf("module %s came back unvouched-for. Nothing on this path can answer "+
+				"false any more: the origin gate is deleted, and a module reaching here was "+
+				"resolved from a pack the host user named in their own config",
+				filepath.Base(m.Dir))
+		}
 	}
 }
 

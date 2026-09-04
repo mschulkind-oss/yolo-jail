@@ -52,7 +52,7 @@ func TestInitFromPluginProducesALintablePack(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"init", "--from-plugin", src, packDir},
-		&out, &errw, false, nil); rc != 0 {
+		&out, &errw, false); rc != 0 {
 		t.Fatalf("init --from-plugin rc = %d\nstdout:\n%s\nstderr:\n%s",
 			rc, out.String(), errw.String())
 	}
@@ -74,7 +74,7 @@ func TestInitFromPluginProducesALintablePack(t *testing.T) {
 	// THE assertion: lint accepts it. Anything less makes the feature "documented", not
 	// "trivial" — which is the whole distinction Phase 10 exists to close.
 	var lintOut, lintErr bytes.Buffer
-	if rc := packMain([]string{"lint", packDir}, &lintOut, &lintErr, false, nil); rc != 0 {
+	if rc := packMain([]string{"lint", packDir}, &lintOut, &lintErr, false); rc != 0 {
 		t.Fatalf("`pack lint` REJECTED the scaffolded wrapper (rc=%d) — a scaffold that does "+
 			"not lint is not a scaffold:\n%s\n%s", rc, lintOut.String(), lintErr.String())
 	}
@@ -105,7 +105,7 @@ func TestInitFromPluginNeverClobbers(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"init", "--from-plugin", src, packDir},
-		&out, &errw, false, nil); rc != 0 {
+		&out, &errw, false); rc != 0 {
 		t.Fatalf("first init rc = %d: %s", rc, errw.String())
 	}
 	edited := filepath.Join(packDir, "skills", "acme-tools", "skills", "review", "SKILL.md")
@@ -116,7 +116,7 @@ func TestInitFromPluginNeverClobbers(t *testing.T) {
 
 	var out2, errw2 bytes.Buffer
 	if rc := packMain([]string{"init", "--from-plugin", src, packDir},
-		&out2, &errw2, false, nil); rc != 0 {
+		&out2, &errw2, false); rc != 0 {
 		t.Fatalf("second init rc = %d: %s", rc, errw2.String())
 	}
 	data, err := os.ReadFile(edited)
@@ -141,7 +141,7 @@ func TestInitFromPluginNamesCodeRunningComponents(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"init", "--from-plugin", src, packDir},
-		&out, &errw, false, nil); rc != 0 {
+		&out, &errw, false); rc != 0 {
 		t.Fatalf("rc = %d: %s", rc, errw.String())
 	}
 	got := out.String()
@@ -164,7 +164,7 @@ func TestInitFromPluginRefusesNonPlugin(t *testing.T) {
 	notAPlugin := t.TempDir()
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"init", "--from-plugin", notAPlugin,
-		filepath.Join(t.TempDir(), "w")}, &out, &errw, false, nil); rc == 0 {
+		filepath.Join(t.TempDir(), "w")}, &out, &errw, false); rc == 0 {
 		t.Fatalf("wrapping a non-plugin dir must fail:\n%s", out.String())
 	}
 	if !strings.Contains(errw.String(), "plugin.json") {
@@ -177,7 +177,7 @@ func TestInitFromPluginRefusesNonPlugin(t *testing.T) {
 func TestPlainInitStillScaffoldsTheExampleSkill(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "plain-pack")
 	var out, errw bytes.Buffer
-	if rc := packMain([]string{"init", dir}, &out, &errw, false, nil); rc != 0 {
+	if rc := packMain([]string{"init", dir}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc = %d: %s", rc, errw.String())
 	}
 	for _, rel := range []string{"AGENTS.md", "skills/example/SKILL.md", "README.md"} {
