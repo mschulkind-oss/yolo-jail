@@ -36,6 +36,20 @@ type Contribution struct {
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
 	Flags   []string `json:"flags,omitempty"`   // program: extra install flags; launch: the injected flags
+	// Update is the argv that makes the program update ITSELF, with the bin omitted:
+	// `"update": ["install"]` for claude, `["update", "--self"]` for pi. Read only on
+	// `program`, and refused on every other kind.
+	//
+	// The vendors disagree about the verb, so core cannot hardcode one — that is exactly
+	// how `yolo pack update` came to skip the installer class entirely (OQ-PD14). An
+	// ABSENT verb is not an error and not a hole: the launcher falls back per `via`, by
+	// re-running the declared installer or `npm install -g <package>`.
+	//
+	// NOT a closed enum, and deliberately no twin of `unknownViaSkip`. `via` names a
+	// MECHANISM this build either implements or does not, which is why a value it does
+	// not know has to be skipped rather than refused (§6.2). These words are a vendor's
+	// argv: there is nothing here for a later build to learn, so nothing can be skew.
+	Update []string `json:"update,omitempty"`
 	// InstallHints maps a host package manager ("brew"|"apt"|"dnf"|"pacman"|"nix") to
 	// the package name that provides Bin on that manager (env-manager plan Phase 6). Read
 	// from a `program` AND from a `requires` contribution — a pack that only ASSERTS a
@@ -464,6 +478,12 @@ func (m *Manifest) InstallContributions() []Install {
 		// learning a mechanism the decoders would still drop (see knownVias). A via
 		// this build does not know renders an empty Kind — inert, not mis-installed.
 		in.Kind = installKindFor(c.Via)
+		// The update verb is projected for EVERY via, not inside the switch below: it
+		// names what the PROGRAM does to itself, so it is orthogonal to how the program
+		// arrived. An npm-delivered CLI with a working self-update verb is a real case,
+		// and a projection that only carried it for installers would silently discard
+		// it (OQ-PD14).
+		in.UpdateVerb = c.Update
 		switch c.Via {
 		case "npm":
 			in.Package = c.Package
@@ -1347,6 +1367,15 @@ func validateContribution(label string, c Contribution) []string {
 				"(on the target surface's agent) and env (on the launch's profile table); "+
 				"no consumer reads it on this kind", label, c.Kind))
 	}
+	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
+	// reason: a verb declared on `requires` (which installs nothing) or on a content kind
+	// is read by no consumer, so accepting it would be a declaration that silently does
+	// nothing. Only `program` has a program to run it against.
+	if len(c.Update) > 0 && c.Kind != KindProgram {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"update\" — the verb runs the installed PROGRAM "+
+				"against itself, so only \"program\" has anything to run it on", label, c.Kind))
+	}
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
 	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
 	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.
@@ -1371,6 +1400,18 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProgram:
 		req("bin", c.Bin)
 		problems = binProblem(problems, label+".bin", c.Bin)
+		// An EMPTY word in the verb is refused rather than dropped. The launcher passes
+		// the list to the program as argv, so an empty element reaches the vendor as a
+		// zero-length argument — which `claude ""` and friends read as a malformed
+		// subcommand, from a manifest that looked fine. The list may be absent; it may
+		// not contain nothing.
+		for i, w := range c.Update {
+			if strings.TrimSpace(w) == "" {
+				problems = append(problems, fmt.Sprintf(
+					"%s.update[%d]: empty word — the verb is the program's own argv, and an "+
+						"empty argument reaches the vendor as one", label, i))
+			}
+		}
 		// `via` is a CLOSED enum, and the strict refusal below is only half the rule: the
 		// tolerant path skips an unknown value instead of refusing it, so a third delivery
 		// mechanism cannot brick a jail on a pre-`just load` image (packdecl.unknownViaSkip,

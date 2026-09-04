@@ -121,9 +121,10 @@ type Install struct {
 	// Package is the npm package (kind == "npm"), optionally carrying a version
 	// selector: `foo`, `foo@1.2.3`, `foo@next`, `@scope/foo@^1.0.0`.
 	//
-	// No selector means `@latest`, re-checked hourly by the launcher. A selector turns
-	// that poll OFF — the registry's `latest` is not an answer to a declaration that
-	// named its own version. (Until 2026-08-17 the launcher appended `@latest`
+	// No selector means `@latest`, re-resolved by the launcher at most once per
+	// UPDATE_INTERVAL when this jail's `agent_updates` policy allows it (§3.5's evergreen
+	// ruling, OQ-PD12). A selector turns that off — the registry's `latest` is not an
+	// answer to a declaration that named its own version. (Until 2026-08-17 the launcher appended `@latest`
 	// unconditionally, so a version was not expressible at all: `foo@1.2.3` was
 	// installed as `foo@1.2.3@latest`. See internal/entrypoint/npmspec.go.)
 	Package string `json:"package,omitempty"`
@@ -136,6 +137,19 @@ type Install struct {
 	// pack cannot introduce one, because that would let a git ref execute arbitrary
 	// code in the jail.
 	InstallerURL string `json:"installerUrl,omitempty"`
+	// UpdateVerb is the argv the PROGRAM ITSELF is run with to update itself, with the
+	// bin omitted: `["install"]` for claude, `["update", "--self"]` for pi.
+	//
+	// Declared by the pack because the vendors disagree and core cannot hardcode one
+	// (program-delivery.md OQ-PD14). Empty means "re-run the declared installer", or
+	// `npm install -g <package>` for kind "npm" — a fallback per `via`, never a guess at
+	// a verb.
+	//
+	// A LIST, not a string, and not a closed enum. It is a vendor's argv, so the words
+	// are the vendor's to choose and splitting a string in the shell would re-derive
+	// quoting rules the launcher has no business owning; and §6.2's `via` tolerance does
+	// not apply, because there is no mechanism here for a later build to learn.
+	UpdateVerb []string `json:"update,omitempty"`
 }
 
 // Mount stages one of the pack's own files or directories and mounts it read-only.
