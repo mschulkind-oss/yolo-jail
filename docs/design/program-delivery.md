@@ -297,18 +297,40 @@ build reproduces against `pyright`, and a six-week-old language server is a defe
 **not** pack `program` contributions — they arrive through the bootstrap
 (`YOLO_MCP_NPM`, `YOLO_LSP_NPM_INSTALL` in `internal/entrypoint/shell.go`), sentinel-tracked by
 `~/.yolo-installed-lsps` and uninstalled when dropped from config. So evergreen has **two**
-integration points, not one — and **B2's mechanism does not reach the second at all**, because
-nobody types an MCP or LSP server's name. There is no launcher to mediate: the agent spawns them.
+integration points, not one — and the second is **transitive**, which is what decides its trigger.
 
-> [!WARNING]
-> **This is the one place the lazy architecture leaves a gap, and it must not be papered over.**
-> The agent CLIs get evergreen from the launcher; MCP and LSP servers have no invocation yolo sees.
-> Their only yolo-visible moment is the **bootstrap**, which is a boot step — so for this half,
-> eager-at-boot is not a rejected alternative, it is the only available one. Two consequences:
-> the bootstrap must resolve current instead of short-circuiting on the sentinel, and it inherits
-> the boot-time cost B2 exists to avoid, which is acceptable only because these are small npm
-> packages rather than 250 MB agent binaries. The sentinel keeps its removal job, which is
-> orthogonal.
+**RULED 2026-09-03: a server inherits the trigger of the agent that connects to it.** An MCP or LSP
+server exists only to serve an agent; if no agent runs, nothing needs it current. So the refresh
+happens when an agent whose config names that server is invoked — the same lazy moment as the agent's
+own update, not a boot step. This was briefly written as eager-at-boot on the reasoning that "nobody
+types their name"; the reasoning was right and the conclusion did not follow, because a transitive
+dependency does not need a trigger of its own.
+
+**Two things narrow the work, both verified 2026-09-03:**
+
+- **Only the servers yolo INSTALLS are in scope.** An MCP entry whose argv is `npx -y <pkg>@latest`
+  resolves on every spawn and is already current — measured here as
+  `YOLO_MCP_SERVERS={"tavily": {"command": "npx", "args": ["-y", "tavily-mcp@latest"]}}`. That is
+  [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)'s
+  **unmanaged** tier, and refreshing it would be inventing management this design deliberately
+  declines. What freezes is the bootstrap-installed set (`YOLO_MCP_PRESETS` — chrome-devtools,
+  sequential-thinking) and the LSP recipes, sentinel-tracked by `~/.yolo-installed-lsps`.
+- **"Which servers does this agent connect to" is already computed.** MCP config is a **per-agent
+  surface** (`yolo config ls` lists `agy/mcp` in its own right; claude's block lives in
+  `~/.claude.json`, codex's in `~/.codex/config.toml`), so the set is a rendered fact rather than
+  something the update path must infer.
+
+**Stamps are per package, not per agent**, so two agents sharing `pyright` do not both pay: the first
+invocation refreshes it, the second sees a fresh stamp. The sentinel keeps its removal job, which is
+orthogonal to freshness.
+
+> [!NOTE]
+> **Where the walk lives is an implementation choice with one constraint.** Iterating a per-agent
+> MCP/LSP set is JSON work, and the launcher templates are bash; the natural shape is for the
+> launcher to call one throttled step that does the walk in Go and then `exec` the agent. The
+> constraint is ordering, not language: **the refresh must complete before the agent is exec'd**,
+> because the agent spawns its servers itself and a half-updated set at connect time is worse than
+> a stale one.
 
 **3. One writer per install prefix, and only one backend can contend.** On `podman` and `container`
 the prefixes (`~/.local`, `~/.npm-global`, `~/go`) are **per-workspace binds**, so two simultaneous
@@ -1260,8 +1282,9 @@ mechanically interesting: **un-shadow the launcher** — move the launch dir ahe
 prefixes and add the generation-time collision check ([OQ-PD12a](#decision-ledger)); add the
 pack-declared update verb; flip the agent CLIs that have a native installer off npm
 ([OQ-PD13](#decision-ledger)); give the native template a real update branch, replacing the
-`"$REAL_BIN" install` no-op. The `agent_updates` knob comes with it. **The MCP/LSP half is separate
-and is a boot step**, since nobody invokes those by name (§3.5).
+`"$REAL_BIN" install` no-op. The `agent_updates` knob comes with it. **The MCP/LSP half rides the same
+trigger** — a server is refreshed when an agent that connects to it is invoked (§3.5), so there is
+**no boot step anywhere in this design**.
 
 > [!NOTE]
 > **This step is deliberately LAST, and the ordering was ruled rather than inherited.** Nothing
@@ -1294,7 +1317,7 @@ which was the point.
 | OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Resequenced 2026-09-03 by OQ-PD15: capture now ships BEFORE evergreen**, not last — evergreen multiplies exactly the disk cost capture removes. | 2026-08-24 | §6.3, §10 |
 | **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the §6.1 tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD12** | **Agent dependencies are EVERGREEN, updated LAZILY at the agent's own invocation** (revised the same day — see the row below). The launcher checks at most once per `UPDATE_INTERVAL` per program, then `exec`s; `agent_updates` (user-scope, per-pack or global) opts out; failure is scoped to the command, never to the jail. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), §5.4 |
-| **OQ-PD12a** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD12a** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted. **MCP/LSP servers inherit the trigger of the agent that connects to them** (transitive dependencies need no trigger of their own), so the design has **no boot step at all**; only yolo-INSTALLED servers are in scope, since an `npx -y pkg@latest` argv is already current every spawn | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. **All four npm packs have one, verified 2026-09-03** (§3.5's table). | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD15** | **Capture FIRST — build the complete version and sequence toward it.** Evergreen lands on a machine-wide content-addressed store rather than per-workspace binds, so the disk cost is paid once. The prune stopgap is deleted, not deferred: under capture there is nothing to prune. Sooner was never the goal | 2026-09-03 | [§10](#10-what-i-would-build-in-order), §6.3 |
