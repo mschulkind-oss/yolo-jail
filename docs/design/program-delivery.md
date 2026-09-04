@@ -1,9 +1,9 @@
 ---
 title: "How executable content gets into a jail — and what makes two jails the same"
-date: 2026-08-24
-status: decided
-tags: [packs, uniformity, delivery, pinning, npm, mise, image]
-summary: "Four delivery classes, one of which keeps no record and is never re-derived — and all divergence lives there. The fix is a receipt, removal and scope agreement, not an npm pin."
+date: 2026-09-03
+status: in-review
+tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
+summary: "Four delivery classes, one of which keeps no record and is never re-derived — and all divergence lives there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at launch) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which."
 ---
 
 # How executable content gets into a jail — and what makes two jails the same
@@ -18,6 +18,22 @@ credited `0eabeabc`, which resolves as an object but is **not an ancestor of HEA
 SHA left behind.* Every fact below is labelled
 **MEASURED** (observed in this development jail, 2026-08-24), **READ FROM CODE** (traced but not
 observed running) or **NOT MEASURED**.
+
+> [!IMPORTANT]
+> **AMENDED 2026-09-03 — the doc reopened, and §3.5 is the amendment.** This document ruled
+> *no-evergreen* as a principle covering every resolver ([OQ-PD3](#decision-ledger)) and rejected
+> install-at-launch ([§5.4](#54-a4--regenerate-or-reconcile-every-launch)). Six weeks of
+> measurement say the principle reached across a boundary it could not see: **an agent CLI and a
+> project toolchain are different kinds of dependency and want opposite policies.** §3.5 draws that
+> boundary and rules agent dependencies **evergreen**. Four new rulings
+> ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger)) and two new open questions
+> ([OQ-PD15](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it),
+> [OQ-PD16](#-oq-pd16--how-does-a-project-dependency-get-pinned-on-the-host-where-there-is-no-jail))
+> follow from it, and the status returns to `in-review`.
+>
+> **§1–§10 otherwise describe the design as ruled on 2026-08-24 and are unchanged.** Where §3.5
+> narrows an earlier ruling, the ledger row says so in place — no row was deleted, and no section
+> was renumbered, because both are cited from code.
 
 **The short version.** Executable content reaches a jail through four mechanisms, and they are not
 four flavours of one thing: content is **baked** (nix, hermetic, recorded), **regenerated** (packs,
@@ -104,6 +120,13 @@ installed once and kept always can. Where a mechanism can be moved into the rege
 beats pinning it in place — and where it cannot, the *reconciliation* half is still available
 cheaply ([§5.4](#54-a4--regenerate-or-reconcile-every-launch)).
 
+> [!NOTE]
+> **A sixth principle was added on 2026-09-03 and lives in [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
+> not here** — *P6. Class decides policy; mechanism decides implementation.* It is numbered into the
+> same sequence deliberately (the numbers are cited across docs), but it is stated where the axis it
+> depends on is drawn. This heading still says "five" because renaming a section that sibling docs
+> cite costs more than the inconsistency.
+
 ---
 
 ## 2. What "the same jail" would have to mean
@@ -148,6 +171,98 @@ nothing ever compares the lockfile to the disk.
 > 1,600 per-workspace staging dirs exist under `~/.local/share/yolo-jail/agents/`, and every one of
 > them is cleared and re-rendered on its next launch.
 
+### 3.5 The second axis: who the dependency serves (**AMENDMENT, 2026-09-03**)
+
+§3 classifies by **how** something is delivered and [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)
+by **how much control** yolo has over the resolution. Neither asks the question that decides the
+update policy: **who is this dependency for?** That is the axis this amendment adds, and the two
+answers want opposite things.
+
+**Two terms, coined here:**
+
+- An **agent dependency** is a program yolo installs so that a coding *agent* can run: the six agent
+  CLIs, and the MCP and LSP servers those agents drive. It serves the agent, never the work in
+  `/workspace`. Nobody's build reproduces against it, and a version six weeks old is a defect rather
+  than a guarantee. **It wants to be current.**
+- A **project dependency** is a program the work in `/workspace` needs: the language toolchains
+  (`mise_tools`), the system packages yolo bakes or adds (`packages`, nixpkgs), and anything else
+  whose version could change what the project builds or how it behaves. **It wants to be
+  reproducible.**
+
+> [!IMPORTANT]
+> **The delivery mechanism does not tell you the class, and assuming it does is the trap this
+> section exists to name.** npm carries both: `@github/copilot` is an agent dependency and
+> `typescript-language-server` is argued about. nix carries project dependencies today and could
+> carry an agent tomorrow. The overlap is **incidental** — an artefact of which distribution system
+> a vendor happened to pick — so a policy attached to `via: npm` or to "the managed tier" attaches
+> to the wrong thing. The class is a property of the dependency, declared, never inferred from how
+> it arrives.
+
+**P6. Class decides policy; mechanism decides implementation.** *(numbered so later sections and
+sibling docs can cite it, as P1–P5 are.)*
+
+| | Agent dependency | Project dependency |
+| :--- | :--- | :--- |
+| Wants | latest | reproducible |
+| Pin | **none** — there is nothing to be reproducible against | required, at the declaration's home ([OQ-PD1](#decision-ledger)) |
+| Resolution | at every launch | on an explicit act only |
+| Record | a receipt, for *what did I run* | a lockfile, for *what must I run* |
+| Members today | the six agent CLIs, MCP servers, LSP servers | `mise_tools`, `packages`, nixpkgs, `flake.lock` |
+
+**This narrows [OQ-PD3](#decision-ledger) rather than reversing it.** That ruling said *"no-evergreen
+extends to mise — it is a principle, not an npm fix."* The mise half stands and is untouched: mise
+tools are project dependencies and they pin. What breaks is the word **principle** — the claim that
+it reaches every resolver. It does not reach the agent class, and the four npm packages OQ-TP5
+covered (pi, copilot, codex, opencode) are all in that class.
+
+#### What "evergreen" means, precisely
+
+**RULED ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger), 2026-09-03). Not built.**
+
+- **Trigger:** every jail launch, on the **boot path**, before any agent starts — one update attempt
+  per selected pack that declares a `program`. Not the lazy launcher: that lives at the end of
+  `PATH` and is shadowed by the real binary the moment the first install lands, which is why the
+  hourly poll it hosts has never fired in steady state ([OQ-PD8](#decision-ledger), re-measured
+  2026-09-03 at six weeks across four agents).
+- **Attach is not a launch.** `yolo` attaching to a running jail does not re-run the boot path and
+  therefore does not update. The boundary is the container's lifetime, not the command.
+- **Cold start is the same act.** A program that is absent is installed; a program that is present
+  is updated. One code path, so a fresh workspace and a six-week-old one converge on the same
+  version.
+- **The update verb is the pack's to declare** ([OQ-PD14](#decision-ledger)). Every vendor spells it
+  differently — `claude install`, `pi update --self`, `codex update` — so core cannot hardcode one.
+  A `program` contribution that declares no verb is updated by re-running its installer or its
+  `npm install -g`, whichever its `via` names.
+- **Failure is FATAL, by ruling.** A launch that cannot reach the network refuses, rather than
+  starting a jail whose agents are silently stale. This is a deliberate departure from
+  [§5.4](#54-a4--regenerate-or-reconcile-every-launch)'s *"a launch must not depend on a registry
+  being reachable"*, taken on the maintainer's judgement that an offline jail launch is not a real
+  scenario.
+- **Timeout:** 60 seconds per program, after which that program's update is a failure and the launch
+  refuses under the rule above. A hung vendor updater must not hang a boot indefinitely.
+- **Escape hatch:** `YOLO_ALLOW_STALE_AGENTS=1`, forwarded from the host env, continues with
+  whatever is installed and says so loudly. Every other fatal in this system has one
+  (`YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_ALLOW_STALE_IMAGE`) for the case where the user cannot
+  repair the cause from where they are standing; a fatal with no hatch would be the first.
+- **Opt-out knob:** a config key defaulting to **on**, settable globally and per pack. Turning it off
+  freezes that program at whatever is installed — it does **not** re-enable the old hourly poll,
+  which is deleted.
+- **Forbidden:** the update must never resolve a *project* dependency, never write outside the
+  program's own install prefix, and never run for a pack the config does not select.
+- **Pre-existing state:** the first launch after this ships updates every frozen agent at once. For
+  a workspace last touched in July that is a multi-hundred-megabyte download, and it happens before
+  the agent starts.
+- **Done looks like:** a jail launched twice a week apart runs two different agent versions without
+  anyone typing an update command, and `yolo pack update` becomes a no-op that reports rather than a
+  command anyone needs.
+
+#### Out of scope, stated so nobody builds it
+
+**A project's own package manager is not yolo's business.** A repo's `package.json`, `go.mod`,
+`Cargo.toml` or `requirements.txt` is resolved by that project's tooling with that project's
+lockfile, and yolo neither pins nor updates it. yolo is responsible for what it *installs* — the
+toolchain, the system packages, the agents — and the boundary is exactly that.
+
 ---
 
 ## 4. How two jails diverge today (measured)
@@ -177,6 +292,32 @@ agent CLI, because the launcher that would notice is shadowed
 **Three months of spread inside a single home**, and the mechanism generalises directly: a workspace
 created today resolves `@latest` today. That is the concrete answer to *"do two jails a month apart
 get the same bytes?"* — no, and nothing anywhere notices.
+
+> [!IMPORTANT]
+> **RE-MEASURED 2026-09-03, and this is the finding that reopened the doc.** The same workspace,
+> ten days later, against what the registry serves today:
+>
+> | Package | On disk | Installed | Latest |
+> | :--- | :--- | :--- | :--- |
+> | `@github/copilot` | 1.0.48 | 2026-07-19 | **1.0.82** |
+> | `@openai/codex` | 0.145.0 | 2026-07-25 | **0.153.1** |
+> | `@earendil-works/pi-coding-agent` | 0.82.1 | 2026-07-25 | **0.84.4** |
+> | `claude` (installer class) | 2.1.220 | 2026-07-24 | — |
+>
+> **Six weeks, every agent, including the installer class.** §4.1 predicted freeze; freeze is now
+> the observed steady state of the whole fleet. Two mechanisms that were supposed to prevent it were
+> each measured inert: the launcher is PATH-shadowed ([OQ-PD8](#decision-ledger)), and
+> `"$REAL_BIN" install` — the installer launcher's hourly call — carries no `--force` and no target,
+> so it is a **no-op when the program is already installed**. It was never an update.
+>
+> A third mechanism froze claude specifically and belongs to neither: `env.DISABLE_AUTOUPDATER=1`,
+> captured from a one-time in-jail edit into `<workspace>/.yolo/prism/claude-settings.overlay.json`
+> and outranking both the pack and the host layer on every boot since 2026-08-05. It is
+> **per-workspace**, so it froze one jail and no other. Not a delivery defect — a config-capture one
+> — but it is why claude's freeze looked like the vendor's doing.
+>
+> **The threat no-evergreen was built to stop never happened; the freeze it caused did.** That
+> asymmetry is the whole argument for [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03).
 
 ### 4.2 Drift: mise is machine-global, evergreen every launch, and repoints aliases in place
 
@@ -524,6 +665,23 @@ cleared and re-staged.
 > "what the receipt says vs. what is on disk" — and the LSP sentinel already proves the loop can be
 > written. Reconcile reports; it does not install.
 
+> [!WARNING]
+> **AMENDED 2026-09-03 — this verdict now holds for PROJECT dependencies only.** For **agent**
+> dependencies the rejected half is adopted: a launch *does* reinstall, and a registry it cannot
+> reach *does* refuse the launch
+> ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
+> [OQ-PD12](#decision-ledger)).
+>
+> Both objections were answered rather than waved away. *"A launch must not depend on a registry
+> being reachable"* — ruled the other way on the maintainer's judgement that an offline jail launch
+> is not a real scenario, with `YOLO_ALLOW_STALE_AGENTS=1` for the case where it is. *"An install is
+> not free"* — accepted as a real cost and priced twice: boot latency, bounded by a 60-second
+> per-program timeout, and disk, which is [OQ-PD15](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it)
+> and the one thing that could still change the sequencing.
+>
+> **Reconcile is untouched and still the answer for project dependencies** — it stays offline, it
+> still only reports, and it did not move.
+
 ### 5.5 A5 — Do nothing, and say so
 
 Accept that jails are not uniform, and document it.
@@ -852,6 +1010,23 @@ made here is used here, and publishing one is a provenance question for
   [OQ-PD3](#decision-ledger)'s ruling *extends* OQ-TP5 rather than touching it: no-evergreen is now
   a principle covering every resolver, not an npm fix.
 
+> [!IMPORTANT]
+> **SUPERSEDED 2026-09-03 by the amendment.** The bullet directly above is the one claim in this
+> section the amendment reverses: **OQ-TP5 is no longer unchanged — it is superseded.** Its four
+> packages (pi, copilot, codex, opencode) are all agent dependencies, so *"no evergreen npm"* is
+> now false of every member it had ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
+> [OQ-PD12](#decision-ledger)). OQ-TP6's fatal is genuinely untouched — it is about consent, not
+> cadence.
+>
+> **The dispositions this section proposed have now been applied in `trust-paths.md`** (2026-09-03),
+> which is what the note at the head of §8.1 asked whoever landed this to do. OQ-TP3 and OQ-TP4 are
+> retired there into its Decision Ledger with pointers here; OQ-TP5's row is marked superseded
+> rather than deleted, and its `§1 row 1` anchor is preserved with a superseding note **because six
+> code sites cite it** (`internal/cli/pack.go:190`, `internal/cli/packupdate.go:9`,
+> `internal/entrypoint/shims.go:622` and `:729`, plus two tests). Those comments describe code that
+> still behaves as written; they become wrong only when the evergreen work lands, and that is the
+> commit that must update them.
+
 ### 8.2 `image-staging-vs-baking.md` — a framing inversion, not a contradiction
 
 No factual claim here contradicts that document, and its numbers are used as authoritative. But the
@@ -926,6 +1101,20 @@ here is the same wiring for everything else.
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
 *record* + *materialize* and depends on nothing above except the receipt schema.
 
+**Seventh — added 2026-09-03 — make agent dependencies evergreen**
+([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
+[OQ-PD12](#decision-ledger)–[OQ-PD14](#decision-ledger)). Four parts, and only the first is
+mechanically interesting: move the update off the shadowed launcher onto the boot path; add the
+pack-declared update verb; flip the agent CLIs that have a native installer off npm
+([OQ-PD13](#decision-ledger)); delete the hourly poll and the `"$REAL_BIN" install` no-op. The
+opt-out knob and the fatal come with it.
+
+> [!WARNING]
+> **Where this step sits is [OQ-PD15](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it),
+> not settled.** It is written seventh because that is where the *dependencies* put it — it needs
+> nothing above except the receipt schema — but evergreen multiplies the per-workspace disk cost
+> that the sixth step exists to remove. If PD15 rules (a), these two swap.
+
 **In parallel, pay the enum tolerance** (§6.2) — **PAID** (`0a4d241c`), while no one needed it,
 which was the point.
 
@@ -937,17 +1126,78 @@ which was the point.
 | :--- | :--- | :--- | :--- |
 | OQ-PD1 | **Shape (d): the record follows the declaration's scope.** Ecosystem-native lockfiles at the declaration's home (repo for `mise.toml`/`flake.nix`, user for `packs`); yolo-written receipts only where no native lock exists; bytes in machine-global content-addressed stores. | 2026-08-24 | §5.6, §4.4 |
 | OQ-PD2 | **Same-machine and same-workspace ship first, through the user half; same-declaration-anywhere is in scope for the project toolchain** via repo-committed native locks, and out of scope for user tools, which no repo should pin. | 2026-08-24 | §2, §5.6 |
-| OQ-PD3 | **No-evergreen extends to mise — it is a principle, not an npm fix.** The per-launch `mise upgrade --yes` was a stopgap; whatever pins mise ships as **part of the general seam** (a tier-2 resolver whose *obey* goes through mise's own pinning), never as a standalone lockfile flip ahead of it. | 2026-08-24 | §4.2, §6.1, §10 |
+| OQ-PD3 | **No-evergreen extends to mise.** The per-launch `mise upgrade --yes` was a stopgap; whatever pins mise ships as **part of the general seam** (a tier-2 resolver whose *obey* goes through mise's own pinning), never as a standalone lockfile flip ahead of it. ⚠ **NARROWED 2026-09-03:** the mise half stands, but *"it is a principle, not an npm fix"* does not — it does not reach **agent dependencies**, which are evergreen (§3.5, OQ-PD11/PD12). | 2026-08-24 · amended 2026-09-03 | §4.2, §6.1, §10, **§3.5** |
 | OQ-PD4 | **Dropping a pack does not auto-delete its program.** Orphans are cataloged informationally at boot; removal happens only on an explicit act; autoprune exists as an option, **default off**. | 2026-08-24 | §4.3, §9 R3, §10 |
 | OQ-PD5 | **One lifecycle, N resolvers, N native records under ONE READER** — no ledger-as-store of opaque identities; only a resolver parses its own record; the tiers stay explicit. | 2026-08-24 | §6 |
-| OQ-PD6 | **The receipt is the pin.** A declaration may carry a version and is not required to; install obeys the record. Also answers OQ-TP3's inherited half. | 2026-08-24 | §6, §8.1 |
+| OQ-PD6 | **The receipt is the pin.** A declaration may carry a version and is not required to; install obeys the record. Also answers OQ-TP3's inherited half. ⚠ **SCOPED 2026-09-03** to **project** dependencies. An agent dependency has no pin to obey; its receipt answers *what did I run*, never *what must I run* (§3.5). | 2026-08-24 · amended 2026-09-03 | §6, §8.1, **§3.5** |
 | OQ-PD7 | **Report first; gate later only if the reports justify it** — and the record names where a gate would live. | 2026-08-24 | §6, §9 R1 |
 | OQ-PD8 | **The launcher's informational poll is unreachable in steady state** (nineteen days of unmoved stamps); the "newer version available" channel moves to the boot catalog and the update verb / reconcile. | 2026-08-24 | §4.4, §10 |
 | OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | §5.6, §6.3 |
-| OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. | 2026-08-24 | §6.3, §10 |
+| OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Its sequencing is reopened** by OQ-PD15 — evergreen makes the disk cost it solves materially worse. | 2026-08-24 | §6.3, §10 |
+| **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the §6.1 tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD12** | **Agent dependencies are EVERGREEN.** The native update runs on the boot path at every launch, default on, per-pack and global opt-out; **a failed update is FATAL** (offline is judged not a real scenario), 60s per-program timeout, `YOLO_ALLOW_STALE_AGENTS=1` as the hatch. The hourly launcher poll is deleted, not disabled. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), §5.4 |
+| **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 
 ---
 
 ## Open Questions
 
-None. All ten are ruled — see the [Decision Ledger](#decision-ledger).
+Ten were ruled 2026-08-24 and four more on 2026-09-03 — see the [Decision Ledger](#decision-ledger).
+The amendment opened two.
+
+### 💬 OQ-PD15 — does capture GATE the evergreen rollout, or trail it?
+
+[OQ-PD10](#decision-ledger) sequenced capture **last**, on the reasoning that the receipt ships
+first and capture merely upgrades its guess. Evergreen changes that arithmetic, because the cost
+capture exists to remove is the one evergreen multiplies.
+
+**The measurement (2026-09-03, this development jail).** `~/.local` is a **per-workspace** bind, so
+every workspace downloads its own copy of every agent, and vendor updaters retain old builds rather
+than replacing them. One workspace holds **four claude versions at 1019 MB**. Today that is a
+one-time cost per workspace because nothing ever updates; under evergreen it becomes a *recurring*
+one, on every launch that lands a new version, in every workspace.
+
+**What it decides:** whether §10 grows a step before evergreen or after it.
+
+- **(a) Capture first.** Evergreen lands on a store that fetches once per machine and materializes
+  by unpack, so the disk cost is paid once for all workspaces. Costs: capture is the largest
+  unbuilt item in this doc, and it must work on all three backends
+  ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)).
+- **(b) Evergreen first, capture trails.** Ships the thing with the measured defect (six-week-stale
+  agents) immediately, and accepts growing disk until capture lands. Needs a stopgap: at minimum
+  prune old vendor version directories, which is a much smaller act than capture.
+- **(c) Evergreen first, with the per-workspace bind narrowed** so agent installs land in a
+  machine-global prefix that is *not* content-addressed. Cheaper than capture, but it invents a
+  second sharing mechanism that capture would then replace.
+
+_Leaning:_ **(b) with the prune stopgap.** The freeze is a live defect and capture is months of
+work; letting a measured defect stand behind an unbuilt subsystem is the trade this doc has argued
+against elsewhere. But the number that would change my mind is real growth: if a month of evergreen
+across the maintainer's actual workspace count exceeds the disk headroom, (a) wins on arithmetic
+rather than on preference — and nobody has counted the workspaces yet.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 OQ-PD16 — how does a PROJECT dependency get pinned on the host, where there is no jail?
+
+[§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) rules that project
+dependencies pin. Inside a jail that is already true and already mechanised: nixpkgs through
+`flake.lock`, toolchains through `mise.lock`. **On the host there is no equivalent** — a user
+running the same project outside a jail gets whatever their machine has, and yolo has no seam to
+pin through.
+
+**What it decides:** whether "project dependencies are pinned" is a claim about the jail or a claim
+about the project. If the latter, the pin has to be expressible somewhere the host also reads, and
+the obvious candidate is a **nix devshell** generated from the same declarations the jail already
+consumes — one source, two consumers.
+
+_Leaning:_ **jail-only for now, and say so.** A devshell is a real design of its own and it drags in
+the host-side nix availability question that `macos-user` already struggles with. The honest v1 is
+that the pin holds where yolo controls the environment, and the doc **enumerates the host as
+unmanaged** rather than implying coverage — which is exactly the discipline
+[§5.5](#55-a5--do-nothing-and-say-so) already demands of every other unmanaged member.
+
+**Answer:**
+> _(empty — fill in when decided)_

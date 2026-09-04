@@ -1,31 +1,47 @@
 ---
 title: "Every path by which someone else's content runs in your jail"
-date: 2026-08-17
+date: 2026-09-03
 status: in-review
 tags: [trust, packs, security, inventory]
-summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. The answer to 'where does pinning even help' is: three of them. (Row 26 — pack-shipped derive.lua — was added 2026-09-02; pinning does not change its outcome, so the three stand.)"
+summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. The answer to 'where does pinning even help' is: three of them — and as of 2026-09-03 the npm arc is gone from this doc entirely, because agent CLIs are ruled evergreen in program-delivery.md §3.5. What is left is the census and three findings."
 ---
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** INVENTORY, 2026-08-17. Four questions settled since, and **two of them SHIPPED and are
-still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both 2026-08-18, both re-verified
-against the code **2026-08-23**, anchors repinned **2026-09-02** (the provider arc moved several
-files under them; every behaviour is unchanged). **Four remain open — [OQ-TP3](#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first),
-[OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned),
+**Status:** INVENTORY, 2026-08-17; **compacted 2026-09-03.** Six questions settled, and **two of the
+rulings SHIPPED and are still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both
+2026-08-18, both re-verified against the code **2026-08-23**, anchors repinned **2026-09-02** (the
+provider arc moved several files under them; every behaviour is unchanged). **Two remain open —
 [OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up) and
-[OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident)
-(added 2026-09-02 with census row 26)** —
-and the first two are one question wearing two hats: *where does an npm pin live, and who is required
-to carry one?* This document is organised to answer them. Beyond the two rulings that shipped,
+[OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident)**
+(the latter added 2026-09-02 with census row 26). Beyond the rulings,
 **everything here is inventory** — traced in the code, with the anchors inline.
+
+> [!IMPORTANT]
+> **The npm arc left this document on 2026-09-03, and that is the largest change it has had.**
+> OQ-TP3 and OQ-TP4 are **RETIRED** and OQ-TP5 is **SUPERSEDED** — see the
+> [Decision Ledger](#decision-ledger). The reason is a ruling made elsewhere:
+> [`program-delivery.md`](./program-delivery.md) §3.5 draws a boundary this document never had, between
+> a dependency that serves the **agent** and one that serves the **project**, and rules the agent
+> class **evergreen**. All four packs OQ-TP5 governed (pi, copilot, codex, opencode) are agent CLIs,
+> so *"no evergreen npm"* is now false of every member it had. There is no npm pin to place, no
+> lockfile row to design, and no install/update split to enforce.
+>
+> **What that leaves is what this document should always have been:** the census, the verdict about
+> declarations-vs-content, and the three findings in §3 — none of which the ruling touches.
+> Roughly a hundred lines of npm argument came out; nothing else moved.
+>
+> ⚠ **`§1 row 1` is still a live anchor and was deliberately NOT renumbered.** Six code sites cite it
+> (`internal/cli/pack.go:190`, `internal/cli/packupdate.go:9`, `internal/entrypoint/shims.go:622` and
+> `:729`, `internal/cli/packupdate_test.go`, `internal/entrypoint/npmlauncher_test.go`). Those
+> comments describe code that still behaves exactly as they say; they go stale when the evergreen
+> work lands, and that commit owns updating them.
 
 **The short version.** Twenty-six paths deliver someone else's content into a jail.
 **Pinning changes an outcome in three of them** ([§1](#1-the-verdict)); everywhere else it is
-theatre, because **every gate in this system keys on a DECLARATION and none on CONTENT.** Of the
-three, row 1 (`program via npm`) is ruled and half built: the silent-change half is gone, and what is
-left is that nothing records *which* version an update landed on — because the lockfile exists per
-**fetched** pack and every npm-declaring pack is **embedded**. That gap is the live question.
+theatre, because **every gate in this system keys on a DECLARATION and none on CONTENT.** That
+verdict is unchanged by the evergreen ruling — it removed one row's *question*, not the property the
+census measures.
 
 **Why this exists.** A proposal ([`pack-execution-trust.md`](./pack-execution-trust.md)) argued that
 a fetched pack should only execute content it pins. The review response was *"they're all just as
@@ -53,8 +69,10 @@ against exactly one threat, the silent update.
 | :--- | :--- | :--- | :--- |
 | **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays — deriving it would be a regression | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 | **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2](#agent-context-needs-no-gate-of-its-own) |
-| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it has nowhere to record (OQ-TP4) | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
-| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)** | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP3** | **RETIRED, not answered.** *"Is pinning worth building, and where first?"* — its ranking put npm first, and npm no longer takes a pin. Its still-open half (*must a pack pin, or merely may it?*) was inherited at wider scope as `program-delivery.md` OQ-PD6 and ruled there: the receipt is the pin, for **project** dependencies; an agent dependency has no pin to obey | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) §3.5, OQ-PD6 |
+| **OQ-TP4** | **RETIRED as posed.** *"Where does an EMBEDDED pack's npm version get pinned?"* — nowhere, because it is not pinned at all. Its three options (manifest / lockfile / user config) were all venues for a record that the evergreen ruling deletes the need for. **What must not be re-derived:** option (a)'s cost — pinning in the manifest makes yolo's release cadence the ceiling on agent-CLI freshness — which is the same objection `program-delivery.md` §5.1 hits, and is now an argument *for* the ruling rather than a cost of one option | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) §3.5, OQ-PD12 |
+| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by `program-delivery.md` OQ-PD12**: all four packs it governed are agent dependencies, which are now ruled **evergreen**, updated on the boot path at every launch. The ruling stands as a description of the code **as it is today** — the reversal is ruled, not built | 2026-08-18 · superseded 2026-09-03 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
+| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. Untouched by the evergreen ruling — it is about consent, not cadence | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 
 > [!NOTE]
 > **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit — anchors
@@ -123,7 +141,8 @@ That split is **OQ-LP8 / G2b**, already open and already ruled in shape. It is t
 origin gate had before [§3.1](#31-a-refused-contribution-refuses-the-launch-): *true of the decision,
 false of its enforcement.*
 
-**Two structural facts about the file itself, which is where OQ-TP4 comes from:**
+**Two structural facts about the file itself.** They were the origin of OQ-TP4, which is now
+retired — kept because they remain true of the lockfile and constrain anything built on it:
 
 - **There is nowhere to put an npm version.** `LockEntry`'s fields are everything about a *git* pin
   and nothing about a package one. It needs a new field, and `LockSchema` is versioned precisely so
@@ -137,50 +156,48 @@ false of its enforcement.*
 ### Where a pin would change the outcome
 
 1. **`program via npm`** — because nothing *is* pinned. Every shipped pack declares a bare package
-   name, which the launcher resolves to `@latest`. **The zero-user-action half was removed on
-   2026-08-18** (OQ-TP5, below); what survives of this row is that the version an explicit update
-   lands on is **not recorded anywhere**, which is OQ-TP4.
+   name, which the launcher resolves to `@latest`.
 
-   > **RULED and BUILT, 2026-08-18: no evergreen npm packages. Install and update are different
-   > acts.** *"I don't want magical evergreen npm packages. If there's a committed lockfile, install
-   > installs from that version, update is how you get new versions. Let's just downgrade to
-   > informational messages if there are updates available, since we already have this mech."*
+   > [!IMPORTANT]
+   > **SUPERSEDED 2026-09-03 — this row no longer asks for a pin, and the anchor is kept only
+   > because code cites it.** OQ-TP5 ruled *no evergreen npm* on 2026-08-18 and it was built
+   > (`b3a29ad8`): the hourly poll became informational, and `YOLO_PACK_UPDATE=1` — which only
+   > `yolo pack update` sets — became the sole path that resolves a version. **That is still exactly
+   > what the code does**, which is why the six code comments citing `§1 row 1` are accurate today.
    >
-   > | | Rule | State |
-   > | :--- | :--- | :--- |
-   > | **install** | installs the version the lockfile records, and **never asks the registry what is latest** | built — but there is no version to record yet (OQ-TP4), so it leaves what is there alone |
-   > | **update** | the only act that resolves a new version, and it **writes the lockfile** | resolves; does not yet write (OQ-TP4) |
-   > | **the poll** | keeps running, but may only **say** that a newer version exists | built |
+   > What changed is the ruling above it. [`program-delivery.md`](./program-delivery.md) §3.5
+   > classifies all four npm-declaring packs (pi, copilot, codex, opencode) as **agent
+   > dependencies** and rules that class **evergreen** — updated on the boot path at every launch,
+   > with no pin, because there is nothing for an agent CLI to be reproducible against. So this
+   > row's open question (*where does the resolved version get recorded?*, OQ-TP4) is retired
+   > unanswered: nothing records it because nothing needs to obey it.
    >
-   > **What the system does now.** The launcher's `_poll_and_report`
-   > ([`shims.go`](../../internal/entrypoint/shims.go)) keeps the same `npm view` and the same hourly
-   > throttle (`UPDATE_INTERVAL=3600`) and prints `<installed> → <latest> is available. Run 'yolo pack
-   > update'` instead of reinstalling. The ONE input that still resolves a version is
-   > `YOLO_PACK_UPDATE=1`, which `yolo pack update` sets and nothing else does; in that mode the
-   > launcher installs and **exits without exec'ing**, so refreshing a list of agent CLIs never starts
-   > one. The **cold path is untouched by design** — a first install is not a poll, and without it a
-   > fresh jail would have no agent CLI at all. `internal/cli/packupdate.go` is the whole of the
-   > difference, and it walks the **staged packs** rather than the launcher dir, which also holds
-   > native and package-manager launchers.
-   >
-   > The evergreen poll was ours and it was deliberate, and **the problem it solved did not go away**:
-   > agent CLIs install lazily into a jail home that *persists across boots*, so with no refresh they
-   > freeze at whatever was current the day that home was created. `yolo pack update` is that same
-   > refresh, asked for rather than assumed.
+   > **Two measurements settled it**, both 2026-09-03. The mechanism OQ-TP5 built has never fired
+   > in steady state — the launcher hosting it sits last on `PATH` and is shadowed by the real
+   > binary the moment the first install lands (`program-delivery.md` OQ-PD8). And the four agents
+   > it governs were **six weeks stale**: copilot 1.0.48 against 1.0.82, codex 0.145.0 against
+   > 0.153.1, pi 0.82.1 against 0.84.4. The silent update the ruling defended against never
+   > happened; the freeze it caused did.
 
    > [!WARNING]
-   > **npm installs are deliberately NOT origin-gated, and this ruling does not change that.**
+   > **npm installs are deliberately NOT origin-gated, and NEITHER ruling changes that.**
    > `HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L493-L516)) gates a
    > `curl`-piped installer and lets an npm install through, on the reasoning that a registry package
    > is *"the same trust as any dependency the user already installs."* That reasoning should stay:
    > this row is about **when the bytes change**, not about **whose bytes they are.**
+   >
+   > This becomes load-bearing under `program-delivery.md` OQ-PD13, which prefers a vendor's native
+   > installer over npm for agent CLIs wherever one exists. Flipping a pack's `via` from `npm` to
+   > `installer` moves that contribution from **ungated** to **approvable and refusable**
+   > ([§3.1](#31-a-refused-contribution-refuses-the-launch-)). For the embedded packs that ship
+   > today it is moot — embedded origin grants unconditionally — but the first *fetched* pack to
+   > ship an agent CLI inherits a prompt it would not have had under `via: npm`.
 
    **A version is expressible, and nothing takes it.** The launcher splits the declaration
    ([`npmspec.go`](../../internal/entrypoint/npmspec.go)) and honours a version, dist-tag or range,
    skipping the poll for anything it did not resolve to `latest` itself. (It used to append `@latest`
    unconditionally, so `foo@1.2.3` yielded `foo@1.2.3@latest`.) That was a bug fix and **not** a
-   decision: every shipped pack still declares a bare name. The question is once again *"should a
-   pack pin?"* rather than *"can it?"* — which is OQ-TP3.
+   decision, and under the evergreen ruling no shipped pack should take it.
 2. **A loophole's daemon FILE, and a plugin's HOOK BODIES** — the two gated crossings whose approval
    string genuinely does not cover the bytes. `["python3","{loophole_dir}/acme.py"]` is one claim
    string forever; `plugin <name> hooks (runs code at agent lifecycle events)` is a **constant** with
@@ -304,8 +321,8 @@ does not move it — a derive is inside the commit the lockfile already closes o
 | # | Path | Grants | Trust extended | Can change silently? |
 | :-- | :--- | :--- | :--- | :--- |
 | 1 | the yolo binary — built-in skills + composed briefing | agent context | never | only via your own upgrade |
-| 2 | **embedded pack `program via installer`** (claude, agy) | in-jail exec as UID 0 | **never** — embedded origin grants unconditionally | **yes, twice over**: the URL's bytes, and the vendor's own hourly self-update, which no pin touches |
-| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **no longer silently — 2026-08-18.** The hourly poll now only reports; `yolo pack update` is the only act that resolves a version. What remains is that the version it resolves is unrecorded (OQ-TP4), so *which* bytes an update lands on is still unpinned — but no longer unasked-for (§1) |
+| 2 | **embedded pack `program via installer`** (claude, agy) | in-jail exec as UID 0 | **never** — embedded origin grants unconditionally | **yes, and as of 2026-09-03 that is the RULING, not a gap** — agent CLIs are evergreen (`program-delivery.md` §3.5). Two independent movers: the URL's bytes, and the vendor's own updater. ⚠ *The old text said "the vendor's own **hourly** self-update"; measured 2026-09-03 that is wrong twice over — yolo's launcher calls `"$REAL_BIN" install` on an hourly stamp, not the vendor, and with no `--force` and no target it is a **no-op when already installed**. Claude in this workspace had not moved since 2026-07-24* |
+| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **as the code stands: no.** The hourly poll only reports and `yolo pack update` is the only act that resolves (OQ-TP5, built 2026-08-18). ⚠ **Ruled to change**: agent CLIs become evergreen and resolve at every launch (`program-delivery.md` OQ-PD12), and the four packs on this row are all agent CLIs. Measured 2026-09-03, the mechanism has never fired — the launcher is `PATH`-shadowed, and all four were six weeks stale |
 | 4 | `flake.nix` / `flake.lock` | in-jail exec (everything on PATH) | implicit, at PR merge | no for inputs (locked revs, hermetic build) |
 | 5 | **the implicit local pack** `~/.config/yolo-jail/local` | everything, at maximum trust | **never**, and deliberately | **yes, continuously** — live dir, re-read every launch, no record |
 | 6 | explicit `file://` local pack | same as 5 | implicit in the config line | yes, every launch — no copy, no hash |
@@ -341,7 +358,8 @@ mechanism aimed at the same bytes would be the halfway-measure shape this repo k
 pin covers *fetched* packs only. That is not a gap: **fetched packs are the only ones whose content
 someone else controls.** A local pack is your own files under your own authority, and an embedded one
 is yolo's own code. (An embedded pack's *tree* is yolo's own code; the npm **package** it names is
-not — which is the whole of why OQ-TP4 exists alongside this ruling.)
+not — which is why OQ-TP4 used to sit alongside this ruling. It is retired: that package is an
+**agent dependency** and is now ruled evergreen, so no pin covers it and none is wanted.)
 
 **This ruling inherits the enforcement gap**, and is worth exactly as much as that gap is closed:
 until `LockEntry.Commit` is consulted at launch ([§1](#the-lockfile-is-a-receipt-not-a-gate)), "the
@@ -544,105 +562,18 @@ code" — but it is worth building in the three places of §1 and nowhere else.
 
 ## Open Questions
 
-> [!IMPORTANT]
-> **A sibling doc proposes dispositions for the two npm questions below, and it has not been applied
-> here.** [`program-delivery.md`](./program-delivery.md) §8.1 (2026-08-18) argues that **OQ-TP4 is
-> RETIRED as posed** — all three of its venues are inside the pack system, and the identical question
-> is live for mise, the LSP recipes and claude plugins, none of which is a pack — superseding it with
-> OQ-PD1 (*where does the receipt live?*) and OQ-PD5. It argues **OQ-TP3's still-open half is
-> INHERITED** at wider scope as OQ-PD6, with the reframe *"once a receipt exists, a declaration need
-> not carry a pin, because the receipt is the pin."*
+> [!NOTE]
+> **Two questions were RETIRED here on 2026-09-03 and live in the [Decision Ledger](#decision-ledger):
+> OQ-TP3 and OQ-TP4, both npm-pinning questions.** They are not answered — they are moot.
+> [`program-delivery.md`](./program-delivery.md) §3.5 rules that an **agent dependency** is
+> evergreen, and every pack either question governed installs an agent CLI. There is no pin to
+> place, so *"where does it live"* and *"who must carry one"* have no subject left.
 >
-> **Both questions below stay OPEN and stay spelled as they are.** The dispositions are *proposed*,
-> not applied — `program-delivery.md` says so explicitly — and neither doc may retire the other's ID
-> unilaterally. What survives from OQ-TP4 regardless of which way it goes: **option (a)'s cost**, that
-> pinning in the manifest makes yolo's release cadence the ceiling on agent-CLI freshness. Do not
-> re-derive it.
-
-### 💬 OQ-TP3 — given §1, is pinning worth building at all, and where first?
-
-The honest ranking from this inventory is: **npm first** (highest plausibility, affects embedded
-packs, used to change with nobody present), then the OQ-LP8 file/hook bodies, then `?ref=` drift.
-
-_Leaning:_ **Yes, but only #1.** The other two are real and rarer; do them when their consumers
-exist.
-
-**Answer (partial, 2026-08-18):**
-> **Row 1's BEHAVIOUR is decided: no evergreen npm, closed by removing the mechanism rather than
-> adding a gate** — `install` obeys the lockfile, `update` is the only act that resolves a new
-> version, and the poll is downgraded to informational
-> ([§1 row 1](#where-a-pin-would-change-the-outcome), built the same day).
+> The two things worth keeping from them are in the ledger rows, not here: TP4's cost analysis of
+> pinning in the manifest (it makes yolo's release cadence the ceiling on agent-CLI freshness — now
+> an argument **for** evergreen), and TP3's inherited half, ruled as `program-delivery.md` OQ-PD6.
 >
-> **What is still open is SCOPE**, in two halves:
-> 1. Does yolo pin its **OWN** embedded packs? That is inseparable from
->    [OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned) — the ruling cannot be
->    implemented for the majority case until TP4 has a home for the pin.
-> 2. Is a **fetched** pack *required* to pin, or merely permitted to? A `package` string may carry a
->    version, dist-tag or range today; no shipped pack does.
->
-> Rows 2 and 3 are untouched either way: both are enforcement gaps on pins that already exist, not
-> missing pins.
-
-### 💬 OQ-TP4 — where does an EMBEDDED pack's npm version get pinned?
-
-Raised by the OQ-TP5 ruling and **sharpened by its build, which stopped exactly here.** The
-behavioural halves shipped; what is missing is the **RECORD**. `update` resolves a version and
-nothing writes it down, so `install` has no version to install and falls back to "leave what is there
-alone". That is a coherent state — nothing changes without being asked — but it is not the ruling as
-stated: rule 1 says *install installs the version the lockfile records*, and today there is no such
-version.
-
-The lockfile is `packsrc`'s and it exists **per fetched pack**
-([§1](#the-lockfile-is-a-receipt-not-a-gate)), while the four packs that declare npm programs — **pi,
-copilot, codex, opencode** — are **embedded**. So the majority case has no lockfile row to install
-from.
-
-**What it decides:** whether "no evergreen npm" is true of yolo's own shipped agent CLIs, or only of
-third-party packs — which would be the reverse of where the risk concentrates, since the embedded
-four are what nearly every user runs.
-
-Three shapes, none free:
-
-| | Option | Cost |
-| :--- | :--- | :--- |
-| **(a)** | The **manifest** carries the version: `program via npm: "@anthropic-ai/claude-code@1.2.3"`, already expressible since the `npmspec` fix | The pin ships with the binary, so updating an agent CLI means shipping a new yolo. That is a release cadence coupling yolo does not have today |
-| **(b)** | The **lockfile grows an embedded section**, written on first resolve and updated by `pack update` | Keeps the release cadences separate and makes `update` mean one thing for every pack kind. Costs a lockfile that is no longer only about fetched content, and a first-run resolve that has no pin to obey |
-| **(c)** | **User config** may pin, and absent a pin the current behaviour stands | Honest and does nothing by default — which is the status quo this ruling exists to end |
-
-_Leaning:_ **(b).** It is the only one where `install` and `update` mean the same thing for every pack
-kind, which is the property the ruling is really asking for; (a) makes yolo's release cadence the
-upper bound on how fresh an agent CLI can be, and (c) leaves the default exactly where it is today.
-The honest cost of (b) is the first run: with no lockfile row yet, *something* has to resolve a
-version, and that act should be `install` recording what it got rather than the launcher resolving
-`latest` behind everyone's back.
-
-**New fact since the options were written (2026-09-02):** the **observation half of (b) now
-exists.** Install receipts (`af46c9b4`, 2026-08-24) record the *resolved* npm version per install —
-`_resolved_version()` reads the installed `package.json` and `_yolo_receipt` appends it to
-`<workspace>/.yolo/receipts.jsonl` (`internal/entrypoint/shims.go:633-661`). But a receipt is not a
-pin: the file is workspace-scoped, append-only, and **nothing reads it back** — the same
-receipt-not-a-gate shape as `LockEntry.Commit` above. So (b)'s remaining work is narrower than it
-was: not "start recording versions" but "promote the recorded version into a row `install` obeys" —
-which is also exactly [`program-delivery.md`](./program-delivery.md) §10's *user-scope gap receipt*
-step. The two should land as one design. For completeness: `mise.lock` covers no npm agent CLI
-(checked — none of the four packages appear in any mise file), and the live `packs.lock.json` is
-`{"schema":1,"packs":{}}` with embedded packs explicitly skipped before `lock.Set`
-(`pack.go:1086`).
-
-**A second, structural blocker nobody had recorded (2026-09-02).** **The lockfile has no delivery
-channel into a jail.** Measured: `grep -c packs.lock /proc/self/mountinfo` → **0**, and the in-jail
-`~/.config/yolo-jail/packs.lock.json` is a **2026-07-29 fossil** that no launch refreshes — only
-`config.jsonc` and `inherited-launch.jsonc` arrive as `:ro` single-file binds. Every npm install
-happens **inside** a jail, by a generated launcher, so *"install obeys the record"* requires either
-a fourth single-file bind beside those two, or the pin **baked into the launcher template** at
-generation time (which is what `receiptsFile` already does for the receipts path, for the reason
-`shims.go` gives: a `${YOLO_WORKSPACE:-…}` in the template would have written every macos-user
-jail's receipts to a container path that does not exist there, silently). **This is not a detail to
-settle after the ruling — it may change which of (a)/(b)/(c) is cheapest**, so weigh it when
-answering.
-
-**Answer:**
-> _(empty — fill in when decided)_
+> **The two below are unrelated to npm and remain open.**
 
 ### 💬 OQ-TP7 — the refusal is fatal; the preflight and the approve path are not caught up
 
