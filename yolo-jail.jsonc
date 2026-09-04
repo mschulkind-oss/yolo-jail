@@ -33,6 +33,8 @@
   // config needed): grep is blocked only for recursive usage (``-r``,
   // ``-R``, ``--recursive``, ``-rn`` etc. — pipe filters and
   // single-file greps pass through); find is blocked unconditionally.
+  // NOTE: neither is on by DEFAULT since 2026-09-04 — they ship in the
+  // `guardrails` pack, which a user config opts into via `packs`.
   // Override only if you want custom rules — the defaults are sane.
   // "security": {
   //   "blocked_tools": [

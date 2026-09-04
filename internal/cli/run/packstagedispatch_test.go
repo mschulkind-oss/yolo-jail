@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // THE ORDERING INVARIANT: pack staging happens BEFORE the backend dispatch.
@@ -97,7 +98,7 @@ func TestPacksAreStagedBeforeBackendDispatch(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		if packRoot == "" {
 			t.Error("macos-user was dispatched with an empty pack root — " +
@@ -142,7 +143,7 @@ func TestPackRootIsEmptyWhenNoPacksAreConfigured(t *testing.T) {
 
 	var got string
 	gotSet := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, packRoot, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got, gotSet = packRoot, true
 		return 0
 	}

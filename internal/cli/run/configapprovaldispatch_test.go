@@ -18,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // changedConfigWorkspace returns a workspace whose yolo-jail.jsonc has CHANGED
@@ -52,7 +53,7 @@ func TestMacosUserLaunchGatesOnConfigApproval(t *testing.T) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.IsTTYStdin = func() bool { return false }
 	reached := false
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		reached = true
 		return 0
 	}
@@ -88,7 +89,7 @@ func TestMacosUserLaunchAcceptsWithTheFlagAndRecordsIt(t *testing.T) {
 	o.IsTTYStdin = func() bool { return false }
 	o.AcceptConfigChanges = true
 	reached := false
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		reached = true
 		return 0
 	}
@@ -118,7 +119,7 @@ func TestMacosUserDryRunIsExemptFromTheApprovalGate(t *testing.T) {
 	o.IsTTYStdin = func() bool { return false }
 	o.DryRun = true
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, dryRun bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, dryRun bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		if !dryRun {
 			t.Error("dry-run flag did not reach the handler")

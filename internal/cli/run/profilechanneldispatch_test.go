@@ -28,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -75,7 +76,7 @@ func TestProfileChannelReachesTheMacosUserBackend(t *testing.T) {
 
 	var got *jsonx.OrderedMap
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool,
-		packEnv *jsonx.OrderedMap) int {
+		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = packEnv
 		return 0
 	}
@@ -117,7 +118,7 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 
 	reached := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool,
-		_ *jsonx.OrderedMap) int {
+		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		return 0
 	}
@@ -146,7 +147,7 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 		return ""
 	}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool,
-		_ *jsonx.OrderedMap) int {
+		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -167,7 +168,7 @@ func TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables(t *testing.T) {
 
 	var got *jsonx.OrderedMap
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool,
-		packEnv *jsonx.OrderedMap) int {
+		packEnv *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = packEnv
 		return 0
 	}
@@ -238,7 +239,7 @@ func TestRunRefusesAManufacturedAddressPair(t *testing.T) {
 	}
 	reached := false
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool,
-		_ *jsonx.OrderedMap) int {
+		_ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
 		return 0
 	}

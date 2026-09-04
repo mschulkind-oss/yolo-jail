@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -74,6 +75,12 @@ type Options struct {
 	Config    *jsonx.OrderedMap
 	Agents    []string
 	AgentArgv []string
+	// BlockedTools are the `blocked-tool` contributions of the selected packs, which
+	// core no longer supplies any of by default (config.defaultBlockedList is empty
+	// since 2026-09-04). Passed in rather than re-derived here because the run pipeline
+	// already loaded the packs, and a second load could disagree with the first.
+	BlockedTools []packload.BlockedTool
+
 	// HostHomeOverlay is the host-side tree of composed CONTENT — skills and
 	// pack-declared briefings — already laid out at the home-relative paths it belongs
 	// at, or "" when there is nothing to deliver. The container backends mount each
@@ -244,7 +251,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 		selfExe = deps.SelfExe()
 	}
 	return BuildRunPlan(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
-		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, env, darwin)
+		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, env, darwin, opts.BlockedTools)
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.

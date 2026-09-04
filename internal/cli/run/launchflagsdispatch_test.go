@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // LAUNCH FLAGS REACH macos-user. packload.InjectLaunchFlags used to be called inside
@@ -28,7 +29,7 @@ func TestLaunchFlagsReachTheMacosUserBackend(t *testing.T) {
 	o.Args = []string{"copilot"}
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = agentArgv
 		return 0
 	}
@@ -58,7 +59,7 @@ func TestBareLaunchStillGetsTheBackendDefault(t *testing.T) {
 	o.Args = nil
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = agentArgv
 		return 0
 	}

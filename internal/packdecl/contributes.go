@@ -174,6 +174,21 @@ type Contribution struct {
 	// --- hook ---
 	Hook string `json:"hook,omitempty"` // hook: the named capability from KnownHooks
 
+	// blocked-tool: the refusal text, the alternative to print, and the binary that
+	// alternative NAMES. `bin` carries the tool being blocked and `flags` the argv
+	// patterns that trigger it, both reusing the fields program/launch already use for
+	// the same shapes — a blocked tool is a bin plus flags, which is why it needs no
+	// spelling of its own.
+	//
+	// Replacement is the one that does work at render time rather than being text: a
+	// blocker is generated ONLY when that binary is on the PATH the agent will have,
+	// because a block whose alternative is absent removes the capability instead of
+	// redirecting it. Empty means "always block", which is right for a tool being
+	// forbidden outright rather than steered.
+	Message     string `json:"message,omitempty"`
+	Suggestion  string `json:"suggestion,omitempty"`
+	Replacement string `json:"replacement,omitempty"`
+
 	// --- autonomy (§4.2 / env-manager plan Phase 9) ---
 	// A pack declares BOTH postures; the confinement notch's AgentAutonomy policy
 	// selects which one renders (autonomous at jail/guest, guarded at host). Each

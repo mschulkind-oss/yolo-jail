@@ -17,10 +17,10 @@
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
 //
-// NOT EVERY OFFICIAL PACK IS AN AGENT. Twelve packs are embedded here (counted against
-// `ls packs/` 2026-09-02): six install a CLI and six do not. Of those six, `audio`,
+// NOT EVERY OFFICIAL PACK IS AN AGENT. Thirteen packs are embedded here (counted against
+// `ls packs/` 2026-09-04): six install a CLI and seven do not. Of those six, `audio`,
 // `host-processes`, `journal`, `cgroup-delegate` and `serial` ship a LOOPHOLE (one of
-// seventeen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
+// eighteen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
 // `audio` also contributes an `env` block, the only one of the five that ships anything
 // beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
 // §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
@@ -60,5 +60,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:audio all:host-processes all:journal all:cgroup-delegate all:serial
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails
 var FS embed.FS

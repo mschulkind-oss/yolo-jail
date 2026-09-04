@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // EffectivePackages returns config `packages` plus gpu.vaapi-implied extras
@@ -204,6 +205,50 @@ func findDefaults() *jsonx.OrderedMap {
 // ["grep","find"]) into the list-of-dict form the
 // entrypoint consumes. String entries get default_messages merged in; dict
 // entries (with "name") merge defaults-under-user.
+// NormalizeBlockedToolsWith is NormalizeBlockedTools plus the packs' own declarations.
+//
+// PACK ENTRIES COME FIRST and a user entry of the same name REPLACES one, because the
+// user config is the more specific statement: someone who wrote their own `grep` block
+// meant it to be theirs, not to be merged field-by-field with a pack's. Replacement
+// rather than merge also keeps the result explainable — every emitted record came
+// wholly from one place.
+func NormalizeBlockedToolsWith(securitySection *jsonx.OrderedMap, packTools []packload.BlockedTool) []any {
+	userNames := map[string]bool{}
+	for _, e := range NormalizeBlockedTools(securitySection) {
+		if m, ok := asMap(e); ok {
+			if n, ok := asStr(getOr(m, "name", nil)); ok {
+				userNames[n] = true
+			}
+		}
+	}
+	out := make([]any, 0, len(packTools))
+	for _, t := range packTools {
+		if userNames[t.Name] {
+			continue // the user said it themselves; theirs wins whole
+		}
+		m := jsonx.NewOrderedMap()
+		m.Set("name", t.Name)
+		if t.Message != "" {
+			m.Set("message", t.Message)
+		}
+		if t.Suggestion != "" {
+			m.Set("suggestion", t.Suggestion)
+		}
+		if t.Replacement != "" {
+			m.Set("replacement", t.Replacement)
+		}
+		if len(t.Flags) > 0 {
+			flags := make([]any, 0, len(t.Flags))
+			for _, f := range t.Flags {
+				flags = append(flags, f)
+			}
+			m.Set("block_flags", flags)
+		}
+		out = append(out, m)
+	}
+	return append(out, NormalizeBlockedTools(securitySection)...)
+}
+
 func NormalizeBlockedTools(securitySection *jsonx.OrderedMap) []any {
 	if securitySection == nil {
 		securitySection = jsonx.NewOrderedMap()
@@ -268,7 +313,20 @@ func NormalizeBlockedTools(securitySection *jsonx.OrderedMap) []any {
 	return out
 }
 
-func defaultBlockedList() []any { return []any{"grep", "find"} }
+// defaultBlockedList is EMPTY, and that is the 2026-09-04 ruling.
+//
+// It returned ["grep","find"] until then, and the default carried an assumption it
+// could not state: that the image bakes `rg` and `fd`. True of the container backends,
+// false of macos-user, which bakes nothing — so on the first working Mac launch the
+// shims were generated, `grep -r` exited 127, and the suggestion named a binary that
+// did not exist. A default that depends on an image is not a default, it is one
+// backend's policy applied to all of them.
+//
+// The list moved to the `guardrails` pack, where the thing that blocks a tool is also
+// the thing that can require its replacement, and selecting it is the opt-in. Core
+// blocks nothing on its own; a user's own `security.blocked_tools` still works exactly
+// as before and is unaffected by any of this.
+func defaultBlockedList() []any { return []any{} }
 
 // ---------------------------------------------------------------------------
 // value-model utilities

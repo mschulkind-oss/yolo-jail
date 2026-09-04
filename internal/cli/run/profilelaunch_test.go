@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // profileLaunchLocalPack writes the conventional LOCAL pack (paths.LocalPackDir, so no
@@ -57,7 +58,7 @@ func TestRunInjectsNoFlagForASelectedProfile(t *testing.T) {
 	o.UseProfiles = map[string]string{"acme": "bedrock"}
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = agentArgv
 		return 0
 	}
@@ -83,7 +84,7 @@ func TestRunWithoutAProfileSelectionInjectsTheStaticFlags(t *testing.T) {
 	o.Args = []string{"acme"}
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		got = agentArgv
 		return 0
 	}

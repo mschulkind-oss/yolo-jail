@@ -5,6 +5,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -114,7 +115,7 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
 // to self-exec as the bootstrap; `hostPackRoot` is the host-side staged pack tree
 // the run pipeline produced before dispatching here (""=no packs). `darwin` may be nil.
-func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot, hostHomeOverlay string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin) RunPlan {
+func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot, hostHomeOverlay string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
 	darwinPrefix := []string{}
 	darwinEnv := jsonx.NewOrderedMap()
 	darwinSkipped := []string{}
@@ -166,7 +167,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	// macos-log mode, and the login-rc PATH). Reuses the container-side resolvers.
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
-	blockJSON, _ := jsonx.DumpsCompact(config.NormalizeBlockedTools(securitySection(cfg)))
+	blockJSON, _ := jsonx.DumpsCompact(config.NormalizeBlockedToolsWith(securitySection(cfg), blockedTools))
 	bootstrapEnv.Set("YOLO_BLOCK_CONFIG", blockJSON)
 	miseJSON, _ := jsonx.DumpsCompact(orderedMapToAny(config.MergeMiseTools(cfg)))
 	bootstrapEnv.Set("YOLO_MISE_TOOLS", miseJSON)

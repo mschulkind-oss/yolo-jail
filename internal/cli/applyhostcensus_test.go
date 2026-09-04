@@ -121,6 +121,9 @@ func writeCensusPack(t *testing.T, dir string) {
 			`"endpoints":{"openai":{"base_url":"https://census.example/v4","wire_api":"openai-chat-completions"}},` +
 			`"api_key_env_name":"CENSUS_API_KEY"}`,
 		packdecl.KindLoophole: `{"kind":"loophole","from":"loopholes/censushole"}`,
+		packdecl.KindBlockedTool: `{"kind":"blocked-tool","bin":"censusblocked",` +
+			`"message":"blocked for the census","suggestion":"try censusalt",` +
+			`"replacement":"censusalt","flags":["-r"]}`,
 		// profile is a SELECTION since OQ-PT8 — name plus provider, and the provider entry
 		// above ships that name. Its old config/launch/env body lives in gated
 		// contributions of the kinds that own those channels, so a minimal selection is

@@ -366,7 +366,8 @@ func Run(opts Options) int {
 			return 1
 		}
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
-			repoRoot, staged.root, homeOverlay, o.DryRun, channel.launchEnv())
+			repoRoot, staged.root, homeOverlay, o.DryRun, channel.launchEnv(),
+			packload.BlockedTools(staged.packs))
 	}
 	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel)
 }

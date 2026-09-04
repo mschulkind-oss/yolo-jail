@@ -347,9 +347,18 @@ there is no sync step.
   `~/.config/yolo-jail/config.jsonc`, before asking a human to restart. Use
   `yolo check --no-build` for a fast in-jail preflight. Config changes also
   trigger a y/N diff prompt at startup — don't rely on it to catch mistakes.
-- **Shims are unconditional.** Blocked tools (`grep -r`, `find`, …) are
-  generated from config and always active unless `YOLO_BYPASS_SHIMS=1`. Set it
-  for installers and scripts that need the real tool.
+- **Shims are unconditional ONCE GENERATED, but nothing is blocked by default.**
+  `defaultBlockedList()` is EMPTY since 2026-09-04: `grep -r` and `find` moved to
+  the **`guardrails`** pack (`packs/guardrails`), which a user config opts into via
+  `packs`. The old default silently assumed the image bakes `rg` and `fd` — true of
+  the container backends, false of macos-user, which bakes nothing, so the block
+  removed a tool and pointed at a binary that did not exist. A blocker also declares
+  a `replacement` and is **generated only when that binary is on the agent's PATH**
+  (`agentPath`, the one authority for which PATH counts), so a block can never leave
+  a jail with neither the tool nor its alternative. A generated shim is still
+  unconditional at run time unless `YOLO_BYPASS_SHIMS=1` — set it for installers and
+  scripts that need the real tool. A user's own `security.blocked_tools` is
+  unaffected, and an entry naming the same tool as a pack's REPLACES it whole.
 - **Use `shquote.Join`** (`internal/shquote`) for anything crossing into the
   container's `bash -c`.
 - **Podman-in-podman**: when already inside a container the CLI uses

@@ -1,0 +1,23 @@
+{
+  "name": "guardrails",
+  "description": "Habits worth enforcing: tools the jail refuses in favour of a better one. Opt in by adding \"guardrails\" to packs.",
+  "contributes": [
+    {
+      "kind": "blocked-tool",
+      "bin": "grep",
+      "message": "grep's recursive mode is blocked. Use ripgrep (rg) for recursive searches; pipe filters and single-file greps pass through.",
+      "suggestion": "Try: rg <pattern> [path]",
+      "replacement": "rg",
+      "flags": ["--recursive", "-r", "-R", "-*[rR]*"]
+    },
+    {
+      "kind": "blocked-tool",
+      "bin": "find",
+      "message": "find is blocked to prevent unintended recursive searches. Use fd for a faster, more intuitive alternative.",
+      "suggestion": "Try: fd <pattern>",
+      "replacement": "fd"
+    },
+    { "kind": "requires", "bin": "rg", "install_hints": {"brew": "ripgrep", "apt": "ripgrep", "dnf": "ripgrep", "nix": "ripgrep", "pacman": "ripgrep"} },
+    { "kind": "requires", "bin": "fd", "install_hints": {"brew": "fd", "apt": "fd-find", "dnf": "fd-find", "nix": "fd", "pacman": "fd"} }
+  ]
+}

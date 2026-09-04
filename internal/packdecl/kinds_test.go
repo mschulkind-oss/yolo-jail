@@ -27,8 +27,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 17 {
-		t.Errorf("KnownKinds() has %d entries, want 17 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 18 {
+		t.Errorf("KnownKinds() has %d entries, want 18 — a kind was added/removed without updating the test", got)
 	}
 }
 

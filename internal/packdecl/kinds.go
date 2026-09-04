@@ -178,6 +178,18 @@ const (
 	// per `bin`. A shadowed loophole name is a daemon nobody audited running under a
 	// name the user trusts.
 	KindLoophole Kind = "loophole"
+
+	// KindBlockedTool refuses a tool inside the jail, printing a message and an
+	// alternative instead of running it.
+	//
+	// A PACK CONCERN, not a core one, since 2026-09-04. Core used to block `grep -r`
+	// and `find` by DEFAULT — a default that silently assumed the image bakes `rg` and
+	// `fd`, which is true of the container backends and false of macos-user, where
+	// nothing is baked and a blocked tool's suggestion named a binary that did not
+	// exist. Moving the list into a pack makes the assumption explicit: the pack that
+	// blocks a tool is the pack that can say what replaces it, and selecting it is the
+	// opt-in.
+	KindBlockedTool Kind = "blocked-tool"
 )
 
 // Combine names how two claims on the SAME target resolve — the conflict-rule
@@ -239,6 +251,17 @@ type Footprint struct {
 // description. Closed on purpose (see the file doc). The map key is the authority
 // for KnownKinds — there is deliberately no second list to drift.
 var footprints = map[Kind]Footprint{
+	KindBlockedTool: {
+		// EXCLUSIVE: the blocker is a FILE at ~/.yolo/bin/block/<bin>, so two packs
+		// blocking the same tool would fight over one path — the same reason `program`
+		// is exclusive. (`requires` is shared because it generates nothing.)
+		// NOT review-worthy: the install prompt asks "what does this pack reach on your
+		// machine", and a blocker reaches nothing — it writes a refusing shim INSIDE the
+		// jail and crosses no boundary. A fetched pack blocking a tool can make a jail
+		// less useful; it cannot make it less contained.
+		Kind: KindBlockedTool, Combine: CombineExclusive,
+		Claims: "a refusing shim at ~/.yolo/bin/block/<bin>, ahead of the real tool on PATH",
+	},
 	KindProgram: {
 		Kind: KindProgram, Combine: CombineExclusive, MayBeReviewWorthy: true,
 		Claims: "a name on PATH and a launcher in ~/.yolo/bin/launch/",

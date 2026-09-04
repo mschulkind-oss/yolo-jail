@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // EXPLICIT host networking on Apple Container is worse than the default and used to say
@@ -68,7 +69,7 @@ func TestMacosUserNotesMachineWideWorkspaceState(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -96,7 +97,7 @@ func TestMacosUserNotesContentGaps(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -175,7 +176,7 @@ func TestMacosUserNotesHostByteGaps(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap, []packload.BlockedTool) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {

@@ -229,7 +229,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 	}
 
-	normalizedBlocked := config.NormalizeBlockedTools(cfgMap(cfg, "security"))
+	normalizedBlocked := config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"), packload.BlockedTools(in.packs))
 	blockedConfigJSON := jsonDumps(normalizedBlocked)
 
 	// --- Extra mounts (config.mounts → -v host:container:ro) ---

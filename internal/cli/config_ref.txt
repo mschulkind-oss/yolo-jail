@@ -810,11 +810,18 @@
     A tool name is a BARE NAME — a single PATH segment, no "/", "..",
     ":" or absolute path — because it names the FILE yolo generates in
     the block dir; a path-shaped name is refused.
-    Default: grep and find are blocked (rg/fd suggested instead).
-      • grep is conditionally blocked — only recursive invocations
-        (``-r``, ``-R``, ``--recursive``, or short-flag bundles like
-        ``-rn``).  Pipe filters and single-file greps pass through.
-      • find is unconditionally blocked.
+    Default: EMPTY — core blocks nothing.  Until 2026-09-04 it blocked
+    grep and find by default, a default that silently assumed the image
+    bakes rg and fd; that is true of the container backends and false of
+    macos-user, which bakes nothing, so the block removed a tool and
+    pointed at a binary that did not exist.  The list now lives in the
+    [bold]guardrails[/bold] pack — add "guardrails" to `packs` to get it:
+      • grep conditionally blocked — only recursive invocations
+        (``-r``, ``-R``, ``--recursive``, or bundles like ``-rn``).
+        Pipe filters and single-file greps pass through.
+      • find unconditionally blocked.
+    Your own entries here are unaffected, and an entry naming the same
+    tool as a pack's REPLACES it whole.
     Conditional on the ALTERNATIVE existing: add ``replacement`` (a bare
     binary name) and the tool is blocked only when that binary is on the
     jail's PATH.  The two defaults set it (rg for grep, fd for find), so
@@ -902,6 +909,13 @@
                     PATH, so it never shadows a baked binary).  Sole-owned by `bin`, so a
                     pack may declare SEVERAL programs (different bins) and each gets its
                     own launcher.
+      blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
+                    inside the jail and print an alternative.  `flags` limits the block
+                    to matching argv (absent = always); `replacement` names the binary
+                    the suggestion points at, and the block is generated ONLY when that
+                    binary is on the jail's PATH — so a jail without the alternative
+                    keeps the original tool instead of losing both.  Core blocks
+                    nothing by default; the `guardrails` pack ships grep/find.
       requires      {bin} — a binary that must ALREADY exist.  Asserts presence and
                     installs nothing: no launcher, nothing on PATH, so it cannot shadow
                     anything.  In a jail an absent bin is reported by name at boot (a

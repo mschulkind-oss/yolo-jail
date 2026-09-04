@@ -58,7 +58,8 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	publishPorts, forwardHostPorts := briefingPortsFor(appliedNet, netSec)
 
 	// Blocked-tools → jailcontent.BlockedTool records.
-	blocked := blockedToolRecords(config.NormalizeBlockedTools(cfgMap(cfg, "security")))
+	blocked := blockedToolRecords(config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"),
+		packload.BlockedTools(staged.packs)))
 
 	// mount_descriptions for existing config.mounts, filtered to the ones the backend
 	// will actually bind: Apple Container refuses every one of them (roBindsUnsupported),

@@ -71,6 +71,7 @@ root are staged as-is. A pack.json adds a "contributes" list, one typed entry pe
 effect, with a "kind" from a closed set:
 
   program          install a tool onto PATH
+  blocked-tool     refuse a tool in the jail, printing an alternative
   requires         a tool that must already exist
   skills           merge a skills tree (optionally addressed: "agents")
   briefing         prose for the briefing (optionally addressed: "agents")
