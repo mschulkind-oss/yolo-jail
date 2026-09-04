@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -337,14 +338,25 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	// user-config edit from turning a capture into a prompt about a directory they have
 	// never seen.
 	opts.AcceptConfigChanges = true
-	// macos-user is slice 6's, and its refusal is worth spelling: without this the pipeline
-	// prints its own generic "branch not wired" line, which reads like a yolo bug.
-	opts.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool, *jsonx.OrderedMap) int {
-		fmt.Fprintln(errw, "yolo capture: the macos-user backend cannot capture yet — it needs "+
-			"a narrowed Seatbelt profile over a staging home, and relocation of the absolute "+
-			"references an installer leaves behind (program-delivery.md §6.3). Capture on a "+
-			"container backend instead.")
-		return 1
+	// macos-user runs the capture natively, under the narrowed Seatbelt profile slice 6
+	// built (macosuser.SeatbeltCaptureProfile): no container, a throwaway staging home on
+	// neutral ground, and the shared /Users/_yolojail denied for the duration.
+	//
+	// RunCaptureAct leaves the proto-entry at the SAME dest the container arm writes, so
+	// everything after this call in captureHost — read the manifest, refuse an empty delta,
+	// AdmitEntry, receipt — is backend-blind and unchanged.
+	//
+	// ⚠ NOTHING BELOW THIS LINE IS MEASURED ON A MAC. The profile's bytes and both argvs are
+	// unit-pinned; that Seatbelt HONORS the profile is not, and cannot be from Linux. The
+	// probe that settles it is in install-capture.md slice 6 — a capture that silently wrote
+	// to the shared home looks identical to one that did not.
+	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, _ string, _, _ []string,
+		_, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int {
+		deps := macosuser.RealDeps(nil, nil, color)
+		deps.Out = out
+		return macosuser.RunCaptureAct(deps, macosuser.CaptureOptions{
+			Bin: bin, Config: cfg, HostPackRoot: packRoot, SandboxEnv: packEnv,
+		}, filepath.Join(workspace, captureOutLeaf), dryRun)
 	}
 	return captureRunPipeline(opts)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -449,4 +450,52 @@ func equalArgs(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestCaptureWiresTheMacosUserBackend pins H1: `yolo capture` must reach macos-user's own
+// capture act rather than the "cannot capture yet" refusal slice 3 shipped.
+//
+// IT INVOKES THE CLOSURE, which is the whole point. A first version of this test asserted
+// only that opts.MacosUserRun != nil and that stderr held no refusal — and it stayed GREEN
+// when the wiring was reverted to slice 3's refusal, because a refusal closure is non-nil
+// too and never runs on the container arm this fixture takes. That is the pinned-callee
+// shape AGENTS.md says this repo has shipped five times; the mutation is what caught it.
+//
+// dryRun=true is pure — BuildCapturePlan plus PrintCapturePlan, no sudo, no sandbox-exec —
+// so a Linux test can drive the real closure and read the plan it prints.
+//
+// It does NOT assert that a capture works on a Mac. Nothing on Linux can: the profile's
+// bytes are unit-pinned in internal/macosuser, and that Seatbelt HONORS them is unmeasured
+// everywhere (install-capture.md slice 6).
+func TestCaptureWiresTheMacosUserBackend(t *testing.T) {
+	captureFixtureHome(t, captureFixtureInstaller)
+	var seen run.Options
+	entries := []capture.ManifestEntry{
+		{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
+	}
+	withFakeCaptureJail(t, fakeCaptureJail(t, &seen, entries))
+
+	var out, errw bytes.Buffer
+	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("captureHost rc = %d, stderr = %s", rc, errw.String())
+	}
+	if seen.MacosUserRun == nil {
+		t.Fatal("MacosUserRun is nil: the macos-user arm is unwired, so `yolo capture` falls " +
+			"to the pipeline's generic branch-not-wired line (H1 reverted?)")
+	}
+
+	// Drive the real closure on its dry-run path. The act sets deps.Out to captureHost's
+	// own stdout writer, so the plan lands in `out`.
+	before := out.Len()
+	_ = seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", true /*dryRun*/, jsonx.NewOrderedMap())
+	plan := out.String()[before:]
+
+	// The macos-user capture act, and nothing else, prints this banner.
+	if !strings.Contains(plan, "macos-user install-capture plan") {
+		t.Errorf("the macos-user arm did not reach macosuser.RunCaptureAct.\ngot: %q", plan)
+	}
+	// The refusal must be gone, not merely shadowed.
+	if all := out.String() + errw.String(); strings.Contains(all, "cannot capture yet") {
+		t.Errorf("the slice-3 macos-user refusal is still reachable: %s", all)
+	}
 }
