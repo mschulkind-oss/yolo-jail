@@ -1,15 +1,63 @@
 ---
 title: "Plan: agent CLIs from npm to their vendors' native installers"
 date: 2026-09-03
-status: ready
+status: shipped-in-part
 tags: [packs, program-delivery, installers, evergreen]
-summary: "Implementation plan for OQ-PD13. Two of the four npm packs flip cleanly (copilot, codex); opencode is blocked on a hardcoded install dir under a read-only home; pi's 'native installer' is an npm wrapper and must not be flipped. Also removes packs/claude/pack.json's dead autoUpdaterStatus."
+summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
 ---
 
 # Plan: agent CLIs from npm to their vendors' native installers
 
 **Design:** [`program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
-ruling **OQ-PD13** · **Status:** ready · Written against `a25e718b`, 2026-09-03.
+ruling **OQ-PD13** · **Status:** shipped in part · Written against `a25e718b`, 2026-09-03.
+
+> [!IMPORTANT]
+> **OUTCOME, 2026-09-04. Steps 1 and 2 shipped; step 3 does not exist as written.**
+>
+> | Step | Outcome |
+> | :--- | :--- |
+> | 1 · delete claude's `managed.preferences` | ✅ shipped. Re-measured against the ELF this jail runs (**2.1.261**, not the 2.1.260 the plan read): `"preferences"` still appears **zero** times, `autoUpdaterStatus` twice, both in the `~/.claude.json` migration. Thirteen tests pinned the key as a specimen and were repointed at `permissions.defaultMode`. |
+> | 2 · flip `codex` | ✅ shipped. `chatgpt.com/codex/install.sh` re-fetched 2026-09-04 (200, `text/x-sh`, 30285 bytes); `BIN_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"` with **no root branch**, so the default landing path is the launcher's `REAL_BIN`. |
+> | 3 · flip `copilot` | ⛔ **REFUSED — the flip would make copilot uninstallable.** See below. It is not a `--no-auto-update` judgement call; that question is now moot for this plan. |
+>
+> **Why copilot cannot flip, and what the plan's Traps were missing.** Trap 1 names the constraint
+> — the installer's *default* must land the binary at `$HOME/.local/bin/$BIN` — and the plan's
+> verification table then records copilot's default as *"`$PREFIX/bin`, `PREFIX` defaults to
+> `$HOME/.local` for non-root"*. **The jail is not non-root.** `flake.nix` sets `USER=root`, so
+> `id -u` is 0 and the installer takes `PREFIX="${PREFIX:-/usr/local}"`; `internal/cli/run/assemble.go`
+> passes `--read-only` unconditionally, so `mkdir -p /usr/local/bin` fails — measured in-jail
+> 2026-09-04: `mkdir: cannot create directory '/usr/local': Read-only file system`. The installer
+> then prints *"Error: Could not create directory /usr/local/bin"* and `exit 1`s, `_do_install`
+> swallows the status with `|| true`, nothing lands at `REAL_BIN`, and every `copilot` invocation
+> re-downloads and then exits 1 with `⚠ copilot not available`.
+>
+> `PREFIX=` would fix it and **is not expressible**: `packdecl.Install` cannot pass env to an
+> installer, and this plan's own *Don't* forbids adding the field ahead of
+> [OQ-PD14](../design/program-delivery.md#decision-ledger). **copilot's flip belongs to whatever
+> opens that struct.**
+>
+> **The generalisation, since the plan's table could not have caught this:** *self-updates once
+> native* is necessary and never sufficient. The sufficient question is **does the installer's
+> default prefix — under the UID and the filesystem the jail actually runs with — equal
+> `REAL_BIN`?** Three facts, and the verification table has a column for none of them. Ask them of
+> `opencode` too before its blockers are called closed.
+>
+> **`--no-auto-update`, answered rather than guessed** (measured statically in the installed
+> `@github/copilot` 1.0.48, no CLI started): `index.js` computes auto-update as
+> `if (argv.includes("--no-auto-update") || argv.includes("--prefer-version")) return false`, and
+> `app.js`'s updater is additionally gated on `Aq() = require("node:sea").isSea()` — under npm that
+> gate is false and the updater only *notifies* (`"Update not supported when running js directly"`).
+> So the flag **does** suppress the self-updater, in **both** builds, and the plan's reading of the
+> contradiction was right. It is moot only because copilot stays on npm, where the updater is inert
+> anyway. Whoever lands copilot's flip must drop `--no-auto-update` in the same commit, or buy the
+> native installer and switch off the only thing it was bought for.
+>
+> **What is inert until the sibling plan lands** (both stated in the flip's commit body):
+> [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared update verb means codex's
+> native launcher still calls the hardcoded `"$REAL_BIN" install` hourly — an unknown subcommand
+> for codex, `|| true`, so a no-op; and without **OQ-PD12a** the launch dir stays last on
+> `BootPath`, so an existing workspace keeps resolving `$NPM_CONFIG_PREFIX/bin/codex` and never
+> reaches the new launcher. The flip is correct for a new workspace and inert for an old one.
 
 **Precedence:** the design wins on behavior, the tree wins on fact, this file is advice and is the
 first thing to be wrong. Never twist the code to match it.
@@ -26,7 +74,7 @@ shell script.
 
 | Pack | Effective URL | Lands the bin at | Prefix override | Version pin |
 | :--- | :--- | :--- | :--- | :--- |
-| copilot | `gh.io/copilot-install` → `raw.githubusercontent.com/github/copilot-cli/…/install.sh` | `$PREFIX/bin`, `PREFIX` defaults to `$HOME/.local` for non-root | ✅ `PREFIX=` | ✅ `VERSION=` |
+| copilot | `gh.io/copilot-install` → `raw.githubusercontent.com/github/copilot-cli/…/install.sh` | ⛔ `$PREFIX/bin`, `PREFIX` defaults to `$HOME/.local` for non-root — **and to `/usr/local` for root, which the jail is** (see the outcome box) | ✅ `PREFIX=`, but not from a manifest | ✅ `VERSION=` |
 | codex | `chatgpt.com/codex/install.sh` → `releases.openai.com/codex/install.sh` | `${CODEX_INSTALL_DIR:-$HOME/.local/bin}`; payload under `${CODEX_HOME:-$HOME/.codex}/packages/standalone` | ✅ `CODEX_INSTALL_DIR=` | ✅ `CODEX_RELEASE=` |
 | opencode | `opencode.ai/install` → `raw.githubusercontent.com/anomalyco/opencode/…/install` | **`$HOME/.opencode/bin`, hardcoded** (served script line 68 — a bare assignment, no `${…:-}`) | ❌ none | ✅ `VERSION=` |
 | pi | `pi.dev/install.sh` | **npm's global prefix** — it runs `npm install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent` (`install.sh:925-927`); `$HOME/.local` only when that prefix is unwritable | indirect | ❌ none found |
@@ -40,7 +88,7 @@ shell script.
 
 | Path | Change |
 | :--- | :--- |
-| `packs/copilot/pack.json` | `via: npm` + `package` → `via: installer` + `url: https://gh.io/copilot-install`; decide `--no-auto-update` |
+| ~~`packs/copilot/pack.json`~~ | ⛔ **not changed** — the flip is refused, see the outcome box |
 | `packs/codex/pack.json` | `via: npm` + `package` → `via: installer` + `url: https://chatgpt.com/codex/install.sh` |
 | `packs/claude/pack.json` | delete the `managed.preferences` block (lines 58–62); KEEP the surface — its `retireOnFirstRender` is load-bearing, and a surface with neither `managed` nor `defaults` is valid (`packs/agy/pack.json:41-47`) |
 | `README.md:290-293` | the "installed via" column for copilot/codex |
@@ -114,9 +162,11 @@ edit, so each step's proof is its own CI cell on both arches.
 2. **Flip `codex`.** Lowest risk of the two: `~/.local/bin` is the installer default, and its
    payload dir `~/.codex/packages/standalone` is already a writable bind (`state at: .codex`).
    → `TestPackInstallsVersionsAndConfigures/codex`, both arches.
-3. **Flip `copilot`**, and rule on `--no-auto-update` in the same commit (see Blockers).
-   → `TestPackInstallsVersionsAndConfigures/copilot`, both arches.
-4. **Stop.** opencode and pi do not flip here — see Don't.
+3. ~~**Flip `copilot`**, and rule on `--no-auto-update` in the same commit (see Blockers).~~
+   ⛔ **REFUSED 2026-09-04** — the installer's root branch puts the binary nowhere the jail can
+   write, let alone at `REAL_BIN`. The outcome box has the measurement. Its CI cell would have
+   caught it, one downloaded image later; the read did.
+4. **Stop.** copilot, opencode and pi do not flip here — see Don't and the outcome box.
 
 ## Ships with
 
@@ -167,7 +217,10 @@ edit, so each step's proof is its own CI cell on both arches.
 - **OQ-PD12a / B2 (launch dir ahead of the install prefixes)**, same sibling plan, is what makes
   the flip reach an existing workspace. Without it, steps 2 and 3 are correct for new workspaces and inert for old
   ones. Not a reason to hold the flip — a reason to say so in the commit body.
-- **Stop and ask: copilot's `--no-auto-update`.** The pack declares it; the flip exists to turn the
-  vendor's self-updater *on*. Keeping both is contradictory, and dropping it changes what a shipped
-  agent does on a user's machine. It is not verifiable under the no-agent-tests rule. Ask before
-  step 3.
+- **~~Stop and ask: copilot's `--no-auto-update`.~~ ANSWERED 2026-09-04, and moot.** The flag does
+  suppress the vendor's self-updater — `index.js`'s auto-update predicate returns false on
+  `--no-auto-update`, in both the npm and the SEA build — so keeping both *would* have been
+  contradictory. It is moot because copilot did not flip (see the outcome box at the top), and
+  under npm the updater is inert regardless: `app.js` gates it on `node:sea.isSea()`. Read
+  statically out of the installed 1.0.48 bundle; no CLI was started, so the "no agent tests" rule
+  is intact. **The question returns with copilot's flip, and the answer is: drop the flag.**

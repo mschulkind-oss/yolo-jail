@@ -455,8 +455,8 @@ pack changes how. The three left unverified when §3.5 was first written are clo
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `claude` | installer | `claude.ai/install.sh` | ✅ `claude install <ver>` | ✅ (once the captured `DISABLE_AUTOUPDATER` is gone) | `claude install` |
 | `agy` | installer | `antigravity.google/cli/install.sh` | not checked | ✅ — native ELF carrying `AUTO_UPDATE`/`Auto-update` strings | `agy update` |
-| `copilot` | **npm** | `gh.io/copilot-install` | ✅ `VERSION=` | ✅ — the `isSea()` gate flips true | `/update`, or re-run the installer |
-| `codex` | **npm** | `chatgpt.com/codex/install.sh` | not checked | machinery present (`autoUpdateEnabled`, `managedCodexVersion`); **empirically off** — 0.145.0 since 2026-07-25 | `codex update` |
+| `copilot` | **npm** ⛔ | `gh.io/copilot-install` | ✅ `VERSION=` | ✅ — the `isSea()` gate flips true | `/update`, or re-run the installer |
+| `codex` | **installer** ✅ | `chatgpt.com/codex/install.sh` | ✅ `CODEX_RELEASE=` | machinery present (`autoUpdateEnabled`, `managedCodexVersion`); **empirically off** — 0.145.0 since 2026-07-25 | `codex update` |
 | `opencode` | **npm** | `opencode.ai/install` (HTTP 200, bash) | ✅ `VERSION=` | not checked | not checked |
 | `pi` | **npm** | `pi.dev/install.sh` | not checked | ❌ — no auto-updater found in the shipped `dist/` | `pi update --self` |
 
@@ -464,6 +464,34 @@ pack changes how. The three left unverified when §3.5 was first written are clo
 at all, so it is evergreen *only* through the boot-path update calling `pi update --self`. A design
 that assumed "native installer ⇒ self-updating" would leave exactly one agent frozen and look
 correct everywhere else.
+
+> [!IMPORTANT]
+> **SHIPPED 2026-09-04, and only `codex` flipped.** The ✅/⛔ marks in the *Today* column above are
+> the outcome of [OQ-PD13](#decision-ledger)'s implementation. `codex` is the one clean case: its
+> installer takes `${CODEX_INSTALL_DIR:-$HOME/.local/bin}` with no root branch, so its default
+> landing path is exactly the native launcher's hardcoded `REAL_BIN="$HOME/.local/bin/$BIN"`
+> (`internal/entrypoint/shims.go`).
+>
+> **`copilot` did NOT flip, and the reason is a THIRD constraint neither this table nor the plan
+> had a column for: the installer's prefix depends on the UID it runs as.**
+> `gh.io/copilot-install` reads
+> `if [ "$(id -u)" -eq 0 ]; then PREFIX="${PREFIX:-/usr/local}"; else PREFIX="${PREFIX:-$HOME/.local}"; fi`,
+> then `exit 1`s when it cannot `mkdir -p "$PREFIX/bin"`. **A container-backend jail runs as root**
+> (`flake.nix` sets `USER=root`) **under an unconditional `--read-only` rootfs**
+> (`internal/cli/run/assemble.go`), so `/usr/local` cannot even be created: measured in-jail
+> 2026-09-04, `mkdir -p /usr/local` → `Read-only file system`. The flip would therefore make
+> copilot **uninstallable**, not merely misfiled — and it cannot be repaired from the manifest,
+> because `packdecl.Install` has no way to pass `PREFIX=` (see the *Don't* in
+> [`native-installer-migration.md`](../plans/native-installer-migration.md), which is also why
+> this is not fixed here). Whatever opens that struct for [OQ-PD14](#decision-ledger)'s update verb
+> is where copilot's flip lands.
+>
+> **The general rule the copilot case yields, worth applying to any future flip:** *self-updates
+> once native* is a necessary condition and never a sufficient one. The sufficient one is **does
+> the installer's DEFAULT prefix, under the UID and filesystem the jail actually runs with, equal
+> the launcher's `REAL_BIN`** — three facts, of which this table's columns capture none.
+> `internal/entrypoint/nativelauncher_test.go`'s
+> `TestNativeLauncherReportsAnInstallerThatLandsNothing` pins both failure shapes.
 
 #### Out of scope, stated so nobody builds it
 
