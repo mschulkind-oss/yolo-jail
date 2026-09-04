@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -595,8 +596,46 @@ func genFailuresError(e *Env) error {
 	if len(fails) == 0 {
 		return nil
 	}
-	return fmt.Errorf("refusing to start the jail: %d config generator(s) failed:\n  - %s",
+	msg := fmt.Sprintf("refusing to start the jail: %d config generator(s) failed:\n  - %s",
 		len(fails), strings.Join(fails, "\n  - "))
+	return fmt.Errorf("%s%s", msg, aclHint(e, fails))
+}
+
+// aclHint appends the macos-user ACL diagnosis when the failures look like the
+// sandbox uid cannot write the workspace, and "" otherwise.
+//
+// WHY IT LIVES AT THE FAILURE AND NOT ONLY IN A PREFLIGHT. The launch-side probe
+// checks the workspace ROOT, which is the case that can be predicted cheaply. It
+// cannot predict every path a generator will touch, and a full-tree check is not
+// affordable on the hot path — measured 2026-09-03 at ~0.16ms per object, so
+// ~16s on a repo with a fat node_modules, which is exactly the cost 84c55268
+// removed by switching to an inheriting ACE. So the second line of defence is not
+// a better prediction: it is making the failure explain itself, which needs no
+// prediction at all and covers every path yolo writes.
+//
+// Gated on darwin AND on the errors actually being permission-shaped, because a
+// generator can fail for a dozen unrelated reasons and appending an ACL lecture to
+// a JSON parse error would be worse than silence.
+func aclHint(e *Env, fails []string) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	denied := false
+	for _, f := range fails {
+		if strings.Contains(f, "permission denied") {
+			denied = true
+			break
+		}
+	}
+	if !denied {
+		return ""
+	}
+	ws := e.WorkspaceDir()
+	return "\n\nOn the macos-user backend this is usually the workspace ACL: the sandbox\n" +
+		"user needs a shared-group grant on " + ws + ", and macOS applies one\n" +
+		"only when a directory is CREATED — never retroactively, and never to a\n" +
+		"grant left naming an account that was deleted and recreated.\n" +
+		"  yolo macos-fix-permissions " + ws
 }
 
 // genStep runs a config generator. A failure is FATAL (A12 ruling: "a pack

@@ -349,6 +349,35 @@ func WorkspaceGrantedScript(dir, group string) string {
 		" | /usr/bin/grep -qE " + shQuote("group:"+group+" (inherited )?allow") + "\n"
 }
 
+// StaleGrantScript returns a bash test that exits 0 when `dir` carries an ACE
+// naming a principal that NO LONGER RESOLVES — a grant left behind by a deleted
+// account.
+//
+// `ls -le` prints a resolvable principal as "group:name" or "user:name" and an
+// unresolvable one as a bare UUID, because it cannot map the uuid back to a name.
+// A line whose principal field looks like a UUID is therefore a dead grant. That
+// is the whole detection, and it is O(1) on one directory.
+//
+// WHY THIS MATTERS AT SETUP TIME. ACLs store a UUID, not a name, so a grant
+// survives renaming an account and does NOT survive deleting and recreating one —
+// `macos-teardown` removes the account and leaves every ACE it was named in
+// behind, and the next `macos-setup` creates a NEW uuid. Every workspace then
+// carries grants that look right in `ls` and authorize nothing. Measured on the
+// maintainer's Mac 2026-09-03: three workspaces, all carrying inherited aces for
+// uuid 0E7B72D7-…, which resolves to no user and no group.
+//
+// Setup is the right place to ask about it: it is the moment the account changed,
+// the user is already there expecting provisioning work, and the alternative is
+// discovering it later as `permission denied` in the middle of a launch.
+func StaleGrantScript(dir string) string {
+	// A UUID in the principal position: 8-4-4-4-12 hex at the start of the field
+	// that follows the "N: " index.
+	return "/bin/ls -lde " + shQuote(dir) +
+		" | /usr/bin/grep -qE " +
+		shQuote(`^ *[0-9]+: [0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12} `) +
+		"\n"
+}
+
 // WorkspaceACLStripScript returns the find-based bash script that removes ALL
 // ACLs from the workspace (chmod -h -N).
 func WorkspaceACLStripScript(workspace string) string {
