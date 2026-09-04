@@ -1328,10 +1328,10 @@ here is the same wiring for everything else.
 
 **Sixth, the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package),
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
-*record* + *materialize* and depends on nothing above except the receipt schema. **Slices one and
-two of six are landed** ([`install-capture.md`](../plans/install-capture.md)), and neither changes
-any existing behavior — nothing captures anything on a normal launch yet, because the host act that
-would call the driver is slice three.
+*record* + *materialize* and depends on nothing above except the receipt schema. **Slices one,
+two and three of six are landed** ([`install-capture.md`](../plans/install-capture.md)), and none
+of them changes what a normal launch does — a capture happens only when a human runs
+`yolo capture <bin>`, and nothing yet MATERIALIZES an entry, which is slice four.
 
 Slice one is substrate: `internal/treedigest` (the canonical tree digest, lifted out of
 `hostskills`), `paths.CapturesDir()` and its boot `MkdirAll`, and `internal/capture`'s store —
@@ -1349,6 +1349,20 @@ since that backend has no per-directory binds whose contents could BE the delta.
 from building it corrects the plan's cost model rather than this section's: `rename(2)` compares the
 MOUNT, not the device, so two bind mounts of one filesystem still fail `EXDEV`; the driver falls
 back to a copy and reports it rather than paying for the bytes twice in silence.
+
+Slice three is the **host act**, `yolo capture <bin>` (`internal/cli/capturehost.go`): resolve the
+declaration through `packload.HonoredInstalls`, stage a scratch workspace inside the store, run the
+ORDINARY run pipeline against it with the driver as the command, admit the finished proto-entry, and
+append a `kind:"capture"` receipt beside it. Three things it settled that this section left open.
+The scratch dir's siting is decided by `rename(2)` comparing the MOUNT: the capture workspace is
+`<CapturesDir>/staging/<bin>`, and the driver reaches the surfaces through the WORKSPACE bind
+(`/workspace/.yolo/home/<subtree>`) rather than through `$HOME`, because only that view shares a
+mount with the scratch dir — MEASURED in a nested jail 2026-09-04, the same directory renaming
+through one path and copying through the other. The installer it runs is **the generated launcher**,
+under a new `YOLO_INSTALL_ONLY=1`, so a capture records exactly what a launch would have installed
+and the tool is never executed into the surfaces being captured. And yolo's own state dir
+(`~/.local/share/yolo-jail`, inside the `.local` surface) is excluded from every delta, or a
+launcher's receipt append would be filed as the vendor's and hardlinked into every workspace.
 
 **Seventh — added 2026-09-03, and it comes AFTER the sixth by ruling
 ([OQ-PD15](#decision-ledger)) — make agent dependencies evergreen**

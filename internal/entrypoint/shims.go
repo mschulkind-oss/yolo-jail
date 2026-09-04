@@ -911,6 +911,24 @@ else
 fi
 `
 
+// InstallOnlyEnv makes a native launcher INSTALL AND STOP, without running the program.
+//
+// It exists for `yolo capture` (program-delivery.md §6.3), which drives this very launcher
+// inside a throwaway jail so that what a capture records is exactly what a launch would have
+// installed — the alternative being a second implementation of "download the installer and
+// run it", which is the drift this repo spends its comments avoiding.
+//
+// The exec has to be suppressed rather than tolerated. The capture surfaces are `~/.local`,
+// `~/.npm-global` and `~/go`, and a tool run once writes its FIRST-RUN state into them:
+// config, machine identifiers, telemetry opt-ins. Captured, that state is content-addressed
+// into an entry and hardlinked into every workspace on the machine — §6.3's "an installer
+// that personalizes at install time … defeats the sharing", arrived at by accident.
+//
+// NATIVE LAUNCHERS ONLY. The npm and package-manager launchers ignore it, because capture is
+// the INSTALLER resolver's mechanism and nothing else has a reason to install-without-running
+// (npm's refresh path already has YOLO_PACK_UPDATE, which is a different question).
+const InstallOnlyEnv = "YOLO_INSTALL_ONLY"
+
 // nativeLauncherTemplate is the native agent launcher body. Same splice contract as
 // npmLauncherTemplate: every sentinel is a shquote'd literal in a bare position, and the
 // values that a string needs (BIN, URL) are shell variables assigned once at the top.
@@ -997,6 +1015,17 @@ else
         YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install 2>&1 || true
         touch "$STAMP"
     fi
+fi
+
+# INSTALL AND STOP. See InstallOnlyEnv: yolo capture needs the install this launcher
+# performs and must not have the program RUN afterwards, because a first run writes the
+# tool own state into the very directories the capture is about to record.
+if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
+    if [ -x "$REAL_BIN" ]; then
+        exit 0
+    fi
+    echo "  ⚠ $BIN not available" >&2
+    exit 1
 fi
 
 if [ -x "$REAL_BIN" ]; then

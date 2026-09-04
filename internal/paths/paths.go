@@ -336,6 +336,18 @@ const (
 // GlobalStorage returns $HOME/.local/share/yolo-jail.
 func GlobalStorage() string { return GlobalStorageUnder(home()) }
 
+// GlobalStorageRel is the state dir as a HOME-RELATIVE, slash-separated path
+// (".local/share/yolo-jail") — the same string GlobalStorageUnder joins onto a home.
+//
+// It exists for the one caller that needs the state dir WITHOUT a home to join it to:
+// internal/capture excludes yolo's own state from an install capture, and it does so from
+// inside a jail whose home it is describing rather than writing to. The exclusion has to be
+// home-relative because a manifest's paths are (Manifest.Path is ".local/…", never absolute),
+// and it has to be THIS string because the dir being excluded is the dir GlobalStorageUnder
+// creates — a second spelling would be an exclusion that stopped matching the moment the
+// suffix moved.
+func GlobalStorageRel() string { return globalStorageSuffix }
+
 // GlobalStorageUnder returns the state dir under an EXPLICIT home, rather than the
 // process $HOME. It exists because a caller that has ALREADY resolved which home it is
 // writing into must not re-derive it from the environment: `yolo host apply` renders into a
@@ -344,6 +356,26 @@ func GlobalStorage() string { return GlobalStorageUnder(home()) }
 // exactly what every test with a t.TempDir() home does. Keying on the passed home makes
 // that class of mistake impossible rather than merely avoided.
 func GlobalStorageUnder(home string) string { return filepath.Join(home, globalStorageSuffix) }
+
+// WorkspaceStateDir returns <workspace>/.yolo — the per-workspace directory yolo owns
+// inside a user's project (boot log, assembled config, the receipt log, the home overlay).
+func WorkspaceStateDir(workspace string) string { return filepath.Join(workspace, ".yolo") }
+
+// WorkspaceHomeState returns <workspace>/.yolo/home — the HOST side of the jail home's
+// per-workspace binds. Its children are the HomeSurface.Subtree names, bound into the jail
+// at the matching HomeSurface.HomeRel.
+//
+// It is spelled here rather than at its two call sites because those two are the halves of
+// one fact and only agree by construction: the run pipeline binds `<this>/local` at
+// `$HOME/.local` and also binds the WORKSPACE at /workspace, so inside a jail the same
+// directory has two paths — and only the workspace-side one shares a MOUNT with anything
+// else under /workspace. That is what lets `yolo capture` move a gigabyte-scale delta with
+// rename(2) instead of copying it (program-delivery.md §6.3; MEASURED 2026-09-04, both
+// directions). A second spelling of ".yolo/home" would be a capture that silently started
+// copying the moment the layout moved.
+func WorkspaceHomeState(workspace string) string {
+	return filepath.Join(WorkspaceStateDir(workspace), "home")
+}
 
 // GlobalHome returns the shared container /home/agent backing dir.
 func GlobalHome() string { return filepath.Join(GlobalStorage(), "home") }

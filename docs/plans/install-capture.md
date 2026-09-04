@@ -21,15 +21,19 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/treedigest/` | **new** — `treeDigest`/`treeDigestSkipping` lifted out of `internal/hostskills/compose.go:958,964` verbatim |
 | `internal/hostskills/compose.go` | call the new package; delete the local copies |
 | `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (hardlink, EXDEV → copy), `inner.go` (the backend-neutral driver), `gc.go` (`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`) |
-| `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a) |
+| `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a); **new** `GlobalStorageRel()` and `WorkspaceStateDir`/`WorkspaceHomeState`, per slice 3's corrections (a) and (b) |
 | `internal/prune/prune.go` | derive `dedupeSubtrees` from `paths.HomeSurfaces()` rather than re-typing it |
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
-| `internal/cli/capture.go` | **new** — `yolo capture <bin>` host act; `yolo internal capture-run` inner |
+| `internal/cli/capture.go` | **new** — `yolo internal capture-run`, the inner half (slice 2) |
+| `internal/cli/capturehost.go` | **new** — `yolo capture <bin>`, the host act (slice 3). Split from the file above: one is a hidden in-jail driver entry, the other launches jails |
+| `internal/cli/hostapplylock.go` | `tryFlockAt` factored out of `tryHostApplyLock` and shared with the per-program capture lock |
+| `internal/cli/subhelp.go` | one `subcommandUsage` row — every registry key must answer `--help` |
 | `internal/cli/dispatch.go` | register `capture` (`:15-35`) |
 | `internal/cli/help.go` | one `commandHelp` row (`:10-31`) |
 | `internal/cli/internal.go` | add `capture-run` to the hidden namespace switch (`:28`, `:32`) |
-| `internal/entrypoint/shims.go` | factor the `nativeLauncherTemplate` install body into a shared const; add the materialize-from-CAS branch |
-| `internal/entrypoint/receiptread.go` | extend the reader for `kind:"capture"` + `act:"materialize"` |
+| `internal/entrypoint/shims.go` | ~~factor the `nativeLauncherTemplate` install body into a shared const~~ — **not needed, see slice 3(d)**: the capture RUNS the launcher. What landed instead is `InstallOnlyEnv` and its branch in the template. Slice 4 still adds the materialize-from-CAS branch |
+| `internal/entrypoint/capturereceipt.go` | **new** (slice 3) — the `kind:"capture"` writer, the only receipt in this repo written from Go |
+| `internal/entrypoint/receiptread.go` | extend the reader for `kind:"capture"`, `act:"record"`/`act:"materialize"`, and the new `platform` field |
 | `internal/prune/prunecmd.go`, `pathsref.go` | new `Options.CapturesDir func() string` seam + one report section |
 | `internal/cli/commands.go` | `pruneUsage` (`:117`) + the flag parse in `runPrune` (`:149`) |
 | `internal/macosuser/seatbelt.go` | **new** `SeatbeltCaptureProfile(stagingHome)` — no workspace write allow |
@@ -74,6 +78,8 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   this whole subsystem exists to delete. ⚠ *And "filesystem" is too weak — see build-order 2(b):
   `rename(2)` compares the MOUNT, so two bind mounts of one btrfs with identical `st_dev` still
   fail `EXDEV` (MEASURED 2026-09-04). Under podman every capture surface is its own bind.*
+  ⚠ *Resolved in slice 3(a): the capture WORKSPACE is the scratch root, and the driver reaches the
+  surfaces through the workspace bind — the one view that shares a mount with it.*
 - **`FindYoloWorkspaces` (`internal/prune/probes.go:148`) is NOT a reference oracle.** It enumerates
   `podman ps -a`, so a workspace whose container was removed is invisible — GC keyed on it would
   delete bytes a live workspace still uses. Use `st_nlink` instead (build order 5).
@@ -156,11 +162,93 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 
    *One thing slice 3 must watch:* the jail's own `~/.local/share/yolo-jail` is INSIDE the `.local`
    surface, so anything yolo writes there between the baseline and the installer lands in the delta.
-3. **`yolo capture <bin>` on the container backends.** Host act: `HonoredInstalls` → scratch workspace
-   under `<CapturesDir>/staging/<id>` → the ordinary run pipeline with the inner driver as the command
-   → hash → rename into `<CapturesDir>/entries/<key>` → write the capture receipt. First user-visible
-   benefit, and a **small** one: reconcile stops guessing (`reconcile.go:218` compares one file's
-   digest today; a manifest replaces it). → `integration/capture_test.go` + a nested jail
+3. **`yolo capture <bin>` on the container backends. — LANDED 2026-09-04.** Host act:
+   `HonoredInstalls` → scratch workspace under `<CapturesDir>/staging/<id>` → the ordinary run
+   pipeline with the inner driver as the command → hash → rename into `<CapturesDir>/entries/<key>`
+   → write the capture receipt. First user-visible benefit, and a **small** one: reconcile stops
+   guessing (`reconcile.go:218` compares one file's digest today; a manifest replaces it). →
+   `integration/capture_test.go` + a nested jail
+
+   *Eight corrections from building it.*
+
+   **(a) THE SCRATCH DIR IS THE WORKSPACE, and the driver reaches the surfaces through the
+   WORKSPACE BIND.** This is 2(b)'s open question, answered by measurement. Under podman a
+   capture surface has TWO container paths for one directory — `$HOME/.local` (its own bind) and
+   `/workspace/.yolo/home/local` (inside the workspace bind) — and `rename(2)` compares the mount,
+   so only the second shares one with a scratch dir under `/workspace`. MEASURED in a nested jail
+   2026-09-04, same `st_dev` (61) and same `st_ino` for both paths:
+
+   | driver reaches the surfaces via | renamed | copied | tree inode == source inode |
+   | :--- | ---: | ---: | :--- |
+   | `--surface-root=/workspace/.yolo/home` | 1 | 0 | yes |
+   | `$HOME` (no surface root) | 0 | 1 | no |
+
+   So `capture.Options.SurfaceRoot` is a SECOND PATH to the same directories, used for the walk
+   and the move while every recorded path stays home-relative and `Manifest.Home` stays the real
+   `/home/agent`. The pair it consumes is `paths.HomeSurface`'s: `<SurfaceRoot>/<Subtree>` is
+   walked, `<HomeRel>/…` is reported — the second place in the tree where both halves are used at
+   once. The `.yolo/home` spelling moved to `paths.WorkspaceHomeState` and `prepare.go:302` now
+   calls it, so the bind's two ends cannot drift. Siting the workspace under
+   `<CapturesDir>/staging/<id>` stays forced, by the OTHER rename: `Store.Admit` refuses a staged
+   tree from anywhere else.
+
+   **(b) The exclusion of yolo's own state needed a guard on the WHOLE-DIRECTORY MOVE, not only on
+   the paths a descent reaches.** `capture.DefaultExcludes()` is `[paths.GlobalStorageRel()]` —
+   `.local/share/yolo-jail` — recorded in the manifest's new `excluded` field. But a directory the
+   baseline never saw is moved in ONE rename (2(d)), and on a booted home `.local/share` is exactly
+   such a directory: moved whole, it takes the state dir with it and the per-path check never runs.
+   `driver.containsExcluded` is the guard. Found by the test, not by reading.
+
+   **(c) `Store.AdmitEntry`, because "admit the tree then move the manifest up" leaves a window.**
+   2(c) said slice 3 is `Admit(TreeDir(out))` plus moving one small file; that ordering has the
+   completion marker land BEFORE the manifest, so the entry reads complete while its manifest is
+   missing. Harmless today (nothing on the materialize path reads it) and exactly what the
+   two-stage discipline exists to not rely on. `AdmitEntry` renames the whole proto-entry in one
+   go, key still computed from `tree/` alone, marker still last. `Admit` is unchanged and both
+   share one body.
+
+   **(d) The installer a capture runs is THE LAUNCHER, so the map's "factor the
+   `nativeLauncherTemplate` install body into a shared const" was not needed — and would have been
+   wrong.** The capture jail runs `env YOLO_INSTALL_ONLY=1 <bin>`, which resolves to the generated
+   native launcher (`~/.yolo/bin/launch` is last on PATH and a fresh capture home has nothing else
+   by that name) and takes its `_do_install` path verbatim. A second implementation of
+   download-then-run would capture bytes a launch would never have produced, which is the one
+   property slice 4 depends on. The new `entrypoint.InstallOnlyEnv` (native launchers only) is what
+   stops the launcher exec'ing the tool afterwards — without it a capture would record the tool's
+   FIRST-RUN state, which is §6.3's "personalizes at install time" hazard, created on purpose.
+
+   **(e) The receipt needed ONE new field, not two, and it goes BESIDE THE ENTRY.** "Ships with"
+   says the receipt gains `kind:"capture"`, `act:"materialize"`, and §6.3's two new tuple members
+   (`file manifest`, `platform`). Only `platform` is new. The tuple maps onto existing fields:
+   declaration → `bin`, installer URL → `declared`, capture hash → `resolved` (the store key),
+   **file manifest → `sha256`** (the sha256 OF the canonical manifest, of which the key is the
+   first 16 chars, so a reader can check one against the other), entry root → `path`, time →
+   `time`. The manifest FILE is `path`'s sibling; a copy of it inside the line would be the
+   parallel ledger §6 warns about. Slice 3's act is **`record`** — §6.3's own verb, the one paired
+   with slice 4's `materialize`. And the file is `entries/<key>/receipts.jsonl`, per §6.3's *"a
+   machine-local receipt beside the CAS entry"*: the capture workspace is thrown away and the
+   invoking workspace merely happened to be where a human stood.
+
+   **(f) This is the first receipt written from GO.** Every other one is appended by generated
+   shell. `entrypoint.CaptureReceipt.Line()` builds on the same `receiptPrefix` head and mirrors
+   `_yolo_receipt`'s field order; it diverges twice, deliberately — it escapes with
+   `jsonStringLiteral` instead of `_yolo_scrub` (Go can escape; shell cannot), and its append CAN
+   fail its caller, because here the receipt is half the deliverable rather than a note on the way
+   past.
+
+   **(g) `platform` is the JAIL's, and only the driver can observe it.** A capture made from a Mac
+   through podman is a `linux/<arch>` capture; a host-side `runtime.GOOS` would answer
+   `darwin/arm64` — the one wrong answer that looks right. So `Manifest.Platform` is set inside and
+   the host act copies it into the receipt.
+
+   **(h) Two limits worth knowing.** `resolveCaptureTarget` uses `packForCheckDeps`, the host-side
+   resolver `internal/cli` already had, which resolves EMBEDDED and LOCAL packs but not a FETCHED
+   one out of the packsrc store — so `yolo capture <bin>` for a git-sourced pack reports the pack
+   as "not resolvable offline (run `yolo pack install`)" and names it, rather than resolving it. No
+   shipped pack is fetched. And `dispatchNative` hands every handler the whole argv, so `runCapture`
+   drops `args[0]` the way `runPack` does; the unit tests called the body directly and were all
+   green with the token left in, which is the pinned-callee shape AGENTS.md names — there is now a
+   test for the dispatch entry itself.
 4. **Materialize, from the launcher.** `nativeLauncherTemplate`'s `_do_install` gains a branch: if a
    capture for this bin+platform resolves, hardlink it in (EXDEV → copy) and write an
    `act:"materialize"` receipt; otherwise fall through to today's download. **This is the slice that

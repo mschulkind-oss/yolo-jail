@@ -37,6 +37,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -65,6 +66,29 @@ type Options struct {
 	// what every caller wants; the field exists so a test can prove the surface set is
 	// what makes the delta what it is.
 	Surfaces []paths.HomeSurface
+	// SurfaceRoot is a SECOND PATH TO THE SAME DIRECTORIES: a dir holding each surface
+	// under its Subtree name (paths.HomeSurface.Subtree), which the driver walks and
+	// moves through INSTEAD OF <Home>/<HomeRel>. Empty means "reach them through Home",
+	// which is what macos-user and the unit tests want.
+	//
+	// IT EXISTS FOR ONE REASON: rename(2) compares the MOUNT. On podman each surface is
+	// its own bind (`-v <ws>/.yolo/home/local:/home/agent/.local`), so a scratch dir
+	// anywhere outside a surface is a different mount from every one of them and the
+	// whole delta takes the copy path — 1.2 GB of copy for claude, which is the cost this
+	// subsystem exists to delete. But the host side of those binds are ordinary sibling
+	// directories inside the WORKSPACE, which is itself one bind: reached as
+	// /workspace/.yolo/home/local, `.local` is on the same mount as /workspace/out, and
+	// the move is a rename again. MEASURED in this jail 2026-09-04, both directions.
+	//
+	// It changes only the path the driver TOUCHES. Manifest paths stay home-relative and
+	// Manifest.Home stays the real HOME, because the tree is materialized into a home and
+	// the capture-time home is what an absolute reference would have to be rewritten
+	// from. Nothing about what a capture MEANS depends on which door the driver used.
+	SurfaceRoot string
+	// Excludes are home-relative, slash-separated subtrees the delta never contains, no
+	// matter what the installer did to them. Nil is DefaultExcludes(); an explicit empty
+	// slice excludes nothing.
+	Excludes []string
 	// Stdout and Stderr receive the installer's output. Nil discards it.
 	Stdout io.Writer
 	Stderr io.Writer
@@ -117,9 +141,14 @@ func Run(opts Options) (*Result, error) {
 	m := &Manifest{
 		Schema:       ManifestSchema,
 		Home:         d.home,
+		Platform:     Platform(),
 		Surfaces:     d.surfaceRels(),
+		Excluded:     d.excludes,
 		Entries:      entries,
 		AbsoluteRefs: refs,
+	}
+	if m.Excluded == nil {
+		m.Excluded = []string{}
 	}
 	if m.Entries == nil {
 		m.Entries = []ManifestEntry{}
@@ -140,12 +169,36 @@ func Run(opts Options) (*Result, error) {
 	return res, nil
 }
 
+// Platform is the capture platform: "<GOOS>/<GOARCH>" of the process doing the capturing.
+//
+// Read HERE and nowhere else, because here is inside the jail. A host-side yolo asking the
+// same question on macOS would answer "darwin/arm64" for a capture that ran in a Linux
+// container — the one wrong answer that looks right.
+func Platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
+// DefaultExcludes is the home-relative subtree list a capture never contains:
+// yolo's OWN state dir.
+//
+// `~/.local/share/yolo-jail` is inside the `.local` capture surface, so anything yolo
+// writes there between the baseline walk and the end of the installer is a delta path by
+// construction — the receipts file the installer's own launcher appends to is the obvious
+// one, and a boot step that finishes late is the one nobody would predict. Filing it as the
+// vendor's would put yolo's state into every workspace that materializes the entry, under a
+// key that says the vendor put it there.
+//
+// It is an EXCLUSION rather than a narrower surface set because the surface set is shared
+// with prune (paths.HomeSurfaces) and means "where installed programs live" — which
+// `.local` is, state dir and all. Two subsystems reading one list, one of them subtracting
+// a subtree it owns, is the honest shape.
+func DefaultExcludes() []string { return []string{paths.GlobalStorageRel()} }
+
 // driver is one capture's resolved inputs.
 type driver struct {
 	opts     Options
 	home     string
 	tree     string
 	surfaces []paths.HomeSurface
+	excludes []string
 }
 
 func newDriver(opts Options) (*driver, error) {
@@ -178,15 +231,29 @@ func newDriver(opts Options) (*driver, error) {
 	if d.surfaces == nil {
 		d.surfaces = paths.HomeSurfaces()
 	}
+	d.excludes = opts.Excludes
+	if d.excludes == nil {
+		d.excludes = DefaultExcludes()
+	}
+	if opts.SurfaceRoot != "" && !filepath.IsAbs(opts.SurfaceRoot) {
+		return nil, fmt.Errorf("capture: surface root %q must be an absolute path", opts.SurfaceRoot)
+	}
 	// The scratch dir inside a capture surface would capture ITSELF, growing without
 	// bound and filing yolo's own scratch as the vendor's install. Refused rather than
 	// filtered: an out dir elsewhere is always available, and a filter would be a rule a
 	// reader of the manifest could not see.
+	//
+	// BOTH DOORS ARE CHECKED. With a SurfaceRoot the same directory has two paths, and an
+	// out dir under the second one is just as self-capturing as one under the first — it
+	// simply would not have looked it.
 	for _, s := range d.surfaces {
-		root := filepath.Join(d.home, filepath.FromSlash(s.HomeRel))
-		if within(root, filepath.Clean(opts.Out)) {
+		if within(d.surfacePath(s), filepath.Clean(opts.Out)) {
 			return nil, fmt.Errorf("capture: out dir %s is inside the capture surface %s — "+
-				"it would capture itself", opts.Out, root)
+				"it would capture itself", opts.Out, d.surfacePath(s))
+		}
+		if home := filepath.Join(d.home, filepath.FromSlash(s.HomeRel)); within(home, filepath.Clean(opts.Out)) {
+			return nil, fmt.Errorf("capture: out dir %s is inside the capture surface %s — "+
+				"it would capture itself", opts.Out, home)
 		}
 	}
 	if err := os.MkdirAll(opts.Out, 0o755); err != nil {
@@ -213,6 +280,65 @@ func (d *driver) surfaceRels() []string {
 	return out
 }
 
+// surfacePath is the path this driver reaches one surface through — <SurfaceRoot>/<Subtree>
+// when a surface root was given, <Home>/<HomeRel> otherwise.
+//
+// This is the ONE place in the driver where paths.HomeSurface's two spellings are both
+// used, and using both is the point: the Subtree name is the host side of the bind and the
+// HomeRel name is the jail side, so a capture that walks one and reports the other is
+// walking and reporting the same directory only because that pair is written down once
+// (paths.HomeSurfaces).
+func (d *driver) surfacePath(s paths.HomeSurface) string {
+	if d.opts.SurfaceRoot != "" {
+		return filepath.Join(d.opts.SurfaceRoot, filepath.FromSlash(s.Subtree))
+	}
+	return filepath.Join(d.home, filepath.FromSlash(s.HomeRel))
+}
+
+// abs maps a home-relative path to the filesystem path this driver touches it through.
+//
+// Without a SurfaceRoot it is exactly <Home>/<rel>, which is also the fallback for a rel
+// under no surface at all — nothing reaches this with one, and answering "the home's copy"
+// keeps the two configurations identical wherever the surface root is irrelevant.
+func (d *driver) abs(rel string) string {
+	if d.opts.SurfaceRoot != "" {
+		for _, s := range d.surfaces {
+			if rel == s.HomeRel || strings.HasPrefix(rel, s.HomeRel+"/") {
+				return filepath.Join(d.surfacePath(s), filepath.FromSlash(strings.TrimPrefix(rel, s.HomeRel)))
+			}
+		}
+	}
+	return filepath.Join(d.home, filepath.FromSlash(rel))
+}
+
+// excluded reports whether a home-relative path is inside an excluded subtree — the path
+// itself, or anything beneath it.
+func (d *driver) excluded(rel string) bool {
+	for _, ex := range d.excludes {
+		if rel == ex || strings.HasPrefix(rel, ex+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// containsExcluded reports whether an excluded subtree lies BENEATH rel.
+//
+// It is what stops the whole-directory move from swallowing an exclusion. A directory the
+// baseline never saw is moved in ONE rename — the optimization that makes a 1.2 GB version
+// dir cost a syscall instead of a walk — and `.local/share` is exactly such a directory on a
+// booted home, with `.local/share/yolo-jail` inside it. Moved whole, yolo's own state goes
+// along and the per-path exclusion never gets a chance to run: the guard has to be on the
+// decision to move, not only on the paths a descent reaches.
+func (d *driver) containsExcluded(rel string) bool {
+	for _, ex := range d.excludes {
+		if strings.HasPrefix(ex, rel+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // node is what the baseline remembers about one path: enough to say "the installer touched
 // this" without reading a byte of it.
 //
@@ -237,7 +363,7 @@ type snapshot map[string]node
 func (d *driver) walk() (snapshot, error) {
 	snap := snapshot{}
 	for _, s := range d.surfaces {
-		root := filepath.Join(d.home, filepath.FromSlash(s.HomeRel))
+		root := d.surfacePath(s)
 		if _, err := os.Lstat(root); err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -248,15 +374,26 @@ func (d *driver) walk() (snapshot, error) {
 			if err != nil {
 				return err
 			}
-			rel, rerr := filepath.Rel(d.home, p)
+			sub, rerr := filepath.Rel(root, p)
 			if rerr != nil {
 				return rerr
+			}
+			// Home-relative, ALWAYS — whichever door the walk came through. The
+			// baseline is compared against a home-relative delta and recorded in a
+			// home-relative manifest, so a snapshot keyed by the surface-root
+			// spelling would match nothing.
+			rel := path.Join(s.HomeRel, filepath.ToSlash(sub))
+			if d.excluded(rel) {
+				if de.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
 			}
 			info, ierr := de.Info()
 			if ierr != nil {
 				return ierr
 			}
-			snap[filepath.ToSlash(rel)] = node{
+			snap[rel] = node{
 				kind:  kindOf(de.Type()),
 				perm:  info.Mode().Perm(),
 				size:  info.Size(),
@@ -312,14 +449,13 @@ func envWithHome(env []string, home string) []string {
 // same content and cannot fail that way.
 func (d *driver) moveDelta(baseline snapshot, res *Result) error {
 	for _, s := range d.surfaces {
-		rel := filepath.ToSlash(s.HomeRel)
-		if _, err := os.Lstat(filepath.Join(d.home, filepath.FromSlash(rel))); err != nil {
+		if _, err := os.Lstat(d.surfacePath(s)); err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
 			return err
 		}
-		if err := d.visit(rel, baseline, res, true); err != nil {
+		if err := d.visit(filepath.ToSlash(s.HomeRel), baseline, res, true); err != nil {
 			return err
 		}
 	}
@@ -328,7 +464,12 @@ func (d *driver) moveDelta(baseline snapshot, res *Result) error {
 
 // visit decides one path's fate: move it, descend into it, or leave it as the baseline's.
 func (d *driver) visit(rel string, baseline snapshot, res *Result, isSurfaceRoot bool) error {
-	src := filepath.Join(d.home, filepath.FromSlash(rel))
+	// EXCLUDED SUBTREES ARE NOT DELTA, whatever happened in them. The walk skipped this
+	// path too, so without the skip here every excluded file would read as new.
+	if d.excluded(rel) {
+		return nil
+	}
+	src := d.abs(rel)
 	info, err := os.Lstat(src)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -344,7 +485,7 @@ func (d *driver) visit(rel string, baseline snapshot, res *Result, isSurfaceRoot
 	}
 	was, had := baseline[rel]
 	if now.kind == KindDir {
-		if (!had || was.kind != KindDir) && !isSurfaceRoot {
+		if (!had || was.kind != KindDir) && !isSurfaceRoot && !d.containsExcluded(rel) {
 			return d.move(rel, res)
 		}
 		ents, rerr := os.ReadDir(src)
@@ -374,7 +515,7 @@ func (d *driver) move(rel string, res *Result) error {
 	if err := d.ensureParents(rel); err != nil {
 		return err
 	}
-	src := filepath.Join(d.home, filepath.FromSlash(rel))
+	src := d.abs(rel)
 	dst := filepath.Join(d.tree, filepath.FromSlash(rel))
 	err := os.Rename(src, dst)
 	if err == nil {
@@ -415,7 +556,7 @@ func (d *driver) ensureParents(rel string) error {
 			continue
 		}
 		perm := fs.FileMode(0o755)
-		if info, err := os.Lstat(filepath.Join(d.home, filepath.FromSlash(cur))); err == nil {
+		if info, err := os.Lstat(d.abs(cur)); err == nil {
 			perm = info.Mode().Perm()
 		}
 		if err := os.Mkdir(dst, perm); err != nil && !os.IsExist(err) {

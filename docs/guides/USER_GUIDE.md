@@ -271,6 +271,27 @@ yolo init-user-config
 
 Creates `~/.config/yolo-jail/config.jsonc` with the same template as `yolo init`.
 
+### `yolo capture` — Record a Vendor Installer, Once Per Machine
+
+```bash
+yolo capture claude
+```
+
+Some packs install a program by running a vendor's installer script — a URL whose contents run as
+a shell script. There is nothing to pin there, because the installer *run* is the resolution, and
+`~/.local` is a per-workspace directory, so every workspace downloads its own copy (claude's
+versions directory is 1.2 GB).
+
+`yolo capture <bin>` runs that installer ONCE, in a throwaway jail with an empty home, and stores
+what it left behind as a content-addressed entry under
+`~/.local/share/yolo-jail/captures/entries/<key>/`, with a file manifest and a receipt beside it.
+Nothing is captured on a normal launch — this is an explicit act, and it needs network access to
+whatever the installer downloads.
+
+`<bin>` must be a program one of your selected packs installs with `via: "installer"`; an
+npm-declared program already names a registry version and needs no capture. Captures are
+machine-local and are never shared between machines.
+
 ---
 
 ## Configuration

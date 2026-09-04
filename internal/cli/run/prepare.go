@@ -300,7 +300,7 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 // config dirs, sync claude.json, and run the old-overlay migrations. Returns the
 // ws_state path (<workspace>/.yolo/home).
 func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack) string {
-	wsState := filepath.Join(o.Workspace, ".yolo", "home")
+	wsState := paths.WorkspaceHomeState(o.Workspace)
 	_ = os.MkdirAll(wsState, 0o755)
 	_ = os.MkdirAll(filepath.Join(wsState, "ssh"), 0o700)
 

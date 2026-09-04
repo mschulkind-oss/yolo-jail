@@ -79,7 +79,17 @@ func hostApplyLockPath(home string) string {
 // distinguishing them here would produce an error nobody could act on differently. The
 // mkdir is best-effort for the same reason.
 func tryHostApplyLock(home string) *hostApplyLock {
-	path := hostApplyLockPath(home)
+	return tryFlockAt(hostApplyLockPath(home))
+}
+
+// tryFlockAt takes a non-blocking exclusive flock on one lock file, creating its directory,
+// and returns nil when it could not be taken FOR ANY REASON.
+//
+// Shared with `yolo capture`, whose per-program lock (capturehost.go) is the same mechanism
+// with a different key and a different disposition on failure: this function decides
+// nothing about what a caller does with a nil, only that a nil is the one answer for
+// contention, an unwritable state dir, and a filesystem whose flock is a no-op alike.
+func tryFlockAt(path string) *hostApplyLock {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil
 	}

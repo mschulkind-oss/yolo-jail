@@ -43,8 +43,8 @@ type receipt struct {
 	// Schema is the version receiptPrefix stamps. 1 is the only value ever written.
 	Schema int
 	// Kind is the RESOLVER: "npm" (both launcher funnels and the pnpm one), "installer",
-	// "lsp-npm", "lsp-go", "mcp-npm". The kind implies the landing prefix for the three
-	// bootstrap arms, which is why they carry no Path (receiptPrefix says why).
+	// "lsp-npm", "lsp-go", "mcp-npm", "capture". The kind implies the landing prefix for
+	// the three bootstrap arms, which is why they carry no Path (receiptPrefix says why).
 	Kind string
 	// Bin is the binary name, omitted by the two npm list arms (lsp-npm, mcp-npm) which
 	// install a package whose bin name they do not know.
@@ -66,9 +66,17 @@ type receipt struct {
 	// Bytes is that file's size, or -1 when the field was absent.
 	Bytes int64
 	// Path is §6's fourth tuple member, the LANDING PATH, carried only by the three launcher
-	// funnels — the ones that install ONE program and have $REAL_BIN in hand.
+	// funnels — the ones that install ONE program and have $REAL_BIN in hand. The capture
+	// kind carries it too, pointing at the store ENTRY rather than a file.
 	Path string
-	// Act is "install" or "update": whether a human asked for this.
+	// Platform is "<GOOS>/<GOARCH>", written only by the capture kind (§6.3: "captures are
+	// per-platform, and only for platforms we can run"). Every other kind installs into
+	// the jail it is running in and has no second platform to be wrong about; a capture is
+	// a machine-wide artifact whose platform is the JAIL's, not the host's, so it has to be
+	// written down rather than inferred by whoever reads the store.
+	Platform string
+	// Act is "install" or "update" for an installing resolver, and "record" or
+	// "materialize" for the capture kind — §6.3's two verbs.
 	Act string
 	// Time is the writer's 20-char UTC ISO stamp.
 	Time string
@@ -160,10 +168,11 @@ func parseReceiptLine(line string) (receipt, error) {
 		SHA256   string `json:"sha256"`
 		// A POINTER so an omitted field is distinguishable from a written 0. `bytes` is the
 		// one numeric field, and 0 is a size a real file can have.
-		Bytes *int64 `json:"bytes"`
-		Path  string `json:"path"`
-		Act   string `json:"act"`
-		Time  string `json:"time"`
+		Bytes    *int64 `json:"bytes"`
+		Path     string `json:"path"`
+		Platform string `json:"platform"`
+		Act      string `json:"act"`
+		Time     string `json:"time"`
 	}
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
 		return receipt{}, err
@@ -177,7 +186,7 @@ func parseReceiptLine(line string) (receipt, error) {
 	r := receipt{
 		Schema: raw.Schema, Kind: raw.Kind, Bin: raw.Bin, Declared: raw.Declared,
 		Spec: raw.Spec, Resolved: raw.Resolved, SHA256: raw.SHA256, Path: raw.Path,
-		Act: raw.Act, Time: raw.Time, Bytes: -1,
+		Platform: raw.Platform, Act: raw.Act, Time: raw.Time, Bytes: -1,
 	}
 	if raw.Bytes != nil {
 		r.Bytes = *raw.Bytes

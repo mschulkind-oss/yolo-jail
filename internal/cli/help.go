@@ -26,6 +26,7 @@ var commandHelp = []struct{ name, blurb string }{
 	// config", not "add an agent" — a pack cannot install an agent yet (see packUsage),
 	// and a blurb promising otherwise sends people down a path that does not exist.
 	{"pack", "Add shared skills and agent config via packs: 'pack --help', 'ls', 'install'"},
+	{"capture", "Record a vendor installer's output once per machine, for reuse by every jail"},
 	{"config-ref", "Print the full configuration reference"},
 	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
 	// Listed because it is the REMEDY a launch names: a workspace created before

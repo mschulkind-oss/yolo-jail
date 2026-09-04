@@ -72,6 +72,7 @@ var subcommandUsage = map[string]subUsage{
 	// exec half's -p/--profile so `yolo host -p bedrock --help` is read as help rather
 	// than as a profile named "--help".
 	"host":       {text: hostUsage, valueFlags: []string{"-p", "--profile", "--format", "--agent"}},
+	"capture":    {text: captureUsage},
 	"describe":   {text: describeUsage},
 	"check-deps": {text: checkDepsUsage},
 	// Answered via answerHelp, at the top of each handler.

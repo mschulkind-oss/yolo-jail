@@ -101,6 +101,15 @@ type Entry struct {
 	// Tree is <Root>/tree — the captured delta as an ordinary directory tree, ready to be
 	// hardlinked into a home. Its files are read-only; see the package comment.
 	Tree string
+	// Digest is the CANONICAL TREE DIGEST the Key was computed from — the full
+	// treedigest.Of output, of which Key is hex(sha256(·))[:16].
+	//
+	// SET BY ADMIT, EMPTY FROM RESOLVE, and that asymmetry is the honest one: admission
+	// walks the tree to compute the key, so it has the digest in hand for free, while a
+	// resolve reads one marker file and re-deriving the digest there would mean walking
+	// gigabytes to answer a question nothing on that path asked. A caller that needs it
+	// after a resolve must ask for it (treedigest.Of) and know what it is paying.
+	Digest string
 }
 
 // Key is the store key for a canonical digest: hex(sha256(x))[:16].
@@ -108,9 +117,16 @@ type Entry struct {
 // This is image.ImageStoreKey's convention, reused rather than re-decided — one key shape across
 // the repo's content-addressed dirs means a human reading `entries/3f2a…` and `roots/3f2a…` does
 // not have to ask whether they mean the same kind of thing.
-func Key(digest string) string {
+func Key(digest string) string { return DigestHash(digest)[:16] }
+
+// DigestHash is the FULL sha256 of a canonical tree digest, hex-encoded — the 64-character
+// string of which Key is the first 16.
+//
+// Both are written into a capture receipt: Key is what a human looks up under entries/, and
+// this is the whole hash, so neither has to be re-derived from the other to be checked.
+func DigestHash(digest string) string {
 	sum := sha256.Sum256([]byte(digest))
-	return hex.EncodeToString(sum[:])[:16]
+	return hex.EncodeToString(sum[:])
 }
 
 // KeyForTree is the key a tree would be admitted under: Key over the tree's canonical digest
@@ -169,21 +185,58 @@ func (s *Store) Stage(id string) (string, error) {
 // one of those inodes by hardlink and swapping it out would be a silent version change under a
 // running program.
 func (s *Store) Admit(staged string) (*Entry, error) {
+	return s.admit(staged, staged, false)
+}
+
+// AdmitEntry admits a whole ENTRY-SHAPED staging directory — `<staged>/tree` plus whatever
+// metadata sits beside it (the capture manifest, and the receipt a later act appends) — as
+// one rename, returning the entry.
+//
+// It exists because Admit alone cannot keep the completion marker's promise for anything
+// but the tree. Admit renames `tree/` in and writes the marker LAST, so a caller that then
+// moved the manifest up beside it would have a window in which the entry reads COMPLETE and
+// its manifest is not there yet — small, harmless today (nothing on the materialize path
+// reads the manifest), and exactly the kind of "it cannot happen in practice" that the
+// two-stage discipline exists to not rely on. Moving the whole directory closes it by
+// construction: everything the driver produced arrives together or not at all.
+//
+// The key is still computed from the TREE and only the tree. Metadata beside it must not
+// change the content address, or a manifest whose Home string differed would file identical
+// vendor bytes under a second key.
+func (s *Store) AdmitEntry(staged string) (*Entry, error) {
+	tree := TreeDir(staged)
+	if fi, err := os.Lstat(tree); err != nil {
+		return nil, fmt.Errorf("capture admit: %s is not entry-shaped (no tree/): %w", staged, err)
+	} else if !fi.IsDir() {
+		return nil, fmt.Errorf("capture admit: %s is not a directory", tree)
+	}
+	return s.admit(staged, tree, true)
+}
+
+// admit is the shared body of Admit and AdmitEntry.
+//
+// `staged` is the directory RENAMED into the store, `digestOf` is the tree whose content
+// decides the key, and `whole` says which of the two shapes this is: for Admit they are the
+// same path and the tree lands INSIDE a freshly-made entry dir; for AdmitEntry the staged
+// dir already IS the entry (tree plus metadata) and becomes the entry dir itself. That is
+// the whole difference between the two.
+func (s *Store) admit(staged, digestOf string, whole bool) (*Entry, error) {
 	stagingRoot := filepath.Join(s.Dir, stagingLeaf)
 	if !within(stagingRoot, staged) {
 		return nil, fmt.Errorf("capture admit: staged tree %s is not under %s — admission is an "+
 			"os.Rename, so a scratch tree outside the store would silently become a full copy "+
 			"of the bytes the store exists to stop copying (use Store.Stage)", staged, stagingRoot)
 	}
-	if fi, err := os.Lstat(staged); err != nil {
+	if fi, err := os.Lstat(digestOf); err != nil {
 		return nil, fmt.Errorf("capture admit: %w", err)
 	} else if !fi.IsDir() {
-		return nil, fmt.Errorf("capture admit: staged tree %s is not a directory", staged)
+		return nil, fmt.Errorf("capture admit: staged tree %s is not a directory", digestOf)
 	}
-	key, err := KeyForTree(staged)
+	digest, err := treedigest.Of(digestOf)
 	if err != nil {
-		return nil, fmt.Errorf("capture admit: digesting %s: %w", staged, err)
+		return nil, fmt.Errorf("capture admit: digesting %s: %w", digestOf, err)
 	}
+	key := Key(digest)
 	entry := s.EntryDir(key)
 	if _, err := os.Stat(filepath.Join(entry, completeMarker)); err == nil {
 		// Already admitted, and the key says the bytes are the same. Drop the duplicate
@@ -191,20 +244,28 @@ func (s *Store) Admit(staged string) (*Entry, error) {
 		if err := os.RemoveAll(staged); err != nil {
 			return nil, err
 		}
-		return &Entry{Key: key, Root: entry, Tree: TreeDir(entry)}, nil
+		return &Entry{Key: key, Root: entry, Tree: TreeDir(entry), Digest: digest}, nil
 	}
 	// Absent, or a previous admit died partway. Start clean: a torn entry silently kept would
 	// be an installer's half-written state presented as a package.
 	if err := os.RemoveAll(entry); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(entry, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
 		return nil, err
 	}
-	tree := TreeDir(entry)
-	if err := os.Rename(staged, tree); err != nil {
+	dest := entry
+	if !whole {
+		// A bare tree: the entry directory is ours to create, and the tree lands inside it.
+		if err := os.MkdirAll(entry, 0o755); err != nil {
+			return nil, err
+		}
+		dest = TreeDir(entry)
+	}
+	if err := os.Rename(staged, dest); err != nil {
 		return nil, fmt.Errorf("capture admit: moving %s into the store: %w", staged, err)
 	}
+	tree := TreeDir(entry)
 	if err := freezeTree(tree); err != nil {
 		return nil, fmt.Errorf("capture admit: making %s read-only: %w", tree, err)
 	}
@@ -213,7 +274,7 @@ func (s *Store) Admit(staged string) (*Entry, error) {
 	if err := os.WriteFile(filepath.Join(entry, completeMarker), []byte(key+"\n"), 0o644); err != nil {
 		return nil, err
 	}
-	return &Entry{Key: key, Root: entry, Tree: tree}, nil
+	return &Entry{Key: key, Root: entry, Tree: tree, Digest: digest}, nil
 }
 
 // Resolve returns the COMPLETE entry for a key, using only what is already on disk.

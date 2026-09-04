@@ -587,12 +587,17 @@ largest reclaim available; the two repairs after that are cheap and independent.
     exactly one act changes behavior under obey — the cold-install branch. The poll is
     informational, the PINNED branch already compares offline, and `pack update` WRITES the record
     rather than reading it, so *"install obeys the record"* reads far broader than it is.
-  - **The installer capture** (§6.3, `OQ-PD10`) — not buildable here. Its defining act is running an
-    installer in a throwaway sandbox, and the property it exists to establish (*"a jail that writes
-    outside its binds is a finding the capture run reports"*) is only observable by running one.
-    Three pure pieces ARE testable with no container — the capture manifest, a directory-pair delta
-    (whose symlink case decides the whole relocation design), and the CAS layout with retention
-    wired at birth per R4 — and the container-dependent remainder has a written five-point handoff.
+  - ~~**The installer capture** (§6.3, `OQ-PD10`) — not buildable here.~~ ⚠ **Wrong as of
+    2026-09-04, and wrong about the premise rather than the schedule.** It IS buildable here:
+    podman-in-podman gives this jail real containers, so `yolo capture` runs an installer in a real
+    throwaway jail and `integration/capture_test.go` measures the result. **Slices one, two and
+    three of six are landed** ([`install-capture.md`](install-capture.md)) — the store, the inner
+    driver, and the `yolo capture <bin>` host act. What remains is slice four (materialize from the
+    launcher — the slice that actually pays), five (remove + GC), and six (macos-user, which is
+    genuinely not buildable here: it needs Seatbelt on real hardware). The one property still
+    unbuilt from §6.3's prose is *"a jail that writes outside its binds is a finding the capture run
+    reports"*: stray writes are left alone and not enumerated, because enumerating them needs a
+    whole-home walk (install-capture slice 2, correction (e)).
 
 - 🔒 **The fatal witness is live in the tree, and not on your host until a `just load`.**
 

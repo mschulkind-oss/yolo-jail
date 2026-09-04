@@ -13,7 +13,8 @@ import (
 // `yolo capture` host act should ever emit this argv: it runs an installer against the
 // home it is pointed at and MOVES the result out of it, which is correct inside a
 // throwaway capture jail and destructive anywhere else.
-const captureRunUsage = "usage: yolo internal capture-run --out=DIR [--home=DIR] -- <installer argv...>"
+const captureRunUsage = "usage: yolo internal capture-run --out=DIR [--home=DIR] " +
+	"[--surface-root=DIR] -- <installer argv...>"
 
 // runCaptureRun is the in-jail half of install-capture (docs/design/program-delivery.md
 // §6.3): baseline the capture surfaces, run the installer, move the delta into --out.
@@ -26,7 +27,7 @@ const captureRunUsage = "usage: yolo internal capture-run --out=DIR [--home=DIR]
 // --home defaults to $HOME, which is the one environment variable that IS set in all three
 // backends — "a process with a HOME" is the driver's entire contract with the world.
 func runCaptureRun(args []string) int {
-	out, home := "", os.Getenv("HOME")
+	out, home, surfaceRoot := "", os.Getenv("HOME"), ""
 	var command []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -38,6 +39,12 @@ func runCaptureRun(args []string) int {
 			out = strings.TrimPrefix(a, "--out=")
 		case strings.HasPrefix(a, "--home="):
 			home = strings.TrimPrefix(a, "--home=")
+		case strings.HasPrefix(a, "--surface-root="):
+			// The SECOND path to the capture surfaces — see capture.Options.SurfaceRoot.
+			// Passed by the host act, which is the only party that knows the workspace
+			// bind exists and where it lands; the driver itself just uses the door it
+			// is given.
+			surfaceRoot = strings.TrimPrefix(a, "--surface-root=")
 		default:
 			fmt.Fprintf(os.Stderr, "capture-run: unexpected argument %q\n%s\n", a, captureRunUsage)
 			return 2
@@ -48,11 +55,12 @@ func runCaptureRun(args []string) int {
 		return 2
 	}
 	res, err := capture.Run(capture.Options{
-		Home:    home,
-		Out:     out,
-		Command: command,
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
+		Home:        home,
+		Out:         out,
+		SurfaceRoot: surfaceRoot,
+		Command:     command,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "capture-run:", err)

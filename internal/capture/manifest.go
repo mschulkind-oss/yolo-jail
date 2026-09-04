@@ -61,10 +61,25 @@ type Manifest struct {
 	// AbsoluteRefs are references TO: a relocating materialize needs to know what to
 	// rewrite them from, and it cannot re-derive it from a tree it did not capture.
 	Home string `json:"home"`
+	// Platform is "<GOOS>/<GOARCH>" as observed by the DRIVER, which is the only party
+	// that can observe it: a capture made from a Mac through podman runs in a Linux jail,
+	// so the host's platform is the wrong answer and the jail's is not derivable from
+	// outside. §6.3's "captures are per-platform (and only for platforms we can run)" has
+	// nowhere else to be written down — the store key is content-addressed, so two
+	// platforms produce two keys but neither key says which.
+	Platform string `json:"platform"`
 	// Surfaces are the home-relative roots that were walked, in walk order
 	// (paths.HomeSurfaces). A delta is only ever honest about the surfaces it looked at,
 	// so the manifest says which those were rather than leaving a reader to assume.
 	Surfaces []string `json:"surfaces"`
+	// Excluded are the home-relative subtrees the delta never contains even though a
+	// surface covers them — DefaultExcludes(), which is yolo's own state dir.
+	//
+	// Recorded for the same reason Surfaces is: a delta is honest only about what it
+	// looked at, and "the capture surfaces MINUS these" is the whole of what it looked
+	// at. A reader who finds no `.local/share/yolo-jail` in a tree should be able to see
+	// that it was subtracted rather than merely absent.
+	Excluded []string `json:"excluded"`
 	// Entries is the delta, sorted by Path: every directory, file and symlink now in
 	// tree/. Sorted so the file is diffable and a re-capture of an identical install
 	// produces an identical manifest.
@@ -124,6 +139,32 @@ func TreeDir(root string) string { return filepath.Join(root, treeLeaf) }
 
 // ManifestPath is the manifest inside an entry-shaped directory.
 func ManifestPath(root string) string { return filepath.Join(root, ManifestName) }
+
+// ReceiptsName is the capture receipt log inside an ADMITTED entry — the same JSONL
+// schema, and the same filename, as the per-workspace `.yolo/receipts.jsonl` a generated
+// installer appends to.
+//
+// BESIDE THE ENTRY, not in a workspace, because program-delivery.md §6.3 says so in as
+// many words ("a machine-local receipt beside the CAS entry, not a repo-committed
+// lockfile") and because the thing recorded is machine-wide: the capture jail's workspace
+// is thrown away with the staging dir, and the invoking workspace merely happened to be
+// where a human stood. Same schema, same name, different scope — not a second record.
+const ReceiptsName = "receipts.jsonl"
+
+// ReceiptsPath is the receipt log inside an entry-shaped directory.
+func ReceiptsPath(root string) string { return filepath.Join(root, ReceiptsName) }
+
+// TotalBytes is the sum of the manifest's regular-file sizes — what a capture COSTS, and
+// the number the whole subsystem exists to stop paying per workspace.
+func (m *Manifest) TotalBytes() int64 {
+	var n int64
+	for _, e := range m.Entries {
+		if e.Kind == KindFile {
+			n += e.Size
+		}
+	}
+	return n
+}
 
 // WriteManifest writes m to ManifestPath(root), pretty-printed and newline-terminated.
 //
