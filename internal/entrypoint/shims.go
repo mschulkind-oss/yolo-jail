@@ -254,6 +254,10 @@ func GenerateAgentLaunchers(e *Env) error {
 		return err
 	}
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-agent-stamps")
+	// B2's generation-time collision check, computed ONCE for the whole loop: the probe
+	// path and the declared mise set are the same for every pack. See launchercollision.go
+	// for why the scope is what it is — a wider one turns evergreen off silently.
+	probePath, miseBins := imageProbePath(e), declaredMiseBins(e)
 
 	packs, err := LoadJailPacks(e)
 	if err != nil {
@@ -273,6 +277,18 @@ func GenerateAgentLaunchers(e *Env) error {
 				// bin would write outside the anchor into the jail's persistent home.
 				// LoadJailPacks makes the manifest refusal fatal before this can run —
 				// this is defense-in-depth for a caller that bypasses the loader.
+				continue
+			}
+			// B2: no launcher for a name the image (or a declared mise tool) already
+			// provides. Under the pre-B2 PATH this was unrepresentable — the launch dir
+			// sat after /bin — and this check is what replaces that position with a
+			// decision. It WARNS rather than staying silent: a pack asked for a program
+			// and did not get a launcher, which is exactly the kind of omission that
+			// otherwise gets discovered as a tool mysteriously running the wrong version.
+			if why := launcherShadows(inst.Bin, probePath, miseBins); why != "" {
+				e.warn("pack " + p.Name + ": no launcher for " + inst.Bin + " — " + why +
+					", and a lazy installer must never shadow it (declare it as `requires` " +
+					"instead if the assertion is what you meant)")
 				continue
 			}
 			launcherPath := filepath.Join(launcherDir, inst.Bin)
@@ -461,7 +477,19 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 	// while a future entry that names a version would be honoured instead of corrupted —
 	// this list is the second site that hardcoded `@latest`, and leaving one behind is how
 	// the next reader concludes the rule is inconsistent rather than fixed.
+	probePath, miseBins := imageProbePath(e), declaredMiseBins(e)
 	for _, pm := range []struct{ bin, pkg string }{{"pnpm", "pnpm"}} {
+		// THE SAME CHECK, AND THIS IS THE CASE IT WAS WRITTEN FOR. `pnpm` is generated
+		// unconditionally from the hardcoded list above — not gated on mise — so once B2
+		// moves the launch dir ahead of the mise shims, an ungated launcher would shadow a
+		// `mise_tools`-declared pnpm: an agent-class mechanism overriding a PROJECT
+		// dependency, which is what P6 forbids. It is the one place the two dependency
+		// classes contend for a name (§3.5).
+		if why := launcherShadows(pm.bin, probePath, miseBins); why != "" {
+			e.warn("no lazy installer for " + pm.bin + " — " + why +
+				", and an agent-class launcher must not shadow a project dependency")
+			continue
+		}
 		launcherPath := filepath.Join(launcherDir, pm.bin)
 		if pathExists(launcherPath) {
 			continue // a pack already claimed this bin name
