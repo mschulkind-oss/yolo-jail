@@ -1,5 +1,9 @@
 package image
 
+// How this relates to the native (macos-user) nix path — what each produces, the
+// rebuild/reload cost model, and the macOS Linux-builder offload:
+// docs/reference/nix-across-backends.md
+
 import (
 	"bufio"
 	"fmt"

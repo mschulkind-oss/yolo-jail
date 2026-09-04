@@ -14,6 +14,10 @@
 // it (docs/design/noncontainer-nix-environment.md §8 Option 1).
 package darwinpkg
 
+// How this relates to the container backends' nix path — what each produces, why
+// only one has a /lib farm, and where a missing build is decided:
+// docs/reference/nix-across-backends.md
+
 import (
 	"encoding/json"
 	"os"
