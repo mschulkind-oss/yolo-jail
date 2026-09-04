@@ -81,30 +81,53 @@ const reconcilePrefix = "boot reconcile: "
 // catalogSize's comment warns about: a column of identical lines is what trains a reader to
 // skim the one that matters.
 func ReconcileInstalledPrograms(e *Env) {
-	if e.Getenv("YOLO_PACK_ROOT") == "" {
-		return
-	}
-
-	recs, malformed, present := readReceiptLog(e)
-	for _, m := range malformed {
+	r := ReconcileInstalled(e)
+	for _, m := range r.Malformed {
 		// warnOnce, not warn: the receipts log is read once today, but env.go:119 makes the
 		// dedupe a property of the SINK precisely so a second reader cannot reintroduce the
 		// five-identical-warnings shape the pack tree produced.
 		e.warnOnce(reconcilePrefix + "skipped an unparseable receipt line — " + m)
 	}
-	switch {
-	case !present:
-		// No file: say nothing anywhere. See the function comment.
-	case len(recs) == 0:
+	if r.ReceiptsPresent && r.Receipts == 0 {
 		e.note(reconcilePrefix + "receipts log has no usable entries; nothing to compare")
 	}
+	for _, f := range r.Findings {
+		e.warnOnce(reconcilePrefix + f)
+	}
+}
 
-	for _, f := range reconcileReceiptFindings(e, latestReceipts(recs)) {
-		e.warnOnce(reconcilePrefix + f)
+// ReconcileReport is one reconcile, as data. It exists because the comparison has a SECOND
+// caller now — `yolo programs ls`, the on-demand spelling of this same offline read — and the
+// boot's e.warn/e.note sinks are not available to a CLI that renders through richtext and has
+// to answer with an exit code. Two implementations of "what does the record get wrong" is
+// the drift this repo keeps deleting; one function and two renderers is not.
+type ReconcileReport struct {
+	// Findings are the differences, already sorted, without the boot's prefix.
+	Findings []string
+	// Malformed names each receipt line that would not parse. A finding ABOUT the log
+	// rather than about a program, which is why it is a separate field: the CLI reports it
+	// in its own section and the boot warns it above the rest.
+	Malformed []string
+	// ReceiptsPresent is whether the receipts file exists at all. FALSE IS THE NORMAL
+	// STATE — every install site sits behind a cold branch — and it is distinct from a
+	// file that exists and says nothing, which is the only one of the two worth a note.
+	ReceiptsPresent bool
+	// Receipts is how many lines parsed.
+	Receipts int
+}
+
+// ReconcileInstalled runs the comparison and returns it. It reads files and nothing else: no
+// subprocess, no registry, no network. See the file header for the three comparisons and for
+// why an unknown value is never compared.
+func ReconcileInstalled(e *Env) ReconcileReport {
+	if e.Getenv("YOLO_PACK_ROOT") == "" {
+		return ReconcileReport{}
 	}
-	for _, f := range reconcileSentinelFindings(e) {
-		e.warnOnce(reconcilePrefix + f)
-	}
+	recs, malformed, present := readReceiptLog(e)
+	out := ReconcileReport{Malformed: malformed, ReceiptsPresent: present, Receipts: len(recs)}
+	out.Findings = append(out.Findings, reconcileReceiptFindings(e, latestReceipts(recs))...)
+	out.Findings = append(out.Findings, reconcileSentinelFindings(e)...)
+	return out
 }
 
 // reconcileReceiptFindings walks the latest receipt per program and returns one line per

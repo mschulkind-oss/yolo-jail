@@ -787,6 +787,22 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
+	// programs.autoprune (OQ-PD4's third clause, program-delivery.md §10 step four) —
+	// EMITTED ONLY WHEN ON, which is the opposite of YOLO_HOST_LOOPBACK's always-emit rule
+	// and for a reason that inverts it. There, an absent variable had to be
+	// distinguishable from a decision, because "the launcher never asked" and "the launcher
+	// asked and it failed" call for different severities. Here every way the variable can
+	// be absent — an older launcher, a backend that emits no env, a config that never
+	// mentions it — means the same thing, and it is the ruled default: OFF. A `=0` would
+	// add a spelling of "off" without adding an answer.
+	//
+	// The value is read from the USER config directly rather than off the merged cfg above:
+	// a key that authorises deleting binaries must not be settable by a repo-committed,
+	// agent-editable workspace config (config.ProgramsAutoprune, and validatePrograms
+	// reports a workspace-scoped one as an error rather than ignoring it).
+	if config.ProgramsAutoprune(nil) {
+		env = append(env, "-e", "YOLO_PROGRAMS_AUTOPRUNE=1")
+	}
 	// The profile-derived provider environment — the env shape a provider declares for
 	// the protocol an agent speaks (OQ-14), which for bedrock is AWS_REGION and the
 	// model ids — is composed by internal/agentenv, which is ALSO what

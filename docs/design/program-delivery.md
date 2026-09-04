@@ -761,6 +761,10 @@ the fix that closed [`program-kind-defects.md`](program-kind-defects.md) 11.3). 
 the **installed program**. **MEASURED:** the only `npm uninstall -g` in the entire tree is in the LSP
 bootstrap (`internal/entrypoint/shell.go:381`), keyed on the `~/.yolo-installed-lsps` sentinel
 (`shell.go:312`). *(Anchors repinned 2026-09-02 — the receipts feature grew this file.)*
+*(Still true of DROPPING A PACK, which is what this paragraph is about: since 2026-09-04 there is an
+act that removes an orphaned program — `yolo programs remove --apply` — and an option that lets a
+boot do it, but nothing removes one by default. See [§10](#10-what-i-would-build-in-order) step
+four.)*
 
 Two consequences worth stating separately:
 
@@ -1405,24 +1409,75 @@ building ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)): `mise.lock` is comm
 `install && upgrade --yes` became install-from-lock, and this repo's own toolchain no longer
 resolves through the shared aliases.
 
-**Second, generalise the LSP sentinel into a reconcile.** It already does install *and* uninstall
-against a declared set; what it lacks is the resolved version and a caller for anything but LSP
-servers. Reconcile compares, offline, and reports — and it inherits the "newer version available"
-channel that [OQ-PD8](#decision-ledger) found dead in the launcher. It installs nothing and removes
-nothing.
+**Second, generalise the LSP sentinel into a reconcile. — SHIPPED** (`43f28ce8` the comparison,
+`6dda9ea6` the on-demand caller). The sentinel already did install *and* uninstall against a
+declared set; what it lacked was the resolved version and a caller for anything but LSP servers.
+`ReconcileInstalled` (`internal/entrypoint/reconcile.go`) makes three comparisons — an npm
+receipt's `resolved` against the installed `package.json`, an installer receipt's (size, sha256)
+against a re-measure of its landing path, and the sentinel against what is actually in
+`node_modules` and `$GOBIN`, both ways. It runs at boot beside the catalog and, since `6dda9ea6`,
+on demand as **`yolo programs ls`** — which is the caller the step asks for, since the boot's copy
+scrolls past above an agent's first prompt.
+
+**Offline and report-only are structural, not documented.** Every comparison is a file read: no
+subprocess, no registry, and `encoding/json` rather than a shell-out to `jq` (in a *reader* the jq
+failure mode is worse than in the writer — a missing jq makes the writer omit a field and would
+make this silently report no drift). `TestReconcileTouchesNothing` snapshots every file under the
+home and asserts byte-identity.
+
+**What it inherits from [OQ-PD8](#decision-ledger) is the half a local read can support**, and the
+split is worth stating because the ledger row names three venues. The *comparison* moved here:
+a receipt-vs-disk mismatch is reported at boot and by `ls`, and the line NAMES THE ACT
+(`run 'yolo pack update' to reassert the declaration`), which is the sentence the launcher's dead
+poll used to carry. The *registry question* — "a newer version exists upstream" — did not and
+cannot: this comparison is offline by ruling, so that half stays the update verb's, which is where
+[OQ-PD8](#decision-ledger) also puts it.
 
 **Third, implement the ruled scope split** ([OQ-PD1](#decision-ledger),
 [OQ-PD2](#decision-ledger)): native locks at the declaration's home, gap receipts at user scope,
 bytes content-addressed. Removal and obedience both need the record's reach to match the bytes' —
 under the ruling it does, by construction.
 
-**Fourth, make removal real** in [OQ-PD4](#decision-ledger)'s ruled shape: the boot catalog names
-the orphans and their sizes, an explicit act removes them, and autoprune is an option nobody gets
-by default. **The catalog half is SHIPPED** (`af46c9b4`) — and its first real boot named **five**
-orphans in this workspace, not the two §4.3 measured: `pyright`, `typescript` and
-`typescript-language-server` survive from a since-unconfigured `lsp_servers`, their sentinel
-record lost — a live instance of the record-and-bytes divergence this whole design exists to
-close. The removal act and the autoprune option remain.
+**Fourth, make removal real — SHIPPED** (`af46c9b4` the catalog, `36ea2780` the act, `6dda9ea6`
+the CLI, `dbd2e925` the option), in [OQ-PD4](#decision-ledger)'s ruled shape: the boot catalog
+names the orphans and their sizes, an explicit act removes them, and autoprune is an option nobody
+gets by default.
+
+The catalog's first real boot named **five** orphans in this workspace, not the two §4.3 measured:
+`pyright`, `typescript` and `typescript-language-server` survive from a since-unconfigured
+`lsp_servers`, their sentinel record lost — a live instance of the record-and-bytes divergence this
+whole design exists to close. **RE-MEASURED 2026-09-04 through `yolo programs ls`: SEVEN, at
+448.6 MB** — the same five plus `$GOPATH/bin`'s `gopls` and `mcp-language-server`, from the same
+vanished declaration, which the `$GOBIN` finder reaches and the earlier count did not.
+
+**THE CANDIDATE SET IS THE BYTES MINUS THE DECLARATIONS, NEVER A RECORD**, and that is the whole
+answer to the five (now seven). The system already had a removal loop keyed on a record — the LSP
+bootstrap's `~/.yolo-installed-lsps` — and it is precisely why those packages are still installed:
+its input is its own record, and the record is gone (the sentinel is one byte). `InstalledOrphans`
+is derived from what is on disk minus what this launch declares, so a record-less orphan is not a
+special case for the act; it is the ORDINARY case, and no record could ever have hidden one from
+it. The act removes what the *catalog* names, which is why the two share one function rather than
+one sentence.
+
+The surfaces:
+
+| Surface | What it does |
+| :--- | :--- |
+| `yolo programs ls` | the offline report — orphans with sizes, plus the reconcile above. Reads only. |
+| `yolo programs remove [NAME...]` | **dry run**: prints every path it would unlink, and exits. |
+| `yolo programs remove --apply` | the act (`--apply` is `yolo prune`'s convention, the only destructive-act convention this CLI has). |
+| `"programs": {"autoprune": true}` | the option: every launch removes what it catalogs. **Default off, USER SCOPE ONLY.** |
+
+Three properties are load-bearing. **A NAME narrows the candidate set and can never widen it**, so
+the command structurally cannot uninstall a declared program — naming one is exit 2, not an empty
+plan. **The plan is the announcement**: it names the package directory, the `$NPM_CONFIG_PREFIX/bin`
+symlinks resolving into it (a removed package whose links survive leaves a broken command SECOND on
+`BootPath`) and the `@scope` directory it empties, and the act unlinks exactly that. And
+**autoprune is user-scope only** — the same rule `cache_relocations` and `packs` carry, for a
+sharper reason: a workspace config travels with the repo and is agent-editable, and this key
+authorises deleting binaries out of the home, `~/.local/bin` included, where yolo cannot tell a
+tool the human installed by hand from a dropped pack's leftovers. That last fact is the whole
+argument for the dry run being the default.
 
 **Fifth, wire the ruled enforcement** ([OQ-PD6](#decision-ledger), [OQ-PD7](#decision-ledger)): the
 receipt is the pin, and it reports before it gates — by this point the receipts say how much

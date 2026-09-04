@@ -1,10 +1,18 @@
 package entrypoint
 
-// catalog.go is OQ-PD4's INFORMATIONAL half, and only that half
-// (docs/design/program-delivery.md §10 step four): "dropping a pack does not auto-delete
-// its program. Orphans are cataloged informationally at boot; removal happens only on an
-// explicit act." Nothing here writes, unlinks or moves anything — it reads two directories
-// and prints what it found.
+// catalog.go is OQ-PD4's INFORMATIONAL half (docs/design/program-delivery.md §10 step
+// four): "dropping a pack does not auto-delete its program. Orphans are cataloged
+// informationally at boot; removal happens only on an explicit act; autoprune exists as an
+// option, default off." Nothing in this file writes, unlinks or moves anything — it reads
+// two directories and prints what it found.
+//
+// THE ACT IS orphanremove.go, and it is reachable from here only through the option OQ-PD4
+// rules default off: CatalogInstalledOrphans ends by calling autopruneOrphans, which returns
+// immediately unless the user turned the knob on. A boot with the knob off is byte for byte
+// the boot this file described before the act existed. What the two files SHARE is the
+// candidate set — InstalledOrphans below — and sharing it is the whole design: an act with
+// its own idea of what an orphan is would be a second implementation of the one judgement
+// that decides which files get deleted.
 //
 // IT OBSERVES THE PREVIOUS BOOT'S STATE, deliberately. Main runs before ~/.yolo-bootstrap.sh
 // and before any lazy launcher is ever invoked, so what is on disk here is what the LAST
@@ -35,9 +43,52 @@ import (
 // by ruling.
 const catalogPrefix = "boot catalog: "
 
-// CatalogInstalledOrphans reports every installed package, ~/.local/bin entry and $GOBIN
-// binary that no selected pack, preset or LSP recipe declares — one line each, naming the
-// orphan and, for a file, its size.
+// OrphanClass names WHICH of the three finders produced an orphan, and with it the
+// mechanism that would have to remove it: an npm package is a directory under the global
+// prefix with symlinks pointing into it, while the other two are a single directory entry.
+// The class is carried rather than re-derived from the path, because the removal act
+// (orphanremove.go) branches on exactly this and a prefix match on a path is how the two
+// would come to disagree about what a `~/.local/bin` entry is.
+type OrphanClass string
+
+const (
+	// OrphanNpm is a package directory under $NPM_CONFIG_PREFIX/lib/node_modules.
+	OrphanNpm OrphanClass = "npm"
+	// OrphanLocalBin is an entry of ~/.local/bin — where a native installer lands.
+	OrphanLocalBin OrphanClass = "local-bin"
+	// OrphanGoBin is an entry of $GOPATH/bin — where the LSP bootstrap's go arm lands.
+	OrphanGoBin OrphanClass = "go-bin"
+)
+
+// Orphan is one installed thing that no selected pack, preset or LSP recipe declares.
+//
+// IT CARRIES THE BYTES' ABSOLUTE PATH, which the boot report never prints, and that is the
+// point of the type: the catalog is a report, but the removal act OQ-PD4 rules is an act on
+// FILES, and the whole reason the three surviving LSP packages in this jail could not be
+// removed by the sentinel loop is that the only thing naming them was a RECORD, which was
+// gone. An orphan is derived from the bytes on disk minus the declarations, so it can be
+// removed whether or not anything ever recorded installing it.
+type Orphan struct {
+	// Class is which finder found it — see OrphanClass.
+	Class OrphanClass
+	// Name is the npm package name (scope included) or the directory entry's name.
+	Name string
+	// Path is the ABSOLUTE path of the bytes: the package directory, or the entry.
+	Path string
+	// Display is how a report names it: the package name for npm (node_modules is
+	// indexed by name and a path would say nothing a reader can act on), the
+	// home-relative path for the two directory finders.
+	Display string
+	// Size is the rendered size of a REGULAR FILE, empty for anything else — the boot
+	// report's own rule, kept here so the boot line is composed from this struct rather
+	// than from a second walk. The removal act measures directories itself; it is a
+	// user-invoked act where a walk is affordable and the number is the point.
+	Size string
+}
+
+// InstalledOrphans returns every installed package, ~/.local/bin entry and $GOBIN binary
+// that no selected pack, preset or LSP recipe declares. It reads two directory trees and
+// the pack manifests; it writes nothing.
 //
 // THE THREE FINDERS ARE THE THREE PLACES A yolo-RUN INSTALL LANDS, and the set is closed by
 // the mechanisms rather than by taste: an npm program resolves under
@@ -47,32 +98,67 @@ const catalogPrefix = "boot catalog: "
 // INVISIBLE, which is worse the moment an explicit removal act reads this list: the act's
 // candidates would be the two classes someone happened to walk.
 //
-// It runs only when YOLO_PACK_ROOT is set. Without a staged pack tree the declared set is
-// empty for a reason that has nothing to do with what is installed (an older host launcher,
-// a backend that stages nothing), and a comparison against an empty declaration is not a
-// catalog — it is a list of everything, reported as a problem.
-func CatalogInstalledOrphans(e *Env) {
+// It answers EMPTY unless YOLO_PACK_ROOT is set. Without a staged pack tree the declared set
+// is empty for a reason that has nothing to do with what is installed (an older host
+// launcher, a backend that stages nothing), and a comparison against an empty declaration is
+// not a catalog — it is a list of everything, reported as a problem. That gate is on the
+// SHARED function rather than on the boot renderer because the removal act reads this same
+// list: a gate only the reporter honoured would leave the act computing "everything
+// installed" as its candidate set on exactly the launches where the declarations are
+// unknowable.
+func InstalledOrphans(e *Env) []Orphan {
 	if e.Getenv("YOLO_PACK_ROOT") == "" {
-		return
+		return nil
 	}
 	packs, err := LoadJailPacks(e)
 	if err != nil {
 		// The load failure is already fatal via load_packs in the boot path; a second
 		// report of the same fact would only bury it.
-		return
+		return nil
 	}
+	var out []Orphan
+	nodeModules := filepath.Join(e.NpmPrefix, "lib", "node_modules")
 	for _, name := range catalogNpmOrphans(e, packs) {
-		e.warn(catalogPrefix + "npm package installed but not declared by any selected " +
-			"pack, preset or LSP recipe: " + name)
+		out = append(out, Orphan{
+			Class:   OrphanNpm,
+			Name:    name,
+			Path:    filepath.Join(nodeModules, name),
+			Display: name,
+		})
 	}
 	for _, orphan := range catalogLocalBinOrphans(e, packs) {
-		e.warn(catalogPrefix + orphan.path + " installed but not declared by any " +
-			"selected pack" + orphan.size)
+		out = append(out, orphan.orphan(OrphanLocalBin))
 	}
 	for _, orphan := range catalogGoBinOrphans(e) {
-		e.warn(catalogPrefix + orphan.path + " installed but not declared by any " +
-			"selected pack or LSP recipe" + orphan.size)
+		out = append(out, orphan.orphan(OrphanGoBin))
 	}
+	return out
+}
+
+// CatalogInstalledOrphans reports every installed package, ~/.local/bin entry and $GOBIN
+// binary that no selected pack, preset or LSP recipe declares — one line each, naming the
+// orphan and, for a file, its size.
+//
+// It is the boot's RENDERER for InstalledOrphans and, when the user has turned the option
+// on, the caller of the removal act. Autoprune is OQ-PD4's third clause and it is DEFAULT
+// OFF: without the option this function is exactly what it was before the act existed —
+// three loops that print. See autopruneOrphans for what turning it on costs.
+func CatalogInstalledOrphans(e *Env) {
+	orphans := InstalledOrphans(e)
+	for _, o := range orphans {
+		switch o.Class {
+		case OrphanNpm:
+			e.warn(catalogPrefix + "npm package installed but not declared by any selected " +
+				"pack, preset or LSP recipe: " + o.Display)
+		case OrphanLocalBin:
+			e.warn(catalogPrefix + o.Display + " installed but not declared by any " +
+				"selected pack" + o.Size)
+		case OrphanGoBin:
+			e.warn(catalogPrefix + o.Display + " installed but not declared by any " +
+				"selected pack or LSP recipe" + o.Size)
+		}
+	}
+	autopruneOrphans(e, orphans)
 }
 
 // catalogNpmOrphans compares the global node_modules tree against every npm package name
@@ -177,6 +263,23 @@ func installedNpmPackages(e *Env) []string {
 type pathOrphan struct {
 	path string
 	size string
+	// abs is the path the report does NOT print — the one the removal act unlinks. The
+	// rendered `path` cannot be reversed into it: catalogPath collapses the home to a
+	// tilde, and re-expanding a tilde is how an act comes to delete the wrong file on a
+	// jail whose GOPATH sits outside the home.
+	abs string
+}
+
+// orphan lifts a directory finding into the shared Orphan shape. The two finders differ only
+// in which class they are, which is why they share this and the struct above.
+func (p pathOrphan) orphan(class OrphanClass) Orphan {
+	return Orphan{
+		Class:   class,
+		Name:    filepath.Base(p.abs),
+		Path:    p.abs,
+		Display: p.path,
+		Size:    p.size,
+	}
 }
 
 // catalogPath renders an absolute path the way a reader would type it: home-relative with a
@@ -287,6 +390,7 @@ func catalogDirOrphans(e *Env, dir string, declared map[string]struct{}) []pathO
 		out = append(out, pathOrphan{
 			path: catalogPath(e, full),
 			size: catalogSize(full),
+			abs:  full,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
@@ -310,16 +414,25 @@ func catalogSize(path string) string {
 	if err != nil || !fi.Mode().IsRegular() {
 		return ""
 	}
-	n := fi.Size()
+	return " (" + RenderSize(fi.Size()) + ")"
+}
+
+// RenderSize is the scale itself, split out of catalogSize for the removal act, which
+// measures DIRECTORIES (catalogSize deliberately does not) and prints the number in a
+// sentence rather than in parentheses after a path. One ladder, so a 181 MB orphan reads the
+// same in the boot catalog line, in the line that says it was deleted, and in
+// `yolo programs ls` — which is why it is exported: the CLI renders the same numbers, and a
+// second ladder there would make the same orphan two different sizes.
+func RenderSize(n int64) string {
 	switch {
 	case n < 1024:
-		return fmt.Sprintf(" (%d B)", n)
+		return fmt.Sprintf("%d B", n)
 	case n < 1024*1024:
-		return fmt.Sprintf(" (%.1f KB)", float64(n)/1024)
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
 	case n < 1024*1024*1024:
-		return fmt.Sprintf(" (%.1f MB)", float64(n)/(1024*1024))
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
 	default:
-		return fmt.Sprintf(" (%.1f GB)", float64(n)/(1024*1024*1024))
+		return fmt.Sprintf("%.1f GB", float64(n)/(1024*1024*1024))
 	}
 }
 

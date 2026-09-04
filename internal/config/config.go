@@ -62,7 +62,7 @@ var knownTopLevelConfigKeys = set(
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
 	"loopholes", "host_processes", "journal",
-	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
+	"kvm", "prune", "programs", "ephemeral_storage", "include_if_found", "agents_md_extra",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers",
 	"host_apply_on_launch", "packs",
 	"providers", "profiles", "use_profiles", "required_capabilities",
