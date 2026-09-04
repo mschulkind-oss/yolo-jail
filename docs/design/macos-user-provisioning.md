@@ -22,6 +22,15 @@ until 2026-09-04, when the last of them gained a warning. The fix is two halves 
 strict order, because the stage cannot run without the floor: **give the
 noncontainer profile a core set, then run the same stage inside the sandbox.**
 
+> [!NOTE]
+> **Terms coined here.** The **floor** is the set of packages present in a jail
+> before any config asks for anything — the image bakes one, the native profile does
+> not. The **stage** is the imperative provisioning step a launch runs *inside* the
+> jail, after the floor exists and before the agent starts. Neither is a yolo config
+> key and neither appears in the code under these names; they are this document's
+> words for two things that had none, which is why the gap between them was never
+> stated as one problem.
+
 **The most important section is §6** — the alternatives — because "the same as
 everywhere else" has a cost on this backend that it does not have in an image, and
 the ruling turns on whether that cost is worth paying.
