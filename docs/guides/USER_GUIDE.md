@@ -322,6 +322,48 @@ whatever the installer downloads.
 npm-declared program already names a registry version and needs no capture. Captures are
 machine-local and are never shared between machines.
 
+### `yolo programs` — What Is Installed, and What Nothing Asks For Any More
+
+**Run this one INSIDE a jail.** The programs it is about live in that jail's per-workspace home,
+and the declarations it compares them against come from its staged pack tree; on the host there is
+neither, and the command says so instead of guessing.
+
+```bash
+yolo programs ls                     # the report: orphans + record drift
+yolo programs remove                 # what removing them would unlink — a DRY RUN
+yolo programs remove --apply         # actually remove them
+yolo programs remove pyright --apply # ...or just one, by name
+```
+
+Dropping a pack removes its launcher and its staged files. **It has never removed the program it
+installed** — so a jail is the union of every pack it has ever selected, and an npm package or a
+`~/.local/bin` binary can outlive the config line that asked for it by months. `yolo programs ls`
+names those *orphans* with their sizes (measured 448.6 MB in this repo's own jail), plus anything
+the install receipts and the LSP sentinel now disagree with the disk about. Every boot prints the
+same orphan list as `boot catalog:` lines.
+
+Removal is deliberately awkward, in three ways:
+
+- **`remove` is a dry run** unless you pass `--apply`. It prints every path — the package
+  directory, the `bin/` symlinks pointing into it, the `@scope` directory it would empty — so what
+  you read is exactly what would go.
+- **Only an orphan can be removed.** Naming a program a pack, MCP preset, or LSP recipe still
+  declares is an error, not a no-op: drop the declaration first.
+- **`~/.local/bin` is also where you may have put things.** yolo cannot tell a tool you installed
+  by hand from a dropped pack's leftovers — both are "installed and undeclared". Read the dry run.
+
+To make each launch do it for you, put this in your **user** config
+(`~/.config/yolo-jail/config.jsonc` — a workspace config cannot set it):
+
+```jsonc
+{
+  "programs": { "autoprune": true }
+}
+```
+
+It is **off by default**, it runs with nobody present, and it is not undoable. `yolo programs ls`
+first.
+
 ---
 
 ## Configuration

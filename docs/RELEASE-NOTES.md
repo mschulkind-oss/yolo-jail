@@ -177,6 +177,14 @@ artifact digest, act, time).
 this repo's own first catalog named five orphans, not the two the design doc knew about — three
 LSP servers stranded when `lsp_servers` left the config and their sentinel record was lost.
 
+**Update (2026-09-04, `36ea2780`/`6dda9ea6`/`dbd2e925`): the explicit act now exists**, and the
+default is still that nothing is removed. In a jail, `yolo programs ls` reports the orphans and
+their sizes, `yolo programs remove` prints every path removing them would unlink, and
+`yolo programs remove --apply` does it. `"programs": {"autoprune": true}` in your USER config
+(workspace configs cannot set it) makes each launch remove what it catalogs — **off by default**,
+and worth an `ls` first, because `~/.local/bin` is also where you may have put things by hand and
+yolo cannot tell those from a dropped pack's leftovers.
+
 ### The environment briefing stops describing a jail it isn't in
 
 **What changed** (2026-08-24, `28ddea11`). The briefing now describes what the launch *applied*,
