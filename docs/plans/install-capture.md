@@ -256,6 +256,27 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    *Advice: materialize from the launcher, not a boot genStep* — §5.2 names "you pay nothing for a
    tool you never invoke" as a virtue any replacement must keep, and OQ-PD12a's design has no boot
    step at all. → an `integration/` test over two workspaces asserting one download
+
+   ⚠ **Two things slice 3 found that this line does not account for. Read them before starting.**
+
+   **`link(2)` compares the MOUNT too, so an IN-JAIL hardlink materialize may be structurally
+   impossible.** MEASURED in this jail 2026-09-04: a hardlink from the workspace bind to the
+   `/home/agent/.local` bind — one filesystem, one inode, two mounts — fails `EXDEV`, while a link
+   within one bind succeeds. The store lives on the HOST at `<CapturesDir>` and is not mounted into
+   a jail at all today; mounting it anywhere would make it one more mount, so an in-jail launcher
+   could COPY an entry but not link one, which deletes the whole point. On the host both paths are
+   ordinary directories on one filesystem and `link(2)` works. Slice 3's own answer — reach the two
+   halves through the ONE bind that contains both — has no analogue here, because no host directory
+   contains both `<CapturesDir>` and an arbitrary `<ws>/.yolo/home`. So the advice above is probably
+   inverted and materialize wants to be host-side (the run pipeline, per workspace, before launch),
+   which trades §5.2's "pay nothing for a tool you never invoke" for the property the subsystem
+   exists to buy. **That is a behaviour question, not an implementation detail: stop and ask.**
+
+   **There is no bin+platform → key INDEX.** The store is content-addressed, so nothing can compute
+   an entry's key from a program name; slice 3 records `(bin, platform, key)` in each entry's
+   `receipts.jsonl`, which answers the question only by scanning every entry. Whatever resolves a
+   capture for materialize needs a real index, and it is slice 4's to design — `packsrc`'s lockfile
+   beside the user config is the closest sibling shape.
 5. **Remove + GC.** `st_nlink == 1` on the entry's files **is** the unreferenced oracle: a materialized
    hardlink keeps the count above 1 from a workspace `yolo` cannot enumerate, so it is fail-safe by
    construction, and it closes OQ-PD4's back door by construction too — dropping a pack leaves the
