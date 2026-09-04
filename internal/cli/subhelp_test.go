@@ -71,9 +71,16 @@ func TestEveryRegisteredCommandAnswersHelp(t *testing.T) {
 					t.Errorf("`yolo %s %s` printed something other than its registered "+
 						"usage\n--- got ---\n%s\n--- want ---\n%s", sub, flag, got, want)
 				}
-				if strings.TrimSpace(stderr) != "" {
-					t.Errorf("`yolo %s %s` wrote to stderr; help belongs on stdout:\n%s",
-						sub, flag, stderr)
+				// stderr carries the startup banner and NOTHING else. This used to
+				// assert stderr was EMPTY, as a proxy for "help belongs on stdout";
+				// that proxy stopped being true when dispatchNative grew a startup
+				// banner, and asserting the actual thing is strictly stronger — it
+				// still catches usage text, a warning, or a stack trace leaking onto
+				// stderr, and it now also catches the banner going missing.
+				if want := wantStartupBanner(t); stderr != want {
+					t.Errorf("`yolo %s %s` stderr is not just the startup banner; help "+
+						"belongs on stdout\n--- got ---\n%q\n--- want ---\n%q",
+						sub, flag, stderr, want)
 				}
 				if strings.Contains(stdout, "\x1b[") {
 					t.Errorf("`yolo %s %s` emitted ANSI off a non-TTY; usage text must be "+

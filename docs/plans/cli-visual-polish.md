@@ -174,12 +174,16 @@ Highest value, low risk (text stays byte-identical after strip).
   chatter; give them `[cyan]` or `[bold]` so each phase boundary reads as a
   heading. **Caveat:** testdata/final_cmd_bash.txt + command_test.go pin these
   exact bytes → deliberate golden update, human sign-off, NOT additive.
-- [ ] **`yolo` startup banner** (run/banner.go StartupBanner + run.go:385) —
-  **Impact: low-med · Effort: low.** First line of every launch, fully
-  monochrome. Render through `richtext.Render` **at the emit site** (run.go:385)
-  so `StartupBanner`'s returned string stays byte-identical for banner_test.go:
-  dim the whole banner (it's metadata), or cyan the runtime / bold the version so
-  the pipe-delimited fields parse.
+- [ ] **`yolo` startup banner** — **Impact: low-med · Effort: low.** Fully
+  monochrome. It is now TWO lines from two renderers, so this item is two edits:
+  `internal/banner`'s `Startup` (the `yolo-jail <version> | <platform> |
+  host|in-jail` line every subcommand writes, emitted by
+  `internal/cli.emitStartupBanner`) and `run/banner.go`'s `LaunchBanner` (the
+  `Jail: <name> | <runtime>` line a launch adds, emitted by
+  `run.emitLaunchBanner`). Render through `richtext.Render` **at each emit site**
+  so both returned strings stay byte-identical for their tests: dim the whole
+  thing (it's metadata), or cyan the runtime / bold the version so the
+  pipe-delimited fields parse.
 
 ### Group C — GREEN: already good, optional polish
 

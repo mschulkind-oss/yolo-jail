@@ -76,6 +76,13 @@ func usageText() string {
 	b.WriteString("                       Inside a jail this is how you install a loophole for " +
 		"a nested\n")
 	b.WriteString("                       jail: write the layer in your own home and pass it.\n")
+	// The banner is not a flag, so it is not in the Global options list — but its
+	// hatch is the one thing about it a user needs a name for, and `yolo --help` is
+	// where they will look for it.
+	b.WriteString("\n[bold]Startup banner:[/bold]\n")
+	b.WriteString("  Every subcommand writes `yolo-jail <version> | <platform> | host|in-jail` to\n")
+	b.WriteString("  stderr first, so a pasted bug report carries them. Never on stdout, and not\n")
+	b.WriteString("  gated on a terminal. Set [cyan]YOLO_NO_BANNER[/cyan] to any non-empty value to turn it off.\n")
 	// "where supported" is gone: EVERY registered subcommand now answers --help to
 	// stdout with exit 0 and no side effect (subhelp.go, and
 	// TestEveryRegisteredCommandAnswersHelp which walks the registry to keep it

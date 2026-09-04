@@ -167,7 +167,14 @@ func IsNative(sub string) bool {
 
 // dispatchNative invokes the handler registered for sub. Callers gate on
 // IsNative first, so the not-found branch is defensive only.
+//
+// It is also where the startup banner is written, for every command in the
+// registry and before the handler runs — one insertion instead of twenty-one,
+// and it lands even when the handler goes on to hang or panic. See
+// startupbanner.go for what is deliberately excluded and why the line is on
+// stderr.
 func dispatchNative(sub string, args []string) int {
+	emitStartupBanner(os.Stderr, os.Getenv)
 	if fn, ok := registry[sub]; ok {
 		return fn(args)
 	}

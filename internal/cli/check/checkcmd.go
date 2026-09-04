@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/banner"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -195,24 +196,18 @@ func pythonMachine() string {
 	return machineForPlatform(runtime.GOOS, runtime.GOARCH)
 }
 
-// machineForPlatform maps Go's GOARCH to the uname machine spelling
-// for the given GOOS. Pure so every OS/arch combo is unit-testable, not just the
-// host's: amd64→x86_64 everywhere; arm64→aarch64 ONLY off macOS — on macOS/Apple
-// Silicon the machine name is "arm64" (audit 2026-07-18 §C: an unconditional
-// arm64→aarch64 map reported "aarch64" on darwin, diverging from the run banner).
-// Mirrors internal/cli/run.platformMachine. Any other GOARCH passes through.
+// machineForPlatform maps Go's GOARCH to the uname machine spelling for the
+// given GOOS — amd64→x86_64 everywhere; arm64→aarch64 ONLY off macOS, since on
+// macOS/Apple Silicon the machine name is "arm64" (audit 2026-07-18 §C: an
+// unconditional arm64→aarch64 map reported "aarch64" on darwin, diverging from
+// the run banner).
+//
+// It used to be a hand-copied twin of the banner's own mapping, under a comment
+// saying "mirrors internal/cli/run.platformMachine" — a mirror is not a
+// mechanism, and the divergence that audit found is what a mirror costs. It
+// delegates now; the name stays because internal/darwinpkg names it.
 func machineForPlatform(goos, goarch string) string {
-	switch goarch {
-	case "amd64":
-		return "x86_64"
-	case "arm64":
-		if goos != "darwin" {
-			return "aarch64" // Linux uname; macOS keeps arm64
-		}
-		return "arm64"
-	default:
-		return goarch
-	}
+	return banner.Machine(goos, goarch)
 }
 
 // realExec runs argv with a timeout, capturing stdout/stderr as text. A missing

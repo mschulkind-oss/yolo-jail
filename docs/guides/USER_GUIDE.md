@@ -201,6 +201,36 @@ The background loop is not an optimization. Claude Code has no proactive refresh
 
 ## CLI Commands
 
+### The startup banner
+
+Every `yolo` subcommand opens by writing one line to **stderr** before it does anything:
+
+```console
+$ yolo check
+yolo-jail 0.8.0+881.ga6f61864 | linux/x86_64 | host
+...
+```
+
+Version, platform, and which side you are on — `host`, or `in-jail` when the command was
+typed inside a jail. Paste it with any bug report; `yolo check 2>&1 | pbcopy` captures it,
+and so does any other redirect, because the line is not gated on a terminal.
+
+Two things it deliberately does **not** do. It never touches stdout, so the
+machine-readable commands (`config dump`, `describe --json`, `config drift`, `config-ref`)
+are byte-for-byte what they always were. And it is absent from `yolo --version`, `yolo
+--help`, and the hidden `yolo internal …` family, none of which is a command a bug report
+quotes.
+
+To turn it off — for a wrapper whose stderr is a contract, or a harness that diffs
+stderr — set `YOLO_NO_BANNER` to any non-empty value:
+
+```bash
+YOLO_NO_BANNER=1 yolo config drift
+```
+
+Inside a jail, the version shown is the **host** launcher's, because that is what the jail
+was built by; this is exactly why the line names the side.
+
 ### `yolo` — Start a Jail
 
 ```bash

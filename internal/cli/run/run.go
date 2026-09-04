@@ -920,9 +920,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		o.captureConfigOnTerminate(rt)
 	}
 
-	// Fresh-launch startup banner (with resource parts) to stderr for log
-	// capture (audit §B#4.
-	o.emitStartupBanner(rt, cname, resPartsFor(cfg, rt), "")
+	// Fresh-launch line (with resource parts) to stderr for log capture (audit
+	// §B#4. The version and platform came earlier, from the startup banner every
+	// subcommand prints.
+	o.emitLaunchBanner(rt, cname, resPartsFor(cfg, rt), "")
 
 	// The empty-packs notice rides immediately behind the banner: this is the LAST
 	// host-side output before the container takes the terminal, so it is the only spot
@@ -1064,10 +1065,10 @@ func insertHostServiceEnv(runCmd []string, imageRef string, services []loopholeD
 // raced-attach twin). raced selects the second banner text.
 func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.OrderedMap, raced bool) int {
 	out := o.pr(o.Stdout)
-	// Startup banner to stderr — surfaces the jail's BAKED version so a host CLI
+	// Launch line to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4.
-	o.emitStartupBanner(rt, cname, nil, o.bakedJailVersion(rt, cname))
+	o.emitLaunchBanner(rt, cname, nil, o.bakedJailVersion(rt, cname))
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
 	} else {
@@ -1122,23 +1123,27 @@ func runtimeWriteTracking(cname, workspace string) error {
 	return writeTracking(cname, resolved)
 }
 
-// emitStartupBanner writes the start-of-run banner to stderr (audit §B#4). It
-// reuses StartupBanner for consistent formatting. version is
-// version.Get; jailVersion is the container's baked
-// YOLO_VERSION (attach path only, else "").
-func (o *Options) emitStartupBanner(rt, cname string, resParts []string, jailVersion string) {
+// emitLaunchBanner writes the launch line to stderr (audit §B#4), continuing the
+// startup banner internal/cli's dispatch already wrote. jailVersion is the
+// container's baked YOLO_VERSION (attach path only, else "").
+//
+// YOLO_NO_BANNER does NOT silence this line. The hatch turns off the startup
+// banner — the thing this change added to every command — and a user who set it
+// to keep a wrapper's stderr clean did not ask to lose the container name a
+// launch has always printed.
+func (o *Options) emitLaunchBanner(rt, cname string, resParts []string, jailVersion string) {
 	// Resolve the repo root via the shared method (o.RepoRoot → reporoot.Resolve),
-	// so the banner version matches run/check and describes the yolo-jail repo,
-	// not whatever repo the cwd happens to sit in. "" → version.Get falls back to
-	// the baked stamp / "unknown".
+	// so the version this compares jailVersion against matches run/check and
+	// describes the yolo-jail repo, not whatever repo the cwd happens to sit in.
+	// "" → version.Get falls back to the baked stamp / "unknown".
 	repoRoot := ""
 	if o.RepoRoot != nil {
 		if rr, ok := o.RepoRoot(); ok {
 			repoRoot = rr.Root
 		}
 	}
-	banner := StartupBanner(version.Get(repoRoot), rt, cname, resParts, jailVersion)
-	// Fprintln, not Fprint: StartupBanner returns no trailing newline, so the old
+	banner := LaunchBanner(rt, cname, version.Get(repoRoot), jailVersion, resParts)
+	// Fprintln, not Fprint: LaunchBanner returns no trailing newline, so the old
 	// Fprint left the cursor mid-line and whatever printed next was glued onto the
 	// banner ("…pids=32768No packs are configured…", observed in a nested launch).
 	// It was invisible before only because the next writer happened to be the
