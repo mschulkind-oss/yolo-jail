@@ -362,8 +362,11 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    cited for the machine-constant shared home, is the profile/provider channel composition and says
    nothing about a home; the refusal the next clause cites (`:235-250`) was the right range all
    along. And `macosuser.go:328-377` for `LaunchArgv` was correct until this slice's refactor
-   shortened it, so it is now named rather than numbered. (This is the third wrong citation about
-   this one paragraph — `ff4730d8` fixed `:188-203` the same week.)
+   shortened it, so it is now named rather than numbered. (That makes THREE wrong `file:line`
+   citations in this one paragraph, two of them fixed on the same day: `ff4730d8`, 2026-09-04
+   09:27, replaced `run.go:188-203` — the config-change approval comment — with `:235-250`,
+   and the neighbouring `:156-159` survived that pass untouched. A paragraph this often
+   wrong about line numbers is one to cite by SYMBOL.)
 
    ### Hand-offs — what is NOT wired, and the exact line that wires it
 
