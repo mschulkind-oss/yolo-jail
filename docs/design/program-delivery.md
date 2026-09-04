@@ -314,7 +314,18 @@ get the same bytes?"* — no, and nothing anywhere notices.
 > captured from a one-time in-jail edit into `<workspace>/.yolo/prism/claude-settings.overlay.json`
 > and outranking both the pack and the host layer on every boot since 2026-08-05. It is
 > **per-workspace**, so it froze one jail and no other. Not a delivery defect — a config-capture one
-> — but it is why claude's freeze looked like the vendor's doing.
+> — but it is why claude's freeze looked like the vendor's doing. **Cleared 2026-09-03** from both
+> the overlay and the surface file; `yolo config render claude --explain` now attributes `env` to no
+> layer at all.
+>
+> ⚠ **And the pack's own switch for this is DEAD CODE.** `packs/claude/pack.json:60` renders
+> `preferences.autoUpdaterStatus: "disabled"` as a **managed** key, so it wins its layer on every
+> boot — and Claude Code 2.1.220 ignores it. Read out of the shipped binary: the only site that
+> touches `autoUpdaterStatus` fires a telemetry probe named `tengu_dead_probe_autoupdater_status`
+> and then falls through to `let n = e.autoUpdates ?? !0` — a *different* key, defaulting to **on**.
+> The name says Anthropic instrumented it precisely to count stragglers still setting it. So the
+> pack has been asserting a no-op, and the eventual evergreen commit should delete the key rather
+> than invert it.
 >
 > **The threat no-evergreen was built to stop never happened; the freeze it caused did.** That
 > asymmetry is the whole argument for [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03).

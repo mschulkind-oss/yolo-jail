@@ -577,6 +577,19 @@ code" — but it is worth building in the three places of §1 and nowhere else.
 
 ### 💬 OQ-TP7 — the refusal is fatal; the preflight and the approve path are not caught up
 
+> [!NOTE]
+> **"The preflight", defined — it is `yolo check`, and this document had been using one word for
+> two different things.** *(Definition added 2026-09-03, after a reader could not follow the title.)*
+>
+> | Spelling | What it means | Where it runs |
+> | :--- | :--- | :--- |
+> | **the preflight** (this question) | the **`yolo check`** command — the validation a human runs *before* asking for a jail restart, per AGENTS.md's *"Run `yolo check` after every edit … before asking a human to restart"* | on the host, on demand, **no container starts** |
+> | **the mechanical pre-flights** ([§3.1](#31-a-refused-contribution-refuses-the-launch-), and `run/packs.go:231`'s own comment) | the four checks *inside* `stagePacks` on the launch path — two packs claiming one destination, a name shadowing a reserved one | during a launch, after the refusal fold |
+>
+> They are different code, at different times, and only the first is what this question is about.
+> The complaint in one sentence: **the command that exists to tell you a jail will not start does
+> not know about the newest reason a jail will not start.**
+
 Raised by an adversarial verification of the OQ-TP6 build (2026-08-18). The ruling holds — every path
 to the fatal was walked and each is intended, and the two look-alikes [§3.1](#31-a-refused-contribution-refuses-the-launch-)
 names are still non-fatal and pinned by tests that go red when broken. What the build did not carry
@@ -588,7 +601,7 @@ present in the store, never run through `yolo pack install`, declaring a `progra
 That is the exact outcome [`check/packs.go`](../../internal/cli/check/packs.go) refuses to allow for a
 config-surface collision, in its own words: *"the launch refuses it, so reporting it as a warning
 would mean `yolo check` passing on a config that cannot start a jail."* It was defensible while the
-refusal was a warning; OQ-TP6 made it a fatal and left the preflight behind. The cause is one line —
+refusal was a warning; OQ-TP6 made it a fatal and left `yolo check` behind. The cause is one line —
 that loop loads the staged tree with `e.MayGrantHostFiles()`, which is `false` for every fetched pack
 whether approved or not, so it cannot ask the question at all.
 
@@ -646,8 +659,8 @@ without a fetch.
 > the launch refusal is the one this ruling made the entire user experience of the failure.
 
 **What it decides:** whether OQ-TP6's "the reader can act on it" claim is true from every place a user
-actually reads it — a CI log, an offline laptop, and the preflight command the workflow tells them to
-run before restarting.
+actually reads it — a CI log, an offline laptop, and `yolo check`, the command the workflow tells them
+to run before restarting.
 
 **Answer:**
 > _(empty — fill in when decided)_
