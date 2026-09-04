@@ -123,6 +123,17 @@
                 "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
       Get the hash: nix-prefetch-url <url>  (then convert with nix hash)
       Or set hash to "" and nix will tell you the correct one on build failure.
+    • Any object form may add [bold]platforms[/bold]: the entry applies only on
+      those platforms, and is EXPECTED-absent elsewhere rather than an error.
+      Values are Go GOOS spellings — "linux" or "darwin" — not nix system
+      doubles ("x86_64-linux"); an unknown value is a config error, because an
+      entry that matched nothing would drop the package everywhere in silence.
+      Example: {"name": "strace", "platforms": ["linux"]}
+      A bare string, and an object WITHOUT platforms, apply everywhere.
+      On the macos-user backend a declared package with no native build is a
+      FATAL launch error naming every such package at once — marking it
+      linux-only is how you say that absence is intended.  It still installs
+      normally in a container.
     Find nixpkgs commits per version: https://lazamar.co.uk/nix-versions/
     Search package names: https://search.nixos.org/packages
     Image rebuilds only when this list changes.

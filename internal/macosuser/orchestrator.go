@@ -343,7 +343,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// acceptance bar). Runs nix on the HOST user before any sandbox; on failure
 	// abort.
 	var darwin *Darwin
-	pkgs := config.EffectivePackages(opts.Config)
+	pkgs := config.EffectivePackages(opts.Config, config.PlatformDarwin)
 	if len(pkgs) > 0 {
 		// The nix build runs from the repo ROOT (the flake dir).
 		d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, pkgs)
@@ -354,16 +354,48 @@ func RunMacosUser(deps Deps, opts Options) int {
 			return 1
 		}
 		darwin = d
+		// A DECLARED PACKAGE THAT DID NOT BUILD IS FATAL (A2 piece 1, shipped
+		// 2026-09-04 — the ruling was made 2026-07-23 and the tree warn-and-skipped
+		// for a year).
+		//
+		// The old behaviour printed the skipped names and launched anyway, which
+		// masks the two cases that matter and are indistinguishable from the
+		// message: a TYPO ("ripgrpe" is not an attr, so it is "skipped"), and a
+		// package that genuinely has no darwin build. Either way the user asked for
+		// a tool, the jail started without it, and the failure surfaced later as a
+		// command that mysteriously does not exist.
+		//
+		// The eval still does NOT abort — the flake filters via
+		// yoloUnavailablePackages and builds only the available set, which was the
+		// original in-code objection to erroring. The error is raised HERE, host-side,
+		// AFTER the eval, from the returned skip list. That ordering is the whole
+		// trick: nix stays green, the CLI decides.
+		//
+		// EXPECTED-ABSENT entries are already gone: EffectivePackages dropped every
+		// `platforms` entry excluding darwin before the build, so nix never saw them
+		// and they cannot appear here. What remains is, by construction, a package the
+		// user declared for THIS platform and did not get. PackagesExcludedOn supplies
+		// the names only to explain the escape hatch in the message.
 		if darwin != nil && len(darwin.Skipped) > 0 {
-			// Names the system nix actually resolved against rather than a
-			// hardcoded arch: on an Intel Mac the skip is an x86_64-darwin fact,
-			// and blaming aarch64 sends the reader looking for the wrong cause.
-			out.printf("[yellow]Skipped packages with no "+darwinSystemLabel(darwin)+
-				" build:[/yellow] %s\n"+
-				"[dim](use the container runtime for these — or, if a name is "+
-				"unexpected, check for a typo: an unknown attr is skipped, not "+
-				"errored, because a hard error would abort the whole eval.)[/dim]",
-				strings.Join(darwin.Skipped, ", "))
+			sys := darwinSystemLabel(darwin)
+			msg := "[bold red]These packages have no " + sys + " build:[/bold red] " +
+				strings.Join(darwin.Skipped, ", ") + "\n\n" +
+				"The jail did not start, because a package you declared would have been " +
+				"silently missing inside it.\nThree ways forward:\n" +
+				"  • a TYPO is the most common cause — an unknown attribute name is " +
+				"indistinguishable from\n    a package with no build for this platform, " +
+				"so check the spelling first;\n" +
+				"  • mark it Linux-only and it becomes expected-absent here, still " +
+				"installed in a container:\n" +
+				"      {\"name\": \"<pkg>\", \"platforms\": [\"linux\"]}\n" +
+				"  • or use the Apple Container runtime (runtime: \"container\"), which " +
+				"builds them in a Linux VM."
+			if excluded := config.PackagesExcludedOn(opts.Config, config.PlatformDarwin); len(excluded) > 0 {
+				msg += "\n\n[dim]Already marked Linux-only and skipped without complaint: " +
+					strings.Join(excluded, ", ") + ".[/dim]"
+			}
+			out.print(msg)
+			return 1
 		}
 	}
 

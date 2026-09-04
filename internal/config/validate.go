@@ -244,6 +244,36 @@ func validatePackages(config *jsonx.OrderedMap, errs *[]string) {
 			add(errs, path+".name: dotted output shorthand ('gtk4.dev') is "+
 				"string-only; use the 'outputs' field on the object form")
 		}
+		// platforms: the entry applies only on these GOOS values. An UNKNOWN value is
+		// an error rather than an entry that quietly never matches — a typo like
+		// "macos" or "x86_64-linux" would otherwise silently drop the package on every
+		// platform, which is the failure this whole item exists to stop (a declared
+		// package vanishing without a word).
+		platformsV, hasPlatforms := pkg.Get("platforms")
+		if hasPlatforms {
+			list, ok := asList(platformsV)
+			if !ok {
+				add(errs, path+`.platforms: expected a list of strings (e.g. ["linux"])`)
+			} else if len(list) == 0 {
+				add(errs, path+".platforms: must not be empty — an entry that applies "+
+					"on no platform would be silently dropped everywhere; delete the "+
+					"package instead")
+			} else {
+				for pIdx, pv := range list {
+					pStr, ok := asStr(pv)
+					if !ok {
+						add(errs, fmt.Sprintf("%s.platforms[%d]: expected a string", path, pIdx))
+						continue
+					}
+					if pStr != PlatformLinux && pStr != PlatformDarwin {
+						add(errs, fmt.Sprintf("%s.platforms[%d]: unknown platform %s "+
+							"(expected %q or %q — the Go GOOS spelling, not a nix system "+
+							"double like \"x86_64-linux\")",
+							path, pIdx, pytext.Repr(pStr), PlatformLinux, PlatformDarwin))
+					}
+				}
+			}
+		}
 		outputsV, hasOutputs := pkg.Get("outputs")
 		if hasOutputs {
 			outputs, ok := asList(outputsV)
@@ -292,9 +322,14 @@ func validatePackages(config *jsonx.OrderedMap, errs *[]string) {
 					add(errs, path+"."+k+": expected a string")
 				}
 			}
-		} else if !hasOutputs {
+		} else if !hasOutputs && !hasPlatforms {
+			// `platforms` ALONE is a complete object form. The object exists to carry
+			// something a bare string cannot, and a platform restriction is exactly
+			// that — {"name": "strace", "platforms": ["linux"]} is the spelling the
+			// macos-user skip error tells users to write, so it has to validate on its
+			// own. Found 2026-09-04 by running that error's own advice.
 			add(errs, path+": object packages must use 'nixpkgs', "+
-				"'version'+'url'+'hash', or 'outputs'")
+				"'version'+'url'+'hash', 'outputs', or 'platforms'")
 		}
 	}
 }

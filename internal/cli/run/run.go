@@ -105,7 +105,8 @@ func Run(opts Options) int {
 		if o.refuseOnSourceSkew(repoRoot) {
 			return 1
 		}
-	} else if !repoRootOK && !o.DryRun && len(config.EffectivePackages(cfg)) > 0 {
+	} else if !repoRootOK && !o.DryRun &&
+		len(config.EffectivePackages(cfg, config.PlatformDarwin)) > 0 {
 		// THE OTHER HALF OF THE SAME EXEMPTION. macos-user needs no repo when
 		// `packages:` is empty — that is the whole reason for the guard above — but
 		// a NON-empty `packages:` is materialized by a host-side `nix build` against

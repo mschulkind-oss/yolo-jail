@@ -65,7 +65,7 @@ reading code or `git log`; nothing here is carried over on trust.
 | D4 (Cachix) | **substituter live; the human half is PART done** | `flake.nix:13-16` (`730c258`); `--accept-flake-config` on every nix call — `internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91` |
 | Track M (M0/M1/M2) | **landed 2026-07-21 on real HW; M2's dogfood has since lapsed** | see the M-track note below |
 | A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go:144` |
-| A2 (hard error + `linux-only`) | **HALF DONE — still open** | flake half landed (`flake.nix:1210` `yoloUnavailablePackages`); the error is still **warn-and-skip** at `internal/macosuser/orchestrator.go:258-268`, and `EffectivePackages` still has **no** platform conditional (`internal/config/derived.go:15-28`) |
+| A2 (hard error + `linux-only`) | **DONE 2026-09-04** | both pieces shipped: `platforms: ["linux"]` on the package object form filters in `EffectivePackages(cfg, platform)` BEFORE materialize, and a declared package still missing from the build aborts the launch naming every one at once (`internal/macosuser/orchestrator.go`). The plan's `linux-only` spelling became `platforms`, a list — see A2 below |
 | A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go:286` |
 | Track L part 1 (framework plumbing) | **NOT STARTED** | `startLoopholesDisclosed` is called once, at `internal/cli/run/run.go:569`, inside `runContainer` (`run.go:308`); `macosuser.EndpointGrantCommands` (`macosuser.go:430`) has **zero call sites** |
 | Track L part 2 (scoping proxy) | **BLOCKED on OQ-L1** | unchanged |
@@ -216,8 +216,19 @@ opportunistically if cheap. Closes Open item #2 in the design doc.
 
 ### A2. Darwin-unavailable packages: hard error + per-platform `linux-only` overrides
 
-> **⚠ HALF DONE — this is the one open engineering item in the plan. Rechecked
-> 2026-08-23.**
+> **✅ DONE 2026-09-04.** Both pieces shipped, and the design chose `platforms`
+> (a list of GOOS values) over the plan's `linux-only` boolean: the same field
+> then answers "darwin-only" and anything later, and it reads as a fact about the
+> package rather than as a flag about one platform. Filtering happens in
+> `EffectivePackages(cfg, platform)` BEFORE materialize, so nix never evaluates an
+> excluded entry and never reports it skipped — which is what lets the aggregated
+> error treat everything still missing as genuine, with no second list of
+> "absences that are fine" to maintain. `PackagesExcludedOn` supplies the excluded
+> names to the message only, so the escape hatch is visible at the moment it is
+> needed. The eval still does not abort: the flake filters, and the CLI decides
+> after it, which was the original in-code objection answered.
+>
+> **The record below is the 2026-08-23 state, kept for the reasoning.**
 >
 > - **Piece 1 (aggregated hard error): NOT BUILT.** The shipped behaviour is
 >   still **warn-and-skip**, at `internal/macosuser/orchestrator.go:258-268` —

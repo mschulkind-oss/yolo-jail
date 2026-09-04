@@ -7,14 +7,40 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// EffectivePackages returns config `packages` plus gpu.vaapi-implied extras
-// (mesa, libva-utils) when gpu is AMD + enabled + vaapi. Returns a copy; does
+// PlatformLinux and PlatformDarwin are the values a package entry's `platforms`
+// list may carry. They are Go GOOS spellings rather than nix system doubles
+// ("x86_64-linux"), because the fact being declared is about the PLATFORM and not
+// the architecture — an entry marked linux-only is linux-only on both arm64 and
+// amd64 — and because darwinpkg.NativeSystem already derives the nix double from
+// GOOS/GOARCH, so the config surface never has to name one.
+const (
+	PlatformLinux  = "linux"
+	PlatformDarwin = "darwin"
+)
+
+// EffectivePackages returns config `packages` for `platform`, plus gpu.vaapi-implied
+// extras (mesa, libva-utils) when gpu is AMD + enabled + vaapi. Returns a copy; does
 // not mutate config. Order is package order then the appended extras (skipping
 // any already present). Extras are strings and dedup compares against all
 // package entries; a string never equals a dict entry, so string-only
 // comparison is correct.
-func EffectivePackages(config *jsonx.OrderedMap) []any {
-	packages := listCopy(getListOrNilFalsy(config, "packages"))
+//
+// PLATFORM FILTERING happens HERE, before anything materializes, which is the whole
+// design of it (A2 piece 2). An entry whose object form carries `platforms` is dropped
+// when the target is not in that list — so nix never evaluates it, never reports it
+// skipped, and the aggregated "no build for this platform" error downstream can treat
+// everything STILL missing as a genuine problem. Filtering after the build instead
+// would mean maintaining a second list of "absences that are fine", which is the
+// bookkeeping this avoids.
+//
+// A STRING ENTRY IS EVERY PLATFORM, and an object with no `platforms` likewise — so
+// every config written before this existed means exactly what it meant before.
+//
+// `platform` is a GOOS value; an empty one disables filtering entirely, which is what
+// a caller that genuinely wants the declared list (a config dump, a diff) wants.
+func EffectivePackages(config *jsonx.OrderedMap, platform string) []any {
+	packages := filterPackagesForPlatform(
+		listCopy(getListOrNilFalsy(config, "packages")), platform)
 
 	gpu, _ := asMap(getMapOrEmpty(config, "gpu"))
 	if gpu != nil && truthy(getOr(gpu, "enabled", nil)) &&
@@ -423,4 +449,69 @@ func removeFirstAny(list []any, s string) []any {
 		}
 	}
 	return list
+}
+
+// filterPackagesForPlatform drops entries whose `platforms` list excludes `platform`.
+// An empty platform means "no filtering" (see EffectivePackages).
+func filterPackagesForPlatform(packages []any, platform string) []any {
+	if platform == "" {
+		return packages
+	}
+	out := make([]any, 0, len(packages))
+	for _, p := range packages {
+		if declared, ok := packagePlatforms(p); ok && !containsStr(declared, platform) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// packagePlatforms returns an entry's declared `platforms` list, and whether it
+// declared one at all. A string entry never declares one.
+func packagePlatforms(entry any) ([]string, bool) {
+	m, ok := asMap(entry)
+	if !ok {
+		return nil, false
+	}
+	raw, present := m.Get("platforms")
+	if !present {
+		return nil, false
+	}
+	list, ok := asList(raw)
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, 0, len(list))
+	for _, v := range list {
+		if s, ok := asStr(v); ok {
+			out = append(out, s)
+		}
+	}
+	return out, true
+}
+
+// PackagesExcludedOn returns the NAMES of entries `platforms` excludes on this
+// platform — the set whose absence from a native build is EXPECTED rather than an
+// error.
+//
+// It exists so the two halves of A2 read the same declaration: EffectivePackages
+// drops these before the build, and the aggregated error consults this to explain
+// why a name the user wrote is not present. Deriving the second list from the first
+// by subtraction would work today and silently stop working the moment anything else
+// filters a package.
+func PackagesExcludedOn(config *jsonx.OrderedMap, platform string) []string {
+	var out []string
+	for _, p := range getListOrNilFalsy(config, "packages") {
+		declared, ok := packagePlatforms(p)
+		if !ok || containsStr(declared, platform) {
+			continue
+		}
+		if m, ok := asMap(p); ok {
+			if name, ok := asStr(getOr(m, "name", nil)); ok {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
 }

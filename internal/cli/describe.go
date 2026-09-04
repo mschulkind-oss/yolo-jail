@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -91,7 +92,11 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", notch)
 	prof := confinementProfile(notch, resolvedMechanism(cfg), paths.IsMacOS)
 	printConfinementVector(pr, prof)
-	printPackageProfile(pr, prof, config.EffectivePackages(cfg), darwinpkg.ProfileRootLink(paths.Home()))
+	// Reports what THIS machine would get, so it filters on the running platform —
+	// a linux-only package listed on a Mac would be a description of someone else's
+	// jail.
+	printPackageProfile(pr, prof, config.EffectivePackages(cfg, runtime.GOOS),
+		darwinpkg.ProfileRootLink(paths.Home()))
 	if packs, perr := config.LoadPacks(nil); perr == nil && len(packs) > 0 {
 		names := make([]string, 0, len(packs))
 		for _, p := range packs {

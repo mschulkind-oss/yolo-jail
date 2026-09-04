@@ -495,7 +495,9 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 		if !repoRootOK {
 			r.fail("Skipped nix build", "repo root resolution failed")
 		} else {
-			extra := config.EffectivePackages(merged)
+			// This builds the IMAGE, so the filter asks about the image's platform (Linux),
+			// not the host running check.
+			extra := config.EffectivePackages(merged, config.PlatformLinux)
 			var extraArg []any
 			if len(extra) > 0 {
 				extraArg = extra

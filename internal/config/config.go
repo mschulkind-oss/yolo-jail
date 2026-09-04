@@ -98,7 +98,7 @@ var (
 	knownNetworkKeys     = set("mode", "ports", "forward_host_ports")
 	knownSecurityKeys    = set("blocked_tools")
 	knownBlockedToolKeys = set("name", "message", "suggestion", "block_flags")
-	knownPackageKeys     = set("name", "nixpkgs", "version", "url", "hash", "outputs")
+	knownPackageKeys     = set("name", "nixpkgs", "version", "url", "hash", "outputs", "platforms")
 	knownLSPServerKeys   = set("command", "args", "fileExtensions")
 	knownMCPServerKeys   = set("command", "args", "env", "requires_env", "provides")
 	// `api_key_env` was renamed to `api_key_env_name` on 2026-09-01 and is NOT listed here.

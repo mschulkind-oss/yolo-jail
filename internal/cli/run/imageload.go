@@ -19,7 +19,9 @@ import (
 // ready. runNormal threads it into assembleInput.imageRef, which is the single
 // source the container argv and the host-service insert point both read.
 func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) image.LoadResult {
-	extra := config.EffectivePackages(cfg)
+	// The IMAGE is Linux whatever the host is, so a `platforms` filter here asks about
+	// the image's platform and not the machine's.
+	extra := config.EffectivePackages(cfg, config.PlatformLinux)
 	remedy := nixdiag.LinuxBuilderRemedy()
 	return image.AutoLoadImage(image.AutoLoadOptions{
 		Runtime:  rt,
