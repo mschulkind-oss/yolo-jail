@@ -37,13 +37,29 @@ const (
 	KindSymlink = "symlink"
 )
 
-// RefSymlinkTarget is the one kind of absolute reference this slice gathers: a symlink whose
-// target points into the capture-time HOME. It is a named constant rather than a bare string
-// because file CONTENT references are the obvious second kind — claude's launcher shim embeds
-// its own path — and slice 6 (macos-user relocation) is where the cost of a full read pass to
-// find them is worth paying. Nothing here scans file bytes, and the manifest says so by
-// carrying only this kind.
-const RefSymlinkTarget = "symlink-target"
+// The two kinds of absolute reference a capture can record.
+//
+// RefSymlinkTarget is a symlink whose target points into the capture-time HOME, found by
+// readlink during the walk the manifest already does — nearly free, so always gathered.
+//
+// RefFileContent is the same prefix found in a regular file's BYTES. Finding those costs a full
+// read pass over the tree, so it is gathered only when asked (Options.ScanContentRefs), which
+// today is the macos-user capture and nothing else: that backend captures into a throwaway
+// staging home whose path is not the final home path, so an unrecorded reference is a dead path
+// in a materialized tree. See relocate.go.
+const (
+	RefSymlinkTarget = "symlink-target"
+	RefFileContent   = "file-content"
+)
+
+// The two values Manifest.RefScan takes: what was LOOKED AT when AbsoluteRefs was gathered.
+//
+// Recorded rather than inferred because "no reference was found" and "nothing was looked for"
+// produce the same empty list, and only one of them licenses relocating the tree.
+const (
+	RefScanSymlinks = "symlink-targets"
+	RefScanFull     = "symlink-targets+file-content"
+)
 
 // Manifest is the FILE MANIFEST member of §6.3's receipt tuple: what the installer left
 // behind, as paths relative to the jail HOME, plus what a relocation would have to rewrite.
@@ -84,12 +100,38 @@ type Manifest struct {
 	// tree/. Sorted so the file is diffable and a re-capture of an identical install
 	// produces an identical manifest.
 	Entries []ManifestEntry `json:"entries"`
-	// AbsoluteRefs are the places in the tree that name Home absolutely. Empty on the
-	// container backends by construction (capture home and materialize home are both
-	// /home/agent), and the input to slice 6's relocate-or-refuse decision everywhere
-	// else. Gathered now because gathering them during the walk the manifest already
-	// does is nearly free, and re-walking a 1.2 GB tree later is not.
+	// AbsoluteRefs are the places in the tree that name Home absolutely — the input to the
+	// relocate-or-refuse decision. Symlink targets are always gathered (the walk the
+	// manifest already does sees them for free); file-content references are gathered only
+	// when RefScan says so.
+	//
+	// On the container backends these change nothing: the capture home and the materialize
+	// home are both /home/agent, so an absolute self-reference is still correct after
+	// materialization and there is nothing to rewrite.
 	AbsoluteRefs []AbsoluteRef `json:"absoluteRefs"`
+	// RefScan is RefScanSymlinks or RefScanFull: WHAT WAS LOOKED AT when AbsoluteRefs was
+	// gathered. Empty in a manifest written before this field existed.
+	RefScan string `json:"refScan,omitempty"`
+	// Relocatable says whether this entry may be materialized into a home OTHER than Home.
+	//
+	// THE CONTRACT, in one sentence: a materialize whose destination home EQUALS Manifest.Home
+	// ignores this field entirely; a materialize into any other home must REFUSE when it is
+	// false, and must rewrite every AbsoluteRefs entry from Home to the destination when it is
+	// true. Nothing else may read it. That is why a container capture carrying
+	// relocatable:false costs nothing — its destination is always the /home/agent it was
+	// captured in — and why the default is false for a manifest that predates the field.
+	//
+	// True means the FULL scan ran and every reference it found is a plain prefix
+	// substitution away from being correct. It is never a claim that the vendor's program
+	// will work somewhere else; it is a claim that yolo enumerated what it knows how to find.
+	Relocatable bool `json:"relocatable"`
+	// NotRelocatable is why Relocatable is false, one reason per fact — the scan that was not
+	// run, or each file that embeds Home and is not text. Empty when Relocatable is true.
+	//
+	// Carried so the refusal a materialize prints can name the actual obstacle instead of
+	// "this capture is not relocatable", which sends a reader to the source of a decision
+	// made on a machine they may not have.
+	NotRelocatable []string `json:"notRelocatable,omitempty"`
 }
 
 // ManifestEntry is one path in the captured tree.
@@ -122,10 +164,15 @@ type ManifestEntry struct {
 type AbsoluteRef struct {
 	// Path is the home-relative path of the entry CARRYING the reference.
 	Path string `json:"path"`
-	// Kind is RefSymlinkTarget.
+	// Kind is RefSymlinkTarget or RefFileContent.
 	Kind string `json:"kind"`
 	// Value is the reference verbatim, so a rewrite can be a prefix substitution on a
 	// string yolo actually saw rather than one it reconstructed.
+	//
+	// For RefSymlinkTarget that is the WHOLE target (rewrite the prefix, re-create the
+	// link). For RefFileContent it is the PREFIX found in the bytes — one entry per FILE,
+	// not per occurrence, because the rewrite substitutes that prefix everywhere in the
+	// file and a second entry would be a second instruction to do the same thing.
 	Value string `json:"value"`
 }
 

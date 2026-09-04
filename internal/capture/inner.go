@@ -89,6 +89,17 @@ type Options struct {
 	// matter what the installer did to them. Nil is DefaultExcludes(); an explicit empty
 	// slice excludes nothing.
 	Excludes []string
+	// ScanContentRefs asks for the FULL absolute-reference scan: every regular file in the
+	// captured tree is read looking for Home in its bytes, on top of the symlink targets
+	// the manifest walk sees for free. It is what lets Manifest.Relocatable be true.
+	//
+	// OFF BY DEFAULT because it costs a read pass over the whole delta — 1.2 GB for claude,
+	// measured 2026-09-03 — and buys nothing on the container backends, where the capture
+	// home and the materialize home are the same /home/agent. macos-user is the caller that
+	// needs it: its capture runs against a throwaway staging home whose path is not the
+	// final home path (program-delivery.md §6.3), so an unrecorded reference materializes
+	// as a dead path.
+	ScanContentRefs bool
 	// Stdout and Stderr receive the installer's output. Nil discards it.
 	Stdout io.Writer
 	Stderr io.Writer
@@ -138,14 +149,39 @@ func Run(opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("capture manifest: %w", err)
 	}
+	// THE RELOCATION RECORD. The symlink half above is free; this half is a read pass over
+	// the delta, so it runs only when the caller says the tree will be materialized
+	// somewhere other than the home it was captured in. Both halves feed one sorted list —
+	// a rewrite reads AbsoluteRefs, not two lists it has to merge.
+	scan := RefScanSymlinks
+	var blockers []string
+	if opts.ScanContentRefs {
+		scan = RefScanFull
+		contentRefs, found, serr := scanContentRefs(d.tree, d.home)
+		if serr != nil {
+			return nil, fmt.Errorf("capture absolute references: %w", serr)
+		}
+		refs = append(refs, contentRefs...)
+		sort.Slice(refs, func(i, j int) bool {
+			if refs[i].Path != refs[j].Path {
+				return refs[i].Path < refs[j].Path
+			}
+			return refs[i].Kind < refs[j].Kind
+		})
+		blockers = found
+	}
+	relocatable, why := decideRelocatable(scan, blockers)
 	m := &Manifest{
-		Schema:       ManifestSchema,
-		Home:         d.home,
-		Platform:     Platform(),
-		Surfaces:     d.surfaceRels(),
-		Excluded:     d.excludes,
-		Entries:      entries,
-		AbsoluteRefs: refs,
+		Schema:         ManifestSchema,
+		Home:           d.home,
+		Platform:       Platform(),
+		Surfaces:       d.surfaceRels(),
+		Excluded:       d.excludes,
+		Entries:        entries,
+		AbsoluteRefs:   refs,
+		RefScan:        scan,
+		Relocatable:    relocatable,
+		NotRelocatable: why,
 	}
 	if m.Excluded == nil {
 		m.Excluded = []string{}

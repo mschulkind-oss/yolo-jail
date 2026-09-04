@@ -14,7 +14,7 @@ import (
 // home it is pointed at and MOVES the result out of it, which is correct inside a
 // throwaway capture jail and destructive anywhere else.
 const captureRunUsage = "usage: yolo internal capture-run --out=DIR [--home=DIR] " +
-	"[--surface-root=DIR] -- <installer argv...>"
+	"[--surface-root=DIR] [--scan-content-refs] -- <installer argv...>"
 
 // runCaptureRun is the in-jail half of install-capture (docs/design/program-delivery.md
 // §6.3): baseline the capture surfaces, run the installer, move the delta into --out.
@@ -28,6 +28,7 @@ const captureRunUsage = "usage: yolo internal capture-run --out=DIR [--home=DIR]
 // backends — "a process with a HOME" is the driver's entire contract with the world.
 func runCaptureRun(args []string) int {
 	out, home, surfaceRoot := "", os.Getenv("HOME"), ""
+	scanContentRefs := false
 	var command []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -39,6 +40,14 @@ func runCaptureRun(args []string) int {
 			out = strings.TrimPrefix(a, "--out=")
 		case strings.HasPrefix(a, "--home="):
 			home = strings.TrimPrefix(a, "--home=")
+		case a == "--scan-content-refs":
+			// The FULL absolute-reference scan — every regular file in the delta read
+			// looking for the capture HOME in its bytes. Passed by the macos-user host
+			// act and nobody else: that backend captures into a throwaway staging home
+			// whose path is not the home a materialize will use, so an unrecorded
+			// reference lands as a dead path. See capture.Options.ScanContentRefs for
+			// what it costs and why the container backends do not pay it.
+			scanContentRefs = true
 		case strings.HasPrefix(a, "--surface-root="):
 			// The SECOND path to the capture surfaces — see capture.Options.SurfaceRoot.
 			// Passed by the host act, which is the only party that knows the workspace
@@ -55,12 +64,13 @@ func runCaptureRun(args []string) int {
 		return 2
 	}
 	res, err := capture.Run(capture.Options{
-		Home:        home,
-		Out:         out,
-		SurfaceRoot: surfaceRoot,
-		Command:     command,
-		Stdout:      os.Stdout,
-		Stderr:      os.Stderr,
+		Home:            home,
+		Out:             out,
+		SurfaceRoot:     surfaceRoot,
+		Command:         command,
+		ScanContentRefs: scanContentRefs,
+		Stdout:          os.Stdout,
+		Stderr:          os.Stderr,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "capture-run:", err)
