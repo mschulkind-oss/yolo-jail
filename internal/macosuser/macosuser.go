@@ -288,20 +288,40 @@ func FixPermissionsScript(root, group string) string {
 // WorkspaceGrantedScript returns a bash test that exits 0 when `dir` carries an
 // ACE granting the sandbox group, and non-zero when it does not.
 //
-// WHY THIS IS NEEDED AT ALL, and it is the whole point: macOS applies an
-// inheriting ACL at CREATION TIME and never retroactively. SharedRootProvision-
-// Commands sets `chmod +a` on the shared ROOT only (no -R, deliberately — a
-// per-run walk of every workspace is what the inheriting ACE exists to avoid), so
-// a directory that already existed under that root when the ACEs were added never
-// receives them. "Projects created under it are shared automatically" is true, and
-// says nothing about projects created BEFORE.
+// WHY A WORKSPACE CAN LACK THE GRANT. Two causes, both measured 2026-09-03; the
+// second is the one that actually bit and it is not the one anybody expected.
 //
-// Measured 2026-09-03 on the first real end-to-end launch: a checkout created
-// 2026-07-14 carried only the host user's inherited ACEs, so the sandbox uid had
-// `other` = r-x and nothing more. The launch spent a sudo prompt, staged, ran the
-// bootstrap, and died six generators deep with
-// `mkdir <ws>/.yolo/prism: permission denied` — a message that names neither ACLs
-// nor `yolo macos-fix-permissions`, the command that already existed to fix it.
+//  1. CREATION ORDER. macOS applies inheritable ACEs at CREATE time and never
+//     retroactively, and SharedRootProvisionCommands sets `chmod +a` on the shared
+//     ROOT only (no -R, deliberately — a per-run walk is what the inheriting ACE
+//     exists to avoid). So a directory that already existed when the ACEs were
+//     added never receives them. "Projects created under it are shared
+//     automatically" is true, and says nothing about projects created BEFORE.
+//
+//  2. A RECREATED ACCOUNT. ACLs store a principal's UUID, not its name — so an ACE
+//     survives renaming an account and does NOT survive deleting and recreating
+//     one. On the maintainer's Mac EVERY directory under the shared root carried
+//     correctly-inherited ACEs naming uuid 0E7B72D7-…, which resolves to no user
+//     and no group: the _yolojail account had been recreated with a fresh
+//     GeneratedUID (the live group is a different uuid). The grants looked right in
+//     `ls` and granted nothing. A teardown+setup cycle is enough to cause this.
+//
+// What that cost: the launch spent a sudo prompt, staged, ran the bootstrap, and
+// died six generators deep with `mkdir <ws>/.yolo/prism: permission denied` — a
+// message naming neither ACLs nor `yolo macos-fix-permissions`, the command that
+// already existed to fix it.
+//
+// WHAT DOES AND DOES NOT INHERIT, measured on macOS 26.5 rather than assumed.
+// Everything that CREATES a new object inside the dir inherits: mkdir, touch, cp,
+// `cp -p`, `cp -a`, `cp -R`, ditto, `rsync -a`, `tar -x`, `git init`/`clone`. The
+// only creator that does NOT is `mv` within a volume, because rename(2) creates
+// nothing — the inode keeps whatever ACL it already had. (84c55268 names "rename /
+// cp -p" as the miss; the `cp -p` half is wrong on 26.5 — it inherits, and when the
+// SOURCE carries its own ACL the destination ends up with both.)
+//
+// Inheritance is NOT a function of the creating user. It is driven entirely by the
+// parent's inheritable ACEs: the creator decides the new object's owner, and the
+// setgid bit its group, but the ACL comes from the parent whoever writes it.
 //
 // WHAT THIS DOES AND DOES NOT PROVE. It detects the KNOWN cause — the ACE yolo
 // itself applies is absent — and it is exact for that. It is not a general

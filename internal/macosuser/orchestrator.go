@@ -330,10 +330,16 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// this SHOULD stop.
 	if deps.RunBash(WorkspaceGrantedScript(opts.Workspace, "")) != 0 {
 		out.printf("[bold yellow]%s is not shared with the sandbox user yet.[/bold yellow]\n"+
-			"It carries no ACL entry for the [bold]%s[/bold] group. macOS grants the "+
-			"shared-group ACL when a\ndirectory is CREATED, so a workspace that predates "+
-			"`yolo macos-setup` — or was moved in\nafterwards — never received one. "+
-			"Nothing is broken; it has not been shared yet.",
+			"It carries no usable ACL entry for the [bold]%s[/bold] group. Three ways that "+
+			"happens:\n"+
+			"  • it was created before `yolo macos-setup` ran — macOS grants the "+
+			"shared-group ACL\n    when a directory is CREATED and never retroactively;\n"+
+			"  • it was moved in with `mv`, which renames rather than creates, so nothing "+
+			"is inherited;\n"+
+			"  • the sandbox account was recreated — ACLs store a UUID, not a name, so an "+
+			"older\n    grant still LOOKS right in `ls -le` while naming a principal that "+
+			"no longer exists.\n"+
+			"Nothing is broken; this workspace has not been shared yet.",
 			opts.Workspace, SandboxGroup)
 		if deps.Confirm == nil || !deps.Confirm("Share this workspace with the sandbox user? [y/N] ") {
 			out.printf("\n[red]Not shared — the sandbox could not write here, so the launch "+
