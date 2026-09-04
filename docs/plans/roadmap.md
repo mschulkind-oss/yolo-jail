@@ -68,12 +68,15 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 > **This row aggregates three docs while naming one** (reconciled 2026-09-03, recounted 2026-09-04).
 > `trust-paths.md` now holds **NO open questions**: TP3/TP4 retired 2026-09-03 under the evergreen
 > ruling, **TP8 and TP9 ruled 2026-09-04**, and **TP7 RETIRED the same day because TP9 deleted its
-> subject**. What is left in this row is routing to **OQ-X1** and **OQ-LP8** — whose two undelivered
-> documentation requirements TP9 makes overdue, and whose **G2b residual TP9 makes moot**.
-> The other two live elsewhere and are listed here for routing only: **OQ-X1** is
-> [`pack-execution-trust.md`](../design/pack-execution-trust.md) `:316` (the doc this one partly
-> supersedes), and **OQ-LP8 / G2b** is [`loophole-packaging.md`](../design/loophole-packaging.md)
-> `:2516`, marked *mostly covered* in its overview. Read them there; this row is the routing table.
+> subject**. ✅ **OQ-LP8 closed 2026-09-04** — its two overdue documentation requirements are
+> delivered ([overview](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)):
+> *following a mutable ref IS the trust decision*, and **tag pins are the documented shape** for a
+> pack carrying code, both written into
+> [the packs guide](../guides/migrating-to-packs-and-host-management.md)'s *Sharing a pack with other
+> people*. **G2b is MOOT** — TP9 deleted the approval it would have anchored. What is left in this
+> row is routing to **OQ-X1**, which lives in
+> [`pack-execution-trust.md`](../design/pack-execution-trust.md) (the doc this one partly
+> supersedes). Read it there; this row is the routing table.
 
 **Two rulings on 2026-08-18, both closing a finding by removing a mechanism rather than adding a
 gate** — and one of them obviated a question rather than answering it:
@@ -116,6 +119,8 @@ What is still open:
   follow-on is OQ-LP8's two undelivered DOC requirements, not pin *enforcement* — a launch resolves
   from the local mirror, which only moves at `pack install`, so content is already frozen between
   installs; what deleting the gate does is make the lockfile **write-only at launch**. G2b is moot.
+  **Both DOC requirements delivered 2026-09-04** (packs guide, *Sharing a pack with other people*),
+  which closes OQ-LP8.
 - ⛔ **OQ-TP7 — RETIRED 2026-09-04, subject deleted by TP9.** All six refusal sources gate on
   `p.MayAccessHost` alone, so with no approval there is no refusal for `yolo check` to fail to
   predict and no approve path to be unreachable from CI or offline. Its one durable finding: a future
