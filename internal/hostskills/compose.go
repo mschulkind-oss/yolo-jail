@@ -43,10 +43,7 @@ package hostskills
 //     exists to prevent.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -55,6 +52,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
+	"github.com/mschulkind-oss/yolo-jail/internal/treedigest"
 )
 
 // THE COMPOSED RECORD holds path → LAST COMPOSING PACK, and both halves of that are decisions.
@@ -948,72 +946,16 @@ func PruneHostSkills(candidates []*packload.Pack, active map[string]bool, homeDi
 	return out, nil
 }
 
-// treeDigest hashes a skill's whole subtree — relative paths, entry kinds, file bytes and SYMLINK
-// TARGETS — so "is this the same skill?" is answered by content rather than by name.
-//
-// Symlink targets are part of the identity rather than followed, because a dotfile-manager
-// deployment is a tree of links: two agents' copies of one skill that link to the SAME source are
-// the same skill, and two that link to different sources are not. Following them would make every
-// such pair compare equal to whatever they happen to point at today.
-func treeDigest(root string) (string, error) { return treeDigestSkipping(root, nil) }
+// treeDigest and treeDigestSkipping are internal/treedigest, kept as package-local names
+// because they are what this package's callers and its tests already say. The bodies moved to
+// that package on 2026-09-04 so the installer-capture store (internal/capture) hashes a tree the
+// same way this one does; these tests are the gate that the lift was faithful, so they were not
+// touched. See the treedigest package comment for the canonical form and why a symlink is
+// recorded by readlink rather than followed.
+func treeDigest(root string) (string, error) { return treedigest.Of(root) }
 
-// treeDigestSkipping is treeDigest omitting a set of RELATIVE paths (and their subtrees)
-// entirely — not just their content, but their names, matching copyTreeExcept, which returns
-// before it so much as creates an excluded directory. See changedExcept for the one caller
-// that passes a set and why omitting content is honest there.
 func treeDigestSkipping(root string, skip map[string]bool) (string, error) {
-	h := sha256.New()
-	var walk func(rel string) error
-	walk = func(rel string) error {
-		if skip[rel] {
-			return nil
-		}
-		path := filepath.Join(root, rel)
-		fi, err := os.Lstat(path)
-		if err != nil {
-			return err
-		}
-		switch {
-		case fi.Mode()&os.ModeSymlink != 0:
-			target, rerr := os.Readlink(path)
-			if rerr != nil {
-				return rerr
-			}
-			fmt.Fprintf(h, "l %s %s\n", rel, target)
-			return nil
-		case fi.IsDir():
-			entries, rerr := os.ReadDir(path)
-			if rerr != nil {
-				return rerr
-			}
-			names := make([]string, 0, len(entries))
-			for _, e := range entries {
-				names = append(names, e.Name())
-			}
-			sort.Strings(names) // ReadDir already sorts; stated so the digest cannot drift with it
-			fmt.Fprintf(h, "d %s\n", rel)
-			for _, name := range names {
-				if werr := walk(filepath.Join(rel, name)); werr != nil {
-					return werr
-				}
-			}
-			return nil
-		}
-		f, oerr := os.Open(path)
-		if oerr != nil {
-			return oerr
-		}
-		defer f.Close()
-		// The exec bit is part of the identity: a skill that ships a script the user made
-		// executable is not the same skill as one that did not.
-		fmt.Fprintf(h, "f %s %o\n", rel, fi.Mode().Perm()&0o111)
-		_, cerr := io.Copy(h, f)
-		return cerr
-	}
-	if err := walk("."); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return treedigest.OfSkipping(root, skip)
 }
 
 // moveTree moves src to dst, creating dst's parent. A rename first (cheap, atomic within a
