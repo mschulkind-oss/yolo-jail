@@ -29,6 +29,12 @@ naive split repairs the workspace tier by breaking the machine one** ([§3](#3-w
 > a confinement notch: the container backends implement all three tiers with two
 > directories, and every notch has all three. The words name the separation, not
 > its implementation.
+>
+> **And a home is not a workspace.** Two unrelated paths are in play throughout and
+> only one of them moves. `/Users/Shared/yolo` (`SharedRootDefault`) is the neutral
+> root your PROJECTS live under — `/Users/Shared/yolo/yolo-jail` is a workspace.
+> `/Users/_yolojail` (`SandboxHome`) is the sandbox account's HOME, holding agent
+> config, credentials and history. Everything below is about the second.
 
 **Reads with:** [`jail-home.md`](../reference/jail-home.md) (the container home layout this
 should converge on), [`backend-parity.md`](backend-parity.md) (OQ-BP-2, the
@@ -99,12 +105,20 @@ instructions.
 Adopt the two-tier structure the container backends already have, in the one
 account this backend has.
 
+**Nothing here moves your projects.** `/Users/Shared/yolo` stays exactly as it is,
+and so does every workspace under it; the Seatbelt profile keeps granting the
+workspace you launched. What gains a per-workspace subdirectory is the sandbox
+account's HOME — a different path, for a different purpose.
+
 - **`/Users/_yolojail/` stays the machine tier.** Credentials live here, exactly as
   now. Nothing about `shared_credentials` changes.
-- **`/Users/_yolojail/workspaces/<cname>/` becomes the workspace home**, where
-  `<cname>` is the same `runtime.FromWorkspace` slug the pack staging and the
-  Seatbelt profile already key on. `HOME`/`JAIL_HOME` in the launch and bootstrap
-  env point here.
+- **`/Users/_yolojail/workspaces/<cname>/` becomes the per-workspace HOME** — the
+  home a launch on that workspace gets, not a copy of the workspace. `<cname>` is
+  the same `runtime.FromWorkspace` slug pack staging and the Seatbelt profile
+  already key on: a short name DERIVED from the workspace path, so a project at
+  `/Users/Shared/yolo/yolo-jail` gets a home at
+  `/Users/_yolojail/workspaces/yolo-yolo-jail/` while the project itself stays
+  where it is. `HOME`/`JAIL_HOME` in the launch and bootstrap env point here.
 - **The machine tier is reached by the mechanism it already uses: symlinks.**
   `configureSharedCredentials` already links `~/.claude/.credentials.json` to a
   shared target; the same links, pointed one level up, restore sharing explicitly
@@ -159,6 +173,8 @@ on macos-user exactly the mechanism this backend's design says it does not need.
    that leaks between projects is the reported defect; wanting it shared is a
    preference nobody has stated.
 
+   <!-- vantage: oq id=OQ-HT-1 leaning="Workspace tier, with no override until someone asks — history leaking between projects is the reported defect; wanting it shared is a preference nobody has stated." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -175,6 +191,8 @@ on macos-user exactly the mechanism this backend's design says it does not need.
    privileged. The alternative (migrate lazily on first launch) puts a one-time
    mutation on a hot path forever.
 
+   <!-- vantage: oq id=OQ-HT-2 leaning="A one-shot migration in `macos-setup`: already the command that owns this account's layout, already privileged, already where a user expects to wait. Migrating lazily on first launch would put a one-time mutation on a hot path forever." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -187,6 +205,8 @@ on macos-user exactly the mechanism this backend's design says it does not need.
    _Leaning:_ Per-workspace, treating concurrent same-workspace launches as the
    user's business the way an explicit stop-and-relaunch already does. Per-session would also
    multiply the migration surface in OQ-HT-2 by every session ever run.
+
+   <!-- vantage: oq id=OQ-HT-3 leaning="Per-workspace, treating concurrent same-workspace launches as the user's business the way `yolo --new` already does. Per-session would also multiply OQ-HT-2's migration surface by every session ever run." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
