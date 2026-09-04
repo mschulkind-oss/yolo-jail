@@ -26,7 +26,6 @@ package entrypoint
 // something the plan did not name.
 
 import (
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -243,11 +242,11 @@ func pathBytes(path string) int64 {
 	var total int64
 	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// An unreadable subtree contributes nothing and does not abort the walk:
-			// see OrphanRemoval.Bytes for why a low number beats no number.
-			if errors.Is(err, fs.ErrPermission) {
-				return nil
-			}
+			// EVERY walk error is swallowed, permission and otherwise: an unreadable
+			// subtree contributes nothing and does not abort the walk. See
+			// OrphanRemoval.Bytes for why a low number beats no number — and note that
+			// the act itself is about to try removing this tree anyway, so a measurement
+			// that refused to finish would only withhold the number, never the removal.
 			return nil
 		}
 		if d.Type().IsRegular() {
