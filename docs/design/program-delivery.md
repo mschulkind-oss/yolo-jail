@@ -271,6 +271,41 @@ position safe.
 > The blockers keep their position regardless: `~/.yolo/bin/block` stays **first**, ahead of the
 > launch dir, so interception still wins over installation.
 
+> [!WARNING]
+> **"Provide" is scoped, and the natural reading is a silent kill switch.** *(Found while planning,
+> 2026-09-03; the first version of this section left "a name the image does not already provide"
+> undefined, and the omission is the difference between a working feature and a no-op.)*
+>
+> **The check covers the IMAGE's own contents (`/bin`, `/usr/bin`) and the DECLARED mise tools. It
+> must never consider the install prefixes** — `$NPM_CONFIG_PREFIX/bin`, `$HOME/.local/bin`,
+> `$GOBIN`. Spelled as the obvious "is this name already resolvable on `PATH`?", the feature
+> destroys itself: after one successful install `~/.local/bin/claude` exists, so the next boot
+> writes no launcher, so `PATH` resolves the installed binary directly, and evergreen works exactly
+> once. Green, silent, and identical to the freeze this design exists to end.
+>
+> **Declared, not installed, for mise too.** `GenerateAgentLaunchers` runs at `boot.go:439` and
+> `ConfigureMisePrism` at `:491`, so on a cold boot the mise shim directory is empty when the check
+> runs. It must read the declared tool set, never the directory.
+
+> [!IMPORTANT]
+> **B2 makes the launcher reachable from inside its own update, and that is new.** With the launch
+> dir ahead of the install prefixes, any **bare-name** call of the program during an update — a
+> vendor installer that invokes `claude`, an npm postinstall that invokes `copilot` — resolves back
+> to the launcher rather than to the binary. The launcher's own calls use an absolute `$REAL_BIN`
+> and are safe; the vendor's are not, and yolo does not control them. **A launcher must therefore
+> be a no-op re-entry when it is already running for that bin** — a per-bin guard in the
+> environment. Symptom if missed: a fork bomb on the first invocation after the reorder, not a
+> subtle wrong answer.
+
+> [!IMPORTANT]
+> **`pnpm` is a project dependency and must not win this reorder.** `GeneratePackageManagerLaunchers`
+> writes a `pnpm` launcher unconditionally from a hardcoded list (`internal/entrypoint/shims.go:350`),
+> **not** gated on mise. Moved ahead of the mise shims it would shadow a `mise_tools`-declared
+> `pnpm` — an agent-class mechanism overriding a project dependency, which is exactly what
+> [P6](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) forbids. Either the
+> package-manager launchers stay behind mise, or the collision check covers declared mise tools for
+> them too. This is the one place where the two dependency classes contend for a name.
+
 ##### The four things an implementer would otherwise have to guess
 
 *Added 2026-09-03 after reading §3.5 back as the implementer rather than the author. Each of these
@@ -284,7 +319,13 @@ had a behaviour attached to it that the prose implied and did not state.*
 "agent_updates": { "*": true, "claude": false }     // all but claude
 ```
 
-Absent, it is `true`. **User scope is not a stylistic choice**: a workspace config travels with the
+Absent, it is `true`. **The key is a PACK name, not a bin name** — one pack may declare more than
+one program, and the unit a user reasons about is the pack they selected. **A specific key beats
+`"*"`**; `"*"` beats absence. **The default direction is OPEN**, which inverts the nearest precedent
+in the tree (`host_apply_on_launch` fails closed) — a faithful copy of that file would silently
+freeze every agent.
+
+**User scope is not a stylistic choice**: a workspace config travels with the
 repo and is agent-editable, which is the stated reason `packs` is read from `paths.UserConfigPath()`
 directly rather than from the merged config (`internal/config/packs.go`). A key that lets whatever
 is running in the jail freeze its own updates belongs to the same family, and a workspace-scoped
@@ -331,6 +372,13 @@ orthogonal to freshness.
 > constraint is ordering, not language: **the refresh must complete before the agent is exec'd**,
 > because the agent spawns its servers itself and a half-updated set at connect time is worse than
 > a stale one.
+>
+> **ABSENT and STALE resolve differently, and the rule that looks like it covers both does not.**
+> "Never block when a working binary is present" is about *staleness* — a server already installed
+> is used as-is if the refresh times out. A server the agent's config names and that is **not
+> installed at all** has no working copy to fall back to: it is installed synchronously, and a
+> failure there is reported rather than swallowed, because the agent is about to try to connect to
+> something that is not there. Same distinction as the agent's own cold start.
 
 **3. One writer per install prefix, and only one backend can contend.** On `podman` and `container`
 the prefixes (`~/.local`, `~/.npm-global`, `~/go`) are **per-workspace binds**, so two simultaneous
@@ -477,16 +525,24 @@ get the same bytes?"* — no, and nothing anywhere notices.
 > **per-workspace**, so it froze one jail and no other. Not a delivery defect — a config-capture one
 > — but it is why claude's freeze looked like the vendor's doing. **Cleared 2026-09-03** from both
 > the overlay and the surface file; `yolo config render claude --explain` now attributes `env` to no
-> layer at all.
+> layer at all. **And the fix is confirmed by the outcome, not just by the render:** claude had sat
+> at 2.1.220 since 2026-07-24, and self-updated to **2.1.260 at 21:44 the same evening the capture
+> was cleared** — six weeks frozen, current within hours. That is the single strongest piece of
+> evidence in this document that the freeze was configuration and not delivery.
 >
-> ⚠ **And the pack's own switch for this is DEAD CODE.** `packs/claude/pack.json:60` renders
-> `preferences.autoUpdaterStatus: "disabled"` as a **managed** key, so it wins its layer on every
-> boot — and Claude Code 2.1.220 ignores it. Read out of the shipped binary: the only site that
-> touches `autoUpdaterStatus` fires a telemetry probe named `tengu_dead_probe_autoupdater_status`
-> and then falls through to `let n = e.autoUpdates ?? !0` — a *different* key, defaulting to **on**.
-> The name says Anthropic instrumented it precisely to count stragglers still setting it. So the
-> pack has been asserting a no-op, and the eventual evergreen commit should delete the key rather
-> than invert it.
+> ⚠ **And the pack's own switch for this is DEAD CODE — the conclusion held, my first explanation
+> of WHY did not.** `packs/claude/pack.json:60` renders `preferences.autoUpdaterStatus: "disabled"`
+> as a **managed** key, so it wins its layer on every boot, and Claude Code ignores it. **The reason
+> is the wrapper, not a retired probe:** the string `"preferences"` appears **zero** times in the
+> shipped binary — measured in both 2.1.220 and 2.1.260 — so a key nested under it is unreachable
+> whatever its name. `autoUpdaterStatus` itself does have a live reader, but it is a migration over
+> `~/.claude.json`'s global-config object, a different file. *(An earlier version of this note
+> blamed a `tengu_dead_probe_autoupdater_status` telemetry probe. That string is real in 2.1.220 —
+> two hits — and gone by 2.1.260, so it was a straggler counter that has since been retired; it was
+> never the reason the pack's key is dead.)*
+>
+> Removal is still correct, and it is narrow: delete `managed.preferences`, keep the surface, whose
+> `retireOnFirstRender` is load-bearing.
 >
 > **The threat no-evergreen was built to stop never happened; the freeze it caused did.** That
 > asymmetry is the whole argument for [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03).
