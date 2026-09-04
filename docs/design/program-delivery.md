@@ -1,7 +1,7 @@
 ---
 title: "How executable content gets into a jail — and what makes two jails the same"
-date: 2026-09-03
-status: decided
+date: 2026-09-04
+status: in-review
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
 summary: "Four delivery classes, one of which keeps no record and is never re-derived — and all divergence lives there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at launch) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which."
 ---
@@ -1484,9 +1484,49 @@ which was the point.
 
 ## Open Questions
 
-**None open.** Ten were ruled 2026-08-24 and six on 2026-09-03 — see the
+**One open — [OQ-PD17](#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink).**
+Ten were ruled 2026-08-24 and six on 2026-09-03 — see the
 [Decision Ledger](#decision-ledger). The two the amendment opened were both ruled the same day and
-are kept below with their reasoning, pending the next compaction.
+are kept below with their reasoning, pending the next compaction. OQ-PD17 was opened 2026-09-04 by
+the capture build.
+
+### 💬 OQ-PD17 — what is the unreferenced oracle for a capture entry, now that reflink has retired `st_nlink`?
+
+Opened 2026-09-04 by capture slice 4. **This question was living as prose inside
+[`install-capture.md`](../plans/install-capture.md)'s build order with no ID**, which made it
+invisible to the roadmap and to the corpus-wide question count, and left this document claiming
+zero open questions while a live design decision sat in its domain. Filed here, cited from there.
+
+**What happened.** [OQ-PD10](#decision-ledger)'s capture design was written around *hardlink*
+materialize, which gave GC a free and fail-safe oracle: a materialized hardlink keeps the entry's
+link count above 1, so `st_nlink == 1` means unreferenced. Slice 4 measured that `link(2)` is
+**mount-bound** — it returns `EXDEV` between two binds of one btrfs — and built materialize on
+**reflink** (`FICLONE`) instead, which works cross-mount because it needs only the same filesystem.
+**A reflinked file has `nlink == 1` while being fully referenced**, so the oracle inverts from
+fail-safe to actively wrong: GC keyed on it would reap live entries. The copy arm always had the
+same hole; it was written as an edge case and is the norm on every ext4 machine.
+
+**What it decides:** whether captures can be reclaimed at all. Until it is answered, slice 5 is
+unbuilt and **entries accumulate with no way to remove them** — which is the disk cost this whole
+subsystem exists to delete, arriving from the other end.
+
+| | Candidate | What it costs that `st_nlink` did not |
+| :--- | :--- | :--- |
+| **(a)** | The `act:"materialize"` receipts slice 4 already writes into each workspace's `.yolo/receipts.jsonl` | Names workspace → key exactly, but reading them means **enumerating workspaces** — and `FindYoloWorkspaces` is already refused for this, because it reads `podman ps -a` and a workspace whose container was removed is invisible |
+| **(b)** | A store-side reference list | A second record that must survive a workspace deleted with `rm -rf`, i.e. it can go stale in the unsafe direction |
+| **(c)** | `FIEMAP` extent sharing | Real, but per-filesystem, and answers nothing on the copy arm |
+
+_Leaning:_ **(b), with the staleness made safe rather than assumed** — a reference list plus a
+cheap existence check of each referrer at GC time, so a `rm -rf`'d workspace drops out on the next
+sweep instead of pinning an entry forever. (a) is the most *accurate* and the least *available*;
+(c) cannot cover the copy arm, which is exactly the arm the least capable filesystems take.
+
+**What survives regardless, and does not wait on this:** the two sibling idioms the plan already
+names — an age floor for the in-flight window, and keep-newest-N per (bin, platform). Neither
+claims an entry is unreferenced, so both are safe under any oracle.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 ### ✅ OQ-PD15 — does capture GATE the evergreen rollout, or trail it? — RESOLVED (2026-09-03)
 

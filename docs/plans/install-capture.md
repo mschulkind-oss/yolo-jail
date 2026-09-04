@@ -381,8 +381,9 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    name (workspace → key) exactly, but reading them means ENUMERATING WORKSPACES, which is the
    thing `FindYoloWorkspaces` is already refused for in the Traps above; a store-side reference
    list is a second record that must survive a workspace deleted with `rm -rf`; and `FIEMAP`-style
-   extent sharing is real but per-filesystem and answers nothing on the copy arm. **Stop and ask
-   before building any of them.** What survives unchanged from the paragraph above is the pair of
+   extent sharing is real but per-filesystem and answers nothing on the copy arm. **This is now [OQ-PD17](../design/program-delivery.md#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink)**, filed in the
+   design doc where a live question belongs — it sat here without an ID, invisible to the roadmap
+   and to the corpus question count. **Stop and ask before building any of them.** What survives unchanged from the paragraph above is the pair of
    sibling idioms — an age floor for the in-flight window, keep-newest-N per (bin, platform) — which
    are safe under any oracle because neither claims an entry is unreferenced.
 6. **`macos-user`. — LANDED 2026-09-04, RECORDING HALF ONLY.** `SeatbeltCaptureProfile`:
