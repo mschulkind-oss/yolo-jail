@@ -494,26 +494,44 @@ func TestNativeFailurePathsLeaveNoReceipt(t *testing.T) {
 }
 
 // TestNativeLauncherVendorSelfUpdateEmitsNoReceipt pins the deliberate GAP, because a gap
-// nothing asserts is indistinguishable from a hook someone forgot. `"$REAL_BIN" install`
-// is the vendor's own updater: what moved, to what, and where it landed are all its
-// decisions, and the launcher observes none of them. That drift is the reconcile's to
-// report (§6.3), against the bytes rather than against a claim.
+// nothing asserts is indistinguishable from a hook someone forgot. The pack's declared
+// update verb (OQ-PD14) is the VENDOR's own updater: what moved, to what, and where it
+// landed are all its decisions, and the launcher observes none of them. That drift is the
+// reconcile's to report (§6.3), against the bytes rather than against a claim.
+//
+// The INSTALLER FALLBACK is the other half and is the opposite case: when a pack declares
+// no verb, yolo runs the install itself and does record it, with act "update". Both are
+// asserted here so the pair cannot drift into one rule.
 func TestNativeLauncherVendorSelfUpdateEmitsNoReceipt(t *testing.T) {
 	body := nativeAgentLauncher(
-		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://x.invalid/i.sh"},
-		"/stamps", "/tmp/receipts.jsonl", "",
+		&packdecl.Install{
+			Kind: "native", Bin: "probetool", InstallerURL: "https://x.invalid/i.sh",
+			UpdateVerb: []string{"update"},
+		},
+		"/stamps", "/tmp/receipts.jsonl", "", true,
 	)
+	verbCalls := 0
 	for _, line := range strings.Split(body, "\n") {
-		if !strings.Contains(line, `YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install`) {
+		if !strings.Contains(line, `_bounded "$REAL_BIN" "${UPDATE_VERB[@]}"`) {
 			continue
 		}
+		verbCalls++
 		if strings.Contains(line, "_yolo_receipt") {
 			t.Errorf("the vendor self-update must emit no receipt:\n%s", line)
 		}
 	}
+	if verbCalls != 1 {
+		t.Errorf("expected exactly one call of the declared update verb, found %d — this "+
+			"test cannot see a receipt on a branch it did not find", verbCalls)
+	}
 	// And the reason has to survive in the file, or the next reader adds the hook back.
-	if !strings.Contains(body, "EMIT NO RECEIPT") {
-		t.Error("the two self-update branches must say WHY they record nothing")
+	if !strings.Contains(body, "NO RECEIPT FOR THE VERB BRANCH") {
+		t.Error("the verb branch must say WHY it records nothing")
+	}
+	// The fallback's receipt calls itself an update, so a reconcile can tell an evergreen
+	// refresh from a cold install of the same bytes.
+	if !strings.Contains(body, `_ACT=update`) {
+		t.Error("the installer fallback must record its act as an update, not an install")
 	}
 }
 
@@ -851,7 +869,7 @@ func TestLauncherReceiptPathIsBakedNotRead(t *testing.T) {
 		"npm": npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "t", Package: "t"},
 			"/stamps", "/ws/.yolo/receipts.jsonl"),
 		"native": nativeAgentLauncher(&packdecl.Install{Kind: "native", Bin: "t", InstallerURL: "u"},
-			"/stamps", "/ws/.yolo/receipts.jsonl", ""),
+			"/stamps", "/ws/.yolo/receipts.jsonl", "", true),
 	} {
 		if !strings.Contains(body, "_YOLO_RECEIPTS=/ws/.yolo/receipts.jsonl") {
 			t.Errorf("%s launcher does not bake the receipts path:\n%s", name, body)

@@ -7,6 +7,9 @@
         "pacman": "openai-codex"
       },
       "kind": "program",
+      "update": [
+        "update"
+      ],
       "url": "https://chatgpt.com/codex/install.sh",
       "via": "installer"
     },

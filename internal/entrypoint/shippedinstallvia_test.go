@@ -40,31 +40,44 @@ import (
 // failing test rather than a jail that curls the wrong host. Each was re-fetched and read
 // on 2026-09-04: gh.io/copilot-install and chatgpt.com/codex/install.sh both answer 200
 // with a shell script.
+//
+// `update` is the pack's declared update verb (OQ-PD14), spelled here as the whole argv the
+// program is run with. EMPTY means the pack declares none and the launcher falls back per
+// `via` — `npm install -g <package>`, or a re-run of the installer — which is a real answer
+// and not a gap: for the three npm-delivered agents the registry IS the vendor's channel,
+// so a second, unmeasured path to it would buy nothing.
 var shippedDelivery = map[string]struct {
 	pack      string
 	mechanism string // "installer" or "npm"
 	source    string
+	update    string // the declared verb's argv, or "" for the via fallback
 }{
-	"claude": {"claude", "installer", "https://claude.ai/install.sh"},
-	"agy":    {"agy", "installer", "https://antigravity.google/cli/install.sh"},
+	"claude": {"claude", "installer", "https://claude.ai/install.sh", "install"},
+	"agy":    {"agy", "installer", "https://antigravity.google/cli/install.sh", "update"},
 	// FLIPPED FROM npm 2026-09-04 (OQ-PD13). codex's installer takes
 	// `${CODEX_INSTALL_DIR:-$HOME/.local/bin}` with no root branch, so its default landing
 	// path is exactly nativeLauncherTemplate's REAL_BIN — which is the constraint the flip
 	// turns on, and the one copilot fails (see the comment on its row).
-	"codex": {"codex", "installer", "https://chatgpt.com/codex/install.sh"},
+	"codex": {"codex", "installer", "https://chatgpt.com/codex/install.sh", "update"},
 	// NOT FLIPPED, and not for want of an installer. gh.io/copilot-install picks
 	// `PREFIX=/usr/local` when `id -u` is 0 and `$HOME/.local` otherwise; a container-backend
 	// jail runs as root under an unconditional `--read-only` rootfs (assemble.go), so its
 	// `mkdir -p /usr/local/bin` fails and the installer exits 1 having landed nothing.
 	// Measured in this jail 2026-09-04. The manifest cannot pass `PREFIX=`, so the flip has
 	// to wait for a way to say it.
-	"copilot":  {"copilot", "npm", "@github/copilot"},
-	"opencode": {"opencode", "npm", "opencode-ai"},
+	"copilot":  {"copilot", "npm", "@github/copilot", ""},
+	"opencode": {"opencode", "npm", "opencode-ai", ""},
 	// pi's "native installer" IS npm — pi.dev/install.sh runs `npm install -g
 	// @earendil-works/pi-coding-agent` into npm's global prefix — so a flip would change
-	// nothing about delivery and would break the launcher's REAL_BIN. Its evergreen story is
-	// the declared update verb (OQ-PD14), not `via`.
-	"pi": {"pi", "npm", "@earendil-works/pi-coding-agent"},
+	// nothing about delivery and would break the launcher's REAL_BIN.
+	//
+	// NO DECLARED VERB, which corrects the note that stood here. §3.5's table gives pi's verb
+	// as `pi update --self` and says pi "is evergreen ONLY through" it — that was written on
+	// the assumption pi would flip to a native installer, and it did not. Under npm delivery
+	// the launcher's own `npm install -g <pkg>` resolves the registry's latest, which is the
+	// same channel `pi update --self` would reach and the one measured to work here. Running
+	// the verb on top would be an unmeasured second path to one answer.
+	"pi": {"pi", "npm", "@earendil-works/pi-coding-agent", ""},
 }
 
 // stageShippedPacks materializes the embedded official packs where the boot path expects
@@ -116,6 +129,7 @@ func TestShippedAgentLaunchersUseTheDeclaredMechanism(t *testing.T) {
 			t.Fatalf("reading the %s launcher: %v", bin, err)
 		}
 		checkLauncherMechanism(t, bin, want.mechanism, want.source, string(body))
+		checkLauncherUpdateVerb(t, bin, want.update, string(body))
 	}
 	for bin := range got {
 		if _, expected := shippedDelivery[bin]; !expected {
@@ -173,5 +187,37 @@ func checkLauncherMechanism(t *testing.T, bin, mechanism, source, body string) {
 	}
 	if mechanism == "npm" && strings.Contains(body, "curl -fsSL \"$URL\"") {
 		t.Errorf("%s is delivered by npm but its launcher curls an installer", bin)
+	}
+}
+
+// checkLauncherUpdateVerb is the call-site cell for OQ-PD14's per-pack values: a verb in a
+// pack.json that never reaches the emitted launcher is a declaration that silently does
+// nothing, and the whole point of the field is that core stops guessing.
+//
+// It asserts the FLAG as well as the words, because they are two different mutations: drop
+// the projection and the flag goes to 0 with the array empty; drop the flag and the launcher
+// runs the verb branch against an empty argv (which for `claude` means starting the agent).
+func checkLauncherUpdateVerb(t *testing.T, bin, verb, body string) {
+	t.Helper()
+	if verb == "" {
+		// No verb declared: the launcher must not carry one either. Asserted as the
+		// ABSENCE of the enabled flag rather than the presence of a disabled one, so the
+		// cell reads the same for a template with no verb machinery at all (npm's, whose
+		// fallback IS `npm install -g`) and for one that has it switched off.
+		if strings.Contains(body, "HAS_UPDATE_VERB=1") {
+			t.Errorf("%s declares no update verb, but its launcher carries one", bin)
+		}
+		return
+	}
+	if !strings.Contains(body, "\nHAS_UPDATE_VERB=1\n") {
+		t.Errorf("%s declares update verb %q, but its launcher does not enable the verb "+
+			"branch — the declaration reached nothing", bin, verb)
+	}
+	// The flag and the words are two different mutations: drop the projection and the flag
+	// goes to 0 with the array empty; drop the flag and the launcher runs the verb branch
+	// against an empty argv, which for `claude` means starting the agent.
+	if want := "UPDATE_VERB=(" + verb + ")"; !strings.Contains(body, want) {
+		t.Errorf("%s launcher should carry %q — the pack's declared verb did not reach it",
+			bin, want)
 	}
 }

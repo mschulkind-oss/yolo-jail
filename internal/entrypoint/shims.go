@@ -288,7 +288,8 @@ func GenerateAgentLaunchers(e *Env) error {
 			case "npm":
 				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e))
 			case "native":
-				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e))
+				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e),
+					agentUpdatesAllows(e, p.Name))
 			default:
 				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
 				// and DecodeTolerant drops a `program` whose `via` this build does not know
@@ -391,7 +392,8 @@ func capturesDir(e *Env) string {
 	return dir
 }
 
-func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capturesPath string) string {
+func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capturesPath string,
+	updates bool) string {
 	binName := inst.Bin
 	installerURL := inst.InstallerURL
 	r := strings.NewReplacer(
@@ -400,9 +402,30 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capture
 		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
 		"__YOLO_CAPTURES_DIR__", shquote.Quote(capturesPath),
+		"__YOLO_UPDATES_ENABLED__", shquote.Quote(boolFlag(updates)),
+		"__YOLO_HAS_UPDATE_VERB__", shquote.Quote(boolFlag(len(inst.UpdateVerb) > 0)),
+		// Join, not Quote: the verb is a LIST that must reach the program as several argv
+		// words, and Join quotes each word so only the separating spaces stay splittable —
+		// the same one place in these templates where word splitting is intended, and the
+		// same treatment npmAgentLauncher gives `flags`. It lands inside `UPDATE_VERB=(…)`,
+		// which is a bare position: nothing here is inside quotes.
+		"__YOLO_UPDATE_VERB__", shquote.Join(inst.UpdateVerb),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("installer", binName, installerURL)),
 	)
 	return r.Replace(nativeLauncherTemplate)
+}
+
+// boolFlag renders a Go bool as the "1"/"0" a generated launcher tests with `[ "$X" = "1" ]`.
+//
+// Deliberately not `true`/`false`: the templates already spell every other switch that way
+// (PINNED, YOLO_PACK_UPDATE, YOLO_INSTALL_ONLY), and one variable answering a different
+// vocabulary is how a `[ "$X" = "1" ]` comes to silently mean "off" for the value someone
+// reached for to mean "on".
+func boolFlag(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 // GeneratePackageManagerLaunchers writes lazy npm launchers for package managers not
@@ -975,6 +998,15 @@ const CapturesDirEnv = "YOLO_CAPTURES_DIR"
 // nativeLauncherTemplate is the native agent launcher body. Same splice contract as
 // npmLauncherTemplate: every sentinel is a shquote'd literal in a bare position, and the
 // values that a string needs (BIN, URL) are shell variables assigned once at the top.
+//
+// IT IS AN UPDATER NOW, not only an installer (program-delivery.md §3.5, OQ-PD12/PD14).
+// It used to run `"$REAL_BIN" install` on an hourly stamp — one hardcoded verb, with no
+// status, no timeout, no lock and no policy — which is a no-op for every vendor whose verb
+// is spelled something else. What replaces it is the pack's DECLARED verb (UPDATE_VERB),
+// with the four properties §3.5 requires of an update: bounded (UPDATE_TIMEOUT),
+// serialized against the other writers of this install prefix (LOCK_DIR), scoped to the
+// invocation rather than to the jail, and not run at all when the jail's `agent_updates`
+// policy says so (UPDATES_ENABLED).
 const nativeLauncherTemplate = `#!/bin/bash
 # Lazy-update launcher — installs/updates on first use, not at boot. BIN names the program.
 set -euo pipefail
@@ -984,14 +1016,88 @@ STAMP_DIR=__YOLO_STAMP_DIR__
 STAMP="$STAMP_DIR/$BIN.stamp"
 REAL_BIN="$HOME/.local/bin/$BIN"
 UPDATE_INTERVAL=3600
+# A hung vendor updater must not hang the command the user actually typed (§3.5): after
+# this many seconds the launcher proceeds with whatever is already installed.
+UPDATE_TIMEOUT=60
+# A lock nobody released — a killed shell, a jail torn down mid-update — must not freeze
+# updates for the life of the home. Ten times the bound on a single attempt.
+STALE_LOCK=600
+# 1 when this jail's agent_updates policy lets this pack move. BAKED, so a launcher
+# generated under a frozen policy carries no update branch at all.
+UPDATES_ENABLED=__YOLO_UPDATES_ENABLED__
+# The pack's declared update verb (OQ-PD14): the program's own argv, bin omitted.
+# HAS_UPDATE_VERB gates every expansion of the array — bash before 4.4 treats
+# "${arr[@]}" on an EMPTY array as an unbound variable under "set -u", and macos-user runs
+# these launchers against a stock /bin/bash 3.2.
+HAS_UPDATE_VERB=__YOLO_HAS_UPDATE_VERB__
+UPDATE_VERB=(__YOLO_UPDATE_VERB__)
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 # The machine's install-capture store, as this jail sees it. Empty when there is none —
 # baked at generation time for the same reason as the line above; see capturesDir.
 CAPTURES_DIR=__YOLO_CAPTURES_DIR__
+# ONE lock per INSTALL PREFIX, not per program: §3.5's contention rule is about who may
+# write into $HOME/.local, and two vendor updaters running there at once is what it
+# forbids. On the container backends the prefix is a per-workspace bind and nothing can
+# contend; macos-user shares one home across every workspace and session, which is the
+# case this exists for.
+LOCK_DIR="$HOME/.local/.yolo-update.lock"
+# What a receipt calls the act that wrote the bytes. The install paths leave it alone; the
+# update path flips it, so a reconcile can tell a cold install from an evergreen refresh.
+_ACT=install
+
+# --- re-entry ----------------------------------------------------------------------
+# B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
+# from inside its own update — a vendor installer that runs "claude", an npm postinstall
+# that runs "copilot" — now resolves back to this script. The launcher's own calls go
+# through an absolute $REAL_BIN and are safe; the vendor's are not, and yolo does not
+# control them. Without this guard the first invocation after the reorder is a fork bomb,
+# not a subtle wrong answer.
+#
+# ONE variable holding a delimited SET, rather than one variable per bin: a bin name may
+# carry characters no shell identifier may (- and .), so "YOLO_LAUNCHER_ACTIVE_$BIN" is
+# not always a name that can be assigned at all.
+case ":${_YOLO_LAUNCHER_ACTIVE:-}:" in
+    *":$BIN:"*)
+        if [ -x "$REAL_BIN" ]; then exec "$REAL_BIN" "$@"; fi
+        echo "  ⚠ $BIN not available" >&2
+        exit 1
+        ;;
+esac
+export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 
 mkdir -p "$STAMP_DIR"
+mkdir -p "$HOME/.local"
 ` + stampMtimeFn + receiptShellFns + `
+# _bounded runs its argv under a wall-clock bound where the platform has one. timeout(1)
+# is GNU coreutils: the image bakes it, a stock macOS does not, and running unbounded is a
+# better answer there than not updating at all.
+_bounded() {
+    if command -v timeout >/dev/null 2>&1; then
+        YOLO_BYPASS_SHIMS=1 timeout "$UPDATE_TIMEOUT" "$@"
+    else
+        YOLO_BYPASS_SHIMS=1 "$@"
+    fi
+}
+
+# _take_lock is a NON-BLOCKING mkdir, and both halves of that are the ruling rather than an
+# implementation shortcut. There is no flock in the image and none on a stock macOS; and an
+# invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so — the user
+# typed the agent's name, so making them wait, or refusing, would be worse than running the
+# version already on disk (§3.5).
+_take_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
+    local age
+    age=$(( $(date +%s) - $(_stamp_mtime "$LOCK_DIR") ))
+    if [ "$age" -gt "$STALE_LOCK" ]; then
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+        if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
+    fi
+    return 1
+}
+
+_drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
+
 # _try_materialize puts an already-captured install into this home instead of downloading it
 # (docs/design/program-delivery.md §6.3's *materialize*). Returns 0 only when $REAL_BIN
 # exists afterwards; every other outcome falls through to the vendor installer below.
@@ -1001,6 +1107,11 @@ mkdir -p "$STAMP_DIR"
 # a machine with no capture FAIL. So every failure here — no store, no entry for this
 # bin+platform, a torn entry, a store on a filesystem that cannot even copy — is a miss, and
 # a miss is silent about everything except what the materializer itself chose to say.
+#
+# IT IS REACHED FROM THE COLD-INSTALL ARM ONLY, which is OQ-CP4's ruling rather than an
+# oversight: the store serves the FIRST install of each workspace and nothing after it, so
+# materializing from the update arm would put a captured — by then superseded — build back
+# over a newer one.
 #
 # It is a whole subprocess rather than shell that walks the tree, because the mechanism is a
 # reflink ioctl: the fallback chain (reflink -> hardlink -> copy) has no shell spelling, and
@@ -1016,16 +1127,20 @@ _try_materialize() {
     [ -x "$REAL_BIN" ]
 }
 
-_do_install() {
-    # THE CAPTURE COMES FIRST, before the download and before the stamp. This is the branch
-    # the whole subsystem exists for: the second workspace on a machine stops refetching an
-    # agent CLI that the first one already paid for (1.2 GB for claude, measured 2026-09-03,
-    # and ~/.local is a per-workspace bind).
-    if _try_materialize; then
-        touch "$STAMP"
-        return
+# _run_installer downloads the vendor's script and runs it. IT RETURNS A STATUS, and that
+# status is load-bearing for update mode alone — the same split the npm template carries,
+# for the same reason: update mode exits instead of exec'ing, so the "-x $REAL_BIN" test at
+# the bottom of this script never runs there, and without a status "yolo pack update"
+# reports success for a refresh that installed nothing.
+#
+# The launch path drops it explicitly ("|| true") rather than by accident: there a failed
+# install is not the verdict, because a failed UPGRADE still leaves a working binary to run.
+_run_installer() {
+    if [ "$_ACT" = update ]; then
+        echo "  Updating $BIN (re-running its installer — the pack declares no verb)..." >&2
+    else
+        echo "  Installing $BIN..." >&2
     fi
-    echo "  Installing $BIN..." >&2
     # Download to a file BEFORE running it, rather than curl | bash. A stale or moved
     # installer endpoint usually keeps answering 200 with a web page, and piping that
     # straight into bash reports the HTML as a bash syntax error plus a curl broken-pipe
@@ -1037,9 +1152,10 @@ _do_install() {
     # argv word rather than as however many the value's spaces suggest.
     if ! YOLO_BYPASS_SHIMS=1 curl -fsSL "$URL" -o "$script"; then
         echo "  ⚠ $BIN installer download failed: $URL" >&2
+        echo "    (no network, or the endpoint moved — nothing was changed on disk.)" >&2
         rm -f "$script"
         touch "$STAMP"
-        return
+        return 1
     fi
     # Pure-bash markup sniff: no grep, because grep is a SHIMMED tool in the jail and a
     # launcher must not depend on the block config staying compatible with these flags.
@@ -1054,45 +1170,122 @@ _do_install() {
         echo "    for its current install command." >&2
         rm -f "$script"
         touch "$STAMP"
-        return
+        return 1
     fi
     shopt -u nocasematch
     YOLO_BYPASS_SHIMS=1 bash "$script" 2>&1 || true
-    # A receipt only for a run that LEFT SOMETHING. _do_install returns 0 down every
-    # failure path above — a served web page, a failed download — because on the launch
-    # path a failed install is not the verdict, so a receipt written unconditionally here
-    # would record an install for exactly the two shapes that installed nothing. The
-    # digest is of the binary the vendor produced: an installer publishes no lockable
-    # artifact, so what it LEFT is the only resolved identity there is (§6.3).
-    if [ -x "$REAL_BIN" ]; then
-        # $REAL_BIN twice, and the two arguments are different questions: the fourth is the
-        # file to DIGEST (the resolved identity), the sixth is the LANDING PATH (§6's tuple).
-        # They coincide here because an installer's only observable output is the binary it
-        # left; at the npm funnels they do not.
-        _yolo_receipt __YOLO_RECEIPT_HEAD__ "" "" "$REAL_BIN" install "$REAL_BIN"
-    fi
     rm -f "$script"
     touch "$STAMP"
+    # A receipt only for a run that LEFT SOMETHING, and the same test is the status. An
+    # installer can fail loudly (exit 1, nothing downloaded) or quietly (exit 0, the binary
+    # under a prefix this launcher never looks at); the LANDING PATH is what separates both
+    # from a real install.
+    if [ ! -x "$REAL_BIN" ]; then
+        return 1
+    fi
+    # $REAL_BIN twice, and the two arguments are different questions: the fourth is the
+    # file to DIGEST (the resolved identity), the sixth is the LANDING PATH (§6's tuple).
+    # They coincide here because an installer's only observable output is the binary it
+    # left; at the npm funnels they do not. An installer publishes no lockable artifact, so
+    # what it LEFT is the only resolved identity there is (§6.3).
+    _yolo_receipt __YOLO_RECEIPT_HEAD__ "" "" "$REAL_BIN" "$_ACT" "$REAL_BIN"
+    return 0
 }
 
-# THE TWO VENDOR SELF-UPDATES BELOW EMIT NO RECEIPT, deliberately. "$REAL_BIN install"
-# is the vendor's own updater: it decides whether anything moved, to what, and where it
-# put it, and the launcher cannot observe any of that — a receipt written here would be a
-# guess with a timestamp on it. The drift it leaves is the RECONCILE's to report, against
-# the bytes on disk rather than against a claim (docs/design/program-delivery.md §6.3,
-# §10 step two).
-if [ ! -x "$REAL_BIN" ]; then
-    _do_install
-elif [ ! -f "$STAMP" ]; then
-    # First run since boot — try a quick update
-    YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install 2>&1 || true
-    touch "$STAMP"
-else
-    STAMP_AGE=$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))
-    if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
-        YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install 2>&1 || true
+# _do_install is the COLD path: nothing at $REAL_BIN, so try the capture store first and
+# fall through to the vendor's installer.
+_do_install() {
+    local rc=0
+    # THE CAPTURE COMES FIRST, before the download and before the stamp. This is the branch
+    # the whole subsystem exists for: the second workspace on a machine stops refetching an
+    # agent CLI that the first one already paid for (1.2 GB for claude, measured 2026-09-03,
+    # and ~/.local is a per-workspace bind).
+    if _try_materialize; then
         touch "$STAMP"
+    else
+        _run_installer || rc=$?
     fi
+    return "$rc"
+}
+
+# _update is the evergreen act (§3.5): run the pack's DECLARED verb against the installed
+# program, or — absent a verb — re-run the vendor's installer, which is OQ-PD14's fallback
+# for via: installer.
+#
+# NO RECEIPT FOR THE VERB BRANCH, deliberately. The verb is the vendor's own updater: it
+# decides whether anything moved, to what, and where it put it, and the launcher can observe
+# none of that — a receipt written here would be a guess with a timestamp on it. The drift
+# it leaves is the RECONCILE's to report, against the bytes on disk rather than against a
+# claim (program-delivery.md §6.3, §10 step two). The installer fallback DOES write one,
+# because there yolo ran the install itself.
+#
+# It returns the update's status, for _run_installer's reason, and touches the stamp on
+# every outcome — that is the throttle, and a failed attempt must not be retried on the
+# next invocation a second later.
+_update() {
+    local rc=0
+    if [ "$HAS_UPDATE_VERB" = "1" ]; then
+        echo "  Updating $BIN..." >&2
+        _bounded "$REAL_BIN" "${UPDATE_VERB[@]}" >&2 || rc=$?
+        touch "$STAMP"
+    else
+        _ACT=update
+        _run_installer || rc=$?
+    fi
+    if [ "$rc" != 0 ]; then
+        echo "  ⚠ $BIN: update failed (status $rc) — running the installed version." >&2
+    fi
+    return "$rc"
+}
+
+# _update_due is the throttle, and UPDATES_ENABLED is checked FIRST because it is the one
+# gate that is not about time: a jail whose agent_updates policy freezes this pack must
+# not even ask what the stamp says.
+_update_due() {
+    [ "$UPDATES_ENABLED" = "1" ] || return 1
+    [ -f "$STAMP" ] || return 0
+    [ "$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))" -gt "$UPDATE_INTERVAL" ]
+}
+
+# _locked_update holds the install-prefix lock across the whole act, and is the only caller
+# on the launch path. Both the "cannot take it" message and the drop live here so the two
+# entry points cannot come to disagree about them.
+_locked_update() {
+    local rc=0
+    if ! _take_lock; then
+        echo "  $BIN: another update is in progress — running the installed version." >&2
+        return 0
+    fi
+    _update || rc=$?
+    _drop_lock
+    return "$rc"
+}
+
+if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
+    # Update mode EXITS instead of exec'ing: "yolo pack update" walks every declared
+    # program in turn and must refresh them, not launch them. It ignores the stamp AND the
+    # policy — a human asked for this one, now, which is the job §3.5 leaves the verb: it
+    # is the only way to refresh a pack whose agent_updates is false.
+    _rc=0
+    if [ ! -x "$REAL_BIN" ]; then
+        _do_install || _rc=$?
+    elif _take_lock; then
+        _update || _rc=$?
+        _drop_lock
+    else
+        echo "  ⚠ $BIN: another update holds the install-prefix lock — nothing refreshed." >&2
+        _rc=1
+    fi
+    exit "$_rc"
+fi
+
+if [ ! -x "$REAL_BIN" ]; then
+    # Cold home: install, and do not let a failure be the verdict — the -x test at the
+    # bottom is, because it answers the question this path actually has (is there something
+    # to exec?).
+    _do_install || true
+elif _update_due; then
+    _locked_update || true
 fi
 
 # INSTALL AND STOP. See InstallOnlyEnv: yolo capture needs the install this launcher

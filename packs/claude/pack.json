@@ -6,6 +6,9 @@
         "brew-cask": "claude-code"
       },
       "kind": "program",
+      "update": [
+        "install"
+      ],
       "url": "https://claude.ai/install.sh",
       "via": "installer"
     },

@@ -131,8 +131,8 @@ func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 		&packdecl.Install{Kind: "npm", Bin: v, Package: v, Flags: []string{v, "--plain"}},
 		v, v), "npm launcher")
 	assertParses(t, nativeAgentLauncher(
-		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v},
-		v, v, v), "native launcher")
+		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v, UpdateVerb: []string{v, "--self"}},
+		v, v, v, true), "native launcher")
 
 	// The package-manager launcher takes no per-pack input at all: its bin and package are
 	// a hardcoded list, so the only value that can be hostile is the stamp dir, which is
@@ -256,7 +256,7 @@ fi`)
 	receipts := hostileReceiptsPath(home, "-nativereceipts")
 	body := nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
-		filepath.Join(home, "stamps"), receipts, "")
+		filepath.Join(home, "stamps"), receipts, "", true)
 
 	out, rc := runLauncher(t, home, "probetool", body, fakeBin)
 	if rc != 0 {
@@ -478,7 +478,7 @@ func TestLaunchersQuoteTheBinNameAndStampDir(t *testing.T) {
 
 		body := nativeAgentLauncher(
 			&packdecl.Install{Kind: "native", Bin: bin, InstallerURL: "https://example.invalid/i.sh"},
-			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "")
+			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "", true)
 		out, rc := runLauncher(t, home, "launcher", body, filepath.Join(home, "nonexistent-bin"))
 		if rc != 0 || !strings.Contains(out, "LAUNCHED") {
 			t.Errorf("native launcher did not exec $HOME/.local/bin/<bin> for a hostile bin "+
