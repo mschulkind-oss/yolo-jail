@@ -204,3 +204,26 @@ func TestMigrateStorageLayoutFailSafe(t *testing.T) {
 		t.Error("insideJail must not probe liveness")
 	}
 }
+
+// TestEnsureGlobalStorageCreatesTheCapturesDir pins the CALL SITE, not the path helper.
+//
+// paths.CapturesDir() is only a string until something makes the directory, and the capture store
+// needs it to exist for a reason nothing else in that MkdirAll list shares: admission is an
+// os.Rename out of <CapturesDir>/staging, so the staging root and the entries must be provisioned
+// on the same filesystem, up front, by boot — not lazily by whoever happens to run a capture
+// first. Delete paths.CapturesDir() from EnsureGlobalStorage's list and this test fails.
+func TestEnsureGlobalStorageCreatesTheCapturesDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	must(t, EnsureGlobalStorage(nil))
+
+	if st, err := os.Stat(paths.CapturesDir()); err != nil || !st.IsDir() {
+		t.Fatalf("EnsureGlobalStorage did not create %s: %v", paths.CapturesDir(), err)
+	}
+	// A sibling of the other machine-wide stores, under one state dir — a capture is
+	// per-machine like a fetched pack, never per-workspace.
+	if got, want := filepath.Dir(paths.CapturesDir()), paths.GlobalStorage(); got != want {
+		t.Errorf("captures dir parent = %q, want %q", got, want)
+	}
+}

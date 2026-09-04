@@ -422,6 +422,27 @@ func ApprovalsDir() string { return filepath.Join(GlobalStorage(), "approvals") 
 // per-workspace like every other agent artifact.
 func PacksDir() string { return filepath.Join(GlobalStorage(), "packs") }
 
+// CapturesDir returns the machine-wide INSTALL-CAPTURE store:
+// $HOME/.local/share/yolo-jail/captures. A vendor installer is run once in a throwaway jail,
+// its delta is content-addressed here, and every workspace then materializes it by hardlink
+// (program-delivery.md §6.3). So it is a SIBLING of PacksDir for the same reason PacksDir is
+// machine-wide: the fetched bytes are per-machine, and only their EFFECTS are per-workspace.
+// That is the whole point — `~/.local` is a per-workspace bind, so today claude's five builds
+// (1.2 GB, measured 2026-09-03) are re-downloaded per workspace.
+//
+// The scratch root for a capture in flight lives INSIDE this directory
+// (<CapturesDir>/staging/<id>), never /tmp: admission into the store is an os.Rename, and a
+// scratch tree on another filesystem silently turns that into a full copy of the very
+// gigabytes this subsystem exists to stop copying.
+func CapturesDir() string { return CapturesDirUnder(home()) }
+
+// CapturesDirUnder is CapturesDir under an EXPLICIT home — see GlobalStorageUnder for why a
+// caller that has already resolved which home it is writing into must not re-derive it from
+// $HOME.
+func CapturesDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), "captures")
+}
+
 // BuildDir returns the nix build-root dir.
 func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 

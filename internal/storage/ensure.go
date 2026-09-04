@@ -42,7 +42,7 @@ func EnsureGlobalStorage(migrate func()) error {
 	globalHome := paths.GlobalHome()
 	for _, d := range []string{
 		paths.GlobalStorage(), globalHome, paths.GlobalMise(), paths.GlobalCache(),
-		paths.ContainerDir(), paths.AgentsDir(), paths.BuildDir(),
+		paths.ContainerDir(), paths.AgentsDir(), paths.BuildDir(), paths.CapturesDir(),
 	} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err

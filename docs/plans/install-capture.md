@@ -91,9 +91,15 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 
 ## Build order
 
-1. **`internal/treedigest` + `paths.CapturesDir()` + the store skeleton.** Lift the digest, add the
-   path pair and the `ensure.go` mkdir, write `admit`/`resolve`/completion-marker with the torn-write
-   redo. No CLI. → `go test ./internal/treedigest ./internal/hostskills ./internal/capture ./internal/paths`
+1. **`internal/treedigest` + `paths.CapturesDir()` + the store skeleton. — LANDED 2026-09-04.** Lift
+   the digest, add the path pair and the `ensure.go` mkdir, write `admit`/`resolve`/completion-marker
+   with the torn-write redo. No CLI. → `go test ./internal/treedigest ./internal/hostskills ./internal/capture ./internal/paths`
+   *Two corrections from building it.* `PacksDir` is a bare `func PacksDir() string`, **not** a
+   `Dir()`/`DirUnder(home)` pair — the pair shape copied is `GeneratedBinDir`/`GeneratedBinDirUnder`
+   (`paths.go:357-363`), sited beside `PacksDir` as the map says. And the entry is
+   `entries/<key>/tree/` with the marker in the entry ROOT beside it, one level deeper than
+   packsrc's `trees/<sha>/`: metadata (slice 2's manifest) then has a home that is not inside the
+   tree materialize hardlinks wholesale.
 2. **The inner driver, `yolo internal capture-run`.** Baseline walk of the three home-relative roots
    → run the installer → delta manifest → move the delta paths into the out dir (same filesystem, so
    rename). Backend-neutral: it is a process with a `HOME`, nothing more. Drive it in tests with a

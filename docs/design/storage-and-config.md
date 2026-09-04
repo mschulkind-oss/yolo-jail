@@ -111,7 +111,11 @@ the config (`config-safety.md`, OQ-D1). A non-interactive launch with a changed 
 
 ## 2. Host Storage Layout
 
-All persistent jail state lives under `~/.local/share/yolo-jail/`:
+All persistent jail state lives under `~/.local/share/yolo-jail/`. The tree below is **not
+exhaustive** and has not been for a long time: `packs/`, `captures/`, `build/`, `approvals/`,
+`flake-bundle/`, `bin/`, `locks/`, `logs/`, `state/`, `owners/`, `loopholes/` and `archive/` are
+siblings of what it lists (`rg -n 'paths.GlobalStorage\(\)'` is the authority). `captures/` is
+spelled out here because it is a new on-disk contract; the rest of the gap is left as-is.
 
 ```
 ~/.local/share/yolo-jail/
@@ -124,6 +128,11 @@ All persistent jail state lives under `~/.local/share/yolo-jail/`:
 │                             macOS podman and Apple Container use the yolo-mise-data-v2
 │                             named volume instead, also mounted at /mise)
 ├── containers/            → Tracking files for running containers
+├── captures/              → Machine-wide install-capture store (program-delivery.md §6.3):
+│                            entries/<key>/tree/ is a captured installer's delta, unpacked
+│                            and hardlinked into each workspace; staging/<id>/ is the scratch
+│                            for a capture in flight, INSIDE this dir because admission is an
+│                            os.Rename (paths.CapturesDir)
 └── agents/                → Per-container AGENTS.md files
     └── yolo-<hash>/
         └── AGENTS.md      → Mounted read-only at each pack's declared briefing

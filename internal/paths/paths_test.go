@@ -229,3 +229,26 @@ func TestWrapDirUnderExplicitHome(t *testing.T) {
 		t.Errorf("WrapDir() = %q, want %q", got, want)
 	}
 }
+
+// TestCapturesDirUnderExplicitHome pins the install-capture store's location and its Under form.
+//
+// The pair exists for the reason GlobalStorageUnder documents — a caller that has already resolved
+// which home it is writing into must not re-derive it from $HOME — and the location matters on its
+// own: a capture is admitted by renaming a staging tree into it, so the store and its staging area
+// have to be one directory on one filesystem, not /tmp plus a copy.
+func TestCapturesDirUnderExplicitHome(t *testing.T) {
+	t.Setenv("HOME", "/home/invoking-user")
+
+	const rendered = "/tmp/rendered-home"
+	if got, want := CapturesDirUnder(rendered), "/tmp/rendered-home/.local/share/yolo-jail/captures"; got != want {
+		t.Errorf("CapturesDirUnder(%q) = %q, want %q", rendered, got, want)
+	}
+	if got, want := CapturesDir(), "/home/invoking-user/.local/share/yolo-jail/captures"; got != want {
+		t.Errorf("CapturesDir() = %q, want %q", got, want)
+	}
+	// A sibling of PacksDir, and for the same reason: both hold third-party bytes fetched once
+	// per MACHINE, whose per-workspace effects live elsewhere.
+	if got, want := filepath.Dir(CapturesDir()), filepath.Dir(PacksDir()); got != want {
+		t.Errorf("captures and packs must share a parent: %q vs %q", got, want)
+	}
+}
