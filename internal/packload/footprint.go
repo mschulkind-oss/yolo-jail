@@ -91,12 +91,17 @@ type Footprint struct {
 //
 // # The prose is a RENDERING, never the record
 //
-// packdecl.Manifest.HostAccessClaims stays the machine-comparable identity, and this function
-// never feeds it — nothing compares or records a sentence. What §6 demands
-// of a rendering is INJECTIVITY: two claims that differ must never render identically, or the
-// banner shows one line where two things crossed. Every branch below therefore embeds Target
-// verbatim, and embeds Detail verbatim except where Detail is a constant of the kind
-// (reads-host) or is a fixed prefix plus the fact itself (program's installer URL).
+// §6 wrote this requirement against `packdecl.Manifest.HostAccessClaims`, the string the
+// approval prompt printed and the lockfile stored. OQ-TP9 deleted that function with the
+// approval, so there is no longer a second string to be the record — which does NOT retire the
+// requirement, it relocates it. The Claim's own (Kind, Target, Detail) is the identity now, and
+// keeping it legible is why `run.disclosedClaims` appends the kind as a trailing `[kind]` tag
+// and why every branch below embeds Target verbatim, and Detail verbatim except where Detail is
+// a constant of the kind (reads-host) or a fixed prefix plus the fact itself (program's
+// installer URL).
+//
+// What that buys is INJECTIVITY: two claims that differ must never render identically, or the
+// banner shows one line where two things crossed.
 // TestDisclosureSentenceDistinguishesClaimsThatDiffer pins it over the claims FootprintOf
 // actually produces, which is the set the guarantee is about.
 //

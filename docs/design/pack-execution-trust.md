@@ -3,13 +3,13 @@ title: "What a fetched pack may execute, and what you are agreeing to"
 date: 2026-08-17
 status: in-review
 tags: [packs, trust, approval, security]
-summary: "SUPERSEDED IN PART. The proposal — replace the mechanism list with one property, a fetched pack may execute only content it pins — rests on a premise that proved false. §5 is live; OQ-X1 was retired 2026-09-04, subsumed by trust-paths.md OQ-TP9, which deleted the gate it asked about; §6 is ruled, unbuilt, and retargeted onto the startup banner; §3 and §4 are retired. The supersession map in the header says which is which."
+summary: "SUPERSEDED IN PART. The proposal — replace the mechanism list with one property, a fetched pack may execute only content it pins — rests on a premise that proved false. §5 is live; OQ-X1 was retired 2026-09-04, subsumed by trust-paths.md OQ-TP9, which deleted the gate it asked about; §6 is ruled, retargeted onto the startup banner, and built there; §3 and §4 are retired. The supersession map in the header says which is which."
 ---
 
 # What a fetched pack may execute, and what you are agreeing to
 
 **Status:** SUPERSEDED IN PART, 2026-08-17 — **supersession map and every code anchor re-verified
-2026-08-23.** §5 is live; **OQ-X1 was RETIRED 2026-09-04 (subsumed by `trust-paths.md` OQ-TP9)**; §6 is RULED, still unbuilt, and **retargeted by TP9 onto the startup banner**; §3's premise is FALSE and §4's
+2026-08-23.** §5 is live; **OQ-X1 was RETIRED 2026-09-04 (subsumed by `trust-paths.md` OQ-TP9)**; §6 is RULED, **retargeted by TP9 onto the startup banner, and BUILT there 2026-09-04**; §3's premise is FALSE and §4's
 table is retired. **Read the map below before trusting any section of this document**, because
 "superseded in part" without saying which part is worse than no warning at all.
 
@@ -48,7 +48,7 @@ out to be false; see §3.*
 | **§3** | P1: a fetched pack may cause execution only of content it pins — *"the rule already applied one level up"* | ⚠️ **premise FALSE, shape survives.** No commit pin is enforced anywhere; P1 itself is neither adopted nor rejected |
 | **§4** | the permit/refuse table | ❌ **retired.** Its live-hole row was closed a different way (OQ-TP5, `b3a29ad8`); the rest are unbuilt proposals. Kept as documentation, annotated in place |
 | **§5** | a digest-pinned installer script is not a digest-pinned binary | ✅ **authoritative and live** — untouched by anything since, and it is what OQ-X1 turns on |
-| **§6** | approval prose must say what is touched, in which direction, on whose machine | ✅ **authoritative, RULED, NOT BUILT** — claims still render as terse tokens ([`contributes.go:983-1005`](../../internal/packdecl/contributes.go), verified 2026-08-23, repinned 2026-09-02) |
+| **§6** | approval prose must say what is touched, in which direction, on whose machine | ✅ **authoritative, RULED, and BUILT 2026-09-04** — retargeted by TP9 onto the startup banner, which renders each claim as a sentence (`packload.Claim.DisclosureSentence`). The terse-token form it replaced is quoted in §6 |
 | **§7** | four things this does not license | ✅ **three of four hold**; the *"not a new lockfile"* bullet is refuted — see the warning there |
 
 **Reads with:** [`trust-paths.md`](./trust-paths.md) (**read this first** — the inventory that
@@ -79,13 +79,13 @@ URL whose contents run as a shell script … a fetched pack cannot introduce one
 let a git ref execute arbitrary code in the jail."*
 
 > [!NOTE]
-> **One thing in this section has moved since it was written: the refusal is now FATAL.** When this
-> was drafted the host computed the refusal, printed a warning, and staged the pack anyway — so the
-> table's ✅ was true of the *decision* and false of the *outcome*. `stagePacks` now returns
-> `refusedLaunchError` and no jail starts (OQ-TP6, built 2026-08-18 `6385dfbb`; verified still in the
-> tree 2026-08-23 at [`run/packs.go:229,248`](../../internal/cli/run/packs.go) and
-> [`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go)). The gate's **membership** —
-> which four things it covers — is unchanged.
+> **This section describes a gate that no longer exists, and the note that used to sharpen it is
+> spent.** As drafted, the host computed the refusal, printed a warning and staged the pack anyway;
+> OQ-TP6 then made it FATAL (built 2026-08-18, `6385dfbb`). **Both are now moot**:
+> [`trust-paths.md`](trust-paths.md) OQ-TP9 deleted the whole fetched-pack host-access gate on
+> 2026-09-04, taking `packMayAccessHost`, `run.refusedLaunchError` and
+> `internal/cli/run/packrefusal.go` with it — which is why the file this note used to cite is not
+> in the tree. Read the section for what the gate WAS; nothing in it is current behaviour.
 
 ---
 
@@ -219,15 +219,52 @@ question here.
 
 ---
 
-## 6. Approval must be readable — RULED, and still unbuilt
+## 6. Approval must be readable — RULED, RETARGETED, and BUILT on the banner 2026-09-04
 
 *"Print the claims at approval time, but they need to be understandable by a new user."*
 
-**This is the one ruling in this document that nothing has superseded, and nothing has implemented
-either.** Verified 2026-08-23, repinned 2026-09-02: claims still render as terse tokens, one line each, from
-[`HostAccessClaims`](../../internal/packdecl/contributes.go) at `contributes.go:983-1005` — and that
-is the string the approval prompt prints ([`pack.go:1236-1239`](../../internal/cli/pack.go)), the
-string the lockfile records, and the string the launch gate compares. Exactly as below:
+> [!IMPORTANT]
+> **The ruling outlived its original surface.** It was aimed at the fetched-pack APPROVAL PROMPT, and
+> [`trust-paths.md`](trust-paths.md) **OQ-TP9** (2026-09-04) deleted that prompt as theatre. TP9
+> RETARGETED the ruling rather than retiring it: the **startup transparency banner** — a separate
+> rendering, `packload.FootprintOf` read through `run.disclosedClaims` — is now the only place a user
+> sees what a pack reaches, so *"understandable by a new user"* applies to it and matters more than
+> it did.
+>
+> **Built there 2026-09-04.** `packload.Claim.DisclosureSentence` renders each claim as a sentence
+> naming what is touched, in which direction, and on whose machine; `run.disclosedClaims` calls it,
+> keeping the kind as a trailing `[kind]` tag so the claim's identity stays beside the prose. The
+> requirements below are what it implements, and the tests are named against them
+> (`internal/packload/disclosuresentence_test.go`,
+> `internal/cli/run/packdisclosurereadable_test.go` — the second drives the real printer, so
+> deleting the call site turns it red).
+>
+> **What it covers, stated as a list rather than as "everything".** The banner renders the six
+> claim classes `run.disclosureClasses` marks as crossing: `reads-host`, `mount`,
+> `program via installer`, `briefing after host:`, `env`, and `loophole`. The `loophole` kind was
+> already at this bar before the change — its claims read *"RUNS … on your machine"*, *"TRUSTS the
+> CA in …"* — and the work was bringing the other five up to it.
+
+> [!WARNING]
+> **The banner is NOT a complete account of what a pack reaches, and this section must not be read
+> as claiming otherwise.** A wrapped plugin's `hooks` and `mcpServers` are reported under
+> `KindSkills`, which `run.disclosureClasses` classifies `disclosureSkip` — so they appear in
+> `yolo pack footprint` and **in no launch banner at all**, while the agent runs the hook at every
+> tool call. Found while OQ-TP9 was landing and pinned where the behaviour actually is:
+> `run.TestWrappedPluginHooksAreDeliveredAndDisclosed` asserts the FOOTPRINT claim (green), and its
+> own doc comment names the banner as the gap. Filed as **OQ-TP10** in
+> [`trust-paths.md`](trust-paths.md).
+>
+> It matters more since TP9 than it would have before: a fetched pack's plugin components used to be
+> refused, so there was nothing to disclose; now every pack's hooks arrive and an on-demand report is
+> all a user has. **Making §6's rendering readable does not close it** — the claim is filtered out by
+> class in `run.disclosedClaims` and never reaches the renderer at all.
+
+**What the terse form looked like, and why it failed.** Verified 2026-08-23, repinned 2026-09-02:
+claims rendered as terse tokens, one line each, from
+[`HostAccessClaims`](../../internal/packdecl/contributes.go) — which was the string the approval
+prompt printed, the string the lockfile recorded, and the string the launch gate compared. Exactly
+as below:
 
 ```text
 reads-host .claude/settings.json
@@ -237,9 +274,8 @@ briefing .claude/CLAUDE.md
 ```
 
 A new user cannot act on that. `reads-host` is jargon, the path is relative to an unstated root, and
-nothing says what the pack will *do* with it or what the risk is. The approval prompt must render
-each claim as a sentence naming **what is touched, in which direction, and on whose machine** — for
-example:
+nothing says what the pack will *do* with it or what the risk is. The rendering must give each claim
+as a sentence naming **what is touched, in which direction, and on whose machine** — for example:
 
 ```text
 This pack wants to:
@@ -254,9 +290,19 @@ This pack wants to:
 - The underlying claim string stays the machine-comparable identity (it is what `HostAccessApproved`
   compares, and what the lockfile records). The prose is a **rendering**, never the record — two
   claims that differ must never render identically.
+  *Built: `DisclosureSentence` feeds nothing and is pinned injective over the claims `FootprintOf`
+  produces (`TestDisclosureSentenceDistinguishesClaimsThatDiffer`).*
 - Every claim says whose machine, because "host" means nothing to a new user.
+  *Built: every sentence carries "YOUR HOME on this machine" or "INSIDE THE JAIL", asserted per claim
+  by `TestDisclosureSentenceNamesDirectionAndWhoseMachine`.*
 - A pinned thing shows its pin; an unpinned thing must say so in words, since after P1 that is the
   distinction that decides whether it is allowed at all.
+  *Built as the unpinned half only, which is the whole of today's truth: `packdecl.Contribution`
+  carries `url` and no digest, so an installer line says **NOT PINNED** in words and shows no digest.
+  Whoever adds a digest field must render what it COVERS — the script, not what the script itself
+  downloads (§5's shallow-pin problem, and retired OQ-X1's surviving condition);
+  `TestDisclosureSentenceSaysAnInstallerIsUnpinned` fails if a pin word appears while no field
+  carries one.*
 
 ---
 
@@ -295,7 +341,7 @@ settled them; rows ruled inside this document are identified by their **section*
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **§6** | Approval prose must name **what is touched, in which direction, and on whose machine**; the claim string stays the machine-comparable record and the prose is only a rendering. **Ruled, not built** | 2026-08-17 | [§6](#6-approval-must-be-readable--ruled-and-still-unbuilt) |
+| **§6** | Approval prose must name **what is touched, in which direction, and on whose machine**; the claim string stays the machine-comparable record and the prose is only a rendering. Ruled 2026-08-17; **retargeted onto the startup banner by TP9 and BUILT there 2026-09-04** (`packload.Claim.DisclosureSentence`) | 2026-09-04 | [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) |
 | **§4 row 2** | The launcher's unconditional `@latest` append is fixed (`65f14342`), so a version, dist-tag or range is expressible. The objection is spent; the row is still not *taken* | 2026-08-17 | [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation) |
 | **§3** | P1's justification — *"the rule already applied one level up"* — is **false**. The commit pin is recorded and never consulted; P1's *shape* survives, its *precedent* does not | 2026-08-17 | [§3](#3-the-principle) · `trust-paths.md` §1 |
 | **§7** | *"Not a new lockfile"* is **refuted**: the lockfile is per **fetched** pack and has no field for a package version; every npm-declaring pack is embedded | 2026-08-18 | [§7](#7-what-this-does-not-license) · `trust-paths.md` OQ-TP4 |
@@ -338,9 +384,12 @@ pack at all, or whether such packs must wait for the agent to ship a binary or a
 >
 > **What survives, and it is the leaning's condition, not its verdict:** *"the approval prose must
 > **say** it is a shallow pin, rather than showing a digest that implies more than it delivers."*
-> The approval prose is gone, so that obligation moves where [§6](#6-approval-must-be-readable--ruled-and-still-unbuilt)'s
+> The approval prose is gone, so that obligation moves where [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04)'s
 > does — onto the **startup banner**, now the only place a user sees what a pack reaches. A digest
-> shown there must not imply a depth it does not have.
+> shown there must not imply a depth it does not have. **Honored 2026-09-04**: the banner's installer
+> line says **NOT PINNED** in words and shows no digest, because no manifest field carries one, and
+> `TestDisclosureSentenceSaysAnInstallerIsUnpinned` fails if a pin word ever appears without a field
+> behind it.
 
 _Leaning (superseded — see above):_ **Allow it, labelled honestly as a shallow pin.** Refusing buys little once pinned `npm`
 is permitted — an npm package's postinstall fetches whatever it likes too, so the second hop exists
