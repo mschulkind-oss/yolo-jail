@@ -481,22 +481,7 @@ func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.Ordere
 	if home == "" {
 		home = SandboxHome()
 	}
-	protected := map[string]struct{}{"HOME": {}, "USER": {}, "SHELL": {}, "PATH": {}}
-	envPairs := []string{
-		"HOME=" + home,
-		"USER=" + user,
-		"SHELL=/bin/zsh",
-		"PATH=" + SandboxPath(home, pathPrefix),
-	}
-	if sandboxEnv != nil {
-		for _, k := range sandboxEnv.Keys() {
-			if _, ok := protected[k]; ok {
-				continue // never let a caller override the identity/PATH quartet
-			}
-			v, _ := sandboxEnv.Get(k)
-			envPairs = append(envPairs, k+"="+asStr(v))
-		}
-	}
+	envPairs := sandboxEnvPairs(home, user, SandboxPath(home, pathPrefix), sandboxEnv)
 	// Run the agent from the workspace. A login zsh cd's in, then execs the
 	// agent so it inherits the TTY and PID.
 	quotedAgent := make([]string, len(agentArgv))
@@ -523,6 +508,34 @@ func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.Ordere
 		inner,
 	)
 	return out
+}
+
+// sandboxEnvPairs renders the `env -i` K=V list for a process run AS the sandbox user: the
+// HOME/USER/SHELL/PATH quartet this backend owns, then everything the caller composed.
+//
+// The quartet is PROTECTED — a caller's own HOME or PATH is dropped, never merged — because
+// these four are what make the process the sandbox user's rather than a copy of whatever the
+// invoking shell had. Shared by the agent launch (LaunchArgv) and the install-capture driver
+// (CaptureDriverArgv), which differ in what they exec and in nothing about the environment they
+// exec it in; two spellings of that would be two ways for a capture to stop resembling a launch.
+func sandboxEnvPairs(home, user, pathValue string, sandboxEnv *jsonx.OrderedMap) []string {
+	protected := map[string]struct{}{"HOME": {}, "USER": {}, "SHELL": {}, "PATH": {}}
+	envPairs := []string{
+		"HOME=" + home,
+		"USER=" + user,
+		"SHELL=/bin/zsh",
+		"PATH=" + pathValue,
+	}
+	if sandboxEnv != nil {
+		for _, k := range sandboxEnv.Keys() {
+			if _, ok := protected[k]; ok {
+				continue // never let a caller override the identity/PATH quartet
+			}
+			v, _ := sandboxEnv.Get(k)
+			envPairs = append(envPairs, k+"="+asStr(v))
+		}
+	}
+	return envPairs
 }
 
 // ---------------------------------------------------------------------------

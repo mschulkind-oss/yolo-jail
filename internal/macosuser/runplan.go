@@ -114,7 +114,11 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // the loaded jail config; `sandboxEnv` is the fully-resolved launch env;
 // `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
 // to self-exec as the bootstrap; `hostPackRoot` is the host-side staged pack tree
-// the run pipeline produced before dispatching here (""=no packs). `darwin` may be nil.
+// the run pipeline produced before dispatching here (""=no packs); `hostHomeOverlay`
+// is the host-side composed CONTENT tree — skills and briefings, already laid out at
+// their home-relative destinations (""=nothing to deliver); `blockedTools` are the
+// selected packs' own blocked-tool declarations, merged with the config's security
+// section (core blocks nothing by default). `darwin` may be nil.
 func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot, hostHomeOverlay string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
 	darwinPrefix := []string{}
 	darwinEnv := jsonx.NewOrderedMap()
@@ -160,11 +164,77 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		}
 	}
 
-	// The bootstrap env baked onto the self-exec argv: the generator contract
-	// the entrypoint reads (YOLO_HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/LSP/MCP), the
-	// git identity, and the three
-	// YOLO_DARWIN_* extras the darwin-bootstrap subcommand consumes (workspace,
-	// macos-log mode, and the login-rc PATH). Reuses the container-side resolvers.
+	// THE TWO STAGED TREES the bootstrap renders from, resolved here from their host-side
+	// counterparts and handed to buildBootstrapEnv, which turns each into the env var that
+	// tells the bootstrap it exists. Each is named only when the launch actually staged
+	// one, so a launch that staged nothing says so by ABSENCE rather than by naming a
+	// directory that is not there — see buildBootstrapEnv for what each does, and
+	// StageCommands below for the copies that put them there.
+	packRoot := ""
+	if hostPackRoot != "" {
+		packRoot = StagedPackRoot(cname, "")
+	}
+	homeOverlay := ""
+	if hostHomeOverlay != "" {
+		homeOverlay = StagedHomeOverlay(cname, "")
+	}
+	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
+		homeOverlay, SandboxHome(), darwinPrefix, blockedTools)
+
+	stagedYolo := StagedYoloPath("")
+	offendingHome, offendingSet := HomeContaining(workspace, "")
+
+	return RunPlan{
+		Workspace:   workspace,
+		Cname:       cname,
+		ProfilePath: profilePath,
+		Seatbelt:    SeatbeltProfile(workspace, SandboxHome(), cfgStrList(cfg, "workspace_readonly")),
+		StagedDir:   stateDir,
+		StagedYolo:  stagedYolo,
+		// Binary first, then the pack trees, then the content overlay: all three are
+		// prerequisites of the bootstrap the caller runs immediately after this list,
+		// and the binary is the one that fails most cheaply.
+		StageCommands: append(append(StageBinaryCommands(selfExe, ""),
+			StagePackCommands(hostPackRoot, cname, "")...),
+			StageHomeOverlayCommands(hostHomeOverlay, cname, "")...),
+		PackRoot:           packRoot,
+		BootstrapArgv:      DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
+		LaunchArgv:         LaunchArgv(agentArgv, profilePath, sandboxEnv, workspace, "", "", darwinPrefix),
+		GitIdentity:        gitIdentity,
+		OffendingHome:      offendingHome,
+		OffendingHomeSet:   offendingSet,
+		DarwinPathPrefix:   darwinPrefix,
+		DarwinEnv:          darwinEnv,
+		DarwinSkipped:      darwinSkipped,
+		DarwinMaterialized: darwin != nil,
+	}
+}
+
+// buildBootstrapEnv composes the env baked onto the `yolo internal darwin-bootstrap` self-exec
+// argv: the generator contract the entrypoint reads
+// (YOLO_HOST_DIR/BLOCK_CONFIG/MISE_TOOLS/LSP/MCP/HOST_FILES/PACK_ROOT), the git identity, the
+// two provider/profile wire tables, and the four YOLO_DARWIN_* extras the subcommand consumes
+// (workspace, macos-log mode, login-rc PATH, home overlay). Reuses the container-side resolvers.
+//
+// `home` is the home the bootstrap will generate INTO, and it is a parameter rather than
+// SandboxHome() because an install capture bootstraps a THROWAWAY STAGING HOME instead
+// (capture.go): it needs the same launchers, shims and pack surfaces a launch would produce —
+// the capture runs the generated launcher, not a second implementation of the install — but
+// generated against the home the capture is about to run in. It is used for the login-rc PATH;
+// the HOME/JAIL_HOME pair is baked by DarwinBootstrapArgv, which takes the same value.
+//
+// `packRoot` and `homeOverlay` are the ALREADY-STAGED destinations (StagedPackRoot,
+// StagedHomeOverlay), not their host-side sources, and "" means the caller staged nothing of
+// that kind. They are resolved by the caller rather than here because the caller is also what
+// emits the commands that stage them, and the two must not be able to disagree.
+//
+// `blockedTools` are the selected packs' blocked-tool declarations. They are a PARAMETER
+// because core blocks nothing by default since the guardrails pack took the rules over — the
+// config's security section alone would render an empty YOLO_BLOCK_CONFIG and the generated
+// home would carry no blockers at all.
+func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.OrderedMap,
+	packRoot, homeOverlay, home string, darwinPrefix []string,
+	blockedTools []packload.BlockedTool) *jsonx.OrderedMap {
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
 	blockJSON, _ := jsonx.DumpsCompact(config.NormalizeBlockedToolsWith(securitySection(cfg), blockedTools))
@@ -203,27 +273,22 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	// RunDarwinBootstrap's LoadJailPacks returns nothing and every pack loop below it
 	// (ConfigurePackSurfaces, RunPackHooks) iterates an empty list — silently, since
 	// "no packs mounted" is a legitimate state that renders nothing rather than failing
-	// (B-0). Set only when the launch actually staged a tree, so a genuinely pack-less
+	// (B-0). The caller passes "" when the launch staged nothing, so a genuinely pack-less
 	// launch still says so by ABSENCE rather than by naming a directory that is not there.
-	packRoot := ""
-	homeOverlay := ""
-	if hostHomeOverlay != "" {
-		homeOverlay = StagedHomeOverlay(cname, "")
-	}
-	if hostPackRoot != "" {
-		packRoot = StagedPackRoot(cname, "")
+	if packRoot != "" {
 		bootstrapEnv.Set("YOLO_PACK_ROOT", packRoot)
 	}
+
 	// YOLO_DARWIN_HOME_OVERLAY — the composed CONTENT tree (skills + briefings) the
-	// bootstrap copies over the sandbox home. Set only when there is content to
-	// deliver, on the same reasoning as YOLO_PACK_ROOT: absence is the honest way to
+	// bootstrap copies over the home it is generating into. Set only when there is content
+	// to deliver, on the same reasoning as YOLO_PACK_ROOT: absence is the honest way to
 	// say "nothing to install", and a variable naming a directory that is not there
 	// would make an empty delivery indistinguishable from a broken one.
 	//
 	// It carries a PATH, not a mapping. The tree is already laid out at the
 	// home-relative destinations the container path would have mounted, so installing
 	// it is one recursive copy and the bootstrap needs no table to interpret.
-	if hostHomeOverlay != "" {
+	if homeOverlay != "" {
 		bootstrapEnv.Set("YOLO_DARWIN_HOME_OVERLAY", homeOverlay)
 	}
 
@@ -250,35 +315,8 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
 	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
 	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
-	bootstrapEnv.Set("YOLO_DARWIN_LOGIN_PATH", SandboxPath(SandboxHome(), darwinPrefix))
-
-	stagedYolo := StagedYoloPath("")
-	offendingHome, offendingSet := HomeContaining(workspace, "")
-
-	return RunPlan{
-		Workspace:   workspace,
-		Cname:       cname,
-		ProfilePath: profilePath,
-		Seatbelt:    SeatbeltProfile(workspace, SandboxHome(), cfgStrList(cfg, "workspace_readonly")),
-		StagedDir:   stateDir,
-		StagedYolo:  stagedYolo,
-		// Binary first, then the pack trees: both are prerequisites of the bootstrap
-		// the caller runs immediately after this list, and the binary is the one that
-		// fails most cheaply.
-		StageCommands: append(append(StageBinaryCommands(selfExe, ""),
-			StagePackCommands(hostPackRoot, cname, "")...),
-			StageHomeOverlayCommands(hostHomeOverlay, cname, "")...),
-		PackRoot:           packRoot,
-		BootstrapArgv:      DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
-		LaunchArgv:         LaunchArgv(agentArgv, profilePath, sandboxEnv, workspace, "", "", darwinPrefix),
-		GitIdentity:        gitIdentity,
-		OffendingHome:      offendingHome,
-		OffendingHomeSet:   offendingSet,
-		DarwinPathPrefix:   darwinPrefix,
-		DarwinEnv:          darwinEnv,
-		DarwinSkipped:      darwinSkipped,
-		DarwinMaterialized: darwin != nil,
-	}
+	bootstrapEnv.Set("YOLO_DARWIN_LOGIN_PATH", SandboxPath(home, darwinPrefix))
+	return bootstrapEnv
 }
 
 // PlanInvariants returns static-check violation messages over a RunPlan (all
