@@ -307,9 +307,21 @@ func TestComposeClaudeSettingsEnforcesManaged(t *testing.T) {
 	if res.ConfigMap()["skipDangerousModePermissionPrompt"] != true {
 		t.Errorf("skipDangerousModePermissionPrompt = %v, want true", res.ConfigMap()["skipDangerousModePermissionPrompt"])
 	}
+	// `preferences` is NO LONGER MANAGED, so the host's value survives — and that is the
+	// assertion, not an omission. The pack forced preferences.autoUpdaterStatus="disabled"
+	// until 2026-09-04, when it was deleted as unreadable (nothing in Claude Code reads a
+	// `preferences` wrapper; see builtin_test.go's claude/settings cell) and as pointing
+	// the wrong way anyway: an agent CLI is an AGENT dependency and wants to be current
+	// (program-delivery.md §3.5). Re-managing the key would stomp this host value again
+	// and fail here.
 	prefs, ok := res.ConfigMap()["preferences"].(map[string]any)
-	if !ok || prefs["autoUpdaterStatus"] != "disabled" {
-		t.Errorf("preferences = %#v, want autoUpdaterStatus=disabled", res.ConfigMap()["preferences"])
+	if !ok || prefs["autoUpdaterStatus"] != "enabled" {
+		t.Errorf("preferences = %#v, want the host's autoUpdaterStatus=enabled passed "+
+			"through — yolo no longer manages this key", res.ConfigMap()["preferences"])
+	}
+	if res.Provenance["preferences"] == layerManaged {
+		t.Errorf("preferences provenance = %q — yolo must claim no layer for a key it no "+
+			"longer sets", res.Provenance["preferences"])
 	}
 	// A host key with no managed/default counterpart passes through untouched.
 	if res.ConfigMap()["someHostOnlyKey"] != "kept" {

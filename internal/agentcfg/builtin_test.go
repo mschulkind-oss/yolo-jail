@@ -62,12 +62,22 @@ func TestBuiltinClaudeSettingsSurface(t *testing.T) {
 	if !reflect.DeepEqual(perms["additionalDirectories"], []any{"/"}) {
 		t.Errorf("permissions.additionalDirectories = %#v, want [/]", perms["additionalDirectories"])
 	}
-	prefs, ok := s.ManagedMap()["preferences"].(map[string]any)
-	if !ok {
-		t.Fatalf("claude/settings managed preferences not an object: %T", s.ManagedMap()["preferences"])
-	}
-	if prefs["autoUpdaterStatus"] != "disabled" {
-		t.Errorf("preferences.autoUpdaterStatus = %v, want disabled", prefs["autoUpdaterStatus"])
+	// AND NO `preferences` BLOCK, which is the assertion this used to make backwards.
+	// The pack rendered preferences.autoUpdaterStatus="disabled" as a MANAGED key — so it
+	// won its layer on every boot — and Claude Code never read it: the string
+	// `"preferences"` appears zero times in the shipped binary (measured in 2.1.220,
+	// 2.1.260 and 2.1.261), so a key nested under that wrapper is unreachable whatever it
+	// is called. `autoUpdaterStatus` does have a live reader, but it is a migration over
+	// ~/.claude.json's global-config object — a different file entirely.
+	//
+	// Deleted 2026-09-04 under program-delivery.md §3.5: an agent CLI is an AGENT
+	// dependency and wants to be current, so the correct value of a working switch here
+	// would be "enabled" rather than "disabled". Re-adding either spelling is the mutation
+	// this line exists to catch.
+	if prefs, present := s.ManagedMap()["preferences"]; present {
+		t.Errorf("claude/settings manages a `preferences` block (%v) — nothing in Claude "+
+			"Code reads that wrapper, so a managed key under it is a promise the render "+
+			"cannot keep", prefs)
 	}
 }
 

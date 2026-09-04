@@ -149,7 +149,7 @@ func TestApplyHostRemovesDroppedPackOverlayKeyOnConfirm(t *testing.T) {
 	}
 	// The owner pack's own managed keys are still asserted — this run RENDERED claude/settings,
 	// and the prune must not have raced or undone that.
-	if _, present := keys["preferences"]; !present {
+	if _, present := keys["permissions"]; !present {
 		t.Errorf("the owning pack's managed keys must still be asserted:\n%s",
 			mustReadFile(t, hostSettingsPath(home)))
 	}
@@ -308,7 +308,7 @@ func TestApplyHostKeepsUserKeySharingAPackKeyName(t *testing.T) {
 	// the shape of every hand-written key yolo has ever rendered alongside.
 	writeFile(t, filepath.Join(home, ".local", "share", "yolo-jail", "host-provenance",
 		"claude-settings.provenance"),
-		"fileSuggestion\thost\nmySentinel\thost\npreferences\tmanaged\n")
+		"fileSuggestion\thost\nmySentinel\thost\npermissions\tmanaged\n")
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {

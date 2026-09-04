@@ -55,11 +55,6 @@
         {
           "agent": "claude",
           "codec": "json",
-          "managed": {
-            "preferences": {
-              "autoUpdaterStatus": "disabled"
-            }
-          },
           "name": "settings",
           "path": "~/.claude/settings.json",
           "retireOnFirstRender": [

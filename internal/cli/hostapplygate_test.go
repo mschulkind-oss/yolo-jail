@@ -61,8 +61,8 @@ func driftTheHome(t *testing.T, home string) string {
 	if err != nil {
 		t.Fatalf("fixture bug: %v", err)
 	}
-	edited := strings.Replace(string(data), `"autoUpdaterStatus": "disabled"`,
-		`"autoUpdaterStatus": "enabled"`, 1)
+	edited := strings.Replace(string(data), `"defaultMode": "default"`,
+		`"defaultMode": "plan"`, 1)
 	if edited == string(data) {
 		t.Fatalf("fixture bug: no managed key to edit in %s:\n%s", settings, data)
 	}

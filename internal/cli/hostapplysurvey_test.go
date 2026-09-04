@@ -78,14 +78,15 @@ func TestHostApplySurveySeesAHandEditedConfigSurface(t *testing.T) {
 			survey.Changed, report)
 	}
 
-	// claude/settings' managed layer asserts preferences.autoUpdaterStatus at the host notch.
+	// claude/settings' managed layer asserts permissions.defaultMode at the host notch (the
+	// GUARDED value, "default" — the autonomous posture never reaches a real host).
 	settings := filepath.Join(home, ".claude", "settings.json")
 	data, err := os.ReadFile(settings)
 	if err != nil {
 		t.Fatalf("fixture bug: %v", err)
 	}
-	edited := strings.Replace(string(data), `"autoUpdaterStatus": "disabled"`,
-		`"autoUpdaterStatus": "enabled"`, 1)
+	edited := strings.Replace(string(data), `"defaultMode": "default"`,
+		`"defaultMode": "plan"`, 1)
 	if edited == string(data) {
 		t.Fatalf("fixture bug: no managed key to edit in %s:\n%s", settings, data)
 	}

@@ -56,9 +56,20 @@ func TestHostRenderClaudeDropsBypass(t *testing.T) {
 			t.Errorf("host settings must not allow the filesystem root:\n%s", data)
 		}
 	}
-	// The benign always-safe key still renders (it is plain config, not autonomy-gated).
-	if prefs, _ := got["preferences"].(map[string]any); prefs == nil || prefs["autoUpdaterStatus"] != "disabled" {
-		t.Errorf("benign autoUpdater key should still render at host:\n%s", data)
+	// AND THE GUARDED POSTURE IS POSITIVELY THERE. The two checks above are negative — they
+	// pass just as well on an empty file — so the surface has to be shown to have written
+	// the guarded values, not merely to have omitted the autonomous ones.
+	//
+	// This used to key on preferences.autoUpdaterStatus, the one benign always-managed key
+	// claude/settings had. It was deleted on 2026-09-04 as unreadable by Claude Code (see
+	// internal/agentcfg's claude/settings cell), so the positive evidence moved onto the
+	// guarded autonomy values themselves, which is where it should have been.
+	if v, present := got["skipDangerousModePermissionPrompt"]; !present || v != false {
+		t.Errorf("the guarded value must be WRITTEN, not merely not-bypassed (got %v, "+
+			"present=%v):\n%s", v, present, data)
+	}
+	if perms, _ := got["permissions"].(map[string]any); perms == nil || perms["defaultMode"] != "default" {
+		t.Errorf("the guarded permissions.defaultMode must render at host:\n%s", data)
 	}
 }
 
@@ -110,13 +121,13 @@ func TestHostRenderAllAgentsGuarded(t *testing.T) {
 // managed parent is preserved (not reported).
 func TestHostRenderReportsOverwrites(t *testing.T) {
 	home := t.TempDir()
-	// The user already has autoUpdaterStatus=enabled (differs from the pack's "disabled")
-	// plus a sibling theme the pack never manages.
+	// The user already has permissions.defaultMode=plan (differs from the pack's guarded
+	// "default") plus a sibling `ask` the pack never manages.
 	settings := filepath.Join(home, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(settings, []byte(`{"preferences":{"autoUpdaterStatus":"enabled","theme":"dark"}}`), 0o644); err != nil {
+	if err := os.WriteFile(settings, []byte(`{"permissions":{"defaultMode":"plan","ask":["Bash"]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,25 +146,27 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 			continue
 		}
 		for _, o := range r.Overwrites {
-			if o == "preferences.autoUpdaterStatus" {
+			if o == "permissions.defaultMode" {
 				found = true
 			}
-			if o == "preferences.theme" {
-				t.Errorf("theme is not managed — must not be reported as an overwrite: %v", r.Overwrites)
+			if o == "permissions.ask" {
+				t.Errorf("ask is not managed — must not be reported as an overwrite: %v", r.Overwrites)
 			}
 		}
 	}
 	if !found {
-		t.Errorf("observe should report the differing managed key preferences.autoUpdaterStatus as an overwrite; got results=%+v", results)
+		t.Errorf("observe should report the differing managed key permissions.defaultMode as an overwrite; got results=%+v", results)
 	}
 	// Observe wrote nothing.
 	after, _ := os.ReadFile(settings)
-	if !strings.Contains(string(after), `"enabled"`) {
-		t.Errorf("observe must not write — the user's autoUpdaterStatus should still be 'enabled':\n%s", after)
+	if !strings.Contains(string(after), `"plan"`) {
+		t.Errorf("observe must not write — the user's defaultMode should still be 'plan':\n%s", after)
 	}
 
 	// A file that already matches the managed value reports NO overwrite (idempotent).
-	if err := os.WriteFile(settings, []byte(`{"preferences":{"autoUpdaterStatus":"disabled"}}`), 0o644); err != nil {
+	if err := os.WriteFile(settings,
+		[]byte(`{"permissions":{"additionalDirectories":[],"defaultMode":"default"},`+
+			`"skipDangerousModePermissionPrompt":false}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	results, _ = RenderHostPack(claude, home, true, nil)

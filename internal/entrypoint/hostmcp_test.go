@@ -514,7 +514,7 @@ func TestHostMCPReplacesRatherThanMergingTransports(t *testing.T) {
 
 // A SCALAR overwrite is NOT an EntryLoss. The split is load-bearing: a changed scalar is
 // named, reversible, and reported as an ordinary ⚠ — gating a confirmation on it would fire
-// the prompt on nearly every first apply (claude/settings alone flips autoUpdaterStatus).
+// the prompt on nearly every first apply (claude/settings alone flips permissions.defaultMode).
 func TestHostScalarOverwriteIsNotAnEntryLoss(t *testing.T) {
 	home := t.TempDir()
 	settings := filepath.Join(home, ".claude", "settings.json")
@@ -522,7 +522,7 @@ func TestHostScalarOverwriteIsNotAnEntryLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(settings,
-		[]byte(`{"preferences":{"autoUpdaterStatus":"enabled"}}`), 0o644); err != nil {
+		[]byte(`{"permissions":{"defaultMode":"plan"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	results := hostRenderClaude(t, home, true)
