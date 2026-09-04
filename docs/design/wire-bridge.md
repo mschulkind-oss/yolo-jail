@@ -252,6 +252,7 @@ covers it.
 ## Open Questions
 
 1. 💬 **OQ-1: The dependency shape — B (standalone + enforced endpoint) or A (fold-in)?**
+   <!-- vantage: oq id=OQ-1 leaning="Shape B: standalone wire-bridge pack; the dependency is a preflight refusal naming the pack, not a new channel" -->
 
    The maintainer's sketch is B-shaped ("a proxy pack, and cerebras depends on it"), and
    §3 proposes B. But A is the OQ-A10 precedent and is genuinely simpler: no enforcement
@@ -266,6 +267,7 @@ covers it.
    > _(empty — fill in when decided)_
 
 2. 💬 **OQ-2: New contribution kind (`kind: service`) or loophole-manifest reuse?**
+   <!-- vantage: oq id=OQ-2 leaning="Loophole-manifest reuse for v1 with the misnomer recorded in the manifest description; split the kind when a second non-loophole daemon exists" -->
 
    The maintainer: "I don't love calling it a loophole." The machinery fit is real —
    `JailDaemon`, endpoint file, witness, `restart` policy all exist in the loophole
@@ -286,6 +288,7 @@ covers it.
 
 3. 💬 **OQ-3: The bridge's default listen port — carry it in the cerebras manifest URL
    (8214 proposed) or allocate dynamically and rewrite the endpoint file only?**
+   <!-- vantage: oq id=OQ-3 leaning="Fixed, manifest-borne port 8214 — the URL is the single source; collisions are witness-fatal in a fresh namespace" -->
 
    A fixed manifest-borne port keeps the URL a single-sourced provider fact (§3.1) and
    the derive untouched; a dynamic port survives collisions but needs the URL composed
@@ -300,6 +303,7 @@ covers it.
    > _(empty — fill in when decided)_
 
 4. 💬 **OQ-4: `count_tokens` — local estimate, or refuse the endpoint?**
+   <!-- vantage: oq id=OQ-4 leaning="Local chars/4 estimate stated as approximate — matches the precision of the alternative for one function" -->
 
    Claude Code calls it for context accounting. A chars/4 estimate is trivially wrong on
    code; refusing (404) makes claude fall back to its own estimator (which it has, and
@@ -313,6 +317,7 @@ covers it.
    > _(empty — fill in when decided)_
 
 5. 💬 🤷 **OQ-5: The provider option name for reasoning depth, if any.**
+   <!-- vantage: oq id=OQ-5 leaning="Leave it alone in v1 — no reasoning option until someone measures medium-vs-high on agent loops" -->
 
    qwen-3.8-27b defaults `reasoning_effort: high`, which burns tokens unattended. The
    bridge could honor a provider option (`reasoning_effort`) and cerebras could declare
