@@ -134,6 +134,17 @@ clusters there rather than spreading evenly.
 
 ### I2. Report orphaned programs — a jail is the union of every pack ever selected
 
+> [!NOTE]
+> **✅ DONE — and it outgrew its own verdict** (report `af46c9b4` 2026-08-24; act, CLI and option
+> 2026-09-04). This entry says *"the proposal is the report, not the removal … uninstalling is
+> OQ-PD4 and needs a ruling"*. OQ-PD4 was ruled the day after this was written, and the removal it
+> gated shipped with the report's second half: the boot catalogs orphans, `yolo programs ls`
+> reports them on demand, `yolo programs remove --apply` is the explicit act, and
+> `"programs": {"autoprune": true}` (user scope, default off) lets a boot do it. See
+> [`program-delivery.md`](../design/program-delivery.md#10-what-i-would-build-in-order) step four.
+> Left below verbatim: the *measurement* is what earned the verdict, and the section above this one
+> is about status lines going stale — this one had.
+
 **Measured** in [`program-delivery.md`](../design/program-delivery.md) and reproducible in this jail:
 `@github/copilot` and npm `fzf 0.5.2` are installed with **no selecting pack and no launcher** —
 copilot was deselected, `fzf` came from a test pack that no longer exists. Dropping a pack removes
