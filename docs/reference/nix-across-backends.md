@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-04
-verified_commit: b2e42019
+verified_commit: ef5945e3
 covers:
   - flake.nix
   - internal/darwinpkg/
@@ -172,7 +172,7 @@ and not the other.
 
 ## Current values
 
-Verified at `b2e42019`. The prose above says what each of these is for; this table
+Verified at `ef5945e3`. The prose above says what each of these is for; this table
 is the only place the values themselves are stated.
 
 | Value | Setting | Defined in |
