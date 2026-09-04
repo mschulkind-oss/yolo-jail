@@ -1,7 +1,7 @@
 ---
 title: "How executable content gets into a jail — and what makes two jails the same"
 date: 2026-09-03
-status: in-review
+status: decided
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
 summary: "Four delivery classes, one of which keeps no record and is never re-derived — and all divergence lives there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at launch) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which."
 ---
@@ -26,10 +26,9 @@ observed running) or **NOT MEASURED**.
 > measurement say the principle reached across a boundary it could not see: **an agent CLI and a
 > project toolchain are different kinds of dependency and want opposite policies.** §3.5 draws that
 > boundary and rules agent dependencies **evergreen**. Four new rulings
-> ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger)) and two new open questions
-> ([OQ-PD15](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it),
-> [OQ-PD16](#-oq-pd16--how-does-a-project-dependency-get-pinned-on-the-host-where-there-is-no-jail))
-> follow from it, and the status returns to `in-review`.
+> ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger)) and two further questions
+> ([OQ-PD15](#decision-ledger), [OQ-PD16](#decision-ledger)) followed from it and were both
+> ruled the same day, so the doc is `decided` again with **zero** open questions.
 >
 > **§1–§10 otherwise describe the design as ruled on 2026-08-24 and are unchanged.** Where §3.5
 > narrows an earlier ruling, the ledger row says so in place — no row was deleted, and no section
@@ -687,7 +686,7 @@ cleared and re-staged.
 > being reachable"* — ruled the other way on the maintainer's judgement that an offline jail launch
 > is not a real scenario, with `YOLO_ALLOW_STALE_AGENTS=1` for the case where it is. *"An install is
 > not free"* — accepted as a real cost and priced twice: boot latency, bounded by a 60-second
-> per-program timeout, and disk, which is [OQ-PD15](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it)
+> per-program timeout, and disk, which is [OQ-PD15](#decision-ledger)
 > and the one thing that could still change the sequencing.
 >
 > **Reconcile is untouched and still the answer for project dependencies** — it stays offline, it
@@ -1001,7 +1000,7 @@ made here is used here, and publishing one is a provenance question for
 > This document does not edit `trust-paths.md`. The dispositions below are proposed here and are
 > applied there by whoever lands this.
 
-- **RETIRES [OQ-TP4](trust-paths.md#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned) — *"where does an EMBEDDED pack's npm version get pinned?"*** —
+- **RETIRES [OQ-TP4](trust-paths.md#decision-ledger) — *"where does an EMBEDDED pack's npm version get pinned?"*** —
   as posed. All three of its options (manifest / lockfile / user config) are venues *inside the pack
   system*, and the measurement says the question is not the pack system's alone: the identical
   question is live for mise (no pack), the LSP recipes (no pack), and claude plugins (no pack). It is
@@ -1010,7 +1009,7 @@ made here is used here, and publishing one is a provenance question for
   not be re-derived:** TP4's cost analysis of option (a) — pinning in the manifest makes yolo's
   release cadence the ceiling on agent-CLI freshness — is the same objection A1 hits in §5.1, and
   TP4's leaning toward the lockfile is preserved in A3's shape.
-- **INHERITS [OQ-TP3](trust-paths.md#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first)'s still-open half** — *is yolo's own embedded pack required to
+- **INHERITS [OQ-TP3](trust-paths.md#decision-ledger)'s still-open half** — *is yolo's own embedded pack required to
   pin, and is a fetched pack required or merely permitted?* Restated at wider scope and **ruled** as
   [OQ-PD6](#decision-ledger): once a receipt exists, a declaration need not carry a pin, because
   the receipt is the pin — which is what answers TP3's inherited half.
@@ -1112,7 +1111,8 @@ here is the same wiring for everything else.
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
 *record* + *materialize* and depends on nothing above except the receipt schema.
 
-**Seventh — added 2026-09-03 — make agent dependencies evergreen**
+**Seventh — added 2026-09-03, and it comes AFTER the sixth by ruling
+([OQ-PD15](#decision-ledger)) — make agent dependencies evergreen**
 ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
 [OQ-PD12](#decision-ledger)–[OQ-PD14](#decision-ledger)). Four parts, and only the first is
 mechanically interesting: move the update off the shadowed launcher onto the boot path; add the
@@ -1120,11 +1120,15 @@ pack-declared update verb; flip the agent CLIs that have a native installer off 
 ([OQ-PD13](#decision-ledger)); delete the hourly poll and the `"$REAL_BIN" install` no-op. The
 opt-out knob and the fatal come with it.
 
-> [!WARNING]
-> **Where this step sits is [OQ-PD15](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it),
-> not settled.** It is written seventh because that is where the *dependencies* put it — it needs
-> nothing above except the receipt schema — but evergreen multiplies the per-workspace disk cost
-> that the sixth step exists to remove. If PD15 rules (a), these two swap.
+> [!NOTE]
+> **This step is deliberately LAST, and the ordering was ruled rather than inherited.** Nothing
+> above it is a technical dependency — evergreen needs only the receipt schema — so the dependency
+> graph would happily run it earlier. [OQ-PD15](#decision-ledger) put it here anyway: evergreen
+> multiplies the per-workspace disk cost that the sixth step exists to remove, and landing it first
+> would mean building a prune stopgap that capture then deletes. **The cost of the ordering is
+> honest and worth naming:** agent CLIs stay frozen until capture ships, which is a live defect
+> ([§4.1](#41-freeze-an-agent-cli-is-whatever-latest-meant-the-day-that-workspace-first-ran-it))
+> carried on purpose rather than overlooked.
 
 **In parallel, pay the enum tolerance** (§6.2) — **PAID** (`0a4d241c`), while no one needed it,
 which was the point.
@@ -1144,20 +1148,23 @@ which was the point.
 | OQ-PD7 | **Report first; gate later only if the reports justify it** — and the record names where a gate would live. | 2026-08-24 | §6, §9 R1 |
 | OQ-PD8 | **The launcher's informational poll is unreachable in steady state** (nineteen days of unmoved stamps); the "newer version available" channel moves to the boot catalog and the update verb / reconcile. | 2026-08-24 | §4.4, §10 |
 | OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | §5.6, §6.3 |
-| OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Its sequencing is reopened** by OQ-PD15 — evergreen makes the disk cost it solves materially worse. | 2026-08-24 | §6.3, §10 |
+| OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Resequenced 2026-09-03 by OQ-PD15: capture now ships BEFORE evergreen**, not last — evergreen multiplies exactly the disk cost capture removes. | 2026-08-24 | §6.3, §10 |
 | **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the §6.1 tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD12** | **Agent dependencies are EVERGREEN.** The native update runs on the boot path at every launch, default on, per-pack and global opt-out; **a failed update is FATAL** (offline is judged not a real scenario), 60s per-program timeout, `YOLO_ALLOW_STALE_AGENTS=1` as the hatch. The hourly launcher poll is deleted, not disabled. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), §5.4 |
 | **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD15** | **Capture FIRST — build the complete version and sequence toward it.** Evergreen lands on a machine-wide content-addressed store rather than per-workspace binds, so the disk cost is paid once. The prune stopgap is deleted, not deferred: under capture there is nothing to prune. Sooner was never the goal | 2026-09-03 | [§10](#10-what-i-would-build-in-order), §6.3 |
+| **OQ-PD16** | **Jail-only here; the host notch is owned by [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md)**, which has analysed it since 2026-08-02 and keeps six live questions on it. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose only caller today is `macos-user`. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland (that doc's §4.1) | 2026-09-03 | §3.5, [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) |
 
 ---
 
 ## Open Questions
 
-Ten were ruled 2026-08-24 and four more on 2026-09-03 — see the [Decision Ledger](#decision-ledger).
-The amendment opened two.
+**None open.** Ten were ruled 2026-08-24 and six on 2026-09-03 — see the
+[Decision Ledger](#decision-ledger). The two the amendment opened were both ruled the same day and
+are kept below with their reasoning, pending the next compaction.
 
-### 💬 OQ-PD15 — does capture GATE the evergreen rollout, or trail it?
+### ✅ OQ-PD15 — does capture GATE the evergreen rollout, or trail it? — RESOLVED (2026-09-03)
 
 [OQ-PD10](#decision-ledger) sequenced capture **last**, on the reasoning that the receipt ships
 first and capture merely upgrades its guess. Evergreen changes that arithmetic, because the cost
@@ -1169,29 +1176,26 @@ than replacing them. One workspace holds **four claude versions at 1019 MB**. To
 one-time cost per workspace because nothing ever updates; under evergreen it becomes a *recurring*
 one, on every launch that lands a new version, in every workspace.
 
-**What it decides:** whether §10 grows a step before evergreen or after it.
-
-- **(a) Capture first.** Evergreen lands on a store that fetches once per machine and materializes
-  by unpack, so the disk cost is paid once for all workspaces. Costs: capture is the largest
-  unbuilt item in this doc, and it must work on all three backends
-  ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)).
-- **(b) Evergreen first, capture trails.** Ships the thing with the measured defect (six-week-stale
-  agents) immediately, and accepts growing disk until capture lands. Needs a stopgap: at minimum
-  prune old vendor version directories, which is a much smaller act than capture.
-- **(c) Evergreen first, with the per-workspace bind narrowed** so agent installs land in a
-  machine-global prefix that is *not* content-addressed. Cheaper than capture, but it invents a
-  second sharing mechanism that capture would then replace.
-
-_Leaning:_ **(b) with the prune stopgap.** The freeze is a live defect and capture is months of
-work; letting a measured defect stand behind an unbuilt subsystem is the trade this doc has argued
-against elsewhere. But the number that would change my mind is real growth: if a month of evergreen
-across the maintainer's actual workspace count exceeds the disk headroom, (a) wins on arithmetic
-rather than on preference — and nobody has counted the workspaces yet.
-
 **Answer:**
-> _(empty — fill in when decided)_
+> **(a) — capture first. Build the complete version, and sequence toward it.**
+> *"Is this a decision of implement more now vs later? I want the complete version. I can await for
+> a sequence of things to implement if that gets us further/cleaner."*
+>
+> So the question was mis-posed: I framed it as ship-sooner versus ship-cleaner, and the ruling is
+> that **sooner is not a goal here.** My leaning (b) traded a real subsystem for calendar time, and
+> the trade was never asked for.
+>
+> **Consequences, all folded into [§10](#10-what-i-would-build-in-order):** capture moves ahead of
+> evergreen, the two `§10` steps swap, and the prune stopgap (b) needed is **not built** — under
+> (a) there is nothing to prune, because a materialized tree comes from the CAS and old versions
+> were never per-workspace to begin with. That deletes an item rather than deferring one, which is
+> the "further/cleaner" the ruling is buying.
+>
+> **What this does NOT license:** the freeze is still a live defect for as long as capture takes,
+> and it stays visible rather than being quietly accepted. The `DISABLE_AUTOUPDATER` class of
+> config-capture bug is separately fixable today and is not gated on any of this.
 
-### 💬 OQ-PD16 — how does a PROJECT dependency get pinned on the host, where there is no jail?
+### ✅ OQ-PD16 — how does a PROJECT dependency get pinned on the host, where there is no jail? — RESOLVED (2026-09-03)
 
 [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) rules that project
 dependencies pin. Inside a jail that is already true and already mechanised: nixpkgs through
@@ -1204,11 +1208,35 @@ about the project. If the latter, the pin has to be expressible somewhere the ho
 the obvious candidate is a **nix devshell** generated from the same declarations the jail already
 consumes — one source, two consumers.
 
-_Leaning:_ **jail-only for now, and say so.** A devshell is a real design of its own and it drags in
-the host-side nix availability question that `macos-user` already struggles with. The honest v1 is
-that the pin holds where yolo controls the environment, and the doc **enumerates the host as
-unmanaged** rather than implying coverage — which is exactly the discipline
-[§5.5](#55-a5--do-nothing-and-say-so) already demands of every other unmanaged member.
-
 **Answer:**
-> _(empty — fill in when decided)_
+> **Jail-only in this document; the host notch gets its own design, now written.**
+> *"Yes, then nixshell on the roadmap. Write a design doc for that. And won't we be able to share a
+> ton of that between macos-user and host?"*
+>
+> **Yes — and considerably more than "a ton": the mechanism already exists and was named for this.**
+> `flake.nix`'s `packages.yoloNoncontainerPackages` is a `buildEnv` profile of `packages:` realized
+> natively, and its own comment states the axis in advance: *"this is what every notch BELOW `jail`
+> needs … the attr resolves for `x86_64-linux` unchanged, and Linux `guest` is the next consumer.
+> 'noncontainer', not 'host': `host` is one notch and `guest` needs the identical mechanism, so
+> naming it after either one would be the same lie in a new spelling."* `macos-user` is its only
+> caller today. The host notch is a **third consumer of an existing attribute**, not a new
+> mechanism.
+>
+> ⚠ **And "nixshell" is the one spelling the design must not take.** The same comment records why,
+> and it is a refuted objection worth keeping: a `devShell`'s `print-dev-env` dumps the entire
+> stdenv toolchain — clang, GNU coreutils, sed, grep, make — onto PATH **ahead of the host
+> userland**. A `buildEnv` contains only the declared packages. So the shape is a profile, and the
+> word "shell" names the user-facing verb at most, never the nix primitive.
+>
+> **The design you asked for already exists** —
+> [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), 2026-08-02, re-verified
+> 2026-08-23. It owns this question and already carries the sharing analysis (§7: confinement and
+> environment are *not* orthogonal), the devShell rejection (§4.1), the `nix profile` and
+> `nix shell` alternatives (§4.2–4.3), platform coverage (§5), and `mise_tools`' status at each
+> notch (§6's table). Six questions there are live. **What this amendment adds to it is a frame it
+> predates:** it analysed the host notch as a *packaging* problem, and §3.5 now says what the
+> packages are *for* — project dependencies, which pin. Recorded as a postscript there rather than
+> re-argued here.
+>
+> This document keeps its own scope: the host stays **enumerated as unmanaged** per
+> [§5.5](#55-a5--do-nothing-and-say-so)'s discipline until that work lands.

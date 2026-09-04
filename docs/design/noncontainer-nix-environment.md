@@ -131,6 +131,23 @@ making auth-as-packs host-complete without a launcher). The roadmap tracks it as
 
 ---
 
+> [!NOTE]
+> **Postscript, 2026-09-03 — a frame this doc predates, from a sibling.**
+> [`program-delivery.md`](program-delivery.md) §3.5 drew an axis that did not exist when §1–§8 were
+> written: a dependency serves either the **agent** (evergreen, never pinned) or the **project**
+> (pinned, reproducible). This document analysed the non-container notches as a *packaging* problem
+> — how does a tool closure get here without an image. §3.5 says what the closure is **for**, and
+> that sharpens two things rather than changing any conclusion:
+>
+> - **`packages:` and `mise_tools` are project dependencies, so pinning them below `jail` is now a
+>   RULING to satisfy, not merely a nice-to-have** (OQ-PD16 there routes the host notch here).
+> - **Agent CLIs are explicitly out of scope for pinning at any notch** — which bears directly on
+>   [OQ-7](#9-open-questions) (*should the jail get its agent CLIs from nix too?*): under §3.5 the
+>   answer must not make an agent CLI reproducible, because that class is ruled evergreen. That
+>   narrows OQ-7 to a *delivery* question, never a pinning one.
+>
+> Nothing in §1–§8 is retracted by this.
+
 ## 0. Vocabulary — five terms this doc leans on
 
 Pinned because three of them are routinely conflated in conversation about nix.
@@ -981,6 +998,8 @@ be renumbered.
    to be a hard guarantee, a mutable profile is a trap; if it is a best-effort description, it is
    the cheapest way to get generations and rollback.
 
+   <!-- vantage: oq id=OQ-3 leaning="Genuinely undecided. If `--sealed` is a hard guarantee a mutable `nix profile` is a trap; if it is best-effort, it is the cheapest route to generations and rollback." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -998,6 +1017,8 @@ be renumbered.
    Go is more auditable than a derivation's dump. Revisit only if the enumeration comes back
    with more than about three.
 
+   <!-- vantage: oq id=OQ-4 leaning="Keep the Go whitelist. One variable does not justify 121, and an explicit list is more auditable than a derivation dump. Revisit past ~three." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -1014,6 +1035,8 @@ be renumbered.
    yet — a shadow is what `packages: ["gnugrep"]` means. Revisit if the `host` notch ever puts
    this on a human's interactive PATH, where the declaration was made once and the surprise
    arrives months later.
+
+   <!-- vantage: oq id=OQ-5 leaning="Restate the claim as 'no undeclared pollution' and build no warner yet — a shadow is what `packages: ['gnugrep']` means. Revisit if the host notch puts this on an interactive PATH." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1035,6 +1058,8 @@ be renumbered.
    even under Option 0. The *policy* half ("should `host` manage packages at all") stays with
    OQ-1.
 
+   <!-- vantage: oq id=OQ-8 leaning="Fix the narrow half now: `describe` already reports the resolved profile when `PrimBakedImage` is absent, contradicting the promised `✗ packages` line. Make `yolo host apply` agree with `describe`." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -1054,6 +1079,8 @@ be renumbered.
    `PrimBakedImage` is absent — same predicate `describe` already uses. The daemon probes are a
    larger question and can wait for OQ-1.
 
+   <!-- vantage: oq id=OQ-9 leaning="Split the profile report out of the macos-user section and run it wherever `PrimBakedImage` is absent — the predicate `describe` already uses. Daemon probes can wait." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -1070,6 +1097,8 @@ be renumbered.
    than the pin does, two of six already lag in nixpkgs, and three are unfree — which would put
    the §2 warn-and-skip on the jail's critical path. Flagged because the research surfaced it,
    not because I recommend it.
+
+   <!-- vantage: oq id=OQ-7 leaning="No, not now. Daily-shipping CLIs need upstream freshness more than a pin, two of six already lag in nixpkgs, and three are unfree — which would put warn-and-skip on the jail's critical path. Also narrowed by program-delivery.md §3.5: agent CLIs are ruled evergreen, so this cannot be a pinning question." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
