@@ -297,6 +297,25 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 			t.Errorf("claude's provider env =\n%s\nwant exactly the composed pair:\n%s", got, want)
 		}
 	})
+
+	// The fifth delivery, same acceptance bar: copilot's BYOK is env-var-only, so the
+	// whole delivery is one yolo.env producer — and only a launch proves it survives
+	// to the container argv (copilotbyok_test.go pins the same composition unit-tier).
+	t.Run("copilot env carries the selected provider's BYOK block", func(t *testing.T) {
+		packHome(t, `{"packs": ["copilot", "cerebras"], "use_profiles": {"copilot": "cerebras"}}`)
+		r := runYolo(t, dir, `env | grep -E '^COPILOT_' | sort`)
+		if r.rc != 0 {
+			t.Fatalf("profiled copilot launch failed: rc %d\n%s", r.rc, r.combined())
+		}
+		want := "COPILOT_MODEL=qwen-3.8-27b\n" +
+			"COPILOT_PROVIDER_API_KEY=integration-probe-not-a-real-key\n" +
+			"COPILOT_PROVIDER_BASE_URL=https://api.cerebras.ai/v1\n" +
+			"COPILOT_PROVIDER_TYPE=openai\n" +
+			"COPILOT_PROVIDER_WIRE_API=completions\n"
+		if got := r.stdout; got != want {
+			t.Errorf("copilot's BYOK env =\n%s\nwant exactly the composed block:\n%s", got, want)
+		}
+	})
 }
 
 // keysOf is the diagnostic half of a missing-entry failure: naming what IS there turns
