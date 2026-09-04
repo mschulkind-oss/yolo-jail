@@ -11,7 +11,7 @@ summary: "Twenty-six paths, enumerated from the code, each with when trust is ex
 **Status:** INVENTORY, 2026-08-17; **compacted 2026-09-03.** Six questions settled, and **two of the
 rulings SHIPPED and are still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both
 2026-08-18, both re-verified against the code **2026-08-23**, anchors repinned **2026-09-02** (the
-provider arc moved several files under them; every behaviour is unchanged). **Nine questions settled and NONE open** as of 2026-09-04 — OQ-TP8 ruled ungated, OQ-TP9 deleted the
+provider arc moved several files under them; every behaviour is unchanged). **Nine questions settled and ONE open** as of 2026-09-04 — OQ-TP8 ruled ungated, OQ-TP9 deleted the
 fetched-pack approval prompt as theatre, and OQ-TP7 was RETIRED because TP9 removed its subject.
 Beyond the rulings,
 **everything here is inventory** — traced in the code, with the anchors inline.
@@ -168,7 +168,7 @@ retired — kept because they remain true of the lockfile and constrain anything
    > what the code does**, which is why the six code comments citing `§1 row 1` are accurate today.
    >
    > What changed is the ruling above it. [`program-delivery.md`](./program-delivery.md) §3.5
-   > classifies all four npm-declaring packs (pi, copilot, codex, opencode) as **agent
+   > classifies the npm-declaring packs (pi, copilot, opencode — **three since 2026-09-04**, when `dadafbde` flipped codex to its vendor installer under OQ-PD13) as **agent
    > dependencies** and rules that class **evergreen** — updated on the boot path at every launch,
    > with no pin, because there is nothing for an agent CLI to be reproducible against. So this
    > row's open question (*where does the resolved version get recorded?*, OQ-TP4) is retired
@@ -581,7 +581,9 @@ code" — but it is worth building in the three places of §1 and nowhere else.
 > **Nothing below is open.** OQ-TP9 (the approval prompt is theatre) and OQ-TP8 (pack Lua stays
 > ungated) were both ruled 2026-09-04 and are kept in place with their reasoning pending the next
 > compaction; OQ-TP7 is RETIRED because TP9 deleted its subject, and is kept for the third-gate trap
-> its analysis records.
+> its analysis records. **[OQ-TP10](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
+> is open** — the TP9 build found that the banner TP9 kept as its compensating disclosure does not
+> cover plugin hooks.
 
 ### ⛔ OQ-TP7 — `yolo check` cannot predict the fatal refusal, and the refusal names a fix that needs a tty and a network — RETIRED (2026-09-04)
 
@@ -674,6 +676,43 @@ them to run before restarting.
 > ⚠ **Citations re-pinned 2026-09-04 and five had drifted** since the 2026-09-02 pass:
 > `check/packs.go` 130→141, 162→173, 157→168, 170→189; `packs_test.go` 250→285; `pack.go`
 > 1240-1246→1253. Cite this cluster by SYMBOL when it moves again.
+
+### 💬 OQ-TP10 — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
+
+Opened 2026-09-04 by the [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)
+build, which found it while deleting the gate. **This punctures a claim TP9's own answer makes**, so
+it is filed rather than absorbed.
+
+**The facts.** A wrapped plugin's `hooks` and `mcpServers` are reported under `KindSkills`, and
+`internal/cli/run/packloopholes.go` classifies that kind `disclosureSkip`. So they appear in
+`yolo pack footprint` — an on-demand report nobody runs — and in **no launch banner at all**. Pinned
+by `TestWrappedPluginHooksAreDeliveredAndDisclosed` in `internal/cli/run/packnohostgate_test.go`,
+which asserts the footprint claim and states the gap in its doc rather than papering over it.
+
+**Why TP9 makes it matter, when it did not before.** Under the old gate a *fetched* pack's
+code-running plugin components were refused outright — there was nothing to disclose because nothing
+crossed — and an *embedded* pack's were nobody's concern. TP9 removed the refusal on the correct
+reasoning that selecting a pack already exceeds what the gate withheld. But TP9 also **kept the
+startup banner as the compensating disclosure**, in those words: *"the only place a user sees what a
+pack reaches."* That sentence is now false for exactly the contribution that runs code on the agent's
+lifecycle events. This is row 21 reopening on the disclosure side.
+
+**What it decides:** whether the banner's coverage is completed, or its claim is narrowed.
+
+| | Candidate | Cost |
+| :--- | :--- | :--- |
+| **(a)** | Give plugin claims their own disclosure class, so hooks and `mcpServers` render on the banner beside mounts and host reads | The honest completion of TP9's kept half. Costs a class and a rendering decision — a hook body is not a path, so "what is touched, which direction, whose machine" needs a spelling for it |
+| **(b)** | Qualify the claim — say the banner covers host crossings, and point at `yolo pack footprint` for in-jail code | Free, and dishonest in the way TP9 objected to elsewhere: it leaves the compensating disclosure not compensating |
+| **(c)** | Reclassify `KindSkills` off `disclosureSkip` wholesale | Cheapest to write, worst to read — a pack's skills tree is prose an agent reads, and announcing every skill file would bury the hooks in the noise that made `disclosureSkip` right in the first place |
+
+_Leaning:_ **(a).** TP9's argument was that the gate withheld nothing the user had not already granted
+— which is true of *authority* and says nothing about *visibility*. Disclosure was the half TP9 kept
+precisely because it is not consent; keeping it while leaving a hole in it is the shape this census
+exists to catch. (c) is the tempting cheap version and it destroys the signal. (b) is only acceptable
+if (a) turns out to have no honest rendering, which should be discovered rather than assumed.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 ### ✅ OQ-TP9 — is the fetched-pack approval prompt a gate, or theatre? — RESOLVED (2026-09-04)
 
