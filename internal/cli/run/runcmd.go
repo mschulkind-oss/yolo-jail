@@ -144,7 +144,7 @@ type Options struct {
 	// plan env and relays the wire tables to its bootstrap. Making it an argument means a
 	// `-p` launch cannot be dispatched to this backend without the environment it
 	// selected being decided.
-	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int
+	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot, homeOverlay string, dryRun bool, packEnv *jsonx.OrderedMap) int
 	// CaptureOnTerminate folds this session's in-jail edits to capture-mode surfaces
 	// into their overlay sidecars once the jail is down (E3). It receives the
 	// workspace and the resolved runtime, and reads only HOST-side dirs — by

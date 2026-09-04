@@ -47,6 +47,9 @@ const (
 
 	// packsLeaf is the state-dir subdir holding each session's staged pack tree.
 	packsLeaf = "packs"
+	// homeOverlayLeaf is the state-dir subdir holding each session's staged CONTENT
+	// tree — skills and briefings, laid out at their home-relative destinations.
+	homeOverlayLeaf = "home-overlay"
 )
 
 // SandboxHome is /Users/_yolojail.
@@ -217,6 +220,47 @@ func StagePackCommands(hostPackRoot, cname, sd string) [][]string {
 		{mkdirBin, "-p", filepath.Join(sd, packsLeaf)},
 		{rmBin, "-rf", tmp},
 		{cpBin, "-R", hostPackRoot, tmp},
+		{chmodBin, "-R", "a+rX", tmp},
+		{rmBin, "-rf", dst},
+		{mvBin, "-f", tmp, dst},
+	}
+}
+
+// StagedHomeOverlay is where a session's composed CONTENT tree lands, root-owned and
+// world-readable so the sandbox uid can read it and cannot rewrite it.
+//
+// Beside the packs and staged the same way, for the same reason: both are host-composed
+// input the sandbox must READ and must not be able to edit into something the next
+// launch trusts. The overlay is the stronger case of the two — it carries skills and
+// briefing prose the agent then FOLLOWS, so a sandbox-writable copy would let a jail
+// rewrite its own instructions between launches.
+func StagedHomeOverlay(cname, sd string) string {
+	if sd == "" {
+		sd = stateDir
+	}
+	return filepath.Join(sd, homeOverlayLeaf, cname)
+}
+
+// StageHomeOverlayCommands returns the sudo argv that stage the composed content tree
+// (skills + briefings, already laid out at their home-relative paths) for this session.
+// Empty hostOverlay → no commands, so a jail with no content to deliver pays nothing.
+//
+// Same rm-then-mv shape as the packs: the destination is REPLACED rather than merged
+// into, because a destination that left the config must stop being delivered and a
+// merge would keep serving it forever.
+func StageHomeOverlayCommands(hostOverlay, cname, sd string) [][]string {
+	if hostOverlay == "" {
+		return nil
+	}
+	if sd == "" {
+		sd = stateDir
+	}
+	dst := StagedHomeOverlay(cname, sd)
+	tmp := dst + ".new"
+	return [][]string{
+		{mkdirBin, "-p", filepath.Join(sd, homeOverlayLeaf)},
+		{rmBin, "-rf", tmp},
+		{cpBin, "-R", hostOverlay, tmp},
 		{chmodBin, "-R", "a+rX", tmp},
 		{rmBin, "-rf", dst},
 		{mvBin, "-f", tmp, dst},

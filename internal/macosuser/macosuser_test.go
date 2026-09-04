@@ -342,7 +342,7 @@ func TestBuildRunPlanCarriesSourceLessHostFiles(t *testing.T) {
 		mapOf("path", "~/.config/seed.json", "content", "x\n"),
 	})
 	plan := BuildRunPlan("/Users/Shared/proj", cfg, []string{"claude"},
-		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "", jsonx.NewOrderedMap(), nil)
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", "", "", jsonx.NewOrderedMap(), nil)
 
 	var found bool
 	for _, a := range plan.BootstrapArgv {

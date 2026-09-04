@@ -345,7 +345,7 @@ func TestMacosUserLaunchReportsInertLoopholes(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
 		reached = true
 		return 0
 	}

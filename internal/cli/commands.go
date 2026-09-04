@@ -570,8 +570,8 @@ func runRun(args []string) int {
 	// composed profile/provider channel, which run.Run composes above the backend
 	// dispatch and passes to whichever arm runs — forwarded verbatim.
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
-		repoRoot, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int {
-		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, dryRun, packEnv)
+		repoRoot, packRoot, homeOverlay string, dryRun bool, packEnv *jsonx.OrderedMap) int {
+		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay, dryRun, packEnv)
 	}
 	// Wire E3's capture-on-terminate. Same injection shape and same reason: the
 	// capture engine lives in THIS package, which imports run, so run cannot call it
@@ -599,7 +599,7 @@ func runRun(args []string) int {
 // profile/provider channel it composed before dispatching there too. macos-hardware-gated;
 // on Linux macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
 func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
-	repoRoot, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int {
+	repoRoot, packRoot, homeOverlay string, dryRun bool, packEnv *jsonx.OrderedMap) int {
 	runProxy := run.RunWithProxy
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
 		// system "" → darwinpkg.NativeSystem(), the running platform. NOT a
@@ -635,14 +635,15 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 	// the live setup/teardown chatter.
 	deps := macosuser.RealDeps(runProxy, materialize, isTTYStdout())
 	return macosuser.RunMacosUser(deps, macosuser.Options{
-		Workspace:    workspace,
-		Config:       cfg,
-		Agents:       agents,
-		AgentArgv:    agentArgv,
-		RepoRoot:     repoRoot,
-		HostPackRoot: packRoot,
-		PackEnv:      packEnv,
-		DryRun:       dryRun,
+		Workspace:       workspace,
+		Config:          cfg,
+		Agents:          agents,
+		AgentArgv:       agentArgv,
+		RepoRoot:        repoRoot,
+		HostPackRoot:    packRoot,
+		HostHomeOverlay: homeOverlay,
+		PackEnv:         packEnv,
+		DryRun:          dryRun,
 	})
 }
 

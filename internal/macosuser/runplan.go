@@ -114,7 +114,7 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
 // to self-exec as the bootstrap; `hostPackRoot` is the host-side staged pack tree
 // the run pipeline produced before dispatching here (""=no packs). `darwin` may be nil.
-func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin) RunPlan {
+func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot, hostHomeOverlay string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin) RunPlan {
 	darwinPrefix := []string{}
 	darwinEnv := jsonx.NewOrderedMap()
 	darwinSkipped := []string{}
@@ -205,9 +205,25 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	// (B-0). Set only when the launch actually staged a tree, so a genuinely pack-less
 	// launch still says so by ABSENCE rather than by naming a directory that is not there.
 	packRoot := ""
+	homeOverlay := ""
+	if hostHomeOverlay != "" {
+		homeOverlay = StagedHomeOverlay(cname, "")
+	}
 	if hostPackRoot != "" {
 		packRoot = StagedPackRoot(cname, "")
 		bootstrapEnv.Set("YOLO_PACK_ROOT", packRoot)
+	}
+	// YOLO_DARWIN_HOME_OVERLAY — the composed CONTENT tree (skills + briefings) the
+	// bootstrap copies over the sandbox home. Set only when there is content to
+	// deliver, on the same reasoning as YOLO_PACK_ROOT: absence is the honest way to
+	// say "nothing to install", and a variable naming a directory that is not there
+	// would make an empty delivery indistinguishable from a broken one.
+	//
+	// It carries a PATH, not a mapping. The tree is already laid out at the
+	// home-relative destinations the container path would have mounted, so installing
+	// it is one recursive copy and the bootstrap needs no table to interpret.
+	if hostHomeOverlay != "" {
+		bootstrapEnv.Set("YOLO_DARWIN_HOME_OVERLAY", homeOverlay)
 	}
 
 	// THE TWO PROVIDER/PROFILE WIRE TABLES, relayed from the launch env into the
@@ -248,8 +264,9 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		// Binary first, then the pack trees: both are prerequisites of the bootstrap
 		// the caller runs immediately after this list, and the binary is the one that
 		// fails most cheaply.
-		StageCommands: append(StageBinaryCommands(selfExe, ""),
+		StageCommands: append(append(StageBinaryCommands(selfExe, ""),
 			StagePackCommands(hostPackRoot, cname, "")...),
+			StageHomeOverlayCommands(hostHomeOverlay, cname, "")...),
 		PackRoot:           packRoot,
 		BootstrapArgv:      DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		LaunchArgv:         LaunchArgv(agentArgv, profilePath, sandboxEnv, workspace, "", "", darwinPrefix),

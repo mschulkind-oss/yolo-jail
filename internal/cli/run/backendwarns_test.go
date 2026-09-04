@@ -68,7 +68,7 @@ func TestMacosUserNotesMachineWideWorkspaceState(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -96,17 +96,28 @@ func TestMacosUserNotesContentGaps(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
 	}
 	got := stdout.String() + stderr.String()
-	if !strings.Contains(got, "briefings and skills are NOT delivered") {
-		t.Errorf("a macos-user launch did not say the agent gets no briefing or skills.\n"+
-			"The blocked-tool shims ARE generated on this backend, so a blocked command exits "+
-			"127 with nothing explaining it.\noutput:\n%s", got)
+	// This asserted "briefings and skills are NOT delivered" until 2026-09-03, when
+	// they started being delivered (by copy rather than by mount). The claim that
+	// survives is about the DIFFERENCE from every other backend, not about absence:
+	// the copy is writable where a bind is `:ro`, and the one machine-wide home means
+	// a concurrent second workspace replaces what this one delivered.
+	if !strings.Contains(got, "delivered by COPY on macos-user") {
+		t.Errorf("a macos-user launch did not say how content is delivered here.\n"+
+			"Every other backend mounts it read-only; this one copies into a home it "+
+			"shares with every other workspace, and both differences change what the "+
+			"agent can rely on.\noutput:\n%s", got)
+	}
+	// And it must not still claim the gap it no longer has: a warning describing a
+	// closed gap teaches the reader to distrust the ones that are still true.
+	if strings.Contains(got, "NOT delivered") {
+		t.Errorf("the launch still reports skills/briefings as undelivered:\n%s", got)
 	}
 }
 
@@ -164,7 +175,7 @@ func TestMacosUserNotesHostByteGaps(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool, *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, string, bool, *jsonx.OrderedMap) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {

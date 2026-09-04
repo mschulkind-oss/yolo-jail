@@ -118,7 +118,7 @@ func TestRunMacosUserNotGatedOnMissingRepoRoot(t *testing.T) {
 	o := runFatalOptions(t, ws, "macos-user", &stdout, &stderr)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, repoRoot, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, repoRoot, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
 		reached = true
 		// The empty-packages backend gets the empty repoRoot and does not need it.
 		if repoRoot != "" {
@@ -164,7 +164,7 @@ func TestRunMacosUserGatedOnMissingRepoRootWithPackages(t *testing.T) {
 	o := runFatalOptions(t, ws, "macos-user", &stdout, &stderr)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
 		reached = true
 		return 0
 	}
@@ -204,7 +204,7 @@ func TestRunMacosUserDryRunNotGatedWithPackages(t *testing.T) {
 	o.DryRun = true
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, dryRun bool, _ *jsonx.OrderedMap) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, dryRun bool, _ *jsonx.OrderedMap) int {
 		reached = true
 		if !dryRun {
 			t.Errorf("MacosUserRun got dryRun=false, want true")

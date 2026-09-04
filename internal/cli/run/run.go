@@ -223,6 +223,7 @@ func Run(opts Options) int {
 		if len(agentArgv) == 0 {
 			agentArgv = []string{"/bin/zsh", "-l"}
 		}
+		var homeOverlay string
 		// CONFIG-CHANGE APPROVAL, on this arm too (docs/design/config-safety.md:
 		// "Every config change requires explicit approval"). The gate used to live
 		// only inside runContainer, several lines below the return above — the same
@@ -323,8 +324,49 @@ func Run(opts Options) int {
 		// bootstrap re-reads the manifests itself (LoadJailPacks), exactly as the
 		// container entrypoint does off its /ctx/packs mount, so the two backends render
 		// from the same input in the same way.
+		// CONTENT, on this arm too — the third and last of the B-0 omissions, after
+		// pack staging and launch flags. refreshJailBriefings composes the skills tree
+		// and every pack-declared briefing into a per-workspace staging dir; the
+		// container path delivers that by MOUNTING it, which this backend cannot do, so
+		// until today it composed nothing and the agent started with no AGENTS.md, no
+		// CLAUDE.md and no skills — including the built-in suite — while the
+		// blocked-tool shims WERE generated, so `grep -r` exited 127 with nothing
+		// explaining it.
+		//
+		// Called on EVERY entry, which is what the container path does too: it runs
+		// above the attach branch precisely so a re-entry re-renders whatever the config
+		// now says. This backend has no attach at all, so every invocation is that case.
+		//
+		// The staged tree is then laid out BY DESTINATION (buildMacosHomeOverlay) and
+		// delivered as one copy over the sandbox home. See that file for why a tree
+		// rather than a manifest.
+		//
+		// ⚠ THE DESTINATION HOME IS SHARED, and that is this step's known defect rather
+		// than an oversight: SandboxHome() is the constant /Users/_yolojail, so a second
+		// workspace launching concurrently overwrites the first's briefings while its
+		// agent is mid-session — and a briefing is per-project prose, so that agent
+		// would go on reading another project's description. The hazard is not new (the
+		// bootstrap already rewrites agent configs and shims on every launch) but this
+		// widens it from workspace-independent files to per-project ones. The fix is a
+		// per-workspace home, which is a design change and has its own doc:
+		// docs/design/macos-user-home-tiers.md.
+		// NOT gated on --dry-run, and that is deliberate: the plan's job is to describe
+		// the launch, and a plan that omitted the content staging would show a launch
+		// nobody runs. Composing writes only into the host-side staging dir, which pack
+		// staging above already does on a dry-run for the same reason; RunMacosUser
+		// still returns before executing a single staged command.
+		staging, err := o.refreshJailBriefings(cname, cfg, rt, staged)
+		if err != nil {
+			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
+			return 1
+		}
+		homeOverlay, err = buildMacosHomeOverlay(staging, staged.packs)
+		if err != nil {
+			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", err.Error())
+			return 1
+		}
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
-			repoRoot, staged.root, o.DryRun, channel.launchEnv())
+			repoRoot, staged.root, homeOverlay, o.DryRun, channel.launchEnv())
 	}
 	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel)
 }

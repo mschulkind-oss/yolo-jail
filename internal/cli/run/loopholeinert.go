@@ -274,20 +274,25 @@ func (o *Options) noteMachineWideWorkspaceState(packs []*packload.Pack) {
 // returns before — the same B-0 shape as pack staging and launch flags, but with a
 // fix that is a delivery mechanism rather than a moved call, so it warns for now.
 //
-// SKILLS AND BRIEFINGS is the more serious of the two. PrepareSkills and the briefing
-// composition both hang off refreshJailBriefings, whose only caller is in runContainer,
-// and the container path DELIVERS them by mounting the staged tree — a mechanism this
-// backend does not have. So the agent starts with no AGENTS.md, no CLAUDE.md and no
-// skills, including the built-in suite, which rides the same staging loop. Worse, the
-// native bootstrap DOES generate the blocked-tool shims, so `grep -r` exits 127 having
-// never told the agent why.
+// SKILLS AND BRIEFINGS ARE NOW DELIVERED (2026-09-03), by composing the same trees the
+// container path composes and copying them over the sandbox home instead of mounting
+// them (macoshomeoverlay.go). What survives is a DIFFERENT and smaller statement, and
+// this function now makes it: the copy is writable where a bind is `:ro`, and the
+// destination home is machine-wide, so a second workspace launching concurrently
+// overwrites the first's briefings while its agent is mid-session. Both are consequences
+// of the single sandbox home, which docs/design/macos-user-home-tiers.md exists to fix.
+//
+// The text this replaced said the agent "starts with no AGENTS.md/CLAUDE.md and no
+// skills". Leaving it would be the worse failure of the two available: a warning that
+// describes a gap yolo has closed teaches the reader to distrust the warnings that are
+// still true.
 func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.OrderedMap) {
 	if len(packs) > 0 {
-		o.pr(o.Stderr).print("[yellow]Note: briefings and skills are NOT delivered on macos-user[/yellow] — " +
-			"they are composed host-side and delivered by MOUNTING the staged tree, which this " +
-			"backend has no way to do. The agent starts with no AGENTS.md/CLAUDE.md and no skills " +
-			"(including the built-in ones), while the blocked-tool shims ARE generated — so a " +
-			"blocked command exits 127 with nothing explaining it.")
+		o.pr(o.Stderr).print("[yellow]Note: briefings and skills are delivered by COPY on macos-user[/yellow] — " +
+			"every other backend mounts them read-only, so here the agent can edit its own " +
+			"skills and briefing (the next launch overwrites them), and because this backend " +
+			"has ONE home, a second workspace launched while this one runs replaces them with " +
+			"its own.")
 	}
 	if lsp := cfgMap(cfg, "lsp_servers"); lsp != nil && len(lsp.Keys()) > 0 {
 		o.pr(o.Stderr).print("[yellow]Warning: lsp_servers CONFIG renders but the binaries are not installed on macos-user[/yellow] — " +

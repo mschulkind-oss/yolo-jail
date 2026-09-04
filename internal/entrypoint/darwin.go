@@ -72,11 +72,84 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 	// kept explicit rather than half-working (docs/plans/host-file-staging.md).
 	genStep(e, "configure_host_files", func() error { return ConfigureHostFiles(e) })
 
+	// CONTENT — skills and pack briefings — copied over the home from the staged
+	// overlay. This is the macos-user answer to the container's mounts: the host
+	// composed the same trees the container path composes, laid them out at their
+	// home-relative destinations, and staged the result root-owned; here it becomes
+	// files. LAST among the writers on purpose — the per-agent surface writers above
+	// create the agent home dirs this copies into (~/.claude and kin), so running it
+	// earlier would either race them or have to re-create them itself.
+	genStep(e, "install_home_overlay", func() error { return InstallHomeOverlay(e) })
+
 	// macOS-only writers (the two pieces unique to the native-macOS bootstrap).
 	genStep(e, "install_yolo_log", func() error { return InstallYoloLog(e, opts.YoloLogScript) })
 	genStep(e, "write_login_rc", func() error { return WriteLoginRC(e, opts.LoginPath) })
 
 	return genFailuresError(e)
+}
+
+// InstallHomeOverlay copies the staged CONTENT tree ($YOLO_DARWIN_HOME_OVERLAY) over
+// the sandbox home. Unset or absent → no-op, which is the state of a launch whose packs
+// declare no skills and no briefing.
+//
+// WHY A COPY RATHER THAN A MOUNT: this backend has none. The container path delivers
+// each staged dir with a `-v …:ro` bind, which is also why its copy is READ-ONLY to the
+// agent and this one is not — an agent here can edit its own skills, and the next launch
+// overwrites them again. That is a real difference in kind and is recorded in the launch
+// warning rather than papered over.
+//
+// The tree carries no schema: the host laid it out at the destinations the container
+// would have mounted, so this walks it and writes files. Any mapping logic here would be
+// a second implementation of the mount assembler's, which is the drift the transport
+// unification exists to end (loophole-transport.md §8.4 makes the same argument about
+// generated clients).
+//
+// OVERWRITE, NOT MERGE, per destination subtree: the overlay is authoritative for the
+// paths it contains, exactly as a bind mount is. A skills dir that a pack stopped
+// shipping must DISAPPEAR from the home, and a merge would keep serving it forever. The
+// rest of the home — credentials, history, anything the agent wrote — is untouched,
+// because the overlay simply does not contain those paths.
+func InstallHomeOverlay(e *Env) error {
+	src := e.Vars["YOLO_DARWIN_HOME_OVERLAY"]
+	if src == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Staged tree missing is not a boot failure: the launch may have raced a
+			// teardown, and the agent is better off starting with no skills than not
+			// starting. The warning is the record.
+			e.warn("home overlay " + src + " is not present; skills and briefings were not delivered")
+			return nil
+		}
+		return err
+	}
+	for _, ent := range entries {
+		from := filepath.Join(src, ent.Name())
+		to := filepath.Join(e.Home, ent.Name())
+		if ent.IsDir() {
+			// Replace the destination subtree wholesale — see OVERWRITE above.
+			if err := os.RemoveAll(to); err != nil {
+				return err
+			}
+			if err := copyTree(from, to); err != nil {
+				return err
+			}
+			continue
+		}
+		body, err := os.ReadFile(from)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(to, body, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // InstallYoloLog writes the yolo-log helper to ~/.local/bin/yolo-log (0755) —

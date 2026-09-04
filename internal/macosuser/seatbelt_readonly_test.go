@@ -116,7 +116,7 @@ func TestBuildRunPlanWiresWorkspaceReadonly(t *testing.T) {
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("workspace_readonly", []any{".git/hooks", ".git/config"})
 
-	plan := BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"bash"}, "/usr/local/bin/yolo", "", jsonx.NewOrderedMap(), nil)
+	plan := BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"bash"}, "/usr/local/bin/yolo", "", "", jsonx.NewOrderedMap(), nil)
 
 	for _, want := range []string{
 		`(subpath "/Users/Shared/proj/.git/hooks")`,
@@ -132,7 +132,7 @@ func TestBuildRunPlanWiresWorkspaceReadonly(t *testing.T) {
 // TestBuildRunPlanWithoutWorkspaceReadonlyEmitsNoDenies is the negative half:
 // a config without the key must not grow a deny block.
 func TestBuildRunPlanWithoutWorkspaceReadonlyEmitsNoDenies(t *testing.T) {
-	plan := BuildRunPlan("/Users/Shared/proj", jsonx.NewOrderedMap(), nil, []string{"bash"}, "/usr/local/bin/yolo", "", jsonx.NewOrderedMap(), nil)
+	plan := BuildRunPlan("/Users/Shared/proj", jsonx.NewOrderedMap(), nil, []string{"bash"}, "/usr/local/bin/yolo", "", "", jsonx.NewOrderedMap(), nil)
 	if strings.Contains(plan.Seatbelt, "workspace_readonly") {
 		t.Errorf("profile emitted a readonly block with no key set\n%s", plan.Seatbelt)
 	}
