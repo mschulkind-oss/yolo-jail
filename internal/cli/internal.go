@@ -25,10 +25,15 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <config-dump|daemon|darwin-bootstrap|migrate-host|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
+	case "capture-run":
+		// The in-jail half of install-capture (program-delivery.md §6.3). Hidden
+		// rather than documented: it MOVES an installer's output out of the home it
+		// is pointed at, which is correct only inside a throwaway capture jail.
+		return runCaptureRun(args[1:])
 	case "config-dump":
 		return runConfigDump(args[1:])
 	case "daemon":

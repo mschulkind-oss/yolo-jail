@@ -21,7 +21,8 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/treedigest/` | **new** — `treeDigest`/`treeDigestSkipping` lifted out of `internal/hostskills/compose.go:958,964` verbatim |
 | `internal/hostskills/compose.go` | call the new package; delete the local copies |
 | `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (hardlink, EXDEV → copy), `inner.go` (the backend-neutral driver), `gc.go` (`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`) |
-| `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`) |
+| `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a) |
+| `internal/prune/prune.go` | derive `dedupeSubtrees` from `paths.HomeSurfaces()` rather than re-typing it |
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
 | `internal/cli/capture.go` | **new** — `yolo capture <bin>` host act; `yolo internal capture-run` inner |
 | `internal/cli/dispatch.go` | register `capture` (`:15-35`) |
@@ -54,6 +55,10 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 - **`prune.inode()`** (`internal/prune/inode.go:12`) — the lstat behind the `st_nlink` GC oracle.
 - **`dedupeSubtrees = []string{"npm-global","local","go"}`** (`internal/prune/prune.go:24`) is
   already the exact capture surface set. Import that spelling rather than a fourth one.
+  ⚠ *Corrected while building slice 2 — see build-order 2(a).* Those are the HOST spellings and the
+  jail-side names differ; the constant was also unexported, and slice 5 makes `prune` import
+  `capture`, so importing it the other way would have been a cycle. The pair list now lives in
+  `paths.HomeSurfaces()` and `prune` derives from it; import THAT.
 - **Locking:** `tryHostApplyLock` (`internal/cli/hostapplylock.go:80`) — non-blocking, never refuses,
   into `<gs>/locks/`. Two concurrent captures of one bin must not race the admit.
 
@@ -65,7 +70,9 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   claude's updater writes new version dirs (new inodes) and is safe; this is not a general guarantee.
 - **The scratch root must live inside the CAS dir** (`<CapturesDir>/staging/<id>`), not `/tmp`.
   Admission is `os.Rename`; a different filesystem turns it into a 1.2 GB copy, which is the cost
-  this whole subsystem exists to delete.
+  this whole subsystem exists to delete. ⚠ *And "filesystem" is too weak — see build-order 2(b):
+  `rename(2)` compares the MOUNT, so two bind mounts of one btrfs with identical `st_dev` still
+  fail `EXDEV` (MEASURED 2026-09-04). Under podman every capture surface is its own bind.*
 - **`FindYoloWorkspaces` (`internal/prune/probes.go:148`) is NOT a reference oracle.** It enumerates
   `podman ps -a`, so a workspace whose container was removed is invisible — GC keyed on it would
   delete bytes a live workspace still uses. Use `st_nlink` instead (build order 5).
@@ -100,10 +107,54 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    `entries/<key>/tree/` with the marker in the entry ROOT beside it, one level deeper than
    packsrc's `trees/<sha>/`: metadata (slice 2's manifest) then has a home that is not inside the
    tree materialize hardlinks wholesale.
-2. **The inner driver, `yolo internal capture-run`.** Baseline walk of the three home-relative roots
-   → run the installer → delta manifest → move the delta paths into the out dir (same filesystem, so
-   rename). Backend-neutral: it is a process with a `HOME`, nothing more. Drive it in tests with a
+2. **The inner driver, `yolo internal capture-run`. — LANDED 2026-09-04.** Baseline walk of the
+   three capture surfaces → run the installer → delta manifest → move the delta paths into the out
+   dir. Backend-neutral: it is a process with a `HOME`, nothing more. Drive it in tests with a
    fixture "installer" shell script that writes files and one absolute symlink. → `just test-fast`
+
+   *Five corrections from building it.*
+
+   **(a) `dedupeSubtrees` is not home-relative, and it could not have been imported anyway.** Those
+   three strings are the HOST spelling, `<ws>/.yolo/home/<sub>`; the jail-side names differ and the
+   mapping is not derivable (`npm-global` → `~/.npm-global`, but `go` → `~/go`). The jail spelling
+   existed only as literals in the podman argv (`assemble_parts.go:108-110`), so there were already
+   two lists. `dedupeSubtrees` is also unexported, and slice 5 puts `PruneUnreferencedCaptures` in
+   `internal/capture` for `prunecmd.go` to call — so `capture` importing `prune` would have been an
+   import cycle one slice later. **Resolution:** the pair moved to `paths.HomeSurfaces()`
+   (`[]HomeSurface{{Subtree, HomeRel}}`, a leaf package both can import), `prune.dedupeSubtrees`
+   derives from it, and a test in `internal/cli/run` asserts the podman argv binds each
+   `Subtree` at its `HomeRel` — the only place in the tree where the two halves of the pair meet.
+
+   **(b) "same filesystem, so rename" is the wrong predicate: it is the same MOUNT.** MEASURED
+   2026-09-04 in this jail — `/tmp` → `/workspace`, both btrfs, identical `st_dev` (61) —
+   `rename(2)` returns `EXDEV`, because the kernel compares `mnt` and not the device. Under podman
+   every capture surface is its OWN bind mount, so a scratch dir outside them hits this by default
+   and `st_dev` cannot be used to pre-check it. The driver therefore falls back to a copy, counts
+   it (`Result.Copied`) and says so loudly on stderr; a capture is still correct, it merely costs
+   the bytes twice. **Slice 3 should site the scratch dir on the same mount as the surfaces** — free
+   on Apple Container, whose single `/home/agent` bind covers all three. `Store.Admit`'s rename is
+   unaffected: staging and entries are both under `<CapturesDir>`.
+
+   **(c) The out dir is ENTRY-SHAPED, not a bare tree.** The driver fills `<out>/tree/` and writes
+   `<out>/capture-manifest.json`, which is exactly slice 1's `entries/<key>/` layout — so slice 3 is
+   `Admit(capture.TreeDir(out))` plus moving one small file up beside the admitted tree, with
+   nothing in between that could file a manifest against a tree it does not describe.
+
+   **(d) Two move rules the plan's one-liner does not imply.** A directory absent from the baseline
+   is moved WHOLE (one rename for a whole version dir — everything under a new dir is new by
+   construction), but a SURFACE ROOT never is, even when new: on the container backends those are
+   bind mountpoints and renaming one is `EBUSY`.
+
+   **(e) Two things deliberately NOT built here, so slice 3/6 do not assume them.** The baseline
+   records `(kind, perm, size, mtime)` per path, never content hashes — an installer that rewrote a
+   file to the same size and mode within the mtime granularity would be invisible, which is the
+   price of not reading a booted home's worth of bytes. And §6.3's *"a jail that writes outside its
+   binds is a finding the capture run reports"* is unbuilt: stray writes are left alone and not
+   enumerated (that needs a whole-home walk). Absolute references are gathered from SYMLINK TARGETS
+   only; file-content references are slice 6's if it needs them.
+
+   *One thing slice 3 must watch:* the jail's own `~/.local/share/yolo-jail` is INSIDE the `.local`
+   surface, so anything yolo writes there between the baseline and the installer lands in the delta.
 3. **`yolo capture <bin>` on the container backends.** Host act: `HonoredInstalls` → scratch workspace
    under `<CapturesDir>/staging/<id>` → the ordinary run pipeline with the inner driver as the command
    → hash → rename into `<CapturesDir>/entries/<key>` → write the capture receipt. First user-visible

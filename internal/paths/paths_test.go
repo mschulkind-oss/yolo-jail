@@ -252,3 +252,33 @@ func TestCapturesDirUnderExplicitHome(t *testing.T) {
 		t.Errorf("captures and packs must share a parent: %q vs %q", got, want)
 	}
 }
+
+// TestHomeSurfacesPinsBothSpellings pins the pair list itself: the two names for each of the
+// three per-workspace dirs that hold installed programs.
+//
+// It is pinned here rather than left to its callers because the mapping is NOT derivable —
+// `npm-global` becomes `.npm-global` and `go` stays `go` — and two subsystems act on it from
+// opposite sides: prune walks the host spelling, install-capture walks the jail spelling. A
+// silent edit to either column would make one of them walk a directory the other does not.
+func TestHomeSurfacesPinsBothSpellings(t *testing.T) {
+	want := []HomeSurface{
+		{Subtree: "npm-global", HomeRel: ".npm-global"},
+		{Subtree: "local", HomeRel: ".local"},
+		{Subtree: "go", HomeRel: "go"},
+	}
+	got := HomeSurfaces()
+	if len(got) != len(want) {
+		t.Fatalf("HomeSurfaces() = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("HomeSurfaces()[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	// The returned slice is the caller's: a caller that sorts or filters it must not be
+	// editing the next caller's list.
+	got[0].Subtree = "clobbered"
+	if HomeSurfaces()[0].Subtree != "npm-global" {
+		t.Error("HomeSurfaces() hands out a shared backing array")
+	}
+}

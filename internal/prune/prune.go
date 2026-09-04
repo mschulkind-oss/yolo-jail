@@ -16,14 +16,32 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Dedup subtrees (per-workspace .yolo/home/<sub>) and global-storage subdirs
 // that are safe to hardlink-dedup.
+//
+// The per-workspace set is paths.HomeSurfaces() and is NOT re-typed here: install-capture
+// walks the same three dirs (program-delivery.md §6.3), and the two must agree or be wrong
+// together — a surface added for one and not the other is the bug the shared list makes
+// unrepresentable.
 var (
-	dedupeSubtrees      = []string{"npm-global", "local", "go"}
+	dedupeSubtrees      = homeSurfaceSubtrees()
 	globalDedupeSubdirs = []string{"cache", "mise", "home"}
 )
+
+// homeSurfaceSubtrees is paths.HomeSurfaces() reduced to the host-side <ws>/.yolo/home/<sub>
+// names, which is the half this package walks.
+func homeSurfaceSubtrees() []string {
+	surfaces := paths.HomeSurfaces()
+	out := make([]string, 0, len(surfaces))
+	for _, s := range surfaces {
+		out = append(out, s.Subtree)
+	}
+	return out
+}
 
 const hashChunkBytes = 1 << 20 // 1 MiB
 // Entry is a dedup candidate: a regular, non-empty, non-symlink file + its size.

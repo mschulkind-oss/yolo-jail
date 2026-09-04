@@ -191,7 +191,7 @@ func (s *Store) Admit(staged string) (*Entry, error) {
 		if err := os.RemoveAll(staged); err != nil {
 			return nil, err
 		}
-		return &Entry{Key: key, Root: entry, Tree: filepath.Join(entry, treeLeaf)}, nil
+		return &Entry{Key: key, Root: entry, Tree: TreeDir(entry)}, nil
 	}
 	// Absent, or a previous admit died partway. Start clean: a torn entry silently kept would
 	// be an installer's half-written state presented as a package.
@@ -201,7 +201,7 @@ func (s *Store) Admit(staged string) (*Entry, error) {
 	if err := os.MkdirAll(entry, 0o755); err != nil {
 		return nil, err
 	}
-	tree := filepath.Join(entry, treeLeaf)
+	tree := TreeDir(entry)
 	if err := os.Rename(staged, tree); err != nil {
 		return nil, fmt.Errorf("capture admit: moving %s into the store: %w", staged, err)
 	}
@@ -231,7 +231,7 @@ func (s *Store) Resolve(key string) (*Entry, error) {
 		return nil, fmt.Errorf("capture %s is not in the store at %s — run `yolo capture <bin>` "+
 			"to make one: %w", key, s.Dir, ErrNotCaptured)
 	}
-	return &Entry{Key: key, Root: entry, Tree: filepath.Join(entry, treeLeaf)}, nil
+	return &Entry{Key: key, Root: entry, Tree: TreeDir(entry)}, nil
 }
 
 // freezeTree drops the write bits from every REGULAR FILE in the tree.

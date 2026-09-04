@@ -1328,12 +1328,27 @@ here is the same wiring for everything else.
 
 **Sixth, the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package),
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
-*record* + *materialize* and depends on nothing above except the receipt schema. **Slice one of
-six is landed** ([`install-capture.md`](../plans/install-capture.md)) and is substrate only, with
-no behavior change and no CLI: `internal/treedigest` (the canonical tree digest, lifted out of
+*record* + *materialize* and depends on nothing above except the receipt schema. **Slices one and
+two of six are landed** ([`install-capture.md`](../plans/install-capture.md)), and neither changes
+any existing behavior — nothing captures anything on a normal launch yet, because the host act that
+would call the driver is slice three.
+
+Slice one is substrate: `internal/treedigest` (the canonical tree digest, lifted out of
 `hostskills`), `paths.CapturesDir()` and its boot `MkdirAll`, and `internal/capture`'s store —
 admit by rename out of an in-store staging dir, entry files frozen read-only, completion marker
-written last, and a strictly offline `Resolve`. Nothing captures anything yet.
+written last, and a strictly offline `Resolve`.
+
+Slice two is the **inner driver**, `yolo internal capture-run` (`internal/capture/inner.go`): walk
+a baseline of the three per-workspace program surfaces, run the installer, move everything it added
+or changed into a scratch tree, and write the delta manifest beside it. It runs INSIDE for the
+reason this section's sandbox paragraph implies but does not say: the boot writes into those same
+surfaces before any installer does, so a host-side before/after diff would file yolo's own
+bootstrap output as the vendor's. That also makes it backend-neutral in the strongest sense — a
+process with a `HOME`, a scratch dir and an argv — which is what makes Apple Container work at all,
+since that backend has no per-directory binds whose contents could BE the delta. One measurement
+from building it corrects the plan's cost model rather than this section's: `rename(2)` compares the
+MOUNT, not the device, so two bind mounts of one filesystem still fail `EXDEV`; the driver falls
+back to a copy and reports it rather than paying for the bytes twice in silence.
 
 **Seventh — added 2026-09-03, and it comes AFTER the sixth by ruling
 ([OQ-PD15](#decision-ledger)) — make agent dependencies evergreen**

@@ -348,6 +348,46 @@ func GlobalStorageUnder(home string) string { return filepath.Join(home, globalS
 // GlobalHome returns the shared container /home/agent backing dir.
 func GlobalHome() string { return filepath.Join(GlobalStorage(), "home") }
 
+// HomeSurface is one of the per-workspace writable dirs inside the jail home: the pair of
+// names for ONE directory, which lives at <ws>/.yolo/home/<Subtree> on the host and at
+// $HOME/<HomeRel> inside the jail.
+//
+// The two spellings differ (`npm-global` → `.npm-global`, `go` → `go`) and the mapping is
+// not derivable, which is why it is written down once here instead of three times.
+type HomeSurface struct {
+	// Subtree is the directory's name under <ws>/.yolo/home — the host side of the bind.
+	Subtree string
+	// HomeRel is its path relative to the jail's HOME — the jail side of the bind.
+	HomeRel string
+}
+
+// HomeSurfaces returns the three per-workspace home dirs that hold INSTALLED PROGRAMS —
+// the npm prefix, `~/.local` (where `~/.local/bin` and the vendor installers' version dirs
+// land) and `$GOPATH`.
+//
+// This is one list serving two subsystems that must agree about it or be wrong together:
+//
+//   - `prune` hardlink-dedups exactly these three per workspace (`WalkDedupableWorkspaces`),
+//     because they are where the same bytes get downloaded again for every workspace;
+//   - `capture` walks exactly these three for its baseline and its delta
+//     (program-delivery.md §6.3), because they are where an installer's output lands.
+//
+// Those are the same set for the same reason, so a fourth spelling of it is a bug waiting
+// for someone to add a surface to one and not the other. The jail's OTHER per-workspace
+// binds — `yolo-bin`, `config`, `.cache` — are deliberately absent: they hold GENERATED or
+// CACHED content that is rebuilt or refetched rather than installed, so deduping them buys
+// little and capturing them would file yolo's own output as a vendor's.
+//
+// The order is the bind order in the podman argv (`run/assemble_parts.go`), kept so a
+// human reading either list beside the other sees the same sequence.
+func HomeSurfaces() []HomeSurface {
+	return []HomeSurface{
+		{Subtree: "npm-global", HomeRel: ".npm-global"},
+		{Subtree: "local", HomeRel: ".local"},
+		{Subtree: "go", HomeRel: "go"},
+	}
+}
+
 // GeneratedBinDir returns $HOME/.local/share/yolo-jail/bin — the parent of every
 // directory of yolo-GENERATED executables. It is a gathering point in the FILESYSTEM
 // only: its children sit at opposite ends of PATH by design (blockers first, launchers
