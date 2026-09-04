@@ -8,7 +8,9 @@ Written against `839d0745`, 2026-09-03.
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and is
 the first thing to be wrong. Never twist code to match it — correct it in the commit.
 
-**Why first:** evergreen multiplies the per-workspace disk cost capture removes. Re-measured here
+**Sequencing:** this is §10 step six and lands **before** step seven,
+[`evergreen-agent-updates.md`](evergreen-agent-updates.md) — evergreen multiplies the per-workspace
+disk cost capture removes. Re-measured here
 2026-09-03: `~/.local/share/claude/versions` holds **five** builds at **1.2 GB** (the design measured
 four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 
