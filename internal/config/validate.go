@@ -103,6 +103,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostWrappers(config, workspace, errs)
 	validateHostApplyOnLaunch(config, workspace, errs)
 	validatePacks(workspace, errs)
+	validatePrograms(config, workspace, errs)
 
 	errors = *errs
 	warnings = *warns

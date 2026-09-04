@@ -1305,6 +1305,27 @@
     but it is strictly larger than no-kvm.  Leave this off unless you
     actually need nested virtualization.
 
+  [bold]programs[/bold] (object, [bold]USER SCOPE ONLY[/bold]): What a launch does about
+    programs nothing declares any more.
+    • [bold]autoprune[/bold] (boolean, [bold]default false[/bold]): Remove orphans at boot.
+      An ORPHAN is something installed in this jail's per-workspace home that no
+      selected pack, MCP preset or LSP recipe declares — what a dropped pack left
+      behind. Every boot already NAMES them ("boot catalog: ..." lines, with sizes);
+      nothing removes them unless you set this.
+      With it on, each launch removes what it cataloged, printing every path first.
+      [yellow]It is destructive and it runs with nobody present.[/yellow] ~/.local/bin
+      is also where YOU may have put things, and yolo cannot tell a tool you installed
+      by hand from a dropped pack's leftovers — both are "installed and undeclared".
+      Look before you enable it:
+        yolo programs ls              # in the jail: the orphans and their sizes
+        yolo programs remove          # what removing them would unlink (a dry run)
+        yolo programs remove --apply  # do it once, by hand, instead of every boot
+      Workspace configs cannot set this. A repo-committed, agent-editable file must
+      not be able to authorise deleting your programs; a workspace-scoped `programs`
+      is a validation error, not a silent no-op.
+      Container backends only (the boot catalog it hangs off does not run under
+      macos-user, which stages no pack tree to compare against).
+
   [bold]resources[/bold] (object): Container resource limits.
     Sets hard cgroup constraints on the jail container via podman flags.
     These limits are enforced by the kernel — the jail cannot exceed them.

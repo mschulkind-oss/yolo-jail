@@ -198,6 +198,16 @@ var inheritCensus = map[string]keyDisposition{
 	// standing licence to write a home the key was never about.
 	"host_apply_on_launch": {reason: "gates a re-render of the HOST's real home at a wrapped " +
 		"host launch — a jail has neither the home nor the launch"},
+	// `programs`: NEITHER, and unusually it is neither a false-error class nor a misread
+	// grant — it is a key with no in-jail READER at all. `programs.autoprune` is read on
+	// the host out of the user file directly (ProgramsAutoprune; workspace scope is
+	// inexpressible for a key that authorises deleting binaries) and delivered to the jail
+	// as YOLO_PROGRAMS_AUTOPRUNE, so nothing in here would consult the key even if it were
+	// inherited: `yolo programs` reads the variable and the disk. The NESTED half is a
+	// decision rather than an omission — an inner launcher inheriting it would hand a
+	// nested jail's own home a standing licence to delete, which the human who set the
+	// option for their machine never granted for a container's throwaway one.
+	"programs": {reason: "host-read via ProgramsAutoprune and delivered as an env var; no in-jail reader, and a nested launch must not inherit a destructive option"},
 	// `mounts`: host paths again. Measured to warn "host path does not exist and will be
 	// skipped" for every host path in an in-jail check.
 	"mounts": {reason: "host paths absent in the container; validation warns on every one"},
