@@ -501,7 +501,7 @@ func TestNativeFailurePathsLeaveNoReceipt(t *testing.T) {
 func TestNativeLauncherVendorSelfUpdateEmitsNoReceipt(t *testing.T) {
 	body := nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://x.invalid/i.sh"},
-		"/stamps", "/tmp/receipts.jsonl",
+		"/stamps", "/tmp/receipts.jsonl", "",
 	)
 	for _, line := range strings.Split(body, "\n") {
 		if !strings.Contains(line, `YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install`) {
@@ -851,7 +851,7 @@ func TestLauncherReceiptPathIsBakedNotRead(t *testing.T) {
 		"npm": npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "t", Package: "t"},
 			"/stamps", "/ws/.yolo/receipts.jsonl"),
 		"native": nativeAgentLauncher(&packdecl.Install{Kind: "native", Bin: "t", InstallerURL: "u"},
-			"/stamps", "/ws/.yolo/receipts.jsonl"),
+			"/stamps", "/ws/.yolo/receipts.jsonl", ""),
 	} {
 		if !strings.Contains(body, "_YOLO_RECEIPTS=/ws/.yolo/receipts.jsonl") {
 			t.Errorf("%s launcher does not bake the receipts path:\n%s", name, body)

@@ -25,10 +25,16 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
+	case "capture-materialize":
+		// Install-capture's second verb (program-delivery.md §6.3), called by the
+		// GENERATED NATIVE LAUNCHER before it would download. Hidden for capture-run's
+		// reason from the other end: it writes a vendor's files into the home it is
+		// pointed at.
+		return runCaptureMaterialize(args[1:])
 	case "capture-run":
 		// The in-jail half of install-capture (program-delivery.md §6.3). Hidden
 		// rather than documented: it MOVES an installer's output out of the home it

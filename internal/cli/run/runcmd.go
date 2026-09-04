@@ -126,6 +126,21 @@ type Options struct {
 	// prompt, the tty-proxy fallback). nil => real isatty.
 	IsTTYStdout func() bool
 	IsTTYStdin  func() bool
+	// CapturesDir resolves the machine-wide install-capture store, which every
+	// launch binds :ro into the jail so a native launcher can MATERIALIZE an
+	// already-captured install instead of downloading it (program-delivery.md §6.3;
+	// entrypoint.CapturesDirEnv). nil => paths.CapturesDir.
+	//
+	// RETURNING "" IS THE MEANINGFUL OVERRIDE, and it has one production caller:
+	// `yolo capture` (internal/cli/capturehost.go) suppresses the mount for the
+	// throwaway jail it runs the vendor installer in. Without that the launcher
+	// inside a capture jail would find the previous capture of the very program it
+	// is capturing, materialize it, and record a "new" capture of bytes no installer
+	// run produced this time — which would also make re-capturing (§6.3's *update*:
+	// "a NEW capture, on an explicit act") structurally impossible. Suppressing the
+	// MOUNT rather than teaching the launcher a second exception makes it
+	// unrepresentable: there is nothing in that jail to resolve against.
+	CapturesDir func() string
 	// MacosUserRun handles the runtime==macos-user native branch. It receives the resolved config,
 	// workspace, selected agents, the post-`--` argv, the repo root, the staged pack
 	// root, the dry-run flag, and the launch's composed profile/provider channel in
@@ -237,6 +252,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.IsTTYStdin == nil {
 		o.IsTTYStdin = func() bool { return isTTY(os.Stdin) }
+	}
+	if o.CapturesDir == nil {
+		o.CapturesDir = paths.CapturesDir
 	}
 }
 

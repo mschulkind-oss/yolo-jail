@@ -56,6 +56,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/treedigest"
@@ -293,6 +294,42 @@ func (s *Store) Resolve(key string) (*Entry, error) {
 			"to make one: %w", key, s.Dir, ErrNotCaptured)
 	}
 	return &Entry{Key: key, Root: entry, Tree: TreeDir(entry)}, nil
+}
+
+// EntryKeys lists the keys of every COMPLETE entry in the store, sorted.
+//
+// AN ABSENT STORE IS AN EMPTY ONE, not an error: a machine that has never captured anything
+// is the normal state, and the materialize path's whole contract is to fall through quietly
+// to the vendor installer when there is nothing here.
+//
+// This is what makes "which entry holds <bin> for <platform>?" answerable at all. The store
+// is content-addressed, so nothing can COMPUTE a key from a program name; the answer lives in
+// each entry's own receipt (ReceiptsPath) and is found by scanning. That is deliberate, and
+// materialize.go's caller states the reasoning: the question is asked once per workspace per
+// program, from a cold install branch, so a handful of small file reads is cheaper than an
+// index that GC and admit would both have to keep true.
+func (s *Store) EntryKeys() ([]string, error) {
+	ents, err := os.ReadDir(filepath.Join(s.Dir, entriesLeaf))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var keys []string
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(s.EntryDir(e.Name()), completeMarker)); err != nil {
+			// Torn or in-flight. Resolve says the same thing about it, and saying it
+			// the same way here keeps "listed" and "resolvable" from disagreeing.
+			continue
+		}
+		keys = append(keys, e.Name())
+	}
+	sort.Strings(keys)
+	return keys, nil
 }
 
 // freezeTree drops the write bits from every REGULAR FILE in the tree.

@@ -141,6 +141,18 @@ func TestCaptureAdmitsTheEntryAndWritesTheReceipt(t *testing.T) {
 		t.Error("the scratch workspace has no config a human wrote; a capture must not " +
 			"turn a user-config edit into a prompt about a directory nobody has seen")
 	}
+	// 1b. AND THE CAPTURE JAIL GETS NO CAPTURE STORE. Every other launch binds it :ro so a
+	//     native launcher can materialize instead of downloading — and the installer a
+	//     capture runs IS that launcher. With the mount present, capturing a program that
+	//     already has an entry would reflink the old entry into the capture home and record
+	//     it as a fresh capture of bytes no installer produced, which also makes §6.3's
+	//     *update* ("a NEW capture, on an explicit act") impossible.
+	if seen.CapturesDir == nil {
+		t.Error("the capture jail left Options.CapturesDir nil, so fillDefaults will bind " +
+			"the machine store into the jail whose installer is filling it")
+	} else if got := seen.CapturesDir(); got != "" {
+		t.Errorf("the capture jail was given the capture store at %q; it must be suppressed", got)
+	}
 
 	// 2. The entry is admitted, complete, and content-addressed.
 	key := captureKeyOf(t, store)

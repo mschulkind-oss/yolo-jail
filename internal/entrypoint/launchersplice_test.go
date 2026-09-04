@@ -21,7 +21,8 @@ import (
 // all three templates, plus the package-manager stamp dir) were correctly quoted. The values
 // come from a pack manifest a human approved, so that was hardening rather than a live
 // exploit; it is also exactly the shape that stops being hardening the day a value stops
-// being approved.
+// being approved. There are 19 splices as of 2026-09-04: slice 4 of install-capture added
+// __YOLO_CAPTURES_DIR__ to the native template.
 //
 // THE TESTS BELOW ARE WRITTEN TO FAIL IF A shquote CALL IS DELETED, not merely to describe
 // the current output (AGENTS.md, "a test that pins the CALLEE while the CALL SITE is
@@ -33,7 +34,8 @@ import (
 // MEASURED, by deleting each of the 18 calls in turn: 17 go red. The one survivor is
 // __YOLO_PINNED__, where Quote is the identity on the only two inputs that reach it ("0" and
 // "1", derived from a bool in the generator) — see npmAgentLauncher's docstring. Re-run that
-// check if you add a sentinel.
+// check if you add a sentinel. Re-run for the 19th (__YOLO_CAPTURES_DIR__, 2026-09-04): it goes
+// RED, so the tally is 18 of 19.
 
 // Witness basenames. Relative, not absolute, because one of the values fed through this
 // harness is a BIN NAME, and ValidBinName refuses a "/" — the payload therefore has to be
@@ -130,7 +132,7 @@ func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 		v, v), "npm launcher")
 	assertParses(t, nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v},
-		v, v), "native launcher")
+		v, v, v), "native launcher")
 
 	// The package-manager launcher takes no per-pack input at all: its bin and package are
 	// a hardcoded list, so the only value that can be hostile is the stamp dir, which is
@@ -254,7 +256,7 @@ fi`)
 	receipts := hostileReceiptsPath(home, "-nativereceipts")
 	body := nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
-		filepath.Join(home, "stamps"), receipts)
+		filepath.Join(home, "stamps"), receipts, "")
 
 	out, rc := runLauncher(t, home, "probetool", body, fakeBin)
 	if rc != 0 {
@@ -476,7 +478,7 @@ func TestLaunchersQuoteTheBinNameAndStampDir(t *testing.T) {
 
 		body := nativeAgentLauncher(
 			&packdecl.Install{Kind: "native", Bin: bin, InstallerURL: "https://example.invalid/i.sh"},
-			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"))
+			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "")
 		out, rc := runLauncher(t, home, "launcher", body, filepath.Join(home, "nonexistent-bin"))
 		if rc != 0 || !strings.Contains(out, "LAUNCHED") {
 			t.Errorf("native launcher did not exec $HOME/.local/bin/<bin> for a hostile bin "+

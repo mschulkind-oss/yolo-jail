@@ -808,6 +808,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		packs:            loadedPacks,
 		agentsPath:       agentsPath,
 		packStaging:      packStaging,
+		capturesDir:      o.CapturesDir(),
 		wsState:          wsState,
 		miseStore:        jailMiseStoreDir(o.inJail()),
 		hostTZ:           detectHostTZ(),

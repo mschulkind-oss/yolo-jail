@@ -45,9 +45,20 @@ const (
 	ReceiptKindCapture = "capture"
 	// ReceiptActRecord is the capture act itself: program-delivery.md §6.3's *record*,
 	// the first of the two verbs it names ("capture ships as the installer resolver's
-	// implementation of record + materialize"). The second, `materialize`, is written by
-	// the launcher when it hardlinks an entry into a home.
+	// implementation of record + materialize").
 	ReceiptActRecord = "record"
+	// ReceiptActMaterialize is §6.3's second verb: an entry put into one home, written by
+	// the in-jail materializer the native launcher calls before it would download.
+	//
+	// IT LANDS IN A DIFFERENT FILE FROM ITS SIBLING, and the two scopes are the reason.
+	// `record` is machine-wide and goes beside the CAS entry (capture.ReceiptsPath), because
+	// the capture workspace is thrown away and the invoking one merely happened to be where
+	// a human stood. `materialize` is the opposite: what it records is that THESE BYTES ARE
+	// NOW IN THIS WORKSPACE, which is exactly the claim `<ws>/.yolo/receipts.jsonl` exists to
+	// carry (receiptsFile: "the workspace owns the realization"). It is the line that would
+	// have been a `kind:"installer"` install had there been no capture, so it goes where that
+	// line would have gone.
+	ReceiptActMaterialize = "materialize"
 )
 
 // CaptureReceipt is §6.3's receipt tuple for one capture — *(declaration, installer URL,
@@ -139,6 +150,53 @@ func (r CaptureReceipt) Line() string {
 // RFC3339 with a fractional part would produce a stamp the round-trip test's length
 // assertion catches and nothing else would.
 const receiptTimeLayout = "2006-01-02T15:04:05Z"
+
+// ReadCaptureReceipts parses a JSONL receipt log and returns its `kind:"capture"` lines, in
+// file order.
+//
+// THE READER FOR THE WRITER ABOVE, in the same file, because the materialize path needs to
+// ask a question only these lines can answer: WHICH STORE ENTRY holds <bin> for <platform>?
+// The store is content-addressed, so that mapping exists nowhere but in the receipts, and a
+// second parser for it — in internal/capture, or worse in generated shell — is the "one file,
+// two implementations" shape receiptread.go's header says this repo keeps deleting. It
+// therefore goes through parseReceiptLine like every other reader.
+//
+// AN ABSENT FILE IS EMPTY, NOT AN ERROR: an entry admitted by an older yolo, or one whose
+// receipt write failed after the tree landed, is an entry nothing can attribute to a program
+// — which is a miss, and a miss falls through to the vendor installer. A line that does not
+// parse is skipped for the same reason receipt logs are read tolerantly everywhere else: this
+// is an observation log appended to by several writers, and nothing downstream of it gates.
+func ReadCaptureReceipts(path string) ([]CaptureReceipt, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []CaptureReceipt
+	for _, line := range splitLines(string(data)) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		r, err := parseReceiptLine(line)
+		if err != nil || r.Kind != ReceiptKindCapture {
+			continue
+		}
+		cr := CaptureReceipt{
+			Bin: r.Bin, Declared: r.Declared, Key: r.Resolved, Digest: r.SHA256,
+			Bytes: r.Bytes, Path: r.Path, Platform: r.Platform, Act: r.Act,
+		}
+		// A stamp that does not parse leaves the zero time rather than dropping the
+		// receipt: the entry it names is real either way, and a caller ordering by time
+		// treats the zero as the oldest — which is the safe end for "I cannot tell".
+		if t, terr := time.Parse(receiptTimeLayout, r.Time); terr == nil {
+			cr.Time = t
+		}
+		out = append(out, cr)
+	}
+	return out, nil
+}
 
 // AppendReceiptLine appends one rendered receipt line to a JSONL log, creating the file and
 // its parent directory if needed.

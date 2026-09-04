@@ -45,7 +45,12 @@ type assembleInput struct {
 	agentsPath string // AGENTS_DIR/<cname> (briefings + skills staging)
 	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees, mounted :ro so
 	// the entrypoint renders the same declarations the host read.
-	packStaging  string
+	packStaging string
+	// capturesDir is the machine-wide install-capture store (paths.CapturesDir), bound
+	// :ro so an in-jail launcher can materialize an entry instead of downloading it.
+	// EMPTY means "do not mount it" — the capture jail's own launch, which must not be
+	// able to resolve against the store it is filling (Options.CapturesDir).
+	capturesDir  string
 	wsState      string // <workspace>/.yolo/home
 	miseStore    string // _jail_mise_store_dir()
 	hostTZ       string // "" => no TZ
@@ -603,6 +608,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 				"-e", "YOLO_PACK_ROOT="+packCtxDir)
 		}
 	}
+
+	// --- INSTALL CAPTURES, read-only at /ctx/captures ---
+	// The machine's capture store, so a native launcher can materialize an already-captured
+	// install instead of downloading it (captures.go says why it is a mount and why :ro).
+	runCmd = append(runCmd, o.capturesArgs(rt, in.capturesDir)...)
 
 	// --- host files (pack-declared, origin-gated) ---
 	runCmd = append(runCmd, o.hostFileArgs(in)...)

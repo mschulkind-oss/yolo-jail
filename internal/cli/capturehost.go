@@ -311,6 +311,20 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	opts.Args = captureJailArgv(bin)
 	opts.Color = color
 	opts.Stdout, opts.Stderr = out, errw
+	// NO CAPTURE STORE IN A CAPTURE JAIL. Every ordinary launch binds the store :ro so a
+	// native launcher can materialize instead of downloading (run/captures.go); this one
+	// must not, and the reason is circularity rather than tidiness. The installer a capture
+	// runs IS the launcher (see the file comment), and the launcher now tries materialize
+	// first — so with the mount present, capturing a program that already has an entry
+	// would reflink that entry into the capture home and then record what it found as a
+	// fresh capture of bytes no installer produced this time. It would also make §6.3's
+	// *update* ("a NEW capture, on an explicit act") impossible: `yolo capture` could never
+	// pick up a newer vendor release, because it would keep re-recording the old one.
+	//
+	// Suppressed at the MOUNT rather than by a second exception inside the launcher, so the
+	// property is unrepresentable instead of conditional: there is nothing in that jail to
+	// resolve a capture against.
+	opts.CapturesDir = func() string { return "" }
 	// --new: never attach. A capture must run its installer in a home the BOOT just made,
 	// and attaching to a live container for this workspace would run it in whatever state
 	// that container is in. The scratch workspace is fresh per capture, so there is nothing

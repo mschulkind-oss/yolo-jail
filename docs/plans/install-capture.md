@@ -20,7 +20,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | :--- | :--- |
 | `internal/treedigest/` | **new** — `treeDigest`/`treeDigestSkipping` lifted out of `internal/hostskills/compose.go:958,964` verbatim |
 | `internal/hostskills/compose.go` | call the new package; delete the local copies |
-| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (hardlink, EXDEV → copy), `inner.go` (the backend-neutral driver), `gc.go` (`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`) |
+| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_other.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader), `inner.go` (the backend-neutral driver), `gc.go` (`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`) |
 | `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a); **new** `GlobalStorageRel()` and `WorkspaceStateDir`/`WorkspaceHomeState`, per slice 3's corrections (a) and (b) |
 | `internal/prune/prune.go` | derive `dedupeSubtrees` from `paths.HomeSurfaces()` rather than re-typing it |
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
@@ -30,8 +30,11 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/cli/subhelp.go` | one `subcommandUsage` row — every registry key must answer `--help` |
 | `internal/cli/dispatch.go` | register `capture` (`:15-35`) |
 | `internal/cli/help.go` | one `commandHelp` row (`:10-31`) |
-| `internal/cli/internal.go` | add `capture-run` to the hidden namespace switch (`:28`, `:32`) |
-| `internal/entrypoint/shims.go` | ~~factor the `nativeLauncherTemplate` install body into a shared const~~ — **not needed, see slice 3(d)**: the capture RUNS the launcher. What landed instead is `InstallOnlyEnv` and its branch in the template. Slice 4 still adds the materialize-from-CAS branch |
+| `internal/cli/internal.go` | add `capture-run` to the hidden namespace switch (`:28`, `:32`); slice 4 adds `capture-materialize` beside it |
+| `internal/cli/capturematerialize.go` | **new** (slice 4) — `yolo internal capture-materialize`, the argv the generated launcher emits, plus the bin+platform → key lookup (a scan, not an index — see 4(e)) |
+| `internal/cli/run/captures.go` | **new** (slice 4) — the `:ro` `/ctx/captures` bind and `entrypoint.CapturesDirEnv`, with the Apple Container host-path branch |
+| `internal/cli/run/runcmd.go`, `run.go`, `assemble.go` | slice 4: the `Options.CapturesDir` seam, its `fillDefaults` default, the `assembleInput` field and the one emitter call |
+| `internal/entrypoint/shims.go` | ~~factor the `nativeLauncherTemplate` install body into a shared const~~ — **not needed, see slice 3(d)**: the capture RUNS the launcher. What landed instead is `InstallOnlyEnv` and its branch in the template. Slice 4 added the materialize-from-CAS branch, `CapturesDirEnv`, and a 19th splice sentinel (`__YOLO_CAPTURES_DIR__`) |
 | `internal/entrypoint/capturereceipt.go` | **new** (slice 3) — the `kind:"capture"` writer, the only receipt in this repo written from Go |
 | `internal/entrypoint/receiptread.go` | extend the reader for `kind:"capture"`, `act:"record"`/`act:"materialize"`, and the new `platform` field |
 | `internal/prune/prunecmd.go`, `pathsref.go` | new `Options.CapturesDir func() string` seam + one report section |
@@ -41,7 +44,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/macosuser/runplan.go`, `macosuser.go` | slice 6 lifted `buildBootstrapEnv` (home is now a parameter) and `sandboxEnvPairs` out; no behavior change |
 | `internal/capture/relocate.go` | **new** (slice 6) — the file-content reference scan and the relocatable verdict |
 | `docs/design/storage-and-config.md` | §2's `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
-| `docs/design/program-delivery.md` | §10 step six → SHIPPED, per slice |
+| `docs/design/program-delivery.md` | §10 step six → SHIPPED, per slice; §6.3's *materialize* verb amended by slice 4 (reflink, not hardlink) |
 
 ## Reuse
 
@@ -60,6 +63,8 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   paths, and `verb(apply, "would remove", "removed")` (`prunecmd.go:712`). Closest siblings:
   `PruneOrphanImageRoots` (`imageroots.go:38`) and `PruneHostArchive` (`hostarchive.go:80`).
 - **`prune.inode()`** (`internal/prune/inode.go:12`) — the lstat behind the `st_nlink` GC oracle.
+  ⚠ *There is no `st_nlink` GC oracle any more — see the BLOCKING CORRECTION on build-order 5.
+  The helper is still the right lstat wrapper for whatever slice 5 uses instead.*
 - **`dedupeSubtrees = []string{"npm-global","local","go"}`** (was `internal/prune/prune.go:24`) is
   already the exact capture surface set. Import that spelling rather than a fourth one.
   ⚠ *Corrected while building slice 2 — see build-order 2(a).* Those are the HOST spellings and the
@@ -76,6 +81,11 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   materialized file **for write** corrupts the CAS and every other workspace at once, silently.
   **Constraint:** chmod CAS entry files to drop `w` at admit time, and never dedupe *within* the CAS.
   claude's updater writes new version dirs (new inodes) and is safe; this is not a general guarantee.
+  ⚠ *Severity DROPPED in slice 4(d): the primary mechanism is now REFLINK, not hardlink, and a
+  reflinked file is its OWN inode — a write to it copies-on-write and reaches nothing else. The
+  constraint stays exactly as written, because it is what keeps the hardlink FALLBACK arm safe and
+  costs the reflink arm nothing; what changes is that on the arm a healthy machine actually takes,
+  the hazard is not merely mitigated but absent.*
 - **The scratch root must live inside the CAS dir** (`<CapturesDir>/staging/<id>`), not `/tmp`.
   Admission is `os.Rename`; a different filesystem turns it into a 1.2 GB copy, which is the cost
   this whole subsystem exists to delete. ⚠ *And "filesystem" is too weak — see build-order 2(b):
@@ -86,6 +96,9 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 - **`FindYoloWorkspaces` (`internal/prune/probes.go:148`) is NOT a reference oracle.** It enumerates
   `podman ps -a`, so a workspace whose container was removed is invisible — GC keyed on it would
   delete bytes a live workspace still uses. Use `st_nlink` instead (build order 5).
+  ⚠ *`st_nlink` is not one either — see the BLOCKING CORRECTION on build-order 5. Both halves of
+  this trap are now open: the enumeration is unsafe and the link count is uninformative, so slice 5
+  starts with a reference oracle it does not have.*
 - **`receiptsFile` is baked at generation time, never read from env** (`shims.go:416-446`) —
   `YOLO_WORKSPACE` is absent in a live container and macos-user execs launchers under `env -i`. The
   capture driver must bake its output path the same way.
@@ -252,34 +265,91 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    drops `args[0]` the way `runPack` does; the unit tests called the body directly and were all
    green with the token left in, which is the pinned-callee shape AGENTS.md names — there is now a
    test for the dispatch entry itself.
-4. **Materialize, from the launcher.** `nativeLauncherTemplate`'s `_do_install` gains a branch: if a
-   capture for this bin+platform resolves, hardlink it in (EXDEV → copy) and write an
-   `act:"materialize"` receipt; otherwise fall through to today's download. **This is the slice that
-   pays** — the second workspace stops downloading, and 1.2 GB stops being per-workspace.
-   *Advice: materialize from the launcher, not a boot genStep* — §5.2 names "you pay nothing for a
+4. **Materialize, from the launcher. — LANDED 2026-09-04.** `nativeLauncherTemplate`'s
+   `_do_install` gained a branch: if a capture for this bin+platform resolves, put it in the home
+   and write an `act:"materialize"` receipt; otherwise fall through to today's download. **This is
+   the slice that pays** — the second workspace stops downloading, and 1.2 GB stops being
+   per-workspace. It IS from the launcher, not a boot genStep: §5.2 names "you pay nothing for a
    tool you never invoke" as a virtue any replacement must keep, and OQ-PD12a's design has no boot
-   step at all. → an `integration/` test over two workspaces asserting one download
+   step at all. → `integration/capturematerialize_test.go` (two workspaces, one download)
 
-   ⚠ **Two things slice 3 found that this line does not account for. Read them before starting.**
+   *Eight corrections from building it. The first answers slice 3's "stop and ask".*
 
-   **`link(2)` compares the MOUNT too, so an IN-JAIL hardlink materialize may be structurally
-   impossible.** MEASURED in this jail 2026-09-04: a hardlink from the workspace bind to the
-   `/home/agent/.local` bind — one filesystem, one inode, two mounts — fails `EXDEV`, while a link
-   within one bind succeeds. The store lives on the HOST at `<CapturesDir>` and is not mounted into
-   a jail at all today; mounting it anywhere would make it one more mount, so an in-jail launcher
-   could COPY an entry but not link one, which deletes the whole point. On the host both paths are
-   ordinary directories on one filesystem and `link(2)` works. Slice 3's own answer — reach the two
-   halves through the ONE bind that contains both — has no analogue here, because no host directory
-   contains both `<CapturesDir>` and an arbitrary `<ws>/.yolo/home`. So the advice above is probably
-   inverted and materialize wants to be host-side (the run pipeline, per workspace, before launch),
-   which trades §5.2's "pay nothing for a tool you never invoke" for the property the subsystem
-   exists to buy. **That is a behaviour question, not an implementation detail: stop and ask.**
+   **(a) THE PREMISE HELD: `FICLONE` compares the FILESYSTEM, `link(2)` compares the MOUNT.** Slice
+   3 concluded that an in-jail materialize could copy an entry but not link one, and proposed
+   moving materialize host-side. It does not have to move. `link(2)`'s predicate is the mount;
+   reflink's is the superblock, and every bind of one filesystem shares one — which is exactly the
+   gap link falls into. MEASURED 2026-09-04 in a real podman container, against the two mounts a
+   materialize actually uses (a `:ro` bind of the store at `/ctx/captures`, a rw bind of a home
+   surface at `/home/agent/.local`, one btrfs):
 
-   **There is no bin+platform → key INDEX.** The store is content-addressed, so nothing can compute
-   an entry's key from a program name; slice 3 records `(bin, platform, key)` in each entry's
-   `receipts.jsonl`, which answers the question only by scanning every entry. Whatever resolves a
-   capture for materialize needs a real index, and it is slice 4's to design — `packsrc`'s lockfile
-   beside the user config is the closest sibling shape.
+   | operation, store → home, 256 MiB | result |
+   | :--- | :--- |
+   | `FICLONE` | **OK** — 3 ms, 32 KiB of new space, destination is its OWN inode (`nlink` 1) |
+   | `link(2)` | `EXDEV` |
+   | `cp` | 98 ms, 262 MiB of new space |
+
+   So §5.2's virtue is kept and the design's *materialize* verb is amended rather than relocated
+   ([`program-delivery.md`](../design/program-delivery.md) §6.3, "AMENDMENT, 2026-09-04").
+
+   **(b) The CAS IS MOUNTED into every jail, which §6.3's "no new containment machinery" did not
+   anticipate.** `:ro` at `/ctx/captures`, with `entrypoint.CapturesDirEnv` naming it (host path
+   instead of a bind on Apple Container, exactly like `YOLO_PACK_ROOT`). `:ro` is load-bearing: an
+   entry is admitted by the host act alone and its files are frozen, so a jail that could rewrite
+   one would be rewriting bytes every other workspace runs. The value is **baked into the launcher
+   at generation time**, not read by the generated script — the same rule `receiptsFile` follows,
+   turned around: it IS a container env var here, but macos-user execs launchers under `env -i`, so
+   a `${YOLO_CAPTURES_DIR:-}` in the template would read empty in one backend and populated in
+   another for reasons the script cannot see.
+
+   **(c) The chain is reflink → hardlink → copy, sticky per run.** Hardlink stays because it wins
+   where the store and the home share a mount; copy stays because ext4 has no reflink and is the
+   default filesystem of most Linux installs and of every GitHub runner — a path real machines
+   take, not a theoretical arm, which is why it is LOUD and names both filesystems (`fsName`, by
+   statfs magic). An arm that answers "not here" is retired for the whole run rather than retried
+   per file: on ext4 that is one failed ioctl instead of one per file across thousands.
+
+   **(d) REFLINK DOWNGRADES THE PLAN'S SHARPEST TRAP.** The Traps section warns that a hardlinked
+   CAS file *is* the running program's bytes, so an installer opening one for write corrupts every
+   workspace at once. A reflinked file is its own inode: the write copies-on-write and reaches
+   nobody. The admit-time freeze STAYS — it is what keeps the hardlink arm safe and costs the
+   reflink arm nothing — but the severity is now "nothing" on the primary arm. It also produces the
+   two arms' one observable difference: a reflinked or copied file gets the MANIFEST's mode back
+   (0755), a hardlinked one keeps the store's frozen 0555, because chmod-ing it would chmod the
+   store. That is also why materialize is driven by the manifest rather than by a walk of the tree
+   — the tree on disk no longer remembers what the installer made.
+
+   **(e) NO INDEX. The lookup is a scan of each entry's own receipt.** Slice 3 said "whatever
+   resolves a capture for materialize needs a real index"; it needs the opposite. The question is
+   asked from a launcher's cold `if [ ! -x "$REAL_BIN" ]` branch — once per program per workspace,
+   never on a warm launch — and the work is one `ReadDir` plus one small file read per entry. An
+   index would save microseconds while being a second record that admit AND slice 5 would both have
+   to keep true, and a stale one is a WRONG ANSWER (a key that no longer exists, or an entry reaped
+   out from under it); the receipts live INSIDE the entry they describe and cannot go stale relative
+   to it. It also adds no schema, which the Blockers below ask for. Newest `record` wins, by receipt
+   time with the greater key breaking a tie (the stamp is second-resolution); the winner is then
+   fetched through `Store.Resolve`, so a receipt beside a TORN tree cannot select it.
+
+   **(f) THE CAPTURE JAIL GETS NO MOUNT, and that had to be structural.** The installer a capture
+   runs is the launcher (3(d)), and the launcher now materializes first — so a capture of a program
+   that already has an entry would reflink the old entry into the capture home and record it as a
+   fresh capture of bytes no installer produced, which also makes §6.3's *update* ("a NEW capture,
+   on an explicit act") impossible: `yolo capture` could never pick up a newer vendor release.
+   Suppressed at the MOUNT (`run.Options.CapturesDir` returning `""`) rather than by a second
+   exception inside the launcher, so there is nothing in that jail to resolve against.
+
+   **(g) Slice 6's relocation contract is implemented at two of its three clauses.** Destination
+   home == `Manifest.Home` ignores `relocatable` (the container case, always); any other
+   destination REFUSES, printing `notRelocatable` when the entry says so and naming the unbuilt
+   rewrite when it does not. The rewrite itself is slice 6's hand-off H2 and is deliberately NOT
+   built here; the refusal is what keeps a not-yet-built rewrite from being skipped silently.
+
+   **(h) ONE LINE IS PINNED ONLY BY THE INTEGRATION TEST, and it is stated rather than left as a
+   gap.** `run.go`'s `capturesDir: o.CapturesDir()` sits on the CONTAINER arm of `Run`, and every
+   unit test in `internal/cli/run` that drives `Run` goes down the macos-user arm, which builds no
+   podman argv. Delete that line and the unit suite stays green; `integration/capturematerialize_test.go`
+   goes red, because the jail then has no store and both workspaces download. The file comment in
+   `capturesmount_test.go` says so at the site.
 5. **Remove + GC.** `st_nlink == 1` on the entry's files **is** the unreferenced oracle: a materialized
    hardlink keeps the count above 1 from a workspace `yolo` cannot enumerate, so it is fail-safe by
    construction, and it closes OQ-PD4's back door by construction too — dropping a pack leaves the
@@ -287,6 +357,34 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    sibling idioms: an age floor for the in-flight window, keep-newest-N per (bin, platform).
    A cross-device copy does not bump nlink, so that workspace can see its entry reaped — which strands
    nothing (it has its own bytes) and only forces a re-capture. → `go test ./internal/prune ./internal/capture`, then `yolo prune` dry-run
+
+   ⚠ **BLOCKING CORRECTION, filed by slice 4 (2026-09-04): `st_nlink == 1` IS NOT THE UNREFERENCED
+   ORACLE, AND USING IT WOULD REAP LIVE ENTRIES.** Do not build the paragraph above.
+
+   It assumes every materialized file is a HARDLINK to the entry's inode. Since slice 4 it is a
+   REFLINK, and it had to be: `link(2)` compares the MOUNT, so a hardlink from the store's bind into
+   a home surface's bind is impossible from inside a jail, and the mechanism that does work
+   (`FICLONE`) gives the destination **its own inode**. MEASURED 2026-09-04, in a real podman
+   container across exactly those two mounts: a 256 MiB entry file cloned in 3 ms for 32 KiB of new
+   space, and `stat` reported **`nlink 1` on both the source and the destination**. So an entry
+   materialized into every workspace on the machine still reads `st_nlink == 1` on every one of its
+   files, and a GC keyed on that deletes the bytes those workspaces are running.
+
+   The "fail-safe by construction" claim inverts with it: the property came from the KERNEL keeping
+   the count, and nothing keeps a reflink's. Note the copy arm always had the same hole — the line
+   above already says a cross-device copy does not bump nlink, which was written as an edge case
+   and is, on every ext4 machine, now the norm.
+
+   **Slice 5 therefore needs a different reference oracle, and that is a decision rather than a
+   patch.** Three candidates, each costing something `st_nlink` did not, none of them chosen:
+   the `act:"materialize"` receipts slice 4 writes into each workspace's `.yolo/receipts.jsonl`
+   name (workspace → key) exactly, but reading them means ENUMERATING WORKSPACES, which is the
+   thing `FindYoloWorkspaces` is already refused for in the Traps above; a store-side reference
+   list is a second record that must survive a workspace deleted with `rm -rf`; and `FIEMAP`-style
+   extent sharing is real but per-filesystem and answers nothing on the copy arm. **Stop and ask
+   before building any of them.** What survives unchanged from the paragraph above is the pair of
+   sibling idioms — an age floor for the in-flight window, keep-newest-N per (bin, platform) — which
+   are safe under any oracle because neither claims an entry is unreferenced.
 6. **`macos-user`. — LANDED 2026-09-04, RECORDING HALF ONLY.** `SeatbeltCaptureProfile`:
    `deny file-write* /` then allow only the staging dir + `/tmp` + `/var/folders` — the shared
    `/Users/_yolojail` home denied for the duration. Same inner driver, `HOME=<staging>`. Adds
@@ -452,6 +550,12 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 - **Integration:** `integration/capture_test.go` — capture once, materialize into **two** workspaces,
   assert the second performs no download and that the two files share an inode. That is the test that
   catches a regression to per-workspace refetch; no unit test can.
+  ⚠ *Landed as its own cell, `integration/capturematerialize_test.go`, and the inode half of the
+  assertion is INVERTED by slice 4(a): under reflink the two workspaces' files are DIFFERENT inodes
+  from each other and from the entry's, which is the property that makes a write to one harmless.
+  The test reads the mechanism off the launcher's own report line and asserts what that arm implies
+  — distinct inodes under reflink or copy, the entry's inode under hardlink. The "no download" half
+  is unchanged and is the assertion that actually proves the slice pays.*
 - **Tests that must be REWRITTEN, not repaired:** `programreconcile_test.go`'s installer-digest cases
   assert `(sha256, bytes)` of one landing file — that is the guess capture replaces. Rewrite to the
   manifest comparison. `TestUsageListsEveryParsedFlag` and `TestUsageListedCommandsAreRegistered` will

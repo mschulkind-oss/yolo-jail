@@ -69,6 +69,7 @@ func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
 		filepath.Join(home, "stamps"),
 		receipts,
+		"", // no capture store: these cells are about the DOWNLOAD path
 	)
 	script := filepath.Join(home, "probetool")
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {

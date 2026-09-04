@@ -288,7 +288,7 @@ func GenerateAgentLaunchers(e *Env) error {
 			case "npm":
 				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e))
 			case "native":
-				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e))
+				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e))
 			default:
 				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
 				// and DecodeTolerant drops a `program` whose `via` this build does not know
@@ -364,7 +364,34 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) str
 // a `$(…)` was shell source rather than an argument — the values are post-approval (a human
 // accepted the pack), which made this hardening rather than a live hole, and is not a reason
 // to leave one generator quoting and another not.
-func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) string {
+// capturesPath is the in-jail install-capture store, EMPTY when this jail has none.
+//
+// BAKED INTO THE LAUNCHER, never read from the environment by the generated script, for
+// exactly receiptsFile's reason turned around: the value IS a container env var here (the
+// run pipeline emits `-e YOLO_CAPTURES_DIR=/ctx/captures` beside the `:ro` bind), but
+// macos-user execs its launchers under `env -i`, so a `${YOLO_CAPTURES_DIR:-}` in the
+// template would read empty in one backend and populated in another for reasons the script
+// cannot see. Reading it HERE, once, at generation time, makes the launcher's copy the same
+// fact the boot had.
+//
+// A non-absolute value is dropped with a warning rather than spliced. It can only arrive
+// from a host that emitted a malformed `-e`, and a relative store path would make the
+// launcher's `[ -d "$CAPTURES_DIR" ]` test resolve against whatever directory the agent
+// happened to be in.
+func capturesDir(e *Env) string {
+	dir := e.Getenv(CapturesDirEnv)
+	if dir == "" {
+		return ""
+	}
+	if !filepath.IsAbs(dir) {
+		e.warn(fmt.Sprintf("yolo-entrypoint: %s=%q is not an absolute path — no launcher "+
+			"will materialize from the capture store", CapturesDirEnv, dir))
+		return ""
+	}
+	return dir
+}
+
+func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capturesPath string) string {
 	binName := inst.Bin
 	installerURL := inst.InstallerURL
 	r := strings.NewReplacer(
@@ -372,6 +399,7 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) 
 		"__YOLO_URL__", shquote.Quote(installerURL),
 		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
+		"__YOLO_CAPTURES_DIR__", shquote.Quote(capturesPath),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("installer", binName, installerURL)),
 	)
 	return r.Replace(nativeLauncherTemplate)
@@ -929,6 +957,21 @@ fi
 // (npm's refresh path already has YOLO_PACK_UPDATE, which is a different question).
 const InstallOnlyEnv = "YOLO_INSTALL_ONLY"
 
+// CapturesDirEnv names the in-jail path of the machine's INSTALL-CAPTURE STORE, emitted by
+// the run pipeline beside the `:ro` bind that puts it there (`internal/cli/run/assemble.go`).
+//
+// It is a host↔jail contract in the same class as YOLO_PACK_ROOT: the host decides where the
+// store lands (a `/ctx` path under podman, the host path itself under Apple Container, which
+// cannot nest the bind) and tells the jail, because the jail cannot derive it — paths.CapturesDir()
+// inside a jail resolves to the JAIL's home, which is a per-workspace bind and is not the
+// machine-wide store at all.
+//
+// ABSENT MEANS "NO STORE", and three separate things produce that: a host yolo older than this
+// variable, the macos-user backend (which has no mount to make and no capture support yet), and
+// the CAPTURE JAIL ITSELF — `yolo capture` suppresses the mount on purpose, so that the installer
+// it runs cannot be satisfied by the very store it is filling (see internal/cli/capturehost.go).
+const CapturesDirEnv = "YOLO_CAPTURES_DIR"
+
 // nativeLauncherTemplate is the native agent launcher body. Same splice contract as
 // npmLauncherTemplate: every sentinel is a shquote'd literal in a bare position, and the
 // values that a string needs (BIN, URL) are shell variables assigned once at the top.
@@ -943,10 +986,45 @@ REAL_BIN="$HOME/.local/bin/$BIN"
 UPDATE_INTERVAL=3600
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
+# The machine's install-capture store, as this jail sees it. Empty when there is none —
+# baked at generation time for the same reason as the line above; see capturesDir.
+CAPTURES_DIR=__YOLO_CAPTURES_DIR__
 
 mkdir -p "$STAMP_DIR"
 ` + stampMtimeFn + receiptShellFns + `
+# _try_materialize puts an already-captured install into this home instead of downloading it
+# (docs/design/program-delivery.md §6.3's *materialize*). Returns 0 only when $REAL_BIN
+# exists afterwards; every other outcome falls through to the vendor installer below.
+#
+# THE FALLBACK IS NOT OPTIONAL. install-capture.md's Blockers say making a capture MANDATORY
+# for this class is a behaviour change nobody has ruled on, and it would make a first run on
+# a machine with no capture FAIL. So every failure here — no store, no entry for this
+# bin+platform, a torn entry, a store on a filesystem that cannot even copy — is a miss, and
+# a miss is silent about everything except what the materializer itself chose to say.
+#
+# It is a whole subprocess rather than shell that walks the tree, because the mechanism is a
+# reflink ioctl: the fallback chain (reflink -> hardlink -> copy) has no shell spelling, and
+# "cp --reflink=auto" is GNU-only and would silently take the copy arm on the BSD userland
+# macos-user runs under.
+_try_materialize() {
+    [ -n "$CAPTURES_DIR" ] || return 1
+    [ -d "$CAPTURES_DIR" ] || return 1
+    command -v yolo >/dev/null 2>&1 || return 1
+    YOLO_BYPASS_SHIMS=1 yolo internal capture-materialize \
+        --store="$CAPTURES_DIR" --home="$HOME" --bin="$BIN" \
+        --declared="$URL" --receipts="$_YOLO_RECEIPTS" || return 1
+    [ -x "$REAL_BIN" ]
+}
+
 _do_install() {
+    # THE CAPTURE COMES FIRST, before the download and before the stamp. This is the branch
+    # the whole subsystem exists for: the second workspace on a machine stops refetching an
+    # agent CLI that the first one already paid for (1.2 GB for claude, measured 2026-09-03,
+    # and ~/.local is a per-workspace bind).
+    if _try_materialize; then
+        touch "$STAMP"
+        return
+    fi
     echo "  Installing $BIN..." >&2
     # Download to a file BEFORE running it, rather than curl | bash. A stale or moved
     # installer endpoint usually keeps answering 200 with a web page, and piping that

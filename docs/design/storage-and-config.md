@@ -128,11 +128,14 @@ spelled out here because it is a new on-disk contract; the rest of the gap is le
 │                             macOS podman and Apple Container use the yolo-mise-data-v2
 │                             named volume instead, also mounted at /mise)
 ├── containers/            → Tracking files for running containers
-├── captures/              → Machine-wide install-capture store (program-delivery.md §6.3):
+├── captures/              → Machine-wide install-capture store (program-delivery.md §6.3),
+│                            also mounted :ro at /ctx/captures in every jail so a native
+│                            launcher can materialize instead of downloading:
 │                            entries/<key>/tree/ is a captured installer's delta, unpacked
-│                            and hardlinked into each workspace; staging/<id>/ is the scratch
-│                            for a capture in flight, INSIDE this dir because admission is an
-│                            os.Rename (paths.CapturesDir)
+│                            and REFLINKED into each workspace (hardlink, then copy, when the
+│                            filesystem cannot — §6.3's 2026-09-04 amendment); staging/<id>/
+│                            is the scratch for a capture in flight, INSIDE this dir because
+│                            admission is an os.Rename (paths.CapturesDir)
 └── agents/                → Per-container AGENTS.md files
     └── yolo-<hash>/
         └── AGENTS.md      → Mounted read-only at each pack's declared briefing
