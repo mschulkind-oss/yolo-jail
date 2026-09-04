@@ -11,10 +11,10 @@ summary: "Twenty-six paths, enumerated from the code, each with when trust is ex
 **Status:** INVENTORY, 2026-08-17; **compacted 2026-09-03.** Six questions settled, and **two of the
 rulings SHIPPED and are still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both
 2026-08-18, both re-verified against the code **2026-08-23**, anchors repinned **2026-09-02** (the
-provider arc moved several files under them; every behaviour is unchanged). **Two remain open —
-[OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up) and
-[OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident)**
-(the latter added 2026-09-02 with census row 26). Beyond the rulings,
+provider arc moved several files under them; every behaviour is unchanged). **Seven questions settled** as of 2026-09-04 (OQ-TP8 ruled ungated),
+and **one remains open —
+[OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network)**.
+Beyond the rulings,
 **everything here is inventory** — traced in the code, with the anchors inline.
 
 > [!IMPORTANT]
@@ -73,6 +73,7 @@ against exactly one threat, the silent update.
 | **OQ-TP4** | **RETIRED as posed.** *"Where does an EMBEDDED pack's npm version get pinned?"* — nowhere, because it is not pinned at all. Its three options (manifest / lockfile / user config) were all venues for a record that the evergreen ruling deletes the need for. **What must not be re-derived:** option (a)'s cost — pinning in the manifest makes yolo's release cadence the ceiling on agent-CLI freshness — which is the same objection `program-delivery.md` §5.1 hits, and is now an argument *for* the ruling rather than a cost of one option | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) §3.5, OQ-PD12 |
 | **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by `program-delivery.md` OQ-PD12**: all four packs it governed are agent dependencies, which are now ruled **evergreen**, updated on the boot path at every launch. The ruling stands as a description of the code **as it is today** — the reversal is ruled, not built | 2026-08-18 · superseded 2026-09-03 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. Untouched by the evergreen ruling — it is about consent, not cadence | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` keeps running with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate fails a parity check: `host.go:458` folds each pack's **static** `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive computes a field the manifest can already state literally, and gating the computed path while the literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home at that notch. The disclosure is the commit pin (OQ-LP8), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§12 OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) |
 
 > [!NOTE]
 > **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit — anchors
@@ -470,7 +471,7 @@ Two properties of the refusal are load-bearing, and any future change must prese
 > the point — but it means the message must name all three choices, the pack, and the specific claim
 > that was not approved. A fatal the reader cannot act on would be worse than the warning it
 > replaces. Whether it succeeds at that from every place a user reads it is
-> [OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up).
+> [OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network).
 
 #### Three things the build found that this section did not say
 
@@ -573,99 +574,88 @@ code" — but it is worth building in the three places of §1 and nowhere else.
 > pinning in the manifest (it makes yolo's release cadence the ceiling on agent-CLI freshness — now
 > an argument **for** evergreen), and TP3's inherited half, ruled as `program-delivery.md` OQ-PD6.
 >
-> **The two below are unrelated to npm and remain open.**
+> **OQ-TP8, below, was RULED 2026-09-04 (ungated) and is kept in place with its reasoning pending the
+> next compaction. OQ-TP7 is the one open question left in this document.**
 
-### 💬 OQ-TP7 — the refusal is fatal; the preflight and the approve path are not caught up
+### 💬 OQ-TP7 — `yolo check` cannot predict the fatal refusal, and the refusal names a fix that needs a tty and a network
 
-> [!NOTE]
-> **"The preflight", defined — it is `yolo check`, and this document had been using one word for
-> two different things.** *(Definition added 2026-09-03, after a reader could not follow the title.)*
->
-> | Spelling | What it means | Where it runs |
-> | :--- | :--- | :--- |
-> | **the preflight** (this question) | the **`yolo check`** command — the validation a human runs *before* asking for a jail restart, per AGENTS.md's *"Run `yolo check` after every edit … before asking a human to restart"* | on the host, on demand, **no container starts** |
-> | **the mechanical pre-flights** ([§3.1](#31-a-refused-contribution-refuses-the-launch-), and `run/packs.go:231`'s own comment) | the four checks *inside* `stagePacks` on the launch path — two packs claiming one destination, a name shadowing a reserved one | during a launch, after the refusal fold |
->
-> They are different code, at different times, and only the first is what this question is about.
-> The complaint in one sentence: **the command that exists to tell you a jail will not start does
-> not know about the newest reason a jail will not start.**
+[OQ-TP6](#decision-ledger) made a refused pack contribution **fatal to the launch** (2026-08-18, built
+`6385dfbb`). That ruling holds: every path to the fatal was walked, each is intended, and the two
+look-alikes [§3.1](#31-a-refused-contribution-refuses-the-launch-) names are still non-fatal and
+pinned by tests. What did not ship with it is the rest of the loop around it — two gaps, both
+measured, both still live.
 
-Raised by an adversarial verification of the OQ-TP6 build (2026-08-18). The ruling holds — every path
-to the fatal was walked and each is intended, and the two look-alikes [§3.1](#31-a-refused-contribution-refuses-the-launch-)
-names are still non-fatal and pinned by tests that go red when broken. What the build did not carry
-with it is the rest of the loop around the fatal, in two measured places.
+*("The preflight" here means the **`yolo check` command**, the thing AGENTS.md tells a human to run
+before asking for a restart. Not §3.1's **mechanical pre-flights**, which are four checks inside
+`stagePacks` on the launch path. Different code, different time.)*
 
-**1. `yolo check` does not predict the refusal.** Measured: a fetched pack selected in `packs`,
-present in the store, never run through `yolo pack install`, declaring a `program via installer` —
-`sectionPacks` reports `[PASS] acme: 3 file(s) stage`, `failed=0`, and the very next launch refuses.
-That is the exact outcome [`check/packs.go`](../../internal/cli/check/packs.go) refuses to allow for a
-config-surface collision, in its own words: *"the launch refuses it, so reporting it as a warning
-would mean `yolo check` passing on a config that cannot start a jail."* It was defensible while the
-refusal was a warning; OQ-TP6 made it a fatal and left `yolo check` behind. The cause is one line —
-that loop loads the staged tree with `e.MayGrantHostFiles()`, which is `false` for every fetched pack
-whether approved or not, so it cannot ask the question at all.
+#### Gap 1 — `check` reports PASS on a config that cannot start a jail
 
-> **Still true, re-verified 2026-08-23.** Both load sites still pass `e.MayGrantHostFiles()`
-> ([`check/packs.go:130`](../../internal/cli/check/packs.go) and
-> [`:162`](../../internal/cli/check/packs.go)); the `[PASS]` line is
-> [`:157`](../../internal/cli/check/packs.go) (`r.ok("%s: %d file(s) stage")`); and `packRefusals` —
-> the launch's fold — has **no caller anywhere under `internal/cli/check/`**. The sentence quoted
-> above is still the standard `check` holds itself to, at
-> [`check/packs.go:170`](../../internal/cli/check/packs.go) and its test at
-> [`packs_test.go:250`](../../internal/cli/check/packs_test.go). The two-gate scan is unchanged too:
-> [`hostaccessgates_test.go:88-93`](../../internal/packload/hostaccessgates_test.go) still names
-> exactly `internal/cli/pack.go`'s `resolveHostApproval` and `internal/cli/run/packs.go`'s
-> `packMayAccessHost`, so a third gate copied into `check` would still satisfy it vacuously.
+Measured: a fetched pack selected in `packs`, present in the store, never run through
+`yolo pack install`, declaring a `program via installer`. `sectionPacks` prints
+`[PASS] acme: 3 file(s) stage`, `failed=0` — and the very next launch refuses.
 
-**It is deliberately not a four-line fix, which is why it is a question and not a bug report.**
-Answering it needs the LAUNCH's gate (`run.packMayAccessHost`: origin, else the lockfile approval over
-`packload.Pack.HostAccessClaims`), and
-[`hostaccessgates_test.go`](../../internal/packload/hostaccessgates_test.go) pins that there are
-**two** gates and that neither may hand-build the claim union. A third gate copied into `check` would
-satisfy that scan *vacuously* — the scan names two files — which is worse than the silence, because
-the next producer would be merged into two of three sites. So the question is **where the gate lives**
-if a third caller needs it: exported from `run` (an inverted import edge, `check` → the run pipeline),
-moved beside `MayGrantHostFiles` in `internal/config` (which then imports `packsrc`, i.e. config grows
-a dependency on approval STATE), or a fourth home. Whichever wins, the `hostAccessGates` row moves
-with it and the refusal fold (`run.packRefusals`) becomes shared the same way.
+The cause is one argument, at two sites: both `packload.LoadDir` calls pass `e.MayGrantHostFiles()`
+([`check/packs.go:141`](../../internal/cli/check/packs.go) and
+[`:173`](../../internal/cli/check/packs.go)), which is `false` for every fetched pack whether
+approved or not — so `check` cannot ask the question at all. The launch's fold, `run.packRefusals`,
+has **no caller anywhere under `internal/cli/check/`**.
 
-**2. The APPROVE path the refusal names is not always available.** The ruling's no-escape-hatch
-argument is explicit that this fatal differs from `YOLO_ALLOW_UNREACHABLE_SERVICES` and
-`YOLO_ALLOW_STALE_IMAGE` because *"the approve path is one command the user can run right now."* Two
-states where it is not:
+`check` already holds itself to the opposite standard for a config-surface collision, in its own
+words at [`check/packs.go:189`](../../internal/cli/check/packs.go): *"the launch refuses it … so
+reporting it as a warning would mean `yolo check` passing on a config that cannot start a jail"*
+(pinned by [`packs_test.go:285`](../../internal/cli/check/packs_test.go)). That was defensible while
+this refusal was a warning. OQ-TP6 made it fatal and left `check` behind.
+
+#### Gap 2 — the refusal's third option is not always available
+
+`refusedLaunchError` ([`packrefusal.go:104`](../../internal/cli/run/packrefusal.go)) offers FIX,
+REMOVE, or *"APPROVE — run `yolo pack install`, which shows every claim the pack makes and records
+your yes in the lockfile."* Approve is unavailable in two states, and the message names neither:
 
 - **No terminal.** `resolveHostApproval` refuses before reading a byte when stdin is not a tty
-  ([`pack.go`](../../internal/cli/pack.go#L1240)) — correct on its own terms (`yes | yolo pack install`
-  is not consent), but it means CI and any scripted run have **FIX and REMOVE only**.
-- **Offline.** `yolo pack install` is the only place network access happens; `store.Sync` failing
+  ([`pack.go:1253`](../../internal/cli/pack.go)) — right on its own terms, since `yes | yolo pack
+  install` is not consent. CI and any scripted run therefore have FIX and REMOVE only.
+- **Offline.** `yolo pack install` is the only place network access happens, and `store.Sync` failing
   `continue`s past the `lock.Set`, so no approval is recorded. A launch resolves offline and does not
-  care — until the claim set changes under a fixed lockfile, which a **yolo upgrade that adds a claim
-  producer** does for a pack the user never touched. That user is offline, refused, and cannot approve.
+  care — until the claim set changes under a fixed lockfile, which **a yolo upgrade that adds a claim
+  producer** does to a pack the user never touched. That user is offline, refused, and cannot approve.
 
-Neither is an argument for a "run it anyway" flag — that is the partial pack the ruling retires. The
-question is whether the refusal message should SAY so (it currently names `yolo pack install` with no
-hint that it wants a terminal and a network), and whether a recorded approval should be expressible
-without a fetch.
+The two ends have drifted apart rather than together: `resolveHostApproval` now says *"approval
+requires an interactive terminal, and stdin is not one"*, while the launch refusal — the one OQ-TP6
+made the entire user experience of the failure — still says none of it.
 
-> **Still true, re-verified 2026-08-23 and again 2026-09-02 (anchors repinned), and the two ends
-> have drifted apart rather than together.**
-> `refusedLaunchError` ([`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go)) still
-> spells the third choice as *"APPROVE — run `yolo pack install`, which shows every claim the pack
-> makes and records your yes in the lockfile"* — **no mention of a terminal, none of a network.**
-> Meanwhile the *other* end did catch up: `resolveHostApproval`'s own non-tty refusal
-> ([`pack.go:1240-1246`](../../internal/cli/pack.go)) now says *"approval requires an interactive
-> terminal, and stdin is not one … rerun `yolo pack install` from a terminal"*. So a user who has
-> already reached `pack install` is told; a user who only ever sees the launch refusal is not, and
-> the launch refusal is the one this ruling made the entire user experience of the failure.
+#### Why this is a question and not a bug report
 
-**What it decides:** whether OQ-TP6's "the reader can act on it" claim is true from every place a user
-actually reads it — a CI log, an offline laptop, and `yolo check`, the command the workflow tells them
-to run before restarting.
+Closing gap 1 needs the LAUNCH's gate (`run.packMayAccessHost`: origin, else the lockfile approval
+over `packload.Pack.HostAccessClaims`). But
+[`hostaccessgates_test.go:88-93`](../../internal/packload/hostaccessgates_test.go) pins that there are
+exactly **two** gates — naming `internal/cli/pack.go`'s `resolveHostApproval` and
+`internal/cli/run/packs.go`'s `packMayAccessHost` — and that neither may hand-build the claim union.
+**A third gate copied into `check` would satisfy that scan vacuously**, which is worse than the
+silence: the next producer gets merged into two of three sites.
 
-**Answer:**
-> _(empty — fill in when decided)_
+So the decision is **where the shared gate lives**:
 
-### 💬 OQ-TP8 — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident?
+| | Home | Cost |
+| :--- | :--- | :--- |
+| (i) | Exported from `run` | An inverted import edge — `check` depends on the run pipeline |
+| (ii) | Beside `MayGrantHostFiles` in `internal/config` | `config` grows a dependency on `packsrc`, i.e. on approval STATE |
+| (iii) | A fourth home | Names nothing yet; the honest placeholder |
+
+Whichever wins, the `hostAccessGates` row and `run.packRefusals` move with it. Gap 2 needs no such
+decision — it asks only whether the refusal should state its own preconditions, and whether an
+approval should be recordable without a fetch.
+
+**What it decides:** whether OQ-TP6's *"the reader can act on it"* is true from every place a user
+actually reads it — a CI log, an offline laptop, and `yolo check`, the command the workflow tells
+them to run before restarting.
+
+> ⚠ **Citations re-pinned 2026-09-04 and five had drifted** since the 2026-09-02 pass:
+> `check/packs.go` 130→141, 162→173, 157→168, 170→189; `packs_test.go` 250→285; `pack.go`
+> 1240-1246→1253. Cite this cluster by SYMBOL when it moves again.
+
+### ✅ OQ-TP8 — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident? — RESOLVED (2026-09-04)
 
 Added 2026-09-02, executing 💬 18's **D9**, which found this census had no row for the one channel
 where a pack ships *code yolo runs* rather than content an agent reads. Row 26 now records the
@@ -698,17 +688,42 @@ closes over `derive.lua` like all content; (b) an approval claim for *fetched* p
 mechanism; (c) gate only the **host-side** probe on origin, since that is the one place the Lua
 runs outside the jail.
 
-_Leaning:_ **(a) for the in-jail half; (c) needs an actual decision now, because its trigger
-already fired.** The in-jail half is squarely inside what rows 18/19 already extend, and a claim
-for a sandboxed compute hook would be disclosure theatre — the honest disclosure is the lockfile
-pin. But the host side is no longer only a sentinel probe: **`3144fbed` (2026-09-02) put the env
-derive on the `yolo host -- <cmd>` launch path with real, credential-bearing inputs**
-(`host.go:458`). A fetched pack's Lua now computes the environment a process runs with *on the real
-host* — still sandboxed, still unable to exec or do I/O itself, but its output IS that process's
-env (`LD_PRELOAD` and friends), which is row 18's in-jail concern arrived at the host notch. That
-is precisely the crossing this census exists to name before it becomes load-bearing by habit. The
-cheap containment if (c) is taken: run only *embedded/local* packs' env derives at the host notch
-until a fetched case exists and is ruled on.
+_Leaning (HALF NOT TAKEN — see the Answer):_ **(a) for the in-jail half; (c) for the host half**, on
+the grounds that `3144fbed` (2026-09-02) put the env derive on the `yolo host -- <cmd>` launch path
+with real, credential-bearing inputs (`internal/cli/host.go:458`), so a fetched pack's Lua computes
+the environment a real host process runs with. (a) was ruled for both halves; the (c) half did not
+survive the parity check below.
+
+**Answer:**
+> **(a), BOTH halves — ungated, and recorded as a ruling rather than left as an accident.**
+> *"doesn't this get to install actual things that changes stuff on the host? doesn't this mean it
+> has a million injection capabilities anyway? don't think we need to gate this."* — 2026-09-04.
+>
+> **The (c) leaning fails a parity check, and it is not close.** `yolo host -- <cmd>` folds each
+> pack's **static `kind: "env"` keys** into the launched process's environment at
+> [`internal/cli/host.go:458`](../../internal/cli/host.go) — step (1) of the fold, *before* the derive
+> runs at all, with no origin check and no approval. So the derive computes the same field a manifest
+> can already state literally, at the same notch, through the same command. Gating the computed path
+> while the literal path is open is not containment; it is a gate that reads as answered while the
+> channel it names stays open.
+>
+> **The same holds one level up.** At the host notch a pack renders `config`, `config-overlay`,
+> `skills` and `briefing` into the invoking user's **real home** (`render.HostFields()`,
+> `internal/render/fieldset.go`) — content an agent reads and acts on. Against that, a compute hook
+> that cannot exec, cannot read a file, cannot reach the network and runs under an instruction budget
+> is not the marginal capability worth a prompt.
+>
+> **What this does NOT say.** It is not *"packs are trusted."* It is that **this channel adds nothing
+> to a pack's existing reach**, so an approval claim here would be disclosure theatre — the objection
+> the in-jail half already carried, now shown to apply to the host half for the same reason. The
+> honest disclosure remains the one rows 18/19 lean on: the **commit pin** (OQ-LP8, once enforced),
+> which closes over `derive.lua` exactly as it closes over every other file a pack ships. Row 26
+> keeps the facts; the ledger keeps the reason.
+>
+> **What would reopen it:** a derive gaining a capability the sandbox denies today — I/O, exec,
+> network, or an unbudgeted loop — or `ctx` growing a field the static `env` channel cannot already
+> carry. Both are edits to `internal/agentcfg/luahook/vm.go` or to the derive's input table, and
+> either should re-ask this question rather than inherit its answer.
 
 **Answer:**
 > _(empty — fill in when decided)_

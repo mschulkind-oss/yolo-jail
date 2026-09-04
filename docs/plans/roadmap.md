@@ -65,8 +65,9 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
 
 > [!NOTE]
-> **This row aggregates three docs while naming one, and the count below said six where the docs say
-> four** (reconciled 2026-09-03). `trust-paths.md` holds exactly **OQ-TP3, OQ-TP4, OQ-TP7, OQ-TP8**.
+> **This row aggregates three docs while naming one** (reconciled 2026-09-03, recounted 2026-09-04).
+> `trust-paths.md` now holds exactly **one** open question, **OQ-TP7** — OQ-TP3 and OQ-TP4 were
+> RETIRED 2026-09-03 as moot under the evergreen ruling, and **OQ-TP8 was RULED 2026-09-04**.
 > The other two live elsewhere and are listed here for routing only: **OQ-X1** is
 > [`pack-execution-trust.md`](../design/pack-execution-trust.md) `:316` (the doc this one partly
 > supersedes), and **OQ-LP8 / G2b** is [`loophole-packaging.md`](../design/loophole-packaging.md)
@@ -89,37 +90,28 @@ gate** — and one of them obviated a question rather than answering it:
 
 What is still open:
 
-- **OQ-TP3** — is pinning worth building at all? **Partly answered:** TP5 settles row 1's behaviour.
-  What is left is scope — whether yolo pins its *own* embedded packs, and whether a fetched pack is
-  *required* to pin rather than merely permitted.
-- **OQ-TP4** *(new)* — **where does an embedded pack's npm version get pinned?** The lockfile is per
-  *fetched* pack, but pi, copilot, codex and opencode are all **embedded** — so TP5's ruling has no
-  home for the pin in the case that covers nearly every user. This gates implementing TP5.
-  **Narrowed 2026-09-02:** the *observation* half of the leaning's option (b) now exists — install
-  receipts (`af46c9b4`) record the resolved npm version, but nothing reads them back — so what is
-  left is promoting the record into a row `install` obeys, and it should be one design with
-  program-delivery §10's *user-scope gap receipt* step (📦 below).
-- **OQ-TP8** *(new 2026-09-02, executing D9 of
-  trust-paths.md row 26 — the review row that
-  found it left this file when the work shipped)* — **pack-shipped `derive.lua` runs ungated for
-  every origin, and its census row did not exist.** Row 26 now records the facts: sandboxed
-  allowlist Lua (no `os`/`io`/`require`, timeout-bounded), executed in-jail every boot, host-side
-  during `yolo host apply` as a sentinel probe — and, since `3144fbed`, **at every
-  `yolo host -- <cmd>` launch with real credential-bearing inputs** (`host.go:458`), where its
-  output IS a real host process's environment. A fetched pack may not name a host file to *read*,
-  and may ship Lua yolo *runs*. The question is whether ungated is the ruling or the accident;
-  leaning is ruled-ungated in-jail, with the host-launch half needing an actual decision now that
-  its trigger fired.
+- ✅ **OQ-TP3 and OQ-TP4 — RETIRED 2026-09-03, not answered.** Both were npm-pinning questions, and
+  npm no longer takes a pin: [`program-delivery.md`](../design/program-delivery.md) §3.5 rules an
+  **agent dependency** evergreen, and every pack either question governed installs an agent CLI.
+  TP3's inherited half is ruled as OQ-PD6; TP4's cost analysis (pinning in the manifest makes yolo's
+  release cadence the ceiling on agent-CLI freshness) survives as an argument **for** evergreen.
+- ✅ **OQ-TP8 — RULED 2026-09-04: ungated, both halves.** Pack `derive.lua` keeps running with no
+  origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning had wanted a
+  host-half gate, and it failed a parity check: `host.go:458` folds each pack's **static**
+  `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive
+  computes a field the manifest can already state literally, and gating the computed path while the
+  literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home
+  at that notch. The disclosure stays the commit pin (**OQ-LP8**), not a claim line.
 - **OQ-X1** — does a digest-pinned installer script count, given its own fetches are not pinned?
   *(Sharpened: only embedded packs use installers today, and `packdecl` has no digest field at all —
   the scenario is unexpressible until OQ-BP5 lands one.)*
 - **OQ-TP7** *(new, and it is the shipped fatal's own loose end)* — **OQ-TP6 made the refusal fatal
   and left the loop around it behind.** Re-measured 2026-08-23: `yolo check` still reports `[PASS]`
   on the very pack the next launch refuses — both loads pass `e.MayGrantHostFiles()`
-  (`check/packs.go:130,162`) and **`packRefusals` has no caller anywhere under `internal/cli/check/`**.
+  (`check/packs.go:141,173`) and **`packRefusals` has no caller anywhere under `internal/cli/check/`**.
   The `approve` half has since gone **half-caught-up**, which narrows the question rather than
   closing it: `resolveHostApproval`'s non-interactive refusal now says *"requires an interactive
-  terminal … rerun from a terminal"* (`pack.go:1228-1236`), while the **launch** refusal still says
+  terminal … rerun from a terminal"* (`pack.go:1253`), while the **launch** refusal still says
   only "run `yolo pack install`" — so the two ends of one flow now give different amounts of help.
   The ruling is scope: how much of the loop catches up before "the reader can act on it" is true
   from everywhere a user meets the refusal.
