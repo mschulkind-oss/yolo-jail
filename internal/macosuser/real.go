@@ -1,6 +1,8 @@
 package macosuser
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // This file holds the production ("real") backing for the Deps seams —
@@ -215,4 +219,32 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// confirmReal asks a y/N question on the terminal, defaulting to NO.
+//
+// Non-interactive by construction: when stdin is not a terminal there is nobody
+// to ask, so it answers "no" WITHOUT PRINTING THE PROMPT. A launch in CI must
+// never take a mutating branch because a pipe happened to be empty — the
+// caller's job is then to refuse and name the explicit command, which is the
+// shape the workspace-ACL check uses.
+//
+// tty.IsTerminalFile, not a ModeCharDevice test. The first cut used the mode
+// bit and printed its prompt under `yolo … < /dev/null`, because /dev/null IS a
+// character device — so the question appeared in a log with nobody to answer it.
+// This is the same ioctl-vs-mode divergence internal/cli/run's isTTY documents.
+//
+// Only "y"/"yes" (case-insensitive) is yes. Anything else, EOF included, is no:
+// the questions this answers all guard a mutation, so silence must not consent.
+func confirmReal(prompt string) bool {
+	if !tty.IsTerminalFile(os.Stdin) {
+		return false
+	}
+	fmt.Fprint(os.Stdout, prompt)
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes"
 }

@@ -6,82 +6,140 @@ import (
 	"testing"
 )
 
-// The launch must REFUSE a workspace the sandbox group has no ACL entry for, and
-// refuse BEFORE spending a sudo prompt, a nix build, the staging and the whole
-// bootstrap. Measured 2026-09-03 on the first real end-to-end launch: without
-// this, it reached config generation and died with
-// `mkdir <ws>/.yolo/prism: permission denied` six times over — a message naming
-// neither ACLs nor `yolo macos-fix-permissions`, the remedy that already existed.
+// grantDeps returns mockDeps whose ACL probe FAILS — i.e. the workspace has not
+// been shared with the sandbox group — while every other bash step succeeds, so
+// nothing below can be an artifact of a blanket RunBash failure.
+func grantDeps(rec *[]string, buf *bytes.Buffer) Deps {
+	d := mockDeps(rec)
+	d.RunBash = func(s string) int {
+		*rec = append(*rec, "bash:"+s)
+		if strings.Contains(s, "ls -lde") {
+			return 1 // the probe: no sandbox-group ACE
+		}
+		return 0
+	}
+	d.Out = buf
+	return d
+}
+
+// An unshared workspace must be caught BEFORE the sudo prompt, the nix build,
+// the staging and the bootstrap. Measured 2026-09-03 on the first real
+// end-to-end launch: without this the launch reached config generation and died
+// with `mkdir <ws>/.yolo/prism: permission denied` six times over, naming
+// neither ACLs nor `yolo macos-fix-permissions`.
 //
-// Pins the CALL SITE: the assertion is that MaterializeDarwin is never reached
-// and nothing launches, so deleting the check in RunMacosUser fails this test
-// rather than merely changing a message.
-func TestRunRefusesWorkspaceWithoutSandboxACL(t *testing.T) {
+// Pins the CALL SITE: MaterializeDarwin must never be reached, so deleting the
+// check fails this rather than merely changing a message.
+func TestRunOffersToShareUnsharedWorkspace(t *testing.T) {
 	var rec []string
-	d := mockDeps(&rec)
+	var buf bytes.Buffer
+	d := grantDeps(&rec, &buf)
 	materialized := false
 	d.MaterializeDarwin = func(string, []any) (*Darwin, bool, error) {
 		materialized = true
 		return nil, true, nil
 	}
-	// The ACL probe is the ONLY RunBash that fails; every other bash step still
-	// succeeds, so a refusal here cannot be an artifact of a blanket failure.
-	d.RunBash = func(s string) int {
-		rec = append(rec, "bash:"+s)
-		if strings.Contains(s, "group:"+SandboxGroup+" allow") {
-			return 1
-		}
-		return 0
-	}
-	var buf bytes.Buffer
-	d.Out = &buf
+	asked := ""
+	d.Confirm = func(prompt string) bool { asked = prompt; return false }
 
 	rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/old-checkout"))
 
 	if rc != 1 {
-		t.Errorf("rc = %d, want 1", rc)
+		t.Errorf("rc = %d, want 1 (declined)", rc)
+	}
+	if asked == "" {
+		t.Error("never asked — a bare refusal is a gate that protects nothing here")
 	}
 	if materialized {
-		t.Error("reached MaterializeDarwin — the ACL check must refuse before the nix build")
+		t.Error("reached MaterializeDarwin — the check must run before the nix build")
 	}
 	if strings.Contains(strings.Join(rec, "\n"), "proxy:") {
-		t.Error("launched a sandbox it cannot write to")
+		t.Error("launched a sandbox that cannot write the workspace")
 	}
 	got := buf.String()
-	// The remedy is the whole value of this refusal: the failure it replaces was
-	// already loud, just undiagnosable.
-	if !strings.Contains(got, "macos-fix-permissions") {
-		t.Errorf("refusal does not name the remedy command:\n%s", got)
+	// Declining must leave the user able to do it themselves.
+	if !strings.Contains(got, "macos-fix-permissions /Users/Shared/yolo/old-checkout") {
+		t.Errorf("declining does not name the explicit command:\n%s", got)
 	}
-	if !strings.Contains(got, "/Users/Shared/yolo/old-checkout") {
-		t.Errorf("refusal does not name the workspace:\n%s", got)
+	// WHY, not just what: without this a user cannot tell an unshared workspace
+	// from a yolo bug.
+	if !strings.Contains(got, "CREATED") {
+		t.Errorf("message does not explain that the ACL is granted at creation:\n%s", got)
 	}
-	// WHY, not just what: a user who does not know macOS applies inheriting ACLs
-	// at creation time only cannot tell this from a yolo bug.
-	if !strings.Contains(got, "creation time") {
-		t.Errorf("refusal does not explain why an existing dir lacks the ACE:\n%s", got)
+	// It is not an error state, and saying so avoids a bug report.
+	if !strings.Contains(got, "Nothing is broken") {
+		t.Errorf("message reads as a failure rather than as unfinished setup:\n%s", got)
 	}
 }
 
-// The converse, or a check that refused unconditionally would pass the test
-// above: a granted workspace proceeds into the launch.
-func TestRunAcceptsWorkspaceWithSandboxACL(t *testing.T) {
+// Accepting applies the retrofit and CONTINUES into the launch — the whole point
+// of asking rather than refusing.
+func TestRunSharesWorkspaceOnConfirm(t *testing.T) {
 	var rec []string
-	d := mockDeps(&rec) // RunBash returns 0 for everything, including the probe
 	var buf bytes.Buffer
+	d := grantDeps(&rec, &buf)
+	d.Confirm = func(string) bool { return true }
+
+	rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/old-checkout"))
+
+	if rc != 42 {
+		t.Errorf("rc = %d, want 42 (the mock proxy's exit code) — accepting must continue\n%s",
+			rc, buf.String())
+	}
+	joined := strings.Join(rec, "\n")
+	// The retrofit must be the SAME script the standalone command runs, or the two
+	// paths could drift into applying different ACEs.
+	// Match the retrofit's own shape, not the bare word "find": the bootstrap argv
+	// carries YOLO_BLOCK_CONFIG, which names the blocked `find` tool and matches a
+	// loose substring test on every launch.
+	if !strings.Contains(joined, "-exec chmod -h +a") {
+		t.Errorf("the confirm branch did not run FixPermissionsScript:\n%s", joined)
+	}
+	if !strings.Contains(joined, "proxy:") {
+		t.Errorf("did not launch after sharing:\n%s", buf.String())
+	}
+}
+
+// A nil Confirm is NON-INTERACTIVE, and must read as "no". A launch with no
+// terminal to ask on must never rewrite a tree's permissions because a pipe
+// happened to be empty.
+func TestRunRefusesUnsharedWorkspaceNonInteractively(t *testing.T) {
+	var rec []string
+	var buf bytes.Buffer
+	d := grantDeps(&rec, &buf)
+	d.Confirm = nil
+
+	if rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/old-checkout")); rc != 1 {
+		t.Errorf("rc = %d, want 1", rc)
+	}
+	if strings.Contains(strings.Join(rec, "\n"), "-exec chmod -h +a") {
+		t.Error("applied ACLs with no way to ask — silence must not consent")
+	}
+	if !strings.Contains(buf.String(), "macos-fix-permissions") {
+		t.Errorf("non-interactive refusal does not name the command:\n%s", buf.String())
+	}
+}
+
+// A shared workspace is never asked about and never walked: the hot path does
+// ZERO ACL work, which is the property 84c55268 bought by moving to inheritance.
+func TestRunDoesNoACLWorkOnASharedWorkspace(t *testing.T) {
+	var rec []string
+	var buf bytes.Buffer
+	d := mockDeps(&rec) // probe returns 0 — already shared
 	d.Out = &buf
+	d.Confirm = func(string) bool { t.Error("asked about a workspace that is already shared"); return false }
 
 	if rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/ok")); rc != 42 {
-		t.Errorf("rc = %d, want 42 (the mock proxy's exit code)\n%s", rc, buf.String())
+		t.Errorf("rc = %d, want 42\n%s", rc, buf.String())
 	}
-	if !strings.Contains(strings.Join(rec, "\n"), "proxy:") {
-		t.Errorf("a granted workspace never launched:\n%s", buf.String())
+	if strings.Contains(strings.Join(rec, "\n"), "-exec chmod -h +a") {
+		t.Error("walked the tree on a shared workspace — the hot path must do no ACL work")
 	}
 }
 
-// The probe must ask for the ACE provisioning actually applies. A hardcoded
-// spelling here that drifted from WorkspaceACLAces would report a problem that
-// running the remedy could never clear — the worst shape for a preflight.
+// The probe must ask for the ACE provisioning actually applies. A spelling that
+// drifted from WorkspaceACLAces would report a problem the remedy cannot clear —
+// the worst shape for a preflight.
 func TestWorkspaceGrantedScriptMatchesTheProvisionedACE(t *testing.T) {
 	script := WorkspaceGrantedScript("/Users/Shared/yolo/ws", "")
 	if !strings.Contains(script, "group:"+SandboxGroup+" allow") {
