@@ -185,3 +185,73 @@ func TestNativeLauncherAcceptsAScriptWithoutAShebang(t *testing.T) {
 		t.Errorf("launcher did not exec the installed binary:\n%s", out)
 	}
 }
+
+// TestNativeLauncherReportsAnInstallerThatLandsNothing is the LANDING-PATH regression, and
+// it is the cell that decides whether a `via: installer` flip is safe for a given vendor.
+//
+// nativeLauncherTemplate hardcodes REAL_BIN="$HOME/.local/bin/$BIN", so an installer whose
+// DEFAULT prefix is anywhere else leaves the jail in the worst of both states: installed,
+// and not found. The launcher then reinstalls on every single invocation and exits 1.
+//
+// It is not hypothetical. gh.io/copilot-install resolves PREFIX to /usr/local when `id -u`
+// is 0 and to $HOME/.local otherwise; a container-backend jail runs as root under an
+// unconditional `--read-only` rootfs, so the installer's own `mkdir -p "$INSTALL_DIR"`
+// fails and it exits 1 having downloaded nothing (measured 2026-09-04, which is why
+// packs/copilot stayed on npm while packs/codex flipped). Both shapes are covered below,
+// because a flip can fail either way round — an installer can also succeed loudly while
+// putting the binary somewhere the launcher will never look.
+//
+// The receipt assertion is the half that is easy to lose. `_do_install` writes one only
+// under `[ -x "$REAL_BIN" ]`; drop that guard and every failed install starts recording an
+// install that did not happen, which is precisely the claim the reconcile in
+// program-delivery.md §10 reads back.
+func TestNativeLauncherReportsAnInstallerThatLandsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		script []string
+	}{
+		{
+			// The quiet shape: the installer believes it succeeded, and put the binary
+			// under a prefix the launcher does not know about.
+			name: "exits 0 having installed elsewhere",
+			script: []string{
+				"#!/bin/bash",
+				"set -eu",
+				`mkdir -p "$HOME/somewhere-else/bin"`,
+				`printf '#!/bin/bash\necho WRONG_PREFIX\n' > "$HOME/somewhere-else/bin/probetool"`,
+				`chmod +x "$HOME/somewhere-else/bin/probetool"`,
+				`echo INSTALLER_RAN`,
+			},
+		},
+		{
+			// The copilot shape: the installer refuses a prefix it cannot create and exits
+			// non-zero. `bash "$script" || true` in _do_install swallows the status, so the
+			// ONLY thing standing between this and a false success is the REAL_BIN test.
+			name: "exits 1 unable to create its prefix",
+			script: []string{
+				"#!/bin/bash",
+				"set -eu",
+				`echo "Error: Could not create directory /usr/local/bin." >&2`,
+				"exit 1",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			url := serveBody(t, 200, "application/x-sh", strings.Join(tc.script, "\n")+"\n")
+			rc, out, receipts := runNativeLauncherWithReceipts(t, url)
+
+			if rc != 1 {
+				t.Errorf("an installer that landed nothing at REAL_BIN must fail the "+
+					"invocation, rc=%d\n%s", rc, out)
+			}
+			if !strings.Contains(out, "probetool not available") {
+				t.Errorf("output must say the binary is not available, got:\n%s", out)
+			}
+			if len(receipts) != 0 {
+				t.Errorf("no install happened, so no receipt may be written — a receipt here "+
+					"is a claim the reconcile cannot distinguish from a real install: %v",
+					receipts)
+			}
+		})
+	}
+}

@@ -12,8 +12,10 @@ import (
 //
 // They exist because the agent-install matrix was answering a question it could not
 // answer honestly (docs/design/agent-install-in-ci.md). Nine agent-CLI installs per run,
-// eight of them the same npm code path with a different package string, every one
-// resolving an unpinned `@latest` — so a green main could go red with no commit, and did:
+// eight of them the same npm code path with a different package string (five since codex
+// flipped to its vendor's installer on 2026-09-04 — OQ-PD13; the redundancy moved, it did
+// not go away), every one resolving an unpinned `@latest` — so a green main could go red
+// with no commit, and did:
 // on 2026-08-20 codex's linux-arm64 tarball was published 37 minutes after the parent that
 // `@latest` pointed at, and three tests went red for a defect in nobody's repository.
 //

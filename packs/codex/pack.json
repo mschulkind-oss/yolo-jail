@@ -7,8 +7,8 @@
         "pacman": "openai-codex"
       },
       "kind": "program",
-      "package": "@openai/codex",
-      "via": "npm"
+      "url": "https://chatgpt.com/codex/install.sh",
+      "via": "installer"
     },
     {
       "after": "host:.codex/AGENTS.md",

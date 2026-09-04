@@ -290,7 +290,7 @@ jail** — host credentials never cross the boundary.
 | **GitHub Copilot** | `copilot` | `yolo -- copilot` | npm `@github/copilot` | `/login` (GitHub OAuth) |
 | **opencode** | `opencode` | `yolo -- opencode` | npm `opencode-ai` | `opencode auth login`, or a provider key (e.g. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`) |
 | **pi** ([pi.dev](https://pi.dev)) | `pi` | `yolo -- pi` | npm `@earendil-works/pi-coding-agent` | `pi` `/login`, or a provider key |
-| **OpenAI Codex** | `codex` | `yolo -- codex` | npm `@openai/codex` | `codex login` (ChatGPT), or `OPENAI_API_KEY` |
+| **OpenAI Codex** | `codex` | `yolo -- codex` | native installer | `codex login` (ChatGPT), or `OPENAI_API_KEY` |
 | **Antigravity** | `agy` | `yolo -- agy` | native installer | Google sign-in on first run |
 
 Provider API keys are easiest to supply via [`env_sources`](#configuration)

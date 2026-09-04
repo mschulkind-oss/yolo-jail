@@ -17,8 +17,12 @@ package packdecl
 // deleted, which is the shape this repo has shipped five times.
 
 import (
+	"io/fs"
+	"path"
 	"strings"
 	"testing"
+
+	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // npmSelectorCases is the accept/reject table. The accepted rows are every spelling npm
@@ -111,18 +115,50 @@ func TestNpmSelectorShapeIsRefusedByTheManifestValidator(t *testing.T) {
 }
 
 // TestNpmSelectorShapeAcceptsWhatTheShippedPacksDeclare is the other direction of the
-// same call site: the four shipped packs that install via npm all use the scoped or bare
-// form, and a check that refused one of them would break every jail. Driven through
-// Decode for the reason above.
+// same call site: every npm selector a shipped pack declares uses the scoped or bare form,
+// and a check that refused one of them would break every jail. Driven through Decode for
+// the reason above.
+//
+// READ OFF THE TREE, not off a list. The list said "the four shipped packs that install via
+// npm" and named them, which made it a second place to remember when a pack's `via` moves —
+// and it moved on 2026-09-04, when codex went to its vendor's installer (OQ-PD13), leaving
+// this cell asserting the validator against a package string no manifest declares any more.
+// Reading the embedded manifests instead makes the cell track the packs by construction, and
+// covers a pack added tomorrow for free.
 func TestNpmSelectorShapeAcceptsWhatTheShippedPacksDeclare(t *testing.T) {
-	for _, pkg := range []string{
-		"@earendil-works/pi-coding-agent", "opencode-ai", "@github/copilot", "@openai/codex",
-	} {
-		manifest := []byte(`{"name":"acme","contributes":[{"kind":"program","bin":"acme",` +
-			`"via":"npm","package":` + jsonQuote(pkg) + `}]}`)
-		if _, problems := Decode(manifest); len(problems) != 0 {
-			t.Errorf("Decode refused %q, which a shipped pack declares: %v", pkg, problems)
+	entries, err := fs.ReadDir(officialpacks.FS, ".")
+	if err != nil {
+		t.Fatalf("reading the embedded packs: %v", err)
+	}
+	checked := 0
+	for _, ent := range entries {
+		if !ent.IsDir() {
+			continue
 		}
+		raw, err := fs.ReadFile(officialpacks.FS, path.Join(ent.Name(), ManifestName))
+		if err != nil {
+			continue // not every embedded pack ships a manifest at the root
+		}
+		m, problems := Decode(raw)
+		if len(problems) != 0 {
+			t.Errorf("Decode refused the shipped %s manifest: %v", ent.Name(), problems)
+			continue
+		}
+		for _, inst := range m.InstallContributions() {
+			if inst.Kind != "npm" {
+				continue
+			}
+			checked++
+			if inst.Package == "" {
+				t.Errorf("%s declares a program via npm with no package", ent.Name())
+			}
+		}
+	}
+	// The floor: this cell has gone green while covering nothing before (an embed that stops
+	// resolving reads as "no npm packs"), and it would do it silently.
+	if checked == 0 {
+		t.Error("no shipped pack declares a program via npm — either the last one flipped " +
+			"(delete this test and say so) or the embed stopped resolving")
 	}
 }
 

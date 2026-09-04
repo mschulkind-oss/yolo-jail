@@ -131,19 +131,26 @@ the per-workspace prefix is the jail-isolation property working as designed. The
 
 ### 2.3 Two mechanisms, six packs, nine installs
 
-Read off `packs/*/pack.json`, 2026-08-21:
+Read off `packs/*/pack.json`, 2026-08-21, and **re-read 2026-09-04** (the ⚠ row moved):
 
 | Pack | `via` | Package / installer |
 | :--- | :--- | :--- |
-| codex | `npm` | `@openai/codex` |
+| codex | ⚠ `installer` | `chatgpt.com/codex/install.sh` — **was `npm @openai/codex` until 2026-09-04** |
 | copilot | `npm` | `@github/copilot` |
 | opencode | `npm` | `opencode-ai` |
 | pi | `npm` | `@earendil-works/pi-coding-agent` |
 | claude | `installer` | curl-piped |
 | agy | `installer` | curl-piped |
 
-**Four npm, two installer.** (This matches `trust-paths.md`'s independent count of *"the four packs
-that declare npm programs — pi, copilot, codex, opencode"*.)
+**Three npm, three installer** — four/two when this section was written, until
+[`program-delivery.md` §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)
+(OQ-PD13) ruled that an agent CLI takes its vendor's installer wherever one exists, because an
+npm-installed CLI structurally cannot self-update. codex was the only one of the four that flipped:
+`pi`'s "native installer" *is* `npm install -g`, `opencode`'s hardcodes an install dir under the
+`:ro` home, and `copilot`'s picks `PREFIX=/usr/local` when `id -u` is 0 — which every container
+backend is, under a read-only rootfs. (The four/two count matched `trust-paths.md`'s independent
+one of *"the four packs that declare npm programs — pi, copilot, codex, opencode"*; that sentence
+is now three.)
 
 What the suite actually installs, per run
 ([`agents_test.go`](../../integration/agents_test.go)):
@@ -156,11 +163,14 @@ What the suite actually installs, per run
 | `TestPackSelectionPrunesUnselected` | codex | 1 |
 | | | **9** |
 
-**Eight of the nine are the npm path.** codex is installed three times, copilot three times. The
-`installer` path is exercised **once** (claude), and `agy` — the other `installer` pack — is not in
-`packMatrix` at all, so one of the two mechanisms is covered by a single cell while the other is
-covered eight times. That inversion is the clearest statement of the problem: the redundancy is not
-merely wasteful, it is *pointed away from* the thinner coverage.
+**Eight of the nine are the npm path** *(five, since codex flipped on 2026-09-04 — its three
+installs moved to the `installer` column, making the split 5/4)*. codex is installed three times,
+copilot three times. The `installer` path was exercised **once** (claude), and `agy` — the other
+`installer` pack — is not in `packMatrix` at all, so one of the two mechanisms was covered by a
+single cell while the other was covered eight times. That inversion is the clearest statement of
+the problem: the redundancy is not merely wasteful, it is *pointed away from* the thinner coverage.
+**The flip rebalanced the count without touching the argument** — seven of the nine are still one
+mechanism re-bought with a different string, five npm and two installer.
 
 ## 3. What we actually learn — the honest ledger
 
@@ -186,8 +196,9 @@ rendered regardless of selection. Both are real regressions in *yolo*. Neither n
 packages to find.
 
 So the ledger: of nine installs, **two** buy mechanism coverage (one npm, one installer), and
-**seven** re-buy the npm path with different strings. Those seven are the load-bearing answer to
-"what do we learn" — nothing about this repo. They test that four vendors published working
+**seven** re-buy a mechanism already bought with a different string (all seven npm when this was
+written; five npm and two installer since codex flipped). Those seven are the load-bearing answer
+to "what do we learn" — nothing about this repo. They test that the vendors published working
 tarballs today.
 
 ## 4. The cost, measured
