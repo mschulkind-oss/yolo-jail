@@ -252,8 +252,86 @@ covered (pi, copilot, codex, opencode) are all in that class.
   a workspace last touched in July that is a multi-hundred-megabyte download, and it happens before
   the agent starts.
 - **Done looks like:** a jail launched twice a week apart runs two different agent versions without
-  anyone typing an update command, and `yolo pack update` becomes a no-op that reports rather than a
-  command anyone needs.
+  anyone typing an update command, with no one having run an update command in between.
+
+##### The four things an implementer would otherwise have to guess
+
+*Added 2026-09-03 after reading §3.5 back as the implementer rather than the author. Each of these
+had a behaviour attached to it that the prose implied and did not state.*
+
+**1. The knob is `agent_updates`, and it is USER-SCOPE ONLY.** Either a bool or a per-pack map, with
+`"*"` as the default key:
+
+```jsonc
+"agent_updates": false                              // every agent frozen
+"agent_updates": { "*": true, "claude": false }     // all but claude
+```
+
+Absent, it is `true`. **User scope is not a stylistic choice**: a workspace config travels with the
+repo and is agent-editable, which is the stated reason `packs` is read from `paths.UserConfigPath()`
+directly rather than from the merged config (`internal/config/packs.go`). A key that lets whatever
+is running in the jail freeze its own updates belongs to the same family, and a workspace-scoped
+spelling would hand an agent the switch. **A pack may not opt itself out** — the pack declares how
+to update (OQ-PD14), never whether to.
+
+**2. MCP and LSP servers ARE in the class, and the mechanism has a second call site.** §3.5's
+definition includes them, and its own test confirms it rather than merely permitting it: nobody's
+build reproduces against `pyright`, and a six-week-old language server is a defect. But they are
+**not** pack `program` contributions — they arrive through the bootstrap
+(`YOLO_MCP_NPM`, `YOLO_LSP_NPM_INSTALL` in `internal/entrypoint/shell.go`), sentinel-tracked by
+`~/.yolo-installed-lsps` and uninstalled when dropped from config. So evergreen has **two**
+integration points, not one, and the second is a real piece of work rather than a line: the
+bootstrap must resolve current on each launch instead of short-circuiting on the sentinel. The
+sentinel keeps its removal job, which is orthogonal.
+
+**3. One writer per install prefix, and only one backend can contend.** On `podman` and `container`
+the prefixes (`~/.local`, `~/.npm-global`, `~/go`) are **per-workspace binds**, so two simultaneous
+launches write different directories and cannot collide. **`macos-user` is the exception**: its home
+is one persistent, machine-constant `/Users/_yolojail` shared by every workspace and every session
+(`internal/macosuser/macosuser.go:53`) — deliberately, since the single home *is* its
+shared-credentials mechanism. Two concurrent launches there would run vendor updaters against the
+same prefix.
+
+> [!IMPORTANT]
+> **The contention rule, and the one thing it must not do.** Updates serialize on a lock held at the
+> install prefix. A launch that cannot take the lock **waits up to the same 60 seconds and then
+> proceeds WITHOUT updating**, reporting that another launch holds it. It must **not** be fatal:
+> two simultaneous `macos-user` launches are an ordinary thing a user does, and killing one because
+> the other got there first would turn a working setup into a race. This is the single place where
+> "a failed update refuses the launch" does not apply, and the distinction is *whose* failure it is
+> — an unreachable registry is the environment failing, a held lock is yolo already doing the work.
+
+**4. `yolo pack update` stays, with a smaller job.** It is no longer the only way an agent moves, but
+it is still the way to move one **now** — without restarting the jail — and the only way to refresh
+a pack whose `agent_updates` is `false`. Its current npm-only restriction
+(`internal/cli/packupdate.go:141` skips every non-`npm` kind) goes away with OQ-PD14's declared
+verb; it walks the same set the boot path does.
+
+> [!NOTE]
+> **Evergreen is bounded by restart frequency, and that is intended.** The update runs on the boot
+> path and attach is not a launch, so a jail left running for a month does not move. This is the
+> right trade — swapping an agent's binary under a live session is worse than staleness — but it
+> means "evergreen" means *"current as of when this jail started"*, never *"current now"*.
+> `yolo pack update` is the escape for anyone who wants the second thing.
+
+##### Per-agent facts, verified 2026-09-03
+
+Everything [OQ-PD13](#decision-ledger) and [OQ-PD14](#decision-ledger) need in order to say which
+pack changes how. The three left unverified when §3.5 was first written are closed here.
+
+| Pack | Today | Native installer | Pins? | Self-updates once native | Update verb |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `claude` | installer | `claude.ai/install.sh` | ✅ `claude install <ver>` | ✅ (once the captured `DISABLE_AUTOUPDATER` is gone) | `claude install` |
+| `agy` | installer | `antigravity.google/cli/install.sh` | not checked | ✅ — native ELF carrying `AUTO_UPDATE`/`Auto-update` strings | `agy update` |
+| `copilot` | **npm** | `gh.io/copilot-install` | ✅ `VERSION=` | ✅ — the `isSea()` gate flips true | `/update`, or re-run the installer |
+| `codex` | **npm** | `chatgpt.com/codex/install.sh` | not checked | machinery present (`autoUpdateEnabled`, `managedCodexVersion`); **empirically off** — 0.145.0 since 2026-07-25 | `codex update` |
+| `opencode` | **npm** | `opencode.ai/install` (HTTP 200, bash) | ✅ `VERSION=` | not checked | not checked |
+| `pi` | **npm** | `pi.dev/install.sh` | not checked | ❌ — no auto-updater found in the shipped `dist/` | `pi update --self` |
+
+**`pi` is the case that proves the verb is needed.** It has a native installer and no auto-updater
+at all, so it is evergreen *only* through the boot-path update calling `pi update --self`. A design
+that assumed "native installer ⇒ self-updating" would leave exactly one agent frozen and look
+correct everywhere else.
 
 #### Out of scope, stated so nobody builds it
 
@@ -1151,7 +1229,7 @@ which was the point.
 | OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Resequenced 2026-09-03 by OQ-PD15: capture now ships BEFORE evergreen**, not last — evergreen multiplies exactly the disk cost capture removes. | 2026-08-24 | §6.3, §10 |
 | **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the §6.1 tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD12** | **Agent dependencies are EVERGREEN.** The native update runs on the boot path at every launch, default on, per-pack and global opt-out; **a failed update is FATAL** (offline is judged not a real scenario), 60s per-program timeout, `YOLO_ALLOW_STALE_AGENTS=1` as the hatch. The hourly launcher poll is deleted, not disabled. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), §5.4 |
-| **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. **All four npm packs have one, verified 2026-09-03** (§3.5's table). | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD15** | **Capture FIRST — build the complete version and sequence toward it.** Evergreen lands on a machine-wide content-addressed store rather than per-workspace binds, so the disk cost is paid once. The prune stopgap is deleted, not deferred: under capture there is nothing to prune. Sooner was never the goal | 2026-09-03 | [§10](#10-what-i-would-build-in-order), §6.3 |
 | **OQ-PD16** | **Jail-only here; the host notch is owned by [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md)**, which has analysed it since 2026-08-02 and keeps six live questions on it. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose only caller today is `macos-user`. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland (that doc's §4.1) | 2026-09-03 | §3.5, [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) |
