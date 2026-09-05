@@ -1,14 +1,15 @@
 ---
 title: "The wire bridge — claude on chat-completions providers, without leaving the jail"
 date: 2026-09-04
-status: in-review
+status: accepted
 tags: [packs, providers, daemons, claude, cerebras, translation]
-summary: "Claude Code speaks exactly one wire protocol, and Cerebras serves exactly the other one. A wire bridge — an in-jail translating reverse proxy — manufactures the endpoint claude needs on the jail's own loopback, with no host grant and no boundary crossing. This doc designs it: the pack shape, how cerebras depends on it, what must translate, and what refuses when it is missing."
+summary: "Claude Code speaks exactly one wire protocol, and Cerebras serves exactly the other one. A wire bridge — an in-jail translating reverse proxy — manufactures the endpoint claude needs on the jail's own loopback, with no host grant and no boundary crossing. This doc designs it: the kind: service vocabulary it lands as, the real needs dependency that includes it when claude is in use, and the exact wire surface it translates."
 ---
 
 # The wire bridge — claude on chat-completions providers, without leaving the jail
 
-**Status:** DESIGN, 2026-09-04. Nothing built. Answers OQ-1 of
+**Status:** DECIDED, 2026-09-04 — every open question ruled by the maintainer (Decision
+Ledger, below). Nothing built. Answers OQ-1 of
 [`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md), which left
 this exact question open.
 
@@ -65,11 +66,52 @@ It is deliberately **not**:
   jail's loopback, crosses no boundary, reads no host state, and needs no grant. The
   maintainer's instinct ("I don't love calling it a loophole, but it's very similar") is
   correct on both halves: the *machinery* is the same (supervised in-jail daemon, endpoint
-  under `/run/yolo-services/`, reachability witness), the *trust* is not. Whether it gets
-  its own contribution kind or reuses the loophole manifest is OQ-2.
+  under `/run/yolo-services/`, reachability witness), the *trust* is not — and the kind
+  ruling below (§2.1) makes the vocabulary say so.
 - **Not a gateway.** One upstream, chosen by the launch's own selection machinery. No
   routing tables, no failover, no budgets, no model remapping beyond what translation
   requires. A gateway is a product; a bridge is a shim.
+
+### 2.1 The `service` kind is primary — loopholes form around it (ruled)
+
+**Ruled by the maintainer, 2026-09-04:** "can we make service the primary and have
+loopholes form around them? or host services? not sure what the loophole piece looks like
+precisely." All three halves, answered:
+
+A **service** *(coined here; first instance is this bridge)* is a daemon a pack
+contributes to a namespace — a jail daemon (a `yolo-jaild` subcommand under `supervise`)
+or a host daemon (a `yolo internal daemon` self-exec), or both — plus its endpoint file,
+its restart policy, and its reachability witness. No grants, no boundary, no host state.
+The claude-oauth-broker is the existing shape wearing loophole vocabulary: a host daemon
+plus a jail-side terminator, endpoint under `/run/yolo-services/` — a service in all but
+name. "Or host services?" — yes: one kind carries both halves, because they share the
+lifecycle, the endpoint, and the witness, and differ only in which namespace the daemon
+lands in.
+
+What the loophole piece actually is, precisely — the `Loophole` struct's fields
+(loopholes.go:75-146), decomposed:
+
+| Belongs to the **service** half | Belongs to the **loophole** half (the boundary) |
+| :--- | :--- |
+| `JailDaemon` (+ its `restart` policy), endpoint machinery, witness | `HostDaemon` — a daemon on the *host* side of the boundary |
+| `Platforms` — where it can run at all | `HostBindMount`, `HostDevices` — host filesystem/devices granted *into* the jail |
+| `Serves` — capabilities named | `StateFiles` — host state crossing the boundary, least-priv scoped |
+| `Settings` — config keys it owns | `Intercepts`, `BrokerIP`, `CACert` — the loopback-TLS interception broker; `Requires` — host-capability probes; `JailEnv` — env injected on the loophole's behalf |
+
+The refactor direction the ruling names — **loopholes form around services**: a loophole
+becomes its service half *plus* boundary grants layered on, rather than a monolith that
+happens to contain a daemon. The bridge lands as `kind: service` now, as the first
+instance; re-forming the five existing loophole packs around the new kind is a named
+follow-up with its own doc, explicitly NOT a prerequisite — their manifests keep their
+meaning, and the decomposition above is the map that follow-up walks.
+
+> [!WARNING]
+> **Rejected on the way here: loophole-manifest reuse.** My first draft leaned "reuse the
+> loophole manifest for v1, record the misnomer, split the kind when a second daemon
+> exists." The maintainer's ruling is the better call for the reason the draft itself
+> dissented with: vocabulary accreted "temporarily" is exactly how `wire_api`'s four-value
+> enum happened — a kind that misnames its instances does not get split later; it gets
+> copied.
 
 ## 3. The dependency — real pack vocabulary, conditionally included
 
@@ -193,12 +235,12 @@ against the claude 2.1.259 binary and live z.ai traffic, 2026-09-04:
 | :--- | :--- | :--- |
 | `POST /v1/messages` (non-stream) | translate | `POST /chat/completions` |
 | `POST /v1/messages` (SSE) | translate event-for-event | `stream: true` chunks |
-| `POST /v1/messages/count_tokens` | **estimate locally** (OQ-4) | no upstream call |
+| `POST /v1/messages/count_tokens` | **refuse (404)** — no estimate, no zero-stub. Measured 2026-09-04: z.ai's anthropic route *answers* count_tokens with `200 {"input_tokens":0}`, which is exactly why claude displays "0 tokens" in places — a zero-stub poisons the count it was asked for. A 404 sends claude to its own estimator (a real estimate), so refusing is the only answer that invents nothing and lies about nothing (WB-D14) | no upstream call |
 | `system` (string or block array) | flatten to one system message | `messages[0] {role: system}` |
 | `messages[]` text/image blocks | copy; images as base64 data URIs (qwen-3.8-27b accepts them) | content parts |
 | `tools[]` (`input_schema`) | rename to `parameters`; **never set `strict: true`** — qwen's strict mode rejects `pattern`/`format` that claude's schemas freely contain (cerebras tool-use doc, measured limits) | `tools[]` |
 | `tool_use` / `tool_result` blocks | bidirectional mapping | `tool_calls` / `role: tool` |
-| `thinking` config / `anthropic-beta` headers | strip | `reasoning_effort` from the provider's option (§6), default: absent — the upstream default stands |
+| `thinking` config / `anthropic-beta` headers | strip. The upstream's reasoning default always stands — no provider option, no bridge default (WB-D15, ruled: "upstream to stay its default, but also allow setting it from within the agent when possible"). The from-the-agent half: a request that names a thinking level is translated **only** where a 1:1 mapping exists — and none exists on today's anthropic wire (a `budget_tokens` → `reasoning_effort` threshold would be invented behavior), so v1 translates nothing and the door is this row | `reasoning_effort` never set by the bridge |
 | upstream reasoning content | **drop, do not surface** — emitting anthropic `thinking` blocks obliges the bridge to strip them on replay (claude echoes thinking back), a complexity with no coding-agent value; plain text deltas only | `choices[].delta.content` |
 | `max_tokens`, `stop_sequences` | map | `max_tokens`, `stop` |
 | stop reasons | map: `end_turn→stop`, `max_tokens→max_tokens` (length), `tool_use→tool_calls` | `finish_reason` |
@@ -281,13 +323,15 @@ one declaration:
 
 ## 8. What I would build, in order
 
-1. **The `needs` vocabulary** — packdecl schema + validation (strict refuse, tolerant
-   skip-and-report), the selection closure (host-side, before staging; transitive,
-   cycle-refusing, embedded-only per WB-D9/D10), the banner + `yolo check` lines, and
-   `pack footprint`/`pack lint` presenting the edge. Shipped with tests using two fixture
-   packs — a needing pack and a needed pack — and no bridge anywhere yet: the vocabulary
-   is general and lands on its own, exactly because the maintainer asked for vocabulary
-   and not a bridge-shaped special case.
+1. **The vocabulary, both pieces** — `needs` (packdecl schema + validation: strict
+   refuse, tolerant skip-and-report; the selection closure host-side before staging,
+   transitive, cycle-refusing, embedded-only per WB-D9/D10; the banner + `yolo check`
+   lines; `pack footprint`/`pack lint` presenting the edge) and `kind: service` (the
+   §2.1 kind: a jail or host daemon contribution, endpoint, restart policy, witness — no
+   grants). Shipped with tests using fixture packs — a needing pack, a needed pack, a
+   minimal service — and no bridge anywhere yet: the vocabulary is general and lands on
+   its own, exactly because the maintainer asked for vocabulary and not a bridge-shaped
+   special case.
 2. **The translator as a library** (pure Go, stdlib `net/http` only — no new vendored
    deps; the hermetic build stays hermetic), with table tests over recorded
    request/response fixture pairs: every row of §4's table, both directions, streaming
@@ -296,9 +340,9 @@ one declaration:
    read, the key read. Unit tests with an in-memory listener; an integration test that
    curls the bridge with anthropic-shaped fixtures against a stub upstream — **no agent
    ever runs** (the no-agent-tests rule); the stub is an `httptest` server, not cerebras.
-4. **The pack + the cerebras change, in one commit**: `packs/wire-bridge/` with README
-   (the §2 not-a-loophole paragraph is its opening), census bumps, embed list — the same
-   drumbeat the cerebras pack walked — *together with* cerebras's `needs` entry, the
+4. **The pack + the cerebras change, in one commit**: `packs/wire-bridge/` — the first
+   `kind: service` instance, README opening with the §2 not-a-loophole paragraph, census
+   bumps, embed list, the same drumbeat the cerebras pack walked — *together with* cerebras's `needs` entry, the
    loopback `anthropic` endpoint, and `context_window`. The need and the endpoint it
    makes true cannot ship apart, or there is a window where the closure stages a daemon
    nothing routes at (harmless) or — the bad direction — the endpoint routes at a daemon
@@ -327,83 +371,6 @@ and the doc names it rather than pretending a test covers it.
 | The bridge becomes a de-facto gateway (scope creep) | §7 is the fence; a gateway is a different doc |
 | Key exposure grows a new channel | the key rides the 0600 file + boot-time read only; `ps` shows no key; the argv exposure that already exists (claude's token) is unchanged, not extended |
 
-## Open Questions
-
-1. ✅ **OQ-1: The dependency shape — RESOLVED (2026-09-04): real pack vocabulary, conditionally included.**
-
-   The question as drafted offered A (fold-in) vs B (standalone + enforcement-as-refusal).
-   The maintainer ruled a third shape, rejecting B's mechanism outright: "I don't
-   understand the dep as enforcement, but we should have real pack vocab for this, and
-   the optional inclusion if claude is in use." A dependency mechanism the manifest cannot
-   state and the maintainer cannot parse from the launch behavior is the wrong mechanism —
-   the vocabulary IS the design (§3.1: top-level `needs` with `when_bins`, auto-included
-   at selection resolution, printed on the banner). My drafted leaning (B) is preserved
-   here only as the rejected alternative it was; §3 carries the ruling.
-
-2. 💬 **OQ-2: New contribution kind (`kind: service`) or loophole-manifest reuse?**
-   <!-- vantage: oq id=OQ-2 leaning="Loophole-manifest reuse for v1 with the misnomer recorded in the manifest description; split the kind when a second non-loophole daemon exists" -->
-
-   The maintainer: "I don't love calling it a loophole." The machinery fit is real —
-   `JailDaemon`, endpoint file, witness, `restart` policy all exist in the loophole
-   pipeline (loopholes.go:75-146) — but a loophole manifest carries host-grant vocabulary
-   (`intercepts`, `broker_ip`, `ca_cert`, host bind-mounts) that a bridge leaves entirely
-   empty, and the security review a loophole *means* does not apply.
-
-   _Leaning:_ **loophole-manifest reuse for v1, with the misnomer recorded in the
-   manifest's own description** ("a wire bridge, not a loophole: see
-   docs/design/wire-bridge.md §2") — the split into `kind: service` (an in-jail daemon
-   contribution with no host grant) is cheap to do the day a *second* non-loophole daemon
-   exists, and expensive to design correctly today with one example. Dissent worth
-   having: the kinds list is vocabulary, and vocabulary accreted "temporarily" is how
-   `wire_api`'s four-value enum happened.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-3: The bridge's default listen port — carry it in the cerebras manifest URL
-   (8214 proposed) or allocate dynamically and rewrite the endpoint file only?**
-   <!-- vantage: oq id=OQ-3 leaning="Fixed, manifest-borne port 8214 — the URL is the single source; collisions are witness-fatal in a fresh namespace" -->
-
-   A fixed manifest-borne port keeps the URL a single-sourced provider fact (§3.1) and
-   the derive untouched; a dynamic port survives collisions but needs the URL composed
-   at launch time — which the manifest cannot do, and which would push port knowledge
-   into the derive. Jail loopback is per-namespace, so collisions are limited to baked
-   services.
-
-   _Leaning:_ **fixed, manifest-borne, 8214** — collisions are near-impossible in a
-   fresh namespace and fatal-by-witness when they happen, which is the good failure.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-4: `count_tokens` — local estimate, or refuse the endpoint?**
-   <!-- vantage: oq id=OQ-4 leaning="Local chars/4 estimate stated as approximate — matches the precision of the alternative for one function" -->
-
-   Claude Code calls it for context accounting. A chars/4 estimate is trivially wrong on
-   code; refusing (404) makes claude fall back to its own estimator (which it has, and
-   which is also an estimate); proxying to nothing upstream is always possible.
-
-   _Leaning:_ **local estimate (chars/4), stated as approximate** — it matches the
-   precision of the alternative, costs one function, and keeps claude's auto-compact
-   math on a path that exists.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 🤷 **OQ-5: The provider option name for reasoning depth, if any.**
-   <!-- vantage: oq id=OQ-5 leaning="Leave it alone in v1 — no reasoning option until someone measures medium-vs-high on agent loops" -->
-
-   qwen-3.8-27b defaults `reasoning_effort: high`, which burns tokens unattended. The
-   bridge could honor a provider option (`reasoning_effort`) and cerebras could declare
-   a default — or the bridge can leave the upstream default alone and stay out of it.
-
-   _Leaning:_ **leave it alone in v1** — one more option is one more promise, and
-   "medium is better than high for agent loops" is a measurement nobody has made yet.
-   Easy to add; annoying to retract.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
 | ID | Ruling | Date | Settled in |
@@ -420,3 +387,7 @@ and the doc names it rather than pretending a test covers it.
 | WB-D10 | Needs resolve as a transitive closure at selection, before staging; cycles refuse the launch naming the loop; explicit user selection is joined, never overridden | 2026-09-04 | §3.1 |
 | WB-D11 | User config carries no `needs` key — manifests only. A user-declared loopback anthropic endpoint with no bridge selected is their own dead URL; `yolo check` warns, never refuses | 2026-09-04 | §3.4 |
 | WB-D12 | The auto-inclusion prints on the launch banner and in `yolo check` — non-negotiable: a pack nobody typed must never join a launch silently | 2026-09-04 | §3.1 |
+| WB-D13 | The listen port is fixed and manifest-borne — 8214, carried only in the provider's `anthropic` base_url; a collision is witness-fatal in a fresh namespace (OQ-3, ruled 2026-09-04) | 2026-09-04 | §3.1, §3.3 |
+| WB-D14 | `count_tokens` refuses (404). No estimate, no zero-stub — measured: z.ai answers it `200 {"input_tokens":0}`, the source of claude's "0 tokens" display; a refusal falls back to claude's own estimator. Ruled: "I don't want to invent behavior" (OQ-4) | 2026-09-04 | §4 |
+| WB-D15 | Upstream reasoning default stands — no provider option, no bridge default. A request naming a thinking level translates only on a 1:1 mapping; none exists today, so v1 translates nothing (OQ-5, ruled: "upstream to stay its default, but also allow setting it from within the agent when possible") | 2026-09-04 | §4 |
+| WB-D16 | `kind: service` is primary vocabulary — a jail or host daemon contribution with endpoint, restart, and witness, no grants. The bridge is its first instance; loopholes re-form as service + boundary grants (the §2.1 decomposition) as a named follow-up, not a prerequisite (OQ-2, ruled: "make service the primary and have loopholes form around them") | 2026-09-04 | §2.1 |
