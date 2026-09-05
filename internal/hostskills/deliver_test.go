@@ -400,3 +400,205 @@ func TestNoSkillsLeavesNoTrace(t *testing.T) {
 		})
 	}
 }
+
+// A SOURCE DEPLOYED BY A DOTFILE MANAGER must CONVERGE. rcm, stow and chezmoi deploy a skills
+// tree as symlinks into a dotfiles repo, so the pack yolo reads is a tree of links pointing
+// OUT of itself — and the delivery materializes them, because that is what the tools reading
+// the destination need. The change predicate has to model that: a source measured by its link
+// TARGETS can never equal a destination holding their CONTENT, so every apply reports a change
+// it already made, archives a copy of what it just wrote, and — at the host-launch gate —
+// prompts on every start forever (docs/design/host-apply-staleness.md R3).
+//
+// Both symlink shapes, because they failed differently: a LINKED FILE inside a real skill dir
+// (delivered, then reported changed forever), and a whole skill dir that is itself a LINK (the
+// `~/.pi/agent/skills` shape dangling.go reports from the field, and what collectSkills' os.Stat
+// deliberately admits — which the copy then refused outright).
+func TestSymlinkedSourceConverges(t *testing.T) {
+	for _, tc := range []struct {
+		tier Tier
+		name string
+	}{{TierFlat, "flat"}, {TierNamespaced, "namespaced"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, shape := range []string{"linked-file", "linked-dir"} {
+				t.Run(shape, func(t *testing.T) {
+					req, packSkills := testReq(t, tc.tier)
+					// The dotfiles repo the links point INTO — outside the pack, exactly as a
+					// dotfile manager deploys it.
+					dotfiles := t.TempDir()
+					source := writeSkill(t, dotfiles, "linky", "from the dotfiles repo")
+					if err := os.WriteFile(filepath.Join(source, "run.sh"),
+						[]byte("#!/bin/sh\necho hi\n"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					switch shape {
+					case "linked-file":
+						// The skill dir is real; its CONTENT is linked.
+						dir := filepath.Join(packSkills, "linky")
+						if err := os.MkdirAll(dir, 0o755); err != nil {
+							t.Fatal(err)
+						}
+						for _, f := range []string{"SKILL.md", "run.sh"} {
+							if err := os.Symlink(filepath.Join(source, f),
+								filepath.Join(dir, f)); err != nil {
+								t.Fatal(err)
+							}
+						}
+					case "linked-dir":
+						// The whole skill is one link.
+						if err := os.Symlink(source, filepath.Join(packSkills, "linky")); err != nil {
+							t.Fatal(err)
+						}
+					}
+
+					first, err := Deliver(req)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if r := find(t, first, "linky"); r.Action != ActionWrote {
+						t.Fatalf("first apply must deliver the skill, got %q (%s)", r.Action, r.Detail)
+					}
+					// The delivered form is what the TOOLS must be able to read: real bytes at
+					// the destination, whatever the source's shape.
+					dest := filepath.Join(req.SkillsDir, "linky")
+					if tc.tier == TierNamespaced {
+						dest = filepath.Join(req.SkillsDir, req.Pack, "skills", "linky")
+					}
+					body, err := os.ReadFile(filepath.Join(dest, "SKILL.md"))
+					if err != nil {
+						t.Fatalf("the delivered skill must be readable: %v", err)
+					}
+					if !strings.Contains(string(body), "from the dotfiles repo") {
+						t.Errorf("delivered content is not the link's target: %q", body)
+					}
+
+					reapply(&req)
+					second, err := Deliver(req)
+					if err != nil {
+						t.Fatal(err)
+					}
+					r := find(t, second, "linky")
+					if r.Action != ActionUnchanged || r.WouldChange {
+						t.Errorf("a symlinked source must converge: second apply reported %q "+
+							"(wouldChange=%v, %s)", r.Action, r.WouldChange, r.Detail)
+					}
+				})
+			}
+		})
+	}
+}
+
+// THE TWO SIDES ARE MEASURED DIFFERENTLY, and this pins the difference. The source is digested as
+// it WOULD BE delivered (links read through); the destination as it IS. So a destination that has
+// become a link — yolo's own recorded entry, replaced by the user with a pointer at content of
+// their own — reports CHANGED even when the bytes behind it match, because delivering really
+// would replace the link with a file. Reading the destination through the link instead would make
+// the render a permanent no-op over a path it claims to own.
+//
+// It still CONVERGES, in one apply rather than never: that is what separates this from the bug.
+func TestSymlinkedDestinationIsReplacedThenConverges(t *testing.T) {
+	req, packSkills := testReq(t, TierFlat)
+	writeSkill(t, packSkills, "linky", "the pack's body")
+
+	if _, err := Deliver(req); err != nil {
+		t.Fatal(err)
+	}
+	// The user swaps yolo's delivered copy for a link at content that is byte-identical.
+	dest := filepath.Join(req.SkillsDir, "linky")
+	elsewhere := writeSkill(t, t.TempDir(), "linky", "the pack's body")
+	if err := os.RemoveAll(dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, dest); err != nil {
+		t.Fatal(err)
+	}
+
+	reapply(&req)
+	second, err := Deliver(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := find(t, second, "linky"); r.Action != ActionWrote {
+		t.Errorf("a destination that became a link must be re-rendered, got %q (%s)",
+			r.Action, r.Detail)
+	}
+	if fi, err := os.Lstat(dest); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("the render must leave real content, not a link (%v)", err)
+	}
+
+	reapply(&req)
+	third, err := Deliver(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := find(t, third, "linky"); r.Action != ActionUnchanged {
+		t.Errorf("and then converge: got %q (%s)", r.Action, r.Detail)
+	}
+}
+
+// FOLLOWING DIRECTORY LINKS IS WHAT MAKES A BOTTOMLESS DESCENT POSSIBLE, so the walk that now
+// follows them must refuse a cycle BY NAME. Measured with the guard removed: `self -> ..` gets 40
+// nested directories created in the destination home before the kernel's per-resolution traversal
+// limit stops it, and reports a 700-character path rather than the cycle.
+func TestSymlinkCycleIsRefusedNotWalked(t *testing.T) {
+	req, packSkills := testReq(t, TierFlat)
+	dir := writeSkill(t, packSkills, "loopy", "points at itself")
+	if err := os.Symlink("..", filepath.Join(dir, "self")); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, packSkills, "fine", "an ordinary neighbour")
+
+	results, err := Deliver(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := find(t, results, "loopy")
+	if r.Action != ActionRefused || !strings.Contains(r.Detail, "symlink cycle") {
+		t.Errorf("a cycle must be refused by name, got %q (%s)", r.Action, r.Detail)
+	}
+	// One bad skill must not take the destination down with it.
+	if r := find(t, results, "fine"); r.Action != ActionWrote {
+		t.Errorf("the sibling skill must still be delivered, got %q (%s)", r.Action, r.Detail)
+	}
+}
+
+// THE SAME DEFECT IN ITS OTHER SHAPE: the copy normalizes the mode to 0o755/0o644, keeping only
+// the exec BIT, so a predicate that compares the exact permission bits can never see its own
+// output. A source checked out under `umask 077` has 0o700 scripts — ordinary on a shared
+// machine, and produced by `git clone` alone — and every apply then re-renders and re-archives
+// a file it already wrote.
+//
+// What the delivery preserves is the only thing the comparison may read. This is why the
+// predicate cannot be internal/treedigest, whose octal is deliberately exact: a captured
+// install that lost 0o700 for 0o755 IS a different install, and that digest is a key.
+func TestExecBitOnlySourceConverges(t *testing.T) {
+	req, packSkills := testReq(t, TierFlat)
+	dir := writeSkill(t, packSkills, "scripted", "runs a thing")
+	if err := os.WriteFile(filepath.Join(dir, "run.sh"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Deliver(req); err != nil {
+		t.Fatal(err)
+	}
+	reapply(&req)
+	second, err := Deliver(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := find(t, second, "scripted"); r.Action != ActionUnchanged || r.WouldChange {
+		t.Errorf("a 0o700 source must converge: second apply reported %q (wouldChange=%v, %s)",
+			r.Action, r.WouldChange, r.Detail)
+	}
+	// And the bit itself still counts: dropping it is a real change the predicate must SEE.
+	if err := os.Chmod(filepath.Join(dir, "run.sh"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reapply(&req)
+	third, err := Deliver(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := find(t, third, "scripted"); r.Action != ActionWrote {
+		t.Errorf("losing the exec bit is a change: got %q (%s)", r.Action, r.Detail)
+	}
+}
