@@ -111,13 +111,20 @@ the equivalence. Observe is the default posture; `--assert` writes. Both land in
 user-scoped pack set. The per-surface render is `entrypoint.RenderHostPack`
 (`internal/entrypoint/hostrender.go:129`) — *"pure RMW, no computed layer."*
 
-**The render is idempotent, and it is tested three ways:** `internal/entrypoint/hostmcp_test.go:305`
+**The render is idempotent, and it is tested four ways:** `internal/entrypoint/hostmcp_test.go:305`
 (*"A SECOND `--assert` is byte-identical: the render is idempotent"*),
-`internal/cli/applyhostidempotent_test.go` (convergence over the whole home), and
+`internal/cli/applyhostidempotent_test.go` (convergence over the whole home),
 `internal/entrypoint/prism_copilot_test.go:103` (RMW idempotence — *"a second boot must be
-idempotent and must not clobber a value the agent changed"*). This is what makes re-rendering on
+idempotent and must not clobber a value the agent changed"*), and
+`internal/cli/applyhostsymlinkedpack_test.go` (convergence over a pack whose skills and files are
+SYMLINKS into a dotfiles repo). This is what makes re-rendering on
 every launch a no-op by construction rather than by luck, and it is the load-bearing fact of the
 whole design.
+
+**The fourth was added 2026-09-05, and the first three could not have caught what it does.** Each of
+them builds its fixture out of real files, so a pack deployed by a dotfile manager — rcm, stow,
+chezmoi, the shape a user's own local pack most often has — was outside every convergence assertion
+in the tree. It did not converge: see R3 in §9 for the defect and what closed it.
 
 ### 2.2 The launch chokepoint already exists
 
@@ -508,11 +515,37 @@ have caught drift *sometime*, just never at a moment tied to a launch.
 |---|---|
 | **R1. A scripted launch refuses and the caller cannot pass the flag.** The genuinely new failure mode; §4.3. | The flag lives on the explicit apply, and the refusal names both commands (P5). Accepted as the cost of matching the jail. |
 | **R2. The refusal reads as "claude is broken."** The user typed `claude`, not `yolo`. | P5 — every refusal is actionable at the surface the user typed. |
-| **R3. The predicate is wrong and every launch prompts.** | Byte comparison, not field inspection (§3.4). Carve-outs named in code. Minimum bar: a test that renders twice and asserts the second reports zero changes. |
+| **R3. The predicate is wrong and every launch prompts.** | Byte comparison, not field inspection (§3.4). Carve-outs named in code. Minimum bar: a test that renders twice and asserts the second reports zero changes. **This risk was REALIZED and is now closed for the one instance that realized it** — see below. |
 | **R4. Two concurrent launches write one home.** Idempotence does not make concurrent writers safe. | §4.6 — a per-home lock; a launch that cannot take it execs. |
 | **R5. A launch feels slow on a cold or network `$HOME`.** | §4.4's 1 s budget, then cannot-determine. |
 | **R6. Coverage depends on the shim being in the launch path.** | §7.1, plus the existing `sectionHostWrappers` WARN. |
 | **R7. Someone re-derives a retracted argument** — either disposability, or standing consent. | §3.2 and §1 both exist to be cited, and each names what settles it. |
+
+### R3, realized: a symlink-deployed pack never converged
+
+**Found 2026-09-03 while building this gate and deliberately left alone; FIXED 2026-09-05**
+(`internal/hostskills/delivered.go`). It is worth reading as the concrete shape of R3 rather than as
+history, because it is the shape the risk row's "minimum bar" was written to catch and did not.
+
+`hostskills.Changed` — the predicate feeding this survey for both the `skills` and `files` kinds
+(`applyhostskills.go:368`, `applyhostfiles.go:56`) — digested its SOURCE with `internal/treedigest`,
+which records a symlink by its target and never follows it, and by a file's exact permission bits.
+Both writers MATERIALIZE and both NORMALIZE the mode to the exec bit: `copyTree` reads content with
+`os.ReadFile` and writes 0o755/0o644, and the `files` kind reads with `os.ReadFile`, takes its mode
+from `os.Stat`, and writes 0o555/0o444. So a pack whose skills are links into a dotfiles repo, or
+one holding a 0o700 file neither writer can reproduce, compared unequal to its own output
+**forever**. With the key on, every launch would have prompted
+and no apply could ever have settled it.
+
+Two things generalize past the instance:
+
+- **The predicate must model what the WRITER produces, not what the source IS.** `changedPluginTree`
+  (`internal/hostskills/plugin.go`) already existed for the same reason — the delivery rewrites the
+  plugin manifest, so a plain tree comparison reports CHANGED forever. Any new carve-out should be
+  checked against that rule before it is checked against the code.
+- **A convergence test proves nothing about a fixture shape it does not build.** All three tests
+  §2.1 listed used real files; the fourth exists because that was the gap, not because three was too
+  few.
 
 ---
 

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 12 needing you · 4 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-03**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -557,14 +557,6 @@ largest reclaim available; the two repairs after that are cheap and independent.
   declining is defensible, silently stranding a gigabyte is not.
 
   The rest of §10 is blocked, not unscheduled — see 🔒.
-
-- 📦 **`hostskills.Changed` reports "changed" for a symlinked source, forever.** `treeDigest`
-  records link targets while `copyTree` materializes through them, so a source tree deployed by a
-  dotfile manager never compares equal. Pre-existing — it already affects the `files` kind and the
-  flat-skills archive gate — but as of 2026-09-03 it is also an **R3 hazard** for the host-launch
-  gate ([`host-apply-staleness.md`](../design/host-apply-staleness.md) R3): a launch would prompt
-  on every start and never converge. Found while building that gate and deliberately left alone
-  there. Needs no ruling.
 
 - 📦 **`Pack.Name` may not prefer the manifest over the directory basename.** Documented as
   *"config override, else manifest, else dir"* (`internal/packload/packload.go:31`), but a
