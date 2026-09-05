@@ -20,7 +20,7 @@ import (
 
 // TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered covers, in one launch:
 //
-//  1. PATH order — blockers first, launchers second, both ahead of the install prefixes.
+//  1. PATH order — blockers first, launchers next, both ahead of the install prefixes.
 //  2. Blockers still block (`grep -r` → 127, `find` → 127).
 //  3. YOLO_BYPASS_SHIMS=1 still lets the real tool through.
 //  4. BOTH generated dirs are writable, which is the mount question: each is a bind-mount
@@ -88,9 +88,17 @@ func TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered(t *testing.T) {
 	if launcherIdx < 0 {
 		t.Fatalf("the launcher dir is missing from PATH: %v", dirs)
 	}
-	if launcherIdx != 1 {
-		t.Errorf("the launcher dir must be SECOND, immediately after the blockers, got "+
-			"index %d in %v", launcherIdx, dirs)
+	// EVERYTHING AHEAD OF THE LAUNCH DIR MUST BE A BLOCKER DIR — not "index 1", because the
+	// blocker dir legitimately appears TWICE in a real jail. `internal/cli/run`'s
+	// miseActivate re-prepends "$HOME/.yolo/bin/block:$PATH" after `mise env -s bash`, so
+	// that mise's own insertions can never get in front of the blockers. That duplicate is
+	// deliberate and predates B2 (measured in the outer jail on the pre-B2 image, where the
+	// PATH also began block:block:...), so the assertion is the RULE rather than a position.
+	for i := 0; i < launcherIdx; i++ {
+		if dirs[i] != "/home/agent/.yolo/bin/block" {
+			t.Errorf("only blocker dirs may precede the launcher dir; %q is at index %d "+
+				"in %v", dirs[i], i, dirs)
+		}
 	}
 	// AHEAD of every install prefix (B2). A launcher ordered after what it installs into is
 	// unreachable from its own second invocation onward, which is why the update it carries
