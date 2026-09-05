@@ -59,6 +59,35 @@ func TestEmbedMatchesTree(t *testing.T) {
 	}
 }
 
+// An embedded pack's manifest `name` must equal its DIRECTORY name.
+//
+// Not style: the directory name is what becomes the effective name. `packs: ["claude"]`
+// resolves a bare entry against the embedded DIR list (config.embeddedPackName), the
+// staged tree is <root>/_official/<dir>, and both MaterializeEmbedded and the entrypoint
+// name the pack from that dir — so a pack.json `name` that disagrees is a declaration
+// that does nothing at all, and the two spellings would appear in different messages
+// about the same pack. Every shipped pack agrees today; this is what keeps it that way.
+//
+// The general rule is in packload.Pack's Name field comment: the manifest never supplies
+// the effective name on any production path, for a configured pack or an embedded one.
+func TestEmbeddedPackManifestNamesMatchTheirDirs(t *testing.T) {
+	packs := Embedded()
+	if len(packs) == 0 {
+		t.Fatal("no embedded packs materialized — this test would pass vacuously")
+	}
+	for _, p := range packs {
+		dir := filepath.Base(p.Root)
+		if p.Decl.Name != "" && p.Decl.Name != dir {
+			t.Errorf("packs/%s/pack.json declares name %q — the directory name is what "+
+				"yolo uses, so the manifest's is inert; rename the dir or the field",
+				dir, p.Decl.Name)
+		}
+		if p.Name != dir {
+			t.Errorf("embedded pack in %s loaded as %q, want the dir name", dir, p.Name)
+		}
+	}
+}
+
 // findRepoRoot walks up to the dir holding go.mod.
 func findRepoRoot(t *testing.T) string {
 	t.Helper()

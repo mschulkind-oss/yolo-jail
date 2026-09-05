@@ -107,6 +107,43 @@ func TestDefaultPackNameUsesGitSubpath(t *testing.T) {
 	}
 }
 
+// EVERY lowered entry carries a non-empty name, in every accepted form. That is a small
+// fact with a large consequence, and it is the reason packload.Pack's name ladder reads
+// the way it does: packload.LoadDir falls back to the pack.json `name` only when its
+// caller supplies none, and no production caller ever does, because every one of them
+// passes a PackEntry.Name (or a directory name) that this function guarantees is set.
+//
+// So a pack.json `name` is NOT the effective name of a configured pack — the address is.
+// That was documented backwards until 2026-09-05 and cost a bug report; the end-to-end
+// measurement lives in run.TestConfiguredPackNameComesFromTheAddressNotTheManifest.
+func TestEveryLoweredPackEntryCarriesAName(t *testing.T) {
+	entries, problems := checkPacks(decodeAny(t, `[
+		"claude",
+		"file:///home/me/packs/house-rules",
+		"/home/me/packs/bare-path",
+		{"source": "file:///home/me/packs/named", "name": "explicit"},
+		{"source": "git+https://github.com/acme/shared.git"}
+	]`))
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	want := []string{"claude", "house-rules", "bare-path", "explicit", "shared"}
+	if len(entries) != len(want) {
+		t.Fatalf("lowered %d entries, want %d: %+v", len(entries), len(want), entries)
+	}
+	for i, e := range entries {
+		if e.Name == "" {
+			t.Fatalf("entry %d (%s) lowered with an EMPTY name — packload.LoadDir would "+
+				"then take the pack.json name, and the staging dir, the pack-drop prune "+
+				"and the /ctx mount path would each be derived from a different string",
+				i, e.Source)
+		}
+		if e.Name != want[i] {
+			t.Errorf("entry %d name = %q, want %q", i, e.Name, want[i])
+		}
+	}
+}
+
 func TestCheckPacksRejectsBadEntries(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
 		// "/no/scheme" moved from REFUSED to ACCEPTED on 2026-09-03: a bare absolute
