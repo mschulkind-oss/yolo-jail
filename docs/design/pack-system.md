@@ -130,6 +130,18 @@ configured.
 `pack.json` has two top-level keys: `name` and `contributes`. Every field is optional; a
 pack with no `pack.json` behaves as an empty `contributes`.
 
+> [!IMPORTANT]
+> **`name` here is informational — it is not the pack's effective name.** That comes from
+> the `packs` entry that selected the pack (its explicit `name`, else the last segment of
+> its source address), or for a pack yolo ships, its directory under `packs/`. The
+> effective name is simultaneously the staging directory, the handle `yolo pack ls` prints
+> and `yolo pack explain` takes, and the `/ctx` directory a `reads-host` grant with no
+> `into` is mounted at — and all three are fixed from the config line alone, before any
+> `pack.json` is read and before a git source is fetched, so the manifest cannot supply it.
+> A shipped pack's `name` is pinned equal to its directory so the two cannot drift
+> (`packload.TestEmbeddedPackManifestNamesMatchTheirDirs`); the full reasoning is the
+> `Name` field comment on `packload.Pack`.
+
 ```jsonc
 {
   "name": "claude",

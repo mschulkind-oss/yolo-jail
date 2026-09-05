@@ -31,7 +31,39 @@ import (
 
 // Pack is a discovered pack: its declaration plus where its files are.
 type Pack struct {
-	// Name is the pack's effective name (config override, else manifest, else dir).
+	// Name is the pack's effective name, and it comes from the CALLER — never from
+	// pack.json. For a configured pack it is config.PackEntry.Name (the entry's explicit
+	// `name`, else the last segment of its source address); for an embedded one it is the
+	// directory under packs/; in the jail it is the staged directory's name.
+	//
+	// THIS FIELD SAID "config override, else manifest, else dir" UNTIL 2026-09-05, and
+	// that was wrong in a way a pack author could act on. LoadDir does have that ladder,
+	// but no production caller reaches past its first rung: every one of them passes a
+	// name, and config lowering fills one in from the address before anything is staged
+	// (config.TestEveryLoweredPackEntryCarriesAName). A `file://` entry with no `name`
+	// therefore reports its source DIRECTORY even when its pack.json declares one — which
+	// made an audience refusal read `pack 002` and is the bug report this comment closes.
+	//
+	// It is that way because the name must be three things at once, and only an
+	// address-derived string can be all of them:
+	//
+	//   - THE STAGING DIR. config.PackEntry.Slug escapes it into the tree the CLI stages
+	//     to and the pack-drop prune sweeps (packstage rule 3), both of which run from the
+	//     config list alone — before any pack.json exists to read, and for a git source
+	//     before anything is fetched.
+	//   - THE HANDLE THE USER TYPES. `yolo pack ls` prints it and `yolo pack explain`
+	//     matches on it, so it has to be the string in their config, not one hidden in a
+	//     pack they may not have opened.
+	//   - A STRING BOTH HALVES DERIVE. The jail names a pack from its staged directory
+	//     (entrypoint.LoadJailPacks) because that is all it has, and CtxPath turns the
+	//     name into the /ctx path a reads-host grant is mounted at. A host that preferred
+	//     the manifest would mount the user's file where the jail does not look, and the
+	//     surface would silently compose from defaults.
+	//
+	// So a pack.json `name` is informational: accepted (the strict decoder would refuse
+	// the key otherwise), shown by nothing, and for the packs yolo ships pinned equal to
+	// the directory name so it cannot drift into a second spelling
+	// (TestEmbeddedPackManifestNamesMatchTheirDirs).
 	Name string
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
@@ -497,6 +529,11 @@ func (p *Pack) InstallBins() []string {
 
 // LoadDir reads a pack from a directory. A missing pack.json is fine and yields an
 // empty declaration.
+//
+// name is the pack's effective name and EVERY production caller supplies it — see the
+// Pack.Name field comment for the three jobs it has to do and why the manifest cannot do
+// them. The two fallbacks below (the manifest's `name`, then the directory) are for a
+// caller that has no name to give, which today means only a test.
 // tolerateUnknownFields makes LoadDir ignore manifest fields — and skip contribution
 // kinds — this build does not know, instead of refusing the manifest. Set once, by the
 // IN-JAIL entrypoint (TolerateSkew).

@@ -46,8 +46,21 @@ func cleanJSON5(data []byte) ([]byte, error) {
 // at all — that is the common case and it must stay zero-ceremony. A manifest is how a
 // pack asks for something more: a writable dir, a mount target, a host file.
 type Manifest struct {
-	// Name is the pack's own name for itself. The `packs` config entry may override
-	// it; this is the default and what `yolo pack ls` shows.
+	// Name is the pack's own name for itself, and it is INFORMATIONAL — nothing derives
+	// the pack's effective name from it.
+	//
+	// This said "the `packs` config entry may override it; this is the default and what
+	// `yolo pack ls` shows" until 2026-09-05, and all three clauses were wrong. The
+	// effective name is the config entry's (its explicit `name`, else the last segment of
+	// its source address), or for an embedded pack its directory under packs/; `yolo pack
+	// ls` prints that, not this. packload.Pack's Name field comment has the reason — the
+	// name is also the staging dir, the prune key and the /ctx mount path, and all three
+	// are derived before any pack.json is read.
+	//
+	// Kept as an accepted key because packs declare it (the strict decoder refuses an
+	// unknown one) and because it is the only place a pack states what it calls itself.
+	// For the packs yolo ships it is pinned equal to the directory name, so the two
+	// spellings cannot drift (packload.TestEmbeddedPackManifestNamesMatchTheirDirs).
 	Name string `json:"name,omitempty"`
 
 	// Description is one line, shown by `yolo pack ls`.
