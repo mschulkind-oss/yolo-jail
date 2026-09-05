@@ -315,12 +315,39 @@ versions directory is 1.2 GB).
 `yolo capture <bin>` runs that installer ONCE, in a throwaway jail with an empty home, and stores
 what it left behind as a content-addressed entry under
 `~/.local/share/yolo-jail/captures/entries/<key>/`, with a file manifest and a receipt beside it.
-Nothing is captured on a normal launch — this is an explicit act, and it needs network access to
-whatever the installer downloads.
+Later jails put that entry in place instead of downloading anything.
 
 `<bin>` must be a program one of your selected packs installs with `via: "installer"`; an
 npm-declared program already names a registry version and needs no capture. Captures are
 machine-local and are never shared between machines.
+
+#### It usually happens by itself
+
+**You do not normally have to run this command.** A launch checks, before it starts your jail,
+whether the machine has ever recorded each `via: "installer"` program your selected packs install.
+If one is missing, that launch captures it first and says so:
+
+```
+auto-capture  1 program never recorded on this machine: claude
+  Each is installed once now, in a jail of its own, so this and every other workspace
+  materialize it instead of downloading it. This launch pays one installer download
+  per program. Set YOLO_NO_AUTO_CAPTURE=1 to skip.
+```
+
+That first launch is slower by roughly one installer download (~205 MiB for claude). Every launch
+after it, in this workspace or any other on the machine, is not.
+
+- **It never fails your launch.** A capture that cannot run — no network, a stale installer URL, a
+  full disk — warns once, names the program, and gets out of the way; that program then installs
+  the ordinary way, one download per workspace, and the next launch retries the capture.
+- **`YOLO_NO_AUTO_CAPTURE=1`** turns it off for a launch (any non-empty value works). Use it on a
+  metered connection or when you want the launch to start now. `yolo capture <bin>` still works.
+- **It is container backends only.** On `macos-user` nothing yet materializes a capture, so a
+  launch there captures nothing; run `yolo capture` explicitly if you want the record.
+- **Old captures are reclaimed by `yolo prune`.** The store keeps the newest recording of each
+  program per platform; anything an install would no longer choose is superseded, and `yolo prune`
+  reports it (dry run) or `yolo prune --apply` removes it. Each superseded entry's manifest is kept
+  — kilobytes — so a record of what that version contained survives its bytes.
 
 ### `yolo programs` — What Is Installed, and What Nothing Asks For Any More
 

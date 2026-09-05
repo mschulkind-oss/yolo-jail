@@ -141,6 +141,25 @@ type Options struct {
 	// MOUNT rather than teaching the launcher a second exception makes it
 	// unrepresentable: there is nothing in that jail to resolve against.
 	CapturesDir func() string
+	// AutoCapture records what a vendor installer leaves behind for every program in
+	// bins that the machine store has no entry for at platform — OQ-PD18's *"(d),
+	// DEFAULT ON"*. It receives the selected packs' `via: "installer"` program names
+	// and the JAIL's platform, blocks while it works, and never fails a launch.
+	//
+	// A seam because captureHost — which launches jails — lives in internal/cli, the
+	// package that imports this one; the front door injects it, exactly as it does
+	// MacosUserRun and CaptureOnTerminate.
+	//
+	// nil => no auto-capture, which is what every non-launch caller of Run gets. That is
+	// a legitimate state and not a broken one: the store filling is an optimisation, and
+	// a launch with an empty store installs the way it did before capture existed.
+	//
+	// The BINS are a parameter rather than something the handler re-derives, for the
+	// reason MacosUserRun's packRoot is: the pack set is the pipeline's to resolve, and
+	// making it an argument means the trigger cannot fire without one being decided. The
+	// PLATFORM likewise — only the pipeline knows which backend is about to run, and the
+	// one answer that looks right and is wrong is the host's own (containerJailPlatform).
+	AutoCapture func(bins []string, platform string)
 	// MacosUserRun handles the runtime==macos-user native branch. It receives the resolved config,
 	// workspace, selected agents, the post-`--` argv, the repo root, the staged pack
 	// root, the dry-run flag, and the launch's composed profile/provider channel in

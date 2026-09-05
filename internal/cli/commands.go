@@ -604,13 +604,39 @@ func runRun(args []string) int {
 			fmt.Fprintln(os.Stderr, "Warning: "+msg)
 		})
 	}
+	// Wire OQ-PD18's auto-capture trigger: every selected pack's `via: "installer"`
+	// program the machine store has never recorded is captured, in a throwaway jail,
+	// before this launch's container starts. Third seam of the same shape and for the
+	// same reason as the two above — captureHost launches jails, so it lives in THIS
+	// package, which imports run.
+	//
+	// INJECTED ON THE LAUNCH PATH ONLY, which is what keeps `yolo capture`'s own jail
+	// out of it: runCaptureJail builds its options from run.NewDefaultOptions and never
+	// passes through here. That is belt to the pipeline's braces — the trigger also
+	// reads Options.CapturesDir, which that jail suppresses (see
+	// run.Options.autoCaptureInstallerPrograms).
+	opts.AutoCapture = func(bins []string, platform string) {
+		autoCapture(bins, platform, os.Stdout, os.Stderr, true)
+	}
 	// Set the tmux/kitty jail indicator around the run, restoring on exit.
 	restore := SetupJailIndicator()
 	if restore != nil {
 		defer restore()
 	}
-	return run.Run(opts)
+	return launchRunPipeline(opts)
 }
+
+// launchRunPipeline is run.Run behind a package var, so a test can assert what `yolo run`
+// WIRES INTO the pipeline without launching a container.
+//
+// The seam is here for captureRunPipeline's reason (capturehost.go): the thing worth
+// pinning is the CALL SITE. Every injection above — MacosUserRun, CaptureOnTerminate,
+// AutoCapture — is a closure that can be deleted from this function with the whole unit
+// suite green and the feature silently switched off, which is the exact shape AGENTS.md
+// says this repo has shipped five times. Substituting the pipeline lets a test reach the
+// composed Options and INVOKE the closure it found, rather than checking it is non-nil —
+// a refusal closure is non-nil too.
+var launchRunPipeline = run.Run
 
 // macosUserRun is the run.Options.MacosUserRun seam impl: it assembles the
 // real macosuser deps (TTY proxy + native darwin nix materialize) and runs the
