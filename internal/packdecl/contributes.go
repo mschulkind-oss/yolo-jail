@@ -273,6 +273,45 @@ type Contribution struct {
 	// The value is an OptionDefault and not a string for one reason: null is LEGAL here
 	// and means something no other null in this config means (see that type).
 	Options map[string]OptionDefault `json:"options,omitempty"`
+
+	// --- service (docs/design/wire-bridge.md §2.1, WB-D16) ---
+	// The service half of the §2.1 decomposition table, exactly — the fields a
+	// daemon needs to run and be found, and nothing from the table's loophole
+	// column. Name (REQUIRED, shared with provider/profile above) is the service's
+	// whole identity; the two daemon halves are at-least-one.
+	JailDaemon *ServiceJailDaemon `json:"jail_daemon,omitempty"`
+	// HostDaemon is the service's HOST half: declared and carried, NOT executed by
+	// this build. No host-daemon path exists for services yet — the launcher
+	// ignores it (see packservices.go in internal/cli/run) — but validation
+	// accepts it, because §2.1 rules one kind carries both halves and a host
+	// daemon's arrival must not be a schema change on top of a behavior change.
+	HostDaemon *ServiceHostDaemon `json:"host_daemon,omitempty"`
+	// Endpoint is the service's endpoint FILE NAME: the file lands at
+	// /run/yolo-services/<endpoint> (paths.ServiceEndpointExt, ".endpoint", is the
+	// naming convention). A bare file name — the directory is core's, so a pack
+	// cannot aim the file somewhere else. Optional in the schema: a service that
+	// publishes nothing (a pure worker) declares none, and the wire-bridge pack
+	// — whose whole discovery story is the file — declares one.
+	Endpoint string `json:"endpoint,omitempty"`
+	// Platforms is WHERE the service can run at all (the loophole half's same-named
+	// field, same semantics: GOOS/GOARCH entries, absent = everywhere). CARRIED
+	// VERBATIM, not consumed by this build — no consumer reads it yet — and its
+	// closed GOOS/GOARCH vocabulary is deliberately NOT re-enumerated here:
+	// packdecl is dependency-free, and a second spelling of
+	// internal/loopholedecl's list is exactly the drift the one-vocabulary rule
+	// exists to prevent. Whoever builds the consumer imports the same list.
+	Platforms []string `json:"platforms,omitempty"`
+	// Serves is the CAPABILITIES — named jobs — this service implements
+	// (docs/design/pack-capabilities.md), the same open vocabulary the loophole
+	// half declares. Carried verbatim; `supersedes` against a served capability is
+	// the consumer that will read it.
+	Serves []string `json:"serves,omitempty"`
+	// Settings is the config keys THIS service owns, mirroring the loophole
+	// half's `settings` declarations (internal/loopholedecl.Setting). Carried
+	// verbatim — the resolved-settings-file machinery is the consumer's, and no
+	// shipped service declares a key in this build.
+	Settings []ServiceSetting `json:"settings,omitempty"`
+
 	// --- profile (docs/reference/providers.md §5.2) ---
 	// Provider is the profile's WHOLE BODY since OQ-PT8 shrank the kind (the sibling
 	// doc's §5.4 note is the ruling): a profile is a NAMED SELECTION OVER A PROVIDER —
@@ -814,6 +853,100 @@ func (m *Manifest) Providers() []ProviderContribution {
 	return out
 }
 
+// ServiceJailDaemon is a service's IN-JAIL half: an argv run under the existing
+// `yolo-jaild supervise` machinery, composed into YOLO_JAIL_DAEMONS in the loophole
+// JailDaemon wire shape VERBATIM — {name, cmd, restart} (wire-bridge.md §5). The env
+// var is ONE frozen contract with ONE writer (internal/loopholes' runtimeArgsFor,
+// read in-jail by the supervisor's ParseEnv), and a service's daemon joins the same
+// list through that writer rather than forking it: the source-skew gate cannot see
+// an env contract, so the two halves of any shape change must land together.
+type ServiceJailDaemon struct {
+	// Cmd is the argv, run as-is in the jail. No tokens are substituted — a
+	// service has no module dir to resolve against, unlike the loophole
+	// half's {jail_loophole_dir}.
+	Cmd []string `json:"cmd"`
+	// Restart is the supervisor's restart policy: "always", "on-failure" (the
+	// default) or "no" — the same three values, and the same default, the
+	// loophole jail_daemon's restart carries (internal/loopholedecl.ValidRestarts;
+	// the supervisor's ParseEnv is the reader for both).
+	Restart string `json:"restart,omitempty"`
+}
+
+// ServiceHostDaemon is a service's HOST half: declared and carried, NOT executed
+// by this build. No host-daemon path exists for services yet — validation accepts
+// the declaration and the launcher ignores it (a comment at the composition site
+// says the same thing) — because §2.1 rules one kind carries both halves, and a
+// host daemon's arrival should not have to be a schema change on top of a
+// behavior change. The oauth broker's `yolo internal daemon` self-exec is the
+// worked shape the consumer will follow.
+type ServiceHostDaemon struct {
+	// Cmd is the argv, RAW — token substitution ({socket}, {endpoint}) is the
+	// host pipeline's business and arrives with the consumer.
+	Cmd []string `json:"cmd"`
+}
+
+// ServiceSetting is one config key a service owns, mirroring the loophole half's
+// `settings` declaration (internal/loopholedecl.Setting: key, type, scope,
+// default, description). Carried verbatim — the resolved-settings-file machinery
+// is the consumer's, so the type vocabulary is NOT re-enumerated here for the
+// same reason Platforms' is not: one list, one drift to fear.
+type ServiceSetting struct {
+	// Key is the name a config supplies under the service's settings namespace.
+	Key string `json:"key"`
+	// Type is the value type the declaration implies (loopholedecl's four-value
+	// set: string | bool | int | string_list). Required once a consumer resolves
+	// settings; carried verbatim until then.
+	Type string `json:"type"`
+	// Scope is who the key is shared across ("user" | "workspace" in the loophole
+	// half's vocabulary). Empty means the consumer's default.
+	Scope string `json:"scope,omitempty"`
+	// Default is the value carried when no config supplies one, in the declared
+	// type's JSON shape. Omitted is the type's zero, same as the loophole half.
+	Default any `json:"default,omitempty"`
+	// Description is the one-line human summary. Optional.
+	Description string `json:"description,omitempty"`
+}
+
+// ServiceContribution is one service a pack contributes: the §2.1 service half,
+// carried as one value so a consumer reads the daemon, the endpoint and the
+// declaration-side facts (platforms, serves, settings) from one accessor rather
+// than filtering Contribution entries itself — the same shape rule the provider
+// projection follows.
+type ServiceContribution struct {
+	Name       string
+	JailDaemon *ServiceJailDaemon
+	HostDaemon *ServiceHostDaemon
+	Endpoint   string
+	Platforms  []string
+	Serves     []string
+	Settings   []ServiceSetting
+}
+
+// Services returns every service the pack declares, in declaration order.
+//
+// A SLICE, not a first-match accessor: exclusivity for this kind is per NAME, so
+// a pack contributing two DIFFERENT services is ordinary and nothing here may
+// fold them. The same name twice within one pack is validateContributions' to
+// refuse (validateServiceNames), which can see the siblings — an accessor cannot.
+func (m *Manifest) Services() []ServiceContribution {
+	var out []ServiceContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindService {
+			continue
+		}
+		out = append(out, ServiceContribution{
+			Name:       c.Name,
+			JailDaemon: c.JailDaemon,
+			HostDaemon: c.HostDaemon,
+			Endpoint:   c.Endpoint,
+			Platforms:  c.Platforms,
+			Serves:     c.Serves,
+			Settings:   c.Settings,
+		})
+	}
+	return out
+}
+
 // DefaultSkillsDir is the conventional pack-relative directory a `skills`
 // contribution reads when it declares no `from` — and what a zero-ceremony pack (a
 // bare skills/ dir, no manifest at all) uses. Every pack yolo ships relies on it.
@@ -1193,6 +1326,55 @@ func (m *Manifest) validateContributions() []string {
 	}
 	problems = append(problems, m.validateProviderNames()...)
 	problems = append(problems, m.validateProfileNames()...)
+	problems = append(problems, m.validateServiceNames()...)
+	return problems
+}
+
+// knownRestart reports whether v names a supervisor restart policy. The values are
+// spelled here and NOT re-read from internal/loopholedecl (whose ValidRestarts is
+// the loophole manifest's authority) for the reason the package doc states:
+// packdecl is dependency-free, and the shared READER — supervisor.ParseEnv, which
+// both the loophole and the service halves of YOLO_JAIL_DAEMONS feed — is what
+// keeps the two spellings honest, not a third import edge. A fourth value must be
+// added to the supervisor's accepted set and here in the same change, which is
+// exactly the coupling kinds_test.go's combine pin provides for kinds.
+func knownRestart(v string) bool {
+	switch v {
+	case "always", "on-failure", "no":
+		return true
+	}
+	return false
+}
+
+// validateServiceNames refuses a service NAME declared twice by ONE pack.
+//
+// Cross-pack, the name is sole-owned and packload.Collisions' exclusive loop is the
+// check — the claim target is the bare name, so two packs contributing one service
+// group on it. Within a pack that loop is silent by design (`len(packSet) < 2`), and
+// the failure it would leave behind is worse than a silent provider replacement: the
+// composed YOLO_JAIL_DAEMONS is a LIST, so the second declaration would start a
+// SECOND daemon under the same name, doubling the log file and racing on the one
+// endpoint file. The provider validator's reasoning (validateProviderNames) holds
+// here with sharper teeth, and the same authoring-time-only placement: strict path
+// only, because DecodeTolerant validates entries one at a time and cannot see
+// siblings.
+func (m *Manifest) validateServiceNames() []string {
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		if c.Kind != KindService || c.Name == "" {
+			continue
+		}
+		if first, dup := seen[c.Name]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: service %q is declared again (first at contributes[%d]) — a "+
+					"service name is sole-owned, and the daemon list is keyed by name, so the "+
+					"second declaration would start a second daemon racing on the same log and "+
+					"endpoint file", i, c.Name, first))
+			continue
+		}
+		seen[c.Name] = i
+	}
 	return problems
 }
 
@@ -1591,6 +1773,60 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, label+": loophole does not take \"into\" — a loophole "+
 				"module is not staged to a home-relative path; its host half runs on the host and "+
 				"its jail half is mounted at /etc/yolo-jail/loopholes/<name>, which core owns")
+		}
+	case KindService:
+		// The name and at least one daemon half ARE the kind (wire-bridge.md §2.1):
+		// a nameless service owns nothing (the supervisor log, the endpoint file and
+		// the collision target are all name-keyed), and a daemonless one runs nothing
+		// in either namespace — the endpoint would then name a file nothing writes.
+		req("name", c.Name)
+		if c.JailDaemon == nil && c.HostDaemon == nil {
+			problems = append(problems, label+": kind \"service\" needs \"jail_daemon\" or "+
+				"\"host_daemon\" (at least one) — a service is a daemon in a namespace, and "+
+				"one declaring neither runs nothing (wire-bridge.md §2.1)")
+		}
+		// The restart policy is the SUPERVISOR's closed enum, and the daemon shares it
+		// with the loophole half by contract: one reader (supervisor.ParseEnv) turns
+		// both spellings into behavior, so a value the supervisor would silently
+		// treat as on-failure is refused here rather than typo-tolerated. Unlike the
+		// closed enums validateSkillsTier documents, this set has no tolerant path —
+		// it lives identically on both sides of the version boundary, because the
+		// reader that interprets it is the same baked binary for both.
+		if c.JailDaemon != nil {
+			if c.JailDaemon.Restart != "" && !knownRestart(c.JailDaemon.Restart) {
+				problems = append(problems, fmt.Sprintf(
+					"%s: unknown jail_daemon.restart %q (always, on-failure or no)",
+					label, c.JailDaemon.Restart))
+			}
+			if len(c.JailDaemon.Cmd) == 0 {
+				problems = append(problems, label+": jail_daemon needs a non-empty \"cmd\"")
+			}
+		}
+		if c.HostDaemon != nil && len(c.HostDaemon.Cmd) == 0 {
+			problems = append(problems, label+": host_daemon needs a non-empty \"cmd\"")
+		}
+		// The endpoint is a BARE FILE NAME, not a path: the file lands at
+		// /run/yolo-services/<endpoint>, and the directory is core's — an
+		// endpoint with structure in it would aim a write outside the directory
+		// the schema reserved, which is the same traversal shape appendPathProblems
+		// refuses for relative paths. ValidBinName is the exact guard (no "/", ":",
+		// no "." or ".."), reused so the two cannot drift.
+		if c.Endpoint != "" && !ValidBinName(c.Endpoint) {
+			problems = append(problems, label+".endpoint: must be a bare file name — it "+
+				"lands at /run/yolo-services/<endpoint> ("+c.Endpoint+")")
+		}
+		// THE ANTI-LOOPHOLE, as a refusal rather than a comment (kinds.go carries the
+		// reasoning): `host` is THE grant-shaped field on a contribution — a read of
+		// the host home — and the one thing §2.1 says a service never has. There are
+		// no other grant fields to refuse (this struct has no binds, devices,
+		// intercepts or jail_env; those are loophole-manifest vocabulary), so this one
+		// refusal is the whole boundary, and naming the kind that DOES take the field
+		// is the migration.
+		if c.Host != "" {
+			problems = append(problems, label+": kind \"service\" does not take \"host\" — a "+
+				"service holds no grant and crosses no boundary (wire-bridge.md §2.1); a daemon "+
+				"that reads the host is a kind \"loophole\" declaration, with the per-crossing "+
+				"review that kind carries")
 		}
 	}
 	return problems

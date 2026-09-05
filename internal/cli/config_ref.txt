@@ -1087,6 +1087,18 @@
                     device.  `state_files` needs no claim (it stays inside yolo's own
                     state tree).  Refused at the host notch: a loophole is a host daemon
                     whose only client is a container, so with no jail there is no client.
+      service       {name, jail_daemon:{cmd, restart}, host_daemon:{cmd}, endpoint,
+                    platforms, serves, settings} — a DAEMON the pack contributes to a
+                    namespace: a yolo-jaild subcommand run in the jail (under the same
+                    supervised list the loopholes use) and/or a host-side `yolo internal
+                    daemon`, plus its endpoint file at /run/yolo-services/<endpoint>.
+                    THE ANTI-LOOPHOLE: it holds NO grant and crosses NO boundary — it
+                    binds the jail's own loopback, reads no host state, mounts nothing,
+                    and so is never gated at `pack install` and never a claim.  The name
+                    is sole-owned (the daemon log and the endpoint file are both
+                    name-keyed).  In this build the jail daemon runs under the existing
+                    supervisor and the host_daemon half is declared and carried, not yet
+                    executed (wire-bridge.md §2.1; the wire bridge is the first service).
     NOTE (shipped behavior): two packs declaring a skills `into` at the SAME path fail
     the jail at boot.  (This note also said a jail ignored `briefing.from` and read a
     root AGENTS.md regardless.  That was fixed 2026-08-04 — both notches resolve

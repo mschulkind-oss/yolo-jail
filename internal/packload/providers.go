@@ -486,3 +486,23 @@ func orderedOrNil(m *jsonx.OrderedMap) *jsonx.OrderedMap {
 	}
 	return m
 }
+
+// serviceClaimDetail describes a contributed service in one footprint line: the
+// daemon halves it declares (argv visible — the thing a reader of a daemon claim is
+// checking for), and the endpoint file name when it publishes one. Ordered
+// jail-half-first because that is the half this build executes.
+func serviceClaimDetail(c packdecl.Contribution) string {
+	var parts []string
+	if c.JailDaemon != nil {
+		parts = append(parts, "jail daemon ["+strings.Join(c.JailDaemon.Cmd, " ")+"]")
+	}
+	if c.HostDaemon != nil {
+		// Declared and carried, not executed (the field's own doc says why); the
+		// footprint reports what the pack WANTS either way.
+		parts = append(parts, "host daemon ["+strings.Join(c.HostDaemon.Cmd, " ")+"] (declared, not yet executed)")
+	}
+	if c.Endpoint != "" {
+		parts = append(parts, "endpoint /run/yolo-services/"+c.Endpoint)
+	}
+	return strings.Join(parts, "; ")
+}

@@ -407,6 +407,16 @@ func FootprintOf(p *Pack) Footprint {
 			// see it without opening the manifest.
 			add(packdecl.KindProvider, c.Name,
 				providerClaimDetail(c.Endpoints, c.Models, c.APIKeyEnvName), false)
+		case packdecl.KindService:
+			// The target IS the service name, with no discriminator — the same
+			// name-keyed exclusivity `provider` has (kinds.go), because the supervisor's
+			// per-daemon log and the /run/yolo-services/<name>.endpoint file are both
+			// name-keyed. Never review-worthy, and that is the ANTI-LOOPHOLE pinned in
+			// data rather than prose (wire-bridge.md §2.1): a service holds no grant and
+			// crosses no boundary, so unlike a loophole's claims there is nothing here to
+			// review — what the daemon runs is IN THE JAIL, and the Detail shows the argv
+			// so a reader sees exactly that without opening the manifest.
+			add(packdecl.KindService, c.Name, serviceClaimDetail(c), false)
 		}
 		// KindConfig / KindConfigOverlay claims come from the decoded surfaces
 		// below, where the surface identity (agent/name) is available. KindLoophole

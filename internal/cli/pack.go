@@ -93,11 +93,18 @@ effect, with a "kind" from a closed set:
                    aliases, and the option names a profile may set; the credential is
                    an env-var NAME only you hydrate
   loophole         ship a host-capability loophole: a module dir with a manifest.jsonc
+  service          contribute a daemon to a namespace — a yolo-jaild subcommand in the
+                   jail and/or a host daemon — plus its endpoint file under
+                   /run/yolo-services/; no host grant, no boundary crossing
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
 TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.
 Every one of those is a separate line in the pack's footprint, and the daemon line carries
 its raw argv — so run yolo pack footprint before you select a pack that ships one.
+
+service is the opposite of loophole: a daemon the JAIL runs for itself (the wire bridge is
+the first one), never gated and never a claim. Its jail daemon joins the same supervised
+list the loopholes use; its host daemon half is declared but not yet executed by yolo.
 
 program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
 launcher near the head of PATH, which also keeps it up to date), requires means it must

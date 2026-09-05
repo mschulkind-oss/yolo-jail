@@ -14,6 +14,7 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 		KindProgram, KindRequires, KindSkills, KindBriefing, KindFiles, KindConfig,
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
 		KindLaunch, KindHook, KindAutonomy, KindProfile, KindProvider, KindLoophole,
+		KindService,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -27,8 +28,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 18 {
-		t.Errorf("KnownKinds() has %d entries, want 18 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 19 {
+		t.Errorf("KnownKinds() has %d entries, want 19 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -105,6 +106,13 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		// here although Exclusive is the zero value, because a row absent from this map is
 		// a combine rule nobody pinned.
 		KindProfile: CombineExclusive,
+		// service is EXCLUSIVE by service NAME — the supervisor's per-daemon log, the
+		// /run/yolo-services/<name>.endpoint file and the collision target are all
+		// name-keyed, so two packs contributing one name would each be supplying "the"
+		// daemon behind one endpoint. The target is the bare name (no discriminator),
+		// so like provider it needs no pass of its own. Written here although
+		// Exclusive is the zero value, for the same reason the two rows above are.
+		KindService: CombineExclusive,
 	}
 	for k, c := range want {
 		fp, _ := FootprintOf(k)

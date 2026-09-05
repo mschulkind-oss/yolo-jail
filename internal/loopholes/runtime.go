@@ -38,7 +38,7 @@ var (
 // RunDoctorChecks below — see gateAdmitsCrossing. A caller that DID evaluate the gate
 // says so by going through Set.RuntimeArgsFor.
 func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
-	return runtimeArgsFor(loopholes, runtime, nil)
+	return runtimeArgsFor(loopholes, runtime, nil, nil)
 }
 
 // RuntimeArgsFor builds the container args for the given records WITH THIS SET'S ORIGIN
@@ -46,7 +46,24 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 // reach the argv only when the caller recorded that its pack's host access is approved.
 // Everything else behaves exactly as the package-level function.
 func (s Set) RuntimeArgsFor(from []*Loophole, runtime string) []string {
-	return runtimeArgsFor(from, runtime, &s)
+	return runtimeArgsFor(from, runtime, &s, nil)
+}
+
+// RuntimeArgsForWithJailDaemons is Set.RuntimeArgsFor with ADDITIONAL entries joined
+// into the SAME YOLO_JAIL_DAEMONS payload — the doorway pack services walk
+// (packdecl.KindService, docs/design/wire-bridge.md §2.1). The env var is ONE frozen
+// contract with ONE writer, and this method is what keeps it that way: a service's
+// daemon ({name, cmd, restart}, the loophole JailDaemon shape verbatim) is appended
+// here rather than emitted by a second `-e YOLO_JAIL_DAEMONS` further down the argv,
+// where two writers would race on one variable and the loser would depend on the
+// runtime's duplicate-flag resolution. The source-skew gate cannot see an env
+// contract, which is exactly why the merge lives in the writer instead of beside it.
+//
+// The entries are appended AFTER the loopholes' own, in the order given — the run
+// pipeline sorts them by service name before calling, so the composed payload is
+// deterministic run to run.
+func (s Set) RuntimeArgsForWithJailDaemons(from []*Loophole, runtime string, extraJailDaemons []any) []string {
+	return runtimeArgsFor(from, runtime, &s, extraJailDaemons)
 }
 
 // gateAdmitsCrossing is THE origin gate for a pack-shipped loophole's host crossings —
@@ -115,7 +132,7 @@ func gateAdmitsCrossing(m *Loophole, gate *Set, what string) bool {
 	return gate.MayRunHostCode(m)
 }
 
-func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set) []string {
+func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set, extraJailDaemons []any) []string {
 	args := []string{}
 	trustedCAPaths := []string{}
 	jailDaemonsPayload := []any{}
@@ -247,6 +264,9 @@ func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set) []string {
 	if len(trustedCAPaths) > 0 {
 		args = append(args, "-e", "NODE_EXTRA_CA_CERTS="+strings.Join(trustedCAPaths, string(os.PathListSeparator)))
 	}
+	// Pack services' jail daemons join the loopholes' own entries, one list, one
+	// env var (RuntimeArgsForWithJailDaemons carries the reasoning).
+	jailDaemonsPayload = append(jailDaemonsPayload, extraJailDaemons...)
 	if len(jailDaemonsPayload) > 0 {
 		payload, _ := jsonx.DumpsCompact(jailDaemonsPayload)
 		args = append(args, "-e", "YOLO_JAIL_DAEMONS="+payload)

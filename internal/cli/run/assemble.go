@@ -703,7 +703,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- host-side loopholes runtime args (--add-host, CA mounts, env) ---
-	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt)...)
+	// The SAME call composes pack service contributions' jail daemons into the
+	// one YOLO_JAIL_DAEMONS payload (packservices.go; wire-bridge.md §2.1) —
+	// one env contract, one writer, so a service daemon can never land on a
+	// second -e of the same name and lose to the runtime's duplicate resolution.
+	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, serviceJailDaemons(in.packs))...)
 
 	// --- image + entrypoint ---
 	runCmd = append(runCmd, in.jailImage(), "yolo-entrypoint")

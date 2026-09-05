@@ -121,6 +121,12 @@ func writeCensusPack(t *testing.T, dir string) {
 			`"endpoints":{"openai":{"base_url":"https://census.example/v4","wire_api":"openai-chat-completions"}},` +
 			`"api_key_env_name":"CENSUS_API_KEY"}`,
 		packdecl.KindLoophole: `{"kind":"loophole","from":"loopholes/censushole"}`,
+		// service is the anti-loophole (wire-bridge.md §2.1): nothing here crosses, so
+		// the census only asks that the KIND be accounted for in the output, which the
+		// daemon claim in the footprint provides.
+		packdecl.KindService: `{"kind":"service","name":"censussvc",` +
+			`"jail_daemon":{"cmd":["yolo-jaild","censussvc"]},` +
+			`"endpoint":"censussvc.endpoint"}`,
 		packdecl.KindBlockedTool: `{"kind":"blocked-tool","bin":"censusblocked",` +
 			`"message":"blocked for the census","suggestion":"try censusalt",` +
 			`"replacement":"censusalt","flags":["-r"]}`,

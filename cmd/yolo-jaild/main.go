@@ -4,6 +4,7 @@
 //
 //	yolo-jaild supervise          # read YOLO_JAIL_DAEMONS + supervise each entry
 //	yolo-jaild oauth-terminator   # in-jail TLS terminator for Claude OAuth
+//	yolo-jaild wire-bridge        # anthropic→openai wire bridge (selection-lazy)
 //
 // This is a plain subcommand dispatch on args[0]; it is NOT argv[0]/symlink
 // dispatch. Unknown or missing subcommands print usage and exit 2.
@@ -15,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
 func main() {
@@ -31,12 +33,14 @@ func run(args []string) int {
 		return supervisor.Main(rest)
 	case "oauth-terminator":
 		return oauthterminator.Main(rest)
+	case "wire-bridge":
+		return wirebridged.Main(rest)
 	default:
 		return usage()
 	}
 }
 
 func usage() int {
-	fmt.Fprintln(os.Stderr, "usage: yolo-jaild <supervise|oauth-terminator> [args...]")
+	fmt.Fprintln(os.Stderr, "usage: yolo-jaild <supervise|oauth-terminator|wire-bridge> [args...]")
 	return 2
 }

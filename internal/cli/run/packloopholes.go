@@ -128,6 +128,16 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// announce at the spawn.
 	packdecl.KindProvider: disclosureSkip,
 
+	// service is the anti-loophole (wire-bridge.md §2.1): it binds the JAIL's own
+	// loopback, reads no host state, and crosses nothing — the same call as provider,
+	// its constant companion in a bridged launch. THE ONE TRIPWIRE: the kind also
+	// DECLARES a host_daemon half, and this build deliberately does not execute it
+	// (packservices.go carries the why). The day that half gains a consumer, this row
+	// MUST move to disclosureExec — a host daemon argv is exactly the pre-spawn block's
+	// subject — and the exhaustiveness test here is what makes the revisit loud instead
+	// of forgotten.
+	packdecl.KindService: disclosureSkip,
+
 	// loophole: the kind whose crossing can be HOST EXECUTION. Classified here so the
 	// exhaustiveness test is satisfied, but the read/exec split for a loophole is decided
 	// PER CLAIM, not per kind — see disclosureClassOfClaim. One contribution emits several

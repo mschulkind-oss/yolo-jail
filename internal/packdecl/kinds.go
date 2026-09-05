@@ -180,6 +180,36 @@ const (
 	// name the user trusts.
 	KindLoophole Kind = "loophole"
 
+	// KindService: a DAEMON a pack contributes to a namespace — a jail daemon (a
+	// yolo-jaild subcommand run under `supervise`) or a host daemon (a `yolo
+	// internal daemon` self-exec), or both — plus its endpoint file, its restart
+	// policy and its reachability witness (docs/design/wire-bridge.md §2.1;
+	// WB-D16 rules the kind PRIMARY vocabulary, and the wire bridge is its first
+	// instance).
+	//
+	// THE ANTI-LOOPHOLE, and saying so precisely is the kind's whole point: a
+	// service holds NO grant and crosses NO boundary. It binds a jail's own
+	// loopback, reads no host state, mounts nothing, and executes nothing on the
+	// host — §2 draws the line (loopholes reach OUT to host capabilities the jail
+	// lacks; a service serves INWARD), and the schema enforces it rather than
+	// trusting the comment: the grant-shaped fields are refused on this kind
+	// (validateContribution), so a service that wanted a host read is
+	// unrepresentable, and the footprint marks it never review-worthy for the
+	// same reason. The machinery is loophole-shaped on purpose (a supervised
+	// in-jail daemon, an endpoint under /run/yolo-services/, the witness — §2.1's
+	// decomposition table is the map); the TRUST is not. A daemon that DOES cross
+	// is a kind "loophole" declaration with the per-crossing review that kind
+	// carries — re-forming the five shipped loophole packs as service + boundary
+	// grants is §2.1's named follow-up, not this kind's job.
+	//
+	// Exclusive by service NAME, and the name is the whole identity: the
+	// supervisor's per-daemon log, the endpoint file at
+	// /run/yolo-services/<name>.endpoint, and the claim target the collision loop
+	// groups on are all keyed by it. Two packs contributing one name is the
+	// collision; one pack contributing two services is the ordinary case — the
+	// rule `program` has per bin and `provider` per name.
+	KindService Kind = "service"
+
 	// KindBlockedTool refuses a tool inside the jail, printing a message and an
 	// alternative instead of running it.
 	//
@@ -352,6 +382,18 @@ var footprints = map[Kind]Footprint{
 		// declaring none of them crosses nothing and is a manifest with no effect.
 		Kind: KindLoophole, Combine: CombineExclusive, MayBeReviewWorthy: true,
 		Claims: "a loophole module: a host daemon, TLS intercepts, host binds and devices",
+	},
+	KindService: {
+		// Exclusive by service NAME (the const block's comment carries the reasoning:
+		// log file, endpoint file and collision target are all name-keyed). NEVER
+		// review-worthy, and that is a pin on the anti-loophole rather than an
+		// omission: §2's line is that a service crosses no boundary — no grant, no
+		// host read, no host execution — so a service claim that needed review would
+		// be a contradiction. What the daemon RUNS is in-jail, and the Detail says
+		// what, so a reader sees the argv without opening the manifest.
+		Kind: KindService, Combine: CombineExclusive,
+		Claims: "a jail or host daemon with an endpoint file under /run/yolo-services/ — " +
+			"no host grant, no boundary crossing",
 	},
 }
 
