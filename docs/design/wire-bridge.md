@@ -8,8 +8,11 @@ summary: "Claude Code speaks exactly one wire protocol, and Cerebras serves exac
 
 # The wire bridge — claude on chat-completions providers, without leaving the jail
 
-**Status:** DECIDED, 2026-09-04 — every open question ruled by the maintainer (Decision
-Ledger, below). Nothing built. Answers OQ-1 of
+**Status:** IMPLEMENTED, 2026-09-05 (`b30ed971` — the bridge, the needs vocabulary, the
+service kind; verified in a real jail against the real upstream). Every open question was
+ruled by the maintainer (Decision Ledger, below) and two build-time corrections are
+recorded as warnings (§5 witness, §6 copilot). Graduation to a `system-doc` reference is
+the natural next pass. Answers OQ-1 of
 [`cerebras-pack-and-copilot-delivery.md`](cerebras-pack-and-copilot-delivery.md), which left
 this exact question open.
 
