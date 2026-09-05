@@ -265,10 +265,22 @@ discards it.) Outbound: `Authorization: Bearer <the provider's key>`, read at bo
 - **Startup order.** Daemons start at boot, before the agent command. The bridge binds
   its port *before* writing its endpoint file `/run/yolo-services/wire-bridge.endpoint`;
   the file appearing means the listener exists. The jail's reachability witness then
-  covers it for free: a bridge that cannot bind refuses the boot (the same
+  covers it: a bridge that cannot bind refuses the boot (the same
   `unreachable-service-is-fatal` refusal the oauth broker lives under, since 2026-08-18),
   which is precisely the failure mode the preflight philosophy wants — claude must never
   get a base URL that dies at first request in a way nobody attributed.
+
+  > [!WARNING]
+  > **Correction (2026-09-04, found building step 3): the witness is NOT free.** The
+  > witness keys off `YOLO_SERVICE_<NAME>_ENDPOINT` env vars the LAUNCHER sets
+  > (`internal/entrypoint/reachability.go`), and nothing emits one for a service. Emitting
+  > it unconditionally would make every *idle* bridge a fatal "unpublished service" —
+  > the exact contradiction of §3.4's healthy idle. The mechanism this build ships: the
+  > serve-or-idle decision is ONE pure function over the composed tables, shared by the
+  > daemon's boot and the launcher's env emission — the launcher emits
+  > `YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT` exactly when the function says the daemon will
+  > serve, so the env var, the endpoint file, and the witness probe can never disagree.
+  > One decision, two call sites, same inputs; drift is unrepresentable.
 - **The key channel.** The credential crosses as it does for every non-claude agent: the
   launcher writes `yolo-user-env.sh` (0600) from hydrated `env_sources`
   (userenv.go:44-65), and the bridge reads that file at startup — one read, then
