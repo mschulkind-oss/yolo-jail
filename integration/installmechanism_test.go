@@ -40,11 +40,12 @@ import (
 //     that failure at all.
 //   - SMALL (≈480 KiB unpacked) and long-stable (1.6.0 published 2024-01-26). A mechanism
 //     test wants the smallest thing that exercises the path, not a 100 MB agent CLI.
-//   - Its bin is NOT baked into the image. That is a real trap: ~/.yolo/bin/launch is
-//     ordered LAST on PATH, after /bin, so a fixture naming a baked binary (fzf is the
-//     documented case — see TestPackProgramDoesNotShadowABakedBinary) would resolve to the
-//     image's copy and never exercise the launcher at all. The test would pass while
-//     installing nothing.
+//   - Its bin is NOT baked into the image. That is a real trap, and B2 sharpened it: the
+//     generation-time collision check writes NO launcher for a name the image provides
+//     (fzf is the documented case — see TestPackProgramDoesNotShadowABakedBinary), so a
+//     fixture naming a baked binary would get no launcher at all and the test would pass
+//     while installing nothing. Before B2 the same fixture failed the same way for a
+//     different reason: the launcher was written and simply never reached.
 const (
 	pinnedNpmPackage = "cowsay@1.6.0"
 	pinnedNpmBin     = "cowsay"

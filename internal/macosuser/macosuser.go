@@ -445,20 +445,26 @@ func WorkspaceACLStripScript(workspace string) string {
 // ---------------------------------------------------------------------------
 // Launch — sudo -u + env -i + sandbox-exec, SandVault-style
 // ---------------------------------------------------------------------------
-// SandboxPath returns the PATH for the sandboxed agent — its own bin dirs
-// first, then the `prefix` (darwin store bin dirs), then system, then the lazy-installer
-// launcher dir LAST.
+// SandboxPath returns the PATH for the sandboxed agent — the two generated dirs, then its
+// own install prefixes, then the `prefix` (darwin store bin dirs), then system.
 //
-// The blocker/installer split mirrors the container's PATH order (see
-// entrypoint.Env.LaunchDir): ~/.yolo/bin/block holds blockers and must precede the
-// real tool; ~/.yolo/bin/launch holds lazy installers, which must only be reached when
-// nothing else provides the name — so it goes after the system dirs, not before them.
+// THE THIRD COPY OF entrypoint.BootPath's ORDER, and it moves with it. B2
+// (program-delivery.md §3.5, OQ-PD12a) puts ~/.yolo/bin/launch SECOND, ahead of the
+// install prefixes: a launcher ordered after what it installs is unreachable from its own
+// second invocation onward, so the update arm it carries never runs. ~/.yolo/bin/block
+// stays first — interception must win over installation.
+//
+// macos-user is the backend where this matters most and hides least: it bakes no image, so
+// the only thing a launcher could shadow here is a `packages:` store entry or a system
+// binary, and the generation-time collision check (entrypoint's launchercollision.go)
+// reads exactly this string, minus the per-home prefixes, to decide.
 func SandboxPath(home string, prefix []string) string {
 	if home == "" {
 		home = SandboxHome()
 	}
 	parts := []string{
 		home + "/.yolo/bin/block",
+		home + "/.yolo/bin/launch",
 		home + "/.local/bin",
 		home + "/.npm-global/bin",
 		home + "/.local/share/mise/shims",
@@ -466,7 +472,6 @@ func SandboxPath(home string, prefix []string) string {
 	}
 	parts = append(parts, prefix...)
 	parts = append(parts, "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-	parts = append(parts, home+"/.yolo/bin/launch")
 	return strings.Join(parts, ":")
 }
 

@@ -93,7 +93,7 @@ func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 	}
 	for _, tc := range cases {
 		body := npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "foo", Package: tc.pkg},
-			"/stamps", filepath.Join(t.TempDir(), "receipts.jsonl"))
+			"/stamps", filepath.Join(t.TempDir(), "receipts.jsonl"), true)
 		for _, want := range []string{
 			"\nPKG=" + shquote.Quote(tc.wantPKG) + "\n",
 			"\nSPEC=" + shquote.Quote(tc.wantSPEC) + "\n",
@@ -140,6 +140,14 @@ type npmProbe struct {
 	// pathDir, when set, is the WHOLE $PATH the launcher runs with, replacing
 	// "fakeBin:$PATH". Set by hideJQ; empty for every other caller.
 	pathDir string
+	// updates is this jail's agent_updates verdict for the pack, baked into the launcher
+	// at generation time. TRUE for every probe unless a cell says otherwise, because open
+	// is the DEFAULT the design rules (§3.5) and a harness defaulting the other way would
+	// quietly exercise the frozen path everywhere.
+	updates bool
+	// verb is the pack's declared update verb (OQ-PD14). Empty for every probe but the
+	// one cell that measures it: no shipped npm pack declares one.
+	verb []string
 }
 
 // newNpmProbe writes the fakes. `npm install` materializes the binary and the
@@ -181,7 +189,10 @@ install)
     ver="${FAKE_INSTALLED_VERSION:-$ver}"
     mkdir -p "$NPM_CONFIG_PREFIX/bin" "$NPM_CONFIG_PREFIX/lib/node_modules/$name"
     printf '{"version":"%s"}\n' "$ver" > "$NPM_CONFIG_PREFIX/lib/node_modules/$name/package.json"
-    printf '#!/bin/sh\necho RAN\n' > "$NPM_CONFIG_PREFIX/bin/` + bin + `"
+    # "echo RAN \$*" rather than a bare "echo RAN": the launcher's declared-verb branch
+    # (OQ-PD14) runs this same binary with the vendor's argv, and without the argv in the
+    # output "the verb ran" and "the program was launched" are the same observation.
+    printf '#!/bin/sh\necho RAN $*\n' > "$NPM_CONFIG_PREFIX/bin/` + bin + `"
     chmod +x "$NPM_CONFIG_PREFIX/bin/` + bin + `"
     ;;
 view)
@@ -213,6 +224,7 @@ printf '%s\n' "${line%%\"*}"
 		home:    home,
 		fakeBin: fakeBin,
 		logPath: logPath,
+		updates: true,
 		// Deliberately a path whose PARENT does not exist: the receipt writer has to
 		// create it itself, because macos-user stages no <ws>/.yolo.
 		receiptsPath: filepath.Join(home, "ws", ".yolo", "receipts.jsonl"),
@@ -302,13 +314,14 @@ func (p *npmProbe) runOut(t *testing.T, bin, pkg string, env ...string) ([]strin
 func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]string, string, int) {
 	t.Helper()
 	body := npmAgentLauncher(
-		&packdecl.Install{Kind: "npm", Bin: bin, Package: pkg},
+		&packdecl.Install{Kind: "npm", Bin: bin, Package: pkg, UpdateVerb: p.verb},
 		filepath.Join(p.home, "stamps"),
 		// The receipts path is BAKED at generation time, so a harness that let it
 		// default would append to the developer's real /workspace/.yolo on every run
 		// of this file. It is pointed at the probe's temp home instead, which is also
 		// what makes the receipt assertions below readable.
 		p.receiptsPath,
+		p.updates,
 	)
 	script := filepath.Join(p.home, bin)
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
@@ -390,22 +403,25 @@ func TestNpmLauncherInstallsTheDeclaredVersion(t *testing.T) {
 	}
 }
 
-// TestUnpinnedNpmLauncherPollsButNeverReinstalls is the ruling, reduced to its one
-// observable claim (docs/design/trust-paths.md §1 row 1, 2026-08-18).
+// TestUnpinnedNpmLauncherUpdatesPastItsStamp is the evergreen ruling, reduced to its one
+// observable claim (program-delivery.md §3.5, OQ-PD12, 2026-09-03).
 //
-// This test used to be TestUnpinnedNpmLauncherIsUnchanged and asserted the OPPOSITE of its
-// second half — "a newer latest must still trigger an update" — because at the time the
-// hourly reinstall was the shipped behaviour and the version-parsing fix next door had no
-// business changing it. The ruling changed it deliberately: the poll may SAY that a newer
-// version exists and may never act on it, because a binary that changes between two
-// invocations with nobody present has no act to pin to. The assertion is inverted rather
-// than deleted, so the file still records which behaviour is being defended and when it
-// flipped.
+// THIS CELL HAS BEEN INVERTED TWICE, and the file keeps the record rather than deleting it,
+// because which behaviour is defended has changed twice and each turn was deliberate:
 //
-// The first install is NOT the poll and is untouched: a fresh jail home has no version to
-// keep, so it still resolves @latest on first use — without that, a jail would simply have
-// no agent CLI.
-func TestUnpinnedNpmLauncherPollsButNeverReinstalls(t *testing.T) {
+//	until 2026-08-17  the hourly check REINSTALLED whenever the registry had moved
+//	2026-08-18        trust-paths.md §1 row 1 made it report only — a binary that changes
+//	                  between two invocations with nobody present has no act to pin to
+//	2026-09-03        OQ-PD3 was NARROWED: that ruling covers PROJECT dependencies, and an
+//	                  agent CLI is not one. It wants to be current, and there is no pin for
+//	                  it to be reproducible against
+//
+// The 2026-08-18 objection is answered rather than dropped. The trigger is the user's own
+// invocation of the agent, so somebody IS present — the person who just typed the program's
+// name — and the failure is scoped to that one command.
+//
+// The first install is untouched by any of it: a fresh jail home has no version to keep.
+func TestUnpinnedNpmLauncherUpdatesPastItsStamp(t *testing.T) {
 	p := newNpmProbe(t, "tool")
 
 	log := p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
@@ -414,26 +430,125 @@ func TestUnpinnedNpmLauncherPollsButNeverReinstalls(t *testing.T) {
 			strings.Join(log, "\n"))
 	}
 
-	// Stamp older than the interval, and the registry has moved. The poll must run, must
-	// SAY so, and must stop there.
+	// Stamp older than the interval, and the registry has moved. The launcher must ask,
+	// must install, and must say which two versions it moved between.
 	p.agePastInterval(t, "tool")
 	p.truncateLog(t)
 	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
 	if !hasArgv(log, "view tool version") {
-		t.Errorf("the hourly registry check must still run for an unpinned package — it is "+
-			"downgraded to informational, not removed:\n%s", strings.Join(log, "\n"))
+		t.Errorf("the launcher must ask the registry what is current:\n%s", strings.Join(log, "\n"))
 	}
-	if hasArgv(log, "install") {
-		t.Errorf("the poll must NEVER install: a newer registry version is a thing to "+
-			"REPORT, not a licence to change the binary under a running jail:\n%s",
-			strings.Join(log, "\n"))
+	if !hasArgv(log, "install -g --prefer-online tool@latest") {
+		t.Errorf("an agent dependency past its stamp must be UPDATED, not merely reported "+
+			"on — the report was measured never to be acted upon (claude.stamp unmoved for "+
+			"nine days, OQ-PD8):\n%s", strings.Join(log, "\n"))
 	}
 	if !strings.Contains(out, "1.0.0 → 9.9.9") {
-		t.Errorf("the poll must say which versions it compared:\n%s", out)
+		t.Errorf("the update must say which versions it moved between:\n%s", out)
 	}
-	if !strings.Contains(out, "yolo pack update") {
-		t.Errorf("the report must name the act that installs it — a notice the reader "+
-			"cannot act on is worse than the reinstall it replaces:\n%s", out)
+	// And it still launches: an update is something that happens on the way to running
+	// the program, never instead of it.
+	if !strings.Contains(out, "RAN") {
+		t.Errorf("the launcher must exec the tool after updating it:\n%s", out)
+	}
+}
+
+// TestUnpinnedNpmLauncherFrozenByPolicyNeverTouchesTheRegistry: `agent_updates` off means
+// the emitted launcher carries no update branch at all — no `npm view`, no install, no
+// network. Baked at generation time, so nothing in the jail can talk it into one.
+func TestUnpinnedNpmLauncherFrozenByPolicyNeverTouchesTheRegistry(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+
+	p.updates = false
+	p.agePastInterval(t, "tool")
+	p.truncateLog(t)
+	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
+	if len(log) != 0 {
+		t.Errorf("a frozen pack must keep the launcher off the registry entirely, got:\n%s",
+			strings.Join(log, "\n"))
+	}
+	if !strings.Contains(out, "RAN") {
+		t.Errorf("...and must still launch the program:\n%s", out)
+	}
+}
+
+// TestUnpinnedNpmLauncherRunsADeclaredVerbInsteadOfNpm: no shipped npm pack declares an
+// update verb, but the projection carries it for every `via`, so the launcher has to honour
+// it — a field the manifest accepts and the launcher ignores is a declaration that silently
+// does nothing, which is the defect OQ-PD14 exists to close.
+func TestUnpinnedNpmLauncherRunsADeclaredVerbInsteadOfNpm(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+
+	p.verb = []string{"self-update"}
+	p.agePastInterval(t, "tool")
+	p.truncateLog(t)
+	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
+	if hasArgv(log, "view") || hasArgv(log, "install") {
+		t.Errorf("a declared verb REPLACES the npm refresh — the vendor's updater decides "+
+			"what to fetch, not this launcher:\n%s", strings.Join(log, "\n"))
+	}
+	if !strings.Contains(out, "RAN self-update") {
+		t.Errorf("the declared verb must reach the program:\n%s", out)
+	}
+}
+
+// TestNpmLauncherIsANoOpWhenReEntered is trap 4 on the npm side, and the symptom it
+// prevents is a fork bomb rather than a wrong answer: B2 puts the launch dir ahead of
+// $NPM_CONFIG_PREFIX/bin, so a bare-name call of the program from inside its own update —
+// an npm postinstall that runs the tool — resolves back to this script.
+//
+// Driven from the outside, with the guard variable already naming this bin, which is
+// exactly the environment such a child would see.
+func TestNpmLauncherIsANoOpWhenReEntered(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+
+	p.agePastInterval(t, "tool")
+	p.truncateLog(t)
+	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9",
+		"_YOLO_LAUNCHER_ACTIVE=:tool")
+	if len(log) != 0 {
+		t.Errorf("a re-entered launcher must run NO update logic, got:\n%s",
+			strings.Join(log, "\n"))
+	}
+	if !strings.Contains(out, "RAN") {
+		t.Errorf("...and must exec the program:\n%s", out)
+	}
+
+	// A DIFFERENT bin in the guard must not suppress this one — the variable is a set, not
+	// a boolean, or the first launcher to run would freeze every other.
+	q := newNpmProbe(t, "tool")
+	q.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+	q.agePastInterval(t, "tool")
+	q.truncateLog(t)
+	if log := q.run(t, "tool", "tool", "FAKE_LATEST=9.9.9",
+		"_YOLO_LAUNCHER_ACTIVE=:someotherbin"); len(log) == 0 {
+		t.Error("another bin in the guard set must not suppress this one's update")
+	}
+}
+
+// TestNpmLauncherProceedsWithoutUpdatingWhenTheLockIsHeld is §3.5's contention rule on the
+// npm prefix: cannot take the lock => run what is installed, say so, never wait, never fail.
+func TestNpmLauncherProceedsWithoutUpdatingWhenTheLockIsHeld(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+	if err := os.MkdirAll(filepath.Join(p.home, ".npm-global", ".yolo-update.lock"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p.agePastInterval(t, "tool")
+	p.truncateLog(t)
+	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
+	if len(log) != 0 {
+		t.Errorf("a held lock means no npm traffic at all, got:\n%s", strings.Join(log, "\n"))
+	}
+	if !strings.Contains(out, "another update is in progress") {
+		t.Errorf("...and the launcher must say so:\n%s", out)
+	}
+	if !strings.Contains(out, "RAN") {
+		t.Errorf("...and must still launch the installed version:\n%s", out)
 	}
 }
 
@@ -444,10 +559,10 @@ func TestUnpinnedNpmLauncherPollsButNeverReinstalls(t *testing.T) {
 //
 // The phases and the exact npm traffic each is allowed:
 //
-//	cold        (no binary)                  install, no view — the first install is not a poll
+//	cold        (no binary)                  install, no view — the first install is not an update
 //	warm        (binary, fresh stamp)        NOTHING — the throttle, and the common case
-//	stamp-aged  (binary, stamp > interval)   view only — the informational poll
-//	warm again  (stamp refreshed by the poll) NOTHING — the poll re-armed the throttle
+//	stamp-aged  (binary, stamp > interval)   view AND install — evergreen
+//	warm again  (stamp refreshed by the update) NOTHING — the update re-armed the throttle
 func TestUnpinnedNpmLauncherTimeline(t *testing.T) {
 	p := newNpmProbe(t, "tool")
 
@@ -472,33 +587,34 @@ func TestUnpinnedNpmLauncherTimeline(t *testing.T) {
 			"got:\n%s", strings.Join(log, "\n"))
 	}
 
-	// STAMP-AGED: the poll fires, asks once, and installs nothing.
+	// STAMP-AGED: the update fires, asks once, and installs what it found.
 	p.agePastInterval(t, "tool")
 	p.truncateLog(t)
 	log = p.run(t, "tool", "tool", "FAKE_LATEST=9.9.9")
 	if !hasArgv(log, "view tool version") {
-		t.Errorf("stamp-aged: the poll must run:\n%s", strings.Join(log, "\n"))
+		t.Errorf("stamp-aged: the update must ask:\n%s", strings.Join(log, "\n"))
 	}
-	if hasArgv(log, "install") {
-		t.Errorf("stamp-aged: the poll must not install:\n%s", strings.Join(log, "\n"))
+	if !hasArgv(log, "install -g --prefer-online tool@latest") {
+		t.Errorf("stamp-aged: the update must install what it found:\n%s", strings.Join(log, "\n"))
 	}
 
-	// WARM AGAIN: the poll touched the stamp even though it found a difference, so the
-	// next invocation is silent. Without that unconditional touch the report would fire on
-	// every single launch for as long as the registry stayed ahead — a network round-trip
-	// per invocation, and the noise that gets a real notice skimmed past.
+	// WARM AGAIN: the update touched the stamp, so the next invocation is silent. Without
+	// that the launcher would go to the registry on every single invocation for as long as
+	// the fake stayed ahead of the fake installed version.
 	p.truncateLog(t)
 	if log := p.run(t, "tool", "tool", "FAKE_LATEST=9.9.9"); len(log) != 0 {
-		t.Errorf("warm again: a poll that reported must still re-arm the throttle:\n%s",
-			strings.Join(log, "\n"))
+		t.Errorf("warm again: an update must re-arm the throttle:\n%s", strings.Join(log, "\n"))
 	}
 }
 
-// TestNpmLauncherUpdateModeIsTheOnlyResolver pins the other half of the split: with
-// YOLO_PACK_UPDATE=1 the launcher DOES resolve and install, and it exits instead of
-// exec'ing — `yolo pack update` refreshes every npm-declared program in turn and must not
-// launch any of them.
-func TestNpmLauncherUpdateModeIsTheOnlyResolver(t *testing.T) {
+// TestNpmLauncherUpdateModeRefreshesWithoutLaunching pins what update mode still is, now
+// that it is no longer the ONLY resolver (which is what this cell was called until §3.5's
+// evergreen ruling gave the launch path an update branch of its own).
+//
+// Its remaining job is the one the launcher cannot do: refresh NOW, ignoring the stamp and
+// ignoring `agent_updates`, and EXIT rather than exec — `yolo pack update` walks a list of
+// programs and must not start any of them.
+func TestNpmLauncherUpdateModeRefreshesWithoutLaunching(t *testing.T) {
 	p := newNpmProbe(t, "tool")
 	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
 
@@ -717,7 +833,7 @@ func TestUnpinnedNpmLauncherDoesNotReinstallWhenCurrent(t *testing.T) {
 	log := p.run(t, "tool", "tool", "FAKE_LATEST=1.0.0")
 
 	if !hasArgv(log, "view tool version") {
-		t.Fatalf("the poll must still run for an unpinned package:\n%s", strings.Join(log, "\n"))
+		t.Fatalf("the update must still ask for an unpinned package:\n%s", strings.Join(log, "\n"))
 	}
 	if hasArgv(log, "install") {
 		t.Errorf("the installed version already IS the registry's latest; reinstalling here "+

@@ -402,21 +402,37 @@ there is no sync step.
   config-gated, tracked by the `~/.yolo-installed-lsps` sentinel, and
   uninstalled when dropped from config. Agent CLIs install lazily on first use
   via launchers in `~/.yolo/bin/launch/`.
-- **PATH order** (exact — corrected 2026-08-23 against `BootPath`, `internal/entrypoint/boot.go:356-361`,
-  which is the authority this line claims to mirror):
-  `$HOME/.yolo/bin/block:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin:$HOME/.yolo/bin/launch`.
-  **This line used to put `$HOME/.local/bin` second**, ahead of npm and mise; it is fifth. Only the
-  two ends were right — and they are the part that carries meaning (see the next bullet).
-- **Two generated script dirs, at opposite ends of PATH** — they are different
-  mechanisms, not one dir with two kinds of file in it:
+- **PATH order** (exact — `BootPath`, `internal/entrypoint/boot.go`, which is the authority this
+  line claims to mirror; reordered 2026-09-04 by B2):
+  `$HOME/.yolo/bin/block:$HOME/.yolo/bin/launch:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin`.
+  The `.bashrc` export (`internal/entrypoint/shell.go`) is a second, independently-written copy of
+  the same order and is now compared to `BootPath` **entry by entry** — the two disagreed about
+  `$HOME/.local/bin` (second vs fifth) for months behind a test that only checked the ends.
+- **Two generated script dirs, ADJACENT AT THE HEAD of PATH** — they are different
+  mechanisms, not one dir with two kinds of file in it, and their order relative
+  to each other is what carries the meaning:
   `~/.yolo/bin/block` holds **blockers** (`GenerateShims`: `grep`, `find` → refuse,
-  print a suggestion, `exit 127`) and must PRECEDE the real tool, because
-  interception is its whole job. `~/.yolo/bin/launch` holds **lazy installers**
-  (`GenerateAgentLaunchers` / `GeneratePackageManagerLaunchers`: `claude`,
-  `pnpm` → install on first use, then `exec` the real binary) and is ordered
-  LAST, after `/bin`, so a launcher is reached only when nothing else provides
-  the name. That is what makes a pack declaring `program fzf` unable to shadow
-  the image's `/bin/fzf` — the failure is unrepresentable rather than handled.
+  print a suggestion, `exit 127`) and is FIRST, because interception is its whole
+  job and must outrank installation. `~/.yolo/bin/launch` holds **lazy
+  installers/updaters** (`GenerateAgentLaunchers` / `GeneratePackageManagerLaunchers`:
+  `claude`, `pnpm` → install or update on use, then `exec` the real binary) and is
+  SECOND, **ahead of every install prefix**.
+  **It was LAST until 2026-09-04, and that position defeated the update it carries**
+  (B2 / OQ-PD12a, `docs/design/program-delivery.md` §3.5). A launcher after
+  `$NPM_CONFIG_PREFIX/bin` and `$HOME/.local/bin` is unreachable the moment it
+  succeeds, because those are where it INSTALLS: the lazy install worked exactly
+  once per home and the hourly update never ran again (measured — `claude.stamp`
+  untouched for nine days, nineteen before that). Evergreen agent dependencies
+  need the launcher to mediate every invocation.
+  What the old position bought — a pack declaring `program fzf` being unable to
+  shadow the image's `/bin/fzf` — is now a **generation-time check**
+  (`internal/entrypoint/launchercollision.go`): no launcher is written for a name
+  `/bin`, `/usr/bin` or a declared `mise_tools` entry already provides. Same
+  outcome, weaker guarantee — the failure is HANDLED rather than unrepresentable,
+  which is the honest cost §3.5 states. ⚠ **That check must never consider the
+  install prefixes**: spelled "is this name already resolvable on PATH?" it
+  destroys the feature, because after one successful install the launcher stops
+  being written and evergreen works exactly once.
   A tool that is both blocked and pack-declared gets one of each, and the
   blocker wins by position. **Both dirs share ONE bind-mount anchor** at
   `~/.yolo/bin` (from `<ws>/.yolo/home/yolo-bin` under a `:ro` `/home/agent`), so
@@ -425,9 +441,12 @@ there is no sync step.
   a launcher would be reachable from the blockers' position. They were
   `~/.yolo-shims` and `~/.yolo-launchers` until 2026-08-30 (`a813b865`), and
   `removeRetiredGeneratedDirs` empties those for one release.
-  Consequence to know: a name the IMAGE bakes now beats a pack's declared
-  version. Right for `fzf`; re-check it before baking a package whose name a
-  pack also claims (no shipped pack collides today).
+  Consequence to know: a name the IMAGE bakes still beats a pack's declared
+  version, now because the check declines to write the launcher. Right for `fzf`;
+  re-check it before baking a package whose name a pack also claims (no shipped
+  pack collides today).
+  **`macos-user` carries a THIRD copy of this order** (`macosuser.SandboxPath`), which moves
+  with the other two.
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`
   =`cat`, `BAT_PAGER=""`; `EDITOR=cat` (stops `git commit` hanging) but
   `VISUAL=nvim` (human ctrl-g editing); the host's `TERM` is forwarded so color

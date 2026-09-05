@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -70,9 +71,9 @@ func TestInstallAndUpdateAreDifferentActs(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	calls := 0
-	saved := npmRefresh
-	npmRefresh = func(pr richtext.Printer, errw io.Writer) int { calls++; return 0 }
-	t.Cleanup(func() { npmRefresh = saved })
+	saved := programRefresh
+	programRefresh = func(pr richtext.Printer, errw io.Writer) int { calls++; return 0 }
+	t.Cleanup(func() { programRefresh = saved })
 
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
@@ -102,12 +103,12 @@ func TestInstallAndUpdateAreDifferentActs(t *testing.T) {
 // Two single-point mutations survived the whole unit gate on 2026-08-18, and each is the same
 // shape: a test that pins a FUNCTION while the wiring that reaches it is pinned nowhere.
 //
-//   - `var npmRefresh = func(richtext.Printer, io.Writer) int { return 0 }` — green. The
+//   - `var programRefresh = func(richtext.Printer, io.Writer) int { return 0 }` — green. The
 //     dispatch test above installs its own stub over that variable, and the refresh tests
-//     below call refreshNpmPrograms / refreshNpmProgramsFromOS directly, so nothing asserted
+//     below call refreshNpmPrograms / refreshProgramsFromOS directly, so nothing asserted
 //     which function the seam is actually wired to. `yolo pack update` would refresh nothing,
 //     print nothing, and exit 0.
-//   - dropping `npmLauncherUpdateEnv+"=1"` from execLauncherUpdate — also green, and worse
+//   - dropping `launcherUpdateEnv+"=1"` from execLauncherUpdate — also green, and worse
 //     than doing nothing: without the variable the launcher takes its NORMAL path, which
 //     ends in `exec`. `yolo pack update` would then START every agent CLI it was asked to
 //     refresh, one after another, into the user's terminal.
@@ -142,7 +143,7 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 	}
 	record := filepath.Join(t.TempDir(), "handed-env")
 	if err := os.WriteFile(filepath.Join(e.LaunchDir(), "npmtool"),
-		[]byte("#!/bin/sh\nprintf '%s' \"${"+npmLauncherUpdateEnv+":-<unset>}\" > "+record+"\n"),
+		[]byte("#!/bin/sh\nprintf '%s' \"${"+launcherUpdateEnv+":-<unset>}\" > "+record+"\n"),
 		0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +171,7 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 	if string(got) != "1" {
 		t.Errorf("the launcher was handed %s=%q, want \"1\". Without it the launcher takes its "+
 			"normal path and EXECS the tool, so `yolo pack update` starts every agent CLI it "+
-			"was asked to refresh instead of refreshing them", npmLauncherUpdateEnv, got)
+			"was asked to refresh instead of refreshing them", launcherUpdateEnv, got)
 	}
 }
 
@@ -178,9 +179,9 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 // scripted `yolo pack update && …` would proceed on a jail whose agent never updated.
 func TestUpdateReportsAFailedRefresh(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	saved := npmRefresh
-	npmRefresh = func(pr richtext.Printer, errw io.Writer) int { return 1 }
-	t.Cleanup(func() { npmRefresh = saved })
+	saved := programRefresh
+	programRefresh = func(pr richtext.Printer, errw io.Writer) int { return 1 }
+	t.Cleanup(func() { programRefresh = saved })
 
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"update"}, &out, &errw, false); rc == 0 {
@@ -188,31 +189,45 @@ func TestUpdateReportsAFailedRefresh(t *testing.T) {
 	}
 }
 
-// TestRefreshRunsOnlyNpmDeclaredLaunchers: the launcher dir also holds native-installer
-// launchers and the package-manager ones, and running a native launcher in "update mode"
-// would exec the vendor's own updater — or, for pnpm, exec pnpm. The manifest is what says
-// which launcher is an npm program, so walking the packs (not the directory) is the
-// correctness condition, not a stylistic choice.
-func TestRefreshRunsOnlyNpmDeclaredLaunchers(t *testing.T) {
+// TestRefreshRunsEveryPackDeclaredLauncher is this cell INVERTED by OQ-PD14, and the file
+// keeps the record of which behaviour is defended.
+//
+// It used to be TestRefreshRunsOnlyNpmDeclaredLaunchers and asserted that a native launcher
+// was SKIPPED. That was honest while core had no way to know how an installer-delivered
+// program updates itself — the native template's only update was a hardcoded
+// `"$REAL_BIN" install`, a no-op for every vendor whose verb is spelled otherwise. The pack
+// declares the verb now, so `yolo pack update` walks the same set the launchers do, and the
+// skip was the reason claude, agy and codex could not be refreshed at all.
+//
+// WHAT STAYS: the walk reads the MANIFEST, not the launcher directory. That directory also
+// holds the package-manager launchers (pnpm), which no pack declares and which have no
+// update mode — running one with YOLO_PACK_UPDATE=1 would exec pnpm rather than refresh it.
+// `requires` is still not a program and still installs nothing.
+func TestRefreshRunsEveryPackDeclaredLauncher(t *testing.T) {
 	e := stageNpmPackRoot(t, `{"name":"acme","contributes":[`+
 		`{"kind":"program","bin":"npmtool","via":"npm","package":"npmtool"},`+
 		`{"kind":"program","bin":"nativetool","via":"installer","url":"https://example/i.sh"},`+
 		`{"kind":"requires","bin":"jq"}]}`,
-		"npmtool", "nativetool", "pnpm")
+		"npmtool", "nativetool", "pnpm", "jq")
 
 	var ran []string
 	var out, errw bytes.Buffer
-	rc := refreshNpmPrograms(e, richtext.Printer{W: &out}, &errw,
+	rc := refreshPrograms(e, richtext.Printer{W: &out}, &errw,
 		func(bin, path string) error { ran = append(ran, bin); return nil })
 
 	if rc != 0 {
 		t.Fatalf("refresh rc = %d: %s", rc, errw.String())
 	}
-	if len(ran) != 1 || ran[0] != "npmtool" {
-		t.Errorf("only the npm-declared program may be refreshed; ran %v", ran)
+	sort.Strings(ran)
+	if len(ran) != 2 || ran[0] != "nativetool" || ran[1] != "npmtool" {
+		t.Errorf("every pack-declared program must be refreshed, and nothing else; ran %v "+
+			"(pnpm is not a pack's, and `requires` installs nothing)", ran)
 	}
-	if !strings.Contains(out.String(), "npmtool") {
-		t.Errorf("the refresh must say which program it resolved:\n%s", out.String())
+	for _, want := range []string{"npmtool", "nativetool", "https://example/i.sh"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the refresh must name what it resolved against (%q):\n%s",
+				want, out.String())
+		}
 	}
 }
 
@@ -222,7 +237,7 @@ func TestRefreshRunsOnlyNpmDeclaredLaunchers(t *testing.T) {
 // The launcher side of that rule is held by internal/entrypoint's script tests: update
 // mode exits non-zero for a failed `npm install` and for a registry that did not answer.
 // Nothing held the side that READS that exit code. `TestUpdateReportsAFailedRefresh`
-// stubs npmRefresh out wholesale, so it pins packUpdate -> npmRefresh and says nothing
+// stubs programRefresh out wholesale, so it pins packUpdate -> programRefresh and says nothing
 // about run() -> rc; `TestRefreshReportsAProgramWithNoLauncher` covers the launcher that
 // is ABSENT, which is a different branch. Deleting the `rc = 1` beside the run error left
 // the whole unit gate green (measured 2026-08-18) with the launcher correctly reporting a
@@ -233,7 +248,7 @@ func TestRefreshReportsALauncherThatFailed(t *testing.T) {
 		`{"kind":"program","bin":"npmtool","via":"npm","package":"npmtool"}]}`, "npmtool")
 
 	var out, errw bytes.Buffer
-	rc := refreshNpmPrograms(e, richtext.Printer{W: &out}, &errw,
+	rc := refreshPrograms(e, richtext.Printer{W: &out}, &errw,
 		func(bin, path string) error { return errors.New("exit status 1") })
 
 	if rc == 0 {
@@ -256,7 +271,7 @@ func TestRefreshReportsAProgramWithNoLauncher(t *testing.T) {
 		`{"kind":"program","bin":"npmtool","via":"npm","package":"npmtool"}]}`)
 
 	var out, errw bytes.Buffer
-	rc := refreshNpmPrograms(e, richtext.Printer{W: &out}, &errw,
+	rc := refreshPrograms(e, richtext.Printer{W: &out}, &errw,
 		func(bin, path string) error {
 			t.Errorf("a missing launcher must not be executed: %s", path)
 			return nil
@@ -269,20 +284,20 @@ func TestRefreshReportsAProgramWithNoLauncher(t *testing.T) {
 	}
 }
 
-// TestRefreshOnTheHostSaysWhereToRunIt. An npm-declared program is installed inside a
-// jail, into that jail's npm prefix, by the launcher the entrypoint generated. On the host
-// there is nothing to refresh — and a verb that silently did nothing would leave a user
-// believing their agent CLI had just been updated.
+// TestRefreshOnTheHostSaysWhereToRunIt. A pack-declared program is installed inside a
+// jail, into that jail's own prefixes, by the launcher the entrypoint generated. On the
+// host there is nothing to refresh — and a verb that silently did nothing would leave a
+// user believing their agent CLI had just been updated.
 func TestRefreshOnTheHostSaysWhereToRunIt(t *testing.T) {
 	t.Setenv("YOLO_PACK_ROOT", "") // no staged tree: this is the host
 
 	var out, errw bytes.Buffer
-	if rc := refreshNpmProgramsFromOS(richtext.Printer{W: &out}, &errw); rc != 0 {
+	if rc := refreshProgramsFromOS(richtext.Printer{W: &out}, &errw); rc != 0 {
 		t.Fatalf("the host case is not an error: rc = %d, %s", rc, errw.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "jail") {
-		t.Errorf("the host case must say WHERE an npm program lives:\n%s", got)
+		t.Errorf("the host case must say WHERE a pack-declared program lives:\n%s", got)
 	}
 	if !strings.Contains(got, "yolo pack update") {
 		t.Errorf("...and name the command to run there:\n%s", got)

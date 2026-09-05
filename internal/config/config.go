@@ -64,7 +64,7 @@ var knownTopLevelConfigKeys = set(
 	"loopholes", "host_processes", "journal",
 	"kvm", "prune", "programs", "ephemeral_storage", "include_if_found", "agents_md_extra",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers",
-	"host_apply_on_launch", "packs",
+	"host_apply_on_launch", "agent_updates", "packs",
 	"providers", "profiles", "use_profiles", "required_capabilities",
 	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
 	// always CLI names, and core knows packs, not agents — docs/design/

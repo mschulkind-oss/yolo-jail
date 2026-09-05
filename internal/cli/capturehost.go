@@ -49,8 +49,8 @@ import (
 //
 // THE INSTALL IS THE LAUNCHER'S, not a second implementation of it. The jail runs
 // `env YOLO_INSTALL_ONLY=1 <bin>`, which resolves to the generated native launcher
-// (~/.yolo/bin/launch is last on PATH and a fresh capture home has nothing else by that
-// name) and takes its `_do_install` path: the same download-to-a-file, the same web-page
+// (~/.yolo/bin/launch is near the head of PATH and a fresh capture home has nothing else
+// by that name) and takes its `_do_install` path: the same download-to-a-file, the same web-page
 // sniff, the same `YOLO_BYPASS_SHIMS=1 bash`. Anything else would capture bytes a launch
 // would never have produced, which is the one property slice 4's materialize depends on.
 // entrypoint.InstallOnlyEnv is what stops the launcher exec'ing the tool afterwards.

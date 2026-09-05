@@ -155,14 +155,28 @@ func TestLaunchArgv(t *testing.T) {
 	if idxStr(dirs, "/nix/store/a-jq/bin") >= idxStr(dirs, "/usr/bin") {
 		t.Error("darwin prefix must precede /usr/bin")
 	}
-	// The lazy-installer dir goes LAST, mirroring the container (see
-	// entrypoint.BootPath): a launcher must only be reached when nothing else provides
-	// the name, or a pack declaring a tool the system already has SHADOWS and breaks it.
-	if idxStr(dirs, "/Users/_yolojail/.yolo/bin/launch") <= idxStr(dirs, "/usr/bin") {
-		t.Error("the launcher dir must come AFTER /usr/bin")
+	// The lazy-installer dir is SECOND, immediately after the blockers and AHEAD of the
+	// install prefixes, mirroring the container (entrypoint.BootPath) under B2
+	// (program-delivery.md §3.5, OQ-PD12a). It used to go last, which made it unreachable
+	// from its own second invocation onward — a launcher ordered after $HOME/.local/bin
+	// installs into a directory that then wins the PATH lookup forever, so the update arm
+	// it carries never runs again. What now keeps it from shadowing a store or system
+	// binary is the generation-time collision check, not this position.
+	if idxStr(dirs, "/Users/_yolojail/.yolo/bin/block") != 0 {
+		t.Error("the blocker dir must be FIRST — interception must win over installation")
 	}
-	if dirs[len(dirs)-1] != "/Users/_yolojail/.yolo/bin/launch" {
-		t.Errorf("the launcher dir must be last on PATH, got %q", dirs[len(dirs)-1])
+	if idxStr(dirs, "/Users/_yolojail/.yolo/bin/launch") != 1 {
+		t.Errorf("the launcher dir must be SECOND, got index %d in %v",
+			idxStr(dirs, "/Users/_yolojail/.yolo/bin/launch"), dirs)
+	}
+	for _, prefix := range []string{
+		"/Users/_yolojail/.local/bin",
+		"/Users/_yolojail/.npm-global/bin",
+		"/Users/_yolojail/go/bin",
+	} {
+		if idxStr(dirs, "/Users/_yolojail/.yolo/bin/launch") > idxStr(dirs, prefix) {
+			t.Errorf("the launcher dir must precede the install prefix %s", prefix)
+		}
 	}
 	// Inner shell is workspace-centric.
 	inner := argv[len(argv)-1]

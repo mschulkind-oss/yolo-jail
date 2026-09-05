@@ -311,6 +311,11 @@ narrowest blast radius). Under evergreen the write path is `_update`, which is b
 > option that touches 83 % of the measured cost, it has no filesystem dependence and no oracle
 > problem (P3), and it is ~30 lines in a code path evergreen is already opening. Its trigger is
 > OQ-DF2's to rule, not this doc's.
+>
+> ✅ **SHIPPED 2026-09-04**, with evergreen, as `_prune_versions` in the native launcher template
+> (`internal/entrypoint/shims.go`): 39 lines of shell for the function itself, close to the ~30
+> estimate, plus the two guards §9 now records — both of which the tests found before the code
+> shipped.
 
 ### 5.2 A8 — Disable the vendor self-updater instead of cleaning up after it
 
@@ -542,17 +547,29 @@ That trade should be re-made with the corrected numbers on the table.
 
 ## 9. What I would build, in order
 
-**First, the V-axis prune, inside evergreen.** Keep-newest-2 version directories per program,
-executed by the act that installed the new one, in the workspace it installed into. No enumeration,
-no store, no oracle. Reclaims 1018.6 of 1223.4 measured MiB per workspace at `K = 1`, on every
-filesystem and every backend. It is small enough to be a slice of the evergreen plan rather than a
-plan of its own, and its trigger placement is
-[`minimal-disk-footprint.md`](minimal-disk-footprint.md) **OQ-DF2's option (i)** — the write path —
-which is that doc's own leaning and should be ruled there, not here.
+**First, the V-axis prune, inside evergreen — SHIPPED 2026-09-04.** Keep-newest-2 version
+directories per program, executed by the act that installed the new one, in the workspace it
+installed into. No enumeration, no store, no oracle. Reclaims 1018.6 of 1223.4 measured MiB per
+workspace at `K = 1`, on every filesystem and every backend. Built as `_prune_versions` in
+`internal/entrypoint`'s native launcher template, called from both the update arm and the
+cold-install arm — "whoever installed the new one" is the trigger, so both qualify. Its trigger
+placement is [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **OQ-DF2's option (i)** —
+the write path — which is that doc's own leaning and is still that doc's to rule formally.
 
-**Second, evergreen.** Unblocked by the first step, and the reason the first step is worth doing now:
-under evergreen, V grows on a schedule instead of by accident, so the prune's value goes from one-off
-to recurring — which is the argument OQ-PD15 made in the opposite direction.
+> **Two guards, both found by writing the tests first** (`internal/entrypoint/versionprune_test.go`).
+> A `~/.local/bin/<bin>` that is not a symlink INTO the versions tree prunes nothing — the referrer
+> set is then unknown, which is what makes the rule safe to run for every native program rather
+> than only the ones whose layout it recognises. And the live ENTRY is derived from the symlink's
+> target rather than compared against it: claude's builds are single FILES directly under
+> `versions/`, where the two coincide, but a vendor keeping a directory per version puts the binary
+> one level deeper, and comparing whole paths then never matches — the guard silently stops
+> guarding in exactly the rollback shape (live == oldest) where it is the only thing between
+> keep-newest-K and an unusable launcher.
+
+**Second, evergreen — SHIPPED 2026-09-04**, in the same arc
+([`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md)). Under it V grows on
+a schedule instead of by accident, so the prune's value goes from one-off to recurring — which is
+the argument OQ-PD15 made in the opposite direction.
 
 **Third, type `yolo prune` on a real multi-workspace machine and report the dedup line.** The N axis
 has never been measured across workspaces by anybody. That single number decides how much the

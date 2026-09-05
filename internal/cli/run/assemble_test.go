@@ -490,6 +490,8 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_LSP_GO_INSTALL=",
 		"-e", "YOLO_MCP_SERVERS={}",
 		"-e", "YOLO_MCP_PRESETS=[]",
+		// Empty because no user config declares `agent_updates`; the jail defaults OPEN.
+		"-e", "YOLO_AGENT_UPDATES=",
 		// packs/claude ships the bedrock provider's delivery shape, so every launch that
 		// selects claude carries it — a shape with no values in it, since the region and
 		// model ids are the user's providers.bedrock entry to supply.

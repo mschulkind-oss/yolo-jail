@@ -12,18 +12,28 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// launcherdir_test.go covers the BLOCKER/INSTALLER split: ~/.yolo/bin/block holds blockers and
-// is first on PATH, ~/.yolo/bin/launch holds lazy installers and is last (after /bin).
+// launcherdir_test.go covers the BLOCKER/INSTALLER split: ~/.yolo/bin/block holds blockers,
+// ~/.yolo/bin/launch holds lazy installers/updaters, and both are at the FRONT of PATH with
+// the blockers first (B2, docs/design/program-delivery.md §3.5, OQ-PD12a).
 //
-// The defect that motivated the split: a pack declaring `program fzf` wrote
-// ~/.yolo/bin/block/fzf, which preceded the image's working /bin/fzf, and the launcher execs
-// only $NPM_CONFIG_PREFIX/bin/fzf — it never consults PATH — so declaring the dependency
-// honestly BROKE the tool. With the installer dir after /bin, that is unrepresentable.
+// TWO DEFECTS SHAPED THIS FILE AND THEY PULL IN OPPOSITE DIRECTIONS.
+//
+//   - 11.1: a pack declaring `program fzf` wrote ~/.yolo/bin/block/fzf, which preceded the
+//     image's working /bin/fzf, and the launcher execs only $NPM_CONFIG_PREFIX/bin/fzf — it
+//     never consults PATH — so declaring the dependency honestly BROKE the tool. The first
+//     fix was to order the installer dir after /bin, which made the shadowing
+//     unrepresentable.
+//   - OQ-PD8: that position also put the launcher after the prefixes it installs INTO, so
+//     it was unreachable from its own second invocation onward. The lazy install still
+//     worked; the hourly update in the same script never ran again (claude.stamp untouched
+//     for nine days). Evergreen needs the launcher to mediate every invocation.
+//
+// B2 resolves them by splitting the job: POSITION keeps the blockers ahead of everything,
+// and a GENERATION-TIME check (launchercollision_test.go) keeps 11.1 from coming back.
 
-// TestBootPathOrdersBlockersFirstAndInstallersLast pins the PATH invariant AGENTS.md
-// documents ("PATH order (exact)"). It is the whole mechanism: if the launcher dir ever
-// moves before /bin, 11.1 comes back and nothing else in this file would notice.
-func TestBootPathOrdersBlockersFirstAndInstallersLast(t *testing.T) {
+// TestBootPathOrdersBlockersThenLaunchers pins the PATH invariant AGENTS.md documents
+// ("PATH order (exact)"). Both relations are named so a failure says WHICH one broke.
+func TestBootPathOrdersBlockersThenLaunchers(t *testing.T) {
 	e := NewEnv(map[string]string{
 		"JAIL_HOME":         "/home/agent",
 		"NPM_CONFIG_PREFIX": "/home/agent/.npm-global",
@@ -33,13 +43,13 @@ func TestBootPathOrdersBlockersFirstAndInstallersLast(t *testing.T) {
 	got := strings.Split(BootPath(e), ":")
 	want := []string{
 		"/home/agent/.yolo/bin/block",
+		"/home/agent/.yolo/bin/launch",
 		"/home/agent/.npm-global/bin",
 		"/mise/shims",
 		"/home/agent/go/bin",
 		"/home/agent/.local/bin",
 		"/bin",
 		"/usr/bin",
-		"/home/agent/.yolo/bin/launch",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("BootPath has %d entries, want %d:\n got %v\nwant %v", len(got), len(want), got, want)
@@ -59,17 +69,23 @@ func TestBootPathOrdersBlockersFirstAndInstallersLast(t *testing.T) {
 		t.Fatalf("%q missing from PATH %v", dir, got)
 		return -1
 	}
-	// The two load-bearing relations, asserted by name so a failure says WHICH rule broke.
+	// The three load-bearing relations, asserted by name so a failure says WHICH rule broke.
 	if idx(e.BlockDir()) != 0 {
 		t.Error("the blocker dir must be FIRST: a shim that does not precede the real " +
-			"binary intercepts nothing")
+			"binary intercepts nothing, and it must outrank the launchers so a tool that " +
+			"is both blocked and pack-declared resolves to the blocker")
 	}
-	if idx(e.LaunchDir()) < idx("/bin") {
-		t.Error("the launcher dir must come AFTER /bin: a lazy installer ordered earlier " +
-			"shadows the image's own binary and then fails (defect 11.1)")
+	if idx(e.LaunchDir()) != 1 {
+		t.Error("the launcher dir must be SECOND, immediately after the blockers")
 	}
-	if idx(e.LaunchDir()) != len(got)-1 {
-		t.Error("the launcher dir must be LAST — it is the fallback of last resort")
+	for _, prefix := range []string{e.NpmBin(), e.LocalBin(), e.GoBin()} {
+		if idx(e.LaunchDir()) > idx(prefix) {
+			t.Errorf("the launcher dir must precede the install prefix %s: a launcher "+
+				"ordered after what it INSTALLS INTO is unreachable from its own second "+
+				"invocation onward, which is why the update it carries stopped running "+
+				"(OQ-PD8). What keeps it from shadowing a baked binary is the "+
+				"generation-time check, not this position", prefix)
+		}
 	}
 }
 
@@ -165,11 +181,21 @@ func isSelector(expr ast.Expr, pkg, sel string) bool {
 }
 
 // TestBashrcPathMatchesBootPathOrder: the .bashrc export is the PATH an agent's interactive
-// (and `bash -lc`) shell actually gets, so it has to carry the same split. It is a separate
-// string from BootPath, which is exactly why it needs pinning — the two drifted apart
-// silently before (execBash and .bashrc order $HOME/.local/bin differently to this day).
+// (and `bash -lc`) shell actually gets, so it has to carry the same order. It is a SECOND,
+// independently-written string, which is exactly why it needs pinning.
+//
+// IT IS A FULL COMPARISON NOW, entry by entry, and that is the repair. This cell used to
+// assert only "block first, launch last" — so the two strings could and did disagree about
+// everything in between: $HOME/.local/bin was SECOND in the .bashrc and FIFTH in BootPath
+// for months, with a test claiming they matched. It also meant B2 could be applied to one
+// string and not the other and stay green.
 func TestBashrcPathMatchesBootPathOrder(t *testing.T) {
-	e := NewEnv(map[string]string{"JAIL_HOME": "/home/agent", "MISE_DATA_DIR": "/mise"})
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":         "/home/agent",
+		"NPM_CONFIG_PREFIX": "/home/agent/.npm-global",
+		"GOPATH":            "/home/agent/go",
+		"MISE_DATA_DIR":     "/mise",
+	})
 	rc := Bashrc(e)
 
 	var pathLine string
@@ -182,11 +208,27 @@ func TestBashrcPathMatchesBootPathOrder(t *testing.T) {
 	if pathLine == "" {
 		t.Fatalf("no PATH export in the generated .bashrc:\n%s", rc)
 	}
-	if !strings.HasPrefix(pathLine, `export PATH="$BLOCK_DIR:`) {
-		t.Errorf("the blocker dir must be first in the .bashrc PATH: %q", pathLine)
+	// The .bashrc names its entries with shell variables the login shell expands. Expand
+	// them the way bash would, so the comparison is between two PATHS rather than between
+	// one path and a template.
+	value := strings.TrimSuffix(strings.TrimPrefix(pathLine, `export PATH="`), `"`)
+	expanded := strings.NewReplacer(
+		"$BLOCK_DIR", e.BlockDir(),
+		"$LAUNCH_DIR", e.LaunchDir(),
+		"$NPM_CONFIG_PREFIX", "/home/agent/.npm-global",
+		"$GOPATH", "/home/agent/go",
+		"$HOME", "/home/agent",
+	).Replace(value)
+
+	if expanded != BootPath(e) {
+		t.Errorf("the .bashrc PATH and BootPath disagree — they are two spellings of ONE\n"+
+			"order, and BootPath is the authority:\n bashrc: %s\n   boot: %s",
+			expanded, BootPath(e))
 	}
-	if !strings.HasSuffix(pathLine, `:/bin:/usr/bin:$LAUNCH_DIR"`) {
-		t.Errorf("the launcher dir must come last, after /bin:/usr/bin: %q", pathLine)
+	if strings.Contains(expanded, "$") {
+		t.Errorf("this comparison expanded no variable named %q — a new one in the .bashrc "+
+			"PATH must be taught to the replacer above, or the two strings can drift again "+
+			"behind a green test: %s", expanded, pathLine)
 	}
 	// Both vars must actually be defined, or the export silently expands to empty
 	// components and the whole split is inert.

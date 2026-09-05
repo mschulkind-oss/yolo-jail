@@ -33,9 +33,10 @@ type Kind string
 // effect, never a tool — `config`, not `claude/settings` (§0 principle 2: core
 // knows the domain, not the tool).
 const (
-	// KindProgram: a program the jail should have on PATH (with a lazy launcher
-	// in ~/.yolo/bin/launch/, which is ordered LAST on PATH — after /bin — so the
-	// launcher only runs when nothing else provides the name). Sole-owned by bin name.
+	// KindProgram: a program the jail should have on PATH (with a lazy installer/updater
+	// in ~/.yolo/bin/launch/, which is ordered SECOND on PATH since B2 — ahead of the
+	// install prefixes, so the launcher mediates every invocation and not just the first.
+	// No launcher is written for a name the image already provides). Sole-owned by bin name.
 	KindProgram Kind = "program"
 	// KindRequires: a binary the pack needs to EXIST, which it does not install.
 	//

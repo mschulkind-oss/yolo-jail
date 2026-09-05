@@ -100,7 +100,8 @@ Every one of those is a separate line in the pack's footprint, and the daemon li
 its raw argv — so run yolo pack footprint before you select a pack that ships one.
 
 program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
-launcher, last on PATH), requires means it must already be there and yolo installs
+launcher near the head of PATH, which also keeps it up to date), requires means it must
+already be there and yolo installs
 nothing — which is what a pack needing a baked or user-provided tool wants, and the only
 way for a content-only pack to carry install_hints for the host notch.
 

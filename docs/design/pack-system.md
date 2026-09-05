@@ -276,6 +276,14 @@ version.
   all — the caveat that stalled the top row of `trust-paths.md` §1.)
 - `url` (required for `installer`) — the install-script URL (origin-gated, §9).
 - `flags` — optional flags baked into the launcher.
+- `update` — optional array: the argv that makes the program update ITSELF, with the bin
+  omitted (`"update": ["install"]` for claude, `["update", "--self"]` for pi). The launcher
+  runs it when the program is due an update; **absent, it falls back per `via`** — re-running
+  the declared installer, or `npm install -g <package>`. Read on `program` only, and refused
+  by name on every other kind. It is a vendor's argv, so it is deliberately NOT a closed
+  enum: the vendors disagree (`claude install`, `codex update`, `agy update`) and core
+  hardcoding one is how `yolo pack update` came to skip the installer class entirely
+  (`program-delivery.md` OQ-PD14).
 A pack may declare **several** `program` contributions and each gets its own launcher —
 exclusivity is per `bin`, not per pack, so `shellcheck` + `shfmt` in one pack is ordinary.
 (Until 2026-08-03 only the *first* installed in a jail, while the host path reported all of
@@ -298,7 +306,8 @@ them; `InstallContributions()` returned inside its loop.)
 
 ```json
 { "kind": "program", "bin": "opencode", "via": "npm", "package": "opencode-ai" }
-{ "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh" }
+{ "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh",
+  "update": ["install"] }
 { "kind": "program", "bin": "psql", "via": "npm", "package": "x",
   "install_hints": { "brew": "postgresql@16", "apt": "postgresql-16", "nix": "postgresql_16" } }
 { "kind": "program", "bin": "claude", "via": "installer", "url": "https://claude.ai/install.sh",
@@ -318,7 +327,8 @@ happened; the second is what `docs/examples/claude-fzf-pack/` did until this kin
 - `install_hints` — as `program`'s, and this is where they matter most: yolo will never
   install this binary, so the hints are the *only* remedy it can offer.
 - `via`/`package`/`url` are **refused by name** — those belong to `program`, and a
-  `requires` carrying one is the author reaching for the other kind. Silent otherwise: the
+  `requires` carrying one is the author reaching for the other kind. So is `update`, which
+  runs the installed program against itself and therefore has nothing to run on here. Silent otherwise: the
   fields are simply never read, so the tool never installs and nothing says why.
 
 What it does at each notch:

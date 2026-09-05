@@ -44,6 +44,10 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		"YOLO_LSP_SERVERS":  lspJSON,
 		"YOLO_MCP_SERVERS":  mcpJSON,
 		"YOLO_MCP_PRESETS":  presetsJSON,
+		// The same `agent_updates` policy the run pipeline emits. Without it the preflight
+		// renders launchers under a policy the boot does not have — every one of them with
+		// its update branch enabled, on a machine that froze them.
+		entrypoint.AgentUpdatesEnv: config.AgentUpdatesWire(),
 		// Point prism writers' §5 sidecars (<workspace>/.yolo/prism/) at the temp
 		// home, not the real workspace — the preflight is a dry run and must not
 		// touch the live workspace. agy (born on the prism) is the first writer

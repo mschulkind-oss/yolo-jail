@@ -83,7 +83,10 @@ gate** — and one of them obviated a question rather than answering it:
 
 - ✅ **OQ-TP5 — no evergreen npm.** `install` obeys the lockfile, `update` is the only act that
   resolves a new version, and the hourly poll is downgraded to informational. **Built 2026-08-18**
-  (`b3a29ad8`), minus the pin it has nowhere to record — which is OQ-TP4 below.
+  (`b3a29ad8`), minus the pin it has nowhere to record — which is OQ-TP4 below. ⚠ **REVERSED IN
+  CODE 2026-09-04 for the agent class**, by OQ-PD3's narrowing and OQ-PD12: `_poll_and_report` is
+  deleted and an unpinned agent package is updated by the launcher at the user's own invocation.
+  The ruling still holds for a PROJECT dependency, and for a PINNED package on either side.
 - ✅ **OQ-TP6 — a refused contribution refuses the launch.** No partial packs: fix it, remove it, or
   approve it. **Built 2026-08-18** (`6385dfbb`). Both carry release-note entries.
 - ✅ **OQ-TP2 — nothing explicit.** Agent context needs no gate and no separate disclosure: the
@@ -575,6 +578,11 @@ largest reclaim available; the two repairs after that are cheap and independent.
 
 - 🔒 **Program delivery §10 — the three steps that are blocked, not merely unscheduled.** 📄
   [`program-delivery.md`](../design/program-delivery.md) §10. The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
+  ✅ **EVERGREEN SHIPPED 2026-09-04** ([`evergreen-agent-updates.md`](evergreen-agent-updates.md)),
+  A7's V-axis prune with it. **One piece of it did not:** the MCP/LSP transitive refresh (that
+  plan's build-order step 7). A yolo-installed MCP or LSP server still moves only when the
+  bootstrap reinstalls it; the ruling behind the refresh is unchanged and the agent CLIs are
+  evergreen without it.
   - **The user-scope gap receipt** and **obey** — blocked on 💬 2's `OQ-TP4`. Three of the gap
     receipt's seven decisions *are* that OQ's options (a)/(b)/(c), and
     [`trust-paths.md`](../design/trust-paths.md) forbids either doc retiring the other's ID

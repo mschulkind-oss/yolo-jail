@@ -276,8 +276,9 @@ func (e *Env) GeneratedBinDir() string { return filepath.Join(e.Home, ".yolo", "
 // — three mechanisms, two of them sharing a word.
 func (e *Env) BlockDir() string { return filepath.Join(e.GeneratedBinDir(), "block") }
 
-// LaunchDir is HOME/.yolo/bin/launch — the lazy-INSTALLER dir, ordered LAST on PATH
-// (after /bin and /usr/bin).
+// LaunchDir is HOME/.yolo/bin/launch — the lazy-INSTALLER/UPDATER dir, ordered SECOND on
+// PATH since B2 (docs/design/program-delivery.md §3.5, OQ-PD12a), immediately after
+// BlockDir and AHEAD of every install prefix.
 //
 // Blockers and lazy installers used to share ~/.yolo-shims because both are "a script
 // named after a binary, early on PATH". They are not the same mechanism, and conflating
@@ -286,17 +287,22 @@ func (e *Env) BlockDir() string { return filepath.Join(e.GeneratedBinDir(), "blo
 // $NPM_CONFIG_PREFIX/bin/<bin> — it never consults PATH — so it exited 1. Declaring a
 // dependency honestly BROKE it.
 //
-// A blocker must shadow the real tool. An installer must not: it only needs to run when
-// nothing else provides the name. Ordering this dir after /bin makes that structural
-// rather than something the launcher has to defend against at runtime — a launcher is
-// simply unreachable while any real binary of that name exists.
+// THE FIRST FIX WAS THIS DIR'S POSITION, AND IT COST THE UPDATE. Ordering it after /bin
+// made the shadowing unrepresentable — and also put it after $NPM_CONFIG_PREFIX/bin and
+// $HOME/.local/bin, which is where the launcher INSTALLS. So the launcher mediated the
+// cold start and was never reached again: the lazy install worked exactly once and the
+// hourly update in the same script stopped running (measured: claude.stamp untouched for
+// nine days, nineteen before that — OQ-PD8). Evergreen (OQ-PD12) needs every invocation
+// to reach the launcher, so the dir moved ahead of the prefixes and the shadowing
+// protection moved to a GENERATION-TIME check: no launcher is written for a name the
+// image or a declared mise tool already provides (launchercollision.go).
 //
-// One consequence, stated because it is a real trade: a tool the IMAGE bakes now wins
-// over a pack's declared version. For `fzf` that is right. For an agent CLI it might not
-// be — if the image ever baked an older `claude`, that pack's lazy-updating launcher would
-// stop being reached. No shipped pack collides today (the six agent CLIs are not in
-// flake.nix's corePackages/fullPackages), but it is the case to re-check when adding a
-// baked package whose name a pack also claims.
+// The trade is now the opposite one, and it is the honest cost §3.5 names: shadowing a
+// baked binary is EXPRESSIBLE again — a bug in the check would produce it — where before
+// it could not happen at all. A tool the IMAGE bakes still wins over a pack's declared
+// version, because the check declines to write the launcher; no shipped pack collides
+// today (the six agent CLIs are not in flake.nix's corePackages/fullPackages), and that
+// is still the case to re-check when baking a package whose name a pack also claims.
 //
 // Like BlockDir it lives under the bind-mount ANCHOR at HOME/.yolo/bin (mounted from
 // <ws>/.yolo/home/yolo-bin under a read-only /home/agent), so it is cleared

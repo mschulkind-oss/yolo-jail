@@ -6,6 +6,9 @@
         "brew-cask": "antigravity-cli"
       },
       "kind": "program",
+      "update": [
+        "update"
+      ],
       "url": "https://antigravity.google/cli/install.sh",
       "via": "installer"
     },

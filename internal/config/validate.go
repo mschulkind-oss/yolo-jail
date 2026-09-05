@@ -102,6 +102,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostFiles(config, workspace, errs)
 	validateHostWrappers(config, workspace, errs)
 	validateHostApplyOnLaunch(config, workspace, errs)
+	validateAgentUpdates(config, workspace, errs)
 	validatePacks(workspace, errs)
 	validatePrograms(config, workspace, errs)
 
@@ -547,6 +548,44 @@ func validateHostApplyOnLaunch(config *jsonx.OrderedMap, workspace string, errs 
 		add(errs, "config."+hostApplyOnLaunchKey+": user-scope only — it lets a wrapped agent "+
 			"launch write into your real home, so it is read from "+paths.UserConfigPath()+
 			" and a workspace value has no effect. Move it there, or remove it.")
+	}
+}
+
+// validateAgentUpdates shape-checks the `agent_updates` opt-out
+// (docs/design/program-delivery.md §3.5, OQ-PD12).
+//
+// NOT a plain boolean, unlike its two neighbours, and the difference is real rather than
+// stylistic: `host_wrappers` and `host_apply_on_launch` each decide whether ONE mechanism
+// runs at all, while this one is per PACK — the user who wants their agents current but
+// one of them frozen has a case those keys do not have. So both shapes are accepted, and
+// the object's values must be booleans or the entry is a setting that reads as "on".
+//
+// The scope half is the same defense-in-depth, and the leak it guards is the sharpest of
+// the three: the value is read from user scope directly (AgentUpdatesWire), because
+// /workspace is bind-mounted rw and a workspace-scoped spelling would let whatever is
+// running IN the jail freeze its own updates. A value that merely looked accepted would be
+// indistinguishable from a working one.
+func validateAgentUpdates(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(agentUpdatesKey)
+	if !present {
+		// Every workspace key survives into the merged map, so an absent key here proves the
+		// workspace config has none either — no re-read needed.
+		return
+	}
+	if v != nil {
+		if prob := agentUpdatesProblem(v); prob != "" {
+			add(errs, "config."+agentUpdatesKey+": "+prob)
+		}
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(agentUpdatesKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+agentUpdatesKey+": user-scope only — /workspace is writable by "+
+			"whatever runs in the jail, so a workspace value would let an agent freeze its "+
+			"own updates. It is read from "+paths.UserConfigPath()+" and a workspace value "+
+			"has no effect. Move it there, or remove it.")
 	}
 }
 

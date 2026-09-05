@@ -33,6 +33,7 @@ func runNativeLauncherWithEnv(t *testing.T, url string, extraEnv ...string) (rc 
 		filepath.Join(home, "stamps"),
 		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"),
 		"", // no capture store: this cell is about the DOWNLOAD path
+		true,
 	)
 	script := filepath.Join(home, "probetool")
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
@@ -130,7 +131,7 @@ func TestInstallOnlyFailsWhenNothingWasInstalled(t *testing.T) {
 func TestInstallOnlyEnvIsSplicedIntoTheTemplate(t *testing.T) {
 	body := nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://example.invalid/i.sh"},
-		"/stamps", "/ws/.yolo/receipts.jsonl", "",
+		"/stamps", "/ws/.yolo/receipts.jsonl", "", true,
 	)
 	if !strings.Contains(body, "${"+InstallOnlyEnv+":-}") {
 		t.Errorf("the native launcher does not read %s:\n%s", InstallOnlyEnv, body)
