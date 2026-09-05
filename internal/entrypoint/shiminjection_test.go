@@ -168,6 +168,59 @@ func TestShimRefusesInjectionThroughFlagPatterns(t *testing.T) {
 	}
 }
 
+// TestDarwinBootstrapWritesNonInjectableShims is the test for the call site that
+// actually decides this defect's severity, and it is deliberately a SECOND test of
+// the same payload rather than a case in the one above.
+//
+// Every other generator of these shims runs inside a container, where an agent that
+// can write the payload already has a shell. RunDarwinBootstrap does not: the
+// macos-user backend runs it against the `_yolojail` HOST account's home, and the
+// shim it leaves there is later executed as that account. If someone deletes
+// GenerateShims from RunDarwinBootstrap's genStep list, or gives this backend a
+// generator of its own, the tests above stay green while the only host-side path
+// stops being covered. This one goes red.
+func TestDarwinBootstrapWritesNonInjectableShims(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not found")
+	}
+	home := t.TempDir()
+	mark := filepath.Join(t.TempDir(), "pwned")
+	payload := `oops"; touch ` + mark + `; echo "done`
+
+	raw, err := json.Marshal([]any{map[string]any{
+		"name": "curl", "message": payload, "suggestion": payload,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{"HOME": home, "YOLO_BLOCK_CONFIG": string(raw)})
+	e.Workspace = filepath.Join(t.TempDir(), "proj")
+	e.ShimBinDir = "/usr/bin"
+
+	RunDarwinBootstrap(e, DarwinBootstrapOptions{
+		LoginPath:     filepath.Join(home, ".yolo/bin/block") + ":/usr/bin",
+		YoloLogScript: "#!/bin/sh\nexec /usr/bin/log \"$@\"\n",
+	})
+
+	shim := filepath.Join(home, ".yolo/bin/block", "curl")
+	if _, err := os.Stat(shim); err != nil {
+		t.Fatalf("the darwin bootstrap generated no shim at all (%v) — this backend's "+
+			"blockers come from RunDarwinBootstrap's generate_shims step", err)
+	}
+	rc, _, stderr := runShim(t, shim, []string{"http://x"}, "")
+	if _, err := os.Stat(mark); err == nil {
+		body, _ := os.ReadFile(shim)
+		t.Fatalf("SHELL INJECTION in the macos-user sandbox home: the payload ran as the "+
+			"host account and created %s\nthe generated shim was:\n%s", mark, body)
+	}
+	if rc != 127 {
+		t.Errorf("rc=%d, want 127", rc)
+	}
+	if !strings.Contains(stderr, payload) {
+		t.Errorf("the message did not reach stderr verbatim: %q", stderr)
+	}
+}
+
 // TestShimStderrIsExactlyTheConfiguredText pins the half of the frozen contract the
 // escaping had to leave alone. Quoting changed the LITERAL's delimiter in the emitted
 // script (`echo "msg"` became `echo 'msg'`); it must not have changed one byte of what
