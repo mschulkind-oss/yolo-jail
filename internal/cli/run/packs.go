@@ -214,6 +214,51 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		briefings = append(briefings, o.packBriefingProses(entry.Name, p)...)
 	}
+	// THE NEEDS CLOSURE (docs/design/wire-bridge.md §3.1, WB-D10): extend the
+	// selected set with every pack a live `needs` entry pulls in, transitively.
+	// Here — after both staging loops, because a configured pack's bins can be
+	// what a when_bins condition keys on (and a configured manifest can declare
+	// needs of its own), and before every pre-flight below, because "this is where
+	// the pack set becomes complete" has to mean complete: a closure-added pack is
+	// ordinary selection from here on (§3.1 step 5), so the exclusivity checks
+	// must see it exactly as the launch will deliver it.
+	//
+	// The additions stage through the _official path — an added pack is always
+	// EMBEDDED (needs may name only the embedded official set; ResolveNeeds
+	// refuses anything wider, WB-D9), and _official is derived content, cleared
+	// and rebuilt wholesale every launch, so there is no prune interaction. Staging
+	// here rather than trusting the load is the mount-is-the-filter rule: the
+	// entrypoint renders every pack under YOLO_PACK_ROOT, so an added pack whose
+	// tree never lands is an added pack that does nothing.
+	//
+	// EVERY addition prints, before its staging (WB-D12: a pack nobody typed
+	// joining a launch silently is the one forbidden behavior of the closure).
+	// Stderr, beside the other launch-time disclosure lines.
+	added, causes, err := packload.ResolveNeeds(loaded,
+		func(name string) (*packload.Pack, bool) {
+			p, ok := byName[name]
+			return p, ok
+		})
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("packs: %w", err)
+	}
+	for _, cause := range causes {
+		o.pr(o.Stderr).print("[dim]" + cause + "[/dim]")
+	}
+	for _, p := range added {
+		dest := filepath.Join(officialRoot, p.Name)
+		if err := copyTree(p.Root, dest); err != nil {
+			return "", nil, nil, fmt.Errorf("official pack %s: %w", p.Name, err)
+		}
+		joined, probs := packload.LoadDir(dest, p.Name)
+		for _, prob := range probs {
+			return "", nil, nil, fmt.Errorf("official pack %s: %s", p.Name, prob)
+		}
+		loaded = append(loaded, joined)
+		skillDirs = append(skillDirs, o.packSkillSourceDirs(joined)...)
+		briefings = append(briefings, o.packBriefingProses(joined.Name, joined)...)
+	}
+
 	// THERE USED TO BE A CONSENT PRE-FLIGHT HERE, ahead of the mechanical ones below: every
 	// claim a pack made that yolo understood and declined, folded into one fatal
 	// (refusedLaunchError, OQ-TP6). OQ-TP9 deleted the gate that produced those refusals, so

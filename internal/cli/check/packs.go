@@ -174,6 +174,32 @@ func (o *Options) sectionPacks(r *reporter) {
 		}
 	}
 
+	// The NEEDS CLOSURE (docs/design/wire-bridge.md §3.1, WB-D10), beside the pack
+	// list and before the exclusivity checks below, for the reason those checks
+	// give: the launch runs them over the COMPLETE set — the closure runs inside
+	// staging, before every pre-flight — so check running them over anything
+	// narrower could pass a config the launch refuses. A closure refusal (a need
+	// naming a pack outside the embedded official set, a needs cycle) is a FAIL
+	// here, not a warning, for the same reason: `yolo check` passing on a config
+	// that cannot start a jail is the one outcome this section exists to prevent.
+	//
+	// The additions print (WB-D12 — the same cause strings the launch banner
+	// carries, and never silently), and each added pack joins `loaded` so it is
+	// footprint-accounted exactly as the launch will account it.
+	added, causes, err := packload.ResolveNeeds(loaded,
+		func(name string) (*packload.Pack, bool) {
+			p, ok := byName[name]
+			return p, ok
+		})
+	if err != nil {
+		r.fail("Pack needs: "+err.Error(), "")
+	} else {
+		loaded = append(loaded, added...)
+		for _, cause := range causes {
+			r.dim(cause)
+		}
+	}
+
 	// Config-surface exclusivity over the SELECTED set — the check that would otherwise be
 	// learned at launch. FATAL here for the same reason the footprint collision below is: the
 	// launch refuses it, so reporting it as a warning would mean `yolo check` passing on a

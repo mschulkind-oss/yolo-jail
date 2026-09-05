@@ -85,6 +85,13 @@ type Manifest struct {
 	// `serves` is enforced rather than merely recommended.
 	Supersedes []Supersession `json:"supersedes,omitempty"`
 
+	// Needs is the pack's conditional pack dependencies: packs that join the
+	// launch beside this one when a condition on the selected set holds
+	// (docs/design/wire-bridge.md §3.1). See needs.go for why it is a top-level
+	// key rather than a 19th contribution kind, which rules bind the vocabulary
+	// (WB-D9..D12), and what is validated here versus at resolution.
+	Needs []PackNeed `json:"needs,omitempty"`
+
 	// Contributes is the pack's effects: one list of typed contributions, each with
 	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
 	// each with an explicit kind from the closed core-owned set
@@ -303,6 +310,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 		return nil, []string{ManifestName + ": " + err.Error()}, nil
 	}
 	problems = append(man.validateSkillsTier(), man.validateSupersedes()...)
+	problems = append(problems, man.validateNeeds()...)
 	kept := make([]Contribution, 0, len(man.Contributes))
 	for i, c := range man.Contributes {
 		if c.Kind != "" && !KnownKind(c.Kind) {
@@ -407,6 +415,7 @@ func unknownWireAPISkip(i int, c Contribution) (Contribution, []string) {
 func (m *Manifest) Validate() []string {
 	problems := m.validateSkillsTier()
 	problems = append(problems, m.validateSupersedes()...)
+	problems = append(problems, m.validateNeeds()...)
 	return append(problems, m.validateContributions()...)
 }
 
