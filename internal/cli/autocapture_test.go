@@ -171,6 +171,45 @@ func TestAutoCaptureNeverFailsTheLaunch(t *testing.T) {
 	}
 }
 
+// TestAutoCaptureSkipsWhileAnotherWorkspaceIsCapturing is slice 7's lock bullet, asserted
+// where the trigger meets it: two workspaces launching at once must not both capture, and
+// the loser SKIPS rather than waits — its launch installs lazily, the pre-capture status
+// quo.
+//
+// The lock is captureHost's (TestCaptureRefusesWhileAnotherCaptureHoldsTheLock pins the
+// refusal itself); what this adds is the trigger's disposition toward it. Taking the lock
+// out here as well would be self-contention rather than extra safety, so the only thing
+// left to check is that a contended capture is a warning and not a stalled launch.
+func TestAutoCaptureSkipsWhileAnotherWorkspaceIsCapturing(t *testing.T) {
+	home := captureFixtureHome(t, captureFixtureInstaller)
+	held := tryFlockAt(captureLockPath("probetool"))
+	if held == nil {
+		t.Skip("flock is a no-op on this filesystem")
+	}
+	defer held.Close()
+	// Same guard the sibling test carries: flock is per open file description, so this
+	// only models a second PROCESS where the OS makes a second fd conflict.
+	if probe := tryFlockAt(captureLockPath("probetool")); probe != nil {
+		probe.Close()
+		t.Skip("this filesystem does not make a second flock on the same file conflict")
+	}
+	withFakeCaptureJail(t, func(run.Options) int {
+		t.Error("no capture jail may launch while another workspace holds the lock")
+		return 0
+	})
+
+	var out, errw bytes.Buffer
+	autoCapture([]string{"probetool"}, capturedPlatform, &out, &errw, false)
+
+	store := &capture.Store{Dir: paths.CapturesDirUnder(home)}
+	if keys, _ := store.EntryKeys(); len(keys) != 0 {
+		t.Errorf("the losing launch admitted %v", keys)
+	}
+	if !strings.Contains(errw.String(), "probetool") {
+		t.Errorf("the skipped capture did not name the program:\n%s", errw.String())
+	}
+}
+
 // TestAutoCaptureHonorsTheEscapeHatch: YOLO_NO_AUTO_CAPTURE suppresses the trigger,
 // loudly, naming what it suppressed — the YOLO_NO_HOST_LOOPBACK convention.
 //
