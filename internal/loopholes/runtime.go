@@ -105,9 +105,13 @@ func gateAdmitsCrossing(m *Loophole, gate *Set, what string) bool {
 		return false
 	}
 	// MayRunHostCode is the one decision, and it governs the READS as well as the
-	// execution: it is p.MayAccessHost, which packMayAccessHost already decided for the
-	// whole pack. A pack that may not read the host certainly may not bind-mount one of
-	// its directories into a UID-0 jail.
+	// execution. ⚠ It used to be `p.MayAccessHost`, decided per pack by
+	// `packMayAccessHost` — BOTH were deleted on 2026-09-04 with the fetched-pack
+	// approval gate (docs/design/trust-paths.md OQ-TP9), because selecting a pack means
+	// writing user-scope config as the host user, which already exceeds what the gate
+	// withheld. `HostExecApproved` is now always true from production, and its false arm
+	// means "the caller assembled a []*Loophole without resolving packs" — API misuse,
+	// not consent. This gate still refuses that, which is why it stays.
 	return gate.MayRunHostCode(m)
 }
 
@@ -318,8 +322,8 @@ type DoctorResult struct {
 //
 // The reason it is enforced HERE, in the callee, is that two of the doctor call sites are
 // `yolo check` and `yolo loopholes status` — commands users and AGENTS.md treat as
-// READ-ONLY PREFLIGHT — and neither has pack resolution, a lockfile or packMayAccessHost
-// anywhere in reach. A rule they were merely asked to follow is a rule the next call site
+// READ-ONLY PREFLIGHT — and neither had pack resolution, a lockfile or (while it existed)
+// `packMayAccessHost` anywhere in reach. A rule they were merely asked to follow is a rule the next call site
 // does not know about; a slice carries no gate, so the only place the check cannot be
 // forgotten is inside the function that spawns the process. A caller that DID evaluate the
 // gate says so by going through Set.RunDoctorChecks below.
