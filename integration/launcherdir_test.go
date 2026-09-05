@@ -12,11 +12,15 @@ import (
 // second anchor, the writability of both anchors under a :ro /home/agent, and the actual
 // resolution order a shell performs.
 //
-// TestPackProgramDoesNotShadowABakedBinary is the payoff — the defect the split removed.
+// TestPackProgramDoesNotShadowABakedBinary is the payoff, and under B2
+// (docs/design/program-delivery.md §3.5, OQ-PD12a) it is the cell that MATTERS MOST in
+// this file: it used to pass by POSITION — the launch dir sat after /bin, so shadowing was
+// unrepresentable — and now it can only pass because the generation-time collision check
+// declined to write the launcher. It is the same assertion measuring a different mechanism.
 
 // TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered covers, in one launch:
 //
-//  1. PATH order — blockers first, launchers last (after /bin).
+//  1. PATH order — blockers first, launchers second, both ahead of the install prefixes.
 //  2. Blockers still block (`grep -r` → 127, `find` → 127).
 //  3. YOLO_BYPASS_SHIMS=1 still lets the real tool through.
 //  4. BOTH generated dirs are writable, which is the mount question: each is a bind-mount
@@ -78,18 +82,27 @@ func TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered(t *testing.T) {
 	}
 	shimIdx := idx("/home/agent/.yolo/bin/block")
 	launcherIdx := idx("/home/agent/.yolo/bin/launch")
-	binIdx := idx("/bin")
 	if shimIdx != 0 {
 		t.Errorf("the blocker dir must be first on PATH, got index %d in %v", shimIdx, dirs)
 	}
 	if launcherIdx < 0 {
 		t.Fatalf("the launcher dir is missing from PATH: %v", dirs)
 	}
-	if binIdx < 0 || launcherIdx < binIdx {
-		t.Errorf("the launcher dir (%d) must come AFTER /bin (%d): %v", launcherIdx, binIdx, dirs)
+	if launcherIdx != 1 {
+		t.Errorf("the launcher dir must be SECOND, immediately after the blockers, got "+
+			"index %d in %v", launcherIdx, dirs)
 	}
-	if launcherIdx != len(dirs)-1 {
-		t.Errorf("the launcher dir must be last on PATH: %v", dirs)
+	// AHEAD of every install prefix (B2). A launcher ordered after what it installs into is
+	// unreachable from its own second invocation onward, which is why the update it carries
+	// had not run in nine days. This is the assertion the shell actually performs, in a real
+	// container, against the PATH the entrypoint set.
+	for _, prefix := range []string{
+		"/home/agent/.npm-global/bin", "/home/agent/.local/bin", "/home/agent/go/bin",
+	} {
+		if p := idx(prefix); p >= 0 && launcherIdx > p {
+			t.Errorf("the launcher dir (%d) must precede the install prefix %s (%d): %v",
+				launcherIdx, prefix, p, dirs)
+		}
 	}
 
 	// (2) Blockers still block, and the argv filter still lets plain usage through.
@@ -116,13 +129,22 @@ func TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered(t *testing.T) {
 	}
 }
 
-// TestPackProgramDoesNotShadowABakedBinary is defect 11.1, from the outside.
+// TestPackProgramDoesNotShadowABakedBinary is defect 11.1, from the outside — and since B2
+// it is the integration cell that would catch the collision check breaking.
 //
 // A pack declaring `program fzf` used to write ~/.yolo/bin/block/fzf, which PRECEDED the
 // image's working /bin/fzf. The launcher execs $NPM_CONFIG_PREFIX/bin/fzf and never
 // consults PATH, so with no npm install it printed "⚠ fzf not available" and exited 1 —
-// declaring an honest dependency BROKE the tool. With the launcher dir ordered after /bin,
-// the launcher is unreachable while /bin/fzf exists.
+// declaring an honest dependency BROKE the tool.
+//
+// WHAT PREVENTS THAT CHANGED, AND THE ASSERTION MOVED WITH IT. Until B2 the launch dir sat
+// after /bin, so the launcher was written and simply never reached; this test asserted its
+// PRESENCE, to prove the declaration had not been silently dropped. Now the launch dir is
+// second, so the launcher would be reached — and the protection is that no launcher is
+// written for a name the image provides (internal/entrypoint/launchercollision.go). The
+// cell therefore asserts its ABSENCE, and the unit half
+// (TestNoLauncherForANameTheImageProvides) checks that a name the image does NOT provide
+// still gets one, which is what keeps "write nothing at all" from passing both.
 //
 // fzf is a real baked package (flake.nix fullPackages), which is what makes this a
 // regression test rather than a hypothetical.
@@ -150,11 +172,12 @@ func TestPackProgramDoesNotShadowABakedBinary(t *testing.T) {
 		`echo "=== VERSION ==="`,
 		`fzf --version; echo "fzf_rc=$?"`,
 		`echo "=== LAUNCHER ==="`,
-		// The launcher IS generated (the pack asked for it) — it is just ordered where
-		// nothing reaches it while a real fzf exists. Both halves matter: an absent
-		// launcher would mean the pack's declaration was silently dropped.
-		`test -x "$HOME/.yolo/bin/launch/fzf" && echo "launcher_present=yes"`,
+		// No launcher is written at all: the image provides fzf, and under B2 the launch
+		// dir precedes /bin, so a written one would be REACHED.
+		`test -e "$HOME/.yolo/bin/launch/fzf" && echo "launcher_present=yes" || echo "launcher_present=no"`,
 		`test -e "$HOME/.yolo/bin/block/fzf" && echo "shim_present=yes" || echo "shim_present=no"`,
+		// And the boot said why, rather than dropping the declaration in silence.
+		`echo "=== WARNED ==="`,
 	}, "; ")
 
 	r := runYolo(t, dir, script)
@@ -176,12 +199,18 @@ func TestPackProgramDoesNotShadowABakedBinary(t *testing.T) {
 		t.Errorf("the lazy launcher ran and failed — it is still ahead of /bin:\n%s", version)
 	}
 
-	launcher := section(r.stdout, "=== LAUNCHER ===", "")
-	if !strings.Contains(launcher, "launcher_present=yes") {
-		t.Errorf("the pack's launcher should still be generated (just unreachable while "+
-			"/bin/fzf exists):\n%s", launcher)
+	launcher := section(r.stdout, "=== LAUNCHER ===", "=== WARNED ===")
+	if !strings.Contains(launcher, "launcher_present=no") {
+		t.Errorf("a launcher was written for fzf, which the image provides. Under B2 the "+
+			"launch dir precedes /bin, so that launcher IS reached — this is exactly the "+
+			"shadowing the generation-time collision check exists to prevent:\n%s", launcher)
 	}
 	if !strings.Contains(launcher, "shim_present=no") {
 		t.Errorf("a `program` launcher must NOT be written into the blocker dir:\n%s", launcher)
+	}
+	// The declaration must not vanish in silence: a pack asked for a program and did not
+	// get a launcher, and "the image already provides it" is the answer the user needs.
+	if !strings.Contains(r.stderr, "no launcher for fzf") {
+		t.Errorf("the boot must say why fzf got no launcher:\nstderr: %s", r.stderr)
 	}
 }

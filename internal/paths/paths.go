@@ -631,6 +631,6 @@ var JailPathHomeDirs = []string{
 	".local/bin",       // entrypoint.Env.LocalBin
 	".npm-global/bin",  // entrypoint.Env.NpmBin (NPM_CONFIG_PREFIX/bin)
 	".yolo/bin/block",  // entrypoint.Env.BlockDir — blockers, PATH head
-	".yolo/bin/launch", // entrypoint.Env.LaunchDir — lazy installers, PATH tail
+	".yolo/bin/launch", // entrypoint.Env.LaunchDir — lazy installers, PATH head (B2)
 	"go/bin",           // entrypoint.Env.GoBin (GOPATH/bin)
 }

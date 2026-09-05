@@ -137,17 +137,27 @@ fi
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 export GOPATH="${GOPATH:-$HOME/go}"
-# Two generated dirs, at OPPOSITE ends of PATH, because they are different mechanisms:
+# Two generated dirs, ADJACENT AND AT THE FRONT, because they are different mechanisms
+# whose relative order is what carries the meaning (B2, program-delivery.md §3.5):
 #   BLOCK_DIR    — blocked-tool blockers (grep, find). Interception is the whole job, so
-#                  they must PRECEDE the real binary.
-#   LAUNCH_DIR   — lazy installers (claude, pnpm). They only need to run when nothing
-#                  else provides the name, so they go LAST, after /bin. That is what
-#                  makes a pack declaring "program fzf" unable to shadow /bin/fzf.
+#                  they must PRECEDE everything, the launchers included.
+#   LAUNCH_DIR   — lazy installers/updaters (claude, pnpm). AHEAD of the install prefixes,
+#                  because a launcher that comes after what it installs is unreachable
+#                  from its own second invocation onward — which is why the hourly update
+#                  it carries had not run in nine days. A launcher is kept from shadowing
+#                  a baked binary by a GENERATION-TIME check now (launchercollision.go),
+#                  not by this position.
+#
+# THIS STRING IS A SECOND, INDEPENDENTLY-WRITTEN COPY of BootPath (boot.go), which is the
+# authority. They disagreed about $HOME/.local/bin for months — second here, fifth there —
+# because the only test comparing them asserted "block first, launch last" and nothing
+# about the middle. They are now identical, and launcherdir_test.go compares them entry by
+# entry.
 BLOCK_DIR="${HOME}/.yolo/bin/block"
 LAUNCH_DIR="${HOME}/.yolo/bin/launch"
-export PATH="$BLOCK_DIR:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:`
+export PATH="$BLOCK_DIR:$LAUNCH_DIR:$NPM_CONFIG_PREFIX/bin:`
 
-const bashrcPart3 = `:$GOPATH/bin:/bin:/usr/bin:$LAUNCH_DIR"
+const bashrcPart3 = `:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin"
 
 # Activate mise with shell hooks (interactive shells only).
 # Non-interactive shells (bash -lc) skip activation to avoid a deadlock:

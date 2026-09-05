@@ -622,12 +622,16 @@ places, and today the two lists already disagree.
 `:551`). A delivery step added there fails loudly by construction — which is exactly the property
 §7 says the *build* path lacks.
 
-**The ordering is the whole design and it constrains §4.** `~/.yolo-launchers` is ordered *last*,
-after `/bin`, specifically so a pack-declared `program fzf` cannot shadow the image's `/bin/fzf` —
-"the failure is unrepresentable rather than handled" (`AGENTS.md:321-337`,
-`internal/entrypoint/boot.go:343-361`, `internal/entrypoint/env.go:265-289`). Any proposal that
-delivers a package via a boot-written PATH dir inherits that ordering, and therefore **cannot
-shadow anything the image bakes**. A candidate that moves a package *out* of the image and into a
+**The ordering is the whole design and it constrains §4** — ⚠ **and it CHANGED on 2026-09-04**
+(B2, [`program-delivery.md`](program-delivery.md) §3.5, OQ-PD12a). The launcher dir (now
+`~/.yolo/bin/launch`) used to be ordered *last*, after `/bin`, specifically so a pack-declared
+`program fzf` could not shadow the image's `/bin/fzf` — "the failure is unrepresentable rather
+than handled". That position also made the launcher unreachable past its own first install, so
+it is now SECOND, and the protection is a generation-time check
+(`internal/entrypoint/launchercollision.go`): no launcher is written for a name the image or a
+declared mise tool provides. Any proposal that delivers a package via a boot-written PATH dir
+still therefore **cannot shadow anything the image bakes** — but now by a CHECK rather than by
+position, which is a weaker guarantee (a bug in the check is expressible). A candidate that moves a package *out* of the image and into a
 launch-time dir is safe on that axis; a candidate that leaves it baked *and* stages it is not — the
 baked one silently wins.
 
@@ -1156,7 +1160,7 @@ an invention.
 | Content | How |
 |---|---|
 | Blocked-tool shims (`~/.yolo-shims`) | `GenerateShims`, every boot (`internal/entrypoint/shims.go:41`, `boot.go:432`); `flake.nix:1018-1021` records that the baked shim layer was *removed* |
-| Lazy agent/package-manager launchers (`~/.yolo-launchers`) | `GenerateAgentLaunchers` / `GeneratePackageManagerLaunchers`, every boot (`shims.go:187`, `:298`; `boot.go:434-436`); ordered last on PATH (`internal/entrypoint/boot.go:343-361`, rationale at `internal/entrypoint/env.go:265-289`) |
+| Lazy agent/package-manager launchers (`~/.yolo/bin/launch`) | `GenerateAgentLaunchers` / `GeneratePackageManagerLaunchers`, every boot; ordered SECOND on PATH since B2 (`internal/entrypoint/boot.go`'s `BootPath`, rationale at `internal/entrypoint/env.go`'s `LaunchDir`) |
 | `/etc/ld.so.cache` | Boot-generated into `/run` (`internal/entrypoint/system_boot.go:58`, `boot.go:426`); rationale `flake.nix:734-747` |
 | `/etc/localtime`, `/etc/timezone` | Boot-populated `/run` targets (`internal/entrypoint/system_boot.go:20`, `boot.go:422`) |
 | CA bundle, `.bashrc`, bootstrap + venv scripts, MCP wrappers | Boot-generated (`internal/entrypoint/system.go:16`, `shell.go:64`, `:163`, `:395`, `mcp_wrappers.go:7`). **Not** `yolo-cglimit` / `yolo-journalctl` any more — those are baked binaries and the entrypoint only unlinks the scripts an older one wrote (`scripts.go:24-29`, `:40-45`) |

@@ -30,11 +30,12 @@ Beyond the rulings,
 > declarations-vs-content, and the three findings in §3 — none of which the ruling touches.
 > Roughly a hundred lines of npm argument came out; nothing else moved.
 >
-> ⚠ **`§1 row 1` is still a live anchor and was deliberately NOT renumbered.** Six code sites cite it
-> (`internal/cli/pack.go:190`, `internal/cli/packupdate.go:9`, `internal/entrypoint/shims.go:622` and
-> `:729`, `internal/cli/packupdate_test.go`, `internal/entrypoint/npmlauncher_test.go`). Those
-> comments describe code that still behaves exactly as they say; they go stale when the evergreen
-> work lands, and that commit owns updating them.
+> ⚠ **`§1 row 1` is still a live anchor and was deliberately NOT renumbered**, and the code
+> comments that cite it now describe SUPERSEDED behaviour. The evergreen work landed 2026-09-04:
+> `_poll_and_report` is deleted, and an unpinned agent package is updated by the launcher at the
+> user's own invocation, throttled by a stamp and gated by `agent_updates`. `yolo pack update`
+> survives with a smaller job. A PINNED package is untouched, so the row's "a declared selector
+> is the answer" half is still live.
 
 **The short version.** Twenty-six paths deliver someone else's content into a jail.
 **Pinning changes an outcome in three of them** ([§1](#1-the-verdict)); everywhere else it is
@@ -70,7 +71,7 @@ against exactly one threat, the silent update.
 | **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2](#agent-context-needs-no-gate-of-its-own) |
 | **OQ-TP3** | **RETIRED, not answered.** *"Is pinning worth building, and where first?"* — its ranking put npm first, and npm no longer takes a pin. Its still-open half (*must a pack pin, or merely may it?*) was inherited at wider scope as `program-delivery.md` OQ-PD6 and ruled there: the receipt is the pin, for **project** dependencies; an agent dependency has no pin to obey | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) §3.5, OQ-PD6 |
 | **OQ-TP4** | **RETIRED as posed.** *"Where does an EMBEDDED pack's npm version get pinned?"* — nowhere, because it is not pinned at all. Its three options (manifest / lockfile / user config) were all venues for a record that the evergreen ruling deletes the need for. **What must not be re-derived:** option (a)'s cost — pinning in the manifest makes yolo's release cadence the ceiling on agent-CLI freshness — which is the same objection `program-delivery.md` §5.1 hits, and is now an argument *for* the ruling rather than a cost of one option | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) §3.5, OQ-PD12 |
-| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by `program-delivery.md` OQ-PD12**: all four packs it governed are agent dependencies, which are now ruled **evergreen**, updated on the boot path at every launch. The ruling stands as a description of the code **as it is today** — the reversal is ruled, not built | 2026-08-18 · superseded 2026-09-03 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
+| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by `program-delivery.md` OQ-PD12 and REVERSED IN CODE 2026-09-04**: all four packs it governed are agent dependencies, which are ruled **evergreen** — updated by the launcher at the user's own invocation (NOT on the boot path; B2/OQ-PD12a deleted the eager-at-boot shape the same day it was proposed). `_poll_and_report` is gone; a PINNED package still resolves nothing | 2026-08-18 · superseded 2026-09-03 · reversed in code 2026-09-04 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. Untouched by the evergreen ruling — it is about consent, not cadence | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 | **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` keeps running with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate fails a parity check: `host.go:458` folds each pack's **static** `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive computes a field the manifest can already state literally, and gating the computed path while the literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home at that notch. The disclosure is the commit pin (OQ-LP8), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§12 OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) |
 | **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refuses an actor who has already passed a stronger one — [`gate-placement-principle.md`](gate-placement-principle.md) Test 1, already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house by `pack-execution-trust.md` §2 (ungated `npm postinstall` is the same arbitrary in-jail execution). **Keep** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner; ⚠ **CORRECTED same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on is OQ-LP8's two undelivered DOC requirements, not enforcement; deleting the gate makes the lockfile write-only at launch, and **G2b is moot**. ⛔ Retires OQ-TP7 | 2026-09-04 | [§12 OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) |
@@ -80,13 +81,13 @@ against exactly one threat, the silent update.
 > repinned 2026-09-02** (the install-receipts feature and the provider arc pushed `shims.go` and
 > `run/packs.go` down by hundreds of lines; every quoted behaviour is unchanged at its new line).
 > A merged commit is not evidence that the behaviour is still there, so:
-> **TP5** — [`shims.go:680-687`](../../internal/entrypoint/shims.go) is `_poll_and_report`, which runs
-> `npm view` and *prints* `"<installed> → <latest> is available. Run 'yolo pack update'"`; the only
-> resolving path is `_update`, reachable solely through
-> [`shims.go:743-755`](../../internal/entrypoint/shims.go)'s `YOLO_PACK_UPDATE=1` guard, which exits
-> instead of exec'ing; `yolo pack update` is the one setter
-> ([`packupdate.go:60`](../../internal/cli/packupdate.go)); the cold branch
-> ([`shims.go:757-766`](../../internal/entrypoint/shims.go)) is still deliberately untouched.
+> **TP5 — NO LONGER IN THE TREE as of 2026-09-04.** `_poll_and_report` is deleted from
+> [`shims.go`](../../internal/entrypoint/shims.go); the launch path now calls `_update` through
+> `_update_due` (the `agent_updates` policy plus the stamp) and `_locked_update` (the
+> install-prefix lock). `YOLO_PACK_UPDATE=1` is no longer the only way in, but it is still the
+> only way to refresh NOW, ignoring the stamp and the policy, and it still exits instead of
+> exec'ing; `yolo pack update` remains the one setter
+> ([`packupdate.go`](../../internal/cli/packupdate.go)). The cold branch is untouched.
 > **TP6** — [`run/packs.go:228`](../../internal/cli/run/packs.go) accumulates `packRefusals(p)` and
 > `:247` returns `refusedLaunchError`, ahead of the mechanical pre-flights; the message itself is
 > [`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go) and still names the pack, the
@@ -163,19 +164,25 @@ retired — kept because they remain true of the lockfile and constrain anything
    > **SUPERSEDED 2026-09-03 — this row no longer asks for a pin, and the anchor is kept only
    > because code cites it.** OQ-TP5 ruled *no evergreen npm* on 2026-08-18 and it was built
    > (`b3a29ad8`): the hourly poll became informational, and `YOLO_PACK_UPDATE=1` — which only
-   > `yolo pack update` sets — became the sole path that resolves a version. **That is still exactly
-   > what the code does**, which is why the six code comments citing `§1 row 1` are accurate today.
+   > `yolo pack update` sets — became the sole path that resolves a version. ⚠ **That stopped
+   > being what the code does on 2026-09-04**: the poll is deleted and the launch path updates an
+   > unpinned agent package itself. What survives unchanged is the PINNED half — a declared
+   > selector still resolves nothing.
    >
    > What changed is the ruling above it. [`program-delivery.md`](./program-delivery.md) §3.5
    > classifies all four npm-declaring packs (pi, copilot, codex, opencode) as **agent
-   > dependencies** and rules that class **evergreen** — updated on the boot path at every launch,
-   > with no pin, because there is nothing for an agent CLI to be reproducible against. So this
-   > row's open question (*where does the resolved version get recorded?*, OQ-TP4) is retired
-   > unanswered: nothing records it because nothing needs to obey it.
+   > dependencies** and rules that class **evergreen** — updated at the USER'S OWN INVOCATION of
+   > the agent, with no pin, because there is nothing for an agent CLI to be reproducible
+   > against. (An earlier draft of §3.5 said *"on the boot path at every launch"*; B2/OQ-PD12a
+   > superseded that the same day, and **there is no boot step anywhere in the shipped design**.)
+   > So this row's open question (*where does the resolved version get recorded?*, OQ-TP4) is
+   > retired unanswered: nothing records it because nothing needs to obey it.
    >
    > **Two measurements settled it**, both 2026-09-03. The mechanism OQ-TP5 built has never fired
-   > in steady state — the launcher hosting it sits last on `PATH` and is shadowed by the real
-   > binary the moment the first install lands (`program-delivery.md` OQ-PD8). And the four agents
+   > in steady state — the launcher hosting it sat last on `PATH` and was shadowed by the real
+   > binary the moment the first install landed (`program-delivery.md` OQ-PD8; B2 moved the
+   > launch dir to SECOND on 2026-09-04, which is what makes the launcher reachable at all).
+   > And the four agents
    > it governs were **six weeks stale**: copilot 1.0.48 against 1.0.82, codex 0.145.0 against
    > 0.153.1, pi 0.82.1 against 0.84.4. The silent update the ruling defended against never
    > happened; the freeze it caused did.

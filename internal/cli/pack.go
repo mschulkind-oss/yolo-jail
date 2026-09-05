@@ -101,7 +101,8 @@ Every one of those is a separate claim you approve, and the daemon claim carries
 argv — so a pack whose daemon changes re-prompts.
 
 program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
-launcher, last on PATH), requires means it must already be there and yolo installs
+launcher near the head of PATH, which also keeps it up to date), requires means it must
+already be there and yolo installs
 nothing — which is what a pack needing a baked or user-provided tool wants, and the only
 way for a content-only pack to carry install_hints for the host notch.
 

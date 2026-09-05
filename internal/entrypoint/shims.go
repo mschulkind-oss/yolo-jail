@@ -36,8 +36,9 @@ func resetAnchorDir(dir string) error {
 // The shim body is the frozen argv-filter contract: message/suggestion text +
 // exit code 127. See ShimContent for the exact grammar.
 //
-// BlockDir (~/.yolo/bin/block) is the BLOCKER dir and is ordered FIRST on PATH. The lazy
-// installers live in ~/.yolo/bin/launch, ordered LAST — see Env.LaunchDir.
+// BlockDir (~/.yolo/bin/block) is the BLOCKER dir and is ordered FIRST on PATH — ahead of
+// the lazy installers in ~/.yolo/bin/launch, which are SECOND since B2. Interception must
+// outrank installation. See Env.LaunchDir.
 func GenerateShims(e *Env) error {
 	if err := resetAnchorDir(e.BlockDir()); err != nil {
 		return err
@@ -229,8 +230,9 @@ func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) stri
 	return strings.Join(lines, "\n")
 }
 
-// GenerateAgentLaunchers writes one lazy-install launcher per pack `program`
-// contribution into the LAUNCH dir (~/.yolo/bin/launch), which is ordered LAST on PATH.
+// GenerateAgentLaunchers writes one lazy install-and-update launcher per pack `program`
+// contribution into the LAUNCH dir (~/.yolo/bin/launch), which is ordered SECOND on PATH
+// since B2 — ahead of the install prefixes, so the launcher mediates every invocation.
 // npm vs native launcher body is driven by the pack's install declaration.
 //
 // EVERY program contribution, not the first: a pack declaring `shellcheck` and `shfmt`
@@ -241,8 +243,8 @@ func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) stri
 // It no longer skips a name a blocked-tool shim owns, and that is the point of the split
 // rather than an omission. The two dirs cannot collide, so a tool that is BOTH blocked and
 // declared as a pack `program` gets a blocker in ~/.yolo/bin/block (first on PATH) and a
-// launcher in ~/.yolo/bin/launch (last) — and the blocker wins by position, which is the
-// correct outcome. Previously the launcher was simply never written, so a config that later
+// launcher in ~/.yolo/bin/launch (second) — and the blocker wins by position, which is the
+// correct outcome and is why the two dirs stay in that order under B2. Previously the launcher was simply never written, so a config that later
 // unblocked the tool left it with no installer until the next boot.
 //
 // This is also the FIRST generator to write into the launcher dir, so it owns the

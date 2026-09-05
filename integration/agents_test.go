@@ -186,7 +186,7 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 // mount is the filter, and this proves it from outside.
 //
 // The launchers moved out of ~/.yolo/bin/block (blockers only, first on PATH) into
-// ~/.yolo/bin/launch (lazy installers, last on PATH). Asserting on the OLD path would have
+// ~/.yolo/bin/launch (lazy installers, second on PATH since B2). Asserting on the OLD path would have
 // stayed green for the wrong reason — nothing is ever written there now.
 func TestPackSelectionPrunesUnselected(t *testing.T) {
 	requireJail(t)

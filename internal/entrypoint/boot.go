@@ -344,20 +344,32 @@ func installClaudePlugins(e *Env) {
 // BootPath is THE PATH the entrypoint hands the agent, and the authority the .bashrc
 // export (shell.go) and AGENTS.md's "PATH order (exact)" line mirror.
 //
-// The two generated dirs sit at OPPOSITE ENDS on purpose:
+// THE TWO GENERATED DIRS ARE NOW ADJACENT, AT THE FRONT, and that is B2
+// (docs/design/program-delivery.md §3.5, OQ-PD12a). They are still different mechanisms
+// and their ORDER relative to each other is still the whole point:
 //
 //   - BlockDir FIRST — blockers (grep, find). Interception is their whole job, so they
-//     must precede the real binary.
-//   - LaunchDir LAST, after /bin and /usr/bin — lazy installers (claude, pnpm). They
-//     only need to run when nothing else provides the name, so ordering them here makes
-//     shadowing a baked binary UNREPRESENTABLE rather than something the launcher has to
-//     detect. See Env.LaunchDir for the defect this closed.
+//     must precede everything, the launchers included: a tool that is both blocked and
+//     pack-declared must resolve to the blocker.
+//   - LaunchDir SECOND, AHEAD of the install prefixes — lazy installers/updaters (claude,
+//     pnpm). It used to be last, after /bin, which made shadowing a baked binary
+//     unrepresentable — and made the launcher unreachable the moment it succeeded, since
+//     it installs into $NPM_CONFIG_PREFIX/bin or $HOME/.local/bin, both of which precede
+//     it. The lazy INSTALL still worked (nothing was installed yet); the hourly UPDATE the
+//     same script carries never ran again. Measured: claude.stamp untouched for nine days,
+//     nineteen before that (OQ-PD8). Evergreen (OQ-PD12) needs the launcher to mediate
+//     EVERY invocation, so the dir has to precede what it installs.
+//
+// What replaces the old position is a GENERATION-TIME check: no launcher is written for a
+// name the image (or a declared mise tool) already provides — see launchercollision.go,
+// which also explains why the check must ignore the install prefixes. Same outcome, weaker
+// guarantee, and the trade is named in §3.5 rather than assumed.
 //
 // Extracted from execBash so the order is assertable without exec'ing a shell.
 func BootPath(e *Env) string {
 	return strings.Join([]string{
-		e.BlockDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(), "/bin", "/usr/bin",
-		e.LaunchDir(),
+		e.BlockDir(), e.LaunchDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(),
+		"/bin", "/usr/bin",
 	}, ":")
 }
 
