@@ -548,6 +548,12 @@ func forget(req Request, dest string) {
 
 // Changed reports whether delivering src over dest would alter it, by content digest.
 //
+// THE DIGEST IS OF THE DELIVERED FORM (delivered.go), not of the tree as it sits: the source is
+// measured as the delivery would materialize it — links read through, mode down to the exec bit
+// — because those are the only properties the copy carries across. Measuring anything else is
+// how this predicate came to answer CHANGED for a symlinked or 0o700 source forever, re-writing
+// and re-archiving its own output on every apply.
+//
 // An UNREADABLE side reads as CHANGED, which is the direction that archives rather than skips: the
 // only consequence of a false positive is one recoverable copy in the archive, while a false
 // negative would replace content nobody could compare without keeping a copy of it.
@@ -573,8 +579,8 @@ func Changed(src, dest string) bool {
 // be held aside on both sides is changedTreeSkipping's case.
 func changedExcept(src, dest string, exclude []string) bool {
 	skip := skipSetUnder(src, exclude)
-	a, aerr := treeDigestSkipping(src, skip)
-	b, berr := treeDigestSkipping(dest, nil)
+	a, aerr := deliveredDigest(src, skip, true)
+	b, berr := deliveredDigest(dest, nil, false)
 	return aerr != nil || berr != nil || a != b
 }
 
@@ -582,8 +588,8 @@ func changedExcept(src, dest string, exclude []string) bool {
 // sides — for a delivery whose destination differs from its source at a known path by design.
 // Its one caller is changedPluginTree; see there for what that path is and why.
 func changedTreeSkipping(src, dest string, skip map[string]bool) bool {
-	a, aerr := treeDigestSkipping(src, skip)
-	b, berr := treeDigestSkipping(dest, skip)
+	a, aerr := deliveredDigest(src, skip, true)
+	b, berr := deliveredDigest(dest, skip, false)
 	return aerr != nil || berr != nil || a != b
 }
 

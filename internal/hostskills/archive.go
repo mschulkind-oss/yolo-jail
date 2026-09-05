@@ -66,12 +66,24 @@ func Archive(root ArchiveRoot, stamp, pack, src string) (string, error) {
 
 // copyTree copies a file or directory tree, preserving the exec bit (a skill may ship a
 // script, and an archived copy the user restores must still run).
+//
+// IT MATERIALIZES SYMLINKS, all of them, and that is the delivered form (delivered.go): the
+// destination is a real agent home whose tools must be able to read the skill, and a link
+// copied verbatim would either resolve against the wrong parent (a relative one) or turn
+// yolo's own output into a pointer at the user's dotfiles repo — so their next `git mv` would
+// leave the destination full of exactly the dangling links dangling.go exists to clean up.
 func copyTree(src, dst string) error { return copyTreeExcept(src, dst, nil) }
 
 // copyTreeExcept is copyTree skipping the given absolute source paths (and their subtrees).
 // The only caller that passes any is the flat plugin delivery — see Request.excludePaths for
 // why omitting content is the honest option there and nowhere else.
 func copyTreeExcept(src, dst string, exclude []string) error {
+	return copyTreeInto(src, dst, exclude, followedDirs{})
+}
+
+// copyTreeInto is copyTreeExcept carrying the cycle guard down the descent. See followedDirs:
+// following a directory link is what makes an endless walk possible at all.
+func copyTreeInto(src, dst string, exclude []string, walked followedDirs) error {
 	for _, ex := range exclude {
 		if filepath.Clean(ex) == filepath.Clean(src) {
 			return nil
@@ -81,7 +93,28 @@ func copyTreeExcept(src, dst string, exclude []string) error {
 	if err != nil {
 		return err
 	}
+	linked := fi.Mode()&os.ModeSymlink != 0
+	if linked {
+		// STAT, not Lstat, and both halves matter. A symlinked DIRECTORY is a legitimate skill
+		// — collectSkills admits one deliberately, "the tools follow them" — and Lstat's
+		// IsDir is false for it, so the copy fell through to os.ReadFile and refused the
+		// whole delivery with `is a directory`. A symlinked FILE was copied (ReadFile
+		// follows) but took its mode from the LINK, whose 0o777 made every one of them
+		// executable at the destination.
+		resolved, serr := os.Stat(src)
+		if serr != nil {
+			return serr
+		}
+		fi = resolved
+	}
 	if fi.IsDir() {
+		if linked {
+			leave, cerr := walked.enter(src)
+			if cerr != nil {
+				return cerr
+			}
+			defer leave()
+		}
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return err
 		}
@@ -90,8 +123,8 @@ func copyTreeExcept(src, dst string, exclude []string) error {
 			return err
 		}
 		for _, e := range entries {
-			if err := copyTreeExcept(filepath.Join(src, e.Name()),
-				filepath.Join(dst, e.Name()), exclude); err != nil {
+			if err := copyTreeInto(filepath.Join(src, e.Name()),
+				filepath.Join(dst, e.Name()), exclude, walked); err != nil {
 				return err
 			}
 		}

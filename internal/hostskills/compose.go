@@ -946,17 +946,21 @@ func PruneHostSkills(candidates []*packload.Pack, active map[string]bool, homeDi
 	return out, nil
 }
 
-// treeDigest and treeDigestSkipping are internal/treedigest, kept as package-local names
-// because they are what this package's callers and its tests already say. The bodies moved to
-// that package on 2026-09-04 so the installer-capture store (internal/capture) hashes a tree the
-// same way this one does; these tests are the gate that the lift was faithful, so they were not
-// touched. See the treedigest package comment for the canonical form and why a symlink is
-// recorded by readlink rather than followed.
+// treeDigest is internal/treedigest, kept as a package-local name because it is what this
+// package's callers and its tests already say. The body moved to that package on 2026-09-04 so
+// the installer-capture store (internal/capture) hashes a tree the same way this one does; these
+// tests are the gate that the lift was faithful, so they were not touched. See the treedigest
+// package comment for the canonical form and why a symlink is recorded by readlink rather than
+// followed.
+//
+// ITS ONE REMAINING USE HERE IS THE MIGRATION UNION — this function and plannedLocalPack, asking
+// "is this adopted skill already in the local pack?" of two of the USER's trees, neither of which
+// is materialized by the comparison. That is the identity question treedigest exists for: two
+// dotfile-managed copies pointing at DIFFERENT sources are different skills.
+//
+// The DELIVERY predicate is not this and must never be lifted back onto it — see delivered.go for
+// what a delivery preserves and why measuring anything else never converges.
 func treeDigest(root string) (string, error) { return treedigest.Of(root) }
-
-func treeDigestSkipping(root string, skip map[string]bool) (string, error) {
-	return treedigest.OfSkipping(root, skip)
-}
 
 // moveTree moves src to dst, creating dst's parent. A rename first (cheap, atomic within a
 // filesystem), then copy+remove for the cross-device case — the local pack lives under the config

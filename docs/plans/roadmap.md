@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 12 needing you · 2 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 1 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-05**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -513,9 +513,12 @@ requirement on the jail's pack set — and therefore whether addressed content p
 
 # 📦 Up next
 
-**Two items**, and neither was here yesterday morning. C4 and C5 are deliberately
-NOT here — their go/no-go is an explicit 🧊 row, and queueing them before you call it would be
-queueing a question.
+**One item**, and it was not here yesterday — it was found while closing one of the three that
+were. C4 and C5 are deliberately NOT here — their go/no-go is an explicit 🧊 row.
+
+**Three rows closed 2026-09-05:** the `ShimContent` injection (all four vectors, not the two the
+row named), `hostskills.Changed` on a symlinked source, and `Pack.Name` — which turned out to be
+the doc rather than the derivation.
 
 **The `Pack.Name` row closed 2026-09-05, and it was the DOC that was wrong** — the second of the
 two outcomes it named, so the code is untouched. A pack's effective name comes from the config
@@ -573,14 +576,6 @@ them, and one merge decided 💬 20 in code — see that row.
 **Ordering basis:** what unblocks the most other work first, then what is cheapest. Both remaining
 repairs are cheap and independent, so either order works. (The two that used to lead this
 section — the removal act and the shim injection — shipped 2026-09-04 and 2026-09-05.)
-
-- 📦 **`hostskills.Changed` reports "changed" for a symlinked source, forever.** `treeDigest`
-  records link targets while `copyTree` materializes through them, so a source tree deployed by a
-  dotfile manager never compares equal. Pre-existing — it already affects the `files` kind and the
-  flat-skills archive gate — but as of 2026-09-03 it is also an **R3 hazard** for the host-launch
-  gate ([`host-apply-staleness.md`](../design/host-apply-staleness.md) R3): a launch would prompt
-  on every start and never converge. Found while building that gate and deliberately left alone
-  there. Needs no ruling.
 
 - 📦 **A pack name yolo's own slug escaping alters makes the host mount a `reads-host` grant
   where the jail does not look.** Found 2026-09-05 while closing the `Pack.Name` row above, and

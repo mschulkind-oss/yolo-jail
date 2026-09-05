@@ -150,6 +150,55 @@ func TestHostFilesUnchangedDestinationArchivesNothing(t *testing.T) {
 	}
 }
 
+// F7's UNCONVERGING TWIN, at this call site: the render materializes a symlinked source
+// (os.ReadFile follows) and writes the mode as read-only-plus-exec-bit, so a predicate that
+// read the source's link TARGET, or its exact permission bits, could never match its own
+// output. Both shapes archived a copy of what they had just written, on every apply forever.
+//
+// This is the same `hostskills.Changed` the skills kinds use — the two kinds share the digest
+// deliberately (F7), so the test that they share the FIX belongs here rather than only there.
+func TestHostFilesSymlinkedAndExecOnlySourcesConverge(t *testing.T) {
+	for _, shape := range []string{"symlink", "exec-0700"} {
+		t.Run(shape, func(t *testing.T) {
+			home := t.TempDir()
+			p := filesPack(t, "fp", "bin", ".claude/bin", map[string]string{"t.sh": "v1"}, 0o700)
+			if shape == "symlink" {
+				// The dotfile-manager deployment: the pack's file is a link into a repo
+				// somewhere else, and only its TARGET has the bytes.
+				elsewhere := filepath.Join(t.TempDir(), "t.sh")
+				if err := os.WriteFile(elsewhere, []byte("v1"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				staged := filepath.Join(p.Root, "bin", "t.sh")
+				if err := os.Remove(staged); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(elsewhere, staged); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := filesReq(t)
+			dest := filepath.Join(home, ".claude", "bin", "t.sh")
+
+			if _, err := RenderHostFiles(p, home, req, false); err != nil {
+				t.Fatal(err)
+			}
+			req.Manifest.Record(dest, "fp")
+			if data, err := os.ReadFile(dest); err != nil || string(data) != "v1" {
+				t.Fatalf("the render must materialize the source: %q (%v)", data, err)
+			}
+
+			results, err := RenderHostFiles(p, home, req, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != 1 || results[0].Action != "unchanged" || results[0].WouldChange {
+				t.Errorf("a re-render of the same source must converge, got %+v", results)
+			}
+		})
+	}
+}
+
 // THE ownership test. `files` being sole-owned decides which PACK may claim a path; it is
 // not a licence over a file the user put there. An occupied path yolo cannot prove it wrote
 // is refused BY NAME and left byte-for-byte alone.
