@@ -1,11 +1,42 @@
 # Plan: evergreen agent updates — the launcher does the work
 
 **Design:** [`../design/program-delivery.md`](../design/program-delivery.md) §3.5
-(OQ-PD11–PD14, PD12a) · **Status:** ready, blocked on sequencing (see Blockers) ·
+(OQ-PD11–PD14, PD12a) · **Status:** ✅ **BUILT 2026-09-04, except step 7** ·
 Written against `a25e718b`, 2026-09-03.
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and
 is the first thing to be wrong. Never twist the code to match it.
+
+> [!IMPORTANT]
+> **WHAT SHIPPED, and the one thing that did not.** Build-order steps 1–6 and 8 are in the
+> tree, plus [A7](#a7--the-v-axis-prune-and-it-ships-inside-this-plan). **Step 7 — the MCP/LSP
+> transitive refresh — was NOT built**, and nothing stands in for it: a yolo-installed MCP or
+> LSP server still moves only when the bootstrap reinstalls it. The ruling behind it is
+> unchanged (a server inherits the trigger of the agent that connects to it, and only the
+> bootstrap-installed set is in scope); what is missing is the throttled step the launcher
+> calls before `exec`. The agent CLIs are evergreen without it, which is why it was separable.
+>
+> **Two deviations from this file, both deliberate and both recorded in the design:**
+>
+> - **The update verb is declared by three packs, not six.** claude (`install`), agy
+>   (`update`) and codex (`update`) — the three delivered by their vendor's own installer.
+>   The three npm-delivered agents declare none: `npm install -g <pkg>` reaches the same
+>   registry a vendor verb would, and it is the path measured to work here. §3.5's table gives
+>   `pi update --self` and says pi is evergreen *only* through it — written expecting a flip to
+>   a native installer that did not happen, since pi.dev/install.sh IS npm.
+> - **The npm template got the same treatment as the native one.** The Map named only the
+>   native template's update branch, but four of the six agents arrive by npm, so
+>   `_poll_and_report` is deleted and the npm launch path calls the `_update` that already
+>   existed — through the same policy gate, stamp throttle and prefix lock. Build-order step 2
+>   asked for exactly this ("delete `_poll_and_report`"); the Map did not.
+>
+> **One thing the tests found that this file did not predict.** A7's live-version guard has to
+> derive the version ENTRY from the symlink's target, not compare against it: claude's builds
+> are single files directly under `versions/` (where the two coincide), and a vendor keeping a
+> directory per version puts the binary one level deeper, so a whole-path comparison never
+> matches and the guard silently stops guarding — in exactly the rollback shape
+> (live == oldest) where it is the only thing standing between keep-newest-K and an unusable
+> launcher. Caught by `TestVersionPruneNeverRemovesTheLiveVersion` before it shipped.
 
 **Banked, re-verified in this jail 2026-09-03:** `claude.stamp` last touched 2026-08-25 — the
 hourly poll has not fired in 9 days, because the install prefixes precede the launch dir on
