@@ -13,12 +13,18 @@ package integration
 // TWO agent packs are the whole fixture design. "Reached only its audience" is not a
 // measurement in a one-agent jail: every possible bug looks like a pass.
 //
-// THE `file://` ENTRIES ARE NAMED, and that is not decoration. A bare `"file://<dir>"` entry
-// takes its name from the source directory's BASENAME, and t.TempDir() hands out numeric
-// names (`.../TestName/002`) — so the refusal under test read `pack 002`, which is a fixture
-// artifact rather than a product defect, but it also revealed one: Pack.Name is documented
-// "config override, else manifest, else dir" and the manifest's own `name` did NOT beat the
-// dir here. Naming the entry is what a user does; the residual question is its own item.
+// THE `file://` ENTRIES CARRY NO `name`, and that is not laziness. A bare `"file://<dir>"`
+// entry takes its name from the source directory's BASENAME — never from the pack.json
+// `name`, which is informational (packload.Pack's Name field comment has the three jobs the
+// effective name has to do). These fixtures stage under a directory named `house-rules`
+// while their manifests say `house`, so the refusal below naming `house-rules` is the
+// end-to-end measurement of that rule rather than a fixture detail.
+//
+// The entries were NAMED `house` here from 2026-09-03 to 2026-09-05, as a workaround for
+// what looked like a defect: t.TempDir() hands out numeric names (`.../TestName/002`), so
+// the refusal read `pack 002`, and Pack.Name's docstring promised the manifest would win.
+// The docstring was wrong, not the code. Giving the fixture a real directory name is what
+// removes the confusion without hiding the behaviour.
 
 import (
 	"os"
@@ -33,7 +39,7 @@ import (
 func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 	requireJail(t)
 
-	pack := t.TempDir()
+	pack := filepath.Join(t.TempDir(), "house-rules")
 	// An ADDRESSED briefing: it names its audience and no path, because where claude reads is
 	// the claude pack's business (P4). Its source is a file of its own, so the assertion is
 	// about routing rather than about the conventional AGENTS.md.
@@ -63,8 +69,7 @@ func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 	}
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "codex", `+
-		`{"source":"file://`+pack+`","name":"house"}]}`)
+	packHome(t, `{"packs": ["claude", "codex", "file://`+pack+`"]}`)
 
 	// One command, four facts. `rg -c` exits non-zero on no match, so the negatives are
 	// spelled as explicit `|| echo`, not as an exit code — a bare `!rg` would make a missing
@@ -103,7 +108,10 @@ func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 func TestPackAudienceRefusesAnAgentTheJailDoesNotHave(t *testing.T) {
 	requireJail(t)
 
-	pack := t.TempDir()
+	// The directory basename, NOT the manifest's `name`, is what the refusal must print —
+	// see the file header. `house-rules` is distinctive enough that matching it in the
+	// combined output cannot happen by accident, which a bare t.TempDir() number is not.
+	pack := filepath.Join(t.TempDir(), "house-rules")
 	if err := os.MkdirAll(filepath.Join(pack, "prose"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -119,15 +127,19 @@ func TestPackAudienceRefusesAnAgentTheJailDoesNotHave(t *testing.T) {
 	}
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", `+
-		`{"source":"file://`+pack+`","name":"house"}]}`)
+	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
 
 	r := runYolo(t, dir, "true")
 	if r.rc == 0 {
 		t.Fatalf("the launch STARTED with prose addressed to an agent this jail does not have; "+
 			"a silently inert selector is indistinguishable from a working one\n%s", r.combined())
 	}
-	for _, want := range []string{"codex", "house", "Agents your `packs` provide"} {
+	// `house-rules` is the SOURCE DIRECTORY's name; the pack.json says `house`. Asserting
+	// the former is what makes this the end-to-end pin of where an effective name comes
+	// from — a launch that printed `house` would mean the manifest had started winning,
+	// and the staging dir, the prune key and the /ctx mount path would each need to move
+	// with it (run.TestConfiguredPackNameComesFromTheAddressNotTheManifest).
+	for _, want := range []string{"codex", "house-rules", "Agents your `packs` provide"} {
 		if !strings.Contains(r.combined(), want) {
 			t.Errorf("refusal missing %q — it has to name the string, the pack and the "+
 				"candidates:\n%s", want, r.combined())

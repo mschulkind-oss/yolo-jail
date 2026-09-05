@@ -948,6 +948,14 @@
     [bold]file:///abs/path[/bold] still works and means the same thing.  Two refusals, both
     naming the fix: [bold]file://~/…[/bold] (not a valid URL — the "~" parses as the host;
     drop the scheme) and relative paths ./x and ../x (no anchor this key can honor).
+    [bold]A pack's NAME comes from your config line, never from its pack.json.[/bold]  An entry
+    may set "name" itself; otherwise it is the last segment of the source
+    ([bold]~/dotfiles/packs/mine[/bold] gives [bold]mine[/bold]; a git address uses its subpath).  That
+    name is the staging directory, the handle `yolo pack ls` prints and `yolo pack
+    explain` takes, and the /ctx dir a reads-host grant with no "into" lands in — all
+    fixed before anything is fetched, which is why the pack's own manifest cannot supply
+    it.  Set "name" when the directory is unhelpful, and note that two entries may not
+    share one:  { "source": "/tmp/build/002", "name": "house" }
     Host access = a reads-host file, a `mount` of a host dir, an installer program, or
     a host-prepending briefing.  An EMBEDDED or LOCAL (file://) pack may read the host
     unconditionally.  A FETCHED (git) pack may too, but only for the claims you APPROVE

@@ -92,6 +92,14 @@ type PackEntry struct {
 
 	// Name is the pack's short name, used for the staging dir, `yolo pack ls`, and
 	// provenance. Defaults to a slug derived from Source when not given.
+	//
+	// NEVER EMPTY once lowered, and that is load-bearing rather than tidy: this is the
+	// name packload.LoadDir is handed, so filling it here is what stops a pack.json
+	// `name` from becoming the effective name. It has to be derivable from the config
+	// line ALONE — the staging dir and the pack-drop prune key on Slug() before anything
+	// is fetched or read, and a git source has no tree to consult at this point. See
+	// packload.Pack's Name field comment for the full story, and
+	// TestEveryLoweredPackEntryCarriesAName for the guarantee.
 	Name string `json:"name"`
 
 	// Only and Exclude filter the pack tree by glob, applied in that order. `only`
