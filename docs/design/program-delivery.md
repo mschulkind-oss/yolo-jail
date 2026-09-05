@@ -1468,6 +1468,12 @@ cannot: this comparison is offline by ruling, so that half stays the update verb
 bytes content-addressed. Removal and obedience both need the record's reach to match the bytes' —
 under the ruling it does, by construction.
 
+> ⚠ **Steps three and five may have lost most of their subject — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).**
+> Both were written 2026-08-24, **before** [OQ-PD11](#decision-ledger)'s agent/project axis existed,
+> and [OQ-PD6](#decision-ledger) was scoped to *project* dependencies on 2026-09-03. Every gap-receipt
+> writer in the tree today is an **agent** dependency. Do not build either step before reading that
+> question.
+
 **Fourth, make removal real — SHIPPED** (`af46c9b4` the catalog, `36ea2780` the act, `6dda9ea6`
 the CLI, `dbd2e925` the option), in [OQ-PD4](#decision-ledger)'s ruled shape: the boot catalog
 names the orphans and their sizes, an explicit act removes them, and autoprune is an option nobody
@@ -1687,7 +1693,7 @@ which was the point.
 
 ## Open Questions
 
-**None open.**
+**One open — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).**
 Ten were ruled 2026-08-24, six on 2026-09-03, and two on 2026-09-04 — see the
 [Decision Ledger](#decision-ledger). The two the amendment opened were both ruled the same day and
 are kept below with their reasoning, pending the next compaction. OQ-PD17 was opened 2026-09-04 by
@@ -1776,6 +1782,56 @@ retired instead; the leaning was answering a question the system does not ask.
 > assumes entries exist. They do not: `yolo capture` is the store's only populating act, it is a
 > manual host command, and the maintainer had not heard of it — so on every machine today the store
 > is empty and slices 1–4 and 6 are shipped but unreachable.
+
+### 💬 OQ-PD19 — do steps three and five still have a subject, after the agent/project split?
+
+Opened 2026-09-04, while checking what remained unbuilt in [§10](#10-what-i-would-build-in-order).
+**This is a question about whether to build, not how.**
+
+**The setup.** [§10](#10-what-i-would-build-in-order) step three ([OQ-PD1](#decision-ledger),
+[OQ-PD2](#decision-ledger)) moves gap receipts to **user scope**; step five
+([OQ-PD6](#decision-ledger), [OQ-PD7](#decision-ledger)) makes install **obey** them — *"the receipt
+is the pin."* Both were written **2026-08-24**. [OQ-PD11](#decision-ledger)'s agent/project axis
+arrived **2026-09-03**, and amended OQ-PD6 in the same breath: scoped to **project** dependencies,
+because *"an agent dependency has no pin to obey; its receipt answers what did I run, never what
+must I run"* ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)).
+
+**The measurement.** Every gap-receipt writer in the tree is an agent dependency:
+
+| Writer | Class |
+| :--- | :--- |
+| agent CLIs — npm and native launchers (`internal/entrypoint/shims.go`) | **agent** |
+| MCP servers via npm (`internal/entrypoint/shell.go`) | **agent** — transitive, [OQ-PD12a](#decision-ledger) |
+| LSP servers via npm and via go (same file) | **agent** — transitive, OQ-PD12a |
+| **pnpm**, the only lazily-installed package manager (`shims.go`, `GeneratePackageManagerLaunchers`) | serves the **project** |
+
+So step five has almost nothing to apply to, and step three's venue change — user scope existed so
+install could **obey** the record — loses its purpose with it. **Workspace scope is the right home
+for a *what did I run* observation log**, which is what OQ-PD6-as-scoped says these are.
+
+**What it decides:** whether two ruled steps get built, narrowed, or retired. This is the same
+dissolution that retired OQ-TP3/TP4 — a ruling made on an older axis losing its subject when a newer
+one lands — and it should be checked before it is built, not after.
+
+**The residue, and the trap under it.** pnpm is installed **`pnpm@latest`, unpinned**, by an install
+yolo itself runs, and it serves the project. That is a real gap. **The obvious fix is a trap:**
+pnpm is *deliberately* excluded from mise — `defaultMiseDisabledTools = []string{"pnpm"}`
+(`internal/config/config.go`), folded by `MergeMiseDisabledTools` (`derived.go`) and delivered as
+`MISE_DISABLE_TOOLS` (`internal/cli/run/assemble.go`). **Nothing in the tree records why.** The
+exclusion predates the Go port — it arrived through `config.py` parity (`fd145f1c`) and no doc,
+comment or commit message states its reason. Establishing that reason is the first task of this
+question, not an afterthought: [OQ-PD3](#decision-ledger) rules that whatever pins mise ships as
+part of the general seam, so "move pnpm into mise" is the natural answer *and* the one most likely
+to re-break whatever the exclusion was protecting.
+
+_Leaning:_ **Narrow both steps to the pnpm question and retire the rest.** Step five dissolves for
+agent dependencies by OQ-PD6's own amendment; step three's user-scope venue goes with it, because a
+record nothing obeys does not need to reach further than the thing it observes. What survives is one
+concrete question — *how does yolo pin pnpm, given mise is closed to it and nobody remembers why?* —
+which is small, real, and not what either step proposed to build.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 ### ✅ OQ-PD18 — what populates the capture store? — RESOLVED (2026-09-04)
 
