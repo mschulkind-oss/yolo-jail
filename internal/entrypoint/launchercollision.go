@@ -65,11 +65,12 @@ func underJailHome(e *Env, dir string) bool {
 // declaredMiseBins is the set of binary names the DECLARED mise tools provide.
 //
 // DECLARED, NOT INSTALLED, and the ordering makes that mandatory rather than tidy:
-// GenerateAgentLaunchers runs at boot.go:439 and ConfigureMisePrism at :491, so the mise
-// shim directory is EMPTY when this is asked on a cold boot. A check that read the
-// directory would find nothing, write the launcher, and let an agent-class mechanism
-// shadow a project dependency on exactly the boots where the project is new — which is
-// what P6 forbids (§3.5's `pnpm` note is the live case).
+// boot.go's genStep list runs GenerateAgentLaunchers BEFORE ConfigureMisePrism, so the mise
+// shim directory is EMPTY when this is asked on a cold boot. (Named by symbol rather than by
+// line: the ORDER is the fact, and the numbers move whenever a genStep is added.) A check
+// that read the directory would find nothing, write the launcher, and let an agent-class
+// mechanism shadow a project dependency on exactly the boots where the project is new —
+// which is what P6 forbids (§3.5's `pnpm` note is the live case).
 //
 // A mise tool key may carry a backend prefix (`npm:pnpm`, `cargo:ripgrep`); the bin is the
 // last segment. That is a heuristic and it is the RIGHT direction to be wrong in: over-
