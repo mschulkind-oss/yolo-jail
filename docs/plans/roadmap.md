@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 12 needing you · 4 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 3 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-03**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-04**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!IMPORTANT]
@@ -68,7 +68,9 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 > **This row aggregates three docs while naming one** (reconciled 2026-09-03, recounted 2026-09-04).
 > `trust-paths.md` now holds **NO open questions**: TP3/TP4 retired 2026-09-03 under the evergreen
 > ruling, **TP8 and TP9 ruled 2026-09-04**, and **TP7 RETIRED the same day because TP9 deleted its
-> subject**. ✅ **OQ-LP8 closed 2026-09-04** — its two overdue documentation requirements are
+> subject**. ⚠ **[OQ-TP10](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
+> was OPENED 2026-09-04 by the TP9 build** — a wrapped plugin's hooks reach the agent's lifecycle
+> and appear in no launch banner, which falsifies a sentence TP9's own answer wrote. It needs you. ✅ **OQ-LP8 closed 2026-09-04** — its two overdue documentation requirements are
 > delivered ([overview](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)):
 > *following a mutable ref IS the trust decision*, and **tag pins are the documented shape** for a
 > pack carrying code, both written into
@@ -511,8 +513,16 @@ requirement on the jail's pack set — and therefore whether addressed content p
 
 # 📦 Up next
 
-**Four items.** C4 and C5 are deliberately NOT here — their go/no-go is an explicit 🧊 row, and
+**Three items.** C4 and C5 are deliberately NOT here — their go/no-go is an explicit 🧊 row, and
 queueing them before you call it would be queueing a question.
+
+**Program delivery §10's removal act SHIPPED 2026-09-04** and has left this section: it is
+`yolo programs ls` / `remove` / `remove --apply` plus the `programs.autoprune` config key, default
+off and user-scope only (`internal/entrypoint/orphanremove.go`, `internal/cli/programs.go`,
+`internal/config/programs.go`). ⚠ **Its footgun was answered by a design choice, not a special
+case:** the candidate set is *the bytes minus the declarations, never a record*, so an orphan whose
+sentinel record is gone is the ORDINARY case rather than the dangerous one. Re-measured live at
+**7 orphans, 448.6 MB** in this repo's jail.
 
 **Five items shipped on 2026-09-03** and left under the archiving rule: the host-launch gate
 (now [`host-apply-staleness.md`](../design/host-apply-staleness.md), IMPLEMENTED),
@@ -521,8 +531,8 @@ splices, and the orphan-message cause. Two of the three small ones corrected the
 them, and one merge decided 💬 20 in code — see that row.
 
 **Ordering basis:** what unblocks the most other work first, then what is cheapest. The injection is
-first because it is demonstrated and the fix is small; the removal act follows because it is the
-largest reclaim available; the two repairs after that are cheap and independent.
+first because it is demonstrated and the fix is small; the two repairs after it are cheap and
+independent. (The removal act, which used to sit between them, shipped 2026-09-04.)
 
 - 📦 **`ShimContent` splices agent-editable text raw into a `/bin/sh` script — injection CONFIRMED
   by demonstration 2026-09-03.** `internal/entrypoint/shims.go:136,147,162` embed `msg`/`sug`
@@ -546,18 +556,6 @@ largest reclaim available; the two repairs after that are cheap and independent.
   positional technique is already in the tree from the 2026-09-03 launcher pass (`shquote.Quote`
   cannot go inside `"…"`; the sentinel has to move to a bare position).
 
-- 📦 **Program delivery §10 — the removal act, plus default-off autoprune.** 📄
-  [`program-delivery.md`](../design/program-delivery.md) §10. The biggest reclaim available:
-  **418 MB of cataloged npm orphans plus ~1.2 GB uncataloged**.
-
-  ⚠ **It is the only destructive step, and it has a footgun confirmed live 2026-09-03:**
-  `~/.local/bin/claude` is an **absolute symlink** into a versions dir
-  (`~/.local/share/claude/versions/2.1.220`), so unlinking it strands **~1 GB** with nothing naming
-  it. The act must follow an installer-kind orphan to its versions dir, or decline and say why —
-  declining is defensible, silently stranding a gigabyte is not.
-
-  The rest of §10 is blocked, not unscheduled — see 🔒.
-
 - 📦 **`hostskills.Changed` reports "changed" for a symlinked source, forever.** `treeDigest`
   records link targets while `copyTree` materializes through them, so a source tree deployed by a
   dotfile manager never compares equal. Pre-existing — it already affects the `files` kind and the
@@ -576,14 +574,20 @@ largest reclaim available; the two repairs after that are cheap and independent.
 
 # 🔒 Waiting
 
-- 🔒 **Program delivery §10 — the three steps that are blocked, not merely unscheduled.** 📄
+- 🔒 **Program delivery §10 — the two steps that are blocked, not merely unscheduled.** 📄
   [`program-delivery.md`](../design/program-delivery.md) §10. The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
   ✅ **EVERGREEN SHIPPED 2026-09-04** ([`evergreen-agent-updates.md`](evergreen-agent-updates.md)),
   A7's V-axis prune with it. **One piece of it did not:** the MCP/LSP transitive refresh (that
   plan's build-order step 7). A yolo-installed MCP or LSP server still moves only when the
   bootstrap reinstalls it; the ruling behind the refresh is unchanged and the agent CLIs are
   evergreen without it.
-  - **The user-scope gap receipt** and **obey** — blocked on 💬 2's `OQ-TP4`. Three of the gap
+  - **The user-scope gap receipt** and **obey** — ⚠ **REFRAMED 2026-09-04: these may have lost
+    their subject, and that is [OQ-PD19](../design/program-delivery.md#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).**
+    OQ-TP4 was RETIRED 2026-09-03, and OQ-PD6 was scoped to *project* dependencies the same day —
+    every gap-receipt writer in the tree is an AGENT dependency, which has no pin to obey. The one
+    residue is pnpm (`pnpm@latest`, unpinned), and the obvious fix is a trap: pnpm is deliberately
+    excluded from mise and nothing records why. **Rule OQ-PD19 before building either.** The
+    original analysis, still worth having if it is built: Three of the gap
     receipt's seven decisions *are* that OQ's options (a)/(b)/(c), and
     [`trust-paths.md`](../design/trust-paths.md) forbids either doc retiring the other's ID
     unilaterally — so building it answers OQ-TP4 by implementation. **Obey reads an artifact the
@@ -598,9 +602,11 @@ largest reclaim available; the two repairs after that are cheap and independent.
     seven are landed** ([`install-capture.md`](install-capture.md)) — the store, the inner driver,
     the `yolo capture <bin>` host act, materialize-from-the-launcher (the slice that pays),
     remove + GC, and macos-user's RECORDING half (its relocation rewrite is handed on; Seatbelt
-    itself still needs real hardware). What remains is slice seven, the auto-capture trigger:
-    nothing populates the store automatically, so on every machine today the store is empty and
-    materialize has never hit ([OQ-PD18](../design/program-delivery.md#decision-ledger)). The one property still
+    itself still needs real hardware). ✅ **Slice seven — the auto-capture trigger — SHIPPED
+    2026-09-04** ([OQ-PD18](../design/program-delivery.md#decision-ledger), *"(d), DEFAULT ON"*), so
+    ALL SEVEN are landed and the store is no longer empty by construction: a launch captures each
+    selected pack's uncaptured `via: "installer"` program before starting the container, warns and
+    continues on failure, and `YOLO_NO_AUTO_CAPTURE=1` opts out. Container backends only. The one property still
     unbuilt from §6.3's prose is *"a jail that writes outside its binds is a finding the capture run
     reports"*: stray writes are left alone and not enumerated, because enumerating them needs a
     whole-home walk (install-capture slice 2, correction (e)).
