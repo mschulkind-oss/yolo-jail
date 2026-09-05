@@ -790,11 +790,11 @@ func requireRealPackInstalls(t *testing.T) {
 // cost it controls is exactly that gate's subject. A launch whose packs declare a
 // `via: "installer"` program and whose store has no entry for it runs that vendor's
 // installer, in a jail of its own, before the launch it was asked for — which for the
-// shipped `claude` pack is a ~205 MiB download against a third party. Six cells in this
-// suite select claude (providers, profiles-options, packs, pack-audience, pack-home,
-// codex-selection), so leaving the trigger on would put a real vendor download on every
-// push: the exact failure docs/design/agent-install-in-ci.md §6.1.1 moved that class of
-// question away from.
+// shipped `claude` pack is a ~205 MiB download against a third party. SIX OF THIS SUITE'S
+// FILES select claude (providers, profiles-options, packs, pack-audience, pack-home,
+// codex-selection; thirteen selection sites between them), so leaving the trigger on would
+// put a real vendor download on every push: the exact failure
+// docs/design/agent-install-in-ci.md §6.1.1 moved that class of question away from.
 //
 // So it is OFF by default and ON under YOLO_TEST_REAL_PACK_INSTALLS — `just test`, a
 // `packs/**` change, and the weekly schedule — where a vendor install is already what the

@@ -26,7 +26,9 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
 | `internal/cli/capture.go` | **new** — `yolo internal capture-run`, the inner half (slice 2) |
 | `internal/cli/capturehost.go` | **new** — `yolo capture <bin>`, the host act (slice 3). Split from the file above: one is a hidden in-jail driver entry, the other launches jails |
-| `internal/cli/run/` | **slice 7** — the auto-capture trigger: selected packs' `via: "installer"` programs with no entry for the JAIL's platform, captured before launch, locked, non-fatal, `YOLO_NO_AUTO_CAPTURE=1` to opt out |
+| `internal/cli/run/autocapture.go` | **new** (slice 7) — the trigger: `Options.AutoCapture`'s call site below the macos-user return, the `via: "installer"` enumeration, and `containerJailPlatform` |
+| `internal/cli/autocapture.go` | **new** (slice 7) — the seam's implementation: the miss decision (through `resolveCaptureFor`, the launcher's own reader), the cost line, the `YOLO_NO_AUTO_CAPTURE` hatch, and the call to `captureHost` |
+| `internal/cli/commands.go` (`runRun`) | slice 7: `opts.AutoCapture` in `runRun`, plus `launchRunPipeline` — `run.Run` behind a package var so the wiring is pinnable (7(f)) |
 | `internal/cli/hostapplylock.go` | `tryFlockAt` factored out of `tryHostApplyLock` and shared with the per-program capture lock |
 | `internal/cli/subhelp.go` | one `subcommandUsage` row — every registry key must answer `--help` |
 | `internal/cli/dispatch.go` | register `capture` (`:15-35`) |
@@ -541,7 +543,7 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
       for a vendor installer's shell — the one failure mode designed around rather than observed.
    5. Whether the `EXDEV` refusal in (b) ever fires in practice.
 
-7. **Auto-capture on first launch, DEFAULT ON.** Ruled 2026-09-04 as
+7. **Auto-capture on first launch, DEFAULT ON. — LANDED 2026-09-04.** Ruled 2026-09-04 as
    [OQ-PD18](../design/program-delivery.md#decision-ledger) — *"I want (d) default on."* Until this
    slice, nothing populated the store: `yolo capture` was its only writer, no launch path called it,
    and it had never been run, so slices 1–4 and 6 are shipped and unreachable.
@@ -590,11 +592,90 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    → `go test ./internal/cli ./internal/cli/run ./internal/capture`, then a nested jail from a
    throwaway workspace with an empty store: the first launch must capture, the second must hit.
 
+   *Six corrections from building it.*
+
+   **(a) THE TRIGGER IS CONTAINER-ONLY, and that is a second reason on top of placement.** The plan
+   said "host side, in the run pipeline, once packs are resolved" and did not distinguish backends.
+   It has to: `entrypoint.CapturesDirEnv` is emitted by `run/captures.go`'s `capturesArgs` — the
+   podman / Apple-Container argv — **and by nothing else**, so a native launcher on macos-user bakes
+   an empty `CAPTURES_DIR` and `_try_materialize` returns 1 on its first line. Auto-capturing there
+   would pay a full installer download to file an entry no launcher on that backend can read, and
+   slice 6's hand-off H2 (the relocation rewrite) means it would refuse to materialize anyway. So
+   the call site sits BELOW the macos-user return in `Run`, which makes the exclusion structural
+   rather than a guard, and `yolo capture` stays available there as an explicit act.
+
+   **(b) The lock is captureHost's, and taking it again would have been self-contention.** The Map
+   specifies `tryFlockAt`; `captureHost` already calls it, with exactly the disposition slice 7 asks
+   for (refuse rather than wait). Taking it in the trigger too would mean the trigger holds the fd
+   and `captureHost` then fails its own non-blocking acquire — flock is per open file description,
+   so nothing would ever be captured. Reusing the act reuses the lock; that is what "a caller plus a
+   decision, not a second capture path" buys.
+
+   **(c) THREE GATES ALREADY STOP A FAILED INSTALL FROM ADMITTING A USELESS ENTRY, and the copilot
+   shape exercises all three.** MEASURED in a nested jail with a fixture installer that takes
+   `PREFIX="${PREFIX:-/usr/local}"` under the jail's uid 0 and `--read-only`: the generated launcher
+   exits 1 under `YOLO_INSTALL_ONLY` when `$REAL_BIN` is not executable (`⚠ <bin> not available`);
+   `capture.Run` turns a non-zero installer into an error and writes no manifest; and `captureHost`
+   refuses an empty delta by name. Store entries afterwards: **0**, and the launch ran to completion.
+   This is what makes default-on safe for a program that is not flippable (§3.5), rather than
+   something a special case would have had to handle.
+
+   **(d) THE SEAM CARRIES THE BINS AND THE PLATFORM, both decided by the pipeline.** `internal/cli`
+   owns `captureHost`, which launches jails, so `internal/cli/run` cannot call it — the third
+   injection of the shape `MacosUserRun` and `CaptureOnTerminate` already have. The split is: the
+   pipeline enumerates the selected packs' `via: "installer"` programs (through `HonoredInstalls`,
+   so a fetched pack's refused installer is never run automatically) and names the jail's platform;
+   `internal/cli` decides the miss and calls the act. Putting either on the far side would let the
+   handler ask `capture.Platform()` and answer `darwin/arm64` for a Mac running podman.
+
+   **(e) The capture jail is suppressed by the SAME SWITCH as the mount.** `Options.CapturesDir`
+   returning `""` (slice 4(f)) now disables the trigger as well, so one suppression covers both
+   halves. Relying on "`runCaptureJail` happens not to inject `AutoCapture`" would have been true
+   and one line from being false.
+
+   **(f) `runRun`'s wiring needed a seam of its own to be pinnable.** Three closures are injected
+   there and every one can be deleted with the whole unit suite green. `launchRunPipeline` is
+   `run.Run` behind a package var (`captureRunPipeline`'s precedent), so a test reaches the composed
+   Options and INVOKES the closure — a non-nil check cannot tell a live seam from a refusal closure,
+   which `TestCaptureWiresTheMacosUserBackend` already learned the hard way. `optionsFlow`
+   (`runcmd_test.go`) learns the second spelling so its own claim is unchanged.
+
+   *Mutation-proved, ten:* deleting the call site in `run.go`; dropping the capture-jail
+   suppression; answering the host's GOOS; dropping the `via: installer` filter; deleting the
+   `AutoCapture` wiring in `runRun`; wiring it to an inert closure; ignoring the store hit; ignoring
+   the escape hatch; admitting an empty delta; swallowing a failed capture silently.
+
+   *And one thing NOT built, stated so it is not assumed.* A failed capture is not remembered, so a
+   program whose installer fails every time re-pays its attempt once per launch. The common cause is
+   a transient network and a negative memo is per-machine state with no expiry rule anyone has ruled
+   on; if it is ever observed on a shipped pack, the fix is a stamp beside the store.
+
+   **The integration suite does not cover this slice, deliberately.** Six of its files select the
+   `claude` pack, so a live trigger would put a ~205 MiB vendor download on every push — the class
+   [`agent-install-in-ci.md`](../design/agent-install-in-ci.md) §6.1.1 moved off that trigger. The
+   harness therefore sets `YOLO_NO_AUTO_CAPTURE=1` unless `YOLO_TEST_REAL_PACK_INSTALLS` is set,
+   riding that existing gate rather than inventing a second one. It could not assert "this launch
+   captured" in any case: `.local/share/yolo-jail` is one of `packHomeSharedStores`, so every
+   isolated home shares the machine's real store and the second cell to select claude would hit.
+
 ## Verification, honestly
 
-- **Nested jail is mandatory for 1–5** and runs from a throwaway workspace, never `/workspace` —
-  `<ws>/.yolo/home` for `/workspace` *is* this session's live home (AGENTS.md, Testing):
+- **Nested jail is mandatory for 1–5 and for 7**, and runs from a throwaway workspace, never
+  `/workspace` — `<ws>/.yolo/home` for `/workspace` *is* this session's live home (AGENTS.md,
+  Testing):
   `mkdir -p /tmp/yolo-nested && cd /tmp/yolo-nested && YOLO_REPO_ROOT=/workspace /workspace/dist-go/linux-$(go env GOARCH)/yolo -- bash`
+- **Slice 7's nested run, MEASURED 2026-09-04**, hermetically: a fixture pack carrying its own
+  `file://` installer (`installmechanism_test.go`'s shape — curl in the image speaks FILE, and a
+  pack's tree is copied whole into `/ctx/packs`), under a redirected `HOME` whose
+  `packHomeSharedStores` are symlinked back to the machine's. Four launches, four results:
+  workspace A on an empty store printed the auto-capture notice, ran a capture jail
+  (`yolo internal capture-run … env YOLO_INSTALL_ONLY=1 <bin>`), admitted
+  `entries/9e094ec274061533`, and then **materialized it into its own jail by reflink**; workspace B
+  printed no notice at all and materialized the same key; `YOLO_NO_AUTO_CAPTURE=1` on an emptied
+  store printed the opt-out warning and fell through to the vendor installer; and a fixture whose
+  installer takes `PREFIX="${PREFIX:-/usr/local}"` failed (`mkdir: cannot create directory
+  '/usr/local': Read-only file system`), stored **nothing**, and the launch continued. Staging swept,
+  no orphan containers.
 - **No slice falls into the host-reachability carve-out.** A capture needs *egress* to a vendor CDN,
   not host-loopback forwarding, and podman-in-podman's forced `--net=host` supplies egress. The one
   thing a nested jail cannot represent is uid mapping: it runs `--userns=host`, so mode bits, `nlink`
@@ -632,7 +713,10 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
 - **Docs:** `../design/program-delivery.md` §10 step six status; `../design/storage-and-config.md`
   §2's `<gs>` table (line 112 — already 9 dirs stale, so add `captures/` and say the table was
   incomplete); `roadmap.md:550`'s program-delivery row; `../guides/USER_GUIDE.md` for the new verb.
-- **Surfaces:** `yolo capture --help`; `yolo prune --captures-keep N`, default **1** (per OQ-PD4's "autoprune is an
+- **Surfaces:** `yolo capture --help`; **`YOLO_NO_AUTO_CAPTURE`** (slice 7 — any non-empty value,
+  the `YOLO_ALLOW_STALE_IMAGE` convention, documented in
+  [`USER_GUIDE.md`](../guides/USER_GUIDE.md)'s `yolo capture` section, which no longer says a
+  capture is an explicit act); `yolo prune --captures-keep N`, default **1** (per OQ-PD4's "autoprune is an
   option nobody gets by default"); `<CapturesDir>` layout is a documented on-disk contract; the receipt
   gains `kind:"capture"`, `act:"materialize"`, and §6.3's two new tuple members (`file manifest`,
   `platform`) — reader and writer move together or the round-trip goes red.
@@ -664,6 +748,11 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
   additive — the launcher falls through to today's download when no capture resolves. Removing that
   fallback is a behavior change [OQ-PD7](../design/program-delivery.md#decision-ledger) ("report
   first; gate later") does not license, and it makes a first run on a machine with no capture fail.
+  *Slice 7 did NOT cross this line, and the distinction is worth stating because default-on sounds
+  like crossing it.* A launch now TRIES to fill the store, and every way that can go wrong ends in
+  the same place a miss always did: the launcher downloads. MEASURED — with `YOLO_NO_AUTO_CAPTURE=1`
+  and an empty store, the jail printed `no capture for <bin> … Installing <bin>...` and the program
+  worked.
 - **Stop and ask** before adding per-entry metadata a *later* yolo must parse. The receipt schema is
   versioned (`Schema: 1`) and unknown-higher is a hard error in the sibling lockfile
   (`packsrc/lock.go:30`); take the same discipline and say so in the type.

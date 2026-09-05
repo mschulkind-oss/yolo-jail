@@ -1104,13 +1104,24 @@ throwaway sandbox, against empty state; capture the delta; content-address the c
 on **the capture is the package**:
 
 ```
-capture (explicit act, network OK):  fresh sandbox → run installer → delta → tar+hash → machine CAS
+capture (network OK):                fresh sandbox → run installer → delta → tar+hash → machine CAS
                                      receipt = (declaration, installer URL, capture hash,
                                                 file manifest, platform, time)
 materialize (per jail, offline):     REFLINK the capture into the home (see the amendment below)
 update:                              a NEW capture, on an explicit act — never in place
 remove:                              delete the materialized tree; CAS entry GC'd when unreferenced
 ```
+
+**AMENDMENT, 2026-09-04 — *capture* is NOT an explicit act, it is what a launch does when the
+machine has no entry** ([OQ-PD18](#decision-ledger), [`install-capture.md`](../plans/install-capture.md)
+slice 7). The line above read *"capture (explicit act, network OK)"* and that word was load-bearing
+in the wrong direction: `yolo capture <bin>` was the store's ONLY writer, no launch path called it,
+and it had never been run — so on every machine the store was empty and *materialize* had never
+once hit. **A launch now captures each selected pack's `via: "installer"` program that the machine
+has no entry for**, before it starts the jail, blocking, saying what it costs, and never failing the
+launch over it. `YOLO_NO_AUTO_CAPTURE` opts out. *update* keeps the word and means it: a SECOND
+capture of a program the store already holds happens only on an explicit `yolo capture`, because
+the trigger fires on a miss and a miss is exactly what a held entry is not.
 
 **AMENDMENT, 2026-09-04 — *materialize* is REFLINK, and the CAS is MOUNTED**
 ([`install-capture.md`](../plans/install-capture.md) slice 4). The line above read
@@ -1381,9 +1392,11 @@ here is the same wiring for everything else.
 **Sixth, the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package),
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
 *record* + *materialize* and depends on nothing above except the receipt schema. **Slices one
-through four are landed** ([`install-capture.md`](../plans/install-capture.md)). Slices one to
-three changed nothing about a normal launch — a capture happened only when a human ran
-`yolo capture <bin>`. **Slice four is where a launch changes**, and it is the slice that pays.
+through four, plus six and seven, are landed** ([`install-capture.md`](../plans/install-capture.md)
+carries each slice's own status). Slices one to three changed nothing about a normal launch — a
+capture happened only when a human ran `yolo capture <bin>`. **Slice four is where a launch
+changes**, and it is the slice that pays; **slice seven is what makes there be anything to pay
+with**.
 
 Slice one is substrate: `internal/treedigest` (the canonical tree digest, lifted out of
 `hostskills`), `paths.CapturesDir()` and its boot `MkdirAll`, and `internal/capture`'s store —
@@ -1430,6 +1443,29 @@ the receipts cannot go stale relative to the entry they live inside. And the CAP
 one launch that does NOT get the mount — the installer a capture runs is that same launcher, so a
 store in reach would let it materialize the previous entry and record it as a fresh capture, which
 would also make *update* ("a NEW capture, on an explicit act") impossible.
+
+Slice six brings **`macos-user`** to the RECORDING half only: `SeatbeltCaptureProfile`, a throwaway
+staging home on neutral ground with the shared `/Users/_yolojail` denied for the duration, and the
+manifest's relocation record (`refScan`, `relocatable`, `absoluteRefs`). The rewrite that record
+exists for is NOT built (the plan's hand-off H2), and no kernel has loaded the profile, so a
+capture on that backend is a recorded artefact nobody materializes.
+
+Slice seven is **the trigger**, and it is the one that makes the store non-empty:
+[OQ-PD18](#decision-ledger)'s *"(d), DEFAULT ON."* Before it, `yolo capture` was the store's only
+writer and no launch path called it — the subsystem was shipped and unreachable. A launch now asks,
+after packs resolve and before the container starts, whether the machine holds an entry for each
+selected pack's `via: "installer"` program at the **jail's** platform (a Mac on podman captures
+`linux/arm64`; the host's own `runtime.GOOS` is the wrong answer that looks right), and captures
+the misses. Four properties, none of them optional and all of them cheap: it reuses `captureHost`
+whole, so the per-program flock and the refusal to admit an empty delta come for free; it warns and
+continues on every failure, because nobody asked for this work; `YOLO_NO_AUTO_CAPTURE` opts out
+loudly; and it is suppressed in the capture jail by the SAME switch that suppresses the store mount
+there, so a capture cannot capture a capture. It is container-only by placement, below the
+macos-user return, for the reason slice six gives: nothing on that backend can materialize what a
+capture there would record. Verified in a real nested jail 2026-09-04 — first launch captures, a
+second workspace hits and reflinks, `YOLO_NO_AUTO_CAPTURE=1` falls back to the vendor installer,
+and an installer that lands nothing (the copilot shape: `PREFIX="${PREFIX:-/usr/local}"` under uid 0
+on a `--read-only` rootfs) admits no entry and does not fail the launch.
 
 **Seventh — added 2026-09-03, and it comes AFTER the sixth by ruling
 ([OQ-PD15](#decision-ledger)) — make agent dependencies evergreen**
@@ -1653,6 +1689,20 @@ which is filesystem-independent, above it.
 > lock the plan already specifies (two workspaces launching at once must not both capture), and a
 > capture failure that **warns once and never fails the launch** — the same discipline materialize's
 > silent miss already follows.
+
+**SHIPPED 2026-09-04** ([`install-capture.md`](../plans/install-capture.md) slice 7, [§10](#10-what-i-would-build-in-order)
+step six). Both "also required" items came for free by reusing `captureHost` rather than writing a
+second capture path: it already takes the per-program flock and already refuses to admit an empty
+delta. The prerequisite held — [A7's V-axis prune](agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one)
+landed first (`333cf99f`), so a stale entry no longer leaves a workspace holding a corpse.
+
+Two things the ruling's own text implies that are worth stating, because a reader will otherwise
+assume the opposite. **The trigger never produces a superseded entry.** It fires on a MISS, so it
+creates at most one entry per `(bin, platform)`; a second entry for the same pair can only come from
+an explicit `yolo capture`, which is *update*. Auto-capture therefore gives the reap a non-empty
+store to consider, not garbage to reclaim. And **the ext4 objection is unchanged and still
+unmeasured** — the number that would revisit the default is the ext4 share of real installs, and
+nothing in the shipped code measures it.
 
 ### ✅ OQ-PD15 — does capture GATE the evergreen rollout, or trail it? — RESOLVED (2026-09-03)
 
