@@ -688,6 +688,39 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "host_apply_on_launch": true
 
+  [bold]agent_updates[/bold] (boolean, or object of pack name -> boolean): Keep agent CLIs
+    current.  Default TRUE -- absent means on.
+    An AGENT dependency is a program yolo installs so a coding agent can run: the
+    agent CLIs themselves, and the MCP and LSP servers they drive.  Nobody's build
+    reproduces against one, so a six-week-old copy is a defect rather than a
+    guarantee, and yolo keeps them current.  A PROJECT dependency -- `mise_tools`,
+    `packages`, anything the work in /workspace builds against -- is the opposite
+    and is never touched by this.
+
+    WHEN AN UPDATE HAPPENS: when you type the agent's name.  The generated
+    launcher checks at most once an hour per program, updates if it is due, then
+    execs the real binary.  A jail that never starts an agent never touches the
+    network for one, and a launch on its own updates nothing.  Failure is scoped
+    to that one command: offline with the agent installed runs what is there;
+    offline with it absent fails, naming the network.  No jail refuses to boot
+    over this.
+
+    TURNING IT OFF freezes the agents at whatever is installed.  `yolo pack
+    update` still refreshes them on demand -- it is the only thing that ignores
+    this key, because it is an act you performed.
+
+    The map's keys are PACK names, not binary names: one pack may install more
+    than one program, and the pack is the thing you selected.  A specific key
+    beats "*"; "*" beats absence.  A pack cannot opt itself out -- it declares HOW
+    to update itself, never whether to.
+
+    USER SCOPE ONLY.  /workspace is writable by whatever runs in the jail, so a
+    workspace value would let an agent freeze its own updates.  A workspace value
+    is a `yolo check` error, and is never read.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "agent_updates": false
+      "agent_updates": { "*": true, "claude": false }
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify

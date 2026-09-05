@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -247,6 +248,10 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	bootstrapEnv.Set("YOLO_MCP_SERVERS", mcpSrvJSON)
 	mcpPresetsJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyList(cfg, "mcp_presets"))
 	bootstrapEnv.Set("YOLO_MCP_PRESETS", mcpPresetsJSON)
+	// The `agent_updates` policy. macos-user is the backend where missing this hides
+	// least — it bakes no image, so the launchers ARE the delivery — and the one whose
+	// single machine-wide home makes the install-prefix lock they carry reachable.
+	bootstrapEnv.Set(entrypoint.AgentUpdatesEnv, config.AgentUpdatesWire())
 	// git identity rides verbatim (the subcommand's Env.Vars carries it into
 	// configureGit).
 	for _, k := range gitIdentity.Keys() {

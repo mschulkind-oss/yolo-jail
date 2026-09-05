@@ -109,6 +109,13 @@ var inheritCensus = map[string]keyDisposition{
 	// directly), so it can only ever arrive through this file. Both consumers need it:
 	// `yolo pack ls/status` reports it, and an inner launcher stages from it.
 	"packs": {preflight: true, nested: true, reason: "reported by `yolo pack ls/status` and staged by an inner launcher"},
+	// `agent_updates` is user-scope-only for `packs`' reason and one step sharper (a
+	// workspace value would let the agent freeze its own updates), so this file is its only
+	// route in. Both consumers have a real referent here: the in-jail `yolo check` dry-run
+	// GENERATES the launchers and bakes the policy into each one, and an inner launcher
+	// passes it to the jail it spawns. Its keys are pack names, which mean the same thing
+	// on both sides of the boundary.
+	"agent_updates": {preflight: true, nested: true, reason: "the check dry-run bakes it into the launchers it generates; an inner launcher passes it on"},
 	// The conventional local pack lives beside this file, so `include_if_found` had to be
 	// resolved BEFORE the render — see FilterInherit, which consumes it exactly as
 	// LoadJSONCWithIncludes does. Listed for the census, never emitted.

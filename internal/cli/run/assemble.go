@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -781,6 +782,12 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_LSP_GO_INSTALL="+in.lspGo(),
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
+		// The `agent_updates` policy, read from USER scope directly rather than from the
+		// merged config: /workspace is bind-mounted rw, so a workspace value would let an
+		// agent freeze its own updates (config.AgentUpdatesWire). Emitted on EVERY launch,
+		// empty when the key is absent — the jail defaults OPEN either way, so an older
+		// host that emits nothing and this one emitting "" read identically.
+		"-e", entrypoint.AgentUpdatesEnv+"="+config.AgentUpdatesWire(),
 		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(providers),
 		"-e", "YOLO_PROFILES="+jsonDumpsOrEmptyObj(packload.ProfilesWireTable(channel.resolvedProfiles)),
 		"-e", "YOLO_USE_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
