@@ -58,9 +58,15 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 	if !ok {
 		t.Fatalf("cerebras ships no endpoints table: %v", cerebras.Keys())
 	}
-	if anthropic := mapGet(endpoints, "anthropic"); anthropic != nil {
-		t.Errorf("cerebras declares an anthropic endpoint (%v) — the service has none, "+
-			"and the design doc's audit says claude gets nothing from this pack", anthropic)
+	// The anthropic endpoint is the WIRE BRIDGE's loopback URL (wire-bridge.md
+	// §3.3) — the declaration the bridge pack, joined through the needs entry
+	// below, is what makes true. It is a loopback URL and nothing more: no host,
+	// no credential in the URL, and no wire_api (claude's derive reads base_url
+	// directly).
+	anthropic, _ := mapGet(endpoints, "anthropic").(*jsonx.OrderedMap)
+	if mapStr(anthropic, "base_url") != "http://127.0.0.1:8214" {
+		t.Errorf("anthropic endpoint = %v, want the bridge's manifest-borne loopback "+
+			"URL — the single source of the port (WB-D2/D13)", anthropic)
 	}
 	openai, _ := mapGet(endpoints, "openai").(*jsonx.OrderedMap)
 	if mapStr(openai, "base_url") != "https://api.cerebras.ai/v1" ||
@@ -68,6 +74,21 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 		t.Errorf("openai endpoint = %v, want the measured base URL and the canonical name "+
 			"for a chat-completions-only service (no /v1/responses exists — which is also "+
 			"why codex cannot ride it)", openai)
+	}
+	// The need (WB-D3): the bridge pack joins the launch by itself when a
+	// consumer of the bridged URL is among the launch's agents — the declaration
+	// that makes the anthropic URL above true. Neither half ships without the
+	// other (plan build order step 4). The bins are the consumers of an
+	// anthropic endpoint, and there are exactly two: claude reads it directly,
+	// and copilot's derive PREFERS it when present (D-3) — drop a bin here and
+	// that agent's launch composes a dead URL.
+	needs := officialPack(t, "cerebras").Decl.DeclaredNeeds()
+	if len(needs) != 1 || needs[0].Pack != "wire-bridge" || len(needs[0].WhenBins) != 2 ||
+		needs[0].WhenBins[0] != "claude" || needs[0].WhenBins[1] != "copilot" {
+		t.Errorf("cerebras needs = %v, want exactly [{wire-bridge, when_bins: [claude, copilot]}] — "+
+			"the anthropic endpoint and the need that stages its bridge cannot ship apart, "+
+			"and every derive that reads an anthropic endpoint needs the bridge staged",
+			needs)
 	}
 	models, ok := mapGet(cerebras, "models").(*jsonx.OrderedMap)
 	if !ok {
@@ -82,20 +103,48 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 			"deliberately absent (hallucinated tool calls have no tier), and extra aliases "+
 			"are the user's to merge: %v", models.Len(), models.Keys())
 	}
+	// The options surface the profile may tune, with defaults (OQ-CS4): model
+	// resolves through the alias map, and context_window is the free-tier figure
+	// claude's auto-compact triggers at — live only since the bridge made claude
+	// able to ride this provider at all (wire-bridge.md §6, WB-D8).
+	options, ok := mapGet(cerebras, "options").(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("cerebras ships no options map: %v", cerebras.Keys())
+	}
+	if got := mapStr(options, "model"); got != "default" {
+		t.Errorf("options.model = %q, want the alias name it resolves through", got)
+	}
+	if got := mapStr(options, "context_window"); got != "65536" {
+		t.Errorf("options.context_window = %q, want the free-tier 64K bound — the "+
+			"conservative window claude's auto-compact should trigger at (WB-D8)", got)
+	}
+	if options.Len() != 2 {
+		t.Errorf("cerebras declares %d options, want exactly model and context_window — "+
+			"api_timeout_ms stays absent with no evidence of 50-minute turns: %v",
+			options.Len(), options.Keys())
+	}
 }
 
-// TestCerebrasPackComposesNoClaudeRoute: claude selected beside an openai-only provider
-// composes no base URL — there is no anthropic endpoint to point at, and a fabricated
-// one would send claude's traffic at a host that speaks the wrong protocol. (The token
-// alone still rides, a recorded pre-existing behavior the design doc flags as OQ-2;
+// TestCerebrasPackComposesTheBridgedClaudeRoute: claude selected beside cerebras
+// composes the bridge's loopback URL — the anthropic endpoint the pack declares,
+// which the wire-bridge pack (joined through the needs entry) is what makes true.
+// The derive itself is UNCHANGED (wire-bridge.md §3.3): it reads the endpoint
+// like any other, and cannot even see whether a bridge exists. (The token alone
+// also rides, a recorded pre-existing behavior the design doc flags as OQ-2;
 // this test does not pin that half because it is not this pack's claim.)
-func TestCerebrasPackComposesNoClaudeRoute(t *testing.T) {
+//
+// This is the flip of the pre-bridge assertion (claude got nothing from this
+// pack): the endpoint and the need that stages its bridge shipped together, and
+// this test is where the endpoint half is pinned at the argv.
+func TestCerebrasPackComposesTheBridgedClaudeRoute(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "cerebras")}
 	argv := zaiLaunch(t, packs, bareConfig(), cerebrasKey(),
 		func(o *Options) { o.ProfileName = "cerebras" })
 
-	if got := envArgValues(argv, "ANTHROPIC_BASE_URL"); len(got) != 0 {
-		t.Errorf("claude must not be routed by an openai-only provider: %q", got)
+	got := envArgValues(argv, "ANTHROPIC_BASE_URL")
+	if len(got) != 1 || got[0] != "ANTHROPIC_BASE_URL=http://127.0.0.1:8214" {
+		t.Errorf("claude must be routed at the bridge's loopback URL the manifest "+
+			"declares: %q", got)
 	}
 }
 

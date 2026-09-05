@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // sampleEndpoint returns a complete, usable endpoint (a real cert, so Probe's
@@ -338,5 +340,80 @@ func TestProbeRejectsIncompleteEndpoint(t *testing.T) {
 	}
 	if !Probe(full) {
 		t.Error("Probe rejected a complete, published endpoint")
+	}
+}
+
+// TestParsePlainAcceptsExactlyTheBareAddress pins the plain format's
+// structural rule (see ParsePlain): one host:port field, and nothing else
+// parses — a credential triple must never read as a plain endpoint or a
+// truncated write of one could pass a plain probe.
+func TestParsePlainAcceptsExactlyTheBareAddress(t *testing.T) {
+	addr, err := ParsePlain("127.0.0.1:8214\n")
+	if err != nil || addr != "127.0.0.1:8214" {
+		t.Errorf("ParsePlain(bare address) = %q, %v, want the address", addr, err)
+	}
+	for name, bad := range map[string]string{
+		"empty":           "",
+		"no port":         "127.0.0.1",
+		"two fields":      "127.0.0.1:8214 extra",
+		"a TLS triple":    "127.0.0.1:8214 " + strings.Repeat("A", 16) + " deadbeef",
+		"whitespace only": " \n\t ",
+	} {
+		if _, err := ParsePlain(bad); !errors.Is(err, ErrEndpointMalformed) {
+			t.Errorf("ParsePlain(%s) = %v, want ErrEndpointMalformed", name, err)
+		}
+	}
+}
+
+// TestReadPlainAndDialPlain: the witness's plain path — read through the SAME
+// stat gate as Read (a fifo at the path is refused, never opened), and a dial
+// that reaches a live plain listener and fails (with the dial error, not a
+// parse error) on a dead port.
+func TestReadPlainAndDialPlain(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close() // connect-then-close is the whole contract
+		}
+	}()
+
+	path := filepath.Join(t.TempDir(), "plain.endpoint")
+	if err := os.WriteFile(path, []byte(ln.Addr().String()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	addr, err := ReadPlain(path)
+	if err != nil || addr != ln.Addr().String() {
+		t.Fatalf("ReadPlain = %q, %v, want the published address", addr, err)
+	}
+	conn, err := DialPlain(path, time.Second)
+	if err != nil {
+		t.Fatalf("DialPlain against a live listener: %v", err)
+	}
+	_ = conn.Close()
+
+	// A dead published port is a dial failure carrying no malformed-file claim.
+	if err := os.WriteFile(path, []byte("127.0.0.1:1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DialPlain(path, 200*time.Millisecond); err == nil ||
+		errors.Is(err, ErrEndpointMalformed) {
+		t.Errorf("DialPlain against a dead port = %v, want a plain dial error", err)
+	}
+
+	// A credential triple at the path is not a plain endpoint — exactly-three
+	// and exactly-one refuse each other by construction.
+	if err := os.WriteFile(path, []byte("h:1 "+strings.Repeat("Q", 8)+" tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadPlain(path); !errors.Is(err, ErrEndpointMalformed) {
+		t.Errorf("ReadPlain over a credential triple = %v, want ErrEndpointMalformed", err)
 	}
 }

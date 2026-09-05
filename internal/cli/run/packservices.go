@@ -22,7 +22,10 @@ import (
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
 // serviceJailDaemons returns the YOLO_JAIL_DAEMONS payload entries for every
@@ -72,6 +75,93 @@ func serviceJailDaemons(packs []*packload.Pack) []any {
 	out := make([]any, len(entries))
 	for i, e := range entries {
 		out[i] = e.spec
+	}
+	return out
+}
+
+// serviceEndpointEnvArgs emits the reachability witness's registration for a
+// JAIL-FACING service this launch has decided it will serve — today exactly
+// one: `-e YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT=/run/yolo-services/wire-bridge.endpoint`
+// for the wire-bridge (wire-bridge.md §5's WARNING). It is the in-jail
+// counterpart of hostServicesMountArgs' broker emission: that one advertises a
+// HOST-side daemon the lifecycle spawned before the argv was frozen, this one a
+// jail-side daemon whose file appears once supervise has booted it and the bind
+// has succeeded — which is precisely the appearance the witness waits for and,
+// on an escalating host-loopback disposition, refuses the launch without.
+//
+// BOTH gates must hold, and neither implies the other:
+//
+//   - a selected pack contributes the wire-bridge SERVICE (with an endpoint to
+//     publish — a service that publishes none has no file to witness). This is
+//     usually the needs closure's doing: cerebras's `needs` joins the pack
+//     whenever claude is selected, so the ordinary bridged launch lists only
+//     claude and cerebras in `packs`. A launch without the bridge emits
+//     nothing, whatever the provider table says.
+//   - wirebridged.WillServe says the daemon will actually SERVE. The daemon is
+//     selection-lazy (§3.4): staged in every launch that selects claude, it
+//     idles healthy when no claude profile routes at a bridged provider, and an
+//     idle daemon publishes nothing — so emitting the variable there would make
+//     every idle bridge a fatal "unpublished service", the exact contradiction
+//     the design rules out.
+//
+// WillServe runs over THIS launch's composed channel — the same providers,
+// use-profiles and resolved-profiles objects the env block below serializes
+// onto the argv — and the daemon re-answers it in-jail from what that block
+// crossed. One decision function, two call sites, same inputs: the env var,
+// the endpoint file and the witness probe cannot disagree without the code
+// having been forked first.
+//
+// The VALUE is the manifest's declared endpoint file name under the services
+// dir — read off the contribution, never reconstructed from the daemon's
+// constant. The manifest is the host-side declaration and the daemon is the
+// publisher; if the two ever name different files, the variable points at a
+// file nothing writes and the witness says so loudly, which is the failure
+// mode a silent reconstruction would hide.
+func serviceEndpointEnvArgs(in *assembleInput, o *Options) []string {
+	var bridge *packdecl.ServiceContribution
+	for _, p := range in.packs {
+		if p.Decl == nil {
+			continue
+		}
+		for _, s := range p.Decl.Services() {
+			if s.Name != wirebridged.ServiceName {
+				continue
+			}
+			// The name is sole-owned across packs (a second contributor is a
+			// launch refusal, not a fold), so the first hit is THE service.
+			found := s
+			bridge = &found
+			break
+		}
+		if bridge != nil {
+			break
+		}
+	}
+	if bridge == nil || bridge.Endpoint == "" {
+		return nil
+	}
+	channel := in.envChannel(o)
+	if !wirebridged.WillServe(channel.providers, useProfilesTable(channel.profiles),
+		channel.resolvedProfiles) {
+		return nil
+	}
+	return []string{"-e", hostServiceEnvVar(bridge.Name) + "=" +
+		paths.JailHostServicesDir + "/" + bridge.Endpoint}
+}
+
+// useProfilesTable lowers the composed use-profiles table to the plain
+// agent→profile map WillServe reads. A non-string value lowers to "": the same
+// "no profile active here" answer the in-jail loader gives a malformed entry,
+// so the two ends lower a corrupt table the same way.
+func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
+	out := map[string]string{}
+	if m == nil {
+		return out
+	}
+	for _, k := range m.Keys() {
+		v, _ := m.Get(k)
+		s, _ := v.(string)
+		out[k] = s
 	}
 	return out
 }

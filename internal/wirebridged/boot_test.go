@@ -14,7 +14,25 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
+
+// mustProviders decodes a composed-table JSON literal, failing the test on a
+// typo — a table that does not decode would idle for the WRONG reason and the
+// truth table would still pass.
+func mustProviders(t *testing.T, raw string) *jsonx.OrderedMap {
+	t.Helper()
+	v, err := jsonx.Decode([]byte(raw))
+	if err != nil {
+		t.Fatalf("decoding providers fixture: %v", err)
+	}
+	m, ok := v.(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("providers fixture is not an object: %T", v)
+	}
+	return m
+}
 
 const bridgedProviders = `{"cerebras":{
 	"api_key_env_name":"CEREBRAS_API_KEY",
@@ -64,9 +82,9 @@ func TestResolveRouteIdles(t *testing.T) {
 		providers, profiles, useProf string
 		wantIdle                     string
 	}{
-		{"no profile active for claude", bridgedProviders,
+		{"no profile active at all", bridgedProviders,
 			`{"cerebras-fast":{"provider":"cerebras"}}`, `{}`,
-			"no profile is active for claude"},
+			"no profile is active in YOLO_USE_PROFILES"},
 		{"profile resolves to no provider", bridgedProviders,
 			`{}`, `{"claude":"cerebras-fast"}`,
 			"resolves to no provider"},
@@ -92,10 +110,29 @@ func TestResolveRouteIdles(t *testing.T) {
 			"openai":{"base_url":"https://x.example/v1","wire_api":"openai-responses"}}}}`,
 			`{"p":{"provider":"responses-only"}}`, `{"claude":"p"}`,
 			"anthropic ↔ openai-chat-completions"},
+		// The generalization (boot.go, "WHO IS SERVED"): the agent's NAME is not
+		// the logic — an active profile for any CLI whose derive reads the
+		// anthropic endpoint (copilot, per D-3) serves the same route.
+		{"serves for a non-claude agent whose profile routes here", bridgedProviders,
+			`{"cerebras-fast":{"provider":"cerebras"}}`, `{"copilot":"cerebras-fast"}`,
+			""},
+		{"a claude idle reason does not mask another agent's live route", bridgedProviders,
+			`{"cerebras-fast":{"provider":"cerebras"}}`,
+			`{"claude":"not-a-profile","copilot":"cerebras-fast"}`,
+			""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			route, idle := resolveRoute(routeEnv(tc.providers, tc.profiles, tc.useProf))
+			if tc.wantIdle == "" {
+				if idle != "" {
+					t.Fatalf("expected a route, got idle: %s", idle)
+				}
+				if route.ProviderName != "cerebras" {
+					t.Errorf("ProviderName = %q, want the routed provider", route.ProviderName)
+				}
+				return
+			}
 			if idle == "" {
 				t.Fatalf("expected an idle, got a route: %+v", route)
 			}
@@ -103,6 +140,84 @@ func TestResolveRouteIdles(t *testing.T) {
 				t.Errorf("idle reason %q does not name the absent fact (%q)", idle, tc.wantIdle)
 			}
 		})
+	}
+}
+
+// WillServe's truth table, over the same inputs the launcher hands it
+// (wire-bridge.md §5's WARNING): the serve cases are the bridged routes, and
+// every idle case is one of resolveRoute's absent facts. Each row asserts BOTH
+// exported answers — WillServe's bool and the boot resolution's idle string —
+// because the two call sites (daemon boot, launcher emission) must never be
+// able to disagree: if someone splits the decision in two, this table goes red
+// on the row that diverged.
+func TestWillServeTruthTable(t *testing.T) {
+	resolved := map[string]packload.ResolvedProfile{
+		"cerebras-fast": {Provider: "cerebras"},
+	}
+	serving := []struct {
+		name        string
+		providers   *jsonx.OrderedMap
+		useProfiles map[string]string
+	}{
+		{"the shipped bridged route", mustProviders(t, bridgedProviders),
+			map[string]string{"claude": "cerebras-fast"}},
+		{"the profile active for another agent too", mustProviders(t, bridgedProviders),
+			map[string]string{"claude": "cerebras-fast", "pi": "cerebras-fast"}},
+	}
+	for _, tc := range serving {
+		t.Run("serves: "+tc.name, func(t *testing.T) {
+			if !WillServe(tc.providers, tc.useProfiles, resolved) {
+				t.Errorf("WillServe = false, want true for %s", tc.name)
+			}
+		})
+	}
+	idle := []struct {
+		name        string
+		providers   *jsonx.OrderedMap
+		useProfiles map[string]string
+	}{
+		{"no profile active for claude", mustProviders(t, bridgedProviders), map[string]string{}},
+		{"claude rides a provider with no anthropic endpoint",
+			mustProviders(t, `{"cerebras":{"endpoints":{"openai":{
+				"base_url":"https://api.cerebras.ai/v1","wire_api":"openai-chat-completions"}}}}`),
+			map[string]string{"claude": "cerebras-fast"}},
+		{"anthropic endpoint not jail-local",
+			mustProviders(t, `{"zai":{"endpoints":{
+				"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
+				"openai":{"base_url":"https://api.z.ai/api/paas/v4"}}}}`),
+			map[string]string{"claude": "cerebras-fast"}},
+	}
+	for _, tc := range idle {
+		t.Run("idles: "+tc.name, func(t *testing.T) {
+			if WillServe(tc.providers, tc.useProfiles, resolved) {
+				t.Errorf("WillServe = true, want false for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestWillServeAndTheBootResolutionAreOneDecision pins the property the
+// launcher's emission depends on (§5's WARNING): for any tables, WillServe's
+// bool and the daemon boot's idle answer agree. Both call sites go through
+// routeFor by construction; this is the test that notices if that stops being
+// true.
+func TestWillServeAndTheBootResolutionAreOneDecision(t *testing.T) {
+	tables := []struct{ providers, profiles, useProfiles string }{
+		{bridgedProviders, `{"cerebras-fast":{"provider":"cerebras"}}`, `{"claude":"cerebras-fast"}`},
+		{bridgedProviders, `{"cerebras-fast":{"provider":"cerebras"}}`, `{}`},
+		{bridgedProviders, `{}`, `{"claude":"cerebras-fast"}`},
+		{`{"other":{"endpoints":{"anthropic":{"base_url":"http://127.0.0.1:8214"}}}}`,
+			`{"cerebras-fast":{"provider":"cerebras"}}`, `{"claude":"cerebras-fast"}`},
+	}
+	for i, tc := range tables {
+		env := routeEnv(tc.providers, tc.profiles, tc.useProfiles)
+		_, idle := resolveRoute(env)
+		want := idle == ""
+		if got := WillServe(mustProviders(t, tc.providers), useProfilesTable(env.LoadUseProfiles()),
+			env.LoadProfiles()); got != want {
+			t.Errorf("case %d: WillServe = %v, boot resolution says serve=%v (idle %q) — "+
+				"the decision has split in two", i, got, want, idle)
+		}
 	}
 }
 

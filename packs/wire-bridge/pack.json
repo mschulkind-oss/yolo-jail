@@ -1,0 +1,14 @@
+{
+  "contributes": [
+    {
+      "endpoint": "wire-bridge.endpoint",
+      "jail_daemon": {
+        "cmd": ["yolo-jaild", "wire-bridge"],
+        "restart": "on-failure"
+      },
+      "kind": "service",
+      "name": "wire-bridge"
+    }
+  ],
+  "name": "wire-bridge"
+}

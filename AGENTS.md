@@ -5,16 +5,19 @@ workspace, without exposing host credentials or identity.
 
 **AGENTS ARE PACKS. Core does not know what an agent is.** There is no agent
 registry, no `agents` config key, and no `YOLO_AGENTS`. Config carries ONE list
-of `packs`; the fourteen that ship with yolo live in `packs/*/pack.json` and are
+of `packs`; the fifteen that ship with yolo live in `packs/*/pack.json` and are
 selected by BARE NAME — `"packs": ["claude"]` (counted against `ls packs/` 2026-09-04).
 Six install an agent (`claude`, `copilot`, `opencode`, `pi`, `codex`, `agy`) and
-**eight install no CLI at all**, in three kinds: `audio`, `host-processes`, `journal`,
+**nine install no CLI at all**, in four kinds: `audio`, `host-processes`, `journal`,
 `cgroup-delegate` and `serial` ship a LOOPHOLE each (`audio` also contributes two env
 vars — the only one of the five that ships anything beside its loophole); `zai` and
 `cerebras` ship neither CLI nor loophole — a provider and a profile apiece, the two
 packs whose whole content is declarative facts (zai the first, cerebras the second);
-and `guardrails` ships blocked-tool refusals and install requirements (core blocks
-nothing by default since 9caba669 — the blocked tools are opt-in through it).
+`guardrails` ships blocked-tool refusals and install requirements (core blocks
+nothing by default since 9caba669 — the blocked tools are opt-in through it); and
+`wire-bridge` is the first `kind: "service"` pack — one in-jail daemon and its
+endpoint file, no grants, joined to a launch automatically through cerebras's
+`needs` entry when claude or copilot is selected (docs/design/wire-bridge.md §2-§3).
 Anything that says "the six" is
 describing the agent SUBSET.
 

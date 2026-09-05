@@ -3,7 +3,7 @@ title: "The wire bridge — claude on chat-completions providers, without leavin
 date: 2026-09-04
 status: accepted
 tags: [packs, providers, daemons, claude, cerebras, translation]
-summary: "Claude Code speaks exactly one wire protocol, and Cerebras serves exactly the other one. A wire bridge — an in-jail translating reverse proxy — manufactures the endpoint claude needs on the jail's own loopback, with no host grant and no boundary crossing. This doc designs it: the kind: service vocabulary it lands as, the real needs dependency that includes it when claude is in use, and the exact wire surface it translates."
+summary: "Claude Code speaks exactly one wire protocol, and Cerebras serves exactly the other one. A wire bridge — an in-jail translating reverse proxy — manufactures the endpoint claude needs on the jail's own loopback, with no host grant and no boundary crossing. This doc designs it: the kind: service vocabulary it lands as, the real needs dependency that includes it when an anthropic-wire agent is in use, and the exact wire surface it translates."
 ---
 
 # The wire bridge — claude on chat-completions providers, without leaving the jail
@@ -19,8 +19,8 @@ bridge** *(coined here)*: an in-jail daemon that listens on the jail's loopback,
 Anthropic Messages protocol to claude, and speaks OpenAI chat-completions upstream. The
 provider declares the bridge's loopback URL as its `anthropic` endpoint — the existing
 claude derive needs **zero changes** — and the dependency is REAL PACK VOCABULARY: cerebras
-declares `needs: [{pack: wire-bridge, when_bins: [claude]}]`, and the launcher includes the
-bridge pack automatically when claude is among the launch's agents. It is
+declares `needs: [{pack: wire-bridge, when_bins: [claude, copilot]}]`, and the launcher includes the
+bridge pack automatically when claude or copilot is among the launch's agents. It is
 loophole-*shaped* (in-jail daemon, supervised, endpoint file) but not a loophole: it
 crosses no boundary and holds no host grant, which is exactly why it should not be called
 one.
@@ -132,7 +132,7 @@ dependency**:
 {
   "name": "cerebras",
   "needs": [
-    {"pack": "wire-bridge", "when_bins": ["claude"]}
+    {"pack": "wire-bridge", "when_bins": ["claude", "copilot"]}
   ],
   "contributes": [ ... ]
 }
@@ -318,6 +318,16 @@ one declaration:
 - `gpt-oss-120b`'s exclusion (D-1) is unaffected — the bridge changes who can *speak*,
   not which models are fit for agentic use.
 
+> [!WARNING]
+> **Correction (2026-09-05, found building step 4): copilot is a bridge consumer too.**
+> This doc's §3 drafting claimed "pi/opencode/copilot resolve `openai` endpoints and never
+> see the loopback URL" — wrong for copilot: the copilot derive PREFERS the anthropic
+> endpoint when a provider has one (this docset's own D-3), so cerebras's loopback
+> endpoint reaches copilot automatically, and a `when_bins: [claude]`-only need would have
+> shipped copilot+cerebras launches a dead URL with no bridge included. The shipped need is
+> `when_bins: [claude, copilot]`, and the serve predicate walks every active profile
+> (§3.4's mechanism, taken literally: the same selection table every agent honors).
+
 ## 7. What this does not license
 
 - **No `/v1/responses` bridge for codex.** A second protocol family for a second agent is
@@ -402,4 +412,5 @@ and the doc names it rather than pretending a test covers it.
 | WB-D13 | The listen port is fixed and manifest-borne — 8214, carried only in the provider's `anthropic` base_url; a collision is witness-fatal in a fresh namespace (OQ-3, ruled 2026-09-04) | 2026-09-04 | §3.1, §3.3 |
 | WB-D14 | `count_tokens` refuses (404). No estimate, no zero-stub — measured: z.ai answers it `200 {"input_tokens":0}`, the source of claude's "0 tokens" display; a refusal falls back to claude's own estimator. Ruled: "I don't want to invent behavior" (OQ-4) | 2026-09-04 | §4 |
 | WB-D15 | Upstream reasoning default stands — no provider option, no bridge default. A request naming a thinking level translates only on a 1:1 mapping; none exists today, so v1 translates nothing (OQ-5, ruled: "upstream to stay its default, but also allow setting it from within the agent when possible") | 2026-09-04 | §4 |
+| WB-D17 | copilot rides the bridge too: the need's when_bins is [claude, copilot] and the serve predicate walks all active profiles — found building step 4 (the copilot derive prefers anthropic endpoints, D-3, so the loopback URL reaches it) | 2026-09-05 | §6 warning |
 | WB-D16 | `kind: service` is primary vocabulary — a jail or host daemon contribution with endpoint, restart, and witness, no grants. The bridge is its first instance; loopholes re-form as service + boundary grants (the §2.1 decomposition) as a named follow-up, not a prerequisite (OQ-2, ruled: "make service the primary and have loopholes form around them") | 2026-09-04 | §2.1 |

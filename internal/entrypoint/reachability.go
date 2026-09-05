@@ -92,6 +92,7 @@ package entrypoint
 import (
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -329,8 +330,11 @@ func launcherLoopbackDisposition(e *Env) loopbackDisposition {
 	}
 }
 
-// ProbeServiceReachability dials every ENABLED jail-facing loopback-TLS service
-// from inside the jail and warns about each one it cannot reach.
+// ProbeServiceReachability dials every ENABLED jail-facing service from inside
+// the jail and warns about each one it cannot reach — the loopback-TLS
+// transport's credential endpoints, and (since the wire-bridge) a plain-HTTP
+// service's bare-address endpoint, each probed in the shape its own file
+// declares.
 //
 // SILENCE IS THE HEALTHY OUTPUT, and "enabled" is not a judgement this function
 // makes: it reads the YOLO_SERVICE_<NAME>_ENDPOINT variables the launcher set on
@@ -744,14 +748,27 @@ func probeService(svc serviceEndpoint, deadline time.Time) *reachabilityResult {
 		}
 
 		// Read before dialling only to learn the ADVERTISED address for the
-		// diagnostic; Dial re-reads the file itself, which is what lets a
-		// republication between attempts be picked up.
-		addr := ""
+		// diagnostic; the dial re-reads the file itself, which is what lets a
+		// republication between attempts be picked up. The PLAIN read is the
+		// same lookup for the wire-bridge's format (svcendpoint.ParsePlain): a
+		// service that serves plain HTTP to its own jail publishes a bare
+		// host:port line and no credential, and exactly-one-field is what says
+		// so — the two formats refuse each other by construction, so the sniff
+		// cannot mistake a truncated triple for a plain endpoint.
+		addr, plain := "", false
 		if ep, err := svcendpoint.Read(svc.path); err == nil {
 			addr = ep.HostPort
+		} else if a, perr := svcendpoint.ReadPlain(svc.path); perr == nil {
+			addr, plain = a, true
 		}
 
-		conn, err := svcendpoint.Dial(svc.path, timeout)
+		var conn net.Conn
+		var err error
+		if plain {
+			conn, err = svcendpoint.DialPlain(svc.path, timeout)
+		} else {
+			conn, err = svcendpoint.Dial(svc.path, timeout)
+		}
 		if err == nil {
 			_ = conn.Close()
 			return nil

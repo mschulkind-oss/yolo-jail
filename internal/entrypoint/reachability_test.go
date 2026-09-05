@@ -1478,3 +1478,89 @@ func TestReachabilityRecordLandsAfterTheFindingsItSummarises(t *testing.T) {
 			"  summary at %d, explanation ends at %d\n--- output ---\n%s", summary, explain, out)
 	}
 }
+
+// livePlainEndpoint stands a real PLAIN tcp listener and publishes its address
+// in the plain endpoint format — the wire-bridge's shape (svcendpoint.ParsePlain:
+// one bare host:port line, no credential). The accept-and-drop loop is the same
+// stand-in liveEndpoint uses, because connect-then-close is what the plain dial
+// does too.
+func livePlainEndpoint(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name+paths.ServiceEndpointExt)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	if err := os.WriteFile(path, []byte(ln.Addr().String()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// deadPlainEndpoint publishes a WELL-FORMED plain endpoint whose port answers
+// nothing — the plain twin of deadEndpoint, and the only honest way to produce
+// "the file is perfect, the address is dead" without a second netns.
+func deadPlainEndpoint(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name+paths.ServiceEndpointExt)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(addr+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestReachabilityProbeCoversAPlainService: the witness's §5 promise to the
+// wire-bridge — a service that publishes a plain endpoint is witnessed like any
+// other, silent when its listener answers and attributed UNREACHABLE (with the
+// address, not a malformed-file complaint) when it does not. The dead half is
+// the one that would be loud if the sniff ever regressed to TLS-only: a plain
+// file misread as an unpublished endpoint would refuse every bridged launch
+// that merely started slowly.
+func TestReachabilityProbeCoversAPlainService(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	dir := servicesDir(t)
+
+	path := livePlainEndpoint(t, dir, "wire-bridge")
+	if got := probeWarnings(t, map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		paths.ServiceEnvVarPrefix + "WIRE_BRIDGE" + paths.ServiceEnvVarSuffix: path,
+	}); got != "" {
+		t.Errorf("a plain service with a live listener must be silent, got:\n%s", got)
+	}
+
+	path = deadPlainEndpoint(t, dir, "wire-bridge")
+	got := probeWarnings(t, map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		paths.ServiceEnvVarPrefix + "WIRE_BRIDGE" + paths.ServiceEnvVarSuffix: path,
+	})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAddr := strings.TrimSpace(string(data))
+	if !strings.Contains(got, "wire-bridge") || !strings.Contains(got, wantAddr) {
+		t.Errorf("the warning must name the plain service and its advertised address (%s):\n%s",
+			wantAddr, got)
+	}
+	if !strings.Contains(got, "UNREACHABLE") {
+		t.Errorf("a dead plain listener is an unreachable fault, not an unpublished file:\n%s", got)
+	}
+}

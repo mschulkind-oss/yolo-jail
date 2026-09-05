@@ -304,8 +304,17 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	// The grep names the five composed vars exactly, the claude subtest's discipline:
 	// the copilot pack itself contributes COPILOT_ALLOW_ALL=true statically, and a
 	// bare ^COPILOT_ would fold it into the assertion.
+	//
+	// Since the wire bridge shipped, cerebras declares an anthropic endpoint (the
+	// bridge's loopback URL), and copilot's derive PREFERS that endpoint (D-3) — so
+	// the composed block is the bridged anthropic route, and the needs closure has
+	// staged the wire-bridge daemon serving on it (that is why the key crosses via
+	// env_sources here, the bridge's own 0600 channel: an idle bridge would refuse
+	// the boot at the witness). The claude/zai subtest above stays on the invoking
+	// environment because zai needs no bridge.
 	t.Run("copilot env carries the selected provider's BYOK block", func(t *testing.T) {
-		packHome(t, `{"packs": ["copilot", "cerebras"], "use_profiles": {"copilot": "cerebras"}}`)
+		packHome(t, `{"packs": ["copilot", "cerebras"], "use_profiles": {"copilot": "cerebras"},
+			"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}]}`)
 		r := runYolo(t, dir,
 			`env | grep -E '^COPILOT_(MODEL|PROVIDER_API_KEY|PROVIDER_BASE_URL|PROVIDER_TYPE|PROVIDER_WIRE_API)=' | sort`)
 		if r.rc != 0 {
@@ -313,11 +322,11 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 		}
 		want := "COPILOT_MODEL=qwen-3.8-27b\n" +
 			"COPILOT_PROVIDER_API_KEY=integration-probe-not-a-real-key\n" +
-			"COPILOT_PROVIDER_BASE_URL=https://api.cerebras.ai/v1\n" +
-			"COPILOT_PROVIDER_TYPE=openai\n" +
-			"COPILOT_PROVIDER_WIRE_API=completions\n"
+			"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214\n" +
+			"COPILOT_PROVIDER_TYPE=anthropic\n"
 		if got := r.stdout; got != want {
-			t.Errorf("copilot's BYOK env =\n%s\nwant exactly the composed block:\n%s", got, want)
+			t.Errorf("copilot's BYOK env =\n%s\nwant exactly the composed block (the "+
+				"bridged anthropic route; no WIRE_API on the anthropic type):\n%s", got, want)
 		}
 	})
 }

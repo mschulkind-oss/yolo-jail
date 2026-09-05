@@ -28,11 +28,16 @@ func copilotLaunch(t *testing.T, provider string, tune func(*Options)) []string 
 	return zaiLaunch(t, packs, bareConfig(), env, tune)
 }
 
-// TestCopilotByokComposesFromAnOpenaiProvider: `-p cerebras` on a copilot launch arms
-// the full BYOK block — the base URL that is copilot's sole activation gate, the openai
-// type with the completions wire dialect (canonical openai-chat-completions translated,
-// never passed through), the one model alias, and the hydrated key.
-func TestCopilotByokComposesFromAnOpenaiProvider(t *testing.T) {
+// TestCopilotByokComposesCerebrasThroughTheBridge: `-p cerebras` on a copilot
+// launch arms the full BYOK block — and since cerebras now declares an
+// anthropic endpoint (the wire bridge's loopback URL, wire-bridge.md §3.3),
+// D-3 routes copilot there: the anthropic type, no WIRE_API, the one model
+// alias, the hydrated key. This is the flip the bridge shipped: copilot's
+// derive reads every endpoint the composed table carries and prefers the
+// anthropic one, so the bridge is as much copilot's route as claude's — which
+// is why cerebras's `needs` entry names the copilot bin too. The derive is
+// UNCHANGED; only the table grew an endpoint.
+func TestCopilotByokComposesCerebrasThroughTheBridge(t *testing.T) {
 	argv := copilotLaunch(t, "cerebras", func(o *Options) { o.ProfileName = "cerebras" })
 
 	got := envArgValues(argv,
@@ -41,12 +46,12 @@ func TestCopilotByokComposesFromAnOpenaiProvider(t *testing.T) {
 	want := []string{
 		"COPILOT_MODEL=qwen-3.8-27b",
 		"COPILOT_PROVIDER_API_KEY=csk-test",
-		"COPILOT_PROVIDER_BASE_URL=https://api.cerebras.ai/v1",
-		"COPILOT_PROVIDER_TYPE=openai",
-		"COPILOT_PROVIDER_WIRE_API=completions",
+		"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214",
+		"COPILOT_PROVIDER_TYPE=anthropic",
 	}
 	if len(got) != len(want) {
-		t.Fatalf("copilot BYOK env = %q, want %q", got, want)
+		t.Fatalf("copilot BYOK env = %q, want %q (no WIRE_API on the anthropic type)",
+			got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {

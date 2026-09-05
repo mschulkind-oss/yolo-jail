@@ -309,5 +309,9 @@ place the exact spellings are stated.
 | zai model aliases | `default`/`sonnet`: `glm-5.3`, `fast`/`haiku`: `glm-5.3-flash` — WIRE-TRUE ids; claude's derive alone appends its `[1m]` spelling when `context_window` ≥ 1000000 (the suffix is a 400 on both z.ai routes for anyone else, measured 2026-09-04) | `packs/zai/pack.json` |
 | zai provider options | `model: default`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
 | zai credential variable | `ZAI_API_KEY` | `packs/zai/pack.json` |
+| `needs` vocabulary | top-level manifest key — `needs: [{pack, when_bins}]`, conditional pack dependency resolved as a transitive closure at selection (the added pack prints its cause line on the banner); manifests only, never user config | `internal/packdecl/needs.go`, `internal/packload/needs.go` |
 | cerebras model aliases | `default: qwen-3.8-27b` — the one alias; `gpt-oss-120b` deliberately absent (hallucinated tool calls have no tier) | `packs/cerebras/pack.json` |
+| cerebras endpoints | `openai`: `https://api.cerebras.ai/v1` (the native service); `anthropic`: `http://127.0.0.1:8214` — the wire bridge's loopback URL, whose port lives only in this manifest | `packs/cerebras/pack.json` |
+| cerebras provider options | `model: default`, `context_window: "65536"` (the free-tier window; claude's auto-compact triggers at it, and a paid-tier user overrides to `131072` in their own profile) | `packs/cerebras/pack.json` |
+| cerebras needs | `wire-bridge` when `claude` or `copilot` is selected — the two agents whose derives read an anthropic endpoint (claude directly; copilot by its D-3 preference), so the launch that composes the loopback URL is the one that stages its listener | `packs/cerebras/pack.json` |
 | cerebras credential variable | `CEREBRAS_API_KEY` | `packs/cerebras/pack.json` |

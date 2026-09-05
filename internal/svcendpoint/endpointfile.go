@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Typed errors. The ATTRIBUTION is load-bearing, not the text: callers must be
@@ -290,6 +291,66 @@ func fileKindName(m os.FileMode) string {
 	default:
 		return "special file"
 	}
+}
+
+// ParsePlain parses a PLAIN endpoint line: exactly one whitespace-separated
+// field that splits as host:port.
+//
+// THE SECOND FORMAT, and why it exists: a service that serves PLAIN HTTP to its
+// own jail publishes no credential — there is no cert to pin and, the jail being
+// the trust boundary, no token to present (the wire-bridge is the instance;
+// wire-bridge.md §2/§4/WB-D4). Its endpoint file is the bare "host:port" line,
+// and exactly-one-field is what distinguishes it from the credential triple's
+// exactly-three — the same neither-parses-as-the-other discipline Parse
+// documents, so a file from either format is unusable as the other and a
+// truncated write of one cannot masquerade as the other.
+//
+// Parse checks STRUCTURE. Probe checks usability.
+func ParsePlain(data string) (string, error) {
+	fields := strings.Fields(data)
+	if len(fields) != 1 {
+		return "", fmt.Errorf(
+			"%w: a plain endpoint is one whitespace-separated field (host:port), got %d",
+			ErrEndpointMalformed, len(fields))
+	}
+	if _, _, err := net.SplitHostPort(fields[0]); err != nil {
+		return "", fmt.Errorf("%w: plain endpoint %q does not split as host:port", ErrEndpointMalformed, fields[0])
+	}
+	return fields[0], nil
+}
+
+// ReadPlain reads and parses a plain endpoint file: the advertised address,
+// nothing else. Same stat gate, same size cap, same freshness rule as Read —
+// the gate (readEndpointFile) is the part that keeps a fifo planted where an
+// endpoint belongs from wedging a reader forever, and a second format must not
+// mean a second, ungated reader.
+func ReadPlain(path string) (string, error) {
+	data, err := readEndpointFile(path)
+	if err != nil {
+		return "", err
+	}
+	addr, err := ParsePlain(string(data))
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	return addr, nil
+}
+
+// DialPlain connects to the plain endpoint published at endpointPath — a bare
+// TCP connect to the ADVERTISED address, no TLS, no token frame, the connect
+// then the caller's close. It is the reachability witness's probe shape for a
+// plain-HTTP service, the exact analogue of what Dial + connect-then-close
+// already proves for the credential transport: the listener exists and accepts.
+//
+// The file is re-read fresh on every dial, for the same three reasons Dial's
+// doc gives — restarts, republishes, and an already-running container whose
+// environment is frozen.
+func DialPlain(endpointPath string, dialTimeout time.Duration) (net.Conn, error) {
+	addr, err := ReadPlain(endpointPath)
+	if err != nil {
+		return nil, err
+	}
+	return net.DialTimeout("tcp", addr, dialTimeout)
 }
 
 // Probe reports whether path holds a COMPLETE, USABLE endpoint. This is the

@@ -709,6 +709,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// second -e of the same name and lose to the runtime's duplicate resolution.
 	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, serviceJailDaemons(in.packs))...)
 
+	// --- jail-facing service endpoint env (the witness's registration) ---
+	// Beside the composition above on purpose: a service whose daemon joins
+	// YOLO_JAIL_DAEMONS here is the same service whose endpoint file the env
+	// var below advertises to the in-jail reachability witness — emitted only
+	// when the launch has decided the daemon will actually serve (§5's
+	// WARNING), so an idle bridge never registers.
+	runCmd = append(runCmd, serviceEndpointEnvArgs(in, o)...)
+
 	// --- image + entrypoint ---
 	runCmd = append(runCmd, in.jailImage(), "yolo-entrypoint")
 	return runCmd
