@@ -54,10 +54,14 @@ func TestUserProfilesEntryLaunchesAndTheTableCrosses(t *testing.T) {
 		// The brief's own entry, resolved: `model` is one of the options zai's `options`
 		// declares, the census passes, and the profile's own value stays on top of the
 		// declared default ("default") rather than being re-spelled by it.
-		`"zai-fast": {"provider": "zai", "model": "fast"}`,
+		// ⚠ These are EXACT shapes on purpose — the comment above says "every option zai
+		// carries", so a new option must break this test rather than slip past it. It did:
+		// `3d9b1aa2` gave zai the full env block Z.AI recommends, adding api_timeout_ms and
+		// context_window, and these fragments were not updated with it.
+		`"zai-fast": {"provider": "zai", "api_timeout_ms": "3000000", "context_window": "1000000", "model": "fast"}`,
 		// The pack's own shipped profile, resolving to its provider and the declared
 		// default of every option zai carries.
-		`"zai": {"provider": "zai", "model": "default"}`,
+		`"zai": {"provider": "zai", "api_timeout_ms": "3000000", "context_window": "1000000", "model": "default"}`,
 	} {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("YOLO_PROFILES should carry %s, got:\n%s", want, r.stdout)
@@ -126,10 +130,16 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 		t.Errorf("pi settings.json defaultProvider = %q, want the provider the profile "+
 			"selects", piSettings.provider)
 	}
-	if piSettings.model != "glm-5.3-flash[1m]" {
-		t.Errorf("pi settings.json defaultModel = %q, want glm-5.3-flash[1m] — the id under the "+
-			"alias the profile's `model` option names (packs/zai declares models: "+
-			"{default: glm-5.3[1m], fast: glm-5.3-flash[1m]}), not the declared default glm-5.3[1m]",
+	// ⚠ NO `[1m]` SUFFIX HERE, and that is the assertion rather than an omission. `8e901423`
+	// found glm-5.3[1m] is a 400 on BOTH z.ai routes and that pi and opencode carry no [1m]
+	// handling at all, so the suffix is now appended by packs/claude's derive alone, for the
+	// ids CLAUDE emits. This test asserted the suffixed id for PI — i.e. it pinned the exact
+	// wire failure that commit fixed — and was not updated with it.
+	if piSettings.model != "glm-5.3-flash" {
+		t.Errorf("pi settings.json defaultModel = %q, want glm-5.3-flash — the wire-true id under "+
+			"the alias the profile's `model` option names (packs/zai declares models: "+
+			"{default: glm-5.3, fast: glm-5.3-flash}), not the declared default glm-5.3, and "+
+			"never the claude-only [1m] spelling",
 			piSettings.model)
 	}
 	// The vacuity guard reads the file the catalog lands in: pi's providers table is
