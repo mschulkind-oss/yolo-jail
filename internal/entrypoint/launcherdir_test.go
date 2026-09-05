@@ -367,9 +367,16 @@ func TestPackWithTwoProgramsGetsTwoLaunchers(t *testing.T) {
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// ⚠ THE BIN NAMES MUST BE ONES NO MACHINE PROVIDES, and that is a hard requirement
+	// rather than tidiness. Since OQ-PD12a/B2 a launcher is generated ONLY for a name the
+	// image does not already provide (launchercollision.go), so a fixture named after a real
+	// tool asserts "a launcher exists" on a machine where the correct answer is that it must
+	// not. This test used `shellcheck`/`shfmt` and passed in the jail (neither is baked) while
+	// FAILING on CI, where ubuntu-latest ships /usr/bin/shellcheck — a green local `just
+	// check-ci` and a red CI on the same commit. Keep the `yolo-fixture-` prefix.
 	manifest := `{"name":"twotools","contributes":[` +
-		`{"kind":"program","bin":"shellcheck","via":"npm","package":"shellcheck-bin"},` +
-		`{"kind":"program","bin":"shfmt","via":"installer","url":"https://example/shfmt.sh"}]}`
+		`{"kind":"program","bin":"yolo-fixture-npmtool","via":"npm","package":"shellcheck-bin"},` +
+		`{"kind":"program","bin":"yolo-fixture-insttool","via":"installer","url":"https://example/shfmt.sh"}]}`
 	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -379,20 +386,20 @@ func TestPackWithTwoProgramsGetsTwoLaunchers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := os.ReadFile(filepath.Join(e.LaunchDir(), "shellcheck"))
+	first, err := os.ReadFile(filepath.Join(e.LaunchDir(), "yolo-fixture-npmtool"))
 	if err != nil {
 		t.Fatalf("the first program's launcher is missing: %v", err)
 	}
 	if !strings.Contains(string(first), "shellcheck-bin") {
-		t.Errorf("shellcheck launcher should install its npm package:\n%s", first)
+		t.Errorf("the npm launcher should install its npm package:\n%s", first)
 	}
-	second, err := os.ReadFile(filepath.Join(e.LaunchDir(), "shfmt"))
+	second, err := os.ReadFile(filepath.Join(e.LaunchDir(), "yolo-fixture-insttool"))
 	if err != nil {
 		t.Fatalf("the SECOND program's launcher is missing — only the first `program` per "+
 			"pack installed, so a pack needing two tools silently got one: %v", err)
 	}
 	if !strings.Contains(string(second), "https://example/shfmt.sh") {
-		t.Errorf("shfmt launcher should carry its installer URL:\n%s", second)
+		t.Errorf("the installer launcher should carry its installer URL:\n%s", second)
 	}
 }
 
