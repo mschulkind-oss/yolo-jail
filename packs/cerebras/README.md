@@ -72,8 +72,15 @@ with `-p cerebras` before the `--`, `-p pi=cerebras` for one agent, or persisten
 `"use_profiles": {"pi": "cerebras"}`. The provider declares two options, `model` (whose
 default is the alias named `default`; a user profile stating `"model": "oss"` selects
 whatever alias you merged in yourself) and `context_window: "65536"` — the free-tier
-figure, so claude's auto-compact triggers at the real window (a paid-tier user
-overrides it to `"131072"` in their own profile).
+figure, so claude's auto-compact triggers at the real window. The model's cap on the
+paid tiers is 131072 (measured 2026-09-05: the API's own context-length error names
+`limit is 131072`), and a paid key states that as the fact it is, at the provider level
+in user config — the `providers` key merges over the pack's options:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{"providers": {"cerebras": {"options": {"context_window": "131072"}}}}
+```
 
 **The wire bridge joins by itself.** When a launch selects claude or copilot beside
 this pack, the launcher adds `wire-bridge` automatically and prints the cause on the
