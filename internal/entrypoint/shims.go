@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -121,6 +122,21 @@ func GenerateShims(e *Env) error {
 		}
 		blockFlags := stringList(cfg, "block_flags")
 		allowFlags := stringList(cfg, "allow_flags")
+		// ShimContent drops a flag pattern carrying shell syntax (see its docstring:
+		// a `case` glob cannot be quoted, so it is validated). Saying so here is the
+		// half ShimContent cannot do — it has no Env — and a rule that silently
+		// evaporates is a rule the author will keep believing in.
+		for _, key := range []struct {
+			name string
+			pats []string
+		}{{"block_flags", blockFlags}, {"allow_flags", allowFlags}} {
+			if _, dropped := safeCasePatterns(key.pats); len(dropped) > 0 {
+				e.warn("ignoring " + strconv.Itoa(len(dropped)) + " malformed " + key.name +
+					" pattern(s) on blocked tool " + name + " (" + strings.Join(dropped, ", ") +
+					"): a flag pattern may only carry letters, digits and -_.,:=+@%/^!?*[] — " +
+					"anything else would be spliced into the shim as shell syntax")
+			}
+		}
 
 		content := ShimContent(msg, sug, realBin, blockFlags, allowFlags)
 		shimPath := filepath.Join(e.BlockDir(), name)
@@ -131,6 +147,53 @@ func GenerateShims(e *Env) error {
 	return nil
 }
 
+// echoStderr renders one `echo <literal> >&2` line at the given indent, with the
+// literal shquote'd into a single bare argv word.
+//
+// One function for all six echo splices on purpose: the injection it closes was six
+// copies of the same `echo "`+v+`"` expression, and a fix applied to five of them
+// would have left the sixth exploitable with the test suite green.
+func echoStderr(indent, text string) string {
+	return indent + "echo " + shquote.Quote(text) + " >&2"
+}
+
+// caseGlobSafe reports whether r may appear in a generated `case` pattern.
+//
+// An ALLOWLIST, because the interesting characters here are the ones nobody has
+// thought of yet: the emitted pattern sits between `      ` and `)` in a case arm, so
+// any rune that can end the pattern list (`)`), end the arm (`;`), or start a command
+// (`$`, backtick, `&`, newline, a quote) turns the rest of the value into script.
+//
+// The set is "what a command-line flag pattern is made of" plus the four glob
+// metacharacters the shipped rules use: `-*[rR]*` needs `*`, `[` and `]`, and `?`
+// comes with them. `|` is EXCLUDED although it is harmless in a pattern, because the
+// generator uses it as the pattern SEPARATOR — a value carrying one would silently
+// become two rules.
+func caseGlobSafe(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("-_.,:=+@%/^!?*[]", r)
+}
+
+// safeCasePatterns splits patterns into those safe to splice into a `case` arm and
+// those dropped for carrying shell syntax. Order is preserved; nil in, nil out.
+//
+// Per-PATTERN, not per-entry: a blocked-tool entry whose second flag is malformed
+// keeps blocking on its first. Dropping the whole entry would answer an injection
+// attempt by removing the guardrail, which is the wrong direction.
+func safeCasePatterns(patterns []string) (kept, dropped []string) {
+	for _, p := range patterns {
+		if p == "" || strings.IndexFunc(p, func(r rune) bool { return !caseGlobSafe(r) }) >= 0 {
+			dropped = append(dropped, p)
+			continue
+		}
+		kept = append(kept, p)
+	}
+	return kept, dropped
+}
+
 // ShimContent renders the shim script body. Two flavors:
 //   - Filter shim (blockFlags non-empty AND realBin set): inspect argv against
 //     the glob patterns and only exit 127 when one matches, else exec the real
@@ -139,9 +202,35 @@ func GenerateShims(e *Env) error {
 //   - Unconditional block: exit 127 with the message (and exec realBin after,
 //     only if realBin is set).
 //
-// msg/sug are embedded verbatim inside `echo "..."` — no shell escaping (the
-// frozen contract).
+// THE FROZEN CONTRACT IS WHAT THE SHIM DOES, NOT HOW ITS LITERALS ARE QUOTED. This
+// docstring used to read "msg/sug are embedded verbatim inside `echo \"...\"` — no
+// shell escaping (the frozen contract)", and that sentence described a SHELL
+// INJECTION: a message of `oops"; touch /pwn; echo "done` closed the echo and the
+// `touch` ran (demonstrated 2026-09-03, fixed 2026-09-05). Every value here arrives
+// from YOLO_BLOCK_CONFIG, whose workspace half is agent-editable, and on the
+// macos-user backend these shims are generated into the `_yolojail` HOST account's
+// home to be run as that account — the one call site that leaves a container.
+//
+// The two kinds of value take two different treatments, because they are two
+// different things in shell:
+//
+//   - msg/sug are STRING LITERALS. They take shquote.Quote and land as a WHOLE ARGV
+//     WORD after `echo` — the bare position the splice contract on
+//     npmLauncherTemplate requires, since a Quote'd value cannot go inside `"…"`
+//     (the emitted single quotes would become data). "Suggestion: " is prepended in
+//     Go BEFORE quoting rather than left in the template, because a sentinel must
+//     not appear mid-word. The bytes reaching stderr are unchanged.
+//   - blockFlags/allowFlags are GLOB PATTERNS in a `case` arm. Quoting them is not
+//     available: it would make the shipped `-*[rR]*` literal and silently unblock
+//     `grep -rn`. They are VALIDATED instead — safeCasePatterns drops anything
+//     outside the glob vocabulary, the same writer-side shape the `name` field
+//     already has. GenerateShims warns about what it dropped.
+//
+// The emitted grammar is otherwise untouched: same lines, same order, same `>&2`,
+// same exit 127.
 func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) string {
+	blockFlags, _ = safeCasePatterns(blockFlags)
+	allowFlags, _ = safeCasePatterns(allowFlags)
 	var lines []string
 	// ALLOW WINS OVER BLOCK, and it is scanned FIRST because a single allowed flag
 	// exempts the whole invocation — `find -maxdepth 1 …` is one command, not a
@@ -184,9 +273,9 @@ func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) stri
 		lines = append(lines, `    case "$arg" in`)
 		if len(longExact) > 0 {
 			lines = append(lines, "      "+strings.Join(longExact, "|")+")")
-			lines = append(lines, `        echo "`+msg+`" >&2`)
+			lines = append(lines, echoStderr("        ", msg))
 			if sug != "" {
-				lines = append(lines, `        echo "Suggestion: `+sug+`" >&2`)
+				lines = append(lines, echoStderr("        ", "Suggestion: "+sug))
 			}
 			lines = append(lines, "        exit 127")
 			lines = append(lines, "        ;;")
@@ -195,9 +284,9 @@ func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) stri
 		lines = append(lines, "        : ;;")
 		if len(shortPatterns) > 0 {
 			lines = append(lines, "      "+strings.Join(shortPatterns, "|")+")")
-			lines = append(lines, `        echo "`+msg+`" >&2`)
+			lines = append(lines, echoStderr("        ", msg))
 			if sug != "" {
-				lines = append(lines, `        echo "Suggestion: `+sug+`" >&2`)
+				lines = append(lines, echoStderr("        ", "Suggestion: "+sug))
 			}
 			lines = append(lines, "        exit 127")
 			lines = append(lines, "        ;;")
@@ -216,9 +305,9 @@ func ShimContent(msg, sug, realBin string, blockFlags, allowFlags []string) stri
 			// "blocked unless depth-limited" — see OQ-GR-1.
 			lines = append(lines, allowScan()...)
 		}
-		lines = append(lines, `  echo "`+msg+`" >&2`)
+		lines = append(lines, echoStderr("  ", msg))
 		if sug != "" {
-			lines = append(lines, `  echo "Suggestion: `+sug+`" >&2`)
+			lines = append(lines, echoStderr("  ", "Suggestion: "+sug))
 		}
 		lines = append(lines, "  exit 127")
 		lines = append(lines, "fi")
