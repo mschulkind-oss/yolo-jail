@@ -640,10 +640,11 @@ four at 1019 MB the same morning), and `~/.local` is a per-workspace bind.
    which `TestCaptureWiresTheMacosUserBackend` already learned the hard way. `optionsFlow`
    (`runcmd_test.go`) learns the second spelling so its own claim is unchanged.
 
-   *Mutation-proved, ten:* deleting the call site in `run.go`; dropping the capture-jail
+   *Mutation-proved, eleven:* deleting the call site in `run.go`; dropping the capture-jail
    suppression; answering the host's GOOS; dropping the `via: installer` filter; deleting the
    `AutoCapture` wiring in `runRun`; wiring it to an inert closure; ignoring the store hit; ignoring
-   the escape hatch; admitting an empty delta; swallowing a failed capture silently.
+   the escape hatch; admitting an empty delta; swallowing a failed capture silently; and making
+   `captureHost` ignore a nil lock, which launches a capture jail while another workspace holds it.
 
    *And one thing NOT built, stated so it is not assumed.* A failed capture is not remembered, so a
    program whose installer fails every time re-pays its attempt once per launch. The common cause is
