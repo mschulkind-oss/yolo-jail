@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 12 needing you · 3 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 2 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-04**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-05**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!IMPORTANT]
@@ -513,8 +513,24 @@ requirement on the jail's pack set — and therefore whether addressed content p
 
 # 📦 Up next
 
-**Three items.** C4 and C5 are deliberately NOT here — their go/no-go is an explicit 🧊 row, and
+**Two items.** C4 and C5 are deliberately NOT here — their go/no-go is an explicit 🧊 row, and
 queueing them before you call it would be queueing a question.
+
+**The `ShimContent` shell injection is FIXED (2026-09-05)** and has left this section.
+`msg`/`sug` are now `shquote.Quote`'d into a bare argv word after `echo` (`echoStderr` in
+`internal/entrypoint/shims.go`), which is the same splice contract the 2026-09-03 launcher pass
+wrote on `npmLauncherTemplate`. **The emitted grammar did NOT have to move**, so the ruling the row
+asked for was not needed: same lines, same order, same `>&2`, same `exit 127`, and the only change
+to the script is the literal's delimiter (`"…"` → `'…'`). `shims_behavior_test.go` is untouched and
+green, and `TestShimStderrIsExactlyTheConfiguredText` now pins that the bytes the shim PRINTS are
+unchanged — the assertion that separates quoting from stripping.
+⚠ **Building it found a sibling the row did not name:** `block_flags` and `allow_flags` inject the
+same way (`-q) touch /pwn;; -z` closes the `case` arm and opens its own), and they are the one
+thing here that **cannot** be quoted — a case pattern is a glob, and quoting the shipped `-*[rR]*`
+would silently unblock `grep -rn`. They are validated against a glob vocabulary instead, per
+pattern rather than per entry, with a boot warning naming what was dropped. Verified in a nested
+jail: payload text printed verbatim, no marker file, shipped glob intact, `grep -n` still passing
+through.
 
 **Program delivery §10's removal act SHIPPED 2026-09-04** and has left this section: it is
 `yolo programs ls` / `remove` / `remove --apply` plus the `programs.autoprune` config key, default
@@ -530,31 +546,9 @@ briefing-audiences steps 3–7, the `packload.Embedded()` temp-dir leak, the lau
 splices, and the orphan-message cause. Two of the three small ones corrected the row that queued
 them, and one merge decided 💬 20 in code — see that row.
 
-**Ordering basis:** what unblocks the most other work first, then what is cheapest. The injection is
-first because it is demonstrated and the fix is small; the two repairs after it are cheap and
-independent. (The removal act, which used to sit between them, shipped 2026-09-04.)
-
-- 📦 **`ShimContent` splices agent-editable text raw into a `/bin/sh` script — injection CONFIRMED
-  by demonstration 2026-09-03.** `internal/entrypoint/shims.go:136,147,162` embed `msg`/`sug`
-  verbatim inside `echo "…"`, declared at `:117-118` as *"no shell escaping (the frozen contract)"*.
-  Those values arrive from `YOLO_BLOCK_CONFIG`, whose workspace half the code itself calls
-  **agent-editable** (`:74-78`).
-
-  A `message` of `oops"; touch <path>; echo "done` emits `echo "oops"; touch <path>; echo "done" >&2`
-  and the `touch` ran.
-
-  ⚠ **Severity is lower than that sounds, and the reason decides how it is fixed.** In-jail
-  (`boot.go:437`) the privilege gain is **nil** — an agent that can edit the workspace config
-  already has a shell in that jail. `yolo check`'s probe (`check/entrypoint.go:70`) generates into a
-  temp dir and never executes it. **The one context that leaves a container is `darwin.go:50`**, the
-  macos-user backend, which writes these shims into the `_yolojail` *host* account's home to be run
-  as that account.
-
-  One thing to settle while building: the docstring calls the raw splice a *frozen contract* and
-  `shims_behavior_test.go` pins the emitted grammar. Quoting the values should not disturb that
-  grammar — if it does, the contract needs a ruling rather than a workaround. The
-  positional technique is already in the tree from the 2026-09-03 launcher pass (`shquote.Quote`
-  cannot go inside `"…"`; the sentinel has to move to a bare position).
+**Ordering basis:** what unblocks the most other work first, then what is cheapest. Both remaining
+repairs are cheap and independent, so either order works. (The two that used to lead this
+section — the removal act and the shim injection — shipped 2026-09-04 and 2026-09-05.)
 
 - 📦 **`hostskills.Changed` reports "changed" for a symlinked source, forever.** `treeDigest`
   records link targets while `copyTree` materializes through them, so a source tree deployed by a
