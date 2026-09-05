@@ -370,6 +370,34 @@ func Run(opts Options) int {
 			repoRoot, staged.root, homeOverlay, o.DryRun, channel.launchEnv(),
 			packload.BlockedTools(staged.packs))
 	}
+	// AUTO-CAPTURE, the last host-side act before the container arm starts anything
+	// (OQ-PD18, install-capture.md slice 7). Every selected pack's `via: "installer"`
+	// program that this machine has never recorded is captured now, in a throwaway jail
+	// of its own, so that this workspace and every later one materialize the install
+	// instead of downloading it.
+	//
+	// HERE, and the placement carries three decisions:
+	//
+	//   - BELOW the macos-user return, which is what makes it container-only. See
+	//     autocapture.go for the two reasons that backend is excluded — nothing there
+	//     emits CapturesDirEnv, and slice 6's relocation rewrite is unbuilt — and why
+	//     `yolo capture` stays available on it as an explicit act.
+	//   - BELOW stageRunPacks, because the pack set is the input: the trigger asks the
+	//     SELECTED packs what they install, through HonoredInstalls, so a pack the
+	//     config dropped stops being captured and a fetched pack's refused installer
+	//     never runs.
+	//   - ABOVE runContainer, so the capture jail's own launch is the thing that builds
+	//     and loads the image, and this launch reuses it. It is BLOCKING and it says so
+	//     while it works: on a fresh machine the first launch grows by one installer
+	//     download per uncaptured program (~205 MiB for claude). A detached child would
+	//     keep the launch fast and is the obvious follow-up, but it buys invisible
+	//     failures and a host-process lifecycle yolo does not have — a second step, on
+	//     evidence that the wait hurts.
+	//
+	// It cannot fail this launch. Every outcome inside is a warning (autoCapture in
+	// internal/cli), because nobody asked for this work and a machine that cannot do it
+	// must still get its jail.
+	o.autoCaptureInstallerPrograms(staged.packs)
 	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel)
 }
 

@@ -288,7 +288,14 @@ func optionsFlow(fn *ast.FuncDecl) (parsed, launched string) {
 		switch pkg, name := calleeName(call); {
 		case pkg == "" && name == "parseRunArgs" && len(call.Args) >= 2:
 			parsed = identArg(call.Args[1])
-		case pkg == "run" && name == "Run" && len(call.Args) >= 1:
+		// TWO SPELLINGS OF ONE LAUNCH. `run.Run` is the direct call; `launchRunPipeline`
+		// is the same function behind a package var (commands.go), introduced so a test
+		// can reach the composed Options and INVOKE the closures runRun wires into them
+		// — a non-nil check cannot tell a live seam from a refusal closure. Both are
+		// accepted so this test measures what it says it measures (does the parse reach
+		// the launch?) rather than which of the two forms the launch currently takes.
+		case pkg == "run" && name == "Run" && len(call.Args) >= 1,
+			pkg == "" && name == "launchRunPipeline" && len(call.Args) >= 1:
 			launched = identArg(call.Args[0])
 		}
 		return true
