@@ -194,6 +194,11 @@ func warmJail() {
 	// ambient one.
 	cmd.Env = append(os.Environ(), "TERM=dumb", "HOME="+home)
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
+	// Inert for THIS launch — the warmup home carries an empty user config, so it
+	// selects no packs and has nothing to capture — but set anyway, so "every launch
+	// this suite makes" stays one rule with one exception list rather than three sites
+	// that happen to agree.
+	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
 
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
@@ -549,6 +554,7 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
+	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -775,6 +781,37 @@ func requireRealPackInstalls(t *testing.T) {
 			"change and weekly, not on every push (docs/design/agent-install-in-ci.md §6.1.1). "+
 			"Set %s=1 to run it here; `just test` already does.", realPackInstallsEnv)
 	}
+}
+
+// autoCaptureEnvForSuite decides whether the launches this suite makes may run OQ-PD18's
+// auto-capture trigger, and returns the env entries that say so.
+//
+// IT RIDES requireRealPackInstalls' GATE RATHER THAN INVENTING A SECOND ONE, because the
+// cost it controls is exactly that gate's subject. A launch whose packs declare a
+// `via: "installer"` program and whose store has no entry for it runs that vendor's
+// installer, in a jail of its own, before the launch it was asked for — which for the
+// shipped `claude` pack is a ~205 MiB download against a third party. Six cells in this
+// suite select claude (providers, profiles-options, packs, pack-audience, pack-home,
+// codex-selection), so leaving the trigger on would put a real vendor download on every
+// push: the exact failure docs/design/agent-install-in-ci.md §6.1.1 moved that class of
+// question away from.
+//
+// So it is OFF by default and ON under YOLO_TEST_REAL_PACK_INSTALLS — `just test`, a
+// `packs/**` change, and the weekly schedule — where a vendor install is already what the
+// run is for.
+//
+// ⚠ THE STORE IS SHARED WITH THE MACHINE even under an isolated HOME:
+// `.local/share/yolo-jail` is one of packHomeSharedStores, symlinked back to the real
+// home, so a capture made here lands in the developer's own store and the SECOND cell to
+// select claude hits instead of capturing. That is realistic rather than a leak (a store
+// is machine-wide by design, and `yolo prune` reaps it), but it does mean this suite
+// cannot assert "this launch captured" — the nested-jail check in
+// docs/plans/install-capture.md slice 7 is where that is measured.
+func autoCaptureEnvForSuite() []string {
+	if os.Getenv(realPackInstallsEnv) != "" {
+		return nil
+	}
+	return []string{"YOLO_NO_AUTO_CAPTURE=1"}
 }
 
 // skipIfCgroupReadonly skips when cgroup v2 is absent or read-only (e.g. a

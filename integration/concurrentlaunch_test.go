@@ -93,6 +93,7 @@ func startYoloBackground(t *testing.T, name, dir, script string) *bgRun {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
+	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
 	out := &syncBuffer{}
 	cmd.Stdout = out
 	cmd.Stderr = out
