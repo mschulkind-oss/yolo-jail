@@ -426,7 +426,7 @@ func TestAbsentBindSourceIsSkippedNotRefused(t *testing.T) {
 		t.Fatalf("fixture: %v", probs)
 	}
 	loopholes.SetPackModules(packLoopholeModules([]*packload.Pack{p}))
-	argv := strings.Join((&Options{}).loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman"), " ")
+	argv := strings.Join((&Options{}).loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman", nil), " ")
 	if strings.Contains(argv, absentSrc) {
 		t.Errorf("the absent bind source reached the container argv:\n%s\nNothing refuses over "+
 			"it, so something has to drop it — and podman's own error for a nonexistent -v "+

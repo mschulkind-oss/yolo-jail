@@ -178,7 +178,7 @@ func TestFetchedPackLoopholeSpawnsAndCrossesWithNoApproval(t *testing.T) {
 
 	// 2. THE ARGV. Every crossing the manifest declares, because the deleted gate governed the
 	// whole loophole rather than just the daemon — so a partial reintroduction shows up here.
-	argv := strings.Join(o.loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman"), " ")
+	argv := strings.Join(o.loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman", nil), " ")
 	for _, want := range []string{
 		"api.acme.test",       // --add-host
 		"/etc/acme",           // bind mount destination
@@ -253,7 +253,7 @@ func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 	if _, statErr := os.Stat(sentinel); statErr != nil {
 		t.Errorf("a local pack loophole's host daemon did not start:\n%s", out.String())
 	}
-	argv := strings.Join(o.loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman"), " ")
+	argv := strings.Join(o.loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman", nil), " ")
 	for _, want := range []string{"api.acme.test", "/etc/acme"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("a local pack loophole's %q is missing from the argv:\n%s", want, argv)
