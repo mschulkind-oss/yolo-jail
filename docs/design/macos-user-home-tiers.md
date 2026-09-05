@@ -16,9 +16,11 @@ tiers every other backend keeps apart are one directory. The **machine tier** is
 right and is the point of a dedicated account; the **workspace** and **session**
 tiers collapsing into it is the defect, and since content delivery landed it is a
 write-write race rather than mere leakage. The fix is the two-tier structure the
-container backends already have, inside the one account this backend has: a
-per-workspace home under `/Users/_yolojail/workspaces/<cname>`, with the machine
-tier reached by the symlinks `shared_credentials` already uses. **The trap is that a
+container backends already have, inside the one account this backend has —
+per-workspace state separated from machine-wide credentials, with symlinks carrying
+whichever half does not live where the agent looks for it. **Where the per-workspace
+half lives is OQ-HT-4**, and review moved the leaning: `<workspace>/.yolo/home/`,
+which is where every other backend already puts it. **The trap is that a
 naive split repairs the workspace tier by breaking the machine one** ([§3](#3-why-it-has-not-been-fixed-by-simply-splitting)).
 
 > [!NOTE]
@@ -105,10 +107,22 @@ instructions.
 Adopt the two-tier structure the container backends already have, in the one
 account this backend has.
 
-**Nothing here moves your projects.** `/Users/Shared/yolo` stays exactly as it is,
-and so does every workspace under it; the Seatbelt profile keeps granting the
-workspace you launched. What gains a per-workspace subdirectory is the sandbox
-account's HOME — a different path, for a different purpose.
+**Nothing here moves your projects, and `<workspace>/.yolo/` does not go away.**
+`/Users/Shared/yolo` stays exactly as it is, and so does every workspace under it.
+
+`<workspace>/.yolo/` is a THIRD path, and naming it is overdue: it is the
+workspace's own sidecar — `prism/` (composed config surfaces), `config-snapshot.json`,
+and `home/`, which on the container backends is the SOURCE of the per-workspace state
+dirs bind-mounted into the jail (`<ws>/.yolo/home/claude` → `/home/agent/.claude`,
+`assemble.go`). It is gitignored, and on this Mac it already holds `claude`, `config`,
+`go`, `npm-global` and a `bash_history` from container runs. macos-user writes
+`prism/` there and ignores `home/` entirely.
+
+That last sentence is the design question this section used to answer without
+asking. **The container does not move its home per workspace** — `HOME` is
+`/home/agent` always, and specific *subdirectories* are mounted in from the
+workspace. So there are two ways to give macos-user the same separation, and [§7](#7-alternatives)
+weighs them as OQ-HT-4.
 
 - **`/Users/_yolojail/` stays the machine tier.** Credentials live here, exactly as
   now. Nothing about `shared_credentials` changes.
@@ -140,7 +154,8 @@ not removed it.
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **A. Per-workspace home under the shared account** ([§5](#5-the-proposal)) | **Recommended.** Restores both tiers with mechanisms already present — the slug pack staging keys on, and the symlinks `shared_credentials` already writes. |
+| **A. Per-workspace home under the shared account** ([§5](#5-the-proposal)) — `HOME` becomes `/Users/_yolojail/workspaces/<cname>` | **Now the runner-up**, see OQ-HT-4. Keeps agent state out of the project tree, at the cost of putting it somewhere no other backend puts it. |
+| **A′. Symlink the per-workspace dirs into `<ws>/.yolo/home/`** — `HOME` stays `/Users/_yolojail`, and `~/.claude` and kin become symlinks into the workspace sidecar | **Probably right, and it was not considered until review asked.** It is what the container backend already does, minus the mount: same LOCATION for a project's agent state on every backend, the same symlink mechanism `configureSharedCredentials` already uses for the machine tier, and credentials never move — which shrinks OQ-HT-2 from "migrate an account" to almost nothing. |
 | **B. Split the account** — one `_yolojail` uid per workspace | **Rejected**, in [§8](#8-risks). Restores every tier by DAC rather than layout, and costs admin on every new project. |
 | **C. Per-session home** | **Rejected for now**, and it is OQ-HT-3. Two launches on one workspace sharing a home is what attach does elsewhere; the difference is that macos-user has no attach. |
 | **D. Leave it, keep warning** (today) | **Rejected as an end state.** It was defensible while the cost was leakage between workspaces. Content delivery made it a race on files an agent reads as instructions, which is a different kind of wrong. |
@@ -207,6 +222,27 @@ on macos-user exactly the mechanism this backend's design says it does not need.
    multiply the migration surface in OQ-HT-2 by every session ever run.
 
    <!-- vantage: oq id=OQ-HT-3 leaning="Per-workspace, treating concurrent same-workspace launches as the user's business the way `yolo --new` already does. Per-session would also multiply OQ-HT-2's migration surface by every session ever run." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 **OQ-HT-4: Where does per-workspace state live — under the sandbox account, or
+   in `<workspace>/.yolo/home/`?** [§5](#5-the-proposal) assumed the first without noticing it was a
+   choice. The second is what the container backends already do: `HOME` is fixed and
+   the per-workspace dirs are mounted in from the workspace sidecar. macos-user has
+   no mounts, but it has symlinks, and it already uses them for the machine tier.
+
+   This decides how much OQ-HT-2 has to migrate. Under A′ credentials never move, so
+   the migration is per-workspace state only — or nothing at all, if a fresh symlink
+   into an empty sidecar is acceptable.
+
+   <!-- vantage: oq id=OQ-HT-4 leaning="A′ — symlink into <ws>/.yolo/home/. Same location as every other backend, same symlink mechanism already used for the machine tier, credentials never move, and the directory already exists and is gitignored. The one thing A has over it is keeping agent state out of the project tree, which is not a property yolo preserves anywhere else." -->
+
+   _Leaning:_ **A′.** Same location as every other backend, same mechanism already in
+   use one direction over, and the directory exists and is gitignored today. The one
+   thing A has over it — keeping agent state out of the project tree — is not a
+   property yolo preserves anywhere else, so it is a principle invented to justify a
+   choice rather than a reason for it.
 
    **Answer:**
    > _(empty — fill in when decided)_
