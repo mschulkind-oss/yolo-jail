@@ -9,7 +9,7 @@ summary: "A pack's briefing prose and skills reach every agent in the jail, so c
 # Audiences: a pack's content should be able to name who it is for
 
 **Status:** BUILT, 2026-09-03. All seven questions are settled (Decision Ledger, at the foot)
-and all seven steps of §9 have landed. What each step cost, and what building it corrected, is
+and all seven steps of [§9](#9-what-i-would-build-in-order) have landed. What each step cost, and what building it corrected, is
 in the note below; the body still describes the design as decided rather than as built, so read
 it with that note beside it.
 
@@ -20,19 +20,19 @@ answer is an optional `agents` selector on `briefing` and `skills` — a list of
 commands**, which is the same `bin` namespace `-p <name> -- <bin>` and `use_profiles.<cli>`
 already key on, and explicitly **not** the pack slug. The destination it matches against
 **declares** that name as `agent`, exactly as a config surface already does — nothing is derived,
-because nothing in the `-p` chain derives anything either (§4.2). A content pack names only the
+because nothing in the `-p` chain derives anything either ([§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)). A content pack names only the
 audience, never a path: that constraint (P4) is what turns `into` from a required field into one
-the selector replaces (§4.1). Naming an agent this jail has not enabled is **fatal**, with no
+the selector replaces ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)). Naming an agent this jail has not enabled is **fatal**, with no
 laxer tier (P3), and a name has exactly **one** owning pack, which provides all of that agent's
 plumbing (P5). The host notch already composes per-destination and needs a filter; the jail notch composes
 once before its per-destination loop and needs that composition moved inside it — which is
-also how the jail's known one-prose-per-pack limit gets lifted for free (§5).
+also how the jail's known one-prose-per-pack limit gets lifted for free ([§5](#5-what-it-costs-and-what-it-lifts)).
 
-**The most important section is §4.2** — where a destination's identity comes from, and why an
+**The most important section is [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)** — where a destination's identity comes from, and why an
 earlier draft got it wrong. Everything else follows from it.
 
 **Reads with:** [`agent-briefings.md`](agent-briefings.md) (how briefings are composed and
-delivered today), [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §2.5 and §8
+delivered today), [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§2.5](profiles-as-pack-variants.md#25-the-stringly-typed-hole-that-is-live-today) and [§8](profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set)
 (the CLI-name namespace, and the universe-vs-selection split this reuses),
 [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (R1–R5,
 which govern any new name-a-component-by-string field),
@@ -41,11 +41,11 @@ which govern any new name-a-component-by-string field),
 ---
 
 > [!IMPORTANT]
-> **BUILT, and building it corrected this document in five places.** §9 steps 1 and 3 (the field,
+> **BUILT, and building it corrected this document in five places.** [§9](#9-what-i-would-build-in-order) steps 1 and 3 (the field,
 > the validation, the routing) shipped 2026-09-02; steps 2 and 4–7 shipped 2026-09-03. The two
 > findings below are from the first day; three more follow them.
 >
-> 1. **§4.1/§4.2 name two `mergedest` changes; four were needed.** The two named — `declares()`
+> 1. **[§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)/[§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind) name two `mergedest` changes; four were needed.** The two named — `declares()`
 >    testing `Into != ""`, and filtering borrowed destinations by the selector — are necessary and
 >    not sufficient. Unnamed, and required: the **content probe** (`carries()` asked only whether the
 >    pack had a *conventional* source and never consulted a contribution's declared `from`, so an
@@ -53,7 +53,7 @@ which govern any new name-a-component-by-string field),
 >    even reported) and the **synthesized `from`** (`borrowedDestinations` blanked it on purpose,
 >    correctly for a zero-ceremony borrower, wrongly for a contribution that named its own source —
 >    it substituted the pack's conventional `AGENTS.md` for the addressed file). A fourth: the
->    resolution loop had to become **per borrowing contribution**, because §4.1's own two-entry shape
+>    resolution loop had to become **per borrowing contribution**, because [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)'s own two-entry shape
 >    (claude prose → claude, pi prose → pi) cannot be expressed by a union over the kind. **The first
 >    implementation attempt shipped exactly the gap this list describes** — validation landed,
 >    routing did not.
@@ -66,7 +66,7 @@ which govern any new name-a-component-by-string field),
 >    that reached nothing, deduped per kind AND audience. What forced that second move was the
 >    REPORT rather than R1: an orphan has two causes (no destination of the kind exists anywhere in
 >    `packs`, or one exists and no destination's declared `agent` matches), their remedies are
->    opposites, and `yolo host apply` sent both readers to declare `into` — which §4.1 refuses
+>    opposites, and `yolo host apply` sent both readers to declare `into` — which [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business) refuses
 >    beside `agents`. They are not redundant: an Orphan says *why nothing arrived*, an
 >    AddressedDelivery says *where everything went*. Neither carries the whole contribution, so two
 >    entries addressing the same audience of one kind remain one line.
@@ -79,13 +79,13 @@ which govern any new name-a-component-by-string field),
 >    an `agent` on the OWNING pack's contribution of that kind, so refusing would punish the wrong
 >    author (R4). `Destinations.Addressed` is what made the second half expressible;
 >    `internal/packload/agentaudience.go`'s package doc is the standing statement of the split.
-> 4. **§5's "the host notch is a filter" describes a filter that must NOT be added.** The check it
+> 4. **[§5](#5-what-it-costs-and-what-it-lifts)'s "the host notch is a filter" describes a filter that must NOT be added.** The check it
 >    places beside `ComposeHostBriefings`' `prose == ""` skip would be dead code: an addressed
 >    contribution carries no `into`, so it never reaches that per-destination loop at all. The
->    narrowing already happens upstream in `borrowedDestinations` — the same filter §4.1 asks for —
+>    narrowing already happens upstream in `borrowedDestinations` — the same filter [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business) asks for —
 >    so the host half's real content was the PAIRING (resolve, then compose) and the pin on it,
->    which R3 asks for per notch and which nothing had. §5's *jail* half was exactly right.
-> 5. **§4.2's five claiming kinds are four: `requires` is not a claim on an agent name.** Two
+>    which R3 asks for per notch and which nothing had. [§5](#5-what-it-costs-and-what-it-lifts)'s *jail* half was exactly right.
+> 5. **[§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)'s five claiming kinds are four: `requires` is not a claim on an agent name.** Two
 >    reductios. `docs/examples/claude-fzf-pack` declares `requires fzf` and `requires fd`, so
 >    counting it refuses a launch for two packs that merely need one tool; and a content pack
 >    asserting `requires claude` beside the pack that PROVIDES claude is the most ordinary
@@ -94,7 +94,7 @@ which govern any new name-a-component-by-string field),
 >    the `agent` its briefing or skills declares — so including it would be a no-op wherever it is
 >    right and a regression wherever it is not.
 >
-> **One thing the jail half cost that §5 did not price:** the staging key moved from the PACK to
+> **One thing the jail half cost that [§5](#5-what-it-costs-and-what-it-lifts) did not price:** the staging key moved from the PACK to
 > the DESTINATION, and the obvious escape for it is not injective. Doubling `~` and mapping `/` to
 > `~` sends both `a/~b` and `a~/b` to `a~~~b`; two destinations sharing a staging file deliver one
 > agent's briefing to the other, silently. It is RFC 6901's escape now.
@@ -105,7 +105,7 @@ which govern any new name-a-component-by-string field),
 new namespace, no config key. Five principles carry the design:
 
 **P1. The audience namespace is the CLI-name namespace, and there is no second one.**
-[`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §2.5 already settled this for
+[`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§2.5](profiles-as-pack-variants.md#25-the-stringly-typed-hole-that-is-live-today) already settled this for
 profiles: `program` and `launch` are `CombineExclusive` by `bin`
 ([`kinds.go:243-244`](../../internal/packdecl/kinds.go#L243-L244) for `program`,
 [`:291-292`](../../internal/packdecl/kinds.go#L291-L292) for `launch`, whose declaration
@@ -132,7 +132,7 @@ reading is the only one available.
 claude puts its briefings.")* Where an agent reads — prose or skills — is the agent pack's
 business and changes when that agent changes; a house-rules pack that hardcoded
 `.claude/CLAUDE.md` would be coupled to a fact it has no way to keep current. This is not a
-nicety — §4.1 shows it is the difference between a selector that works and one that delivers
+nicety — [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business) shows it is the difference between a selector that works and one that delivers
 nowhere.
 
 **P5. A name has exactly ONE owner, and that owner provides all of the agent's plumbing.**
@@ -146,7 +146,7 @@ launch flags — whether it installs the binary (`program`) or asserts one alrea
 > enabled.
 
 The exclusivity that makes `-p claude=zai` unambiguous is the same exclusivity that makes
-"deliver this prose to claude" unambiguous. It is one rule, not two, and §4.2 is where it lands
+"deliver this prose to claude" unambiguous. It is one rule, not two, and [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind) is where it lands
 in the code.
 
 **The fields are spelled `agent` / `agents`; the VALUE is still the bin.** *(Maintainer,
@@ -160,7 +160,7 @@ the identity a destination declares, plural for the audience a contribution name
 > [!NOTE]
 > **"CLI name" here means the `bin` of a `program`/`requires` contribution — a binary
 > basename such as `claude` or `pi`.** *(Term used in this sense throughout; it is
-> [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §2.5's vocabulary, not
+> [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§2.5](profiles-as-pack-variants.md#25-the-stringly-typed-hole-that-is-live-today)'s vocabulary, not
 > coined here.)* It is **not** the repo's other sense of *shim*, which is the generated
 > blocker in `~/.yolo/bin/block` that refuses `grep -r` and `find` (`GenerateShims`). Nothing
 > in this design touches those.
@@ -196,7 +196,7 @@ appends every pack to every path.
 | `agy` | `agy` | `agy` | `.gemini/config/AGENTS.md` |
 
 **Read the middle column against the second: every agent pack already writes its own identity
-out by hand, and it already equals its `bin`.** That is §4.2's whole foundation. The third
+out by hand, and it already equals its `bin`.** That is [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)'s whole foundation. The third
 column is the one thing a `briefing` cannot say anything about — it names a path and nothing
 else. The five loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`, `journal`,
 `serial`) declare none of the three.
@@ -205,7 +205,7 @@ else. The five loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`
 
 ## 3. The gap, and the two spellings that do not work
 
-**`into` does not scope, and the reason is §2, not `from`.** A content pack that declares
+**`into` does not scope, and the reason is [§2](#2-what-happens-today), not `from`.** A content pack that declares
 `briefing { into: ".claude/CLAUDE.md" }` does not thereby address Claude: composition already
 merged its prose into the one body every other destination receives, and the destination dedup
 at `assemble.go:677` means its mount is dropped as a duplicate of the `claude` pack's.
@@ -215,7 +215,7 @@ at `assemble.go:677` means its mount is dropped as a duplicate of the `claude` p
 > jail *"reads briefing prose from a root `AGENTS.md` regardless of `from`"*. That divergence
 > was **fixed 2026-08-04** — both notches now resolve through
 > [`packload.BriefingProseFor`](../../internal/packload/briefingsource.go#L56) over
-> `BriefingCandidates()` ([`pack-system.md`](pack-system.md), §6a-4). It is also about `from`
+> `BriefingCandidates()` ([`pack-system.md`](pack-system.md), [§6](pack-system.md#6-composed-file-posture-what-writable-means)a-4). It is also about `from`
 > (the *source*) and not `into` (the *destination*), so it never bore on scoping at all. The
 > stale note is a separate small fix; do not cite it as evidence either way.
 
@@ -230,7 +230,7 @@ at `assemble.go:677` means its mount is dropped as a duplicate of the `claude` p
 That rationale has two clauses and **this design kills only the second one.** The second —
 *"redundant with where filtering actually happens: staging is per-agent at the DELIVERY end"* —
 is true for `skills`, whose delivery genuinely is per-destination, and **false for `briefing`**,
-whose delivery is per-destination but whose *composition* is not (§2). The first clause stands,
+whose delivery is per-destination but whose *composition* is not ([§2](#2-what-happens-today)). The first clause stands,
 and it is why the selector must not name an agent as such. Under P1 it names a `bin`, which core
 already knows without knowing what an agent is.
 
@@ -263,7 +263,7 @@ and a required `into`; both are merged from many packs into destinations the age
 both misdirect today for the same reason. A Claude-specific skill is broadcast to `.pi/agent/skills`
 right now ([`mergedest.go:74-76`](../../internal/packload/mergedest.go#L74-L76)). Everything below
 is written about `briefing` because that is where the cost is loudest — a briefing is read in full
-every session — but every rule in §4.2 and §4.3 reads the same with `skills` substituted.
+every session — but every rule in [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind) and [§4.3](#43-resolution-and-severity) reads the same with `skills` substituted.
 
 **`into` and `agents` are two answers to one question, and a contribution gives exactly one.**
 That is not a stylistic rule; it falls out of what the validator already says. `into` is
@@ -292,7 +292,7 @@ This was the crux and it turned out not to be one. A `briefing` contribution nam
 not a CLI name, so `agents: ["claude"]` needs something to match against — and an earlier draft of
 this doc proposed *deriving* it, computing each destination's audience from the `bin`s its
 declaring pack installs. **That was wrong, and the `-p` mechanism is the evidence** *(corrected
-2026-08-31 — see OQ-BA2 in the Decision Ledger)*.
+2026-08-31 — see [OQ-BA2](#decision-ledger) in the Decision Ledger)*.
 
 **Nothing in the profile chain derives an identity. The string is typed, carried, and matched
 against a string a pack declared about itself.** End to end:
@@ -312,7 +312,7 @@ six agent packs write it out by hand — `"agent": "pi"`, `"agent": "claude"` �
 own `bin` in every case.
 
 **So the design is: the agent pack declares its briefing destination's `agent`, the same field
-name its config surfaces already use** (§4.1's first block). A selector then matches that string
+name its config surfaces already use** ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)'s first block). A selector then matches that string
 directly. No map built over the selected set, no derivation, no new concept — and the three
 complications the derived version dragged in all disappear with it:
 
@@ -331,7 +331,7 @@ complications the derived version dragged in all disappear with it:
 > version was invented to dodge, and it is not worth dodging — declaring identity is what
 > `program` (`bin`), `config` (`agent`) and `state` (`at`) all already require, and a pack that
 > omits it fails the same way a pack that omits `bin` does. What it is NOT allowed to do is fail
-> *silently*, which is §4.3's job.
+> *silently*, which is [§4.3](#43-resolution-and-severity)'s job.
 
 **Ownership is per NAME, not per kind (P5), and two packs claiming one name is fatal.** So the
 check is not "two `briefing` contributions declared `agent: claude`" but "two packs claimed
@@ -405,7 +405,7 @@ records a live limit: *"the jail's composition takes one (pack, text) pair per p
 declaring two briefing contributions with two different `from` files cannot deliver both there.
 The host render is per-DESTINATION and does honor both; making the jail match would mean
 composing per destination, which is a larger change than the `from` fix."* That larger change
-**is** this design's jail half. The multi-entry shape §4.1 needs is not an extra cost — it is the
+**is** this design's jail half. The multi-entry shape [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business) needs is not an extra cost — it is the
 same cost, and paying it converges the two notches on one composition model.
 
 **What it complicates.** One more input to briefing composition, and a second thing keyed off the
@@ -420,10 +420,10 @@ load-bearing in two places.
 | # | Alternative | Verdict |
 | :--- | :--- | :--- |
 | A1 | **Key by pack slug** — `for: ["claude"]` meaning *the pack named claude*. | **Rejected (maintainer, 2026-08-31).** A slug is a fetch-address artifact that config can rename per entry (`PackEntry.Name`, [`packs.go:90`](../../internal/config/packs.go#L90)), so a reference to it can be broken by a line the referencing pack cannot see. The `bin` namespace is exclusive by construction and is what the user types. |
-| A2 | **Derive the destination's identity** from the `bin`s its declaring pack installs, so no pack is edited. | **Rejected 2026-08-31 (OQ-BA2), and it was this doc's own first proposal.** Nothing in the `-p` chain derives an identity — the name is typed, carried as a map key, and matched against a string the pack declared about itself, down to `derive.lua` hardcoding `ctx.use_profiles.claude`. There is no `bin`→pack index to derive through, and inventing one for briefings alone would make this the only kind whose owner is inferred. §4.2. |
+| A2 | **Derive the destination's identity** from the `bin`s its declaring pack installs, so no pack is edited. | **Rejected 2026-08-31 ([OQ-BA2](#decision-ledger)), and it was this doc's own first proposal.** Nothing in the `-p` chain derives an identity — the name is typed, carried as a map key, and matched against a string the pack declared about itself, down to `derive.lua` hardcoding `ctx.use_profiles.claude`. There is no `bin`→pack index to derive through, and inventing one for briefings alone would make this the only kind whose owner is inferred. [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind). |
 | A3 | **Use `files` instead** — deliver agent-specific prose as an owned tree at an agent-specific path. | **Rejected.** `files` is `CombineExclusive` ([`kinds.go:264`](../../internal/packdecl/kinds.go#L264)), so it cannot co-exist with the agent pack's briefing at that path, and it bypasses both the composed jail-environment prose and the provenance header. It works today only where an agent reads a *second* file nobody else claims (pi's `APPEND_SYSTEM.md`), which is precisely the split-mechanism problem this design closes. |
 | A4 | **Per-entry `only`/`exclude` globs** ([`packs.go:96`](../../internal/config/packs.go#L96)). | **Not applicable.** They filter the pack *tree* by glob — which files stage — not the destination. No combination of them routes one file to claude and another to pi. |
-| A5 | **A denylist form** (`except: ["pi"]`). | **Rejected 2026-08-31 (OQ-BA3).** Under P3 an author may name only ENABLED agents, so an allowlist is already bounded by the jail rather than by the set of agents that exist — the burden a denylist relieves does not arise. §4.3. |
+| A5 | **A denylist form** (`except: ["pi"]`). | **Rejected 2026-08-31 ([OQ-BA3](#decision-ledger)).** Under P3 an author may name only ENABLED agents, so an allowlist is already bounded by the jail rather than by the set of agents that exist — the burden a denylist relieves does not arise. [§4.3](#43-resolution-and-severity). |
 
 ---
 
@@ -441,20 +441,20 @@ load-bearing in two places.
 
 | Risk | Mitigation |
 | :--- | :--- | 
-| **R1. A pack addresses a CLI whose pack is unselected, and silently briefs nothing.** The whole point of the pack is then inert with no signal. | The skip is *reported*, not silent (§4.3) — the launch banner already lists what each pack reads and honors; an addressed contribution that matched no destination belongs in the same report. |
+| **R1. A pack addresses a CLI whose pack is unselected, and silently briefs nothing.** The whole point of the pack is then inert with no signal. | The skip is *reported*, not silent ([§4.3](#43-resolution-and-severity)) — the launch banner already lists what each pack reads and honors; an addressed contribution that matched no destination belongs in the same report. |
 | **R2. The jail's staging-key change is a host↔jail contract move.** Renaming the staging file while `assemble.go` still emits the old name is exactly the skew class `AGENTS.md` warns about. | Both spellings are in one package and one commit; `version.SourceSkew` refuses a skewed launch. The existing comment coupling them ([`assemble.go:656-659`](../../internal/cli/run/assemble.go#L656-L659)) becomes a shared helper. |
-| **R3. A test that pins the selector's resolver while the call site stays unpinned.** The repo has shipped this shape five times. | The test that must exist: delete the filter call in `ComposeHostBriefings` and in the jail loop, and assert both fail. Per-notch, since §5 shows the two notches change differently. |
-| **R4. A third-party agent pack that declares no identity is not addressable**, and its users cannot tell why a scoped pack skipped it. | The remedy is one field in that pack, and §4.3's reporting names the destination that declared nothing whenever a selector finds no match. This is the cost §4.2 accepts in exchange for deleting the derivation, not one it hides. |
+| **R3. A test that pins the selector's resolver while the call site stays unpinned.** The repo has shipped this shape five times. | The test that must exist: delete the filter call in `ComposeHostBriefings` and in the jail loop, and assert both fail. Per-notch, since [§5](#5-what-it-costs-and-what-it-lifts) shows the two notches change differently. |
+| **R4. A third-party agent pack that declares no identity is not addressable**, and its users cannot tell why a scoped pack skipped it. | The remedy is one field in that pack, and [§4.3](#43-resolution-and-severity)'s reporting names the destination that declared nothing whenever a selector finds no match. This is the cost [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind) accepts in exchange for deleting the derivation, not one it hides. |
 
 ---
 
 ## 9. What I would build, in order
 
-1. **`agent` on `briefing`**, plus the six one-line additions to the shipped agent packs (§4.1), and its collision pass (§4.2). Inert as *routing* — nothing reads it for delivery yet — but the ownership check is real from day one, which is the half that wants to land before anyone depends on a name.
+1. **`agent` on `briefing`**, plus the six one-line additions to the shipped agent packs ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)), and its collision pass ([§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)). Inert as *routing* — nothing reads it for delivery yet — but the ownership check is real from day one, which is the half that wants to land before anyone depends on a name.
 2. **The host notch filter**, in `ComposeHostBriefings`. Smallest change, immediately observable via `yolo host apply --observe`, and it needs nothing from the jail half.
-3. **The path-free half** — `agents` on a contribution, `into` refused alongside it and required without it, `declares` testing `Into != ""`, and `borrowedDestinations` filtered by the selector (§4.1). This is what makes P4 true rather than aspirational, and step 2 is worth little without it.
-4. **The jail notch move** — composition into the write loop, staging keyed by destination, `assemble.go` following. This is where the one-prose-per-pack limit lifts (§5).
-5. **Resolution and severity** (§4.3) at the two gates R5 selects, with R3-grade diagnostics.
+3. **The path-free half** — `agents` on a contribution, `into` refused alongside it and required without it, `declares` testing `Into != ""`, and `borrowedDestinations` filtered by the selector ([§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business)). This is what makes P4 true rather than aspirational, and step 2 is worth little without it.
+4. **The jail notch move** — composition into the write loop, staging keyed by destination, `assemble.go` following. This is where the one-prose-per-pack limit lifts ([§5](#5-what-it-costs-and-what-it-lifts)).
+5. **Resolution and severity** ([§4.3](#43-resolution-and-severity)) at the two gates R5 selects, with R3-grade diagnostics.
 6. **`skills`, by substitution** — the same field, the same resolution, the same refusal. Left last only because a briefing's cost is read every session and a skill's is not; nothing in it is a new decision.
 7. **Reporting** — `yolo pack lint` and `yolo pack footprint` state a contribution's targeting, so a pack's claims read as legibly as its file claims.
 
@@ -466,8 +466,8 @@ nowhere is the exact failure mode `declares` would produce if that change were m
 
 ## 10. Open Questions
 
-**None.** Every question this doc asked is settled — see the Decision Ledger below, and §1's
-principles for the rulings that shaped the body. What is left is build order (§9).
+**None.** Every question this doc asked is settled — see the Decision Ledger below, and [§1](#1-verdict-and-the-principles-it-rests-on)'s
+principles for the rulings that shaped the body. What is left is build order ([§9](#9-what-i-would-build-in-order)).
 
 ---
 
@@ -475,10 +475,10 @@ principles for the rulings that shaped the body. What is left is build order (§
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-BA1 | Key the selector by **CLI name (`bin`)**, not by pack slug — the namespace `-p <name> -- <bin>` and `use_profiles.<cli>` already use | 2026-08-31 | §1 P1, §4.1, §6 A1 |
-| OQ-BA6 | The identity is **declared by the agent pack, which OWNS that name** — two packs claiming one `bin` is a **fatal** error. Needs its own collision pass, since `briefing` is `CombineConcat` and the generic loop skips non-exclusive kinds (`pluginNameCollisions`/`LoopholeNameCollisions` are the precedent). | 2026-08-31 | §4.1, §4.2 |
-| OQ-BA5 | The fields are **`agent`** (identity) and **`agents`** (selector) — not `bins`, not `for`. The value is still the bin; the spelling follows what users call the thing and what a config surface already calls it. | 2026-08-31 | §1 (after P4), §4.1 |
-| OQ-BA7 | Ownership is **per NAME, across kinds** — one `claude`, one owner, which provides all of that agent's plumbing (briefing, skills, surfaces, launch flags) whether it `program`s the binary or `requires` it. The "briefing-only pack owned by a second pack" case this question posed does not exist: `claude-official` and `claude-matt-fork` both launch as `claude` and cannot both be enabled. Collision key moves from `(kind, target)` to the name. | 2026-08-31 | §1 P5, §4.2 |
-| OQ-BA3 | **Allowlist only, and the candidate set is the ENABLED packs — anything else is fatal.** No universe/selection split and no denylist: naming an agent this jail does not have is the same mistake as a typo, with the same remedy. | 2026-08-31 | §1 P3, §4.3, §6 A5 |
-| OQ-BA4 | **`skills` is IN**, taking the same `agents` field and every rule in §4.2–§4.3 unchanged. The two kinds are parallel — conventional source, required `into`, many packs merging into destinations agent packs name — so this is one mechanism, not two. | 2026-08-31 | §4.1, §9 |
-| OQ-BA2 | The destination's identity is **declared, not derived**. This doc's first draft proposed deriving it from the declaring pack's `bin`s; the `-p` chain derives nothing (name typed → map key → literal comparison, with `derive.lua` hardcoding its own name), there is no `bin`→pack index, and identity-by-declaration is what `program`, `config` and `state` all already do. Deleting the derivation also deletes the `ResolveDestinations` wrinkle and the unaudienced-destination state. | 2026-08-31 | §4.2, §6 A2 |
+| OQ-BA1 | Key the selector by **CLI name (`bin`)**, not by pack slug — the namespace `-p <name> -- <bin>` and `use_profiles.<cli>` already use | 2026-08-31 | [§1](#1-verdict-and-the-principles-it-rests-on) P1, [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business), [§6](#6-alternatives-considered) A1 |
+| OQ-BA6 | The identity is **declared by the agent pack, which OWNS that name** — two packs claiming one `bin` is a **fatal** error. Needs its own collision pass, since `briefing` is `CombineConcat` and the generic loop skips non-exclusive kinds (`pluginNameCollisions`/`LoopholeNameCollisions` are the precedent). | 2026-08-31 | [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business), [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind) |
+| OQ-BA5 | The fields are **`agent`** (identity) and **`agents`** (selector) — not `bins`, not `for`. The value is still the bin; the spelling follows what users call the thing and what a config surface already calls it. | 2026-08-31 | [§1](#1-verdict-and-the-principles-it-rests-on) (after P4), [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business) |
+| OQ-BA7 | Ownership is **per NAME, across kinds** — one `claude`, one owner, which provides all of that agent's plumbing (briefing, skills, surfaces, launch flags) whether it `program`s the binary or `requires` it. The "briefing-only pack owned by a second pack" case this question posed does not exist: `claude-official` and `claude-matt-fork` both launch as `claude` and cannot both be enabled. Collision key moves from `(kind, target)` to the name. | 2026-08-31 | [§1](#1-verdict-and-the-principles-it-rests-on) P5, [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind) |
+| OQ-BA3 | **Allowlist only, and the candidate set is the ENABLED packs — anything else is fatal.** No universe/selection split and no denylist: naming an agent this jail does not have is the same mistake as a typo, with the same remedy. | 2026-08-31 | [§1](#1-verdict-and-the-principles-it-rests-on) P3, [§4.3](#43-resolution-and-severity), [§6](#6-alternatives-considered) A5 |
+| OQ-BA4 | **`skills` is IN**, taking the same `agents` field and every rule in [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)–[§4.3](#43-resolution-and-severity) unchanged. The two kinds are parallel — conventional source, required `into`, many packs merging into destinations agent packs name — so this is one mechanism, not two. | 2026-08-31 | [§4.1](#41-the-two-halves-and-why-neither-knows-the-others-business), [§9](#9-what-i-would-build-in-order) |
+| OQ-BA2 | The destination's identity is **declared, not derived**. This doc's first draft proposed deriving it from the declaring pack's `bin`s; the `-p` chain derives nothing (name typed → map key → literal comparison, with `derive.lua` hardcoding its own name), there is no `bin`→pack index, and identity-by-declaration is what `program`, `config` and `state` all already do. Deleting the derivation also deletes the `ResolveDestinations` wrinkle and the unaudienced-destination state. | 2026-08-31 | [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind), [§6](#6-alternatives-considered) A2 |

@@ -8,8 +8,8 @@ summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and co
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
 
-**Status:** DIAGNOSIS + PROPOSAL, 2026-08-24. **Fourteen fixes are shipped** (§5); the census
-in §4 is proposed and unbuilt. Every code claim was verified against the tree on 2026-08-24
+**Status:** DIAGNOSIS + PROPOSAL, 2026-08-24. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)); the census
+in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is proposed and unbuilt. Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
 **The short version.** yolo has three backends. `podman` and `container` (Apple Container)
@@ -20,7 +20,7 @@ with no error, no warning, and — in the worst cases — a launch line or brief
 asserting it worked. Issue #39 (pack shared dirs never mounted on Apple Container) is one
 instance; a sweep found sixteen more.
 
-**The most important section is §3** — the four dispositions. A boolean "does this backend
+**The most important section is [§3](#3-the-four-dispositions--the-most-important-section)** — the four dispositions. A boolean "does this backend
 support X" cannot express the case that made half this audit worth doing: *achieved, but by
 a different mechanism*. Get that wrong and the census either flags working code or hides
 broken code.
@@ -28,16 +28,16 @@ broken code.
 **Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (that
 backend's own inert-feature inventory, which this generalises),
 [`host-render-target.md`](host-render-target.md) (`render.FieldSet` — the same idea one
-notch over, and the template §4 copies), [`../guides/macos.md`](../guides/macos.md) (the
+notch over, and the template [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) copies), [`../guides/macos.md`](../guides/macos.md) (the
 user-facing consequence).
 
 ---
 
 ## 1. The verdict
 
-**Build the census (§4), but do the briefing fix (§6) first** — it is smaller and it closes
+**Build the census ([§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)), but do the briefing fix ([§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied)) first** — it is smaller and it closes
 the sub-class the census structurally cannot reach. *(Status 2026-09-02: the briefing fix is
-DONE — `28ddea11` shipped it the day this verdict was written; see §6. The census is the whole
+DONE — `28ddea11` shipped it the day this verdict was written; see [§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied). The census is the whole
 remainder, and it waits on OQ-BP-1.)*
 
 Three claims, argued below:
@@ -46,7 +46,7 @@ Three claims, argued below:
    the same cause: backend differences are expressed as scattered conditionals, and no
    artifact says what a backend owes. The count moved from seventeen to twenty-one *after*
    the sweep ended, when a class test written for three known instances failed on a fourth
-   (§5.2) — which is the argument in miniature: the sweep found what it looked for, and the
+   ([§5.2](#52-the-rule-that-had-no-home)) — which is the argument in miniature: the sweep found what it looked for, and the
    invariant found what nobody had.
 2. **A census makes the SILENT half unrepresentable** — but only the silent half. It cannot
    catch a mechanism that emits an argv the backend then fails to execute, which is exactly
@@ -100,7 +100,7 @@ A mechanism on a backend is in exactly one of these states. **Three is not enoug
 | **Honored** | works, by the same mechanism | `network.ports` on Apple Container |
 | **HonoredBy** | works, by a *different* mechanism — which must be named | pack `state` scope:workspace on AC: the single wsState bind already puts it in the per-workspace tier |
 | **Warned** | absent, and the launch says so | `cache_relocations` on Apple Container |
-| **Refused** | the launch refuses and names the key | *(none today — see §7)* |
+| **Refused** | the launch refuses and names the key | *(none today — see [§7](#7-what-this-does-not-propose))* |
 
 **`HonoredBy` is the load-bearing one.** Of 42 candidate silent drops, **11 were refuted**
 — every one because the backend reached the same outcome another way. A boolean census
@@ -157,9 +157,9 @@ it. Call it 2–3 days including the exhaustiveness test.
    memory and cpus are emitted; `network.ports` honored but its DNAT fixup podman-only. The
    vocabulary is per-key; these are per-sub-key.
 3. **Anything needing a Mac.** Whether Apple Container *drops* or *errors* on a single-file
-   bind is unknowable from here, and it decides whether §5's two P0 fixes were preventing
+   bind is unknowable from here, and it decides whether [§5](#5-what-is-already-fixed-2026-08-24)'s two P0 fixes were preventing
    silent loss or a useless error message.
-4. **The affirmative lies** — §6.
+4. **The affirmative lies** — [§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied).
 
 ---
 
@@ -185,7 +185,7 @@ it. Call it 2–3 days including the exhaustiveness test.
 ### 5.2 The rule that had no home
 
 Defects 11–13 are one defect told three times, and the cause is worth stating because it is
-the smallest possible version of the whole argument for §4.
+the smallest possible version of the whole argument for [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset).
 
 The rule they all needed already existed. It was `ctxMountsUnsafe := rt == "container"` — **a
 local variable inside `assemble.go`'s config-`mounts` loop**. That is a perfectly good place
@@ -233,7 +233,7 @@ correct outcome trains the reader to skip the ones that matter.
 | Mechanism | Backend | Why no warning |
 | :--- | :--- | :--- |
 | pack `env` contributions | macos-user | The only shipped one is `audio`'s `PULSE_SERVER` / `PIPEWIRE_REMOTE`, pointing at sockets that do not exist there. **Setting them would be worse than dropping them**, and the inert-loophole line for `audio` already fires. A third-party pack declaring `env` is a genuine silent drop — revisit when one exists |
-| `resources.pids_limit` | AC | memory and cpus ARE emitted; a per-sub-key warning inside an honored parent is exactly the noise §4's residue 2 describes |
+| `resources.pids_limit` | AC | memory and cpus ARE emitted; a per-sub-key warning inside an honored parent is exactly the noise [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue 2 describes |
 | `ephemeral_storage` | AC | Scratch is always `--tmpfs` there. Recorded as the repo's own position in `config_ref.txt` and unverified on hardware |
 | `gpu`, `kvm` | macos-user | Commonly set in a config shared with a Linux box; podman-on-macOS and AC both merely warn, and making the native backend stricter than its siblings buys no safety |
 | `confinement` | macos-user | Needs a refusal in the run pipeline rather than a warning, and refusing a key on one platform of a shared config is the trap `config/inherit.go` already documents |
@@ -241,7 +241,7 @@ correct outcome trains the reader to skip the ones that matter.
 Config `mounts` on Apple Container **left this table on 2026-08-24** — not because the drop
 changed, but because I had it filed wrong. It was listed here as a deliberate silent decline;
 it has always printed a skip line, and as of `0d7e8f58` that line is the shared
-`roBindsUnsupported` rule three further emitters now use (§5.2). A mechanism recorded as
+`roBindsUnsupported` rule three further emitters now use ([§5.2](#52-the-rule-that-had-no-home)). A mechanism recorded as
 silent when it is not is the same bookkeeping error as the census exists to prevent, one
 level up.
 
@@ -271,13 +271,13 @@ are false:
 - loopholes → a section headed *"host capabilities wired into this jail"* listing daemons
   that never started.
 
-The third is fixed (`a639394d`); ~~the first two are live~~ — **§6 SHIPPED the same day this doc
+The third is fixed (`a639394d`); ~~the first two are live~~ — **[§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied) SHIPPED the same day this doc
 was last edited** (`28ddea11`, 2026-08-24, *"fix(run): compose the briefing from what the launch
 applies, not the config"* — its commit message names this section), and this paragraph was never
 updated. `appliedNetMode`, `appliedCtxMounts` and `appliedResourceLimits` live in
 `internal/cli/run/backendcaps.go:52-208`, wired through `assemble.go`, which is exactly the
 "feed `BriefingContent` from what `assembleRunCmd` actually emitted" fix this section asked for.
-*(Verified 2026-09-02; the census in §4 remains unbuilt — no `Cell`/`Disposition` type exists
+*(Verified 2026-09-02; the census in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) remains unbuilt — no `Cell`/`Disposition` type exists
 anywhere in the tree.)*
 
 **Why this outranked the census in sequencing:** an absent capability is a jail that is
@@ -301,7 +301,7 @@ an agent plans around it.
   absence.
 - **Not reimplementing volumes, cgroups, or mount namespaces** on backends that lack them.
   The goal is that a setting stops lying, not that every backend grows every feature.
-- **Not a doc.** `macos-user-nix-and-features.md`'s matrix should eventually be *generated*
+- **Not a doc.** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)'s matrix should eventually be *generated*
   from the census rather than maintained beside it — it has already drifted once.
 
 ---
@@ -309,14 +309,14 @@ an agent plans around it.
 ## Open Questions
 
 1. 💬 **OQ-BP-1: Is the census worth 2–3 days, given it cannot catch the two worst findings?**
-   §4's residue is real: the P0s in §5 (`reads-host`, `host_files`) emitted an argv and were
+   [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue is real: the P0s in [§5](#5-what-is-already-fixed-2026-08-24) (`reads-host`, `host_files`) emitted an argv and were
    *wrong*, not silent, and a census marks both Honored. What it buys is that the other
    nineteen become unwritable.
 
-   _Leaning:_ **Yes — and its "after §6" condition is now discharged, since §6 shipped**
+   _Leaning:_ **Yes — and its "after [§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied)" condition is now discharged, since [§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied) shipped**
    (`28ddea11`). The class has now produced twenty-one instances, and
    twenty of them were found by a human noticing. The twenty-first was found by an invariant
-   (§5.2) — one narrow one, written in an afternoon, over a single argv shape. The census converts that into a compile-or-test-time
+   ([§5.2](#52-the-rule-that-had-no-home)) — one narrow one, written in an afternoon, over a single argv shape. The census converts that into a compile-or-test-time
    answer, and the deciding work is already done.
 
    **Answer:**

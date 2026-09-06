@@ -82,7 +82,7 @@ no loophole, no surfaces.
 
 The pack's README carries the delivery table above (with copilot's row reflecting the
 derive below) and the credential-refusal contract: select the pack without
-`CEREBRAS_API_KEY` hydrated and the launch preflight refuses (catalog membership, OQ-PT4).
+`CEREBRAS_API_KEY` hydrated and the launch preflight refuses (catalog membership, [OQ-PT4](../reference/providers.md#why-its-this-way)).
 
 ### 2. `packs/copilot/derive.lua` — the fifth delivery
 
@@ -115,7 +115,7 @@ paragraph splits (copilot now does; agy still doesn't and never can).
 
 - **A claude↔Cerebras translation proxy** (Bifrost-style): claude riding Cerebras needs
   an anthropic-wire translator, which is a running service, not a provider fact. If
-  wanted later it is a loophole-shaped pack, decided by its own doc. OQ-1 below.
+  wanted later it is a loophole-shaped pack, decided by its own doc. [OQ-1](#open-questions) below.
 - **gpt-oss-120b / gemma-4-31b aliases**: see the models ruling above.
 - **agy delivery**: unrepresentable; recorded, not worked around. Revisit if agy ever
   ships an openai-compatible provider hook.
@@ -124,9 +124,9 @@ paragraph splits (copilot now does; agy still doesn't and never can).
 
 | OQ | Question | Status |
 | :--- | :--- | :--- |
-| OQ-1 | Should yolo ever ship a claude-wire translation proxy so claude can ride chat-completions-only providers? | **In design** — answered by [`wire-bridge.md`](wire-bridge.md) (2026-09-04): a `wire-bridge` pack included through new real pack-dependency vocabulary (`needs` + `when_bins`, ruled by the maintainer that day), and revisits D-4 below (the `context_window` option becomes live the day claude can ride the bridge) |
-| OQ-2 | The claude derive emits `ANTHROPIC_AUTH_TOKEN` even when the provider has no anthropic endpoint (recorded in zai-plumbing §3) — selected-for-claude + openai-only provider sends a wrong-token credential to api.anthropic.com. Gate the token on the URL? | OPEN — pre-existing recorded behavior, not this doc's change; flagged because cerebras is the first pack where a user might plausibly `-p cerebras` a claude-selecting launch |
-| OQ-3 | Cerebras's free tier is 5 req/min — thin for an agent loop. Does the pack README say so? | Resolved in the README: yes, with the Developer-tier numbers beside it |
+| [OQ-1](#open-questions) | Should yolo ever ship a claude-wire translation proxy so claude can ride chat-completions-only providers? | **In design** — answered by [`wire-bridge.md`](wire-bridge.md) (2026-09-04): a `wire-bridge` pack included through new real pack-dependency vocabulary (`needs` + `when_bins`, ruled by the maintainer that day), and revisits D-4 below (the `context_window` option becomes live the day claude can ride the bridge) |
+| [OQ-2](#open-questions) | The claude derive emits `ANTHROPIC_AUTH_TOKEN` even when the provider has no anthropic endpoint (recorded in zai-plumbing [§3](zai-plumbing.md#3-route-a--name-the-protocol-fill-the-values-pure-config)) — selected-for-claude + openai-only provider sends a wrong-token credential to api.anthropic.com. Gate the token on the URL? | OPEN — pre-existing recorded behavior, not this doc's change; flagged because cerebras is the first pack where a user might plausibly `-p cerebras` a claude-selecting launch |
+| [OQ-3](#open-questions) | Cerebras's free tier is 5 req/min — thin for an agent loop. Does the pack README say so? | Resolved in the README: yes, with the Developer-tier numbers beside it |
 
 ## Decision ledger
 
