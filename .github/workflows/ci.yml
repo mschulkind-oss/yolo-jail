@@ -54,12 +54,42 @@ jobs:
       # `just check-ci` needs `just` itself plus staticcheck.  Installed
       # directly rather than through mise-action so this job doesn't also
       # drag in the Node toolchain that mise.toml pins for local dev.
+      #
+      # From casey/just's GitHub release, NOT `just.systems/install.sh`: that
+      # script is a third-party CDN hop with no retry, and on 2026-09-06 it
+      # answered the runner with a bare `curl: (22) ... 403` and took the whole
+      # quality gate down before a line of Go ran.  `gh` is preinstalled on the
+      # runner and authenticated with the job's own token, so this is the one
+      # path GitHub already guarantees us.  Unpinned `latest` is deliberate: it
+      # matches mise.toml's `just = "latest"`, and a CI pinned tighter than
+      # local dev is exactly the gate-vs-hook drift this job exists to catch.
       - name: Install just and staticcheck
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.local/bin"
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-            | bash -s -- --to "$HOME/.local/bin"
+          case "$(uname -m)" in
+            x86_64)  just_arch=x86_64-unknown-linux-musl ;;
+            aarch64) just_arch=aarch64-unknown-linux-musl ;;
+            *) echo "no just release asset for $(uname -m)" >&2; exit 1 ;;
+          esac
+          downloaded=
+          for attempt in 1 2 3; do
+            if gh release download --repo casey/just \
+                 --pattern "just-*-${just_arch}.tar.gz" \
+                 --output /tmp/just.tar.gz --clobber; then
+              downloaded=1
+              break
+            fi
+            echo "just download attempt ${attempt} failed; retrying" >&2
+            sleep $((attempt * 5))
+          done
+          [ -n "$downloaded" ] || {
+            echo "could not download just from casey/just releases" >&2
+            exit 1
+          }
+          tar -xzf /tmp/just.tar.gz -C "$HOME/.local/bin" just
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           go install honnef.co/go/tools/cmd/staticcheck@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
