@@ -1492,6 +1492,9 @@
 
   YOLO_RUNTIME          Override container runtime (podman/container)
   YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
+  YOLO_TIMING           Set to 1 to enable --timing's span logging without the flag
+  YOLO_VERBOSE          Set to 1 to enable the global --verbose/-v gate (same
+                        spans in v1; the home for future diagnostics)
   YOLO_EXTRA_PACKAGES   JSON array of extra nix packages (internal)
 
 [bold cyan]CONFIG CHANGE SAFETY[/bold cyan]

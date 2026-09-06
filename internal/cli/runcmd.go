@@ -52,9 +52,15 @@ Flags:
                      <cli>=<name> (e.g. claude=zai, comma-separated, repeatable)
                      selects it for the named CLI only. A --profile or -p with no
                      token after it selects nothing.
-  --timing           Report startup performance timings: the host-side total, plus the
-                     in-container breakdown (entrypoint config generation, mise, the
-                     command itself).
+  --timing           Report this launch's performance timings, start to shell return:
+                     the host-side span table (probes, image load, teardown), the
+                     child window (including podman's own post-exit cleanup), and
+                     the in-container breakdown (entrypoint config generation, mise,
+                     the command itself). Spans append to
+                     <workspace>/.yolo/host-perf.log as they happen, and any span
+                     over a second names itself on stderr. YOLO_TIMING=1 enables
+                     the same surface without the flag; the global --verbose/-v
+                     (before the subcommand) also enables it.
   --dry-run          macos-user runtime only: print the plan without launching.
   --accept-config-changes
                      Approve a changed jail config on a launch with no terminal

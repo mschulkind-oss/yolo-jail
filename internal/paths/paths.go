@@ -237,6 +237,22 @@ const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 // it into the container.
 const AllowMissingProvidersEnv = "YOLO_ALLOW_MISSING_PROVIDERS"
 
+// TimingEnv is the host-process opt-in to `--timing`'s span logging
+// (docs/design/perf-logging.md): any non-empty value enables the same surface
+// the flag does, for wrappers and scripts that cannot add a flag.
+//
+// HOST-ONLY, deliberately (design D5): it is never forwarded into the jail.
+// The in-jail half of timing is keyed on the YOLO_PROFILE=1 argv pair the
+// launcher emits, and the two halves redeploy on different cadences — a second
+// spelling crossing that boundary is a skew bug, not a convenience.
+const TimingEnv = "YOLO_TIMING"
+
+// VerboseEnv is the published form of the global `--verbose`/`-v` flag
+// (internal/cli/verbose.go) and may equally be typed directly. v1 enables the
+// same span surface TimingEnv does; it exists so non-timing diagnostics have a
+// gate to grow into (design D1). HOST-ONLY for the same reason TimingEnv is.
+const VerboseEnv = "YOLO_VERBOSE"
+
 // hostServicesDirPrefix names the per-jail host-side directory. The 8-hex suffix
 // is JailShortHash(cname).
 const hostServicesDirPrefix = "yolo-host-services-"

@@ -88,6 +88,12 @@ func Main(argv []string) int {
 		return 1
 	}
 
+	// The global verbose flags are consumed in the same window, for the same
+	// reason (see verbose.go): before RewriteArgv so they never look like a
+	// leading positional, and after help so `yolo --help` answers without
+	// side effects.
+	args = applyVerboseFlag(args)
+
 	args = RewriteArgv(args)
 	sub := Subcommand(args)
 

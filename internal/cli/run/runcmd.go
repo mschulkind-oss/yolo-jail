@@ -11,12 +11,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -48,7 +50,10 @@ type Options struct {
 	// is fresh per capture so nothing CAN be running; this makes that true by
 	// construction rather than by luck (capturehost.go's comment).
 	NeverAttach bool
-	// Timing is --timing: report this launch's startup performance timings.
+	// Timing is --timing: report this launch's performance timings — grown from
+	// a single total into the full span system (docs/design/perf-logging.md).
+	// timingEnabled() is the effective gate: this flag OR the host-process
+	// YOLO_TIMING/YOLO_VERBOSE opt-ins.
 	Timing bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
@@ -73,6 +78,12 @@ type Options struct {
 	Args []string
 
 	// --- seams ---
+	// Perf is the timing-span collector behind --timing/--verbose. nil (Timing
+	// off) is a valid, fully no-op state — every call site is unconditional.
+	// Constructed by Run right after the early refusals, never by callers, and
+	// deliberately NOT by fillDefaults: an off launch must construct nothing.
+	// The one thing it must never be given is o.Now (see initPerf).
+	Perf *perf.Log
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
 	// ServiceReadyTimeout bounds each spawned host service's readiness wait
@@ -217,6 +228,48 @@ func (o *Options) captureConfigOnTerminate(rt string) {
 	}
 	defer func() { _ = recover() }()
 	o.CaptureOnTerminate(o.Workspace, rt)
+}
+
+// timingEnabled is the effective timing gate: the --timing flag, or either
+// host-process env opt-in (YOLO_TIMING for this surface, YOLO_VERBOSE for the
+// global flag's published form — v1 aliases them, design D1). Pure, so the
+// gate is table-testable without launching anything; called through Getenv so
+// injected environments behave exactly like real ones.
+func (o *Options) timingEnabled() bool {
+	return o.Timing || o.Getenv(paths.TimingEnv) != "" || o.Getenv(paths.VerboseEnv) != ""
+}
+
+// HostPerfLogName is the host half's file, under <workspace>/.yolo/ beside
+// boot.log (design D2). The jail half is yolo-perf.log, bind-mounted from
+// <workspace>/.yolo/home/, so one directory holds both halves of one launch.
+const HostPerfLogName = "host-perf.log"
+
+// initPerf constructs the collector when the gate is on, wiring two sinks:
+//
+//   - the file sink at <workspace>/.yolo/host-perf.log (design D2) — events
+//     land there AS THEY HAPPEN, so a hang is diagnosable by tail and the
+//     signal arm's os.Exit still leaves a record;
+//   - the slow-span notice — one dim stderr line per span past
+//     perf.SlowSpanThreshold, naming the culprit the moment it finishes.
+//
+// The clock is time.Now and NOT o.Now, by rule (design D8): o.Now exists so
+// tests can freeze time, and a span system built on a frozen clock reports
+// 0.000s everywhere under test. Call once, after the early refusals have had
+// their say — a refused launch writes no file.
+func (o *Options) initPerf(cname string) {
+	if !o.timingEnabled() {
+		return
+	}
+	path := filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName)
+	sinks := []perf.Sink{
+		perf.FileSink(path, cname, o.Stderr, time.Now()),
+		func(e perf.Event) {
+			if e.Kind == perf.KindEnd && e.Dur >= perf.SlowSpanThreshold {
+				o.pr(o.Stderr).printf("[dim]yolo: %s took %.3fs[/dim]", e.Name, e.Dur.Seconds())
+			}
+		},
+	}
+	o.Perf = perf.New(time.Now, sinks...)
 }
 
 func fillDefaults(o *Options) {
