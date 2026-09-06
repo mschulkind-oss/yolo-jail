@@ -193,7 +193,7 @@ Four things fall out of that choice, and they are the substance of the design:
 **Landed 2026-08-14.** The kind is in `packdecl`'s closed set — `{"kind": "loophole", "from": …}`,
 `from` required, Exclusive by loophole NAME — and all four of the above shipped with it, including
 G2a; the one piece of (3) that never shipped is **G2b** ([§4.2](#42-the-four-gates)), and it is **MOOT** rather than
-pending — OQ-TP9 deleted the approval it anchored
+pending — [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the approval it anchored
 ([OQ-LP8](#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
 One thing the proposal did not say and the implementation had to: **the name is knowable without
 decoding the manifest**, because `name` must equal the module dir's basename. That is what lets the
@@ -1148,7 +1148,7 @@ as theatre. The prompt was the one thing that re-fired when a moved pin gained a
 gone these two sentences are the **only** thing between a user and a mutable ref.
 
 **⛔ G2b is MOOT, not deferred.** It would have anchored an exec-bearing approval to the resolved
-commit, and OQ-TP9 deletes the approval whole — the install-time y/N, the lockfile record
+commit, and [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deletes the approval whole — the install-time y/N, the lockfile record
 (`LockEntry.ApprovedHostAccess`) and the launch gate. With no approval there is nothing for a commit
 to anchor and no invariant left for G2b to hold.
 
@@ -1159,7 +1159,7 @@ to anchor and no invariant left for G2b to hold.
 > that reason — *"a trust field that named a guarantee nothing enforced"*. `internal/packsrc/lock.go`
 > says so in the `LockEntry` doc (read 2026-09-04): *"THERE IS DELIBERATELY NO `ApprovedAt` FIELD.
 > One existed, was written on every install, and was read by nothing."* So that phrase describes the
-> state the removal ENDED, three weeks before OQ-TP9. What makes G2b moot is the subject, not the
+> state the removal ENDED, three weeks before [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04). What makes G2b moot is the subject, not the
 > field: the approval is gone. (The same shorthand was written into
 > [`trust-paths.md`](trust-paths.md)'s [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) answer and is corrected in place there.)
 
@@ -1400,7 +1400,7 @@ runtime-dir socket, [§5.1](#51-the-finding-the-pack-shipped-subset-is-too-tight
    — the claim string is the raw, unelided, placeholder-preserving argv, pinned by two tests, because
    an elided argv collapses two different daemons onto one approval and an expanded one makes the
    approval machine-specific. **The one residual, G2b, is MOOT as of 2026-09-04** — it would have
-   anchored an exec-bearing approval to the resolved commit, and OQ-TP9 deleted the approval, so
+   anchored an exec-bearing approval to the resolved commit, and [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the approval, so
    there is nothing left for a commit to anchor. The exposure it named — a fetched pack at a mutable ref
    whose daemon *file* changes under an unchanged argv — is answered by
    [OQ-LP8](#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)'s delivered documentation (pin a tag), not by a prompt.

@@ -2,12 +2,12 @@
 
 **Status:** EXPLORATORY analysis, 2026-08-02 — **re-verified against the tree 2026-08-23**, and
 partly overtaken by it. [§8](#8-options-with-a-recommendation) **Option 1 has largely SHIPPED** (the rename and the GC root, carried
-as the roadmap's **N2** `11f8bb72` and **N1** `23cee7a6`, both 2026-08-05). **OQ-1 — the fork this
+as the roadmap's **N2** `11f8bb72` and **N1** `23cee7a6`, both 2026-08-05). **[OQ-1](#9-open-questions) — the fork this
 doc could not pick — is ANSWERED BY EVENTS as of 2026-09-02:** the host notch is a place agents
 *run*. The launch verb shipped 2026-08-30 as `yolo host -- <cmd>` (`--at host --` as its alias),
 and the maintainer's 2026-09-01 rulings in
 [`providers.md`](../reference/providers.md) treat host launches as a
-peer of jail launches (*"why would we NOT support env on the host too?"* — the withdrawn OQ-CS10,
+peer of jail launches (*"why would we NOT support env on the host too?"* — the withdrawn [OQ-CS10](../reference/providers.md#why-its-this-way),
 whose plan carries "the host notch runs the env derive" as a constraint, not a choice). See the
 Decision Ledger. **Six questions live, three settled.** Option 3's *installer* half is a separate
 product question ([OQ-3](#OQ-3)) and remains unpicked.
@@ -123,7 +123,7 @@ dep-handoff design), [`host-render-target.md`](host-render-target.md) [§2.1](./
 entry may *say* — a sketch, and it resolves through the same `noncontainerResolved` block [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)
 dissects).
 
-**Two docs are blocked on this one's OQ-1** and spell it `N3/OQ-1`:
+**Two docs are blocked on this one's [OQ-1](#9-open-questions)** and spell it `N3/[OQ-1](#9-open-questions)`:
 [`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) (its approval tier's shape differs by the answer)
 and [`agent-auth-modes.md`](agent-auth-modes.md) (which notes it *escaped* the dependency by
 making auth-as-packs host-complete without a launcher). The roadmap tracks it as
@@ -246,7 +246,7 @@ packages below the jail notch, natively, via the buildEnv. The design's own tabl
 So the design contains a latent inconsistency that this exploration surfaces: **`packages:` is
 already honored at a sub-jail notch on one platform and declared unmanageable at a sub-jail
 notch in another section.** Resolving that inconsistency *is* the decision this doc exists to
-tee up (OQ-1).
+tee up ([OQ-1](#9-open-questions)).
 
 **Update 2026-08-23 — half of the reporting half shipped, and it picked a side.** `yolo describe`
 now prints the resolved profile for any notch **without** `PrimBakedImage`, reading the GC-root
@@ -820,7 +820,7 @@ resolved profile line **iff `PrimBakedImage` is absent** from the notch's vector
 only below the jail notch, and printing one for a jail would name a closure the launch does not
 use. So the *absence* of `PrimBakedImage` is already the live switch for the whole mechanism —
 which is the argument for the seventh primitive, made in the negative. Whether to spell it
-positively as `PrimNixProfile` is still open, and it is downstream of OQ-1.
+positively as `PrimNixProfile` is still open, and it is downstream of [OQ-1](#9-open-questions).
 
 **Where the maintainer's instinct *is* right, and it is not a small consolation.** The nix
 env is orthogonal to the *enforcement* primitives — namespaces, Seatbelt, Landlock,
@@ -851,7 +851,7 @@ provisioning at the host notch as "print the remedy, the user runs it."
 wins over `brew` when a pack declares both (`internal/depcheck/depcheck.go:53-54`,
 `internal/packdecl/contributes.go:45-51`), and the unfree skip landed in the flake ([§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)). The
 rest of this option — *leave provisioning at the host notch as "print the remedy"* — is the
-status quo, and remains the answer if OQ-1 comes back "configure-only."
+status quo, and remains the answer if [OQ-1](#9-open-questions) comes back "configure-only."
 
 **For:** zero new mechanism; both fixes are needed regardless; the design's "manifest is the
 floor" rule is satisfied. **Against:** leaves `install_hints` covering **0–1 of six** agent CLIs
@@ -926,19 +926,19 @@ is a strict improvement to already-shipped code (gcroot, name, non-macOS `check`
 needs it whatever is decided about `host`. Then **Option 2 if the maintainer wants the host
 notch to be a place agents *run*, or Option 3 if they want it to be a place tools get
 *installed*.** Those two are genuinely different products and the doc cannot pick for them —
-which is OQ-1.
+which is [OQ-1](#9-open-questions).
 
 **And fix Option 0's two defects regardless.** They are independent of everything above.
 
 > [!NOTE]
 > **Status of the recommendation, 2026-08-23, updated 2026-09-02.** Option 0 is done; Option 1 is
 > done except for the two reporting leftovers and the Go-package rename. **The fork is resolved:
-> Option 2 shipped** (`yolo host -- <cmd>`, 2026-08-30) and OQ-1's Answer block records the events
+> Option 2 shipped** (`yolo host -- <cmd>`, 2026-08-30) and [OQ-1](#9-open-questions)'s Answer block records the events
 > that settled it. What survives of Option 3 is not the fork's other arm but a separate installer
 > product ("put `copilot` on the user's own PATH, reproducibly"), which is [OQ-3](#OQ-3)'s question and is
 > still unbuilt and unruled.
 
-**What would talk me out of all of it:** if the answer to OQ-1 is "the host notch is
+**What would talk me out of all of it:** if the answer to [OQ-1](#9-open-questions) is "the host notch is
 configure-only, forever" *and* the maintainer is content with `install_hints` coverage, then
 Option 1 shrinks to a Phase 7.2 prerequisite with no host-notch story at all, and this doc's
 conclusion is *"already solved for macos-user; the real gap is Linux `guest`, which is Phase
@@ -948,11 +948,11 @@ conclusion is *"already solved for macos-user; the real gap is Linux `guest`, wh
 
 ## 9. Open Questions
 
-Six live, ordered by how much else they block; OQ-1 is kept in place below with its Answer filled
+Six live, ordered by how much else they block; [OQ-1](#9-open-questions) is kept in place below with its Answer filled
 (2026-09-02) because sibling docs cite it by position and ID. **IDs are cited outside this doc:**
-`OQ-1` is spelled **`N3/OQ-1`** in [`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) and
+[`OQ-1`](#9-open-questions) is spelled **`N3/[OQ-1](#9-open-questions)`** in [`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) and
 [`agent-auth-modes.md`](agent-auth-modes.md), where it was named as a blocker — those blocks are
-now released; the roadmap called it "nix OQ-1". Both spellings mean this question and neither may
+now released; the roadmap called it "nix [OQ-1](#9-open-questions)". Both spellings mean this question and neither may
 be renumbered.
 
 > [!NOTE]
@@ -960,7 +960,7 @@ be renumbered.
 > tables — they are not answered-question markers, and there is no ✅-flavored OQ anywhere in
 > this doc. Live questions are the 💬 items below; settled ones are ledger rows.
 
-1. ~~💬~~ **OQ-1 (also cited as N3) — Is the `host` notch a place where agents *run*, or only a
+1. ~~💬~~ **[OQ-1](#9-open-questions) (also cited as N3) — Is the `host` notch a place where agents *run*, or only a
    place where they are *configured*?** When this was written it was configure-only: `--at` was
    `apply`-only and `launch`/`env` were honored-but-unbuilt for exactly that reason
    (`internal/render/fieldset.go:83-103`). Option 2 said "run"; Option 3 said "install"; Option 1
@@ -1056,7 +1056,7 @@ be renumbered.
    packages` line — so two yolo commands now disagree. Make `yolo host apply` say what `describe`
    says, and retire the `✗ packages` sentence from the env-manager design. That is worth doing
    even under Option 0. The *policy* half ("should `host` manage packages at all") stays with
-   OQ-1.
+   [OQ-1](#9-open-questions).
 
    <!-- vantage: oq id=OQ-8 leaning="Fix the narrow half now: `describe` already reports the resolved profile when `PrimBakedImage` is absent, contradicting the promised `✗ packages` line. Make `yolo host apply` agree with `describe`." -->
 
@@ -1077,7 +1077,7 @@ be renumbered.
 
    _Leaning:_ split the profile report out of the macos-user section and run it wherever
    `PrimBakedImage` is absent — same predicate `describe` already uses. The daemon probes are a
-   larger question and can wait for OQ-1.
+   larger question and can wait for [OQ-1](#9-open-questions).
 
    <!-- vantage: oq id=OQ-9 leaning="Split the profile report out of the macos-user section and run it wherever `PrimBakedImage` is absent — the predicate `describe` already uses. Daemon probes can wait." -->
 
@@ -1112,7 +1112,7 @@ traps that made each ruling safe are preserved there as `> [!WARNING]` blocks.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-1 / N3 | **The host notch is a place agents RUN (Option 2), answered by events**: `yolo host -- <cmd>` shipped with a fully composed launch env (`d546e9e1`, `e23df4aa`), and the provider-catalog rulings made host launches a peer of jail launches (*"the host notch runs the env derive"* — constraint, not choice) | 2026-09-02 (events 2026-08-30 → 09-02) | [§9](#9-open-questions) OQ-1's Answer block |
+| [OQ-1](#9-open-questions) / N3 | **The host notch is a place agents RUN (Option 2), answered by events**: `yolo host -- <cmd>` shipped with a fully composed launch env (`d546e9e1`, `e23df4aa`), and the provider-catalog rulings made host launches a peer of jail launches (*"the host notch runs the env derive"* — constraint, not choice) | 2026-09-02 (events 2026-08-30 → 09-02) | [§9](#9-open-questions) [OQ-1](#9-open-questions)'s Answer block |
 | OQ-2 | **Yes, GC-root it** — and the root IS the build's `--out-link`, at `build/package-roots/packages`, a sibling of the image roots so `prune` cannot sweep it. Shipped as **N1** (`23cee7a6`) | 2026-08-05 | [§5.4](#54-what-if-the-user-has-no-nix) (+ its warning block) |
 | OQ-6 | **Warn-and-skip, via `meta.available`** — an unfree attr in `packages:` is skipped with a named reason instead of aborting the build; yolo never sets `allowUnfree` for the user, and an opted-in user still gets the package. Shipped `e40df9f1` | 2026-08-02 | [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace) (+ its warning block) |
 | — | Option 0's two `install_hints` defects (brew-cask Brewfile verb; unfree hint) — **both fixed** | 2026-08-02 | [§8](#8-options-with-a-recommendation) Option 0 |

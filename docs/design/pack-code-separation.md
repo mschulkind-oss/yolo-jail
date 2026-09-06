@@ -158,7 +158,7 @@ acme-claude-broker/                    # a fetched or local pack
 
 Two things have to be true before that is more than a sketch, and both are the *extension point* the user asked to name:
 
-- **A jail-side daemon must be shippable as a binary in the module dir**, mounted `:ro` and executable. This is `OQ-LP14`-adjacent (the "missing vocabulary" for a native transport) but narrower: it is not a new transport, just "the jail daemon may be a file in the module, not a baked subcommand."
+- **A jail-side daemon must be shippable as a binary in the module dir**, mounted `:ro` and executable. This is [`OQ-LP14`](./loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn)-adjacent (the "missing vocabulary" for a native transport) but narrower: it is not a new transport, just "the jail daemon may be a file in the module, not a baked subcommand."
 - **The relay must either be expressible in the manifest or be folded into the framework-owned front.** The front ([`loophole-packaging-overview.md`](./loophole-packaging-overview.md) [§3.1](./loophole-packaging-overview.md#31-what-the-front-is)) already does the loopback-TLS termination the relay does; the relay's remaining job is the per-connection dial to the singleton. If the front can dial a `host_daemon` that `publishes: "socket"`, the relay disappears and the broker becomes an ordinary pack-shipped loophole.
 
 > **DECIDED — build both.** This stops being a named-but-unbuilt extension point: **jail-daemon-as-binary** and the **relay/front folding** are the work, and the broker becomes an ordinary pack-shipped loophole on top of them. That answers OQ-1 *shippable* and settles OQ-4 with it (below).

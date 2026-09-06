@@ -50,7 +50,7 @@ number below is labelled **MEASURED** or **NOT MEASURED**.
 | **C1** — a failed image build fails as itself | ✅ shipped `7830f65`, 2026-08-15 | `internal/image/autoload.go:267-337` — the `buildFailed` flag splits the fallback branch, prints nix's own stderr (`:332`), returns an empty `LoadResult` (`:335`); opt-out is `YOLO_ALLOW_STALE_IMAGE=1` (`:242`). This is [OQ-2](#101-decision-ledger) in [§10.1](#101-decision-ledger) |
 | **`--accept-flake-config`** on the image `nix` invocations ([§6](#6-the-binary-cache-alternative-argued-fairly) item 3) | ✅ shipped | `internal/image/nixflags.go:35` and `internal/darwinpkg/darwinpkg.go:91` (verified 2026-08-25). Note the consequence: the substituter surface it opens is now live, which is what [`macos-user-build-step-threat-model.md`](macos-user-build-step-threat-model.md) Q2 asks about |
 | **C2** — address the image by content | ✅ shipped `be7b8591`, 2026-08-25 | `image.JailImageRef` (`internal/image/image.go:126-128`) is the ref a jail runs; the load decision is `image inspect <content ref>` (`internal/image/autoload.go:424-426`), and the ref is threaded to the argv through `assembleInput.imageRef` (`internal/cli/run/assemble.go:743-748`). This is [OQ-3](#101-decision-ledger) in [§10.1](#101-decision-ledger) |
-| **C3** — stream, write no tar | ✅ shipped `be7b8591`, 2026-08-25 | `ImageLoadStdinCmd` (`internal/image/image.go:55-60`) is the decision point; `internal/image/streamload.go` is the pipe. On podman `cache/images` stays EMPTY, asserted on disk (`internal/image/streamload_test.go:60`). This is [OQ-5](#101-decision-ledger) here and OQ-DF1 in [`minimal-disk-footprint.md`](minimal-disk-footprint.md) |
+| **C3** — stream, write no tar | ✅ shipped `be7b8591`, 2026-08-25 | `ImageLoadStdinCmd` (`internal/image/image.go:55-60`) is the decision point; `internal/image/streamload.go` is the pipe. On podman `cache/images` stays EMPTY, asserted on disk (`internal/image/streamload_test.go:60`). This is [OQ-5](#101-decision-ledger) here and [OQ-DF1](./minimal-disk-footprint.md#11-open-questions) in [`minimal-disk-footprint.md`](minimal-disk-footprint.md) |
 | **C4 · C5** | ❌ not built, and still **gated** | [OQ-1](#the-finding-for-the-oq-1-gate) rules the *shape* for both — opt-in fast path, baked path retained. The re-measurement that gates the go/no-go ([§11](#11-what-to-do-first--dependency-ordered) step 5) was **taken 2026-08-25 and is [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5)**; taking it discharges the step, not the gate — the call is the maintainer's and [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5) stops at the evidence. C5 reuses C4's mechanism and is ordered after it ([§4](#4-candidates-ranked) C5, [§11](#11-what-to-do-first--dependency-ordered) step 6) |
 | **The retention rule (R3)** | ❌ not settled | C2 armed `yolo prune`'s old-image pass for the first time, so it had to be made SAFE in the same change — entries deduped by image ID, and a liveness veto from the load sentinel that was hardened to fail SAFE in `4064f720` (`internal/prune/probes.go:211-256`, `ProtectedImageTags` in `internal/prune/imageroots_probe.go`). The *number* is still [`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3), still OPEN; `--keep-images` default 2 is untouched (`internal/prune/prunecmd.go:49`, `:138`) |
 
@@ -945,7 +945,7 @@ keep any of this around."* So:
 - **The target is zero retained tars: a tar that exists after a successful load is something a
   specific fallback has to justify**, in the ruling's words rather than in a retention constant.
   The actual floor — keep-zero, keep-one, or an opt-in keep-N — was
-  [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **OQ-DF1**, and it was **RULED the same
+  [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **[OQ-DF1](./minimal-disk-footprint.md#11-open-questions)**, and it was **RULED the same
   day: *"stream, keep zero tars"*** — past the leaning, with no opt-in retention knob either. C3 is
   that ruling implemented. This section still invents no default of its own; the doc that owns the
   fix picked the number, and the number is none.
@@ -1401,7 +1401,7 @@ after step 5's measurement was taken. **Steps 1 through 5 are done**; they stay 
 the order is the argument and deleting a discharged precondition makes the rest read as arbitrary.
 Neither 3 nor 4 could be *finished*
 without a ruling elsewhere, and they resolved differently: step 4's offline-fallback floor,
-[`minimal-disk-footprint.md`](minimal-disk-footprint.md) **OQ-DF1**, was **ruled the same day**
+[`minimal-disk-footprint.md`](minimal-disk-footprint.md) **[OQ-DF1](./minimal-disk-footprint.md#11-open-questions)**, was **ruled the same day**
 (*"stream, keep zero tars"*), so C3 shipped complete. Step 3's retention half is that doc's
 **[OQ-DF3](./minimal-disk-footprint.md#OQ-DF3)**, **still open**, so C2 shipped the addressing plus the SAFETY the new tag shape forced,
 and invented no number. **Step 6 is what is left, and it is not a build task — it is a decision the
@@ -1432,7 +1432,7 @@ maintainer owes himself**, on the evidence [§1.8](#18-re-measured-after-c2--c3-
    **bug**, not a tuning opportunity. It depended on C1 (shipped) and was indeed cleaner after C2,
    which decides what a "current" image is. Its offline-fallback question was R4's and R4 handed the
    design to the sibling doc, which is exactly how it was built: no retention number was invented
-   here — [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **OQ-DF1** was ruled the same day
+   here — [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **[OQ-DF1](./minimal-disk-footprint.md#11-open-questions)** was ruled the same day
    (*"stream, keep zero tars"*) and C3 implements that ruling.
 5. ~~**Re-measure.**~~ **TAKEN 2026-08-25 — the numbers, and what they say about C4, are [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5).**
    This was the only thing still holding

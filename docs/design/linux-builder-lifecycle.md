@@ -63,7 +63,7 @@ Constants in `internal/builder/builder.go` (`BuilderPort = 31022`,
 `BuilderKeyPath = /etc/nix/builder_ed25519`). Wired into exactly two places:
 the `yolo builder` command (`internal/cli/commands.go`) and `yolo check`'s
 Image Build section (`internal/cli/check/`). **Notably, the real `yolo` run path
-does *not* use it** — see [§2](#2-the-two-builder-mechanisms)b.
+does *not* use it** — see §[2b](#2b-the-container-builder--internalcontainerbuilder-the-keeper).
 
 ### 2b. The container builder — `internal/containerbuilder` (the keeper)
 

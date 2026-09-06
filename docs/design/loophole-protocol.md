@@ -236,7 +236,7 @@ protocol to be request-shaped — so for a fronted daemon yolo can record
 bytes each way, duration. That is the honest audit ceiling. An earlier
 draft promised the front as "the natural home for the crossing audit
 log"; that claim is **withdrawn**
-([`loophole-packaging.md`](loophole-packaging.md) [§2.1](./loophole-packaging.md#21-the-manifest-vocabulary-publishes)b hazard 3) — do
+([`loophole-packaging.md`](loophole-packaging.md) §[2.1b](./loophole-packaging.md#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1) hazard 3) — do
 not design against it. Anything richer than connection-level is
 per-loophole, not framework.
 

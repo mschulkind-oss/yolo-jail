@@ -354,7 +354,7 @@ had already built it — `supersedes` is a field on the **manifest top level**
 `TestSupersedesIsNotAContributionKind` (`internal/packdecl/supersedes_test.go:120-136`) **refuses**
 the alternative outright: a `contributes[]` entry with `kind: "supersedes"` is a validation error.
 A question whose losing option is pinned rejected by a test is not open; recording that is what
-[`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md) [§4](../plans/further-roadmap-ideas.md#4-two-rows-already-on-the-roadmap-that-i-would-drop)b asked for. Reopen only
+[`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md) §[4b](../plans/further-roadmap-ideas.md#4b-what-the-verification-pass-changed-about-this-file) asked for. Reopen only
 with a migration case nobody has.
 
 The reasoning, kept for the record: top-level matches `skills_tier` (a per-pack fact, not a

@@ -55,7 +55,7 @@ implementation, and both are carried below rather than filed as incidents.** (1)
 subset cannot express `audio`'s reason to exist** — its two `${XDG_RUNTIME_DIR}` sockets are neither
 under `$HOME` nor inside the module dir, so there is no spelling of them in the subset's vocabulary
 ([§7](#7-migration--the-three-bundled-loopholes)). (2) **The placement rule must not judge a BUNDLED loophole**, or yolo's own development jail
-refuses all three of them on every launch ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a, item 1a).
+refuses all three of them on every launch (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here), item 1a).
 
 > **Reading this to DECIDE rather than to build? Start with
 > [`loophole-packaging-overview.md`](loophole-packaging-overview.md)** — the same design at
@@ -100,13 +100,13 @@ loophole has been approved at a prompt and spawned as a host daemon.
 >    declaration that crosses. **This was the single worst defect in draft 1.**
 > 2. **A 15th kind is an A12-fatal boot break against a stale baked entrypoint** — the `tier`
 >    incident, for the third time. `DecodeTolerant`'s own docstring says an unknown *kind* still
->    fails loudly. [§3.3](#33-footprint-entry--one-contribution-several-claims-and-the-enumeration-must-be-total)a, and it is now item **0** of the landing order.
+>    fails loudly. §[3.3a](#33a-the-kind-is-an-a12-fatal-boot-break-against-a-stale-image--the-tier-incident-third-time), and it is now item **0** of the landing order.
 > 3. **The "for free" collision claim was false**, twice over: `packload.Collisions` is never
 >    consulted at launch, and it skips single-pack groups. The fatal-collision rule needs a fourth
 >    bespoke pre-flight and cannot live inside `Discover` at all ([§3.1](#31-validation), [§5.1](#51-selection-gates-discovery--and-the-census-is-seven-surfaces-not-four)).
 > 4. **`{loophole_dir}` is substituted in exactly one field** — `host_bind_mounts[].host`. The
 >    doc's own headline example manifest would have exec'd a literal `{loophole_dir}/acme-daemon.py`
->    ([§2.1](#21-the-manifest-vocabulary-publishes)a).
+>    (§[2.1a](#21a-loophole_dir-does-not-reach-a-cmd--the-example-above-does-not-work-today)).
 >
 > **One finding is REJECTED on measurement** and one is scoped down; both are argued in place
 > ([§7](#7-migration--the-three-bundled-loopholes) and [§4.5](#45-nothing-reaps-a-departed-loopholes-state--and-the-mechanism-draft-1-cited-does-not-exist)). A rejected finding that leaves no trace gets rediscovered.
@@ -127,12 +127,12 @@ loophole has been approved at a prompt and spawned as a host daemon.
 >    only exist for this platform"*, and packs will ship native code ([§3.1](#31-validation), new subsection). Also the
 >    named extension point for a future platform-specific transport.
 > 4. **The front cannot be the crossing audit log.** Withdrawn: a loophole's protocol can be anything,
->    so connection-level is the honest ceiling ([§2.1](#21-the-manifest-vocabulary-publishes)b hazard 3).
+>    so connection-level is the honest ceiling (§[2.1b](#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1) hazard 3).
 >
 > A second round added two more:
 >
 > 5. **EOF non-propagation is not implemented, not impossible** — it is the relay's frozen teardown
->    imposing a default, so it becomes a per-loophole `request_end` declaration ([§2.1](#21-the-manifest-vocabulary-publishes)b hazard 2).
+>    imposing a default, so it becomes a per-loophole `request_end` declaration (§[2.1b](#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1) hazard 2).
 > 6. **G1 removes per-workspace loopholes with no replacement** — a capability removal the doc was
 >    calling a migration. **[OQ-LP12](#decision-ledger)** ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)).
 >
@@ -141,20 +141,20 @@ loophole has been approved at a prompt and spawned as a host daemon.
 > 7. **Every gate governs a DECLARATION; none governs the FILE it names.** An agent rewrites a
 >    workspace-resident daemon between launches and nothing notices — `file://` is a bare prefix
 >    check with no path constraint, so "local" includes a directory the agent writes. **[OQ-LP13](#decision-ledger)**,
->    which subsumes G2b and [OQ-LP3](#decision-ledger) ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a).
+>    which subsumes G2b and [OQ-LP3](#decision-ledger) (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)).
 >
-> **And later rounds RULED almost all of it.** [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b is the organizing decision: **install is
+> **And later rounds RULED almost all of it.** §[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either) is the organizing decision: **install is
 > user-scope, enable is either**. On top of it: **[OQ-LP10](#decision-ledger)** (retire the user loopholes dir),
 > **[OQ-LP2](#decision-ledger)** (install-shaped keys user-scope-only, with a FATAL error plus an install offer rather
 > than warn-then-error), **[OQ-LP6](#decision-ledger)** (build the capability system), **[OQ-LP11](#decision-ledger)** (bundled become
 > official packs, `audio` shipping IN this batch), and **[OQ-LP13](#decision-ledger) — ruled AGAINST hashing**: *"if you
 > can edit user-level files, you have all the perms already"*, so the user-scope edit IS the
-> confirmation and all that survives is a PLACEMENT rule ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a). [OQ-LP12](#decision-ledger) dissolved, [OQ-LP3](#decision-ledger) folded,
+> confirmation and all that survives is a PLACEMENT rule (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)). [OQ-LP12](#decision-ledger) dissolved, [OQ-LP3](#decision-ledger) folded,
 > [OQ-LP8](#decision-ledger) is all but closed. **[OQ-LP9](#decision-ledger) was the last properly open one, and it is now BUILT** ([§9](#9-risks-and-open-questions),
 > landing item 10): it had grown from a small question into a structural one — nested jails need the
 > scope model to RECURSE, and measurement said it could not — and the maintainer's three-part split
 > shipped as the inner-scope census, the two generated per-consumer files and a global
-> `--user-layer` flag. The development escape hatch [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a wanted is DELETED — *"you can develop a
+> `--user-layer` flag. The development escape hatch §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) wanted is DELETED — *"you can develop a
 > loophole in a jail with jail in jail if you need"* — and measured, the loophole runtime has exactly
 > ONE jail-aware branch (`runtime.go:224`, device passthrough), so a nested jail is a real
 > development environment and the friction belongs on the real machine. That ruling is now **real
@@ -162,7 +162,7 @@ loophole has been approved at a prompt and spawned as a host daemon.
 >
 > An eighth round produced the two findings this doc had to absorb as design constraints rather than
 > fixes: **the subset cannot express a runtime-dir socket** ([§7](#7-migration--the-three-bundled-loopholes)) and **the placement rule must exempt
-> yolo's own bundled content** ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a).
+> yolo's own bundled content** (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)).
 
 ---
 
@@ -178,7 +178,7 @@ back to three. The bundled retirement ([OQ-LP11](#decision-ledger)) has still no
 |---|---|---|---|
 | `bundled_loopholes/`, embedded in the binary | `BundledLoopholesDir` (`internal/loopholes/loopholes.go:89`) | yolo's own three | fine — but **why not an official pack?** [OQ-LP11](#decision-ledger). All three are still here, and `audio` cannot be retired at all until [OQ-LP14](#decision-ledger) |
 | ~~a user loophole dir~~ | ~~`UserLoopholesDir` → `~/.local/share/yolo-jail/loopholes`~~ | ~~one hand-placed local loophole~~ | **RETIRED ([OQ-LP10](#decision-ledger), carried out).** No fetch, no version, no approval, no manifest travelling with the code — and a `file://` pack subsumes it. Discovery no longer reads it and the `SourceUser` label is deleted; what survives is `RetiredUserLoopholesDir` + a migration notice (`internal/loopholes/retired.go`) that names every stranded module and the `mv` into `~/.config/yolo-jail/local/` |
-| the `loopholes` block in `yolo-jail.jsonc` | `synthesizeConfigLoopholes` (`discover.go:29`) | **was the only third-party path** | revived by the front ([§2.2](#22-what-flipping-discovergo60-costs-nothing-plus-one-message-rewrite)) and scoped by the ruled install/enable model ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b) |
+| the `loopholes` block in `yolo-jail.jsonc` | `synthesizeConfigLoopholes` (`discover.go:29`) | **was the only third-party path** | revived by the front ([§2.2](#22-what-flipping-discovergo60-costs-nothing-plus-one-message-rewrite)) and scoped by the ruled install/enable model (§[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either)) |
 | **a pack, `{"kind": "loophole", "from": …}`** | `loaderFor(SourcePack)` (`discover.go`) | **the third-party path now** | landed 2026-08-14; subset-constrained, claim-enumerated, origin-gated |
 
 > [!NOTE]
@@ -186,7 +186,7 @@ back to three. The bundled retirement ([OQ-LP11](#decision-ledger)) has still no
 > table was deleted outright (`bundled_loopholes/`, its embed, `internal/loopholes/embedfallback.go`,
 > `loopholes.ReservedLoopholeNames` and `paths.BuiltinLoopholeNames` — none of them resolve in the
 > tree, verified 2026-08-23). The user-dir row was already retired by [OQ-LP10](#decision-ledger). What survives is the
-> `loopholes` block in `yolo-jail.jsonc` (a CONFIG surface, scoped by [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b — not a distribution
+> `loopholes` block in `yolo-jail.jsonc` (a CONFIG surface, scoped by §[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either) — not a distribution
 > channel) and the pack row. **`internal/loopholes` stops being a thing core knows about specially**,
 > which is precisely the prize [§5.4](#54-so-how-does-the-broker-stay-on-by-default) named. The table's original three-channel framing is left standing
 > because [§1](#1-the-gap-and-why-it-got-acute-this-week)'s whole argument is *why three was one too many*.
@@ -750,7 +750,7 @@ evaluated by `RequirementsMet` at `loopholes.go:201`) express
 platform"*, and the difference is not cosmetic. A pack shipping a compiled Linux daemon on macOS
 should be reported as **unsupported here**, not as a requirement that happened to be unmet (which
 reads as "install the missing thing") and certainly not as a spawn that fails five seconds later
-through [§2.1](#21-the-manifest-vocabulary-publishes)c's silent path.
+through §[2.1c](#21c-a-daemon-that-starts-and-never-becomes-reachable-is-completely-silent)'s silent path.
 
 **Requirement:** the manifest declares supported platforms — `GOOS`, and `GOARCH` where it matters —
 validated statically at load and evaluated host-side during discovery. A selected pack whose loophole
@@ -1239,7 +1239,7 @@ nothing, and a WORKSPACE config can write it.**
   `startExternalService`, which at `:384` runs `exec.Command(cmdArgs[0], cmdArgs[1:]...)` with
   `Setsid: true` (`:388`), env from the entry's own `env` block with `~` expansion (`:402-412`).
 - **No gate of any kind.** No prompt, no lockfile, no origin check, no launch-time
-  notice — and per [§2.1](#21-the-manifest-vocabulary-publishes)c a **successful** spawn is silent and so is a **timed-out** one.
+  notice — and per §[2.1c](#21c-a-daemon-that-starts-and-never-becomes-reachable-is-completely-silent) a **successful** spawn is silent and so is a **timed-out** one.
 - **`loopholes` is not user-scope-only.** Exactly three keys are: `packs`
   (`internal/config/packs.go:484`), `host_files` (`hostfiles.go:938`), `cache_relocations`
   (`validate.go:1025`) — whose message is verbatim the argument that applies here: *"a workspace
@@ -1439,7 +1439,7 @@ same shape `mount` has today, refusals printed per-claim (`packs.go:218-231`).
 
 > [!WARNING]
 > **The clause above is RETIRED as of 2026-08-18 — "while its other contributions still work" is no
-> longer true, and this paragraph is kept only so the change is legible.** OQ-TP6 in
+> longer true, and this paragraph is kept only so the change is legible.** [OQ-TP6](./trust-paths.md#decision-ledger) in
 > [`trust-paths.md`](trust-paths.md) rules that **a refused contribution refuses the LAUNCH**: there
 > are no partial packs, so an unapproved loophole claim no longer degrades a pack into its
 > still-permitted half. The three choices are fix the pack, remove the pack, or approve it.
@@ -1576,7 +1576,7 @@ loophole would execute. The maintainer refused it: *"not sure there's even any c
 if you can edit user-level files, you have all the perms already."* Correct, and it dissolves the
 mechanism: writing the user config already demands host access as the user, who could equally use
 `~/.bashrc` or cron, so a dialog guarding it protects nothing. **The user-scope edit IS the
-confirmation** ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b).
+confirmation** (§[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either)).
 
 What the permission argument does NOT cover is the second actor. It speaks for the human who writes
 the declaration; the agent that rewrites the named FILE has none of those permissions. So:
@@ -1652,7 +1652,7 @@ This is the organizing decision for [§4](#4-trust--the-existing-hole-is-real-bu
 | Decides | that this code may run on this machine at all | whether an installed loophole is active for this jail |
 | Scope | **user only** | **user or workspace** |
 | Performable by | a human editing an agent-unwritable file | anyone who can edit `yolo-jail.jsonc`, including an agent |
-| Gate | one confirmation, every origin — WHAT it checks is [OQ-LP13](#decision-ledger), RULED and landed as the placement rule ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a) | none required |
+| Gate | one confirmation, every origin — WHAT it checks is [OQ-LP13](#decision-ledger), RULED and landed as the placement rule (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)) | none required |
 
 **The line is drawn where the risk is.** The hazard was never *"a daemon runs"* — it is *"code
 nobody vetted runs"*. Install is the vetting point; enable is routing **within an already-vetted
@@ -1680,7 +1680,7 @@ that disabled it*, and `yolo check` **warning** rather than `ok`ing a workspace-
 
 **Install must become an explicit act for every origin.** Today only `yolo pack install` on a FETCHED
 pack prompts; `file://`, the conventional local pack, the user loopholes dir and the config block are
-all silent. Under §1.1's consolidation those collapse toward one act, and that act is where [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a's
+all silent. Under §1.1's consolidation those collapse toward one act, and that act is where §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s
 digest is taken and recorded.
 
 **What it dissolves:** **[OQ-LP12](#decision-ledger)** (per-workspace) — you install once, each workspace enables from
@@ -1705,7 +1705,7 @@ redesign.
    **host's** Claude Code executes. yolo does not exec it; the pack causes host-side code to exist
    where host software runs it.
 2. **`file://` is trusted unconditionally, and forever — and "not changing it" is WITHDRAWN
-   ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a).** `OriginLocal` is nothing but a `file://` prefix (`config/packs.go:126-128`) and
+   (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)).** `OriginLocal` is nothing but a `file://` prefix (`config/packs.go:126-128`) and
    `MayGrantHostFiles()` returns true with no approval and no re-approval. Draft 2 kept it on the
    grounds that *a directory the user controls carries the user's own authority*. Review showed the
    premise fails exactly where it matters: the check constrains the path in no way, so a directory an
@@ -2233,7 +2233,7 @@ source, or origin:
 So a pack-shipped loophole declaring `intercepts` needs **no new mechanism**. Two supporting facts,
 one of which draft 1 got wrong:
 
-- **`{loophole_dir}` — draft 1 asserted "That works." It does not ([§2.1](#21-the-manifest-vocabulary-publishes)a).** It resolves in exactly
+- **`{loophole_dir}` — draft 1 asserted "That works." It does not (§[2.1a](#21a-loophole_dir-does-not-reach-a-cmd--the-example-above-does-not-work-today)).** It resolves in exactly
   one field. The claim that a staged module dir is *strictly better* than a hand-placed one stands
   (the staged tree already passed `packstage`'s exec-bit and escaping-symlink refusals); the claim
   that the placeholder works does not.
@@ -2307,7 +2307,7 @@ change is legible rather than silent.
 
 **R2 — nothing here has run.** No pack-shipped loophole exists. The two places a first
 implementation is most likely to be wrong are still orderings rather than shapes: the **seven-surface
-discovery convergence** ([§5.1](#51-selection-gates-discovery--and-the-census-is-seven-surfaces-not-four)) and the **publish-after-upstream** ordering ([§2.1](#21-the-manifest-vocabulary-publishes)b) — and the second
+discovery convergence** ([§5.1](#51-selection-gates-discovery--and-the-census-is-seven-surfaces-not-four)) and the **publish-after-upstream** ordering (§[2.1b](#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1)) — and the second
 now has a second failure mode (stale socket) that draft 1's fix did not cover.
 **MOSTLY CLOSED 2026-08-14, and what is left is one clause of the original sentence.** Both orderings
 shipped with tests (the convergence structurally, the readiness path with deadline-bounded round
@@ -2322,7 +2322,7 @@ FETCHED-and-executing path, not the kind: an embedded pack carries yolo's own au
 approval is true by construction and never reaches `promptYesNo`. Closing it needs a fetched pack with
 a daemon, which is a test-fixture-shaped task rather than a design one.
 
-**R3 — the front's limits are invisible to the daemon author.** No EOF propagation ([§2.1](#21-the-manifest-vocabulary-publishes)b hazard 2)
+**R3 — the front's limits are invisible to the daemon author.** No EOF propagation (§[2.1b](#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1) hazard 2)
 and no per-request access log (hazard 3). The first turns a working daemon into a hang; the second is
 an audit gap that only shows up when someone asks what a jail requested. — **Half closed 2026-08-13**:
 EOF propagation is now a declared `request_end`, so the hang is one manifest word away rather than
@@ -2384,18 +2384,18 @@ traps that are load-bearing rationale rather than history.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-LP1 | Schema lives in a new `internal/loopholedecl` leaf; `internal/loopholes` re-exports it as type ALIASES — resolves the `packload`→`loopholes` cycle by extraction | 2026-08-14 | [§3.2](#32-where-the-schema-has-to-live--and-this-is-a-real-blocker-not-a-case-in-a-switch) |
-| OQ-LP2 | Install-shaped `loopholes` keys (`command`, `doctor_cmd`, `env`) are user-scope-only; migration is a **FATAL** error + a TTY-gated install offer, not warn-then-error | 2026-08-14 | [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b, [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G1 |
-| OQ-LP3 | Folded into [OQ-LP13](#decision-ledger) — install confirms every origin, so there is no trusted-`file://` bypass to special-case | 2026-08-14 | [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a |
+| OQ-LP2 | Install-shaped `loopholes` keys (`command`, `doctor_cmd`, `env`) are user-scope-only; migration is a **FATAL** error + a TTY-gated install offer, not warn-then-error | 2026-08-14 | §[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either), [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G1 |
+| OQ-LP3 | Folded into [OQ-LP13](#decision-ledger) — install confirms every origin, so there is no trusted-`file://` bypass to special-case | 2026-08-14 | §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) |
 | OQ-LP4 | The front is declared by `publishes` on `host_daemon`, never by a manifest naming `yolo internal front` in its own argv (workaround-becomes-API) | 2026-08-14 | [§2.1](#21-the-manifest-vocabulary-publishes) |
 | **OQ-LP5** | **LIVE** — does `jail_env` stay refused for pack-shipped loopholes? | — | below |
 | OQ-LP6 | Build the capability system (A6) — a loophole manifest is a public surface regardless | 2026-08-14 | [§6](#6-what-this-does-to-pack-capabilitiesmd) |
 | **OQ-LP7** | **LIVE** — does `guest` get its own field census, or keep borrowing `HostFields()`? | — | below |
-| OQ-LP8 | Following a mutable ref IS the trust decision — accepted, not re-prompted; **tag pins are the documented shape** for a pack carrying code, delivered in the packs guide. G2b is **MOOT**: OQ-TP9 deleted the approval it would have anchored | 2026-09-04 | [overview](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04), [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G2b |
+| OQ-LP8 | Following a mutable ref IS the trust decision — accepted, not re-prompted; **tag pins are the documented shape** for a pack carrying code, delivered in the packs guide. G2b is **MOOT**: [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the approval it would have anchored | 2026-09-04 | [overview](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04), [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G2b |
 | OQ-LP9 | Nested jails RECURSE the scope model: inner-scope census + two generated per-consumer files + a global `--user-layer` flag. Built | 2026-08-14 | [§9](#9-risks-and-open-questions) |
 | OQ-LP10 | Retire the user loopholes dir — a `file://` pack subsumes it. Carried out; `SourceUser` deleted, migration notice left behind | 2026-08-14 | [§1](#1-the-gap-and-why-it-got-acute-this-week), [§5.1](#51-selection-gates-discovery--and-the-census-is-seven-surfaces-not-four) |
 | OQ-LP11 | Bundled loopholes become packs. **COMPLETE** — `bundled_loopholes/` deleted, all five shipped loopholes are pack contributions | 2026-08-19 | [§5.4](#54-so-how-does-the-broker-stay-on-by-default), [§7](#7-migration--the-three-bundled-loopholes), below |
-| OQ-LP12 | Dissolved by [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b's scope model — install once at user scope, each workspace enables | 2026-08-14 | [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b |
-| OQ-LP13 | Ruled AGAINST hashing: *"if you can edit user-level files, you have all the perms already."* The user-scope edit IS the confirmation; only a PLACEMENT rule survives, and it must EXEMPT yolo's own shipped content | 2026-08-14 | [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a |
+| OQ-LP12 | Dissolved by §[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either)'s scope model — install once at user scope, each workspace enables | 2026-08-14 | §[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either) |
+| OQ-LP13 | Ruled AGAINST hashing: *"if you can edit user-level files, you have all the perms already."* The user-scope edit IS the confirmation; only a PLACEMENT rule survives, and it must EXEMPT yolo's own shipped content | 2026-08-14 | §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) |
 | OQ-LP14 | Runtime-dir sockets: the bind-host path rule is **WITHDRAWN, not extended** — its cases are inverted (admits `~/.ssh`, refuses a pulse socket). What survives is a correctness rule, not a gate. This is what unblocked [OQ-LP11](#decision-ledger) | 2026-08-17 (built 08-18) | [§3.1](#31-validation), [§7](#7-migration--the-three-bundled-loopholes), below |
 | OQ-CAP2 | Closed with option (B) — write the packaging design before building A | 2026-08-13 | header |
 
@@ -2414,7 +2414,7 @@ predicted is what `packload.LoopholeHostAccessClaims` uses: the schema is readab
 by `pack lint` and by a host-side validator without dragging the runtime predicates along.
 
 **[OQ-LP2](#decision-ledger) — do the `loopholes` block's host-exec keys become user-scope-only now? RULED: YES**, for the
-INSTALL-shaped keys ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b's table: `command`, `doctor_cmd`, `env` in both shapes; `enabled` and
+INSTALL-shaped keys (§[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either)'s table: `command`, `doctor_cmd`, `env` in both shapes; `enabled` and
 `jail_env` stay at either scope). **And the migration is ruled too: a FATAL error, not warn-then-error**
 — a workspace enabling an uninstalled loophole fails the launch, names the file that asked, and
 OFFERS to install it at user level, which is where the human-in-the-loop moment now lives. That also
@@ -2428,7 +2428,7 @@ workspace scope. **Resolved by:** a maintainer ruling.
 
 **[OQ-LP3](#decision-ledger) — `file://` packs run host daemons with no prompt, ever.** Local origin is a bare `file://`
 prefix with no path constraint, trusted unconditionally and permanently. Draft 2's read was
-**leave it**; **withdrawn** ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a) — the premise is that the path is one the user controls, and
+**leave it**; **withdrawn** (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)) — the premise is that the path is one the user controls, and
 nothing checks that, so a live-mounted workspace qualifies. **Mostly subsumed by [OQ-LP13](#decision-ledger)**: content
 anchoring covers this row without the special case draft 2 was arguing against. What survives
 independently is only whether `IsLocal()` should additionally constrain the path. **Resolved by:**
@@ -2576,9 +2576,9 @@ this row, because a *fetched* pack's module dir is not user-scope-edited.
 Landed note is at the end of this entry). It was the last properly open question, and review grew it.
 The original form was small (does the scope error downgrade in-jail, the way `agents` does). Reframed:
 *"for jail in jail, the outer jail is essentially 'user level' for the inner jail — we need to support
-this somehow."* That is [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)b applied recursively, and it is right: "user level" is whatever scope owns
+this somehow."* That is §[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either) applied recursively, and it is right: "user level" is whatever scope owns
 the machine the daemon runs on, so inside jail A that is jail A's own config, owned by jail A's agent,
-because jail A is the blast radius. It is also **load-bearing**, since [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a's escape-hatch ruling
+because jail A is the blast radius. It is also **load-bearing**, since §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s escape-hatch ruling
 sends loophole development into a nested jail.
 
 **Measured in-jail 2026-08-13, then REVISED on maintainer follow-up — the raw bind is the wrong
@@ -2694,7 +2694,7 @@ deliberately bypass the merged config and read the user file directly (`LoadPack
 layer that silently failed to carry `packs` would be worse than no flag.
 
 **R5, the nested-development path, is VERIFIED END TO END in a real nested container** — which is what
-turns [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a's *"develop the loophole in a jail"* ruling from an argument into an instruction. An in-jail
+turns §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s *"develop the loophole in a jail"* ruling from an argument into an instruction. An in-jail
 agent wrote a pack shipping a loophole, wrote a layer naming it, and `pack install`, `loopholes list`
 (active, `pack/none`), `check` (*"devpack: 2 file(s) stage"*) and a nested launch all saw it. **One
 constraint users need, and it is the first thing anyone will trip over: the jail's home ROOT is `:ro`,
@@ -2725,12 +2725,12 @@ host-relative sibling path inside a jail would hunt for a file that is not there
 **Resolved by:** nothing — it was built as specified, with the four corrections above.
 
 **[OQ-LP13](#decision-ledger) — what stops an agent swapping the file a loophole runs? RULED: a placement rule, not
-hashing.** Raised in review ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a): every gate governs a declaration, the file that executes is
+hashing.** Raised in review (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)): every gate governs a declaration, the file that executes is
 unread, and `file://` imposes no path constraint. Draft 4 proposed content digests; the maintainer
 ruled against — *"if you can edit user-level files, you have all the perms already"* — so the
 user-scope edit IS the confirmation, and what survives is: **installed content may not resolve inside
 the mounted workspace or a jail-home tree**, refused at install by name. Cheaper than a digest and it
-closes the actor gap the permission argument leaves open. Incomplete by construction ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a), and
+closes the actor gap the permission argument leaves open. Incomplete by construction (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)), and
 that is stated rather than hidden. **Also subsumes [OQ-LP3](#decision-ledger) and all but one row of [OQ-LP8](#decision-ledger).**
 
 **[OQ-LP12](#decision-ledger) — how does a workspace get a loophole another workspace does not?** Raised in review
@@ -2774,7 +2774,7 @@ an absolute or writable bind host, and `publishes: "endpoint"` are refused at lo
 **One consequence worth recording, since it was not obvious before doing it.** `user` was the only
 source label that was BOTH trusted to run host code AND judged by the placement rule. With it gone,
 the module-dir face of the placement rule applies to PACK loopholes only — bundled content is exempt
-([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a's Test-1 reasoning) and a config entry has no module dir. That is not a weakening: the retired
+(§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s Test-1 reasoning) and a config entry has no module dir. That is not a weakening: the retired
 directory's manifests are not read at all now, which is strictly stronger than judging where they sat.
 
 **The first payoff below is only HALF collected, and deliberately so** — see [§5.2](#52-yolo-loopholes-enabledisable-and-the-pack-shipped-case)'s ledger.
@@ -2855,7 +2855,7 @@ in revision 2 and are real work draft 1 priced at zero.
 **Ledger, 2026-08-14: EVERY ITEM IS DONE — 0 through 10.** Item 9 (`audio` as a real official pack)
 and item 10 ([OQ-LP9](#decision-ledger)'s three parts, added to this list when it was built) both landed. ONE residual
 sat *inside* a done item and was the whole of what was left: **G2b** (item 6), and it is **MOOT** as
-of 2026-09-04 rather than pending — OQ-TP9 deleted the approval it would have anchored
+of 2026-09-04 rather than pending — [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the approval it would have anchored
 ([OQ-LP8](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
 **G2a landed** with the loophole claim
 producer, and the pack-shipped **subset is wired at three seams** (item 5).
@@ -2864,7 +2864,7 @@ producer, and the pack-shipped **subset is wired at three seams** (item 5).
 says something about the design that no amount of implementing closes: **[OQ-LP14](#decision-ledger)** — the subset has no
 vocabulary for a runtime-dir socket, so `audio`'s own reason to exist is inexpressible for a pack
 ([§3.1](#31-validation), [§7](#7-migration--the-three-bundled-loopholes)); and the **bundled exemption** on the placement rule, which is the rule's own Test-1
-reasoning applied to yolo's own content ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a, item 1a). The first needs a ruling; the second is
+reasoning applied to yolo's own content (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here), item 1a). The first needs a ruling; the second is
 settled and shipped.
 
 **Five defects found by adversarial verification of the landed kind, all fixed 2026-08-14.** Every one
@@ -2922,7 +2922,7 @@ comes from producer X is refused without approval and granted with it. The refus
 catches a filter, because a dropped claim makes the gate GRANT (`len(want) == 0` reads as "moot")
 rather than refuse.
 
-0. **Tolerate an unknown KIND under `TolerateSkew()`** ([§3.3](#33-footprint-entry--one-contribution-several-claims-and-the-enumeration-must-be-total)a), with a regression test that a
+0. **Tolerate an unknown KIND under `TolerateSkew()`** (§[3.3a](#33a-the-kind-is-an-a12-fatal-boot-break-against-a-stale-image--the-tier-incident-third-time)), with a regression test that a
    manifest carrying one still boots a jail. **Before the kind exists**, or every pack that declares
    it bricks a jail running a pre-`just load` image. This is the `tier` incident's third appearance.
    — **done 2026-08-13** (tolerance + boot audibility), regression test **2026-08-14**.
@@ -2931,11 +2931,11 @@ rather than refuse.
    error migration and the `docs/guides/loopholes.md:88` fix in the same commit. Fix
    `knownHostServiceKeys` first ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)). Independent of everything else and the biggest reduction in
    **who may declare** host execution. **Ship first** — but it closes half a hole, not the hole
-   ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a), and the migration needs [OQ-LP12](#decision-ledger) decided so the warning has somewhere to point.
+   (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)), and the migration needs [OQ-LP12](#decision-ledger) decided so the warning has somewhere to point.
    — **done 2026-08-13**; two follow-ups **2026-08-14**: override `doctor_cmd` is refused once, at
    either scope, instead of pointing at a user config that also refuses it; and `config-dump` got the
    real loophole resolver, without which its enable-uninstalled verdict disagreed with `yolo check`.
-   - **1a. Content-anchored confirmation for host execution, every origin** ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a, [OQ-LP13](#decision-ledger)). Also
+   - **1a. Content-anchored confirmation for host execution, every origin** (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here), [OQ-LP13](#decision-ledger)). Also
      independent of the kind, also pre-existing, and it is what makes item 1 add up to a closed hole
      rather than a narrowed one. Subsumes item 6's commit anchoring.
      **Landed as the ruled PLACEMENT rule — partly — 2026-08-14.** Item 1 shipped without it, so the
@@ -2961,9 +2961,9 @@ rather than refuse.
      one message. A caller with no workspace (the doctor path) narrows the rule to the jail-home tree
      rather than disabling it. The check is deliberately conservative about what counts as a path
      (no whitespace, no shell metacharacters), because a false positive refuses a working loophole at
-     every launch; [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a's "cannot be complete" limit now has a second, narrower edge to name.
+     every launch; §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s "cannot be complete" limit now has a second, narrower edge to name.
      **Nothing is owed here now** — but note the rule reaches a pack's module dir only through the
-     resolved record, i.e. at the spawn, not at `pack install`, which is where [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a's *"refused at
+     resolved record, i.e. at the spawn, not at `pack install`, which is where §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s *"refused at
      install, by name"* wording pointed.
      **AND IT SHIPPED ONE LAUNCH TOO BROAD — fixed 2026-08-14, and the fix is a lesson about
      verification.** As first landed, the module-dir face judged BUNDLED loopholes too, which in
@@ -2974,7 +2974,7 @@ rather than refuse.
      source tree, so `<repo>/bundled_loopholes/*` **is** inside the `:rw` workspace. The exemption
      (`Source == SourceBundled`) is the rule's own reasoning rather than a concession — a bundled
      loophole is the binary's own content, the same artifact implementing the check, so an agent that
-     can rewrite it has already rewritten the checker: gate-placement **Test 1** ([§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a carries the
+     can rewrite it has already rewritten the checker: gate-placement **Test 1** (§[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) carries the
      argument). Pack and user loopholes stay judged, pinned by the same test at the *same path*.
      **Why no unit test could catch it:** every placement test builds its module dir under
      `t.TempDir()`, so the one configuration where the bundled dir and the workspace COINCIDE is the
@@ -2985,8 +2985,8 @@ rather than refuse.
      `validateInlineService` — a command that executes what it reads must not read through a path
      that skips validation ([§4.1](#41-the-finding)). — **done 2026-08-13** (`3bf3a5e`); the refusal names the actual
      origin file, `yolo-jail.local.jsonc` included, since **2026-08-14**.
-2. **The front + `publishes` + both `{loophole_dir}` tokens** ([§2.1](#21-the-manifest-vocabulary-publishes), [§2.1](#21-the-manifest-vocabulary-publishes)a), the stale-socket unlink
-   on both ends ([§2.1](#21-the-manifest-vocabulary-publishes)b), the loud readiness-failure warning and the dead `ProcessState` fix ([§2.1](#21-the-manifest-vocabulary-publishes)c),
+2. **The front + `publishes` + both `{loophole_dir}` tokens** ([§2.1](#21-the-manifest-vocabulary-publishes), §[2.1a](#21a-loophole_dir-does-not-reach-a-cmd--the-example-above-does-not-work-today)), the stale-socket unlink
+   on both ends (§[2.1b](#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1)), the loud readiness-failure warning and the dead `ProcessState` fix (§[2.1c](#21c-a-daemon-that-starts-and-never-becomes-reachable-is-completely-silent)),
    then flip `discover.go:60` **and rewrite `retiredTransportHint` with its pinned test** ([§2.2](#22-what-flipping-discovergo60-costs-nothing-plus-one-message-rewrite)).
    — **done 2026-08-13**, plus `request_end` (hazard 2's one field) which the item did not list.
    **2026-08-14:** the EOF round-trip tests are deadline-bounded (one hung a whole package for ten
@@ -2994,7 +2994,7 @@ rather than refuse.
    front's listener Close rather than racing it.
 3. **The server-side spec** in [`loophole-protocol.md`](loophole-protocol.md) ([§2.3](#23-why-not-export-internalsvcendpoint-and-why-not-just-publish-the-spec)), labelled the
    unsupervised path. — **done 2026-08-13**; corrected **2026-08-14**, where it still described the
-   front's EOF non-propagation as an inherent limit ("read to the length prefix") — the framing [§2.1](#21-the-manifest-vocabulary-publishes)b
+   front's EOF non-propagation as an inherent limit ("read to the length prefix") — the framing §[2.1b](#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1)
    hazard 2 forbids — and still called the mechanism unbuilt. `publishes`/`request_end` are also in
    `docs/guides/loopholes.md`'s schema now, which is where hazard 2 asked for them.
 4. **`internal/loopholedecl`** ([OQ-LP1](#decision-ledger)), because the footprint depends on it.
@@ -3107,7 +3107,7 @@ rather than refuse.
    one approved claim, and an expanded one makes the approval machine-specific, so it re-prompts
    forever and `promptYesNo` fails closed on a non-TTY. The rule is not separately asserted for the
    read-only producers, where a claim string is a path and there is nothing to elide.
-   **G2b was the last thing owed from item 6, and it is MOOT as of 2026-09-04.** OQ-TP9 deleted the
+   **G2b was the last thing owed from item 6, and it is MOOT as of 2026-09-04.** [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the
    fetched-pack approval it would have anchored to a commit, so there is nothing left to anchor
    ([OQ-LP8](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
    ⚠ **One claim this bullet made is false, and is corrected rather than deleted, because it is the
@@ -3149,7 +3149,7 @@ rather than refuse.
    approval is true by construction and never reaches `promptYesNo`.
 10. **Nested-jail user scope** ([OQ-LP9](#decision-ledger), [§9](#9-risks-and-open-questions)), per the three-part split: the generated preflight file,
     the nesting-only launch input, and the `--user-layer` CLI arg. Added to this list when it was
-    built; it was previously tracked only as an open question, which understated it — [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant)a's ruling
+    built; it was previously tracked only as an open question, which understated it — §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s ruling
     that loopholes are developed in a nested jail has nowhere to send anyone until an in-jail agent
     can write at user scope.
     — **DONE 2026-08-14.** Four corrections the specification needed, all argued in [§9](#9-risks-and-open-questions)'s [OQ-LP9](#decision-ledger)

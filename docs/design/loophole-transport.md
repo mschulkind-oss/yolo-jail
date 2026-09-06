@@ -34,7 +34,7 @@ problem — [§8.6.3](#863-the-cgroup-delegate-cannot-move-and-the-blocker-is-no
 > **What actually changed, as design rather than plumbing:**
 >
 > - **The framework prepends its own connection preamble and NEVER parses the daemon's payload**
->   (`internal/svcendpoint/preamble.go`; `loopholedecl.HostDaemon.Preamble`). [§2.1](#21-all-three-shipped-loopholes-are-affected--checked-not-assumed-three-was-the-count-on-2026-08-12-it-is-five-now--audio-host-processes-journal-cgroup-delegate-claude-oauth-broker-all-pack-shipped)b hazard 3's
+>   (`internal/svcendpoint/preamble.go`; `loopholedecl.HostDaemon.Preamble`). §[2.1b](./loophole-packaging.md#21b-the-three-hazards--and-hazard-1s-fix-does-not-fix-hazard-1) hazard 3's
 >   verdict — *"the front cannot be the crossing audit log; connection-level is the honest ceiling"*
 >   — is now enforced structurally rather than by discipline. The preamble defaults **ON** for a
 >   manifest and **OFF** for a `yolo-jail.jsonc` entry, because a config entry's daemon is a program
@@ -237,7 +237,7 @@ cert, via a dedicated root pool.
 ### ⚠ Retracted 2026-08-23: the four-bullet token provenance above describes #32, not the tree
 
 > [!WARNING]
-> Every one of the four bullets was already superseded by **OQ-T7** (token delivery moves into the
+> Every one of the four bullets was already superseded by **[OQ-T7](#71-settled--this-table-is-the-decision-ledger)** (token delivery moves into the
 > endpoint file) and [§8.3](#83-where-the-implementation-departed-and-why) (*"the token is minted by the listener, in process"*), and the artifacts
 > they name are now **gone**, not merely bypassed. Verified 2026-08-23, no hits anywhere outside
 > `docs/`:
@@ -503,7 +503,7 @@ visible in `ps` today, and this is the same mistake one layer down.
 > **FIXED 2026-08-12** — per [§5.1](#51-the-fix), via a `state_files` key on the loophole manifest. The shipped
 > broker declares `["ca.crt", "server.crt", "server.key"]`, so those three files each cross on
 > their own `:ro` mount and the state **directory** no longer crosses at all. The section below is
-> kept as the analysis; OQ-T6 records why the narrow form was chosen.
+> kept as the analysis; [OQ-T6](#71-settled--this-table-is-the-decision-ledger) records why the narrow form was chosen.
 
 [Issue #33](https://github.com/mschulkind-oss/yolo-jail/issues/33), open, no PR — and it is
 inseparable from [§3](#3-what-pr-32-does-and-why-the-shape-is-right), because it is *why* #32 pins its own cert instead of reusing the broker CA.
@@ -600,7 +600,7 @@ So the mount narrows from the state **directory** to **three files**.
 
 **There is already a declaration to build on.** The loophole manifest names the CA cert explicitly
 — `"ca_cert": "{state}/ca.crt"` — so the framework already knows which single file is the public
-CA. What it did not have is a way to say *"mount these files, not the state dir"*. See **OQ-T6**.
+CA. What it did not have is a way to say *"mount these files, not the state dir"*. See **[OQ-T6](#71-settled--this-table-is-the-decision-ledger)**.
 
 **What shipped** (`internal/loopholes`, 2026-08-12): an OPTIONAL `state_files` list of paths
 relative to the state dir. Present → each named file crosses on its own `:ro` mount and the state
@@ -625,14 +625,14 @@ liability.
 ### 5.2 Why it was not acted on — and what else was not
 
 Fair question, and the answer is not flattering: **the audit that found it produced findings, not
-work items.** `sequencing-2026-07.md` [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it)d recorded four verified defects on ~2026-08-02 and none of them was
+work items.** `sequencing-2026-07.md` §[4d](../plans/sequencing-2026-07.md#4d-verified-defects-found-by-the-audit) recorded four verified defects on ~2026-08-02 and none of them was
 carried into the queue in [`../plans/roadmap.md`](../plans/roadmap.md), so
 subsequent planning simply did not see them. The pack batch that followed was scoped from the
 queue.
 
 **Re-checked 2026-08-12 — all four are still unfixed:**
 
-| [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it)d defect | State today | Evidence |
+| §[4d](../plans/sequencing-2026-07.md#4d-verified-defects-found-by-the-audit) defect | State today | Evidence |
 |---|---|---|
 | **`ca.key` readable in-jail** | ✅ fixed 2026-08-12 | [§5.1](#51-the-fix)'s `state_files` narrowing; verified in a nested jail — `ca.key` absent, the three needed files present |
 | **Claude creds symlink dangles on macos-user** | 🔴 open | Thread B; blocks the Teams auth mode on macOS |
@@ -661,7 +661,7 @@ All four are now rows in the queue.
    proof, because it is broken on macOS today (row **D4**) and its failure is harmless; the broker
    relay follows. Then drop `unix-socket` from `validTransports`.
 4. **Per-jail client secrets on `loopback-tls`** ([§4.1](#41-per-jail-client-secrets-everywhere)) — scoped down from "both transports" per
-   OQ-T3, since on `unix-socket` the per-jail mount already provides the isolation and a token
+   [OQ-T3](#71-settled--this-table-is-the-decision-ledger), since on `unix-socket` the per-jail mount already provides the isolation and a token
    there buys only attribution.
 
 Deliberately *not* first: the generalization. #32 is a working fix for a total outage on one
@@ -691,11 +691,11 @@ tracked as row **T1** in [`../plans/roadmap.md`](../plans/roadmap.md).
 | Was | Answer | Why it did not need a ruling |
 |---|---|---|
 | **[OQ-T2](#82-three-claims-in-this-document-that-the-code-did-not-support)** transport selection: automatic, configured, or both? | **Automatic by platform, with an explicit config override.** | The "silent fallback nobody notices" objection is already answered by shipped code: `yolo loopholes list` prints `transport=` per loophole, so the active choice is visible without asking. A Mac user should not have to know what virtiofs is to run a loophole, and an override costs one key. |
-| **OQ-T3** per-jail secrets on `unix-socket` too? | **No — `loopback-tls` only.** | [§3.1](#31-the-threat-model-spelled-out--who-the-token-is-actually-against) established they do not close the same-user gap, and [§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn) that the socket's per-jail mount already gives sibling isolation. On that path a token buys only attribution, at the cost of a new failure mode on a path that works. |
-| **OQ-T4** does `macos-user` make this moot? | **No, not today.** | Factual, not a preference: it has no VM, but the broker is unwired there (the cross-uid grant, now `EndpointGrantCommands`, still has zero call sites) and skills/briefings never reach that home at all (see Thread B). Re-ask if P7 lands. |
-| **OQ-T5** is the endpoint file jail-writable, and does it matter? | **A jail can rewrite its own, and it gains nothing.** | It already holds its own token, and redirecting its own endpoint only breaks its own connection. A sibling cannot reach it — separate per-jail mounts. Now stated in [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) rather than left to inference. **This changes with [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file)'s decision:** the file is secret-bearing, so it must be `0600` and per-jail — but the tamper analysis is unchanged. |
-| **OQ-T6** per-file mounts: general or one-off? | **Narrow, shipped** as the `state_files` manifest key. | Done 2026-08-12. The general `mounts_into_jail` (default-nothing, whole surface, breaking) is folded into the [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it) work, which it subsumes cleanly. |
-| **OQ-T7** token delivery: env, endpoint file, or a separate file? | **The endpoint file** — decided by the maintainer 2026-08-13. | See [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) for the four consequences that must land with it, including deleting the env var rather than deprecating it. |
+| **[OQ-T3](#71-settled--this-table-is-the-decision-ledger)** per-jail secrets on `unix-socket` too? | **No — `loopback-tls` only.** | [§3.1](#31-the-threat-model-spelled-out--who-the-token-is-actually-against) established they do not close the same-user gap, and [§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn) that the socket's per-jail mount already gives sibling isolation. On that path a token buys only attribution, at the cost of a new failure mode on a path that works. |
+| **[OQ-T4](#71-settled--this-table-is-the-decision-ledger)** does `macos-user` make this moot? | **No, not today.** | Factual, not a preference: it has no VM, but the broker is unwired there (the cross-uid grant, now `EndpointGrantCommands`, still has zero call sites) and skills/briefings never reach that home at all (see Thread B). Re-ask if P7 lands. |
+| **[OQ-T5](#71-settled--this-table-is-the-decision-ledger)** is the endpoint file jail-writable, and does it matter? | **A jail can rewrite its own, and it gains nothing.** | It already holds its own token, and redirecting its own endpoint only breaks its own connection. A sibling cannot reach it — separate per-jail mounts. Now stated in [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) rather than left to inference. **This changes with [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file)'s decision:** the file is secret-bearing, so it must be `0600` and per-jail — but the tamper analysis is unchanged. |
+| **[OQ-T6](#71-settled--this-table-is-the-decision-ledger)** per-file mounts: general or one-off? | **Narrow, shipped** as the `state_files` manifest key. | Done 2026-08-12. The general `mounts_into_jail` (default-nothing, whole surface, breaking) is folded into the [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it) work, which it subsumes cleanly. |
+| **[OQ-T7](#71-settled--this-table-is-the-decision-ledger)** token delivery: env, endpoint file, or a separate file? | **The endpoint file** — decided by the maintainer 2026-08-13. | See [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) for the four consequences that must land with it, including deleting the env var rather than deprecating it. |
 | **[§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn) / [OQ-T9](#74-oq-t9--one-transport-or-two--decided-unify)** drop the socket, unify on TCP? | **DECIDED 2026-08-13: unify.** `unix-socket` retired. | I had called `SO_PEERCRED` decisive; it cannot distinguish the jail from a same-user host process (both arrive as the same uid under rootless podman), and the same-user set is the *intended* boundary rather than a gap. What is left is a complexity-vs-uniformity engineering call, which is a decision, not a finding. See [§7.4](#74-oq-t9--one-transport-or-two--decided-unify). |
 
 ### 7.2 [OQ-T1](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing) — token or mTLS? — **SETTLED: token, and mTLS changes nothing**
@@ -829,7 +829,7 @@ mechanical proof that a daemon never learns its transport.
 
 - **The token is minted by the listener, in process.** [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) decides *where the token is delivered*
   and is silent on *who generates it*. #32 minted it host-side because env delivery forced two
-  writers to agree; OQ-T7 removes that reason. One writer, one file, one rename — no persistence, no
+  writers to agree; [OQ-T7](#71-settled--this-table-is-the-decision-ledger) removes that reason. One writer, one file, one rename — no persistence, no
   second artifact to leak, and rotation for free.
 - **The token is per-(jail, service), not per-jail.** [§7.2](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing)'s answer holds at one relay per jail *per
   service*; a shared per-jail token would mean one leaked endpoint file granted the others. Free

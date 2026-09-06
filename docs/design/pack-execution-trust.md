@@ -143,7 +143,7 @@ things a pack pulls in from outside its own tree.
 > [`pack.go:1350`](../../internal/cli/pack.go)), while the launch path re-resolves the
 > **config's** `?ref=` against the local mirror. Verified 2026-08-18 by
 > [`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict) and re-verified 2026-08-23; the gap is tracked there as
-> **OQ-LP8 / G2b**. So P1 is not "the same rule one level down" — there is no rule one level up yet,
+> **[OQ-LP8](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04) / G2b**. So P1 is not "the same rule one level down" — there is no rule one level up yet,
 > and adopting P1 would mean building the enforcement it claims to inherit.
 >
 > **What survives is the SHAPE.** Content-addressing really is the only answer to *"is this the same
@@ -250,7 +250,7 @@ question here.
 > as claiming otherwise.** A wrapped plugin's `hooks` and `mcpServers` are reported under
 > `KindSkills`, which `run.disclosureClasses` classifies `disclosureSkip` — so they appear in
 > `yolo pack footprint` and **in no launch banner at all**, while the agent runs the hook at every
-> tool call. Found while OQ-TP9 was landing and pinned where the behaviour actually is:
+> tool call. Found while [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) was landing and pinned where the behaviour actually is:
 > `run.TestWrappedPluginHooksAreDeliveredAndDisclosed` asserts the FOOTPRINT claim (green), and its
 > own doc comment names the banner as the gap. Filed as **[OQ-TP10](./trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)** in
 > [`trust-paths.md`](trust-paths.md).
@@ -351,10 +351,10 @@ settled them; rows ruled inside this document are identified by their **section*
 
 **Still open elsewhere — RECOUNTED 2026-09-04, and the list is now empty of trust questions.**
 [`trust-paths.md`](./trust-paths.md) **[OQ-TP3](./trust-paths.md#decision-ledger)** and **[OQ-TP4](./trust-paths.md#decision-ledger)** were RETIRED 2026-09-03 (moot under the evergreen ruling —
-an agent dependency takes no pin); **[OQ-TP7](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04)** was RETIRED 2026-09-04 because **OQ-TP9** deleted the
-refusal it was about; **OQ-LP8**'s substance is ruled and what remains is two undelivered
+an agent dependency takes no pin); **[OQ-TP7](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04)** was RETIRED 2026-09-04 because **[OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)** deleted the
+refusal it was about; **[OQ-LP8](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)**'s substance is ruled and what remains is two undelivered
 documentation requirements, with **G2b** moot once the approval is gone. [`program-delivery.md`](./program-delivery.md)
-**OQ-PD1…PD8** are all ruled (2026-08-24). **Both trust docs are at zero open questions.**
+**[OQ-PD1](./program-delivery.md#decision-ledger)…PD8** are all ruled (2026-08-24). **Both trust docs are at zero open questions.**
 
 ---
 

@@ -293,7 +293,7 @@ nowhere to put them.
 its own manifest with types and a per-key `scope`, supplied by the user under
 `loopholes.<name>.settings`, validated through the resolver core already injects, and delivered
 through a **file core writes** rather than an env channel the workspace controls. Four questions live
-there (OQ-K1..K4); none of them blocks this document.
+there ([OQ-K1](./pack-config-keys.md#decision-ledger)..K4); none of them blocks this document.
 
 > [!WARNING]
 > **The obvious cheap answer — an opaque `settings` map — is a trust regression, and it was my
@@ -662,7 +662,7 @@ and is not:
   for all three conversions.
 
 **Worth knowing, changing no decision:** `yolo loopholes enable` works for **zero** loopholes — it
-used to stat the user-loopholes dir and write into a *manifest file*, and since OQ-LP10 retired that
+used to stat the user-loopholes dir and write into a *manifest file*, and since [OQ-LP10](./loophole-packaging-overview.md#oq-lp10--retire-the-hand-placed-loophole-directory-in-your-home--ruled-yes-carried-out) retired that
 dir it writes nothing at all and prints the `loopholes.<name>.enabled` config key instead · `yolo loopholes status` and `yolo check` disagree about whether a disabled loophole's
 `doctor_cmd` runs · the briefing has **no zero-state**: it is built from `Honored()` and two built-in
 skills point at `yolo loopholes list` unconditionally, so a fully-dark jail tells the agent nothing

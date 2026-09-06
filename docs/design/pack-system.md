@@ -163,7 +163,7 @@ contribution does not mask a second. An unknown `kind` is a loud load error **at
 — every host-side read — and, across the version boundary only, a skipped-and-reported
 contribution instead: the in-jail load runs `packload.TolerateSkew()`, so a manifest using a
 kind a pre-`just load` entrypoint does not know still boots the jail, warning by name
-([`loophole-packaging.md`](loophole-packaging.md) [§3.3](./loophole-packaging.md#33-footprint-entry--one-contribution-several-claims-and-the-enumeration-must-be-total)a).
+([`loophole-packaging.md`](loophole-packaging.md) §[3.3a](./loophole-packaging.md#33a-the-kind-is-an-a12-fatal-boot-break-against-a-stale-image--the-tier-incident-third-time)).
 
 **Every path is relative and points into `$HOME` or the pack.** Absolute paths, `..`
 segments, and `:` are rejected as a security property, not a style rule: a pack — especially
@@ -907,7 +907,7 @@ Everything else is offline.
 > **REWRITTEN 2026-09-04.** This section described an approval prompt that
 > [`trust-paths.md`](trust-paths.md) **[OQ-TP9](#why-there-is-no-approval-gate-oq-tp9-2026-09-04)** deleted as theatre, and it had also gone stale on a
 > second point: it said an unapproved fetched pack *"still loads … but its host claims are refused
-> with a printed notice"*, which **OQ-TP6 replaced with a fatal launch refusal on 2026-08-18**
+> with a printed notice"*, which **[OQ-TP6](./trust-paths.md#decision-ledger) replaced with a fatal launch refusal on 2026-08-18**
 > (`6385dfbb`) — the code says so in as many words at `run/packrefusal.go:95`. Both are corrected
 > here.
 
