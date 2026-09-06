@@ -11,7 +11,7 @@
 //
 // macos-user has no ephemeral home to capture into: its home is one persistent, machine-constant
 // /Users/_yolojail shared by every workspace and session, and splitting it is a refused design
-// point (internal/cli/run/run.go:235-250). So a capture there runs against a THROWAWAY STAGING
+// point (the shared-home reasoning on the macos-user branch of Run). So a capture there runs against a THROWAWAY STAGING
 // HOME under a narrowed Seatbelt profile (internal/macosuser.SeatbeltCaptureProfile) and the
 // staging path is not the final home path. Every absolute reference the installer embedded now
 // names a directory that will not exist — claude's ~/.local/bin/claude is an absolute symlink

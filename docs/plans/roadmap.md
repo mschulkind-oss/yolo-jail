@@ -66,7 +66,7 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 
 > [!NOTE]
 > **This row aggregates three docs while naming one** (reconciled 2026-09-03, recounted 2026-09-04).
-> `trust-paths.md` now holds **NO open questions**: TP3/TP4 retired 2026-09-03 under the evergreen
+> `trust-paths.md` closed every question it was carrying: TP3/TP4 retired 2026-09-03 under the evergreen
 > ruling, **TP8 and TP9 ruled 2026-09-04**, and **TP7 RETIRED the same day because TP9 deleted its
 > subject**. ⚠ **[OQ-TP10](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
 > was OPENED 2026-09-04 by the TP9 build** — a wrapped plugin's hooks reach the agent's lifecycle

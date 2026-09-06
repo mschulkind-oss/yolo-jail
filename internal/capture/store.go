@@ -78,8 +78,8 @@ const (
 // deliberately the same answer: a torn entry is not a degraded entry, it is an absent one.
 //
 // It is a sentinel so the launcher's materialize branch can fall through to today's download on a
-// miss (program-delivery.md §10 step four is additive; the fallback is not removable without a
-// ruling), while a caller that requires a capture can report the wrapped message as-is.
+// miss (program-delivery.md §6.3: capture is additive, and the fallback is not removable
+// without a ruling), while a caller that requires a capture can report the wrapped message as-is.
 var ErrNotCaptured = errors.New("no capture entry in the store")
 
 // Store is an install-capture store rooted at Dir (paths.CapturesDir()).

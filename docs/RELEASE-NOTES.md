@@ -952,7 +952,7 @@ gating it. 📄 [`trust-paths.md` §1](design/trust-paths.md#1-the-verdict) row 
 > installs it; nothing yet **records** which version it got, so `install` has no pin to reinstall
 > from. There is nowhere to put one: `LockEntry` has no package-version field, and the lockfile is
 > per *fetched* pack while all four packs declaring npm programs are *embedded*. That is
-> [`trust-paths.md`](design/trust-paths.md) [OQ-TP4](design/trust-paths.md#decision-ledger), still open. The user-visible consequence is
+> [`trust-paths.md`](design/trust-paths.md) [OQ-TP4](design/trust-paths.md#decision-ledger), open when this shipped and retired 2026-09-03. The user-visible consequence is
 > only that two jails updated at different times can hold different versions — which was already
 > true, and is now at least the result of somebody asking.
 

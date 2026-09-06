@@ -1017,7 +1017,7 @@
               Cmd = [ "/bin/bash" ];
               # Default PATH for anything that runs before the Go entrypoint
               # resets it.  Blocked-tool shims are generated at boot by the
-              # entrypoint into $HOME/.yolo-shims (config-driven) and prepended
+              # entrypoint into $HOME/.yolo/bin/block (config-driven) and prepended
               # to PATH there — there is no baked shim layer any more.
               Env = [
                 "PATH=/bin:/usr/bin"

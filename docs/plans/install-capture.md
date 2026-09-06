@@ -1,8 +1,9 @@
 # Plan: capture-and-repackage for the installer class
 
 **Design:** [`program-delivery.md` §6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
-(ruled [OQ-PD10](../design/program-delivery.md#decision-ledger), resequenced FIRST by
-[OQ-PD15](../design/program-delivery.md#decision-ledger)) · **Status:** ready ·
+(ruled [OQ-PD10](../design/program-delivery.md#decision-ledger)) · **Status:** landed —
+every slice is built; the sequencing below was reversed by
+[OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04) ·
 Written against `839d0745`, 2026-09-03.
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and is

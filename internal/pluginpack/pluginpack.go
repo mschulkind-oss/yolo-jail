@@ -121,7 +121,9 @@ type Component struct {
 	// Detail is a one-line human note for the footprint and refusal lines.
 	Detail string
 	// RunsCode marks a component that starts a process or executes a script on the
-	// user's behalf. These are the ones the install approval gates.
+	// user's behalf. These are the ones the launch footprint names outright
+	// (internal/packload/footprint.go). It gated an install approval until that
+	// approval was deleted; disclosure is what it feeds now.
 	RunsCode bool
 }
 

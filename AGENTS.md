@@ -86,8 +86,9 @@ not restate usage or config reference material — see "Where things live" below
 
 ## Architecture
 
-Seven commands in `cmd/`, **65** packages (`go list ./...`, counted 2026-08-23 — this line said
-~43 for long enough that it stopped being an estimate and became wrong). Everything is Go; the
+Every command lives in `cmd/`, and the table below is the list — a count here is one
+more thing to keep true, and the two that used to sit in this sentence were both
+wrong within weeks. Everything is Go; the
 only bash/Python left is generated *content* (shims, `.bashrc`) emitted by
 `internal/entrypoint` — **no generated in-jail CLIENT survives**, because two
 implementations of one client is the drift the transport unification exists to
@@ -101,6 +102,7 @@ end (`docs/design/loophole-transport.md` §8.4).
 | `yolo-ps` | container | host-process view (the `host-processes` loophole) |
 | `yolo-cglimit` | container | cgroup-delegate client (the one AF_UNIX consumer left) |
 | `yolo-journalctl` | container | journal-bridge client (loopback-TLS) |
+| `yolo-serial` | container | serial-bridge client (loopback-TLS; the `serial` loophole) |
 | `goprobe` | nowhere | deployment tripwire; excluded from runtime PATH |
 
 **A new `cmd/` binary must be added to `flake.nix`'s `shippedBinaries` AND to
@@ -195,9 +197,11 @@ there is no sync step.
   image — and still prints the whole report. **`SkipBuild` is untouched:** no
   build ran, so nothing failed.
 - **THE TWO HALVES DEPLOY ON DIFFERENT CADENCES, and a launch now REFUSES when
-  they disagree.** The image rebuilds itself from the live tree on every launch
-  (`AutoLoadImage`); the host `yolo` changes only when a human runs `just
-  install`. So any commit that moves a host↔jail contract — a mount destination,
+  they disagree.** The image rebuilds itself on every launch (`AutoLoadImage`) from
+  whatever flake `reporoot.Resolve` picked — the LIVE TREE only when
+  `YOLO_REPO_ROOT` names one; otherwise the bundle `just install` staged, which
+  ships with the binary and so can never be older than it. The host `yolo`
+  changes only when a human runs `just install`. So any commit that moves a host↔jail contract — a mount destination,
   an env var name, an argv the entrypoint parses — leaves the machine skewed **by
   default**, and it stays that way silently: the launcher emits the old argv while
   the freshly-built `yolo-entrypoint` expects the new one. Shipped once (2026-08-30,
