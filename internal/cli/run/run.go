@@ -28,6 +28,22 @@ func Run(opts Options) int {
 	fillDefaults(&opts)
 	o := &opts
 
+	// THE LIVE-OVERLAY GUARD, before ANY other work — no storage touch, no config
+	// load, no staging: this launch would jail the running session's own live
+	// workspace over its own home (liveoverlayguard.go states the two measured
+	// incidents). Refusing here is the cheapest refusal in the whole pipeline.
+	if refuseLiveWorkspaceLaunch(o) {
+		o.pr(o.Stderr).print("[bold red]Refusing to launch: the workspace is /workspace and " +
+			"this yolo is already inside a jail — /workspace is the LIVE bind of the " +
+			"running session's own workspace, whose .yolo overlay IS that session's " +
+			"home; a fresh launch here regenerates its agent config under it.[/bold red]")
+		o.pr(o.Stderr).print("[dim]Run nested launches from a throwaway workspace " +
+			"(AGENTS.md, Nested-jail verification): mkdir -p /tmp/yolo-nested && " +
+			"cd /tmp/yolo-nested && yolo … — any directory but /workspace. Set " +
+			"YOLO_ALLOW_LIVE_WORKSPACE=1 if you truly mean it.[/dim]")
+		return 1
+	}
+
 	// --- Phase 1: probes (repo root, storage, config, runtime) ---
 	// Repo-root resolution is a HARD GATE for the container backends: without a
 	// flake there is nothing to build the image from, and silently running a

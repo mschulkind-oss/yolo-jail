@@ -299,7 +299,14 @@ there is no sync step.
   home/claude` and `/home/agent/.claude` are the same inode. A nested launch on
   `/workspace` therefore regenerates agent config over the running session's own
   home; measured 2026-07-21, it ate 479 Claude history entries. Any other
-  workspace gets its own overlay and cannot reach ours. It also verifies MORE: a
+  workspace gets its own overlay and cannot reach ours. **The launcher now
+  REFUSES this** (`refuseLiveWorkspaceLaunch`, the first thing `Run` does):
+  in-jail (`YOLO_VERSION` set) with a workspace that resolves to `/workspace` —
+  the fixed bind dest every backend mounts the workspace at — refuses before any
+  side effect, naming this rule; `YOLO_ALLOW_LIVE_WORKSPACE=1` is the hatch.
+  Measured again 2026-09-05 (a cwd-drifted verification launch rewrote the
+  session's `yolo-user-env.sh`), which is what promoted the rule from prose to a
+  refusal. It also verifies MORE: a
   fresh workspace exercises first-boot provisioning, which `/workspace` (already
   provisioned by the outer jail) skips. Mount
   failures, permission errors, and read-only-fs conflicts only appear when a

@@ -26,6 +26,21 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### Launching a jail on `/workspace` from inside a jail now REFUSES
+
+**What changed** (2026-09-06). `yolo run` from inside a yolo jail, with the working directory
+resolving to `/workspace`, refuses before doing anything else. Inside a jail,
+`/workspace` is the LIVE bind of the running session's own workspace, and its `.yolo` overlay IS
+that session's home — a fresh launch there regenerates agent config over a live session. This is
+AGENTS.md's "nested launches from a throwaway workspace" rule, promoted from prose to a refusal
+after the second measured incident (the first ate 479 Claude history entries; the second rewrote a
+session's `yolo-user-env.sh` from the wrong config). On the host nothing changes — the rule keys on
+`YOLO_VERSION`, which only jails set. `YOLO_ALLOW_LIVE_WORKSPACE=1` is the hatch for the deliberate
+case.
+
+**Who this bites.** Only a nested launch run from `/workspace` by mistake — which is the point; the
+remedy line names the throwaway-workspace spelling (`/tmp/yolo-nested`).
+
 ### Provider environment is delivered per-entry — `yolo -p <name>` works against a running jail; a selected profile with no key REFUSES on attach too
 
 **What changed** (2026-09-05). The provider/profile environment (the `YOLO_PROVIDERS` /
