@@ -291,7 +291,7 @@ func TestAssembleCacheRelocationsAppleContainerSkips(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
 	var buf bytes.Buffer
-	o.Stdout = &buf
+	o.Stderr = &buf
 
 	// A real ws_state dir: the Apple Container branch materializes files into it.
 	got := o.assembleRunCmd(relocationInput(t, "container", t.TempDir(), []config.CacheRelocation{

@@ -47,8 +47,10 @@ func assembleWithMounts(t *testing.T, rt string, mounts []any) ([]string, string
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
+	// The skip warnings this file pins are launch notices, and those go to
+	// stderr — stdout belongs to the jailed command.
 	var buf bytes.Buffer
-	o.Stdout = &buf
+	o.Stderr = &buf
 
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})

@@ -165,7 +165,17 @@ func (in *assembleInput) storePruneEnv() []string {
 func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	cfg := in.cfg
 	rt := in.rt
-	out := o.pr(o.Stdout)
+	// STDERR, like every other launch notice (warnIfNoPacks states the rule):
+	// stdout belongs to the jailed command, and a notice printed there is
+	// swallowed by the command's redirect or corrupts what the user pipes. This
+	// printer emits ONLY notices — the seven warnings below, nothing else — so
+	// the stream is the one decision. It was stdout until 2026-09-06, and on
+	// GitHub's podman-4.9.3 runners the host-loopback note fired on every
+	// bridge launch and prepended itself to every integration test's asserted
+	// command output (TestAssembleNoticesGoToStderr is the regression, and the
+	// reason it is a unit test: a nested jail forces --net=host, so the
+	// in-jail suite can never see the branch fire).
+	out := o.pr(o.Stderr)
 
 	// --- Network mode + ports ---
 	//

@@ -296,15 +296,15 @@ func TestAssembleRunCmdExplicitModeKeepsOnlyItsOwnFlag(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o, _ := pastaHostOptions(t, "/ws", home, false)
 	o.Network = "none"
-	var stdout strings.Builder
-	o.Stdout = &stdout
+	var stderr strings.Builder
+	o.Stderr = &stderr
 
 	got := networkSelectors(o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil)))
 	if !slices.Equal(got, []string{"--net=none"}) {
 		t.Errorf("an explicit mode must be the only selector, got %v", got)
 	}
-	if !strings.Contains(stdout.String(), "network.mode is set to 'none'") {
-		t.Errorf("the user keeps the bug and must be told so, got:\n%s", stdout.String())
+	if !strings.Contains(stderr.String(), "network.mode is set to 'none'") {
+		t.Errorf("the user keeps the bug and must be told so, got:\n%s", stderr.String())
 	}
 }
 
@@ -330,8 +330,8 @@ func TestAssembleRunCmdOptOutRestoresTodaysArgv(t *testing.T) {
 		}
 		return ""
 	}
-	var stdout strings.Builder
-	o.Stdout = &stdout
+	var stderr strings.Builder
+	o.Stderr = &stderr
 	got := o.assembleRunCmd(relocationInput(t, "podman", wsState, nil))
 
 	if !slices.Equal(got, want) {
@@ -340,8 +340,8 @@ func TestAssembleRunCmdOptOutRestoresTodaysArgv(t *testing.T) {
 	}
 	// And it must SAY what it suppressed, or a user who set it once and forgot has
 	// no way to connect "my broker is unreachable" back to their own env var.
-	if !strings.Contains(stdout.String(), hostLoopbackOptOutEnv) {
-		t.Errorf("the opt-out must name itself when it suppresses the flag, got:\n%s", stdout.String())
+	if !strings.Contains(stderr.String(), hostLoopbackOptOutEnv) {
+		t.Errorf("the opt-out must name itself when it suppresses the flag, got:\n%s", stderr.String())
 	}
 }
 
@@ -382,8 +382,8 @@ func TestAssembleRunCmdTellsTheJailWhenTheHostCannot(t *testing.T) {
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	o, _ := pastaHostOptionsWithHelp(t, "/ws", home, false, pastaHelpWithoutFlag)
-	var stdout strings.Builder
-	o.Stdout = &stdout
+	var stderr strings.Builder
+	o.Stderr = &stderr
 
 	argv := o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil))
 	if sel := networkSelectors(argv); len(sel) != 0 {
@@ -397,8 +397,8 @@ func TestAssembleRunCmdTellsTheJailWhenTheHostCannot(t *testing.T) {
 		t.Errorf("%s = %q, want %q", paths.HostLoopbackEnvVar, got, paths.HostLoopbackUnsupported)
 	}
 	// And it launches, loudly. A refusal here is the outcome OQ-R3 rejected.
-	if !strings.Contains(stdout.String(), minPasstVersion) {
-		t.Errorf("the limitation must name the version that fixes it, got:\n%s", stdout.String())
+	if !strings.Contains(stderr.String(), minPasstVersion) {
+		t.Errorf("the limitation must name the version that fixes it, got:\n%s", stderr.String())
 	}
 }
 
@@ -416,8 +416,8 @@ func TestAssembleRunCmdOldPastaWithSlirpLaunchesOnTheOlderStack(t *testing.T) {
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	o, _ := pastaHostOptionsWithHelps(t, "/ws", home, false, pastaHelpWithoutFlag, slirpHelpWithFlag)
-	var stdout strings.Builder
-	o.Stdout = &stdout
+	var stderr strings.Builder
+	o.Stderr = &stderr
 
 	argv := o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil))
 	if got := networkSelectors(argv); !slices.Equal(got, []string{slirpArgs[0]}) {
@@ -434,9 +434,9 @@ func TestAssembleRunCmdOldPastaWithSlirpLaunchesOnTheOlderStack(t *testing.T) {
 		t.Errorf("%s = %q (present=%v), want %q", paths.HostLoopbackEnvVar, got, ok,
 			paths.HostLoopbackRequested)
 	}
-	if !strings.Contains(stdout.String(), "slirp4netns") {
+	if !strings.Contains(stderr.String(), "slirp4netns") {
 		t.Errorf("moving a jail onto another network stack must be said out loud, got:\n%s",
-			stdout.String())
+			stderr.String())
 	}
 }
 

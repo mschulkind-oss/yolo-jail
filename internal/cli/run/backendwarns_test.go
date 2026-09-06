@@ -39,8 +39,10 @@ func acNetOutput(t *testing.T, mode string) string {
 	o := goldenOptions(ws, home)
 	o.IsMacOS = true
 	o.IsLinux = false
+	// Launch notices go to stderr (the jailed command owns stdout), so that is
+	// where the warning this pair pins is captured.
 	var out bytes.Buffer
-	o.Stdout = &out
+	o.Stderr = &out
 
 	net := jsonx.NewOrderedMap()
 	net.Set("mode", mode)
