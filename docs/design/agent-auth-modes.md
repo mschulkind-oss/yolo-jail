@@ -14,18 +14,18 @@ summary: "A unified design for declarative cloud provider switching (Anthropic T
 > **Vocabulary drift (2026-09-02).** This doc's spellings are the 2026-08-29 design as accepted;
 > the implementation renamed several of them within days, and the provider-catalog work
 > ([`providers.md`](../reference/providers.md)) supersedes parts of
-> §4/§5. When the body below disagrees with the code, the code is right:
+> [§4](#4-declarative-provider-profiles-in-yolo-config)/[§5](#5-projection-via-prism-derivelua-and-core). When the body below disagrees with the code, the code is right:
 >
 > - `agent_profiles` → `pack_profiles` (2026-08-31) → **`use_profiles`** (2026-09-02, `43d24e9e`);
 >   the first two spellings are refused by name.
 > - `--claude-auth` / `--auth` / `--agent-profile` were built and then **deleted** (`4f589610`);
->   the surviving spellings are `-p`/`--profile` (name-only since `886a9191`, OQ-PT5) and
+>   the surviving spellings are `-p`/`--profile` (name-only since `886a9191`, [OQ-PT5](../reference/providers.md#why-its-this-way)) and
 >   `--pack-profile agent=profile,…`.
 > - `api_key_env` → **`api_key_env_name`** (`8b24a67a`).
-> - The `wire_api` values in §4.1 (`openai_completions`, `anthropic_bedrock`) were never members of
+> - The `wire_api` values in [§4.1](#41-configuration-schema--examples) (`openai_completions`, `anthropic_bedrock`) were never members of
 >   the shipped enum, which is canonical and closed: `anthropic`, `openai-chat-completions`,
->   `openai-responses` (`internal/packdecl/contributes.go:1473`, per 💬 18's OQ-PT1).
-> - There is no Bedrock *bundle switching* (§5.1 item 1's shape): bedrock shipped as a
+>   `openai-responses` (`internal/packdecl/contributes.go:1473`, per 💬 18's [OQ-PT1](../reference/providers.md#why-its-this-way)).
+> - There is no Bedrock *bundle switching* ([§5.1](#51-per-agent-projection-mechanisms) item 1's shape): bedrock shipped as a
 >   `kind: "provider"` + `kind: "profile"` pair inside `packs/claude/pack.json` (`4f589610`), and
 >   model IDs are pinned in the **user's** `providers.bedrock.models`, never in a pack.
 
@@ -39,7 +39,7 @@ summary: "A unified design for declarative cloud provider switching (Anthropic T
 
 **yolo models one credential channel per agent and lacks a first-class way to declare and swap cloud providers or auth modes from YOLO config or the CLI — forcing users to hand-edit heterogeneous agent configuration files in different dialects.**
 
-A mode switch is never just an API key: it is a credential *plus* an endpoint, a wire API dialect, model aliases, and environment variables that only make sense together. See §3.
+A mode switch is never just an API key: it is a credential *plus* an endpoint, a wire API dialect, model aliases, and environment variables that only make sense together. See [§3](#3-core-principle-a-mode-is-a-bundle).
 
 ---
 
@@ -162,9 +162,9 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
 > `anthropic`, `openai-chat-completions`, `openai-responses` — three names chosen to be
 > **nobody's dialect** (defined: a name that names a protocol, never a value an agent's config
 > file reads), so a value cannot pass through and work by accident
-> ([`providers.md`](../reference/providers.md) §3.0a, OQ-PT1). Translation, not
+> ([`providers.md`](../reference/providers.md) §3.0a, [OQ-PT1](../reference/providers.md#why-its-this-way)). Translation, not
 > pass-through, is the contract: each derive maps canonical → its own agent's spelling and emits
-> nothing for a protocol that agent cannot speak (§3.4) — which is also why the Codex row of §5.1
+> nothing for a protocol that agent cannot speak (§3.4) — which is also why the Codex row of [§5.1](#51-per-agent-projection-mechanisms)
 > still says `responses`: that is codex's own dialect, the derive's output, not yolo's input.
 >
 > Two other keys in this example are stale and left as written, since renaming them is not this
@@ -321,7 +321,7 @@ requirement without fragile in-jail interceptors.
 
 ### 8.1 Measured 2026-09-02: the subscription bearer follows `ANTHROPIC_BASE_URL`
 
-The question the roadmap carried as *"auth OQ-1"* — does Claude Code send a subscription OAuth
+The question the roadmap carried as *"auth [OQ-1](#12-decision-ledger)"* — does Claude Code send a subscription OAuth
 bearer to a non-Anthropic base URL? — **is answered: yes, unconditionally.** Method: a loopback
 HTTP listener on `127.0.0.1:18923` returning 503 `overloaded_error` (no 401, so no refresh path
 was triggered); then `ANTHROPIC_BASE_URL=http://127.0.0.1:18923 claude -p 'say hi'` in a jail with
@@ -331,7 +331,7 @@ a saved **team** subscription login (`sk-ant-oat01…`) and neither `ANTHROPIC_A
 and **no** `x-api-key`, retrying through the 503s. Three consequences:
 
 1. **A config-writable base URL is a credential-exfiltration channel for subscription auth even
-   when no API key is configured anywhere.** §9's scope-isolation trap is a measured fact, not a
+   when no API key is configured anywhere.** [§9](#9-traps-and-failure-modes)'s scope-isolation trap is a measured fact, not a
    caution: whoever can set `ANTHROPIC_BASE_URL` (a provider entry, a `config-overlay`, a raw env
    var) receives the OAuth bearer of a logged-in claude. The zai pack's wiring is safe for a
    *different* reason — it sets `ANTHROPIC_AUTH_TOKEN`, which overrides the saved login
@@ -350,7 +350,7 @@ and **no** `x-api-key`, retrying through the 503s. Three consequences:
 
 * **Never export a blank `ANTHROPIC_API_KEY=""`**: A blank variable takes precedence in SDK credential resolution and attempts authentication with an empty key. Variables must be unset, never blank.
 * **Single-use Refresh Tokens**: Anthropic OAuth refresh tokens are single-use. If two jails attempt to refresh concurrently without serialization, tokens are permanently burned. The Claude OAuth broker singleton remains mandatory for subscription mode.
-* **Scope Isolation**: `providers` and `use_profiles` must be **user-scope only** (or gated by the config-approval flow). An in-jail agent or untrusted workspace repo must never be able to silently redirect inference endpoints to an attacker-controlled server. **This is measured, not hypothetical** — §8.1 shows a redirected base URL receives the full subscription bearer with no other misconfiguration required.
+* **Scope Isolation**: `providers` and `use_profiles` must be **user-scope only** (or gated by the config-approval flow). An in-jail agent or untrusted workspace repo must never be able to silently redirect inference endpoints to an attacker-controlled server. **This is measured, not hypothetical** — [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) shows a redirected base URL receives the full subscription bearer with no other misconfiguration required.
 * **Wire API Incompatibilities**: Codex only speaks `wire_api = "responses"` (Chat Completions was removed upstream). pi and opencode speak OpenAI Chat Completions. Ensure `derive.lua` converts provider endpoints into the exact wire format expected by the target agent.
 
 ---
@@ -364,32 +364,34 @@ and **no** `x-api-key`, retrying through the 503s. Three consequences:
 > bundle switching; step 7's flags were built and then deleted — `-p`/`--profile` (name-only) and
 > `--pack-profile` are what survives. This list is kept as the record of the plan, not as work.
 
-1. **Fix in-jail auto-YOLO alias parity (§7)**: Update `packAliases` in `internal/entrypoint/shell.go` to use `LaunchFlagsFor(packs, true)`.
-2. **Define `providers` and `agent_profiles` config schema (§4)**: Add typed schema and validation in `internal/config/`.
+1. **Fix in-jail auto-YOLO alias parity ([§7](#7-in-jail-vs-host-cli-parity-cleaning-up-auto-yolo-mode))**: Update `packAliases` in `internal/entrypoint/shell.go` to use `LaunchFlagsFor(packs, true)`.
+2. **Define `providers` and `agent_profiles` config schema ([§4](#4-declarative-provider-profiles-in-yolo-config))**: Add typed schema and validation in `internal/config/`.
 3. **Extend Prism `ctx` table**: Pass active providers and agent assignments into `liveTables` in `internal/entrypoint/packsurfaces.go`.
-4. **Implement `derive.lua` projections for pi, opencode, and Codex (§5)**: Update pack derive scripts to project provider definitions into `models.json`, `opencode.json`, and `config.toml`.
-5. **Implement Claude Bedrock/Teams bundle switching (§5)**: Support `claude_auth` / `agent_profiles.claude` injecting the proper env vars, model IDs, and broker wiring.
-6. **Implement Capability-based MCP filtering (§6)**: Add search-tool suppression in `agy` and Claude subscription mode, while passing Tavily to Bedrock and other agents.
-7. **Add CLI flags (§4.2)**: Wire `--claude-auth`, `--agent-profile`, and `--profile` flags in `internal/cli/run/`.
+4. **Implement `derive.lua` projections for pi, opencode, and Codex ([§5](#5-projection-via-prism-derivelua-and-core))**: Update pack derive scripts to project provider definitions into `models.json`, `opencode.json`, and `config.toml`.
+5. **Implement Claude Bedrock/Teams bundle switching ([§5](#5-projection-via-prism-derivelua-and-core))**: Support `claude_auth` / `agent_profiles.claude` injecting the proper env vars, model IDs, and broker wiring.
+6. **Implement Capability-based MCP filtering ([§6](#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern))**: Add search-tool suppression in `agy` and Claude subscription mode, while passing Tavily to Bedrock and other agents.
+7. **Add CLI flags ([§4.2](#42-launch-time-cli-swapping--ergonomics))**: Wire `--claude-auth`, `--agent-profile`, and `--profile` flags in `internal/cli/run/`.
 
 ---
 
 ## 11. Open Questions
 
 One — carried over from the pre-rewrite doc under its original ID, because the 2026-08-29 rewrite
-dropped it without answering it (the roadmap and sibling docs cited it as `auth OQ-9`):
+dropped it without answering it (the roadmap and sibling docs cited it as [`auth OQ-9`](#OQ-9)):
 
 1. 💬 **OQ-9: AWS's two-part credential has no declarative home.** The provider vocabulary carries
    a single credential pointer (`api_key_env_name`, hydrated as `{key}`), and `packs/claude`'s
    `bedrock` provider declares only `AWS_REGION` — so `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
-   still flow through `env_sources` exactly as §2.1 measured. That works today and is not blocking
+   still flow through `env_sources` exactly as [§2.1](#21-before--bedrock-only) measured. That works today and is not blocking
    anything; the question is whether a credential *pair* ever gets first-class declaration or
    whether `env_sources` is the permanent answer.
 
    _Leaning:_ leave it on `env_sources` until a second multi-var credential shows up. The
-   provider-catalog work (💬 19's OQ-CS8) is moving env composition into per-agent env derives,
+   provider-catalog work (💬 19's [OQ-CS8](../reference/providers.md#why-its-this-way)) is moving env composition into per-agent env derives,
    which can read whatever the environment holds — that likely absorbs this question rather than
    answering it, and deciding it now would design against a moving surface.
+
+   <!-- vantage: oq id=OQ-9 leaning="Leave AWS's two-part credential on env_sources until a second multi-var credential shows up. The provider-catalog work (OQ-CS8) is moving env composition into per-agent env derives that can read whatever the environment holds — that likely absorbs this question rather than answering it, and deciding it now would design against a moving surface." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -400,13 +402,13 @@ dropped it without answering it (the roadmap and sibling docs cited it as `auth 
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **OQ-1** | **Launch-time selection is sufficient for v1.** Dynamic in-session failover deferred due to opacity of 429s and per-model limits. | 2026-08-29 | §8 |
-| **OQ-2** | **Config must be complete before launch.** Required keys for active profiles must resolve at pre-flight; unresolvable active keys refuse launch. | 2026-08-29 | §5.2 |
-| **OQ-3** | **User-level config is source of truth in v1.** No binary presets baked; `~/.config/yolo-jail/config.jsonc` defines providers with canonical doc examples. | 2026-08-29 | §4 |
-| **OQ-4** | **Support both compound profiles and concise per-agent CLI overrides.** `yolo -p glm -- pi` applies `glm` directly to `pi` without redundant `pi=glm` syntax. | 2026-08-29 | §4.2 |
-| **OQ-CAP1** | **Fatal refusal on multiple MCP capability collision.** If two MCP servers declare the same `provides`, core refuses launch. | 2026-08-29 | §6.2 |
-| **OQ-CAP2** | **Fatal refusal on unmet `required_capabilities`.** `web_search` is opt-in; if required and unsatisfied, launch refuses. | 2026-08-29 | §6.2 |
+| **OQ-1** | **Launch-time selection is sufficient for v1.** Dynamic in-session failover deferred due to opacity of 429s and per-model limits. | 2026-08-29 | [§8](#8-dynamic-overflow-what-is-reachable-and-what-is-not) |
+| **OQ-2** | **Config must be complete before launch.** Required keys for active profiles must resolve at pre-flight; unresolvable active keys refuse launch. | 2026-08-29 | [§5.2](#52-secret-discipline) |
+| **OQ-3** | **User-level config is source of truth in v1.** No binary presets baked; `~/.config/yolo-jail/config.jsonc` defines providers with canonical doc examples. | 2026-08-29 | [§4](#4-declarative-provider-profiles-in-yolo-config) |
+| **OQ-4** | **Support both compound profiles and concise per-agent CLI overrides.** `yolo -p glm -- pi` applies `glm` directly to `pi` without redundant `pi=glm` syntax. | 2026-08-29 | [§4.2](#42-launch-time-cli-swapping--ergonomics) |
+| **OQ-CAP1** | **Fatal refusal on multiple MCP capability collision.** If two MCP servers declare the same `provides`, core refuses launch. | 2026-08-29 | [§6.2](#62-capability-resolution-rules) |
+| **OQ-CAP2** | **Fatal refusal on unmet `required_capabilities`.** `web_search` is opt-in; if required and unsatisfied, launch refuses. | 2026-08-29 | [§6.2](#62-capability-resolution-rules) |
 | **OQ-5** | **NO pack→pack composition.** `requires_pack` and `conflicts` retired — flat `packs` list is whole story. | 2026-08-13 | §11.1, [`retired-decisions.md`](retired-decisions.md) Thread A |
-| **OQ-8** | **Generalize transport into loophole framework.** `loopback-tls` becomes the framework's only transport; unix-socket retired. | 2026-08-13 | [`loophole-transport.md`](loophole-transport.md) §7.3–§7.4 |
-| **OQ-K1** | **Declarations are authoritative.** Core validates pack-declared settings offline. | 2026-08-18 | [`pack-config-keys.md`](pack-config-keys.md) §2.2 |
-| **OQ-K3** | **Freeze `host_processes.visible`.** Require restart for config changes. | 2026-08-18 | [`pack-config-keys.md`](pack-config-keys.md) §5.1 |
+| **OQ-8** | **Generalize transport into loophole framework.** `loopback-tls` becomes the framework's only transport; unix-socket retired. | 2026-08-13 | [`loophole-transport.md`](loophole-transport.md) [§7.3](loophole-transport.md#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it)–[§7.4](loophole-transport.md#74-oq-t9--one-transport-or-two--decided-unify) |
+| **OQ-K1** | **Declarations are authoritative.** Core validates pack-declared settings offline. | 2026-08-18 | [`pack-config-keys.md`](pack-config-keys.md) [§2.2](pack-config-keys.md#22-validation-happens-where-validation-already-happens) |
+| **OQ-K3** | **Freeze `host_processes.visible`.** Require restart for config changes. | 2026-08-18 | [`pack-config-keys.md`](pack-config-keys.md) [§5.1](pack-config-keys.md#51-host_processesvisible-stops-being-live) |
