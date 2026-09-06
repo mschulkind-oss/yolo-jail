@@ -19,19 +19,33 @@ import (
 // image now carries only the NAMES (flake.nix: jailPrefixLinks, /bin/<name> →
 // /opt/yolo-jail/bin/<name>) and the launch supplies the content.
 //
-// THE PREFIX IS TWO DIRECTORIES, RESOLVED SEPARATELY, and that is deliberate —
-// they answer two different questions and only one of them can ever need a build:
+// THE PREFIX IS TWO DIRECTORIES:
 //
 //	bin/              the Linux binaries this jail will run (pid1 included)
 //	share/yolo-jail/  the flake bundle the IN-JAIL yolo resolves exe-relative
 //	                  (internal/reporoot.BundledSourceDirFrom: <exeDir>/../share/yolo-jail)
 //
-// The share half is always the resolved flake source itself — by construction it
-// holds flake.nix, which is the only thing reporoot asks of it. The bin half is
-// that source's own `bin/linux-<arch>/` when it has one (every shipped bundle
-// does, including the one installPrefix bakes into the mounted prefix — so a
-// nested jail inherits prebuilt binaries and never compiles Go for this), and
-// otherwise a `nix build .#installPrefix` of it (image.BuildJailPrefix).
+// and BOTH come from one place — a BUNDLE and the binaries it ships. There are
+// two kinds of bundle and that is the whole of the branching:
+//
+//   - The resolved flake source, when it carries prebuilt binaries. Every
+//     installed bundle does (`bin/linux-<arch>/`, staged by
+//     scripts/stage-source-bundle.sh), and installPrefix bakes one INTO the
+//     mounted prefix — so a nested jail inherits prebuilt binaries and never
+//     compiles Go for this. Nothing to build.
+//   - Otherwise — a LIVE CHECKOUT, which ships none — the bundle
+//     `nix build .#installPrefix` produces, whose share/yolo-jail is a
+//     self-contained flake.nix + flake.lock + bin/linux-<arch> built from that
+//     very checkout.
+//
+// THE SHARE HALF IS NEVER THE CHECKOUT ITSELF, even though a checkout has a
+// flake.nix and would satisfy reporoot. Mounting it would put the whole
+// yolo-jail working tree — every file, tracked or not — inside the jail at a
+// second path, and buy nothing: the in-jail `yolo` would then build its image
+// from a tree whose Go code may already be newer than the binaries it is running
+// (which is exactly the skew version.SourceSkew exists to refuse). The built
+// bundle matches the binaries beside it by construction. An agent that wants the
+// live tree in a nested jail names it the way this launch did: YOLO_REPO_ROOT.
 //
 // WHY NOT ONE MOUNT. A single `-v <dir>:/opt/yolo-jail:ro` would need the host to
 // hold a directory in exactly the prefix shape, which no existing host layout
@@ -104,10 +118,8 @@ func prebuiltBinDir(root string) string {
 // mount cleanly and die at exec, and yolo-entrypoint is the one member whose
 // absence is fatal rather than degrading.
 func (o *Options) resolveJailPrefix(root string) (jailPrefix, bool) {
-	p := jailPrefix{shareDir: root}
 	if prebuilt := prebuiltBinDir(root); o.PathExists(filepath.Join(prebuilt, "yolo-entrypoint")) {
-		p.binDir = prebuilt
-		return p, true
+		return jailPrefix{binDir: prebuilt, shareDir: root}, true
 	}
 	storePath, tail := o.BuildJailPrefix(root)
 	if storePath == "" {
@@ -120,9 +132,12 @@ func (o *Options) resolveJailPrefix(root string) (jailPrefix, bool) {
 		}
 		return jailPrefix{}, false
 	}
-	p.binDir = filepath.Join(storePath, image.JailPrefixSubdir, "bin")
-	p.built = true
-	return p, true
+	prefix := filepath.Join(storePath, image.JailPrefixSubdir)
+	return jailPrefix{
+		binDir:   filepath.Join(prefix, "bin"),
+		shareDir: filepath.Join(prefix, "share", "yolo-jail"),
+		built:    true,
+	}, true
 }
 
 // jailPrefixMountArgs emits the two `-v` pairs. Read-only on purpose: nothing in

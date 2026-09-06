@@ -105,12 +105,19 @@ func TestLiveCheckoutBuildsThePrefix(t *testing.T) {
 	if *calls != 1 {
 		t.Errorf("the prefix build ran %d times, want exactly 1", *calls)
 	}
-	want := filepath.Join(store, image.JailPrefixSubdir, "bin")
-	if p.binDir != want {
-		t.Errorf("binDir = %q, want %q — the bin/ inside the built prefix", p.binDir, want)
+	wantBin := filepath.Join(store, image.JailPrefixSubdir, "bin")
+	if p.binDir != wantBin {
+		t.Errorf("binDir = %q, want %q — the bin/ inside the built prefix", p.binDir, wantBin)
 	}
-	if p.shareDir != root {
-		t.Errorf("shareDir = %q, want the live checkout %q", p.shareDir, root)
+	// THE SHARE HALF IS THE BUILT BUNDLE, NOT THE CHECKOUT. Mounting the checkout
+	// would resolve too (it has a flake.nix), which is why this is asserted rather
+	// than left to the reader: it would put the whole working tree inside the jail
+	// at a second path, and hand the in-jail yolo a flake whose Go code can already
+	// be newer than the binaries beside it.
+	wantShare := filepath.Join(store, image.JailPrefixSubdir, "share", "yolo-jail")
+	if p.shareDir != wantShare {
+		t.Errorf("shareDir = %q, want the built bundle %q (never the checkout %q)",
+			p.shareDir, wantShare, root)
 	}
 	if !p.built {
 		t.Error("built=false for a prefix that was built — the launch would report the wrong provenance")
