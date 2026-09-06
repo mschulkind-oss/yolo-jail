@@ -48,7 +48,13 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 			// packload.CtxPath is THE definition of where this lands, shared with the
 			// entrypoint's host-layer read. Two copies of this derivation would silently
 			// compose the wrong user file (or none) into the surface.
-			dest := packload.CtxPath(p.Name, hf)
+			//
+			// StagedSlug, NOT p.Name — one definition is not enough if the two sides feed
+			// it different strings, which is exactly what happened until 2026-09-05. The
+			// jail names a pack from its staged directory because that is all it has, and
+			// the host stages a configured pack under config.PackEntry.Slug, so a name
+			// carrying anything outside [A-Za-z0-9.-] mounted here and was read there.
+			dest := packload.CtxPath(p.StagedSlug(), hf)
 			// APPLE CONTAINER CANNOT BIND A SINGLE FILE (apple/container#1089), and this
 			// grant is always exactly one file. Left as a bind it does not error — it
 			// silently does not arrive, and the surface then composes from its defaults

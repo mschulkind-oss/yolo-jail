@@ -134,10 +134,12 @@ pack with no `pack.json` behaves as an empty `contributes`.
 > **`name` here is informational — it is not the pack's effective name.** That comes from
 > the `packs` entry that selected the pack (its explicit `name`, else the last segment of
 > its source address), or for a pack yolo ships, its directory under `packs/`. The
-> effective name is simultaneously the staging directory, the handle `yolo pack ls` prints
-> and `yolo pack explain` takes, and the `/ctx` directory a `reads-host` grant with no
-> `into` is mounted at — and all three are fixed from the config line alone, before any
-> `pack.json` is read and before a git source is fetched, so the manifest cannot supply it.
+> effective name is simultaneously what the staging directory is derived from and the
+> handle `yolo pack ls` prints and `yolo pack explain` takes — both fixed from the config
+> line alone, before any `pack.json` is read and before a git source is fetched, so the
+> manifest cannot supply it. The **staging directory** is `PackEntry.Slug`'s escaping of
+> that name, and it — not the name — is what a `reads-host` grant with no `into` is mounted
+> under, because it is the only string the jail can name a pack by (`Pack.StagedSlug`).
 > A shipped pack's `name` is pinned equal to its directory so the two cannot drift
 > (`packload.TestEmbeddedPackManifestNamesMatchTheirDirs`); the full reasoning is the
 > `Name` field comment on `packload.Pack`.
@@ -540,7 +542,9 @@ A writable home subtree that persists.
 A host-home file mounted read-only into the jail — the credential boundary. Origin-gated:
 only an embedded or local pack may read a host file.
 - `host` (required) — host-home-relative source.
-- `into` — `/ctx` destination (defaults to `host-<pack>/<basename>`).
+- `into` — `/ctx` destination (defaults to `host-<the pack's staging directory>/<basename>`
+  — the directory, which is `PackEntry.Slug` of the name, not the name itself). Both packs
+  yolo ships set it explicitly.
 
 ```json
 { "kind": "reads-host", "host": ".claude/settings.json", "into": "host-claude/settings.json" }

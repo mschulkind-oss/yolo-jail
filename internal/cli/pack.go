@@ -331,6 +331,18 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	}
 	defer os.RemoveAll(tmp)
 
+	// Stage into <tmp>/<the pack's own directory name>, never into tmp itself, so the
+	// loaded pack's Root BASENAME is a name and not `yolo-pack-lint-1234567`. That
+	// basename is packload.Pack.StagedSlug — the key both halves mount a reads-host grant
+	// under — and a temp dir's random name there is the shape that reads as a path and is
+	// not one. Absolute first: lint defaults to ".", whose Base is "." rather than a name.
+	lintRoot := dir
+	if abs, aerr := filepath.Abs(dir); aerr == nil {
+		lintRoot = abs
+	}
+	packDirName := filepath.Base(lintRoot)
+	staged := filepath.Join(tmp, packDirName)
+
 	var problems []string
 
 	// A staging failure is collected as a PROBLEM, not returned on, so the manifest
@@ -338,7 +350,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// than one per invocation. (The case that forced this was the exec-bit refusal
 	// masking a manifest error; the refusal is gone and the reason to collect is not —
 	// an escaping symlink hides a manifest problem exactly the same way.)
-	res, err := packstage.Stage(packstage.Spec{Root: dir, Dest: tmp})
+	res, err := packstage.Stage(packstage.Spec{Root: dir, Dest: staged})
 	if err != nil {
 		// The staging rules ARE the lint rules: escaping symlink, missing root.
 		// Reporting the executor's own message keeps the two from drifting.
@@ -350,7 +362,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		// Validate the manifest from the SOURCE dir, since nothing reached the staging
 		// dir, so a manifest problem is reported beside the staging failure instead of
 		// waiting for the author to fix the first one and run again.
-		_, sourceManifestProblems := packload.LoadDir(dir, filepath.Base(dir))
+		_, sourceManifestProblems := packload.LoadDir(lintRoot, packDirName)
 		problems = append(problems, sourceManifestProblems...)
 		for _, p := range problems {
 			pr.Printf("[red]✗[/red] %s", p)
@@ -367,7 +379,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// declared source rather than assume the conventional one. Linting `skills/` while the
 	// pack delivers from `my-skills/` is the same silent-ignore bug in the linter.
 	//
-	// LoadDir runs packdecl.Decode over the STAGED tree (tmp), so an unknown kind, a missing
+	// LoadDir runs packdecl.Decode over the STAGED tree, so an unknown kind, a missing
 	// required field, or an unknown top-level key is caught HERE rather than at jail boot
 	// (where only the first problem surfaces, one per launch). Staged, not source, so a
 	// manifest filtered out by only/exclude is not linted as if it shipped. A manifest is
@@ -377,7 +389,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// contribution is validated for SHAPE regardless of origin; lint checks the
 	// declaration, and the origin gate (a fetched pack getting it refused) is a
 	// separate, install-time concern.
-	pack, manifestProblems := packload.LoadDir(tmp, filepath.Base(dir))
+	pack, manifestProblems := packload.LoadDir(staged, packDirName)
 	problems = append(problems, manifestProblems...)
 
 	// A `loophole` contribution points at a module dir, so validating the pack.json entry is
@@ -983,11 +995,21 @@ func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
 	}
 	defer os.RemoveAll(tmp)
 
-	if _, err := packstage.Stage(packstage.Spec{Root: root, Dest: tmp}); err != nil {
+	// <tmp>/<the pack's own directory name>, for the reason packLint stages that way: the
+	// loaded pack's Root basename is packload.Pack.StagedSlug, and a temp dir's random
+	// name there is a coherent-looking wrong one.
+	absRoot := root
+	if abs, aerr := filepath.Abs(root); aerr == nil {
+		absRoot = abs
+	}
+	packDirName := filepath.Base(absRoot)
+	if _, err := packstage.Stage(packstage.Spec{
+		Root: root, Dest: filepath.Join(tmp, packDirName),
+	}); err != nil {
 		fmt.Fprintf(errw, "yolo pack footprint: %v\n", err)
 		return 1
 	}
-	pack, problems := packload.LoadDir(tmp, filepath.Base(root))
+	pack, problems := packload.LoadDir(filepath.Join(tmp, packDirName), packDirName)
 	if len(problems) > 0 {
 		for _, p := range problems {
 			pr.Printf("[red]✗[/red] %s", p)

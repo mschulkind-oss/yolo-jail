@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 12 needing you · 1 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 0 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-05**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -513,8 +513,29 @@ requirement on the jail's pack set — and therefore whether addressed content p
 
 # 📦 Up next
 
-**One item**, and it was not here yesterday — it was found while closing one of the three that
-were. C4 and C5 are deliberately NOT here — their go/no-go is an explicit 🧊 row.
+**Empty.** The one item that was here shipped the same day it was filed. C4 and C5 are
+deliberately NOT here — their go/no-go is an explicit 🧊 row.
+
+**The slug-escaping mount bug is FIXED (2026-09-05)** and has left this section. A `reads-host`
+grant with no `into` is keyed on the pack's STAGED DIRECTORY on both sides now — one new accessor,
+`packload.Pack.StagedSlug`, read by `packload.hostSourceFor` (the jail's host-layer read) and
+`run.hostFileArgs` (the host's mount destination) — so the two halves evaluate ONE EXPRESSION over
+one string rather than two strings that happen to agree for the names yolo ships.
+⚠ **None of the row's three candidates was taken**, and the fourth beats all of them on their own
+terms: `p.Name` stays the user's handle, so no message moves (beats (c)); no name is refused
+(beats (a)); and the shared escaping that keeps the pack and `host_files` staging namespaces from
+colliding is untouched (beats (b)). The third `CtxPath` call site, `HostFileConflicts`, deliberately
+did NOT move: it is reporting, both sides of its own comparison use one key, and `Name` is the only
+string safe to print there — the check is lint-shaped, and a lint-time pack is loaded out of a
+throwaway staging dir whose basename names the temp tree. That trap is closed rather than
+documented away: `pack lint`, `pack footprint` and `yolo check` now stage into
+`<temp>/<the pack's dir or slug>`, so `StagedSlug` never names a temp dir.
+**Measured end-to-end in a nested jail, both directions:** the fixed launcher mounts
+`/ctx/host-house_5frules/settings.json` and the composed surface carries the user's own key; the
+previous launcher against the same image mounts `/ctx/host-house_rules/` and the surface loses that
+key in silence — the fail-open read, reproduced. **No shipped pack's mount path moved**: all
+fifteen names are slug-clean, and the only two `reads-host` grants in the tree (`packs/claude`,
+`packs/pi`) set `into`, which routes around the pack key entirely.
 
 **Three rows closed 2026-09-05:** the `ShimContent` injection (all four vectors, not the two the
 row named), `hostskills.Changed` on a symlinked source, and `Pack.Name` — which turned out to be
@@ -539,9 +560,9 @@ staging path), `run.TestStagedPackNameIsWhatTheJailWillDerive`,
 `house-rules/` dir whose manifest says `house`, so the refusal naming `house-rules` is the
 end-to-end measurement.
 
-⚠ **The look found a second defect and it is NOT fixed**, so the row count is unchanged: the
-`Pack.Name` row is replaced by the slug-escaping one below, which is a different bug in the same
-derivation and does move a mount path.
+⚠ **The look found a second defect**, a different bug in the same derivation and one that DOES
+move a mount path: the `Pack.Name` row was replaced by the slug-escaping row, which was then built
+and shipped the same day — see the paragraph at the head of this section.
 
 **The `ShimContent` shell injection is FIXED (2026-09-05)** and has left this section.
 `msg`/`sug` are now `shquote.Quote`'d into a bare argv word after `echo` (`echoStderr` in
@@ -572,46 +593,6 @@ sentinel record is gone is the ORDINARY case rather than the dangerous one. Re-m
 briefing-audiences steps 3–7, the `packload.Embedded()` temp-dir leak, the launcher-template
 splices, and the orphan-message cause. Two of the three small ones corrected the row that queued
 them, and one merge decided 💬 20 in code — see that row.
-
-**Ordering basis:** what unblocks the most other work first, then what is cheapest. Both remaining
-repairs are cheap and independent, so either order works. (The two that used to lead this
-section — the removal act and the shim injection — shipped 2026-09-04 and 2026-09-05.)
-
-- 📦 **A pack name yolo's own slug escaping alters makes the host mount a `reads-host` grant
-  where the jail does not look.** Found 2026-09-05 while closing the `Pack.Name` row above, and
-  MEASURED rather than reasoned: with `{"source": "file://…", "name": "my_pack"}` and a
-  `reads-host` grant carrying no `into`, the CLI mounts the user's file at
-  `/ctx/host-my_pack/settings.json` while the entrypoint reads `/ctx/host-my_5fpack/…`.
-
-  The cause is that the two halves derive the name from different strings. The host uses
-  `PackEntry.Name`; the jail uses the STAGED DIRECTORY, which is `PackEntry.Slug()` — and `Slug`
-  rewrites every byte outside `[A-Za-z0-9.-]` as `_<hex>`, so the two agree only for a name that
-  was already slug-clean. Every shipped pack is (and both shipped `reads-host` grants set `into`,
-  which routes around the name entirely), so nothing in-tree hits it; a user pack with `_` or a
-  space in its name does.
-
-  ⚠ **The symptom is silence, which is why it is worth the row.** The entrypoint's host-layer
-  read is fail-open, so the surface composes from its defaults and the launch says nothing —
-  while the disclosure banner still prints `reads-host .acme/settings.json`. That is the same
-  failure `packload.CtxPath`'s docstring says it exists to prevent (*"a second copy would be a
-  silent-empty-host-layer bug waiting to happen"*): there is only one copy of the derivation, but
-  it is fed two different names.
-
-  ⚠ **The obvious fix is not available, and finding that out is half the value of this row.**
-  "Have `CtxPath` escape the name on both sides" fails because **`Slug` is not idempotent** —
-  `_` is itself outside the safe set, so `slug("my_5fpack")` is `"my_5f5fpack"` (measured
-  2026-09-05). The jail's name is ALREADY a slug, so escaping on both sides diverges just as
-  badly.
-
-  **Three that do work, and picking one is a small ruling rather than a look.** (a) Tighten
-  `checkPackName` to accept only slug-clean names, making `Name == Slug()` an invariant —
-  smallest change, but `defaultPackName` derives from path segments, so `~/packs/house_rules`
-  would start being REFUSED. (b) Stage into a directory named by `Name` rather than `Slug()` —
-  same invariant from the other side, but it gives up the shared escaping that keeps the pack and
-  `host_files` staging namespaces from colliding (`PackEntry.Slug`'s own docstring). (c) Have the
-  host name a pack from its staged dir (`LoadDir(dest, filepath.Base(dest))`), which agrees by
-  construction and changes nothing for a slug-clean name, but shows `my_5fpack` in every message
-  for the others. Deliberately not shipped with the doc fix above: it moves a mount path.
 
 # 🔒 Waiting
 

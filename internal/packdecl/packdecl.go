@@ -190,8 +190,11 @@ type Mount struct {
 type HostFile struct {
 	// From is the host-home-relative source (e.g. ".claude/settings.json").
 	From string `json:"from"`
-	// To is the jail destination under /ctx. Empty means /ctx/host-<pack>/<basename>,
-	// which is what the built-in agents used.
+	// To is the jail destination under /ctx. Empty means
+	// /ctx/host-<the pack's STAGED DIRECTORY>/<basename> — the directory, not the pack's
+	// name: the two differ for a name yolo's staging escaping alters, and only the
+	// directory is a string both halves can derive (packload.Pack.StagedSlug). Every pack
+	// yolo ships sets `to` explicitly, so this default is a user-pack path.
 	To string `json:"to,omitempty"`
 }
 
