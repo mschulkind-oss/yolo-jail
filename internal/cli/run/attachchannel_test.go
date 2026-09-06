@@ -33,7 +33,7 @@ import (
 // channel is composed from the real packs/config/userEnv triple exactly as Run
 // composes it above the backend dispatch.
 func attachFixture(t *testing.T, frozenEnv string, packs []*packload.Pack,
-	userEnv *jsonx.OrderedMap, tune func(*Options)) (*Options, *jsonx.OrderedMap, *packChannel, *bytes.Buffer) {
+	userEnv *jsonx.OrderedMap, tune func(*Options, *jsonx.OrderedMap)) (*Options, *jsonx.OrderedMap, *packChannel, *bytes.Buffer) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -49,12 +49,21 @@ func attachFixture(t *testing.T, frozenEnv string, packs []*packload.Pack,
 		}
 		return ExecResult{Ran: false}
 	}
-	if tune != nil {
-		tune(o)
-	}
 	cfg := bareConfig()
+	if tune != nil {
+		tune(o, cfg)
+	}
 	channel := channelFor(t, o, cfg, packs, userEnv)
 	return o, cfg, channel, &stderr
+}
+
+// configSelects puts the CONFIG-side spelling of a selection on the fixture's cfg —
+// the persistent use_profiles table, as opposed to the -p flag fields on Options,
+// which the pre-change check must treat differently (typed vs config).
+func configSelects(cfg *jsonx.OrderedMap, cli, profile string) {
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set(cli, profile)
+	cfg.Set("use_profiles", profiles)
 }
 
 // TestAttachDeliversTheChannelFile is the positive pin on the WRITE: a post-change
@@ -65,7 +74,7 @@ func attachFixture(t *testing.T, frozenEnv string, packs []*packload.Pack,
 func TestAttachDeliversTheChannelFile(t *testing.T) {
 	packs := zaiSelected(t)
 	o, cfg, channel, stderr := attachFixture(t, "YOLO_VERSION=9.9.9-test\n",
-		packs, hydratedKey(), func(o *Options) { o.ProfileName = "zai" })
+		packs, hydratedKey(), func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
 
 	rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
 		stagedPacks{root: "/ctx/packs", packs: packs}, channel, []string{"YOLO_VERSION=9.9.9-test"})
@@ -92,29 +101,117 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 	}
 }
 
-// TestAttachRefusesAProfileOnAPreChangeJail: a jail launched before the channel
-// moved onto the file carries the wire tables in its FROZEN environment, and its
-// old entrypoint's hydrate lets that environment beat the file — so delivering is
-// impossible and a typed -p must refuse rather than compose, write, and change
-// nothing. The frozen YOLO_PROVIDERS is the signature; the remedy names --new.
-func TestAttachRefusesAProfileOnAPreChangeJail(t *testing.T) {
-	packs := zaiSelected(t)
-	o, cfg, channel, stderr := attachFixture(t,
-		"YOLO_VERSION=0.8.0\nYOLO_PROVIDERS={\"zai\": {}}\n",
-		packs, hydratedKey(), func(o *Options) { o.ProfileName = "zai" })
+// preChangeEnv is a pre-change jail's frozen environment: the wire tables on the
+// container (post-change argv carries none), with the launch-time selection in
+// YOLO_USE_PROFILES — the baseline a re-entering entry is compared against.
+const preChangeEnv = "YOLO_VERSION=0.8.0\n" +
+	"YOLO_PROVIDERS={\"zai\": {}}\n" +
+	"YOLO_USE_PROFILES={\"claude\": \"zai\"}\n"
+
+// preChangePacks declares BOTH selections the pre-change tests move between (the
+// frozen zai and the differing cerebras) — declaration is mandatory (OQ-CS6), so a
+// name the fixture's pack set does not declare would refuse at composition, one
+// layer before the behaviour under test.
+func preChangePacks(t *testing.T) []*packload.Pack {
+	return []*packload.Pack{
+		officialPack(t, "claude"), officialPack(t, "zai"), officialPack(t, "cerebras"),
+	}
+}
+
+// TestAttachRefusesATypedProfileOnAPreChangeJail: a jail launched before the
+// channel moved onto the file cannot take a DIFFERENT typed selection — its old
+// hydrate lets the frozen environment beat the file — so a typed -p refuses rather
+// than run silently inert. The remedy must name a RESTART, and must not recommend
+// 'yolo --new': --new force-removes the RUNNING container and its sessions, which
+// was the first cut's advice and was measured doing exactly that on a live jail.
+func TestAttachRefusesATypedProfileOnAPreChangeJail(t *testing.T) {
+	packs := preChangePacks(t)
+	o, cfg, channel, stderr := attachFixture(t, preChangeEnv,
+		packs, hydratedKey(), func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "cerebras" })
 
 	rc := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
 		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false)
 	if rc != 1 {
-		t.Fatalf("a pre-change jail with a selected profile must refuse, rc=%d", rc)
+		t.Fatalf("a typed profile a pre-change jail cannot take must refuse, rc=%d", rc)
 	}
 	out := stderr.String()
-	if !strings.Contains(out, "Refusing to attach") || !strings.Contains(out, "--new") {
-		t.Errorf("the refusal must name the remedy:\n%s", out)
+	if !strings.Contains(out, "Refusing to attach") {
+		t.Errorf("the refusal must say so:\n%s", out)
+	}
+	if !strings.Contains(out, "podman stop yolo-ws-abcd1234") {
+		t.Errorf("the remedy must name the jail's stop command:\n%s", out)
+	}
+	if strings.Contains(out, "'yolo --new' to get") || strings.Contains(out, "Relaunch the jail ('yolo --new')") {
+		t.Errorf("the remedy must not recommend --new, which force-kills the running jail:\n%s", out)
 	}
 	// And it refuses BEFORE delivering: nothing was written into the workspace.
 	if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); !os.IsNotExist(err) {
 		t.Errorf("a refused attach must not write the channel file")
+	}
+}
+
+// TestAttachToAPreChangeJailWithMatchingSelectionIsSilent: the plain re-entry. A
+// pre-change jail whose frozen selection matches what this entry selects (or where
+// this entry selects nothing) must behave exactly as attaches did before per-entry
+// delivery existed — no refusal, no warning, no delivery. The first cut of the
+// pre-change check refused every attach whose table was merely NON-EMPTY, which
+// broke the daily 'yolo -- <cmd>' of any config carrying a persistent
+// use_profiles (measured on a live jail, 2026-09-05).
+func TestAttachToAPreChangeJailWithMatchingSelectionIsSilent(t *testing.T) {
+	packs := preChangePacks(t)
+	for _, tc := range []struct {
+		name string
+		fenv string
+		tune func(*Options, *jsonx.OrderedMap)
+	}{
+		{"config selection matches the frozen one", preChangeEnv, func(o *Options, cfg *jsonx.OrderedMap) {
+			configSelects(cfg, "claude", "zai")
+		}},
+		{"typed selection matches the frozen one", preChangeEnv, func(o *Options, _ *jsonx.OrderedMap) {
+			o.UseProfiles = map[string]string{"claude": "zai"}
+		}},
+		{"no selection at all", preChangeEnv, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, cfg, channel, stderr := attachFixture(t, tc.fenv, packs, hydratedKey(), tc.tune)
+			rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
+				stagedPacks{root: "/ctx/packs", packs: packs}, channel,
+				strings.Split(preChangeEnv, "\n"))
+			if rc != 0 {
+				t.Fatalf("a plain re-entry into a pre-change jail must not refuse: rc=%d\n%s",
+					rc, stderr.String())
+			}
+			if out := stderr.String(); strings.Contains(out, "Refusing") || strings.Contains(out, "predates per-entry") {
+				t.Errorf("a plain re-entry must be silent, not warned:\n%s", out)
+			}
+			if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); !os.IsNotExist(err) {
+				t.Errorf("a plain re-entry into an old jail must not write the channel file")
+			}
+		})
+	}
+}
+
+// TestAttachToAPreChangeJailWarnsOnConfigDrift: the config's persistent selection
+// moved after the jail launched, and nothing was typed. The jail keeps running its
+// launch-time providers (delivery cannot reach it), the attach proceeds — refusing
+// here would hold a workspace's re-entry hostage to a one-time upgrade — and a
+// warning says what is running instead.
+func TestAttachToAPreChangeJailWarnsOnConfigDrift(t *testing.T) {
+	packs := preChangePacks(t)
+	o, cfg, channel, stderr := attachFixture(t, preChangeEnv, packs, hydratedKey(),
+		func(o *Options, cfg *jsonx.OrderedMap) { configSelects(cfg, "claude", "cerebras") })
+
+	rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,
+		stagedPacks{root: "/ctx/packs", packs: packs}, channel,
+		strings.Split(preChangeEnv, "\n"))
+	if rc != 0 {
+		t.Fatalf("untyped config drift must warn, not refuse: rc=%d\n%s", rc, stderr.String())
+	}
+	if out := stderr.String(); !strings.Contains(out, "predates per-entry profiles") {
+		t.Errorf("the drift warning must say what the jail is running:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); !os.IsNotExist(err) {
+		t.Errorf("an undeliverable attach must not write the channel file")
 	}
 }
 
@@ -127,7 +224,7 @@ func TestAttachRunsTheCredentialPreflight(t *testing.T) {
 	packs := zaiSelected(t)
 	// No hydrated key and no ZAI_API_KEY in the invoking environment.
 	o, cfg, channel, stderr := attachFixture(t, "YOLO_VERSION=9.9.9-test\n",
-		packs, emptyEnv(), func(o *Options) { o.ProfileName = "zai" })
+		packs, emptyEnv(), func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
 
 	rc := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
 		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false)

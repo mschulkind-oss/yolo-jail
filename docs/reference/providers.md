@@ -129,9 +129,12 @@ re-hydrates it). Consequences worth knowing:
   file with every other hydrated secret. The argv-exposure trade-off this reference
   used to record is retired by the same move.
 - An attach to a jail launched BEFORE the file crossing carries the tables in its
-  frozen environment, which its older entrypoint lets beat the file — such an attach
-  REFUSES when a profile is selected (naming `yolo --new`), rather than silently
-  ignoring it.
+  frozen environment, which its older entrypoint lets beat the file — so the attach
+  compares its own selection table to the jail's FROZEN one and splits by
+  explicitness: a TYPED `-p` naming a different profile refuses (the delivery cannot
+  take, and the remedy names a restart — `podman stop`, never `yolo --new`, which
+  force-removes the running jail); a config-side drift warns and proceeds; a
+  matching or empty selection is a plain re-entry and stays silent.
 - The macos-user backend has no attach and no frozen copy; it still layers the same
   channel into its per-invocation plan env.
 

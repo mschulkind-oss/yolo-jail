@@ -1157,44 +1157,74 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 }
 
 // deliverChannelOnAttach delivers this entry's provider/profile channel into the
-// RUNNING jail, and refuses the two states in which it cannot work. The mechanism is
-// the fresh path's own: writeUserEnvFile over the channel, into the live-mounted
-// yolo-user-env.sh — the bind shows the rewrite inside the jail instantly, and the
-// exec'd yolo-entrypoint re-runs the boot, whose FIRST step (hydrate) applies the
-// plain-form channel lines over whatever the entry's environment holds. Per-session
-// by construction: an already-running session's processes keep the env they started
-// with, and each new entry reads the file as written for it.
+// RUNNING jail, and refuses only the one state in which a typed selection cannot
+// work. The mechanism is the fresh path's own: writeUserEnvFile over the channel,
+// into the live-mounted yolo-user-env.sh — the bind shows the rewrite inside the
+// jail instantly, and the exec'd yolo-entrypoint re-runs the boot, whose FIRST step
+// (hydrate) applies the plain-form channel lines over whatever the entry's
+// environment holds. Per-session by construction: an already-running session's
+// processes keep the env they started with, and each new entry reads the file as
+// written for it.
 //
-// The two refusals, both before the exec:
+// A PRE-CHANGE JAIL (launched before the channel moved onto the file, detected by a
+// frozen YOLO_PROVIDERS — post-change argv carries none) cannot take this delivery:
+// its old entrypoint's hydrate lets the frozen environment beat the file. What
+// happens then is decided by COMPARING this entry's effective selection table to the
+// jail's frozen one, and by whether the selection was TYPED:
 //
-//   - A PRE-CHANGE JAIL with a profile selected. A jail launched before the channel
-//     moved onto the file carries the wire tables in its FROZEN container
-//     environment, and its (old) entrypoint's hydrate lets launch env beat the file —
-//     so this write would land and change nothing, and a typed '-p' would be silently
-//     inert, the exact failure this delivery exists to end. The frozen YOLO_PROVIDERS
-//     is the signature (post-change argv carries none); the remedy is a fresh jail.
-//     Scoped to a SELECTED profile: a profile-less attach to an old jail delivers
-//     nothing it could get wrong.
+//   - tables EQUAL, or this entry selects nothing: the jail is already running
+//     what this entry selects — its launch-time delivery stands in for this one.
+//     Deliver nothing, say nothing, refuse nothing: a plain re-entry into an old
+//     jail must keep behaving exactly as it did before per-entry delivery existed
+//     (the first cut of this check refused here, which broke every plain attach —
+//     measured on a live jail 2026-09-05, whose config carries a persistent
+//     use_profiles and whose bare 'yolo -- agy' was refused outright).
 //
-//   - THE CREDENTIAL PRE-FLIGHT, the same check the fresh path runs (§6.2, OQ-13).
-//     Its attach exemption existed because "attaching to a running jail delivers no
-//     environment" — this function is that sentence dying. A session that would start
-//     with a base URL and no token is the mysterious-first-API-call failure the gate
-//     refuses elsewhere; YOLO_ALLOW_MISSING_PROVIDERS=1 remains the loud hatch.
+//   - tables DIFFER and the selection was TYPED (-p): refuse. A typed profile that
+//     cannot take effect is the silently-inert selector OQ-CS6 killed, and running
+//     the session on the jail's launch-time provider instead would honour the flag
+//     by coincidence of wording. The remedy names a RESTART, never 'yolo --new':
+//     --new force-removes the RUNNING container and kills its live sessions, which
+//     is a fine tool against a wedged jail and a terrible thing to recommend as the
+//     fix for this (the same live measurement).
+//
+//   - tables DIFFER and the selection came from config only: WARN and proceed
+//     without delivery. Nothing was typed, so nothing is betrayed; the jail runs
+//     its launch-time providers and the warning says so. Refusing here would hold
+//     a workspace's day-to-day re-entry hostage to a one-time upgrade.
+//
+// On a POST-CHANGE jail the delivery always runs, with the CREDENTIAL PRE-FLIGHT
+// beside it — the same check the fresh path runs (§6.2, OQ-13), whose attach
+// exemption existed because "attaching to a running jail delivers no environment".
+// A session that would start with a base URL and no token is the
+// mysterious-first-API-call failure the gate refuses elsewhere;
+// YOLO_ALLOW_MISSING_PROVIDERS=1 remains the loud hatch.
 func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap,
 	staged stagedPacks, channel *packChannel, envLines []string) int {
 	out := o.pr(o.Stderr)
-	if channel.profiles.Len() > 0 {
-		for _, l := range envLines {
-			if strings.HasPrefix(l, "YOLO_PROVIDERS=") {
-				out.printf("[bold red]Refusing to attach: this jail was launched by an older " +
-					"yolo that froze its provider environment into the container, where a " +
-					"per-entry profile cannot override it.[/bold red]")
-				out.print("[dim]Relaunch the jail ('yolo --new') to get one whose entries can " +
-					"switch providers. The selected profile would otherwise be silently inert.[/dim]")
-				return 1
-			}
+	if frozenLine := envLineValue(envLines, "YOLO_PROVIDERS"); frozenLine != "" {
+		frozenUse := frozenUseProfiles(envLines)
+		// EQUAL — or this entry selects NOTHING: a jail launched with an ephemeral
+		// '-p' and re-entered bare is the common plain attach, and the frozen
+		// delivery is exactly what those re-entries want. Either way this is a plain
+		// re-entry and the old jail keeps its old behaviour whole.
+		if channel.profiles.Len() == 0 || profileTablesEqual(frozenUse, channel.profiles) {
+			return 0
 		}
+		if o.ProfileName != "" || len(o.UseProfiles) > 0 {
+			out.printf("[bold red]Refusing to attach: '-p' cannot switch this jail's provider — " +
+				"it was launched by an older yolo that froze its provider environment into " +
+				"the container at launch.[/bold red]")
+			out.print("[dim]Restart the jail to gain per-entry profiles: finish or stop its " +
+				"running sessions ('podman stop " + cname + "'), then rerun yolo — the next " +
+				"launch is fresh. Do not use 'yolo --new' for this: it force-removes the " +
+				"RUNNING jail and its sessions.[/dim]")
+			return 1
+		}
+		out.print("[yellow]This jail predates per-entry profiles and is running the providers " +
+			"it was launched with; a config-side selection change cannot reach it. Restart " +
+			"it ('podman stop " + cname + "', then rerun yolo) to pick the selection up.[/yellow]")
+		return 0
 	}
 	// The SAME write the fresh path performs (run.go's lifecycle phase): one
 	// composition, one writer, the file the boot hydrates and every shell sources.
@@ -1214,6 +1244,65 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 	// sentence; OQ-10's rule (never "honored") travels with it.
 	o.noteUseProfiles(channel.profiles, staged.packs)
 	return 0
+}
+
+// envLineValue returns the value of KEY= in a container-inspect env listing, or "".
+func envLineValue(envLines []string, key string) string {
+	for _, l := range envLines {
+		if v, ok := strings.CutPrefix(l, key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// frozenUseProfiles decodes the YOLO_USE_PROFILES a PRE-CHANGE jail froze into its
+// container environment at launch — this entry's launch-time selection, the baseline
+// the attach's own table is compared against. nil when absent or unparseable (an
+// empty table and no table both compare as "selects nothing").
+func frozenUseProfiles(envLines []string) *jsonx.OrderedMap {
+	raw := envLineValue(envLines, "YOLO_USE_PROFILES")
+	if raw == "" {
+		return nil
+	}
+	v, err := jsonx.Decode([]byte(raw))
+	if err != nil {
+		return nil
+	}
+	m, _ := v.(*jsonx.OrderedMap)
+	return m
+}
+
+// profileTablesEqual compares two selection tables as KEY→string sets: the tables
+// cross as JSON objects whose ORDER is writer-dependent and meaning-free, so byte
+// equality would refuse equal tables over a reordered key. A nil side selects
+// nothing, same as an empty one.
+func profileTablesEqual(a, b *jsonx.OrderedMap) bool {
+	sizes := func(m *jsonx.OrderedMap) int {
+		if m == nil {
+			return 0
+		}
+		return m.Len()
+	}
+	if sizes(a) != sizes(b) {
+		return false
+	}
+	if a == nil || b == nil {
+		return sizes(a) == sizes(b)
+	}
+	for _, k := range a.Keys() {
+		av, _ := a.Get(k)
+		bv, ok := b.Get(k)
+		if !ok {
+			return false
+		}
+		as, aok := av.(string)
+		bs, bok := bv.(string)
+		if aok != bok || as != bs {
+			return false
+		}
+	}
+	return true
 }
 
 // detectHostTZ resolves the host timezone for the TZ env (or "").

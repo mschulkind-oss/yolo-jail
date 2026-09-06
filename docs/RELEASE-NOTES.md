@@ -43,9 +43,13 @@ re-enters it. Three things a user notices:
 2. **The provider token is off the argv.** `-e ANTHROPIC_AUTH_TOKEN=<secret>` was visible in `ps`
    to anything on the host that could see the launcher's process; it now lands in the 0600 file
    with every other hydrated secret.
-3. **Attaching with a profile to a jail launched by an OLDER yolo refuses**, naming `yolo --new`:
-   such a jail froze its provider environment into the container at launch, and a per-entry
-   profile cannot override it. Restart the jail once after upgrading.
+3. **Attaching with a TYPED `-p` that names a different profile to a jail launched by an
+   OLDER yolo refuses**: such a jail froze its provider environment into the container at
+   launch, and a per-entry profile cannot override it. The remedy the refusal names is a
+   restart — finish or stop the jail's sessions (`podman stop <name>`), then rerun yolo.
+   Deliberately NOT `yolo --new`: that force-removes the RUNNING jail and its sessions. A
+   plain re-entry (no `-p`, or one that matches what the jail already runs) attaches
+   exactly as before; a config-side selection drift warns and proceeds.
 
 **Who this bites.** Anyone who attaches to long-lived jails with a `-p` flag that used to "work"
 (silently did nothing) will see it take effect; anyone relying on provider env surviving in the

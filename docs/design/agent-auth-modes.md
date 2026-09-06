@@ -203,8 +203,10 @@ CLI flags override `yolo-jail.jsonc` values for that launch only.
 > entries inherit them as stale state, so the channel moved OFF the argv entirely and
 > crosses through the live-mounted file on every entry — the fresh launch and the attach
 > perform the same write ([`providers.md`](../reference/providers.md) "What crosses to the
-> jail"). An attach to a jail launched before that move REFUSES when a profile is selected,
-> naming `yolo --new`.
+> jail"). An attach to a jail launched before that move REFUSES only a TYPED `-p` naming a
+> different profile (its frozen environment cannot be overridden); plain re-entries
+> stay exactly as they were, and the refusal's remedy names a restart — `podman stop`
+> — never `yolo --new`, which force-kills the running jail.
 
 When entering or executing into an existing, running container jail:
 * **Env-var agents (Claude, Copilot)**: Injected via process environment (`-e`) on `podman exec` / launch, applying immediately per-session without mutating jail filesystem state.
