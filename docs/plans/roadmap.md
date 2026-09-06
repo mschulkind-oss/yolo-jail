@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 12 needing you · 1 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
+**Status: 12 needing you · 1 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-05**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -615,6 +615,19 @@ section — the removal act and the shim injection — shipped 2026-09-04 and 20
 
 # 🔒 Waiting
 
+**Two rows left this section on 2026-09-05, and neither was built to get out of it.**
+
+- **The slirp4netns fallback** — DROPPED, not deferred. It was waiting on an old-passt host to
+  exercise a fallback that is already built and already guarded (it fires only when podman itself
+  reports a slirp4netns binary, never a PATH lookup). Verifying it costs hardware nobody has to
+  hand; the ruling is that a complaint is a cheaper trigger than a hunt. If one arrives, the code
+  is there and the row's analysis is in this file's history.
+- **"The fatal witness is not on your host until a `just load`"** — RETIRED as stale, and
+  measured rather than assumed: `YOLO_ALLOW_UNREACHABLE_SERVICES` is present in the
+  `yolo-entrypoint` baked into the image this jail is running
+  (`/opt/yolo-jail/bin/yolo-entrypoint`), so the loaded image already carries the fatal. The row
+  described a gap that closed at some `just load` between 2026-08-18 and now.
+
 - 🔒 **Program delivery §10 — the two steps that are blocked, not merely unscheduled.** 📄
   [`program-delivery.md`](../design/program-delivery.md) §10. The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
   ✅ **EVERGREEN SHIPPED 2026-09-04** ([`evergreen-agent-updates.md`](evergreen-agent-updates.md)),
@@ -651,38 +664,6 @@ section — the removal act and the shim injection — shipped 2026-09-04 and 20
     unbuilt from §6.3's prose is *"a jail that writes outside its binds is a finding the capture run
     reports"*: stray writes are left alone and not enumerated, because enumerating them needs a
     whole-home walk (install-capture slice 2, correction (e)).
-
-- 🔒 **The fatal witness is live in the tree, and not on your host until a `just load`.**
-
-  Since 2026-08-18 an enabled jail-facing service the jail cannot use **refuses the launch**, in all
-  three fault classes. Your jails keep the old warn behaviour until the image is reloaded, so this is
-  the moment to know what changes:
-
-  - **A dead broker singleton refuses every jail on the host**, not just one — its endpoint variable
-    is wired with no publish gate, which is deliberate and was accepted. This is the release-note
-    line.
-  - `YOLO_ALLOW_UNREACHABLE_SERVICES=1 yolo …` is the way past any refusal, and the refusal names it.
-  - **If you want it back as a warning, it is one boolean.** `reachabilityFatal = true`
-    (`internal/entrypoint/reachability.go:106-119`) is OQ-R2's flip, deliberately isolated so the
-    severity can be reversed without touching the witness. Verified 2026-08-23.
-  - `unsupported`, `unknown` and an absent disposition **never** refuse — a host yolo could not ask
-    is never punished for what it cannot help.
-
-  Nested launches were refused by this and are not any more (measured both ways, 2026-08-18); the fix
-  is at the promise rather than the severity, so the host case above is untouched. 📄
-  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7.
-
-- 🔒 **The slirp4netns fallback is built, and it is two flags rather than one.** An old-passt host now
-  falls back instead of merely being told why it cannot work — but only when **podman itself** reports
-  a slirp4netns binary, never a PATH lookup, because podman is what execs it.
-
-  Building it corrected the design: `allow_host_loopback=true` alone does **not** fix yolo, because
-  podman aims `host.containers.internal` at the host's *global* address under slirp4netns. It needs
-  `--add-host=host.containers.internal:10.0.2.2` alongside — measured here with bare `podman run`. The
-  **pre-existing slirp4netns-host arm had the same defect** and was shipping the option alone while
-  reporting `requested`, i.e. claiming a fix that never reached the advertised name; both arms now
-  emit the pair. **Unverified on a real old-passt host** — nobody here has one. 📄
-  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §3.2.1.
 
 - 🔒 **Developing yolo-jail inside its own `macos-user` sandbox: measured 2026-08-19, and the
   sandbox half is DONE.** The motivating ask was a host-side jail good enough to work in without
