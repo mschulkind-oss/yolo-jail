@@ -175,10 +175,10 @@ That is the same "never silent" discipline the G1 fix established for skills/bri
 - The `projects.${workspace}.*` keys are pruned and **named in the output**, not silently
   dropped and not fatal.
 - A pre-existing hand-added MCP server is **never silently** destroyed: dropping it is
-  acceptable policy (see §2), but the drop must be reported, and the first-ever apply must
+  acceptable policy (see [§2](#care-required--claudejson-is-not-settingsjson)), but the drop must be reported, and the first-ever apply must
   make it obvious before it happens.
 - A `${VAR}` in a server's `url` either expands or produces a warning — never a silent
-  literal (§3). **But a `${VAR}` inside an `env` value must NOT warn** — the literal is
+  literal ([§3](#care-required--claudejson-is-not-settingsjson)). **But a `${VAR}` inside an `env` value must NOT warn** — the literal is
   correct there, because Claude Code resolves it at launch (see the `${VAR}` section below).
 - Second `--assert` byte-identical; unrelated keys in a 32-key `~/.claude.json` untouched.
 
@@ -296,7 +296,7 @@ The overlay key is the sharper half: `fileSuggestion` survives pointing at a scr
 later `rm -rf` of the pack dir would remove, leaving Claude Code with a broken
 `type: command` hook. That is exactly the failure mode `~/.dotfiles`' orphaned
 `file-suggestion.sh` had before this work (noted in
-[`handoff-fzf-pack-adoption.md`](handoff-fzf-pack-adoption.md) §1).
+[`handoff-fzf-pack-adoption.md` §1](handoff-fzf-pack-adoption.md#1-the-one-thing-that-must-be-checked-on-the-host-before-adoption)).
 
 The existing cleanup lives at `internal/entrypoint/hostbriefing.go:173` (`res.Action += "
 (pack no longer configured)"`) — there is no equivalent for the `files` or overlay paths.

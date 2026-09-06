@@ -56,8 +56,8 @@ wrong one to sequence on.
 | `internal/macosuser/capture.go` | **new** (slice 6) — the capture plan, its invariants, and the executor over the existing `Deps` seams |
 | `internal/macosuser/runplan.go`, `macosuser.go` | slice 6 lifted `buildBootstrapEnv` (home is now a parameter) and `sandboxEnvPairs` out; no behavior change |
 | `internal/capture/relocate.go` | **new** (slice 6) — the file-content reference scan and the relocatable verdict |
-| `docs/design/storage-and-config.md` | §2's `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
-| `docs/design/program-delivery.md` | §10's capture step (was six, now seven — OQ-CP1) → SHIPPED, per slice; §6.3's *materialize* verb amended by slice 4 (reflink, not hardlink) |
+| `docs/design/storage-and-config.md` | [§2](../design/storage-and-config.md#2-host-storage-layout)'s `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
+| `docs/design/program-delivery.md` | [§10](../design/program-delivery.md#10-what-i-would-build-in-order)'s capture step (was six, now seven — [OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)) → SHIPPED, per slice; [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s *materialize* verb amended by slice 4 (reflink, not hardlink) |
 
 ## Reuse
 
@@ -189,7 +189,7 @@ wrong one to sequence on.
    **(e) Two things deliberately NOT built here, so slice 3/6 do not assume them.** The baseline
    records `(kind, perm, size, mtime)` per path, never content hashes — an installer that rewrote a
    file to the same size and mode within the mtime granularity would be invisible, which is the
-   price of not reading a booted home's worth of bytes. And §6.3's *"a jail that writes outside its
+   price of not reading a booted home's worth of bytes. And [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s *"a jail that writes outside its
    binds is a finding the capture run reports"* is unbuilt: stray writes are left alone and not
    enumerated (that needs a whole-home walk). Absolute references are gathered from SYMLINK TARGETS
    only; file-content references are slice 6's if it needs them.
@@ -249,17 +249,17 @@ wrong one to sequence on.
    download-then-run would capture bytes a launch would never have produced, which is the one
    property slice 4 depends on. The new `entrypoint.InstallOnlyEnv` (native launchers only) is what
    stops the launcher exec'ing the tool afterwards — without it a capture would record the tool's
-   FIRST-RUN state, which is §6.3's "personalizes at install time" hazard, created on purpose.
+   FIRST-RUN state, which is [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s "personalizes at install time" hazard, created on purpose.
 
    **(e) The receipt needed ONE new field, not two, and it goes BESIDE THE ENTRY.** "Ships with"
-   says the receipt gains `kind:"capture"`, `act:"materialize"`, and §6.3's two new tuple members
+   says the receipt gains `kind:"capture"`, `act:"materialize"`, and [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s two new tuple members
    (`file manifest`, `platform`). Only `platform` is new. The tuple maps onto existing fields:
    declaration → `bin`, installer URL → `declared`, capture hash → `resolved` (the store key),
    **file manifest → `sha256`** (the sha256 OF the canonical manifest, of which the key is the
    first 16 chars, so a reader can check one against the other), entry root → `path`, time →
    `time`. The manifest FILE is `path`'s sibling; a copy of it inside the line would be the
-   parallel ledger §6 warns about. Slice 3's act is **`record`** — §6.3's own verb, the one paired
-   with slice 4's `materialize`. And the file is `entries/<key>/receipts.jsonl`, per §6.3's *"a
+   parallel ledger [§6](../design/program-delivery.md#6-the-general-seam-one-ledger-many-resolvers) warns about. Slice 3's act is **`record`** — [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s own verb, the one paired
+   with slice 4's `materialize`. And the file is `entries/<key>/receipts.jsonl`, per [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s *"a
    machine-local receipt beside the CAS entry"*: the capture workspace is thrown away and the
    invoking workspace merely happened to be where a human stood.
 
@@ -287,8 +287,8 @@ wrong one to sequence on.
    `_do_install` gained a branch: if a capture for this bin+platform resolves, put it in the home
    and write an `act:"materialize"` receipt; otherwise fall through to today's download. **This is
    the slice that pays** — the second workspace stops downloading, and 1.2 GB stops being
-   per-workspace. It IS from the launcher, not a boot genStep: §5.2 names "you pay nothing for a
-   tool you never invoke" as a virtue any replacement must keep, and OQ-PD12a's design has no boot
+   per-workspace. It IS from the launcher, not a boot genStep: [§5.2](../design/program-delivery.md#52-a2--lazy-install-from-a-launcher-the-status-quo) names "you pay nothing for a
+   tool you never invoke" as a virtue any replacement must keep, and [OQ-PD12a](../design/program-delivery.md#decision-ledger)'s design has no boot
    step at all. → `integration/capturematerialize_test.go` (two workspaces, one download)
 
    *Eight corrections from building it. The first answers slice 3's "stop and ask".*
@@ -307,10 +307,10 @@ wrong one to sequence on.
    | `link(2)` | `EXDEV` |
    | `cp` | 98 ms, 262 MiB of new space |
 
-   So §5.2's virtue is kept and the design's *materialize* verb is amended rather than relocated
-   ([`program-delivery.md`](../design/program-delivery.md) §6.3, "AMENDMENT, 2026-09-04").
+   So [§5.2](../design/program-delivery.md#52-a2--lazy-install-from-a-launcher-the-status-quo)'s virtue is kept and the design's *materialize* verb is amended rather than relocated
+   ([`program-delivery.md` §6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), "AMENDMENT, 2026-09-04").
 
-   **(b) The CAS IS MOUNTED into every jail, which §6.3's "no new containment machinery" did not
+   **(b) The CAS IS MOUNTED into every jail, which [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s "no new containment machinery" did not
    anticipate.** `:ro` at `/ctx/captures`, with `entrypoint.CapturesDirEnv` naming it (host path
    instead of a bind on Apple Container, exactly like `YOLO_PACK_ROOT`). `:ro` is load-bearing: an
    entry is admitted by the host act alone and its files are frozen, so a jail that could rewrite
@@ -351,7 +351,7 @@ wrong one to sequence on.
    **(f) THE CAPTURE JAIL GETS NO MOUNT, and that had to be structural.** The installer a capture
    runs is the launcher (3(d)), and the launcher now materializes first — so a capture of a program
    that already has an entry would reflink the old entry into the capture home and record it as a
-   fresh capture of bytes no installer produced, which also makes §6.3's *update* ("a NEW capture,
+   fresh capture of bytes no installer produced, which also makes [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s *update* ("a NEW capture,
    on an explicit act") impossible: `yolo capture` could never pick up a newer vendor release.
    Suppressed at the MOUNT (`run.Options.CapturesDir` returning `""`) rather than by a second
    exception inside the launcher, so there is nothing in that jail to resolve against.
@@ -554,7 +554,7 @@ wrong one to sequence on.
    or a content-addressed entry would carry a claim about one machine's home.
 
    **(f) Two design-doc citations about this backend were wrong** and are fixed in
-   [`program-delivery.md`](../design/program-delivery.md) §6.3. `internal/cli/run/run.go:156-159`,
+   [`program-delivery.md` §6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package). `internal/cli/run/run.go:156-159`,
    cited for the machine-constant shared home, is the profile/provider channel composition and says
    nothing about a home; the refusal the next clause cites (`:235-250`) was the right range all
    along. And `macosuser.go:328-377` for `LaunchArgv` was correct until this slice's refactor
@@ -693,7 +693,7 @@ wrong one to sequence on.
    exits 1 under `YOLO_INSTALL_ONLY` when `$REAL_BIN` is not executable (`⚠ <bin> not available`);
    `capture.Run` turns a non-zero installer into an error and writes no manifest; and `captureHost`
    refuses an empty delta by name. Store entries afterwards: **0**, and the launch ran to completion.
-   This is what makes default-on safe for a program that is not flippable (§3.5), rather than
+   This is what makes default-on safe for a program that is not flippable ([§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)), rather than
    something a special case would have had to handle.
 
    **(d) THE SEAM CARRIES THE BINS AND THE PLATFORM, both decided by the pipeline.** `internal/cli`
@@ -729,7 +729,7 @@ wrong one to sequence on.
 
    **The integration suite does not cover this slice, deliberately.** Six of its files select the
    `claude` pack, so a live trigger would put a ~205 MiB vendor download on every push — the class
-   [`agent-install-in-ci.md`](../design/agent-install-in-ci.md) §6.1.1 moved off that trigger. The
+   [`agent-install-in-ci.md` §6.1.1](../design/agent-install-in-ci.md#611-three-triggers-matched-to-three-causes) moved off that trigger. The
    harness therefore sets `YOLO_NO_AUTO_CAPTURE=1` unless `YOLO_TEST_REAL_PACK_INSTALLS` is set,
    riding that existing gate rather than inventing a second one. It could not assert "this launch
    captured" in any case: `.local/share/yolo-jail` is one of `packHomeSharedStores`, so every
@@ -787,21 +787,21 @@ wrong one to sequence on.
   assert `(sha256, bytes)` of one landing file — that is the guess capture replaces. Rewrite to the
   manifest comparison. `TestUsageListsEveryParsedFlag` and `TestUsageListedCommandsAreRegistered` will
   fail until `pruneUsage` and `commandHelp` carry the new flag and the `capture` row.
-- **Docs:** `../design/program-delivery.md` §10 step six status; `../design/storage-and-config.md`
-  §2's `<gs>` table (line 112 — already 9 dirs stale, so add `captures/` and say the table was
-  incomplete); `roadmap.md:550`'s program-delivery row; `../guides/USER_GUIDE.md` for the new verb.
+- **Docs:** [`../design/program-delivery.md`](../design/program-delivery.md) [§10](../design/program-delivery.md#10-what-i-would-build-in-order) step six status; [`../design/storage-and-config.md`](../design/storage-and-config.md)
+  [§2](../design/storage-and-config.md#2-host-storage-layout)'s `<gs>` table (line 112 — already 9 dirs stale, so add `captures/` and say the table was
+  incomplete); `roadmap.md:550`'s program-delivery row; [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) for the new verb.
 - **Surfaces:** `yolo capture --help`; **`YOLO_NO_AUTO_CAPTURE`** (slice 7 — any non-empty value,
   the `YOLO_ALLOW_STALE_IMAGE` convention, documented in
   [`USER_GUIDE.md`](../guides/USER_GUIDE.md)'s `yolo capture` section, which no longer says a
   capture is an explicit act); ~~`yolo prune --captures-keep N`, default **1**~~ ⚠ *no such
   flag shipped — `K = 1` is ruled ([OQ-PD17](../design/program-delivery.md#decision-ledger)), so the
   knob would have had one legal value; the sweep is a `yolo prune` section, dry-run by default like
-  every other one (slice 5(d)). OQ-PD4's "autoprune is an option nobody gets by default" is satisfied
+  every other one (slice 5(d)). [OQ-PD4](../design/program-delivery.md#decision-ledger)'s "autoprune is an option nobody gets by default" is satisfied
   by `--apply`, which is what "nobody gets by default" means for every other reclaimer in that
   report*; `<CapturesDir>` layout is a documented on-disk contract; the receipt
-  gains `kind:"capture"`, `act:"materialize"`, and §6.3's two new tuple members (`file manifest`,
+  gains `kind:"capture"`, `act:"materialize"`, and [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s two new tuple members (`file manifest`,
   `platform`) — reader and writer move together or the round-trip goes red.
-- **Invariants to satisfy, cite by ID:** `../design/minimal-disk-footprint.md` §5 **P2** (fail-safe on
+- **Invariants to satisfy, cite by ID:** [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) [§5](../design/minimal-disk-footprint.md#5-invariants--what-must-not-break) **P2** (fail-safe on
   unknown liveness), **P3** (a reclaim never strands a running jail — ~~hardlinks make this
   structural: unlinking one name frees nothing another name holds~~ ⚠ *materialize is a reflink, so
   this is COW rather than link counting: the destination holds its own inode and its own extents, and
@@ -811,13 +811,13 @@ wrong one to sequence on.
 
 ## Don't
 
-- **Don't build an image layer.** Rejected three ways in §6.3 (macos-user has no image; it couples
-  every capture to the 3.28 GiB rebuild/reload cadence §5.1 priced; it is container-shaped).
-- **Don't distribute captures between machines.** Explicitly out of scope (§7) — a capture made here
+- **Don't build an image layer.** Rejected three ways in [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) (macos-user has no image; it couples
+  every capture to the 3.28 GiB rebuild/reload cadence [§5.1](../design/program-delivery.md#51-a1--bake-everything-into-the-image) priced; it is container-shaped).
+- **Don't distribute captures between machines.** Explicitly out of scope ([§7](../design/program-delivery.md#7-what-this-does-not-cover)) — a capture made here
   is used here. No signing, no publishing, no cross-machine key.
 - **Don't invent a second record.** The receipt exists (`af46c9b4`); capture replaces its *guess*, not
-  its file — a parallel ledger is the shape §6's warning says was killed once already.
-- **Don't fix `DISABLE_AUTOUPDATER` here.** OQ-PD15's ruling names it as separately fixable today and
+  its file — a parallel ledger is the shape [§6](../design/program-delivery.md#6-the-general-seam-one-ledger-many-resolvers)'s warning says was killed once already.
+- **Don't fix `DISABLE_AUTOUPDATER` here.** [OQ-PD15](../design/program-delivery.md#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it--resolved-2026-09-03)'s ruling names it as separately fixable today and
   gated on none of this.
 - **Don't add a `via` value.** Capture is the installer resolver's `record`+`materialize`; `knownVias`
   (`packdecl/contributes.go:306`) stays a two-value set.
@@ -842,4 +842,4 @@ wrong one to sequence on.
   All four are additive, all default to the fail-safe reading, and `ManifestSchema` stays 1
   because an older reader that ignores them materializes only into the home the capture names,
   which is what it did before they existed.*
-- No open questions in the design: §6.3 is ruled, and the Open Questions section reads *"None open."*
+- No open questions in the design: [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) is ruled, and the Open Questions section reads *"None open."*

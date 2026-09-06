@@ -4,32 +4,32 @@
 inside a Linux jail, which is exactly why this document exists: everything below was either
 verified by reading code or is explicitly marked as unverifiable from here.
 
-**Status:** **HANDOFF — HOST-GATED, restamped 2026-08-23** (written 2026-08-03; §§1, 3, 7, 8
+**Status:** **HANDOFF — HOST-GATED, restamped 2026-08-23** (written 2026-08-03; [§§1](#1-what-the-three-notches-are-and-why-the-middle-one-matters), 3, 7, 8
 are unchanged from that date). `guest` is the one notch of three that does not work. Phases
 0–6, 8, and 9 of [`environment-manager-plan.md`](environment-manager-plan.md) are shipped;
 **Phase 7 is not built**, and it is host/Mac-gated rather than blocked on any design
-decision. **What moved since 2026-08-03:** §2's item 1.4 is now *half*-answered rather than
-wholly unverified (the confinement half was measured on a Mac 2026-08-19), and §5's nix
+decision. **What moved since 2026-08-03:** [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it)'s item 1.4 is now *half*-answered rather than
+wholly unverified (the confinement half was measured on a Mac 2026-08-19), and [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23)'s nix
 prerequisite has **shipped** — it is no longer a prerequisite, it is done. Four live
-questions are collected in §9; three of them are questions only a Mac can answer.
+questions are collected in [§9](#9-open-questions); three of them are questions only a Mac can answer.
 
 **Reads with:** [`environment-manager-plan.md`](environment-manager-plan.md) Phase 7 (the
 spec), [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md)
-(the existing backend — see the correction in §2 before trusting it),
+(the existing backend — see the correction in [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) before trusting it),
 [`../guides/macos.md`](../guides/macos.md) (usage),
-[`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §5
-and §8 (Option 1 **was** a prerequisite for 7.2 and is now shipped — see §5 below),
+[`../design/noncontainer-nix-environment.md` §5](../design/noncontainer-nix-environment.md#5-macos-vs-linux)
+and [§8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) (Option 1 **was** a prerequisite for 7.2 and is now shipped — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23) below),
 [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) (the other
-Mac-gated ledger; its Track M and this doc's §4 overlap), and [`roadmap.md`](roadmap.md).
+Mac-gated ledger; its Track M and this doc's [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7) overlap), and [`roadmap.md`](roadmap.md).
 
 > [!WARNING]
-> **Every `roadmap.md` ID this document cites has stopped resolving, verified 2026-08-23.**
-> `roadmap.md` has been rewritten since 2026-08-03 and contains **no** `B-0`, `B-1`, `N1`, `N2`,
+> **Every [`roadmap.md`](roadmap.md) ID this document cites has stopped resolving, verified 2026-08-23.**
+> [`roadmap.md`](roadmap.md) has been rewritten since 2026-08-03 and contains **no** `B-0`, `B-1`, `N1`, `N2`,
 > or numbered "ROADMAP item N" entries — `rg -n 'B-0|B-1|\bN1\b|\bN2\b' docs/plans/roadmap.md`
 > returns nothing.
 > The IDs are kept here rather than deleted, because they are the spelling the git history and
 > the sibling design docs use; treat them as **archival labels, not live pointers**. Where the
-> content survives, this restamp names the file:line instead. `roadmap.md`'s current macOS
+> content survives, this restamp names the file:line instead. [`roadmap.md`](roadmap.md)'s current macOS
 > state lives in its 🔒 *Waiting* section.
 
 ---
@@ -65,7 +65,7 @@ profile the sandbox **can read the staged pack root and run the toolchain**: `go
 ./...`, the full `go test -short ./...` (all 58 packages) and `just test-fast` all pass, git
 works, and nix reaches the daemon (`Trusted: 1`). Isolation holds where it matters — host SSH
 keys, `~/.claude`, `~/.aws`, `~/.dotfiles` and the keychains are all `Operation not
-permitted`. One real profile bug was found and fixed by that run (§6, the ancestor-grant
+permitted`. One real profile bug was found and fixed by that run ([§6](#6-how-to-verify-on-a-mac--the-traps), the ancestor-grant
 trap).
 
 **What is therefore STILL untested is the `sudo -u _yolojail` staging step ABOVE the
@@ -77,7 +77,7 @@ work at all", and it is the one thing to aim the first Mac session at.
 > **Do not read the 2026-08-19 result as "the macos-user launch works."** It proves the
 > Seatbelt profile is good enough to develop inside. The **launch** — `sudo -u _yolojail` plus
 > bootstrap — has never run end-to-end on a current build, and on the maintainer's Mac it
-> **cannot**, because that machine's config still uses the removed `agents` key (see §4). The
+> **cannot**, because that machine's config still uses the removed `agents` key (see [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7)). The
 > confinement half is done; the user-switch around it is not.
 
 What was wrong: `internal/cli/run/run.go`'s `rt == "macos-user"` branch returned at the
@@ -85,7 +85,7 @@ What was wrong: `internal/cli/run/run.go`'s `rt == "macos-user"` branch returned
 `RunDarwinBootstrap`'s `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks` loops each
 ran over an empty list. A backend that looked provisioned and configured nothing.
 
-What is there now (recorded at the time as `roadmap.md` B-0, an ID that no longer resolves —
+What is there now (recorded at the time as [`roadmap.md`](roadmap.md) B-0, an ID that no longer resolves —
 see the warning in the header):
 
 - pack staging runs **above the backend dispatch**, so no backend is reachable without one;
@@ -124,7 +124,7 @@ unmeasured at all.
 The abstraction question 1.4 was supposed to answer — can `render.Target` express a
 non-container backend? — came back **not yet, and it did not need to**: macos-user renders at
 the JAIL notch (`Env.renderTarget()` → `render.Jail`) with a real macOS home, exactly as
-before, so no new Kind was required. §3's `guest` work is still where a Target has to describe
+before, so no new Kind was required. [§3](#3-phase-7-as-specified)'s `guest` work is still where a Target has to describe
 a non-container confinement for the first time.
 
 ---
@@ -164,13 +164,13 @@ have closed, one has changed shape, and one is new and blocks every other row on
 
 | Item | What is needed | Where |
 |---|---|---|
-| **🔴 The Mac's config** | **Do this first or nothing below can run.** Measured 2026-08-19: that machine's `~/.config/yolo-jail/config.jsonc` still uses the **removed `agents` key**, so every current `yolo` — every backend, `yolo check` included — refuses with the config-invalid fatal, and its installed `yolo` was **531 commits stale**. All four names it selects (`claude`, `pi`, `codex`, `agy`) exist as packs; the fix is renaming the key to `packs`. **Maintainer's config, maintainer's call** | `roadmap.md` 🔒 macOS rows |
-| **Item 1.4's staging step** | The `sudo -u _yolojail` copy into `/var/yolo-jail/packs/<session>` + the sandbox-uid read. The confinement half was measured 2026-08-19; **this half never has been** | §2 |
-| **D4 Cachix** | ONE real download proof, and it is now genuinely the only item. **The push question is SETTLED (2026-09-02, OQ-GN3):** run `31749547095` (`v0.8.0`, both arches) pushed both variants and substituted the four this-repo-source paths back from the cache. Substituter live at `flake.nix:13-16`; cache + account + token all done. Note the cache holds `v0.8.0` only (tag-triggered push), and the CI `--accept-flake-config` omission that made off-release runs miss the cache entirely is fixed | [`handoff-cachix-cache.md`](handoff-cachix-cache.md), [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) D4 |
+| **🔴 The Mac's config** | **Do this first or nothing below can run.** Measured 2026-08-19: that machine's `~/.config/yolo-jail/config.jsonc` still uses the **removed `agents` key**, so every current `yolo` — every backend, `yolo check` included — refuses with the config-invalid fatal, and its installed `yolo` was **531 commits stale**. All four names it selects (`claude`, `pi`, `codex`, `agy`) exist as packs; the fix is renaming the key to `packs`. **Maintainer's config, maintainer's call** | [`roadmap.md`](roadmap.md) 🔒 macOS rows |
+| **Item 1.4's staging step** | The `sudo -u _yolojail` copy into `/var/yolo-jail/packs/<session>` + the sandbox-uid read. The confinement half was measured 2026-08-19; **this half never has been** | [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) |
+| **D4 Cachix** | ONE real download proof, and it is now genuinely the only item. **The push question is SETTLED (2026-09-02, [OQ-GN3](#9-open-questions)):** run `31749547095` (`v0.8.0`, both arches) pushed both variants and substituted the four this-repo-source paths back from the cache. Substituter live at `flake.nix:13-16`; cache + account + token all done. Note the cache holds `v0.8.0` only (tag-triggered push), and the CI `--accept-flake-config` omission that made off-release runs miss the cache entirely is fixed | [`handoff-cachix-cache.md`](handoff-cachix-cache.md), [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) D4 |
 | ~~**E8's nightly**~~ | **CLOSED, and its stated cause was wrong.** `BACKLOG.md:208` marks E8 done 2026-08-03, and the macOS nightly is **GREEN** as of run `32623453131` (2026-08-23). The row said the nightly stayed red until the multi-arch builder image reached GHCR — but the nightly builds the image on `ubuntu-latest` and downloads it as an artifact (`nightly-macos.yml`, `build-image` → `integration-macos`); it never pulls the GHCR builder. **The 29 red nights were the flake throwing on `x86_64-darwin`**, fixed by `927fb9f` (2026-08-18). *(v0.8.0 did ship 2026-08-13, so `publish.yml` has run since E8's fix — whether GHCR carries the multi-arch index is not verifiable from here.)* | [`BACKLOG.md`](BACKLOG.md) E8 |
 | **agent-auth macos-user parity** | 4 verified defects whose fixes need a Mac to verify. *(The "ROADMAP item 4" pointer is dead; the defects are in the agent-auth design doc.)* | [`../design/agent-auth-modes.md`](../design/agent-auth-modes.md) |
-| **`cache_relocations`** | One real cross-filesystem move as an acceptance step. Still **held** — `roadmap.md` keeps it in 🧊 Icebox as genuinely undecided, not merely unscheduled | [`cache-relocation.md`](cache-relocation.md) |
-| ~~**`yoloDarwinPackages` rename**~~ | **SHIPPED — see §5.** No longer Mac-gated to write *or* to prove on Linux; only a `packages:` launch on a Mac would exercise it there | [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8 Option 1 |
+| **`cache_relocations`** | One real cross-filesystem move as an acceptance step. Still **held** — [`roadmap.md`](roadmap.md) keeps it in 🧊 Icebox as genuinely undecided, not merely unscheduled | [`cache-relocation.md`](cache-relocation.md) |
+| ~~**`yoloDarwinPackages` rename**~~ | **SHIPPED — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23).** No longer Mac-gated to write *or* to prove on Linux; only a `packages:` launch on a Mac would exercise it there | [`../design/noncontainer-nix-environment.md` §8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) Option 1 |
 | **MCP wrappers on macOS** | *New, found 2026-08-23.* `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers` unconditionally, and the bodies are Linux-absolute — `/usr/bin/chromium` (`mcp_wrappers.go:39`), `exec /bin/node` (`:74`), `/etc/fonts` (`:26-27`). A macos-user home gets three wrappers pointing at paths macOS does not have. Harmless until one is exec'd | revival plan, Open decision #4 |
 
 ---
@@ -181,7 +181,7 @@ have closed, one has changed shape, and one is new and blocks every other row on
 > bullets landed. It is kept, rather than deleted, because the reasoning below is why Phase
 > 7.2 is unblocked, and because the trap at the end of the section is still live.
 
-[`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8 **Option 1**
+[`noncontainer-nix-environment.md` §8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) **Option 1**
 was a prerequisite for Phase 7.2, and NOT because of anything about the `host` notch —
 `guest` is a real home with no image, so it needs a tool closure for exactly the reason `host`
 does. Each bullet, with what it became:
@@ -233,7 +233,7 @@ which is why the fix was a rename plus `NativeSystem()`, not new machinery.
 > `nixpkgs-26.05-darwin` for that one system (`flake.nix:22-42`, `927fb9f`). **26.05 is the
 > LAST branch supporting `x86_64-darwin` and is security-fixed only to the end of 2026**, so
 > this is a deadline, not a fix — see [`../research/macos-support-matrix.md`](../research/macos-support-matrix.md)
-> §0.
+> [§0](../research/macos-support-matrix.md#0-the-platform-deadline--x86_64-darwin-is-on-a-clock).
 
 ---
 
@@ -296,11 +296,11 @@ Two constraints that have burned agents in this repo repeatedly:
 ## 7. What is explicitly NOT in scope
 
 - **Extracting `render` into a separate util** — settled *no*
-  (`host-render-target.md` §2.3, 2026-07-27). The field census puts the boundary through the
+  (`host-render-target.md` [§2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no), 2026-07-27). The field census puts the boundary through the
   middle of a single manifest.
 - **`yolo cache relocate`** (cache-relocation item 11) — *held*, not deferred. The maintainer
   is not convinced it should exist.
-- **`yolo --at host -- <cmd>`** (noncontainer-nix-environment §8 Option 2) — a real option, but a
+- **`yolo --at host -- <cmd>`** (noncontainer-nix-environment [§8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) Option 2) — a real option, but a
   bigger product claim ("yolo launches your host agent"). Not required for Phase 7.
 
 ---
@@ -329,12 +329,14 @@ Four questions this handoff cannot answer from a Linux jail. Three of them need 
 fourth needs a ruling. IDs are stable — cite them from commits and sibling docs.
 
 1. 💬 **OQ-GN1: Does the `sudo -u _yolojail` pack staging actually reach the sandbox?**
-   This is the surviving half of item 1.4 (§2). The confinement half was measured on
+   This is the surviving half of item 1.4 ([§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it)). The confinement half was measured on
    2026-08-19 — the sandbox reads the staged pack root and runs the toolchain — so what is
    left is the root-owned copy into `/var/yolo-jail/packs/<session>` (`a+rX`) and the
    sandbox-uid read of it. **What it decides:** whether *every other statement in this
    document* holds, since all of them assume packs reach the sandbox; and whether the pack
    system has one backend or two.
+
+   <!-- vantage: oq id=OQ-GN1 leaning="It works. `PlanInvariants` already refuses a plan whose staging path and `YOLO_PACK_ROOT` disagree, and the 2026-08-19 run proves the read side; the residual risk is ACL/ownership on the copy, not the design." -->
 
    _Leaning:_ It works. `PlanInvariants` already refuses a plan where the staging path and
    `YOLO_PACK_ROOT` disagree, and the 2026-08-19 run proves the read side of the boundary.
@@ -350,8 +352,10 @@ fourth needs a ruling. IDs are stable — cite them from commits and sibling doc
    `agents` key, so no current `yolo` launches there on any backend — `yolo check` included —
    and its installed `yolo` was 531 commits stale. All four selected names (`claude`, `pi`,
    `codex`, `agy`) exist as packs, so the rename is the entire fix. **What it decides:**
-   whether the next Mac session can run *anything* on this list. It gates OQ-GN1, D4's
-   download proof, and the whole of §4.
+   whether the next Mac session can run *anything* on this list. It gates [OQ-GN1](#9-open-questions), D4's
+   download proof, and the whole of [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7).
+
+   <!-- vantage: oq id=OQ-GN2 leaning="Rename it — but an agent should not touch a maintainer's personal host config, so do it by hand as the first step of the next Mac session." -->
 
    _Leaning:_ Rename it — but **an agent should not touch a maintainer's personal host
    config**, which is the only reason this is a question rather than a commit. Doing it as the
@@ -375,7 +379,7 @@ fourth needs a ruling. IDs are stable — cite them from commits and sibling doc
    four this-repo-source paths **from** `yolo-jail.cachix.org`
    (`these 4 paths will be fetched (507.7 KiB download, 25.7 MiB unpacked)`), which is
    the stronger fact. **So D4's remaining work is ONE item — the Mac download proof — and
-   a Mac visit can close it.** `README.md` was the correct half; `handoff-cachix-cache.md`
+   a Mac visit can close it.** [`README.md`](README.md) was the correct half; [`handoff-cachix-cache.md`](handoff-cachix-cache.md)
    is corrected.
 
    ⚠ **Chasing it found a defect, now fixed:** all six CI `nix build` calls lacked
@@ -392,8 +396,10 @@ fourth needs a ruling. IDs are stable — cite them from commits and sibling doc
    `/etc/fonts` (`internal/entrypoint/mcp_wrappers.go:26-27,39,72-74`) with no `GOOS` guard.
    The revival plan's J2 step 2 *decided* to skip them natively and document the gap; the tree
    does neither. **What it decides:** a small correctness question now, and a real one once
-   `guest` renders the same surfaces on both platforms — §3's "portable surface set" cannot
+   `guest` renders the same surfaces on both platforms — [§3](#3-phase-7-as-specified)'s "portable surface set" cannot
    include a wrapper that is portable in name only.
+
+   <!-- vantage: oq id=OQ-GN4 leaning="Guard the generation on `GOOS` and say so, rather than porting: three dead files are a defect with a one-line fix, while a darwin chromium wrapper is a real feature with real paths to get right. Port later if someone actually wants chrome-devtools-mcp on a Mac." -->
 
    _Leaning:_ Guard the generation on `GOOS` and say so, rather than porting. A darwin
    chromium wrapper is a real feature with real paths to get right; three dead files are a

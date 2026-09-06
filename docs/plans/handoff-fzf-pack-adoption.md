@@ -58,7 +58,7 @@ this work.
 > `$CLAUDE_PROJECT_DIR` rather than assuming cwd, which the reference implementation does
 > not.
 >
-> So the §1 hazard **did not apply to this user** — but the finding stands for anyone whose
+> So the [§1](#1-the-one-thing-that-must-be-checked-on-the-host-before-adoption) hazard **did not apply to this user** — but the finding stands for anyone whose
 > script uses `$1`, and the protocol table is the useful artifact either way.
 >
 > One real difference to preserve when swapping it in: the real script adds gitignored files
@@ -193,14 +193,14 @@ reading only the pack would miss these.
 | **briefing is a delimited managed block** | the pack's prose is re-asserted idempotently inside markers; the user's own prose outside them is untouched |
 | **`files` → `.claude` would shadow the settings surface** | why `into` is `.claude/bin`. A `files` tree is a `:ro` mount, so claiming the whole dir makes the boot refuse with "read-only file system". Now caught in pre-flight |
 | **mount dedup for briefing + skills** | two packs at one destination used to fail with podman's duplicate-mount-destination; that is why this pack can declare a briefing at `.claude/CLAUDE.md` alongside the claude pack |
-| **`install_hints` on all six shipped packs** (8.3) | the model this pack should follow once §2.2 unblocks — and the reason its absence is a gap rather than a non-issue |
+| **`install_hints` on all six shipped packs** (8.3) | the model this pack should follow once [§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03) unblocks — and the reason its absence is a gap rather than a non-issue |
 | **manifests read tolerantly in-jail** (`DecodeTolerant`) | a new `pack.json` field no longer bricks a jail running an older baked image |
 
 ---
 
 ## 5. Three product defects this pack surfaced
 
-All three are why §2.2 exists. Full context and the decisions needed are in
+All three are why [§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03) exists. Full context and the decisions needed are in
 [`../design/program-kind-defects.md`](../design/program-kind-defects.md); Phase 11 of the plan
 lists them as work items. Summarized so a successor does not rediscover them:
 
@@ -220,19 +220,19 @@ lists them as work items. Summarized so a successor does not rediscover them:
 
 - [x] ~~Check the real `~/.dotfiles/claude/file-suggestion.sh` for `"$1"`~~ — **done
       2026-08-02: no bug.** It reads stdin via `jq -r '.query // ""'` and already satisfies
-      the whole contract (§1).
+      the whole contract ([§1](#1-the-one-thing-that-must-be-checked-on-the-host-before-adoption)).
 - [ ] Copy the real script over `bin/file-suggestion.sh`, keep the filename and the exec bit,
       re-run `yolo pack lint --allow-exec <dir>`.
 - [ ] Copy the pack to `~/.dotfiles/claude-fzf/` (or wherever personal packs live) and add the
       config entry from the README — **including `"allow_exec": true`**.
 - [x] ~~Do NOT add `mode` to the `config` contribution~~ — moot: the pack declares
-      `config-overlay`, which cannot set `mode` at all (§3).
+      `config-overlay`, which cannot set `mode` at all ([§3](#3-the-trap-that-was-defused-by-convention-and-is-now-closed-by-the-mechanism)).
 - [x] ~~When `config-overlay` lands, convert the `config` contribution to it~~ — **done
-      2026-08-02** (§2.4).
+      2026-08-02** ([§2.4](#24-the-pack-declares-config-which-will-eventually-be-wrong--converted-2026-08-02)).
 - [ ] When Q1.x is decided, add the `fd`/`fzf` dependency declaration with `install_hints`
-      (§2.2).
+      ([§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03)).
 - [x] ~~Expect two `claude/settings rendered` lines until R4 is fixed~~ — one line now; two
-      would mean a collision, which is refused (§2.3).
+      would mean a collision, which is refused ([§2.3](#23-the-double-rendered-line-is-expected-here--fixed-2026-08-02)).
 
 ## 7. How to verify after any change
 

@@ -68,18 +68,18 @@ reading code or `git log`; nothing here is carried over on trust.
 | A2 (hard error + `linux-only`) | **DONE 2026-09-04** | both pieces shipped: `platforms: ["linux"]` on the package object form filters in `EffectivePackages(cfg, platform)` BEFORE materialize, and a declared package still missing from the build aborts the launch naming every one at once (`internal/macosuser/orchestrator.go`). The plan's `linux-only` spelling became `platforms`, a list — see A2 below |
 | A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go:286` |
 | Track L part 1 (framework plumbing) | **NOT STARTED** | `startLoopholesDisclosed` is called once, at `internal/cli/run/run.go:569`, inside `runContainer` (`run.go:308`); `macosuser.EndpointGrantCommands` (`macosuser.go:430`) has **zero call sites** |
-| Track L part 2 (scoping proxy) | **BLOCKED on OQ-L1** | unchanged |
+| Track L part 2 (scoping proxy) | **BLOCKED on [OQ-L1](#open-questions-blocking)** | unchanged |
 | check's python3 probe | **DELETED 2026-09-03** | it hard-FAILed a python-less Mac for a requirement J2 dropped on 2026-07-21 (`544a8069`); `internal/cli/check/sections_macos.go` |
 | macos-user repo-root gate for `packages:` | **FIXED 2026-09-03** | an unresolved root reached `darwinpkg.Materialize("")` → empty `cmd.Dir` → nix evaluated the user's cwd; `internal/cli/run/run.go`, `internal/darwinpkg/materialize.go` |
 | macos-user self-hosting (jail-in-jail) | **STRUCTURALLY BLOCKED; the workaround was proposed and REJECTED** | measured 2026-09-03 — see §*Self-hosting*, OQ-SH-1 |
 
 **D4, stated honestly.** The substituter is live and the flake's own cache is
-honored on every nix invocation. `handoff-cachix-cache.md` records the cache,
+honored on every nix invocation. [`handoff-cachix-cache.md`](handoff-cachix-cache.md) records the cache,
 the account and the `CACHIX_AUTH_TOKEN` secret as **all done (2026-07-20)** — so
 the old header's "Cachix account/token … human-gated" is stale. What remains is
 the **first push** and the **Mac download proof**. Two sibling docs disagree
 about the first of those: `docs/plans/README.md:31` says *"CI has already pushed
-data"*, while `handoff-cachix-cache.md` still lists the first push as remaining.
+data"*, while [`handoff-cachix-cache.md`](handoff-cachix-cache.md) still lists the first push as remaining.
 **Neither is checkable from this Linux jail** — it needs a look at the Cachix
 cache or a release run — so both spellings are recorded rather than one being
 picked.
@@ -90,7 +90,7 @@ longer a description of that machine: measured 2026-08-19, the Mac's installed
 `yolo` was **531 commits stale** and its `~/.config/yolo-jail/config.jsonc`
 still used the **removed `agents` key**, so no current `yolo` launches there on
 any backend. M2's "Mac agent sessions run under macos-user" is therefore true of
-the 07-21 build and not of today's. See `roadmap.md`'s 🔒 macOS rows.
+the 07-21 build and not of today's. See [`roadmap.md`](roadmap.md)'s 🔒 macOS rows.
 
 ### Retracted claims
 
@@ -422,7 +422,7 @@ Work items, commit-sized, in order:
    `yolo-log` helper (`bootstrap.go:129-133`, content already in Go as
    `MacosLogWrapperScript`, `macosuser.go:360-384`) and the
    `.zprofile`/`.zshrc`/`.bash_profile` login-rc PATH re-prepend
-   (`bootstrap.go:141-144` — this carries the unverified OQ-1 path_helper fix).
+   (`bootstrap.go:141-144` — this carries the unverified [OQ-1](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper fix).
    MCP wrappers: **skip the container presets natively** for now (bodies
    hardcode `/usr/bin/chromium`, `/bin/node`, `/etc/fonts` etc. —
    `mcp_wrappers.go`); document the gap rather than fake darwin variants.
@@ -435,7 +435,7 @@ Work items, commit-sized, in order:
    replace plan invariants B2/B3 (`runplan.go:173-190`) with Go-shaped ones;
    extend the dry-run plan assertions (`orchestrator_test.go` — note there is
    no byte-golden for the macos-user plan today; creating one is a J2.3
-   deliverable, with §1 of the verification runbook staying the manual
+   deliverable, with [§1](runbooks/mac-go-port-verification.md#1-macos-user-backend--dry-run-parity-no-privilege-do-this-first) of the verification runbook staying the manual
    anchor); update
    `internal/cli/check/sections_macos.go` interpreter probes and the
    macos-setup python3 warning (`internal/macosuser/commands.go:53-63`);
@@ -517,7 +517,7 @@ options are complementary; sequence them:
    seam (its fallback + `autoload_test.go` regressions stand), but the run path
    never sets it. Regression: `internal/cli/run/reporoot_fatal_test.go`.
    `macos-user` with empty `packages:` is still un-gated. See
-   `docs/research/repo-root-and-distribution.md` §6. Original D2 record below.
+   `docs/research/repo-root-and-distribution.md` [§6](../research/repo-root-and-distribution.md#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29). Original D2 record below.
 
    **Status (2026-07-21): DONE + committed** (`8f1d612`). Repo-root resolution is
    no longer a hard gate: `run.go` resolves it, and on a miss the launch proceeds
@@ -613,11 +613,11 @@ options are complementary; sequence them:
    still live at `flake.nix:13-16`, and yolo now passes `--accept-flake-config`
    on every nix invocation so the flake's own cache is actually consulted
    (`internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91`).
-   `handoff-cachix-cache.md` records the **cache, the account and the
+   [`handoff-cachix-cache.md`](handoff-cachix-cache.md) records the **cache, the account and the
    `CACHIX_AUTH_TOKEN` secret as all done (2026-07-20)** — so "gated on the
    Cachix account" is no longer true. Left: the **first push** and the **Mac
    download proof**. Sources disagree on the first (`docs/plans/README.md:31`
-   says CI has already pushed; `handoff-cachix-cache.md` still lists it as
+   says CI has already pushed; [`handoff-cachix-cache.md`](handoff-cachix-cache.md) still lists it as
    remaining) and **neither is verifiable from a Linux jail** — it needs eyes on
    the cache or on a release run.
 
@@ -643,7 +643,7 @@ privileged one-shots and pastes output back.
 
 **Track M status (2026-07-21): M0 ✅ · M1 ✅ · M2 ✅ — all verified on real
 Apple Silicon (macOS 26.5).** Recipe + e2e results:
-[runbooks/mac-sandvault-session.md](runbooks/mac-sandvault-session.md) (§6b).
+[runbooks/mac-sandvault-session.md](runbooks/mac-sandvault-session.md) (§[6b](runbooks/mac-sandvault-session.md#6b-m1-results--macos-user-e2e-observed-on-hardware-2026-07-21)).
 The bullets below are the original plan; see that runbook for what actually ran.
 
 > [!WARNING]
@@ -664,8 +664,8 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > `~/.dotfiles` and the keychains are all `Operation not permitted`. What is
 > **not** proven end-to-end is the launch itself — the `sudo -u _yolojail` +
 > bootstrap path around that confinement. See
-> [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md) §2 and
-> `roadmap.md`'s 🔒 macOS rows.
+> [`handoff-guest-notch-macos.md` §2](handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) and
+> [`roadmap.md`](roadmap.md)'s 🔒 macOS rows.
 
 - **M0 — bootstrap (human, ~30 min):** on the Mac: nix (flakes) + a git
   checkout with its own push credentials (deploy key — host creds stay
@@ -677,9 +677,9 @@ The bullets below are the original plan; see that runbook for what actually ran.
   mac-sandvault-session.md recording the working recipe.
 - **M1 — verification pass (after J2 lands):** agent under SandVault pulls,
   cross-checks build + dry-run goldens on darwin; human drives
-  `mac-macos-user-e2e.md` §3–§7: macos-setup, first real Seatbelt launch
-  (whoami→`_yolojail`), **§5 acceptance bar** (`which jq` →
-  `/nix/store/...`), **OQ-1** (login-shell PATH survives path_helper), real
+  `mac-macos-user-e2e.md` [§3](runbooks/mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo)–[§7](runbooks/mac-macos-user-e2e.md#7-cleanup): macos-setup, first real Seatbelt launch
+  (whoami→`_yolojail`), **[§5](runbooks/mac-macos-user-e2e.md#5-the-acceptance-bar--packages-materialized-natively) acceptance bar** (`which jq` →
+  `/nix/store/...`), **[OQ-1](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)** (login-shell PATH survives path_helper), real
   agent launch + host-creds-invisible check, finding-6 password check
   (`dscl . -read` authentication actually set), teardown idempotence. Also
   verify the staged self-exec binary runs clean under Gatekeeper/quarantine
@@ -702,7 +702,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 ## Track L — loophole framework on macos-user (future; use-case-gated)
 
 > **Status: NOT STARTED. Sequencing UNCHANGED** — recorded 2026-07-23 from the
-> `macos-user-nix-and-features.md` §3.5 discussion, still a forward-looking
+> `macos-user-nix-and-features.md` [§3.5](../design/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports) discussion, still a forward-looking
 > capability and not a revival blocker.
 >
 > **2026-09-03, and read this before reusing part 1 for anything:** a revision of
@@ -737,7 +737,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > "bundled" and the number "three" are stale. See `AGENTS.md`.
 
 The three *bundled* loopholes don't need porting to macos-user (see
-[macos-user-nix-and-features.md](../design/macos-user-nix-and-features.md) §3.5:
+[macos-user-nix-and-features.md §3.5](../design/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports):
 `audio`/`host-processes` are moot on a native process, and `claude-oauth-broker`
 is redundant with the shared `/Users/_yolojail` home). But the **loophole
 framework** — "a host-side daemon mediates the jail's access to a resource" — is
@@ -760,12 +760,12 @@ credential and never lets it cross into the jail.
 
 1. **Framework plumbing (unblocked, mechanical).** Generalize the loophole
    host-service start/stop so it runs on the macos-user launch path (today it lives
-   only in `runContainer`; see §3.6), emitting a localhost socket/port + the
+   only in `runContainer`; see [§3.6](../design/macos-user-nix-and-features.md#36-the-container-launch-preamble-config-diff-prompt-image-load-etc)), emitting a localhost socket/port + the
    launch-env var per active loophole instead of a mount + `--add-host`. Reuse the
    existing manifest/`Discover` machinery; the transport just changes.
-2. **The specific access-scoping proxy (BLOCKED — see OQ-L1).** The daemon that
+2. **The specific access-scoping proxy (BLOCKED — see [OQ-L1](#open-questions-blocking)).** The daemon that
    does the actual GitHub token-scoping + request filtering. Do **not** build this
-   until OQ-L1 is resolved — getting the scoping model wrong ships a false security
+   until [OQ-L1](#open-questions-blocking) is resolved — getting the scoping model wrong ships a false security
    boundary, which is worse than none.
 
 ---
@@ -855,7 +855,7 @@ specific problems, none of which the socket experiment touches:
    is the constant `_yolojail`; every jail on the machine is that one uid, so peer
    credentials on the socket identify the account and not the session. Per-session
    endpoint files (which `EndpointGrantCommands` grants by ACE) are grants to the
-   same uid, so any jail can read any of them. This is OQ-L1's "how does it
+   same uid, so any jail can read any of them. This is [OQ-L1](#open-questions-blocking)'s "how does it
    authenticate which jail is calling" question, arriving early and with no answer.
 3. **The precedent is bad.** `com.docker.vmnetd` — the closest real analogue, a
    macOS privileged helper for a container runtime — shipped a local privilege
@@ -1070,7 +1070,7 @@ tree today": read the daggers.* Verified 2026-08-23.
    lies, the same ruling `workspace_readonly` got on this backend (`d0961f2c`). Verified
    on macOS 26.5, where all three hardcoded paths are absent.
 5. **Darwin-unavailable packages: warn-and-skip vs aggregated error** (see
-   §0) — the written decision says error + per-platform `packages` overrides;
+   [§0](#0-standing-decisions--do-not-relitigate)) — the written decision says error + per-platform `packages` overrides;
    the shipped code warn-and-skips and the overrides were never built.
    **RESOLVED 2026-07-23 in favor of the written design:** implement the
    aggregated hard error + a per-platform `linux-only` override. Now tracked as
@@ -1082,7 +1082,7 @@ tree today": read the daggers.* Verified 2026-08-23.
 
 ## Open questions (blocking)
 
-- **OQ-L1 — the access-scoping model for the Track L proxy.** *Blocks Track L
+- **[OQ-L1](#open-questions-blocking) — the access-scoping model for the Track L proxy.** *Blocks Track L
   part 2 (the specific proxy), not part 1 (framework plumbing).* Before building
   the GitHub-scoping/auditing daemon, the maintainer needs to pin down what
   "scoped access" precisely means: which credential the host daemon holds and how
@@ -1101,17 +1101,17 @@ tree today": read the daggers.* Verified 2026-08-23.
 > **Rechecked 2026-08-23.** The first three closed on real hardware in M1
 > (2026-07-21); the fourth stands, and two new ones have joined it.
 
-- ~~OQ-1 (path_helper) stays the headline unknown until M1~~ — **CLOSED
+- ~~[OQ-1](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) (path_helper) stays the headline unknown until M1~~ — **CLOSED
   2026-07-21 on real HW.** The login-rc PATH re-prepend holds: `which just` →
   `/nix/store/…/bin/just`, not Homebrew's `/usr/local/bin`. Recorded in
-  `../research/macos-support-matrix.md` §5 item 2.
+  [`../research/macos-support-matrix.md`](../research/macos-support-matrix.md) [§5](../research/macos-support-matrix.md#5-roadmap-ordered) item 2.
 - ~~SandVault's profile may block nix-daemon or AC access~~ — **CLOSED
-  2026-07-21** (M0 passed; recipe in `runbooks/mac-sandvault-session.md`). And
+  2026-07-21** (M0 passed; recipe in [`runbooks/mac-sandvault-session.md`](runbooks/mac-sandvault-session.md)). And
   as of 2026-08-19 the successor question is answered too: yolo's **own**
   Seatbelt profile runs `go build ./...`, the full `go test -short ./...` and
   `just test-fast`, and reaches the nix daemon (`Trusted: 1`).
 - ~~`dscl` empty-password semantics (finding 6) unknown until M1~~ — **CLOSED
-  2026-07-21**: the password is actually set (matrix §1).
+  2026-07-21**: the password is actually set (matrix [§1](../research/macos-support-matrix.md#1-the-three-macos-runtimes-where-the-agent-runs)).
 - **sandbox-exec deprecation and AC's non-reclaiming memory balloon:** accepted,
   on record, no action. *(Unchanged.)*
 - **NEW — `x86_64-darwin` is on a clock.** nixpkgs 26.11 has **dropped** it, so
