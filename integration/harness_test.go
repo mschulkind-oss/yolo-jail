@@ -525,7 +525,10 @@ type result struct {
 
 func (r result) combined() string { return r.stdout + r.stderr }
 
-type runConfig struct{ timeout time.Duration }
+type runConfig struct {
+	timeout time.Duration
+	env     []string
+}
 
 type runOption func(*runConfig)
 
@@ -533,6 +536,13 @@ type runOption func(*runConfig)
 // mise-venv activation case).
 func withTimeout(d time.Duration) runOption {
 	return func(c *runConfig) { c.timeout = d }
+}
+
+// withEnv adds one KEY=VALUE to the child's environment — the env-gated
+// features (YOLO_TIMING) need a spelling that does not leak into the suite's
+// own os.Environ for every other test.
+func withEnv(key, val string) runOption {
+	return func(c *runConfig) { c.env = append(c.env, key+"="+val) }
 }
 
 // runCommand runs the built yolo binary with the given args in dir, capturing
@@ -555,6 +565,7 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
+	cmd.Env = append(cmd.Env, cfg.env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
