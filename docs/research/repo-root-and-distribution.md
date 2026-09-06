@@ -1,12 +1,12 @@
 # Why `yolo` Needs a Flake — and How Installs Get One
 
 > **Status: CURRENT — written 2026-07-23, amended 2026-07-29 (D2 revert) and
-> 2026-08-31 (the cwd-walk removal, §2a), re-checked against the tree
+> 2026-08-31 (the cwd-walk removal, §[2a](#2a-the-cwd-walk-and-why-it-was-removed-2026-08-31)), re-checked against the tree
 > 2026-08-23.** The load-bearing claim was
 > re-verified today: a missing repo root is **FATAL**, not a degraded launch —
 > `5d34dece` *"fix(run)!: a missing repo root is fatal again, not a degraded
-> launch"* (2026-07-29) is in `main`, and §6 already carries the reasoning. Do
-> not resurrect D2's graceful degradation; §6 explains why the soft path
+> launch"* (2026-07-29) is in `main`, and [§6](#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29) already carries the reasoning. Do
+> not resurrect D2's graceful degradation; [§6](#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29) explains why the soft path
 > silently launched jails on stale images.
 >
 > This doc describes how a checkout-less
@@ -24,7 +24,7 @@
 first locate a yolo-jail flake. That flake either compiles the Go binaries from
 source *or* consumes prebuilt ones, decided purely by what sits next to it. Four
 ways `yolo` finds a flake now (`internal/reporoot.Resolve`) — **three, since the
-cwd walk was removed on 2026-08-31 (§2a)**:
+cwd walk was removed on 2026-08-31 (§[2a](#2a-the-cwd-walk-and-why-it-was-removed-2026-08-31))**:
 
 1. **`YOLO_REPO_ROOT` env** — CI and the integration harness set it; validated
    to actually contain `flake.nix` **or** `go.mod`. Also the ONLY way to point
@@ -53,7 +53,7 @@ staging and the nix build: `Flake source: <path> (<what selected it>)`.
 > — but as a **prebuilt bundle keyed to a fixed yolo-owned path**, not a config
 > pointer at a live checkout. The concern that "a staged prebuilt bundle would
 > build jails from stale artifacts, not their edits" was answered by precedence
-> while the cwd-walk existed; since its removal (§2a) the answer is different and
+> while the cwd-walk existed; since its removal (§[2a](#2a-the-cwd-walk-and-why-it-was-removed-2026-08-31)) the answer is different and
 > more explicit — a developer who wants live source **says so** with
 > `YOLO_REPO_ROOT`, and otherwise `just install` is the step that delivers their
 > edits to the staged bundle. The `repo_path` key is still *tolerated*
@@ -95,7 +95,7 @@ first probe and threads it through the launch:
   does. Resolution is a **hard gate** for the container backends: an
   unresolvable repo root exits 1 with an actionable message rather than
   launching on a possibly-stale cached image. (This reverts D2's graceful
-  degradation — see §6 for why the soft path was removed.) The gate fires
+  degradation — see [§6](#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29) for why the soft path was removed.) The gate fires
   *after* the macos-user branch, which needs no repo when `packages:` is empty.
 - `run.go` — `repoRoot` becomes the argument to `autoLoadImage`.
 
@@ -161,7 +161,7 @@ and outside the jail**. There is no in-jail-special code path any more.
 | 3 | **State-dir bundle** (`paths.FlakeBundleDir`, `~/.local/share/yolo-jail/flake-bundle`) | **Yes — a from-source `just install`, from any dir** | `FromInstalledBundle` |
 
 _(Two earlier steps are gone: a user-config `repo_path` read, retired 2026-07-23,
-and the cwd walk, removed 2026-08-31 — see §2a.)_
+and the cwd walk, removed 2026-08-31 — see §[2a](#2a-the-cwd-walk-and-why-it-was-removed-2026-08-31).)_
 
 `Resolve` returns a `Resolution{Root, Source}`, not a bare path: the `Source`
 column above is what a launch prints, so "which flake, and why that one" has one
@@ -376,7 +376,7 @@ proof pending).
 
 An installed-from-source `yolo` resolves the repo **two** ways now (the staged
 bundle, or `YOLO_REPO_ROOT`), and the install is genuinely **self-contained** —
-no external checkout is ever required. Since the cwd-walk was removed (§2a), the
+no external checkout is ever required. Since the cwd-walk was removed (§[2a](#2a-the-cwd-walk-and-why-it-was-removed-2026-08-31)), the
 staged state-dir bundle answers **every** directory, the checkout included, and
 `YOLO_REPO_ROOT` is the single opt-in that points nix at the developer's LIVE
 source.
@@ -426,7 +426,7 @@ silently ran an image that **may not match the config**, hiding the fact that
 the environment is stale, which is worse than failing. Now an unresolvable repo
 root on a container backend is **fatal** (`run.go`, exit 1) with a message
 pointing at the three fixes — launch from a checkout, set `YOLO_REPO_ROOT`, or
-reinstall so the flake bundle ships beside the binary (§4, `just install` now
+reinstall so the flake bundle ships beside the binary ([§4](#4-distribution-channels--does-each-ship-a-buildable-flake), `just install` now
 stages it). `macos-user` with empty `packages:` still needs no repo and is not
 gated. `SkipBuild` stays a field on `AutoLoadOptions` as a dormant seam (its
 fallback branch and the `autoload_test.go` regressions construct the options
@@ -442,7 +442,7 @@ directly), but the run path never sets it now.
   check, identical inside and outside the jail **and in every directory**.
   **Three steps** (env, exe-relative bundle, state-dir bundle); the `repo_path`
   fallback was retired 2026-07-23, the state-dir bundle added 2026-07-29, and the
-  cwd walk removed 2026-08-31 (§2a). Resolution returns its `Source`, which every
+  cwd walk removed 2026-08-31 (§[2a](#2a-the-cwd-walk-and-why-it-was-removed-2026-08-31)). Resolution returns its `Source`, which every
   launch prints as `Flake source: …`.
 - **Prebuilt bundle** — `flake.nix` + `flake.lock` + `bin/linux-{amd64,arm64}/`
   ships in Homebrew + the release archive and is baked into the image at

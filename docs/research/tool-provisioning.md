@@ -67,7 +67,7 @@ numbers are "look here", not eternal truth.
   the `LD_LIBRARY_PATH`/skew problems). A workspace that needs a specific version
   pins it in `mise.toml`; that override is the only case with two copies, and
   it's what nix-ld makes robust. A guard test asserts baked runtimes never
-  re-enter the mise defaults. See §2 "one by default, two only on override" for
+  re-enter the mise defaults. See [§2](#2-the-node-question-resolved-one-by-default-two-only-on-override) "one by default, two only on override" for
   the detail and the history 2026-07-20.
 - **Go is now baked too** (`imagePkgs.go` in `corePackages`, added 2026-07-20).
   `go` inside the jail is the baked `/bin/go`, RPATH-self-contained like node and
@@ -126,7 +126,7 @@ mise manages the *interactive* / *project* toolchains. Two config scopes:
   **node, python, AND go are all removed (2026-07-20):** all three are baked into
   the image (`flake nodejs_24` + `python3` + `imagePkgs.go`), so listing any of
   them in the mise defaults installed a duplicate non-nix copy — the source of
-  the `LD_LIBRARY_PATH`/MCP-wrapper problems and the version skew (§2). With go
+  the `LD_LIBRARY_PATH`/MCP-wrapper problems and the version skew ([§2](#2-the-node-question-resolved-one-by-default-two-only-on-override)). With go
   baked too, `miseBaseTools` has no reason to list anything: mise is now purely an
   **override** path. A workspace can still pin node/python/go in its own
   `mise.toml` (an explicit override), which is the only way a second copy
@@ -177,7 +177,7 @@ history and the host↔jail path pitfalls are in
 subsequent boots are fast. Neither of the two commands this line used to name is
 run any more: `mise trust` was removed once `MISE_TRUSTED_CONFIG_PATHS=/workspace`
 was verified sufficient on its own (`internal/entrypoint/boot.go:192-210`), and the
-per-launch `mise upgrade` was removed by ruling OQ-PD3 — a launch resolves on
+per-launch `mise upgrade` was removed by ruling [OQ-PD3](../design/program-delivery.md#decision-ledger) — a launch resolves on
 install only (`internal/cli/run/provisioning_upgrade_test.go` pins both branches).
 
 ### Layer 3 — npm globals (bootstrap + lazy shims)
@@ -282,7 +282,7 @@ then execs the **baked** `/bin/node`.
 
 | Consumer | Node it runs | Why |
 |---|---|---|
-| Bare `node`, shebangs, `npx`, agent CLIs | **mise** node | mise shims precede `/bin` in PATH (§3) |
+| Bare `node`, shebangs, `npx`, agent CLIs | **mise** node | mise shims precede `/bin` in PATH ([§3](#3-path-resolution--precedence)) |
 | MCP presets | **baked** `/bin/node` | wrapper still execs `/bin/node` explicitly |
 | Custom `mcp_servers` with a bare `node` | **mise** node | not wrapper-routed — the known gap (`mise-node-dynamic-linking.md:135-143`), and the case nix-ld fixes |
 
