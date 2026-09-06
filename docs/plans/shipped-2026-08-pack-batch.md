@@ -815,7 +815,7 @@ one mistake never draws two lines:
   about: staged content that NO contribution's source claims and that sits in no
   conventionally-read location, reported with the offending filenames. It fires only when *not
   one* staged content file is claimed — a pack whose content mostly lands correctly does not
-  need a linter nitpicking a stray file. Root-level `pack.json` / `derive.lua` / [`README.md`](README.md) /
+  need a linter nitpicking a stray file. Root-level `pack.json` / `derive.lua` / `README.md` /
   `LICENSE` / `CHANGELOG.md` / `.gitignore` / `.gitattributes` are not content and are exempt,
   which is what lets a config-only pack carry a README.
 - **F6b**: `pack footprint` takes `--allow-exec`, so a pack you can `lint` you can also
