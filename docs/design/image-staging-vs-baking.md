@@ -85,8 +85,12 @@ resulting store path: the decision is `image inspect <content ref>` (`internal/i
 and the sentinel `build/last-load-<runtime>` only explains *why* (`:459-471`). So a launch costs a
 full stream-and-load exactly when the **store path** moved, and the store path moves when:
 
-1. **The flake source's Go inputs move** — the `goSrc` fileset (`go.mod`, `go.sum`, `vendor/`, `cmd/`,
-   `internal/`, `packs/`; `flake.nix:86-109`) — or `flake.nix` / `flake.lock` move.
+1. ~~**The flake source's Go inputs move** — the `goSrc` fileset~~ — **NO LONGER TRUE since [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06)
+   (2026-09-06).** `goSrc` left the image derivation with `installPrefix`; the binaries are mounted.
+   MEASURED there: a Go-only edit leaves `.#ociImage.outPath` unchanged. What remains on this line is
+   **`flake.nix` / `flake.lock`** — measured at 1 commit in 567, and 0, in the windows below. Everything
+   downstream in this section was written when the two moved together; read the frequencies as the
+   history they are.
 2. **`packages:` changes** ([§1.5](#15-the-multiplication-factor-packages-and---impure)) — one image per distinct list, coexisting since C2.
 3. **On the default launch path, `just install` runs.** Since `46655873` (2026-08-31) the working
    directory never chooses the flake: `reporoot.Resolve` takes `YOLO_REPO_ROOT`, then a bundle beside
@@ -102,6 +106,17 @@ full stream-and-load exactly when the **store path** moved, and the store path m
    `YOLO_REPO_ROOT` path a docs-only commit does *not* move the image. This asymmetry is
    **not measured as two store paths side by side**; it follows from content addressing and is
    [OQ-7](#102-open-questions).
+
+   **⚠ THE LAST SENTENCE OF THAT IS NOW WRONG, AND IT WAS MEASURED — [OQ-7](#101-decision-ledger) IS MOOT.** Since [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) the
+   stamped binaries are not image content, so they cannot move the image's store path. MEASURED
+   2026-09-06 with two bundles differing ONLY in the bytes of their prebuilt binaries — which is exactly
+   what the stamp changes: both evaluate `.#ociImage.outPath` to
+   `kwvlhbp8…-stream-yolo-jail`, while their `.#installPrefix` paths differ (`37pcx1hk…` vs
+   `qxgcdz67…`). The same two bundles under `ce0d6324`'s flake evaluate to **different** images
+   (`fbzzsgl8…` vs `39h058sw…`), which is the before-state this item describes. `just install` still
+   mints a new *prefix* — a `runCommand` that copies seven files — and no image at all. (A bonus the
+   measurement shows: that `kwvlhbp8…` is the SAME image the source checkout evaluates to, so the bundle
+   path and the source path now agree on the image byte for byte.)
 4. **Nothing else.** In-jail, bare `yolo` resolves the baked `/opt/yolo-jail/share/yolo-jail` bundle and
    builds the image it is already running; only `YOLO_REPO_ROOT=/workspace` builds from live source,
    and then `refuseOnSourceSkew` (`internal/cli/run/run.go:121`) stops a launch whose host binary is
@@ -433,13 +448,17 @@ Read `flake.nix` as four strata; they correspond almost exactly to the size/freq
 The minimal variant drops the second set, documented as **~1.6–2 GB smaller** (`Justfile:198-199`), not
 independently measured.
 
-**(b) Our own Go build — 2.4 %, invalidated by any `goSrc` file (or, on the bundle path, by any
-`just install`; [§1.1](#11-what-triggers-a-rebuild-and-how-often) item 3).** `goBinaries` (`flake.nix:122-155`) compiles every `cmd/*` in one derivation
-— or copies the bundle's prebuilt binaries in (`:110-128`); `installPrefix` (`:809-837`) copies the seven
-`shippedBinaries` (`:808`) into `/opt/yolo-jail/bin/` plus the flake bundle and symlinks `/bin/<name>` at
-the **absolute store path** (`:779-790` — a bind mount over `/opt/yolo-jail` once bricked pid1). The
-`goSrc` fileset trap is documented in the flake at `:94-107`: a top-level Go package outside the fileset
-vanishes from the image while `go build ./...` stays green.
+**(b) Our own Go build — ~~2.4 %~~ NOT IN THE IMAGE since [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) (2026-09-06).** `goBinaries`
+(`flake.nix:122-155`) still compiles every `cmd/*` in one derivation — or copies the bundle's prebuilt
+binaries in (`:110-128`) — and `installPrefix` (`:817`) still copies the seven `shippedBinaries`
+(`:816`) into `/opt/yolo-jail/bin/` plus the flake bundle. **What changed is who consumes it:** the
+launch bind-mounts that prefix, and `corePackages` (`:971`) carries only `jailPrefixLinks` (`:870` — the
+`/bin/<name>` NAMES) and `imageIdentity` (`:892`). So this stratum is now a *launch* input, not an image
+input, and the two strata that used to move together no longer do.
+
+The `goSrc` fileset trap survives the move intact, one layer over: a top-level Go package outside the
+fileset now vanishes from **the mounted prefix** while `go build ./...` stays green — same silence, same
+fix (`flake.nix:94-107`).
 
 **(c) Generated-into-the-image content.** `mkBinPathLinks` (`flake.nix:540-748`) is one `runCommand`
 producing the FHS symlinks (`:543-549`); the nix-ld interpreter at `/lib/` and `/lib64/` (`:581-583`); the
@@ -456,8 +475,16 @@ env too.
 
 **What `installPrefix` covers.** Exactly the `goSrc` fileset plus the flake files, invariant across
 full/minimal and across `packages:` ([§1.5](#15-the-multiplication-factor-packages-and---impure), MEASURED). It does **not** cover the package sets' content,
-`binPathLinks`, or anything in `fakeRootCommands` — which makes it a good oracle for "is the loaded image
+`binPathLinks`, or anything in `fakeRootCommands` — which made it a good oracle for "is the loaded image
 built from this tree's Go code" and a bad one for "is the loaded image current".
+
+> [!IMPORTANT]
+> **It is no longer an image oracle at all**, because it is no longer in the image ([C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06)). The
+> question it answered — "does the loaded image carry this tree's Go code?" — has no referent: the
+> binaries a jail runs are mounted from the tree, so they cannot be stale relative to it. What replaced
+> it is `imageIdentity` (`flake.nix:892`), a derivation over `flake.nix` + `flake.lock` and nothing
+> else — the image's remaining input set — read back out of a loaded image as
+> `readlink /etc/yolo-jail-image-identity` (`integration/imageskew_test.go`).
 
 ---
 
@@ -708,6 +735,75 @@ it saves ~1 s on a path that costs seconds-to-minutes elsewhere, and `installPre
 `flake.lock` ([§2](#2-what-the-image-contains-and-what-invalidates-each-part)), so the gate would be wrong exactly when it mattered
 ([`gate-placement-principle.md`](gate-placement-principle.md) Test 1, by analogy).
 
+### C8 — Deliver yolo's own binaries by mount. **SHIPPED 2026-09-06.**
+
+**This candidate did not exist in this doc; [§8](#8-what-this-does-not-cover) refused it by name.** The refusal's premise was
+that reopening the `/opt/yolo-jail` bind meant reopening the dev-override that let a **stale** binary
+shadow a **baked** one. What ships here has no shadow to lose to: the baked copy is gone, so the mount is
+the only copy, and nothing can silently win over anything. The maintainer authorized it across all three
+backends in one pass.
+
+`installPrefix` leaves the image derivation (`flake.nix:971` — `corePackages` now carries
+`jailPrefixLinks` and `imageIdentity` instead), and the launch supplies its content as two `:ro` bind
+mounts — `<bin dir>:/opt/yolo-jail/bin` and `<bundle>:/opt/yolo-jail/share/yolo-jail`
+(`internal/cli/run/jailprefix.go:148`). Two rather than one because the host layouts differ: `just
+install` stages `bin/linux-<arch>/` beside the flake files, not `bin/` beside `share/yolo-jail/`, and
+restaging into the prefix shape would copy ~200 MB per launch. The container argv names
+`/opt/yolo-jail/bin/yolo-entrypoint` absolutely (`internal/cli/run/assemble.go:744`); what the image
+keeps is the NAMES (`/bin/<name>` → the mountpoint, `flake.nix:870`) and the two mountpoint dirs
+(`:1071`).
+
+**MEASURED, 2026-09-06, on this tree** — `nix eval`, never a build. Appending one comment line to
+`internal/version/version.go`:
+
+| | `.#ociImage.outPath` | `.#installPrefix.outPath` |
+|---|---|---|
+| **before** (`ce0d6324`'s flake), clean | `jxl27j84…-stream-yolo-jail` | — |
+| **before**, one Go comment | `1lrspd9a…-stream-yolo-jail` — **MOVED** | — |
+| **after**, clean | `kwvlhbp8…-stream-yolo-jail` | `69pivd58…` |
+| **after**, one Go comment | `kwvlhbp8…` — **unchanged** | `084zadmp…` — moved |
+| **after**, one flake.nix comment | `5zisv87a…` — moved | — |
+
+So the image now moves for `flake.nix`, `flake.lock` and `packages:`, and for nothing else. Against
+[§1.1](#11-what-triggers-a-rebuild-and-how-often)'s measured frequencies that removes the trigger behind **~half of all commits** and leaves
+one that fired **once in 567**.
+
+Where the mounted content comes from — a bundle and the binaries it ships, in two spellings:
+
+- **Prebuilt.** The resolved flake source's own `bin/linux-<arch>/`. Every installed bundle has one, and
+  `installPrefix` bakes one INTO the mounted prefix, so a nested jail inherits prebuilt binaries and
+  never compiles Go for this.
+- **Built.** A live checkout ships none, so `nix build .#installPrefix` (`internal/image/prefix.go:62`).
+  **No macOS offload is needed and none is wired:** `goBinaries` cross-compiles with the HOST Go
+  toolchain (`CGO_ENABLED=0 GOOS=linux`), so on darwin `installPrefix` is a darwin derivation producing
+  Linux binaries — unlike `.#ociImage`, which is why that one has a builder-container path and this one
+  does not.
+
+A failed prefix build **refuses the launch** ([OQ-2](#101-decision-ledger)'s ruling, applied to the half that moved out):
+the image no longer carries a `yolo-entrypoint`, so there is nothing to fall back on. The out-link is
+the prefix's GC root, keyed by source tree, and deliberately outside both reapers' reach —
+`build/roots/` belongs to `PruneOrphanImageRoots`, which deletes anything that is not a loaded image.
+
+**THE SECURITY DELTA, and it is a trade rather than a free win.** `/bin/<name>` used to target an
+immutable store path on purpose, and what runs in the jail — pid1 included — was image content
+addressed by the image's own content hash. It is now a host directory that changes with **no rebuild
+and no reload**: editing the staged bundle changes the next launch's `yolo-entrypoint`. That mutability
+*is* the feature (it is what makes a Go-only commit free). It does not move the host trust boundary — a
+host that can write `~/.local/share/yolo-jail` could already replace the `yolo` that builds the argv —
+but it does end the jail's binaries being as reproducible as its image, and that is the property being
+spent. The pid1-brick hazard the old shadow hardening guarded against is answered on the other side:
+the argv is absolute, so a missing mount fails as "no such file" naming the path.
+
+**Backends.** podman and Apple Container each emit the pair from their own base-mount function (two
+*directory* mounts; the single-file limitation apple/container#1089 does not apply, and `:ro` is
+ignored there as everywhere else on that backend — apple/container#889). **`macos-user` needed nothing
+and got nothing**: it runs no container, loads no image, and its `yolo` is the host's own binary. That
+is the same "no image" fact [§3.3](#33-the-other-three-backends-shapes) records, reaching the same conclusion from the other end.
+**NOT VERIFIED ON HARDWARE**: both macOS arms. Only podman-on-Linux was exercised (a nested jail booted
+on the mounted prefix, resolved its flake bundle at `/opt/yolo-jail/share/yolo-jail` from
+inside, and ran
+`yolo --version`).
+
 ### Ranking summary
 
 | # | Candidate | Frequency | Cost avoided | Risk | Backends | State, 2026-09-06 |
@@ -718,6 +814,14 @@ it saves ~1 s on a path that costs seconds-to-minutes elsewhere, and `installPre
 | C4 | `packages:` from the mounted store | every `packages:` user | the `--impure` axis; ~3 GB per distinct list | **high** | podman + Linux + nix daemon | ❌ shape ruled ([OQ-1](#101-decision-ledger)); go/no-go the maintainer's on [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5) + [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) |
 | C5 | `fullPackages` from the mounted store | ~half of commits | ~1.6–2 GB per rebuild | high | same as C4 | shape ruled with C4; ordered after it |
 | C6 | A stable layer chain; stream only the moved layers | ~half of commits | ~2.7 GB of podman storage per Go-only rebuild (MEASURED); up to ~48 s of a 52 s cold launch (**NOT MEASURED**) | medium | podman | re-opened as [OQ-6](#102-open-questions); measure the time split first |
+| C8 | yolo's own binaries by mount | **~half of commits — the dominant trigger** | the whole rebuild+load for every Go-only commit (MEASURED: the image store path no longer moves) | medium — see the security delta | all three | ✅ 2026-09-06 |
+
+> [!IMPORTANT]
+> **C8 changes what the rows above are worth.** C3's and C6's frequencies were "~half of commits"
+> because that is how often `goSrc` moved. It no longer forces anything: what is left on that axis is
+> `flake.nix` and `flake.lock`, measured at **1 commit in 567** and **0**. C4/C5 are untouched — their
+> trigger is `packages:`, which C8 does not touch — and C6's remaining case is the `flake.lock` bump,
+> which is exactly the case a binary cache already serves ([§6](#6-the-binary-cache-alternative-argued-fairly)). Re-price before building either.
 
 ---
 
@@ -728,7 +832,7 @@ it saves ~1 s on a path that costs seconds-to-minutes elsewhere, and `installPre
 
 | Content | Why it cannot move |
 |---|---|
-| `/bin/yolo-entrypoint` (`flake.nix:809-837`, the `/bin/<name>` symlink at `:835`) | The container argv ends `<image-ref> yolo-entrypoint` (`internal/cli/run/assemble.go:719`), resolved on the image's PATH by the runtime before one line of yolo code has run |
+| ~~`/bin/yolo-entrypoint`~~ — **MOVED, C8, 2026-09-06.** What must bake is the mountpoint (`flake.nix:1071`) and the `/bin/<name>` NAME (`:870`) | The old reason — "the container argv ends `<image-ref> yolo-entrypoint`, resolved on the image's PATH before one line of yolo code has run" — was true of a BARE name. The argv now names `/opt/yolo-jail/bin/yolo-entrypoint` absolutely (`internal/cli/run/assemble.go:744`), and the mount is live before exec, so there is no bootstrap ordering problem to solve. This row is kept as a correction: it was the strongest-looking entry in the column and it was wrong |
 | `/bin/bash`, `/bin/sh`, `/usr/bin/env`, coreutils (`flake.nix:543-549`) | The generated scripts and the runtime's exec path need a shell that exists in the rootfs |
 | nix-ld at `/lib/ld-*` and `/lib64/ld-*` (`flake.nix:581-583`) | A `PT_INTERP` — an absolute path burned into every FHS binary, not a PATH entry |
 | `/usr/share/nix-ld/lib` core trio (`flake.nix:592-599`) | The *only* library search path an FHS binary gets under a fully scrubbed environment |
@@ -744,8 +848,8 @@ it saves ~1 s on a path that costs seconds-to-minutes elsewhere, and `installPre
 | `extraPackages` from `packages:` (`flake.nix:343-344`, in `contents` at `:985-989`) | C4 | Podman+Linux+daemon only; `LD_LIBRARY_PATH` and the `/lib` farm are baked; two integration tests assert baked paths. **Per [OQ-1](#101-decision-ledger) an *addition*, not a move: the baked path stays as fallback.** Scope stays workspace ([OQ-4](#101-decision-ledger)) |
 | `extraLibPackages` — the user half of the `/lib` farm (`flake.nix:636-646`) | Same; append a boot-written dir to `LD_LIBRARY_PATH` | Scrubbed-env consumers lose it (`:728-732`); nix-ld's fallback dir stays baked |
 | `fullPackages` (`flake.nix:909-937`) | C5 | Inverts the "image beats launcher" invariant for every moved name ([§3.1](#31-the-boot-written-anchors)); chromium drags baked font links. [OQ-1](#101-decision-ledger)'s opt-in shape contains it |
-| The `share/yolo-jail/bin/linux-<arch>/` duplicate of the binaries (`flake.nix:827-828`) | Nothing — deliberate (`:768-777`) | 2 % of the image |
-| yolo's own binaries, delivered by mount instead of baked | **Refused, and not proposed here** — see [§8](#8-what-this-does-not-cover) | The `/opt/yolo-jail/dist-go` dev-override was removed on purpose (`flake.nix:774-776`); `/bin/<name>` targets the absolute store path because a mount over `/opt/yolo-jail` bricked pid1 (`:779-790`) |
+| The `share/yolo-jail/bin/linux-<arch>/` duplicate of the binaries | Nothing — deliberate | No longer image content at all (C8). It is still a deliberate duplicate INSIDE the mounted prefix, and it earns more there than it did here: it is what lets a nested jail mount prebuilt binaries instead of compiling them |
+| ~~yolo's own binaries, delivered by mount instead of baked~~ | **SHIPPED — [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06), 2026-09-06** | Was: *"Refused, and not proposed here."* The refusal is retracted in [§8](#8-what-this-does-not-cover); the shadow hazard it rested on required a baked copy to lose to, and there is none |
 
 **ALREADY DELIVERED** — the largest column.
 
@@ -846,11 +950,14 @@ own stderr are printed before anything else (`:333-336`); and the fallback is **
   design the fix. [`minimal-disk-footprint.md`](minimal-disk-footprint.md) owns what gets deleted, when, on whose
   authority, and the reclaimers that are not image tars. Where the two disagree about a retention number,
   that one wins. C3 stays here because it is a change to how an image is *delivered*.
-- **Delivering yolo's own binaries outside the image.** It is the obvious lever — 3.25 % of the image
-  causing ~100 % of the rebuilds — and it was tried and removed on purpose: the `/opt/yolo-jail/dist-go`
-  dev-override let a stale binary on PATH shadow the baked one and made a fixed jail look broken
-  (`flake.nix:768-790`; `AGENTS.md` "Build & deploy — the traps"). Re-opening it is a decision about the
-  trust model of the boot path, not a staging question, and this doc does not make it.
+- ~~**Delivering yolo's own binaries outside the image.**~~ **⚠ RETRACTED 2026-09-06 — it is [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06), and it
+  shipped.** The refusal was right about the stakes ("a decision about the trust model of the boot path")
+  and wrong about the hazard. What was tried and removed was the `/opt/yolo-jail/dist-go`
+  **dev-override**: a second copy that let a *stale* binary shadow the *baked* one, so a fixed jail
+  looked broken. C8 removes the baked copy, which is what removes the shadow — there is one copy, named
+  absolutely on the argv, and a missing mount fails saying which path is missing. The trust-model call
+  the bullet reserved for a human was made by the maintainer, and the property it costs is written down
+  in C8's security delta rather than left implied.
 - **Anything requiring a measured `nix build` of the image or a measured `podman load`** — both NOT
   MEASURED in [§1.3](#13-what-a-rebuild-actually-costs); [OQ-6](#102-open-questions) is the request for the second.
 
@@ -865,16 +972,18 @@ own stderr are printed before anything else (`:333-336`); and the fallback is **
 | R3 | **C2 multiplies loaded images**, and `--keep-images 2` by CreatedAt is the wrong rule for per-config tags. | **Safety discharged** with C2 and `4064f720` (dedup by image ID, fail-safe liveness veto — [§4](#4-candidates-ranked) C2's note). **The number is not**: default 2 is untouched (`internal/prune/prunecmd.go:151`) and belongs to [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3). The cost is now priced ([§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)): ~2.7 GB per Go-only image, ~3 GB per distinct `packages:` closure — so with the dev-loop rate measured there, `keep=2` never running is the difference between ~6 GB and ~39 GB. |
 | R4 | **C3 removes the offline safety net** if taken to "never write a tar". | **Superseded by [OQ-5](#101-decision-ledger):** tars are a bug; the target is zero after a successful load. The safety net needs *at most one* tar for a jail that must start when the build fails and nothing is loaded (`newestTars`) — a fallback mechanism, not a retention policy, designed in [`minimal-disk-footprint.md`](minimal-disk-footprint.md). C1 shipped first, as this row required. |
 | R5 | **Scrubbed-environment breakage.** A consumer scrubbing `LD_LIBRARY_PATH` cannot be rescued (`flake.nix:728-732`); C4 moves user libs from a baked dir to an env-dependent one. | Keep the nix-ld fallback dir baked (`:592-599`, kept to the trio on purpose); growing it is an explicit call. |
-| R6 | **The `goSrc` fileset trap** bites any new top-level Go package, silently (`flake.nix:94-107`). | Any C4/C5 package outside `cmd/`/`internal/` is added to the fileset in the same commit. |
+| R6 | **The `goSrc` fileset trap** bites any new top-level Go package, silently (`flake.nix:94-107`). Unchanged by [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) except in where it bites: the package now vanishes from the MOUNTED PREFIX rather than from the image. | Any C4/C5 package outside `cmd/`/`internal/` is added to the fileset in the same commit. |
 | R7 | **Every number here comes from one machine — this jail.** | The *ratios* are machine-independent and are what the ranking rests on; absolute figures are illustrative. |
 | R8 | **C4/C5 make the jail structurally dependent on the host nix daemon** — the socket is mounted read-write, gated on Linux by path existence alone (`internal/cli/run/hostprobes.go:22-24`). | Pre-existing, but C4 turns "convenient" into "load-bearing". A deliberate decision, per [`gate-placement-principle.md`](gate-placement-principle.md) Test 2. |
+| R9 | **What executes in the jail is now HOST-MUTABLE with no rebuild** ([C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06)). pid1 comes from a bind-mounted host directory, not from content-addressed image content; editing the staged bundle changes the next launch's `yolo-entrypoint`, and the image's content hash no longer witnesses it. | **Accepted, deliberately** ([OQ-8](#101-decision-ledger)) — it is the mechanism, not a side effect. Bounded by what it does NOT change: the host trust boundary is unmoved (a writer of `~/.local/share/yolo-jail` could already replace the `yolo` that builds the argv), the mount is `:ro` from inside, and the launch PRINTS which directory it took (`Jail binaries: …`) beside the flake source. What is genuinely spent is reproducibility: a jail's binaries are now only as pinned as the directory mounted in, where a nix-built prefix is immutable and a staged bundle is not. |
 
 ---
 
 ## 10. Decisions
 
 The five original questions are ruled — [OQ-2](#101-decision-ledger) on 2026-08-15, the rest by the maintainer on 2026-08-25 — and
-their reasoning lives in the body sections that govern them. **IDs are an API and are never renumbered**:
+their reasoning lives in the body sections that govern them. Two more were ruled on 2026-09-06:
+[OQ-7](#101-decision-ledger) as MOOT and [OQ-8](#101-decision-ledger), the mount lever, as shipped. **IDs are an API and are never renumbered**:
 [`program-delivery.md`](program-delivery.md) [§7](./program-delivery.md#7-what-this-does-not-cover) cites [OQ-4](#101-decision-ledger),
 [`gate-placement-principle.md`](gate-placement-principle.md) cites [OQ-2](#101-decision-ledger), [`minimal-disk-footprint.md`](minimal-disk-footprint.md)
 [§12](./minimal-disk-footprint.md#12-inherited-rulings) inherits all four 2026-08-25 rulings, and [`../plans/roadmap.md`](../plans/roadmap.md) cites [OQ-1](#101-decision-ledger) and
@@ -889,6 +998,8 @@ their reasoning lives in the body sections that govern them. **IDs are an API an
 | OQ-3 | **Content-addressed image tags win** (C2); the LRU-membership variant is refused. `localhost/yolo-jail:latest` is **not a public surface**. The *"plans on making cachix useful"* caveat is about the nix binary cache, a different surface | 2026-08-25 | [§4](#4-candidates-ranked) C2, [§6](#6-the-binary-cache-alternative-argued-fairly), [§9](#9-risks) R3 |
 | OQ-4 | **`packages:` stays workspace-scope** — *"yes, has to be."* Per [`gate-placement-principle.md`](./gate-placement-principle.md) Test 1, scope gates exist for host access; `packages:` grants a tool. **Fix the cost, never the scope** | 2026-08-25 | [§1.5](#15-the-multiplication-factor-packages-and---impure) |
 | OQ-5 | **404 GiB of cached tars is a BUG, not a configuration.** *"No reason to keep any of this around … minimal disk space."* The shipped GC work is *"nowhere near enough."* `yolo` **may** delete cached tars without `--apply`. Executed in [`minimal-disk-footprint.md`](minimal-disk-footprint.md) | 2026-08-25 | [§1.6](#16-what-it-has-actually-cost-on-disk), [§4](#4-candidates-ranked) C3, [§8](#8-what-this-does-not-cover), [§9](#9-risks) R4 |
+| OQ-7 | **MOOT — do not implement.** The question was whether the bundle's binaries should stop carrying the `git describe` stamp, so a `just install` that moved no image input stops minting a new image. [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) took the binaries out of the image, so stamped bytes are no longer image content: MEASURED 2026-09-06, two bundles differing only in their binaries' bytes evaluate to the SAME `.#ociImage.outPath` (and to different `.#installPrefix` paths, as they must). The cost the question existed to remove is gone; removing the stamp would now buy only a `runCommand` that copies seven files, at the price of the fallback the in-jail version banner keeps for a launcher that set no `YOLO_VERSION`. [§11](#11-what-to-do-first--dependency-ordered) step 8 is struck | 2026-09-06 | [§1.1](#11-what-triggers-a-rebuild-and-how-often) item 3, [§4](#4-candidates-ranked) C8 |
+| OQ-8 | **yolo's own binaries are delivered by MOUNT, on all three backends, in one pass** — the lever [§8](#8-what-this-does-not-cover) refused. Authorized by the maintainer knowing the macOS arms cannot be hardware-verified from this jail. The traded property is named in [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06)'s security delta: what executes in the jail stops being content-addressed image content and becomes a host directory that changes with no rebuild | 2026-09-06 | [§4](#4-candidates-ranked) C8, [§5](#5-the-central-table-must-bake--could-move--already-delivered), [§8](#8-what-this-does-not-cover) |
 
 > [!WARNING]
 > **[OQ-2](#101-decision-ledger)'s ruling deliberately contradicts [`gate-placement-principle.md`](gate-placement-principle.md)'s "tell a human from a
@@ -941,14 +1052,23 @@ their reasoning lives in the body sections that govern them. **IDs are an API an
    the waste is the docs-only-then-install case — but a version string has no business being image content.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **MOOT, 2026-09-06 — ruled in the ledger, not implemented.** [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) removed the binaries from the
+   > image, so the stamp is no longer image content and the question's whole premise ("changes the image
+   > store path") is false. MEASURED: two bundles differing only in their prebuilt binaries' bytes
+   > evaluate to the same `.#ociImage.outPath` (`kwvlhbp8…`) and to different `.#installPrefix` paths;
+   > the same pair under the pre-C8 flake evaluate to two different images. The leaning's second
+   > sentence — *"a version string has no business being image content"* — got its wish by a route that
+   > did not touch the stamp. Leave `scripts/build-go.sh` alone: what a `just install` mints now is a
+   > `runCommand` copying seven files, and the stamp still serves the in-jail banner's fallback for a
+   > launcher that set no `YOLO_VERSION`.
 
 ---
 
 ## 11. What to do first — dependency-ordered
 
-Re-stated 2026-09-06. **Steps 1–5 are done** and stay in the list because the order is the argument. Step 6 is
-a decision, not a build task; steps 7 and 8 are the two questions the re-audit opened.
+Re-stated 2026-09-06. **Steps 1–5, and now 9, are done** and stay in the list because the order is the
+argument. Step 6 is a decision, not a build task; step 7 is the one question still open, and step 8 is
+struck by the step that came after it.
 
 1. ~~**C1 — a failed image build fails as itself**~~ ([§7](#7-the-silent-fallback-defect--why-staging-is-worthless-without-honest-failure)). **SHIPPED `7830f65`, 2026-08-15**, further than proposed:
    fatal by default, `YOLO_ALLOW_STALE_IMAGE=1` the opt-out ([OQ-2](#101-decision-ledger)).
@@ -966,11 +1086,17 @@ a decision, not a build task; steps 7 and 8 are the two questions the re-audit o
    the go-ahead. Neither is queued on [`../plans/roadmap.md`](../plans/roadmap.md), deliberately.
 7. **[OQ-6](#102-open-questions) — split the 52 s.** Ten minutes in this jail. Its answer either re-ranks C6 above C4 or
    closes C6 for good; either way it is the first thing that moves the maintainer's actual complaint.
-8. **[OQ-7](#102-open-questions) — the stamp.** A one-line change in `scripts/build-go.sh` behind a ruling; it stops the
-   default launch path from rebuilding on commits that moved no image input.
+8. ~~**[OQ-7](#102-open-questions) — the stamp.**~~ **STRUCK 2026-09-06 — MOOT, not done.** It was to stop the default
+   launch path rebuilding on commits that moved no image input; step 9 stopped that for every commit,
+   stamped or not, by taking the binaries out of the image. MEASURED in [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06). Do not implement it.
+9. ~~**C8 — yolo's own binaries by mount.**~~ **SHIPPED 2026-09-06**, all three backends in one pass, on
+   the maintainer's authorization. Not in this list before, because [§8](#8-what-this-does-not-cover) refused it; that refusal is
+   retracted there. It removes the trigger behind ~half of all commits and moots step 8. **Unverified:
+   both macOS arms** — no hardware here.
 
 **What is not in this list, deliberately.** The disk work [OQ-5](#101-decision-ledger) licenses — podman's untagged image store,
 the cache subdirs, whether any reclaimer runs without a human typing `yolo prune` — is
 [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s sequencing; the host `/nix/store` beyond yolo's roots stays with
-[`../plans/storage-lifecycle.md`](../plans/storage-lifecycle.md) [§2](../plans/storage-lifecycle.md#2-auto-gc-safety-net-min-freemax-free--only-after-1). And
-delivering yolo's own binaries outside the image is refused for the reasons in [§8](#8-what-this-does-not-cover).
+[`../plans/storage-lifecycle.md`](../plans/storage-lifecycle.md) [§2](../plans/storage-lifecycle.md#2-auto-gc-safety-net-min-freemax-free--only-after-1). What
+this paragraph used to exclude as well — delivering yolo's own binaries outside the image, refused for
+the reasons that were in [§8](#8-what-this-does-not-cover) — is step 9, and shipped.
