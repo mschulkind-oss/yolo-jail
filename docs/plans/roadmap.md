@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 12 needing you · 0 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
+**Status: 13 needing you · 0 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-05**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-06**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!IMPORTANT]
@@ -510,6 +510,24 @@ requirement on the jail's pack set — and therefore whether addressed content p
 
 **Answer:**
 > _(empty — fill in when decided)_
+
+### 💬 21 — Shutdown-delay fixes: six questions the new timing spans exist to name
+
+📄 [`perf-logging.md`](perf-logging.md) (plan; design linked within) · opened 2026-09-06 by the
+perf-logging build
+
+The maintainer's symptom — a 30+s wait between the agent TUI exiting and the shell prompt
+returning, with nothing naming the culprit — is now instrumented (`--timing`/`--verbose`, host
+spans, podman-cleanup attribution). What it surfaced are six fix candidates the design records as
+**[OQ-T1](../design/perf-logging.md#-oq-t1--should-the-tty-proxys-final-drain-have-a-poll-guard)…
+[OQ-T6](../design/perf-logging.md#-oq-t6--what-does---verbose-grow-into)**: the tty proxy's unguarded post-exit drain read, the unbounded `podman ps` inside
+`stopLoopholes`, `hostservice`'s unbounded `inFlight.Wait()`, serial loophole teardown, the
+`YOLO_PROFILE` env-name skew, and what `--verbose` grows into. None should be fixed before a real
+`--timing` run says which one fires — that diagnosis is the feature's whole point, and each OQ
+states its leaning.
+
+**Answer:**
+> _(empty — fill in when decided; the six OQs can be ruled separately)_
 
 # 📦 Up next
 
