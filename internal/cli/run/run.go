@@ -759,6 +759,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		return 1
 	}
 
+	// Ledger C: reclaim superseded yolo-jail images, debounced (minimal-disk-
+	// footprint.md OQ-DF3; see autoReapOldImages for the reasoning). Placed
+	// HERE, right after the load above succeeds, so this launch's own image is
+	// already in the load sentinel autoLoadImage's AddLoadedPath call just
+	// wrote — and therefore already protected — before this reap's own
+	// liveness read runs.
+	o.autoReapOldImages(rt)
+
 	// ws_state overlay prep.
 	sp = o.Perf.Span("launch.prepare_ws_state")
 	wsState := o.prepareWsState(cfg, loadedPacks)

@@ -246,13 +246,20 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 //     (prune.ProtectedImageTags) vetoes those, reading the same sentinel ledger
 //     as PruneOrphanImageRoots' guard #2, and `liveKnown` is its fail-safe.
 //
-// THE RETENTION RULE ITSELF IS STILL NOT C2's TO SET. `--keep-images` (default
-// 2) is governed by minimal-disk-footprint.md OQ-DF3, still OPEN as of
-// 2026-08-25; nothing here retunes it, and the veto is deliberately applied
-// AFTER OldImagesToRemove so `keep` keeps meaning exactly what it means today.
-// image.ReadLoadedPaths — which AutoLoadImage now updates on every launch, not
-// only on a load — remains the ready-made input for the keep-by-USE rule OQ-DF3
-// will eventually pick.
+// THE RETENTION RULE ITSELF IS STILL NOT C2's TO SET. `--keep-images`
+// (DefaultKeepImages, autoreap.go) is minimal-disk-footprint.md OQ-DF3's
+// NUMBER, RULED 2026-09-06: the count stays a small undo-buffer margin ON TOP
+// of the sentinel-derived veto below, not the sole safety mechanism — the
+// veto already keeps every recently-USED image (image.ReadLoadedPaths' LRU-10,
+// which AutoLoadImage updates on every launch, not only on a load) regardless
+// of `keep`, which is exactly the keep-by-USE evidence this comment used to
+// say OQ-DF3 "will eventually pick". The veto is deliberately applied AFTER
+// OldImagesToRemove so `keep` keeps meaning exactly what it means today. What
+// was still missing, and is what OQ-DF3's TRIGGER half rules, is that nothing
+// ever called this with apply=true outside a human typing `yolo prune
+// --apply` — see AutoReapOldImages (autoreap.go), the launch-path caller.
+// OQ-DF3's REACH question (dangling/untagged `<none>` rows) is untouched by
+// either ruling and stays open.
 func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnown bool, apply bool, run RunFunc) []string {
 	if !liveKnown {
 		// Guard #1, the fail-safe: the veto's whole evidence is the load sentinel,

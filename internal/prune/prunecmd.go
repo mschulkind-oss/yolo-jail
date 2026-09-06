@@ -143,12 +143,12 @@ type Options struct {
 	NixStoreGC func(maxBytes int64, apply bool) StoreGCOutcome
 }
 
-// NewDefaultOptions returns Options with the flag defaults (keep-images 2,
-// image-cache-keep 3, cache-age 30) and every seam left nil (filled at Run).
-// The front door constructs this, sets Color, overrides flags from argv, then
-// calls Run.
+// NewDefaultOptions returns Options with the flag defaults (keep-images
+// DefaultKeepImages, image-cache-keep 3, cache-age 30) and every seam left
+// nil (filled at Run). The front door constructs this, sets Color, overrides
+// flags from argv, then calls Run.
 func NewDefaultOptions() Options {
-	return Options{KeepImages: 2, ImageCacheKeep: 3, CacheAge: 30}
+	return Options{KeepImages: DefaultKeepImages, ImageCacheKeep: 3, CacheAge: 30}
 }
 
 func fillDefaults(o *Options) {

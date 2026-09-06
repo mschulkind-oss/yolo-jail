@@ -39,12 +39,13 @@ func ProtectedImagePaths(buildDir string) map[string]struct{} {
 // would force-remove the image another workspace's live jail is running —
 // killing that session mid-flight. This is the gate PruneOldImages vetoes with.
 //
-// It is a VETO, not a retention rule. `--keep-images` (default 2) is governed by
-// minimal-disk-footprint.md OQ-DF3, still open; nothing here retunes it. The
-// pass still computes "everything past the newest N" exactly as before and then
-// declines to remove the ones that are in use — the same polarity as
-// PruneOrphanImageRoots' guard #2, reading the same sentinel, so the two can
-// never disagree about which images are live.
+// It is a VETO, not a retention rule. `--keep-images` (DefaultKeepImages,
+// autoreap.go) is minimal-disk-footprint.md OQ-DF3's NUMBER, ruled
+// 2026-09-06 (see the PruneOldImages doc comment for the reasoning); nothing
+// here retunes it. The pass still computes "everything past the newest N"
+// exactly as before and then declines to remove the ones that are in use —
+// the same polarity as PruneOrphanImageRoots' guard #2, reading the same
+// sentinel, so the two can never disagree about which images are live.
 //
 // The legacy tag is protected for the branch that still runs it: AutoLoadImage's
 // degraded fallback (SkipBuild, or a failed build the operator opted past) has
