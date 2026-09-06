@@ -53,7 +53,7 @@ consolidation for consolidation's sake, I want clean up"):
   validator must reproduce for format-behavior parity — renaming would lose the
   critical "this is Python's rules, not Go's" signal.
 
-## [§4](#4-oss-hygiene-remnants-mostly-done--verify--close) OSS-hygiene remnants (mostly done — verify + close)
+## §4 OSS-hygiene remnants (mostly done — verify + close)
 
 The bulk of the OSS-hygiene sweep landed with the distribution work. Verified
 2026-07-20:
