@@ -13,7 +13,7 @@ Examples:
 - [`host-processes`](../../packs/host-processes/) — allowlisted read-only view of host processes, shipped by the official pack of the same name (transport: `loopback-tls`, lifecycle: `spawned`).
 - [`audio`](../../packs/audio/) — PipeWire/PulseAudio pass-through plus ALSA routing, shipped by the official `audio` pack (transport: `none`, lifecycle: `external`).
 - [`journal`](../../packs/journal/) — the host's systemd journal, read from the jail as `yolo-journalctl`, shipped by the official `journal` pack (transport: `loopback-tls`, lifecycle: `spawned`). It was a **built-in service** with no manifest at all until 2026-08-18, switched by a top-level `journal` config key that is now **refused**; the mode is its own `full` setting, user-scope.
-- [`cgroup-delegate`](../../packs/cgroup-delegate/) — the jail's control over its own cgroup (`yolo-cglimit`), shipped by the official `cgroup-delegate` pack (transport: `none`, lifecycle: `external`). Its manifest declares **no daemon**: the delegate is yolo's own in-process goroutine on an AF_UNIX socket, because its security model is `SO_PEERCRED` and a TCP hop carries no peer credential. What the manifest is, is the *switch* — it was presence-activated (Linux + cgroup v2, no config key anywhere) until 2026-08-18, and **`yolo-cglimit` no longer works out of the box** (OQ-A4's accepted cost).
+- [`cgroup-delegate`](../../packs/cgroup-delegate/) — the jail's control over its own cgroup (`yolo-cglimit`), shipped by the official `cgroup-delegate` pack (transport: `none`, lifecycle: `external`). Its manifest declares **no daemon**: the delegate is yolo's own in-process goroutine on an AF_UNIX socket, because its security model is `SO_PEERCRED` and a TCP hop carries no peer credential. What the manifest is, is the *switch* — it was presence-activated (Linux + cgroup v2, no config key anywhere) until 2026-08-18, and **`yolo-cglimit` no longer works out of the box** ([OQ-A4](../design/loophole-activation.md#decision-ledger)'s accepted cost).
 
 **There are no built-in loopholes left.** `paths.BuiltinLoopholeNames` is gone with them, and so is the spawn loop's builtin-name skip — the branch that made a manifest under such a name into *half a loophole*.
 - Hypothetical future: `llm-audit` (logs every inference request), `secret-gate` (scrubs outbound traffic).
@@ -38,7 +38,7 @@ which is what makes a loophole developable standalone and then droppable into an
 pack unchanged. See
 [Shipping a loophole inside a pack](#shipping-a-loophole-inside-a-pack).
 
-> **`~/.local/share/yolo-jail/loopholes/` is RETIRED and is no longer read** (OQ-LP10).
+> **`~/.local/share/yolo-jail/loopholes/` is RETIRED and is no longer read** ([OQ-LP10](../design/loophole-packaging-overview.md#oq-lp10--retire-the-hand-placed-loophole-directory-in-your-home--ruled-yes-carried-out)).
 > It was the one channel that started a host daemon with **no selection step at all** —
 > drop a directory in and every launch discovered it — which contradicts *"nothing is
 > active by default"*. Move each module into the conventional local pack shown above
@@ -149,7 +149,7 @@ state dir. Under `publishes: "socket"` the first two **diverge** — see below.
 **`transport` has exactly two values, and `unix-socket`/`tls-intercept` are
 GONE** — removed from the validator, not deprecated, so a manifest naming one is
 rejected and the loophole does not load (the error names its replacement). See
-[`loophole-transport.md`](../design/loophole-transport.md) §7.4 for why.
+[`loophole-transport.md` §7.4](../design/loophole-transport.md#74-oq-t9--one-transport-or-two--decided-unify) for why.
 
 - **`loopback-tls`** (the default): the loophole has a host daemon a jail dials.
   yolo substitutes the daemon's publication path into `{endpoint}`, the daemon
@@ -272,7 +272,7 @@ injected env var. `yolo loopholes list` also surfaces the error.
 ## The `loopholes` config block
 
 **Install is user-scope; enable is either scope** — the ruled model
-([`loophole-packaging.md`](../design/loophole-packaging.md) §4.3b). The
+([`loophole-packaging.md`](../design/loophole-packaging.md) §[4.3b](../design/loophole-packaging.md#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either)). The
 install-shaped keys — `command`, `env`, `doctor_cmd` (plus `description`) —
 declare host execution, so they are legal only in the USER config,
 `~/.config/yolo-jail/config.jsonc`. A workspace `yolo-jail.jsonc` (or
@@ -286,7 +286,7 @@ may *declare* host execution; it says nothing about the file that actually runs.
 So an install naming a program inside the workspace yolo is about to bind-mount
 `:rw` — or inside the jail-home tree (`~/.local/share/yolo-jail/home`, which *is*
 `/home/agent`) — is refused, at either scope, by `yolo check`, by `yolo loopholes
-list`/`status`, and at launch (§4.3a). The user who wrote the entry has host
+list`/`status`, and at launch (§[4.3a](../design/loophole-packaging.md#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)). The user who wrote the entry has host
 access; the agent that can rewrite `tool.py` between launches does not. Keep
 loophole daemons somewhere the jail cannot reach, e.g. `~/.local/bin`. The rule
 covers the two trees yolo knows it hands over, not every directory some other jail
@@ -396,7 +396,7 @@ no longer protects:
 > binary baked into the image. `yolo-cglimit` is the ONE remaining AF_UNIX
 > client, and not because it is unported: the cgroup delegate identifies its
 > caller by `SO_PEERCRED`, which a TCP hop cannot carry — see
-> [`../design/loophole-transport.md`](../design/loophole-transport.md) §8.4.)
+> [`../design/loophole-transport.md` §8.4](../design/loophole-transport.md#84-what-did-not-change-and-what-is-still-owed).)
 >
 > The config block has no `request_end` key, so such a daemon is always fronted in
 > `framed` mode: **a config-entry daemon that reads its request to EOF hangs behind
@@ -423,7 +423,7 @@ only kind whose claim is *host code execution* rather than a host read. Design:
 [`loophole-packaging.md`](../design/loophole-packaging.md) (the authority), with
 [`loophole-packaging-overview.md`](../design/loophole-packaging-overview.md) as its
 readable half. `yolo config-ref` (the `packs` section) and
-[`pack-system.md`](../design/pack-system.md) §3 carry the per-kind field reference.
+[`pack-system.md` §3](../design/pack-system.md#3-the-kinds-their-footprints-and-conflict-rules) carry the per-kind field reference.
 
 A pack contributes a loophole by **pointing at a directory**, not by inlining a
 manifest:
@@ -508,8 +508,8 @@ a reason, not a nervous restriction:
 
 | Rule | Why | What to use instead |
 |---|---|---|
-| `jail_env` **refused** | it emits `-e K=V` into the container, which is the `env` kind's target namespace, and collision detection keys on `{kind, target}` — so two *different* kinds claiming one variable could never be reported as a collision. (Not because namespaces are otherwise disjoint: `program` and `launch` already share the bin-name namespace by design. What is avoided is a fourth bespoke cross-kind collision pass) | the `env` kind: `{"kind": "env", "vars": {…}}`, which the footprint already reports and collides on — **and the honest cost is that it becomes UNCONDITIONAL.** A loophole's `jail_env` is set only while the loophole is *active*; an `env` contribution is set always. An audio-shaped pack would export `PULSE_SERVER` even on a machine where the sockets never crossed, pointing a client at a socket that is not there. That cost is tracked as **OQ-LP5** and the fix (the cross-kind pass) is purely additive |
-| `host_bind_mounts[].host` **must resolve stably** — no `..` segment, no `:`. An absolute path and a `$VAR` are **legal** | **the path rule here was WITHDRAWN** (OQ-LP14, 2026-08-17). It permitted everything under `$HOME` and refused `${XDG_RUNTIME_DIR}/pulse/native` — it admitted `~/.ssh` and blocked a pulse socket, which is a gate with its two cases inverted. What does the work instead is **total claim enumeration plus the origin approval**: every bind emits an approvable string (socket binds in their own read-write-IPC class), and a *fetched* pack cannot cross without you having seen and approved that exact string. What a path is worth is a content question, and a rule keyed on the declaration's spelling cannot answer one. What survives is a **correctness** rule — "does what you approved equal what I mount" — which `..` (resolves against whatever the prefix is at launch) and `:` (the runtime parses it as the mount-option separator) both break | name the host path you actually need. `$VAR` stays *unexpanded* in the claim, so what the user approves is the declaration, and yolo mounts exactly that |
+| `jail_env` **refused** | it emits `-e K=V` into the container, which is the `env` kind's target namespace, and collision detection keys on `{kind, target}` — so two *different* kinds claiming one variable could never be reported as a collision. (Not because namespaces are otherwise disjoint: `program` and `launch` already share the bin-name namespace by design. What is avoided is a fourth bespoke cross-kind collision pass) | the `env` kind: `{"kind": "env", "vars": {…}}`, which the footprint already reports and collides on — **and the honest cost is that it becomes UNCONDITIONAL.** A loophole's `jail_env` is set only while the loophole is *active*; an `env` contribution is set always. An audio-shaped pack would export `PULSE_SERVER` even on a machine where the sockets never crossed, pointing a client at a socket that is not there. That cost is tracked as **[OQ-LP5](../design/loophole-packaging.md#open-questions)** and the fix (the cross-kind pass) is purely additive |
+| `host_bind_mounts[].host` **must resolve stably** — no `..` segment, no `:`. An absolute path and a `$VAR` are **legal** | **the path rule here was WITHDRAWN** ([OQ-LP14](../design/loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn), 2026-08-17). It permitted everything under `$HOME` and refused `${XDG_RUNTIME_DIR}/pulse/native` — it admitted `~/.ssh` and blocked a pulse socket, which is a gate with its two cases inverted. What does the work instead is **total claim enumeration plus the origin approval**: every bind emits an approvable string (socket binds in their own read-write-IPC class), and a *fetched* pack cannot cross without you having seen and approved that exact string. What a path is worth is a content question, and a rule keyed on the declaration's spelling cannot answer one. What survives is a **correctness** rule — "does what you approved equal what I mount" — which `..` (resolves against whatever the prefix is at launch) and `:` (the runtime parses it as the mount-option separator) both break | name the host path you actually need. `$VAR` stays *unexpanded* in the claim, so what the user approves is the declaration, and yolo mounts exactly that |
 | `readonly: false` **refused** | keeps a pack from asking for a writable host bind — **and note exactly what it does NOT cover: `:ro` is no boundary for a SOCKET.** Measured twice in this repo: a read-only bind of an AF_UNIX socket is fully connectable and bidirectional (the well-known `docker.sock:ro` result), because the kernel's read-only check exempts inodes that are not REG/DIR/LNK. So this rule only ever covers regular files and directories; binding a host socket `:ro` gives the jail unrestricted read-write access to whatever is behind it (a container socket, `ssh-agent`, `gpg-agent`, PipeWire) | omit the key, which defaults to `true`. If the bind IS a socket you lose nothing by the refusal — and gain nothing either; it is a no-op for sockets in *both* directions. Because of that measurement a socket bind is its own claim class, worded as host **IPC** rather than as a host read. If your pack genuinely has to WRITE a host file, declare a `host_daemon` that mediates it |
 | `host_daemon.publishes` **must be `"socket"`** — and the *default* is refused too | the transport is a property of the framework, not of the loophole. Under `"endpoint"` your daemon would implement the loopback-TLS server itself — endpoint file mode, key persistence, constant-time token compare, frame length cap — and **yolo cannot detect a violation of any of them.** Tolerable for something you hand-wrote on your own machine; a different proposition for an artifact distributed to strangers. Self-publishing stays available to loopholes yolo itself ships, which are yolo's own code minting yolo's own credential. An absent `publishes` decodes to `"endpoint"`, so saying nothing has declared the mode you may not have — and since the fix is identical either way, the message does not distinguish them | write `"publishes": "socket"`: bind a plain AF_UNIX socket at `{socket}` and yolo runs the audited front over it and publishes the endpoint file for you. Costs one splice hop and buys the inability to get the TLS properties wrong. Declare `request_end: "eof"` if your daemon reads its request to EOF, or it hangs behind the front |
 | **`platforms` declaration** (not a refusal — a field to use) | the front makes the *transport* portable; it does not make the *daemon* portable, and packs will ship native code. `requires` says *"the thing I need is present"* — a runtime probe — and cannot say *"I only exist for this platform."* Without the distinction, a compiled Linux daemon on macOS reads as an unmet requirement ("install the missing thing", advice that can never succeed) or fails five seconds later through a silent spawn path | declare the platforms (OS, and architecture where it matters) — see [`platforms`](#platforms--where-the-loophole-can-run-at-all) above. An unsupported loophole is reported **by name**, once, with the platforms it does support, through the *same one-line report* that names an inert backend: *"this loophole does nothing here, and here is why"* is one user-visible situation, not two |
@@ -550,7 +550,7 @@ socket in your session's runtime dir** — `${XDG_RUNTIME_DIR}/pulse/native` was
 as a `$VAR`, the literal `/run/user/<uid>/pulse/native` as absolute, and it is not
 under `$HOME`. The official `audio` pack shipped only the **ALSA half** while the
 bundled `audio` loophole did the sockets, which is what made the gap a measurement
-rather than an opinion. **OQ-LP14 withdrew the rule** on exactly that evidence: it
+rather than an opinion. **[OQ-LP14](../design/loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn) withdrew the rule** on exactly that evidence: it
 admitted `~/.ssh` and refused a pulse socket, so its two cases were inverted. Both
 audio loopholes then merged into one pack-shipped `audio` (`packs/audio/README.md`
 has the whole story). What replaced the rule is not a narrower one — it is the claim
@@ -843,7 +843,7 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 - [`internal/svcendpoint/`](../../internal/svcendpoint) — the transport itself: endpoint file, cert pinning, token frame. Both halves in one package on purpose.
 - [`docs/design/loophole-transport.md`](../design/loophole-transport.md) — why there is one transport and what it defends against.
 - [`docs/design/loophole-packaging.md`](../design/loophole-packaging.md) — the `loophole` pack kind: the subset rules, the claim enumeration, the install/enable scope model. [`loophole-packaging-overview.md`](../design/loophole-packaging-overview.md) is its readable half.
-- [`docs/design/pack-system.md`](../design/pack-system.md) §3 — the closed kind set the `loophole` kind is the 15th member of, and its footprint row.
+- [`docs/design/pack-system.md` §3](../design/pack-system.md#3-the-kinds-their-footprints-and-conflict-rules) — the closed kind set the `loophole` kind is the 15th member of, and its footprint row.
 - [`internal/frameproto/`](../../internal/frameproto) — reference codec for the wire format.
 - [`packs/claude/loopholes/claude-oauth-broker/README.md`](../../packs/claude/loopholes/claude-oauth-broker/README.md) — the broker architecture that shaped this (the older mitm-proxy design notes are in git history).
 - [`docs/research/claude-token-logouts.md`](../research/claude-token-logouts.md) — operational triage for Claude logouts; the broker loophole is Step 3's fix.

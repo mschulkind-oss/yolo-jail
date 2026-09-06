@@ -6,8 +6,8 @@
 > premise is **dead**: the Python tree was wiped, so every diff step and the
 > bail-back are inoperative (the §What-to-report footer already admits this).
 > The live Mac verification gates are the other two runbooks in this directory
-> (`mac-macos-user-e2e.md` for the macos-user acceptance bar,
-> `mac-ac-container-builder.md` for the AC builder cell) plus Track M in
+> ([`mac-macos-user-e2e.md`](mac-macos-user-e2e.md) for the macos-user acceptance bar,
+> [`mac-ac-container-builder.md`](mac-ac-container-builder.md) for the AC builder cell) plus Track M in
 > [../macos-revival-and-distribution-plan.md](../macos-revival-and-distribution-plan.md).
 > Kept only until the maintainer confirms deletion — see the ROADMAP's
 > "Runbooks" note. Do not drive a verification from this doc.
@@ -83,11 +83,11 @@ precondition, not a Go bug.
 
 ---
 
-## 2. macos-user backend — real launch (OQ-1, the load-bearing unknown)
+## 2. macos-user backend — real launch ([OQ-1](#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown), the load-bearing unknown)
 
 This is the step that has NEVER been verified — the Go port reproduces the
 bootstrap + login-rc writes byte-for-byte, but the *runtime effect* of the
-`path_helper` PATH fix (OQ-1) can only be seen on a Mac.
+`path_helper` PATH fix ([OQ-1](#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)) can only be seen on a Mac.
 
 ```sh
 # One-time sandbox-user provisioning (writes root-owned files; sudo prompts):
@@ -100,10 +100,10 @@ yolo-go -- claude       # or: yolo-go -- bash -lc 'echo IN-SANDBOX; which node; 
 
 **PASS criteria:**
 1. The sandbox launches (no `sandbox-exec` error, no missing-interpreter abort).
-2. **OQ-1 — the PATH fix works:** inside the sandbox, `echo $PATH` starts with
+2. **[OQ-1](#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) — the PATH fix works:** inside the sandbox, `echo $PATH` starts with
    `/Users/_yolojail/.yolo-shims:…` (the yolo shims win) — NOT reordered behind
    macOS `path_helper`'s defaults. Run `which node`/`which yolo` and confirm they
-   resolve to the jail shims, not `/usr/bin`. **This is the OQ-1 assertion.**
+   resolve to the jail shims, not `/usr/bin`. **This is the [OQ-1](#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) assertion.**
 3. The agent's writes land only in the allowed set (workspace, `/Users/_yolojail`,
    `/tmp`) — try writing outside (e.g. `touch /etc/x`) and confirm it's denied.
 4. `yolo-go macos-teardown` cleanly removes the sandbox user + profile.
@@ -140,7 +140,7 @@ Spot-check with `dscl . -read /Users/_yolojail` before/after setup/teardown and
 ## 4. Apple Container runtime (`runtime: "container"`)
 
 The container-builder cell is already PROVEN on real HW (2026-07-17, see
-`mac-ac-container-builder.md`). Here, verify the **Go run path** drives it:
+[`mac-ac-container-builder.md`](mac-ac-container-builder.md)). Here, verify the **Go run path** drives it:
 
 ```sh
 cd <project>
@@ -202,12 +202,12 @@ was told to guard, and its test was weak — so verify it live).
 
 For each section: PASS / FAIL / N-A, the diff output where a diff was requested,
 and specifically:
-- **§2.2 OQ-1** — does the sandbox PATH put the jail shims first? (the headline
+- **[§2.2](#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) [OQ-1](#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)** — does the sandbox PATH put the jail shims first? (the headline
   unknown)
-- **§2** — does `darwinpkg.Materialize` build `packages:` natively and land them
+- **[§2](#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)** — does `darwinpkg.Materialize` build `packages:` natively and land them
   on the sandbox PATH?
-- **§4.2** — do `env_sources` + briefings reach the AC jail (the materialize fix)?
-- **§6** — does `check` report `arm64` (not `aarch64`) on darwin?
+- **[§4.2](#4-apple-container-runtime-runtime-container)** — do `env_sources` + briefings reach the AC jail (the materialize fix)?
+- **[§6](#6-check--doctor-on-macos)** — does `check` report `arm64` (not `aarch64`) on darwin?
 - Any divergence from the Python reference in a diff step — that's a real Go bug
   to file.
 

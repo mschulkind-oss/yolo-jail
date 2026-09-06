@@ -1,12 +1,12 @@
 # Generated-config composition — layered regeneration + Lua transforms
 
-**Status:** Design of record — **FINALIZED 2026-07-20** (all §9 *composition*
+**Status:** Design of record — **FINALIZED 2026-07-20** (all [§9](#9-decisions-all-settled) *composition*
 questions resolved). Supersedes the exploratory RFC that carried a menu of models
 and a data-filter vocabulary — this is the line in the sand. Retiring the
-`host_*_files` keys was **decided 2026-07-23** (§10) and **landed** (commit
+`host_*_files` keys was **decided 2026-07-23** ([§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)) and **landed** (commit
 `a84b11c`); its D4 "no config may ever widen the host-file set" clause was
 subsequently **reversed and generalized** into the `host_files` key
-(2026-07-25 — see the D4 annotation in §10 and
+(2026-07-25 — see the D4 annotation in [§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23) and
 [host-file-staging.md](host-file-staging.md)). **Per-phase status:**
 **Phase A complete** — the engine is built + tested (`internal/agentcfg`, with
 `compose.go`/`engine.go`/`manifest`/`codec`/`luahook` and their tests). **Phase
@@ -23,10 +23,10 @@ dead helpers are deleted, and `agy` was born directly on the prism. The obsolete
 snapshot/managed-MCP sidecars are cleaned up on each surface's first-migration
 boot. Remaining non-agent surfaces (mise, MCP/LSP standalone, git identity)
 still have bespoke generators; folding them onto the prism is tracked separately
-in §8 / [sequencing-2026-07.md](sequencing-2026-07.md). The `host_*_files` config keys also survived
+in [§8](#8-migration--serial-foundation-then-parallel-fan-out) / [sequencing-2026-07.md](sequencing-2026-07.md). The `host_*_files` config keys also survived
 the cutover — the prism host layer reads *through* them rather than replacing
 them; fully retiring them (the original Phase-B goal for pi) turns out to need
-more than a key deletion. The approach is now **decided in §10**: yolo declares
+more than a key deletion. The approach is now **decided in [§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)**: yolo declares
 the copied-in host-file set per agent (a credential boundary, not
 workspace-widenable) and both keys hard-error.
 
@@ -36,7 +36,7 @@ yolo generates a number of config files inside the jail from host + jail sources
 mise config, and git identity. This doc fixes **how** any such generated
 config composes and how a user reshapes it. Agent config is the motivating and
 widest case; the model is deliberately generic over **every file yolo generates
-this way** (see §1.1 for the inventory).
+this way** (see [§1.1](#11-what-yolo-generates-this-way-the-surfaces) for the inventory).
 
 ---
 
@@ -76,7 +76,7 @@ generated shell scripts (bashrc, shims, agent/pkg launchers, MCP node wrappers,
 `yolo-cglimit`/`journalctl` helpers, bootstrap), and fixed system files (CA
 bundle, `/etc/timezone`, PID files). A surface earns the pipeline when there's a
 host or config layer to merge and a reason a user might want to reshape it;
-otherwise it stays a plain generator. The manifest (§3.3) is where a surface is
+otherwise it stays a plain generator. The manifest ([§3.3](#33-format-agnostic-by-construction)) is where a surface is
 declared, so widening coverage later is adding a manifest entry, not new
 machinery.
 
@@ -96,7 +96,7 @@ merges rather than adding a parallel path.
 ## 2. Six principles (the line in the sand)
 
 1. **Regenerate, don't reconcile.** Each generated config file (agent settings,
-   MCP, LSP, mise, identity — §1.1) is rebuilt from sources on every boot
+   MCP, LSP, mise, identity — [§1.1](#11-what-yolo-generates-this-way-the-surfaces)) is rebuilt from sources on every boot
    by the engine, not edited in place. (For the agent-config surfaces this is now
    live: boot runs the `Configure*Prism` writers in `internal/entrypoint`, which
    compose through `agentcfg`. The remaining non-agent surfaces — mise, standalone
@@ -104,25 +104,25 @@ merges rather than adding a parallel path.
    Phase-C status in the header.) Host-key removal needs zero
    memory: a dropped host key is simply absent from the next render. (This alone
    deletes today's snapshot/rollback three-way merge and its poison-on-typo
-   failure — see §7.)
+   failure — see [§7](#7-why-the-problems-this-replaced--verified-2026-07-18-retired-2026-07-22).)
 2. **yolo owns the user scope only.** Config lands under `/home/agent/…` (a
    per-workspace r/w overlay). yolo never writes an agent's *project*/workspace
    config; `/workspace` is the operating agent's and mirrors the host, except the
    enumerated `/dev/null` isolation shadows. This is the **config-ownership
    principle** in [../design/storage-and-config.md](../design/storage-and-config.md)
-   §1.1 — the durable statement; this doc obeys it.
+   [§1.1](#11-what-yolo-generates-this-way-the-surfaces) — the durable statement; this doc obeys it.
 3. **Compose by layered deep-merge.** Sources stack in a fixed precedence order
    and deep-merge over the *decoded* structure (format-independent). No depth
    cliff.
 4. **Transform with Lua, not a data vocabulary.** Redaction/reshaping is a Lua
    hook per surface — format-agnostic, no closed op-set to memorize, no silent
-   unknown-key drops. §3.
+   unknown-key drops. [§3](#3-the-lua-transform--the-abstraction).
 5. **Never touch the source.** The transform runs on yolo's *composed output*, a
    build product yolo fully controls; the host file stays `:ro` and unmodified,
    and no assumption is made that yolo could rewrite it (it may be read-only, or
    a format yolo won't round-trip).
-6. **In-jail edits survive** via a capture-diff overlay (§5), and the entire
-   pipeline is runnable offline via `yolo config render` (§6) — which is also how
+6. **In-jail edits survive** via a capture-diff overlay ([§5](#5-surviving-regeneration--the-capture-diff-overlay)), and the entire
+   pipeline is runnable offline via `yolo config render` ([§6](#6-yolo-config-render--run-the-pipeline-on-demand)) — which is also how
    the config-change safety prompt diffs a Lua transform's effect.
 
 ## 3. The Lua transform — the abstraction
@@ -146,11 +146,11 @@ and returns the version that should be written into the jail. The `managed` laye
 silently drop yolo's keys from the *generated file* — it gets `ctx.managed`
 read-only so it can see them, but yolo has the last write. This is a
 composition-precedence guarantee, **not** the security boundary — the container +
-the injected YOLO flag are (see §9); `managed` never becomes an OS-level file.
+the injected YOLO flag are (see [§9](#9-decisions-all-settled)); `managed` never becomes an OS-level file.
 
-### 3.2 What the hook receives (a taste — full worked example in §6.5)
+### 3.2 What the hook receives (a taste — full worked example in [§6.5](#65-worked-example--the-pi-permission-gate-end-to-end))
 
-The user points `config_transform` at a Lua file (§3.4); it registers a function
+The user points `config_transform` at a Lua file ([§3.4](#34-placement-in-config-sandbox-and-safety)); it registers a function
 per agent (or per surface):
 
 ```lua
@@ -241,7 +241,7 @@ mechanism.
   required (a non-deterministic transform breaks the overlay's diff).
 - **Safety prompt:** you can't statically diff "what a Lua function does," so the
   config-change confirmation diffs the **rendered output** — run `yolo config
-  render` before vs. after and show that diff (§6). This is strictly better than
+  render` before vs. after and show that diff ([§6](#6-yolo-config-render--run-the-pipeline-on-demand)). This is strictly better than
   diffing config *text*, and it works identically whether a change touches the
   Lua or the layers.
 - **Loud failure:** a Lua error (typo, nil index) fails the render with the file,
@@ -259,8 +259,8 @@ precedence):
 | `defaults` | manifest data (image) | global | yolo builtin, user-overridable |
 | `host` | staged host files, parsed fresh each boot (`:ro`) | per-host | the user's host config |
 | `workspace` | **DECIDED BUT UNWIRED** — no `agent_config.<agent>` key exists; `Inputs.Workspace` is a real engine slot every caller currently passes nil for. The user-declared jail-only config that DID ship is `host_files` (its own surfaces, not a layer on an agent's) | per-workspace | jail-only config the user declares |
-| `runtime` overlay | capture-diff sidecar (§5) | per-workspace | what changed in-jail |
-| `managed` | manifest data (image) | global | yolo's asserted keys — win the merge, applied after the Lua hook (a precedence guarantee in the generated file, not an OS enforcement — §9) |
+| `runtime` overlay | capture-diff sidecar ([§5](#5-surviving-regeneration--the-capture-diff-overlay)) | per-workspace | what changed in-jail |
+| `managed` | manifest data (image) | global | yolo's asserted keys — win the merge, applied after the Lua hook (a precedence guarantee in the generated file, not an OS enforcement — [§9](#9-decisions-all-settled)) |
 
 Deep-merge semantics: objects merge at every depth, `null` deletes a key, arrays
 replace by default; a surface's manifest may pin `append` (with dedupe) for a
@@ -295,7 +295,7 @@ entry auto-retires when the host value converges to it; `yolo config overlay
 removed key isn't resurrected — the exact bug in today's merge); **managed**
 (applied after both the overlay and the Lua hook, so a yolo-managed key changed
 in-jail is captured but visibly reverts on render — correct; note this governs
-the generated file only, not the security boundary, which is the container — §9).
+the generated file only, not the security boundary, which is the container — [§9](#9-decisions-all-settled)).
 
 ## 6. `yolo config render` — run the pipeline on demand
 
@@ -303,7 +303,7 @@ The render is *executed*, not static — so there must be a command that runs th
 whole pipeline (stage → merge → Lua transform → enforce → encode), prints what it
 would write, and touches no live agent config. It runs **both** host-side (the
 edit-before-launch loop, no container needed) **and inside the jail** (the
-operating agent's "what is my config, and why?" aid — §9). It's cheap because the
+operating agent's "what is my config, and why?" aid — [§9](#9-decisions-all-settled)). It's cheap because the
 engine is pure: host-side it renders in a temp dir; in-jail it renders from the
 same layers a boot render would use (once boot is on the engine — Phase B/C),
 read-only.
@@ -320,11 +320,11 @@ see the header status), so for those surfaces "what render prints" is "what the
 jail gets": boot's `Configure*Prism` writers and `yolo config render` both drive
 `agentcfg`. Render is simultaneously: the **dev-iteration loop** (edit
 `config.lua`, `render --explain`, repeat — no container churn), the **safety-diff
-source** (§3.4), and the **test harness** (fixture vectors: `inputs → render`,
+source** ([§3.4](#34-placement-in-config-sandbox-and-safety)), and the **test harness** (fixture vectors: `inputs → render`,
 byte-checked in `go test`).
 
 The `yolo check` config validator's entrypoint preflight also exercises the real
-boot path now: it calls the `Configure*Prism` writers (pointing their §5 sidecars
+boot path now: it calls the `Configure*Prism` writers (pointing their [§5](#5-surviving-regeneration--the-capture-diff-overlay) sidecars
 at a temp workspace so the dry run never touches the live one), so it validates
 the engine's output, not a stale parallel generator.
 
@@ -366,7 +366,7 @@ yolo.transform("pi", function(ctx)
 end)
 ```
 
-**③ Pipeline** (§3.1), for the `pi/settings` surface:
+**③ Pipeline** ([§3.1](#31-shape)), for the `pi/settings` surface:
 
 ```
 decode(host json) ─┐
@@ -395,7 +395,7 @@ container needed:
 pi's UI or by editing the file). Next boot: `mergeDiff(last_render, current)` →
 `{theme:"light"}` captured into the overlay; the render now has `theme:"light"`,
 and it **stays** every boot after — until you `--reset` or set it back to the host
-`"dark"` (§5, §9). The host's `dark` no longer wins because the overlay outranks
+`"dark"` ([§5](#5-surviving-regeneration--the-capture-diff-overlay), [§9](#9-decisions-all-settled)). The host's `dark` no longer wins because the overlay outranks
 the host layer.
 
 Note what did **not** happen: the host `settings.json` was never modified; nothing
@@ -442,14 +442,14 @@ first, then these four parallelize:
 2. the Lua VM sandbox (`gopher-lua`, locked down) + the `ctx` bridge;
 3. the manifest schema + loader;
 4. the fixture corpus (`inputs → render`, `go test`) — **this is the spec.**
-Cap Phase A with `yolo config render` (host-side + in-jail, §6) so every later
+Cap Phase A with `yolo config render` (host-side + in-jail, [§6](#6-yolo-config-render--run-the-pipeline-on-demand)) so every later
 surface is verifiable.
 
 **Phase B — surfaces (fan out; mutually independent on the frozen engine).**
 ✅ **Done for the agent-config surfaces.**
 - **pi first** as the proof-of-concept — exercises tree staging + a transform +
   the overlay; retires the pi three-way merge. **`host_pi_files` / `host_claude_files`
-  are now RETIRED** (§10, ✅ implemented 2026-07-23): the host-file set is a
+  are now RETIRED** ([§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23), ✅ implemented 2026-07-23): the host-file set is a
   yolo-declared, non-widenable per-agent constant (`agents.AgentSpec.HostFiles`)
   and both keys hard-error.
 - then in parallel, one commit each: **Claude** (widest — `settings.json` +
@@ -467,7 +467,7 @@ surfaces.** The `YOLO_PRISM_SURFACES` cutover gate is retired, `boot.go` calls t
 writers plus their now-dead helpers (the three-way merge, the codex TOML dumper,
 the numeric-equality cluster) are deleted. The obsolete snapshot/managed-MCP
 sidecars are removed on each surface's first-migration boot. The `host_*_files`
-keys are now **RETIRED** (§10, ✅ implemented 2026-07-23): the host-file set is a
+keys are now **RETIRED** ([§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23), ✅ implemented 2026-07-23): the host-file set is a
 yolo-declared, non-widenable per-agent constant and both keys hard-error.
 Deletion of the non-agent bespoke generators waits on their Phase-B port.
 
@@ -481,18 +481,18 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
   a surface in a known structured format (JSON/YAML/TOML) is decoded to a table,
   passed to the user function, and re-encoded on return. No `reject`/`get`/`set`/
   `merge` sugar — those are stock-Lua one-liners, and every helper is API to
-  maintain (§3.2).
+  maintain ([§3.2](#32-what-the-hook-receives-a-taste--full-worked-example-in-65)).
 - **Overlay: no aging, only reset.** A captured jail edit **stays forever** until
   the user either runs `yolo config overlay --reset <agent>` or sets the value
   in-jail back to the host value (at which point the delta is empty and the entry
   auto-drops — the natural convergence, nothing timer-based). "Aging out" is not a
   thing; there's no principled clock for it and it would silently resurrect host
-  values. (§5.)
+  values. ([§5](#5-surviving-regeneration--the-capture-diff-overlay).)
 - **Codecs: minimal.** JSON + TOML day one (Claude, Codex). YAML/lines only when
   an agent actually needs them; `raw` (string in/out) covers everything else.
 - **Sandbox is mandatory, same safety domain as the source.** The transform is
   arbitrary unvalidated user code, so it runs in the locked-down VM (no `os`/`io`/
-  `require`/net/fs — §3.4). It stays in the **same trust domain as the config it
+  `require`/net/fs — [§3.4](#34-placement-in-config-sandbox-and-safety)). It stays in the **same trust domain as the config it
   transforms**: a workspace-committed `config.lua` runs with the workspace's
   authority, a user-level one with the user's — a transform never gains privilege
   over the sources it composes. The config-change safety prompt diffs the
@@ -523,22 +523,22 @@ Each stage ends with a nested-jail verification (per repo `CLAUDE.md`).
   not a new surface — with one requirement to honor: the render's *inputs* must be
   reachable in the jail. The composed layers (defaults+managed from the image, the
   staged host layer, the workspace config, and the overlay sidecar) are all
-  already present in the jail per §4–§5, so an in-jail render reproduces the boot
+  already present in the jail per [§4](#4-layers-and-scope)–[§5](#5-surviving-regeneration--the-capture-diff-overlay), so an in-jail render reproduces the boot
   render without reaching back to the host. Host-side `render` stays too (for the
   edit-before-launch loop); same engine, same output, both places.
 
 *(The **composition design** is settled — no open questions there. Retiring the
 `host_*_files` keys, the last piece of the original Phase-B scope, is
-**decided in §10** (2026-07-23) and **✅ implemented 2026-07-23**.)*
+**decided in [§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)** (2026-07-23) and **✅ implemented 2026-07-23**.)*
 
 ---
 
 ## 10. Retiring the `host_*_files` keys (decided + ✅ implemented 2026-07-23)
 
-Deleting `host_pi_files` was the stated Phase-B outcome for pi (§8), but the
+Deleting `host_pi_files` was the stated Phase-B outcome for pi ([§8](#8-migration--serial-foundation-then-parallel-fan-out)), but the
 cutover reached parity *reading through* the key rather than removing it. This
 section is the lead-up: what the key still does, why the plan's intended
-replacement (§3.3 tree staging) is not actually built, and — in §10.4 — the
+replacement ([§3.3](#33-format-agnostic-by-construction) tree staging) is not actually built, and — in [§10.4](#104-decisions-settled-2026-07-23) — the
 settled decisions. The through-line is that the copied-in host-file set is a
 **credential boundary**, so it must be yolo-declared and not workspace-widenable;
 that principle, not cleanup, is what drives the decisions.
@@ -546,11 +546,11 @@ that principle, not cleanup, is what drives the decisions.
 > **✅ Implemented 2026-07-23.** The host-file set now lives on
 > `internal/agents.AgentSpec.HostFiles` (`{Dir, Files}` — claude ⇒
 > `.claude`/`settings.json`, pi ⇒ `.pi/agent`/`settings.json`), NOT the builtin
-> manifest as §10.4 D1 speculated. Rationale: `internal/agents` is the leaf
+> manifest as [§10.4](#104-decisions-settled-2026-07-23) D1 speculated. Rationale: `internal/agents` is the leaf
 > registry already imported by the CLI run pipeline, the entrypoint, AND config,
 > and imports none of them — so the declaration adds zero new import edges and
 > stays cycle-free, while the manifest (`internal/agentcfg`) has no host-source
-> field and deliberately keeps host resolution out (§10.2). The CLI's
+> field and deliberately keeps host resolution out ([§10.2](#102-why-the-intended-replacement-isnt-built)). The CLI's
 > `hostFileArgs` (`internal/cli/run/hostclaude.go`) and the entrypoint prisms
 > (`ConfigureClaudePrism`/`ConfigurePiPrism`) both key off it; the entrypoint
 > re-derives the identical set in-jail from the baked registry and reads
@@ -564,7 +564,7 @@ that principle, not cleanup, is what drives the decisions.
 
 The key (a JSON list, default `["settings.json"]`) was load-bearing in **three**
 distinct roles. The prism replaced only the *consumption* of the first; the
-retirement (§10.3) then replaced the other two with `AgentSpec.HostFiles`. For
+retirement ([§10.3](#103-the-work-per-the-104-decisions---done-2026-07-23)) then replaced the other two with `AgentSpec.HostFiles`. For
 the record, the pre-retirement roles were:
 
 | Role | Code (pre-retirement) | How it was replaced |
@@ -580,8 +580,8 @@ yolo-declared registry data (`AgentSpec.HostFiles`), not just deleting a key.
 
 ### 10.2 Why the intended replacement isn't built
 
-§3.3 names **tree surfaces** (`ctx.stage` include/exclude by glob, paths
-preserved) as the mechanism that supersedes flat `host_*_files` mounts, and §7
+[§3.3](#33-format-agnostic-by-construction) names **tree surfaces** (`ctx.stage` include/exclude by glob, paths
+preserved) as the mechanism that supersedes flat `host_*_files` mounts, and [§7](#7-why-the-problems-this-replaced--verified-2026-07-18-retired-2026-07-22)
 lists "flat filename mounts that reject path separators" as a retired problem.
 But the executor behind that is **not implemented**:
 
@@ -597,10 +597,10 @@ But the executor behind that is **not implemented**:
 
 In other words: retiring `host_*_files` cleanly via the design's own answer (tree
 staging) *would* require building the missing half of the prism first — but the
-§10.4 decisions sidestep that by removing the open-ended-list role entirely (D2),
+[§10.4](#104-decisions-settled-2026-07-23) decisions sidestep that by removing the open-ended-list role entirely (D2),
 so no general tree-staging executor is needed for this task.
 
-### 10.3 The work (per the §10.4 decisions) — ✅ done 2026-07-23
+### 10.3 The work (per the [§10.4](#104-decisions-settled-2026-07-23) decisions) — ✅ done 2026-07-23
 
 1. ✅ **Declared the host-file set in yolo, per agent (D1/D2):** `AgentSpec.HostFiles`
    (`{Dir, Files}`) — claude/pi each declare exactly `settings.json`; no siblings
@@ -682,7 +682,7 @@ keys never existed.
 cross into the jail; no config key gates or expands it; the mount plumbing stays
 in the CLI keyed off that declaration; the config keys hard-error. This removes a
 workspace-influenceable credential path (the real motivation) and collapses the
-three roles of §10.1 into one explicit, non-widenable list — **without** needing
+three roles of [§10.1](#101-what-host_pi_files-did-before-retirement) into one explicit, non-widenable list — **without** needing
 the general tree-staging executor, because D2 removes the only role that wanted
 an open-ended list.
 

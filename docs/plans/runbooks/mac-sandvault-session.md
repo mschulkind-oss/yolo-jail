@@ -1,7 +1,7 @@
 # Mac SandVault session — the M0 working recipe
 
 **Date:** 2026-07-21. **Status:** M0 **PASSED** + M1 **PASSED** on real Apple
-Silicon (M1 results in §6b).
+Silicon (M1 results in §[6b](#6b-m1-results--macos-user-e2e-observed-on-hardware-2026-07-21)).
 **Audience:** an agent (or human) bootstrapping the Track-M verification loop on
 a Mac. **Role:** this is the M0 deliverable called for by the plan
 ([../macos-revival-and-distribution-plan.md](../macos-revival-and-distribution-plan.md)
@@ -81,10 +81,10 @@ Everything here is **zero-sudo** and runs inside the sandbox.
 | Check | Command | Result |
 |---|---|---|
 | Go build | `go build ./...` | **PASS** |
-| Unit tests | `TMPDIR=/tmp/yj-test just test-fast` | **PASS** (green only with the short TMPDIR — see §3.2) |
+| Unit tests | `TMPDIR=/tmp/yj-test just test-fast` | **PASS** (green only with the short TMPDIR — see [§3.2](#3-the-recipe-what-to-run-in-order)) |
 | Darwin cross-build | `TMPDIR=/tmp/yj-test GOOS=darwin GOARCH=arm64 ./scripts/build-go.sh` | **PASS** (all 5 binaries) |
-| nix daemon | `nix store info` | **PASS** — connects, `Trusted: 1` (after the §5.2 fix) |
-| **Native aarch64-darwin build** | `YOLO_EXTRA_PACKAGES='["jq"]' nix build --impure --no-link --print-out-paths '.#packages.aarch64-darwin.yoloDarwinPackages'` | **PASS** — materializes a store path with a runnable `bin/jq` (see §5.4). This is the M1 §5 acceptance-bar build path (`darwinpkg.Materialize`), now de-risked from the sandbox. |
+| nix daemon | `nix store info` | **PASS** — connects, `Trusted: 1` (after the [§5.2](#5-what-sandvault--the-environment-blocks--the-human-outside-column) fix) |
+| **Native aarch64-darwin build** | `YOLO_EXTRA_PACKAGES='["jq"]' nix build --impure --no-link --print-out-paths '.#packages.aarch64-darwin.yoloDarwinPackages'` | **PASS** — materializes a store path with a runnable `bin/jq` (see [§5.4](#54-native-aarch64-darwin-build--verified-working-m1-5-de-risked)). This is the M1 [§5](mac-macos-user-e2e.md#5-the-acceptance-bar--packages-materialized-natively) acceptance-bar build path (`darwinpkg.Materialize`), now de-risked from the sandbox. |
 | macos-user dry-run | `YOLO_RUNTIME=macos-user yolo --dry-run -- bash` | **PASS** — prints full run plan + generated Seatbelt profile, zero sudo |
 | Sandbox boundary | write `/Library` vs workspace; `sudo` | **PASS** — `/Library` + `sudo` blocked, workspace writable |
 
@@ -112,13 +112,13 @@ So the inside-sandbox column (build, test, cross-build, `yolo check --no-build`,
    sudo launchctl kickstart -k system/org.nixos.nix-daemon
    ```
    `nix store info` then reports `Trusted: 1`.
-3. **All of M1 §3–§7** — `yolo macos-setup` (dscl/ACL), the first real Seatbelt
+3. **All of M1 [§3](mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo)–[§7](mac-macos-user-e2e.md#7-cleanup)** — `yolo macos-setup` (dscl/ACL), the first real Seatbelt
    launch, teardown: every privileged one-shot. `sudo` is not on the SandVault
    exec allowlist at all (not merely password-gated), so these **cannot** run in
    the sandbox by design — they are the human's column, exactly as the plan
    predicts.
 
-### 5.4 Native aarch64-darwin build — verified working (M1 §5 de-risked)
+### 5.4 Native aarch64-darwin build — verified working (M1 [§5](mac-macos-user-e2e.md#5-the-acceptance-bar--packages-materialized-natively) de-risked)
 
 With `Trusted: 1`, the acceptance-bar build path runs **from the sandbox**:
 
@@ -129,7 +129,7 @@ YOLO_EXTRA_PACKAGES='["jq"]' nix build --impure --no-link --print-out-paths \
 ```
 
 This is the exact build `darwinpkg.Materialize` drives for M1's `which jq` →
-`/nix/store/…` acceptance bar, so the nix side of §5 is proven before the human
+`/nix/store/…` acceptance bar, so the nix side of [§5](mac-macos-user-e2e.md#5-the-acceptance-bar--packages-materialized-natively) is proven before the human
 launch. **One sandbox-only snag:** nix's libgit2 rejected the flake with
 *"repository path … is not owned by current user"* (repo is owned by `matt`,
 sandbox runs as `sandvault-matt`). Fixed for the sandbox with
@@ -141,12 +141,12 @@ so libgit2 is satisfied there.
 
 M0 is green: the sandboxed dev loop works, `repo_path` is set, nix is trusted,
 the darwin cross-build + macos-user dry-run + native aarch64-darwin package
-build all pass. Remaining human prerequisites before M1 §3:
+build all pass. Remaining human prerequisites before M1 [§3](mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo):
 
 - `brew install container && container system start` **iff** the AC/J3 path is
   exercised (macos-user with empty `packages:` needs no runtime).
 
-The nix trusted-users fix (§5.2) is already done. Proceed to
+The nix trusted-users fix ([§5.2](#5-what-sandvault--the-environment-blocks--the-human-outside-column)) is already done. Proceed to
 [mac-macos-user-e2e.md](mac-macos-user-e2e.md) per the sequence in
 [mac-agent-guide.md](mac-agent-guide.md).
 
@@ -162,14 +162,14 @@ of the Seatbelt profile, since `/Users/Shared/sv-matt` is group `sandvault-matt`
 
 | M1 behavior | Observation | Verdict |
 |---|---|---|
-| §3 setup / **finding-6 password** | `dscl . -read /Users/_yolojail` → `Password: ********`, `IsHidden: 1`, `UniqueID: 602` — a real ShadowHash, not empty | **PASS** |
-| §4 first launch (behavior #2, Go bootstrap self-exec) | `whoami` → `_yolojail`, `pwd` → workspace, prints `yolo-jail macos-user bootstrap ok` (the `internal darwin-bootstrap` self-exec, no Python) | **PASS** |
-| §4 **fresh-inode re-stage (behavior #1)** | 2nd identical run re-staged `/var/yolo-jail/yolo` and re-execed cleanly — **no `Killed: 9`/SIGKILL** from the Mach-O vnode signature cache | **PASS** |
+| [§3](mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo) setup / **finding-6 password** | `dscl . -read /Users/_yolojail` → `Password: ********`, `IsHidden: 1`, `UniqueID: 602` — a real ShadowHash, not empty | **PASS** |
+| [§4](mac-macos-user-e2e.md#4-first-real-run-under-seatbelt) first launch (behavior #2, Go bootstrap self-exec) | `whoami` → `_yolojail`, `pwd` → workspace, prints `yolo-jail macos-user bootstrap ok` (the `internal darwin-bootstrap` self-exec, no Python) | **PASS** |
+| [§4](mac-macos-user-e2e.md#4-first-real-run-under-seatbelt) **fresh-inode re-stage (behavior #1)** | 2nd identical run re-staged `/var/yolo-jail/yolo` and re-execed cleanly — **no `Killed: 9`/SIGKILL** from the Mach-O vnode signature cache | **PASS** |
 | staged binary | `ls -l@ /var/yolo-jail/yolo` → `-rwxr-xr-x root wheel` (world r-x, root-owned); `com.apple.provenance` xattr present but binary runs fine → Gatekeeper/quarantine concern cleared | **PASS** |
-| §5 **OQ-1 path_helper (behavior #4)** | `which just` → `/nix/store/…-yolo-darwin-packages/bin/just`; `$PATH` shows the login-rc re-prepend (`.yolo-shims`…`/nix/store/…/bin`) *ahead* of the path_helper tail (`/usr/local/bin`, `/opt/homebrew/bin`) | **PASS** — acceptance bar met |
+| [§5](mac-macos-user-e2e.md#5-the-acceptance-bar--packages-materialized-natively) **[OQ-1](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper (behavior #4)** | `which just` → `/nix/store/…-yolo-darwin-packages/bin/just`; `$PATH` shows the login-rc re-prepend (`.yolo-shims`…`/nix/store/…/bin`) *ahead* of the path_helper tail (`/usr/local/bin`, `/opt/homebrew/bin`) | **PASS** — acceptance bar met |
 | native aarch64-darwin build | `packages: ["just"]` materialized `just-1.57.0` from source (Cachix empty), streamed build logs | **PASS** |
-| §6 host creds invisible | HOME is `_yolojail`'s scrubbed home; `~/.gitconfig` → *No such file*, `~/.ssh` → *No such file* — `matt`'s identity/keys not visible | **PASS** |
-| §7 teardown idempotence | 1st `macos-teardown` removed the user; 2nd → *"does not exist — nothing to do"* (clean no-op); post-teardown run refuses with a clear "run macos-setup" message | **PASS** |
+| [§6](mac-macos-user-e2e.md#6-real-agent-optional-once-45-pass) host creds invisible | HOME is `_yolojail`'s scrubbed home; `~/.gitconfig` → *No such file*, `~/.ssh` → *No such file* — `matt`'s identity/keys not visible | **PASS** |
+| [§7](mac-macos-user-e2e.md#7-cleanup) teardown idempotence | 1st `macos-teardown` removed the user; 2nd → *"does not exist — nothing to do"* (clean no-op); post-teardown run refuses with a clear "run macos-setup" message | **PASS** |
 
 Two fixes landed from M1 observations (jail-side, committed):
 

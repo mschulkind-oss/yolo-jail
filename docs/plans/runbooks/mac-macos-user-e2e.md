@@ -120,18 +120,18 @@ yolo macos-unshare /Users/Shared/yolo/some-test-project
 ---
 
 ## What to report per step (any failure is a precise bug for me)
-- §1/§2: the check output + dry-run plan + any invariant violations.
-- §3: setup output + verdict.
-- §4: does it launch as `_yolojail`? any sandbox-exec error verbatim.
-- §5: **the `which jq` path** (the acceptance-bar signal) + whether it built.
-- §6: agent starts? host creds invisible?
+- [§1](#1-preflight--inspect-readiness-without-changing-anything-no-sudo)/[§2](#2-dry-run-the-plan--still-no-sudo-nothing-executes): the check output + dry-run plan + any invariant violations.
+- [§3](#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo): setup output + verdict.
+- [§4](#4-first-real-run-under-seatbelt): does it launch as `_yolojail`? any sandbox-exec error verbatim.
+- [§5](#5-the-acceptance-bar--packages-materialized-natively): **the `which jq` path** (the acceptance-bar signal) + whether it built.
+- [§6](#6-real-agent-optional-once-45-pass): agent starts? host creds invisible?
 
 ## Likely rough edges I'd expect (so they're not surprises)
 - **sudo prompt through a proxied TTY:** the launch runs under yolo's tty-proxy;
   if a sudo prompt appears mid-run and can't be answered, that's a known risk —
   report where it hung.
 - **`/nix` not found / daemon not trusted:** the darwin build needs nix + a
-  trusted user; if §5 fails there, paste the error — it's the same
+  trusted user; if [§5](#5-the-acceptance-bar--packages-materialized-natively) fails there, paste the error — it's the same
   trusted-users wiring as the container path.
 - **darwin build of a package with no aarch64-darwin build:** should warn-and-skip
   (not crash). If a package vanishes silently, report which.

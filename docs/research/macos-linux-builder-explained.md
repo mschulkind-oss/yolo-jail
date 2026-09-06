@@ -4,12 +4,12 @@
 > deletion below is no longer pending, it is **done**: there is no
 > `internal/builder` directory and no `yolo builder` command in the tree
 > (verified 2026-08-23). `internal/containerbuilder` is the only builder.
-> Everything the original note said would happen, happened; read the §0 Rosetta
+> Everything the original note said would happen, happened; read the [§0](#0-rosetta-stone-macos--the-linux-thing-you-already-know) Rosetta
 > stone and the lifecycle mechanics as still-valid mental model, and read every
 > "we should" sentence as retired.
 >
-> **STATUS (2026-07-23):** The VM-builder *direction* discussed below — the §3
-> Option C launchd plist, the §5 rework recommendation, and the `yolo builder`
+> **STATUS (2026-07-23):** The VM-builder *direction* discussed below — the [§3](#3-the-real-options)
+> Option C launchd plist, the [§5](#5-what-this-means-for-the-code-we-already-have) rework recommendation, and the `yolo builder`
 > commands — is **SUPERSEDED**. The on-demand **container** builder is the sole
 > shipped builder; see [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md)
 > (Open Decision #3, RESOLVED). The conceptual/mental-model content here (why
@@ -95,7 +95,7 @@ console**, and auto-logs-you-in as the `builder` user.
 **Nobody runs it this way for real.** It's the "does it work?" form, like running
 a daemon in the foreground with `-D`/`--foreground` on Linux to watch it before
 you `systemctl enable` it. The real deployments all run it as a **launchd
-service** (§3), where there's no terminal to be trapped in.
+service** ([§3](#3-the-real-options)), where there's no terminal to be trapped in.
 
 ---
 
@@ -160,7 +160,7 @@ install the SSH key, and wire the daemon's `nix.conf` builder line + ssh_config 
 - **Pro:** works on any Mac with plain/Determinate nix, no nix-darwin; we own the
   UX (doctorable via `yolo check`, off by default).
 - **Con:** we maintain a plist (small, stable — it mirrors the upstream one).
-- **This is the right primitive for yolo.** See §5.
+- **This is the right primitive for yolo.** See [§5](#5-what-this-means-for-the-code-we-already-have).
 
 ### Option D — the foreground `nix run` *(what you hit — NOT a real option)*
 
@@ -228,7 +228,7 @@ That approach is fighting the platform:
 **Recommendation: rework `builder.py` around a launchd plist (Option C).** It
 deletes the trap *and* the first-boot hack, and `yolo builder {start,stop,status}`
 become thin `launchctl` wrappers — which is what the design originally sketched
-before the detached-`Popen` detour. The resident-vs-on-demand choice (§4) is then
+before the detached-`Popen` detour. The resident-vs-on-demand choice ([§4](#4-the-one-axis-thats-genuinely-a-decision-resident-vs-on-demand)) is then
 just `KeepAlive` in the plist vs. kickstart-on-build + a watchdog.
 
 ---

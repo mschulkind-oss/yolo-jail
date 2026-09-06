@@ -31,7 +31,7 @@ real guest/host boot to describe.
 
 The full design and acceptance criteria live in
 [environment-manager-plan.md](environment-manager-plan.md) (Phases 3, 6, 7, 8) and
-[../design/yolo-as-environment-manager.md](../design/yolo-as-environment-manager.md) §4.
+[../design/yolo-as-environment-manager.md §4](../design/yolo-as-environment-manager.md#4-confinement-a-dial-with-three-notches).
 This doc is only the "what I, the human, must provide" layer.
 
 ---

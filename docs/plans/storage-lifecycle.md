@@ -1,6 +1,6 @@
 # Storage / cache / image lifecycle — make GC safe at any moment
 
-**Status:** §1–§4 IMPLEMENTED (2026-07-22); host-gated residuals remain (see
+**Status:** [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)–[§4](#4-log--overlay--cache-lifecycle--independent-lower-priority) IMPLEMENTED (2026-07-22); host-gated residuals remain (see
 below). Anchored on a real incident: a host `nix-collect-garbage` reclaiming
 ~2.5 TiB swept the **running jail image's own store closure**, leaving 235 of
 467 `/bin` symlinks pointing at dead targets (git, gh, curl, gcc, rg, fd, node,
@@ -9,22 +9,22 @@ running image's store closure is not a registered nix GC root**, so a GC is not
 safe to run at an arbitrary moment. This plan sequenced the fix.
 
 **Landed:**
-- **§1** — the run path registers a durable per-image GC root
+- **[§1](#1-root-the-running-images-closure--first-everything-depends-on-it)** — the run path registers a durable per-image GC root
   (`build/roots/<sha16>`), retained across runs; `yolo prune` reaps roots no
   live jail needs (tri-state fail-safe). Mechanism verified in-jail; the
   security win for the maintainer's live jails is host-gated on `just load`.
-- **§2** — `yolo check` warns when the host nix daemon's auto-GC is off
-  (`min-free == 0`), the safety net that §1 makes safe to enable. Host-owns the
+- **[§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)** — `yolo check` warns when the host nix daemon's auto-GC is off
+  (`min-free == 0`), the safety net that [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) makes safe to enable. Host-owns the
   actual nix.conf edit.
-- **§3** — opt-in `yolo prune --nix-gc`: a bounded, rooting-aware
+- **[§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)** — opt-in `yolo prune --nix-gc`: a bounded, rooting-aware
   `nix store gc --max N` that refuses in-jail and declines unless every loaded
-  image closure has a durable §1 root. Never a blanket collect.
-- **§4** — log/overlay lifecycle sweeps: dangling build out-links, orphaned
+  image closure has a durable [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) root. Never a blanket collect.
+- **[§4](#4-log--overlay--cache-lifecycle--independent-lower-priority)** — log/overlay lifecycle sweeps: dangling build out-links, orphaned
   agent-staging dirs, and age-purge of regenerable agent logs (Claude
   transcripts deliberately excluded).
 
-**Host-gated residuals (need the maintainer):** `just load` to ship §1's run-path
-rooting to live jails; the `min-free`/`max-free` nix.conf edit (§2); and the §3
+**Host-gated residuals (need the maintainer):** `just load` to ship [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)'s run-path
+rooting to live jails; the `min-free`/`max-free` nix.conf edit ([§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)); and the [§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)
 end-to-end store-GC acceptance run against a real host store. See "What needs the
 human / host" below.
 
@@ -182,7 +182,7 @@ and the host.
   `mkdir gcroots`). The user's hard rule stands: **never carelessly GC the host
   store.** Any store GC this plan adds must be rooting-aware and jail-live-gated,
   never a blanket collect.
-- Host symlinks/mounts as an arbitrary rw primitive. The `cache-relocation.md`
+- Host symlinks/mounts as an arbitrary rw primitive. The [`cache-relocation.md`](cache-relocation.md)
   threat model is settled law here: yolo does not manage host symlinks/mounts;
   a *human*-declared layout yolo merely consumes is the only acceptable shape.
   A store-GC feature must not become a backdoor to that.
@@ -192,7 +192,7 @@ live jails' loaded image closures (the same tri-state liveness prune already
 uses for containers/relays/build-roots), (b) confirms each is a registered GC
 root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 `nix store gc`) — never touching anything a live root protects. This is
-**host-gated and last in priority**; it must not ship before rooting (§1).
+**host-gated and last in priority**; it must not ship before rooting ([§1](#1-root-the-running-images-closure--first-everything-depends-on-it)).
 
 ---
 
@@ -230,13 +230,13 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
   GC-safe after `just load` ships the run-path change AND a host `yolo run`
   registers the root.
 
-### 2. Auto-GC safety net (min-free/max-free) — ONLY after §1
+### 2. Auto-GC safety net (min-free/max-free) — ONLY after [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)
 
 - [ ] **HOST-OWNED — Configure host nix `min-free`/`max-free`** so the store
   self-limits instead of relying on a manual blanket GC. Today `min-free = 0`,
   `max-free = MAX` (measured) — auto-GC is effectively off. Setting e.g.
   `min-free = 50 GiB`, `max-free = 200 GiB` makes the daemon free *unrooted*
-  paths automatically when space runs low. **This is safe if and only if §1
+  paths automatically when space runs low. **This is safe if and only if [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)
   holds** — auto-GC honors GC roots, so a rooted image closure survives; an
   unrooted one (today) would be the first casualty, on a timer. Ordering is not
   optional. **Not shipped in code — the maintainer must make this nix.conf edit.**
@@ -244,17 +244,17 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
   a `/etc/nix/nix.conf` (or Determinate `nix.custom.conf`) change the **human**
   must make. yolo does not edit it; instead `yolo check` now reads the daemon's
   effective `min-free` and warns with the exact remediation when it is 0 (the
-  §2 code that landed). The nix.conf edit itself remains host-owned (bullet
+  [§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1) code that landed). The nix.conf edit itself remains host-owned (bullet
   above).
 - **Verification:** host-only. In-jail, `nix config show` reads the daemon's
   effective config (already works) so `yolo check` can *observe* the values, but
   changing them is host-side.
 
-### 3. Bounded, rooting-aware store GC in `yolo prune` — after §1 and §2
+### 3. Bounded, rooting-aware store GC in `yolo prune` — after [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) and [§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)
 
 - [x] Add an **opt-in** prune section (e.g. `--nix-gc`, default OFF) that runs a
   bounded `nix store gc --max <N>` after confirming every live jail's image
-  closure is rooted (§1). Target file: `internal/prune/` (new `nixgc.go`) wired
+  closure is rooted ([§1](#1-root-the-running-images-closure--first-everything-depends-on-it)). Target file: `internal/prune/` (new `nixgc.go`) wired
   into `prune.go:Run` and `commands.go:runPrune`. Reuse the tri-state liveness
   probe; **fail-safe**: liveness unknown → skip GC entirely.
 - [x] Never a blanket `nix-collect-garbage -d`. The section's contract: "free
@@ -280,7 +280,7 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
   of `build/run-result-*` symlinks whose target no longer exists — pure cleanup,
   no liveness needed (a dangling symlink protects nothing). Target:
   `internal/prune/`, small helper; safe in-jail.
-- [x] **`cache/images` size hint** already exists (`prunecmd.go`); once §1 lands,
+- [x] **`cache/images` size hint** already exists (`prunecmd.go`); once [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) lands,
   update the mental model note there — the tars are streamed once then unused,
   but the *store closure* behind the loaded image is the real 3 GiB that must
   stay rooted, distinct from the tar.
@@ -291,14 +291,14 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 
 ## What needs the human / host (gated)
 
-1. **Host nix.conf `min-free`/`max-free`** (§2) — a `/etc/nix/nix.conf` edit yolo
+1. **Host nix.conf `min-free`/`max-free`** ([§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)) — a `/etc/nix/nix.conf` edit yolo
    must not make. yolo may detect + warn only.
-2. **Shipping the rooting fix to the maintainer's live jails** (§1) requires a
+2. **Shipping the rooting fix to the maintainer's live jails** ([§1](#1-root-the-running-images-closure--first-everything-depends-on-it)) requires a
    host `just load` (image + run-path change) — in-jail nested runs validate the
    mechanism but do not re-root the host's already-running jails.
 3. **Any host-side gcroots registration** happens on the host `yolo run` path;
    the in-jail path cannot write `/nix/var/nix/gcroots` (read-only / unmounted).
-4. **Bounded store GC** (§3) can only be exercised end-to-end against a real host
+4. **Bounded store GC** ([§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)) can only be exercised end-to-end against a real host
    store + daemon.
 
 ---
@@ -316,7 +316,7 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
   --dry-run` does not list the image closure.
 - **Host acceptance (gated, cannot run in-jail):** with `min-free`/`max-free`
   set, force a low-space GC while a jail is up; confirm `/bin/git` et al. stay
-  live (the incident, now non-reproducible). This is the acceptance bar for §1+§2
+  live (the incident, now non-reproducible). This is the acceptance bar for [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)+[§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)
   together.
 
 ---
@@ -330,6 +330,6 @@ root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
 - **min-free/max-free values:** need the maintainer's real headroom numbers on
   the 3.7 TB shared device; 50/200 GiB is a placeholder.
 - **`restore-result`** in `build/` is a manual recovery root, not created by any
-  yolo code (confirmed: no repo reference). Once §1 gives durable auto-roots, the
+  yolo code (confirmed: no repo reference). Once [§1](#1-root-the-running-images-closure--first-everything-depends-on-it) gives durable auto-roots, the
   manual root can be retired — worth a note so it isn't mistaken for a yolo
   artifact.

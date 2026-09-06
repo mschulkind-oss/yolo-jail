@@ -33,7 +33,7 @@ yolo-declared; this plan adds a **user** path beside them, it does not touch the
 | **2** — host-side wiring | `YOLO_HOST_FILES` emission, `:ro` source mounts, destination staging | `internal/cli/run/hostfiles.go` |
 | **2** — macos-user | source-less entries only (`SourceLessHostFilesFrom`) | `internal/macosuser/runplan.go` |
 | **3** — visibility | `yolo config ls` / `diff` / `reset` + a boot-time divergence notice | `internal/cli/config{ls,diff}.go`, `internal/entrypoint/prism.go` |
-| **4** — docs | `host_files` block in `config-ref`; `agent-credentials.md` §2.4; `jail-home.md` §2.8; D4 annotated | — |
+| **4** — docs | `host_files` block in `config-ref`; `agent-credentials.md` [§2.4](../design/agent-credentials.md#24-user-declared-host-files-host_files--per-entry-scope); `jail-home.md` [§2.8](../design/jail-home.md#28-user-declared-host-files-config-host_files); D4 annotated | — |
 | **tests** | unit coverage per phase, plus 4 real-container tests | `integration/hostfiles_test.go` |
 
 Verified in a nested jail: all four modes render; `once` keeps an in-jail edit,
@@ -173,7 +173,7 @@ question — *is there a host source of truth?*
 | source-bearing | `readonly` | the host file stays authoritative; host edits keep propagating |
 | source-less | `once` | seed it, then leave it alone — in-jail edits just persist |
 
-The §5 capture-diff overlay engages **only** when a user writes
+The [§5](agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay) capture-diff overlay engages **only** when a user writes
 `"mode": "capture"` explicitly, because a captured edit outranks `host` *forever*
 — see [Overlay capture is the exception](#overlay-capture-is-the-exception-never-a-default).
 And because "how was this file built?" is now a real question, **`yolo config ls`**
@@ -211,7 +211,7 @@ The good news was that most of the machinery already existed. **Composed files a
 read-write**, not read-only as the draft had it: `renderSurfaceStateful` writes
 `0o644` into the agent overlay dir, which is a writable bind — the only `:ro` mount
 in the picture is the host *input* at `/ctx/host-<agent>/`. **In-jail edits are
-already captured** too: the §5 overlay loop is fully wired, diffing the on-disk file
+already captured** too: the [§5](agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay) overlay loop is fully wired, diffing the on-disk file
 against the `last_render` sidecar each boot, folding the delta into the durable
 `overlay` sidecar, and re-rendering with the overlay outranking host and computed.
 So the "surviving edits" half of this feature needed no new mechanism at all.
@@ -219,7 +219,7 @@ So the "surviving edits" half of this feature needed no new mechanism at all.
 Worth being precise about how `managed` actually enforces, since the name suggests
 a file mode: it doesn't touch permissions. `compose.go` simply re-applies the
 managed layer *after* the overlay and the Lua hook, so a managed key wins the merge
-in the generated file. §9 considered and rejected the read-only-file approach in as
+in the generated file. [§9](agent-settings-composition.md#9-decisions-all-settled) considered and rejected the read-only-file approach in as
 many words — "that file is `rw` in the jail… managed stays a layer, never an OS
 file."
 
@@ -296,7 +296,7 @@ than picking one winner:
   they came from without any yolo jargon. (`yolo config ls` and the boot notice
   already use it.)
 - ~~capture-diff overlay~~ — the *mechanism* (diff vs `last_render`). Accurate but
-  it puts implementation in the name; keep it to §5 where the mechanism is the
+  it puts implementation in the name; keep it to [§5](agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay) where the mechanism is the
   subject, and prefer "overlay" elsewhere.
 
 If a single umbrella term is wanted, **"captured edits"** is the candidate: it is
@@ -435,7 +435,7 @@ when the decoded value is not a `map[string]any` (raw `string`, lines `[]any`),
 replacement** in ascending layer order (`defaults < host < overlay < managed`,
 each simply replaces), then `Encode`.
 
-This keeps the §5 sidecars working unchanged: the `overlay` sidecar is always
+This keeps the [§5](agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay) sidecars working unchanged: the `overlay` sidecar is always
 JSON, and a raw string stores fine as a JSON string, so `ComposeStateful`'s
 capture/re-incorporate loop gives raw files the **same read-write, editable,
 managed lifecycle** as structured ones (intent #4).
@@ -695,7 +695,7 @@ What it costs, honestly:
   have — the sidecar is engine-internal and its format is explicitly yolo's own
   choice. The reason it is JSON is `null` tombstones, and a `{"value":…,"trivia":…}`
   envelope keeps that property. It is a migration (existing sidecars must still
-  load, which the §3.3 first-migration path already handles by re-seeding), not a
+  load, which the [§3.3](agent-settings-composition.md#33-format-agnostic-by-construction) first-migration path already handles by re-seeding), not a
   blocker.
 - **Merging raises a question the value model never had.** If `managed` overwrites a
   key, does the user's comment above it stay? Defensible answer: **trivia follows the
@@ -969,7 +969,7 @@ revisited when `macos-user` is shaped up:
 
 - **Composed user files are not read-only there** (the native `/Users/_yolojail`
   home is writable) — accepted.
-- **No workspace/jail isolation of the §5 sidecars** on the shared native home —
+- **No workspace/jail isolation of the [§5](agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay) sidecars** on the shared native home —
   accepted; noted for the `macos-user` pass.
 - **Host `source` entries can't bind-mount** (no `/ctx`), so they **fail-open to
   `defaults`** — a source-less managed entry still works via the pure generator; a
@@ -1130,7 +1130,7 @@ together (a half-migration is a silent no-op).
    `codec.CodecNames()` (the 4 real codecs) so a declared codec can never validate
    then fail at render.
 2. **Non-object branch in `Compose`** (`compose.go` object assertion): raw/lines
-   do whole-value replacement through the same pipeline + §5 sidecars. Same branch
+   do whole-value replacement through the same pipeline + [§5](agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay) sidecars. Same branch
    in `Ctx.Enforce`/`enforceValue`. Add the Compose-level tests raw/lines lack.
 3. **Widen the transform interface to non-object surfaces** — `Ctx.Config`
    `map[string]any` → `any`; `vm.go`'s post-hook assertion becomes "the value's
@@ -1208,8 +1208,8 @@ surfaces too, which have carried silent capture overlays since the prism cutover
     matrix; the per-entry source-bearing = user-scope boundary.
 17. **`docs/design/jail-home.md`** — user surfaces in the home overlay; writable
     subtree registration; the composed-wins ordering vs. a dir copy.
-18. **`agent-settings-composition.md`** — annotate D4 (reversed + generalized),
-    fix the §4 layer table's `agent_config.<agent>` claim (decided-but-unwired), and
+18. **[`agent-settings-composition.md`](agent-settings-composition.md)** — annotate D4 (reversed + generalized),
+    fix the [§4](agent-settings-composition.md#4-layers-and-scope) layer table's `agent_config.<agent>` claim (decided-but-unwired), and
     record that `ctx.config` is no longer always an object.
 
 ## Test plan
@@ -1266,7 +1266,7 @@ surfaces too, which have carried silent capture overlays since the prism cutover
   raw surface gets no per-key provenance or key-level diff.)
 - **No arbitrary host→container mapping.** `host_files` destinations are
   `$HOME`-relative; arbitrary paths into `/ctx` remain `mounts` (`:ro`).
-- **No tree-staging glob executor** (the §3.3 `ctx.stage` vaporware — its only
+- **No tree-staging glob executor** (the [§3.3](agent-settings-composition.md#33-format-agnostic-by-construction) `ctx.stage` vaporware — its only
   consumer is a `config render` display line). A flat list + per-entry codec +
   recursive dir copy covers the need.
 

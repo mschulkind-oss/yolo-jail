@@ -21,7 +21,7 @@ commits, ten queued rulings plus six field findings. Two things worth carrying t
   an offline apply archived an unreachable pack's skills *while reporting success*.
 - **Two mutations SURVIVED, and both were the most valuable results.** One showed the real boot
   loop's autonomy posture had no coverage at all (every existing assertion drove the *non-boot*
-  entry, including the fingerprint test). The other showed a §6a-5 acceptance test passed with the
+  entry, including the fingerprint test). The other showed a §[6a-5](#6a-5-found-verifying-q5-the-local-pack-loses-at-flat-tier) acceptance test passed with the
   defect fully restored, because that defect lives in the SAVED record and a single apply never
   consults it. Neither was a wrong fix; both were fixes nobody could prove.
 - **Agents corrected the spec three times**, each recorded at the item: the pseudo-owner pattern
@@ -79,7 +79,7 @@ What the ruling buys, in order of value:
 ### What must be true for this to be safe
 
 - **MOVE to the local pack, not archive** — amended 2026-08-04 by the same ruling that gave
-  `skills` a local pack (§6a-2). The user's existing briefing prose moves into
+  `skills` a local pack (§[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack)). The user's existing briefing prose moves into
   `~/.config/yolo-jail/local/AGENTS.md`, where yolo composes it back into every destination. So
   the migration is behavior-PRESERVING (their instructions still reach their agents, now through
   the layer model) rather than merely non-destructive. Archiving remains the fallback for prose
@@ -95,7 +95,7 @@ What the ruling buys, in order of value:
   is exactly the one-way door that gate exists for.
 - **The retirement path must archive on drop too.** Dropping the last pack contributing a
   briefing destination means yolo no longer owns that file; leaving a generated file behind with
-  no owner is the orphan case §11 of `proposed-fixes-open-findings.md` closed for the other
+  no owner is the orphan case [§11](proposed-fixes-open-findings.md#11-a-dropped-packs-host-output-is-never-retired-new-2026-08-03) of [`proposed-fixes-open-findings.md`](proposed-fixes-open-findings.md) closed for the other
   kinds.
 
 ### Consequences to carry into the implementation
@@ -169,7 +169,7 @@ that to other places. Now is the time to break backwards compatibility."*). Cand
 considering in the same pass, each of which currently requires an explicit declaration for a
 thing that has exactly one sensible location:
 `~/.config/yolo-jail/local/AGENTS.md` as the user's own briefing prose (same dir, same rule);
-the personal-tree question §6a-2 previously left open (now answered — it is the local pack);
+the personal-tree question §[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack) previously left open (now answered — it is the local pack);
 and `from: "skills"` on a `skills` contribution, which every shipped pack declares redundantly.
 
 ### Collisions — union, warn, and the empirical case is milder than it looks
@@ -239,7 +239,7 @@ declines to resolve, an unreadable entry), so nothing is ever deleted.
   needs provenance to know what it may touch. If yolo owns the directory outright, namespaced vs
   flat becomes a question about how the AGENT invokes a skill (`pack:skill` vs `skill`), not about
   what yolo may overwrite. Worth checking during implementation — it would delete a concept.
-- **The "where does layer 4 live?" question §6a-2 originally left open.** Answered: the local
+- **The "where does layer 4 live?" question §[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack) originally left open.** Answered: the local
   pack. No new config key.
 
 ## 6a-3. Conventions over configuration — the wider pass
@@ -247,7 +247,7 @@ declines to resolve, an unreadable entry), so nothing is ever deleted.
 **Maintainer, 2026-08-04:** *"Conventions over configuration are always nice. Perhaps we can apply
 that to other places. Now is the time to break backwards compatibility."*
 
-The local pack (§6a-2) is the first instance. Recorded here so the batch does one deliberate
+The local pack (§[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack)) is the first instance. Recorded here so the batch does one deliberate
 convention pass rather than accreting them, and so the backwards-compatibility break happens
 ONCE. Each candidate is a place where an explicit declaration is required for a thing that has
 exactly one sensible answer.
@@ -303,7 +303,7 @@ nothing." A declaration honored differently is still worth a line even when the 
 It takes a DIRECTORY, not the contribution — so a pack declaring `from: "house-rules.md"` has it
 honored at the host (`hostBriefingProse` builds `[c.From, "AGENTS.md", "CLAUDE.md"]`) and silently
 ignored in the jail. That is exactly the accepted-and-ignored defect `skills` had until 2026-08-03,
-in the sibling kind, and it is a fifth instance of §6b's through-line: the jail's mechanism became
+in the sibling kind, and it is a fifth instance of §[6b](#6b-divergence-audit--where-else-a-kind-means-two-different-things-by-notch)'s through-line: the jail's mechanism became
 the kind's definition.
 
 `packdecl.Contribution.BriefingCandidates()` now exists as the single authority for the
@@ -338,7 +338,7 @@ question the delimited block never had to answer.
    `HostBriefingRequest.PackSetComplete`, fail-closed at its zero value, so the two thresholds are
    now deliberately the same. The old test now pins the convergence rather than the split.
 
-**Also settled: `after: "host:<path>"` is JAIL-ONLY**, which §6a flagged for re-examination. It is
+**Also settled: `after: "host:<path>"` is JAIL-ONLY**, which §[6a](#6a-ruled--briefings-are-fully-generated-and-controlled) flagged for re-examination. It is
 not decorative — the jail case is still real (it prepends the user's host file to a `:ro` staging
 copy, so a personal `AGENTS.md` outranks a pack's IN A JAIL) — but at the host the path it names is
 now the generated destination, so there is nothing left to prepend. Documented at the field and in
@@ -381,11 +381,11 @@ whether it is THIS PACK'S; precedence then lives in the layer order, and a name 
 changing composer between applies self-heals instead of being refused forever. The acceptance test
 (`TestApplyHostSkillsLocalPackWinsFlatTierCollision`) applies TWICE, which mutation testing proved
 necessary: a single apply is decided by the per-run claim set alone and passes with the defect fully
-restored — §6a-5 lived in the SAVED record, which only a re-apply consults.
+restored — §[6a-5](#6a-5-found-verifying-q5-the-local-pack-loses-at-flat-tier) lived in the SAVED record, which only a re-apply consults.
 
 ## 6a-7. Found shipping Q6: four defects, and the tier question answered
 
-**The tier A/B split did NOT collapse**, which §6a-2 flagged as a possible concept deletion. It
+**The tier A/B split did NOT collapse**, which §[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack) flagged as a possible concept deletion. It
 narrowed, and the narrowing is worth stating precisely because the reasoning for collapsing it was
 sound as far as it went: tiers existed so a flat merge into a shared directory could know what it
 may touch, and yolo now owns the directory outright, so that job is gone. What remains is a
@@ -438,8 +438,8 @@ asymmetry with a decision behind it, and one is a gap masquerading as a policy.
 
 | Kind | Jail mechanism | Non-container mechanism | Verdict |
 |---|---|---|---|
-| `briefing` | wholesale-generated to a staging file, `:ro` | ~~delimited block inside the user's file~~ **wholesale-generated** | ✅ **UNIFIED 2026-08-04** (§6a, Q4) |
-| `skills` | **wipe + recompose**: built-ins < packs < user's tree, `:ro` | ~~deliver per-entry, REFUSE what yolo cannot prove it wrote~~ **compose wholesale; the user's tree MOVES to the local pack** | ✅ **UNIFIED 2026-08-04** (§6a-2, Q6). The one remaining difference is deliberate: the host does not write yolo's own jail-oriented BUILT-INS into a real home, and layer 3 reads the LOCAL PACK rather than the destination itself — at the host the destination *is* what the jail's layer 3 read |
+| `briefing` | wholesale-generated to a staging file, `:ro` | ~~delimited block inside the user's file~~ **wholesale-generated** | ✅ **UNIFIED 2026-08-04** (§[6a](#6a-ruled--briefings-are-fully-generated-and-controlled), Q4) |
+| `skills` | **wipe + recompose**: built-ins < packs < user's tree, `:ro` | ~~deliver per-entry, REFUSE what yolo cannot prove it wrote~~ **compose wholesale; the user's tree MOVES to the local pack** | ✅ **UNIFIED 2026-08-04** (§[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack), Q6). The one remaining difference is deliberate: the host does not write yolo's own jail-oriented BUILT-INS into a real home, and layer 3 reads the LOCAL PACK rather than the destination itself — at the host the destination *is* what the jail's layer 3 read |
 | `files` | `:ro` bind mount, pack owns the path outright | write, but REFUSE a path the user owns | **correct** — no layer model to recompose; see D1 |
 | `config` | four modes (`stateful`/`rmw`/`computed`/`unrendered`) | ONE mode (`rmw`) | **look at this** — see D2 |
 | `env` | `-e` on the container | unimplemented ("your shell profile") | **gap, not policy** — see D3 |
@@ -454,7 +454,7 @@ asymmetry with a decision behind it, and one is a gap masquerading as a policy.
 > because the reasoning is what makes the result reviewable. Two things it predicted correctly and
 > one it got wrong: the local pack IS the answer to "where does layer 4 live", and the migration IS
 > bigger than the briefing one — but the tier A/B split did NOT collapse, it narrowed to invocation
-> shape. See §6a-7 for that and for the four defects only running the lifecycle found.
+> shape. See §[6a-7](#6a-7-found-shipping-q6-four-defects-and-the-tier-question-answered) for that and for the four defects only running the lifecycle found.
 
 **Corrected 2026-08-04 after the maintainer asked "why don't we own the skills directory
 entirely?" The answer is that in the jail we already do**, and my previous entry here — which
@@ -488,13 +488,13 @@ path to negotiate over, it is absent input to a regenerated directory.
 **What the host would need that the jail gets for free**, and why this is a decision rather than
 a patch:
 
-- **A source for the user's own layer — RESOLVED by §6a-2's local-pack ruling.** In the jail,
+- **A source for the user's own layer — RESOLVED by §[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack)'s local-pack ruling.** In the jail,
   layer 4 reads `homeDir/<into>` (the host home) and writes to a staging dir, so source and
   destination are distinct. At the host they are the SAME directory — the identical problem the
   briefing markers were invented for. The answer is the local pack: the user's own skills MOVE to
   `~/.config/yolo-jail/local/skills/` once, and layer 4 reads from there forever after. Not an
   archive, and not a new config key.
-- **It is still a bigger migration than the briefing one**, which is why §6a-2 requires a confirm
+- **It is still a bigger migration than the briefing one**, which is why §[6a-2](#6a-2-ruled--skills-wholesale-owned-migrated-into-a-conventional-local-pack) requires a confirm
   and a printed list of what moved: a briefing is one file most users never hand-wrote, while
   `~/.claude/skills` may hold real work. The move makes it a no-op in effect, but it is moving
   real files and must say so.
@@ -571,7 +571,7 @@ off-container is your shell profile, which apply --host does not write"* and *"l
 launcher — apply --host configures your tools but never runs them."*
 
 **Both reasons are true of `apply --host` and false of the notch.** They describe a missing
-*verb*, not an inapplicable *kind*: `yolo --at host -- <cmd>` (the design's own §4.1 escape valve,
+*verb*, not an inapplicable *kind*: `yolo --at host -- <cmd>` (the design's own [§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story) escape valve,
 Option 2 of [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md))
 would make both renderable immediately, because yolo would be the one launching the process. And
 at `guest` the verb ALREADY exists — macos-user execs the agent today — so `env` and `launch` are
@@ -605,15 +605,15 @@ Suggested order:
 1. **`Kind` explicit + `KindGuest`** (D2's root cause). Mechanical, and it makes everything below
    a compile-time question rather than a discovered bug.
 2. **D3 wording** — strings only; stop describing a missing verb as an inapplicable kind.
-3. ✅ **§6a briefing unification** (ruled) — **DONE 2026-08-04**. It WAS contained and the
+3. ✅ **§[6a](#6a-ruled--briefings-are-fully-generated-and-controlled) briefing unification** (ruled) — **DONE 2026-08-04**. It WAS contained and the
    fingerprint did NOT move (host-side only, as predicted). What the estimate missed is that
    three defects only appeared when the lifecycle was RUN, all of them about ownership records and
-   resolution ORDER rather than about composition — see §6a-6, and expect the same class in Q6.
+   resolution ORDER rather than about composition — see §[6a-6](#6a-6-found-shipping-q4-three-defects-the-design-did-not-predict), and expect the same class in Q6.
 4. ~~**`skills` wholesale composition** (D1) — the same ruling extended, but flag the migration
    cost first: a briefing is one file most users did not hand-write, while `~/.claude/skills` may
    hold real work.~~ **DONE 2026-08-04** (Q6, `187e6ad`). The predicted "same class" of defect did
    arrive, in a new form: not a resolution-ORDER bug but a resolution-AUTHORITY one — two retire
-   passes with different confirmation postures reaching the same paths, the silent one first. §6a-7.
+   passes with different confirmation postures reaching the same paths, the silent one first. §[6a-7](#6a-7-found-shipping-q6-four-defects-and-the-tier-question-answered).
 5. **Mode set as a target property** (D2's second half), as part of Phase 7 where it is forced.
 6. **`files`: no change**, and record why, so the ruling is not over-applied to a kind with no
    layer model.
@@ -652,7 +652,7 @@ hostoverlayprune.go  p.SurfacesFor(false)      ← literal
 hostrender.go:126    p.SurfacesFor(false)      ← literal
 ```
 
-So `Profile.AgentAutonomy` exists, is documented as the §4.2 policy bit, and is never read. The
+So `Profile.AgentAutonomy` exists, is documented as the [§4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) policy bit, and is never read. The
 notch's behavior lives in `true`/`false` constants chosen per file — which is the same rot as D2's
 inferred `Kind`, in a second place.
 
@@ -822,7 +822,7 @@ one mistake never draws two lines:
   inspect. The refusal without the flag stands — the flag supplies the consumer's half of the
   decision, it does not remove the gate.
 
-**The convention exemption STAYED, and the §7 prediction above was wrong about why.** Asking
+**The convention exemption STAYED, and the [§7](#7-closed--do-not-re-open-from-a-stale-reference) prediction above was wrong about why.** Asking
 question 1 directly does not make it redundant: the missing-source complaint is
 *per-contribution* while both replacement checks are *about the pack as a whole*, so a shipped
 pack passing them (it has contributions, and stages no unclaimed content) cannot silence a

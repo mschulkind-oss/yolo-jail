@@ -4,16 +4,16 @@
 and why, not as a pending proposal. **Not re-run since**, and the corpus has grown: as of
 2026-08-23 `docs/design/` holds 55 files and `docs/plans/` 34, at least eight of which announce
 their own completion in the first six lines. Whether a second sweep is worth running is argued in
-[`further-roadmap-ideas.md`](further-roadmap-ideas.md) §5 — where the verdict is *do the cheap half
+[`further-roadmap-ideas.md` §5](further-roadmap-ideas.md#5-the-weakest-idea-in-the-file-kept-because-it-is-nearly-free) — where the verdict is *do the cheap half
 only, when passing through*, because a shipped plan is still the best account of why something is
 shaped the way it is.
 
 **Purpose:** classify every doc under `docs/` so obsolete/done working-docs get
 archived while the reference + active-design docs stay. **The reorg has been
 executed**: commit `5eb1643` git-rm'd the 12 C-bucket docs and repointed every
-cross-reference; commit `9721660` moved `handoff-cachix-cache.md` into
+cross-reference; commit `9721660` moved [`handoff-cachix-cache.md`](handoff-cachix-cache.md) into
 `docs/plans/`, removed the now-empty `docs/implementation/`, and added
-`docs/plans/README.md`. The "Action" column and the §4 patch plan below record
+`docs/plans/README.md`. The "Action" column and the [§4](#4-cross-reference-patch-plan) patch plan below record
 what was done.
 
 ## The three buckets (your taxonomy)
@@ -25,10 +25,10 @@ what was done.
 - **B — Active design (keep, grouped).** A design for something we're *currently*
   implementing or still discussing — a tool to navigate the work. Proposed home:
   `docs/design/active/` and `docs/plans/` stays the active-plan home. (Or leave
-  in place with an "ACTIVE" banner — your call in §5.)
+  in place with an "ACTIVE" banner — your call in [§5](#5-decisions-settled-with-the-reviewer--the-executed-reorg).)
 - **C — Archive (remove; git history preserves it).** Done or obsolete working
   docs. Repo precedent (commit `2c229fb`) is `git rm`, not a move. Any inbound
-  link from a surviving doc gets repointed to the replacement (§4).
+  link from a surviving doc gets repointed to the replacement ([§4](#4-cross-reference-patch-plan)).
 
 There is effectively no fourth bucket. A couple of docs are **hybrids** (a
 reference-quality incident record that also has a stale "plan" framing) — I call
@@ -48,7 +48,7 @@ those out and propose keeping the durable part.
 | `jail-state-separation-design.md` | **A** (hybrid) | Header says "implemented 2026-07-03"; but it's the *decision surface* explaining the split-mise-store/neutral-path/per-side-venv model that's now live. Keep as the reference for that design. | keep |
 | `jail-version-predictability.md` | **C** | Header: "plan drafted, no decision yet"; the weekly `flake.lock` bump CI it proposed shipped (`.github/workflows/update-flake-lock.yml`). Working-doc, superseded by the running CI + `mise-node-dynamic-linking`. | **archive** |
 | `loophole-protocol.md` | **A** | Loophole wire protocol v1 — live spec. | keep |
-| `macos-no-vm-direction.md` | **A** | "DECIDED (2026-07-16)" — the standing decision (compose macos-user + AC). Referenced by the revival plan §0. The strategy of record. | keep |
+| `macos-no-vm-direction.md` | **A** | "DECIDED (2026-07-16)" — the standing decision (compose macos-user + AC). Referenced by the revival plan [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate). The strategy of record. | keep |
 | `mcp-configuration.md` | **A** | MCP wrapper / per-agent config model — live. | keep |
 | `mise-node-dynamic-linking.md` | **A** | The `LD_LIBRARY_PATH`/mise-node investigation — explains a live, still-load-bearing behavior (the new `tool-provisioning.md` leans on it). | keep |
 | `rocm-passthrough-design.md` | **A** | AMD ROCm passthrough design — shipped + live in `internal/`. | keep |
@@ -64,7 +64,7 @@ those out and propose keeping the durable part.
 | `claude-token-logouts.md` | **A** | User-facing operational runbook for 401 loops — live. | keep |
 | `macos-container-builder-exploration.md` | **B** | Open-questions doc for the AC-based Linux builder = revival plan **J3** (resurrect `internal/containerbuilder`). J3 shipped (`8abb67c`/`c2f0b94`); now reference for a shipped subsystem. | keep (active) |
 | `macos-linux-builder-explained.md` | **A** | Explains the macOS Linux-builder concept for a Linux reader — mental model, still accurate. | keep |
-| `macos-support-matrix.md` | **A** | **The live tracker** (revival plan §0 names it authoritative). Never archive. | keep |
+| `macos-support-matrix.md` | **A** | **The live tracker** (revival plan [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate) names it authoritative). Never archive. | keep |
 | `mise-host-jail-path-mismatch.md` | **A** (hybrid) | "superseded as a decision doc … retained as the incident record." Explicitly still the *only* home for the `.mise.toml` trust-hook fixes. Durable incident/reference record. | keep |
 | `platform-comparison.md` | **A** | Linux vs macOS architecture comparison — mental model. | keep |
 | `repo-root-and-distribution.md` | **A** | Updated this session to describe live resolution + distribution. | keep |
@@ -83,7 +83,7 @@ those out and propose keeping the durable part.
 | `plans/handoff-cachix-cache.md` | **B** | Human-gated procedure = revival plan **D4**. Cachix substituter enabled `flake.nix:13-16`; first-push/Mac-download human-gated. | keep (active) |
 | `plans/claude-oauth-mitm-proxy-plan.md` | **C** | Self-declared "preserved for design rationale"; Python refs deleted; broker/terminator shipped in Go; the refresher it centered on was removed (`51f07ea`). | **archive** |
 | `plans/macos-backend-direction.md` | **C** | Its "excise macos-user?" premise was *reversed* (macos-user revived). Superseded by `macos-no-vm-direction.md`. | **archive** |
-| `plans/macos-nix-shell-backend-proposal.md` | **C** | devShell mechanism superseded by buildEnv (revival plan §0); decisions folded into revival plan. | **archive** |
+| `plans/macos-nix-shell-backend-proposal.md` | **C** | devShell mechanism superseded by buildEnv (revival plan [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate)); decisions folded into revival plan. | **archive** |
 | `implementation/handoff-jail-logout-fixes.md` | **C** | All 5 mechanisms fixed (`8f7b550`,`e0ebba5`,`deaf0fb`,`498a84d`,`e1c6d38`); present in current Go. | **archive** |
 | `implementation/handoff-macos-nix-shell-spike.md` | **C** | Python-era spike for the superseded devShell mechanism. | **archive** |
 | `implementation/handoff-macos-ondemand-builder.md` | **C** | Python-era; QEMU builder demoted to parked fallback (revival Open Decision #3). | **archive** |
@@ -107,7 +107,7 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 
 | Surviving doc (link source) | Currently points to (archived) | Repoint to |
 |---|---|---|
-| `docs/design/macos-no-vm-direction.md` (×3) | `plans/macos-backend-direction.md`, `plans/macos-nix-shell-backend-proposal.md` | `plans/macos-revival-and-distribution-plan.md` §0 (the standing decision), drop the "reads with" line for the excised doc |
+| `docs/design/macos-no-vm-direction.md` (×3) | `plans/macos-backend-direction.md`, `plans/macos-nix-shell-backend-proposal.md` | `plans/macos-revival-and-distribution-plan.md` [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate) (the standing decision), drop the "reads with" line for the excised doc |
 | `docs/plans/macos-revival-and-distribution-plan.md` (Inputs header) | `handoff-macos-post-ejection.md`, `macos-nix-shell-backend-proposal.md` | reword to "(archived — see git history)"; the plan already contains their conclusions |
 | `docs/research/macos-support-matrix.md` | `handoff-macos-user-revive-plan.md` | repointed to the revival plan |
 | `docs/research/macos-linux-builder-explained.md` (×2) | `handoff-macos-ondemand-builder.md` | `research/macos-container-builder-exploration.md` (the live builder direction) |
@@ -115,7 +115,7 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 | `docs/research/claude-token-logouts.md`, `claude-oauth-refresh-mechanics.md` (×3) | `plans/claude-oauth-mitm-proxy-plan.md` | `bundled_loopholes/claude-oauth-broker/README.md` (live broker architecture) |
 | `docs/guides/loopholes.md` | `plans/claude-oauth-mitm-proxy-plan.md` | same broker README |
 | `docs/guides/macos.md` | `plans/macos-backend-direction.md` | `design/macos-no-vm-direction.md` |
-| `docs/research/rocm-gpu-jail-findings.md`, `docs/design/rocm-passthrough-design.md` | `rocm-memlock-handoff.md` | keep the *design* doc's own §7.2 (the handoff's durable content); demote the handoff link to "(resolved; see git history)" |
+| `docs/research/rocm-gpu-jail-findings.md`, `docs/design/rocm-passthrough-design.md` | `rocm-memlock-handoff.md` | keep the *design* doc's own [§7.2](../design/rocm-passthrough-design.md#72-locked-memory-limit-blocks-queue-creation-in-jail--resolved-by-rocm-72-userspace-2026-06-06) (the handoff's durable content); demote the handoff link to "(resolved; see git history)" |
 | `docs/qa/macos-user-review-findings.md` | `handoff-macos-user-revive-plan.md` | this doc is itself being archived, so no repoint needed |
 
 ## 5. Decisions (settled with the reviewer) + the executed reorg

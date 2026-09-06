@@ -106,7 +106,7 @@ added 2026-08-01 (the `yolo host apply` bypass-leak); it depends on 1/2/4 but no
 
 ## Phase 0 — Stop the destructive host-side write  *(was BACKLOG G1 + G2)*  ✅ **SHIPPED 2026-08-01**
 
-**Design/reasoning:** `host-render-target.md` §6.1 (the probes), §8 step 1.
+**Design/reasoning:** `host-render-target.md` [§6.1](../design/host-render-target.md#61-finding-yolo-already-does-this-and-it-is-destructive) (the probes), [§8](../design/host-render-target.md#8-what-i-would-actually-do-in-order) step 1.
 **Depends on:** nothing. **Ship regardless of whether the rest happens.**
 
 > [!NOTE]
@@ -157,7 +157,7 @@ first.
 
 ## Phase 1 — One renderer, several targets (`internal/render` + `Target`)  *(was BACKLOG G4 + G5 + G3)*  ✅ **SHIPPED** (1.1–1.3 2026-08-01; **1.4 2026-08-12**)
 
-**Design/reasoning:** `host-render-target.md` §3 (the load-bearing section), §4, §7.1.
+**Design/reasoning:** `host-render-target.md` [§3](../design/host-render-target.md#3-the-design-inside-yolo) (the load-bearing section), [§4](../design/host-render-target.md#4-the-four-couplings-under-a-target), [§7.1](../design/host-render-target.md#71-yolo-launches-a-jail-nothing-observable-changes).
 **Depends on:** Phase 0 (so the refactor lands on non-destructive host paths).
 
 > [!NOTE]
@@ -199,7 +199,7 @@ process `$HOME`"), and the `cli/config.go:3-4` header promising it runs "the SAM
   approximation of the boot render and *is* the boot render against a temp home.
 - **1.3 — `FieldSet`. *(G5)*** A target declares which kinds apply; an inapplicable kind
   gets a refusal **naming the kind**, never a silent skip. The census
-  (`host-render-target.md` §2.1): only `config` is target-independent; `program` must be
+  (`host-render-target.md` [§2.1](../design/host-render-target.md#21-but-measure-how-much-of-a-pack-the-host-actually-wants)): only `config` is target-independent; `program` must be
   refused, `mount`/`reads-host` are unavailable off-container and must be refused rather
   than emulated (a copy goes silently stale). G3 below is what a silent skip looks like
   after a year in production.
@@ -228,7 +228,7 @@ process `$HOME`"), and the `cli/config.go:3-4` header promising it runs "the SAM
   > had never been true. **Residue:** no Mac has exercised the `sudo -u _yolojail` staging step or
   > the sandbox-uid read — a verification gap, not the defect.
 
-**The one hard risk (`host-render-target.md` §3.5):** this refactors the **A12-fatal boot
+**The one hard risk (`host-render-target.md` [§3.5](../design/host-render-target.md#35-the-two-places-this-could-go-wrong)):** this refactors the **A12-fatal boot
 path** — a regression does not misconfigure an agent, it stops jails from *starting*,
 including the one you are reading this in. **Retire it with a byte-equality check of every
 shipped pack's rendered surfaces, before and after** — the same method Stage D used to
@@ -238,7 +238,7 @@ constraints: `entrypoint` must **not** gain a `cli` dependency (the edge runs
 `genStep`'s A12 fail-closed policy stay in the *caller*, not the renderer — that split is
 what lets a host target's refusal be a message while the jail stays loud-and-halting.
 
-**Extraction is settled: no** (`host-render-target.md` §2.3, decided 2026-07-27). This
+**Extraction is settled: no** (`host-render-target.md` [§2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no), decided 2026-07-27). This
 lives in yolo as `internal/render`, not a separate util — the field census puts the
 boundary through the middle of a single manifest, and G4's value is in the *deletion* of
 the duplicate renderer, host target or not.
@@ -260,9 +260,9 @@ and the byte-equality gate is green.
 > policy knob beside them). 2.3's mechanism-beside-notch printing is
 > `internal/cli/describe.go:145-149`.
 
-**Design:** design doc §4, §4.0.
+**Design:** design doc [§4](../design/yolo-as-environment-manager.md#4-confinement-a-dial-with-three-notches), [§4.0](../design/yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox).
 **Depends on:** Phase 1 (so a notch is a `Target`, not a code branch).
-**Before you start — decide:** OQ-10 (the composable-primitive model shape) — but it is a
+**Before you start — decide:** [OQ-10](#open-questions-to-resolve-before-their-phase) (the composable-primitive model shape) — but it is a
 "decide at this phase" item, not a blocker you owe an answer up front. Phase 2 ships the
 *three named presets*; it must not foreclose the primitive layer underneath.
 
@@ -296,21 +296,21 @@ and the primitive model exists internally even though only three presets are exp
 > jail provision" as a deferred within-phase increment; `apply` provisions without launching
 > today.
 
-**Design:** design doc §3, §3.1, §3.2.
+**Design:** design doc [§3](../design/yolo-as-environment-manager.md#3-the-verbs), [§3.1](../design/yolo-as-environment-manager.md#31-apply-is-the-verb-the-current-design-is-missing), [§3.2](../design/yolo-as-environment-manager.md#32-describe-is-the-reproducibility-claim-made-checkable).
 **Depends on:** Phase 1 (apply renders through the one renderer), Phase 2 (a notch to
 apply at). Phase 3 does jail level only; the host notch is Phase 4.
 
 - **3.1** `yolo apply`: split provision from launch. At `jail`, builds image + stages
   packs + renders config and exits. `yolo -- <cmd>` becomes "apply, then exec" — same
   behavior, now with a name. The manual-apply cases (set-up-don't-launch, CI provision
-  step) are the §3.1 enumeration.
+  step) are the [§3.1](../design/yolo-as-environment-manager.md#31-apply-is-the-verb-the-current-design-is-missing) enumeration.
 - **3.2** `yolo describe`: print the resolved description; **absorb the shipped `config
-  dump`** (canonical form) as `describe --json`. Add the human table (§3.2) and
+  dump`** (canonical form) as `describe --json`. Add the human table ([§3.2](../design/yolo-as-environment-manager.md#32-describe-is-the-reproducibility-claim-made-checkable)) and
   `describe --hash`. **`--hash` over an unsealed environment prints marked or refuses**
-  (§3.2 caveat) — it is not authoritative until Phase 5's sealing exists, so gate the
+  ([§3.2](../design/yolo-as-environment-manager.md#32-describe-is-the-reproducibility-claim-made-checkable) caveat) — it is not authoritative until Phase 5's sealing exists, so gate the
   bare hash on `--sealed` or mark it.
 - **3.3** `--at <level>` plumbing on `yolo`/`apply`, so a verb can target a notch other
-  than the configured default (the mechanism the escape valve §4.1 uses).
+  than the configured default (the mechanism the escape valve [§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story) uses).
 
 **Done when:** `apply` provisions-without-launch at `jail`, `describe` prints the
 description (and `--json` supersedes `config dump`), and `--at` selects a notch.
@@ -329,40 +329,40 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 > position.** `FieldSet` refuses `program` outright below `jail` — *"install is refused below
 > jail (a pack must not mutate a real toolchain unprompted)"*
 > (`internal/render/fieldset.go:38`) — which is the design's **original** rule, not the revised
-> confirm-gated one that §4.1 of the design doc and item 4.3 below both specify. `yolo host apply`
+> confirm-gated one that [§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story) of the design doc and item 4.3 below both specify. `yolo host apply`
 > prints a static pointer instead: *"apply --host reports host deps; it installs nothing. The
 > confirm-gated install is env-manager plan Phase 4.3"*
-> (`internal/cli/applyhostdeps.go:113-116`). So OQ-6/OQ-7's resolutions are recorded but
+> (`internal/cli/applyhostdeps.go:113-116`). So [OQ-6](#open-questions-to-resolve-before-their-phase)/[OQ-7](#open-questions-to-resolve-before-their-phase)'s resolutions are recorded but
 > unconsumed. This is the single largest gap between the design doc and the tree.
 
-**Design/reasoning:** `host-render-target.md` §6 (the whole section), §6.5 postures,
-§7.2; design doc §4.1.
+**Design/reasoning:** `host-render-target.md` [§6](../design/host-render-target.md#6-the-host-as-a-reduced-target) (the whole section), [§6.5](../design/host-render-target.md#65-the-posture-stated-as-a-table) postures,
+[§7.2](../design/host-render-target.md#72-the-human-manages-their-own-machine); design doc [§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story).
 **Depends on:** Phase 1 (`render.Host`), Phase 3 (`apply`), Phase 2 (`--at host`).
-**Before you start — decide:** nothing outstanding. OQ-1..OQ-9 are all RESOLVED (OQ-5
+**Before you start — decide:** nothing outstanding. [OQ-1](#open-questions-to-resolve-before-their-phase)..[OQ-9](#open-questions-to-resolve-before-their-phase) are all RESOLVED ([OQ-5](#open-questions-to-resolve-before-their-phase)
 moot); the host-render shape (pure `rmw`, user-scoped, no read-in layer, no capture) and
-the confirm-gated-install detail (OQ-6/7) are settled and assumed below.
+the confirm-gated-install detail ([OQ-6](#open-questions-to-resolve-before-their-phase)/7) are settled and assumed below.
 
 - **4.1** `render.Host(home)` renders the applicable kinds into the real `$HOME`;
-  postures `observe` → `assert` → (maybe never) `own` (§6.5). Default `observe`
+  postures `observe` → `assert` → (maybe never) `own` ([§6.5](../design/host-render-target.md#65-the-posture-stated-as-a-table)). Default `observe`
   (dry-run); `assert` **regenerates only the pack's `managed` keys** and leaves the
   user's own keys — the shipped "regenerate, don't reconcile" model applied to a real
-  home. **No `--revert` verb** (OQ-1, resolved): dropping yolo's management is "stop
+  home. **No `--revert` verb** ([OQ-1](#open-questions-to-resolve-before-their-phase), resolved): dropping yolo's management is "stop
   declaring the key and re-apply," which removes it with a notice exactly as an unset MCP
   server is dropped in a jail today; there is no restore-to-pre-yolo-state, which would
   need a before-snapshot nothing takes. **User-scoped, workspace contributes nothing**
-  (OQ-2, resolved).
-- **4.2** Every host config surface is **pure `rmw`** (OQ-4, resolved): `apply` rewrites
+  ([OQ-2](#open-questions-to-resolve-before-their-phase), resolved).
+- **4.2** Every host config surface is **pure `rmw`** ([OQ-4](#open-questions-to-resolve-before-their-phase), resolved): `apply` rewrites
   only yolo's own declared keys (`managed` + dynamic tables), fills absent `defaults`, and
   leaves every key the agent wrote untouched — no whole-file compose, no capture overlay.
   A yolo-managed key the agent edits is overwritten on the next `apply` (yolo owns it,
-  OQ-1). `${workspace}`-using surfaces are refused (no referent).
-- **4.3** `program` (install) below `jail` is **confirm-gated, not refused** (§4.1, the
-  reviewed position): TTY-only, permission-bounded. Per OQ-6 the confirm shows the resolved
-  **URL only** (not the fetched script); per OQ-7/OQ-9 confirmations are **batched by
+  [OQ-1](#open-questions-to-resolve-before-their-phase)). `${workspace}`-using surfaces are refused (no referent).
+- **4.3** `program` (install) below `jail` is **confirm-gated, not refused** ([§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story), the
+  reviewed position): TTY-only, permission-bounded. Per [OQ-6](#open-questions-to-resolve-before-their-phase) the confirm shows the resolved
+  **URL only** (not the fetched script); per [OQ-7](#open-questions-to-resolve-before-their-phase)/[OQ-9](#open-questions-to-resolve-before-their-phase) confirmations are **batched by
   elevation class** — one approval for all no-elevation remedies, one for all `sudo` ones
   (sudo first, so the OS password prompt comes up once at the front).
 - **4.4** `check --at host` reports host-render drift and hands off to `apply --at host`
-  (§3.4) — the host-side twin of the shipped `config drift`. `check` never writes.
+  ([§3.4](../design/yolo-as-environment-manager.md#34-check-becomes-is-this-description-satisfiable-here)) — the host-side twin of the shipped `config drift`. `check` never writes.
 
 **Done when:** `yolo host apply` regenerates a pack's `managed` config keys into the
 real home (behind `observe`/`assert`) without clobbering the user's own keys, and
@@ -390,14 +390,14 @@ inapplicable kinds are refused by name.
 > `:65-77`), which is why it is a closure problem rather than a correctness one. **This is
 > user-stories Q1's unbuilt half.**
 
-**Design:** design doc §3.3 (the full-closure table + the sealing rule).
+**Design:** design doc [§3.3](../design/yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) (the full-closure table + the sealing rule).
 **Depends on:** Phase 3 (`apply`). Independent of the host notch — sealing is a
-host-side check that needs no container (§3.3).
-**Note:** OQ-3 (retire the host read-in layer) is RESOLVED yes, so the closure table's
+host-side check that needs no container ([§3.3](../design/yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)).
+**Note:** [OQ-3](#open-questions-to-resolve-before-their-phase) (retire the host read-in layer) is RESOLVED yes, so the closure table's
 `host`-layer row has moved from Declared-impure to Declared — one fewer impure input for
 sealing to report.
 
-- **5.1** Enumerate the closure at apply time against the §3.3 four-tier table
+- **5.1** Enumerate the closure at apply time against the [§3.3](../design/yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) four-tier table
   (Locked / Declared / Declared-impure / Undeclared). This is the machine-readable
   version of `describe`.
 - **5.2** `apply --sealed`: refuse the Undeclared tier (`yolo-jail.local.jsonc`, an
@@ -430,27 +430,27 @@ from declared inputs, and its `--hash` is a reproducibility pin.
 >
 > **6.4 (offer-to-run, batched by elevation class) is NOT built** and is deferred by name in the
 > code: *"It NEVER installs anything… The offer-to-run (behind a batched, sudo-shown-through
-> confirm, OQ-9) belongs to `apply` at a lower notch"* (`internal/cli/checkdeps.go:9-12`). Since
-> `apply`'s half of that is Phase 4.3, also unbuilt, **OQ-9's resolution has no consumer at all
+> confirm, [OQ-9](#open-questions-to-resolve-before-their-phase)) belongs to `apply` at a lower notch"* (`internal/cli/checkdeps.go:9-12`). Since
+> `apply`'s half of that is Phase 4.3, also unbuilt, **[OQ-9](#open-questions-to-resolve-before-their-phase)'s resolution has no consumer at all
 > today.** The manifest floor is shipped; only the offer on top of it is missing.
 
-**Design:** design doc §3.4, §3.5.
+**Design:** design doc [§3.4](../design/yolo-as-environment-manager.md#34-check-becomes-is-this-description-satisfiable-here), [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest).
 **Depends on:** Phase 1 (`FieldSet`/notch-aware render), Phase 4 (host apply is where a
 missing dep bites). At `jail` this is a near-formality (the toolchain is in the sealed
 image); below `jail` it is the real work.
-**Before you start — decide:** nothing outstanding — OQ-8 (checker boundary) and OQ-9
-(confirm UX) are RESOLVED. §3.5 fixes the *shape*, not the schema.
+**Before you start — decide:** nothing outstanding — [OQ-8](#open-questions-to-resolve-before-their-phase) (checker boundary) and [OQ-9](#open-questions-to-resolve-before-their-phase)
+(confirm UX) are RESOLVED. [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) fixes the *shape*, not the schema.
 
 - **6.1** Pack-authored `provides`/`install_hints` (per-system: `brew`/`apt`/`dnf`/`nix`),
   declared by the pack that *introduces* the dep (no re-declaring others' deps).
 - **6.2** The shared **dep-checker**: probe "is this binary present, at what version,
   what installs it," used by `check`, by every `apply`, and standalone (`yolo
-  check-deps`). Boundary (OQ-8, resolved): a **declared schema** a third-party doctor can
+  check-deps`). Boundary ([OQ-8](#open-questions-to-resolve-before-their-phase), resolved): a **declared schema** a third-party doctor can
   read, yolo shipping a reference checker over it — evolvable to a Go helper later.
 - **6.3** The manifest as a **composed surface** at a fixed path (`~/.config/yolo/Brewfile`
   + apt/dnf/pacman kin), composed from all packs' hints, regenerated wholesale every
   `apply`, yolo-owned. Not a one-off in a random dir.
-- **6.4** Offer-to-run (OQ-9, resolved): **confirm everything, batched by elevation class**
+- **6.4** Offer-to-run ([OQ-9](#open-questions-to-resolve-before-their-phase), resolved): **confirm everything, batched by elevation class**
   — one approval for all no-elevation remedies, one for all `sudo` ones, `sudo` first so its
   OS password prompt (shown through, never captured) comes up once at the front. Not
   per-command, not one blind confirm. Never ambient; no-TTY = print-only; the manifest is
@@ -477,12 +477,12 @@ manifest surface, and (behind a confirm) can run the remedies including `sudo`.
 > **The ordering risk this phase now carries:** the three-notch *vocabulary* shipped in Phase 2
 > ahead of the notch — `confinement: guest` validates, `apply --at guest` parses, `describe`
 > prints it, and the briefing has a `guest` body (`internal/jailcontent/briefing.go:133`). That
-> is exactly what the design doc §8 warned against (*"a three-notch story with a broken middle"*)
+> is exactly what the design doc [§8](../design/yolo-as-environment-manager.md#8-what-this-costs) warned against (*"a three-notch story with a broken middle"*)
 > and what user-stories **Q7** asks a ruling on.
 
-**Design:** design doc §4, §4.0; `host-render-target.md` §9.7, §9.8.
+**Design:** design doc [§4](../design/yolo-as-environment-manager.md#4-confinement-a-dial-with-three-notches), [§4.0](../design/yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox); `host-render-target.md` [§9.7](../design/host-render-target.md#9-open-questions--the-discussion-part), [§9.8](../design/host-render-target.md#9-open-questions--the-discussion-part).
 **Depends on:** Phase 1 (guest is a `Target`), Phase 2 (the notch exists). This is where
-"three-notch story with a broken middle" (§8) gets fixed.
+"three-notch story with a broken middle" ([§8](../design/yolo-as-environment-manager.md#8-what-this-costs)) gets fixed.
 
 - **7.1** macOS `guest`: the existing macos-user backend, but rendering surfaces (Phase
   1.4 already fixes the zero-surfaces bug) — separate user + Seatbelt as composed
@@ -517,7 +517,7 @@ real, LSM-confined home on both platforms, and `describe` prints the composed pr
 > reality at startup — so a `host` briefing left on disk and read inside a jail is unremarked.
 > Deleting the skill removed the place the check was going to live. That is user-stories **Q4**.
 
-**Design:** design doc §6.
+**Design:** design doc [§6](../design/yolo-as-environment-manager.md#6-the-environment-describes-itself-to-its-own-agent).
 **Depends on:** Phase 2 (a notch to name). Small, high-value, can land any time after
 Phase 2.
 
@@ -533,7 +533,7 @@ take a disposable agent's risks.
 
 ## Phase 9 — Agent autonomy as a confinement policy  *(SHIPPED 2026-08-01)*
 
-**Design:** design doc §4.2 (the whole subsection). **Depends on:** Phase 1
+**Design:** design doc [§4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) (the whole subsection). **Depends on:** Phase 1
 (`render.Profile`/`Target`), Phase 2 (the notch), Phase 4 (`yolo host apply` is where the
 defect bites). **Motivated by:** a host agent following the migration guide would
 `apply --host --assert` the `claude` pack's jail-bypass keys (`acceptEdits`,
@@ -542,15 +542,15 @@ defect bites). **Motivated by:** a host agent following the migration guide woul
 the only protection when there is no jail. Today those keys are unconditional pack config
 with nothing marking them jail-only.
 
-**OQ-11 — RESOLVED (2026-08-01): a dedicated `autonomy` contribution kind (Encoding A
+**[OQ-11](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) — RESOLVED (2026-08-01): a dedicated `autonomy` contribution kind (Encoding A
 below).** The maintainer delegated the choice ("do the sketch now, I'm not sure I care").
-The sketch (§9.0) settles it: the discriminator-field encoding forces the `claude`
+The sketch ([§9.0](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)) settles it: the discriminator-field encoding forces the `claude`
 settings surface to be *split* into a conditional half and an always-on half, which is
 exactly the way a jail-bypass key gets left in the unconditional part by accident. The
 dedicated kind keeps each posture whole and keeps the always-safe keys in the ordinary
 `config` kind, untouched.
 
-### 9.0 The sketch that resolved OQ-11 (two encodings vs the real packs)
+### 9.0 The sketch that resolved [OQ-11](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) (two encodings vs the real packs)
 
 The hard pack is `claude`: its autonomy recipe spans a `config` surface (`~/.claude/settings.json`)
 *and* a `launch` flag, and that same settings surface also carries *benign* always-safe keys
@@ -618,9 +618,9 @@ The cost of A is one new kind (13 → the closed set grows by one) and the schem
 posture block. Accepted.
 
 - **9.1** Add an `agent-autonomy` **policy** to `render.Profile` (composes beside the
-  §4.0 enforcement primitives; it is a policy knob, not an enforcement one). Preset
+  [§4.0](../design/yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox) enforcement primitives; it is a policy knob, not an enforcement one). Preset
   defaults: `jail` → on, `guest` → on, `host` → off. `describe` prints it. A composed
-  custom confinement can set it explicitly (the §4.2 composability requirement).
+  custom confinement can set it explicitly (the [§4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) composability requirement).
 - **9.2** Packs declare autonomy postures as data, **bidirectionally** (the subtle half):
   a pack states *both* the `autonomous` posture (config keys + launch flags meaning "no
   prompts") and the `guarded` posture (meaning "prompt"). Guarded-by-default agents
@@ -630,7 +630,7 @@ posture block. Accepted.
 - **9.3** At render: `profile.agentAutonomy ? pack.autonomous : pack.guarded`. Benign
   always-safe `managed` keys (auto-updater off, trust-dialog) are untouched by this — only
   the confinement-conditional keys move under the selector.
-- **9.4** Migrate the shipped packs to the `autonomy` kind (§9.0 Encoding A): move each
+- **9.4** Migrate the shipped packs to the `autonomy` kind ([§9.0](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) Encoding A): move each
   agent's confinement-conditional keys + `--dangerously-*` launch flag into an `autonomy`
   contribution's `autonomous` block, leave the benign always-safe keys in the ordinary
   `config` kind, and author a `guarded` block (prompts on, no allow/deny clobber) for each —
@@ -652,21 +652,21 @@ rather than untangle a bundle. They are grouped by the phase they block, and mar
 **RESOLVED** once you have answered. A short **Context** line precedes each cluster; the
 long reasoning lives in the cited design section, not here.
 
-**Status (2026-08-01): OQ-1 through OQ-9 are all RESOLVED** (OQ-5 dropped as moot). OQ-10
+**Status (2026-08-01): [OQ-1](#open-questions-to-resolve-before-their-phase) through [OQ-9](#open-questions-to-resolve-before-their-phase) are all RESOLVED** ([OQ-5](#open-questions-to-resolve-before-their-phase) dropped as moot). [OQ-10](#open-questions-to-resolve-before-their-phase)
 is a "decide at Phase 2" internal-representation choice that needs no answer up front.
-**OQ-11 (2026-08-01) is RESOLVED** — the Phase 9 pack-encoding choice is the dedicated
-`autonomy` kind (Encoding A; the sketch is in §9.0). Nothing is outstanding to decide before
+**[OQ-11](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) (2026-08-01) is RESOLVED** — the Phase 9 pack-encoding choice is the dedicated
+`autonomy` kind (Encoding A; the sketch is in [§9.0](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)). Nothing is outstanding to decide before
 implementing any phase.
 
 > [!NOTE]
 > **Consumption check, 2026-08-23 — resolved is not the same as built.** Four of these rulings
 > are recorded and have **no code consuming them**, which is worth knowing before treating this
-> section as done. **OQ-3** (retire the read-in `host` layer): not implemented — `HostSource`
+> section as done. **[OQ-3](#open-questions-to-resolve-before-their-phase)** (retire the read-in `host` layer): not implemented — `HostSource`
 > still exists (`internal/agentcfg/manifest/manifest.go:142`) and the `host` layer still composes
-> (`internal/agentcfg/compose.go:357-379`). **OQ-6 / OQ-7** (what the install confirm shows, the
+> (`internal/agentcfg/compose.go:357-379`). **[OQ-6](#open-questions-to-resolve-before-their-phase) / [OQ-7](#open-questions-to-resolve-before-their-phase)** (what the install confirm shows, the
 > elevation-class line): Phase 4.3 is unbuilt, and the shipped behaviour is a flat refusal
-> (`internal/render/fieldset.go:38`), so there is no confirm to configure. **OQ-9** (batched
-> offer-to-run): both its callers — Phase 4.3 and Phase 6.4 — are unbuilt. **OQ-10** was answered
+> (`internal/render/fieldset.go:38`), so there is no confirm to configure. **[OQ-9](#open-questions-to-resolve-before-their-phase)** (batched
+> offer-to-run): both its callers — Phase 4.3 and Phase 6.4 — are unbuilt. **[OQ-10](#open-questions-to-resolve-before-their-phase)** was answered
 > in the build rather than in this doc: the primitive model is `internal/render/confinement.go`
 > and `describe` prints it (`internal/cli/describe.go:145-149`).
 >
@@ -676,38 +676,38 @@ implementing any phase.
 > whether a rendered briefing carries a notch stamp (**Q4**), and whether Linux `guest` stays a
 > promise (**Q7**). Those live in
 > [`../design/environment-manager-user-stories.md`](../design/environment-manager-user-stories.md)
-> and are cited from `roadmap.md` 💬 7.
+> and are cited from [`roadmap.md`](roadmap.md) 💬 7.
 
 ### Resolved
 
-- **OQ-1 — Is there a `--revert` verb on the host target? → RESOLVED: NO (2026-08-01).**
+- **[OQ-1](#open-questions-to-resolve-before-their-phase) — Is there a `--revert` verb on the host target? → RESOLVED: NO (2026-08-01).**
   Undo is "stop declaring the key and re-apply," which drops it with a notice, the shipped
   "regenerate, don't reconcile" model (`prism.go:397-436`, OQ12(d)). A `--revert` to a
   pre-yolo state would need a before-snapshot nothing takes. *Consequence:* no revert verb,
-  no per-file reconcile sidecar; the host-render doc's `--revert` design (§6.5/§7.2/§9.5) is
+  no per-file reconcile sidecar; the host-render doc's `--revert` design ([§6.5](../design/host-render-target.md#65-the-posture-stated-as-a-table)/[§7.2](../design/host-render-target.md#72-the-human-manages-their-own-machine)/[§9.5](../design/host-render-target.md#9-open-questions--the-discussion-part)) is
   **superseded** — strike it there when that doc is next touched.
-- **OQ-2 — Is host management user-scoped, with the workspace contributing nothing? →
+- **[OQ-2](#open-questions-to-resolve-before-their-phase) — Is host management user-scoped, with the workspace contributing nothing? →
   RESOLVED: YES (2026-08-01).** What `yolo host apply` asserts is a function of your *user*
   config + the packs *you* installed, never of the repo you ran it from — the same
-  user-scope rule packs already enforce (`pack-system.md` §8), written up as
-  `host-render-target.md` §6.6. *Consequence:* the "two workspaces collide" question is
+  user-scope rule packs already enforce (`pack-system.md` [§8](../design/pack-system.md#8-selection-and-the-load-path)), written up as
+  `host-render-target.md` [§6.6](../design/host-render-target.md#66-a-host-target-is-user-scoped-not-workspace-scoped). *Consequence:* the "two workspaces collide" question is
   void (one description, one owner); `${workspace}` surfaces are refused on host; any host
   capture overlay is user/machine-scoped, keyed by target file, never by workspace.
 
 ### Blocks Phase 4 (host render)
 
 **Context — how `yolo host apply` touches a file the agent also writes.** Two calls, both now
-resolved; the reviewer's push on OQ-4 corrected an over-complication I had introduced.
+resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-phase) corrected an over-complication I had introduced.
 
-- **OQ-3 — Retire the `reads-host` read-*in* layer? → RESOLVED: YES (2026-08-01).** Drop
+- **[OQ-3](#open-questions-to-resolve-before-their-phase) — Retire the `reads-host` read-*in* layer? → RESOLVED: YES (2026-08-01).** Drop
   settings-inheritance (yolo reading your real `~/.claude/settings.json` *into* a jail as a
   compose layer); express personal settings as a **local pack** instead — declared, locked,
   portable to every notch. This collapses a Declared-impure closure row into Declared
-  (simpler Phase 5) and removes the read-in/write-out XOR. Design doc §3.3. *Consequence:*
+  (simpler Phase 5) and removes the read-in/write-out XOR. Design doc [§3.3](../design/yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails). *Consequence:*
   the `host` compose layer and the `reads-host` kind's compose role go away; credentials are
   unaffected (they cross as mounts, not a layer).
 
-- **OQ-4 — On the host notch, `rmw` (surgical) or whole-file compose? → RESOLVED: pure
+- **[OQ-4](#open-questions-to-resolve-before-their-phase) — On the host notch, `rmw` (surgical) or whole-file compose? → RESOLVED: pure
   `rmw` (2026-08-01).** The reviewer is right that **overwrite is the only workable option
   for a key yolo manages**, and once you see why, `rmw` is not just workable — it is the
   *simpler* and *complete* answer, so my earlier "keep capture" lean was wrong. The two
@@ -723,60 +723,60 @@ resolved; the reviewer's push on OQ-4 corrected an over-complication I had intro
     layer stack and writes all of it — which would blow away the agent's own keys, so it
     would need a **capture** sidecar to first snapshot the agent's edits and re-inject them
     as a layer. That machinery exists in a jail *only because* a jail whole-file-composes
-    some surfaces; on the host there is no reason to whole-file-compose (esp. with OQ-3
+    some surfaces; on the host there is no reason to whole-file-compose (esp. with [OQ-3](#open-questions-to-resolve-before-their-phase)
     retiring the read-in layer), so **capture buys nothing** — it is solving a problem `rmw`
     does not have.
 
   So the answer to your question — "what happens to a pack-managed key the agent then
   edits?" — is: **yolo overwrites it on the next `apply`**, deliberately, because yolo owns
-  that key (regenerate-don't-reconcile, OQ-1). A key the agent owns is never touched.
+  that key (regenerate-don't-reconcile, [OQ-1](#open-questions-to-resolve-before-their-phase)). A key the agent owns is never touched.
   Capture was never about protecting a *managed* key (nothing can — overwrite is correct
   there); it was only about surviving a *whole-file* rewrite, which `rmw` doesn't do.
-  `host-render-target.md` §6.3 already concluded pure `rmw`; only its *justification* ("same
+  `host-render-target.md` [§6.3](../design/host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output) already concluded pure `rmw`; only its *justification* ("same
   person") was loose — the real reason is "`rmw` only ever rewrites yolo's own keys, so the
-  agent's are safe without capture." I will tighten §6.3 to say that.
+  agent's are safe without capture." I will tighten [§6.3](../design/host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output) to say that.
 
-- **~~OQ-5 — where does a host capture overlay live?~~ → MOOT.** It only existed if OQ-4
+- **~~[OQ-5](#open-questions-to-resolve-before-their-phase) — where does a host capture overlay live?~~ → MOOT.** It only existed if [OQ-4](#open-questions-to-resolve-before-their-phase)
   chose capture. With pure `rmw` there is no host capture overlay, so there is no new
   storage location to decide. (Removed from the count.)
 
 ### Blocks Phase 4.3 (confirm-gated install)
 
-**Context — install below `jail` is confirm-gated (policy decided, §4.1); two threat-model
+**Context — install below `jail` is confirm-gated (policy decided, [§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story)); two threat-model
 details are open.** I will draft a short note for your sign-off rather than improvise at
 the call site.
 
-- **OQ-6 — What does the curl-to-shell install confirm display? → RESOLVED: URL only
+- **[OQ-6](#open-questions-to-resolve-before-their-phase) — What does the curl-to-shell install confirm display? → RESOLVED: URL only
   (2026-08-01).** Show the resolved install URL; do not fetch-and-display the script or a
   hash. (Simplest, and consistent with the confirm being "approve running *this command*,"
   not a code review of the payload.)
-- **OQ-7 — Where is the category-(a) *no-elevation* / category-(b) *needs-`sudo`* line drawn
+- **[OQ-7](#open-questions-to-resolve-before-their-phase) — Where is the category-(a) *no-elevation* / category-(b) *needs-`sudo`* line drawn
   per remedy? → RESOLVED (2026-08-01).** (a) = writes only under the user's own tree (user
   `brew`, `pip --user`, `~`); (b) = anything else (a system `apt install`, anything outside
   the user's tree). The split is now *only* used to **batch confirmations by elevation
-  class** — see OQ-9, which the reviewer answered together with this.
+  class** — see [OQ-9](#open-questions-to-resolve-before-their-phase), which the reviewer answered together with this.
 
 ### Blocks Phase 6 (dep provisioning)
 
-- **OQ-8 — Dep-checker boundary: a declared schema, or an importable Go package? → RESOLVED:
+- **[OQ-8](#open-questions-to-resolve-before-their-phase) — Dep-checker boundary: a declared schema, or an importable Go package? → RESOLVED:
   schema, evolvable (2026-08-01).** Start with a declared schema a third-party doctor can
   read; this can grow a Go helper later if a spec proves too weak. No lock-in either way.
-  Design doc §3.5.
-- **OQ-9 — Offer-to-run confirm UX → RESOLVED: batch by elevation class, minimize
+  Design doc [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest).
+- **[OQ-9](#open-questions-to-resolve-before-their-phase) — Offer-to-run confirm UX → RESOLVED: batch by elevation class, minimize
   interaction (2026-08-01).** Not per-command (my earlier split was too interactive) and not
   one blind confirm. **Confirm everything, batched:** group the remedies by elevation class
-  (OQ-7's a/b line) and ask **once per class** — show all category-(a) commands and confirm
+  ([OQ-7](#open-questions-to-resolve-before-their-phase)'s a/b line) and ask **once per class** — show all category-(a) commands and confirm
   them, show all category-(b)/`sudo` commands and confirm them — so there are two approvals,
   not N. **Order `sudo` first** where possible, so the single `sudo` password prompt (shown
-  through, OS-native, §3.5) comes up once at the front rather than interleaved. The manifest
-  is still the floor — decline either batch and it is only written, not run. Design doc §3.5.
+  through, OS-native, [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)) comes up once at the front rather than interleaved. The manifest
+  is still the floor — decline either batch and it is only written, not run. Design doc [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest).
 
 ### Decide at its phase, not up front
 
-- **OQ-10 — The composable-primitive model shape (Phase 2).** How confinement is represented
+- **[OQ-10](#open-questions-to-resolve-before-their-phase) — The composable-primitive model shape (Phase 2).** How confinement is represented
   internally (separate user / Seatbelt / bwrap / namespace as independent knobs) so a fourth
   combination is expressible and `describe`-printable without exposing a hand-assembled
-  policy vector (`happy-path-principle.md`). Design doc §4.0. **No call needed from you now** —
+  policy vector (`happy-path-principle.md`). Design doc [§4.0](../design/yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox). **No call needed from you now** —
   I will propose it as part of Phase 2 and you review then; flagged here only so Phase 2 does
   not hard-code three monoliths and foreclose it.
 
@@ -792,5 +792,5 @@ the call site.
   `contributes[]` substrate; `provides`/`install_hints` (Phase 6) is the one additive
   field, and it is additive.
 - **It does not touch the happy path.** `yolo -- claude` in a fresh repo stays one
-  command, jail, credentials-omitted, at every phase (design doc §7). A phase that costs
+  command, jail, credentials-omitted, at every phase (design doc [§7](../design/yolo-as-environment-manager.md#7-what-does-not-change)). A phase that costs
   the happy path anything is wrong.

@@ -4,7 +4,7 @@
 filenames, parity-cruft removal, shared renderer). Package-merging + daemon-fold
 were assessed and deliberately declined as churn-without-value (see "The work").
 Pulled out of the archived `go-port-post-transition.md` §3 (+ §4 OSS-hygiene).
-Jail-tested; no behavior change. Remaining §4 items are out-of-repo (dossier
+Jail-tested; no behavior change. Remaining [§4](#4-oss-hygiene-remnants-mostly-done--verify--close) items are out-of-repo (dossier
 update) or a final `open-source-project` skill audit.
 
 ## Goal

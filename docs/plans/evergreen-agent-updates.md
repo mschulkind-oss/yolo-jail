@@ -1,7 +1,7 @@
 # Plan: evergreen agent updates — the launcher does the work
 
-**Design:** [`../design/program-delivery.md`](../design/program-delivery.md) §3.5
-(OQ-PD11–PD14, PD12a) · **Status:** ✅ **BUILT 2026-09-04, except step 7** ·
+**Design:** [`../design/program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)
+([OQ-PD11](../design/program-delivery.md#decision-ledger)–PD14, PD12a) · **Status:** ✅ **BUILT 2026-09-04, except step 7** ·
 Written against `a25e718b`, 2026-09-03.
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and
@@ -21,7 +21,7 @@ is the first thing to be wrong. Never twist the code to match it.
 > - **The update verb is declared by three packs, not six.** claude (`install`), agy
 >   (`update`) and codex (`update`) — the three delivered by their vendor's own installer.
 >   The three npm-delivered agents declare none: `npm install -g <pkg>` reaches the same
->   registry a vendor verb would, and it is the path measured to work here. §3.5's table gives
+>   registry a vendor verb would, and it is the path measured to work here. [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s table gives
 >   `pi update --self` and says pi is evergreen *only* through it — written expecting a flip to
 >   a native installer that did not happen, since pi.dev/install.sh IS npm.
 > - **The npm template got the same treatment as the native one.** The Map named only the
@@ -61,7 +61,7 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
 | `internal/cli/packupdate.go` | drop the `inst.Kind != "npm"` skip (141); the npm-shaped identifiers get honest names |
 | `internal/entrypoint/serverrefresh.go` | **new** — the transitive MCP/LSP refresh the launcher calls before `exec` |
 | `internal/cli/config_ref.txt` | the `agent_updates` entry (this file is what `yolo config-ref` prints, not `configref.go`) |
-| `packs/{claude,agy,copilot,codex,opencode,pi}/pack.json` | the `update` verb, per §3.5's per-agent table |
+| `packs/{claude,agy,copilot,codex,opencode,pi}/pack.json` | the `update` verb, per [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s per-agent table |
 | `AGENTS.md` | the PATH-order bullet and the "two generated script dirs" bullet |
 
 ## Reuse
@@ -126,7 +126,7 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
 ## Build order
 
 1. **Update verb.** `packdecl` field + projection + `validateContribution`'s `KindProgram` arm, then
-   the six `pack.json`s per §3.5's table. → `go test ./internal/packdecl`
+   the six `pack.json`s per [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s table. → `go test ./internal/packdecl`
 2. **Native template update branch**, plus the re-entry guard and the prefix lock; delete the
    `"$REAL_BIN" install` no-op and `_poll_and_report`. → `go test ./internal/entrypoint`
 3. **`yolo pack update`:** drop the npm-only skip. It now walks the same set the launchers do.
@@ -164,7 +164,7 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
 - **Docs describing the old behavior**, by path: AGENTS.md's PATH-order bullet and its "two generated
   script dirs" bullet (the *"ordered LAST … unrepresentable rather than handled"* sentence is exactly
   what B2 deletes); the same claim duplicated in `shell.go:139-144` and `boot.go:343-355`;
-  `docs/design/trust-paths.md` §3 rows 2 and 3 and OQ-TP5, which say evergreen happens *"on the boot
+  `docs/design/trust-paths.md` [§3](../design/trust-paths.md#3-three-findings-that-outrank-the-entire-pinning-question) rows 2 and 3 and [OQ-TP5](../design/trust-paths.md#decision-ledger), which say evergreen happens *"on the boot
   path at every launch"* — the superseded eager shape, wrong under B2; the `Install.Package` doc
   comment in `packdecl.go:124` (*"re-checked hourly by the launcher"*).
 - **Norms:** `just format` then `just check-ci` per commit; other agents are live in this tree, so
@@ -174,13 +174,13 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
 
 ## Don't
 
-- Don't flip any pack from `via: npm` to `via: installer` (OQ-PD13) — another agent owns it, and the
+- Don't flip any pack from `via: npm` to `via: installer` ([OQ-PD13](../design/program-delivery.md#decision-ledger)) — another agent owns it, and the
   npm launcher's `_update` already resolves, so the four npm packs go evergreen without the flip.
-- Don't build install capture (§6.3) — another agent; see Blockers for how it constrains landing.
+- Don't build install capture ([§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)) — another agent; see Blockers for how it constrains landing.
 - Don't reintroduce the eager-at-boot ordering constraints (after catalog/reconcile, after
-  `GenerateCABundle`, a boot genStep, a jail-level fatal and its escape hatch). §3.5's table lists all
+  `GenerateCABundle`, a boot genStep, a jail-level fatal and its escape hatch). [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s table lists all
   of them as **deleted**: there is no boot step anywhere in this design.
-- Don't make `update` a closed enum. It is a vendor's argv, not a mechanism name, so §6.2's `via`
+- Don't make `update` a closed enum. It is a vendor's argv, not a mechanism name, so [§6.2](../design/program-delivery.md#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives)'s `via`
   tolerance does not apply and `unknownViaSkip` gains no twin. An absent verb falls back per `via`.
 - Don't `RemoveAll` either generated dir — both share one bind-mount anchor (`resetAnchorDir`,
   `shims.go:26`).
@@ -222,7 +222,7 @@ problem with a different oracle, and it is capture's, not this plan's.
 ## Blockers
 
 - ✅ **ASKED AND ANSWERED 2026-09-04 — this lands FIRST, ahead of capture** ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)).
-  OQ-PD15 had sequenced it behind capture because evergreen multiplies the cost capture removes; both
+  [OQ-PD15](../design/program-delivery.md#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it--resolved-2026-09-03) had sequenced it behind capture because evergreen multiplies the cost capture removes; both
   halves measured false. Capture collapses the **workspace** axis, evergreen multiplies the
   **version** axis, and *"under capture there is nothing to prune"* is wrong — the vendor's
   self-updater keeps writing full-size version dirs into the workspace whatever the store holds.

@@ -88,7 +88,7 @@ The same bypass recipe exists per agent — `claude`, `codex`
 (`permissionMode: "allow"`), `opencode` (`permission: "allow"`). `pi` and `copilot` carry
 **no** such posture; `pi` is in fact permissive *by default*.
 
-**The change we will make (env-manager plan Phase 9, design §4.2).** Autonomy stops being
+**The change we will make (env-manager plan Phase 9, design [§4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config)).** Autonomy stops being
 unconditional pack config and becomes a **confinement policy**:
 
 - An `agent-autonomy` policy on `render.Profile` (composed beside the enforcement
@@ -108,11 +108,11 @@ unconditional pack config and becomes a **confinement policy**:
 entry only").~~ **SHIPPED 2026-08-01 as env-manager Phase 9** (`dbeae3e`..`8f5e3b1`) — verified
 2026-08-23: `render.Profile.AgentAutonomy`, the `autonomy` contribution kind, and the five migrated
 packs are all in the tree, and `apply --host` warns before overwriting a managed key. Design landed
-in design doc §4.2 / plan Phase 9. **OQ-11 is now RESOLVED:** a
+in design doc [§4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) / plan Phase 9. **[OQ-11](environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) is now RESOLVED:** a
 pack encodes its two postures with a **dedicated `autonomy` contribution kind** (each posture
 a named block of config patches + launch flags), not a `when` discriminator on existing
 entries. Both encodings were sketched against the real `claude`/`codex`/`agy`/`opencode`/`pi`
-packs in plan §9.0; the dedicated kind wins because it keeps confinement-conditional keys
+packs in plan [§9.0](environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs); the dedicated kind wins because it keeps confinement-conditional keys
 physically out of the unconditional `config` (a bypass key can't be left in the always-on
 part by accident), prints as one legible block in `describe`/`footprint`, and reuses the
 existing notch-gated `config-overlay` + `launch` machinery. Phase 9 also folds in the
@@ -219,7 +219,7 @@ Recorded so they are not re-raised:
 
 | Change | File | Status |
 |---|---|---|
-| R1 design (autonomy = confinement policy) | `../design/yolo-as-environment-manager.md` §4.2 | committed `5ec0af0` |
-| R1 plan (Phase 9 + OQ-11 + defect banner) | `environment-manager-plan.md` | committed `5ec0af0` |
-| D1–D8 (guide corrections) | `../guides/migrating-to-packs-and-host-management.md` | committed `787ba47` |
-| R1 implementation (Phase 9) | `internal/render`, `internal/packdecl`, `packs/*` | **not started** (gated on OQ-11) |
+| R1 design (autonomy = confinement policy) | [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md) [§4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) | committed `5ec0af0` |
+| R1 plan (Phase 9 + [OQ-11](environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) + defect banner) | [`environment-manager-plan.md`](environment-manager-plan.md) | committed `5ec0af0` |
+| D1–D8 (guide corrections) | [`../guides/migrating-to-packs-and-host-management.md`](../guides/migrating-to-packs-and-host-management.md) | committed `787ba47` |
+| R1 implementation (Phase 9) | `internal/render`, `internal/packdecl`, `packs/*` | **not started** (gated on [OQ-11](environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)) |

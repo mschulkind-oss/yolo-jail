@@ -5,7 +5,7 @@ refreshed 2026-08-19 (broker moved into `packs/claude`), stamped 2026-08-23. The
 binary-level findings have **not** been re-derived against a newer Claude
 release — 2.1.143 is well behind the 2.1.220 that
 [`local-model-endpoints.md`](local-model-endpoints.md) reads, so treat every
-offset, string and enum here as version-pinned. §7 tells you how to redo the
+offset, string and enum here as version-pinned. [§7](#7-reproducing-this-yourself) tells you how to redo the
 scan; do that before trusting a specific claim about current behaviour. The
 `src/*.py` paths below are **Python-era names**, annotated inline with their Go
 successors — the live broker is `internal/oauthbroker` (verified 2026-08-23).
@@ -414,7 +414,7 @@ fix, but they are worth investigating before any *next* round.
    reverse-proxy approach ("intercept `api.anthropic.com`", Option B of the archived
    `claude-oauth-mitm-proxy-plan.md`) is viable by base URL alone — and the same fact is a measured
    exfiltration channel, recorded with implications in
-   [`agent-auth-modes.md`](../design/agent-auth-modes.md) §8.1.
+   [`agent-auth-modes.md` §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url).
 2. **Anthropic's server-side grace window past `expiresAt`.** The
    2026-05-17 incident showed Claude happy for 23 min past `expiresAt`
    client-side; could be Anthropic leniency, could be Claude idle. Test

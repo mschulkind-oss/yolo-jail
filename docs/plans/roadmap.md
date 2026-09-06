@@ -33,9 +33,9 @@ $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs
 > **The old vocabulary, for anyone arriving from a doc that still uses it.** Until 2026-08-17 this
 > file was a lettered queue — rows **B1 / B1b / B2 / B3 / B4**, **threads A–C**, IDs like **N3** and
 > **S5**. Restructuring into states retired the letters, and several sibling docs still cite them.
-> Where they went: **B-rows** → [`boundary-broker.md`](../design/boundary-broker.md) §7's own
+> Where they went: **B-rows** → [`boundary-broker.md` §7](../design/boundary-broker.md#7-what-i-would-build-in-order)'s own
 > numbering; **Thread A** → [`retired-decisions.md`](../design/retired-decisions.md); **Thread C** →
-> [`shipped-2026-08-12.md`](shipped-2026-08-12.md); **N3** → `nix OQ-1` in
+> [`shipped-2026-08-12.md`](shipped-2026-08-12.md); **N3** → [`nix OQ-1`](../design/noncontainer-nix-environment.md#9-open-questions) in
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** →
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
@@ -70,63 +70,63 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 > ruling, **TP8 and TP9 ruled 2026-09-04**, and **TP7 RETIRED the same day because TP9 deleted its
 > subject**. ⚠ **[OQ-TP10](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
 > was OPENED 2026-09-04 by the TP9 build** — a wrapped plugin's hooks reach the agent's lifecycle
-> and appear in no launch banner, which falsifies a sentence TP9's own answer wrote. It needs you. ✅ **OQ-LP8 closed 2026-09-04** — its two overdue documentation requirements are
+> and appear in no launch banner, which falsifies a sentence TP9's own answer wrote. It needs you. ✅ **[OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04) closed 2026-09-04** — its two overdue documentation requirements are
 > delivered ([overview](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)):
 > *following a mutable ref IS the trust decision*, and **tag pins are the documented shape** for a
 > pack carrying code, both written into
 > [the packs guide](../guides/migrating-to-packs-and-host-management.md)'s *Sharing a pack with other
 > people*. **G2b is MOOT** — TP9 deleted the approval it would have anchored. What is left in this
-> row is routing to **OQ-X1**, which lives in
+> row is routing to **[OQ-X1](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)**, which lives in
 > [`pack-execution-trust.md`](../design/pack-execution-trust.md) (the doc this one partly
 > supersedes). Read it there; this row is the routing table.
 
 **Two rulings on 2026-08-18, both closing a finding by removing a mechanism rather than adding a
 gate** — and one of them obviated a question rather than answering it:
 
-- ✅ **OQ-TP5 — no evergreen npm.** `install` obeys the lockfile, `update` is the only act that
+- ✅ **[OQ-TP5](../design/trust-paths.md#decision-ledger) — no evergreen npm.** `install` obeys the lockfile, `update` is the only act that
   resolves a new version, and the hourly poll is downgraded to informational. **Built 2026-08-18**
-  (`b3a29ad8`), minus the pin it has nowhere to record — which is OQ-TP4 below. ⚠ **REVERSED IN
-  CODE 2026-09-04 for the agent class**, by OQ-PD3's narrowing and OQ-PD12: `_poll_and_report` is
+  (`b3a29ad8`), minus the pin it has nowhere to record — which is [OQ-TP4](../design/trust-paths.md#decision-ledger) below. ⚠ **REVERSED IN
+  CODE 2026-09-04 for the agent class**, by [OQ-PD3](../design/program-delivery.md#decision-ledger)'s narrowing and [OQ-PD12](../design/program-delivery.md#decision-ledger): `_poll_and_report` is
   deleted and an unpinned agent package is updated by the launcher at the user's own invocation.
   The ruling still holds for a PROJECT dependency, and for a PINNED package on either side.
-- ✅ **OQ-TP6 — a refused contribution refuses the launch.** No partial packs: fix it, remove it, or
+- ✅ **[OQ-TP6](../design/trust-paths.md#decision-ledger) — a refused contribution refuses the launch.** No partial packs: fix it, remove it, or
   approve it. **Built 2026-08-18** (`6385dfbb`). Both carry release-note entries.
-- ✅ **OQ-TP2 — nothing explicit.** Agent context needs no gate and no separate disclosure: the
-  lockfile's commit pin closes over the whole tree, prose included. *Inherits OQ-LP8/G2b — the pin is
+- ✅ **[OQ-TP2](../design/trust-paths.md#decision-ledger) — nothing explicit.** Agent context needs no gate and no separate disclosure: the
+  lockfile's commit pin closes over the whole tree, prose included. *Inherits [OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)/G2b — the pin is
   recorded and never consulted at launch, so it covers this on paper until enforcement lands.*
-- ✅ **OQ-TP1 obviated by TP6.** There is nothing to carry into a jail if no jail starts, so the
+- ✅ **[OQ-TP1](../design/trust-paths.md#decision-ledger) obviated by TP6.** There is nothing to carry into a jail if no jail starts, so the
   origin-gate finding stops being a broken guarantee. **The fatal has since shipped** (`6385dfbb`),
   so this is now enforced rather than merely defined — the caveat this row used to carry is spent.
 
 What is still open:
 
-- ✅ **OQ-TP3 and OQ-TP4 — RETIRED 2026-09-03, not answered.** Both were npm-pinning questions, and
-  npm no longer takes a pin: [`program-delivery.md`](../design/program-delivery.md) §3.5 rules an
+- ✅ **[OQ-TP3](../design/trust-paths.md#decision-ledger) and [OQ-TP4](../design/trust-paths.md#decision-ledger) — RETIRED 2026-09-03, not answered.** Both were npm-pinning questions, and
+  npm no longer takes a pin: [`program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) rules an
   **agent dependency** evergreen, and every pack either question governed installs an agent CLI.
-  TP3's inherited half is ruled as OQ-PD6; TP4's cost analysis (pinning in the manifest makes yolo's
+  TP3's inherited half is ruled as [OQ-PD6](../design/program-delivery.md#decision-ledger); TP4's cost analysis (pinning in the manifest makes yolo's
   release cadence the ceiling on agent-CLI freshness) survives as an argument **for** evergreen.
-- ✅ **OQ-TP8 — RULED 2026-09-04: ungated, both halves.** Pack `derive.lua` keeps running with no
+- ✅ **[OQ-TP8](../design/trust-paths.md#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) — RULED 2026-09-04: ungated, both halves.** Pack `derive.lua` keeps running with no
   origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning had wanted a
   host-half gate, and it failed a parity check: `host.go:458` folds each pack's **static**
   `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive
   computes a field the manifest can already state literally, and gating the computed path while the
   literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home
-  at that notch. The disclosure stays the commit pin (**OQ-LP8**), not a claim line.
-- **OQ-X1** — does a digest-pinned installer script count, given its own fetches are not pinned?
+  at that notch. The disclosure stays the commit pin (**[OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)**), not a claim line.
+- **[OQ-X1](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)** — does a digest-pinned installer script count, given its own fetches are not pinned?
   *(Sharpened: only embedded packs use installers today, and `packdecl` has no digest field at all —
-  the scenario is unexpressible until OQ-BP5 lands one.)*
-- ✅ **OQ-TP9 — RULED 2026-09-04: the fetched-pack approval prompt is THEATRE, deleted.** Selecting a
+  the scenario is unexpressible until [OQ-BP5](../design/broker-as-a-pack.md#open-questions) lands one.)*
+- ✅ **[OQ-TP9](../design/trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) — RULED 2026-09-04: the fetched-pack approval prompt is THEATRE, deleted.** Selecting a
   pack means writing user-scope config as the host user — `packs` is inexpressible at workspace scope
   *by construction*, so an agent cannot add one — and a gate that refuses an actor who already passed
   a stronger one is what `gate-placement-principle.md` **Test 1** exists to delete. `userlayer.go`
   had already applied that test the same way to the sibling route. **Keep** `packs` user-scope-only
   (that half passes Test 1) and the startup disclosure banner. ⚠ **Corrected the same day:** the
-  follow-on is OQ-LP8's two undelivered DOC requirements, not pin *enforcement* — a launch resolves
+  follow-on is [OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)'s two undelivered DOC requirements, not pin *enforcement* — a launch resolves
   from the local mirror, which only moves at `pack install`, so content is already frozen between
   installs; what deleting the gate does is make the lockfile **write-only at launch**. G2b is moot.
   **Both DOC requirements delivered 2026-09-04** (packs guide, *Sharing a pack with other people*),
-  which closes OQ-LP8.
-- ⛔ **OQ-TP7 — RETIRED 2026-09-04, subject deleted by TP9.** All six refusal sources gate on
+  which closes [OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04).
+- ⛔ **[OQ-TP7](../design/trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) — RETIRED 2026-09-04, subject deleted by TP9.** All six refusal sources gate on
   `p.MayAccessHost` alone, so with no approval there is no refusal for `yolo check` to fail to
   predict and no approve path to be unreachable from CI or offline. Its one durable finding: a future
   preflight predicting a launch refusal must **share** the gate, never copy it —
@@ -134,19 +134,19 @@ What is still open:
 
 ### 💬 5 — Boundary broker
 
-📄 [`boundary-broker.md`](../design/boundary-broker.md) — **OQ-A · OQ-C · OQ-E · OQ-B1b**
+📄 [`boundary-broker.md`](../design/boundary-broker.md) — **OQ-A · OQ-C · OQ-E · [OQ-B1b](../design/boundary-broker.md#9-open-questions-for-the-maintainer)**
 
-**OQ-A** sizes the whole project (if synchronous-only suffices, most of §7 step 3 never gets
+**OQ-A** sizes the whole project (if synchronous-only suffices, most of [§7](../design/boundary-broker.md#7-what-i-would-build-in-order) step 3 never gets
 written). **OQ-C** is a real API-shape decision: does the jail see the *result* or just success —
 i.e. does every verb need a response schema, or none? The security half of **OQ-E** is settled
 (authority stays in the unix socket); only its packaging half — which client the human reaches for —
-is live. **OQ-B1b** sizes B1b alone: vendor unYOLO's ~2,100-line MIT, stdlib-only policy engine at a
-pinned SHA, or re-derive it. *(B1b was created as an ID on 2026-08-23 — §10.6 had been calling it
+is live. **[OQ-B1b](../design/boundary-broker.md#9-open-questions-for-the-maintainer)** sizes B1b alone: vendor unYOLO's ~2,100-line MIT, stdlib-only policy engine at a
+pinned SHA, or re-derive it. *(B1b was created as an ID on 2026-08-23 — [§10.6](../design/boundary-broker.md#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) had been calling it
 "the maintainer's call, see the B1b row in roadmap.md", a row that never existed, while this file
 cited the ID back at the doc. Neither end resolved.)*
 
-**Both of this project's upstream blockers dissolved on 2026-09-02** — nix OQ-1 answered (host =
-run) and auth OQ-1 measured — so nothing gates these four questions but themselves. The 2026-09-02
+**Both of this project's upstream blockers dissolved on 2026-09-02** — nix [OQ-1](../design/noncontainer-nix-environment.md#9-open-questions) answered (host =
+run) and auth [OQ-1](../design/agent-auth-modes.md#12-decision-ledger) measured — so nothing gates these four questions but themselves. The 2026-09-02
 audit also gave OQ-A and OQ-C the shipped-precedent facts their leanings were missing: every verb
 yolo ships is synchronous, and the oauth broker already returns per-verb response shapes (with the
 trust-regime caveat recorded in the doc).
@@ -185,18 +185,18 @@ question is now the harder one: *we shipped it — does the Linux row stay?*
 item) and a macOS build sandbox. **Q1 left this row on 2026-09-02: it was mooted by `46655873`**
 (2026-08-31), which deleted the cwd walk-up wholesale — a strictly stronger fix than the
 workspace-exclusion Q1 proposed, shipped for source-skew hygiene rather than security. Vector B and
-H1 are recorded dead in the doc. **OQ-L1** explicitly blocks Track L part 2. **OQ-GN1 · OQ-GN2 · OQ-GN4** are
+H1 are recorded dead in the doc. **[OQ-L1](macos-revival-and-distribution-plan.md#open-questions-blocking)** explicitly blocks Track L part 2. **[OQ-GN1](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN2](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN4](handoff-guest-notch-macos.md#9-open-questions)** are
 new (2026-08-23) —
-**OQ-GN3 was answered 2026-09-02** from the Actions log (the Cachix push happened AND the
+**[OQ-GN3](handoff-guest-notch-macos.md#9-open-questions) was answered 2026-09-02** from the Actions log (the Cachix push happened AND the
 cache is being read; D4 is down to the Mac download proof) —
 in the guest-notch handoff — which now says plainly that its item 1.4 is only *half* answered: the
 sandbox reads the staged pack root and runs the toolchain, so what is untested is the
 `sudo -u _yolojail` staging step above it, not the confinement.
 
 **And the one with a clock on it, which arrived here by losing its parent.** It was carried by the
-🛑 nightly entry and cited [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7 —
+🛑 nightly entry and cited [`image-staging-vs-baking.md` §7](../design/image-staging-vs-baking.md#7-the-silent-fallback-defect--why-staging-is-worthless-without-honest-failure) —
 a section about the silent-fallback defect that **never mentions darwin**. Its real home is
-[`macos-support-matrix.md`](../research/macos-support-matrix.md) §0, which now carries it; this row
+[`macos-support-matrix.md` §0](../research/macos-support-matrix.md#0-the-platform-deadline--x86_64-darwin-is-on-a-clock), which now carries it; this row
 keeps the summary because it is the only item in this file with a **deadline** rather than a
 question, and a deadline unanswered decides itself.
 
@@ -221,7 +221,7 @@ question, and a deadline unanswered decides itself.
 
 ### 💬 8 — Packs and `host_files`: the tail, now with a home
 
-📄 [`BACKLOG.md`](BACKLOG.md) §Stage E — **S5 · OQ-CO · OQ-S4 · OQ-E4 · E1 · E2 · E5** · plus
+📄 [`BACKLOG.md`](BACKLOG.md) §Stage E — **S5 · OQ-CO · [OQ-S4](BACKLOG.md#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) · [OQ-E4](BACKLOG.md#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) · E1 · E2 · E5** · plus
 [`pack-host-management-plan.md`](pack-host-management-plan.md) **OQ-B**, folded in from the retired
 💬 12 (2026-09-02) because it was never a separate decision — see the E1/E2 bullet
 
@@ -233,27 +233,27 @@ leaning and an empty Answer in Stage E.
 - **S5** is the only one that is a live gap rather than a preference: a jail resolves a skill-name
   collision **silently**, where `yolo host apply` refuses. Warn at launch, fail `yolo check`, or refuse
   the boot.
-- **E1 + E2 + `pack-host-management-plan.md` OQ-B are ONE decision** — the `0o444`-vs-`:ro`
-  asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` §7.4 is the
+- **E1 + E2 + [`pack-host-management-plan.md`](pack-host-management-plan.md) OQ-B are ONE decision** — the `0o444`-vs-`:ro`
+  asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` [§7.4](../design/composed-file-permissions.md#74-what-this-means-for-host_files-four-modes) is the
   fourth, and it is cross-linked rather than given its own ID, because minting a fourth name for one
   question is how a decision becomes four decisions. Decide them together or none.
-- **OQ-CO and OQ-S4 are the same question asked of different kinds:** should the two notches agree?
+- **OQ-CO and [OQ-S4](BACKLOG.md#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) are the same question asked of different kinds:** should the two notches agree?
   One is `config-overlay`'s silent last-one-wins; the other is whether a pack's `into` **narrows**
   skills delivery or only adds to it — the jail and the host answer differently today. *(OQ-CO
   freshness, 2026-09-02: the provider arc's own `packs/zai` overlay was deleted the same day —
   `3144fbed`, D3's resolution — so `packs/claude`'s `bedrock` overlay is the shipped contributor
   again, and it is sole on `claude/settings`, so still no collision. The new `profile` gate changes
   whether an overlay participates, not what happens when two active ones share a key.)*
-- **OQ-E4** is the ~15% of E4 that did not ship: do `stateful` surfaces get comment preservation?
+- **[OQ-E4](BACKLOG.md#-oq-e4--do-stateful-surfaces-get-comment-preservation-too)** is the ~15% of E4 that did not ship: do `stateful` surfaces get comment preservation?
   `rmw` preserves, `computed` correctly does not, `json` is provably vacuous.
 
 *(**E3 has left this list — it shipped 2026-08-15**, `29ccf212`, and both this file and the backlog
 row were still calling it open. And **E4 is not a question**; only its `stateful` residue is, which
-is why the list cites OQ-E4 and not E4.)*
+is why the list cites [OQ-E4](BACKLOG.md#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) and not E4.)*
 
 ### 💬 10 — `yolo check` tells you about the wrong machine, in three places and one vocabulary
 
-📄 [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) — **OQ-3**
+📄 [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) — **[OQ-3](../design/broker-ca-and-nested-hosts.md#7-open-questions)**
 
 **These were three separate small questions until 2026-08-23; they are one.** `check` has no way for
 a section to say *whose* facts it is reporting — the host's, or the runtime it can see from in here —
@@ -305,13 +305,13 @@ lesson lives in AGENTS.md's workflow rules now.)*
 
 ### 💬 13 — Nested nixpkgs attribute paths in `packages`
 
-📄 [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md) — **OQ-1**
+📄 [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md) — **[OQ-1](../design/package-nested-attribute-paths.md#8-open-questions)**
 
 This sat in 📦 as *"designed, questions answered, no blockers"* and it is none of those. Its doc is
 `**Status:** DESIGN SKETCH, 2026-08-22. Nothing built.` — **still true, re-verified 2026-09-02**
 (`packageNameRe` is still single-dot, `parseDottedSpec` unchanged, no resolver anywhere in
 `flake.nix`; one worked example — `llvmPackages_16` — has since been removed from the pinned
-nixpkgs and the doc notes a substitute) — and **OQ-1** is the resolver's central rule: how a dotted path resolves when a
+nixpkgs and the doc notes a substitute) — and **[OQ-1](../design/package-nested-attribute-paths.md#8-open-questions)** is the resolver's central rule: how a dotted path resolves when a
 derivation output and a nested collection member claim the same name. It carries a leaning and an
 empty Answer, so it gates the whole item rather than one corner of it.
 
@@ -324,25 +324,25 @@ just narrowing when the throw fires.
 
 ### 💬 14 — Pack-shipped binaries: the capability the broker sprint promised and did not finish
 
-📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — **OQ-BP5 · OQ-BP6**
+📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — **[OQ-BP5](../design/broker-as-a-pack.md#open-questions) · [OQ-BP6](../design/broker-as-a-pack.md#open-questions)**
 
-**This row exists because the sprint ended and these two did not.** OQ-BP1 ruled that the broker's
+**This row exists because the sprint ended and these two did not.** [OQ-BP1](../design/broker-as-a-pack.md#decision-ledger) ruled that the broker's
 move and the pack-shipped-binary capability ship **together**; what actually landed on 2026-08-19 was
-the move, on a **baked** daemon — which §3.1 explicitly permits for an official pack, so nothing is
+the move, on a **baked** daemon — which [§3.1](../design/broker-as-a-pack.md#31-what-is-actually-unresolved-here) explicitly permits for an official pack, so nothing is
 broken. What is owed is the capability itself, and it is owed to the *next* pack, not to the broker.
 
-- **OQ-BP5** — download-with-digest only, or also a declared build step? They are not symmetric: a
+- **[OQ-BP5](../design/broker-as-a-pack.md#open-questions)** — download-with-digest only, or also a declared build step? They are not symmetric: a
   download satisfies P1 (the digest *is* what runs); a build generally cannot, so what runs is
   decided at install time by whatever toolchain the machine has.
-- **OQ-BP6** — may a **fetched** pack ship a *host-side* daemon binary? Refusing it while permitting
+- **[OQ-BP6](../design/broker-as-a-pack.md#open-questions)** — may a **fetched** pack ship a *host-side* daemon binary? Refusing it while permitting
   a fetched pack's arbitrary `host_daemon.cmd` would block the declarative form of a capability and
-  permit the imperative one — the shape OQ-LP14 already suffers from. *(The premise is now verified
+  permit the imperative one — the shape [OQ-LP14](../design/loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn) already suffers from. *(The premise is now verified
   with a file:line: a fetched `host_daemon.cmd` really is approvable today,
   `loopholesource.go:258-310`.)*
 
-⚠ **The cost OQ-BP1 put on the critical path is still unpaid**: the release process has to produce
+⚠ **The cost [OQ-BP1](../design/broker-as-a-pack.md#decision-ledger) put on the critical path is still unpaid**: the release process has to produce
 the matrix a manifest's `platforms` declares. Declaring more than you build turns *"unsupported
-here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
+here"* into *"supported, missing"* (`broker-as-a-pack.md` [§9](../design/broker-as-a-pack.md#9-risks)).
 
 ---
 
@@ -351,16 +351,16 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
 📄 [`backend-parity.md`](../design/backend-parity.md) — **OQ-BP-1 · OQ-BP-2 · OQ-BP-3 · OQ-BP-4**
 
 **Born from issue #39 and the sweep behind it.** Fourteen of the twenty-one defects are fixed or
-warned (that doc's §5 is the table); what is left is a decision about the mechanism, not about any
-one bug. *(2026-09-02: the doc's §6 briefing fix turned out to have SHIPPED the day it was
-written — `28ddea11` — with the doc never updated; it now says so, and OQ-BP-1's "after §6"
+warned (that doc's [§5](../design/backend-parity.md#5-what-is-already-fixed-2026-08-24) is the table); what is left is a decision about the mechanism, not about any
+one bug. *(2026-09-02: the doc's [§6](../design/backend-parity.md#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied) briefing fix turned out to have SHIPPED the day it was
+written — `28ddea11` — with the doc never updated; it now says so, and OQ-BP-1's "after [§6](../design/backend-parity.md#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied)"
 sequencing condition is discharged. The census is the whole remainder.)*
 
 ⚠ **The count grew after the sweep ended, and that is the most useful fact in this row.** It was
 seventeen. A class test written for three known instances failed immediately on a fourth nobody had
 looked for — the host `~/.config/nvim` bind, wrong since long before any of this. Twenty of the
 twenty-one were found by a human noticing; one was found by a single narrow invariant over a single
-argv shape. **That is OQ-BP-1's case, measured rather than argued** (§5.2).
+argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../design/backend-parity.md#52-the-rule-that-had-no-home)).
 
 - **OQ-BP-1 — is a per-backend census worth 2–3 days?** It makes the SILENT half unrepresentable
   and cannot touch the WRONG half — the two most serious findings emitted an argv the backend then
@@ -395,20 +395,20 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** (§5.2).
 > change of plan.** It sat in "ready to build" while its own text said *"this row is now entirely
 > gated on 💬 16"* — a row disagreeing with itself, in a section whose glyph means "no blockers".
 > Everything in it that needed no ruling has shipped (`cc53b591` closed the tar-eviction race; C3
-> made podman stream instead of writing tars). What is left is `OQ-DF2`/`OQ-DF3`/`OQ-DF4` below, and
-> the standing warning survives with it: **do not start at delete-on-success** — that is OQ-DF2
-> option (i), and the component doing the deleting is OQ-DF2's to name.
+> made podman stream instead of writing tars). What is left is [`OQ-DF2`](../design/minimal-disk-footprint.md#11-open-questions)/[`OQ-DF3`](../design/minimal-disk-footprint.md#11-open-questions)/[`OQ-DF4`](../design/minimal-disk-footprint.md#11-open-questions) below, and
+> the standing warning survives with it: **do not start at delete-on-success** — that is [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)
+> option (i), and the component doing the deleting is [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)'s to name.
 
-📄 [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) §11 —
-**~~OQ-DF1~~ (ruled 2026-08-25) · OQ-DF2 · OQ-DF3 · OQ-DF4**
+📄 [`minimal-disk-footprint.md` §11](../design/minimal-disk-footprint.md#11-open-questions) —
+**~~[OQ-DF1](../design/minimal-disk-footprint.md#11-open-questions)~~ (ruled 2026-08-25) · [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions) · [OQ-DF3](../design/minimal-disk-footprint.md#11-open-questions) · [OQ-DF4](../design/minimal-disk-footprint.md#11-open-questions)**
 
-**This row is the other half of the 📦 disk item below, and it exists because of what OQ-5 did and
+**This row is the other half of the 📦 disk item below, and it exists because of what [OQ-5](../design/image-staging-vs-baking.md#101-decision-ledger) did and
 did not settle.** You ruled that the cached tars are a **bug** and that yolo may delete them without
 `--apply`. That settles the *premise* and the *goal*; it does not say which component does the
 deleting, how far into podman's shared image store yolo may reach, or whether *"minimal"* is ever
 written down as a number. Each carries stakes, a leaning and an Answer block in the doc.
 
-**One of the four is now closed.** **OQ-DF1** — the retention floor — you ruled the same day:
+**One of the four is now closed.** **[OQ-DF1](../design/minimal-disk-footprint.md#11-open-questions)** — the retention floor — you ruled the same day:
 ***"stream, keep zero tars."*** That is what C3 implements (shipped 2026-08-25): on podman the load
 path writes no tar at all, `cache/images` stays empty on success, and there is no retention knob to
 default. It went past the doc's own leaning, which had asked for an opt-in for the disconnected case.
@@ -416,34 +416,34 @@ default. It went past the doc's own leaning, which had asked for an opt-in for t
 interpolate a path — and the pre-C3 backlog, which **as of 2026-09-02 is gone from this jail's
 nested cache** (3 tars / 10 GiB, the keep-3 fingerprint of a manual `yolo prune --apply`; the
 host-side 125 GiB cache is not observable from here). Two new facts from that re-measurement, both
-in [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) §2.4: the manual recovery
-tool demonstrably works (field evidence for OQ-DF2's leaning), and **the device lost another
+in [`minimal-disk-footprint.md` §2.4](../design/minimal-disk-footprint.md#24-re-measured-2026-09-02--the-backlog-is-gone-here-and-the-device-kept-filling-anyway): the manual recovery
+tool demonstrably works (field evidence for [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)'s leaning), and **the device lost another
 ~92 GiB of free space in the same eight days anyway** (87 % full, 516 GiB free) with the nix store
 up only 6 GiB — the live growth driver is in **none of the three ledgers**, which is a new input to
-OQ-DF4's budget question.
+[OQ-DF4](../design/minimal-disk-footprint.md#11-open-questions)'s budget question.
 
-**Why the remaining three are not one more thing to get to eventually:** **OQ-DF3 blocks §10's first
+**Why the remaining three are not one more thing to get to eventually:** **[OQ-DF3](../design/minimal-disk-footprint.md#11-open-questions) blocks [§10](../design/minimal-disk-footprint.md#10-sequencing--what-i-would-build-in-order)'s first
 step**, which is the best bytes-per-effort in the whole doc and is otherwise unblocked — reclaiming
 the superseded podman images yolo's own filter structurally cannot see. It is also **the question
 that gates the rule replacing `--keep-images 2`**, which C2 made live for the first time: C2 shipped
 the *safety* half (dedup by image ID, plus a liveness veto so `prune --apply` cannot force-remove
 another workspace's running image), and `4064f720` then made that veto **fail safe** — an unreadable
-load ledger now declines the sweep instead of vetoing nothing. **So OQ-DF3 is no longer asking
+load ledger now declines the sweep instead of vetoing nothing. **So [OQ-DF3](../design/minimal-disk-footprint.md#11-open-questions) is no longer asking
 whether a veto is needed.** What is unruled is the RETENTION RULE and the REACH into a podman store
 shared with your non-yolo work — and the retention half now has a price attached: a coexisting
 content-tagged image measures **2.836 GB unique** unless it is a same-store-path re-stream, which is
-91.36 kB ([`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §1.8). **OQ-DF2** decides which
+91.36 kB ([`image-staging-vs-baking.md` §1.8](../design/image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5)). **[OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)** decides which
 component does the deleting, which is why the 📦 row below is still scoped to the mechanism rather
 than to any number.
 
 ### 💬 17 — Mistyped names return `[PASS]`: mostly closed by the provider arc; the buried channel remains
 
 📄 [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md) —
-**OQ-RM1 (narrowed) · OQ-RM2 · OQ-RM3 · OQ-RM4** · executes the amended
+**[OQ-RM1](../design/reference-mismatch-diagnostics.md#9-open-questions) (narrowed) · [OQ-RM2](../design/reference-mismatch-diagnostics.md#9-open-questions) · [OQ-RM3](../design/reference-mismatch-diagnostics.md#9-open-questions) · [OQ-RM4](../design/reference-mismatch-diagnostics.md#9-open-questions)** · executes the amended
 [`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md)
 
 **You ruled the premise on 2026-08-30, and the provider arc built most of it within 72 hours** —
-§7 steps 2, 3 and 6 shipped (selection-key validation, the `wire_api` enum, the `base_url`
+[§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) steps 2, 3 and 6 shipped (selection-key validation, the `wire_api` enum, the `base_url`
 credential refusal, and the credential preflight — the last with a deliberate selected-pack
 rescoping the doc now records). **The 2026-08-30 reproduction this row used to carry is dead**: the
 same config now yields three `[FAIL]`s, and the docs' census flips three rows to Reached
@@ -451,16 +451,16 @@ same config now yields three `[FAIL]`s, and the docs' census flips three rows to
 
 **What is left is exactly two things:**
 
-- **The buried-warning channel (§7 step 1) — unshipped, needs no ruling, and it is the
+- **The buried-warning channel ([§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) step 1) — unshipped, needs no ruling, and it is the
   highest-payoff item in the doc.** `yolo check` still has two diagnostic channels and the summary
   counts one: bare `Warning:` lines from config resolution and loophole discovery — including the
   best mismatch diagnostic in the tree, the supersession did-you-mean — are invisible to the one
   line a user reads (`reporter.go:84-89`, still non-counting). **Queued 📦 below.**
-- **The supersession relocation (§7 step 4) and its skew message (step 5)**, gated on **OQ-RM2**
+- **The supersession relocation ([§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) step 4) and its skew message (step 5)**, gated on **[OQ-RM2](../design/reference-mismatch-diagnostics.md#9-open-questions)**
   (refuse the launch vs. refuse the pack — the widest-blast-radius change left: an unmatched
-  `supersedes` currently warns and keeps running, after this it stops the launch) and **OQ-RM3**
-  (lazy vs. eager two-hash computation). **OQ-RM1** is narrowed by events — steps 2/3 already make
-  `check` exit non-zero, so it now decides only the launch-only checks — and **OQ-RM4** (an escape
+  `supersedes` currently warns and keeps running, after this it stops the launch) and **[OQ-RM3](../design/reference-mismatch-diagnostics.md#9-open-questions)**
+  (lazy vs. eager two-hash computation). **[OQ-RM1](../design/reference-mismatch-diagnostics.md#9-open-questions)** is narrowed by events — steps 2/3 already make
+  `check` exit non-zero, so it now decides only the launch-only checks — and **[OQ-RM4](../design/reference-mismatch-diagnostics.md#9-open-questions)** (an escape
   hatch?) leans no-hatch.
 
 **What this row is NOT.** Not a new config key, manifest field, or contribution kind — every name
@@ -569,7 +569,7 @@ at, which the jail re-derives from the STAGED DIRECTORY because that is all it h
 those is fixed from the config line alone, before a git source is fetched or any manifest is read.
 `packload.LoadDir`'s manifest rung is real but unreachable: config lowering fills the name in
 first, at every production call site. Corrected in `packload.Pack`, `packdecl.Manifest`,
-`config.PackEntry`, `pack-system.md` §2 and `config-ref`; pinned by
+`config.PackEntry`, `pack-system.md` [§2](../design/pack-system.md#2-the-manifest-contributes) and `config-ref`; pinned by
 `run.TestConfiguredPackNameComesFromTheAddressNotTheManifest` (the reproduction, on the real
 staging path), `run.TestStagedPackNameIsWhatTheJailWillDerive`,
 `config.TestEveryLoweredPackEntryCarriesAName` and
@@ -598,7 +598,7 @@ pattern rather than per entry, with a boot warning naming what was dropped. Veri
 jail: payload text printed verbatim, no marker file, shipped glob intact, `grep -n` still passing
 through.
 
-**Program delivery §10's removal act SHIPPED 2026-09-04** and has left this section: it is
+**Program delivery [§10](../design/program-delivery.md#10-what-i-would-build-in-order)'s removal act SHIPPED 2026-09-04** and has left this section: it is
 `yolo programs ls` / `remove` / `remove --apply` plus the `programs.autoprune` config key, default
 off and user-scope only (`internal/entrypoint/orphanremove.go`, `internal/cli/programs.go`,
 `internal/config/programs.go`). ⚠ **Its footgun was answered by a design choice, not a special
@@ -627,8 +627,8 @@ them, and one merge decided 💬 20 in code — see that row.
   (`/opt/yolo-jail/bin/yolo-entrypoint`), so the loaded image already carries the fatal. The row
   described a gap that closed at some `just load` between 2026-08-18 and now.
 
-- 🔒 **Program delivery §10 — the two steps that are blocked, not merely unscheduled.** 📄
-  [`program-delivery.md`](../design/program-delivery.md) §10. The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
+- 🔒 **Program delivery [§10](../design/program-delivery.md#10-what-i-would-build-in-order) — the two steps that are blocked, not merely unscheduled.** 📄
+  [`program-delivery.md` §10](../design/program-delivery.md#10-what-i-would-build-in-order). The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
   ✅ **EVERGREEN SHIPPED 2026-09-04** ([`evergreen-agent-updates.md`](evergreen-agent-updates.md)),
   A7's V-axis prune with it. **One piece of it did not:** the MCP/LSP transitive refresh (that
   plan's build-order step 7). A yolo-installed MCP or LSP server still moves only when the
@@ -636,19 +636,19 @@ them, and one merge decided 💬 20 in code — see that row.
   evergreen without it.
   - **The user-scope gap receipt** and **obey** — ⚠ **REFRAMED 2026-09-04: these may have lost
     their subject, and that is [OQ-PD19](../design/program-delivery.md#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).**
-    OQ-TP4 was RETIRED 2026-09-03, and OQ-PD6 was scoped to *project* dependencies the same day —
+    [OQ-TP4](../design/trust-paths.md#decision-ledger) was RETIRED 2026-09-03, and [OQ-PD6](../design/program-delivery.md#decision-ledger) was scoped to *project* dependencies the same day —
     every gap-receipt writer in the tree is an AGENT dependency, which has no pin to obey. The one
     residue is pnpm (`pnpm@latest`, unpinned), and the obvious fix is a trap: pnpm is deliberately
-    excluded from mise and nothing records why. **Rule OQ-PD19 before building either.** The
+    excluded from mise and nothing records why. **Rule [OQ-PD19](../design/program-delivery.md#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split) before building either.** The
     original analysis, still worth having if it is built: Three of the gap
     receipt's seven decisions *are* that OQ's options (a)/(b)/(c), and
     [`trust-paths.md`](../design/trust-paths.md) forbids either doc retiring the other's ID
-    unilaterally — so building it answers OQ-TP4 by implementation. **Obey reads an artifact the
+    unilaterally — so building it answers [OQ-TP4](../design/trust-paths.md#decision-ledger) by implementation. **Obey reads an artifact the
     gap receipt cannot yet create**, so it cannot precede it. One line worth having when you rule:
     exactly one act changes behavior under obey — the cold-install branch. The poll is
     informational, the PINNED branch already compares offline, and `pack update` WRITES the record
     rather than reading it, so *"install obeys the record"* reads far broader than it is.
-  - ~~**The installer capture** (§6.3, `OQ-PD10`) — not buildable here.~~ ⚠ **Wrong as of
+  - ~~**The installer capture** ([§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [`OQ-PD10`](../design/program-delivery.md#decision-ledger)) — not buildable here.~~ ⚠ **Wrong as of
     2026-09-04, and wrong about the premise rather than the schedule.** It IS buildable here:
     podman-in-podman gives this jail real containers, so `yolo capture` runs an installer in a real
     throwaway jail and `integration/capture_test.go` measures the result. **Slices one through six of
@@ -660,7 +660,7 @@ them, and one merge decided 💬 20 in code — see that row.
     ALL SEVEN are landed and the store is no longer empty by construction: a launch captures each
     selected pack's uncaptured `via: "installer"` program before starting the container, warns and
     continues on failure, and `YOLO_NO_AUTO_CAPTURE=1` opts out. Container backends only. The one property still
-    unbuilt from §6.3's prose is *"a jail that writes outside its binds is a finding the capture run
+    unbuilt from [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s prose is *"a jail that writes outside its binds is a finding the capture run
     reports"*: stray writes are left alone and not enumerated, because enumerating them needs a
     whole-home walk (install-capture slice 2, correction (e)).
 
@@ -745,7 +745,7 @@ them, and one merge decided 💬 20 in code — see that row.
 
 - 💬 **macos-user has no package floor and no provisioning stage, so four config keys render and
   install nothing.** 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
-  **OQ-P1 · OQ-P2 · OQ-P3 · OQ-P4**. A container jail gets tools two ways: an image floor of ~19
+  **[OQ-P1](../design/macos-user-provisioning.md#open-questions) · [OQ-P2](../design/macos-user-provisioning.md#open-questions) · [OQ-P3](../design/macos-user-provisioning.md#open-questions) · [OQ-P4](../design/macos-user-provisioning.md#open-questions)**. A container jail gets tools two ways: an image floor of ~19
   baked packages (git, node, mise, ripgrep, fd…) and an imperative stage the launch runs inside it
   (`mise install`, the generated `~/.yolo-bootstrap.sh` that npm-installs LSP servers and MCP
   presets). This backend has NEITHER — only `packages:`, containing exactly what the user
@@ -792,7 +792,7 @@ them, and one merge decided 💬 20 in code — see that row.
   its packs by Linux paths, so no `yolo` launches there at all** (see the sandbox row above; the
   `agents`-key blocker this line used to name was closed on 2026-09-03).
   The three: the `macos-user` acceptance matrix, Track D4's download proof, and the guest-notch
-  handoff (whose §2 item 1.4 — do packs reach a macos-user sandbox? — is still the first thing to
+  handoff (whose [§2](handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) item 1.4 — do packs reach a macos-user sandbox? — is still the first thing to
   run there). 📄
   [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md). **Item 1.4 is now half-answered:**
   the sandbox can read the staged pack root and run the toolchain, so what is untested is the
@@ -848,13 +848,13 @@ them, and one merge decided 💬 20 in code — see that row.
 
 # 🧊 Icebox
 
-- 🧊 **Cache relocation's three held questions — `OQ-CR1 · OQ-CR2 · OQ-CR3`** (named 2026-08-23; the
+- 🧊 **Cache relocation's three held questions — [`OQ-CR1`](cache-relocation.md#-oq-cr1--is-cache_relocations-the-right-level-held) · [`OQ-CR2`](cache-relocation.md#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side) · [`OQ-CR3`](cache-relocation.md#-oq-cr3--whether-cache_relocations-should-accept-a-per-workspace-override-for-read-only-sharing)** (named 2026-08-23; the
   row said "two" and there were three). Genuinely undecided whether we want the feature, not merely
   unscheduled. **CR1 gates item 11** (`yolo cache relocate`), and **CR2 is the same decision seen
   from the host side** — the doc says so itself, so answering CR1 alone answers half a question.
   📄 [`cache-relocation.md`](cache-relocation.md).
 
-  **OQ-5's ruling costs this row one of its two motivating consumers, and nothing else.** Relocating
+  **[OQ-5](../design/image-staging-vs-baking.md#101-decision-ledger)'s ruling costs this row one of its two motivating consumers, and nothing else.** Relocating
   `cache/images` to a spare disk was the second one, and it is what `yolo prune`'s own hint used to
   recommend — **no longer**: `4064f720` retired that advice on 2026-08-25, and the hint now printed
   (`internal/prune/prunecmd.go:281-284`) tells you to reclaim the backlog instead. Under *"I see no
@@ -863,17 +863,17 @@ them, and one merge decided 💬 20 in code — see that row.
   (`cache-relocation.md:17-18`), cold and keep-forever, where relocation is the only lever. The
   abstraction-level question and the threat model are untouched by the ruling.
 - 🧊 **Boundary broker B2** (approval-gated host credentials) — **no longer gated on anything; iced
-  only because nobody has said they want it.** Both of its gates opened on 2026-09-02: nix OQ-1
+  only because nobody has said they want it.** Both of its gates opened on 2026-09-02: nix [OQ-1](../design/noncontainer-nix-environment.md#9-open-questions)
   closed as *run* (the notch B2's approval tier is compelling in exists), and the experiment this
   row used to call "the cheapest thing in the whole file" **was run** — Claude Code sends the
   subscription bearer to any base URL, so a broker interposes by URL alone with no client change
-  ([`agent-auth-modes.md`](../design/agent-auth-modes.md) §8.1). Moving it out of the icebox is
+  ([`agent-auth-modes.md` §8.1](../design/agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)). Moving it out of the icebox is
   💬 5's OQ-A ruling plus an appetite. 📄
-  [`boundary-broker.md`](../design/boundary-broker.md) §8.
+  [`boundary-broker.md` §8](../design/boundary-broker.md#8-where-this-sits-against-the-rest-of-the-queue--my-priority-read).
 
-- 🧊 **C4/C5 — the opt-in fast image path.** Shape ruled 2026-08-25 (image-staging OQ-1: opt-in,
+- 🧊 **C4/C5 — the opt-in fast image path.** Shape ruled 2026-08-25 (image-staging [OQ-1](../design/image-staging-vs-baking.md#101-decision-ledger): opt-in,
   baked path retained); the gating re-measurement is TAKEN
-  ([`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §1.8) and reports a flat
+  ([`image-staging-vs-baking.md` §1.8](../design/image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5)) and reports a flat
   curve on the workload it could measure — C3 discharged C4's disk case, C2 its frequency case, the
   52 s cold launch is one C4 does not shorten, and **the one workload C4 exists for is explicitly
   not measured there**. Genuinely awaiting your go/no-go; queueing it before that call would be
@@ -886,22 +886,22 @@ them, and one merge decided 💬 20 in code — see that row.
 
 ### Emptying `bundled_loopholes/` — **done 2026-08-19**, and what it left behind
 
-The goal was **no inhabitants at sprint end** (OQ-BP4), and the channel is gone rather than emptied:
+The goal was **no inhabitants at sprint end** ([OQ-BP4](../design/broker-as-a-pack.md#decision-ledger)), and the channel is gone rather than emptied:
 the directory, its `embed.go`, `internal/loopholes/embedfallback.go` and every reader of them are
 deleted. All **five** loopholes are pack contributions now, `loopholes.ReservedLoopholeNames` and
 `paths.BuiltinLoopholeNames` are deleted whole, and **core's config schema names no loophole at
 all** — which was the point of the exercise rather than a side effect.
 
-**OQ-LP14 is settled too, and by the better of its two answers.** It became a hard dependency the
+**[OQ-LP14](../design/loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn) is settled too, and by the better of its two answers.** It became a hard dependency the
 moment the goal grew from one loophole to the whole channel, and it closed on 2026-08-18 by
 **withdrawing the bind-host path rule rather than adding vocabulary for a runtime-dir socket** — a
 rule that admitted `~/.ssh` while refusing `${XDG_RUNTIME_DIR}/pulse/native` in every spelling. The
 two audio loopholes then merged into `packs/audio` under the plain name.
 
-One residue remains, tracked above rather than here: the **binary capability** OQ-BP1 promised
+One residue remains, tracked above rather than here: the **binary capability** [OQ-BP1](../design/broker-as-a-pack.md#decision-ledger) promised
 alongside the move (💬 **14**).
 
-📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §13 is the measured account of what
+📄 [`broker-as-a-pack.md` §13](../design/broker-as-a-pack.md#13-what-empty-the-channel-actually-required--measured-2026-08-19) is the measured account of what
 "empty the channel" actually required; its Decision Ledger holds BP1–BP4.
 
 ### What the roadmap does not cover, and deliberately
@@ -914,34 +914,34 @@ would drop.
 **And some live questions are deliberately not rows**, because a row is a decision you are being
 asked to make and these are not blocking anything:
 
-- **OQ-ACP1 … OQ-ACP4** in [`agent-config-packs.md`](agent-config-packs.md) — that proposal was
+- **[OQ-ACP1](agent-config-packs.md#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) … [OQ-ACP4](agent-config-packs.md#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job)** in [`agent-config-packs.md`](agent-config-packs.md) — that proposal was
   largely overtaken by what shipped (the `packs` key, host fetch, the lockfile, the origin gate), so
   what survives is four genuine but unpressing questions: two people attaching to one jail with
   different pack sets, opencode's skills gap, the prism as a standalone tool, and whether pruning
   needs telemetry.
 - **CFP-1 … CFP-3** (`composed-file-permissions.md`), **SS-6** (`jail-state-separation-design.md`)
-  and `host-render-target.md`'s three §9 questions — named 2026-08-23 so they are countable. All
+  and `host-render-target.md`'s three [§9](../design/host-render-target.md#9-open-questions--the-discussion-part) questions — named 2026-08-23 so they are countable. All
   concern shipped mechanisms working as designed, not gaps.
-- **nix OQ-3 · 4 · 5 · 7 · 8 · 9** in
+- **nix [OQ-3](../design/noncontainer-nix-environment.md#9-open-questions) · 4 · 5 · 7 · 8 · 9** in
   [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) — what remains of
-  the retired 💬 4 after OQ-1 closed (2026-09-02). None blocks anything: OQ-3 is the `nix profile`
-  installer product, OQ-7 is agents-from-nix (leaning no), OQ-8's reporting half and OQ-9's
+  the retired 💬 4 after [OQ-1](../design/noncontainer-nix-environment.md#9-open-questions) closed (2026-09-02). None blocks anything: [OQ-3](../design/noncontainer-nix-environment.md#9-open-questions) is the `nix profile`
+  installer product, [OQ-7](../design/noncontainer-nix-environment.md#9-open-questions) is agents-from-nix (leaning no), [OQ-8](../design/noncontainer-nix-environment.md#9-open-questions)'s reporting half and [OQ-9](../design/noncontainer-nix-environment.md#9-open-questions)'s
   Linux-diagnostics half are worth fixing under any answer and are work, not rulings.
-- **auth OQ-9** in [`agent-auth-modes.md`](../design/agent-auth-modes.md) — the AWS credential-pair
+- **auth [OQ-9](../design/agent-auth-modes.md#11-open-questions)** in [`agent-auth-modes.md`](../design/agent-auth-modes.md) — the AWS credential-pair
   gap, carried back in when the retired 💬 3's doc rewrite dropped it unanswered. Working today via
   `env_sources`; likely absorbed by the in-flight env-derive work rather than decided.
 - **threat-model Q2 · Q3** in
   [`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) — still
   open after Q1's mooting, both scoped to Vector A now, neither blocking (they stay summarized under
   💬 7 because that row is where the Mac work already lives).
-- The **research** docs' questions — **OQ-LM1 … OQ-LM6** in `local-model-endpoints.md` — are
+- The **research** docs' questions — **[OQ-LM1](../research/local-model-endpoints.md#oq-lm1) … [OQ-LM6](../research/local-model-endpoints.md#oq-lm6)** in `local-model-endpoints.md` — are
   exploratory rather than blocking. *(`mise-host-jail-path-mismatch.md` is now CLOSED: its last open
   question had already shipped as `venvShadowMountArgs`, and re-reading it is what surfaced a trap
   documented nowhere else — a per-side path that is a symlink or a regular file cannot be shadowed,
   so the launcher warns and the jail silently sees the host's copy.)*
 
-Plus **OQ-GN1 · OQ-GN2 · OQ-GN4** in the guest-notch handoff, which are Mac-gated rather than
-undecided, and are cited from 💬 7 above. *(OQ-GN3 left on 2026-09-02 — it asked whether the
+Plus **[OQ-GN1](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN2](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN4](handoff-guest-notch-macos.md#9-open-questions)** in the guest-notch handoff, which are Mac-gated rather than
+undecided, and are cited from 💬 7 above. *([OQ-GN3](handoff-guest-notch-macos.md#9-open-questions) left on 2026-09-02 — it asked whether the
 Cachix cache had ever been pushed to, and the Actions log answered it: yes, and CI reads from it
 too. Chasing it found the six CI `nix build` calls that were discarding the flake's substituter.)*
 

@@ -40,7 +40,7 @@ accident.
 |---|---|---|
 | **0 — subtract first** | remove gemini | none |
 | **1 — cheap + unblocked** | correctness cluster, then steering | none |
-| **2 — the data-loss chain** | adopt-on-first-migration → de-compose credentials → sidecar location | **one decision** (§2.1) |
+| **2 — the data-loss chain** | adopt-on-first-migration → de-compose credentials → sidecar location | **one decision** ([§2.1](#21-the-decision-that-gates-it)) |
 | **3 — parked design work** | modes 4→3, `:ro` per surface, capture timing | needs a per-surface pass |
 
 **If the goal is the full pack rip-out**, tranches 0–2 are its prerequisites, not a detour.
@@ -153,7 +153,7 @@ places which makes it look smaller than it is.
 | 3.1 | **Collapse `host_files`' four modes to three** (`copy` merges into `readonly`) | behavior change on a shipped key, and blocked on 3.2 |
 | 3.2 | **`readonly` as a real `:ro` mount instead of `0o444`** — `0o444` is *asymmetric*: root ignores it, a non-root agent gets EACCES and the surface silently stops re-rendering | **a per-surface design pass**, not a code change: you cannot compose *into* a `:ro` mount, so each candidate surface must be shown to afford losing `managed`/`defaults`/`transform`. **Cheaper if 3.9 lands first** — host-side composition finishes the file before the mount exists, so `:ro` costs nothing |
 | 3.3 | **Capture timing** — a `yolo config capture` subcommand, then capture in the existing `onTerminate` hook | small, but **not urgent**: nothing is lost today (every surface is under a host-backed rw bind; the edit and its baseline both survive `--rm`), only *observability* lags. An inotify watcher is **not** justified |
-| 3.4 | **Comment preservation on `json`/`toml` surfaces** | needs a decision; the sub-questions (staleness → drop-on-override via existing provenance, in-jail additions → one-way host→jail, attachment → the usual convention) are already answered in host-file-staging.md, so this starts from decisions rather than blank |
+| 3.4 | **Comment preservation on `json`/`toml` surfaces** | needs a decision; the sub-questions (staleness → drop-on-override via existing provenance, in-jail additions → one-way host→jail, attachment → the usual convention) are already answered in [host-file-staging.md](host-file-staging.md), so this starts from decisions rather than blank |
 | 3.5 | **`managed`/`defaults` array-append pinning** | no user surface has needed it |
 | 3.6 | ~~**Non-agent prism ports**~~ — **RESOLVED 2026-07-27: not a gap.** MCP and LSP are already ported as the **computed layer** of per-agent surfaces (`copilot/mcp`, `copilot/lsp`, `agy/mcp`) — the right model, since neither has a file of its own to write. `identity` is host-composed and `:ro`-mounted by design (`gitIdentityMountArgs`). So `config render mcp` reporting "no surfaces" is CORRECT: there is no such surface, by design | — |
 | 3.7 | **Rename the recovered state** — four terms for one concept; "captured edits" is the proposed umbrella, **not** "managed" (already taken) | mechanical, wants one pass |
@@ -165,7 +165,7 @@ places which makes it look smaller than it is.
 ## Doc consolidation
 
 The reasoning docs sprawled to ~8,900 lines across 14 files with the same items restated.
-`doc-triage.md` already established the policy — **A** reference (`design/`), **B** active
+[`doc-triage.md`](doc-triage.md) already established the policy — **A** reference (`design/`), **B** active
 plan (`plans/`), **C** archive (`git rm`, history preserves it) — but it predates most of
 this cluster.
 
@@ -180,7 +180,7 @@ Proposed, following that policy:
 | `plans/host-file-staging.md` | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
 | `plans/agent-settings-composition.md` | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |
 | `plans/sequencing-2026-07.md` | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |
-| `design/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the §3.2/§3.3 sidecar state machine is not documented elsewhere |
+| `design/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the [§3.2](../design/config-migration-to-prism.md#32-the-rule-key-first-migration-on-the-absence-of-last_render)/[§3.3](../design/config-migration-to-prism.md#33-defensive-handling-of-dangling-sidecars) sidecar state machine is not documented elsewhere |
 | `design/agent-credentials.md`, `design/jail-home.md` | **keep (A)** — different questions (what crosses the boundary; how the home is built) |
 
 **Rule going forward, to stop the sprawl recurring:** a *posture or mechanism* goes in
@@ -193,9 +193,9 @@ ROADMAP. Nothing gets three homes.
 
 Found during the audit; small but they are the kind of thing that makes a doc untrustworthy.
 
-- `composed-file-permissions.md` §9 item 6 is **stale** — the `EnsureSymlink` home-root
+- `composed-file-permissions.md` [§9](../design/composed-file-permissions.md#9-work-items) item 6 is **stale** — the `EnsureSymlink` home-root
   staging shipped 2026-07-25.
-- §4.3 **overstates** the `claude/config` defect: the `ls`/`diff`/`reset` half already
+- [§4.3](../design/composed-file-permissions.md#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) **overstates** the `claude/config` defect: the `ls`/`diff`/`reset` half already
   skips it; only `render` renders it.
 - ~~ROADMAP + agent-settings-composition claiming `config render mise` → "no surfaces"~~ —
   **fixed 2026-07-26** (`22f7f2b`); mise is ported.

@@ -9,7 +9,7 @@ summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and
 # Plan: agent CLIs from npm to their vendors' native installers
 
 **Design:** [`program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
-ruling **OQ-PD13** · **Status:** shipped in part · Written against `a25e718b`, 2026-09-03.
+ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · **Status:** shipped in part · Written against `a25e718b`, 2026-09-03.
 
 > [!IMPORTANT]
 > **OUTCOME, 2026-09-04. Steps 1 and 2 shipped; step 3 does not exist as written.**
@@ -50,7 +50,7 @@ ruling **OQ-PD13** · **Status:** shipped in part · Written against `a25e718b`,
 > **What is inert until the sibling plan lands** (both stated in the flip's commit body):
 > [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared update verb means codex's
 > native launcher still calls the hardcoded `"$REAL_BIN" install` hourly — an unknown subcommand
-> for codex, `|| true`, so a no-op; and without **OQ-PD12a** the launch dir stays last on
+> for codex, `|| true`, so a no-op; and without **[OQ-PD12a](../design/program-delivery.md#decision-ledger)** the launch dir stays last on
 > `BootPath`, so an existing workspace keeps resolving `$NPM_CONFIG_PREFIX/bin/codex` and never
 > reaches the new launcher. The flip is correct for a new workspace and inert for an old one.
 
@@ -87,8 +87,8 @@ shell script.
 | `packs/codex/pack.json` | `via: npm` + `package` → `via: installer` + `url: https://chatgpt.com/codex/install.sh` |
 | `packs/claude/pack.json` | delete the `managed.preferences` block (lines 58–62); KEEP the surface — its `retireOnFirstRender` is load-bearing, and a surface with neither `managed` nor `defaults` is valid (`packs/agy/pack.json:41-47`) |
 | `README.md:290-293` | the "installed via" column for copilot/codex |
-| `docs/design/program-delivery.md` §3.5 | the per-agent table's "Today" column |
-| `docs/design/agent-install-in-ci.md` §2.3 | "two mechanisms, six packs, nine installs" — the split moves |
+| `docs/design/program-delivery.md` [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) | the per-agent table's "Today" column |
+| `docs/design/agent-install-in-ci.md` [§2.3](../design/agent-install-in-ci.md#23-two-mechanisms-six-packs-nine-installs) | "two mechanisms, six packs, nine installs" — the split moves |
 | `integration/installmechanism_test.go:14-22` | header says "eight of them the same npm code path" |
 
 ## Reuse
@@ -119,13 +119,13 @@ shell script.
   (`internal/entrypoint/boot.go:356-361`) puts `$NPM_CONFIG_PREFIX/bin` **second** and
   `$HOME/.local/bin` **fifth**. A workspace that already npm-installed copilot keeps resolving the
   stale npm binary forever; the launcher is last on PATH and never runs. `catalogNpmOrphans`
-  (`internal/entrypoint/catalog.go:80`) *reports* the leftover at boot and, per OQ-PD4, does not
-  remove it. **This is the migration's real cost** and it is what OQ-PD12a (B2) fixes. Symptom: a
+  (`internal/entrypoint/catalog.go:80`) *reports* the leftover at boot and, per [OQ-PD4](../design/program-delivery.md#decision-ledger), does not
+  remove it. **This is the migration's real cost** and it is what [OQ-PD12a](../design/program-delivery.md#decision-ledger) (B2) fixes. Symptom: a
   green CI cell (fresh workspace) beside a user whose `copilot --version` never moves.
 - **The native launcher's update branch is a hardcoded `"$REAL_BIN" install`** (shims.go:936, 941),
   `|| true`. Right for claude; already wrong for agy (`agy update`). After a flip, copilot and codex
   get an hourly unknown-subcommand call that changes nothing. **The flip buys the cold-install
-  mechanism; OQ-PD14's declared verb is what buys evergreen.**
+  mechanism; [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared verb is what buys evergreen.**
 - **The origin gate.** Verified against `packload.HonoredInstalls` (`internal/packload/packload.go:491`):
   it refuses only `InstallerURL != "" && !MayAccessHost`, and `MayAccessHost` is `true` by
   construction for embedded and local packs (`internal/config/packs.go:182`). **So the shipped packs
@@ -133,7 +133,7 @@ shell script.
   (`internal/packdecl/contributes.go:1156`) now emits `installer <URL>` and
   `NeedsHostAccessContributions` emits "program via installer (runs a fetched script)" for each
   flipped pack. For a **fetched** pack shipping an agent this is approvable and refusable — and per
-  [`trust-paths.md` §3.1](../design/trust-paths.md) (OQ-TP6) a refusal **refuses the launch**, not
+  [`trust-paths.md` §3.1](../design/trust-paths.md) ([OQ-TP6](../design/trust-paths.md#decision-ledger)) a refusal **refuses the launch**, not
   the contribution. npm stays deliberately ungated. Say this in the commit body.
 - **Installer scripts call shimmed tools.** codex's uses `find` (line 745), pi's uses `grep -Fxq`.
   The launcher already runs them under `YOLO_BYPASS_SHIMS=1`; do not remove it.
@@ -145,7 +145,7 @@ shell script.
   object: `if(e.installMethod!==void 0)return e; … case"disabled": autoUpdates=false`. So the pack's
   entry is dead because it is in the wrong **file** (`~/.claude/settings.json`) under a
   **`preferences` wrapper nothing reads** — the reader is live, it just never sees this key. Delete
-  it; do not "fix" it to `autoUpdates: false`, which is the opposite of what §3.5 wants.
+  it; do not "fix" it to `autoUpdates: false`, which is the opposite of what [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) wants.
 
 ## Build order
 
@@ -174,8 +174,8 @@ edit, so each step's proof is its own CI cell on both arches.
   `:114-129` already — extend rather than duplicate.
 - **Integration:** none new. Steps 2 and 3 are proven by the existing per-pack cells.
 - **No test may start an agent.** `--version` only; that is what `packMatrix` already does.
-- **Docs, by path:** `README.md:290-293`; `docs/design/program-delivery.md` §3.5's per-agent table
-  ("Today" column for copilot/codex); `docs/design/agent-install-in-ci.md` §2.3 (the eight-npm/one-
+- **Docs, by path:** `README.md:290-293`; `docs/design/program-delivery.md` [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s per-agent table
+  ("Today" column for copilot/codex); `docs/design/agent-install-in-ci.md` [§2.3](../design/agent-install-in-ci.md#23-two-mechanisms-six-packs-nine-installs) (the eight-npm/one-
   native split, and the "nine installs" arithmetic); `integration/installmechanism_test.go`'s
   header comment.
 - **Norms:** `just format` then `just check-ci` before each commit (the pre-commit hook runs it);
@@ -191,7 +191,7 @@ edit, so each step's proof is its own CI cell on both arches.
   — exactly where it lands today. The flip would change nothing about delivery, break the launcher
   (`REAL_BIN` points at `~/.local/bin/pi`), lose the pack's declared `--ignore-scripts`, add an
   origin-gated claim, and pull in a script that shells out to `sudo` and drives an arrow-key TTY
-  menu. pi's evergreen story is `pi update --self` under OQ-PD14, which needs no `via` change at all.
+  menu. pi's evergreen story is `pi update --self` under [OQ-PD14](../design/program-delivery.md#decision-ledger), which needs no `via` change at all.
 - **Don't flip `opencode` yet.** Two independent blockers: its `INSTALL_DIR=$HOME/.opencode/bin` is
   a bare assignment with no override, and `/home/agent` is a **`:ro`** bind
   ([`jail-home.md` §2.2](../design/jail-home.md)) with no `state at: .opencode` in its manifest — so
@@ -199,17 +199,17 @@ edit, so each step's proof is its own CI cell on both arches.
   contribution *and* an answer for a binary that is neither on `BootPath` nor at the launcher's
   `REAL_BIN`. Both are design work, not this plan's.
 - **Don't add an `env` field to `packdecl.Install`** to pass `PREFIX=`/`VERSION=`. It is the obvious
-  move and it is a schema change that OQ-PD14 is already opening the same struct for — land one
+  move and it is a schema change that [OQ-PD14](../design/program-delivery.md#decision-ledger) is already opening the same struct for — land one
   contribution field, not two, and let that plan own it.
-- **Don't `npm uninstall -g` from the entrypoint** to clear the stale copies. OQ-PD4 rules that
+- **Don't `npm uninstall -g` from the entrypoint** to clear the stale copies. [OQ-PD4](../design/program-delivery.md#decision-ledger) rules that
   dropping a program is an explicit act; the boot catalog reports and does not remove.
 
 ## Blockers
 
-- **OQ-PD14 (the pack-declared update verb) is a hard dependency for the *benefit*, not for the
+- **[OQ-PD14](../design/program-delivery.md#decision-ledger) (the pack-declared update verb) is a hard dependency for the *benefit*, not for the
   flip.** Planned in [`evergreen-agent-updates.md`](evergreen-agent-updates.md); do not design it here. Until it lands, a flipped pack self-updates
   only insofar as its own binary does.
-- **OQ-PD12a / B2 (launch dir ahead of the install prefixes)**, same sibling plan, is what makes
+- **[OQ-PD12a](../design/program-delivery.md#decision-ledger) / B2 (launch dir ahead of the install prefixes)**, same sibling plan, is what makes
   the flip reach an existing workspace. Without it, steps 2 and 3 are correct for new workspaces and inert for old
   ones. Not a reason to hold the flip — a reason to say so in the commit body.
 - **Stop and ask: copilot's `--no-auto-update`. STILL OPEN — the MEASUREMENT is closed, the
@@ -225,7 +225,7 @@ edit, so each step's proof is its own CI cell on both arches.
     `COPILOT_AUTO_UPDATE=false` is the env spelling of the same switch.
   - The updater is **additionally** gated on `Aq() = require("node:sea").isSea()`. Under npm that
     is false and it only *notifies* — `"Update not supported when running js directly"`. That gate
-    flipping true is the entire thing OQ-PD13 buys for copilot.
+    flipping true is the entire thing [OQ-PD13](../design/program-delivery.md#decision-ledger) buys for copilot.
   - It is off in CI regardless of either: the default consults
     `!(CI || BUILD_NUMBER || RUN_ID || SYSTEM_COLLECTIONURI)`.
 
@@ -233,7 +233,7 @@ edit, so each step's proof is its own CI cell on both arches.
 
   | | Choice | What it costs |
   | :--- | :--- | :--- |
-  | A | Flip, and **drop** the flag | The vendor's updater runs on a user's machine on its own schedule, outside yolo's record — the native launcher's vendor self-updates deliberately emit no receipt ([§6.3](../design/program-delivery.md)), so drift becomes the reconcile's problem. This is where OQ-PD13's rationale points. |
+  | A | Flip, and **drop** the flag | The vendor's updater runs on a user's machine on its own schedule, outside yolo's record — the native launcher's vendor self-updates deliberately emit no receipt ([§6.3](../design/program-delivery.md)), so drift becomes the reconcile's problem. This is where [OQ-PD13](../design/program-delivery.md#decision-ledger)'s rationale points. |
   | B | Flip, and **keep** the flag | Buys the SEA build, `VERSION=` pinning and a single binary, but **not** evergreen — the one thing the flip was bought for. Evergreen would then have to come from [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared verb (`/update`, or re-running the installer), which has the merit of making an update something yolo triggers and can record. |
   | C | Flip, keep the flag, pin with `VERSION=` | Reproducible copilot. **Not expressible** — the manifest cannot pass env to an installer, the same wall the flip already hits. |
   | D | Do not flip | Where the tree is, and where it stays until the `PREFIX=` problem is solved regardless. |
@@ -241,5 +241,5 @@ edit, so each step's proof is its own CI cell on both arches.
   **A and B are a real fork, not a formality:** they disagree about whether an agent CLI updating
   itself unobserved is acceptable — a question about the scope of
   [P6](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
-  not about copilot. Worth settling alongside OQ-PD14, since B only makes sense once the declared
+  not about copilot. Worth settling alongside [OQ-PD14](../design/program-delivery.md#decision-ledger), since B only makes sense once the declared
   verb exists.

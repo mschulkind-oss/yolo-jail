@@ -86,7 +86,7 @@ re-enters it. Three things a user notices:
 **Who this bites.** Anyone who attaches to long-lived jails with a `-p` flag that used to "work"
 (silently did nothing) will see it take effect; anyone relying on provider env surviving in the
 container's frozen environment across entries will see each entry recompose it — which is the
-documented intent (`docs/design/agent-auth-modes.md` §4.3).
+documented intent (`docs/design/agent-auth-modes.md` [§4.3](design/agent-auth-modes.md#43-pre-existing-jails--re-entry-behavior)).
 
 ### ⚠️ Security: `yolo host -- <cmd>` reads the USER config only — never the workspace's
 
@@ -151,7 +151,7 @@ the removal.
 ### ⚠️ `yolo apply --host` is removed — use `yolo host apply`
 
 **What changed** (2026-08-30). The `--host` shorthand is **removed outright, not deprecated**
-(`host-agent-environment.md` OQ-7). Two spellings remain, and they do the same thing:
+(`host-agent-environment.md` [OQ-7](design/host-agent-environment.md#52-the-cli-shape-yolo-host-verb-and---host-removed-oq-7)). Two spellings remain, and they do the same thing:
 `yolo apply --at host` (the systematic form, one notch of the `--at` dial) and
 **`yolo host apply`** (the ergonomic one). The removed flag now fails like any other unknown
 argument, and prints the usage that names its replacements.
@@ -190,7 +190,7 @@ the real binary. yolo prints the line; `yolo host apply --shell-init` appends it
 
 Wrappers are generated for **every** program a selected pack installs, whether or not it needs any
 environment today, so `<wrap dir>/claude` is a path a script or an IDE can point at and rely on
-existing (OQ-5). `yolo check` tells you, every run, when the directory exists but is not on `PATH`.
+existing ([OQ-5](design/host-agent-environment.md#9-decision-ledger)). `yolo check` tells you, every run, when the directory exists but is not on `PATH`.
 
 **Who this bites.** It is off by default and silent until you turn it on — but once on, **yolo
 becomes a runtime dependency of every wrapped launch**: a broken `yolo` or an unparseable config
@@ -218,20 +218,20 @@ class should know it was found and closed rather than never present.
 
 **What changed** (2026-08-24, `a16403e2`). Every launch used to run `mise upgrade --yes` against
 the machine-global `/mise` store, silently repointing the alias symlinks every workspace resolves
-through — including jails already running (`program-delivery.md` §4.2 caught an alias repointing
+through — including jails already running (`program-delivery.md` [§4.2](design/program-delivery.md#42-drift-mise-is-machine-global-evergreen-every-launch-and-repoints-aliases-in-place) caught an alias repointing
 and deleting its old target mid-audit). The launch now runs `mise install` only. A workspace
 `mise.lock`, when present, governs resolution (mise honors it by default); upgrading is an explicit
 act — `mise upgrade` / `mise lock` in the workspace, committed like any dependency bump.
 
 **Who this bites.** Anyone relying on fuzzy pins (`node = "24"`, `just = "latest"`) drifting
 forward on their own. They now freeze at whatever is installed until you upgrade deliberately —
-which is the ruling (OQ-PD3): no version changes with nobody present.
+which is the ruling ([OQ-PD3](design/program-delivery.md#decision-ledger)): no version changes with nobody present.
 
 ### Boot prints an orphan catalog — and its first run may surprise you
 
 **What changed** (2026-08-24, `af46c9b4`). The boot reports, informationally, every npm package
 and `~/.local/bin` binary that no selected pack, preset, or LSP recipe declares. Nothing is
-deleted — removal stays an explicit act (OQ-PD4). Installs also start leaving receipts at
+deleted — removal stays an explicit act ([OQ-PD4](design/program-delivery.md#decision-ledger)). Installs also start leaving receipts at
 `<workspace>/.yolo/receipts.jsonl` (one JSON line per install yolo runs: resolved version or
 artifact digest, act, time).
 
@@ -516,7 +516,7 @@ two channels — a *bundled* manifest could declare `publishes: "endpoint"`, `ja
 `ca_cert` and an unscoped `requires.file_exists`; a pack-shipped one could not. With the bundled
 channel retired, **every module manifest yolo reads is held to the subset, including its own**.
 Two other rules changed shape with it: `loopholes.ReservedLoopholeNames` is deleted (no name is
-reserved any more — exclusivity across packs is what refuses a duplicate), and the §4.3a placement
+reserved any more — exclusivity across packs is what refuses a duplicate), and the §[4.3a](design/loophole-packaging.md#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) placement
 rule no longer exempts anything, since yolo's own loopholes are staged outside every workspace.
 
 ### ⚠️ The per-jail Claude OAuth broker relay is gone; `yolo broker status` reports differently
@@ -660,7 +660,7 @@ directory over — and the file's `0600` mode protects nothing there, because a 
 as UID 0 by design. Requiring the manifest to say what crosses is the least-privilege spelling
 `state_files` was introduced for; the alternative — quietly subtracting one file from a mount
 the author declared — would be a carve-out the author cannot see.
-📄 [`pack-config-keys.md`](design/pack-config-keys.md) §2.3.
+📄 [`pack-config-keys.md` §2.3](design/pack-config-keys.md#23-delivery-a-file-yolo-owns-named-by-a-token).
 
 ### ⚠️ `yolo-cglimit` stops working out of the box
 
@@ -692,7 +692,7 @@ host-side service in the tree, and *"the moment one builtin stays presence-activ
 The counter-argument was heard and overruled: the delegate hands a jail control of **its
 own** cgroup rather than reading host state, so the severity is genuinely lower — but the
 rule is about the mechanism, not the severity, and a rule with one exception is two rules.
-📄 [`loophole-activation.md`](design/loophole-activation.md) OQ-A4, R1.
+📄 [`loophole-activation.md`](design/loophole-activation.md) [OQ-A4](design/loophole-activation.md#decision-ledger), R1.
 
 > [!NOTE]
 > **`loopholes.cgroup-delegate` used to be a config ERROR** — the name was reserved for the
@@ -750,8 +750,8 @@ as **full**.
 **Why.** Core's config schema named exactly two loopholes by hand, and `host_processes`
 (above) was the first to go. With this one gone, **yolo's config schema names no loophole
 at all** — which is what makes converting a loophole to a pack mean something rather than
-moving a file. 📄 [`loophole-activation.md`](design/loophole-activation.md) §1.4, OQ-A6 ·
-[`pack-config-keys.md`](design/pack-config-keys.md) OQ-K4.
+moving a file. 📄 [`loophole-activation.md` §1.4](design/loophole-activation.md#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name), [OQ-A6](design/loophole-activation.md#decision-ledger) ·
+[`pack-config-keys.md`](design/pack-config-keys.md) [OQ-K4](design/pack-config-keys.md#decision-ledger).
 
 > [!NOTE]
 > **Nothing jail-facing moved.** `yolo-journalctl` is unchanged, the env var is still
@@ -785,7 +785,7 @@ loophole's own:
 Note the remaining gate this does **not** remove: the loophole still requires `claude` on the
 host's PATH, so a jail-only Claude user is still unprotected. That is a live defect with its
 own fix pending — the loophole moving inside `packs/claude`, where selecting the pack is the
-dependency. 📄 [`loophole-activation.md`](design/loophole-activation.md) §1.1, OQ-A11.
+dependency. 📄 [`loophole-activation.md` §1.1](design/loophole-activation.md#11-the-sniff-and-the-bug-it-is-causing-right-now), [OQ-A11](design/loophole-activation.md#decision-ledger).
 
 ### ⚠️ The top-level `host_processes` key is gone, and `yolo-ps` needs a pack now
 
@@ -831,7 +831,7 @@ leave core while core went on naming it. The keys now belong to the loophole's o
 manifest. The refusal exists rather than silence because this block decided what a host
 daemon would reveal about your machine: a config that still writes it and gets nothing
 has been denied a capability it asked for, in the one direction where silence reads as
-success. 📄 [`loophole-activation.md`](design/loophole-activation.md) §1.4 ·
+success. 📄 [`loophole-activation.md` §1.4](design/loophole-activation.md#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) ·
 [`pack-config-keys.md`](design/pack-config-keys.md).
 
 ### ⚠️ `host_processes.visible` moved, and it no longer applies without a restart
@@ -871,7 +871,7 @@ property that let *you* widen an allowlist without restarting let the **agent in
 jail** widen its own — mid-session, with no launch, and therefore with no
 config-approval prompt anywhere in the causal path. Freezing the value at launch puts
 the change back behind the gate that already exists. 📄
-[`pack-config-keys.md`](design/pack-config-keys.md) OQ-K3.
+[`pack-config-keys.md`](design/pack-config-keys.md) [OQ-K3](design/pack-config-keys.md#decision-ledger).
 
 > [!NOTE]
 > **This was the first half of a two-step move, and the second half has now shipped** —
@@ -945,14 +945,14 @@ directions: it never polled, and `update` honours the pin rather than overriding
 **Why.** *"I don't want magical evergreen npm packages."* A binary that changes between two
 invocations with nobody present is a silent-change path that no pin, lockfile or approval prompt
 can ever cover, because there is no act to attach them to. Deleting the mechanism is cheaper than
-gating it. 📄 [`trust-paths.md`](design/trust-paths.md) §1 row 1 (OQ-TP5).
+gating it. 📄 [`trust-paths.md` §1](design/trust-paths.md#1-the-verdict) row 1 ([OQ-TP5](design/trust-paths.md#decision-ledger)).
 
 > [!NOTE]
 > **The lockfile half of that ruling is not built.** `update` resolves the registry's latest and
 > installs it; nothing yet **records** which version it got, so `install` has no pin to reinstall
 > from. There is nowhere to put one: `LockEntry` has no package-version field, and the lockfile is
 > per *fetched* pack while all four packs declaring npm programs are *embedded*. That is
-> [`trust-paths.md`](design/trust-paths.md) OQ-TP4, still open. The user-visible consequence is
+> [`trust-paths.md`](design/trust-paths.md) [OQ-TP4](design/trust-paths.md#decision-ledger), still open. The user-visible consequence is
 > only that two jails updated at different times can hold different versions — which was already
 > true, and is now at least the result of somebody asking.
 
@@ -1073,7 +1073,7 @@ choice would be the partial pack this change exists to retire.
 it from a hardcoded permissive answer — so the curl-to-bash launcher was written for a fetched,
 unapproved pack anyway. The warning was true about the decision and false about the outcome. Refusing
 on the host deletes the problem instead of plumbing a decision across the boundary.
-📄 [`trust-paths.md`](design/trust-paths.md) §3.1, OQ-TP6.
+📄 [`trust-paths.md` §3.1](design/trust-paths.md#31-a-refused-contribution-refuses-the-launch-), [OQ-TP6](design/trust-paths.md#decision-ledger).
 
 ### ⚠️ An unreachable host service now refuses the launch
 
@@ -1096,7 +1096,7 @@ The refusal names that variable. It is honoured loudly and says plainly that not
 **What does *not* refuse:** a host yolo could not ask to forward loopback (an old passt, an explicit
 `network.mode`, a rootful or unrecognised runtime) is never punished for what it cannot help —
 `YOLO_HOST_LOOPBACK=unsupported`/`unknown`/absent never escalate.
-📄 [`loopback-tls-reachability.md`](design/loopback-tls-reachability.md) OQ-R2, OQ-R3.
+📄 [`loopback-tls-reachability.md`](design/loopback-tls-reachability.md) [OQ-R2](design/loopback-tls-reachability.md#decisions), [OQ-R3](design/loopback-tls-reachability.md#decisions).
 
 ### ⚠️ A non-interactive launch no longer auto-accepts config changes
 
@@ -1115,9 +1115,9 @@ $ yolo --accept-config-changes …
 **Why.** Auto-accept made *"humans must approve config changes"* conditional on somebody happening to
 have a terminal attached — and the scripted case is exactly where nobody is watching. Non-interactive
 use still works; it works via an explicit yes rather than an implicit one.
-📄 [`config-safety.md`](design/config-safety.md) OQ-D2.
+📄 [`config-safety.md`](design/config-safety.md) [OQ-D2](design/config-safety.md#decision-ledger).
 
 > [!NOTE]
 > **Related, and not a behaviour change you can see:** the approval snapshot moved out of the
 > workspace to host-side state the jail never mounts, so the record of what you approved is no longer
-> writable by the thing being approved (OQ-D1).
+> writable by the thing being approved ([OQ-D1](design/config-safety.md#decision-ledger)).

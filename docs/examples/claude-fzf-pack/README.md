@@ -23,11 +23,11 @@ block; and `zai` ships neither. The argument is unaffected; the number was.)* Co
 
 | File | Role |
 |---|---|
-| `pack.json` | the manifest: five contributions (two `requires`, `files`, `config-overlay`, `briefing`) |
-| `bin/file-suggestion.sh` | the finder itself — **a reference implementation to replace** |
-| `AGENTS.md` | briefing prose telling the agent the finder exists and not to edit it in place |
+| [`pack.json`](pack.json) | the manifest: five contributions (two `requires`, `files`, `config-overlay`, `briefing`) |
+| [`bin/file-suggestion.sh`](bin/file-suggestion.sh) | the finder itself — **a reference implementation to replace** |
+| [`AGENTS.md`](AGENTS.md) | briefing prose telling the agent the finder exists and not to edit it in place |
 
-### ⚠ `bin/file-suggestion.sh` is a starting point, not your script
+### ⚠ [`bin/file-suggestion.sh`](bin/file-suggestion.sh) is a starting point, not your script
 
 The real finder lives at `~/.dotfiles/claude/file-suggestion.sh` on the host,
 which is invisible from inside a jail (the credential boundary — see

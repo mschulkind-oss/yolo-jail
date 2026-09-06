@@ -75,7 +75,7 @@ $ YOLO_RUNTIME=macos-user yolo -- bash -lc 'which just'   # or any declared pack
 This is the backend's founding requirement — it honors `packages:` via native nix or
 it does not ship. It exercises the whole native chain in one command: the build, the
 GC root, the PATH prefix, and the login-rc re-prepend surviving macOS `path_helper`
-(the OQ-1 question). A Homebrew path here means the re-prepend lost.
+(the [OQ-1](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) question). A Homebrew path here means the re-prepend lost.
 
 ## 4. Content actually reached the agent
 

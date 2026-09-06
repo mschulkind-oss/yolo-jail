@@ -40,7 +40,7 @@ guarding against.
 **Reads with:** [`../design/program-kind-defects.md`](../design/program-kind-defects.md)
 (Q1.1–Q3.1), [`pack-host-management-plan.md`](pack-host-management-plan.md) Phase 11 and
 items 8.3/8.4, [`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md)
-§8, and [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) OQ-6.
+[§8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not), and [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger).
 
 ---
 
@@ -60,7 +60,7 @@ waiting on a decision — this doc is ready to implement against.
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
 | 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** · **SHIPPED 2026-08-02** |
 | 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer**; **DROP the nix hints for the six agent CLIs** (keep them for real deps like `fd`/`jq`) | **REFRAMED, then TRIMMED** — `copilot` is 16 releases behind, and the "pin the closure" case I invented is unreachable · **SHIPPED 2026-08-03** |
-| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix OQ-6) | `meta.available` check beside `availableOn` | still stands — §6 removes the example, not the defect · **SHIPPED 2026-08-02** |
+| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger)) | `meta.available` check beside `availableOn` | still stands — [§6](#6-the-three-unfree-nix-hints-83--and-the-better-question-underneath) removes the example, not the defect · **SHIPPED 2026-08-02** |
 | 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** · **TABLE SHIPPED 2026-08-03** (`TestProvenanceParityAcrossBothDerivations`); unification still deferred, by ruling |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support · **SHIPPED 2026-08-03**, and it was BIGGER than this row: the advertised system was hardcoded in three places, not one (see BACKLOG E8) |
 | 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm** · **SHIPPED 2026-08-03** |
@@ -294,7 +294,7 @@ near-nothing. It does shrink it, but not to nothing: a genuinely npm-installed a
 install fails should still degrade rather than exit 1, and that case survives `requires`
 entirely. Both land; `requires` is not a substitute for a working fallback.
 
-With the PATH split ruled in (§1), the three compose cleanly rather than overlapping:
+With the PATH split ruled in ([§1](#1-the-program-shim-shadowing-a-baked-binary-111)), the three compose cleanly rather than overlapping:
 
 | mechanism | what it does | reached when |
 |---|---|---|
@@ -302,7 +302,7 @@ With the PATH split ruled in (§1), the three compose cleanly rather than overla
 | `requires` | asserts presence, generates nothing | a pack needs a tool it does not install |
 | baked fallback | execs a resolved absolute path | an install genuinely fails |
 
-**Sequencing note, now that all three are in:** the PATH split (§1) removes the *cause*, so it
+**Sequencing note, now that all three are in:** the PATH split ([§1](#1-the-program-shim-shadowing-a-baked-binary-111)) removes the *cause*, so it
 should land first — the fallback is then a safety net for a real install failure rather than a
 workaround for self-inflicted shadowing. `requires` is independent of both and can land in any
 order.
@@ -347,7 +347,7 @@ ordinary thing — a linting pack wanting `shellcheck` and `shfmt`, a data pack 
 them, so the jail is the side that is wrong, not the host.
 
 My stated reason for preferring the restriction was that N launchers means N shadowing hazards.
-**The PATH split (§1) removes that**, so the argument does not survive its own ruling: with
+**The PATH split ([§1](#1-the-program-shim-shadowing-a-baked-binary-111)) removes that**, so the argument does not survive its own ruling: with
 installers ordered after `/bin`, a launcher cannot shadow anything, and generating ten is no
 riskier than generating one.
 
@@ -571,7 +571,7 @@ self-updates; the jail's own launcher checks npm hourly).
 So nixpkgs is *not* uniformly stale — but it is badly stale for at least one, and nothing about
 the packaging tells a user which. A remedy line that says `nix profile install
 nixpkgs#github-copilot-cli` hands them a version 16 releases old **without saying so**, which is
-the same class of quiet wrongness as the provenance misreport in §8 of the collaboration doc.
+the same class of quiet wrongness as the provenance misreport in [§8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not) of the collaboration doc.
 
 ### There is no "pin-the-closure" case — I invented it. **Drop the nix hints for agent CLIs.**
 
@@ -658,7 +658,7 @@ next hint, not code. That is a real reduction in scope from what I first propose
 
 ---
 
-## 7. `packages: ["claude-code"]` fails with a raw nix trace (nix OQ-6) — **SHIPPED 2026-08-02**
+## 7. `packages: ["claude-code"]` fails with a raw nix trace (nix [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger)) — **SHIPPED 2026-08-02**
 
 > **Implemented, with one deliberate substitution and one bug the doc's framing would have
 > introduced.** (1) The check is `drv.meta.available`, not `meta.unfree`/`meta.license.free`:
@@ -686,20 +686,20 @@ not a platform fact, so no amount of platform probing will catch it.
 in `packages:` today gets a `check-meta` trace instead of the warn-and-skip the mechanism
 promises. Worth fixing whether or not any host-nix work happens.
 
-> **Review noted:** *"I think I covered this above"* — meaning the §6 answer (don't route agents
+> **Review noted:** *"I think I covered this above"* — meaning the [§6](#6-the-three-unfree-nix-hints-83--and-the-better-question-underneath) answer (don't route agents
 > through nix; they have their own installers). Worth separating the two, because they only look
-> like the same item: §6 is about **which remedy `install_hints` prints**, and is fully resolved
+> like the same item: [§6](#6-the-three-unfree-nix-hints-83--and-the-better-question-underneath) is about **which remedy `install_hints` prints**, and is fully resolved
 > by preferring the upstream installer. **This one is about `packages:`** — the config key where
 > a user names extra nix packages to bake — and it fires for **any** unfree package, not just an
 > agent CLI. `packages: ["vscode"]` or `["terraform"]` aborts the same way with the same raw
 > trace, and no change to `install_hints` touches that path.
 >
-> So §6's answer removes the *motivating example* but not the defect. Still worth the one-line
+> So [§6](#6-the-three-unfree-nix-hints-83--and-the-better-question-underneath)'s answer removes the *motivating example* but not the defect. Still worth the one-line
 > fix — and it is the cheapest item in this doc.
 
 ---
 
-## 8. `rmwProvenance` as a second "which layer won" (§8 caveat)
+## 8. `rmwProvenance` as a second "which layer won" ([§8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not) caveat)
 
 Host provenance derives the winner by **replaying write order**; `Compose` derives it by
 **folding layers**. Two implementations of one concept.
@@ -922,7 +922,7 @@ Reported by a subagent as "host pack-drop cleanup is briefing-only". Reproduced 
   reclassifies yolo's key as the user's — and once a key reads `host`, every mechanism that asks
   "did yolo write this?" answers no, forever.
 
-**Why it is not a duplicate of the manifest/archive work** (`pack-host-management-plan.md`
+**Why it is not a duplicate of the manifest/archive work** ([`pack-host-management-plan.md`](pack-host-management-plan.md)
 Phase 6). That shipped per-pack *stale-entry* retirement: `EntriesFor(pack, dir)` = "what I
 wrote last time minus what this pack ships now". It is keyed on the pack being ITERATED, and the
 apply loop is `for _, p := range loaded`. It solves *the pack changed*; it cannot see *the pack

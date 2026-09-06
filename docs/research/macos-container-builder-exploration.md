@@ -50,17 +50,17 @@ nix, not by the base distro.** No base choice gets under that.
 > image, yes (it's just nix+sshd, not chromium+node+agents); alpine-small, no —
 > nix's closure is the floor regardless of base.
 
-## 2. Image options (all must satisfy §1)
+## 2. Image options (all must satisfy [§1](#1-the-one-hard-constraint-that-answers-alpine-a-nix-builder-must-contain-nix))
 
 | Option | What it is | Pro | Con |
 |---|---|---|---|
 | **Stock `nixos/nix`** | official minimal nix image (nix+bash+coreutils) | zero maintenance | **no sshd** — we'd add openssh + key + ForceCommand at runtime every launch (fragile); unpinned unless we digest-pin; external dep |
 | **`LnL7/nix:ssh`** | the canonical "nix as remote builder" image (nix+sshd, ships an *insecure* demo key) | purpose-built for exactly this; well-trodden | third-party, ships a demo key we'd have to replace, unpinned, another external dep |
-| **Our own, built with `dockerTools` + published to GHCR** (your pick) | small nix+openssh image from *our* flake: sshd baked, ForceCommand set to `nix-daemon --stdio`, builder key authorized | pinned to our flake.lock (predictable, matches yolo's identity); we control the key + sshd config; distroless-minimal; **built on Linux CI so no Mac ever builds it** | we build+publish+version it (but see §3 — we already do this for the jail image) |
+| **Our own, built with `dockerTools` + published to GHCR** (your pick) | small nix+openssh image from *our* flake: sshd baked, ForceCommand set to `nix-daemon --stdio`, builder key authorized | pinned to our flake.lock (predictable, matches yolo's identity); we control the key + sshd config; distroless-minimal; **built on Linux CI so no Mac ever builds it** | we build+publish+version it (but see [§3](#3-the-chicken-and-egg--and-why-ci-dissolves-it) — we already do this for the jail image) |
 
 **Your instinct is right that our own gives the most control** — and the con
 (maintenance) is smaller than it looks because we already run this exact
-pipeline (§3).
+pipeline ([§3](#3-the-chicken-and-egg--and-why-ci-dissolves-it)).
 
 ## 3. The chicken-and-egg — and why CI dissolves it
 
@@ -134,7 +134,7 @@ podman→container-builder, AC→container-builder *if it works*, else QEMU.
 2. **Wire it via the existing ssh remote-builder setup** — reuse `builder.py`'s
    nix.conf/ssh/trusted-users machinery; only the "start the far end" step
    changes from "boot QEMU" to "run the builder container + publish its port."
-3. **Prototype on a Mac to settle the AC question** (§5) before committing AC to
+3. **Prototype on a Mac to settle the AC question** ([§5](#5-the-real-risk-to-prototype-does-apple-container-host-this-cleanly)) before committing AC to
    it — podman first (low-risk), then AC. This is Mac-only and the gating unknown.
 4. ~~**Keep QEMU `darwin.linux-builder` as the documented fallback** for AC-if-it-
    won't-host and for anyone not on a container runtime.~~ **SUPERSEDED
@@ -158,7 +158,7 @@ podman→container-builder, AC→container-builder *if it works*, else QEMU.
 
 ---
 
-### Appendix — facts behind §1 (why nix is mandatory in the image)
+### Appendix — facts behind [§1](#1-the-one-hard-constraint-that-answers-alpine-a-nix-builder-must-contain-nix) (why nix is mandatory in the image)
 - ssh-ng remote build = host daemon runs **`nix-daemon --stdio`** on the builder
   over ssh (NixOS Discourse "restrict builder access through ssh" shows the exact
   ForceCommand: `nix-daemon --stdio` for ssh-ng, `nix-store --serve` for ssh).

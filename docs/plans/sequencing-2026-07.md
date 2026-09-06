@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > **This is a historical snapshot, not the forward plan.** It was renamed out of `ROADMAP.md` on
 > 2026-08-17 when [`roadmap.md`](roadmap.md) took that role — partly because two roadmap-shaped docs
-> in one directory is one too many, and partly because `ROADMAP.md` and `roadmap.md` are the **same
+> in one directory is one too many, and partly because `ROADMAP.md` and [`roadmap.md`](roadmap.md) are the **same
 > path** on macOS, which this repo supports.
 >
 > It had already handed off its forward-looking half: see the ✅ 7 row below, which says so in its own
@@ -96,10 +96,10 @@ improvements, not repairs, **except** the two defects at the end.
 
 | Sub-item | Why it is deferred | Notes |
 |---|---|---|
-| **Comment preservation on a `json`/`toml` surface** | needs a decision, not just code | Reasoning + ranked options are parked in host-file-staging.md; the three sub-questions (staleness, attachment, in-jail additions) are already answered there, so this starts from decisions. Cheapest useful step is a yolo-authored header pointing at the `:ro` original — no comment parsing at all. `raw` is already lossless today. |
+| **Comment preservation on a `json`/`toml` surface** | needs a decision, not just code | Reasoning + ranked options are parked in [host-file-staging.md](host-file-staging.md); the three sub-questions (staleness, attachment, in-jail additions) are already answered there, so this starts from decisions. Cheapest useful step is a yolo-authored header pointing at the `:ro` original — no comment parsing at all. `raw` is already lossless today. |
 | **Collapse the four `host_files` modes to three** | behavior change on a shipped key | [composed-file-permissions.md §7.4](../design/composed-file-permissions.md): `copy` merges into `readonly`, and `readonly` becomes a real `:ro` mount instead of `0o444` — which is *asymmetric* (root ignores it; a non-root agent gets EACCES and the surface silently stops re-rendering). |
 | **Capture timing — an observability lag, not data loss** | small; do the cheap half | Capture is deferred to the next entrypoint run (50× over 3 days here, so usually short). **Nothing is lost:** every surface is under a host-backed rw bind and the baseline is in the workspace, so the edit and its baseline both survive `--rm` and the next boot captures normally ([composed-file-permissions.md §5.3](../design/composed-file-permissions.md)). What lags is *observability* — a host-side `yolo config diff` in that window under-reports. Fix: a `yolo config capture` subcommand (explicit checkpoint, and it names the mechanism), then capture in the existing `onTerminate` hook. An inotify watcher is **not** justified — it would solve staleness, not loss, at the price of debounce + a sidecar race. |
-| **Steer directed agents at composed surfaces** | docs-only, and the biggest legibility gap | [composed-file-permissions.md §8](../design/composed-file-permissions.md) splits jail writes into *program operation* (unsteerable — capture is exactly right) and *human-directed agent* (steerable — capture is a consolation prize for an edit that belonged in config). Zero of the four built-in skills mention the prism, a composed surface, or `yolo config ls`; the briefing names `yolo-jail.jsonc` once, scoped to `packages`/`resources`. Fix: extend `configuring-the-jail`, give pi/codex/opencode a skills dir, add a generated-by-yolo header where the codec allows. §8.4 has the ordered list. |
+| **Steer directed agents at composed surfaces** | docs-only, and the biggest legibility gap | [composed-file-permissions.md §8](../design/composed-file-permissions.md) splits jail writes into *program operation* (unsteerable — capture is exactly right) and *human-directed agent* (steerable — capture is a consolation prize for an edit that belonged in config). Zero of the four built-in skills mention the prism, a composed surface, or `yolo config ls`; the briefing names `yolo-jail.jsonc` once, scoped to `packages`/`resources`. Fix: extend `configuring-the-jail`, give pi/codex/opencode a skills dir, add a generated-by-yolo header where the codec allows. [§8.4](../design/composed-file-permissions.md#84-what-to-do-about-it) has the ordered list. |
 | **Rename the recovered state** | mechanical, wants one pass | Four terms for one concept; "captured edits" is the proposed user-facing umbrella. NOT "managed" — that already means keys *yolo* wins. |
 | **`managed`/`defaults` array-append pinning** | no user surface has needed it | Object merge only today; shape-checked at config time so it fails loudly, not silently. |
 | **⚠ `copilot/config` can lose an OAuth token** | **a real defect, now with a specified fix** | Renders statefully with `Defaults: {"yolo": true}` and no host layer, so an absent/corrupt sidecar reduces a token-bearing file to one key. Steady state recovers, which is why it went unnoticed. Fix is two steps ([composed-file-permissions.md §5.2](../design/composed-file-permissions.md)): **adopt-on-first-migration** — seed the overlay from `mergeDiff(pureRender, current)` instead of empty, one branch in `staterender.go`, fixes *every* surface at once and proved by probe — then **de-compose** the credential surfaces onto the `writeClaudeJSON` read-modify-write pattern so tokens leave the capture path entirely. |
@@ -147,8 +147,8 @@ are partly wrong. Consolidate into one design doc (proposed
   cleaned, not persisted, and invisible to every log yolo can see**, so *one* lost
   race permanently disables refresh for that process's lifetime — the user sees
   `/login` and the broker log explains nothing
-  ([claude-oauth-refresh-mechanics.md](../research/claude-oauth-refresh-mechanics.md) §2, §3.4).
-- **The three failure paths that look identical** (§4 of the same doc): **A** Claude
+  ([claude-oauth-refresh-mechanics.md §2](../research/claude-oauth-refresh-mechanics.md#2-mental-model--claudes-three-token-surfaces), [§3.4](../research/claude-oauth-refresh-mechanics.md#34-wy--v86--the-http-refresh-path)).
+- **The three failure paths that look identical** ([§4](../research/claude-oauth-refresh-mechanics.md#4-the-three-paths-that-look-identical-from-outside) of the same doc): **A** Claude
   is idle and has *no proactive refresh at all* for Pro/Max tokens; **B** a transient
   broker error (Cloudflare 1010 read as `invalid_grant`, a socket desync) poisons
   `T86` forever; **C** the cross-jail single-use rotation race. One fix collapses all
@@ -233,9 +233,9 @@ session and every workspace**, no container, no bind mounts. Consequences:
   `EndpointGrantCommands` grants read on the file plus traverse on the directory
   instead. Peer credentials no longer enter into it.
 - **Bedrock creds do not reach a macos-user jail.** The worked example in
-  agent-credentials.md §3 rides the `/ctx/host-claude` mount, which does not exist
-  there, so the surface fails open to defaults. The doc notes the fail-open in its §5
-  table but never connects it to §3.
+  agent-credentials.md [§3](../design/agent-credentials.md#3-worked-example--aws-bedrock-a-jail-local-credential-done-right) rides the `/ctx/host-claude` mount, which does not exist
+  there, so the surface fails open to defaults. The doc notes the fail-open in its [§5](../design/agent-credentials.md#5-per-backend--per-os-differences)
+  table but never connects it to [§3](../design/agent-credentials.md#3-worked-example--aws-bedrock-a-jail-local-credential-done-right).
 - **env_sources secrets are on the process argv** (`env -i K=V…`), i.e. visible in
   `ps` to every user on the Mac — and they reach the *launch* argv but not the
   *bootstrap* argv, so MCP `${VAR}` interpolation and `requires_env` gating silently
@@ -270,7 +270,7 @@ session and every workspace**, no container, no bind mounts. Consequences:
   (confused or prompt-injected) and never about a malicious npm/MCP dependency reading
   `~/.config/yolo-user-env.sh`. Naming this would settle several of the above.
 - **Are the reverse-engineered mechanics still true?** Pinned to Claude 2.1.143/2.1.201;
-  today is later. §7 supplies a re-verification recipe that has not been re-run.
+  today is later. [§7](../research/claude-oauth-refresh-mechanics.md#7-reproducing-this-yourself) supplies a re-verification recipe that has not been re-run.
 
 #### 4f. Testability
 
@@ -321,7 +321,7 @@ consumer* to motivate it: its one named beneficiary — deleting the hand-copied
 `builtinSurfacePaths` table and its drift test — is achieved by a strictly smaller
 in-repo `builtin.go` package split, since `manifest`+`codec` carry no gopher-lua
 edge. "Manage host configs too" is a distinct posture change. Both recorded as an
-open question in the proposal (§9).
+open question in the proposal ([§9](agent-config-packs.md#9-scope-in-yolo-jail-with-two-extractable-packages)).
 
 **One qualifier added 2026-07-26.** Re-measuring confirms the retraction above
 (`go list -deps` gives 6 first-party packages, one third-party), but the *engine*
@@ -488,7 +488,7 @@ Marked here so the "start here" arrow points at the real next item.
   exit, after the un-gated macos-user branch); paired with `just install` now
   staging the prebuilt bundle so from-source installs resolve checkout-less
   (see D3). Regression: `internal/cli/run/reporoot_fatal_test.go`;
-  `docs/research/repo-root-and-distribution.md` §6.
+  `docs/research/repo-root-and-distribution.md` [§6](../research/repo-root-and-distribution.md#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29).
   *(The intermediate `repoBound`-gated `/opt/yolo-jail:ro` bind + `YOLO_REPO_ROOT`
   env described in the original commit were later removed entirely by the
   prebuilt-bundle cutover — 2026-07-23: `/opt/yolo-jail` is now a baked install
@@ -546,7 +546,7 @@ Marked here so the "start here" arrow points at the real next item.
   declined. `Status: DONE`.
 - ✅ **Track M M0/M1/M2 — PROVEN on real Apple Silicon** (2026-07-21) —
   macos-user runs the agent under Seatbelt with native aarch64-darwin `packages:`
-  (9933e7b/8763fd5/43bd846); OQ-1 (path_helper) and finding-6 (password apply)
+  (9933e7b/8763fd5/43bd846); [OQ-1](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) (path_helper) and finding-6 (password apply)
   observed and passing. See `docs/research/macos-support-matrix.md`.
 - ✅ **mise migration fix** (2026-07-20) — stale unpinned baked-runtime lines
   stripped on upgrade, workspace/injected pins preserved (nested-jail verified).
@@ -576,7 +576,7 @@ longer a critical-path chain:
    surfaces (mise, standalone MCP/LSP, git identity) onto the prism and then
    deleting their bespoke generators. This is where the real design
    nuance lives — see the [config-composition build](#config-composition-build-own-self-contained-thread)
-   section and `agent-settings-composition.md`.
+   section and [`agent-settings-composition.md`](agent-settings-composition.md).
 
 2. ~~**cache-relocation**~~ — **DONE 2026-07-21; host acceptance discharged
    2026-07-22.** Work items 1–10 landed (user-scope-only `cache_relocations`,
@@ -604,7 +604,7 @@ longer a critical-path chain:
    `internal/entrypoint` (which the landed CI fix left green). D2 (graceful
    repo-root degradation) pairs naturally with J2 step 3 — both touch the run front door
    and the `RepoSrc` contract; land them together. J2's Mac-side behavior
-   (password apply, path_helper OQ-1, fresh-inode re-exec) is verified in **M1**,
+   (password apply, path_helper [OQ-1](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown), fresh-inode re-exec) is verified in **M1**,
    not the jail.
 
 4. **J3 — container-builder rewiring.** After J2 (macos-user needs no builder at
@@ -749,7 +749,7 @@ are Track M **verification gates**, not user-facing reference (the maintainer's
 
 - [runbooks/mac-macos-user-e2e.md](runbooks/mac-macos-user-e2e.md) — Track M
   gate. The you-drive/agent-advise macos-user acceptance-bar test
-  (§5 `which jq` → `/nix/store/…`). **M1 PASSED on real HW (2026-07-21)** —
+  ([§5](runbooks/mac-macos-user-e2e.md#5-the-acceptance-bar--packages-materialized-natively) `which jq` → `/nix/store/…`). **M1 PASSED on real HW (2026-07-21)** —
   kept as the repeatable procedure.
 - [runbooks/mac-ac-container-builder.md](runbooks/mac-ac-container-builder.md) —
   a **PASSED** gate (real HW, 2026-07-17) kept as the repeatable zero-sudo

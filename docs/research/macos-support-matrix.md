@@ -90,8 +90,8 @@ nightly.
 |---|---|---|---|
 | **podman** | container in one shared podman-machine VM | ✅ [L/CI] | first-class; the reference macOS container path |
 | **Apple Container (AC)** | one lightweight VM per container | 🟡 [M] | default macOS runtime; early-stage — hit limits this session (bind-mount cap, `:ro` ignored, no `--net=host`, OCI convert) |
-| **macos-user** | native macOS user + Seatbelt, NO VM | ✅ [M] *(2026-07-21 build)* + ⚠ | **PROVEN on real HW 2026-07-21** (macOS 26.5 arm64): Seatbelt launch runs the agent as `_yolojail`, `packages:` via native darwin nix (buildEnv) with `which just` → `/nix/store/…` (OQ-1 path_helper fix holds), finding-6 password set, fresh-inode re-exec (no SIGKILL), host creds invisible, teardown idempotent. **Runbook → docs/plans/runbooks/mac-macos-user-e2e.md; results → mac-sandvault-session.md §6b.** **⚠ The backend has changed underneath that proof (see the row below).** |
-| ↳ *macos-user, since 2026-07-21* | — | ⚠ [M] | **What moved, and what it means for the ✅ above.** (a) **Pack staging was wired 2026-08-12** and has never run on a Mac — before that, this backend rendered ZERO pack surfaces silently, so the 07-21 proof was of a backend that configured nothing from packs. (b) **The confinement half was re-measured 2026-08-19** by running the work under the profile a real `--dry-run` emits: `go build ./...`, full `go test -short ./...` (58 pkgs) and `just test-fast` pass; SSH keys/`~/.claude`/`~/.aws`/keychains all `Operation not permitted`. (c) **The `sudo -u _yolojail` launch itself is still unproven end-to-end** — that is the open half. (d) **`workspace_readonly` was a silent no-op here until 2026-08-23** (see §3). 📄 [../plans/handoff-guest-notch-macos.md](../plans/handoff-guest-notch-macos.md) §2 |
+| **macos-user** | native macOS user + Seatbelt, NO VM | ✅ [M] *(2026-07-21 build)* + ⚠ | **PROVEN on real HW 2026-07-21** (macOS 26.5 arm64): Seatbelt launch runs the agent as `_yolojail`, `packages:` via native darwin nix (buildEnv) with `which just` → `/nix/store/…` ([OQ-1](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper fix holds), finding-6 password set, fresh-inode re-exec (no SIGKILL), host creds invisible, teardown idempotent. **Runbook → docs/plans/runbooks/mac-macos-user-e2e.md; results → mac-sandvault-session.md §[6b](../plans/runbooks/mac-sandvault-session.md#6b-m1-results--macos-user-e2e-observed-on-hardware-2026-07-21).** **⚠ The backend has changed underneath that proof (see the row below).** |
+| ↳ *macos-user, since 2026-07-21* | — | ⚠ [M] | **What moved, and what it means for the ✅ above.** (a) **Pack staging was wired 2026-08-12** and has never run on a Mac — before that, this backend rendered ZERO pack surfaces silently, so the 07-21 proof was of a backend that configured nothing from packs. (b) **The confinement half was re-measured 2026-08-19** by running the work under the profile a real `--dry-run` emits: `go build ./...`, full `go test -short ./...` (58 pkgs) and `just test-fast` pass; SSH keys/`~/.claude`/`~/.aws`/keychains all `Operation not permitted`. (c) **The `sudo -u _yolojail` launch itself is still unproven end-to-end** — that is the open half. (d) **`workspace_readonly` was a silent no-op here until 2026-08-23** (see [§3](#3-feature--runtime-coverage-does-each-yolo-capability-work-per-runtime)). 📄 [../plans/handoff-guest-notch-macos.md §2](../plans/handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) |
 
 ## 2. Builder (how the Linux image / packages get built) — CONTAINER RUNTIMES ONLY
 
@@ -103,7 +103,7 @@ question exists only for podman/AC.
 | **Cachix / prebuilt download** | any | 🟡 | THE happy path. **"Account deferred" is stale (checked 2026-08-23):** the substituter + public key are live (`flake.nix:13-16`, `730c258`), the `yolo-jail` cache and the `CACHIX_AUTH_TOKEN` secret both exist, and yolo passes `--accept-flake-config` on every nix invocation so the flake's own cache is actually consulted (`internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91`). Remaining: the **Mac download proof**, and that is now all — **the push is confirmed** (2026-09-02, from the Actions log: run `31749547095`, `v0.8.0`, both arches pushed, and the same run substituted the four this-repo-source paths back from `yolo-jail.cachix.org`). Two caveats: the push is tag-triggered so the cache holds `v0.8.0` only, and the claim above about `--accept-flake-config` was true of yolo's Go invocations but **false of CI's six `nix build` calls** until 2026-09-02, so off-release CI runs were rebuilding the closure from source. No build → no builder needed. |
 | **Container builder** (nix+sshd container on the runtime) | **podman** | ✅ [L] | **proven end-to-end in-jail**: image built, `ssh-ng` build ran inside container, result read back. `packages.builderImage` in flake. |
 | **Container builder** | **Apple Container** | ✅ [M] | **PROVEN on real HW 2026-07-17** (macOS 26.5 arm64, AC 0.12.3, nix 2.34.7): AC pulled the GHCR image, ran it with internal-network IP `192.168.64.2:22`, host nix `store info` → `Trusted: 1`, proof build returned `AC-CONTAINER-BUILDER-WORKS`. No `-p` needed — AC's per-container VM IP is directly reachable. **Runbook → docs/plans/runbooks/mac-ac-container-builder.md.** |
-| **Container builder → CLI wiring** | podman + AC | ✅ [L] *(2026-08-23)* | **The "Go-port gap" in §5 item 3 is CLOSED.** `internal/containerbuilder` was resurrected (`8abb67ce`) and wired into the image path (`c2f0b941`), both 2026-07-21: `internal/image/autoload.go:13` imports it and `:219` calls it through the `BuildOffload` seam, which is a nil-returning stub on Linux and in tests (`autoload.go:105-106`). |
+| **Container builder → CLI wiring** | podman + AC | ✅ [L] *(2026-08-23)* | **The "Go-port gap" in [§5](#5-roadmap-ordered) item 3 is CLOSED.** `internal/containerbuilder` was resurrected (`8abb67ce`) and wired into the image path (`c2f0b941`), both 2026-07-21: `internal/image/autoload.go:13` imports it and `:219` calls it through the `BuildOffload` seam, which is a nil-returning stub on Linux and in tests (`autoload.go:105-106`). |
 | **QEMU `darwin.linux-builder`** | any container rt | ❌ removed | **DROPPED — Open Decision #3 RESOLVED 2026-07-23** (see [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md)). The container builder is the sole shipped builder on both runtimes. The AC-can't-host-sshd unknown that justified keeping QEMU as a fallback is discharged (AC hosting PROVEN 2026-07-17, row above). `internal/builder` + the `yolo builder` commands are being deleted, not reworked. **Done — verified 2026-08-23: `internal/builder` does not exist**, and `yolo check`'s Image Build section plus `nixdiag.LinuxBuilderRemedy` are rewired onto the container builder. |
 | nix-darwin `linux-builder` | any | ⬜ | user-side; only if they already run nix-darwin. Documented, not ours to install. |
 
@@ -114,7 +114,7 @@ are from the 2026-07 era and were not re-measured.
 
 | Capability | podman | Apple Container | macos-user |
 |---|---|---|---|
-| Run agent in jail | ✅ [L] | 🟡 [M] | ✅ [M] *(07-21 build; see §1 ↳ row)* |
+| Run agent in jail | ✅ [L] | 🟡 [M] | ✅ [M] *(07-21 build; see [§1](#1-the-three-macos-runtimes-where-the-agent-runs) ↳ row)* |
 | `packages:` (nix) | ✅ via image | 🟡 via image | ✅ native nix buildEnv [M] — attr is now `yoloNoncontainerPackages`, system from `NativeSystem()`, **not** hardcoded `aarch64-darwin` (2026-08-23) |
 | Build when uncached | ✅ container builder [L] | ✅ container builder [M] | ⬜ (native, no build offload) |
 | **Bind mounts at all** | ✅ | ✅ (with the `:ro` caveat below) | ❌ **none — structural** (2026-08-23). `internal/macosuser/runplan.go:186`, `seatbelt.go:25`. Every row below that depends on a mount inherits this. |
@@ -168,9 +168,9 @@ are from the 2026-07 era and were not re-measured.
 > Does the native no-VM backend run an agent as `_yolojail` under Seatbelt with
 > `packages:` materialized via native aarch64-darwin nix? **YES.** All four J2
 > behaviors (fresh-inode re-exec, Go bootstrap self-exec, finding-6 password,
-> OQ-1 path_helper acceptance bar — `which just` → `/nix/store/…`), plus
+> [OQ-1](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper acceptance bar — `which just` → `/nix/store/…`), plus
 > creds-invisible and teardown idempotence, observed on real HW (macOS 26.5
-> arm64). Results in mac-sandvault-session.md §6b.
+> arm64). Results in mac-sandvault-session.md §[6b](../plans/runbooks/mac-sandvault-session.md#6b-m1-results--macos-user-e2e-observed-on-hardware-2026-07-21).
 
 **Other Mac-only gates (rewritten 2026-08-23).** The single sentence this
 replaces named only the AC "run agent in jail" row. The actual list, in the
@@ -185,7 +185,7 @@ order a Mac session should attack it:
 2. **The `sudo -u _yolojail` pack-staging step** — the surviving half of item
    1.4. The Seatbelt confinement around it was measured 2026-08-19 and passes;
    the user-switch above it never has.
-3. **D4's one download proof** (§2 Cachix row).
+3. **D4's one download proof** ([§2](#2-builder-how-the-linux-image--packages-get-built--container-runtimes-only) Cachix row).
 4. **The AC "run agent in jail" row** — the original entry, still open.
 5. **A2's hard error on a genuinely darwin-less package** — never exercised,
    because the only packages the Mac session used (`jq`, `just`) *do* build on
@@ -196,10 +196,10 @@ is the single collected list, with the open questions attached.
 
 ## 5. Roadmap (ordered)
 
-1. ✅ **[M] Prove the AC container builder** — DONE 2026-07-17 (real HW, see §4
+1. ✅ **[M] Prove the AC container builder** — DONE 2026-07-17 (real HW, see [§4](#4-whats-proven-vs-whats-the-next-gate)
    and the runbook). AC joins podman as a proven container-builder path.
-2. ✅ **[M] macos-user end-to-end** — DONE 2026-07-21 (real HW, see §4 and
-   mac-sandvault-session.md §6b). The **path_helper login-shell PATH fix**
+2. ✅ **[M] macos-user end-to-end** — DONE 2026-07-21 (real HW, see [§4](#4-whats-proven-vs-whats-the-next-gate) and
+   mac-sandvault-session.md §[6b](../plans/runbooks/mac-sandvault-session.md#6b-m1-results--macos-user-e2e-observed-on-hardware-2026-07-21)). The **path_helper login-shell PATH fix**
    (`.zprofile`/`.zshrc`/`.bash_profile` re-prepend the sandbox PATH after macOS
    path_helper) holds: `which just` → `/nix/store/…/bin/just`, not Homebrew's
    `/usr/local/bin`. Two jail-side fixes landed from the run: `--accept-flake-config`
@@ -242,13 +242,13 @@ is the single collected list, with the open questions attached.
    `internal/darwinpkg/darwinpkg.go:91`). Cache, account and
    `CACHIX_AUTH_TOKEN` all exist. What is left is the Mac **download** proof,
    and only that: the first push was confirmed 2026-09-02 from the Actions log
-   (§2 Cachix row). Removes the builder entirely for cached images.
+   ([§2](#2-builder-how-the-linux-image--packages-get-built--container-runtimes-only) Cachix row). Removes the builder entirely for cached images.
 7. ~~QEMU `darwin.linux-builder` as the documented fallback~~ — REMOVED
    (Open Decision #3, 2026-07-23). No longer a documented fallback; the
    container builder is the sole builder. A user's own nix-darwin
    `linux-builder` remains only as a personal escape hatch (row above).
 8. 💬 **Decide what replaces `macos-26-intel` before nixpkgs 26.05 lapses** —
-   NEW, added 2026-08-23. See §0: 26.05 is the last branch supporting
+   NEW, added 2026-08-23. See [§0](#0-the-platform-deadline--x86_64-darwin-is-on-a-clock): 26.05 is the last branch supporting
    `x86_64-darwin` and is security-fixed only to the end of 2026, while the
    nightly must stay on an Intel runner because GitHub's Apple Silicon runners
    cannot nest a VM for Podman Machine. The choice is a **self-hosted arm64 Mac
@@ -264,5 +264,5 @@ is the single collected list, with the open questions attached.
 - [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) — the "pursue both backends" decision.
 - [macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md) — the current macos-user + distribution roadmap of record.
 - [handoff-cachix-cache.md](../plans/handoff-cachix-cache.md) — the prebuilt-download happy path.
-- **[handoff-guest-notch-macos.md](../plans/handoff-guest-notch-macos.md)** — every Mac-gated item in one place, so one trip to a Mac can close all of it; holds the open questions (`OQ-GN1`–`OQ-GN4`) behind §4's list above.
-- [noncontainer-nix-environment.md](../design/noncontainer-nix-environment.md) — §5.1 is where the `x86_64-darwin` drop was first measured probe-by-probe; §8 Option 1 is the (now shipped) nix-profile work.
+- **[handoff-guest-notch-macos.md](../plans/handoff-guest-notch-macos.md)** — every Mac-gated item in one place, so one trip to a Mac can close all of it; holds the open questions ([`OQ-GN1`](../plans/handoff-guest-notch-macos.md#9-open-questions)–[`OQ-GN4`](../plans/handoff-guest-notch-macos.md#9-open-questions)) behind [§4](#4-whats-proven-vs-whats-the-next-gate)'s list above.
+- [noncontainer-nix-environment.md](../design/noncontainer-nix-environment.md) — [§5.1](../design/noncontainer-nix-environment.md#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail) is where the `x86_64-darwin` drop was first measured probe-by-probe; [§8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) Option 1 is the (now shipped) nix-profile work.
