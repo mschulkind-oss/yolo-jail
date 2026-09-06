@@ -235,6 +235,103 @@ func TestOptInLaunchBuildsTheStockImage(t *testing.T) {
 	}
 }
 
+// TestOptInLaunchBuildsTheLeanImage is C5's half of the same call site, and it fails if
+// the attr selection is deleted.
+//
+// The saving IS the attr: an opt-in launch that still built `.#ociImage` would carry
+// `fullPackages` and the chromium half of the /lib farm in its closure while ALSO linking
+// a store profile that holds them — both copies present, the baked one silently winning
+// (R2), and ~1.6–2 GB of image bought for nothing. An empty attr means the historical
+// default, so every caller that never heard of the lean variant is unaffected.
+func TestOptInLaunchBuildsTheLeanImage(t *testing.T) {
+	cfg := cfgWithPackages(t, `{}`)
+	for _, tc := range []struct {
+		name string
+		plan storePackagesPlan
+		want string
+	}{
+		{"baked (the default)", storePackagesPlan{}, image.ImageAttrDefault},
+		{"opted in", storePackagesPlan{Active: true, Profiles: []string{"/nix/store/aaa"}}, image.ImageAttrLean},
+	} {
+		var seen image.AutoLoadOptions
+		o := &Options{
+			Stdout:      os.Stdout,
+			Stderr:      os.Stderr,
+			Getenv:      func(string) string { return "" },
+			IsTTYStdout: func() bool { return false },
+			Getpid:      os.Getpid,
+			autoLoad: func(opts image.AutoLoadOptions) image.LoadResult {
+				seen = opts
+				return image.LoadResult{OK: true}
+			},
+		}
+		o.autoLoadImage(cfg, "podman", "/repo", tc.plan)
+		if seen.Attr != tc.want {
+			t.Errorf("%s: the image build got attr %q, want %q. The attr IS the saving: "+
+				"an opt-in launch that still built the full image would carry "+
+				"fullPackages in its closure AND link a store profile that holds them.",
+				tc.name, seen.Attr, tc.want)
+		}
+	}
+}
+
+// TestImageExtrasRideBehindTheWorkspacePackages pins C5's profile ORDER, which is what
+// makes the farm's first-wins rule reproduce the precedence a baked image already gives.
+//
+// `packages:` and `fullPackages` both land in a baked image's `contents`, and a workspace
+// that declares its own version of a tool yolo also ships expects to get its own. Put the
+// extras first and that silently inverts — for `fzf`, which is in fullPackages, among
+// others.
+func TestImageExtrasRideBehindTheWorkspacePackages(t *testing.T) {
+	o, _, _ := storeOptions(t, map[string]string{StorePackagesOptInEnv: "1"})
+	o.MaterializeStorePackages = func(string, []any) (string, []string, error) {
+		return "/nix/store/user-profile", nil, nil
+	}
+	o.BuildImageExtras = func(string) (string, error) { return "/nix/store/extras-profile", nil }
+
+	plan, ok := o.planStorePackages(cfgWithPackages(t, `{"packages": ["fzf"]}`),
+		"podman", "/repo", true)
+	if !ok {
+		t.Fatal("planStorePackages refused")
+	}
+	plan, ok = o.addImageExtras(plan, "/repo")
+	if !ok {
+		t.Fatal("addImageExtras refused")
+	}
+	want := []string{"/nix/store/user-profile", "/nix/store/extras-profile"}
+	if !slices.Equal(plan.Profiles, want) {
+		t.Errorf("profiles = %v, want %v — the workspace's own `packages:` must LEAD, "+
+			"because the jail's farm is first-wins and a baked image gives them the "+
+			"same precedence", plan.Profiles, want)
+	}
+
+	// A launch that bakes must not pay for a build whose output it will not use.
+	baked, _, _ := storeOptions(t, nil)
+	baked.BuildImageExtras = func(string) (string, error) {
+		t.Fatal("a launch that did not opt in must not build the extras profile")
+		return "", nil
+	}
+	if got, ok := baked.addImageExtras(storePackagesPlan{}, "/repo"); !ok || len(got.Profiles) != 0 {
+		t.Errorf("baked plan = %+v, ok = %v", got, ok)
+	}
+}
+
+// TestImageExtrasFailureRefusesTheLaunch: the lean image was going to be built WITHOUT
+// these packages, so there is nothing to fall back to that is not silently the other
+// mechanism.
+func TestImageExtrasFailureRefusesTheLaunch(t *testing.T) {
+	o, _, errOut := storeOptions(t, map[string]string{StorePackagesOptInEnv: "1"})
+	o.BuildImageExtras = func(string) (string, error) {
+		return "", errors.New("attribute 'yoloImageExtras' missing")
+	}
+	if _, ok := o.addImageExtras(storePackagesPlan{Active: true}, "/repo"); ok {
+		t.Fatal("a failed extras build must refuse the launch")
+	}
+	if !strings.Contains(errOut.String(), "yoloImageExtras") {
+		t.Errorf("the refusal must carry nix's own reason, got:\n%s", errOut)
+	}
+}
+
 // TestStoreProfilesReachTheContainerArgv is the argv-side call site. Deleting the
 // `in.storePackages.env()` append leaves the farm's generator with nothing to read, so the
 // jail boots with neither the baked packages nor the staged ones.

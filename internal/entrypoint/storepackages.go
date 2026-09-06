@@ -95,14 +95,17 @@ func StoreProfiles(e *Env) []string {
 // every other generator's — which is the polarity this needs: an opt-in launch built an
 // image with the packages left OUT, so a farm that half-materializes yields a jail missing
 // tools the workspace declared, with no other copy to fall back on.
-func GenerateStorePackages(e *Env) error { return generateStorePackagesIn(e, StorePackagesRoot) }
+func GenerateStorePackages(e *Env) error {
+	return generateStorePackagesIn(e, StorePackagesRoot, fontsRoot, imageFontsConf)
+}
 
-// generateStorePackagesIn is the whole of the generator, parameterized on the farm root so
-// a test can exercise it off a t.TempDir(). Production has exactly one root.
+// generateStorePackagesIn is the whole of the generator, parameterized on the three
+// locations it writes to or reads so a test can exercise it off a t.TempDir(). Production
+// has exactly one of each, named by the constants above.
 //
 // The env exports come AFTER the farm and only on success: a jail whose LD_LIBRARY_PATH
 // names a directory that was never built is a worse diagnosis than one whose boot refused.
-func generateStorePackagesIn(e *Env, root string) error {
+func generateStorePackagesIn(e *Env, root, fontsDir, imageConf string) error {
 	profiles := StoreProfiles(e)
 	if err := buildStorePackageFarm(root, profiles); err != nil {
 		return err
@@ -115,7 +118,72 @@ func generateStorePackagesIn(e *Env, root string) error {
 	// image's own libraries.
 	prependPathVar(e, "LD_LIBRARY_PATH", storeLibDir(root))
 	prependPathVar(e, "PKG_CONFIG_PATH", storePkgConfigDir(root))
+	configureStoreFontconfig(e, profiles, fontsDir, imageConf)
 	return nil
+}
+
+const (
+	// fontsRoot is where the boot writes a fontconfig config for store-delivered fonts.
+	fontsRoot = "/run/yolo/fonts"
+	// imageFontsConf is the config the IMAGE bakes (mkBinPathLinks' `withChromium` half
+	// symlinks /etc/fonts at fontconfig's store path). Its presence is the whole test for
+	// "this launch still has its own fonts", so a baked jail is untouched.
+	imageFontsConf = "/etc/fonts/fonts.conf"
+)
+
+// configureStoreFontconfig is C5's font half, and it exists because moving `fullPackages`
+// out of the image takes THREE pieces of baked content with chromium, not one:
+// /usr/bin/chromium, the /etc/fonts symlink into fontconfig's store path, and the font
+// dirs linked into /usr/share/fonts (flake.nix's `withChromium` block). The image bakes
+// FONTCONFIG_FILE=/etc/fonts/fonts.conf and FONTCONFIG_PATH=/etc/fonts, and on a lean
+// image neither exists — so fontconfig falls back to a compiled-in default that names
+// paths this image does not have, and chromium renders with no fonts at all.
+//
+// The root filesystem is --read-only, so /etc/fonts and /usr/share/fonts cannot be
+// recreated. What CAN be done is point fontconfig somewhere writable: a tiny config on the
+// /run tmpfs that includes the profile's own fonts.conf (whose relative `<include>conf.d`
+// then resolves inside the profile, so the upstream rule set comes along) and adds the
+// profile's share/fonts as a font dir.
+//
+// A NO-OP WHENEVER THE IMAGE STILL HAS ITS OWN, which is every baked launch: the check is
+// for /etc/fonts/fonts.conf, so a jail that bakes keeps the baked config and this function
+// never writes anything. Best-effort — fonts are a rendering concern, not a boot
+// invariant, so a failure here warns rather than refusing the launch that GenerateShims'
+// failure would.
+func configureStoreFontconfig(e *Env, profiles []string, fontsDir, imageConf string) {
+	if pathExists(imageConf) {
+		return
+	}
+	var profile string
+	for _, p := range profiles {
+		if pathExists(filepath.Join(p, "etc", "fonts", "fonts.conf")) {
+			profile = p
+			break
+		}
+	}
+	if profile == "" {
+		return
+	}
+	cacheDir := filepath.Join(fontsDir, "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		e.warn("store fontconfig: " + err.Error())
+		return
+	}
+	conf := `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <include ignore_missing="yes">` + filepath.Join(profile, "etc", "fonts", "fonts.conf") + `</include>
+  <dir>` + filepath.Join(profile, "share", "fonts") + `</dir>
+  <cachedir>` + cacheDir + `</cachedir>
+</fontconfig>
+`
+	confPath := filepath.Join(fontsDir, "fonts.conf")
+	if err := os.WriteFile(confPath, []byte(conf), 0o644); err != nil {
+		e.warn("store fontconfig: " + err.Error())
+		return
+	}
+	setEnvBoth(e, "FONTCONFIG_FILE", confPath)
+	setEnvBoth(e, "FONTCONFIG_PATH", fontsDir)
 }
 
 // buildStorePackageFarm is the filesystem half: clear the farm under root, then link every

@@ -29,16 +29,21 @@ package run
 // before the image build, and the jail is told the ANSWER on YOLO_STORE_PROFILES.
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -177,6 +182,119 @@ func (o *Options) planStorePackages(cfg *jsonx.OrderedMap, rt, repoRoot string, 
 	}
 	plan.Profiles = append(plan.Profiles, profile)
 	return plan, true
+}
+
+// addImageExtras is C5: realize `.#yoloImageExtras` — the `fullPackages` set plus the
+// chromium graphics stack the /lib farm used to link — and append it to the plan's
+// profiles, so the launch can build the LEAN image instead.
+//
+// APPENDED, NEVER PREPENDED, and the order is the whole of the collision rule. The jail's
+// farm is first-wins, so the workspace's own `packages:` profile leads and yolo's stock
+// extras fill in behind it. That reproduces the precedence a baked image already has —
+// `packages:` and `fullPackages` both land in the image's `contents`, and a workspace that
+// declares a version of a tool yolo also ships expects its own.
+//
+// It runs AFTER the user profile for the same reason, and only for an active plan: a
+// launch that bakes must not pay for a build whose output it will not use.
+func (o *Options) addImageExtras(plan storePackagesPlan, repoRoot string) (storePackagesPlan, bool) {
+	if !plan.Active {
+		return plan, true
+	}
+	o.pr(o.Stdout).print("[dim]Realizing the image's bulk extras from the nix store " +
+		"(the image will be the lean variant)…[/dim]")
+	profile, err := o.buildImageExtras()(repoRoot)
+	if err != nil {
+		o.pr(o.Stderr).printf("[bold red]Could not realize the image's bulk extras from "+
+			"the nix store:[/bold red] %s\n"+
+			"[dim]Unset %s to build the full image instead.[/dim]",
+			err.Error(), StorePackagesOptInEnv)
+		return storePackagesPlan{}, false
+	}
+	plan.Profiles = append(plan.Profiles, profile)
+	return plan, true
+}
+
+// buildImageExtras returns the seam or the real `nix build .#yoloImageExtras`.
+func (o *Options) buildImageExtras() func(string) (string, error) {
+	if o.BuildImageExtras != nil {
+		return o.BuildImageExtras
+	}
+	inJail := o.inJail()
+	return func(repoRoot string) (string, error) {
+		return realBuildImageExtras(repoRoot, inJail, o.Stdout)
+	}
+}
+
+// realBuildImageExtras realizes `.#yoloImageExtras` and roots it.
+//
+// TWO-STEP ROOTING, not an `--out-link`, and the difference from the user profile is that
+// the store path is not knowable before the build: the extras profile is keyed by the
+// FLAKE, so its content-addressed root name only exists once nix has printed the path.
+// This is `image.RegisterImageRoot`'s pattern, with its window, for the same reason — and
+// it files under paths.PackageRootsDir rather than build/roots because
+// `prune.PruneOrphanImageRoots` sweeps the latter for anything no loaded IMAGE needs, which
+// this is not (paths.go says so in as many words).
+func realBuildImageExtras(repoRoot string, inJail bool, out io.Writer) (string, error) {
+	if out == nil {
+		out = io.Discard
+	}
+	argv := []string{"nix"}
+	argv = append(argv, image.NixFlakeFlags()...)
+	// --impure is carried for consistency with every other flake-evaluating call here,
+	// not because this attr needs it: `yoloImageExtras` forces no `builtins.getEnv`, and
+	// that purity is the point of C5 — the extras derivation must not vary with the
+	// environment or it multiplies the way §1.5 measured the image multiplying.
+	argv = append(argv, "build", "--impure", "--no-link", "--print-out-paths",
+		"--print-build-logs", ".#yoloImageExtras")
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = repoRoot
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", errors.New(msg)
+	}
+	var profile string
+	for _, ln := range strings.Split(stdout.String(), "\n") {
+		if s := strings.TrimSpace(ln); s != "" {
+			profile = s
+		}
+	}
+	if profile == "" {
+		return "", errors.New("nix build of .#yoloImageExtras produced no store path")
+	}
+	if !inJail {
+		// In-jail rooting is a lie for the reason rootImageFn documents; on the host it
+		// is what keeps a `nix-collect-garbage` from deleting the toolset of a jail that
+		// is running right now, since the lean image no longer references this closure.
+		rootExtrasProfile(profile, out)
+	}
+	return profile, nil
+}
+
+// rootExtrasProfile creates the durable GC root for the extras closure. Best-effort and
+// warned-about rather than fatal, matching image.RegisterImageRoot: an unrooted-but-running
+// jail is the state that existed before any of this, not a regression to hard-fail on.
+func rootExtrasProfile(storePath string, out io.Writer) {
+	dir := paths.PackageRootsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		fmt.Fprintln(out, "Warning: could not create GC-root dir: "+err.Error())
+		return
+	}
+	sum := sha256.Sum256([]byte(storePath))
+	link := filepath.Join(dir, "extras-"+hex.EncodeToString(sum[:])[:16])
+	cmd := exec.Command("nix-store", "--add-root", link, "--realise", storePath)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintln(out, "Warning: could not register a GC root for the store-delivered "+
+			"image extras (a nix-collect-garbage could reclaim them): "+err.Error())
+		if len(b) > 0 {
+			fmt.Fprintln(out, "  "+string(b))
+		}
+	}
 }
 
 // materializeStorePackages returns the seam or the real implementation.

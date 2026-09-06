@@ -183,6 +183,11 @@ type Options struct {
 	// refuse?) must be able to answer it without nix on the machine. Only ever called on
 	// a launch that has already been found eligible.
 	MaterializeStorePackages func(repoRoot string, packages []any) (string, []string, error)
+	// BuildImageExtras realizes `.#yoloImageExtras` — C5's store-delivered replacement for
+	// the image's `fullPackages` — and returns its store path. nil =>
+	// realBuildImageExtras. A seam for the same reason MaterializeStorePackages is one,
+	// and only ever called on a launch that already took the store-delivery fast path.
+	BuildImageExtras func(repoRoot string) (string, error)
 	// autoLoad is the image build/load itself. Unexported: it is not a CLI-facing seam,
 	// it exists so autoLoadImage's own DECISIONS are assertable without nix and podman —
 	// above all C4's, which is a single assignment (`extra = nil`) that silently reverts

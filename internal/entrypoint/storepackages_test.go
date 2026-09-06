@@ -164,7 +164,7 @@ func TestGenerateStorePackagesExportsTheSearchPaths(t *testing.T) {
 		"LD_LIBRARY_PATH": "/lib:/usr/lib",
 		"PKG_CONFIG_PATH": "/lib/pkgconfig",
 	})
-	if err := generateStorePackagesIn(e, root); err != nil {
+	if err := generateStorePackagesIn(e, root, filepath.Join(root, "fonts"), imageFontsConf); err != nil {
 		t.Fatalf("generateStorePackagesIn: %v", err)
 	}
 	if got, want := e.Vars["LD_LIBRARY_PATH"], storeLibDir(root)+":/lib:/usr/lib"; got != want {
@@ -178,7 +178,7 @@ func TestGenerateStorePackagesExportsTheSearchPaths(t *testing.T) {
 			"/lib/pkgconfig is still live)", got, want)
 	}
 	// Idempotent: an `exec` back into a live container re-runs the whole boot.
-	if err := generateStorePackagesIn(e, root); err != nil {
+	if err := generateStorePackagesIn(e, root, filepath.Join(root, "fonts"), imageFontsConf); err != nil {
 		t.Fatalf("second boot: %v", err)
 	}
 	if got, want := e.Vars["LD_LIBRARY_PATH"], storeLibDir(root)+":/lib:/usr/lib"; got != want {
@@ -192,11 +192,88 @@ func TestGenerateStorePackagesExportsTheSearchPaths(t *testing.T) {
 		StoreProfilesEnv:  "/nix/store/does-not-exist-profile",
 		"LD_LIBRARY_PATH": "/lib:/usr/lib",
 	})
-	if err := generateStorePackagesIn(broken, t.TempDir()); err == nil {
+	if err := generateStorePackagesIn(broken, t.TempDir(), t.TempDir(), imageFontsConf); err == nil {
 		t.Fatal("expected an unresolvable profile to fail the genStep")
 	}
 	if got := broken.Vars["LD_LIBRARY_PATH"]; got != "/lib:/usr/lib" {
 		t.Errorf("LD_LIBRARY_PATH was rewritten by a FAILED farm build: %q", got)
+	}
+}
+
+// TestStoreFontconfigOnlyActsWhenTheImageHasNoFonts is C5's font half, and it is the
+// piece the design named as what chromium "drags" out of the image with it.
+//
+// Moving `fullPackages` out takes THREE pieces of baked content with chromium, not one:
+// the /usr/bin/chromium symlink, the /etc/fonts symlink into fontconfig's store path, and
+// the font dirs linked into /usr/share/fonts. The image bakes
+// FONTCONFIG_FILE=/etc/fonts/fonts.conf, so on a lean image that variable names a file
+// that does not exist and chromium renders with no fonts at all. The root filesystem is
+// --read-only, so the fix is a config on the /run tmpfs pointing at the profile.
+//
+// The first half of the test is the more important one: a BAKED jail must be untouched.
+func TestStoreFontconfigOnlyActsWhenTheImageHasNoFonts(t *testing.T) {
+	base := t.TempDir()
+	profile := filepath.Join(base, "extras")
+	if err := os.MkdirAll(filepath.Join(profile, "etc", "fonts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "etc", "fonts", "fonts.conf"),
+		[]byte("<fontconfig/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	imageConf := filepath.Join(base, "image-fonts.conf")
+	if err := os.WriteFile(imageConf, []byte("<fontconfig/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The image still has its own fonts (a baked launch): change nothing.
+	baked := NewEnv(map[string]string{"JAIL_HOME": "/home/agent"})
+	configureStoreFontconfig(baked, []string{profile}, filepath.Join(base, "unused"), imageConf)
+	if _, set := baked.Vars["FONTCONFIG_FILE"]; set {
+		t.Error("a launch whose image still bakes /etc/fonts must keep the baked config — " +
+			"repointing it would change font rendering for every jail, for nothing")
+	}
+	if _, err := os.Stat(filepath.Join(base, "unused")); err == nil {
+		t.Error("a baked launch wrote a fontconfig dir it will never read")
+	}
+
+	// The lean image: repoint at the profile.
+	fontsDir := filepath.Join(base, "run-fonts")
+	lean := NewEnv(map[string]string{"JAIL_HOME": "/home/agent"})
+	configureStoreFontconfig(lean, []string{profile}, fontsDir, filepath.Join(base, "absent.conf"))
+	conf := filepath.Join(fontsDir, "fonts.conf")
+	if lean.Vars["FONTCONFIG_FILE"] != conf {
+		t.Fatalf("FONTCONFIG_FILE = %q, want %q — without it a lean jail's chromium has "+
+			"no fonts at all", lean.Vars["FONTCONFIG_FILE"], conf)
+	}
+	if lean.Vars["FONTCONFIG_PATH"] != fontsDir {
+		t.Errorf("FONTCONFIG_PATH = %q, want %q", lean.Vars["FONTCONFIG_PATH"], fontsDir)
+	}
+	body, err := os.ReadFile(conf)
+	if err != nil {
+		t.Fatalf("read generated fonts.conf: %v", err)
+	}
+	// The profile's own fonts.conf is INCLUDED rather than replaced, so its relative
+	// `<include>conf.d</include>` resolves inside the profile and the upstream rule set
+	// comes with it; the profile's share/fonts is added because the lean image has no
+	// /usr/share/fonts to link them into.
+	for _, want := range []string{
+		filepath.Join(profile, "etc", "fonts", "fonts.conf"),
+		filepath.Join(profile, "share", "fonts"),
+		filepath.Join(fontsDir, "cache"),
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("generated fonts.conf does not name %q:\n%s", want, body)
+		}
+	}
+
+	// No profile carries fontconfig at all (C4 without C5): write nothing.
+	bare := NewEnv(map[string]string{"JAIL_HOME": "/home/agent"})
+	other := filepath.Join(base, "other-fonts")
+	configureStoreFontconfig(bare, []string{filepath.Join(base, "no-such")}, other,
+		filepath.Join(base, "absent.conf"))
+	if _, set := bare.Vars["FONTCONFIG_FILE"]; set {
+		t.Error("no profile provides fontconfig, so nothing should have been repointed")
 	}
 }
 

@@ -532,6 +532,32 @@
           '';
         });
 
+        # The chromium GRAPHICS STACK: the shared libraries a non-nix chromium
+        # (playwright's downloaded build, and anything else without an RPATH into
+        # the store) needs to find by soname.  Spelled once because there are now
+        # TWO consumers of the same list — mkBinPathLinks' withChromium /lib loop,
+        # which links them when chromium is baked, and `yoloImageExtras`, the
+        # buildEnv a C5 launch delivers from the mounted store when it is not.
+        #
+        # `.out` / `.lib` are explicit where the package's DEFAULT output is
+        # something else: glib and pango declare outputs = ["bin" "out" ...], so
+        # the bare attr resolves to "bin" and carries no lib/ at all, and
+        # fontconfig splits its .so into a separate "lib" output.
+        chromiumLibPackages = [
+          imagePkgs.fontconfig.lib
+          imagePkgs.glib.out
+          imagePkgs.pango.out
+          imagePkgs.cairo
+          imagePkgs.harfbuzz
+          imagePkgs.freetype
+          imagePkgs.fribidi
+          imagePkgs.pixman
+          imagePkgs.libpng
+          imagePkgs.expat
+          imagePkgs.pcre2
+          imagePkgs.libffi
+        ];
+
         # Derivation to provide /usr/bin/env and other standard paths.
         # `withChromium` controls whether chromium shims + font links are
         # created.  `withNestedPodman` controls rootless-podman config files
@@ -646,20 +672,11 @@
           done
         '' + imagePkgs.lib.optionalString withChromium ''
           # Chromium graphics stack — only linked when chromium itself is in
-          # the image.  The minimal variant has neither the binary nor the libs.
+          # the image.  The minimal and LEAN variants have neither the binary
+          # nor the libs; the lean variant gets both from the mounted nix store
+          # instead (C5 — see chromiumLibPackages and yoloImageExtras).
           for dir in $out/lib $out/usr/lib; do
-            for pkg in ${imagePkgs.fontconfig.lib} \
-                       ${imagePkgs.glib.out} \
-                       ${imagePkgs.pango.out} \
-                       ${imagePkgs.cairo} \
-                       ${imagePkgs.harfbuzz} \
-                       ${imagePkgs.freetype} \
-                       ${imagePkgs.fribidi} \
-                       ${imagePkgs.pixman} \
-                       ${imagePkgs.libpng} \
-                       ${imagePkgs.expat} \
-                       ${imagePkgs.pcre2} \
-                       ${imagePkgs.libffi}; do
+            for pkg in ${imagePkgs.lib.concatStringsSep " " (map toString chromiumLibPackages)}; do
               if [ -d "$pkg/lib" ]; then
                 for f in "$pkg"/lib/lib*.so*; do
                   [ -f "$f" ] || [ -L "$f" ] || continue
@@ -752,6 +769,19 @@
           withChromium = false;
           withNestedPodman = false;
         };
+        # C5's farm: no chromium (its binary, its /etc/fonts, its font links and its
+        # graphics-stack .so's all leave the image with fullPackages), but the nested-podman
+        # config files STAY.  Those are what make podman-in-podman work, which is the loop
+        # AGENTS.md makes mandatory for verifying a Go change — the lean variant is about a
+        # smaller package set, not about removing container plumbing, which is exactly the
+        # difference between it and `binPathLinksMinimal`.
+        #
+        # WHY DROPPING THE LINKS IS UNAVOIDABLE, and not merely tidy: nix registers a
+        # derivation's references by scanning its output for store-path strings, and a
+        # symlink's TARGET is scanned.  So a /lib farm that links ${chromium}/… drags
+        # chromium into the image's closure whether or not chromium appears in `contents`.
+        # Moving fullPackages out of `contents` while keeping the farm would save nothing.
+        binPathLinksLean = mkBinPathLinks { withChromium = false; };
 
         # ── Baked install prefix (/opt/yolo-jail) ─────────────────────────
         # ONE derivation lays down the entire in-jail install, mirroring a
@@ -975,17 +1005,23 @@
             (map (p: "${p}")
               (corePackagesFromNixpkgs ++ fullPackages ++ extraPackages)) + "\n");
 
-        mkOciImage = { minimal ? false }:
+        # `withExtras = false` is C5 (docs/design/image-staging-vs-baking.md §4 C5): the
+        # same image with `fullPackages` and the chromium half of the /lib farm left out,
+        # for a launch that delivers them from the mounted nix store instead. Orthogonal to
+        # `minimal`, which is CI's variant and also drops the nested-podman config.
+        mkOciImage = { minimal ? false, withExtras ? true }:
           ociTools.streamLayeredImage {
             name = "yolo-jail";
-            tag = if minimal then "ci-minimal" else "latest";
+            tag = if minimal then "ci-minimal" else if withExtras then "latest" else "lean";
             created = "now";
             maxLayers = 100;
 
             contents =
-              [ (if minimal then binPathLinksMinimal else binPathLinks) ]
+              [ (if minimal then binPathLinksMinimal
+                 else if withExtras then binPathLinks
+                 else binPathLinksLean) ]
               ++ corePackages
-              ++ (if minimal then [] else fullPackages)
+              ++ (if minimal || !withExtras then [] else fullPackages)
               ++ extraPackages;
 
             # Create directories needed by nested podman and general operation
@@ -1043,6 +1079,41 @@
 
         ociImage = mkOciImage { minimal = false; };
         ociImageMinimal = mkOciImage { minimal = true; };
+        ociImageLean = mkOciImage { minimal = false; withExtras = false; };
+
+        # ── C5: the image's own bulk extras, as a store profile ──────────────
+        # The same `fullPackages` the default image bakes, plus the chromium graphics
+        # stack the /lib farm used to link, realized as ONE buildEnv a jail can be handed
+        # by store path (internal/entrypoint/storepackages.go links its bin/, its
+        # lib/lib*.so* and its lib/pkgconfig into /run/yolo/packages).
+        #
+        # PURE — no `builtins.getEnv` anywhere in its evaluation — which is the property
+        # that makes it worth having. The whole of C4/C5 is taking variability OUT of the
+        # image derivation; an extras profile that varied with the environment would
+        # multiply exactly the way §1.5 measured the image multiplying.
+        #
+        # `ignoreCollisions` because this set genuinely collides: binutils and gcc both
+        # ship `ld`, `nm`, `strings`; glibc.bin and coreutils overlap. The image's own
+        # `contents` resolves the same collisions silently, so refusing them here would
+        # make the store path stricter than the thing it replaces.
+        #
+        # `etc` is in extraOutputsToInstall's company by way of buildEnv linking every
+        # top-level dir: fontconfig.out carries etc/fonts, which is what the entrypoint
+        # repoints FONTCONFIG_FILE at when the lean image has no /etc/fonts.
+        # `fontconfig.out` is listed EXPLICITLY, and it is the same trap the /lib farm
+        # documents for glib and pango: fontconfig declares outputs = ["bin" "dev" "lib"
+        # "out"], so the bare attr in `fullPackages` resolves to "bin" and carries no
+        # etc/fonts at all. The image never noticed because mkBinPathLinks names
+        # ${fontconfig.out}/etc/fonts by hand. Measured 2026-09-06: without this line the
+        # profile has etc/{login.defs,pam.d,profile.d,ssh} and no fonts config, so the
+        # boot's fontconfig repoint finds nothing to point at and a lean jail's chromium
+        # renders with one font.
+        yoloImageExtras = imagePkgs.buildEnv {
+          name = "yolo-image-extras";
+          paths = fullPackages ++ chromiumLibPackages ++ [ imagePkgs.fontconfig.out ];
+          extraOutputsToInstall = [ "bin" "lib" "dev" ];
+          ignoreCollisions = true;
+        };
 
         # ── Container-based Linux builder (macOS container-runtime path) ────
         # On the container runtime (podman/Apple Container), when a `packages:`
@@ -1155,6 +1226,12 @@
         packages.default = ociImage;
         packages.ociImage = ociImage;
         packages.ociImageMinimal = ociImageMinimal;
+        # C5's run-path variant: no fullPackages, no chromium half of the /lib farm, but
+        # the nested-podman config kept. Built INSTEAD of ociImage by a launch that opted
+        # into store delivery (image.ImageAttrLean).
+        packages.ociImageLean = ociImageLean;
+        # …and the profile that carries what it left out.
+        packages.yoloImageExtras = yoloImageExtras;
         packages.builderImage = builderImage;
         # go-port Stage 0 walking skeleton: static Linux Go binaries,
         # cross-compiled with no Linux builder. Buildable in-jail today to

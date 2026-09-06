@@ -3,7 +3,7 @@ title: "Baking vs. staging — what the image must contain, and what a launch ca
 date: 2026-09-06
 status: in-review
 tags: [design, image, nix, podman, disk]
-summary: "The measured cost model of the jail image: what forces a rebuild and a reload, what each candidate reduction buys, which of them shipped (C1–C4), and what is still open (C5, the layer-sharing lever, the commit stamp on the bundle's binaries)."
+summary: "The measured cost model of the jail image: what forces a rebuild and a reload, what each candidate reduction buys, which of them shipped (C1–C5), and what is still open (the layer-sharing lever and the commit stamp on the bundle's binaries)."
 vantage:
   status-chip: true
 ---
@@ -11,7 +11,7 @@ vantage:
 # Baking vs. staging — what the image must contain, and what a launch can deliver
 
 **Status:** DECIDED on the five original questions ([OQ-1](#101-decision-ledger)–[OQ-5](#101-decision-ledger), [§10.1](#101-decision-ledger)) and
-**IMPLEMENTED for C1–C4** (`7830f65` 2026-08-15, `be7b8591` 2026-08-25, C4 2026-09-06). **Two new questions are OPEN** as of the
+**IMPLEMENTED for C1–C5** (`7830f65` 2026-08-15, `be7b8591` 2026-08-25, C4 + C5 2026-09-06). **Two new questions are OPEN** as of the
 2026-09-06 re-audit — [OQ-6](#102-open-questions) and [OQ-7](#102-open-questions), [§10.2](#102-open-questions). **C4's go/no-go was the
 maintainer's and the maintainer CALLED IT on 2026-09-06: build it, then C5.** Written 2026-08-15; re-checked against the tree
 2026-08-23, 2026-08-25 (twice) and **2026-09-06**, when the body was compacted and every anchor it still
@@ -46,7 +46,7 @@ functional change ([§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-co
 | **C2** — the image is addressed by content | ✅ `be7b8591`, 2026-08-25 | `JailImageRef` (`internal/image/image.go:126`); the load decision is `image inspect <content ref>` (`autoload.go:447-449`); the ref is threaded to the argv as `assembleInput.imageRef` (`internal/cli/run/assemble.go:44`, read at `:905`). [OQ-3](#101-decision-ledger) |
 | **C3** — stream, write no tar (podman) | ✅ `be7b8591`, 2026-08-25; the Apple Container arm's tar-eviction race closed by `cc53b591`, 2026-09-02 | `ImageLoadStdinCmd` (`image.go:55`) is the decision point; the pipe is `internal/image/streamload.go`, reached at `autoload.go:499-516`. `cache/images` stays unchanged on a podman load — asserted on disk (`internal/image/streamload_test.go:60`) and measured live ([§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5)). [OQ-5](#101-decision-ledger) |
 | **C4** — `packages:` from the mounted store | ✅ built 2026-09-06, **AUTHORIZED by the maintainer** | Opt-in `YOLO_STORE_PACKAGES=1`, podman + Linux + nix daemon only, baked path retained per LAUNCH ([OQ-1](#101-decision-ledger), R2). Host half: `internal/cli/run/storepackages.go` over `darwinpkg.MaterializeAt`. Jail half: the `generate_store_packages` genStep and the `/run/yolo/packages` farm (`internal/entrypoint/storepackages.go`) |
-| **C5** — `fullPackages` from the mounted store | ❌ not built | Ordered after C4 because it reuses C4's mechanism ([§4](#4-candidates-ranked) C5) |
+| **C5** — `fullPackages` from the mounted store | ✅ built 2026-09-06, on C4's mechanism | Same opt-in, one dial: an opt-in launch builds `.#ociImageLean` (`image.ImageAttrLean`) and gets `fullPackages` + the chromium graphics stack from `.#yoloImageExtras`, appended BEHIND the workspace's own `packages:` |
 | **The retention rule (R3)** | ❌ number not settled | C2 armed `yolo prune`'s old-image pass, so a dedup and a fail-safe liveness veto shipped with it (`PruneOldImages`, `internal/prune/probes.go:256`; `ProtectedImageTags`, `internal/prune/imageroots_probe.go:77`; hardened in `4064f720`). The *number* is [`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3), still open; `--keep-images` default 2 is untouched (`internal/prune/prunecmd.go:151`) |
 | **The binary cache** ([§6](#6-the-binary-cache-alternative-argued-fairly)) | ✅ pushed to and read from, settled 2026-09-02 | [`../plans/handoff-cachix-cache.md`](../plans/handoff-cachix-cache.md) — CI's `push-image-cache` pushed both arches and the second variant substituted the four this-repo derivations from `yolo-jail.cachix.org`. Only the Mac-side download proof remains |
 | **The flake is chosen by name, never by cwd** | ✅ `46655873`, 2026-08-31 | `reporoot.Resolve` (`internal/reporoot/reporoot.go:95-118`): `YOLO_REPO_ROOT` → bundle beside the binary → the bundle `just install` staged. Every launch prints `Flake source: … (…)` (`internal/cli/run/probes.go:49`). This changed *what triggers a rebuild* — [§1.1](#11-what-triggers-a-rebuild-and-how-often) |
@@ -704,15 +704,70 @@ while refusing costs the user a working launch over a preference about where byt
    records that nixpkgs' `ld.so` never reads the FHS `ld.so.cache`), so a scrubbed-env consumer loses a user
    library exactly as it did before. The nix-ld fallback dir is untouched, still the baked trio.
 
-### C5 — Move `fullPackages` out of the run-path image. **Rank 5. Shape RULED 2026-08-25 with C4.**
+### C5 — Move `fullPackages` out of the run-path image. **Rank 5. Shape RULED 2026-08-25 with C4; BUILT 2026-09-06.**
 
-Same mechanism as C4, applied to `flake.nix:909-937`; the run path then builds the minimal variant, ~1.6–2 GB
-smaller (`Justfile:198-199`, documented not measured), on every rebuild. **What breaks:** the "cannot shadow
-the image" invariant in [§3.1](#31-the-boot-written-anchors) inverts for every name that moves out of `/bin` (`fzf` vs a pack's
-`program fzf`), and chromium drags the `withChromium` half of `mkBinPathLinks` (`flake.nix:565-569`) —
-font links and `/etc/fonts`, baked content. **Verdict:** best size-per-risk *after* C4 exists, because it
-reuses the mechanism; building it first builds that mechanism for the lower-value case. [OQ-1](#101-decision-ledger)'s opt-in
-shape contains the inversion to launches that opt in.
+Same mechanism as C4, applied to `fullPackages`; an opt-in run path then builds a variant without it —
+**1.91 GiB smaller, measured below** (the pre-build estimate was "~1.6–2 GB", from `Justfile`'s
+`build-image-minimal` comment) — on every rebuild.
+**What breaks:** the "cannot shadow the image" invariant in [§3.1](#31-the-boot-written-anchors) inverts for
+every name that moves out of `/bin` (`fzf` vs a pack's `program fzf`), and chromium drags the `withChromium`
+half of `mkBinPathLinks` — font links and `/etc/fonts`, baked content. **Verdict:** best size-per-risk
+*after* C4 exists, because it reuses the mechanism; building it first builds that mechanism for the
+lower-value case. [OQ-1](#101-decision-ledger)'s opt-in shape contains the inversion to launches that opt in.
+
+**As built, 2026-09-06 — one dial, not two.** C5 rides C4's `YOLO_STORE_PACKAGES=1` rather than adding a
+second switch, and that is a property rather than a convenience: R2's "exactly one mechanism is live in any
+jail" stays a fact about a launch instead of a combination to reason about, and C5's entire content is
+"another profile in the same farm, another attr for the same build".
+
+**MEASURED 2026-09-06**, `nix path-info -S` on both realized images in this jail, `packages:` empty:
+
+| Attr | Closure |
+| :--- | ---: |
+| `.#ociImage` | 3,506,579,336 B (**3.27 GiB**) |
+| `.#ociImageLean` | 1,455,095,560 B (**1.36 GiB**) |
+| **Difference** | **2,051,483,776 B (1.91 GiB), 58.5 % of the closure** |
+
+That replaces this section's previous "~1.6–2 GB, documented not measured" with a number, and it is larger
+than the range it replaces. The saving is per REBUILD, so it lands on the ~half of commits that move
+`goSrc` ([§1.1](#11-what-triggers-a-rebuild-and-how-often)) — which is why C5 was worth ranking at all
+despite being the lower-value candidate of the pair for any single launch.
+
+| Piece | Where |
+| :--- | :--- |
+| `ociImageLean` — `mkOciImage { withExtras = false; }`, a new axis orthogonal to `minimal` | `flake.nix` |
+| `yoloImageExtras` — a PURE `buildEnv` of `fullPackages ++ chromiumLibPackages` | `flake.nix` |
+| `binPathLinksLean` — `mkBinPathLinks { withChromium = false; }`, nested-podman config KEPT | `flake.nix` |
+| Attr selection (`ImageAttrDefault` / `ImageAttrLean`) threaded to the nix build | `internal/image/nixflags.go`, `autoload.go`, `internal/cli/run/imageload.go` |
+| Realizing + rooting the extras profile, appended BEHIND the workspace's `packages:` | `internal/cli/run/storepackages.go` |
+| The fontconfig repoint, and `chromium` resolved rather than assumed at `/usr/bin` | `internal/entrypoint/storepackages.go`, `mcp_wrappers.go` |
+
+**Four things the design's one paragraph did not name, and the build had to settle.**
+
+1. **It is NOT `ociImageMinimal`, though the paragraph above says "the minimal variant".** That variant also
+   drops `withNestedPodman`, and the `/etc/containers` config files it lays down are what make
+   podman-in-podman work — the nested-jail loop AGENTS.md makes mandatory for verifying any Go change. C5
+   wants a smaller package set, not the container plumbing gone, so `ociImageLean` is a third variant.
+2. **The /lib farm had to lose its chromium half, and keeping it would have saved nothing.** Nix registers a
+   derivation's references by scanning its output for store-path strings, and a symlink's TARGET is scanned
+   — so a farm that links `${chromium}/…` drags chromium into the image's closure whether or not chromium
+   appears in `contents`. That is why `withChromium = false` is forced rather than chosen.
+3. **Chromium drags THREE pieces of baked content, not one.** `/usr/bin/chromium`, the `/etc/fonts` symlink
+   into fontconfig's store path, and the font dirs linked into `/usr/share/fonts`. The image bakes
+   `FONTCONFIG_FILE=/etc/fonts/fonts.conf`, so on a lean image that variable names a file that does not
+   exist and chromium renders with no fonts at all. The root filesystem is `--read-only`, so none of the
+   three can be recreated in place: the boot writes a small `fonts.conf` on the `/run` tmpfs that
+   `<include>`s the profile's own (whose relative `conf.d` include then resolves inside the profile) and
+   adds the profile's `share/fonts` as a font dir. It is a NO-OP whenever the image's own `/etc/fonts` config exists,
+   so every baked jail is untouched. The MCP chrome wrapper now resolves chromium — `/usr/bin/chromium`
+   first, PATH second — instead of assuming.
+4. **The shadowing inversion is REAL and is handled, not avoided.** A name that leaves `/bin` becomes
+   shadowable by a pack's launcher, exactly as [§3.1](#31-the-boot-written-anchors) predicts. What keeps
+   `fzf` safe is that `imageProbePath` now counts the store farm, so the collision check declines to write a
+   launcher for a name the launch delivers — the same protection, relocated. The `⚠` in
+   `launchercollision.go` is untouched and still binding: the farm is not an install prefix, nothing
+   installs into it, so counting it can never make the launcher stop being written after its own first
+   success.
 
 ### C6 — Layer the image so the delta is the unit of transfer. **Rejected 2026-08-15; premise MEASURED 2026-09-06 — re-opened as [OQ-6](#102-open-questions).**
 
@@ -747,7 +802,7 @@ it saves ~1 s on a path that costs seconds-to-minutes elsewhere, and `installPre
 | C2 | Content-addressed image ref | every cross-workspace alternation | a 3.3 GB load | low | podman, Apple Container | ✅ `be7b8591` ([OQ-3](#101-decision-ledger)) |
 | C3 | Stream into the runtime, no tar | ~half of commits | 3.28 GiB write per rebuild; 404 GiB accrued | low–medium | podman | ✅ `be7b8591` ([OQ-5](#101-decision-ledger)); AC race closed `cc53b591` |
 | C4 | `packages:` from the mounted store | every `packages:` user | the `--impure` axis; ~3 GB per distinct list | **high** | podman + Linux + nix daemon | ✅ authorized and built 2026-09-06; opt-in `YOLO_STORE_PACKAGES=1` ([OQ-1](#101-decision-ledger)) |
-| C5 | `fullPackages` from the mounted store | ~half of commits | ~1.6–2 GB per rebuild | high | same as C4 | shape ruled with C4; ordered after it, on C4's now-existing mechanism |
+| C5 | `fullPackages` from the mounted store | ~half of commits | **1.91 GiB per rebuild (MEASURED 2026-09-06)** | high | same as C4 | ✅ built 2026-09-06 on C4's mechanism, under C4's one dial |
 | C6 | A stable layer chain; stream only the moved layers | ~half of commits | ~2.7 GB of podman storage per Go-only rebuild (MEASURED); up to ~48 s of a 52 s cold launch (**NOT MEASURED**) | medium | podman | re-opened as [OQ-6](#102-open-questions); measure the time split first |
 
 ---
@@ -774,7 +829,7 @@ it saves ~1 s on a path that costs seconds-to-minutes elsewhere, and `installPre
 |---|---|---|
 | `extraPackages` from `packages:` (`flake.nix:343-344`, in `contents` at `:985-989`) | C4 — **MOVED, opt-in, 2026-09-06** | Podman+Linux+daemon only. An opt-in launch builds with no `YOLO_EXTRA_PACKAGES`, so `contents` never sees them and the farm at `/run/yolo/packages` carries `bin`, `lib` and `lib/pkgconfig` instead. **Per [OQ-1](#101-decision-ledger) an *addition*, not a move: the baked path stays as the fallback, per LAUNCH.** The two baked-path integration tests are unchanged and a third covers the store path. Scope stays workspace ([OQ-4](#101-decision-ledger)) |
 | `extraLibPackages` — the user half of the `/lib` farm (`flake.nix:636-646`) | Same; append a boot-written dir to `LD_LIBRARY_PATH` | Scrubbed-env consumers lose it (`:728-732`); nix-ld's fallback dir stays baked |
-| `fullPackages` (`flake.nix:909-937`) | C5 | Inverts the "image beats launcher" invariant for every moved name ([§3.1](#31-the-boot-written-anchors)); chromium drags baked font links. [OQ-1](#101-decision-ledger)'s opt-in shape contains it |
+| `fullPackages` | C5 — **MOVED, opt-in, 2026-09-06** | Inverts the "image beats launcher" invariant for every moved name ([§3.1](#31-the-boot-written-anchors)) — handled by teaching `imageProbePath` about the farm, not avoided; chromium drags baked font links, `/etc/fonts` and `/usr/bin/chromium`, all three re-provided at boot. [OQ-1](#101-decision-ledger)'s opt-in shape contains it |
 | The `share/yolo-jail/bin/linux-<arch>/` duplicate of the binaries (`flake.nix:827-828`) | Nothing — deliberate (`:768-777`) | 2 % of the image |
 | yolo's own binaries, delivered by mount instead of baked | **Refused, and not proposed here** — see [§8](#8-what-this-does-not-cover) | The `/opt/yolo-jail/dist-go` dev-override was removed on purpose (`flake.nix:774-776`); `/bin/<name>` targets the absolute store path because a mount over `/opt/yolo-jail` bricked pid1 (`:779-790`) |
 
@@ -916,7 +971,7 @@ their reasoning lives in the body sections that govern them. **IDs are an API an
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-1 | **Shape:** C4/C5 ship as an **opt-in fast path with the baked path retained** — two mechanisms, accepted deliberately, and the unit is the LAUNCH (R2). Its gate, the [§11](#11-what-to-do-first--dependency-ordered) step 5 re-measurement, was taken 2026-08-25 ([§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5)) and extended 2026-09-06 ([§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)) | 2026-08-25 | [§4](#4-candidates-ranked) C4/C5, [§9](#9-risks) R1, [§11](#11-what-to-do-first--dependency-ordered) step 6 |
-| OQ-8 | **Go/no-go: BUILD IT.** The maintainer authorized C4 and then C5 on the [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5) + [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) evidence, discharging the gate [OQ-1](#101-decision-ledger) held open. A NEW ID rather than a rewrite of [OQ-1](#101-decision-ledger)'s, because [OQ-1](#101-decision-ledger) is cited by ID from four other docs and its SHAPE ruling is what they cite | 2026-09-06 | [§4](#4-candidates-ranked) C4/C5, [§11](#11-what-to-do-first--dependency-ordered) step 6 |
+| OQ-8 | **Go/no-go: BUILD IT — both, C4 then C5, and both shipped the same day.** The maintainer authorized C4 and then C5 on the [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5) + [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) evidence, discharging the gate [OQ-1](#101-decision-ledger) held open. A NEW ID rather than a rewrite of [OQ-1](#101-decision-ledger)'s, because [OQ-1](#101-decision-ledger) is cited by ID from four other docs and its SHAPE ruling is what they cite | 2026-09-06 | [§4](#4-candidates-ranked) C4/C5, [§11](#11-what-to-do-first--dependency-ordered) step 6 |
 | OQ-2 | A build that **ran and failed** is FATAL — the classification and nix's own stderr are printed and an empty `LoadResult` returned (`internal/image/autoload.go:333-340`). Opt-out is `YOLO_ALLOW_STALE_IMAGE=1`, not a TTY test. Shipped `7830f65` | 2026-08-15 | [§7](#7-the-silent-fallback-defect--why-staging-is-worthless-without-honest-failure) |
 | OQ-3 | **Content-addressed image tags win** (C2); the LRU-membership variant is refused. `localhost/yolo-jail:latest` is **not a public surface**. The *"plans on making cachix useful"* caveat is about the nix binary cache, a different surface | 2026-08-25 | [§4](#4-candidates-ranked) C2, [§6](#6-the-binary-cache-alternative-argued-fairly), [§9](#9-risks) R3 |
 | OQ-4 | **`packages:` stays workspace-scope** — *"yes, has to be."* Per [`gate-placement-principle.md`](./gate-placement-principle.md) Test 1, scope gates exist for host access; `packages:` grants a tool. **Fix the cost, never the scope** | 2026-08-25 | [§1.5](#15-the-multiplication-factor-packages-and---impure) |
@@ -995,9 +1050,9 @@ a decision, not a build task; steps 7 and 8 are the two questions the re-audit o
    4 s; zero tars written; a Go-only rebuild changes 2 of 99 layer digests but re-stores ~2.7 GB because
    the first change sits at chain position 78; a distinct `packages:` closure costs ~3 GB.
 6. ~~**C4, then C5 — only if the maintainer calls it**, on step 5's evidence.~~ **CALLED 2026-09-06
-   ([OQ-8](#101-decision-ledger)). C4 is BUILT**; C5 is next and reuses C4's mechanism, which is why it was
-   ordered second ([§4](#4-candidates-ranked) C5). [OQ-1](#101-decision-ledger) still fixes the shape: opt-in,
-   baked path retained, per launch.
+   ([OQ-8](#101-decision-ledger)), and BOTH ARE BUILT** — C4 first, C5 second on C4's mechanism and under
+   C4's one dial ([§4](#4-candidates-ranked) C4/C5). [OQ-1](#101-decision-ledger) still fixes the shape:
+   opt-in, baked path retained, per launch.
 7. **[OQ-6](#102-open-questions) — split the 52 s.** Ten minutes in this jail. Its answer either re-ranks C6 above C4 or
    closes C6 for good; either way it is the first thing that moves the maintainer's actual complaint.
 8. **[OQ-7](#102-open-questions) — the stamp.** A one-line change in `scripts/build-go.sh` behind a ruling; it stops the

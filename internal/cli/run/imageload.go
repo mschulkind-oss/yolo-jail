@@ -35,6 +35,17 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// image instead of one per distinct list (§1.5, §1.9).
 		extra = nil
 	}
+	// C5: the same launch also builds the LEAN image — no `fullPackages`, no chromium
+	// half of the /lib farm — because the store profile it was handed carries them
+	// instead. One dial, two candidates, and that is deliberate: C5 reuses C4's mechanism
+	// wholesale, so a launch cannot be in one and not the other, and R2's "exactly one
+	// mechanism live in any jail" stays a property rather than a combination to reason
+	// about. The lean variant keeps the nested-podman config the CI-minimal one drops
+	// (image.ImageAttrLean says why).
+	attr := image.ImageAttrDefault
+	if sp.Active {
+		attr = image.ImageAttrLean
+	}
 	remedy := nixdiag.LinuxBuilderRemedy()
 	load := image.AutoLoadImage
 	if o.autoLoad != nil {
@@ -49,6 +60,7 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// SkipBuild stays a field on AutoLoadOptions as a dormant seam.
 		SkipBuild:     false,
 		ExtraPackages: extra,
+		Attr:          attr,
 		Out:           o.Stdout,
 		ProgressTTY:   o.IsTTYStdout(),
 		IsMacOS:       o.IsMacOS,

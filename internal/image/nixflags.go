@@ -36,19 +36,42 @@ func NixFlakeFlags() []string {
 	}
 }
 
-// ociBuildArgv returns the argv for building the image: `nix … build .#ociImage
+// The two image attributes a run path can build.
+//
+// ImageAttrLean is C5's (docs/design/image-staging-vs-baking.md §4 C5): the same image
+// with `fullPackages` and the chromium half of the /lib farm left OUT, for a launch that
+// delivers them from the mounted nix store instead. It is a SECOND ATTR rather than a
+// third `builtins.getEnv` switch because the whole point of C4/C5 is to take variability
+// OUT of the image derivation — a lean image that varied with the environment would
+// multiply exactly the way §1.5 measured.
+//
+// It is deliberately NOT `ociImageMinimal`, which the design's C5 paragraph names. That
+// variant also drops `withNestedPodman`, and the /etc/containers config files it lays
+// down are what make podman-in-podman work — the loop AGENTS.md makes mandatory for
+// verifying any Go change. C5 wants the package set smaller, not the container plumbing
+// gone, so the lean variant keeps it.
+const (
+	ImageAttrDefault = ".#ociImage"
+	ImageAttrLean    = ".#ociImageLean"
+)
+
+// ociBuildArgv returns the argv for building the image: `nix … build <attr>
 // --impure --out-link <outLink> --print-build-logs`, plus extraArgs (the
-// macOS container-builder offload appends `--builders …` here).
+// macOS container-builder offload appends `--builders …` here). An empty attr
+// is ImageAttrDefault.
 //
 // The run path (buildImageStorePathArgs) and the `yolo check` preflight
 // (BuildOCIImage) share this builder so the two cannot drift on flags — a
 // preflight that says "it builds" while consulting a different substituter set
 // than the run does is worse than no preflight.
-func ociBuildArgv(outLink string, extraArgs []string) []string {
+func ociBuildArgv(attr, outLink string, extraArgs []string) []string {
+	if attr == "" {
+		attr = ImageAttrDefault
+	}
 	argv := []string{"nix"}
 	argv = append(argv, NixFlakeFlags()...)
 	argv = append(argv,
-		"build", ".#ociImage", "--impure",
+		"build", attr, "--impure",
 		"--out-link", outLink,
 		"--print-build-logs",
 	)

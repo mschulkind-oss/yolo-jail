@@ -436,6 +436,16 @@ there is no sync step.
   baked *and* staged silently runs the **baked** copy. What it buys: one image per machine
   instead of one per distinct `packages:` list. Apple Container and macOS podman keep baking,
   deliberately (R1).
+  **The SAME dial is C5**, on purpose — one switch, so "exactly one mechanism" stays a fact about a
+  launch rather than a combination. An opt-in launch also builds `.#ociImageLean` (no
+  `fullPackages`, no chromium half of the `/lib` farm, nested-podman config **kept** — it is NOT
+  `ociImageMinimal`) and gets those from `.#yoloImageExtras`, appended *behind* the workspace's own
+  `packages:` since the farm is first-wins. Two consequences worth knowing: `chromium` is no longer
+  at `/usr/bin/chromium` on such a jail (the MCP wrapper resolves it), and `/etc/fonts` is gone, so
+  the boot writes a `fonts.conf` on `/run` pointing at the profile. And the "a boot-written dir
+  cannot shadow the image" invariant genuinely inverts for every name that leaves `/bin` — what
+  keeps `fzf` safe is that `imageProbePath` counts the farm; the ⚠ above still holds, because
+  nothing *installs* into the farm.
 - **Two generated script dirs, ADJACENT AT THE HEAD of PATH** — they are different
   mechanisms, not one dir with two kinds of file in it, and their order relative
   to each other is what carries the meaning:

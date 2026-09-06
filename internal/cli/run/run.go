@@ -746,6 +746,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// predicate rather than a second reading of it, so a launch cannot promise store
 	// delivery and then omit the mount (storepackages.go).
 	storePkgs, storePkgsOK := o.planStorePackages(cfg, rt, repoRoot, o.hostNixMounted(rt))
+	if storePkgsOK {
+		// C5 rides the same plan: the extras profile is appended BEHIND the workspace's
+		// own packages, so the farm's first-wins rule reproduces the precedence a baked
+		// image already gives them.
+		storePkgs, storePkgsOK = o.addImageExtras(storePkgs, repoRoot)
+	}
 	if !storePkgsOK {
 		lock.Close()
 		return 1

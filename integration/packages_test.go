@@ -171,6 +171,12 @@ func TestDevPackageLinksRuntimeLib(t *testing.T) {
 // zbar is the same fixture the baked test uses, deliberately: same split-output `-lib`
 // package, so a difference in the result is a difference in the MECHANISM.
 //
+// PROBES 4 AND 5 ARE C5's, on the same launch because the opt-in covers both candidates:
+// `fzf` is in the flake's `fullPackages`, so on a lean image it must resolve in the farm
+// and NOT be in /bin. That pair is C5's whole claim — the run-path image really is the
+// lean variant — and it is also the "shadowing inversion" §3.1 warns about, measured: a
+// name that could not be shadowed while it was baked is now delivered like any other.
+//
 // SKIPS rather than fails when the machine is not eligible. Store delivery needs podman +
 // Linux + a running nix daemon (§3.2), and on a host without them the CLI says so and
 // bakes — at which point probe 2 would fail and read as a lib-farm bug, which is the exact
@@ -182,6 +188,8 @@ func TestExtraPackagesFromMountedStore(t *testing.T) {
 		`echo "=== WHICH ==="; command -v zbarimg || true`,
 		`echo "=== BAKED ==="; ls /lib/libzbar.so.0 2>/dev/null || echo not-baked`,
 		`echo "=== DLOPEN ==="; python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`,
+		`echo "=== EXTRAS ==="; command -v fzf || true`,
+		`echo "=== LEANBIN ==="; ls /bin/fzf 2>/dev/null || echo not-in-bin`,
 	}, "\n"), withTimeout(nixBuildJailTimeout), withEnv("YOLO_STORE_PACKAGES=1"))
 
 	if strings.Contains(r.combined(), "YOLO_STORE_PACKAGES=1 ignored") {
@@ -196,7 +204,9 @@ func TestExtraPackagesFromMountedStore(t *testing.T) {
 
 	which := section(r.stdout, "=== WHICH ===", "=== BAKED ===")
 	baked := section(r.stdout, "=== BAKED ===", "=== DLOPEN ===")
-	dlopen := section(r.stdout, "=== DLOPEN ===", "")
+	dlopen := section(r.stdout, "=== DLOPEN ===", "=== EXTRAS ===")
+	extras := section(r.stdout, "=== EXTRAS ===", "=== LEANBIN ===")
+	leanbin := section(r.stdout, "=== LEANBIN ===", "")
 
 	if !strings.Contains(which, "/run/yolo/packages/bin/zbarimg") {
 		t.Errorf("zbarimg did not resolve to the store-delivered farm:\n%s", which)
@@ -210,5 +220,15 @@ func TestExtraPackagesFromMountedStore(t *testing.T) {
 		t.Errorf("ctypes.CDLL(libzbar.so.0) failed against the store-delivered farm — "+
 			"the binary resolved but its library did not, which is the lib-farm half of "+
 			"C4 and the half LD_LIBRARY_PATH alone carries:\n%s", dlopen)
+	}
+	// C5.
+	if !strings.Contains(extras, "/run/yolo/packages/bin/fzf") {
+		t.Errorf("fzf (one of the flake's fullPackages) did not resolve to the "+
+			"store-delivered farm:\n%s", extras)
+	}
+	if !strings.Contains(leanbin, "not-in-bin") {
+		t.Errorf("/bin/fzf EXISTS on an opt-in launch, so the run path built the FULL "+
+			"image and not the lean one. The lean attr is where C5's ~1.6–2 GB comes "+
+			"from; without it the extras profile is pure cost:\n%s", leanbin)
 	}
 }

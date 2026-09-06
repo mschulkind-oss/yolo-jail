@@ -34,9 +34,19 @@ CHROME_URL="http://$CHROME_ADDR:$CHROME_PORT"
 NPM_BIN="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}/bin"
 MCP_WRAPPERS_BIN="$HOME/.local/bin/mcp-wrappers"
 
+# WHERE CHROMIUM IS DEPENDS ON HOW THIS LAUNCH GOT ITS PACKAGES (C5,
+# docs/design/image-staging-vs-baking.md §4). A baked image has /usr/bin/chromium, a
+# symlink mkBinPathLinks lays down; a launch that delivers the image's bulk extras from
+# the mounted nix store has no /usr/bin/chromium and a chromium on PATH instead. The
+# baked path is tried FIRST so a jail that bakes behaves exactly as it always did, and
+# this wrapper is self-contained on purpose (agents sanitize child environments), which
+# is why it resolves rather than assuming either answer.
+CHROMIUM_BIN="/usr/bin/chromium"
+[ -x "$CHROMIUM_BIN" ] || CHROMIUM_BIN="$(command -v chromium 2>/dev/null)"
+
 # Start Chromium if not already running
 if ! curl -s "$CHROME_URL/json/version" >/dev/null 2>&1; then
-    /usr/bin/chromium \
+    "$CHROMIUM_BIN" \
         --headless=new \
         --no-sandbox \
         --disable-dev-shm-usage \

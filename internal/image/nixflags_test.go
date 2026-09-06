@@ -47,10 +47,10 @@ func TestFlakeInvocationsCarryAcceptFlakeConfig(t *testing.T) {
 		run  func(repoRoot, outLink string)
 	}{
 		{"run path (buildImageStorePathArgs)", func(repoRoot, outLink string) {
-			_, _ = buildImageStorePathArgs(repoRoot, nil, outLink, io.Discard, nil, nil)
+			_, _ = buildImageStorePathArgs(ImageAttrDefault, repoRoot, nil, outLink, io.Discard, nil, nil)
 		}},
 		{"run path with builder offload", func(repoRoot, outLink string) {
-			_, _ = buildImageStorePathArgs(repoRoot, nil, outLink, io.Discard,
+			_, _ = buildImageStorePathArgs(ImageAttrDefault, repoRoot, nil, outLink, io.Discard,
 				[]string{"--builders", "ssh://b"}, nil)
 		}},
 		{"check preflight (BuildOCIImage)", func(repoRoot, _ string) {
@@ -136,7 +136,7 @@ func assertFlakeArgv(t *testing.T, argv []string) {
 // two call sites used to spell inline, so the refactor that unified them is not
 // free to change what nix is actually asked to do.
 func TestOCIBuildArgvShape(t *testing.T) {
-	got := ociBuildArgv("/tmp/link", []string{"--builders", "ssh://b"})
+	got := ociBuildArgv(ImageAttrDefault, "/tmp/link", []string{"--builders", "ssh://b"})
 	want := []string{
 		"nix",
 		"--extra-experimental-features", "nix-command flakes",
@@ -148,5 +148,33 @@ func TestOCIBuildArgvShape(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ociBuildArgv:\n got %v\nwant %v", got, want)
+	}
+
+	// C5's lean variant differs in the ATTR and in nothing else — same flags, same
+	// out-link, same build logs. A launch that opts into store delivery must not also
+	// silently acquire a different substituter set or a different purity.
+	plain := ociBuildArgv(ImageAttrDefault, "/tmp/link", nil)
+	lean := ociBuildArgv(ImageAttrLean, "/tmp/link", nil)
+	if len(lean) != len(plain) {
+		t.Fatalf("the lean argv differs from the default by more than the attr:\n"+
+			" lean %v\nplain %v", lean, plain)
+	}
+	diffs := 0
+	for i := range plain {
+		if plain[i] != lean[i] {
+			diffs++
+			if plain[i] != ImageAttrDefault || lean[i] != ImageAttrLean {
+				t.Errorf("argv[%d] = %q (lean) vs %q (default); only the attr may differ",
+					i, lean[i], plain[i])
+			}
+		}
+	}
+	if diffs != 1 {
+		t.Errorf("lean and default argv differ in %d positions, want exactly 1 (the attr)", diffs)
+	}
+	// An empty attr keeps the historical behaviour, so every caller that has never heard
+	// of the lean variant builds the image it always built.
+	if !slices.Equal(ociBuildArgv("", "/tmp/link", nil), plain) {
+		t.Error("an empty attr must default to ImageAttrDefault")
 	}
 }
