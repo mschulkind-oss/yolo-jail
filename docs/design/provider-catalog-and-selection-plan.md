@@ -102,7 +102,7 @@ refusal are its steps, not these.
   `ANTHROPIC_BASE_URL`. Package `integration`, `requireJail(t)`, **no `t.Parallel()`** (AGENTS.md).
 - **Unit:** provider with no endpoint (bedrock — must reach no catalog); profile naming an
   undeclared option (errors, naming what the provider accepts); `options` null; no-profile launch
-  writes **nothing** to a selection key (OQ-CS2).
+  writes **nothing** to a selection key ([`OQ-CS2`](../reference/providers.md#why-its-this-way)).
 - **Rewrites, not repairs:** `internal/agentenv/agentenv_test.go` (367 lines) largely goes with
   `Resolve`. `packdecl`/`packload` env_shape skew tests assert a vocabulary that no longer exists —
   delete, do not fix. `internal/cli/run/agentprofileenv_test.go`, `providershapeenv_test.go`,
@@ -111,7 +111,7 @@ refusal are its steps, not these.
   env_shape story), `yolo config-ref` provider/profile text (`internal/cli/configref.go`),
   `AGENTS.md` pack census (says ten; there are twelve), `packs/embed.go:20` same list.
 - **Config surfaces:** `providers.*.options`, top-level `profiles`, `use_profiles` — all
-  **user-scope only** (OQ-CS5), the rule `packs` follows. `env_shape` removed from the census.
+  **user-scope only** ([`OQ-CS5`](../reference/providers.md#why-its-this-way)), the rule `packs` follows. `env_shape` removed from the census.
 - Norms: `just check-ci` before each commit; `just format` first.
 
 ## Don't
@@ -119,7 +119,7 @@ refusal are its steps, not these.
 - **Don't gate the catalog on selection.** Option B, rejected — pi and opencode have interactive
   model pickers and a populated directory is the feature.
 - **Don't add `extends` to profiles** (OQ-CS9). Option defaults already remove the duplication.
-- **Don't add value validation for options** (OQ-CS7). Core checks the key census only; the derive
+- **Don't add value validation for options** ([`OQ-CS7`](../reference/providers.md#why-its-this-way)). Core checks the key census only; the derive
   validates. A typechecker here is `wire_api`'s enum one layer up.
 - **Don't keep `agentProtocols` "just for the host path."** It is the agent-name table core is
   supposed to stop holding; if the host notch still needs a protocol, the host derive supplies it.
@@ -129,7 +129,7 @@ refusal are its steps, not these.
 - **Step 1 is a hard gate.** Design §3's pi row is empty. Steps 5 cannot be designed around it, and
   guessing produces exactly D1 (a value written into an agent's config that the agent rejects).
 - **The host notch runs the env derive. Constraint, not a choice** — `yolo host -- claude` composing
-  the same environment is behaviour `host-agent-environment.md` §2.2 fixes, and OQ-CS10 was withdrawn
+  the same environment is behaviour [`host-agent-environment.md`](./host-agent-environment.md) [§2.2](./host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions) fixes, and [`OQ-CS10`](../reference/providers.md#why-its-this-way) was withdrawn
   for having asked it as though it were open. Budget the new host-side invocation (see Traps); do not
   budget a decision.
 - **Cheap and yours:** how the env derive's return is keyed and shaped. Advice: whatever the surface

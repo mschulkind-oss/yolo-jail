@@ -20,7 +20,7 @@ including `FreshWorkspaceNonTTYRefuses` and `FreshWorkspaceRefusedRecordsNoSnaps
 **The short version.** Config change confirmation previously diffed the fully merged config against a per-workspace snapshot (`~/.local/share/yolo-jail/approvals/<container-name>.json`). Adding a user-level setting—such as the `serial` loophole in `~/.config/yolo-jail/config.jsonc`—forced a repetitive approval prompt across every existing workspace jail on the machine. We eliminate approval gating for host user config (which the human already authored with host privileges) and scope the approval baseline strictly to workspace configuration (`yolo-jail.jsonc` + `.local.jsonc`). Workspace config edits require confirmation, and brand-new workspace launches confirm their initial configuration.
 
 **Reads with:**
-- [`config-safety.md`](config-safety.md) (the original snapshot-and-diff design and host-side approval move under OQ-D1/OQ-D2)
+- [`config-safety.md`](config-safety.md) (the original snapshot-and-diff design and host-side approval move under [`OQ-D1`](./config-safety.md#decision-ledger)/[`OQ-D2`](./config-safety.md#decision-ledger))
 - [`gate-placement-principle.md`](gate-placement-principle.md) (why asking the human to confirm an edit they made in their own home is theatre)
 - [`loophole-activation.md`](loophole-activation.md) (how loopholes are enabled via user vs workspace config)
 - [`pack-config-keys.md`](pack-config-keys.md) (scope rules for config keys and settings)
@@ -33,7 +33,7 @@ including `FreshWorkspaceNonTTYRefuses` and `FreshWorkspaceRefusedRecordsNoSnaps
 | :--- | :--- | :--- | :--- |
 | **OQ-S1** | **Drop approval gating for host user config.** Editing `~/.config/yolo-jail/config.jsonc` is trusted on disk immediately with zero prompts. The approval gate protects against agent edits and evaluates workspace config only. | 2026-08-29 | [§1 Principles](#1-principles--verdict), [§3 Proposed Architecture](#3-the-proposed-architecture) |
 | **OQ-S2** | **Host-side pre-approval supported via `yolo check --accept-config-changes`.** Power users can validate and record workspace config approval directly from the host terminal (or in nested setups for nested launches), but not from within a standard jail targeting host state. | 2026-08-29 | [§6 Non-Interactive Refusal & Scripting](#6-non-interactive-refusal--scripting) |
-| **OQ-S3** | **Fresh workspaces must confirm their config.** A brand-new workspace with no prior snapshot prompts to approve its initial `yolo-jail.jsonc` (diffed against empty), closing OQ-D3's silent first-run window. | 2026-08-29 | [§5 Fresh Workspaces & Migration](#5-fresh-workspaces--migration) |
+| **OQ-S3** | **Fresh workspaces must confirm their config.** A brand-new workspace with no prior snapshot prompts to approve its initial `yolo-jail.jsonc` (diffed against empty), closing [`OQ-D3`](./config-safety.md#decision-ledger)'s silent first-run window. | 2026-08-29 | [§5 Fresh Workspaces & Migration](#5-fresh-workspaces--migration) |
 
 ---
 
@@ -257,11 +257,11 @@ Algorithm: CheckConfigChanges(workspace, isTTY, acceptNonInteractive)
 
 ## 5. Fresh Workspaces & Migration
 
-### 5.1 Closing the Migration Window (OQ-D3 / OQ-S3 Resolution)
+### 5.1 Closing the Migration Window ([`OQ-D3`](./config-safety.md#decision-ledger) / [`OQ-S3`](#decision-ledger) Resolution)
 
-[`config-safety.md`](config-safety.md) OQ-D3 documented a residual migration hole: because first runs accepted silently and the presence of `<workspace>/.yolo/config-snapshot.json` was the only signal separating migrations from first runs, an agent could `rm` that file to make its edits look like a first run.
+[`config-safety.md`](config-safety.md) [`OQ-D3`](./config-safety.md#decision-ledger) documented a residual migration hole: because first runs accepted silently and the presence of `<workspace>/.yolo/config-snapshot.json` was the only signal separating migrations from first runs, an agent could `rm` that file to make its edits look like a first run.
 
-By ruling in **OQ-S3** that fresh workspace launches must explicitly confirm their initial configuration:
+By ruling in **[`OQ-S3`](#decision-ledger)** that fresh workspace launches must explicitly confirm their initial configuration:
 - The silent first-run accept is **deleted**.
 - An agent deleting its snapshot cannot bypass confirmation: the absence of a host-side snapshot triggers an initial-config confirmation prompt rather than a silent pass.
 - Legacy migration markers (`LegacyWorkspaceSnapshotPath`) are fully retired.
@@ -298,7 +298,7 @@ Revert the change, or approve it for THIS LAUNCH ONLY by re-running with:
   --accept-config-changes
 ```
 
-### 6.1 Pre-Approving via `yolo check` (OQ-S2)
+### 6.1 Pre-Approving via `yolo check` ([`OQ-S2`](#decision-ledger))
 
 Power users and automated setup tools on the host can validate and pre-approve workspace config without starting a container:
 
@@ -322,7 +322,7 @@ This writes the approved baseline to `~/.local/share/yolo-jail/approvals/<contai
 - **Clean drift alignment:** `yolo config drift` (in-jail) and `CheckConfigChanges` (host-side) both operate on the exact same workspace-only configuration layer (`LoadWorkspaceConfig`).
 
 ### 7.2 What This Costs
-- **First-run prompt for new repos:** Brand-new workspaces prompt once at initial startup to confirm `yolo-jail.jsonc`. This is an intentional security trade to close OQ-D3.
+- **First-run prompt for new repos:** Brand-new workspaces prompt once at initial startup to confirm `yolo-jail.jsonc`. This is an intentional security trade to close [`OQ-D3`](./config-safety.md#decision-ledger).
 
 ### 7.3 Invariants
 1. **Host-Side Storage:** Approval snapshots live strictly under `paths.ApprovalsDir()` on the host, never inside the workspace bind mount.
@@ -335,8 +335,8 @@ This writes the approved baseline to `~/.local/share/yolo-jail/approvals/<contai
 
 | Alternative | Summary | Disposition |
 | :--- | :--- | :--- |
-| **A. Dual Baselines (`user.json` + `workspaces/*.json`)** | Maintain an independent approval baseline for user config and prompt once globally across all workspaces. | **Rejected (OQ-S1).** Prompting for host user config is security theater; writing `~/.config/yolo-jail/config.jsonc` already required host user privileges. |
-| **B. Silent First-Run for Workspaces** | Allow brand-new workspaces to launch without a prompt. | **Rejected (OQ-S3).** Opens a migration hole (OQ-D3) and allows cloned repos to run arbitrary workspace package configurations without human review. |
+| **A. Dual Baselines (`user.json` + `workspaces/*.json`)** | Maintain an independent approval baseline for user config and prompt once globally across all workspaces. | **Rejected ([`OQ-S1`](#decision-ledger)).** Prompting for host user config is security theater; writing `~/.config/yolo-jail/config.jsonc` already required host user privileges. |
+| **B. Silent First-Run for Workspaces** | Allow brand-new workspaces to launch without a prompt. | **Rejected ([`OQ-S3`](#decision-ledger)).** Opens a migration hole ([`OQ-D3`](./config-safety.md#decision-ledger)) and allows cloned repos to run arbitrary workspace package configurations without human review. |
 | **C. Re-merging Snapshots on User Edits** | Iterate through all host snapshots and update them when user config changes. | **Rejected as brittle.** Couples independent workspace state and fails for unmounted/removable workspaces. |
 
 ---
@@ -345,7 +345,7 @@ This writes the approved baseline to `~/.local/share/yolo-jail/approvals/<contai
 
 | Risk | Impact | Mitigation |
 | :--- | :--- | :--- |
-| **Spurious diff on legacy upgrade** | Medium (Old merged snapshot diffs against new workspace-only config) | Clean migration pass strips legacy user keys during baseline compare (§5.2). |
+| **Spurious diff on legacy upgrade** | Medium (Old merged snapshot diffs against new workspace-only config) | Clean migration pass strips legacy user keys during baseline compare ([§5.2](#52-upgrading-from-legacy-merged-snapshots)). |
 | **First-run prompt fatigue on repo checkout** | Low (One prompt per new cloned repository) | The prompt is clear, one-time per repo, and ensures the human reviews what packages/tools the repo requests. |
 
 ---
@@ -356,7 +356,7 @@ This writes the approved baseline to `~/.local/share/yolo-jail/approvals/<contai
    - Update `CheckConfigChanges` signature and implementation to take `wsCfg` (`LoadWorkspaceConfig`) rather than merged `cfg`.
    - Update diff labels to `"previous workspace config"` and `"current workspace config"`.
 2. **Step 2: Enforce Initial Workspace Confirmation (`internal/config/snapshot.go`)**
-   - Require prompt / `--accept-config-changes` on initial workspace launch (closing OQ-D3).
+   - Require prompt / `--accept-config-changes` on initial workspace launch (closing [`OQ-D3`](./config-safety.md#decision-ledger)).
 3. **Step 3: Update Call Sites (`internal/cli/run`)**
    - In `internal/cli/run/run.go` and `internal/cli/run/preflight.go`, pass `wsCfg` to `checkConfigChanges`.
 4. **Step 4: Host Pre-Approval in `yolo check` (`internal/cli/check`)**

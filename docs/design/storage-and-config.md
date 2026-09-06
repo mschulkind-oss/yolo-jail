@@ -1,11 +1,11 @@
 # YOLO Jail Storage, Configuration & Identity
 
-**Status:** REFERENCE — describes shipped behaviour. **§1–§9 spot-checked 2026-08-23**; **§10 is a
+**Status:** REFERENCE — describes shipped behaviour. **[§1](#1-configuration-hierarchy)–[§9](#9-tool-locations-inside-the-jail) spot-checked 2026-08-23**; **[§10](#10-follow-up-2026-08-21-the-launcher-refuses-a-pack-yolo-check-already-calls-delivered) is a
 dated follow-up that is DECIDED and BUILT** (2026-08-21, `9424284d` + `a2f2126d`, with its own
 Decision Ledger at the end). `AGENTS.md` sends readers here for storage paths and state separation,
-so treat a disagreement between a §1–§9 path and the tree as a bug in this file. What was **not**
-re-verified this pass: the §4 mount map's per-backend rows on macOS (no Mac here — `macos-user` has
-**no bind mounts at all**, which §4 should be read against) and the byte-level `.yolo/` contents.
+so treat a disagreement between a [§1](#1-configuration-hierarchy)–[§9](#9-tool-locations-inside-the-jail) path and the tree as a bug in this file. What was **not**
+re-verified this pass: the [§4](#4-inside-the-jail--mount-map) mount map's per-backend rows on macOS (no Mac here — `macos-user` has
+**no bind mounts at all**, which [§4](#4-inside-the-jail--mount-map) should be read against) and the byte-level `.yolo/` contents.
 
 How configuration files, persistent storage, overlays, and identities
 are organized across the host, global storage, workspace state, and
@@ -53,14 +53,14 @@ identity:
 Concretely:
 
 - **User scope (yolo-owned).** yolo writes each generated config under
-  `/home/agent/…` (a per-workspace r/w overlay; §3–§4). This is the *only*
+  `/home/agent/…` (a per-workspace r/w overlay; [§3](#3-per-workspace-state-yolo)–[§4](#4-inside-the-jail--mount-map)). This is the *only*
   config surface yolo regenerates.
 - **Workspace scope (agent-owned, host-mirrored).** yolo does **not** write any
   agent's project/workspace config (e.g. `$CWD/.claude/settings.json`). `/workspace`
   is bind-mounted from the host and belongs to the operating agent; yolo leaves it
   as-is. The *only* exceptions are narrow **"internal details" shadow mounts** yolo
   owns for isolation — currently `.vscode/mcp.json` and `.overmind.sock`, each
-  shadowed with `/dev/null` (see §4 mount map / `assemble.go`). These are
+  shadowed with `/dev/null` (see [§4](#4-inside-the-jail--mount-map) mount map / `assemble.go`). These are
   isolation-boundary artifacts, not agent config, and are the deliberate, enumerated
   exception to "workspace mirrors host."
 - **Managed scope (yolo-owned, outside both).** Security-boundary keys go to an
@@ -104,8 +104,8 @@ This approval step does **not** replace `yolo check` — agents should still run
 
 **Snapshot location:** `~/.local/share/yolo-jail/approvals/<container-name>.json` — HOST-side and
 never mounted into a jail, so the record of what was approved cannot be rewritten by whatever edited
-the config (`config-safety.md`, OQ-D1). A non-interactive launch with a changed config is refused;
-`yolo --accept-config-changes` approves it for that launch only (OQ-D2).
+the config ([`config-safety.md`](./config-safety.md), [`OQ-D1`](./config-safety.md#decision-ledger)). A non-interactive launch with a changed config is refused;
+`yolo --accept-config-changes` approves it for that launch only ([`OQ-D2`](./config-safety.md#decision-ledger)).
 
 ---
 
@@ -254,7 +254,7 @@ tools into empty overlay dirs; subsequent boots reuse cached installs.
 >
 > **It is not the launch lock.** That one is real, host-side, and lives at
 > `~/.local/share/yolo-jail/locks/<container-name>.lock` — see
-> [§2](#isolation-model). The one race left at this file's per-workspace scope is a
+> [§2](#2-host-storage-layout). The one race left at this file's per-workspace scope is a
 > *same-workspace* one, and it is filed with an open ruling rather than fixed here:
 > [roadmap 💬 11](../plans/roadmap.md#-11--one-that-is-nobody-elses-question) — `GenerateShims`
 > and `GenerateAgentLaunchers` wipe-then-repopulate `~/.yolo/bin/{block,launch}`, and the
@@ -458,13 +458,13 @@ declared `program` to shadow a binary the image already bakes.
 ## 10. Follow-up (2026-08-21): the launcher refuses a pack `yolo check` already calls delivered
 
 **Status:** DECIDED and BUILT, 2026-08-21 (`9424284d`, `a2f2126d`). Both questions ruled and
-implemented; the Decision Ledger is below and §10.4/§10.5 record what landed. Two independent defects
-shared one symptom, and both are fixed. §1.1 above describes the
+implemented; the Decision Ledger is below and [§10.4](#104-the-one-question-left-where-does-the-fallback-live)/[§10.5](#105-the-separate-defect-integration-tests-read-machine-state) record what landed. Two independent defects
+shared one symptom, and both are fixed. [§1.1](#11-config-ownership-principle-generated-config) above describes the
 generated user scope; this section is about what the *launcher* does with what it generates — and,
-after two wrong turns, the answer is that the generated config was never the problem (§10.2).
+after two wrong turns, the answer is that the generated config was never the problem ([§10.2](#102-diagnosis-not-inheritance--a-fix-that-landed-at-one-call-site)).
 
-**Reads with:** [`trust-paths.md`](trust-paths.md) (OQ-TP7 refuses a copied gate for the same reason
-§10.4 does), [`agent-install-in-ci.md`](agent-install-in-ci.md) (whose integration work surfaced this).
+**Reads with:** [`trust-paths.md`](trust-paths.md) ([`OQ-TP7`](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) refuses a copied gate for the same reason
+[§10.4](#104-the-one-question-left-where-does-the-fallback-live) does), [`agent-install-in-ci.md`](agent-install-in-ci.md) (whose integration work surfaced this).
 
 ### 10.1 What was measured
 
@@ -487,7 +487,7 @@ path with no referent in the container. Three observations, all measured 2026-08
 | `yolo run` (inner launcher) | **refuses** | staging a nonexistent directory is fatal |
 
 So the preflight gives no warning that the very next launch cannot start. That is the same shape as
-[`trust-paths.md`](trust-paths.md) OQ-TP7 — *"`yolo check` does not predict the refusal"* — arrived at
+[`trust-paths.md`](trust-paths.md) [`OQ-TP7`](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) — *"`yolo check` does not predict the refusal"* — arrived at
 by a different route, and it is the second instance of it. Whatever fixes that one should be asked
 whether it covers this.
 
@@ -561,7 +561,7 @@ computed the staged path the launcher needs.
 ### 10.4 The one question left: where does the fallback live?
 
 Porting `stagedPackDir` into `run/packs.go` would fix the launch and create the defect this repo has
-already written down once. [`trust-paths.md`](trust-paths.md) OQ-TP7 poses the same shape for the host-access
+already written down once. [`trust-paths.md`](trust-paths.md) [`OQ-TP7`](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) poses the same shape for the host-access
 gate and rejects the copy outright: *"A third gate copied into `check` would satisfy that scan
 vacuously … So the question is **where the gate lives** if a third caller needs it."* Two
 implementations of one resolution rule is the drift, not the fix.
@@ -572,7 +572,7 @@ Three homes, and the choice is a real one:
 | :--- | :--- | :--- |
 | **(i)** | `packsrc.Store.Resolve` itself consults `YOLO_PACK_ROOT` | One writer, every caller fixed at once, including any future one. Costs `packsrc` an awareness of the jail's delivery convention — a store that resolves *addresses* would start knowing about *mounts* |
 | **(ii)** | A shared resolver beside `Resolve` (`ResolveOrStaged`) that both callers use | Keeps `Resolve` address-only and makes the fallback explicit at each call site. Costs a second entry point that a new caller can forget — the same way `run` forgot this one |
-| **(iii)** | Keep it in `check`, and have `run` refuse only when no staged tree exists | Smallest diff, and exactly the two-implementations outcome OQ-TP7 refuses |
+| **(iii)** | Keep it in `check`, and have `run` refuse only when no staged tree exists | Smallest diff, and exactly the two-implementations outcome [`OQ-TP7`](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) refuses |
 
 _Leaning:_ **(i).** The predicate is already filesystem-keyed and already argued to be safe on a host
 (*"it cannot misfire on a host, where no staged tree is mounted, so this branch never fires"*), so
@@ -607,7 +607,7 @@ Three things the section above did not say, found while landing it:
 
 ### 10.5 The separate defect: integration tests read machine state
 
-Unchanged by the above, and worth fixing on its own merits — though note that fixing §10.4 makes the
+Unchanged by the above, and worth fixing on its own merits — though note that fixing [§10.4](#104-the-one-question-left-where-does-the-fallback-live) makes the
 six observed failures disappear as a side effect, since the launch would succeed.
 
 **Only some container tests isolate `HOME`.** `packHome` gives a test its own user config, and tests
@@ -616,7 +616,7 @@ whatever the machine has. Counted 2026-08-21: six files with jail tests have no 
 (`cgroup`, `imageskew`, `network`, `packagecollection`, `packages`, `reachability` — **10** tests),
 `cli_test.go` isolates 3 of its **8**, and the list above **misses two**:
 `isolation_test.go:TestMiseVenvActivation` and `mcp_test.go:TestSameFilePresetAndNullOverrideIsRejected`
-both use a bare `t.TempDir()`. Recounted while implementing OQ-SC3 — the first pass undercounted the
+both use a bare `t.TempDir()`. Recounted while implementing [`OQ-SC3`](#decision-ledger--10) — the first pass undercounted the
 per-file totals and overcounted the file list, so the exposure is **wider** than stated, not narrower.
 That is also why the isolation went into `requireJail` rather than `writeProject`: four of the exposed
 tests never call `writeProject` at all, so a hook there would have missed them.
@@ -626,7 +626,7 @@ assertions; it can satisfy them. `security.blocked_tools`, `mise_tools`, `mcp_se
 all merge into the jail a test launches, so a machine-local config can make a test pass for a reason
 the test never states. And it is **asymmetric with CI**: a fresh runner has no user config, so CI
 structurally cannot observe either direction — the same invisible-in-CI/fatal-locally shape that bit
-`warmJail`'s first draft ([`agent-install-in-ci.md`](agent-install-in-ci.md) §11).
+`warmJail`'s first draft ([`agent-install-in-ci.md`](agent-install-in-ci.md) [§11](./agent-install-in-ci.md#11-build-order--what-shipped-and-what-is-left)).
 
 **LANDED (2026-08-21).** The isolation sits in `requireJail`, not `writeProject` — it is the line
 every container test already writes, so a NEW test cannot read machine state by forgetting a helper;
@@ -662,35 +662,35 @@ forced to state its pack selection explicitly, while `security`, `mise_tools`, `
 1. ✅ **OQ-SC1: where does the staged-tree fallback live? — RESOLVED (2026-08-21)**
 
    > This question previously asked whether to drop, rewrite, or stop inheriting `packs` in the nested
-   > scope, and went through two leanings before the framing itself turned out to be wrong (§10.2).
+   > scope, and went through two leanings before the framing itself turned out to be wrong ([§10.2](#102-diagnosis-not-inheritance--a-fix-that-landed-at-one-call-site)).
    > Withdrawn and restated under the same ID before being answered — the inherited config was never
    > the defect.
 
    **Answer:**
    > Delegated to the implementer's judgement ("your call — I don't care about code design"), and the
    > call is **(i): inside `Resolve`**, so every caller is correct by construction rather than by
-   > remembering. §10.4 has the reasoning and the honest cost — `packsrc` gains an awareness of the
+   > remembering. [§10.4](#104-the-one-question-left-where-does-the-fallback-live) has the reasoning and the honest cost — `packsrc` gains an awareness of the
    > jail's delivery convention, which is a layering smudge worth naming rather than hiding.
 
 2. ✅ **OQ-SC2: should `yolo check` predict this refusal? — WITHDRAWN (2026-08-21)**
 
    **Answer:**
    > Wrong question. `check` is ahead of the launcher here, not behind it: it already resolves the
-   > staged tree and reports `[PASS]`. The general OQ-TP7 concern — a preflight that does not predict a
+   > staged tree and reports `[PASS]`. The general [`OQ-TP7`](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) concern — a preflight that does not predict a
    > launch refusal — stands on its own for the fetched-pack/installer case; this was not an instance
-   > of it. See §10.3.
+   > of it. See [§10.3](#103-why-yolo-check-in-a-jail-was-never-going-to-catch-it).
 
 3. ✅ **OQ-SC3: does the harness isolate `HOME` by default? — RESOLVED (2026-08-21)**
 
    **Answer:**
    > Yes. It finishes the rule `writeProject` already half-enforces by refusing a workspace `packs`
    > key, and no known test wants the machine's config; any that does opts in explicitly and names its
-   > reason. §10.5.
+   > reason. [§10.5](#105-the-separate-defect-integration-tests-read-machine-state).
 
-## Decision Ledger — §10
+## Decision Ledger — [§10](#10-follow-up-2026-08-21-the-launcher-refuses-a-pack-yolo-check-already-calls-delivered)
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-SC1 | The staged-tree fallback lives **inside `packsrc.Store.Resolve`**, not copied into `run` — one writer, every caller correct by construction. Supersedes four withdrawn *inheritance* options; the generated config was never the defect | 2026-08-21 | [§10.2](#102-diagnosis-not-inheritance--a-fix-that-landed-at-one-call-site), [§10.4](#104-the-one-question-left-where-does-the-fallback-live) |
-| OQ-SC2 | **Withdrawn.** "Should `check` predict the refusal" was the wrong question — `check` is ahead of the launcher, already resolving the staged tree and reporting `[PASS]`. The general OQ-TP7 concern stands on its own for the fetched-pack case | 2026-08-21 | [§10.3](#103-why-yolo-check-in-a-jail-was-never-going-to-catch-it) |
+| OQ-SC2 | **Withdrawn.** "Should `check` predict the refusal" was the wrong question — `check` is ahead of the launcher, already resolving the staged tree and reporting `[PASS]`. The general [`OQ-TP7`](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) concern stands on its own for the fetched-pack case | 2026-08-21 | [§10.3](#103-why-yolo-check-in-a-jail-was-never-going-to-catch-it) |
 | OQ-SC3 | The harness **isolates `HOME` by default** for every container test; an ambient-config test must opt in and name its reason | 2026-08-21 | [§10.5](#105-the-separate-defect-integration-tests-read-machine-state) |

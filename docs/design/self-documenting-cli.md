@@ -212,7 +212,7 @@ below are now the substance of the action list.
 This is the sharpest instance of the principle, because the entire mechanism is
 invisible to the CLI today. pi (and every agent) will have its settings
 *regenerated each boot* from a layer stack, reshaped by a user/workspace Lua
-transform. The design is `docs/plans/agent-settings-composition.md` §3/§6/§6.5;
+transform. The design is `docs/plans/agent-settings-composition.md` [§3](../plans/agent-settings-composition.md#3-the-lua-transform--the-abstraction)/[§6](../plans/agent-settings-composition.md#6-yolo-config-render--run-the-pipeline-on-demand)/[§6.5](../plans/agent-settings-composition.md#65-worked-example--the-pi-permission-gate-end-to-end);
 the pure engine largely exists (`internal/agentcfg`, with `gopher-lua`
 vendored). But **the engine is an orphan**: it has no exported pipeline
 entrypoint (`grep '^func [A-Z]' internal/agentcfg/engine.go` → none), nothing
@@ -229,21 +229,21 @@ must exist:
    `yolo --help`. UNBUILT.
 2. **`yolo config render <agent>`** — runs the pipeline (stage → merge → Lua
    transform → enforce → encode), prints what it *would* write, touches no live
-   config. Runs host-side *and* in-jail (§6). This needs an **exported** engine
+   config. Runs host-side *and* in-jail ([§6](../plans/agent-settings-composition.md#6-yolo-config-render--run-the-pipeline-on-demand)). This needs an **exported** engine
    entrypoint (`render()` — which implements the left-to-right layer fold — and
    `mergeDiff()` are both unexported today) plus shipped manifest data for
    pi/claude (only test fixtures exist). UNBUILT.
 3. **`yolo config render pi --explain [KEYPATH]`** — shows which layer/hook won
-   each leaf, *including dropped host keys* (§6.5: `host -> [git-helper,
+   each leaf, *including dropped host keys* ([§6.5](../plans/agent-settings-composition.md#65-worked-example--the-pi-permission-gate-end-to-end): `host -> [git-helper,
    permission-gate]`, then the transform dropped `permission-gate`). The engine
    folds layers but retains no per-leaf provenance today, so provenance tracking
    must be added. UNBUILT.
 4. **`config.lua` placement + the `ctx` API documented in the CLI** — via a
    `config-ref` section or `yolo help config-composition`: the two auto-loaded
    paths (`yolo-jail.config.lua` at repo root, `~/.config/yolo-jail/config.lua`
-   — §3.4), the layer model (`defaults < host < workspace < runtime-overlay <
+   — [§3.4](../plans/agent-settings-composition.md#34-placement-in-config-sandbox-and-safety)), the layer model (`defaults < host < workspace < runtime-overlay <
    managed`), the surface list, and the `ctx` contract (`ctx.config` /
-   `ctx.managed` / `ctx.stage` / `ctx.agent` / `ctx.surface` — §3.2,
+   `ctx.managed` / `ctx.stage` / `ctx.agent` / `ctx.surface` — [§3.2](../plans/agent-settings-composition.md#32-what-the-hook-receives-a-taste--full-worked-example-in-65),
    agent-settings-composition.md:129-133). `config-ref` has zero of this today.
    UNBUILT.
 5. **Lua errors surfaced with file/line via the CLI.** The engine already
@@ -252,7 +252,7 @@ must exist:
    the VM, which no command does. A CLI path (render/check) must execute the VM
    so the error reaches the operator. ENGINE-READY, CLI-UNREACHABLE.
 6. **`yolo config overlay --reset <agent>`** — the escape hatch for the
-   capture-diff overlay (§5/§9). The overlay exists in the engine but is not
+   capture-diff overlay ([§5](../plans/agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay)/[§9](../plans/agent-settings-composition.md#9-decisions-all-settled)). The overlay exists in the engine but is not
    user-operable. UNBUILT.
 
 ### The interrogation sequence an agent SHOULD be able to run
@@ -315,7 +315,7 @@ specify them in the owning backlog items.
    `--format json` and assert the output parses as JSON and contains no ANSI
    escape bytes.
 5. **`yolo config render` fixture vectors** (once built): `inputs → render`
-   byte-checked in `go test`, as §6 anticipates, so the composed output is
+   byte-checked in `go test`, as [§6](../plans/agent-settings-composition.md#6-yolo-config-render--run-the-pipeline-on-demand) anticipates, so the composed output is
    pinned and the Lua/provenance path is exercised without a container.
 
 ## Prioritized action list
@@ -363,14 +363,14 @@ generic CLI items get their own backlog item (proposed:
 9. Build the `config` command group + `yolo config render <agent>`: export an
    engine pipeline entrypoint in `internal/agentcfg`, ship pi/claude manifest
    data, and wire the decode/stage front-end that `internal/entrypoint` must
-   call. → §6.
+   call. → [§6](../plans/agent-settings-composition.md#6-yolo-config-render--run-the-pipeline-on-demand).
 10. Add `--explain [KEYPATH]` provenance (per-leaf layer/hook tracking through
-    the fold, including dropped host keys). → §6.5.
+    the fold, including dropped host keys). → [§6.5](../plans/agent-settings-composition.md#65-worked-example--the-pi-permission-gate-end-to-end).
 11. Document the pipeline in the CLI: a `config-ref` composition section and/or
     `yolo help config-composition` covering config.lua paths, the layer model,
-    the surface list, and the `ctx` API. → §3.
+    the surface list, and the `ctx` API. → [§3](../plans/agent-settings-composition.md#3-the-lua-transform--the-abstraction).
 12. Route Lua errors (file/line) and `yolo config overlay --reset <agent>`
-    through the CLI. → §3.4/§5.
+    through the CLI. → [§3.4](../plans/agent-settings-composition.md#34-placement-in-config-sandbox-and-safety)/[§5](../plans/agent-settings-composition.md#5-surviving-regeneration--the-capture-diff-overlay).
 
 **P2 — stretch (SHOULD; do not block the bar).**
 

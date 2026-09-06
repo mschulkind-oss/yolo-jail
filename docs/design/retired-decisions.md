@@ -8,7 +8,7 @@ leaves only if the decision is *reversed*, and then it leaves with a note saying
 > as *"rejected"* or *"withdrawn"*. If a decision-not-to-build is only ever written into the doc that
 > proposed it, it is discoverable by whoever already knows where to look — which is the failure this
 > file exists to prevent. Two current examples worth moving here when someone passes through:
-> OQ-BP3's coupling (withdrawn for the sprint, still correct outside it) and `publishes: "endpoint"`,
+> [`OQ-BP3`](./broker-as-a-pack.md#decision-ledger)'s coupling (withdrawn for the sprint, still correct outside it) and `publishes: "endpoint"`,
 > whose last user left in August.
 
 **What this is.** Things we decided **not** to build, and architectures we rejected — kept because

@@ -153,15 +153,15 @@ Defaults & validation rules:
 | File | Change |
 |------|--------|
 | `src/cli/config.py:94` | Extend `KNOWN_GPU_KEYS` → `{"enabled","devices","capabilities","vendor","mode","hsa_override_gfx_version","seccomp_unconfined"}`. |
-| `src/cli/config.py:863-900` | Add `vendor`/`mode`/`hsa_override_gfx_version`/`seccomp_unconfined` validation; make capability validation NVIDIA-only; vendor-neutralize the `devices` error text (drop the NVIDIA-only `GPU-<uuid>` framing or make it conditional). See stub §5.1. |
-| `src/cli/loopholes_runtime.py:~415` | Add `_rocm_host_available(runtime)` after `_gpu_host_available`. Update module docstring (`:13`). See stub §5.2. |
+| `src/cli/config.py:863-900` | Add `vendor`/`mode`/`hsa_override_gfx_version`/`seccomp_unconfined` validation; make capability validation NVIDIA-only; vendor-neutralize the `devices` error text (drop the NVIDIA-only `GPU-<uuid>` framing or make it conditional). See stub [§5.1](#51-config-validation-stub-configpy863-900). |
+| `src/cli/loopholes_runtime.py:~415` | Add `_rocm_host_available(runtime)` after `_gpu_host_available`. Update module docstring (`:13`). See stub [§5.2](#52-_rocm_host_available-stub-loopholes_runtimepy415). |
 | `src/cli/loopholes_runtime.py:13` | Docstring enumerates `_gpu_host_available`; add the ROCm twin. |
 | `src/cli/__init__.py:182` | Re-export `_rocm_host_available` alongside `_gpu_host_available` (tests import via `cli.*`). |
 | `src/cli/run_cmd.py:59` | Import `_rocm_host_available`. |
 | `src/cli/run_cmd.py:1280-1286` | Read `gpu_vendor = config.get("gpu",{}).get("vendor","nvidia")`; for `amd` call `_rocm_host_available(runtime)` instead of `_gpu_host_available`; set `gpu_enabled`/`gpu_unavailable_reason` the same way. |
 | `src/cli/run_cmd.py:1303` | Gate the runc/uidmap branch on `gpu_enabled and gpu_vendor == "nvidia"` so AMD falls through to the normal host branch. |
-| `src/cli/run_cmd.py:1620-1645` | After the NVIDIA block, add an `elif gpu_vendor == "amd"` AMD injection block (device nodes / optional CDI / keep-groups / ROCm env). See stub §5.3. |
-| `src/cli/check_cmd.py:902` | Branch the "GPU (NVIDIA)" block on `vendor`; add a parallel "GPU (AMD/ROCm)" path using the same `ok/warn/fail` helpers and the KVM block's device-node + group-membership idiom. See §5.4. |
+| `src/cli/run_cmd.py:1620-1645` | After the NVIDIA block, add an `elif gpu_vendor == "amd"` AMD injection block (device nodes / optional CDI / keep-groups / ROCm env). See stub [§5.3](#53-run_cmd-injection-stub-run_cmdpy-after-the-nvidia-block-1645). |
+| `src/cli/check_cmd.py:902` | Branch the "GPU (NVIDIA)" block on `vendor`; add a parallel "GPU (AMD/ROCm)" path using the same `ok/warn/fail` helpers and the KVM block's device-node + group-membership idiom. See [§5.4](#54-check_cmd-diagnostics-check_cmdpy902). |
 | `src/cli/config_ref_cmd.py:282-301, 389-393` | Retitle to "GPU passthrough (NVIDIA / AMD ROCm)"; document `vendor`/`mode`/AMD prereqs; add an AMD EXAMPLE CONFIG variant. Mark AMD host commands as needs-verification. |
 | `docs/guides/USER_GUIDE.md:602-689` | Add an AMD/ROCm subsection: host setup (`amdgpu-dkms`, render/video groups, optional `amd-ctk cdi generate`), config table, ROCm PyTorch install example, runtime-details row (`/dev/kfd` + renderD* + keep-groups), troubleshooting (kfd permissions, render GID, gfx override, version window). No invented AWS instance types. |
 | `docs/research/platform-comparison.md:28,63,160-164,192-193,261,267-269` | Add an "AMD GPU (ROCm)" matrix row (Linux-only); vendor-neutralize the diagram/macOS warning text; note vendor branching in the detection table. |
@@ -169,7 +169,7 @@ Defaults & validation rules:
 | `docs/research/sandbox-comparison.md:414-416` | Broaden "No NVIDIA GPU passthrough on macOS" → "No NVIDIA or AMD GPU passthrough". |
 | `yolo-jail.jsonc:99-105` | Broaden the commented `gpu` stanza; add a `vendor: "amd"` example; note `capabilities` is NVIDIA-only. |
 | `README.md` | Optional only — add a Features bullet if GPU is advertised top-level; otherwise no change. |
-| `tests/test_cli_unit.py:82,783,3763` | Import `_rocm_host_available`; add `TestRocmHostAvailable` (mirror `TestGpuHostAvailable`); add `gpu`-schema validation tests (vendor/mode/capabilities-for-amd) + backfill missing NVIDIA validation. See §5.5. |
+| `tests/test_cli_unit.py:82,783,3763` | Import `_rocm_host_available`; add `TestRocmHostAvailable` (mirror `TestGpuHostAvailable`); add `gpu`-schema validation tests (vendor/mode/capabilities-for-amd) + backfill missing NVIDIA validation. See [§5.5](#55-probe-unit-test-stub-teststest_cli_unitpy-mirror-testgpuhostavailable). |
 | `tests/test_cli_commands.py:2278` | Add `TestRunRocm` (mirror `TestRunKvm`): positive argv asserts for `/dev/kfd`, renderD nodes, `--group-add keep-groups`, ROCm env; negative companion; assert `mock_popen.called` first; assert no `nvidia.com/gpu`/`NVIDIA_*` leak. |
 | `tests/test_macos_paths.py:375,676` | Add AMD cases to `TestMacosGpuSkip` (no `/dev/kfd`/`/dev/dri`/`amd.com/gpu`) and a ROCm `check` diagnostics test. |
 
@@ -445,7 +445,7 @@ Verified on an **AMD Radeon 8060S (gfx1151, Strix Halo APU; PCI `1002:1586`)**, 
 
 **Two real bugs were found and fixed during verification** (neither was observable in-jail):
 
-- **`ROCR_VISIBLE_DEVICES=all` hides the GPU.** The original injection set `ROCR_VISIBLE_DEVICES={devices}` / `HIP_VISIBLE_DEVICES={devices}` unconditionally. Unlike NVIDIA's `NVIDIA_VISIBLE_DEVICES`, the ROCr/HSA selector does **not** accept the literal `"all"` — it matches no device, so `torch.cuda.is_available()` returns `False` and `rocminfo` shows only the CPU agent. Since `devices` defaults to `"all"`, **the default AMD config shipped a GPU-less container.** Fix (`run_cmd.py`): omit both env vars when `devices == "all"` (ROCm's own "all visible" default); emit them only for explicit indices/UUIDs. (The design §4.3 had hedged "skip when `devices=="all"` is fine, or pass `all`" — the "skip" branch is the correct one.)
+- **`ROCR_VISIBLE_DEVICES=all` hides the GPU.** The original injection set `ROCR_VISIBLE_DEVICES={devices}` / `HIP_VISIBLE_DEVICES={devices}` unconditionally. Unlike NVIDIA's `NVIDIA_VISIBLE_DEVICES`, the ROCr/HSA selector does **not** accept the literal `"all"` — it matches no device, so `torch.cuda.is_available()` returns `False` and `rocminfo` shows only the CPU agent. Since `devices` defaults to `"all"`, **the default AMD config shipped a GPU-less container.** Fix (`run_cmd.py`): omit both env vars when `devices == "all"` (ROCm's own "all visible" default); emit them only for explicit indices/UUIDs. (The design [§4.3](#43-device-injection-strategy) had hedged "skip when `devices=="all"` is fine, or pass `all`" — the "skip" branch is the correct one.)
 - **`yolo check` mislabeled non-GPU HSA agents as GPUs.** `rocminfo` enumerates every HSA agent — the CPU, and on this APU an NPU/DSP (`RyzenAI-npu5`) — and the check reported each `Marketing Name:` as "GPU detected". Fix (`check_cmd.py`): only report agents whose `Device Type:` is `GPU`.
 
 Resolutions to the questions above:
@@ -494,7 +494,7 @@ Resolutions to the questions above:
 
 #### Original diagnosis (ROCm 7.1.1 nixpkgs userspace, 2026-06-05)
 
-A follow-up test running ROCm **inside a persistent yolo jail** (same GPU; jail kernel `7.0.7-zen`, nixpkgs ROCm 7.1.1 userspace) surfaced a blocker that the §7.1 host argv-replay did **not** hit: **GPU kernel dispatch fails at command-queue creation.** `strace`/`gdb` traced it to ground truth:
+A follow-up test running ROCm **inside a persistent yolo jail** (same GPU; jail kernel `7.0.7-zen`, nixpkgs ROCm 7.1.1 userspace) surfaced a blocker that the [§7.1](#71-resolved-on-hardware-2026-06-05) host argv-replay did **not** hit: **GPU kernel dispatch fails at command-queue creation.** `strace`/`gdb` traced it to ground truth:
 
 ```
 ioctl(AMDKFD_IOC_CREATE_QUEUE, ...) = -1 EINVAL   ← only failing call
@@ -503,7 +503,7 @@ ioctl(AMDKFD_IOC_CREATE_QUEUE, ...) = -1 EINVAL   ← only failing call
 
 **Root cause:** KFD must pin (mlock) a **~13.3 MB queue ring buffer** to create a command queue, but the container's `RLIMIT_MEMLOCK` is capped at **8 MB**. The cap is kernel-hard — `ulimit -l unlimited` silently fails inside the jail — so pin > memlock ⇒ `CREATE_QUEUE` EINVAL. Everything *up to* dispatch works (device open, `rocminfo`, KFD version negotiation, `hipMalloc`, H2D `hipMemcpy`); only queue creation fails. This is the well-known container-GPU requirement; AMD's docs prescribe `--ulimit memlock=-1`.
 
-**Why §7.1 didn't see it:** §7.1 verified by replaying yolo's argv as a fresh host `podman run`, which inherited the host shell's higher locked-memory limit. The *persistent* jail process inherits the restrictive 8 MB cap instead. Both observations are real; they differ only in the inherited `RLIMIT_MEMLOCK`.
+**Why [§7.1](#71-resolved-on-hardware-2026-06-05) didn't see it:** [§7.1](#71-resolved-on-hardware-2026-06-05) verified by replaying yolo's argv as a fresh host `podman run`, which inherited the host shell's higher locked-memory limit. The *persistent* jail process inherits the restrictive 8 MB cap instead. Both observations are real; they differ only in the inherited `RLIMIT_MEMLOCK`.
 
 **The non-obvious constraint (empirically established):** `--ulimit memlock=-1` (unlimited) is what AMD's *rootful* Docker docs prescribe, but a **rootless** podman container **cannot raise `RLIMIT_MEMLOCK` above the host process's hard cap** — `crun` calls `setrlimit` and gets `EPERM`, and the container **fails to start**. Verified in a nested jail on this host (hard cap 8 MB):
 

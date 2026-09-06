@@ -26,7 +26,7 @@ proposal — this doc is the higher-level frame around it),
 **Two questions this doc raised and does not answer** — *how would pack-shipped logic be
 built and cached?* and *where does the config system end and the jail begin?* — are
 answered in [what-yolo-is.md](what-yolo-is.md). Its findings sharpen con 2 and the
-§6 ranking below; read it before deciding between bets A/B/C.
+[§6](#6-the-shape-of-a-decision) ranking below; read it before deciding between bets A/B/C.
 
 ---
 
@@ -170,7 +170,7 @@ Three of four kinds never touch the image. So the split you're pointing at is re
   kind, because the kind determines what has to be true for the thing to work. If authors
   declare their own tier, we get a fourth place to pin a tool version — which is precisely
   the anti-pattern the existing `packages` / `mise_tools` / project-manifest three-way rule
-  exists to prevent (§5, "weak candidates").
+  exists to prevent ([§5](#5-what-else-could-be-extracted-this-way), "weak candidates").
 
 ### Where the image boundary actually falls
 
@@ -286,7 +286,7 @@ surfaces.
 - **It kills the N×M problem.** Six agents × every MCP source is currently six hand-written
   builders that must each be updated. With exports it is N projections + M definitions.
 - **It makes the pack system compositional**, which is the actual justification for packs
-  as an *architecture* rather than a sharing feature (§6's bet B vs A). A flat pack set is
+  as an *architecture* rather than a sharing feature ([§6](#6-the-shape-of-a-decision)'s bet B vs A). A flat pack set is
   just a config file with extra steps; a typed graph is a system.
 - **It generalizes past MCP for free.** LSP servers, blocked tools and tool requirements
   have the same shape: one definition, N agent dialects. `mcp_servers` is the first export

@@ -10,7 +10,7 @@ summary: "Four delivery classes, one of which keeps no record and is never re-de
 
 **Status:** DECIDED, 2026-08-24; implementation underway the same day. All ten questions are
 ruled (the [Decision Ledger](#decision-ledger)). Shipped: the mise half of step one and the
-evergreen removal (`a16403e2`), the §6.2 tolerance (`0a4d241c`), step one's receipts and step
+evergreen removal (`a16403e2`), the [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) tolerance (`0a4d241c`), step one's receipts and step
 four's informational catalog (`af46c9b4`), and **the reconcile verb (`43f28ce8`)**; the removal act,
 obey, and capture remain — [§10](#10-what-i-would-build-in-order). ⚠ *This line listed the reconcile
 as remaining until 2026-09-03; it had shipped (`internal/entrypoint/reconcile.go:83`). The roadmap
@@ -20,17 +20,17 @@ SHA left behind.* Every fact below is labelled
 observed running) or **NOT MEASURED**.
 
 > [!IMPORTANT]
-> **AMENDED 2026-09-03 — the doc reopened, and §3.5 is the amendment.** This document ruled
+> **AMENDED 2026-09-03 — the doc reopened, and [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) is the amendment.** This document ruled
 > *no-evergreen* as a principle covering every resolver ([OQ-PD3](#decision-ledger)) and rejected
 > install-at-launch ([§5.4](#54-a4--regenerate-or-reconcile-every-launch)). Six weeks of
 > measurement say the principle reached across a boundary it could not see: **an agent CLI and a
-> project toolchain are different kinds of dependency and want opposite policies.** §3.5 draws that
+> project toolchain are different kinds of dependency and want opposite policies.** [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) draws that
 > boundary and rules agent dependencies **evergreen**. Four new rulings
 > ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger)) and two further questions
 > ([OQ-PD15](#decision-ledger), [OQ-PD16](#decision-ledger)) followed from it and were both
 > ruled the same day, so the doc is `decided` again with **zero** open questions.
 >
-> **§1–§10 otherwise describe the design as ruled on 2026-08-24 and are unchanged.** Where §3.5
+> **[§1](#1-the-verdict-and-five-principles)–[§10](#10-what-i-would-build-in-order) otherwise describe the design as ruled on 2026-08-24 and are unchanged.** Where [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)
 > narrows an earlier ruling, the ledger row says so in place — no row was deleted, and no section
 > was renumbered, because both are cited from code.
 
@@ -59,8 +59,8 @@ is the evidence; [§6](#6-the-general-seam-one-ledger-many-resolvers) is the ans
 when another mechanism comes along we can't control?"*
 
 **Scope note — this is a UNIFORMITY doc, not a security doc.** The trust half is already ruled:
-[`trust-paths.md`](trust-paths.md) OQ-TP5 killed silent evergreen updates, OQ-TP6 made a refused
-contribution a refused launch, and OQ-TP2 ruled that regenerated agent context needs no gate.
+[`trust-paths.md`](trust-paths.md) [`OQ-TP5`](./trust-paths.md#decision-ledger) killed silent evergreen updates, [`OQ-TP6`](./pack-execution-trust.md#decision-ledger) made a refused
+contribution a refused launch, and [`OQ-TP2`](./trust-paths.md#decision-ledger) ruled that regenerated agent context needs no gate.
 Nothing here re-argues any of that, and nothing here claims supply-chain integrity — a receipt that
 records *what you got* is not an attestation that it is *what someone published*.
 [§8](#8-where-this-sits-against-the-sibling-docs) says exactly which sibling questions this
@@ -98,7 +98,7 @@ A lockfile buys determinism, on the mechanisms it can reach. It is a third of th
 
 **P2. Cadence decides venue.** Bake what moves on *yolo's own* release cadence; deliver at launch
 what moves on someone else's. This is [`image-staging-vs-baking.md`](image-staging-vs-baking.md)
-§1's stratification finding restated as a placement rule, and it is why "bake everything" is not
+[§1](./image-staging-vs-baking.md#1-the-cost-model)'s stratification finding restated as a placement rule, and it is why "bake everything" is not
 the answer to a class whose whole problem is that it moves when we do not
 ([§5.1](#51-a1--bake-everything-into-the-image)).
 
@@ -164,7 +164,7 @@ nothing ever compares the lockfile to the disk.
 
 > [!NOTE]
 > **Class 2 is the existence proof that regeneration works, and it was ruled from the other
-> direction.** [`trust-paths.md`](trust-paths.md) OQ-TP2 decided that skills and briefing prose need
+> direction.** [`trust-paths.md`](trust-paths.md) [`OQ-TP2`](./trust-paths.md#decision-ledger) decided that skills and briefing prose need
 > no gate because the commit pin closes over them. The uniformity reading is different and reaches
 > the same place: they need no pin because they are **rebuilt**, not installed. **MEASURED:** over
 > 1,600 per-workspace staging dirs exist under `~/.local/share/yolo-jail/agents/`, and every one of
@@ -172,7 +172,7 @@ nothing ever compares the lockfile to the disk.
 
 ### 3.5 The second axis: who the dependency serves (**AMENDMENT, 2026-09-03**)
 
-§3 classifies by **how** something is delivered and [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)
+[§3](#3-four-delivery-classes-and-the-rule-that-falls-out) classifies by **how** something is delivered and [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)
 by **how much control** yolo has over the resolution. Neither asks the question that decides the
 update policy: **who is this dependency for?** That is the axis this amendment adds, and the two
 answers want opposite things.
@@ -211,7 +211,7 @@ sibling docs can cite it, as P1–P5 are.)*
 **This narrows [OQ-PD3](#decision-ledger) rather than reversing it.** That ruling said *"no-evergreen
 extends to mise — it is a principle, not an npm fix."* The mise half stands and is untouched: mise
 tools are project dependencies and they pin. What breaks is the word **principle** — the claim that
-it reaches every resolver. It does not reach the agent class, and the four npm packages OQ-TP5
+it reaches every resolver. It does not reach the agent class, and the four npm packages [`OQ-TP5`](./pack-execution-trust.md#decision-ledger)
 covered (pi, copilot, codex, opencode) are all in that class.
 
 #### What "evergreen" means, precisely
@@ -322,7 +322,7 @@ check is `internal/entrypoint/launchercollision.go`.
 
 ##### The four things an implementer would otherwise have to guess
 
-*Added 2026-09-03 after reading §3.5 back as the implementer rather than the author. Each of these
+*Added 2026-09-03 after reading [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) back as the implementer rather than the author. Each of these
 had a behaviour attached to it that the prose implied and did not state.*
 
 **1. The knob is `agent_updates`, and it is USER-SCOPE ONLY.** Either a bool or a per-pack map, with
@@ -344,9 +344,9 @@ repo and is agent-editable, which is the stated reason `packs` is read from `pat
 directly rather than from the merged config (`internal/config/packs.go`). A key that lets whatever
 is running in the jail freeze its own updates belongs to the same family, and a workspace-scoped
 spelling would hand an agent the switch. **A pack may not opt itself out** — the pack declares how
-to update (OQ-PD14), never whether to.
+to update ([`OQ-PD14`](#decision-ledger)), never whether to.
 
-**2. MCP and LSP servers ARE in the class, and the mechanism has a second call site.** §3.5's
+**2. MCP and LSP servers ARE in the class, and the mechanism has a second call site.** [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s
 definition includes them, and its own test confirms it rather than merely permitting it: nobody's
 build reproduces against `pyright`, and a six-week-old language server is a defect. But they are
 **not** pack `program` contributions — they arrive through the bootstrap
@@ -414,7 +414,7 @@ against the same prefix.
 **4. `yolo pack update` stays, with a smaller job.** It is no longer the only way an agent moves, but
 it is still the way to move one **now** — without restarting the jail — and the only way to refresh
 a pack whose `agent_updates` is `false`. Its current npm-only restriction
-(`internal/cli/packupdate.go:141` skips every non-`npm` kind) goes away with OQ-PD14's declared
+(`internal/cli/packupdate.go:141` skips every non-`npm` kind) goes away with [`OQ-PD14`](#decision-ledger)'s declared
 verb; it walks the same set the launchers do.
 
 > [!NOTE]
@@ -463,7 +463,7 @@ to reach into it. That deletes most of what eager-at-boot required:
 ##### Per-agent facts, verified 2026-09-03
 
 Everything [OQ-PD13](#decision-ledger) and [OQ-PD14](#decision-ledger) need in order to say which
-pack changes how. The three left unverified when §3.5 was first written are closed here.
+pack changes how. The three left unverified when [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) was first written are closed here.
 
 | Pack | Today | Native installer | Pins? | Self-updates once native | Update verb |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -560,7 +560,7 @@ get the same bytes?"* — no, and nothing anywhere notices.
 > | `@earendil-works/pi-coding-agent` | 0.82.1 | 2026-07-25 | **0.84.4** |
 > | `claude` (installer class) | 2.1.220 | 2026-07-24 | — |
 >
-> **Six weeks, every agent, including the installer class.** §4.1 predicted freeze; freeze is now
+> **Six weeks, every agent, including the installer class.** [§4.1](#41-freeze-an-agent-cli-is-whatever-latest-meant-the-day-that-workspace-first-ran-it) predicted freeze; freeze is now
 > the observed steady state of the whole fleet. Two mechanisms that were supposed to prevent it were
 > each measured inert: the launcher is PATH-shadowed ([OQ-PD8](#decision-ledger)), and
 > `"$REAL_BIN" install` — the installer launcher's hourly call — carries no `--force` and no target,
@@ -613,7 +613,7 @@ get the same bytes?"* — no, and nothing anywhere notices.
 ### 4.2 Drift: mise is machine-global, evergreen every launch, and repoints aliases in place
 
 `setupScript` ran `mise install --quiet && mise upgrade --yes` **unconditionally on every launch**
-until `a16403e2` removed the upgrade — OQ-PD3's ruling landing; the launch now installs only, and
+until `a16403e2` removed the upgrade — [`OQ-PD3`](#decision-ledger)'s ruling landing; the launch now installs only, and
 a workspace `mise.lock` governs resolution when present (`internal/cli/run/command.go:15-25`). The
 diagnosis below is preserved because the store's shape is unchanged and the fossil record is the
 evidence for everything else in this section. The store is a single bind —
@@ -735,7 +735,7 @@ versioned directory is immutable only until shared garbage collection takes it, 
 > and nothing recorded that anything changed.
 
 **Why this matters for the design rather than being a mise complaint.** It splits the fix cleanly,
-and the split is the same one §3 draws for every delivery class:
+and the split is the same one [§3](#3-four-delivery-classes-and-the-rule-that-falls-out) draws for every delivery class:
 
 - the **content** half is already right — sharing immutable versioned installs across workspaces is
   the download-once-reuse-everywhere property this design wants everywhere else;
@@ -849,7 +849,7 @@ The stamp/spec split is the shape of the bug this causes, already in production:
 whose homes hold four npm-installed agent CLIs. That is not a missing
 *field* — it is a missing *row*: `LockEntry` (`internal/packsrc/lock.go:33-42`) exists per
 **fetched** pack, `Commit` is documented *"empty for a local pack"*, and every npm-declaring pack is
-**embedded**. The file is also, per [`trust-paths.md`](trust-paths.md) §1, display-only: its
+**embedded**. The file is also, per [`trust-paths.md`](trust-paths.md) [§1](./trust-paths.md#1-the-verdict), display-only: its
 `Commit`/`Ref` readers all print and none gate.
 
 `/workspace/.yolo/boot.log` records the yolo version, runtime, loopback disposition and surface
@@ -869,14 +869,14 @@ number is [`image-staging-vs-baking.md`](image-staging-vs-baking.md)'s.
 provably uniform. The input is `flake.lock`, not a registry; the build is hermetic; the resolution is
 recorded. If uniformity were the only axis, this would win outright.
 
-**Rebuild cadence — the maintainer's own objection, priced.** §1.1 there: **60.5 %** of a 200-commit
-window already forces an image rebuild, and §1.4: the two most recently loaded images differ by
+**Rebuild cadence — the maintainer's own objection, priced.** [§1.1](./image-staging-vs-baking.md#11-what-triggers-a-rebuild-and-how-often) there: **60.5 %** of a 200-commit
+window already forces an image rebuild, and [§1.4](./image-staging-vs-baking.md#14-the-amplification-factor--the-number-this-doc-exists-for): the two most recently loaded images differ by
 **one package, a 180.2 KiB delta**, for which the pipeline wrote a fresh **3.28 GiB** tar and ran a
-full `podman load`. §1.5: `packages:` is workspace-settable and there is one `:latest` tag, so two
+full `podman load`. [§1.5](./image-staging-vs-baking.md#15-the-multiplication-factor-packages-and---impure): `packages:` is workspace-settable and there is one `:latest` tag, so two
 workspaces with different lists **reload the whole image on every alternation, forever**. Adding
 agent CLIs to that set means every CLI bump is an image rebuild and a multi-gigabyte reload for
 everyone on the machine — and it couples an agent vendor's release cadence to yolo's, which is
-exactly the cost [`trust-paths.md`](trust-paths.md) OQ-TP4 option (a) named.
+exactly the cost [`trust-paths.md`](trust-paths.md) [`OQ-TP4`](./trust-paths.md#decision-ledger) option (a) named.
 
 **The download problem inverts rather than disappears.** **MEASURED:** the npm download cache is
 already machine-global and holds **672 MB** (`~/.cache/npm/_cacache`, plus an `_npx` tree — so
@@ -933,7 +933,7 @@ boot.
 | the receipt's file format | `packs.lock.json` — schema-versioned, already the place a resolution would go |
 
 **What it costs.** A new artifact class and its retention policy — and this repo's track record there
-is 404 GiB of image tars accrued in 24 days (`image-staging` §1.6), plus **MEASURED** just over 1 GB
+is 404 GiB of image tars accrued in 24 days (`image-staging` [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk)), plus **MEASURED** just over 1 GB
 of claude builds (4 versions, 2.1.165–2.1.220) sitting in one workspace's
 `~/.local/share/claude/versions`. It also has a genuine cold-start hole: the first resolve has no
 receipt to obey, so *something* resolves, and the honest answer is that the update act does it in
@@ -997,7 +997,7 @@ prebuilding and materializing.* Worked out, that observation is bigger than a ve
 
 **Class 1 is already the existence proof, inside yolo.** `flake.lock` is an ecosystem-native,
 repo-committed lockfile; a third party resolves it; the bytes live in a machine-global
-content-addressed store; materialization is on demand and offline once the store is warm. §3's rule
+content-addressed store; materialization is on demand and offline once the store is warm. [§3](#3-four-delivery-classes-and-the-rule-that-falls-out)'s rule
 was "make class 3 behave like class 1" — and the cheapest implementation is not to rebuild class
 1's machinery in a yolo ledger, but to **adopt each ecosystem's own `flake.lock`-equivalent** and
 let yolo orchestrate.
@@ -1017,7 +1017,7 @@ expected:**
   ending — *the aliases become an implementation detail nobody resolves through* — delivered by
   mise itself, driven from a repo-committed file.
 
-So for lockfile-capable ecosystems, four of §6's six verbs come free: *declare* is the config that
+So for lockfile-capable ecosystems, four of [§6](#6-the-general-seam-one-ledger-many-resolvers)'s six verbs come free: *declare* is the config that
 already exists, *resolve* + *record* are their lock command, *materialize* is their
 install-from-lock. What yolo writes is orchestration: the launch runs install-from-lock instead of
 `install && upgrade --yes` (which is exactly [OQ-PD3](#decision-ledger)'s ruling landing), the
@@ -1025,7 +1025,7 @@ update act runs the ecosystem's update and leaves a **reviewable repo diff** —
 like any other, which bots can own — and the reconcile reads their lock.
 
 **The record follows the declaration's scope — ruled ([OQ-PD1](#decision-ledger), shape (d)).** It
-untangles §4.4's three-scope knot without inventing anything:
+untangles [§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected)'s three-scope knot without inventing anything:
 
 | Declaration | Scope | Its lock | The bytes |
 | :--- | :--- | :--- | :--- |
@@ -1034,7 +1034,7 @@ untangles §4.4's three-scope knot without inventing anything:
 
 A repo must **not** pin the user half: pack selection is ruled user-level
 (`internal/config/packs.go:20-24`), agent vendors release weekly (churn PRs in every repo that
-pinned them), and a repo lock over a user declaration would recreate §4.4's scope mismatch in the
+pinned them), and a repo lock over a user declaration would recreate [§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected)'s scope mismatch in the
 other direction. The split is also [OQ-PD2](#decision-ledger)'s ruling: reading (c) — colleague
 parity — is in scope for the project toolchain and stays out for user tools. Scope agreement (P1)
 is achieved differently than by co-locating receipt and bytes: the record sits with its
@@ -1051,7 +1051,7 @@ the nix model, generalised.
   downloads), but `npm install -g` keeps one version per prefix — yolo must choose
   version-addressed install prefixes. Mechanical, not conceptual;
 - the **report**: *"what did this jail get"* = read the native locks, plus yolo's gap receipts,
-  plus the enumeration of the unmanaged tier (§6.1);
+  plus the enumeration of the unmanaged tier ([§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control));
 - the **cold start** is unchanged from A3: no lock yet → the first update act creates it, in the
   open.
 
@@ -1068,7 +1068,7 @@ full-launch behaviour under `MISE_LOCKFILE`); and a repo-committed lock imports 
 fallback.
 
 > **Verdict: adopt, as the preferred realization of A3 wherever a native lockfile exists.** A3's
-> yolo-owned receipt survives only for the gaps. This also settled one §6 design decision
+> yolo-owned receipt survives only for the gaps. This also settled one [§6](#6-the-general-seam-one-ledger-many-resolvers) design decision
 > ([OQ-PD5](#decision-ledger)): the ledger is N native records under **one reader**, not one store
 > of opaque identities. And whether yolo may add a repo-committed file of its *own* is ruled
 > ([OQ-PD9](#decision-ledger)): native formats whenever one exists; yolo's own only when the work
@@ -1130,7 +1130,7 @@ resolved to and we compare it; making it *obey* goes through mise's own lockfile
 standalone setting flipped ahead of it. The per-launch `mise upgrade --yes` was a stopgap and does
 not survive the seam: `resolve` runs only on an explicit update act, for every resolver.
 Representability is measured, not open: `/mise` is machine-global but mise's lock is per config
-root, and §5.6 drove a workspace-local `mise.lock` against the shared store — so a per-workspace
+root, and [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) drove a workspace-local `mise.lock` against the shared store — so a per-workspace
 pin is expressible today. For mechanisms with **no** native lock, the record is the user-scope gap
 receipt ([OQ-PD1](#decision-ledger)).
 
@@ -1159,7 +1159,7 @@ whatever — and for things we can't lock at all?*
 
 **The problem, precisely.** A vendor installer is a program that runs arbitrary logic and leaves
 arbitrary state. claude's keeps its own versions directory and self-updates (four builds, just over
-1 GB, per workspace — §5.3); `agy` is a 189 MB opaque binary. There is nothing to lock because the
+1 GB, per workspace — [§5.3](#53-a3--pin-and-cache-declare--resolve--record--materialize-proposed)); `agy` is a 189 MB opaque binary. There is nothing to lock because the
 vendor never publishes a lockable artifact: **the installer run itself is the resolution.** A
 receipt can record what the run left behind, but it cannot make a second run leave the same thing.
 This is also the class [OQ-PD9](#decision-ledger) anticipated: no native lock exists to borrow, so
@@ -1288,7 +1288,7 @@ GENERATED launcher, which only exists in a home `darwin-bootstrap` has rendered 
 capture bootstraps its throwaway home exactly as a launch bootstraps the shared one.
 
 **Why not image layers** — the obvious-looking alternative, rejected three ways: `macos-user` has
-no image at all; a layer couples every capture to the image rebuild/reload cadence that §5.1
+no image at all; a layer couples every capture to the image rebuild/reload cadence that [§5.1](#51-a1--bake-everything-into-the-image)
 priced (a 3.28 GiB tar for a 180.2 KiB delta); and a layer is container-shaped while the capture
 must serve all three backends. The capture is a plain filesystem artifact — backend-neutral, CAS
 resident, materialized the same way everywhere.
@@ -1296,7 +1296,7 @@ resident, materialized the same way everywhere.
 **What it buys beyond lockability:**
 
 - the per-workspace refetch cost dies — today claude and `agy` are re-downloaded per workspace
-  because `~/.local` is a per-workspace bind (§5.3); a capture is fetched once per machine and
+  because `~/.local` is a per-workspace bind ([§5.3](#53-a3--pin-and-cache-declare--resolve--record--materialize-proposed)); a capture is fetched once per machine and
   materialized by unpack;
 - **vendor self-updaters are structurally neutered**: the materialized tree comes from the capture,
   so a self-update is either disabled or becomes *drift the reconcile reports* — and an update
@@ -1312,9 +1312,9 @@ the argv, so a receipt can pin `pkg@version` into the render — the self-update
 unreachable member, and capture is its answer.
 
 Adoption is **ruled** ([OQ-PD10](#decision-ledger)): capture ships as the installer resolver's
-implementation of *record* + *materialize*, sequenced last (§10) — an ephemeral jail plus a
+implementation of *record* + *materialize*, sequenced last ([§10](#10-what-i-would-build-in-order)) — an ephemeral jail plus a
 snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an
-image layer. Distributing captures between machines is deliberately out of scope (§7): a capture
+image layer. Distributing captures between machines is deliberately out of scope ([§7](#7-what-this-does-not-cover)): a capture
 made here is used here, and publishing one is a provenance question for
 [`trust-paths.md`](trust-paths.md).
 
@@ -1323,18 +1323,18 @@ made here is used here, and publishing one is a provenance question for
 ## 7. What this does NOT cover
 
 - **Security and trust.** [`trust-paths.md`](trust-paths.md) owns it. This doc does not re-argue
-  OQ-TP5 (no evergreen npm), does not propose new gates, and **does not claim integrity**: a receipt
+  [`OQ-TP5`](./pack-execution-trust.md#decision-ledger) (no evergreen npm), does not propose new gates, and **does not claim integrity**: a receipt
   records what you got, not that it is what a publisher signed. No digests of yolo's own, no
   attestation, no SBOM — a borrowed lockfile may carry its ecosystem's checksums (`mise.lock` does,
   [§5.6](#56-a6--borrow-the-ecosystems-lockfiles)), but verifying them is that ecosystem's
   behaviour, not a yolo guarantee.
 - **The image cost model.** [`image-staging-vs-baking.md`](image-staging-vs-baking.md) owns rebuild
-  frequency, tar sizes, content-addressed tags and the binary cache. §5.1 here *cites* those numbers
+  frequency, tar sizes, content-addressed tags and the binary cache. [§5.1](#51-a1--bake-everything-into-the-image) here *cites* those numbers
   and adds none.
 - **Whether `packages:` should stay workspace-scope.** Ruled 2026-08-25 — it does (`image-staging`
-  OQ-4, *"yes, has to be"*); fix the cost, not the scope.
+  [`OQ-4`](./image-staging-vs-baking.md#101-decision-ledger), *"yes, has to be"*); fix the cost, not the scope.
 - **Agent context** — skills, briefings, config surfaces. Regenerated every launch (class 2), ruled
-  by OQ-TP2, and out of scope here for the same reason.
+  by [`OQ-TP2`](./trust-paths.md#decision-ledger), and out of scope here for the same reason.
 - **Offline or air-gapped operation as a goal.** Reconcile must work offline; *first* resolve need
   not.
 - **Reproducible builds of the agents themselves.** We record what a registry served; we do not
@@ -1352,10 +1352,10 @@ made here is used here, and publishing one is a provenance question for
 
 ## 8. Where this sits against the sibling docs
 
-### 8.1 `trust-paths.md` — what this RETIRES and what it INHERITS
+### 8.1 [`trust-paths.md`](./trust-paths.md) — what this RETIRES and what it INHERITS
 
 > [!IMPORTANT]
-> This document does not edit `trust-paths.md`. The dispositions below are proposed here and are
+> This document does not edit [`trust-paths.md`](./trust-paths.md). The dispositions below are proposed here and are
 > applied there by whoever lands this.
 
 - **RETIRES [OQ-TP4](trust-paths.md#decision-ledger) — *"where does an EMBEDDED pack's npm version get pinned?"*** —
@@ -1365,48 +1365,48 @@ made here is used here, and publishing one is a provenance question for
   superseded by [OQ-PD1](#decision-ledger) (where the receipt lives — now ruled) and
   [OQ-PD5](#decision-ledger) (also ruled). **What survives verbatim and must
   not be re-derived:** TP4's cost analysis of option (a) — pinning in the manifest makes yolo's
-  release cadence the ceiling on agent-CLI freshness — is the same objection A1 hits in §5.1, and
+  release cadence the ceiling on agent-CLI freshness — is the same objection A1 hits in [§5.1](#51-a1--bake-everything-into-the-image), and
   TP4's leaning toward the lockfile is preserved in A3's shape.
 - **INHERITS [OQ-TP3](trust-paths.md#decision-ledger)'s still-open half** — *is yolo's own embedded pack required to
   pin, and is a fetched pack required or merely permitted?* Restated at wider scope and **ruled** as
   [OQ-PD6](#decision-ledger): once a receipt exists, a declaration need not carry a pin, because
   the receipt is the pin — which is what answers TP3's inherited half.
-- **Unchanged by this doc:** OQ-TP5's ruling and OQ-TP6's fatal. §5.2's finding that the launcher is
+- **Unchanged by this doc:** [`OQ-TP5`](./pack-execution-trust.md#decision-ledger)'s ruling and [`OQ-TP6`](./pack-execution-trust.md#decision-ledger)'s fatal. [§5.2](#52-a2--lazy-install-from-a-launcher-the-status-quo)'s finding that the launcher is
   PATH-shadowed after first use does not dispute the ruling — it showed the *reporting* half it
   built never executes, which is now settled ([OQ-PD8](#decision-ledger)): the channel moves to the
   boot catalog and the update verb.
-  [OQ-PD3](#decision-ledger)'s ruling *extends* OQ-TP5 rather than touching it: no-evergreen is now
+  [OQ-PD3](#decision-ledger)'s ruling *extends* [`OQ-TP5`](./pack-execution-trust.md#decision-ledger) rather than touching it: no-evergreen is now
   a principle covering every resolver, not an npm fix.
 
 > [!IMPORTANT]
 > **SUPERSEDED 2026-09-03 by the amendment.** The bullet directly above is the one claim in this
-> section the amendment reverses: **OQ-TP5 is no longer unchanged — it is superseded.** Its four
+> section the amendment reverses: **[`OQ-TP5`](./pack-execution-trust.md#decision-ledger) is no longer unchanged — it is superseded.** Its four
 > packages (pi, copilot, codex, opencode) are all agent dependencies, so *"no evergreen npm"* is
 > now false of every member it had ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
-> [OQ-PD12](#decision-ledger)). OQ-TP6's fatal is genuinely untouched — it is about consent, not
+> [OQ-PD12](#decision-ledger)). [`OQ-TP6`](./pack-execution-trust.md#decision-ledger)'s fatal is genuinely untouched — it is about consent, not
 > cadence.
 >
-> **The dispositions this section proposed have now been applied in `trust-paths.md`** (2026-09-03),
-> which is what the note at the head of §8.1 asked whoever landed this to do. OQ-TP3 and OQ-TP4 are
-> retired there into its Decision Ledger with pointers here; OQ-TP5's row is marked superseded
-> rather than deleted, and its `§1 row 1` anchor is preserved with a superseding note **because six
+> **The dispositions this section proposed have now been applied in [`trust-paths.md`](./trust-paths.md)** (2026-09-03),
+> which is what the note at the head of [§8.1](#81-trust-pathsmd--what-this-retires-and-what-it-inherits) asked whoever landed this to do. [`OQ-TP3`](./trust-paths.md#decision-ledger) and [`OQ-TP4`](./trust-paths.md#decision-ledger) are
+> retired there into its Decision Ledger with pointers here; [`OQ-TP5`](./pack-execution-trust.md#decision-ledger)'s row is marked superseded
+> rather than deleted, and its [`§1 row 1`](./trust-paths.md#1-the-verdict) anchor is preserved with a superseding note **because six
 > code sites cite it** (`internal/cli/pack.go:190`, `internal/cli/packupdate.go:9`,
 > `internal/entrypoint/shims.go:622` and `:729`, plus two tests). Those comments describe code that
 > still behaves as written; they become wrong only when the evergreen work lands, and that is the
 > commit that must update them.
 
-### 8.2 `image-staging-vs-baking.md` — a framing inversion, not a contradiction
+### 8.2 [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) — a framing inversion, not a contradiction
 
 No factual claim here contradicts that document, and its numbers are used as authoritative. But the
 two rank the same fact oppositely, and a reader moving between them should know:
 
 | Fact | `image-staging` reads it as | this doc reads it as |
 | :--- | :--- | :--- |
-| Agent CLIs, mise tools and LSP servers are delivered at launch, never baked | a **virtue** — §5's "ALREADY DELIVERED" column, the reason the image is cheap | the **source of all divergence** (§3, §4) |
+| Agent CLIs, mise tools and LSP servers are delivered at launch, never baked | a **virtue** — [§5](#5-alternatives-each-with-a-verdict)'s "ALREADY DELIVERED" column, the reason the image is cheap | the **source of all divergence** ([§3](#3-four-delivery-classes-and-the-rule-that-falls-out), [§4](#4-how-two-jails-diverge-today-measured)) |
 
 **Both are true, and P2 reconciles them:** delivery is right for cost and wrong for uniformity, and
 the missing piece is not the venue but the receipt. Anyone proposing to bake more must clear
-`image-staging` §1's cost model *and* its R2 (a package both baked and staged silently runs the baked
+`image-staging` [§1](#1-the-verdict-and-five-principles)'s cost model *and* its R2 (a package both baked and staged silently runs the baked
 one) before this document's uniformity argument is even reached.
 
 ---
@@ -1415,15 +1415,15 @@ one) before this document's uniformity argument is even reached.
 
 | # | Risk | Mitigation |
 | :--- | :--- | :--- |
-| R1 | **A receipt that nothing enforces becomes another display-only field.** The precedent is exact: `LockEntry.Commit` has four readers and all of them print (`trust-paths.md` §1). | **Ruled** ([OQ-PD7](#decision-ledger)): reports only, on purpose — and the record names where a gate would live if the reports ever justify one. |
-| R2 | **A ledger in the wrong scope is worse than none.** The stamp/spec split is the live proof: a machine-global record describing a per-workspace install already produces cross-workspace throttle bleed (§4.4). | **Ruled** ([OQ-PD1](#decision-ledger)): the record follows the declaration's scope, and the bytes are content-addressed so their scope stops mattering (§5.6). |
+| R1 | **A receipt that nothing enforces becomes another display-only field.** The precedent is exact: `LockEntry.Commit` has four readers and all of them print ([`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict)). | **Ruled** ([OQ-PD7](#decision-ledger)): reports only, on purpose — and the record names where a gate would live if the reports ever justify one. |
+| R2 | **A ledger in the wrong scope is worse than none.** The stamp/spec split is the live proof: a machine-global record describing a per-workspace install already produces cross-workspace throttle bleed ([§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected)). | **Ruled** ([OQ-PD1](#decision-ledger)): the record follows the declaration's scope, and the bytes are content-addressed so their scope stops mattering ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)). |
 | R3 | **Removal is destructive and the bytes are large.** Uninstalling on pack-drop can delete a 189 MB binary a user still runs from another workspace's muscle memory. | **Ruled** ([OQ-PD4](#decision-ledger)): boot catalogs orphans informationally; removal only on an explicit act; autoprune ships as an option, default off. The LSP sentinel's silent uninstall is the pattern *not* to copy at this size. |
-| R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` §1.6); npm's cacache is at 672 MB and grew 27 MB in six days of observation with nothing pruning; claude keeps 4 versions (just over 1 GB) per workspace. | Retention lands with the cache, not after it, and hangs off `yolo prune`. |
-| R5 | **A seam that implies tier-3 coverage is a lie.** A vendor self-updater cannot be recorded at all (until captured, §6.3), and an `npx -y` argv can be *pinned* in the render yolo writes but its resolution is still never recorded. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones (§5.5, §6.1). |
-| R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image (§6.2). | **Paid** (`0a4d241c`): skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. Residual: the sibling enums named in §6.2, and the `just load` ordering. |
-| R7 | **Uniformity borrowed from a lockfile is a function of that lockfile's quality** — and §5.6 generalises the borrowing to every native lock we adopt. The core is measured (a workspace-local `mise.lock` governs resolution against the shared store); **NOT MEASURED**: format stability across mise's own upgrades, and full-launch behaviour under `MISE_LOCKFILE`. | Treat tier 2 as "record and compare" until the launch path is measured; do not promise obedience we do not own. |
-| R8 | **Every measurement is from one machine and one home.** The dates in §4.1 are this jail's history, not a general law. | The *mechanism* (cold-branch `@latest`, shared aliases, absent removal) is read from code and generalises; the dates are illustrative and labelled. |
-| R9 | **A repo-committed lock imports the repo's cadence.** Version bumps become PRs — reviewable and bot-automatable, which is the point, and a chore — and repo-less or ephemeral workspaces have no home for the project half. | Bots own the bump PRs; the user-scope half of §5.6's table is the fallback; a missing lock degrades to today's A2 behaviour plus a report line, never a refusal. |
+| R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk)); npm's cacache is at 672 MB and grew 27 MB in six days of observation with nothing pruning; claude keeps 4 versions (just over 1 GB) per workspace. | Retention lands with the cache, not after it, and hangs off `yolo prune`. |
+| R5 | **A seam that implies tier-3 coverage is a lie.** A vendor self-updater cannot be recorded at all (until captured, [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)), and an `npx -y` argv can be *pinned* in the render yolo writes but its resolution is still never recorded. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones ([§5.5](#55-a5--do-nothing-and-say-so), [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)). |
+| R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image ([§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives)). | **Paid** (`0a4d241c`): skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. Residual: the sibling enums named in [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives), and the `just load` ordering. |
+| R7 | **Uniformity borrowed from a lockfile is a function of that lockfile's quality** — and [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) generalises the borrowing to every native lock we adopt. The core is measured (a workspace-local `mise.lock` governs resolution against the shared store); **NOT MEASURED**: format stability across mise's own upgrades, and full-launch behaviour under `MISE_LOCKFILE`. | Treat tier 2 as "record and compare" until the launch path is measured; do not promise obedience we do not own. |
+| R8 | **Every measurement is from one machine and one home.** The dates in [§4.1](#41-freeze-an-agent-cli-is-whatever-latest-meant-the-day-that-workspace-first-ran-it) are this jail's history, not a general law. | The *mechanism* (cold-branch `@latest`, shared aliases, absent removal) is read from code and generalises; the dates are illustrative and labelled. |
+| R9 | **A repo-committed lock imports the repo's cadence.** Version bumps become PRs — reviewable and bot-automatable, which is the point, and a chore — and repo-less or ephemeral workspaces have no home for the project half. | Bots own the bump PRs; the user-scope half of [§5.6](#56-a6--borrow-the-ecosystems-lockfiles)'s table is the fallback; a missing lock degrades to today's A2 behaviour plus a report line, never a refusal. |
 
 ---
 
@@ -1433,7 +1433,7 @@ one) before this document's uniformity argument is even reached.
 `a16403e2` the mise half). Every install yolo runs — npm launcher, installer launcher, LSP
 bootstrap — appends declaration, resolved identity (version or digest), act and time to
 `<workspace>/.yolo/receipts.jsonl`. That is a **workspace-scope observation log beside the
-realization**, deliberately: the user-scope pin OQ-PD1 names (`packs.lock.json`) is what install
+realization**, deliberately: the user-scope pin [`OQ-PD1`](#decision-ledger) names (`packs.lock.json`) is what install
 will *obey*, and it arrives with the fifth step, where obeying starts. The mise half needed no
 building ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)): `mise.lock` is committed, the launch's
 `install && upgrade --yes` became install-from-lock, and this repo's own toolchain no longer
@@ -1479,7 +1479,7 @@ the CLI, `dbd2e925` the option), in [OQ-PD4](#decision-ledger)'s ruled shape: th
 names the orphans and their sizes, an explicit act removes them, and autoprune is an option nobody
 gets by default.
 
-The catalog's first real boot named **five** orphans in this workspace, not the two §4.3 measured:
+The catalog's first real boot named **five** orphans in this workspace, not the two [§4.3](#43-history-a-jail-is-the-union-of-every-pack-ever-selected-not-the-current-pack-set) measured:
 `pyright`, `typescript` and `typescript-language-server` survive from a since-unconfigured
 `lsp_servers`, their sentinel record lost — a live instance of the record-and-bytes divergence this
 whole design exists to close. **RE-MEASURED 2026-09-04 through `yolo programs ls`: SEVEN, at
@@ -1624,7 +1624,7 @@ pack-declared update verb; flip the agent CLIs that have a native installer off 
 `"$REAL_BIN" install` no-op. The `agent_updates` knob comes with it, and so does
 [A7's V-axis prune](agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one).
 **The MCP/LSP half rides the same trigger** — a server is refreshed when an agent that connects to
-it is invoked (§3.5), so there is **no boot step anywhere in this design**.
+it is invoked ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)), so there is **no boot step anywhere in this design**.
 
 > [!IMPORTANT]
 > **SHIPPED 2026-09-04, except the MCP/LSP half.** In the tree: the PATH reorder and its
@@ -1660,7 +1660,7 @@ it is invoked (§3.5), so there is **no boot step anywhere in this design**.
 > ([§4.1](#41-freeze-an-agent-cli-is-whatever-latest-meant-the-day-that-workspace-first-ran-it)) —
 > agent CLIs no longer wait on capture.
 
-**In parallel, pay the enum tolerance** (§6.2) — **PAID** (`0a4d241c`), while no one needed it,
+**In parallel, pay the enum tolerance** ([§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives)) — **PAID** (`0a4d241c`), while no one needed it,
 which was the point.
 
 ---
@@ -1669,25 +1669,25 @@ which was the point.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-PD1 | **Shape (d): the record follows the declaration's scope.** Ecosystem-native lockfiles at the declaration's home (repo for `mise.toml`/`flake.nix`, user for `packs`); yolo-written receipts only where no native lock exists; bytes in machine-global content-addressed stores. | 2026-08-24 | §5.6, §4.4 |
-| OQ-PD2 | **Same-machine and same-workspace ship first, through the user half; same-declaration-anywhere is in scope for the project toolchain** via repo-committed native locks, and out of scope for user tools, which no repo should pin. | 2026-08-24 | §2, §5.6 |
-| OQ-PD3 | **No-evergreen extends to mise.** The per-launch `mise upgrade --yes` was a stopgap; whatever pins mise ships as **part of the general seam** (a tier-2 resolver whose *obey* goes through mise's own pinning), never as a standalone lockfile flip ahead of it. ⚠ **NARROWED 2026-09-03:** the mise half stands, but *"it is a principle, not an npm fix"* does not — it does not reach **agent dependencies**, which are evergreen (§3.5, OQ-PD11/PD12). | 2026-08-24 · amended 2026-09-03 | §4.2, §6.1, §10, **§3.5** |
-| OQ-PD4 | **Dropping a pack does not auto-delete its program.** Orphans are cataloged informationally at boot; removal happens only on an explicit act; autoprune exists as an option, **default off**. | 2026-08-24 | §4.3, §9 R3, §10 |
-| OQ-PD5 | **One lifecycle, N resolvers, N native records under ONE READER** — no ledger-as-store of opaque identities; only a resolver parses its own record; the tiers stay explicit. | 2026-08-24 | §6 |
-| OQ-PD6 | **The receipt is the pin.** A declaration may carry a version and is not required to; install obeys the record. Also answers OQ-TP3's inherited half. ⚠ **SCOPED 2026-09-03** to **project** dependencies. An agent dependency has no pin to obey; its receipt answers *what did I run*, never *what must I run* (§3.5). | 2026-08-24 · amended 2026-09-03 | §6, §8.1, **§3.5** |
-| OQ-PD7 | **Report first; gate later only if the reports justify it** — and the record names where a gate would live. | 2026-08-24 | §6, §9 R1 |
-| OQ-PD8 | **The launcher's informational poll is unreachable in steady state** (nineteen days of unmoved stamps); the "newer version available" channel moves to the boot catalog and the update verb / reconcile. | 2026-08-24 | §4.4, §10 |
-| OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | §5.6, §6.3 |
-| OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Resequenced twice.** 2026-09-03 by OQ-PD15 (capture before evergreen), then **REVERSED 2026-09-04 by [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)** — capture trails again, because the disk claim that moved it was measured false. Its value is the manifest, offline materialize and drift reference, none of which is a disk property. | 2026-08-24 | §6.3, §10 |
-| **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the §6.1 tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
-| **OQ-PD12** | **Agent dependencies are EVERGREEN, updated LAZILY at the agent's own invocation** (revised the same day — see the row below). The launcher checks at most once per `UPDATE_INTERVAL` per program, then `exec`s; `agent_updates` (user-scope, per-pack or global) opts out; failure is scoped to the command, never to the jail. ✅ **SHIPPED 2026-09-04** for the agent CLIs, in both launcher templates; the MCP/LSP half of the same ruling is still unbuilt. | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), §5.4 |
-| **OQ-PD12a** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted. **MCP/LSP servers inherit the trigger of the agent that connects to them** (transitive dependencies need no trigger of their own), so the design has **no boot step at all**; only yolo-INSTALLED servers are in scope, since an `npx -y pkg@latest` argv is already current every spawn. ✅ **SHIPPED 2026-09-04**: three PATH strings moved (`BootPath`, the `.bashrc` export, `macosuser.SandboxPath`) and the check is `internal/entrypoint/launchercollision.go`, scoped to the image dirs plus the DECLARED mise tools and never to the install prefixes | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
-| **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. **All four npm packs have one, verified 2026-09-03** (§3.5's table). | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| OQ-PD1 | **Shape (d): the record follows the declaration's scope.** Ecosystem-native lockfiles at the declaration's home (repo for `mise.toml`/`flake.nix`, user for `packs`); yolo-written receipts only where no native lock exists; bytes in machine-global content-addressed stores. | 2026-08-24 | [§5.6](#56-a6--borrow-the-ecosystems-lockfiles), [§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected) |
+| OQ-PD2 | **Same-machine and same-workspace ship first, through the user half; same-declaration-anywhere is in scope for the project toolchain** via repo-committed native locks, and out of scope for user tools, which no repo should pin. | 2026-08-24 | [§2](#2-what-the-same-jail-would-have-to-mean), [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) |
+| OQ-PD3 | **No-evergreen extends to mise.** The per-launch `mise upgrade --yes` was a stopgap; whatever pins mise ships as **part of the general seam** (a tier-2 resolver whose *obey* goes through mise's own pinning), never as a standalone lockfile flip ahead of it. ⚠ **NARROWED 2026-09-03:** the mise half stands, but *"it is a principle, not an npm fix"* does not — it does not reach **agent dependencies**, which are evergreen ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`OQ-PD11`](#decision-ledger)/PD12). | 2026-08-24 · amended 2026-09-03 | [§4.2](#42-drift-mise-is-machine-global-evergreen-every-launch-and-repoints-aliases-in-place), [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control), [§10](#10-what-i-would-build-in-order), **[§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)** |
+| OQ-PD4 | **Dropping a pack does not auto-delete its program.** Orphans are cataloged informationally at boot; removal happens only on an explicit act; autoprune exists as an option, **default off**. | 2026-08-24 | [§4.3](#43-history-a-jail-is-the-union-of-every-pack-ever-selected-not-the-current-pack-set), [§9](#9-risks) R3, [§10](#10-what-i-would-build-in-order) |
+| OQ-PD5 | **One lifecycle, N resolvers, N native records under ONE READER** — no ledger-as-store of opaque identities; only a resolver parses its own record; the tiers stay explicit. | 2026-08-24 | [§6](#6-the-general-seam-one-ledger-many-resolvers) |
+| OQ-PD6 | **The receipt is the pin.** A declaration may carry a version and is not required to; install obeys the record. Also answers [`OQ-TP3`](./trust-paths.md#decision-ledger)'s inherited half. ⚠ **SCOPED 2026-09-03** to **project** dependencies. An agent dependency has no pin to obey; its receipt answers *what did I run*, never *what must I run* ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)). | 2026-08-24 · amended 2026-09-03 | [§6](#6-the-general-seam-one-ledger-many-resolvers), [§8.1](#81-trust-pathsmd--what-this-retires-and-what-it-inherits), **[§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)** |
+| OQ-PD7 | **Report first; gate later only if the reports justify it** — and the record names where a gate would live. | 2026-08-24 | [§6](#6-the-general-seam-one-ledger-many-resolvers), [§9](#9-risks) R1 |
+| OQ-PD8 | **The launcher's informational poll is unreachable in steady state** (nineteen days of unmoved stamps); the "newer version available" channel moves to the boot catalog and the update verb / reconcile. | 2026-08-24 | [§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected), [§10](#10-what-i-would-build-in-order) |
+| OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | [§5.6](#56-a6--borrow-the-ecosystems-lockfiles), [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) |
+| OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Resequenced twice.** 2026-09-03 by [`OQ-PD15`](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it--resolved-2026-09-03) (capture before evergreen), then **REVERSED 2026-09-04 by [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)** — capture trails again, because the disk claim that moved it was measured false. Its value is the manifest, offline materialize and drift reference, none of which is a disk property. | 2026-08-24 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [§10](#10-what-i-would-build-in-order) |
+| **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control) tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD12** | **Agent dependencies are EVERGREEN, updated LAZILY at the agent's own invocation** (revised the same day — see the row below). The launcher checks at most once per `UPDATE_INTERVAL` per program, then `exec`s; `agent_updates` (user-scope, per-pack or global) opts out; failure is scoped to the command, never to the jail. ✅ **SHIPPED 2026-09-04** for the agent CLIs, in both launcher templates; the MCP/LSP half of the same ruling is still unbuilt. | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [§5.4](#54-a4--regenerate-or-reconcile-every-launch) |
+| **[`OQ-PD12a`](#decision-ledger)** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted. **MCP/LSP servers inherit the trigger of the agent that connects to them** (transitive dependencies need no trigger of their own), so the design has **no boot step at all**; only yolo-INSTALLED servers are in scope, since an `npx -y pkg@latest` argv is already current every spawn. ✅ **SHIPPED 2026-09-04**: three PATH strings moved (`BootPath`, the `.bashrc` export, `macosuser.SandboxPath`) and the check is `internal/entrypoint/launchercollision.go`, scoped to the image dirs plus the DECLARED mise tools and never to the install prefixes | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. **All four npm packs have one, verified 2026-09-03** ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s table). | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely (`internal/cli/packupdate.go:141`). Absent a verb, re-run the declared installer or `npm install -g`. ✅ **SHIPPED 2026-09-04** as `Contribution.Update` → `Install.UpdateVerb`, projected for every `via`; the npm-only skip in `yolo pack update` is gone. Declared by claude/agy/codex; the three npm packs use the `via` fallback deliberately | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
-| **OQ-PD15** | ~~**Capture FIRST — build the complete version and sequence toward it.**~~ ⚠ **REVERSED 2026-09-04 by [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04): EVERGREEN FIRST, with A7's V-axis prune inside it; capture trails and continues in parallel.** Both premises measured false: capture collapses **N** while evergreen multiplies **V**, and *"under capture there is nothing to prune"* is wrong because the self-updater keeps writing full-size version dirs into the workspace. **The disk justification is RETRACTED** — on ext4 capture ADDS a machine-wide copy and saves no disk at all. *"Sooner was never the goal"* still stands: this reverses which ruled subsystem goes first, not the scope of either | 2026-09-03 · reversed 2026-09-04 | [§10](#10-what-i-would-build-in-order), §6.3, [`agent-cli-copies.md`](agent-cli-copies.md) |
-| **OQ-PD16** | **Jail-only here; the host notch is owned by [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md)**, which has analysed it since 2026-08-02 and keeps six live questions on it. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose only caller today is `macos-user`. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland (that doc's §4.1) | 2026-09-03 | §3.5, [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) |
-| **OQ-PD17** | **No unreferenced oracle — the reap rule is the COMPLEMENT OF THE RESOLVER.** Reclaiming a capture entry is never a correctness event (measured: a reflinked destination survives its source's unlink byte-identical), and `resolveCaptureFor` already picks *newest-by-receipt-time per (bin, platform)* — so every other entry is already unreachable by the only reader. Delete what the resolver would not select; `K = 1`. Retires all three candidates, **and** `K = 2` and the age floor, which this doc had proposed. ⚠ Surfaced [OQ-PD18](#decision-ledger): nothing populates the store automatically, so materialize has never hit on any machine. | 2026-09-04 | §6.3, [`agent-cli-copies.md` §4.2](agent-cli-copies.md#42-reclaiming-a-capture-entry-is-never-unsafe--which-reframes-oq-pd17) |
-| **OQ-PD18** | **(d), DEFAULT ON — auto-capture on first launch, host-side, in the throwaway jail, no knob.** ✅ Its prerequisite is met: A7's V-axis prune shipped 2026-09-04 with evergreen. Nothing populated the store before this: `yolo capture` was its only writer, no launch path called it, and it had never been run. ⚠ **Default-on makes a stale entry actively harmful** — the workspace pays a copy AND a download, and is left holding a dead version the vendor updater will not remove — so **A7's V-axis prune is a prerequisite, not a companion**, and [OQ-CP4](agent-cli-copies.md#-oq-cp4--does-an-evergreen-update-get-to-materialize-from-the-store--resolved-2026-09-04) becomes load-bearing. On ext4 capture costs `+S` at every N and buys `N−1` avoided downloads; the ext4 share of real installs is the unmeasured number that would revisit the default. | 2026-09-04 | §6.3, [`agent-cli-copies.md` §4.1](agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for) |
+| **OQ-PD15** | ~~**Capture FIRST — build the complete version and sequence toward it.**~~ ⚠ **REVERSED 2026-09-04 by [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04): EVERGREEN FIRST, with A7's V-axis prune inside it; capture trails and continues in parallel.** Both premises measured false: capture collapses **N** while evergreen multiplies **V**, and *"under capture there is nothing to prune"* is wrong because the self-updater keeps writing full-size version dirs into the workspace. **The disk justification is RETRACTED** — on ext4 capture ADDS a machine-wide copy and saves no disk at all. *"Sooner was never the goal"* still stands: this reverses which ruled subsystem goes first, not the scope of either | 2026-09-03 · reversed 2026-09-04 | [§10](#10-what-i-would-build-in-order), [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [`agent-cli-copies.md`](agent-cli-copies.md) |
+| **OQ-PD16** | **Jail-only here; the host notch is owned by [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md)**, which has analysed it since 2026-08-02 and keeps six live questions on it. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose only caller today is `macos-user`. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland (that doc's [§4.1](./noncontainer-nix-environment.md#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force)) | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) |
+| **OQ-PD17** | **No unreferenced oracle — the reap rule is the COMPLEMENT OF THE RESOLVER.** Reclaiming a capture entry is never a correctness event (measured: a reflinked destination survives its source's unlink byte-identical), and `resolveCaptureFor` already picks *newest-by-receipt-time per (bin, platform)* — so every other entry is already unreachable by the only reader. Delete what the resolver would not select; `K = 1`. Retires all three candidates, **and** `K = 2` and the age floor, which this doc had proposed. ⚠ Surfaced [OQ-PD18](#decision-ledger): nothing populates the store automatically, so materialize has never hit on any machine. | 2026-09-04 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [`agent-cli-copies.md` §4.2](agent-cli-copies.md#42-reclaiming-a-capture-entry-is-never-unsafe--which-reframes-oq-pd17) |
+| **OQ-PD18** | **(d), DEFAULT ON — auto-capture on first launch, host-side, in the throwaway jail, no knob.** ✅ Its prerequisite is met: A7's V-axis prune shipped 2026-09-04 with evergreen. Nothing populated the store before this: `yolo capture` was its only writer, no launch path called it, and it had never been run. ⚠ **Default-on makes a stale entry actively harmful** — the workspace pays a copy AND a download, and is left holding a dead version the vendor updater will not remove — so **A7's V-axis prune is a prerequisite, not a companion**, and [OQ-CP4](agent-cli-copies.md#-oq-cp4--does-an-evergreen-update-get-to-materialize-from-the-store--resolved-2026-09-04) becomes load-bearing. On ext4 capture costs `+S` at every N and buys `N−1` avoided downloads; the ext4 share of real installs is the unmeasured number that would revisit the default. | 2026-09-04 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [`agent-cli-copies.md` §4.1](agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for) |
 
 ---
 
@@ -1696,11 +1696,11 @@ which was the point.
 **One open — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split).**
 Ten were ruled 2026-08-24, six on 2026-09-03, and two on 2026-09-04 — see the
 [Decision Ledger](#decision-ledger). The two the amendment opened were both ruled the same day and
-are kept below with their reasoning, pending the next compaction. OQ-PD17 was opened 2026-09-04 by
-the capture build and ruled the same day; ruling it surfaced OQ-PD18, which is the reason the
+are kept below with their reasoning, pending the next compaction. [`OQ-PD17`](#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink--resolved-2026-09-04) was opened 2026-09-04 by
+the capture build and ruled the same day; ruling it surfaced [`OQ-PD18`](#-oq-pd18--what-populates-the-capture-store--resolved-2026-09-04), which is the reason the
 subsystem it governs has never run on any machine.
 
-### ✅ OQ-PD17 — what is the unreferenced oracle for a capture entry, now that reflink has retired `st_nlink`? — RESOLVED (2026-09-04)
+### ✅ [`OQ-PD17`](#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink--resolved-2026-09-04) — what is the unreferenced oracle for a capture entry, now that reflink has retired `st_nlink`? — RESOLVED (2026-09-04)
 
 Opened 2026-09-04 by capture slice 4. **This question was living as prose inside
 [`install-capture.md`](../plans/install-capture.md)'s build order with no ID**, which made it
@@ -1783,7 +1783,7 @@ retired instead; the leaning was answering a question the system does not ask.
 > manual host command, and the maintainer had not heard of it — so on every machine today the store
 > is empty and slices 1–4 and 6 are shipped but unreachable.
 
-### 💬 OQ-PD19 — do steps three and five still have a subject, after the agent/project split?
+### 💬 [`OQ-PD19`](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split) — do steps three and five still have a subject, after the agent/project split?
 
 Opened 2026-09-04, while checking what remained unbuilt in [§10](#10-what-i-would-build-in-order).
 **This is a question about whether to build, not how.**
@@ -1792,7 +1792,7 @@ Opened 2026-09-04, while checking what remained unbuilt in [§10](#10-what-i-wou
 [OQ-PD2](#decision-ledger)) moves gap receipts to **user scope**; step five
 ([OQ-PD6](#decision-ledger), [OQ-PD7](#decision-ledger)) makes install **obey** them — *"the receipt
 is the pin."* Both were written **2026-08-24**. [OQ-PD11](#decision-ledger)'s agent/project axis
-arrived **2026-09-03**, and amended OQ-PD6 in the same breath: scoped to **project** dependencies,
+arrived **2026-09-03**, and amended [`OQ-PD6`](#decision-ledger) in the same breath: scoped to **project** dependencies,
 because *"an agent dependency has no pin to obey; its receipt answers what did I run, never what
 must I run"* ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)).
 
@@ -1802,15 +1802,15 @@ must I run"* ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-20
 | :--- | :--- |
 | agent CLIs — npm and native launchers (`internal/entrypoint/shims.go`) | **agent** |
 | MCP servers via npm (`internal/entrypoint/shell.go`) | **agent** — transitive, [OQ-PD12a](#decision-ledger) |
-| LSP servers via npm and via go (same file) | **agent** — transitive, OQ-PD12a |
+| LSP servers via npm and via go (same file) | **agent** — transitive, [`OQ-PD12a`](#decision-ledger) |
 | **pnpm**, the only lazily-installed package manager (`shims.go`, `GeneratePackageManagerLaunchers`) | serves the **project** |
 
 So step five has almost nothing to apply to, and step three's venue change — user scope existed so
 install could **obey** the record — loses its purpose with it. **Workspace scope is the right home
-for a *what did I run* observation log**, which is what OQ-PD6-as-scoped says these are.
+for a *what did I run* observation log**, which is what [`OQ-PD6`](#decision-ledger)-as-scoped says these are.
 
 **What it decides:** whether two ruled steps get built, narrowed, or retired. This is the same
-dissolution that retired OQ-TP3/TP4 — a ruling made on an older axis losing its subject when a newer
+dissolution that retired [`OQ-TP3`](./trust-paths.md#decision-ledger)/TP4 — a ruling made on an older axis losing its subject when a newer
 one lands — and it should be checked before it is built, not after.
 
 **The residue, and the trap under it.** pnpm is installed **`pnpm@latest`, unpinned**, by an install
@@ -1824,8 +1824,10 @@ question, not an afterthought: [OQ-PD3](#decision-ledger) rules that whatever pi
 part of the general seam, so "move pnpm into mise" is the natural answer *and* the one most likely
 to re-break whatever the exclusion was protecting.
 
+<!-- vantage: oq id=OQ-PD19 leaning="Narrow both steps to the pnpm question and retire the rest. Step five dissolves for agent dependencies by OQ-PD6's own amendment, and step three's user-scope venue goes with it. What survives is one concrete question — how does yolo pin pnpm, given mise is closed to it and nobody remembers why — which is small, real, and not what either step proposed to build." -->
+
 _Leaning:_ **Narrow both steps to the pnpm question and retire the rest.** Step five dissolves for
-agent dependencies by OQ-PD6's own amendment; step three's user-scope venue goes with it, because a
+agent dependencies by [`OQ-PD6`](#decision-ledger)'s own amendment; step three's user-scope venue goes with it, because a
 record nothing obeys does not need to reach further than the thing it observes. What survives is one
 concrete question — *how does yolo pin pnpm, given mise is closed to it and nobody remembers why?* —
 which is small, real, and not what either step proposed to build.
@@ -1833,9 +1835,9 @@ which is small, real, and not what either step proposed to build.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### ✅ OQ-PD18 — what populates the capture store? — RESOLVED (2026-09-04)
+### ✅ [`OQ-PD18`](#-oq-pd18--what-populates-the-capture-store--resolved-2026-09-04) — what populates the capture store? — RESOLVED (2026-09-04)
 
-Opened 2026-09-04, ruling OQ-PD17. **Nothing automatic does.** `yolo capture <bin>` is the store's
+Opened 2026-09-04, ruling [`OQ-PD17`](#-oq-pd17--what-is-the-unreferenced-oracle-for-a-capture-entry-now-that-reflink-has-retired-st_nlink--resolved-2026-09-04). **Nothing automatic does.** `yolo capture <bin>` is the store's
 only writer (`internal/cli/capturehost.go`), it is a host command with no caller in the run pipeline,
 and a materialize miss is deliberately **silent** — it falls through to the vendor installer without
 saying the store was empty (`internal/entrypoint/shims.go:999-1003`). The consequence measured
@@ -1925,7 +1927,7 @@ store to consider, not garbage to reclaim. And **the ext4 objection is unchanged
 unmeasured** — the number that would revisit the default is the ext4 share of real installs, and
 nothing in the shipped code measures it.
 
-### ✅ OQ-PD15 — does capture GATE the evergreen rollout, or trail it? — RESOLVED (2026-09-03)
+### ✅ [`OQ-PD15`](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it--resolved-2026-09-03) — does capture GATE the evergreen rollout, or trail it? — RESOLVED (2026-09-03)
 
 [OQ-PD10](#decision-ledger) sequenced capture **last**, on the reasoning that the receipt ships
 first and capture merely upgrades its guess. Evergreen changes that arithmetic, because the cost
@@ -1947,7 +1949,7 @@ one, on every launch that lands a new version, in every workspace.
 > the trade was never asked for.
 >
 > **Consequences, all folded into [§10](#10-what-i-would-build-in-order):** capture moves ahead of
-> evergreen, the two `§10` steps swap, and the prune stopgap (b) needed is **not built** — under
+> evergreen, the two [`§10`](#10-what-i-would-build-in-order) steps swap, and the prune stopgap (b) needed is **not built** — under
 > (a) there is nothing to prune, because a materialized tree comes from the CAS and old versions
 > were never per-workspace to begin with. That deletes an item rather than deferring one, which is
 > the "further/cleaner" the ruling is buying.
@@ -1956,7 +1958,7 @@ one, on every launch that lands a new version, in every workspace.
 > and it stays visible rather than being quietly accepted. The `DISABLE_AUTOUPDATER` class of
 > config-capture bug is separately fixable today and is not gated on any of this.
 
-### ✅ OQ-PD16 — how does a PROJECT dependency get pinned on the host, where there is no jail? — RESOLVED (2026-09-03)
+### ✅ [`OQ-PD16`](#-oq-pd16--how-does-a-project-dependency-get-pinned-on-the-host-where-there-is-no-jail--resolved-2026-09-03) — how does a PROJECT dependency get pinned on the host, where there is no jail? — RESOLVED (2026-09-03)
 
 [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) rules that project
 dependencies pin. Inside a jail that is already true and already mechanised: nixpkgs through
@@ -1991,11 +1993,11 @@ consumes — one source, two consumers.
 >
 > **The design you asked for already exists** —
 > [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), 2026-08-02, re-verified
-> 2026-08-23. It owns this question and already carries the sharing analysis (§7: confinement and
-> environment are *not* orthogonal), the devShell rejection (§4.1), the `nix profile` and
-> `nix shell` alternatives (§4.2–4.3), platform coverage (§5), and `mise_tools`' status at each
-> notch (§6's table). Six questions there are live. **What this amendment adds to it is a frame it
-> predates:** it analysed the host notch as a *packaging* problem, and §3.5 now says what the
+> 2026-08-23. It owns this question and already carries the sharing analysis ([§7](./noncontainer-nix-environment.md#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding): confinement and
+> environment are *not* orthogonal), the devShell rejection ([§4.1](./noncontainer-nix-environment.md#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force)), the `nix profile` and
+> `nix shell` alternatives ([§4.2](./noncontainer-nix-environment.md#42-nix-shell-is-the-interesting-dark-horse--and-it-dies-on-the-launch-refusal)–4.3), platform coverage ([§5](./noncontainer-nix-environment.md#5-macos-vs-linux)), and `mise_tools`' status at each
+> notch ([§6](./noncontainer-nix-environment.md#6-mimic-our-in-jail-envs-more--the-isolationenvironment-split)'s table). Six questions there are live. **What this amendment adds to it is a frame it
+> predates:** it analysed the host notch as a *packaging* problem, and [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) now says what the
 > packages are *for* — project dependencies, which pin. Recorded as a postscript there rather than
 > re-argued here.
 >

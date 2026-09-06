@@ -371,7 +371,7 @@ key* and emits *no env var* — deliberately. Two entries exist today: claude's
 means agent support isn't entirely packs. But the fix is smaller than the request/grant
 mechanism I first proposed.
 
-**Settled by §0.1: packs are user-scope only, so a pack naming a host file IS a user-scope
+**Settled by [§0.1](#01-packs-are-user-level-only): packs are user-scope only, so a pack naming a host file IS a user-scope
 declaration.** That is precisely the trust level `host_files` already demands. The existing
 rule needs no extension:
 
@@ -436,4 +436,4 @@ was never that yolo approves the path; it is that an agent-editable file cannot 
 - **Does a running jail need to re-render?** Host-side composition means reconcile happens at
   assembly. If in-jail re-render must survive, it needs an explicit mechanism.
 - **First-migration vs user-asked-to-discard** — already open as
-  `composed-config-work.md` §2.1, and it gates tranche 2, which gates the rip-out.
+  `composed-config-work.md` [§2.1](../plans/composed-config-work.md#21-the-decision-that-gates-it), and it gates tranche 2, which gates the rip-out.
