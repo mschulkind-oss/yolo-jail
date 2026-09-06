@@ -525,6 +525,8 @@ yolo host -p bedrock -- claude
    
    _Leaning:_ Option B (`profiles.<name>.<pack>`). It groups multi-pack profile definitions (e.g. configuring both Pi and Claude for a `"dev"` environment) under a single named block.
 
+   <!-- vantage: oq id=OQ-1 leaning="Option B, profiles.NAME.PACK. It groups multi-pack profile definitions (e.g. configuring both Pi and Claude for a 'dev' environment) under a single named block." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -532,12 +534,16 @@ yolo host -p bedrock -- claude
    
    _Leaning:_ If `-- <command>` is present (e.g. `yolo -p bedrock -- claude`), `-p` applies to that command's pack. If no command is given (`yolo -p dev`), `-p` activates the profile globally across all selected packs.
 
+   <!-- vantage: oq id=OQ-2 leaning="If a -- command is present (e.g. yolo -p bedrock -- claude), -p applies to that command's pack. If no command is given (yolo -p dev), -p activates the profile globally across all selected packs." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
 3. 💬 🤷 **OQ-3: Provider Pack Naming Convention.** Should provider packs follow a namespace prefix (e.g. `provider-deepseek`, `provider-bedrock`) or bare slugs (`deepseek`, `aws-bedrock`)?
    
    _Leaning:_ Bare slugs (`deepseek`, `aws-bedrock`) match existing conventions (`claude`, `audio`, `journal`).
+
+   <!-- vantage: oq id=OQ-3 leaning="Bare slugs (deepseek, aws-bedrock) match existing conventions (claude, audio, journal)." -->
 
    **Answer:**
    > _(empty — fill in when decided)_

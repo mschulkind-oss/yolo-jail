@@ -489,6 +489,8 @@ The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal dis
 
    _Leaning:_ **(i) as the mechanism plus (iii) as the recovery tool — and explicitly not (ii).** The write path is the only option that is thrash-free by construction and that improves rather than worsens P4; `prune` with an inverted default then handles the backlog and the crash residue on demand. (ii) buys backlog reclamation at the cost of the worst P7 exposure of the three, and (i)+(iii) gets the same bytes with a human bounding the risky half.
 
+   <!-- vantage: oq id=OQ-DF2 leaning="(i) the write path as the mechanism plus (iii) yolo prune with an inverted dry-run default as the recovery tool - and explicitly not (ii) the launch path. The write path is the only option that is thrash-free by construction and that improves rather than worsens P4; prune with an inverted default then handles the backlog and the crash residue on demand. (ii) buys backlog reclamation at the cost of the worst P7 exposure of the three, and (i)+(iii) gets the same bytes with a human bounding the risky half." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -505,6 +507,8 @@ The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal dis
 
    _Leaning:_ **Narrow, and if the evidence turns out to be insufficient, record the image ID at load time so that it becomes sufficient.** Broad pruning of a shared runtime is exactly the kind of "reaches beyond its own artifacts" move `cache-relocation.md`'s threat model exists to refuse (P6, by analogy). Adding the evidence yolo needs is a smaller price than widening the blast radius.
 
+   <!-- vantage: oq id=OQ-DF3 leaning="Narrow, and if the evidence turns out to be insufficient, record the image ID at load time so that it becomes sufficient. Broad pruning of a shared runtime is exactly the kind of 'reaches beyond its own artifacts' move cache-relocation.md's threat model exists to refuse (P6, by analogy). Adding the evidence yolo needs is a smaller price than widening the blast radius." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -513,6 +517,8 @@ The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal dis
    §4.1c adopts a byte ceiling as a *contract* but not as a trigger, which leaves open whether the number is ever written down. **A number** means a user-settable budget (a config key, with validation and an entry in the nested-inheritance table) that `yolo check` and `yolo prune` both report against. **A policy** means no configurable number at all: the write path keeps its own bytes bounded and there is nothing to tune. Worth noting how thin the current surface is — `prune.warn_threshold_gb` is the **only** disk-budgeting config key that exists, and `prune.Run` never reads config at all, so `yolo check` is its sole consumer (verified 2026-08-25: `rg -n "warn_threshold_gb" -g '!*.md'` returns exactly two hits, both in `internal/cli/check/sections_misc.go`).
 
    _Leaning:_ **Policy, not a number — at least until after §10's re-measurement.** If the write path bounds itself, the budget is a property of the design rather than a dial, and a dial nobody needs is a config key that has to be validated, inherited, documented and defended forever. "Minimal" is also not a number the user should have to discover. I hold this loosely: if the measurement after C2/C3 shows a residual that only a ceiling catches, the answer flips.
+
+   <!-- vantage: oq id=OQ-DF4 leaning="Policy, not a number - at least until after the re-measurement in section 10. If the write path bounds itself, the budget is a property of the design rather than a dial, and a dial nobody needs is a config key that has to be validated, inherited, documented and defended forever. 'Minimal' is also not a number the user should have to discover. Held loosely: if the measurement after C2/C3 shows a residual that only a ceiling catches, the answer flips." -->
 
    **Answer:**
    > _(empty — fill in when decided)_

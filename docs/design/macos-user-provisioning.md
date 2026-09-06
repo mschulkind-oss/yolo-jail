@@ -178,6 +178,8 @@ about.
    machine that is not building an image, which is the thing this backend exists to
    avoid.
 
+   <!-- vantage: oq id=OQ-P1 leaning="Start at the minimum (mise and nodejs) plus git - git because a jail without it is not a development environment and the Mac's /usr/bin/git is an Xcode shim the user may not have. Add on demand. A large floor here costs a native build on a machine that is not building an image, which is the thing this backend exists to avoid." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -191,6 +193,8 @@ about.
    backend's whole proposition is "your Mac, confined" — an agent whose `sed -i`
    behaves differently from the human's is a surprise in the direction that costs
    more. Revisit if a pack turns out to depend on GNU behavior.
+
+   <!-- vantage: oq id=OQ-P2 leaning="No GNU userland. The consistency argument is real, but this backend's whole proposition is 'your Mac, confined' - an agent whose sed -i behaves differently from the human's is a surprise in the direction that costs more. Revisit if a pack turns out to depend on GNU behavior." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -207,6 +211,8 @@ about.
    home — repairs this one case and leaves the general problem, which is how the
    backend accumulated five of these.
 
+   <!-- vantage: oq id=OQ-P3 leaning="Block half two on the home split rather than shipping a known collision. The alternative - a per-workspace MISE_DATA_DIR under the shared home - repairs this one case and leaves the general problem, which is how the backend accumulated five of these." -->
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -217,6 +223,8 @@ about.
    _Leaning:_ Unconditional, matching the container — the launch already prints what
    it is doing, and a first-command stall is worse than a launch stall. But this is
    a taste call about where the wait lands.
+
+   <!-- vantage: oq id=OQ-P4 leaning="Unconditional, matching the container - the launch already prints what it is doing, and a first-command stall is worse than a launch stall. But this is a taste call about where the wait lands." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
