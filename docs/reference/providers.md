@@ -103,7 +103,9 @@ required. `YOLO_ALLOW_MISSING_PROVIDERS=1` is the escape hatch a refusal names.
 
 ## What crosses to the jail
 
-Three environment variables, all emitted on every launch:
+Three environment variables, all delivered on every **entry** — a fresh launch and an
+attach alike — through the **channel section** of `yolo-user-env.sh` (0600, live-mounted,
+rewritten whole by each entry; `writeUserEnvFile` in `internal/cli/run`):
 
 - `YOLO_PROVIDERS` — the composed table, **secret-free** (`api_key_env_name` carries the NAME
   of a variable, never a value).
@@ -112,8 +114,30 @@ Three environment variables, all emitted on every launch:
   the one lowering (below). In-jail derives and the host notch read the same resolved shape;
   no user-config parsing happens in-jail.
 
+The same section carries the pack env fold and the provider shape vars (the derived
+`ANTHROPIC_*` / `COPILOT_*` blocks, credential included) as plain-form `export K='v'`
+lines, which the boot's hydrate applies OVER the environment — the def-form
+`export K=${K:-'v'}` lines above them (env_sources defaults) keep the opposite
+precedence. That file, not the `podman run` argv, is the channel's only container-side
+crossing: an argv `-e` would freeze one launch's providers into the container's
+environment, where every later `podman exec` inherits them as stale state — the failure
+per-entry delivery exists to prevent (`yolo -p <name> -- claude` against a running jail
+must deliver THIS entry's profile; the attach rewrites the file and the exec'd boot
+re-hydrates it). Consequences worth knowing:
+
+- A provider credential no longer rides a `ps`-visible argv line; it lands in the 0600
+  file with every other hydrated secret. The argv-exposure trade-off this reference
+  used to record is retired by the same move.
+- An attach to a jail launched BEFORE the file crossing carries the tables in its
+  frozen environment, which its older entrypoint lets beat the file — such an attach
+  REFUSES when a profile is selected (naming `yolo --new`), rather than silently
+  ignoring it.
+- The macos-user backend has no attach and no frozen copy; it still layers the same
+  channel into its per-invocation plan env.
+
 The three are a launcher↔jail contract: a change to any of them must move both halves in one
-commit. The source-skew gate cannot see env-var contracts.
+commit. The source-skew gate cannot see env-var contracts — and the FILE contract is the
+same hazard one layer down.
 
 ## The canonical wire_api vocabulary
 
@@ -155,9 +179,10 @@ table, string, math libraries only; no `os`, no `io`). Two registrations:
 
 - `yolo.derive(agent, surface, fn)` — the file half. Runs in-jail at boot for each declared
   surface, returning that surface's computed layer.
-- `yolo.env(agent, fn)` — the env half. Runs **host-side only**: the container's env is fixed
-  at `podman run`, `yolo host` has no jail at all, and the macos-user backend fixes its plan
-  env before the bootstrap runs. One runner (`AgentEnv`) serves both notches — that shared
+- `yolo.env(agent, fn)` — the env half. Runs **host-side only**: its output crosses
+  per-entry through the `yolo-user-env.sh` channel section on the container backends,
+  `yolo host` has no jail at all, and the macos-user backend fixes its plan env before
+  the bootstrap runs. One runner (`AgentEnv`) serves both notches — that shared
   implementation is what keeps `yolo -- claude` and `yolo host -- claude` composing the same
   environment. An in-jail env derive has no consumer and is never run.
 
@@ -173,13 +198,14 @@ per-invocation and never serialized; `YOLO_PROVIDERS` stays secret-free.
 Errors are fatal at the boot step (`genStep` → the jail refuses to start) and refuse the
 launch host-side. There is deliberately no second reporting channel.
 
-> [!WARNING]
-> **The credential does ride the `podman run` argv.** The env derive's output crosses as
-> `-e ANTHROPIC_AUTH_TOKEN=<secret>`, visible in `ps` to anything on the host that can see the
-> launcher's process. This is structural — an env var must reach the container somehow, and the
-> alternatives trade one exposure for another — and it is recorded here because it is the kind
-> of fact a reader should not have to rediscover. The *file* half is handled: `yolo-user-env.sh`
-> is written 0600.
+> [!NOTE]
+> **Retired 2026-09-05 — the credential no longer rides the argv.** The env derive's output
+> used to cross as `-e ANTHROPIC_AUTH_TOKEN=<secret>`, visible in `ps` to anything on the
+> host that could see the launcher's process; per-entry file delivery moved it into
+> `yolo-user-env.sh` (0600) with every other hydrated secret. The recorded trade-off — "an
+> env var must reach the container somehow" — was true of the argv crossing and is not the
+> only crossing: the live-mounted file reaches a running jail at least as well, and an
+> attach reaches it ONLY that way.
 
 ## Selection: write on activation, never on absence
 

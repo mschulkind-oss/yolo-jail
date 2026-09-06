@@ -26,6 +26,32 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### Provider environment is delivered per-entry — `yolo -p <name>` works against a running jail; a selected profile with no key REFUSES on attach too
+
+**What changed** (2026-09-05). The provider/profile environment (the `YOLO_PROVIDERS` /
+`YOLO_PROFILES` / `YOLO_USE_PROFILES` tables, the pack env fold, and the derived
+`ANTHROPIC_*`/`COPILOT_*` blocks) no longer rides the `podman run` argv. It crosses through the
+**channel section** of `yolo-user-env.sh` — the 0600, live-mounted file every shell already sources
+— written fresh by **every entry**: the launch that creates the jail and every `podman exec` that
+re-enters it. Three things a user notices:
+
+1. **`yolo -p zai -- claude` against an already-running jail now delivers.** It used to parse,
+   validate, and silently drop the selection: the attach branch composed the channel and exec'd
+   with none of it. An attach that selects a profile also runs the credential pre-flight (a
+   selected provider whose key cannot be hydrated refuses, `YOLO_ALLOW_MISSING_PROVIDERS=1` stays
+   the hatch) and prints the `Profile <name>: declared: …; received: …` disclosure line.
+2. **The provider token is off the argv.** `-e ANTHROPIC_AUTH_TOKEN=<secret>` was visible in `ps`
+   to anything on the host that could see the launcher's process; it now lands in the 0600 file
+   with every other hydrated secret.
+3. **Attaching with a profile to a jail launched by an OLDER yolo refuses**, naming `yolo --new`:
+   such a jail froze its provider environment into the container at launch, and a per-entry
+   profile cannot override it. Restart the jail once after upgrading.
+
+**Who this bites.** Anyone who attaches to long-lived jails with a `-p` flag that used to "work"
+(silently did nothing) will see it take effect; anyone relying on provider env surviving in the
+container's frozen environment across entries will see each entry recompose it — which is the
+documented intent (`docs/design/agent-auth-modes.md` §4.3).
+
 ### ⚠️ Security: `yolo host -- <cmd>` reads the USER config only — never the workspace's
 
 **What changed** (2026-08-30). The environment `yolo host` composes for a host process is now

@@ -194,6 +194,18 @@ CLI flags override `yolo-jail.jsonc` values for that launch only.
 
 ### 4.3 Pre-existing Jails & Re-entry Behavior
 
+> [!NOTE]
+> **Implemented 2026-09-05, one step truer than the `-e` this section sketches.** The
+> per-session env delivery on re-entry is real (`internal/cli/run` `deliverChannelOnAttach`;
+> end-to-end `integration/attachprofile_test.go`), and the mechanism is the
+> **yolo-user-env.sh channel section** rather than `-e` pairs on the exec: an `-e` on
+> `podman run` freezes that launch's providers into the container's environment where later
+> entries inherit them as stale state, so the channel moved OFF the argv entirely and
+> crosses through the live-mounted file on every entry — the fresh launch and the attach
+> perform the same write ([`providers.md`](../reference/providers.md) "What crosses to the
+> jail"). An attach to a jail launched before that move REFUSES when a profile is selected,
+> naming `yolo --new`.
+
 When entering or executing into an existing, running container jail:
 * **Env-var agents (Claude, Copilot)**: Injected via process environment (`-e`) on `podman exec` / launch, applying immediately per-session without mutating jail filesystem state.
 * **File-based agents (pi, opencode, Codex)**: Prism renders all declared `providers` into `models.json` / `opencode.json` at staging/boot time. Launching with `-p glm -- pi` selects the active provider via launch flags or runtime environment (`PI_DEFAULT_PROVIDER=...`) without rewriting persistent disk files. If a new provider definition is added to config, `yolo check` or container reload regenerates the surface.

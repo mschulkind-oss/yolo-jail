@@ -16,8 +16,10 @@ package run
 // trees, one layer down.
 //
 // The composition is therefore hoisted ABOVE the backend dispatch, and each arm consumes
-// the result: the container arm emits it onto its argv, the macos-user arm layers it into
-// its plan env and relays the two wire tables to its bootstrap. One composition means the
+// the result: the container arm writes it into yolo-user-env.sh's channel section
+// (writeUserEnvFile — per-entry delivery, on a fresh launch and an attach alike), the
+// macos-user arm layers it into its plan env and relays the two wire tables to its
+// bootstrap. One composition means the
 // two backends cannot answer differently about what a profile delivers — which is the same
 // property packload.ProfileTable's launch-flag injection already claims for the two
 // spellings of one launch.
@@ -50,7 +52,7 @@ type packChannel struct {
 	// literals folded on top (OQ-8).
 	packEnv map[string]string
 	// shapeVars are the provider environment variables the active profiles compose, per
-	// profiled agent, in the order the container argv emits them (packload.AgentEnv over
+	// profiled agent, in the order the channel file writes them (packload.AgentEnv over
 	// profiles.Keys() — the env-derive runner). This is the half that routes a hydrated
 	// credential into the agent's process env (OQ-14).
 	shapeVars []agentenv.Var
@@ -120,8 +122,8 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		resolvedProfiles: resolved,
 	}
 	// The provider environment, one pass over the profile table in table order — the
-	// same iteration the container argv's env block makes, so the two spellings emit the
-	// same vars in the same order. Each agent's OWN pack composes its variables (the
+	// same iteration the channel file writer makes, so the two spellings emit the same
+	// vars in the same order. Each agent's OWN pack composes its variables (the
 	// env-derive runner, OQ-CS8): the producer reads the composed table, with the
 	// selected provider's credential hydrated into its copy only, and the launch relays
 	// what it emitted. The credential resolves through what this launch carries — the
@@ -231,7 +233,8 @@ func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) fu
 }
 
 // launchEnv flattens the channel into launch-environment form: the form the macos-user
-// arm layers into its plan env. The container arm emits the same content onto its argv
+// arm layers into its plan env. The container arm writes the same content into the
+// channel section of yolo-user-env.sh
 // and never calls this.
 //
 // The order mirrors the container argv's, because layering order is semantics for a key

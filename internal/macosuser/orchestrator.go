@@ -103,7 +103,7 @@ type Options struct {
 	// pack env fold, the provider env vars, and the two wire tables
 	// (YOLO_PROVIDERS, YOLO_USE_PROFILES). The run pipeline composes it above the
 	// backend dispatch and hands it to BOTH arms — the container arm emits the same
-	// content onto its argv — so a `-p` launch composes the same environment natively
+	// env — so a `-p` launch composes the same environment natively
 	// that it does in a container. Nil is the pre-channel shape and layers nothing.
 	//
 	// Layered into the plan env BEFORE env_sources and SandboxEnv, which is the

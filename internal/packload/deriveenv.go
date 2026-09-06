@@ -12,10 +12,11 @@ package packload
 // reduce through AgentEnv, the way both already reduce the pack env fold through
 // packload.EnvVarsFor.
 //
-// Host-side only, on purpose. An IN-JAIL env derive has no consumer: the container's
-// environment is fixed at `podman run` (the argv this runner's output feeds), and the
-// macos-user notch fixes its plan env before bootstrap — so the entrypoint never runs
-// this and the yolo.env registration a pack's derive.lua carries is inert there.
+// Host-side only, on purpose. An IN-JAIL env derive has no consumer: this runner's
+// output crosses per-entry through the yolo-user-env.sh channel section on the
+// container backends and the macos-user notch fixes its plan env before bootstrap —
+// so the entrypoint never runs this and the yolo.env registration a pack's
+// derive.lua carries is inert there.
 
 import (
 	"fmt"
