@@ -17,6 +17,7 @@ package check
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -151,8 +152,14 @@ func (o *Options) sectionPacks(r *reporter) {
 			continue
 		}
 		defer os.RemoveAll(dest)
+		// Into <dest>/<slug>, the same shape the launcher stages (stagePacks writes
+		// <staging root>/<PackEntry.Slug>), so the loaded pack's Root basename is the
+		// staged slug here too. That basename is packload.Pack.StagedSlug — the key the
+		// two halves mount a reads-host grant under — and staging flat into the temp dir
+		// made it `yolo-check-pack-1234567`.
+		packDir := filepath.Join(dest, e.Slug())
 		staged, err := packstage.Stage(packstage.Spec{
-			Root: res.Root, Dest: dest,
+			Root: res.Root, Dest: packDir,
 			Only: e.Only, Exclude: e.Exclude,
 		})
 		if err != nil {
@@ -169,7 +176,7 @@ func (o *Options) sectionPacks(r *reporter) {
 		// Load the STAGED tree, so the declarations checked are the ones a jail would
 		// render. There is nothing origin-dependent left to match: OQ-TP9 deleted the
 		// host-access gate, so `check` and the launch load a pack the same way.
-		if p, probs := packload.LoadDir(dest, e.Name); len(probs) == 0 && p != nil {
+		if p, probs := packload.LoadDir(packDir, e.Name); len(probs) == 0 && p != nil {
 			loaded = append(loaded, p)
 		}
 	}

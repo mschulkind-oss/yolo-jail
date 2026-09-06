@@ -173,7 +173,14 @@ func TestFetchedPackHostGrantsReachTheContainerArgv(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "datasets", "acme"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
+	// The pack dir is NAMED, not a bare t.TempDir(): a `reads-host` grant with no `into`
+	// mounts under the pack's STAGED DIRECTORY (packload.Pack.StagedSlug), which is what
+	// the jail names the pack from, and a numeric temp dir is a root the launcher never
+	// produces. Staged under its own name here, the way stagePacks stages one.
+	root := filepath.Join(t.TempDir(), "acme")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(
 		`{"name":"acme","contributes":[`+
 			`{"kind":"reads-host","host":".netrc"},`+

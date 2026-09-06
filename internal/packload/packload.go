@@ -44,21 +44,24 @@ type Pack struct {
 	// therefore reports its source DIRECTORY even when its pack.json declares one — which
 	// made an audience refusal read `pack 002` and is the bug report this comment closes.
 	//
-	// It is that way because the name must be three things at once, and only an
-	// address-derived string can be all of them:
+	// It is that way because the name must be two things at once, and only an
+	// address-derived string can be both:
 	//
-	//   - THE STAGING DIR. config.PackEntry.Slug escapes it into the tree the CLI stages
-	//     to and the pack-drop prune sweeps (packstage rule 3), both of which run from the
-	//     config list alone — before any pack.json exists to read, and for a git source
-	//     before anything is fetched.
+	//   - THE STAGING DIR'S SOURCE. config.PackEntry.Slug escapes it into the tree the CLI
+	//     stages to and the pack-drop prune sweeps (packstage rule 3), both of which run
+	//     from the config list alone — before any pack.json exists to read, and for a git
+	//     source before anything is fetched.
 	//   - THE HANDLE THE USER TYPES. `yolo pack ls` prints it and `yolo pack explain`
 	//     matches on it, so it has to be the string in their config, not one hidden in a
 	//     pack they may not have opened.
-	//   - A STRING BOTH HALVES DERIVE. The jail names a pack from its staged directory
-	//     (entrypoint.LoadJailPacks) because that is all it has, and CtxPath turns the
-	//     name into the /ctx path a reads-host grant is mounted at. A host that preferred
-	//     the manifest would mount the user's file where the jail does not look, and the
-	//     surface would silently compose from defaults.
+	//
+	// IT IS NOT THE /ctx MOUNT KEY, and it was until 2026-09-05. A `reads-host` grant with
+	// no `into` lands under the pack's STAGED DIRECTORY (StagedSlug), which is Slug's
+	// ESCAPING of this name and is the only string the jail can name a pack by — the two
+	// are equal exactly when the name was already slug-clean, which every shipped pack is
+	// and a user pack need not be. That third bullet used to be written here as if it were
+	// a property of the name; the mount is keyed on the directory now, and both halves
+	// evaluate the same expression over it.
 	//
 	// So a pack.json `name` is informational: accepted (the strict decoder would refuse
 	// the key otherwise), shown by nothing, and for the packs yolo ships pinned equal to
@@ -306,20 +309,76 @@ func mergeManagedMap(base, over map[string]any) map[string]any {
 // hostSourceFor finds the granted host file whose basename matches this surface's file,
 // and returns the /ctx path it is mounted at. Empty when the pack granted none — the
 // surface then has no host layer, which is the common case.
+//
+// KEYED ON THE STAGED DIRECTORY, not the name: this is the READ side of the mount the
+// CLI's hostFileArgs emits, and the two must evaluate one expression over one string.
+// See StagedSlug.
 func (p *Pack) hostSourceFor(surfacePath string, granted []packdecl.HostFile) string {
 	want := path.Base(surfacePath)
 	for _, hf := range granted {
 		if path.Base(hf.From) != want {
 			continue
 		}
-		return CtxPath(p.Name, hf)
+		return CtxPath(p.StagedSlug(), hf)
 	}
 	return ""
 }
 
+// StagedSlug is the name of the DIRECTORY this pack was loaded from, and it is the key
+// the two halves mount a `reads-host` grant under (CtxPath).
+//
+// IT IS NOT Pack.Name, and the difference is the bug this method exists to close. `Name`
+// is the user's handle — the string in their `packs` line, what `yolo pack ls` prints and
+// `yolo pack explain` matches — and the CLI stages a pack into a directory named by
+// config.PackEntry.Slug, which ESCAPES every byte outside [A-Za-z0-9.-] as `_<hex>` so the
+// pack and host_files staging namespaces cannot collide. The jail has only that directory
+// to name a pack from (entrypoint.LoadJailPacks), so a mount path keyed on `Name` agrees
+// with the jail only for a name that was already slug-clean: measured 2026-09-05, a pack
+// named `my_pack` had its host file mounted at /ctx/host-my_pack/ while the entrypoint
+// read /ctx/host-my_5fpack/, and the host-layer read is fail-open, so the surface composed
+// from its defaults in silence while the disclosure banner still printed the grant.
+//
+// Escaping inside CtxPath instead does NOT work: Slug is not idempotent (`_` is itself
+// outside the safe set, so slug("my_5fpack") is "my_5f5fpack"), and the jail's string is
+// already a slug. Keying on the staged directory makes BOTH sides evaluate one expression
+// over one string, rather than two strings that happen to agree for the names yolo ships.
+//
+// ONLY MEANINGFUL FOR A PACK LOADED FROM ITS STAGED DIRECTORY. That is every loader on
+// the mount path — the host stages configured packs to <staging>/<PackEntry.Slug> and
+// embedded ones to _official/<name>, and the jail walks those same directories — but it is
+// NOT every loader in the tree, so this is a precondition rather than a type-level
+// guarantee. What happens when it is broken: this returns the basename of whatever root
+// was loaded, a coherent-looking string that is the wrong mount path, and nothing warns.
+//
+// Two things keep that from being a live hazard, and both are load-bearing:
+//
+//   - THE UNSTAGED LOADERS DO NOT REACH A MOUNT. `yolo check-deps` and config's install-bin
+//     scan load a local pack straight from its SOURCE dir and read only InstallBins();
+//     run/packs.go's loophole-module and supersession scans do the same and read only
+//     those declarations. Nothing there consults CtxPath, and the /ctx path a surface
+//     carries (Surface.HostSource) is opened by exactly one caller —
+//     entrypoint.hostSurfaceBytes, over packs entrypoint.LoadJailPacks read out of
+//     YOLO_PACK_ROOT, which are staged by construction.
+//   - THE THROWAWAY-STAGING LOADERS STAGE INTO A NAMED DIR. `yolo pack lint`, `yolo pack
+//     footprint` and `yolo check` all copy a pack into a temp tree before loading it, and
+//     each stages into <temp>/<the pack's directory or slug> rather than into the temp dir
+//     itself, precisely so this method does not name `yolo-pack-lint-1234567`. A new
+//     throwaway stager must do the same.
+//
+// TestStagedSlugIsTheDirectoryNotTheName pins the distinction, and
+// TestEveryEmbeddedPackStagedSlugEqualsItsName pins that no pack yolo ships is affected by
+// keying on it (all of them are slug-clean, so their two strings are equal).
+// filepath.Base, not path.Base: Root is a real host filesystem path (LoadDir's caller
+// built it with filepath.Join), while CtxPath's other half reads a slash-separated
+// manifest string.
+func (p *Pack) StagedSlug() string { return filepath.Base(p.Root) }
+
 // CtxPath is the in-jail /ctx path a granted host file is mounted at. THE one definition
 // both sides use: the CLI emits this mount destination, the entrypoint reads the host
 // layer from it.
+//
+// The `pack` argument is the pack's STAGED DIRECTORY (Pack.StagedSlug), not its name. See
+// that method for why the two differ and which bug the difference caused.
 func CtxPath(pack string, hf packdecl.HostFile) string {
 	if hf.To != "" {
 		return CtxRoot + "/" + hf.To
@@ -335,6 +394,16 @@ const CtxRoot = "/ctx"
 // Two grants landing on one path would mean one silently shadows the other, and the
 // surface reading that path would compose the wrong user file into its output — a wrong
 // config that looks right. Reported so it fails at load instead.
+//
+// KEYED ON Name, deliberately, and it is the one CtxPath call site that is: this is
+// REPORTING, not a mount. Both sides of its own comparison use the same key, so the
+// collisions it finds are identical whichever string is passed — CtxPath is injective in
+// the grant for a fixed pack — and what the choice decides is only what the message
+// PRINTS. `Name` is the right thing to print (it is the handle in the user's config), and
+// it is the only safe thing to print here: this check is lint-shaped, so its natural
+// caller is `yolo pack lint`, which loads a pack out of a throwaway staging dir. The
+// staged slug there would name the temp dir, and the message would tell the author their
+// files collide at a path that exists nowhere.
 func (p *Pack) HostFileConflicts() []string {
 	granted, _ := p.HonoredHostFiles()
 	seen := map[string]string{}
