@@ -60,7 +60,7 @@ loses on every axis:
 macos-user was excised because it delivered SandVault's sandbox and dropped
 yolo's nix layer. The revive is only worth it if, **from day one**, it honors
 `packages:` via native **aarch64-darwin** nix (a `buildEnv` profile, realized in
-`internal/darwinpkg` — the acceptance bar in the revival plan §0). If it can't
+`internal/darwinpkg` — the acceptance bar in the revival plan [§0](../plans/macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate)). If it can't
 carry the nix layer, don't ship it — that's the line between "a yolo backend"
 and "an SV clone."
 

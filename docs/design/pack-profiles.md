@@ -20,7 +20,7 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 > four borrowed spellings the [§3](#3-the-architectural-tension-prescribed-extension-point-vs-generic-fragments) diagram, [§5](#5-manifest-schemas--field-definitions)'s two examples and [§8.2](#82-projections-automatic-env-vs-prism-derivelua)'s derive listings still use
 > ([OQ-PT1](../reference/providers.md#why-its-this-way)); profile names are declared by the user, at user scope only ([OQ-CS5](../reference/providers.md#why-its-this-way)), and
 > **declaration is mandatory** — an undeclared name is a reportable error, not a silent no-op
-> ([OQ-CS6](../reference/providers.md#why-its-this-way), reversing [`profiles-as-pack-variants.md`](./profiles-as-pack-variants.md) OQ-5); and `env_shape` is deleted — an
+> ([OQ-CS6](../reference/providers.md#why-its-this-way), reversing [`profiles-as-pack-variants.md`](./profiles-as-pack-variants.md) [OQ-5](./profiles-as-pack-variants.md#14-decision-ledger)); and `env_shape` is deleted — an
 > agent's delivery, credential included, is composed by that agent pack's own env-emitting
 > derive ([OQ-PT9](../reference/providers.md#why-its-this-way), folded into [OQ-CS8](../reference/providers.md#why-its-this-way)). The body below is kept as the argument that produced
 > those answers, and still spells the key `api_key_env`, renamed `api_key_env_name`; of the

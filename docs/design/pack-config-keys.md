@@ -20,7 +20,7 @@ they describe now exists end to end:
 
 **Both of those steps have since SHIPPED (2026-08-18)**, which is what the mechanism was for.
 `host-processes` and `journal` are official packs, and both top-level keys are REFUSALS naming their
-replacements — so core's config schema names no loophole at all, which is §1.4's whole point in
+replacements — so core's config schema names no loophole at all, which is [§1.4](./loophole-activation.md#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name)'s whole point in
 [`loophole-activation.md`](./loophole-activation.md). `journal`'s settings landed as ONE BOOLEAN
 rather than the ported three-valued string; [§5.2](#52-journal-becomes-a-pack-and-its-top-level-key-goes) says why.
 
@@ -62,7 +62,7 @@ leaving its key in core is separation in appearance only — [`loophole-activati
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | **OQ-K1** | Declarations are **authoritative**. The advisory case does not exist — an unresolvable pack is already a fatal launch, not a degraded one | 2026-08-18 | [§2.2](#22-validation-happens-where-validation-already-happens) |
-| **OQ-K2** | A workspace **may** supply values that reach a host daemon, **gated by the config-change flow** — which became a control only when [OQ-D1](./config-safety.md#decision-ledger)/D2 shipped | 2026-08-18 | [§3b](#3b-workspace-scope-and-what-makes-it-safe-now) |
+| **OQ-K2** | A workspace **may** supply values that reach a host daemon, **gated by the config-change flow** — which became a control only when [OQ-D1](./config-safety.md#decision-ledger)/D2 shipped | 2026-08-18 | §[3b](#3b-workspace-scope-and-what-makes-it-safe-now) |
 | **OQ-K3** | **Freeze** `host_processes.visible`. No live reload; changing it needs a restart, which is where the approval gate lives | 2026-08-18 | [§5.1](#51-host_processesvisible-stops-being-live) |
 | **OQ-K4** | `journal` becomes a **pack**, settings under `loopholes.journal.settings`, and its top-level core key is deleted · ✅ **BUILT 2026-08-18** | 2026-08-18 | [§5.2](#52-journal-becomes-a-pack-and-its-top-level-key-goes) |
 
@@ -275,7 +275,7 @@ be corrected rather than relied upon.
 as they go through the config-change gating*.** The conditional is the whole ruling, not a caveat on
 it.
 
-§4.3b refuses `env` at workspace scope on the grounds that a workspace file travels with the repo and
+§[4.3b](./loophole-packaging.md#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either) refuses `env` at workspace scope on the grounds that a workspace file travels with the repo and
 is agent-editable. A **typed, declared** setting that core validates and writes is a different object
 from an arbitrary key/value pair injected into a process environment — the per-key `scope` field is
 what makes that statable rather than assumed. But "different object" alone would not be enough; what
@@ -306,7 +306,7 @@ closes the gap is that the config-approval gate is now a **control** rather than
 - **Not** a reordering of validation after staging. Two of the three `ValidateConfig` callers never
   stage at all (`yolo check`, `config-dump`), so there is nothing to reorder against.
 - **Not** a route to `env`. Settings are values written by core into a file; they are not a key/value
-  channel into a process environment, and the §4.3b ruling stands untouched.
+  channel into a process environment, and the §[4.3b](./loophole-packaging.md#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either) ruling stands untouched.
 - **Not** a claim that scope is a boundary in-jail. Inside a jail `/home/agent/.config` is a rw bind of
   the workspace's own tree, so user-vs-workspace is a **host-notch** property only.
 
@@ -391,7 +391,7 @@ ordinary. Three consequences:
 
 | Risk | Mitigation |
 | :--- | :--- |
-| A pack declares everything `scope: "workspace"`, so an agent can set it | Installing the pack was already a decision, and the origin gate still applies — but core should **default** a setting reaching a host daemon to `user`, mirroring §4.3b, so silence is the safe choice |
+| A pack declares everything `scope: "workspace"`, so an agent can set it | Installing the pack was already a decision, and the origin gate still applies — but core should **default** a setting reaching a host daemon to `user`, mirroring §[4.3b](./loophole-packaging.md#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either), so silence is the safe choice |
 | The typed set is too narrow for a real pack | Start with `string`, `bool`, `int`, `string_list`; widening a closed set later is additive, unlike narrowing |
 | An unseen declaration silently accepts a typo forever | It is the price of C2, and it is bounded: the key is namespaced under a loophole, so the blast radius of a typo is one ignored setting rather than a wrong one. [OQ-K1](#decision-ledger) |
 | The settings file becomes a second config system | Keep it a flat resolved map, written by core, read once — no includes, no layering, no comments |

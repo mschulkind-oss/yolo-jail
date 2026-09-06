@@ -118,12 +118,12 @@ shipped mechanism, in detail — this doc does not restate it),
 dep-handoff design), [`host-render-target.md`](host-render-target.md) [§2.1](./host-render-target.md#21-but-measure-how-much-of-a-pack-the-host-actually-wants) (the kind census),
 [`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md) Phase 4.3/6/7
 (what is deferred), [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md)
-§8.3/§8.4 (the `install_hints` matrix and the two defects it had, both since fixed),
+[§8.3](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)/[§8.4](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped) (the `install_hints` matrix and the two defects it had, both since fixed),
 [`package-nested-attribute-paths.md`](package-nested-attribute-paths.md) (what a `packages:`
 entry may *say* — a sketch, and it resolves through the same `noncontainerResolved` block [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)
 dissects).
 
-**Two docs are blocked on this one's [OQ-1](#9-open-questions)** and spell it `N3/[OQ-1](#9-open-questions)`:
+**Two docs are blocked on this one's [OQ-1](#9-open-questions)** and spell it [`N3/OQ-1`](#9-open-questions):
 [`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) (its approval tier's shape differs by the answer)
 and [`agent-auth-modes.md`](agent-auth-modes.md) (which notes it *escaped* the dependency by
 making auth-as-packs host-complete without a launcher). The roadmap tracks it as
@@ -136,13 +136,13 @@ making auth-as-packs host-complete without a launcher). The roadmap tracks it as
 > [`program-delivery.md`](program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) drew an axis that did not exist when [§1](#1-what-is-already-solved-stated-precisely)–[§8](#8-options-with-a-recommendation) were
 > written: a dependency serves either the **agent** (evergreen, never pinned) or the **project**
 > (pinned, reproducible). This document analysed the non-container notches as a *packaging* problem
-> — how does a tool closure get here without an image. §3.5 says what the closure is **for**, and
+> — how does a tool closure get here without an image. [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) says what the closure is **for**, and
 > that sharpens two things rather than changing any conclusion:
 >
 > - **`packages:` and `mise_tools` are project dependencies, so pinning them below `jail` is now a
 >   RULING to satisfy, not merely a nice-to-have** ([OQ-PD16](./program-delivery.md#-oq-pd16--how-does-a-project-dependency-get-pinned-on-the-host-where-there-is-no-jail--resolved-2026-09-03) there routes the host notch here).
 > - **Agent CLIs are explicitly out of scope for pinning at any notch** — which bears directly on
->   [OQ-7](#9-open-questions) (*should the jail get its agent CLIs from nix too?*): under §3.5 the
+>   [OQ-7](#9-open-questions) (*should the jail get its agent CLIs from nix too?*): under [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) the
 >   answer must not make an agent CLI reproducible, because that class is ruled evergreen. That
 >   narrows [OQ-7](#OQ-7) to a *delivery* question, never a pinning one.
 >
@@ -230,7 +230,7 @@ it buys.
 
 ### 1.1 The one thing genuinely absent: `packages:` has no meaning below `jail`
 
-This is worth isolating, because it is the actual hole. The env-manager design says (§3.4) that
+This is worth isolating, because it is the actual hole. The env-manager design says ([§3.4](./yolo-as-environment-manager.md#34-check-becomes-is-this-description-satisfiable-here)) that
 `check --at host` should print:
 
 ```
@@ -277,15 +277,15 @@ binary to a package name per host package manager, so `check-deps` / `yolo host 
 | Works with no nix | **yes** — the entire point | no |
 | Coverage across the six agent packs | **weak** (see below) | **6/6 on both arm64 Linux and arm64 macOS** ([§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail)) |
 
-The coverage asymmetry is stark and is most of the motivation. From §8.3's verified matrix:
+The coverage asymmetry is stark and is most of the motivation. From [§8.3](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)'s verified matrix:
 
 | manager | agent packs covered (of 6) |
 |---|---|
 | `apt` | **0** — no Debian/Ubuntu suite packages any of them, in any release |
 | `dnf` | **1** (`pi-coding-agent`, and only in Rawhide) |
 | `pacman` | **2** (`openai-codex`, `opencode`; the other four are AUR-only, which `pacman -S` cannot install) |
-| `brew` | 6 — but **4 are casks** (`claude-code`, `copilot-cli`, `codex`, `antigravity-cli`), which `depcheck.Manifest` used to emit as `brew "<x>"` → a Brewfile that fails on those four (defect §8.4, **fixed 2026-08-02** by the `brew-cask` hint key) |
-| `nix` | **6** — but 3 (`claude-code`, `github-copilot-cli`, `antigravity-cli`) are `unfree`, so bare `nix profile install` refuses (defect §8.3) |
+| `brew` | 6 — but **4 are casks** (`claude-code`, `copilot-cli`, `codex`, `antigravity-cli`), which `depcheck.Manifest` used to emit as `brew "<x>"` → a Brewfile that fails on those four (defect [§8.4](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped), **fixed 2026-08-02** by the `brew-cask` hint key) |
+| `nix` | **6** — but 3 (`claude-code`, `github-copilot-cli`, `antigravity-cli`) are `unfree`, so bare `nix profile install` refuses (defect [§8.3](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)) |
 
 **Read the bottom two rows together and the case makes itself.** On a Linux host that is not
 Arch, `install_hints` covers **zero to one** of six agent CLIs. `nix` is the only manager that
@@ -302,10 +302,10 @@ nice."
    file-suggestion pack, not agent CLIs. `fzf` is in nixpkgs, in brew, in apt, in pacman. For
    *that* class, `install_hints` is fine and a nix env is overkill.
 3. **The "print a remedy" path is the floor the design deliberately guarantees** (env-manager
-   §3.5: *"the composed manifest is always the floor"*). A nix env is an *additional* offer, not
+   [§3.5](./yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest): *"the composed manifest is always the floor"*). A nix env is an *additional* offer, not
    a replacement for the floor.
 
-**A concrete, cheap consequence worth noting even if nothing else here is built.** Both §8.3
+**A concrete, cheap consequence worth noting even if nothing else here is built.** Both [§8.3](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)
 defects are one-line-ish fixes that a nix route makes *more* important, not less:
 
 - The `unfree` refusal is real, and it also hits **`packages:` today** — but the failure is at
@@ -367,7 +367,7 @@ defects are one-line-ish fixes that a nix route makes *more* important, not less
 > `["claude-code","github-copilot-cli","antigravity-cli"]` on `x86_64-linux`, `aarch64-darwin`
 > **and** `x86_64-darwin`; with `NIXPKGS_ALLOW_UNFREE=1` it is `[]` on `aarch64-darwin`. The
 > warn-and-skip and the opt-in escape hatch both still work.
-- The brew-cask Brewfile bug (§8.4) is unaffected by any nix work. **FIXED (2026-08-02)** on
+- The brew-cask Brewfile bug ([§8.4](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)) is unaffected by any nix work. **FIXED (2026-08-02)** on
   its own: `install_hints` grew a `brew-cask` flavor key; see `internal/depcheck`.
 
 ---
@@ -522,14 +522,14 @@ Its costs are real and should not be soft-pedaled: it **mutates the user's machi
 category `install_hints` is in, so it belongs behind Phase 4.3's confirm, not in a silent
 apply); its pin is per-entry and drifts from yolo's `flake.lock`; `nix profile upgrade` only
 works for unlocked references; and for the three unfree packages a bare `nix profile install`
-refuses (§8.3's defect).
+refuses ([§8.3](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)'s defect).
 
 **A `--profile <dir>` variant is a genuinely interesting middle ground** and I have not seen it
 considered anywhere in the docs. `nix profile add --profile ~/.local/state/yolo/host-profile
 nixpkgs#…` builds a **yolo-owned** profile the user's PATH does not see by default. Verified
 working here into a temp dir. That is a `buildEnv`-like stable path *with* generations, rollback,
 and `nix profile list` provenance — and it gcroots itself, which the current buildEnv path does
-not. It costs the imperative/declarative purity that env-manager §3.3's sealing story rests on:
+not. It costs the imperative/declarative purity that env-manager [§3.3](./yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)'s sealing story rests on:
 a profile is *mutable state*, and the closure table would gain a row. ([OQ-3](#OQ-3).)
 
 ### 4.4 Recommendation on mechanism
@@ -844,7 +844,7 @@ Ordered from least to most work. These are alternatives to *choose among*, not p
 
 ### Option 0 — Do nothing; fix the two `install_hints` defects instead  *(DONE 2026-08-02)*
 
-Fix the brew-cask Brewfile bug (§8.4) and the unfree-hint insufficiency (§8.3), and leave
+Fix the brew-cask Brewfile bug ([§8.4](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)) and the unfree-hint insufficiency ([§8.3](../plans/pack-host-management-plan.md#phase-8--host-deps-for-the-fzf-case--scoped-closes-the-acceptance-test--shipped)), and leave
 provisioning at the host notch as "print the remedy, the user runs it."
 
 **Both shipped** (`e40df9f1`): `install_hints` grew a `brew-cask` installer-flavor key, which
@@ -915,7 +915,7 @@ profile (fully machine-global) as a separate, louder confirm.
 on the user's PATH permanently, and `nix` is the only manager covering all six agents. Generations
 and rollback come free, as does a GC root. **Against:** it *mutates the user's machine*, so it
 belongs behind Phase 4.3's confirm and inherits all of that increment's unresolved UX; a mutable
-profile adds a row to the §3.3 closure table and complicates `--sealed`; the unfree three need
+profile adds a row to the [§3.3](./yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) closure table and complicates `--sealed`; the unfree three need
 `allowUnfree` handling; and the per-entry registry pin drifts from `flake.lock`, weakening the
 "yolo's exact closure" pitch that motivates the whole idea.
 
@@ -950,7 +950,7 @@ conclusion is *"already solved for macos-user; the real gap is Linux `guest`, wh
 
 Six live, ordered by how much else they block; [OQ-1](#9-open-questions) is kept in place below with its Answer filled
 (2026-09-02) because sibling docs cite it by position and ID. **IDs are cited outside this doc:**
-[`OQ-1`](#9-open-questions) is spelled **`N3/[OQ-1](#9-open-questions)`** in [`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) and
+[`OQ-1`](#9-open-questions) is spelled **[`N3/OQ-1`](#9-open-questions)** in [`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) and
 [`agent-auth-modes.md`](agent-auth-modes.md), where it was named as a blocker — those blocks are
 now released; the roadmap called it "nix [OQ-1](#9-open-questions)". Both spellings mean this question and neither may
 be renumbered.
@@ -987,7 +987,7 @@ be renumbered.
 
 2. 💬 **[OQ-3](#OQ-3) — Is `nix profile --profile <yolo-dir>` ([§4.3](#43-nix-profile-is-the-one-that-actually-answers-the-maintainers-copilot-question)) attractive or a trap?** It gives a
    stable path *plus* generations, rollback, and a self-managing GC root — but it is mutable
-   state, which adds a row to the env-manager §3.3 closure table and interacts with `--sealed`.
+   state, which adds a row to the env-manager [§3.3](./yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) closure table and interacts with `--sealed`.
 
    **What it decides:** whether Option 3 is buildable as specified, and how much of the
    reproducibility/sealing story has to cover host provisioning. Note N1 has since taken one

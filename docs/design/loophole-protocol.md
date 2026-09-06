@@ -31,7 +31,7 @@ without a TLS stack — is
 pack contribution kind, plus a yolo-run TLS **front** that lets a
 daemon bind a plain AF_UNIX socket and have yolo publish the
 endpoint file in front of it. Read it before writing a server; the
-"Writing a server from scratch" section below is that doc's §2.3
+"Writing a server from scratch" section below is that doc's [§2.3](./loophole-packaging.md#23-why-not-export-internalsvcendpoint-and-why-not-just-publish-the-spec)
 deliverable, and it is explicit that the spec-only path is the
 **unsupervised** one.
 

@@ -313,7 +313,7 @@ out on a host:
   still gate *access*, so this is not an open door. What is lost is that a loopback-bound socket is
   unreachable from the network **by construction** — no auth bug can be exploited remotely, because
   no packet can arrive. Binding globally converts that structural guarantee into a dependency on the
-  auth path being correct. §3.0 exists for precisely that distinction.
+  auth path being correct. [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) exists for precisely that distinction.
 - **Every jail could reach every other jail's port.** Under pasta all jails resolve
   `host.containers.internal` to the same tunnel, so a globally-bound daemon is visible to all of them.
   Each per-jail relay would still reject a foreign token — but that is a move from *unreachable* to
@@ -332,7 +332,7 @@ out on a host:
 | Option | Verdict |
 | :--- | :--- |
 | **Make the runtime forward loopback** | ✅ **Taken.** Bind, cert pinning, per-jail token and the one-transport decision all survive untouched |
-| **Bind `0.0.0.0` / the LAN address** | ❌ It *works*, but trades a structural guarantee for permanent LAN exposure that §3.0 exists to prevent |
+| **Bind `0.0.0.0` / the LAN address** | ❌ It *works*, but trades a structural guarantee for permanent LAN exposure that [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) exists to prevent |
 | **Bind-mounted AF_UNIX socket on Linux** | ❌ Works and is LAN-free, but reopens a decision [`loophole-transport.md`](./loophole-transport.md) [§7.4](./loophole-transport.md#74-oq-t9--one-transport-or-two--decided-unify) retired *on purpose*. Only if the ladder in [§6.1](#61-the-ladder) runs out entirely, and then as a written amendment |
 
 ---
@@ -610,7 +610,7 @@ underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail
 
 - **Not** a change to `internal/svcendpoint`. A patch touching the bind or the advertise host is the
   wrong patch.
-- **Not** a change to the §3.0 security model. Loopback-bind stands; this makes it *reachable*.
+- **Not** a change to the [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) security model. Loopback-bind stands; this makes it *reachable*.
 - **Not** a revival of `unix-socket` as a second transport ([§5.1](#51-what-binding-globally-would-cost)).
 - **Not** macOS work. Apple Container and `macos-user` do not use pasta.
 

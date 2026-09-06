@@ -379,7 +379,7 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   internal/cli/run/packhostgrants.go). No config key and no `YOLO_HOST_*_FILES`
   env: which host files cross into the jail is a credential boundary fixed in
   yolo-shipped code, not a config knob (the retired
-  `host_claude_files`/`host_pi_files` keys; plan §10.4). **The gate is ORIGIN,
+  `host_claude_files`/`host_pi_files` keys; plan [§10.4](../plans/agent-settings-composition.md#104-decisions-settled-2026-07-23)). **The gate is ORIGIN,
   not a baked list.** It was `agents.AgentSpec.HostFiles`, a fixed per-agent Go
   constant, until that registry was deleted; a pack declares the grant now and
   `HonoredHostFiles` honors it only for an embedded or local pack, refusing a
@@ -529,7 +529,7 @@ Neither the file nor the dir is named in Go any more. Both come from the pack's
 itself is `Env.linkThroughShared` (`internal/entrypoint/claude.go`), and every
 decision it returns is logged to `~/.yolo-shared-creds.log`.
 
-**The harvest is gone** (2026-08-17, [`pack-code-separation.md`](./pack-code-separation.md) [§5](./pack-code-separation.md#5-shared_credentials--generic-or-moved)/OQ-3), and with
+**The harvest is gone** (2026-08-17, [`pack-code-separation.md`](./pack-code-separation.md) [§5](./pack-code-separation.md#5-shared_credentials--generic-or-moved)/[OQ-3](./pack-code-separation.md#open-questions)), and with
 it this section's old claim to hold the codebase's **one sanctioned tmp+rename**.
 A pre-existing regular file used to be merged into the shared one by max
 `expiresAt` over claude's `claudeAiOauth` dict — a claude-schema merge inside a

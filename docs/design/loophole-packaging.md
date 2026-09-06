@@ -1680,7 +1680,7 @@ that disabled it*, and `yolo check` **warning** rather than `ok`ing a workspace-
 
 **Install must become an explicit act for every origin.** Today only `yolo pack install` on a FETCHED
 pack prompts; `file://`, the conventional local pack, the user loopholes dir and the config block are
-all silent. Under §1.1's consolidation those collapse toward one act, and that act is where §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s
+all silent. Under [§1.1](./loophole-packaging-overview.md#11-do-we-need-three-channels-at-all--raised-in-review-and-it-is-the-better-question)'s consolidation those collapse toward one act, and that act is where §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)'s
 digest is taken and recorded.
 
 **What it dissolves:** **[OQ-LP12](#decision-ledger)** (per-workspace) — you install once, each workspace enables from

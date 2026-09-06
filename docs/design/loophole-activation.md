@@ -77,7 +77,7 @@ when the manifest moved into `packs/claude`; the two rows still not ✅ are unga
 blocked (see the status line).
 
 **Reads with:** [`broker-as-a-pack.md`](broker-as-a-pack.md) (the sprint this came out of; [§5.5](./broker-as-a-pack.md#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble) is
-the connection preamble, §12 the `host-processes` conversion),
+the connection preamble, [§12](./broker-as-a-pack.md#12-host-processes-as-the-proving-ground) the `host-processes` conversion),
 [`loophole-packaging-overview.md`](loophole-packaging-overview.md) ([§5](./loophole-packaging-overview.md#5-defaults-and-what-stays-bundled) "Defaults, and what stays
 bundled" — this supersedes its activation story),
 [`gate-placement-principle.md`](gate-placement-principle.md) (why a second gate over the same act is
@@ -460,7 +460,7 @@ regression, because the sniff was standing in for exactly this.
 - **Not** a second gate over host execution. `default_enabled` feeds `Enabled`; a fetched pack's
   host crossing still needs `Active` and `Honored`, so declaring yourself default-on cannot buy
   host access without the origin gate's approval. Adding an origin restriction *specifically* to
-  `default_enabled` would be the halfway-measure shape [OQ-LP14 was criticized for](loophole-packaging-overview.md).
+  `default_enabled` would be the halfway-measure shape [OQ-LP14 was criticized for](loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn).
 
   **RULED ([OQ-A3](#decision-ledger), 2026-08-16): `default_enabled: true` stays available to fetched packs,
   unrestricted.** *"A pack I fetched can declare itself on"* is a sentence worth reading twice, and

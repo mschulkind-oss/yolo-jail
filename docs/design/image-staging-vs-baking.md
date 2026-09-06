@@ -406,7 +406,7 @@ $ ls -1 ~/.local/share/yolo-jail/cache/images | wc -l
 149
 ```
 
-**Why 149 and not §2.1's 148** — the count moved once, for a documented reason, between the two
+**Why 149 and not [§2.1](./minimal-disk-footprint.md#21-levels)'s 148** — the count moved once, for a documented reason, between the two
 passes. [`minimal-disk-footprint.md`](minimal-disk-footprint.md) [§2.1](./minimal-disk-footprint.md#21-levels) counted **148** earlier the
 same day; the 149th is `de22e97910302cee.tar`, written at **19:17:21** by the last **pre-C3** load —
 a build that already minted a C2 content tag (its image is `8297369f734d`, tagged

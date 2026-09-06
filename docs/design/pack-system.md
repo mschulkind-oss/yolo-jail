@@ -231,10 +231,10 @@ prepends a host file. The review flag is an invitation to look, not a refusal.
 >   fails if either reaches for a producer directly.
 > - Refused at the **host** render target with the counterparty reason, and excluded from
 >   `JailFields()` explicitly: its jail-side effects are produced by the run pipeline before
->   the container exists, not by the render path (§3.4 of that doc).
+>   the container exists, not by the render path ([§3.4](./loophole-packaging.md#34-at-the-host-target-where-there-is-no-jail-refused--and-the-naive-reason-is-backwards) of that doc).
 >
 > Its hard prerequisite was met first: an unknown kind used to be A12-fatal to a jail
-> booting a pre-`just load` image (that doc §3.3a), so the tolerance change landed *ahead*
+> booting a pre-`just load` image (that doc §[3.3a](./loophole-packaging.md#33a-the-kind-is-an-a12-fatal-boot-break-against-a-stale-image--the-tier-incident-third-time)), so the tolerance change landed *ahead*
 > of the kind. **Both items this note used to list as outstanding are now settled**
 > (verified 2026-08-23) — and they settled in opposite directions:
 >

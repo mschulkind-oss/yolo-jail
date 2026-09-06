@@ -187,11 +187,11 @@ the thing running today is the thing you reviewed. Only a pin does that.
 >   would even live is [OQ-TP4](./trust-paths.md#decision-ledger). Neither is this table's to answer.
 > - **Rows 4 and 5 are the gate that already exists** ([§1](#1-what-the-gate-does-today)), now fatal rather than warned.
 > - **Row 1 is a proposal in a different document** — [`broker-as-a-pack.md`](./broker-as-a-pack.md)
->   §3.1 — and nothing here advanced it.
+>   [§3.1](./broker-as-a-pack.md#31-what-is-actually-unresolved-here) — and nothing here advanced it.
 
 | declaration | pinned? | verdict under P1 | today |
 | :--- | :--- | :--- | :--- |
-| jail-side binary + mandatory `sha256` | ✅ fully — the digest **is** what runs | ✅ allow | (proposed in broker-as-a-pack §3.1) |
+| jail-side binary + mandatory `sha256` | ✅ fully — the digest **is** what runs | ✅ allow | (proposed in broker-as-a-pack [§3.1](./broker-as-a-pack.md#31-what-is-actually-unresolved-here)) |
 | `npm` with a pinned version **and** integrity | ✅ the registry resolves to fixed bytes | ✅ allow | allowed, unpinned |
 | `npm install -g <pkg>` (floating, resolves to latest) | ❌ resolves at run time | ❌ **refuse** — closes a live hole | **allowed** |
 | installer URL + `sha256` | ⚠️ the *script* is pinned; what the script downloads is not | ⚠️ **[OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)** | refused |

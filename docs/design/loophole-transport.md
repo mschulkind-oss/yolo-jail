@@ -466,7 +466,7 @@ same user on the host — a browser extension, an unrelated npm postinstall, ano
 > **Correction to an earlier draft, which said per-jail secrets fix that weakness. They do not.**
 > Per [§3.1](#31-the-threat-model-spelled-out--who-the-token-is-actually-against), a same-user host process can read the host-side token file exactly as the relay does,
 > so the "anything running as the same user" gap **survives** this change untouched. Claiming
-> otherwise would be precisely the overclaim [`boundary-broker.md`](boundary-broker.md) §6.2 warns
+> otherwise would be precisely the overclaim [`boundary-broker.md`](boundary-broker.md) [§6.2](./boundary-broker.md#6-the-risks-worth-naming-before-any-code) warns
 > against — manufacturing the appearance of a boundary.
 >
 > **What per-jail secrets actually buy, and it is still worth having:**

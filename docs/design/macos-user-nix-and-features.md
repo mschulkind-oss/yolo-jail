@@ -693,7 +693,7 @@ backend-parity sweep and are owned by that doc, not this one — they follow the
    *concurrent* Claude sessions and would need hard-to-port host redirection. Note
    `EndpointGrantCommands` as dead-until-needed. The loophole *framework* does
    port and is the motivating future case — roadmap
-   [Track L / OQ-L1](../plans/macos-revival-and-distribution-plan.md).
+   [Track L / OQ-L1](../plans/macos-revival-and-distribution-plan.md#open-questions-blocking).
 4. **Skip-list policy** ([§1.3](#13-ordering-and-failure-handling)) — **decided: implement the written design** (hard
    error + per-platform `linux-only` override), retiring today's warn-and-skip. A
    silently dropped tool that the config *declared* masks typos and diverges from
