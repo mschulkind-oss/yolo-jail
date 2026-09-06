@@ -31,8 +31,9 @@ left, measured 2026-09-06: on podman a Go-only rebuild changes **2 of 99 layer d
 change sits at **position 78 of the chain**, and overlay storage keys a layer by its parent chain — so
 `podman load` re-stores the ~22 layers behind it, **about 2.7 GB per rebuild** (which is how this jail's
 image store reached 38.68 GB in three days), and reads all 3.5 GB either way; a cold launch is **52 s**
-against a warm **4 s**. The lever is the layer *order*, not the layer count, and that is the candidate
-this doc rejected (C6) coming back as [OQ-6](#102-open-questions). Separately, on the default
+against a warm **4 s**, and of that, `nix build` is ~7.9 s against ~26 s of stream-plus-`podman-load`
+([§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)) — load, not build, is where the time goes. The lever is the layer *order*, not the layer count, and
+that is the candidate this doc rejected (C6) coming back as [OQ-6](#102-open-questions). Separately, on the default
 launch path the image is rebuilt on **every `just install`**, because the bundle's binaries carry a
 `git describe` stamp — a docs-only commit followed by `just install` mints a new 3.5 GB image for zero
 functional change ([§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake), [OQ-7](#102-open-questions)).
@@ -184,9 +185,10 @@ observed.
 **11.2 s** for 3,524,710,400 B — **299 MiB/s**. The machine has 32 cores and 125 GiB RAM; a laptop is
 materially slower, macOS slower again.
 
-**NOT MEASURED:** a cold `nix build` of the image (a Go build plus the five derivations); `podman load`
+**NOT MEASURED here:** a cold `nix build` of the image (a Go build plus the five derivations); `podman load`
 on its own — the pipe means it is never observed apart from the stream ([§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) says why that
-matters now). Documented-but-not-independently-verified durations, for triangulation: **~12–13 s** for a
+matters now). **Both are measured in [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load):** the cold build directly (~7.9 s), `podman load`'s own
+share as an approximation (the pipe still prevents a clean isolation). Documented-but-not-independently-verified durations, for triangulation: **~12–13 s** for a
 `packages:`-bearing `--impure` rebuild plus cold start (`integration/packages_test.go:64`); **~45 s**
 for a forced in-jail rebuild + reload (`AGENTS.md`, the integration-suite knobs); **~2–5 min** for a first
 build on Linux (`docs/research/platform-comparison.md:267`).
@@ -418,8 +420,62 @@ rejection did not price is now measured: ~2.7 GB stored and 3.5 GB read per Go-o
 chain** — every nixpkgs layer first, yolo's own content in the trailing layers over a base whose chain
 never moves — cuts the store cost to the size of those trailing layers by construction. Whether it also
 cuts the 52 s cold path depends on how that time splits between `nix build`, stream generation
-(≥ 11.2 s, [§1.3](#13-what-a-rebuild-actually-costs)) and `podman load`, which is **NOT MEASURED** and is the cheapest experiment left in
-this doc — [OQ-6](#102-open-questions).
+(≥ 11.2 s, [§1.3](#13-what-a-rebuild-actually-costs)) and `podman load` — **now split, [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)**.
+
+### 1.10 Re-measured 2026-09-06 (continued) — splitting the 52 s: `nix build` vs. stream vs. `podman load`
+
+[§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) priced the storage half of C6's case; this is the time half [OQ-6](#102-open-questions) asked for. Taken in this jail's own
+podman, no nested launch, on a **real** Go-only change: `ce0d6324` (this session's HEAD) touches
+`internal/capture/relocate.go`, `internal/capture/store.go`, `internal/pluginpack/pluginpack.go` and one
+comment line in `flake.nix` — a `--dry-run` confirmed 7 derivations needed building, `yolo-jail-go-0-dev`
+among them, so this is the class of rebuild [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) priced, occurring naturally rather than manufactured for
+this measurement (this task's brief forbids editing `flake.nix` or any Go file).
+
+**MEASURED — `nix build`, split by dependency stage since the two do not fall inside one stopwatched call**
+(the second call sees the first stage already valid and does not redo it): `nix build .#goBinaries --impure
+--rebuild --no-link`, three runs, wall clock: **6.528 s, 6.636 s, 6.542 s** (mean **6.57 s**) — the Go
+compile. `nix build .#ociImage --impure --rebuild --no-link` immediately after (goBinaries now valid, only
+`stream-yolo-jail.drv` and its metadata siblings re-checked), three runs: **1.371 s, 1.354 s, 1.344 s** (mean
+**1.36 s**). **Total nix-build phase ≈ 7.9 s.** The same-session real build of `ce0d6324`
+(`nix build .#ociImage --impure --out-link …`, the same 7 derivations, exit 0) is the build this
+decomposition describes, but its own wall clock was not separately captured — this section's number is the
+sum of the two isolated re-runs above, not a single stopwatched original.
+
+**MEASURED — stream generation alone**, the built `stream-yolo-jail` script run to `/dev/null` (the same
+method [§1.3](#13-what-a-rebuild-actually-costs) used): three runs, 3,569,756,160 B (3.32 GiB) each: **8.886 s, 8.366 s, 8.171 s** (mean
+**8.47 s**, 374–407 MiB/s) — faster than [§1.3](#13-what-a-rebuild-actually-costs)'s 299 MiB/s, plausibly a warm page cache over the store
+paths this session had already touched; the point is the *shape*, not the exact rate.
+
+**MEASURED — stream piped into `podman load`**, the actual production mechanism (`internal/image/streamload.go`),
+run twice on the same never-before-loaded store path (`podman rmi` between runs to force each one cold —
+podman would otherwise recognize the content and no-op): **24.984 s, 27.093 s** (mean **26.04 s**). Both
+runs added exactly one new image at **2.719 GB unique / 850.6 MB shared** — the identical class [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) priced
+(2.719–2.745 GB there), an independent same-day replication. Both loaded images were removed after
+measurement (`podman rmi -f`); the store returned to its pre-measurement 38.68 GB.
+
+**What this splits out.** `podman load`'s own share is not directly observable — piping means the read and
+the write overlap, the same limitation [§1.3](#13-what-a-rebuild-actually-costs) and [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) already flagged — but the **difference of means**,
+26.04 s − 8.47 s ≈ **17.6 s**, is podman's added cost to write ~2.72 GB of new layers (≈155 MB/s
+effective), against 8.47 s to merely read the 3.32 GiB stream. Summing the two measured phases as the
+production pipeline actually runs them (build, then stream-into-load): **7.9 s + 26.0 s ≈ 34 s** — build is
+**~23 %**, stream-and-load **~77 %**, and podman's write alone (17.6 s) already exceeds the entire build
+phase (7.9 s).
+
+> [!NOTE]
+> **34 s accounts for most, not all, of the 52 s−4 s = 48 s delta [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5) attributes to the cold path.** The
+> ~14 s gap is not measured here: it is most plausibly the nested-jail launch's own container-creation and
+> entrypoint-provisioning overhead, which a direct `nix build` / `podman load` pair (this measurement) never
+> exercises and which this task was explicitly told not to re-launch to check. Read this section as "where
+> the *image pipeline's* 48 s goes," not as a reproduction of the full nested-launch number.
+
+**What it settles.** Load (stream-read plus podman-write) is the clear majority of the image pipeline —
+~3.3× the build phase counting the whole stream-and-load pipeline, and still ~2.2× the build phase counting
+podman's write share alone. Per the decision rule this doc and [OQ-6](#102-open-questions) already stated: since the load's
+read is *not* even the majority *within* the load (podman's write is), the lesson sharpens rather than
+reverses — the largest unbuilt lever is a thin image built against an **already-loaded base ref**, not a
+`fromImage` base (which re-emits the base layers into the stream and would add to, not remove, the write
+side measured here). This re-ranks C6 above C4 on the measured workload; it is not, by itself, authorization
+to build it — see [OQ-6](#102-open-questions).
 
 ---
 
@@ -695,11 +751,24 @@ is how 23 loads made a 38.68 GB image store in three days — while 3.5 GB still
 launch is 52 s against 4 s warm. So the "stable base" C6 described is not about the tar at all: it is
 about the **chain**. Put every nixpkgs layer first and yolo's own content (`installPrefix`, `binPathLinks`,
 the customisation layer) in the trailing layers over a base that never moves, and the stored delta becomes
-those layers' size by construction. Whether it also shortens the 52 s is **NOT MEASURED**; if the load's
-read is the majority, a thin image built *against the already-loaded base ref* — not a `fromImage` base,
-which re-emits the base layers into the stream — is the largest unbuilt lever on the maintainer's actual
-complaint and outranks C4 on the measured workload. Apple Container's skopeo conversion is still unproven
-to preserve either property. **Nothing here re-ranks it; [OQ-6](#102-open-questions) asks for the measurement first.**
+those layers' size by construction. **The time half is now measured too** ([§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)): of a ~34 s build-plus-load
+pipeline for one Go-only change, `nix build` is ~7.9 s and stream-plus-`podman-load` is ~26 s — load is the
+clear majority, and podman's own write share (~17.6 s) alone exceeds the whole build phase. So a thin image
+built *against the already-loaded base ref* — not a `fromImage` base, which re-emits the base layers into
+the stream and would add to the write side just measured — is the largest unbuilt lever on the
+maintainer's actual complaint, and **this re-ranks C6 above C4 on the measured workload**. Apple
+Container's skopeo conversion is still unproven to preserve either property, and a measurement is not a
+build authorization — see [OQ-6](#102-open-questions).
+
+> [!NOTE]
+> **If the concurrent `flake.nix` work removing `installPrefix` from the image lands, C6's remaining
+> subject narrows.** `installPrefix` was one of three things this candidate wanted in the trailing layers
+> (`binPathLinks`, the customisation layer, and it). If yolo's own binaries stop being baked at all, a
+> Go-only commit may no longer move the image's store path the way this measurement assumes, and what is
+> left to reorder is `binPathLinks` and the customisation layer — not yolo's binaries. The load-versus-build
+> *shape* found here does not depend on which content sits in the trailing layer, only that content which
+> changes often should trail content that does not; but re-derive the frequency claim before acting on it
+> once that change lands, rather than reusing this section's premise unchecked.
 
 ### C7 — Skip the build when nothing moved. **Considered, rejected.**
 
@@ -717,7 +786,7 @@ it saves ~1 s on a path that costs seconds-to-minutes elsewhere, and `installPre
 | C3 | Stream into the runtime, no tar | ~half of commits | 3.28 GiB write per rebuild; 404 GiB accrued | low–medium | podman | ✅ `be7b8591` ([OQ-5](#101-decision-ledger)); AC race closed `cc53b591` |
 | C4 | `packages:` from the mounted store | every `packages:` user | the `--impure` axis; ~3 GB per distinct list | **high** | podman + Linux + nix daemon | ❌ shape ruled ([OQ-1](#101-decision-ledger)); go/no-go the maintainer's on [§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5) + [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) |
 | C5 | `fullPackages` from the mounted store | ~half of commits | ~1.6–2 GB per rebuild | high | same as C4 | shape ruled with C4; ordered after it |
-| C6 | A stable layer chain; stream only the moved layers | ~half of commits | ~2.7 GB of podman storage per Go-only rebuild (MEASURED); up to ~48 s of a 52 s cold launch (**NOT MEASURED**) | medium | podman | re-opened as [OQ-6](#102-open-questions); measure the time split first |
+| C6 | A stable layer chain; stream only the moved layers | ~half of commits | ~2.7 GB of podman storage per Go-only rebuild (MEASURED); ~26 s of a ~34 s measured build-plus-load pipeline is stream+load, of which ~17.6 s is podman's write share (MEASURED, [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)) | medium | podman | re-opened as [OQ-6](#102-open-questions); time split measured, load dominates — go/no-go still the maintainer's |
 
 ---
 
@@ -851,8 +920,10 @@ own stderr are printed before anything else (`:333-336`); and the fallback is **
   dev-override let a stale binary on PATH shadow the baked one and made a fixed jail look broken
   (`flake.nix:768-790`; `AGENTS.md` "Build & deploy — the traps"). Re-opening it is a decision about the
   trust model of the boot path, not a staging question, and this doc does not make it.
-- **Anything requiring a measured `nix build` of the image or a measured `podman load`** — both NOT
-  MEASURED in [§1.3](#13-what-a-rebuild-actually-costs); [OQ-6](#102-open-questions) is the request for the second.
+- **A `podman load` timed in true isolation from the stream that feeds it.** [§1.3](#13-what-a-rebuild-actually-costs) flagged both a cold
+  `nix build` and a standalone `podman load` as NOT MEASURED; [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load) measures the cold build directly and approximates
+  `podman load`'s own share as a difference of means against the stream-alone time — the pipe still means
+  the two are never observed apart for real, only estimated.
 
 ---
 
@@ -900,24 +971,30 @@ their reasoning lives in the body sections that govern them. **IDs are an API an
 
 ### 10.2 Open Questions
 
-1. 💬 **OQ-6: Does a stable layer chain (C6) come back, now that a Go-only rebuild is measured at ~2.7 GB
-   of podman storage and a 3.5 GB read — and where do the 52 s go?** [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) shows the first changed
-   layer at position 78 of 99, so podman re-stores the tail; the storage half of C6's case is therefore
-   MEASURED, and only the *time* half — how the 52 s cold launch ([§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5)) splits between `nix build`,
-   stream generation and `podman load` — is not. This decides whether the maintainer's complaint is a
-   *layering* problem (put yolo's content last, stream only what moved) or a *build* problem (nothing in
-   this doc helps). It blocks any re-ranking of C6 and, indirectly, the C4 call: if most of the 52 s is
-   the load, C6 attacks the dominant case and C4 does not.
+1. 💬 **OQ-6: Now that both halves of C6's case are measured — ~2.7 GB of podman storage per Go-only
+   rebuild, and a ~34 s build-plus-load pipeline that splits ~7.9 s build / ~26 s stream-and-load — does a
+   stable layer chain (C6) get built?** [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) measured the storage half (first changed layer at chain
+   position 78 of 99); [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load) measured the time half this question was blocked on, in this jail, on a Go-only
+   change that landed naturally during the same session (`ce0d6324`, not manufactured for the
+   measurement). **Load dominates, decisively:** stream-and-load (~26 s) is ~3.3× the build phase (~7.9 s),
+   and podman's own write share alone (~17.6 s, a difference-of-means approximation — the pipe still
+   prevents a clean isolation) already exceeds the entire build. This settles the diagnostic half this
+   question asked — the maintainer's complaint is a *layering* problem, not a *build* problem — and
+   re-ranks C6 above C4 on the measured workload. It does not, by itself, settle the remaining half: whether
+   to actually build it, on what schedule, and against Apple Container's still-unproven skopeo path.
+   **A premise worth checking before acting on the ruling:** the concurrent `flake.nix` work removing
+   `installPrefix` from the image would narrow C6's remaining subject to `binPathLinks` and the
+   customisation layer, not yolo's binaries — see the note under [§4](#4-candidates-ranked) C6.
 
-   <!-- vantage: oq id=OQ-6 leaning="Two steps. First, measure: time nix build, stream-to-/dev/null and stream-into-podman-load separately for one Go-only change, in this jail - ten minutes. Second, regardless of the split, re-open C6 for the STORAGE case alone: order the image so every nixpkgs layer precedes yolo's own content, which turns the ~2.7 GB per rebuild into the size of the trailing layers by construction. If the load's read is also the majority of the 52 s, build the thin image against the already-loaded base ref (not a fromImage base, which re-emits the base layers) and rank it above C4; if the build dominates, the reorder alone is the whole of C6." -->
+   <!-- vantage: oq id=OQ-6 leaning="Both halves are now measured (§1.9 storage, §1.10 time): load is ~3.3x the build phase, and podman's write share alone exceeds the whole build. Build the thin image against the already-loaded base ref, not a fromImage base (which re-emits the base layers into the stream and would add to the write side just measured), and rank C6 above C4 on this evidence. Re-check the premise first if the concurrent flake.nix work has removed installPrefix from the image by the time this is acted on - the mechanism then targets binPathLinks and the customisation layer, not yolo's binaries. A measurement is not a build authorization; the go/no-go is still the maintainer's, same as C4/C5's OQ-1." -->
 
-   _Leaning:_ **Two steps.** First, **measure** — time `nix build`, the stream to `/dev/null`, and the
-   stream into `podman load` separately for one Go-only change; ten minutes in this jail. Second,
-   regardless of the split, **re-open C6 for the storage case alone**: order the image so every nixpkgs
-   layer precedes yolo's own content, which turns ~2.7 GB per rebuild into the size of the trailing
-   layers by construction. If the load's read is *also* the majority of the 52 s, build the thin image
-   against the already-loaded base ref (not a `fromImage` base, which re-emits the base layers) and
-   rank it above C4; if the build dominates, the reorder is the whole of C6.
+   _Leaning:_ **Both halves are now measured** ([§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) storage, [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load) time): load is ~3.3× the build phase, and
+   podman's write share alone exceeds the whole build. Build the thin image against the already-loaded base
+   ref, not a `fromImage` base (which re-emits the base layers into the stream and would add to the write
+   side just measured), and rank C6 above C4 on this evidence. Re-check the premise first if the concurrent
+   `flake.nix` work has removed `installPrefix` from the image by the time this is acted on — the mechanism
+   then targets `binPathLinks` and the customisation layer, not yolo's binaries. A measurement is not a
+   build authorization; the go/no-go is still the maintainer's, same as C4/C5's [OQ-1](#101-decision-ledger).
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -964,8 +1041,9 @@ a decision, not a build task; steps 7 and 8 are the two questions the re-audit o
    the first change sits at chain position 78; a distinct `packages:` closure costs ~3 GB.
 6. **C4, then C5 — only if the maintainer calls it**, on steps 5's evidence. [OQ-1](#101-decision-ledger) fixes the shape, not
    the go-ahead. Neither is queued on [`../plans/roadmap.md`](../plans/roadmap.md), deliberately.
-7. **[OQ-6](#102-open-questions) — split the 52 s.** Ten minutes in this jail. Its answer either re-ranks C6 above C4 or
-   closes C6 for good; either way it is the first thing that moves the maintainer's actual complaint.
+7. ~~**[OQ-6](#102-open-questions) — split the 52 s.**~~ **TAKEN 2026-09-06 ([§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)).** Build ~7.9 s, stream-and-load
+   ~26 s — load is the majority by ~3.3×, and re-ranks C6 above C4. **Not yet done:** the maintainer's
+   go/no-go on actually building it, same status as C4/C5.
 8. **[OQ-7](#102-open-questions) — the stamp.** A one-line change in `scripts/build-go.sh` behind a ruling; it stops the
    default launch path from rebuilding on commits that moved no image input.
 
