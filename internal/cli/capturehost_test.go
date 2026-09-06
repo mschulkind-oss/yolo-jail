@@ -136,7 +136,7 @@ func TestCaptureAdmitsTheEntryAndWritesTheReceipt(t *testing.T) {
 	if seen.Args == nil || !equalArgs(seen.Args, captureJailArgv("probetool")) {
 		t.Errorf("jail argv = %v, want %v", seen.Args, captureJailArgv("probetool"))
 	}
-	if !seen.New {
+	if !seen.NeverAttach {
 		t.Error("a capture must not attach to an existing container for its workspace")
 	}
 	if !seen.AcceptConfigChanges {

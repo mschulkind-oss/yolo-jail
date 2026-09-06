@@ -39,9 +39,14 @@ which is also what a bare 'yolo' does.
 Everything AFTER '--' belongs to the inner command, including that command's own
 flags: 'yolo -- claude --help' prints claude's help, not this one.
 
+A workspace whose jail is already running is ATTACHED to, not replaced — the
+running session is never yanked out from under you. Ending it is deliberate and
+two-stepped: 'yolo stop' (from the workspace), then an ordinary launch.
+
 Flags:
-  --new              Launch a fresh container instead of attaching to the jail
-                     already running for this workspace.
+  --new              REMOVED. Refuses, naming the replacement: it force-replaced a
+                     RUNNING jail (killing its sessions) in one step. To replace
+                     this workspace's jail: 'yolo stop', then launch again.
   --network <mode>   Override the network mode for this launch
                      (also --network=<mode>).
   --profile <sel>   Select the active profile for this launch (also -p <sel>,
@@ -153,8 +158,8 @@ func runHelp(args []string, out io.Writer) bool {
 // observable by launching a container.
 //
 // The front-door RewriteArgv inserts "run" at the `--` position, so flags that
-// preceded `--` end up BEFORE the "run" token (e.g. `yolo --new -- true` →
-// [--new, run, --, true]). So it scans the WHOLE argv: skip the "run" token
+// preceded `--` end up BEFORE the "run" token (e.g. `yolo --timing -- true` →
+// [--timing, run, --, true]). So it scans the WHOLE argv: skip the "run" token
 // wherever it appears, parse flags until `--`, and take everything after `--` as
 // the command.
 //
@@ -187,8 +192,12 @@ func parseRunArgs(args []string, opts *run.Options) {
 			afterDashDash = true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
+		// REMOVED 2026-09-06, and refused BY NAME rather than silently ignored:
+		// an ignored flag would fall to the default branch and become the command,
+		// and a flag that quietly did nothing is the silently-inert shape every
+		// other removal in this repo refuses. runRun prints the replacement series.
 		case a == "--new":
-			opts.New = true
+			opts.RemovedNewFlag = true
 		case a == "--timing":
 			opts.Timing = true
 		// An ordinary value flag, in both spellings, glued or not. The value's

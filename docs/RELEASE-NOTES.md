@@ -26,6 +26,25 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### `--new` is REMOVED — replacing a jail is `yolo stop`, then an ordinary launch
+
+**What changed** (2026-09-06). `yolo run --new` is gone. It force-replaced a RUNNING jail in one
+step — killing its live sessions — which made the destructive half invisible: it was recommended by
+a refusal message as a "relaunch" and was measured removing a live jail the moment the user obeyed.
+The common flow never needed it anyway: a jail lives in the terminal that launched it, and exiting
+or Ctrl-C-ing that session tears the jail down, so the next launch is already fresh.
+
+The replacement is deliberately two commands: **`yolo stop`** (new; from the workspace whose jail
+it is — graceful stop, idempotent, `--rm` sweeps the container) followed by an ordinary `yolo`
+launch. Every message that used to recommend `--new` names this series now. A typed `--new` is
+refused by name with the same remedy, not silently ignored.
+
+**Who this bites.** Scripts or muscle memory using `--new` — they now fail loudly with the fix in
+the message. The capture pipeline's "never attach" need moved to an internal seam (`NeverAttach`),
+not a flag.
+
+### Launching a jail on `/workspace` from inside a jail now REFUSES
+
 ### Launching a jail on `/workspace` from inside a jail now REFUSES
 
 **What changed** (2026-09-06). `yolo run` from inside a yolo jail, with the working directory
@@ -60,9 +79,9 @@ re-enters it. Three things a user notices:
    with every other hydrated secret.
 3. **Attaching with a TYPED `-p` that names a different profile to a jail launched by an
    OLDER yolo refuses**: such a jail froze its provider environment into the container at
-   launch, and a per-entry profile cannot override it. The remedy the refusal names is a
-   restart — finish or stop the jail's sessions (`podman stop <name>`), then rerun yolo.
-   Deliberately NOT `yolo --new`: that force-removes the RUNNING jail and its sessions. A
+   launch, and a per-entry profile cannot override it. The remedy the refusal names is the
+   two-command restart series — `yolo stop`, then an ordinary launch (the entry above:
+   `--new`, which force-removed the RUNNING jail, is gone). A
    plain re-entry (no `-p`, or one that matches what the jail already runs) attaches
    exactly as before; a config-side selection drift warns and proceeds.
 

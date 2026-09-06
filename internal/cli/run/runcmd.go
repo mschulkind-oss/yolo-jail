@@ -40,9 +40,20 @@ type ExecResult struct {
 type Options struct {
 	// --- CLI surface (typer options + ctx.args) ---
 	Network string
-	New     bool
+	// NeverAttach skips the attach-to-running-container branch entirely. NOT a
+	// CLI flag (the old --new was removed 2026-09-06): it is the capture jail's
+	// programmatic "this launch must boot, never re-enter" — a capture runs its
+	// installer in a home the boot just made, and attaching to a live container
+	// would run it in whatever state that container is in. The scratch workspace
+	// is fresh per capture so nothing CAN be running; this makes that true by
+	// construction rather than by luck (capturehost.go's comment).
+	NeverAttach bool
 	// Timing is --timing: report this launch's startup performance timings.
 	Timing bool
+	// RemovedNewFlag is the removed --new flag, seen on the argv: runRun refuses
+	// with the replacement series rather than launching (the removal is a
+	// RELEASE-NOTES behaviour change, 2026-09-06).
+	RemovedNewFlag bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
 	// AcceptConfigChanges is --accept-config-changes: it grants the config-change

@@ -130,8 +130,13 @@ func TestRunPassesHelpThroughToInnerCommand(t *testing.T) {
 func TestParseRunArgsFlags(t *testing.T) {
 	var opts run.Options
 	parseRunArgs(strings.Fields("--new run --timing --dry-run --network host -- true"), &opts)
-	if !opts.New || !opts.Timing || !opts.DryRun {
+	if !opts.Timing || !opts.DryRun {
 		t.Errorf("flags not parsed: %+v", opts)
+	}
+	// --new is REMOVED: it must not launch, and the flag's presence must be
+	// visible to runRun's by-name refusal rather than swallowed.
+	if !opts.RemovedNewFlag {
+		t.Errorf("the removed --new must surface for the by-name refusal: %+v", opts)
 	}
 	if opts.Network != "host" {
 		t.Errorf("Network = %q, want host", opts.Network)
@@ -228,7 +233,7 @@ func TestRunUsageListsEveryRunFlag(t *testing.T) {
 // which nothing else in this package pins.
 //
 // Every other test here drives the pure parser directly, so the whole run flag
-// surface — --new, --timing, --profile/-p, --pack-profile, --dry-run,
+// surface — --timing, --profile/-p, --dry-run,
 // --accept-config-changes, --network and the post-`--` command argv — could be
 // switched off wholesale with `just test-fast` green if runRun simply stopped
 // consulting it. That is the callee-pinned / call-site-unpinned shape AGENTS.md

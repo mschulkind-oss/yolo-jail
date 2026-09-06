@@ -661,7 +661,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	o.reapOrphanedJails(rt)
 
 	existingCID := ""
-	if !o.New {
+	if !o.NeverAttach {
 		existingCID = o.findRunningContainer(cname, rt)
 	}
 
@@ -705,7 +705,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// Re-check after acquiring the lock — another process may have won.
-	if !o.New {
+	if !o.NeverAttach {
 		if raced := o.findRunningContainer(cname, rt); raced != "" {
 			lock.Close()
 			return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, true)
@@ -1231,15 +1231,14 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 			out.printf("[bold red]Refusing to attach: '-p' cannot switch this jail's provider — " +
 				"it was launched by an older yolo that froze its provider environment into " +
 				"the container at launch.[/bold red]")
-			out.print("[dim]Restart the jail to gain per-entry profiles: finish or stop its " +
-				"running sessions ('podman stop " + cname + "'), then rerun yolo — the next " +
-				"launch is fresh. Do not use 'yolo --new' for this: it force-removes the " +
-				"RUNNING jail and its sessions.[/dim]")
+			out.print("[dim]Restart the jail to gain per-entry profiles: 'yolo stop' from " +
+				"this workspace (finishing its running sessions), then rerun yolo — the " +
+				"next launch is fresh.[/dim]")
 			return 1
 		}
 		out.print("[yellow]This jail predates per-entry profiles and is running the providers " +
 			"it was launched with; a config-side selection change cannot reach it. Restart " +
-			"it ('podman stop " + cname + "', then rerun yolo) to pick the selection up.[/yellow]")
+			"it ('yolo stop', then rerun yolo) to pick the selection up.[/yellow]")
 		return 0
 	}
 	// The SAME write the fresh path performs (run.go's lifecycle phase): one

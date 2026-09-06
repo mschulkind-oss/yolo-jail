@@ -132,9 +132,9 @@ re-hydrates it). Consequences worth knowing:
   frozen environment, which its older entrypoint lets beat the file — so the attach
   compares its own selection table to the jail's FROZEN one and splits by
   explicitness: a TYPED `-p` naming a different profile refuses (the delivery cannot
-  take, and the remedy names a restart — `podman stop`, never `yolo --new`, which
-  force-removes the running jail); a config-side drift warns and proceeds; a
-  matching or empty selection is a plain re-entry and stays silent.
+  take, and the remedy names the two-command restart series — `yolo stop`, then an
+  ordinary launch); a config-side drift warns and proceeds; a matching or empty
+  selection is a plain re-entry and stays silent.
 - The macos-user backend has no attach and no frozen copy; it still layers the same
   channel into its per-invocation plan env.
 

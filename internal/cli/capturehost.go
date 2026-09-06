@@ -327,11 +327,12 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	// property is unrepresentable instead of conditional: there is nothing in that jail to
 	// resolve a capture against.
 	opts.CapturesDir = func() string { return "" }
-	// --new: never attach. A capture must run its installer in a home the BOOT just made,
+	// Never attach. A capture must run its installer in a home the BOOT just made,
 	// and attaching to a live container for this workspace would run it in whatever state
 	// that container is in. The scratch workspace is fresh per capture, so there is nothing
 	// to attach to in practice; saying so makes it true by construction rather than by luck.
-	opts.New = true
+	// (The internal seam that replaced the removed --new flag.)
+	opts.NeverAttach = true
 	// The scratch workspace carries no yolo-jail.jsonc, so the effective config is the
 	// user's — the same `packs` any jail on this machine gets, which is what makes the
 	// launcher for <bin> exist inside. Nothing here is a config a human wrote for this

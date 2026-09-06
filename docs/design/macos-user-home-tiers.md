@@ -185,7 +185,7 @@ on macos-user exactly the mechanism this backend's design says it does not need.
    jail re-entered.
 
    _Leaning:_ Per-workspace, treating concurrent same-workspace launches as the
-   user's business the way `yolo --new` already does. Per-session would also
+   user's business the way an explicit stop-and-relaunch already does. Per-session would also
    multiply the migration surface in OQ-HT-2 by every session ever run.
 
    **Answer:**

@@ -83,7 +83,7 @@ Help is a *request*, not an error: it prints full help to **stdout** and exits
 
 - **State: PARTIAL.** Synopsis, flags, positional args and effects are now
   present for every command: `prune`'s twelve flags, `run`'s
-  `--new`/`--profile`/`--network`/`--dry-run`, `init`'s `--mount`/`-m`,
+  `--profile`/`--network`/`--dry-run`, `init`'s `--mount`/`-m`,
   `broker logs`'s `-n`/`--lines`/`-f`/`--follow`, and the positionals of
   `macos-unshare` (workspace) and `macos-fix-permissions` (path) are all in their
   command's usage text. Flag coverage is *derived*, not maintained by hand:

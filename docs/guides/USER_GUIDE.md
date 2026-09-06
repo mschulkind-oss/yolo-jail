@@ -242,7 +242,7 @@ yolo -- bash -c "make"     # Run a specific command
 ```
 
 **Options:**
-- `--new` — Force a new container even if one exists for this workspace
+- (removed) `--new` — use `yolo stop` followed by an ordinary launch instead
 - `--network bridge|host` — Override network mode for this run
 - `--timing` — Show detailed startup performance timing
 
@@ -1201,7 +1201,7 @@ By default, `yolo` reuses an existing container for the same workspace:
 ```bash
 yolo             # Creates container yolo-<hash>
 yolo             # Reuses yolo-<hash> via exec
-yolo --new       # Forces a new container
+yolo stop       # Stops this workspace's jail (the next launch is fresh)
 ```
 
 Containers are named deterministically based on the workspace path. Use `yolo ps` to see running containers.
@@ -1334,7 +1334,7 @@ Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout �
 - macOS: check that your runtime's VM/daemon is up:
   - Podman Machine: `podman machine list`
   - Apple Container: `container system status`
-- Try forcing a new container: `yolo --new`
+- Try replacing the jail: `yolo stop`, then launch again
 - Check for leftover containers: `yolo ps`
 
 **MCP server not working**
@@ -1352,7 +1352,7 @@ Set `YOLO_REPO_ROOT` in your shell profile if you always want a live checkout �
 **Tools missing after restart**
 
 - `eval "$(mise hook-env -s bash)"` to refresh PATH
-- Or restart the jail: `yolo --new`
+- Or restart the jail: `yolo stop`, then launch again
 
 **Permission errors on files**
 

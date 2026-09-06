@@ -16,6 +16,7 @@ var registry = map[string]func(args []string) int{
 	"check":                 runCheck,
 	"doctor":                runCheck, // doctor is an alias for check (same body + flag).
 	"run":                   runRun,
+	"stop":                  runStop,
 	"ps":                    runPs,
 	"loopholes":             runLoopholes,
 	"config":                runConfig,

@@ -9,6 +9,7 @@ import "strings"
 // namespace is deliberately absent.
 var commandHelp = []struct{ name, blurb string }{
 	{"run", "Run a command (or an interactive shell) inside the jail"},
+	{"stop", "Stop this workspace's running jail (idempotent; the next launch is fresh)"},
 	{"check", "Validate runtime, nix, config, image, and running jails (alias: doctor)"},
 	{"ps", "List running yolo-* jails and their workspaces"},
 	{"prune", "Reclaim disk: stale containers, images, caches (dry-run unless --apply)"},

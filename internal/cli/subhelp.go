@@ -82,6 +82,7 @@ var subcommandUsage = map[string]subUsage{
 	// same text — which names the alias — rather than a near-duplicate that would
 	// drift.
 	"doctor":                {text: checkUsage},
+	"stop":                  {text: stopUsage},
 	"ps":                    {text: psUsage},
 	"prune":                 {text: pruneUsage, valueFlags: []string{"--keep-images", "--image-cache-keep", "--cache-age", "--nix-gc-max"}},
 	"loopholes":             {text: loopholesUsage},

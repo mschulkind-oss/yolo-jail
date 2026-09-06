@@ -121,9 +121,10 @@ func preChangePacks(t *testing.T) []*packload.Pack {
 // TestAttachRefusesATypedProfileOnAPreChangeJail: a jail launched before the
 // channel moved onto the file cannot take a DIFFERENT typed selection — its old
 // hydrate lets the frozen environment beat the file — so a typed -p refuses rather
-// than run silently inert. The remedy must name a RESTART, and must not recommend
-// 'yolo --new': --new force-removes the RUNNING container and its sessions, which
-// was the first cut's advice and was measured doing exactly that on a live jail.
+// than run silently inert. The remedy names the two-command restart series
+// ('yolo stop', then an ordinary launch) — the old --new flag force-removed the
+// RUNNING container and its sessions, was recommended by an earlier cut of this
+// message, and is removed outright now.
 func TestAttachRefusesATypedProfileOnAPreChangeJail(t *testing.T) {
 	packs := preChangePacks(t)
 	o, cfg, channel, stderr := attachFixture(t, preChangeEnv,
@@ -138,11 +139,11 @@ func TestAttachRefusesATypedProfileOnAPreChangeJail(t *testing.T) {
 	if !strings.Contains(out, "Refusing to attach") {
 		t.Errorf("the refusal must say so:\n%s", out)
 	}
-	if !strings.Contains(out, "podman stop yolo-ws-abcd1234") {
-		t.Errorf("the remedy must name the jail's stop command:\n%s", out)
+	if !strings.Contains(out, "'yolo stop'") {
+		t.Errorf("the remedy must name the stop command:\n%s", out)
 	}
-	if strings.Contains(out, "'yolo --new' to get") || strings.Contains(out, "Relaunch the jail ('yolo --new')") {
-		t.Errorf("the remedy must not recommend --new, which force-kills the running jail:\n%s", out)
+	if strings.Contains(out, "--new") {
+		t.Errorf("the remedy must not name the removed --new flag:\n%s", out)
 	}
 	// And it refuses BEFORE delivering: nothing was written into the workspace.
 	if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); !os.IsNotExist(err) {
