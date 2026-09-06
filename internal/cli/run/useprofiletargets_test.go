@@ -105,10 +105,11 @@ func packsFixture(t *testing.T, names ...string) []*packload.Pack {
 	return out
 }
 
-// assembleWithProfiles is assembleWithConfig with an options hook, so a test can drive
-// a launch-time flag through the real env block rather than the merge in isolation.
-func assembleWithProfiles(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	set func(*Options)) []string {
+// assembleWithProfilesAssembled is assembleWithConfig with an options hook and the
+// channel file input beside the argv, so a test can drive a launch-time flag
+// through the real env block and assert what the same launch delivers.
+func assembleWithProfilesAssembled(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	set func(*Options)) assembled {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -129,7 +130,7 @@ func assembleWithProfiles(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload
 		yoloVersion:  "9.9.9-test",
 		mountTargets: map[string]struct{}{},
 	}
-	return o.assembleRunCmd(in)
+	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
 }
 
 // GLOBAL -p (§3.3, OQ-5): `-p bedrock` with NO command keys the name for every selected
@@ -148,8 +149,8 @@ func assembleWithProfiles(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload
 // would pass a test on the merge alone.
 func TestAssembleGlobalProfileReachesEverySelectedPack(t *testing.T) {
 	packs := packsFixture(t, "claude", "pi")
-	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) { o.ProfileName = "bedrock" })
-	got := envArgValues(argv, "YOLO_USE_PROFILES")
+	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) { o.ProfileName = "bedrock" })
+	got := la.channelEnv(t, "YOLO_USE_PROFILES")
 	if len(got) != 1 {
 		t.Fatalf("YOLO_USE_PROFILES emitted %q, want exactly one", got)
 	}
@@ -167,13 +168,13 @@ func TestAssembleBareProfileKeysEveryBinEvenWithACommand(t *testing.T) {
 	// meaning depends on a token further down the argv is the confusion this
 	// deleted; the per-CLI spelling is -p <cli>=<name>.
 	packs := packsFixture(t, "claude", "pi")
-	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
+	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) {
 		o.ProfileName = "bedrock"
 		o.Args = []string{"claude"}
 	})
-	got := envArgValues(argv, "YOLO_USE_PROFILES")
+	got := la.channelEnv(t, "YOLO_USE_PROFILES")
 	if len(got) != 1 {
-		t.Fatalf("YOLO_USE_PROFILES emitted %q, want exactly one", got)
+		t.Fatalf("YOLO_USE_PROFILES crossed %q, want exactly one line", got)
 	}
 	if got[0] != `YOLO_USE_PROFILES={"claude": "bedrock", "pi": "bedrock"}` {
 		t.Errorf("bare -p must key every selected pack's bin, got %s", got[0])
@@ -331,19 +332,19 @@ func profilePackFixture(t *testing.T, name string) *packload.Pack {
 	return p
 }
 
-// A selected variant's env reaches the ASSEMBLED argv: the -e block and the
-// YOLO_USE_PROFILES table must describe the same launch. This is the pin on the call
-// site, not on the fold — packload.EnvVarsFor is covered in packload's own tests, and
-// nothing there would notice if assemble went back to a static-only fold, which
-// would ship every profile env silently missing from the jail.
+// A selected variant's env reaches the DELIVERED channel: the yolo-user-env.sh
+// section and the YOLO_USE_PROFILES table must describe the same launch. This is the
+// pin on the call site, not on the fold — packload.EnvVarsFor is covered in
+// packload's own tests, and nothing there would notice if the channel went back to a
+// static-only fold, which would ship every profile env silently missing from the jail.
 func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
 	packs := []*packload.Pack{profilePackFixture(t, "acme")}
-	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
+	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) {
 		o.UseProfiles = map[string]string{"claude": "bedrock"}
 	})
-	env := strings.Join(envArgValues(argv, "PROFILE_ONLY", "BASE", "SHARED"), " ")
+	env := strings.Join(la.channelEnv(t, "PROFILE_ONLY", "BASE", "SHARED"), " ")
 	if !strings.Contains(env, "PROFILE_ONLY=from-profile") {
-		t.Errorf("the selected profile's gated env must be in the jail argv, got %s", env)
+		t.Errorf("the selected profile's gated env must reach the jail, got %s", env)
 	}
 	if !strings.Contains(env, "BASE=static") {
 		t.Errorf("a key the gated entry does not name keeps the static value, got %s", env)
@@ -356,8 +357,8 @@ func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
 	}
 
 	// No profile selected: the static baseline, unchanged.
-	argv = assembleWithProfiles(t, newConfig(), packs, nil)
-	env = strings.Join(envArgValues(argv, "PROFILE_ONLY", "SHARED"), " ")
+	la = assembleWithProfilesAssembled(t, newConfig(), packs, nil)
+	env = strings.Join(la.channelEnv(t, "PROFILE_ONLY", "SHARED"), " ")
 	if strings.Contains(env, "PROFILE_ONLY=") || !strings.Contains(env, "SHARED=static") {
 		t.Errorf("without a selection the static env must stand, got %s", env)
 	}

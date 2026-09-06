@@ -492,15 +492,12 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_MCP_PRESETS=[]",
 		// Empty because no user config declares `agent_updates`; the jail defaults OPEN.
 		"-e", "YOLO_AGENT_UPDATES=",
-		// packs/claude ships the bedrock provider's delivery shape, so every launch that
-		// selects claude carries it — a shape with no values in it, since the region and
-		// model ids are the user's providers.bedrock entry to supply.
-		"-e", `YOLO_PROVIDERS={"bedrock": {}}`,
-		// packs/claude ships the bedrock profile over that provider, so the resolved
-		// table carries it even for a launch that activates nothing: the table is the
-		// whole DECLARED set, and the jail reads it verbatim (profilechannel.go).
-		"-e", `YOLO_PROFILES={"bedrock": {"provider": "bedrock"}}`,
-		"-e", "YOLO_USE_PROFILES={}",
+		// The three provider/profile wire tables are NOT on the argv: they cross in
+		// yolo-user-env.sh's channel section with the pack env fold and the shape
+		// vars (writeUserEnvFile), so the container's frozen environment holds no
+		// provider state for a later exec to inherit — per-entry delivery. The
+		// tables still cross on every launch (bedrock's empty shape included,
+		// because packs/claude ships it); the file is where.
 		"-e", "YOLO_REQUIRED_CAPABILITIES=[]",
 		"-e", "YOLO_RUNTIME=podman",
 	)

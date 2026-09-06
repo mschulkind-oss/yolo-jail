@@ -50,7 +50,7 @@ func optionsZaiPack(t *testing.T) *packload.Pack {
 // CURRENTLY set to — USER scope, the only scope the key reads (OQ-CS5), which is why
 // these tests write the file rather than the merged cfg the assembly is handed. The
 // two-arg shape exists because the assembly establishes its own temp HOME
-// (assembleWithProfiles) and the file has to land in THAT one.
+// (assembleWithProfilesAssembled) and the file has to land in THAT one.
 func writeProfilesAtHome(t *testing.T, profilesJSON string) {
 	t.Helper()
 	path := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
@@ -80,12 +80,12 @@ func writeProfilesConfig(t *testing.T, profilesJSON string) string {
 func TestAssembleEmitsTheResolvedProfilesTable(t *testing.T) {
 	packs := []*packload.Pack{optionsZaiPack(t)}
 	// Written inside the hook, so the file lands in the HOME the assembly itself chose.
-	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
+	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) {
 		writeProfilesAtHome(t, `{"zai-fast": {"provider": "zai", "model": "fast"}}`)
 	})
-	got := envArgValues(argv, "YOLO_PROFILES")
+	got := la.channelEnv(t, "YOLO_PROFILES")
 	if len(got) != 1 {
-		t.Fatalf("YOLO_PROFILES emitted %q, want exactly one", got)
+		t.Fatalf("YOLO_PROFILES crossed %q, want exactly one line", got)
 	}
 	// `model` is the user's value over the declared default; `thinking` is declared with
 	// none and the profile does not set it, so it composes nothing (OQ-CS7's null). The

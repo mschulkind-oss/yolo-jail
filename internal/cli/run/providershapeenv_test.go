@@ -88,10 +88,16 @@ func zaiProviderOnlyPack(t *testing.T) *packload.Pack {
 		`{"kind":"profile","name":"glm","provider":"zai"}]}`)
 }
 
-// assembleWithProviderEnv is assembleWithPacksAndConfig with the hydrated env_sources the
+// assembleWithProviderEnvAssembled is assembleWithPacksAndConfigAssembled with the hydrated env_sources the
 // run pipeline threads in, so the producer's credential has the channel it really
 // resolves through.
 func assembleWithProviderEnv(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap, userEnv *jsonx.OrderedMap) []string {
+	return assembleWithProviderEnvAssembled(t, packs, cfg, userEnv).argv
+}
+
+// assembleWithProviderEnvAssembled is assembleWithProviderEnv for the tests that
+// assert the channel file beside the argv.
+func assembleWithProviderEnvAssembled(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap, userEnv *jsonx.OrderedMap) assembled {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -110,7 +116,7 @@ func assembleWithProviderEnv(t *testing.T, packs []*packload.Pack, cfg *jsonx.Or
 		mountTargets: map[string]struct{}{},
 		userEnv:      userEnv,
 	}
-	return o.assembleRunCmd(in)
+	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
 }
 
 // hydratedKey is the env_sources channel: one hydrated credential variable.
@@ -138,11 +144,11 @@ func profiledConfig() *jsonx.OrderedMap {
 // variable, both named by the agent pack's own derive. Both halves are asserted so a
 // half-composed delivery cannot pass.
 func TestAssembleComposesProviderEnvForTheSelectedProfile(t *testing.T) {
-	argv := assembleWithProviderEnv(t,
+	la := assembleWithProviderEnvAssembled(t,
 		[]*packload.Pack{zaiProfilePack(t, "zai-pack", "claude")},
 		profiledConfig(), hydratedKey())
 
-	got := envArgValues(argv, "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
+	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
 	want := []string{
 		"ANTHROPIC_AUTH_TOKEN=tok-9",
 		"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic",
@@ -180,11 +186,11 @@ func TestAssembleComposesNoProviderEnvWithoutAProfile(t *testing.T) {
 // pack, so this also proves a materialized embedded pack's Root is a derive the runner
 // can read — the same path the host notch takes.
 func TestAssembleComposesProviderEnvDeclaredByAnotherPack(t *testing.T) {
-	argv := assembleWithProviderEnv(t,
+	la := assembleWithProviderEnvAssembled(t,
 		append(claudePackFixture(t), zaiProviderOnlyPack(t)),
 		profiledConfig(), hydratedKey())
 
-	got := envArgValues(argv, "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
+	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
 	want := []string{
 		"ANTHROPIC_AUTH_TOKEN=tok-9",
 		"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic",

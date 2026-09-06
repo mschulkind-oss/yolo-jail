@@ -133,10 +133,10 @@ func TestNeedsJoinedPackCarriesItsEffectsIntoTheArgv(t *testing.T) {
 		t.Fatalf("causes = %q, want the one disclosure line", causes)
 	}
 
-	argv := zaiLaunch(t, append(selected, added...), bareConfig(), emptyEnv(), nil)
-	vals := envArgValues(argv, "DONOR_PROBE")
+	la := zaiLaunchAssembled(t, append(selected, added...), bareConfig(), emptyEnv(), nil)
+	vals := la.channelEnv(t, "DONOR_PROBE")
 	if len(vals) != 1 || vals[0] != "DONOR_PROBE=joined" {
-		t.Errorf("the joined pack's env block must reach the argv like a selected "+
+		t.Errorf("the joined pack's env block must reach the jail like a selected "+
 			"pack's: %q", vals)
 	}
 }

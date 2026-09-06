@@ -40,7 +40,7 @@ func TestUserEnvChainRevokesOnConfigRemoval(t *testing.T) {
 	// --- Launch 1: env_sources present. ---
 	withSources := decodeCfg(t, `{"env_sources": ["creds.env"]}`)
 	env1 := config.ResolveEnvSources(ws, withSources, nil)
-	writeUserEnvFile(userEnvFile, env1)
+	writeUserEnvFile(userEnvFile, env1, nil)
 	got1, err := os.ReadFile(userEnvFile)
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestUserEnvChainRevokesOnConfigRemoval(t *testing.T) {
 	// --- Launch 2: env_sources commented out, i.e. absent from the parsed config. ---
 	withoutSources := decodeCfg(t, `{}`)
 	env2 := config.ResolveEnvSources(ws, withoutSources, nil)
-	writeUserEnvFile(userEnvFile, env2)
+	writeUserEnvFile(userEnvFile, env2, nil)
 
 	got2, err := os.ReadFile(userEnvFile)
 	if err != nil {

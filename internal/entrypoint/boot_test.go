@@ -16,9 +16,9 @@ import (
 // yolo-user-env.sh export-line grammar (go-port plan section 1.1 frozen
 // contract). It exercises the ${KEY:-'value'} default form (launch env wins),
 // the embedded single-quote escape, bare/single/double forms, comments, and
-// blank lines. Both the Go hydrator and the LIVE Python
-// _hydrate_env_from_user_env_file are driven over this same input and their
-// resulting env maps compared.
+// blank lines. The plain-form lines (SINGLE, DOUBLE, BARE) are the per-entry
+// CHANNEL grammar — they override launch env, the def-form default's inverse —
+// which is the per-entry delivery contract's precedence half.
 const hydrationCorpus = `# Auto-generated from yolo-jail.jsonc env config.
 # Override by editing this file or workspace .env (mise).
 export FOO=${FOO:-'bar baz'}
@@ -37,7 +37,8 @@ export = malformed
 
 // TestHydrateEnvFromUserEnvFile validates the Go hydrator against the committed
 // corpus (the ${KEY:-'value'} default form, embedded quotes, bare/single/double,
-// launch-env-wins precedence).
+// and the two precedences: a def-form default loses to launch env, a plain-form
+// channel line beats it).
 func TestHydrateEnvFromUserEnvFile(t *testing.T) {
 	home := t.TempDir()
 	cfgDir := filepath.Join(home, ".config")
@@ -47,7 +48,9 @@ func TestHydrateEnvFromUserEnvFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "yolo-user-env.sh"), []byte(hydrationCorpus), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	e := NewEnv(map[string]string{"JAIL_HOME": home, "FOO": "LAUNCH_WINS"})
+	// SINGLE is plain-form in the corpus, so the launch value must LOSE to it —
+	// the channel override. FOO is def-form, so the launch value WINS.
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "FOO": "LAUNCH_WINS", "SINGLE": "LAUNCH_LOSES"})
 	before := map[string]string{}
 	for k, v := range e.Vars {
 		before[k] = v
@@ -63,7 +66,12 @@ func TestHydrateEnvFromUserEnvFile(t *testing.T) {
 
 	// FOO should NOT appear (launch env wins over the default).
 	if _, ok := delta["FOO"]; ok {
-		t.Error("FOO should not be in delta — launch env must win")
+		t.Error("FOO should not be in delta — launch env must win over a def-form default")
+	}
+	// SINGLE should appear with the FILE's value (a plain-form channel line beats
+	// the environment — the per-entry delivery's precedence).
+	if delta["SINGLE"] != "literal single" {
+		t.Errorf("SINGLE = %q, want the file's plain-form value — a channel line overrides the environment", delta["SINGLE"])
 	}
 	// Keys from the corpus that had no launch override should appear.
 	for _, key := range []string{"QUOTED", "EMPTY", "SINGLE", "SINGLE_ESC", "DOUBLE", "BARE", "BARE_EMPTY", "MULTI"} {

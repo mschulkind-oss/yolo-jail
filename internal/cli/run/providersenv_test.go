@@ -40,7 +40,9 @@ func providerEnvPack(t *testing.T, name string) *packload.Pack {
 	return p
 }
 
-func assembleWithPacksAndConfig(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap) []string {
+// assembleWithPacksAndConfigAssembled assembles the argv AND the channel file
+// input for packs+config — the tests assert both halves of the delivery.
+func assembleWithPacksAndConfigAssembled(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap) assembled {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -58,7 +60,7 @@ func assembleWithPacksAndConfig(t *testing.T, packs []*packload.Pack, cfg *jsonx
 		yoloVersion:  "9.9.9-test",
 		mountTargets: map[string]struct{}{},
 	}
-	return o.assembleRunCmd(in)
+	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
 }
 
 // TestAssembleEmitsComposedProvidersTable: a pack-shipped provider and a user override
@@ -74,13 +76,13 @@ func TestAssembleEmitsComposedProvidersTable(t *testing.T) {
 		m.Set("models", models)
 		return m
 	}())
-	argv := assembleWithPacksAndConfig(t,
+	la := assembleWithPacksAndConfigAssembled(t,
 		[]*packload.Pack{providerEnvPack(t, "zai-pack")},
 		newConfig("providers", providers))
 
-	got := envArgValues(argv, "YOLO_PROVIDERS")
+	got := la.channelEnv(t, "YOLO_PROVIDERS")
 	if len(got) != 1 {
-		t.Fatalf("want exactly one YOLO_PROVIDERS env pair, got %q", got)
+		t.Fatalf("want exactly one YOLO_PROVIDERS channel line, got %q", got)
 	}
 	env := got[0]
 	for _, want := range []string{
@@ -105,9 +107,9 @@ func TestAssembleEmitsComposedProvidersTable(t *testing.T) {
 func TestAssembleEmitsEmptyProvidersTableWithoutProviders(t *testing.T) {
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
-	argv := assembleWithPacksAndConfig(t, packsFixture(t, "pi"),
+	la := assembleWithPacksAndConfigAssembled(t, packsFixture(t, "pi"),
 		newConfig("agents", []any{"pi"}, "security", sec))
-	got := envArgValues(argv, "YOLO_PROVIDERS")
+	got := la.channelEnv(t, "YOLO_PROVIDERS")
 	if len(got) != 1 || got[0] != "YOLO_PROVIDERS={}" {
 		t.Errorf("an unprofiled, provider-less launch must carry YOLO_PROVIDERS={}; got %q", got)
 	}

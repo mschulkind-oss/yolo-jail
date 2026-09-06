@@ -33,11 +33,11 @@ func cerebrasSelected(t *testing.T) []*packload.Pack {
 // and the one wire-true model alias. pi's and opencode's catalogs (and copilot's BYOK
 // block) are all derived from exactly this entry.
 func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
-	argv := zaiLaunch(t, cerebrasSelected(t), bareConfig(), cerebrasKey(), nil)
+	la := zaiLaunchAssembled(t, cerebrasSelected(t), bareConfig(), cerebrasKey(), nil)
 
-	vals := envArgValues(argv, "YOLO_PROVIDERS")
+	vals := la.channelEnv(t, "YOLO_PROVIDERS")
 	if len(vals) != 1 {
-		t.Fatalf("argv carries %d YOLO_PROVIDERS args, want 1", len(vals))
+		t.Fatalf("the channel file carries %d YOLO_PROVIDERS lines, want 1", len(vals))
 	}
 	v, err := jsonx.Decode([]byte(strings.TrimPrefix(vals[0], "YOLO_PROVIDERS=")))
 	if err != nil {
@@ -138,10 +138,10 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 // this test is where the endpoint half is pinned at the argv.
 func TestCerebrasPackComposesTheBridgedClaudeRoute(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "cerebras")}
-	argv := zaiLaunch(t, packs, bareConfig(), cerebrasKey(),
+	la := zaiLaunchAssembled(t, packs, bareConfig(), cerebrasKey(),
 		func(o *Options) { o.ProfileName = "cerebras" })
 
-	got := envArgValues(argv, "ANTHROPIC_BASE_URL")
+	got := la.channelEnv(t, "ANTHROPIC_BASE_URL")
 	if len(got) != 1 || got[0] != "ANTHROPIC_BASE_URL=http://127.0.0.1:8214" {
 		t.Errorf("claude must be routed at the bridge's loopback URL the manifest "+
 			"declares: %q", got)

@@ -28,6 +28,20 @@ func copilotLaunch(t *testing.T, provider string, tune func(*Options)) []string 
 	return zaiLaunch(t, packs, bareConfig(), env, tune)
 }
 
+// copilotLaunchAssembled is copilotLaunch for the tests that assert the channel
+// file beside the argv.
+func copilotLaunchAssembled(t *testing.T, provider string, tune func(*Options)) assembled {
+	t.Helper()
+	packs := []*packload.Pack{officialPack(t, "copilot"), officialPack(t, provider)}
+	var env *jsonx.OrderedMap
+	if provider == "cerebras" {
+		env = cerebrasKey()
+	} else {
+		env = hydratedKey()
+	}
+	return zaiLaunchAssembled(t, packs, bareConfig(), env, tune)
+}
+
 // TestCopilotByokComposesCerebrasThroughTheBridge: `-p cerebras` on a copilot
 // launch arms the full BYOK block — and since cerebras now declares an
 // anthropic endpoint (the wire bridge's loopback URL, wire-bridge.md §3.3),
@@ -38,9 +52,9 @@ func copilotLaunch(t *testing.T, provider string, tune func(*Options)) []string 
 // is why cerebras's `needs` entry names the copilot bin too. The derive is
 // UNCHANGED; only the table grew an endpoint.
 func TestCopilotByokComposesCerebrasThroughTheBridge(t *testing.T) {
-	argv := copilotLaunch(t, "cerebras", func(o *Options) { o.ProfileName = "cerebras" })
+	la := copilotLaunchAssembled(t, "cerebras", func(o *Options) { o.ProfileName = "cerebras" })
 
-	got := envArgValues(argv,
+	got := la.channelEnv(t,
 		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
 		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY")
 	want := []string{
@@ -64,9 +78,9 @@ func TestCopilotByokComposesCerebrasThroughTheBridge(t *testing.T) {
 // copilot's anthropic spelling — no WIRE_API at all, because copilot's wire_api enum
 // speaks only to the openai type (D-3: the anthropic route is the richer surface).
 func TestCopilotByokPrefersTheAnthropicRoute(t *testing.T) {
-	argv := copilotLaunch(t, "zai", func(o *Options) { o.ProfileName = "zai" })
+	la := copilotLaunchAssembled(t, "zai", func(o *Options) { o.ProfileName = "zai" })
 
-	got := envArgValues(argv,
+	got := la.channelEnv(t,
 		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
 		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY")
 	want := []string{
@@ -104,10 +118,10 @@ func TestCopilotByokComposesNothingWithoutTheProfile(t *testing.T) {
 // guess. Runs against the real bedrock provider packs/claude ships.
 func TestCopilotByokComposesNothingForAnEndpointlessProvider(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "copilot"), officialPack(t, "claude")}
-	argv := zaiLaunch(t, packs, bareConfig(), emptyEnv(),
+	la := zaiLaunchAssembled(t, packs, bareConfig(), emptyEnv(),
 		func(o *Options) { o.ProfileName = "bedrock" })
 
-	if got := envArgValues(argv,
+	if got := la.channelEnv(t,
 		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
 		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY"); len(got) != 0 {
 		t.Errorf("an endpointless provider armed copilot BYOK: %q", got)

@@ -3,7 +3,6 @@ package run
 import (
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -622,28 +621,17 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.hostMountArgs(in)...)
 
 	// --- pack `env` contributions: static jail env vars ---
-	// Static values only (the env kind forbids interpolation/host reads), so they go
-	// straight onto the command as -e. A key two packs both set is last-writer-wins
-	// here; the footprint's per-key env claims are what surface such a collision.
-	// Sorted for a deterministic argv.
-	//
-	// THE SAME merge the launch line describes: the CLI-keyed profile table is folded in
+	// NOT on the argv. The pack env fold crosses in yolo-user-env.sh's channel
+	// section with everything else the launch composed per-entry (writeUserEnvFile's
+	// doc): an `-e` here would freeze this launch's fold into the container's
+	// environment, where a later exec inherits it as stale provider state — the
+	// frozen-copy defect per-entry delivery exists to remove. The macos-user arm
+	// still delivers the fold to its own plan env (macosuser/runplan.go), which has
+	// no attach and no frozen copy to leak. The merge itself is unchanged and still
+	// composed once, in the channel: the CLI-keyed profile table folded in
 	// (EnvVarsFor, not a static-only fold) so a selected variant later-wins over the
-	// pack's own static value (OQ-8), and a null in it removes the key — the jail starts
-	// from an
-	// empty env, so "unset" here is simply an absent -e. Read off the composed channel
-	// rather than re-folded here: Run composed it above the backend dispatch, and the
-	// macos-user arm delivers that same fold to its own plan env.
-	if packEnv := in.envChannel(o).packEnv; len(packEnv) > 0 {
-		keys := make([]string, 0, len(packEnv))
-		for k := range packEnv {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			runCmd = append(runCmd, "-e", k+"="+packEnv[k])
-		}
-	}
+	// pack's own static value (OQ-8), and a null in it removes the key — the file is
+	// rewritten whole by every entry, so "unset" is simply an absent line.
 
 	// --- user host_files: :ro source mounts, writable destinations, wire env ---
 	// Order within the group is fixed: the destination's writable subtree must be
@@ -776,14 +764,11 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	if in.hostTZ != "" {
 		env = append(env, "-e", "TZ="+in.hostTZ)
 	}
-	// Composed ONCE for the three readers below — the YOLO_PROVIDERS pair, the
-	// YOLO_USE_PROFILES pair, and the env-shape vars — all read off the channel Run
-	// composed above the backend dispatch, and which the macos-user arm delivers to its
-	// own plan env and bootstrap. Re-deriving any part of it here would let the argv and
-	// the native arm answer differently about what the same profile delivers.
-	channel := in.envChannel(o)
-	effectiveProfiles := channel.profiles
-	providers := channel.providers
+	// The channel (providers, profile tables, pack env fold, shape vars) is composed
+	// ONCE above the backend dispatch and does NOT pass through this block: its
+	// container-backend crossing is yolo-user-env.sh's channel section (writeUserEnvFile
+	// at the run.go call site), and the macos-user arm delivers the same channel to its
+	// own plan env and bootstrap.
 	env = append(env,
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
@@ -800,9 +785,12 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// empty when the key is absent — the jail defaults OPEN either way, so an older
 		// host that emits nothing and this one emitting "" read identically.
 		"-e", entrypoint.AgentUpdatesEnv+"="+config.AgentUpdatesWire(),
-		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(providers),
-		"-e", "YOLO_PROFILES="+jsonDumpsOrEmptyObj(packload.ProfilesWireTable(channel.resolvedProfiles)),
-		"-e", "YOLO_USE_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
+		// The three provider/profile wire tables are NOT here: they cross in
+		// yolo-user-env.sh's channel section (writeUserEnvFile's doc) with the pack env
+		// fold and the shape vars, so the container's frozen environment holds no
+		// provider state for a later exec to inherit — per-entry delivery. The channel
+		// below is still composed once, above the backend dispatch, and is what the
+		// file section and the macos-user plan env both consume.
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
@@ -830,23 +818,15 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	// and it is not a claim two copies of this block could keep. This used to be thirty
 	// lines of nested type assertions inline here, covered by no test at all.
 	//
-	// The shape's VALUES come from the composed table YOLO_PROVIDERS carries above, and
-	// the shape ITSELF from packs/claude. What this block does not deliver is the
-	// variant's own literal env (claude's CLAUDE_CODE_USE_BEDROCK) — that rode the pack
-	// env block above, through the same profile table. The vars are the channel's, not
-	// re-resolved here: Run composed them above the backend dispatch, and the macos-user
-	// arm delivers that same list to its plan env.
-	for _, v := range channel.shapeVars {
-		if v.Unset {
-			// Not reachable from a profile today, and deliberately not guessed at:
-			// podman's `-e KEY` (no `=`) means INHERIT KEY from the host env, which
-			// is the opposite of a removal. A jail starts from an empty environment
-			// anyway, so "remove" is already its default state for anything we do
-			// not pass; the host exec path is where Unset does real work.
-			continue
-		}
-		env = append(env, "-e", v.Key+"="+v.Value)
-	}
+	// NOT on the argv either, for the per-entry reason the tables above cite: the shape
+	// vars (ANTHROPIC_BASE_URL and its kin, credentials included) cross in the
+	// yolo-user-env.sh channel section, which every shell sources and every boot
+	// hydrates — and which a credential should prefer to a `ps`-visible argv line in any
+	// case. The macos-user arm still delivers the same list to its plan env. What
+	// neither spelling delivers is the variant's own literal env (claude's
+	// CLAUDE_CODE_USE_BEDROCK) — that rides the pack env fold, through the same profile
+	// table, into the same file section.
+	//
 	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the
 	// host does — exe-relative to the baked /opt/yolo-jail bundle, or the
 	// live-mounted /workspace checkout when self-hosting (internal/reporoot).

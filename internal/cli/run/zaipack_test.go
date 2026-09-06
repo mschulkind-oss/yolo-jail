@@ -51,6 +51,14 @@ func zaiSelected(t *testing.T) []*packload.Pack {
 // launches with; every other seam is the same deterministic podman/linux fixture.
 func zaiLaunch(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap,
 	userEnv *jsonx.OrderedMap, tune func(*Options)) []string {
+	return zaiLaunchAssembled(t, packs, cfg, userEnv, tune).argv
+}
+
+// zaiLaunchAssembled is zaiLaunch for the tests that assert on the channel file as
+// well as the argv — the two halves of one delivery since the channel moved off
+// the argv into yolo-user-env.sh.
+func zaiLaunchAssembled(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap,
+	userEnv *jsonx.OrderedMap, tune func(*Options)) assembled {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -72,7 +80,7 @@ func zaiLaunch(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap,
 		mountTargets: map[string]struct{}{},
 		userEnv:      userEnv,
 	}
-	return o.assembleRunCmd(in)
+	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
 }
 
 // bareConfig is a launch config with nothing in it but the shape assembly expects.
@@ -97,10 +105,10 @@ func bareConfig() *jsonx.OrderedMap {
 // context_window/api_timeout_ms as options, the derive decides what they mean for
 // claude (OQ-CS4).
 func TestZaiPackFiresClaudeAtGLM(t *testing.T) {
-	argv := zaiLaunch(t, zaiSelected(t), bareConfig(), hydratedKey(),
+	la := zaiLaunchAssembled(t, zaiSelected(t), bareConfig(), hydratedKey(),
 		func(o *Options) { o.ProfileName = "zai" })
 
-	got := envArgValues(argv,
+	got := la.channelEnv(t,
 		"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -143,11 +151,11 @@ func TestZaiPackComposesNoEnvWithoutTheProfile(t *testing.T) {
 // openai-speaking agents get from the pack; their selection is the derives' business, and
 // the env shape deliberately declares no openai delivery for them to compose.
 func TestZaiPackShipsTheCatalogTheDerivesRead(t *testing.T) {
-	argv := zaiLaunch(t, zaiSelected(t), bareConfig(), hydratedKey(), nil)
+	la := zaiLaunchAssembled(t, zaiSelected(t), bareConfig(), hydratedKey(), nil)
 
-	vals := envArgValues(argv, "YOLO_PROVIDERS")
+	vals := la.channelEnv(t, "YOLO_PROVIDERS")
 	if len(vals) != 1 {
-		t.Fatalf("argv carries %d YOLO_PROVIDERS args, want 1", len(vals))
+		t.Fatalf("the channel file carries %d YOLO_PROVIDERS lines, want 1", len(vals))
 	}
 	v, err := jsonx.Decode([]byte(strings.TrimPrefix(vals[0], "YOLO_PROVIDERS=")))
 	if err != nil {

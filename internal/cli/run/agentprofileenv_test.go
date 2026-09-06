@@ -1,6 +1,8 @@
 package run
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +24,58 @@ func envArgValues(argv []string, keys ...string) []string {
 		kv := argv[i+1]
 		if eq := strings.IndexByte(kv, '='); eq > 0 && want[kv[:eq]] {
 			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+// assembled is one launch's assembly: the argv plus the pair that composed it, so a
+// test can assert on BOTH halves of the delivery. The provider/profile channel no
+// longer rides the argv — it crosses in yolo-user-env.sh's channel section
+// (writeUserEnvFile), per-entry — so the assertions that used to grep the argv for
+// ANTHROPIC_*/YOLO_* now render the file from the SAME composed channel: one input,
+// one writer, the bytes the jail actually sources.
+type assembled struct {
+	argv []string
+	o    *Options
+	in   *assembleInput
+}
+
+// channelFile writes the channel section exactly as the launch's lifecycle phase does
+// and returns the file's bytes.
+func (a assembled) channelFile(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "yolo-user-env.sh")
+	writeUserEnvFile(p, nil, a.in.envChannel(a.o))
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// channelEnv is the file twin of envArgValues: the plain-form `export K='v'` values
+// for keys, in file order, with the writer's '\” quoting unescaped. Def-form lines
+// (env_sources defaults) never match — the channel section is plain-form only.
+func (a assembled) channelEnv(t *testing.T, keys ...string) []string {
+	t.Helper()
+	want := map[string]bool{}
+	for _, k := range keys {
+		want[k] = true
+	}
+	var out []string
+	for _, line := range strings.Split(a.channelFile(t), "\n") {
+		rest, ok := strings.CutPrefix(line, "export ")
+		if !ok || strings.Contains(rest, "=${") {
+			continue // def-form or not an export
+		}
+		k, v, ok := strings.Cut(rest, "='")
+		if !ok || !strings.HasSuffix(v, "'") {
+			continue
+		}
+		v = strings.TrimSuffix(v, "'")
+		if want[k] {
+			out = append(out, k+"="+strings.ReplaceAll(v, `'\''`, `'`))
 		}
 	}
 	return out
@@ -54,6 +108,12 @@ func bedrockConfig() *jsonx.OrderedMap {
 }
 
 func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap, hooks ...func()) []string {
+	return assembleWithConfigAssembled(t, cfg, hooks...).argv
+}
+
+// assembleWithConfigAssembled is assembleWithConfig for the tests that assert the
+// channel file beside the argv.
+func assembleWithConfigAssembled(t *testing.T, cfg *jsonx.OrderedMap, hooks ...func()) assembled {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -78,7 +138,7 @@ func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap, hooks ...func()) []
 		yoloVersion:  "9.9.9-test",
 		mountTargets: map[string]struct{}{},
 	}
-	return o.assembleRunCmd(in)
+	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
 }
 
 // TestAssembleEmitsProfileEnvForBedrock pins the CALL SITE, not the callee.
@@ -98,20 +158,22 @@ func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap, hooks ...func()) []
 // hence the order, and hence the two routes being pinned together here rather than in
 // either of their own packages.
 func TestAssembleEmitsProfileEnvForBedrock(t *testing.T) {
-	argv := assembleWithConfig(t, bedrockConfig())
-	got := envArgValues(argv,
+	la := assembleWithConfigAssembled(t, bedrockConfig())
+	// File order: the pack env fold (CLAUDE_CODE_USE_BEDROCK) precedes the derive's
+	// shape vars, which the writer emits sorted within their section.
+	got := la.channelEnv(t,
 		"CLAUDE_CODE_USE_BEDROCK", "AWS_REGION",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL")
 	want := []string{
+		"CLAUDE_CODE_USE_BEDROCK=1",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL=us.anthropic.haiku",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL=us.anthropic.opus",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.sonnet",
 		"AWS_REGION=us-east-1",
-		"CLAUDE_CODE_USE_BEDROCK=1",
 	}
 	if len(got) != len(want) {
-		t.Fatalf("profile env args = %q, want %q", got, want)
+		t.Fatalf("profile env = %q, want %q", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -128,10 +190,10 @@ func TestAssembleEmitsProfileEnvForBedrock(t *testing.T) {
 // Claude's routing names, not a selection surface, so a `model` option must not reach
 // them.
 func TestAssembleEmitsTheAliasTheProfileOptionNames(t *testing.T) {
-	argv := assembleWithConfig(t, bedrockConfig(), func() {
+	la := assembleWithConfigAssembled(t, bedrockConfig(), func() {
 		writeProfilesAtHome(t, `{"bedrock": {"provider": "bedrock", "model": "fast"}}`)
 	})
-	got := envArgValues(argv, "ANTHROPIC_DEFAULT_OPUS_MODEL",
+	got := la.channelEnv(t, "ANTHROPIC_DEFAULT_OPUS_MODEL",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")
 	want := []string{
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL=us.anthropic.haiku",
@@ -139,7 +201,7 @@ func TestAssembleEmitsTheAliasTheProfileOptionNames(t *testing.T) {
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.sonnet",
 	}
 	if len(got) != len(want) {
-		t.Fatalf("profile env args = %q, want %q", got, want)
+		t.Fatalf("profile env = %q, want %q", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {

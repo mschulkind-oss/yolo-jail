@@ -106,9 +106,16 @@ var (
 )
 
 // ~/.config/yolo-user-env.sh exports into the process env AND e.Vars so the
-// early agent-config writers see the same values bash will. Launch-time env
-// beats the file default (the ${KEY:-'value'} precedence). Unparseable lines
-// are ignored. Sets os.Setenv so spawned children inherit the values.
+// early agent-config writers see the same values bash will. The TWO line
+// grammars are the precedence, read off the line itself: a def-form
+// `export K=${K:-'v'}` line is an env_sources DEFAULT the launch-time env beats,
+// and a plain-form `export K='v'` line is the per-entry CHANNEL (writeUserEnvFile's
+// section — provider tables, pack env, provider shape vars) and beats everything,
+// the container's frozen environment included. That override is what makes an
+// attach deliver: the launcher rewrites the file immediately before the exec, and
+// this hydration is the first thing the exec'd boot does, so stale channel keys
+// from an older entry cannot survive into this one. Unparseable lines are
+// ignored. Sets os.Setenv so spawned children inherit the values.
 func hydrateEnvFromUserEnvFile(e *Env) {
 	f := filepath.Join(e.Home, ".config", "yolo-user-env.sh")
 	data, err := os.ReadFile(f)
@@ -124,8 +131,8 @@ func hydrateEnvFromUserEnvFile(e *Env) {
 			continue
 		}
 		key := groupStr(line, loc, exportGroupKey)
-		if _, ok := e.Vars[key]; ok {
-			continue // launch-time env beats the file default
+		if _, ok := e.Vars[key]; ok && groupParticipated(loc, exportGroupDef) {
+			continue // a def-form default loses to launch-time env; a plain-form channel value never does
 		}
 		var raw string
 		switch {

@@ -724,9 +724,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// yolo-user-env.sh (frozen writer). The map is the channel's hydration, not a second
 	// ResolveEnvSources pass: one walk, one set of warnings, and the file cannot describe
-	// a channel the pre-flight below checked a different copy of.
+	// a channel the pre-flight below checked a different copy of. The channel rides the
+	// same file — its ONLY crossing (per-entry delivery, the writer's doc): the argv
+	// carries none of it, so the container's frozen environment holds no provider state
+	// for a later exec to inherit, and this same write is what an attach performs to
+	// deliver a different profile into a running jail.
 	userEnv := channel.userEnv
-	writeUserEnvFile(filepath.Join(wsState, "yolo-user-env.sh"), userEnv)
+	writeUserEnvFile(filepath.Join(wsState, "yolo-user-env.sh"), userEnv, channel)
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
 	// mount + broker env are emitted by the assembler when the socket exists).

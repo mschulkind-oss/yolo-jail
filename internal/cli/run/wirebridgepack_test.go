@@ -22,11 +22,11 @@ import (
 // selected set exactly as packs.go appends ResolveNeeds' additions. Cerebras
 // installs no CLI, so `-p cerebras` reaches the derive through the global
 // profile table.
-func bridgedLaunch(t *testing.T, profile string) []string {
+func bridgedLaunch(t *testing.T, profile string) assembled {
 	packs := []*packload.Pack{
 		officialPack(t, "claude"), officialPack(t, "cerebras"), officialPack(t, "wire-bridge"),
 	}
-	return zaiLaunch(t, packs, bareConfig(), cerebrasKey(),
+	return zaiLaunchAssembled(t, packs, bareConfig(), cerebrasKey(),
 		func(o *Options) { o.ProfileName = profile })
 }
 
@@ -39,27 +39,30 @@ func bridgedLaunch(t *testing.T, profile string) []string {
 // service composition, the witness emission — and its quarter of this test
 // goes red.
 func TestBridgedLaunchComposesTheWholeStory(t *testing.T) {
-	argv := bridgedLaunch(t, "cerebras")
+	la := bridgedLaunch(t, "cerebras")
 
-	if v := envArgValues(argv, "ANTHROPIC_BASE_URL"); len(v) != 1 ||
+	// The provider half crosses in yolo-user-env.sh's channel section now (per-entry
+	// delivery), so the routing/window/alias facts are asserted on the rendered file
+	// — the bytes the jail actually sources — not the argv.
+	if v := la.channelEnv(t, "ANTHROPIC_BASE_URL"); len(v) != 1 ||
 		v[0] != "ANTHROPIC_BASE_URL=http://127.0.0.1:8214" {
 		t.Errorf("claude must be routed at the bridge's loopback URL: %q", v)
 	}
-	if v := envArgValues(argv, "CLAUDE_CODE_AUTO_COMPACT_WINDOW"); len(v) != 1 ||
+	if v := la.channelEnv(t, "CLAUDE_CODE_AUTO_COMPACT_WINDOW"); len(v) != 1 ||
 		v[0] != "CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536" {
 		t.Errorf("auto-compact = %q, want the manifest's 65536 — the free-tier window "+
 			"the bridged launch makes live (WB-D8)", v)
 	}
-	if v := envArgValues(argv, "ANTHROPIC_DEFAULT_OPUS_MODEL"); len(v) != 1 ||
+	if v := la.channelEnv(t, "ANTHROPIC_DEFAULT_OPUS_MODEL"); len(v) != 1 ||
 		v[0] != "ANTHROPIC_DEFAULT_OPUS_MODEL=qwen-3.8-27b" {
 		t.Errorf("opus alias = %q, want the bare wire-true id — a 64K context never "+
 			"gets claude's [1m] suffix", v)
 	}
-	if v := envArgValues(argv, "YOLO_JAIL_DAEMONS"); len(v) != 1 ||
+	if v := envArgValues(la.argv, "YOLO_JAIL_DAEMONS"); len(v) != 1 ||
 		!strings.Contains(v[0], `"wire-bridge"`) {
 		t.Errorf("the bridge daemon must join the supervisor's payload: %q", v)
 	}
-	if v := envArgValues(argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 1 ||
+	if v := envArgValues(la.argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 1 ||
 		v[0] != "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT=/run/yolo-services/wire-bridge.endpoint" {
 		t.Errorf("the witness registration must name the manifest's endpoint file: %q", v)
 	}
@@ -79,17 +82,17 @@ func TestBridgeStagedButUnroutedIdlesAndEmitsNothing(t *testing.T) {
 	packs := []*packload.Pack{
 		officialPack(t, "claude"), officialPack(t, "zai"), officialPack(t, "wire-bridge"),
 	}
-	argv := zaiLaunch(t, packs, bareConfig(), hydratedKey(),
+	la := zaiLaunchAssembled(t, packs, bareConfig(), hydratedKey(),
 		func(o *Options) { o.ProfileName = "zai" })
 
-	if v := envArgValues(argv, "YOLO_JAIL_DAEMONS"); len(v) != 1 ||
+	if v := envArgValues(la.argv, "YOLO_JAIL_DAEMONS"); len(v) != 1 ||
 		!strings.Contains(v[0], `"wire-bridge"`) {
 		t.Errorf("a staged bridge runs its daemon even when it will idle: %q", v)
 	}
-	if v := envArgValues(argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 0 {
+	if v := envArgValues(la.argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 0 {
 		t.Errorf("an unrouted bridge must not register an endpoint with the witness: %q", v)
 	}
-	if v := envArgValues(argv, "ANTHROPIC_BASE_URL"); len(v) != 1 ||
+	if v := la.channelEnv(t, "ANTHROPIC_BASE_URL"); len(v) != 1 ||
 		v[0] != "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" {
 		t.Errorf("claude riding zai must keep z.ai's own route: %q", v)
 	}
@@ -103,15 +106,15 @@ func TestBridgeStagedButUnroutedIdlesAndEmitsNothing(t *testing.T) {
 // payload and the witness hears nothing: a dead URL, loud about who staged it.
 func TestLaunchWithoutTheBridgeNeverRegistersIt(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "cerebras")}
-	argv := zaiLaunch(t, packs, bareConfig(), cerebrasKey(),
+	la := zaiLaunchAssembled(t, packs, bareConfig(), cerebrasKey(),
 		func(o *Options) { o.ProfileName = "cerebras" })
 
-	if got := envArgValues(argv, "ANTHROPIC_BASE_URL"); len(got) != 1 ||
+	if got := la.channelEnv(t, "ANTHROPIC_BASE_URL"); len(got) != 1 ||
 		got[0] != "ANTHROPIC_BASE_URL=http://127.0.0.1:8214" {
 		t.Fatalf("the derive composes the manifest URL whether or not the bridge is "+
 			"staged — it cannot see the pack set (§3.3): %q", got)
 	}
-	if v := envArgValues(argv, "YOLO_JAIL_DAEMONS", "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 0 {
+	if v := envArgValues(la.argv, "YOLO_JAIL_DAEMONS", "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 0 {
 		t.Errorf("a launch without the bridge pack must stage no daemon and register "+
 			"no endpoint: %q", v)
 	}
