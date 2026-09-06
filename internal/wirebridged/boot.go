@@ -170,10 +170,11 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 // disagree because there is nothing here for one call site to decide alone:
 // drift is unrepresentable, not prevented.
 //
-// The inputs are the parsed shapes of exactly what the launcher serializes onto
-// the argv — YOLO_PROVIDERS, YOLO_USE_PROFILES, YOLO_PROFILES — so a launch
-// whose env block and whose emission were built from different tables could not
-// answer differently even in principle.
+// The inputs are the parsed shapes of exactly what the launcher delivers per-entry
+// through the yolo-user-env.sh channel section — YOLO_PROVIDERS, YOLO_USE_PROFILES,
+// YOLO_PROFILES, hydrated into the entrypoint's env before this daemon is spawned —
+// so a launch whose channel and whose emission were built from different tables
+// could not answer differently even in principle.
 func WillServe(providers *jsonx.OrderedMap, useProfiles map[string]string,
 	resolved map[string]packload.ResolvedProfile) bool {
 	_, idle := routeFor(providers, useProfiles, resolved)

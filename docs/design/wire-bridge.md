@@ -288,7 +288,7 @@ discards it.) Outbound: `Authorization: Bearer <the provider's key>`, read at bo
   launcher writes `yolo-user-env.sh` (0600) from hydrated `env_sources`
   (userenv.go:44-65), and the bridge reads that file at startup — one read, then
   in-memory. One writer (the launcher), one reader (the bridge); the daemon never appears
-  in `ps` with the key (unlike the claude argv channel). Fallback: the daemon's own
+  in `ps` with the key. Fallback: the daemon's own
   process environment, for `yolo host`-style notches where the file may not exist.
 - **Upstream failures.** 4xx → same-status anthropic-shaped error (claude renders it);
   5xx/timeout → `529`/`502` anthropic-shaped overloads (claude retries with backoff);
@@ -394,7 +394,7 @@ and the doc names it rather than pretending a test covers it.
 | Loopback port collision inside the jail | the manifest URL owns the port (one writer); 8214 chosen clear of baked services; a collision refuses the boot via the witness, not via a mystery failure |
 | An auto-included pack surprises the user | WB-D12: the banner and `yolo check` name every addition with its cause; a silent join is the one forbidden behavior of the closure |
 | The bridge becomes a de-facto gateway (scope creep) | §7 is the fence; a gateway is a different doc |
-| Key exposure grows a new channel | the key rides the 0600 file + boot-time read only; `ps` shows no key; the argv exposure that already exists (claude's token) is unchanged, not extended |
+| Key exposure grows a new channel | the key rides the 0600 file + boot-time read only; `ps` shows no key (claude's token joined it there when per-entry file delivery retired the argv crossing) |
 
 ## Decision Ledger
 
