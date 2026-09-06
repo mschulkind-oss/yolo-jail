@@ -372,11 +372,24 @@ func installClaudePlugins(e *Env) {
 // which also explains why the check must ignore the install prefixes. Same outcome, weaker
 // guarantee, and the trade is named in §3.5 rather than assumed.
 //
+// StorePackagesBin() sits IMMEDIATELY BEFORE /bin, and that position is chosen to be a
+// no-op rather than a new rule. Under C4/C5 an opt-in launch delivers `packages:` — and
+// the image's own bulk extras — from the mounted nix store instead of baking them
+// (docs/design/image-staging-vs-baking.md §4). Those binaries are in /bin today, so
+// putting the farm one step ahead of /bin leaves every precedence relation above it
+// exactly as it was: the blockers still outrank them, the launchers still outrank them,
+// and every per-project install prefix still outranks them. It is spelled
+// UNCONDITIONALLY, even though most jails never opt in, because a PATH that varies by
+// launch is a second authority in disguise — the dir simply does not exist on a jail that
+// bakes, and a non-existent PATH entry costs nothing. What the farm's presence DOES gate
+// is the launcher-collision check (imageProbePath), which reads the declaration rather
+// than the directory.
+//
 // Extracted from execBash so the order is assertable without exec'ing a shell.
 func BootPath(e *Env) string {
 	return strings.Join([]string{
 		e.BlockDir(), e.LaunchDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(),
-		"/bin", "/usr/bin",
+		StorePackagesBin(), "/bin", "/usr/bin",
 	}, ":")
 }
 
@@ -447,8 +460,23 @@ func Main(args []string) error {
 	configureTimezone(e)
 	p.mark("configure_timezone")
 
-	// Populate /run/ld.so.cache from the /lib farm.
-	generateLdCache()
+	// C4/C5's jail half: link the store-delivered package profiles into the
+	// /run/yolo/packages farm. THIS RUNS FIRST AMONG THE GENERATORS, and both things
+	// below it depend on that:
+	//
+	//   - generate_ld_cache scans the farm's lib dir, so a cache built before the farm
+	//     exists omits every store-delivered library. flake.nix states the same ordering
+	//     for its own user-package loop ("placed before the ldconfig step below so these
+	//     libs also land in ld.so.cache");
+	//   - generate_agent_launchers asks imageProbePath whether a name is already
+	//     provided, and lookPathIn answers by stat'ing the file. A launcher generated
+	//     before the farm exists would shadow a tool the workspace declared by name —
+	//     defect 11.1 coming back through the door C4 opens.
+	genStep(e, "generate_store_packages", func() error { return GenerateStorePackages(e) })
+	p.mark("generate_store_packages")
+
+	// Populate /run/ld.so.cache from the /lib farm, plus the store-package farm above.
+	generateLdCache(StorePackagesLib())
 	p.mark("generate_ld_cache")
 
 	// Generators. A12: a failure is FATAL — each step still runs so one boot

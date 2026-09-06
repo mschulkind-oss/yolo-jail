@@ -48,6 +48,11 @@ func TestBootPathOrdersBlockersThenLaunchers(t *testing.T) {
 		"/mise/shims",
 		"/home/agent/go/bin",
 		"/home/agent/.local/bin",
+		// C4/C5's store-delivered package farm, immediately before /bin — the position
+		// the tools it holds occupy when they are baked, so opting in moves no
+		// precedence relation. Unconditional, because a PATH that varies by launch is a
+		// second authority in disguise; on a jail that bakes, the dir does not exist.
+		"/run/yolo/packages/bin",
 		"/bin",
 		"/usr/bin",
 	}
@@ -85,6 +90,21 @@ func TestBootPathOrdersBlockersThenLaunchers(t *testing.T) {
 				"invocation onward, which is why the update it carries stopped running "+
 				"(OQ-PD8). What keeps it from shadowing a baked binary is the "+
 				"generation-time check, not this position", prefix)
+		}
+	}
+	// C4/C5: the store-delivered farm holds tools that would otherwise be BAKED, so its
+	// only correct position is the one /bin occupies — one step ahead of it, and behind
+	// everything /bin is already behind. Anywhere else and opting into store delivery
+	// silently reorders a jail's tools.
+	if idx(StorePackagesBin()) != idx("/bin")-1 {
+		t.Error("the store-delivered package farm must sit IMMEDIATELY before /bin: the " +
+			"binaries it holds are the ones the image would otherwise bake into /bin, so " +
+			"that position is the one that changes no precedence relation at all")
+	}
+	for _, ahead := range []string{e.BlockDir(), e.LaunchDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin()} {
+		if idx(ahead) > idx(StorePackagesBin()) {
+			t.Errorf("%s must precede the store-delivered farm, exactly as it precedes "+
+				"/bin today", ahead)
 		}
 	}
 }

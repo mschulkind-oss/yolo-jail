@@ -418,10 +418,24 @@ there is no sync step.
   via launchers in `~/.yolo/bin/launch/`.
 - **PATH order** (exact — `BootPath`, `internal/entrypoint/boot.go`, which is the authority this
   line claims to mirror; reordered 2026-09-04 by B2):
-  `$HOME/.yolo/bin/block:$HOME/.yolo/bin/launch:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin`.
+  `$HOME/.yolo/bin/block:$HOME/.yolo/bin/launch:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/run/yolo/packages/bin:/bin:/usr/bin`.
   The `.bashrc` export (`internal/entrypoint/shell.go`) is a second, independently-written copy of
   the same order and is now compared to `BootPath` **entry by entry** — the two disagreed about
   `$HOME/.local/bin` (second vs fifth) for months behind a test that only checked the ends.
+  `/run/yolo/packages/bin` is the store-delivered package farm (C4/C5) and is **empty — in fact
+  absent — unless the launch opted in** with `YOLO_STORE_PACKAGES=1`. Its position is chosen to
+  change nothing: the binaries it holds are the ones the image would otherwise bake into `/bin`,
+  so one step ahead of `/bin` leaves every precedence relation above it exactly as it was.
+- **`packages:` can come from the mounted nix store instead of the image** — `YOLO_STORE_PACKAGES=1`,
+  podman + Linux + a running nix daemon only, otherwise the launcher says so and bakes. The
+  ruling is **opt-in fast path, baked path retained, per LAUNCH and never per package**
+  (`docs/design/image-staging-vs-baking.md` §4 C4/C5, OQ-1 / R2): an opt-in launch builds the
+  image with **no `YOLO_EXTRA_PACKAGES`** and gets its tools from a boot-written symlink farm at
+  `/run/yolo/packages` (`internal/entrypoint/storepackages.go`); a launch that does not opts into
+  nothing and gets them from `/bin`. Exactly one mechanism is live in any jail — a package both
+  baked *and* staged silently runs the **baked** copy. What it buys: one image per machine
+  instead of one per distinct `packages:` list. Apple Container and macOS podman keep baking,
+  deliberately (R1).
 - **Two generated script dirs, ADJACENT AT THE HEAD of PATH** — they are different
   mechanisms, not one dir with two kinds of file in it, and their order relative
   to each other is what carries the meaning:

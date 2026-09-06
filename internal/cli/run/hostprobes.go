@@ -3,9 +3,25 @@ package run
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
+
+// The host paths a launch bind-mounts to give the jail the nix store: the daemon socket
+// (read-write) and the store itself (:ro). Spelled once because TWO decisions read them —
+// the mount the assembler emits, and C4/C5's store-delivery eligibility — and those two
+// disagreeing would produce the one failure store delivery must not be able to have: an
+// image built without its packages, launched without the store they were left in.
+const (
+	hostNixSocket = "/nix/var/nix/daemon-socket"
+	hostNixStore  = "/nix/store"
+)
+
+// hostNixMounted answers "will this launch bind-mount the host nix store?" for both
+// readers, from the one predicate below.
+func (o *Options) hostNixMounted(rt string) bool {
+	return shouldMountHostNix(rt, o.PathExists(hostNixSocket), o.PathExists(hostNixStore),
+		o.IsMacOS, o.Getenv("YOLO_NIX_HOST_DAEMON"))
+}
 
 // shouldMountHostNix decides whether run() should
 // bind-mount the host's Nix daemon socket + store. Linux: mount when both paths
@@ -22,11 +38,10 @@ func shouldMountHostNix(rt string, nixSocketExists, nixStoreExists, isMacOS bool
 	if !isMacOS {
 		return true
 	}
-	switch strings.ToLower(optInEnv) {
-	case "1", "true", "yes":
-		return true
-	}
-	return false
+	// One spelling of "the operator said yes" across every launcher dial (envTruthy,
+	// storepackages.go): two dials that disagree about what counts as true turn "I set
+	// the variable and nothing happened" into a legitimate bug report.
+	return envTruthy(optInEnv)
 }
 
 // gpuHostAvailable probes whether NVIDIA GPU

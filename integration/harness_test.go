@@ -538,11 +538,17 @@ func withTimeout(d time.Duration) runOption {
 	return func(c *runConfig) { c.timeout = d }
 }
 
-// withEnv adds one KEY=VALUE to the child's environment — the env-gated
-// features (YOLO_TIMING) need a spelling that does not leak into the suite's
-// own os.Environ for every other test.
-func withEnv(key, val string) runOption {
-	return func(c *runConfig) { c.env = append(c.env, key+"="+val) }
+// withEnv appends KEY=VALUE pairs to the LAUNCHER's environment — the host `yolo`
+// process, not the jail. It exists for the dials that are properties of the machine and
+// the launch rather than of the workspace, so they have no config key to set:
+// YOLO_STORE_PACKAGES (C4/C5's store-delivery opt-in), YOLO_TIMING (the perf report,
+// which must not leak into the suite's own os.Environ for every other test), and any
+// future sibling of YOLO_NIX_HOST_DAEMON / YOLO_NO_HOST_LOOPBACK.
+//
+// Each argument is one whole KEY=VALUE string, NOT a key/value pair of arguments —
+// withEnv("K", "v") compiles and appends two broken entries.
+func withEnv(pairs ...string) runOption {
+	return func(c *runConfig) { c.env = append(c.env, pairs...) }
 }
 
 // runCommand runs the built yolo binary with the given args in dir, capturing

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -172,6 +173,21 @@ type Options struct {
 	// MOUNT rather than teaching the launcher a second exception makes it
 	// unrepresentable: there is nothing in that jail to resolve against.
 	CapturesDir func() string
+	// MaterializeStorePackages realizes a `buildEnv` of the config's `packages:` for the
+	// JAIL's platform and returns (profile store path, names nix has no build for, error)
+	// — C4's host half. nil => realMaterializeStorePackages, which is
+	// internal/darwinpkg's Materialize.
+	//
+	// A seam for the same reason MacosUserRun is one: it shells out to a real `nix build`
+	// that can take minutes, so a unit test of the launch's DECISION (opt in? fall back?
+	// refuse?) must be able to answer it without nix on the machine. Only ever called on
+	// a launch that has already been found eligible.
+	MaterializeStorePackages func(repoRoot string, packages []any) (string, []string, error)
+	// autoLoad is the image build/load itself. Unexported: it is not a CLI-facing seam,
+	// it exists so autoLoadImage's own DECISIONS are assertable without nix and podman —
+	// above all C4's, which is a single assignment (`extra = nil`) that silently reverts
+	// the whole feature if it goes. nil => image.AutoLoadImage.
+	autoLoad func(image.AutoLoadOptions) image.LoadResult
 	// AutoCapture records what a vendor installer leaves behind for every program in
 	// bins that the machine store has no entry for at platform — OQ-PD18's *"(d),
 	// DEFAULT ON"*. It receives the selected packs' `via: "installer"` program names

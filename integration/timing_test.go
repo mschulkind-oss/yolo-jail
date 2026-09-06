@@ -67,7 +67,7 @@ func TestTimingEnvVarEquivalent(t *testing.T) {
 	dir := writeProject(t, tempProjectConfig)
 
 	res := runCommand(t, dir, append(jailRunArgs(), "--", "true"),
-		withEnv(paths.TimingEnv, "1"))
+		withEnv(paths.TimingEnv+"=1"))
 	if res.rc != 0 {
 		t.Fatalf("rc=%d stderr:\n%s", res.rc, res.stderr)
 	}

@@ -18,12 +18,29 @@ import (
 // returns is the ONLY name that identifies the image this launch just made
 // ready. runNormal threads it into assembleInput.imageRef, which is the single
 // source the container argv and the host-service insert point both read.
-func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) image.LoadResult {
+func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp storePackagesPlan) image.LoadResult {
 	// The IMAGE is Linux whatever the host is, so a `platforms` filter here asks about
 	// the image's platform and not the machine's.
 	extra := config.EffectivePackages(cfg, config.PlatformLinux)
+	if sp.Active {
+		// C4, AND THIS LINE IS THE WHOLE OF R2. "The baked path is retained" is per
+		// LAUNCH, never per package: a package both baked and staged silently runs the
+		// BAKED copy, because a boot-written PATH dir cannot outrank the image (§3.1).
+		// So an opt-in launch builds the STOCK image — YOLO_EXTRA_PACKAGES unset — and
+		// the entrypoint's farm is then the only copy. Exactly one mechanism is live in
+		// any jail.
+		//
+		// It is also where the saving is: with nothing read from `builtins.getEnv`, the
+		// image's derivation stops varying with `packages:` and the machine holds ONE
+		// image instead of one per distinct list (§1.5, §1.9).
+		extra = nil
+	}
 	remedy := nixdiag.LinuxBuilderRemedy()
-	return image.AutoLoadImage(image.AutoLoadOptions{
+	load := image.AutoLoadImage
+	if o.autoLoad != nil {
+		load = o.autoLoad
+	}
+	return load(image.AutoLoadOptions{
 		Runtime:  rt,
 		RepoRoot: repoRoot,
 		// Never skip the build on the run path: Run() now hard-exits before here
