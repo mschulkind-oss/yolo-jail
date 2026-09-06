@@ -741,6 +741,25 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Retire jail-made workspace venvs from the old shared-store model.
 	o.retireJailMadeVenv(cfg)
 
+	// yolo's OWN binaries, and the flake bundle beside them. They are BIND-MOUNTED
+	// into the jail rather than baked into the image (jailprefix.go): that is what
+	// keeps `goSrc` out of the image derivation, so a commit under cmd/ or
+	// internal/ costs neither an image rebuild nor a `podman load`.
+	//
+	// Resolved BEFORE the image, not after, for two reasons. A live checkout has to
+	// compile them, and finding that out after streaming a multi-gigabyte image
+	// would put the cheap failure behind the expensive success. And this is the
+	// mount whose absence means the container has no pid1 to exec — a launch that
+	// cannot produce it must refuse before it starts making a container at all.
+	sp = o.Perf.Span("launch.resolve_jail_prefix")
+	jailPrefix, prefixOK := o.resolveJailPrefix(repoRoot)
+	sp.End()
+	if !prefixOK {
+		lock.Close()
+		return 1
+	}
+	o.pr(o.Stderr).printf("[dim]Jail binaries: %s[/dim]", describeJailPrefix(jailPrefix))
+
 	// Image build/load. The result carries the REF of the image it made ready —
 	// content-addressed on the normal path (C2), the legacy :latest tag on a
 	// degraded fallback that has no store path to hash. Everything downstream
@@ -879,6 +898,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		rt:               rt,
 		cname:            cname,
 		imageRef:         loadedImage.Ref,
+		jailPrefix:       jailPrefix,
 		packs:            loadedPacks,
 		agentsPath:       agentsPath,
 		packStaging:      packStaging,
@@ -1249,7 +1269,13 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		execFlags = append(execFlags, "-t")
 	}
 	runCmd := append([]string{rt, "exec"}, execFlags...)
-	runCmd = append(runCmd, cname, "yolo-entrypoint", targetCmd)
+	// The absolute path into the mounted install prefix, matching the fresh-launch
+	// argv. `podman exec <cname> yolo-entrypoint` would resolve on the CONTAINER's
+	// PATH through /bin/yolo-entrypoint, which is now a symlink into the mount —
+	// it works in a running jail (the mount is there, or it would not be running),
+	// but the two spellings would then differ for no reason, and the one that is
+	// harder to get wrong is the one that names the file.
+	runCmd = append(runCmd, cname, JailEntrypointPath, targetCmd)
 
 	// The attach arm's child window. An attach session has almost no teardown
 	// of its own (the jail keeps running), so if the 30-second symptom

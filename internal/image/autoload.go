@@ -703,7 +703,20 @@ func buildImageStorePathArgs(repoRoot string, extra []any, outLink string, out i
 		}
 	}
 	buildEnv = append(buildEnv, extraEnv...)
-	argv := ociBuildArgv(outLink, extraArgs)
+	return runNixBuild(ociBuildArgv(outLink, extraArgs), repoRoot, buildEnv, outLink, out)
+}
+
+// runNixBuild runs one `nix build` to completion, streaming SummarizeNixLine's
+// digest of its stderr to out and retaining the last 30 raw lines for failure
+// diagnosis. Returns (resolvedStorePath, stderrTail); a "" store path means
+// FAILURE and nothing else — every early return here pairs "" with a tail, and
+// AutoLoadImage's buildFailed distinction rests on that contract.
+//
+// Shared by the image build and the install-prefix build (prefix.go) so the two
+// report failures the same way: a launch that cannot produce its own
+// yolo-entrypoint deserves the same treatment as one that cannot produce an
+// image, and the operator should not have to learn two failure shapes.
+func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink string, out io.Writer) (string, []string) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = buildEnv

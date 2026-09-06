@@ -113,6 +113,7 @@ func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 		rt:            "podman",
 		cname:         "yolo-ws-abcd1234",
 		imageRef:      goldenImageRef,
+		jailPrefix:    goldenJailPrefix,
 		packs:         claudePackFixture(t),
 		agentsPath:    "/agents/yolo-ws-abcd1234",
 		wsState:       "/ws/.yolo/home",
@@ -210,6 +211,7 @@ func relocationInput(t *testing.T, rt, wsState string, rels []config.CacheReloca
 		rt:               rt,
 		cname:            "yolo-ws-abcd1234",
 		imageRef:         goldenImageRef,
+		jailPrefix:       goldenJailPrefix,
 		packs:            claudePackFixture(t),
 		agentsPath:       "/agents/yolo-ws-abcd1234",
 		wsState:          wsState,
@@ -445,6 +447,18 @@ func podmanLinuxGolden(home string) []string {
 		"-v", wsState+"/bash_history:/home/agent/.bash_history",
 		"-v", wsState+"/ssh:/home/agent/.ssh",
 		"-v", "/mise-store:/mise")
+	// THE INSTALL PREFIX — yolo's own binaries and the flake bundle beside them,
+	// bind-mounted rather than baked (jailprefix.go). Two mounts because the host
+	// layout (`bin/linux-<arch>/` beside flake.nix, what `just install` stages) is
+	// not the prefix layout (`bin/` beside `share/yolo-jail/`), and the in-jail
+	// resolver only ever asks for <exeDir>/../share/yolo-jail.
+	//
+	// This is the pair whose absence means the container has no pid1: the argv's
+	// last element names /opt/yolo-jail/bin/yolo-entrypoint inside it. It is
+	// pinned HERE, in the frozen argv, because that is the only place a launch
+	// that stopped emitting it would show up before a container failed to start.
+	add("-v", "/host/prefix/bin/linux-test:/opt/yolo-jail/bin:ro",
+		"-v", "/host/prefix:/opt/yolo-jail/share/yolo-jail:ro")
 	// scratch mounts (volume mode default).
 	add("-v", "/tmp", "-v", "/var/tmp", "-v", "/var/lib/containers", "-v", "/var/cache/containers",
 		"--tmpfs", "/run", "--tmpfs", "/dev/shm:size=2g")
@@ -551,7 +565,7 @@ func podmanLinuxGolden(home string) []string {
 	// assembler that re-derived a name here — the pre-C2 jailImageRef(rt) — would
 	// put a stale :latest on the argv while the load pipeline had prepared a
 	// different image. That is the drift this element exists to catch.
-	add(goldenImageRef, "yolo-entrypoint")
+	add(goldenImageRef, JailEntrypointPath)
 	return a
 }
 

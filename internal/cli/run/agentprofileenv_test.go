@@ -131,6 +131,7 @@ func assembleWithConfigAssembled(t *testing.T, cfg *jsonx.OrderedMap, hooks ...f
 		rt:           "podman",
 		cname:        "yolo-ws-abcd1234",
 		imageRef:     goldenImageRef,
+		jailPrefix:   goldenJailPrefix,
 		packs:        claudePackFixture(t),
 		agentsPath:   "/agents/yolo-ws-abcd1234",
 		wsState:      "/ws/.yolo/home",

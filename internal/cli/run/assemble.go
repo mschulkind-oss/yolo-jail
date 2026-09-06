@@ -41,7 +41,14 @@ type assembleInput struct {
 	// is no constant left to agree on, so the ref is threaded from the one place
 	// that knows it and read twice from this single field. See jailImage() for
 	// what an unset field does, and why it does not fall back.
-	imageRef   string
+	imageRef string
+	// jailPrefix is the HOST side of /opt/yolo-jail — the two directories the
+	// launch bind-mounts in so the jail has a yolo at all. It is INPUT for the
+	// same reason imageRef is: resolving it can run a nix build (jailprefix.go),
+	// which argv assembly must stay free of, and the container command names
+	// JailEntrypointPath inside it. An empty binDir emits a mount with an empty
+	// source; every construction that leaves it empty is a test.
+	jailPrefix jailPrefix
 	agentsPath string // AGENTS_DIR/<cname> (briefings + skills staging)
 	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees, mounted :ro so
 	// the entrypoint renders the same declarations the host read.
@@ -145,7 +152,8 @@ func (in *assembleInput) storePruneEnv() []string {
 
 // assembleRunCmd builds the ordered container argv: flags-before-image, the -e
 // env block, the mount order, network, devices, GPU/KVM, resources, loopholes,
-// then the image + "yolo-entrypoint".
+// then the image + the absolute path of the mounted yolo-entrypoint
+// (JailEntrypointPath).
 // It is a pure function of (o, in) EXCEPT for the ws_state dir/file touches and
 // venv-shadow backing mkdirs performed inline while building the argv — those
 // side effects are preserved (they are part of the launch, not the argv), so
@@ -159,7 +167,7 @@ func (in *assembleInput) storePruneEnv() []string {
 // macOS runner.
 // The final internal command and the host-service -e insertion are handled by the
 // lifecycle phase.
-// The argv this returns ends at the image ref + "yolo-entrypoint"; the
+// The argv this returns ends at the image ref + JailEntrypointPath; the
 // final_internal_cmd is appended after inserting host-service env at
 // index(image); see runContainer for that tail.
 func (o *Options) assembleRunCmd(in *assembleInput) []string {
@@ -291,8 +299,16 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	var runCmd []string
 	if rt == "container" {
 		runCmd = appleContainerBaseMounts(rt, runFlags, o.Workspace, in, out)
+		// THE INSTALL PREFIX, on this backend too. It is emitted here rather than
+		// once below the branch because Apple Container's base mounts are a
+		// different function, and the ONE mount whose absence means "no pid1" must
+		// not be the one that depends on which arm added it. Two directory mounts
+		// — the backend copies files rather than binding them
+		// (helpers.go:acMaterialize) only for single FILES, which these are not.
+		runCmd = append(runCmd, jailPrefixMountArgs(in.jailPrefix)...)
 	} else {
 		runCmd = podmanBaseMounts(rt, runFlags, o.Workspace, in, o.IsMacOS)
+		runCmd = append(runCmd, jailPrefixMountArgs(in.jailPrefix)...)
 		// Ephemeral scratch dirs.
 		runCmd = append(runCmd, ScratchMountArgs(cfgStr(cfg, "ephemeral_storage"))...)
 		// PACK-DECLARED writable dirs, backed per-workspace. Core does not know these
@@ -719,7 +735,16 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, serviceEndpointEnvArgs(in, o)...)
 
 	// --- image + entrypoint ---
-	runCmd = append(runCmd, in.jailImage(), "yolo-entrypoint")
+	//
+	// The entrypoint is named by ABSOLUTE PATH into the mounted install prefix,
+	// not by the bare "yolo-entrypoint" this line carried while the binary was
+	// baked. The image's Config.Entrypoint is null and Cmd is ["/bin/bash"], so
+	// what follows the image ref IS the container command: a bare name resolves
+	// on the image's own PATH (/bin:/usr/bin) and would reach the binary through
+	// /bin/yolo-entrypoint — which is now a symlink INTO the mount. Naming the
+	// path directly means a launch that failed to mount the prefix dies saying
+	// which file is missing instead of "failed to exec pid1".
+	runCmd = append(runCmd, in.jailImage(), JailEntrypointPath)
 	return runCmd
 }
 

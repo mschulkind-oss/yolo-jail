@@ -53,6 +53,7 @@ func assembleWithPacksAndConfigAssembled(t *testing.T, packs []*packload.Pack, c
 		rt:           "podman",
 		cname:        "yolo-ws-abcd1234",
 		imageRef:     goldenImageRef,
+		jailPrefix:   goldenJailPrefix,
 		packs:        packs,
 		agentsPath:   "/agents/yolo-ws-abcd1234",
 		wsState:      "/ws/.yolo/home",

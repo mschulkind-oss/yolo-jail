@@ -13,10 +13,22 @@ import (
 // wrong, which is why they are pinned together here rather than trusted:
 //
 //   - cmd/*/ — every main package that exists. goBinaries compiles all of them.
+//
 //   - flake.nix's shippedBinaries — the filter that decides which ones are
-//     copied into /opt/yolo-jail/bin, /bin-linked and therefore ON PATH. A
-//     binary missing here VANISHES from the image while `go build ./...` stays
-//     green (the goSrc fileset trap, one layer down).
+//     copied into the /opt/yolo-jail/bin prefix, and which names get a
+//     /bin/<name> symlink in the image. A binary missing here VANISHES from
+//     every jail while `go build ./...` stays green (the goSrc fileset trap, one
+//     layer down).
+//
+//     ⚠ WHAT THIS LIST FILTERS CHANGED, and the list did not. The prefix is now
+//     BIND-MOUNTED rather than baked (internal/cli/run/jailprefix.go), so the
+//     image's only knowledge of these binaries is the /bin symlink NAMES —
+//     which flake.nix's jailPrefixLinks derives from this same list. The
+//     silent-vanish class is identical either way; what a reader must not
+//     conclude is that the list stopped mattering because the binaries left the
+//     image. The layout half of that split is pinned separately, across the two
+//     languages, by run.TestFlakeAndLauncherAgreeOnThePrefixLayout.
+//
 //   - scripts/stage-source-bundle.sh's SHIPPED_BINARIES — what a SHIPPED bundle
 //     carries as prebuilt artifacts. flake.nix's prebuilt short-circuit does
 //     `[ -e "$src" ] || continue`, so a binary missing there is silently skipped
