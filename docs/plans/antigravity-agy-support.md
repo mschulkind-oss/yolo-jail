@@ -27,11 +27,11 @@ boot wiring, preflight, docs, tests).
 >
 > - `agy`'s `settings.json` is a **manifest surface** (`agySettings` in
 >   `internal/agentcfg/builtin.go`), rendered by the shared composition engine
->   through the §5 capture-diff overlay loop — identical to how pi and copilot
+>   through the [§5](#5-execution-roadmap--phases) capture-diff overlay loop — identical to how pi and copilot
 >   already boot.
 > - Its writer is **`ConfigureAgyPrism`** (in `internal/entrypoint/prism.go`),
 >   modeled on `ConfigureCopilotPrism` (no host mount — yolo owns the file
->   outright). There is **no** bespoke `ConfigureAgy`; the §4C sketch that an
+>   outright). There is **no** bespoke `ConfigureAgy`; the [§4](#4-implementation-specification)C sketch that an
 >   earlier draft carried is intentionally dropped.
 > - AGY is **always** rendered through the prism. It was the first agent to live
 >   *only* in the unified config system, with no bespoke path to fall back to;
@@ -52,7 +52,7 @@ Google Antigravity is Google's agentic AI coding platform. The **AGY CLI** (`agy
 * **Binary:** Native Go binary (`ELF 64-bit x86-64`, dynamic link). Self-contained, lightweight execution (no Node.js/npm runtime needed for the binary core).
 * **Installer:** Native shell installer script (`curl -fsSL ... | bash`) installing to `~/.local/bin/agy`.
 * **State & Config Path:** `~/.gemini/` (the whole vendor dir is the writable
-  overlay; see §2.A for the correction).
+  overlay; see [§2](#2-integration-requirements--invariants).A for the correction).
   * `antigravity-cli/` — yolo-managed config (`settings.json`, `mcp_config.json`)
   * `config/projects` — the CLI's own runtime project state (added by agy 1.1.13;
     not in this plan's original layout, which is why the overlay had to widen)
@@ -158,7 +158,7 @@ AGY is born on the prism, so its writer is a thin sibling of
 `ConfigureCopilotPrism`: render `settings.json` through the shared engine (no
 host mount — yolo owns the file), then write the dynamic `mcp_config.json`
 sibling. The `permissionMode: "allow"` posture lives in the `agySettings`
-manifest's **Managed** layer (§4B), so the writer never hand-sets it.
+manifest's **Managed** layer ([§4](#4-implementation-specification)B), so the writer never hand-sets it.
 
 ```go
 // ConfigureAgyPrism configures the Google Antigravity CLI (agy). AGY is a
@@ -231,4 +231,4 @@ there is one config path now, so AGY needs no special-casing.
     `docs/design/agent-briefings.md` and `docs/design/mcp-configuration.md` and
     `docs/guides/USER_GUIDE.md`.
   * Run `just test-fast`; nested-jail verify (a throwaway `{"agents":["agy"]}`
-    workspace, two boots to prove the §5 capture loop).
+    workspace, two boots to prove the [§5](#5-execution-roadmap--phases) capture loop).

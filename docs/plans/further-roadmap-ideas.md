@@ -11,8 +11,8 @@ summary: "The 📦 queue emptied by shipping, so this file says where the next i
 **Status:** CANDIDATES, 2026-08-23 (updated the same evening after a five-agent verification pass
 over the whole corpus). **Nothing here is committed, and nothing here is a task.** Every item is a
 *proposal with a verdict* — this file deliberately carries **no open questions of its own**: an
-entry here either has a verdict or does not belong. **Five say build** (§1), **two say rule first** (§2), and **three say
-drop a row the roadmap already carries** (§4, §4a).
+entry here either has a verdict or does not belong. **Five say build** ([§1](#1-the-five-i-would-build)), **two say rule first** ([§2](#2-the-two-that-need-a-ruling-before-they-are-anything)), and **three say
+drop a row the roadmap already carries** ([§4](#4-two-rows-already-on-the-roadmap-that-i-would-drop), §[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass)).
 
 **The short version.** [`roadmap.md`](roadmap.md)'s 📦 queue was empty on 2026-08-23 because the
 last item had shipped, not because the work ran out — so the interesting question is where the
@@ -26,7 +26,7 @@ status line that says NOTHING BUILT about code that shipped, a jail-blind check 
 wrong side, and a reproduction recipe that lives in prose instead of a test.
 
 **How to use it.** Nothing here becomes work by being written down. An item earns a 💬 row in the
-roadmap when you want it; until then this file is a shelf. **§4 and §4a are the parts that argue in
+roadmap when you want it; until then this file is a shelf. **[§4](#4-two-rows-already-on-the-roadmap-that-i-would-drop) and §[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass) are the parts that argue in
 the other direction** — three rows already on the roadmap that I think should leave it.
 
 **Reads with:** [`roadmap.md`](roadmap.md) (the live state; this file is deliberately NOT it),
@@ -46,8 +46,8 @@ Ordered by what pays for itself soonest.
 **The evidence is this audit, and the second pass made it much worse than the first.** Five docs the
 roadmap points at held live questions carrying neither a status emoji nor an explicit ID, so no count
 of "what is open" could be taken except by reading ~9,000 lines. Worse, IDs failed to resolve **in
-both directions**: [`boundary-broker.md`](../design/boundary-broker.md) §10.6 called a fork in the
-road *"the maintainer's call — see the B1b row in `roadmap.md`"*, and the roadmap cited `OQ-B1b` back
+both directions**: [`boundary-broker.md` §10.6](../design/boundary-broker.md#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) called a fork in the
+road *"the maintainer's call — see the B1b row in [`roadmap.md`](roadmap.md)"*, and the roadmap cited [`OQ-B1b`](../design/boundary-broker.md#9-open-questions-for-the-maintainer) back
 at the doc. Neither existed.
 
 **Then the deeper pass found it is a whole vocabulary, not a few typos.** The roadmap was
@@ -63,7 +63,7 @@ anchors** in a single doc — no claim wrong, every pointer off.
 1. every item under an `## Open Questions` heading carries a status emoji (💬 / 💬 🤷 / ✅ / 🔒) and
    a stable ID;
 2. every `OQ-<ID>` the roadmap cites **resolves** to that ID in the doc it names;
-3. every `roadmap.md` reference by *name* (`row X`, `thread Y`, `item N`) is refused outright —
+3. every [`roadmap.md`](roadmap.md) reference by *name* (`row X`, `thread Y`, `item N`) is refused outright —
    the roadmap holds states and IDs, and nothing else is citable;
 4. every backticked **code path** (`internal/…`, `packs/…`, `cmd/…`) exists. A corpus sweep on
    2026-08-23 found **15 distinct nonexistent paths**, and the split is the interesting part: most
@@ -103,7 +103,7 @@ audit that produced it.
 | `rocm-passthrough-design.md` | "Draft / implementation-ready" | shipped in June |
 | `program-kind-defects.md` | "No code changed" | all three defects fixed |
 | `macos-revival…plan.md` | "nothing engineering-side fully open" | false; D1 retired, D2 reverted, D3 superseded |
-| `BACKLOG.md` / `roadmap.md` | E3 "open, not urgent" | shipped 2026-08-15 |
+| [`BACKLOG.md`](BACKLOG.md) / [`roadmap.md`](roadmap.md) | E3 "open, not urgent" | shipped 2026-08-15 |
 
 Seven docs, one week's drift, every one of them a doc a reader consults precisely to learn what is
 done. **A status line is a claim about the tree and nothing checks it.**
@@ -122,7 +122,7 @@ line whose ISO date is older than the newest commit touching the code paths the 
 flagged for re-verification, not for correctness. That converts an unbounded question into a queue.
 
 **And the third wave found the shape that makes rule 4 pay for itself.**
-`host-render-target.md` §1–§7 has ~20 anchors off by 90–440 lines, one naming a package that no
+`host-render-target.md` [§1](../design/host-render-target.md#1-the-measurement-the-render-core-has-no-jail-dependencies)–[§7](../design/host-render-target.md#7-three-walkthroughs) has ~20 anchors off by 90–440 lines, one naming a package that no
 longer exists, and a quoted string that appears nowhere in `internal/`. Nobody would ever repair
 that by hand — but a checker that *reports* it lets the doc carry an honest "treat these as where to
 look, not as citations" warning, which is what it now does. **The output of these checks is often a
@@ -137,7 +137,7 @@ clusters there rather than spreading evenly.
 > [!NOTE]
 > **✅ DONE — and it outgrew its own verdict** (report `af46c9b4` 2026-08-24; act, CLI and option
 > 2026-09-04). This entry says *"the proposal is the report, not the removal … uninstalling is
-> OQ-PD4 and needs a ruling"*. OQ-PD4 was ruled the day after this was written, and the removal it
+> [OQ-PD4](../design/program-delivery.md#decision-ledger) and needs a ruling"*. [OQ-PD4](../design/program-delivery.md#decision-ledger) was ruled the day after this was written, and the removal it
 > gated shipped with the report's second half: the boot catalogs orphans, `yolo programs ls`
 > reports them on demand, `yolo programs remove --apply` is the explicit act, and
 > `"programs": {"autoprune": true}` (user scope, default off) lets a boot do it. See
@@ -153,7 +153,7 @@ too; they are legitimately selected now, and re-measuring on 2026-08-23 is what 
 finding is narrower and cleaner than it looked.)*
 
 **The proposal is the report, not the removal.** `yolo check` (or `yolo pack ls`) names every
-installed program with no selecting pack. Uninstalling is **OQ-PD4** and needs a ruling; *saying so*
+installed program with no selecting pack. Uninstalling is **[OQ-PD4](../design/program-delivery.md#decision-ledger)** and needs a ruling; *saying so*
 needs none, and it turns PD4 from a judgement call into a question with data under it.
 
 **Verdict: build the report now.** Cheapest thing in this file, and it makes a live 💬 row easier to
@@ -172,7 +172,7 @@ Three items the roadmap used to hold separately are the same defect:
 |---|---|
 | `sectionRunningJails` (`check.go:514`) | reports the **nested** podman's view; prints `[PASS] No jails currently running` while the host has one |
 | `sectionGPUNvidia` (`sections_devices.go:38`) | three `[FAIL]`s for host facts read from the wrong side |
-| broker-ca **OQ-3** | `[PASS]` on a section that was *skipped* — the shape that hid a daemon that never started |
+| broker-ca **[OQ-3](../design/broker-ca-and-nested-hosts.md#7-open-questions)** | `[PASS]` on a section that was *skipped* — the shape that hid a daemon that never started |
 
 Each is currently a small question about one section's wording. **They are one question about
 `check`'s vocabulary:** a section knows whether its facts are host-authoritative, jail-observable, or
@@ -229,7 +229,7 @@ read by someone.
 `mise` supports a lockfile; yolo never enables it and there is no mise lockfile in the tree. The
 roadmap calls this *"the cheapest single win, if you want one before ruling"*, and it is.
 
-**Verdict: hold it anyway.** **OQ-PD6** asks precisely whether the declaration carries the pin or the
+**Verdict: hold it anyway.** **[OQ-PD6](../design/program-delivery.md#decision-ledger)** asks precisely whether the declaration carries the pin or the
 receipt does, and enabling mise's own lockfile is an answer to that question, entered without
 answering it. If PD6 rules *receipt*, the mise lockfile is in the wrong place and will have to move —
 so the cheap win costs its own rework. Do it the moment PD1/PD2/PD6 land, in whichever shape they
@@ -246,15 +246,15 @@ say.
 - **No re-litigation of what shipped.** The broker's move, the npm ruling, the refused-contribution
   fatal and the darwin warmup skip are all done; where one of them left a residue, the residue is a
   row in the roadmap, not an entry here.
-- **No archaeology-driven work.** A doc being old is not a reason to change it. §5's archiving idea
+- **No archaeology-driven work.** A doc being old is not a reason to change it. [§5](#5-the-weakest-idea-in-the-file-kept-because-it-is-nearly-free)'s archiving idea
   is deliberately the weakest thing in this file for exactly that reason.
 
 ---
 
 ## 4. Two rows already on the roadmap that I would drop
 
-*(§4a generalises them into a class, found on the second pass. **Executed 2026-09-02:** (b) is
-done — OQ-CAP retired into `pack-capabilities.md` §10's settled record, the one-line residue queued
+*(§[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass) generalises them into a class, found on the second pass. **Executed 2026-09-02:** (b) is
+done — OQ-CAP retired into `pack-capabilities.md` [§10](../design/pack-capabilities.md#10-open-question-design-detail)'s settled record, the one-line residue queued
 under the roadmap's Small repairs; and 💬 12 with it, its OQ-B folded into 💬 8. (a) was already a
 bullet inside 💬 10 rather than a row, which is where it stays as evidence for the vocabulary
 ruling.)*
@@ -280,21 +280,21 @@ to [`../design/retired-decisions.md`](../design/retired-decisions.md).
 > **The general shape, since it will recur.** A row belongs in 💬 when two answers lead to
 > *materially different work*. Both rows above have one plausible answer and a small edit behind it.
 > The cost of getting this wrong is not clutter — it is that **14** rows of "needs you" read as a
-> 14-decision backlog when **three of them cannot change the work** (§4 a, §4 b, and the pointer in
-> §4a). Twelve is the honest figure, and the cheap three are the ones a tired reader answers first —
+> 14-decision backlog when **three of them cannot change the work** ([§4](#4-two-rows-already-on-the-roadmap-that-i-would-drop) a, [§4](#4-two-rows-already-on-the-roadmap-that-i-would-drop) b, and the pointer in
+> §[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass)). Twelve is the honest figure, and the cheap three are the ones a tired reader answers first —
 > which is the worst possible order to spend attention in.
 
 ---
 
 ## 4a. A third row I would drop, added after the deeper pass
 
-**§4 b is one instance; this is the class.** Any question whose doc says it is *"decided in all but
+**[§4](#4-two-rows-already-on-the-roadmap-that-i-would-drop) b is one instance; this is the class.** Any question whose doc says it is *"decided in all but
 name"*, and any "question" that is really a **pointer** to a question living somewhere else.
 
 - **The confirmation:** `pack-capabilities` OQ-CAP, uncontested since 2026-08-13. Still on the
   roadmap as 💬 **12**.
 - **The pointer:** `boundary-broker` **OQ-D** — not a question at all but a redirect to
-  `agent-auth-modes` OQ-1, and its own text says so. *(This one is already fixed: today's compaction
+  `agent-auth-modes` [OQ-1](../design/agent-auth-modes.md#12-decision-ledger), and its own text says so. *(This one is already fixed: today's compaction
   moved it into that doc's Decision Ledger, so it no longer reads as open. It is kept here as the
   worked example of the shape.)*
 
@@ -324,11 +324,11 @@ disprove it — is what actually found things.
 
 **Archive a plan when its sprint ends, not when someone notices.** At least eight of the thirty-three
 files in `docs/plans/` announce their own completion in the first six lines —
-`pack-host-management-plan.md` (*"ALL PHASES SHIPPED 2026-08-02"*), `host-pack-drop-cleanup.md`
-(*"ALL FOUR RULINGS SHIPPED 2026-08-03"*), `host-file-staging.md` (*"✅ SHIPPED 2026-07-25"*),
-`feedback-real-pack-adoption.md` (*"ALL SEVEN FINDINGS CLOSED"*), `cache-relocation.md`
-(*"Implemented 2026-07-21"*), `module-consolidation-and-cleanup.md`, `agent-settings-composition.md`
-and `handoff-fzf-pack-adoption.md`. The triage that produced
+[`pack-host-management-plan.md`](pack-host-management-plan.md) (*"ALL PHASES SHIPPED 2026-08-02"*), [`host-pack-drop-cleanup.md`](host-pack-drop-cleanup.md)
+(*"ALL FOUR RULINGS SHIPPED 2026-08-03"*), [`host-file-staging.md`](host-file-staging.md) (*"✅ SHIPPED 2026-07-25"*),
+[`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) (*"ALL SEVEN FINDINGS CLOSED"*), [`cache-relocation.md`](cache-relocation.md)
+(*"Implemented 2026-07-21"*), [`module-consolidation-and-cleanup.md`](module-consolidation-and-cleanup.md), [`agent-settings-composition.md`](agent-settings-composition.md)
+and [`handoff-fzf-pack-adoption.md`](handoff-fzf-pack-adoption.md). The triage that produced
 this layout ([`doc-triage.md`](doc-triage.md)) ran once, in July, and was executed properly; nothing
 has swept since.
 

@@ -380,11 +380,11 @@ _Leaning was:_ refuse to relocate while jails are up.
 ## Open Questions
 
 All three are **HELD** rather than merely unscheduled — the roadmap carries this doc in 🧊 because
-what is undecided is whether we want the feature, not when. **OQ-CR1 gates item 11**, and OQ-CR2 is
+what is undecided is whether we want the feature, not when. **[OQ-CR1](#-oq-cr1--is-cache_relocations-the-right-level-held) gates item 11**, and [OQ-CR2](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side) is
 the same decision seen from the host side (the doc says so below); answering CR1 without CR2 is
 answering half of one question.
 
-### 💬 OQ-CR1 — is `cache_relocations` the right level? (HELD)
+### 💬 [OQ-CR1](#-oq-cr1--is-cache_relocations-the-right-level-held) — is `cache_relocations` the right level? (HELD)
 
 **This one gates item 11 — do not build `yolo cache relocate` until it is
 answered.** The maintainer is not yet convinced the mechanism sits at the right
@@ -429,7 +429,7 @@ alongside the host-side-reflection question; they resolve together.
 **Answer:**
 > _(empty — held for further consideration; see above)_
 
-### 💬 OQ-CR2 — whether the relocation should also be reflected host-side
+### 💬 [OQ-CR2](#-oq-cr2--whether-the-relocation-should-also-be-reflected-host-side) — whether the relocation should also be reflected host-side
 
 Today's design is container-only: host `cache/<subdir>` is an empty stub and
 `yolo prune` learns about the real bytes from the config (work items 7–8). The
@@ -451,7 +451,7 @@ yolo. They resolve together.
 **Answer:**
 > _(empty — held; resolves with the level-of-abstraction question above)_
 
-### 💬 OQ-CR3 — whether `cache_relocations` should accept a per-workspace override for read-only sharing
+### 💬 [OQ-CR3](#-oq-cr3--whether-cache_relocations-should-accept-a-per-workspace-override-for-read-only-sharing) — whether `cache_relocations` should accept a per-workspace override for read-only sharing
 
 A plausible follow-on: point several machines' jails at one NFS-mounted model
 cache. That is a different feature (shared, possibly read-only, contention on

@@ -4,7 +4,7 @@
 2026-08-23: the `packs` key, host-side fetch, the lockfile, the origin gate and `yolo pack
 {install,status,lint,footprint}` are all in the tree, so read this for its **landscape research and
 its scope verdict**, not as a plan. What is still live is four open questions, now named
-**OQ-ACP1 … OQ-ACP4** at the end. *(The old header said "ROADMAP item: 5" — a numbering the
+**[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) … [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job)** at the end. *(The old header said "ROADMAP item: 5" — a numbering the
 2026-08-17 restructure retired; the roadmap holds states and OQ IDs now.)*
 **Research base:** [`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)
 (14 agents surveyed, 6 distribution mechanisms, measured git plumbing).
@@ -57,7 +57,7 @@ server sets. Five requirements, in the order they were given:
   the commit and the subtree hash. It lives **beside the spec** in
   `~/.config/yolo-jail/packs.lock.json` — where lazy.nvim, vim.pack, and mini.deps
   all put theirs — so copying two files moves an environment, and a dotfiles repo
-  gives `git checkout HEAD -- packs.lock.json` rollback for free (§7).
+  gives `git checkout HEAD -- packs.lock.json` rollback for free ([§7](#7-explicit-installupdate-and-the-lockfile)).
 - **A pack may also be a plugin.** `.claude-plugin/plugin.json` is read natively by
   Claude, Copilot **and** Codex (verified in all three implementations), so `yolo pack
   init --plugin` writes one and a colleague with no jail installs the same branch
@@ -88,7 +88,7 @@ tools/agent-pack/
 **`surfaces/` is a real prism layer, not a lookalike.** A pack fragment is folded
 by the composition engine itself, at `Inputs.Workspace` — and yolo already
 synthesizes `manifest.Surface` values from *config data* at runtime, so this is a
-smaller change than it looks. §6 has the mechanics, the six verified sharp edges,
+smaller change than it looks. [§6](#6-projection-what-actually-reaches-which-agent) has the mechanics, the six verified sharp edges,
 the three rules the fill still has to pin down, and the one thing a pack must never
 be allowed to do.
 
@@ -134,7 +134,7 @@ against the shipped implementations, not their docs:
 
 So `.claude-plugin/plugin.json` is a de-facto interchange layout that **three of the
 six supported agents consume natively**, and all three ship monorepo affordances that
-match §2's grammar almost exactly: Claude's `git-subdir` source
+match [§2](#2-address-grammar)'s grammar almost exactly: Claude's `git-subdir` source
 (`{url, path, ref?, sha?}`, fetched as a `--filter=tree:0` partial clone with only
 the subdir materialized) and `marketplace add --sparse <paths…>`; Copilot's
 `owner/repo:path` shorthand and a `path` field on *every* source arm; Codex's
@@ -143,7 +143,7 @@ independently, which is good evidence the grammar is right rather than clever.
 
 **A pack therefore SHOULD be allowed to carry `.claude-plugin/plugin.json`, and
 `yolo pack init` should offer to write one** (`--plugin`). It costs one small JSON
-file, it is purely additive to the plain-directory shape, and it buys the thing §9's
+file, it is purely additive to the plain-directory shape, and it buys the thing [§9](#9-scope-in-yolo-jail-with-two-extractable-packages)'s
 audience argument needs: a colleague with no jail runs
 `claude plugin marketplace add acme/mono --sparse tools/agent-pack` or
 `copilot plugin install acme/mono:tools/agent-pack` against the *same* branch, no
@@ -156,7 +156,7 @@ a new one.
   `{name, marketplace, version, installed_at, enabled, cache_path, source}` — a
   human version string and a wall-clock time, no SHA. Claude's sources *accept* a
   `sha`, but nothing writes one back.
-- **No lockfile and no rollback verb** in any of the three. This is the §7 gap, and
+- **No lockfile and no rollback verb** in any of the three. This is the [§7](#7-explicit-installupdate-and-the-lockfile) gap, and
   it is the whole reason the vim scene is the model rather than the plugin scene.
 - **Three separate installers with three separate state trees.** A shared *layout*
   is not a shared *installation*; "install it once, three agents see it" is not
@@ -369,7 +369,7 @@ protocol. It stays documented in the research doc as the upgrade path.
 ```
 
 The lock is *not* here — it lives beside the spec in `~/.config/yolo-jail/`
-(§7), and only the machine-local approval record stays in this tree.
+([§7](#7-explicit-installupdate-and-the-lockfile)), and only the machine-local approval record stays in this tree.
 
 `paths.PacksDir()` sits beside `AgentsDir()` (`internal/paths/paths.go:79`).
 **Never `GlobalCache()`** (`paths.go:73`) — it is bound **rw** into every jail
@@ -471,7 +471,7 @@ so a non-builtin surface composes. So "surfaces are Go literals" is already fals
 in the shipped code. Two caveats: `manifest.Surface` carries **no json tags**, so a
 data loader needs a tagged DTO (`internal/config.HostFileEntry` is the existing
 model); and a pack-*declared* surface — as opposed to a pack layer over a builtin
-one — must also be registered in `builtinSurfacePaths` (§10) or the reserved-dest
+one — must also be registered in `builtinSurfacePaths` ([§10](#10-security-and-supply-chain)) or the reserved-dest
 drift check goes stale silently.
 
 **Six sharp edges, all verified against the code, none of them blocking:**
@@ -479,7 +479,7 @@ drift check goes stale silently.
 - **A pack layer's provenance reads `workspace`, not `pack:<slug>`.** The seven
   layer names are unexported constants (`compose.go:106-114`) with no per-source
   parameter, so N packs folded into one `Workspace` value are indistinguishable in
-  `--explain`. §11's `pack:<slug>` label is therefore an engine change (a named
+  `--explain`. [§11](#11-phases)'s `pack:<slug>` label is therefore an engine change (a named
   layer, or a provenance side-channel), not a printf.
 - **Shape checking is fail-closed but shallow.** A JSON object handed to a `raw`
   or `lines` surface dies at compose with the layer *named*
@@ -525,7 +525,7 @@ drift check goes stale silently.
 - **A fragment can *delete* a key from the user's own host file.** The object fold
   honors RFC-7386 tombstones (`compose.go:200-207`, `engine.go:82-85`) — probed: a
   host `settings.json` carrying `apiKeyHelper` plus `Workspace: {"apiKeyHelper":
-  null}` renders without the key. So §10's denylist must cover the keys a pack may
+  null}` renders without the key. So [§10](#10-security-and-supply-chain)'s denylist must cover the keys a pack may
   **remove**, not only the ones it may set; a pack that tombstones a
   security-relevant host key is otherwise in scope.
 - **How N packs' fragments for one `(agent, name)` pre-compose is undefined.**
@@ -538,7 +538,7 @@ drift check goes stale silently.
   `claude/config` is declared and never rendered (`configls.go:50-63` marks it
   `unrendered`), and the three `copy`-mode surfaces re-render from scratch every
   boot. Neither case is wrong, but a pack targeting one deserves the same
-  **DROPPED** row §6's table gives opencode's skills rather than quiet nothing.
+  **DROPPED** row [§6](#6-projection-what-actually-reaches-which-agent)'s table gives opencode's skills rather than quiet nothing.
 
 **And `yolo config ls` would not show the layer.** `builtinLayers`
 (`internal/cli/configls.go:162-180`) has cases for `defaults`/`host`/`computed`/
@@ -548,7 +548,7 @@ drift check goes stale silently.
 `colorLayer` already knows the color. One more hand-kept map, or the LAYERS column
 lies about the one layer the user just installed.
 
-**The one thing a pack layer must not be allowed to do is capture** (§10): a
+**The one thing a pack layer must not be allowed to do is capture** ([§10](#10-security-and-supply-chain)): a
 captured value outranks the host file forever and survives removing the pack, so
 "roll back" would silently not roll back. `host_files` already refuses capture as
 a default (`internal/config/hostfiles.go:212-215`).
@@ -556,7 +556,7 @@ a default (`internal/config/hostfiles.go:212-215`).
 And the security consequence is unchanged and non-negotiable: `Enforce()` is an
 allowlist of yolo-asserted keys, so the moment `Workspace` is filled from a pack,
 a fragment can contribute `hooks`, `apiKeyHelper`, `env`, or a gemini/copilot MCP
-`command`. §10's per-surface denylist gates phase 2.
+`command`. [§10](#10-security-and-supply-chain)'s per-surface denylist gates phase 2.
 
 ## 7. Explicit install/update, and the lockfile
 
@@ -659,7 +659,7 @@ because the file lands in someone's dotfiles repo and has to diff cleanly.
 
 **Keyed by the normalized source string, not by `name`.** lazy.nvim and vim.pack
 both key by plugin name, and that is safe for them because a vim plugin *is* a whole
-repo. It breaks here: the §3 example legitimately holds two entries differing only
+repo. It breaks here: the [§3](#3-config-schema--and-who-may-name-a-source) example legitimately holds two entries differing only
 in `?ref=`, and name-keying silently collapses them so one pack gets the other's
 tree. The consequence is accepted deliberately: the URL normalizer becomes part of
 the lock's identity, so changing it is a format migration. `name` stays a display
@@ -704,12 +704,12 @@ reasons carry over intact. It is the file a user wants to copy to a second machi
 alongside `config.jsonc` — and if they keep `~/.config` in a dotfiles repo, which is
 common, vim.pack's whole rollback story (`git checkout HEAD -- packs.lock.json`)
 works verbatim for free, so `pack ls` should detect `~/.config/yolo-jail/.git` and
-say so. And `GlobalStorage()` is **the space-reclamation tree**: §5 grows a packs
+say so. And `GlobalStorage()` is **the space-reclamation tree**: [§5](#5-state-a-new-globalstorage-sibling) grows a packs
 section in `yolo prune`, and a reproducibility artifact living inside the tree our own
 GC is taught to walk is a footgun waiting for a `--apply`. (Stated as prospective,
 not present: prune is allowlist-driven today — `PruneLegacyBuildRoots` matches only
 the `nix-build-root`/`nix-build-tmp-` prefixes, `internal/prune/sweep.go:15-18,27-63`
-— so a `packs/` dir would currently survive untouched. The hazard arrives with §5's
+— so a `packs/` dir would currently survive untouched. The hazard arrives with [§5](#5-state-a-new-globalstorage-sibling)'s
 prune section, which is exactly when the lock would be inside it.) Config means "sync
 this"; data means "delete this to reclaim space"; a lock is the former.
 
@@ -768,7 +768,7 @@ shape of reasoning: `LoadCacheRelocations` returns nil early because "relocation
 HOST-side feature and is inert inside a jail" (`internal/config/relocations.go:60-68`),
 and `LoadConfig` branches on the same `inJail()` guard (`internal/config/load.go:235`)
 because the in-jail view of user config is not the host's. Fetch is host-side anyway
-(§4) — the jail has no git credentials — so the refusal costs nothing real and closes
+([§4](#4-fetch-runs-on-the-host)) — the jail has no git credentials — so the refusal costs nothing real and closes
 the one path by which a prompt-injected agent could rewrite its own pins.
 
 **If the spec ever becomes shared** — the day a company distributes a baseline
@@ -836,7 +836,7 @@ cannot fully parse.
 **GC and the lock create each other's bug.** The lock plus `history[]` make
 `trees/<sha>/` liveness roots, and rollback depth multiplies them. Ship `yolo prune`
 without teaching it about `history[]` and `restore`-after-`rollback` fails with a
-missing tree that reads as a corrupt lock — which is why §5 puts the packs prune
+missing tree that reads as a corrupt lock — which is why [§5](#5-state-a-new-globalstorage-sibling) puts the packs prune
 section in the *same* phase.
 
 Nothing is ever automatic. `install`/`update` are the only network verbs and both
@@ -974,7 +974,7 @@ think at all, was deleting one line and re-running `install`.
 **Verdict: build it inside yolo-jail.** Not as a hedge — the *projection* half of
 this problem is already solved inside yolo-jail and is not exportable. The fetch
 half is (`internal/packsrc`, below) and so, measurably, is the composition engine
-(§9.3) — hence "two", not "every hard part".
+([§9.3](#9-scope-in-yolo-jail-with-two-extractable-packages)) — hence "two", not "every hard part".
 
 - **The credential boundary is not a policy an external tool could adopt; it is
   defined by yolo's mount table.** "Only the user config may name a source" is
@@ -985,12 +985,12 @@ half is (`internal/packsrc`, below) and so, measurably, is the composition engin
   location, reimplementing yolo's config loader with worse fidelity.
 - **Delivery is a write into a composed home** — `:ro` mount on podman, `acMaterialize`
   copy on Apple Container, plain file write on macos-user, which has no mount concept
-  at all (§11). The mechanism varies; what does not is that yolo owns the destination.
+  at all ([§11](#11-phases)). The mechanism varies; what does not is that yolo owns the destination.
   The alternative an external tool must take is ruler's: generate files into the
   workspace, then gitignore them. yolo deliberately does not do that, and
   copier/cruft's lesson is "never generate content you later need to update" —
   generated-into-the-repo content becomes an un-updatable fork. (An externally-produced
-  *tree* does already land through `host_files` `mode: copy` — see §9.2. What an
+  *tree* does already land through `host_files` `mode: copy` — see [§9.2](#9-scope-in-yolo-jail-with-two-extractable-packages). What an
   external tool cannot choose is where the agent reads from.)
 - **Precedence is `PrepareSkills` plus the prism's five-layer fold.** For skills this
   is structural: an external tool cannot insert a layer between yolo's built-ins and
@@ -1058,7 +1058,7 @@ corpus reaches a single-digit fraction of the org.
 **The answer is to split the corpus from the mechanism, and only the mechanism is
 yolo's.** A pack is a plain directory of `SKILL.md` files and markdown — zero
 yolo dependency, no yolo-specific format, optionally also a valid
-`.claude-plugin/` directory (§1). A colleague on a bare laptop consumes the identical
+`.claude-plugin/` directory ([§1](#1-the-unit-of-sharing)). A colleague on a bare laptop consumes the identical
 directory today with `git checkout <branch> && npx skills add ./path`, or
 `claude plugin marketplace add acme/mono --sparse tools/agent-pack`, or
 `copilot plugin install acme/mono:tools/agent-pack` — three vendors' installers plus
@@ -1137,7 +1137,7 @@ than extraction**. That removes extraction's only named beneficiary, which is th
 strongest available argument against extracting: it has to be motivated by an
 external consumer, and there isn't one yet.
 
-**2. What is *not* extractable is projection, and that is the whole of §9's
+**2. What is *not* extractable is projection, and that is the whole of [§9](#9-scope-in-yolo-jail-with-two-extractable-packages)'s
 argument.** Restated without the circular clause:
 
 - The staging dir for skills is the source of a live `:ro` bind, and
@@ -1146,13 +1146,13 @@ argument.** Restated without the circular clause:
   process that owns that contract, on every invocation including attach.
 - Mount emission, `/ctx` staging, and the `YOLO_*` wire manifests are yolo's
   argv, not a library's output.
-- The §5 sidecars, the four `host_files` modes, and the capture/copy/unrendered
+- The [§5](#5-state-a-new-globalstorage-sibling) sidecars, the four `host_files` modes, and the capture/copy/unrendered
   *posture* live outside the manifest entirely — posture is a hand-kept map in
   `internal/cli` (`configls.go:50-63`) asserted from `internal/entrypoint` by
   regex-scanning that package's own source (`hostfiles_test.go:487`). An extracted
   library stopping at `manifest.Surface` leaves that concept behind.
 - The credential boundary is defined by yolo's mount table, not by a policy a
-  sidecar could adopt (first bullet of §9).
+  sidecar could adopt (first bullet of [§9](#9-scope-in-yolo-jail-with-two-extractable-packages)).
 
 So the split runs *through* the prism, not around it: a pure composer that could be
 a library, wrapped in projection machinery that could not.
@@ -1215,7 +1215,7 @@ The argument *against* is about target, and it survives every backend:
 - **The reserved-destination and posture tables assume a single writer.** Two
   hand-maintained duplicates and three drift tests currently hold the line; a
   second tool writing the same destinations doubles that surface.
-- **The whole threat model rests on the composed home being disposable** — §10's
+- **The whole threat model rests on the composed home being disposable** — [§10](#10-security-and-supply-chain)'s
   "the container is blast-radius reduction, never authorization". Point the same
   pipeline at the human's live agent config and pack-supplied arbitrary execution
   (a `hooks` command, an `apiKeyHelper`, an MCP `command`) moves out of a
@@ -1282,9 +1282,9 @@ Risk ranking (see the research doc for the full analysis):
 
 Controls, in the order they must ship:
 
-- **Source declaration is user-scope by construction** (§3). Not a validation.
+- **Source declaration is user-scope by construction** ([§3](#3-config-schema--and-who-may-name-a-source)). Not a validation.
 - **Approval requires a TTY**, never the auto-accepting config-snapshot diff, and
-  is recorded in the machine-local ledger (`PacksDir()/ledger.json`, §7) that no
+  is recorded in the machine-local ledger (`PacksDir()/ledger.json`, [§7](#7-explicit-installupdate-and-the-lockfile)) that no
   jail can reach — deliberately *not* in the portable lock, so copying a lock to a
   new machine carries pins without carrying trust. `restore` therefore cannot
   introduce an unapproved tree, which is what makes the offline verb safe to run
@@ -1333,7 +1333,7 @@ Controls, in the order they must ship:
   without the denylist. (Two surveyed designs claimed policy-stripping came for
   free from `Managed`; that claim is false in the general case.) **The denylist
   covers deletions too**: the fold honors RFC-7386 tombstones, so a `null` in a
-  fragment removes a key from the user's own host file (probed — §6). A denylist
+  fragment removes a key from the user's own host file (probed — [§6](#6-projection-what-actually-reaches-which-agent)). A denylist
   written only over the keys a pack may *set* leaves "silently unset the user's
   security-relevant key" in scope.
 - **Pack-sourced files may never use capture mode.** A captured edit outranks the
@@ -1372,7 +1372,7 @@ exec-bit files unless `allow_exec`, copy. `PrepareSkills` gains a packs pass;
 `ComposeBriefing` gains `packText` with the provenance block. Reserved skill
 names. Two registry lines for `pi` and `codex`, **with a probe test** rather than
 a docs citation. `yolo pack init|lint|ls|split|explain`, where `init --plugin` also
-writes `.claude-plugin/plugin.json` (§1) — a template, not a code path, so the
+writes `.claude-plugin/plugin.json` ([§1](#1-the-unit-of-sharing)) — a template, not a code path, so the
 non-jail consumption story exists from the first pack.
 
 Independently valuable: it is the entire authoring loop, "share by `git clone` +
@@ -1420,18 +1420,18 @@ never lands: skills plus AGENTS.md prose is the majority of what people share.
 
 **Phase 2 — settings fragments and files (~1 week).**
 The per-surface key denylist **first**, covering keys a fragment may *delete* as well
-as set (tombstones are honored — §6). Then fill `Inputs.Workspace` at the three
+as set (tombstones are honored — [§6](#6-projection-what-actually-reaches-which-agent)). Then fill `Inputs.Workspace` at the three
 construction sites, passing a **typed nil** and never an empty map when a surface has
 no fragment, with a keyless regression test — those sites are shared with
-`host_files`, whose default codec is `raw`, where `map[string]any{}` hard-errors (§6).
+`host_files`, whose default codec is `raw`, where `map[string]any{}` hard-errors ([§6](#6-projection-what-actually-reaches-which-agent)).
 The entrypoint reads `surfaces/<agent>/<name>.json` from a
 new `/ctx/packs/<slug>:ro` mount mirroring `/ctx/host-user/<slug>`; host-side
 shape validation via the `checkHostFileLayer` model so a bad fragment fails
 `yolo check` with the key named rather than becoming a `genStep` warning at boot
-(§6);
+([§6](#6-projection-what-actually-reaches-which-agent));
 `yolo config render --explain` gains a `pack:<slug>` provenance label — which is an
 **engine change**, since the seven layer names are unexported constants with no
-per-source parameter (§6), not a printf — and `builtinLayers`
+per-source parameter ([§6](#6-projection-what-actually-reaches-which-agent)), not a printf — and `builtinLayers`
 (`internal/cli/configls.go:162-180`) gains its missing `workspace` case so
 `yolo config ls` stops omitting the layer entirely. A defined pre-compose order for
 two packs asserting the same surface: deep merge in declaration order for objects,
@@ -1464,7 +1464,7 @@ phase. It is one env var pointing at the pack tree yolo already stages, it needs
 new mount and no knowledge of the plugin format, and `autoUpdate: false` is forced by
 Claude itself so it cannot reach the network behind our back — the same offline
 guarantee `restore` gives. It sat in phase 3 on the assumption that plugin interop
-was a sharp edge; §1 establishes it is a layout, so the sharp edges here are
+was a sharp edge; [§1](#1-the-unit-of-sharing) establishes it is a layout, so the sharp edges here are
 `allow_exec`, signing, and revocation, none of which the seed dir touches. Copilot's
 `--plugin-dir` is the analogous flag but is per-invocation rather than an env var, so
 it lands only if launcher-side argv injection for copilot proves cheap; Codex has no
@@ -1475,9 +1475,9 @@ equivalent and stays briefing-plus-skills.
 Recorded so scope creep is visible:
 
 - **No second, committable lockfile in v1.** `~/.config/yolo-jail/packs.lock.json`
-  ships in phase 1 (§7); what is deferred is a *repo-committed* lock beside a
+  ships in phase 1 ([§7](#7-explicit-installupdate-and-the-lockfile)); what is deferred is a *repo-committed* lock beside a
   *shared* spec, which has no reason to exist until `include_if_found` distributes a
-  baseline `packs` list. Trigger named in §7. (A dotfiles repo committing the config
+  baseline `packs` list. Trigger named in [§7](#7-explicit-installupdate-and-the-lockfile). (A dotfiles repo committing the config
   dir is not this — that is one lock, versioned by its owner.)
 - **No resolver, no version constraints, no transitive dependencies.** One level,
   no solver. Go's MVS is the only sound solver in the survey and it needs a proxy
@@ -1486,13 +1486,13 @@ Recorded so scope creep is visible:
 - **No registry, no index, no shortname expansion.** Discovery is a conventional
   path plus Slack — the only two documented shapes at scale. No first-party
   engineering blog from any surveyed company describes an internal marketplace.
-- **No credential broker, no in-jail fetch** (§4). Documented as the upgrade path.
+- **No credential broker, no in-jail fetch** ([§4](#4-fetch-runs-on-the-host)). Documented as the upgrade path.
 - **No timer-driven auto-update.** Ever.
 - **No ruler/rulesync integration.** ruler's canonicalize-then-fan-out *is* what
   the prism already does, and better for this case: it composes into a `:ro`
   mount instead of generating files in the workspace that then need gitignoring.
   Integrating it means a Node dependency to produce files yolo already produces.
-- **No plugin *installer* — but the plugin *layout* is adopted** (§1).
+- **No plugin *installer* — but the plugin *layout* is adopted** ([§1](#1-the-unit-of-sharing)).
   `.claude-plugin/` is now read by Claude, Copilot, and Codex, so a pack may carry
   `.claude-plugin/plugin.json` and `yolo pack init --plugin` writes one. What is
   rejected is delegating fetch/state to those installers: three separate state trees
@@ -1509,23 +1509,23 @@ Recorded so scope creep is visible:
 - **No new second composition mechanism.** Everything lowers onto the prism.
 - **No prism extraction, and no host-config management, as part of this work.**
   Both were raised in review and both are live — the engine measurably extracts
-  (§9) — but packs need `Inputs.Workspace` *filled*, not *relocated*, and yolo has
+  ([§9](#9-scope-in-yolo-jail-with-two-extractable-packages)) — but packs need `Inputs.Workspace` *filled*, not *relocated*, and yolo has
   never written a third-party agent's config into the invoking user's own home. Open
   question below. Extraction now needs a second consumer to motivate it: its one
   named beneficiary, the duplicate `builtinSurfacePaths` table, is fixed by a
-  strictly smaller in-repo `builtin.go` package split (§9.3).
+  strictly smaller in-repo `builtin.go` package split ([§9.3](#9-scope-in-yolo-jail-with-two-extractable-packages)).
 
 ## Open Questions
 
 > [!IMPORTANT]
 > **Four of these are still live, and they are the only reason this doc is not purely historical**
-> (checked 2026-08-23). They are now named **OQ-ACP1 … OQ-ACP4** so they can be cited from outside;
+> (checked 2026-08-23). They are now named **[OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) … [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job)** so they can be cited from outside;
 > the prefix was verified free across `docs/`. The answered ones keep their rulings inline.
 
 
 ### Whether `pack_requests` in workspace scope is worth its complexity in v1
 
-§3 admits a workspace-scope `pack_requests` array that is inert until a
+[§3](#3-config-schema--and-who-may-name-a-source) admits a workspace-scope `pack_requests` array that is inert until a
 user-scope TTY approval names it. It buys platform-team-driven onboarding without
 granting workspace scope any power. The cost is a second config key, a second
 scope to explain, and an `approve --from-workspace` verb — and the alternative
@@ -1564,7 +1564,7 @@ widening the boundary.
 > copy-paste worse, and threat-model-identical. See
 > [../design/three-decisions.md §0.1](../design/three-decisions.md).
 
-### 💬 OQ-ACP1 — what happens when two people attach to the same jail with different pack sets
+### 💬 [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) — what happens when two people attach to the same jail with different pack sets
 
 `refreshJailBriefings` runs on **every** invocation including attach, so an
 attach re-renders skills and briefings from the *attaching* user's config —
@@ -1581,7 +1581,7 @@ the three.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 OQ-ACP2 — whether opencode's skills gap should be closed by writing into `/workspace`
+### 💬 [OQ-ACP2](#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) — whether opencode's skills gap should be closed by writing into `/workspace`
 
 opencode has no user-level skills directory; `.agents/skills/` is project-scoped.
 The only way to give it real skills is to write into the workspace tree — which
@@ -1597,9 +1597,9 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 OQ-ACP3 — whether the prism should become a standalone tool that also manages host configs
+### 💬 [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) — whether the prism should become a standalone tool that also manages host configs
 
-Raised in review off the `surfaces/` line in §1. Three claims, separated in §9: the
+Raised in review off the `surfaces/` line in [§1](#1-the-unit-of-sharing). Three claims, separated in [§9](#9-scope-in-yolo-jail-with-two-extractable-packages): the
 engine *is* extraction-shaped (measured — 6-package closure, zero app-layer edges,
 green build and tests in a fresh module); extraction is a cleanup **whose named
 beneficiary turns out not to need it** (the duplicate `builtinSurfacePaths` table
@@ -1625,7 +1625,7 @@ _Leaning:_ split the three. (a) Do **not** block packs on it — phase 2 fills
 `Inputs.Workspace` from data, which is the last step of making the manifest
 data-driven; extraction afterwards costs a public-API contract, black-box tests, a
 `yolo`-named Lua global to rename, `Surface` json tags plus a schema version, and a
-vendored module for the hermetic build (§9.3). (b) Extraction needs a *second
+vendored module for the hermetic build ([§9.3](#9-scope-in-yolo-jail-with-two-extractable-packages)). (b) Extraction needs a *second
 consumer* as its motivation, not the duplicate table. (c) Host-config management is a
 separate product question and the *first* thing it needs is not a new tool but the
 three logged defects fixed: `config render` reading its host layer from the
@@ -1638,7 +1638,7 @@ not with an overwrite.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 OQ-ACP4 — whether pruning needs usage telemetry to be anybody's job
+### 💬 [OQ-ACP4](#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) — whether pruning needs usage telemetry to be anybody's job
 
 A shared corpus rots: it accumulates, quality drops, engineers stop trusting it
 and revert to their own config — the organizational death of this feature, and no
@@ -1680,8 +1680,8 @@ and Codex's binary carries `.claude-plugin/`, `.codex-plugin/` and `.cursor-plug
 probes in one loader. Three of the six supported agents read the layout natively, and
 all three ship (repo, path, ref) monorepo affordances — `git-subdir` + `--sparse`,
 `owner/repo:path`, `marketplace add --ref --sparse` — which independently corroborates
-§2's grammar. So §1 now *invites* the manifest, `yolo pack init --plugin` writes it,
-and the seed-dir bridge moves from phase 3 to phase 2 (§11).
+[§2](#2-address-grammar)'s grammar. So [§1](#1-the-unit-of-sharing) now *invites* the manifest, `yolo pack init --plugin` writes it,
+and the seed-dir bridge moves from phase 3 to phase 2 ([§11](#11-phases)).
 
 Two corrections to the premise, both consequential. **"Already supported" is true of
 the format and false of the system:** they are three independent installers with three
@@ -1699,7 +1699,7 @@ channel that reaches everything.
 
 ### Whether the committable lockfile should just ship in phase 1
 
-An earlier draft of §7 declined a v1 lockfile, on the reasoning that an
+An earlier draft of [§7](#7-explicit-installupdate-and-the-lockfile) declined a v1 lockfile, on the reasoning that an
 uncommitted lockfile is only the appearance of reproducibility, and that the
 ledger already gave offline rollback and drift detection. Three of four design
 panels shipped a lock in their first slice and the engineering lens called the
@@ -1709,7 +1709,7 @@ deferral this design's one real gap against requirement 1.
 > "I want this to be like vundle ro whatever with an explicit install/update step
 > and a lockfile that goes along with it."
 
-Settled 2026-07-25. §7 was rewritten around it: the spec is declarative, `install`
+Settled 2026-07-25. [§7](#7-explicit-installupdate-and-the-lockfile) was rewritten around it: the spec is declarative, `install`
 and `update` are the only network verbs and are always hand-run, `restore` is
 offline and never writes the lock, and `packs.lock.json` (schema 1) ships in phase
 1 — **beside the spec** in `~/.config/yolo-jail/`, which is where lazy.nvim,
@@ -1717,7 +1717,7 @@ vim.pack, and mini.deps all put theirs, and which makes "copy two files" the who
 second-machine story. Three things fell out of the reversal that the original
 refusal had not accounted for. The lock, not the ledger, becomes what launch reads,
 so rollback is durable across restarts without touching the spec. Keying it by
-normalized source rather than by name is forced by §3's own example, where two
+normalized source rather than by name is forced by [§3](#3-config-schema--and-who-may-name-a-source)'s own example, where two
 entries differ only in `?ref=` — which makes the normalizer part of the lock's
 identity and a change to it a format migration. And the approvals do **not** move
 into the lock: they stay machine-local in `PacksDir()/ledger.json`, because a lock

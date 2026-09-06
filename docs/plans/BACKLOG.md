@@ -11,7 +11,7 @@ pick up?"* Everything else is reasoning, and is linked per item.
 [roadmap.md](roadmap.md). Nothing gets three homes.
 
 **Corollary added 2026-08-23:** an open *question* lives in a doc too — with stakes, a
-leaning, and an empty `**Answer:**` — and `roadmap.md` links to it by ID rather than restating
+leaning, and an empty `**Answer:**` — and [`roadmap.md`](roadmap.md) links to it by ID rather than restating
 it. Where a question has no design doc of its own, **Stage E below is that doc.**
 
 **Current state (2026-08-23).** Stages A–F are complete, and the pack-declaration reform
@@ -42,7 +42,7 @@ Spot-checked against the tree, verified 2026-08-23:
 
 **So the one substantive open stage left in this file is Stage E**, which as of today holds
 **seven open questions** — the parked `host_files` follow-ups plus four questions
-(`S5`, `OQ-CO`, `OQ-S4`, `OQ-E4`) that until now had no doc home anywhere and were being
+(`S5`, `OQ-CO`, [`OQ-S4`](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host), [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too)) that until now had no doc home anywhere and were being
 restated in [roadmap.md](roadmap.md) instead of linked from it.
 
 ---
@@ -199,8 +199,8 @@ non-test `prism*.go` is **917 lines** (verified). And `claude/config` is **corre
 
 ## Stage G — host-side composition (found 2026-07-27) — **now sequenced in the env-manager plan**
 
-Reasoning: [../design/host-render-target.md](../design/host-render-target.md) — §3 is the
-design (one renderer, several targets), §6 is the finding these items came from.
+Reasoning: [../design/host-render-target.md](../design/host-render-target.md) — [§3](../design/host-render-target.md#3-the-design-inside-yolo) is the
+design (one renderer, several targets), [§6](../design/host-render-target.md#6-the-host-as-a-reduced-target) is the finding these items came from.
 
 **Moved 2026-07-31.** Stage G is the host-render slice of the wider environment-manager
 vision, and its six items now live — with their full evidence, the byte-equality gate, and
@@ -225,7 +225,7 @@ sentence that used to sit here (*"G1 (Phase 0) is the one to do first, and it wa
 nothing"*) was true when it was written and is now history — G1/G2 are fixed at
 `internal/cli/configdiff.go:84-93`. Original order G1 → G2 → G4 → G3 → G5 → G6 was preserved
 as Phase 0 → 1 → 4. **Extracting any of this into a separate util
-is settled: no** (`host-render-target.md` §2.3, decided 2026-07-27) — the field census puts the
+is settled: no** (`host-render-target.md` [§2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no), decided 2026-07-27) — the field census puts the
 boundary through the middle of a single manifest, so the capability lives in yolo as
 `internal/render`.
 
@@ -233,15 +233,15 @@ boundary through the middle of a single manifest, so the capability lives in yol
 
 **Restamped 2026-08-23.** This stage is now two things at once: the parked `host_files`
 follow-ups (E1–E5) it always held, and **four questions that had no design-doc home anywhere**
-— `S5`, `OQ-CO`, `OQ-S4`, `OQ-E4`. Those four were carried as a single line in
+— `S5`, `OQ-CO`, [`OQ-S4`](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host), [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too). Those four were carried as a single line in
 [roadmap.md](roadmap.md) ("the small ones with no design-doc home"), which breaks that file's
 own governing rule: *a question lives in its design doc, with stakes and a leaning, and the
 roadmap links to it by ID*. They live here now, in full, so the roadmap can cite them and stop
 restating them. **This section is their doc.**
 
 > [!IMPORTANT]
-> **IDs are an API — do not renumber these into the E-series.** `S5`, `OQ-CO`, `OQ-S4` and
-> `OQ-E4` keep the exact spellings they were born with in the deleted `outstanding-work.md`
+> **IDs are an API — do not renumber these into the E-series.** `S5`, `OQ-CO`, [`OQ-S4`](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) and
+> [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) keep the exact spellings they were born with in the deleted `outstanding-work.md`
 > (last intact at commit `58ae8227`, 2026-08-13). They are cited today by
 > [shipped-2026-08-12.md](shipped-2026-08-12.md) (§S4 and the E4 entry) and by
 > `internal/cli/run/packskillsdelivery_test.go`. `S5` in particular is an S-series pack ID,
@@ -256,7 +256,7 @@ carries none, deliberately.
 | **E1** | `host_files` modes 4→3 (`copy` merges into `readonly`) | **open** — one decision with E2 + OQ-B |
 | **E2** | `readonly` as a real `:ro` mount instead of `0o444` | **open** — one decision with E1 + OQ-B |
 | ✅ E3 | Capture timing | **SHIPPED 2026-08-15** — both halves. See below |
-| ✅ E4 | Comment preservation on `json`/`toml` surfaces | **mostly shipped 2026-08-12**; the one live residue is `OQ-E4` |
+| ✅ E4 | Comment preservation on `json`/`toml` surfaces | **mostly shipped 2026-08-12**; the one live residue is [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) |
 | **E5** | `managed`/`defaults` array-append pinning | **open** — speculative; the named trigger has not fired |
 | **S5** | A jail resolves a skill-name collision silently | **open** — live gap, the only place the S1 silent loss survives |
 | **OQ-CO** | Two packs writing one `config-overlay` key | **open** — nothing blocked; no shipped pack collides |
@@ -267,7 +267,7 @@ carries none, deliberately.
 
 ### 💬 **E1 — collapse `host_files` modes 4→3 (`copy` merges into `readonly`)**
 
-Also **E2** and **`pack-host-management-plan.md` OQ-B**: *these three are one decision.* See
+Also **E2** and **[`pack-host-management-plan.md`](pack-host-management-plan.md) OQ-B**: *these three are one decision.* See
 the shared block below.
 
 `host_files` still accepts four modes — `readonly`, `once`, `copy`, `capture`
@@ -353,9 +353,9 @@ lost today, only observability lags"*. Verified against the tree 2026-08-23:
 Nothing left to decide. Kept as a row rather than deleted because the E-numbers are cited
 elsewhere.
 
-### ✅ **E4 — comment preservation. Mostly shipped 2026-08-12; the residue is `OQ-E4`.**
+### ✅ **E4 — comment preservation. Mostly shipped 2026-08-12; the residue is [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too).**
 
-**Why `E4` is absent from the roadmap's list while `OQ-E4` is present.** They are not the same
+**Why `E4` is absent from the roadmap's list while [`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) is present.** They are not the same
 item. `E4` was "comment preservation on `json`/`toml` surfaces" across all modes; three of its
 four cases are now closed, and the fourth was promoted to its own question ID:
 
@@ -364,7 +364,7 @@ four cases are now closed, and the fourth was promoted to its own question ID:
 | `rmw` | **preserve** — shipped | `internal/entrypoint/tomltrivia.go`, whose header reads *"tomltrivia.go is E4's `rmw` half"*; drops are reported by key via `HostRenderResult.Formatting` (`internal/entrypoint/hostrender.go:104-113`) |
 | `computed` | **do not preserve, and that is correct** | yolo is sole author, so any comment would be one *yolo wrote* — a different feature |
 | `json` (any mode) | **provably vacuous** | strict JSON has no comment syntax, so a commented file never decodes and the RMW path refuses it byte-untouched; now pinned by a test |
-| `stateful` | **still open** → **`OQ-E4`** | see below |
+| `stateful` | **still open** → **[`OQ-E4`](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too)** | see below |
 
 Full argument: [host-file-staging.md](host-file-staging.md) §*"What shipped: option 3, for
 `rmw` only"*, and [shipped-2026-08-12.md](shipped-2026-08-12.md) §E4.
@@ -448,12 +448,12 @@ with different values is undetected, and the loser is never told.
 layer is labelled `config-overlay:<pack>` (`internal/agentcfg/compose.go:170-176`) and
 `yolo config diff` prints it. That is **after-the-fact reporting, not a refusal**, and at the
 HOST notch the annotation is *inferred rather than measured*:
-[pack-config-collaboration.md](../design/pack-config-collaboration.md) §8 *"Still open after
+[pack-config-collaboration.md §8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not) *"Still open after
 Option 2"* measures it printing `fileSuggestion contributed by fzf-overlay but managed won`
 when the overlay's value is the one that actually landed and no `managed` value existed.
 
 **Stakes.** Nothing is blocked. No shipped pack collides — all declare disjoint identities
-(§9 *"What it did NOT change"*). *(Freshness note 2026-09-02: the kind stopped being hypothetical —
+([§9](../design/pack-config-collaboration.md#9-what-building-option-1-settled-that-this-doc-did-not) *"What it did NOT change"*). *(Freshness note 2026-09-02: the kind stopped being hypothetical —
 `packs/zai` is the first shipped `config-overlay` contributor (`980aed71`, targeting
 `claude/settings`, gated on its profile), and it is that surface's sole contributor, so the
 no-collision fact still holds. `568d5a3a`'s `profile` gate changes *whether* an overlay
@@ -461,7 +461,7 @@ participates, not what happens when two active overlays share a key — last-one
 re-verified in `internal/packoverlay` which has no collision logic.)* It is worth deciding anyway
 because the **neighbouring kind answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
 declaration is a LOUD collision, named in `yolo pack footprint` and refused at launch and by
-`yolo host apply` (§9). Two adjacent kinds with opposite silence policies is the drift.
+`yolo host apply` ([§9](../design/pack-config-collaboration.md#9-what-building-option-1-settled-that-this-doc-did-not)). Two adjacent kinds with opposite silence policies is the drift.
 Provenance: born 2026-08-13 (`58ae8227`) as the generic residue of the retired auth-pack
 `provides` mechanism — *"not auth-specific, and nothing is blocked on it."*
 
@@ -477,7 +477,7 @@ key and rely on order — I have not found one.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 **OQ-S4 — should the jail narrow its skills fan-out to match the host?**
+### 💬 **[OQ-S4](#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) — should the jail narrow its skills fan-out to match the host?**
 
 **Or, stated as the real question: does a declaration NARROW delivery, or only ADD to it?**
 
@@ -526,7 +526,7 @@ what a *borrowed* destination is.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 **OQ-E4 — do `stateful` surfaces get comment preservation too?**
+### 💬 **[OQ-E4](#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) — do `stateful` surfaces get comment preservation too?**
 
 **Context.** The residue of E4 above. `rmw` preserves comments (shipped 2026-08-12,
 `internal/entrypoint/tomltrivia.go`); `computed` correctly does not; `json` is provably

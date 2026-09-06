@@ -132,7 +132,7 @@ reads like a safe no-op rather than "your pack will never work."
 
 ## F3 — ✅ DISSOLVED 2026-08-04 — Briefings duplicated on first apply against an existing file
 
-**Not fixed — dissolved**, by §6a's ruling that `briefing` is generated WHOLESALE. The duplication
+**Not fixed — dissolved**, by §[6a](shipped-2026-08-pack-batch.md#6a-ruled--briefings-are-fully-generated-and-controlled)'s ruling that `briefing` is generated WHOLESALE. The duplication
 was an artifact of the append-based first write; with no append nothing can double, so the
 suggested fix below ("adopt the prose into the markers") is moot — the ruling claims that ownership
 explicitly and up front, which is the honest version of the same move. The prose is MOVED into the
@@ -195,7 +195,7 @@ autonomy posture)`. Cheap, and it turns a silent loss into a documented policy.
 ## F5 — ✅ FIXED 2026-08-04 — `pack lint` refused a pure-`files` pack, with wrong reasoning
 
 A `files` + `config-overlay` pack now lints clean; see
-[`roadmap.md`](roadmap.md) §7 for what shipped. The report below is the
+[`roadmap.md`](roadmap.md) [§7](roadmap.md) for what shipped. The report below is the
 original finding.
 
 ```
@@ -321,7 +321,7 @@ its cause, as proposed.
 ### F5 — the same rule an independent audit hit, and the rule asks the wrong question
 
 Reported independently as the `pack lint` finding in
-[`roadmap.md`](roadmap.md) §7, where the full probe table and the
+[`roadmap.md`](roadmap.md) [§7](roadmap.md), where the full probe table and the
 recommended rewrite live. Short version: the rule asks *"did this pack stage `skills/` or
 `AGENTS.md`?"* as a proxy for *"does anything read this pack?"* — true when a pack could only
 ship content, false now that a pack contributes any of 14 kinds. A pack with **zero
