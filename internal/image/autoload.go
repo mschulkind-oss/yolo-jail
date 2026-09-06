@@ -38,6 +38,15 @@ type AutoLoadOptions struct {
 	// ExtraPackages is the config `packages` list (JSON-encoded into
 	// YOLO_EXTRA_PACKAGES). nil/empty → unset.
 	ExtraPackages []any
+	// Attr is the flake attribute to build — ImageAttrDefault or, for a launch that
+	// delivers the image's bulk extras from the mounted nix store, ImageAttrLean (C5).
+	// "" => ImageAttrDefault, so every caller that does not know about the lean variant
+	// keeps building the image it always did.
+	//
+	// It reaches the load decision only through the STORE PATH the build returns: the two
+	// attrs realize different derivations, so C2's content-addressed ref names them apart
+	// with no further work, and a machine may hold both without either evicting the other.
+	Attr string
 	// Out receives the human progress/status lines (rich markup already
 	// stripped by the caller's printer; here we write plain text). nil =>
 	// io.Discard.
@@ -142,12 +151,12 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.BuildStorePath == nil {
 		o.BuildStorePath = func(repoRoot string, extra []any, outLink string) (string, []string) {
-			return buildImageStorePath(repoRoot, extra, outLink, o.Out)
+			return buildImageStorePath(o.Attr, repoRoot, extra, outLink, o.Out)
 		}
 	}
 	if o.BuildOffload == nil {
 		o.BuildOffload = func(repoRoot string, extra []any, outLink string) (string, []string) {
-			return buildImageWithContainerBuilder(o.Runtime, repoRoot, extra, outLink, o.Out)
+			return buildImageWithContainerBuilder(o.Runtime, o.Attr, repoRoot, extra, outLink, o.Out)
 		}
 	}
 	if o.Run == nil {
@@ -687,15 +696,15 @@ func (o *AutoLoadOptions) loadAppleContainerFromCache(cacheFile, storePath, cont
 // `nix build .#ociImage --impure --out-link <outLink> --print-build-logs` in
 // repoRoot, streaming a summary and retaining the last 30 stderr lines. Returns
 // (resolvedStorePath, stderrTail); storePath "" on failure.
-func buildImageStorePath(repoRoot string, extra []any, outLink string, out io.Writer) (string, []string) {
-	return buildImageStorePathArgs(repoRoot, extra, outLink, out, nil, nil)
+func buildImageStorePath(attr, repoRoot string, extra []any, outLink string, out io.Writer) (string, []string) {
+	return buildImageStorePathArgs(attr, repoRoot, extra, outLink, out, nil, nil)
 }
 
 // buildImageStorePathArgs is buildImageStorePath with extra nix args
 // (e.g. --builders "…") and extra env (e.g. NIX_SSHOPTS) appended — the seam the
 // macOS container-builder offload uses to retry the build against a remote
 // builder. extraArgs/extraEnv nil => the plain build.
-func buildImageStorePathArgs(repoRoot string, extra []any, outLink string, out io.Writer, extraArgs, extraEnv []string) (string, []string) {
+func buildImageStorePathArgs(attr, repoRoot string, extra []any, outLink string, out io.Writer, extraArgs, extraEnv []string) (string, []string) {
 	buildEnv := os.Environ()
 	if len(extra) > 0 {
 		if pkgJSON, err := jsonx.DumpsCompact(extra); err == nil {
@@ -703,7 +712,7 @@ func buildImageStorePathArgs(repoRoot string, extra []any, outLink string, out i
 		}
 	}
 	buildEnv = append(buildEnv, extraEnv...)
-	return runNixBuild(ociBuildArgv(outLink, extraArgs), repoRoot, buildEnv, outLink, out)
+	return runNixBuild(ociBuildArgv(attr, outLink, extraArgs), repoRoot, buildEnv, outLink, out)
 }
 
 // runNixBuild runs one `nix build` to completion, streaming SummarizeNixLine's
@@ -764,7 +773,7 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 // remote build are behaviorally verified by the mac-ac-container-builder runbook
 // (Track M); here the lifecycle is driven through the containerbuilder.Session
 // seams so the decision + argv construction are exercised in unit tests.
-func buildImageWithContainerBuilder(runtime, repoRoot string, extra []any, outLink string, out io.Writer) (string, []string) {
+func buildImageWithContainerBuilder(runtime, attr, repoRoot string, extra []any, outLink string, out io.Writer) (string, []string) {
 	pubkey, err := ensureBuilderKey()
 	if err != nil {
 		return "", []string{"container builder: " + err.Error()}
@@ -784,7 +793,7 @@ func buildImageWithContainerBuilder(runtime, repoRoot string, extra []any, outLi
 	buildersLine := sess.BuildersLine(host, port, 4)
 	extraArgs := []string{"--builders", buildersLine, "--max-jobs", "0"}
 	extraEnv := []string{"NIX_SSHOPTS=" + containerbuilder.NixSSHOpts()}
-	return buildImageStorePathArgs(repoRoot, extra, outLink, out, extraArgs, extraEnv)
+	return buildImageStorePathArgs(attr, repoRoot, extra, outLink, out, extraArgs, extraEnv)
 }
 
 // materializeImage streams the nix image to cacheFile (via a temp + rename),

@@ -760,6 +760,22 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 	o.pr(o.Stderr).printf("[dim]Jail binaries: %s[/dim]", describeJailPrefix(jailPrefix))
 
+	// C4/C5: settle where this launch's packages come from BEFORE the image build, since
+	// the answer changes what is built. The store-mounted term is the assembler's own
+	// predicate rather than a second reading of it, so a launch cannot promise store
+	// delivery and then omit the mount (storepackages.go).
+	storePkgs, storePkgsOK := o.planStorePackages(cfg, rt, repoRoot, o.hostNixMounted(rt))
+	if storePkgsOK {
+		// C5 rides the same plan: the extras profile is appended BEHIND the workspace's
+		// own packages, so the farm's first-wins rule reproduces the precedence a baked
+		// image already gives them.
+		storePkgs, storePkgsOK = o.addImageExtras(storePkgs, repoRoot)
+	}
+	if !storePkgsOK {
+		lock.Close()
+		return 1
+	}
+
 	// Image build/load. The result carries the REF of the image it made ready —
 	// content-addressed on the normal path (C2), the legacy :latest tag on a
 	// degraded fallback that has no store path to hash. Everything downstream
@@ -771,7 +787,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// time is now collector construction at the top of Run, so the Total covers
 	// the probes and staging this call used to exclude.
 	sp = o.Perf.Span("launch.auto_load_image")
-	loadedImage := o.autoLoadImage(cfg, rt, repoRoot)
+	loadedImage := o.autoLoadImage(cfg, rt, repoRoot, storePkgs)
 	sp.End()
 	if !loadedImage.OK {
 		lock.Close()
@@ -919,6 +935,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		lspNPMInstall:    lspNPMOf(cfg),
 		lspGoInstall:     lspGoOf(cfg),
 		storePruneOK:     storePruneOK,
+		storePackages:    storePkgs,
 		cacheRelocations: relocations,
 		writableHomeDirs: config.WritableHomeDirs(cfg),
 		hostFiles:        hostFiles,

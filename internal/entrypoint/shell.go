@@ -148,6 +148,11 @@ export GOPATH="${GOPATH:-$HOME/go}"
 #                  a baked binary by a GENERATION-TIME check now (launchercollision.go),
 #                  not by this position.
 #
+# /run/yolo/packages/bin, one step ahead of /bin, is the store-delivered package farm
+# (C4/C5). It is empty — in fact absent — unless this launch opted into store delivery,
+# and its position is chosen so that opting in changes no precedence relation: the tools
+# it holds are the ones that would otherwise be baked into /bin.
+#
 # THIS STRING IS A SECOND, INDEPENDENTLY-WRITTEN COPY of BootPath (boot.go), which is the
 # authority. They disagreed about $HOME/.local/bin for months — second here, fifth there —
 # because the only test comparing them asserted "block first, launch last" and nothing
@@ -157,7 +162,7 @@ BLOCK_DIR="${HOME}/.yolo/bin/block"
 LAUNCH_DIR="${HOME}/.yolo/bin/launch"
 export PATH="$BLOCK_DIR:$LAUNCH_DIR:$NPM_CONFIG_PREFIX/bin:`
 
-const bashrcPart3 = `:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin"
+const bashrcPart3 = `:$GOPATH/bin:$HOME/.local/bin:/run/yolo/packages/bin:/bin:/usr/bin"
 
 # Activate mise with shell hooks (interactive shells only).
 # Non-interactive shells (bash -lc) skip activation to avoid a deadlock:

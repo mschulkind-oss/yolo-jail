@@ -44,6 +44,24 @@ func imageProbePath(e *Env) string {
 		base = p
 	}
 	var out []string
+	// STORE-DELIVERED PACKAGES COUNT AS "WHAT THE LAUNCH PROVIDES", for the same reason
+	// /bin does and NOT for the reason the install prefixes are excluded. Under C4/C5 an
+	// opt-in launch takes `packages:` (and the image's bulk extras) out of the image and
+	// delivers them from the mounted nix store instead
+	// (docs/design/image-staging-vs-baking.md §4). A name that was in /bin is then here,
+	// so omitting this dir would let a pack-declared launcher shadow a tool the workspace
+	// asked for BY NAME — defect 11.1, arriving through the door C4 opens.
+	//
+	// This is not the widening the header warns about. The kill switch there is spelling
+	// the check as "is this name already resolvable on PATH?", which folds in the dirs a
+	// launcher INSTALLS INTO and so stops writing the launcher after its own first
+	// success. Nothing installs here: the farm is written at boot from the config's own
+	// declarations and is empty again on the next boot. Gated on the DECLARATION
+	// (StoreProfiles) rather than on the directory's existence, so a launch that bakes is
+	// unaffected even if a stale dir survives somehow.
+	if len(StoreProfiles(e)) > 0 {
+		out = append(out, StorePackagesBin())
+	}
 	for _, dir := range strings.Split(base, ":") {
 		if dir == "" || underJailHome(e, dir) {
 			continue

@@ -71,6 +71,13 @@ type assembleInput struct {
 	// grants the in-jail store prune (`-e YOLO_STORE_PRUNE_OK=1`). Set by the
 	// lifecycle phase; false leaves the env unset.
 	storePruneOK bool
+	// storePackages is C4/C5's settled decision for this launch — whether packages come
+	// from the mounted nix store instead of the image, and which profiles. Decided BEFORE
+	// the image build (it changes what is built) and carried here so the argv states the
+	// same answer the build acted on; assembly only emits the -e pair. A zero value is
+	// the baked default, which is what every non-podman, non-Linux and non-opt-in launch
+	// gets — and what every hand-built assembleInput in a test gets for free.
+	storePackages storePackagesPlan
 	// cacheRelocations are the user-scope cache subdir → host dir relocations,
 	// already loaded, validated and provisioned by the run pipeline (assembly
 	// only emits the -v pairs, and must stay free of the fs access + the
@@ -377,12 +384,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- host nix daemon + store ---
-	nixSocket := "/nix/var/nix/daemon-socket"
-	nixStore := "/nix/store"
-	if shouldMountHostNix(rt, o.PathExists(nixSocket), o.PathExists(nixStore), o.IsMacOS, o.Getenv("YOLO_NIX_HOST_DAEMON")) {
+	if o.hostNixMounted(rt) {
 		runCmd = append(runCmd,
-			"-v", nixSocket+":"+nixSocket,
-			"-v", nixStore+":"+nixStore+":ro",
+			"-v", hostNixSocket+":"+hostNixSocket,
+			"-v", hostNixStore+":"+hostNixStore+":ro",
 			"-e", "NIX_REMOTE=daemon")
 	}
 
@@ -584,6 +589,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// (needs live-container enumeration); the -e is inserted there. Placeholder
 	// here keeps argv order: it is appended before skills.
 	runCmd = append(runCmd, in.storePruneEnv()...)
+
+	// --- store-delivered packages (C4/C5) ---
+	// Emitted right after the prune gate and before the skills mounts, so the argv reads
+	// in the order the pipeline decided things. Nothing here re-derives the plan: it was
+	// settled before the image build, because the image build acts on it.
+	runCmd = append(runCmd, in.storePackages.env()...)
 
 	// --- skills mounts (selected agents with a skills dir) ---
 	// PACK-DECLARED skills mounts. The SOURCE is the per-pack staging dir, not the

@@ -42,7 +42,7 @@ func BuildOCIImage(repoRoot string, extraPackages []any) (string, []string) {
 		}
 	}
 
-	argv := ociBuildArgv(outPath, nil)
+	argv := ociBuildArgv(ImageAttrDefault, outPath, nil)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = buildEnv

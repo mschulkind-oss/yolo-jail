@@ -42,6 +42,40 @@ func (e *MaterializeError) Error() string { return e.msg }
 // defaults to NativeSystem(). errStderr defaults to os.Stderr (injectable for
 // tests). The returned error is always a *MaterializeError on failure.
 func Materialize(repoRoot string, packages []any, system string, errStderr io.Writer) (*DarwinPackages, error) {
+	if system == "" {
+		system = NativeSystem()
+	}
+	return materializeWithArgv(repoRoot, packages, system,
+		materializeArgv(system, paths.Home()), errStderr)
+}
+
+// MaterializeAt is Materialize with the GC-root out-link named by the CALLER, and it exists
+// because gcroot.go's lifetime argument is true of a non-container NOTCH and false of a
+// JAIL host.
+//
+// ProfileRootLink's leaf is FIXED, which is right when at most one profile is current per
+// home: a changed `packages:` retargets the one link and the old closure becomes
+// collectable, which is what you want. A machine running jails is the other case — several
+// workspaces with different `packages:` lists are legitimately live at once, exactly as
+// several images are — so a fixed leaf would let jail B's launch unroot the closure jail A
+// is still executing from. C4's caller therefore passes a CONTENT-KEYED link, the way
+// image.ImageRootsDir keys per image.
+//
+// outLink "" keeps `--no-link`: the UNROOTED build, which is what a caller with nothing to
+// protect should ask for, stated rather than defaulted (see BuildProfileArgv).
+func MaterializeAt(repoRoot string, packages []any, system, outLink string, errStderr io.Writer) (*DarwinPackages, error) {
+	if system == "" {
+		system = NativeSystem()
+	}
+	return materializeWithArgv(repoRoot, packages, system,
+		BuildProfileArgv(system, outLink), errStderr)
+}
+
+// materializeWithArgv is the shared impure body: refuse an empty repoRoot, read the skip
+// list, run the given build argv while streaming its stderr, and derive the profile paths.
+// The argv is a parameter so the ROOTING decision belongs to the caller that has the
+// lifetime argument for it — see Materialize and MaterializeAt.
+func materializeWithArgv(repoRoot string, packages []any, system string, argv []string, errStderr io.Writer) (*DarwinPackages, error) {
 	// AN EMPTY repoRoot IS REFUSED, not defaulted. Every nix invocation here sets
 	// cmd.Dir = repoRoot, and an empty Dir does not mean "no directory" — it means
 	// INHERIT THE CALLER'S, so nix would resolve `.#` against whatever the user
@@ -57,9 +91,6 @@ func Materialize(repoRoot string, packages []any, system string, errStderr io.Wr
 			"from the yolo-jail flake, and nix would otherwise evaluate whatever flake is in the " +
 			"current directory. Set YOLO_REPO_ROOT or reinstall so the flake bundle ships with the binary"}
 	}
-	if system == "" {
-		system = NativeSystem()
-	}
 	if errStderr == nil {
 		errStderr = os.Stderr
 	}
@@ -72,7 +103,6 @@ func Materialize(repoRoot string, packages []any, system string, errStderr io.Wr
 
 	// Stream stderr live while capturing stdout (the store out-path) and a
 	// bounded stderr tail for the error message.
-	argv := materializeArgv(system, paths.Home())
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = baseEnv

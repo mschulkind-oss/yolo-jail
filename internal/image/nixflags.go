@@ -37,7 +37,7 @@ func NixFlakeFlags() []string {
 }
 
 // flakeBuildArgv returns the argv for building ONE attr of this repo's flake:
-// `nix … build .#<attr> --impure --out-link <outLink> --print-build-logs`, plus
+// `nix … build <attr> --impure --out-link <outLink> --print-build-logs`, plus
 // extraArgs (the macOS container-builder offload appends `--builders …` here).
 //
 // Every nix BUILD this repo runs goes through here, so none of them can drift on
@@ -50,33 +50,56 @@ func NixFlakeFlags() []string {
 // (installPrefix does not): the flake as a whole reads the environment, and
 // keeping one spelling is worth more than shaving an eval that is identical
 // either way (verified: installPrefix evaluates to the same path pure or impure).
+//
+// attr is the FULL flake ref (".#ociImage"), never a bare name, so the constants
+// below read exactly as they appear on the command line.
 func flakeBuildArgv(attr, outLink string, extraArgs []string) []string {
 	argv := []string{"nix"}
 	argv = append(argv, NixFlakeFlags()...)
 	argv = append(argv,
-		"build", ".#"+attr, "--impure",
+		"build", attr, "--impure",
 		"--out-link", outLink,
 		"--print-build-logs",
 	)
 	return append(argv, extraArgs...)
 }
 
-// ociBuildArgv is flakeBuildArgv for the image attr — the run path
+// ociBuildArgv is flakeBuildArgv for an IMAGE attr — the run path
 // (buildImageStorePathArgs) and the `yolo check` preflight (BuildOCIImage) both
-// name it rather than spelling ".#ociImage" twice.
-func ociBuildArgv(outLink string, extraArgs []string) []string {
-	return flakeBuildArgv(ociImageAttr, outLink, extraArgs)
+// name it rather than spelling ".#ociImage" twice. An empty attr is
+// ImageAttrDefault, so a caller that does not know about the lean variant keeps
+// building the image it always built.
+func ociBuildArgv(attr, outLink string, extraArgs []string) []string {
+	if attr == "" {
+		attr = ImageAttrDefault
+	}
+	return flakeBuildArgv(attr, outLink, extraArgs)
 }
 
 // The flake attrs the CLI builds. Named so a rename in flake.nix breaks
 // compilation at one place rather than at a runtime "attribute missing".
+//
+// ImageAttrLean is C5's (docs/design/image-staging-vs-baking.md §4 C5): the same
+// image with `fullPackages` and the chromium half of the /lib farm left OUT, for
+// a launch that delivers them from the mounted nix store instead. It is a SECOND
+// ATTR rather than a third `builtins.getEnv` switch because the whole point of
+// C4/C5 is to take variability OUT of the image derivation — a lean image that
+// varied with the environment would multiply exactly the way §1.5 measured.
+//
+// It is deliberately NOT `ociImageMinimal`, which the design's C5 paragraph
+// names. That variant also drops `withNestedPodman`, and the /etc/containers
+// config files it lays down are what make podman-in-podman work — the loop
+// AGENTS.md makes mandatory for verifying any Go change. C5 wants the package
+// set smaller, not the container plumbing gone.
 const (
-	// ociImageAttr is the jail image (streamLayeredImage).
-	ociImageAttr = "ociImage"
+	// ImageAttrDefault is the jail image (streamLayeredImage).
+	ImageAttrDefault = ".#ociImage"
+	// ImageAttrLean is ImageAttrDefault without the store-deliverable bulk.
+	ImageAttrLean = ".#ociImageLean"
 	// installPrefixAttr is the /opt/yolo-jail install prefix the launch
 	// BIND-MOUNTS into the jail — bin/<binary> plus the share/yolo-jail flake
 	// bundle. It is no longer part of the image (that is what keeps `goSrc` out
 	// of the image derivation), so the run path realizes it separately whenever
 	// the resolved flake source ships no prebuilt binaries of its own.
-	installPrefixAttr = "installPrefix"
+	installPrefixAttr = ".#installPrefix"
 )

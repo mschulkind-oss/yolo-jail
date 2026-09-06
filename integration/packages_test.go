@@ -148,3 +148,87 @@ func TestDevPackageLinksRuntimeLib(t *testing.T) {
 		t.Fatalf("expected dlopen-ok in stdout, got:\n%s", r.stdout)
 	}
 }
+
+// TestExtraPackagesFromMountedStore is the OTHER mechanism, and the two above are why it
+// is a THIRD test rather than an edit to them. C4 ships as an OPT-IN FAST PATH WITH THE
+// BAKED PATH RETAINED (OQ-1), so both paths are live and both are product surface: those
+// two tests are the baked path's, and this is the store path's
+// (docs/design/image-staging-vs-baking.md §4 C4).
+//
+// The three probes are chosen so that together they prove EXACTLY ONE MECHANISM IS LIVE,
+// which is R2 and the whole reason the ruling is per launch and not per package:
+//
+//  1. the tool resolves, and resolves under /run/yolo/packages/bin — the boot-written farm,
+//     not /bin;
+//  2. /lib/libzbar.so.0 is ABSENT — the image really was built with no YOLO_EXTRA_PACKAGES.
+//     If both existed the baked copy would silently win, since a boot-written PATH dir
+//     cannot outrank the image (§3.1), and the fast path would be a fast path to nothing;
+//  3. the .so still dlopens by bare soname. The lib farm is where store delivery is most
+//     likely to break: LD_LIBRARY_PATH is the whole of runtime discovery here (nixpkgs'
+//     ld.so never reads /etc/ld.so.cache), so a farm that links the binary and forgets the
+//     library passes probe 1 and leaves every consumer broken.
+//
+// zbar is the same fixture the baked test uses, deliberately: same split-output `-lib`
+// package, so a difference in the result is a difference in the MECHANISM.
+//
+// PROBES 4 AND 5 ARE C5's, on the same launch because the opt-in covers both candidates:
+// `fzf` is in the flake's `fullPackages`, so on a lean image it must resolve in the farm
+// and NOT be in /bin. That pair is C5's whole claim — the run-path image really is the
+// lean variant — and it is also the "shadowing inversion" §3.1 warns about, measured: a
+// name that could not be shadowed while it was baked is now delivered like any other.
+//
+// SKIPS rather than fails when the machine is not eligible. Store delivery needs podman +
+// Linux + a running nix daemon (§3.2), and on a host without them the CLI says so and
+// bakes — at which point probe 2 would fail and read as a lib-farm bug, which is the exact
+// misattribution this file's header was written about.
+func TestExtraPackagesFromMountedStore(t *testing.T) {
+	requireJail(t)
+	dir := writeProject(t, `{"network": {"mode": "bridge"}, "packages": ["zbar"]}`)
+	r := runYolo(t, dir, strings.Join([]string{
+		`echo "=== WHICH ==="; command -v zbarimg || true`,
+		`echo "=== BAKED ==="; ls /lib/libzbar.so.0 2>/dev/null || echo not-baked`,
+		`echo "=== DLOPEN ==="; python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`,
+		`echo "=== EXTRAS ==="; command -v fzf || true`,
+		`echo "=== LEANBIN ==="; ls /bin/fzf 2>/dev/null || echo not-in-bin`,
+	}, "\n"), withTimeout(nixBuildJailTimeout), withEnv("YOLO_STORE_PACKAGES=1"))
+
+	if strings.Contains(r.combined(), "YOLO_STORE_PACKAGES=1 ignored") {
+		t.Skip("this host cannot deliver packages from the mounted nix store (podman + " +
+			"Linux + a running nix daemon are all required); the baked path is covered " +
+			"by the two tests above")
+	}
+	if r.rc != 0 {
+		t.Fatalf("store-delivered zbar probe script failed (rc %d)\nstdout=%q\nstderr=%q",
+			r.rc, r.stdout, r.stderr)
+	}
+
+	which := section(r.stdout, "=== WHICH ===", "=== BAKED ===")
+	baked := section(r.stdout, "=== BAKED ===", "=== DLOPEN ===")
+	dlopen := section(r.stdout, "=== DLOPEN ===", "=== EXTRAS ===")
+	extras := section(r.stdout, "=== EXTRAS ===", "=== LEANBIN ===")
+	leanbin := section(r.stdout, "=== LEANBIN ===", "")
+
+	if !strings.Contains(which, "/run/yolo/packages/bin/zbarimg") {
+		t.Errorf("zbarimg did not resolve to the store-delivered farm:\n%s", which)
+	}
+	if !strings.Contains(baked, "not-baked") {
+		t.Errorf("/lib/libzbar.so.0 EXISTS on an opt-in launch, so the image was built "+
+			"with YOLO_EXTRA_PACKAGES after all. Both copies present means the BAKED one "+
+			"silently wins (R2) and the fast path saved nothing:\n%s", baked)
+	}
+	if !strings.Contains(dlopen, "dlopen-ok") {
+		t.Errorf("ctypes.CDLL(libzbar.so.0) failed against the store-delivered farm — "+
+			"the binary resolved but its library did not, which is the lib-farm half of "+
+			"C4 and the half LD_LIBRARY_PATH alone carries:\n%s", dlopen)
+	}
+	// C5.
+	if !strings.Contains(extras, "/run/yolo/packages/bin/fzf") {
+		t.Errorf("fzf (one of the flake's fullPackages) did not resolve to the "+
+			"store-delivered farm:\n%s", extras)
+	}
+	if !strings.Contains(leanbin, "not-in-bin") {
+		t.Errorf("/bin/fzf EXISTS on an opt-in launch, so the run path built the FULL "+
+			"image and not the lean one. The lean attr is where C5's ~1.6–2 GB comes "+
+			"from; without it the extras profile is pure cost:\n%s", leanbin)
+	}
+}
