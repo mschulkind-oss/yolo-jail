@@ -303,12 +303,11 @@ func Run(opts Options) int {
 		// composes no env of its own.
 		//
 		// This arm rather than above the dispatch, deliberately, and for the reason the
-		// config-change approval above gives: the container arm gates the FRESH-LAUNCH
-		// path only (attaching to a running jail delivers no environment, so the
-		// question "would this launch deliver the key" has no subject there and refusing
-		// it would block re-entry into a jail that already has its key). On THIS backend
-		// every invocation is a fresh sandbox, so the arm's own call site is where the
-		// two backends agree. The channel is the same value both arms check.
+		// config-change approval above gives: the container arm gates its own arm
+		// (the fresh path directly; the attach path inside deliverChannelOnAttach,
+		// which delivers the channel and checks it there). On THIS backend every
+		// invocation is a fresh sandbox, so the arm's own call site is where the two
+		// backends agree. The channel is the same value both arms check.
 		if lines, refuse := o.checkProviderCredentials(cfg, staged.packs, channel, nil); len(lines) > 0 {
 			o.printProviderRefusal(lines)
 			if refuse {
@@ -658,7 +657,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	if existingCID != "" {
-		return o.attachExisting(cname, rt, targetCmd, cfg, false)
+		return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, false)
 	}
 
 	// --- Fresh launch: config-change approval ---
@@ -693,7 +692,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	if !o.New {
 		if raced := o.findRunningContainer(cname, rt); raced != "" {
 			lock.Close()
-			return o.attachExisting(cname, rt, targetCmd, cfg, true)
+			return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, true)
 		}
 	}
 
@@ -1095,12 +1094,24 @@ func insertHostServiceEnv(runCmd []string, imageRef string, services []loopholeD
 
 // attachExisting runs the exec-into-existing-container branch (and the
 // raced-attach twin). raced selects the second banner text.
-func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.OrderedMap, raced bool) int {
+//
+// staged and channel are the pieces Run composed above the backend dispatch — the same
+// values the fresh path consumes — because an attach is an ENTRY: it delivers the
+// per-entry channel (deliverChannelOnAttach below), not nothing.
+func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.OrderedMap,
+	staged stagedPacks, channel *packChannel, raced bool) int {
 	out := o.pr(o.Stdout)
+	// ONE inspect serves both the banner's baked version and the channel delivery's
+	// stale-jail probe — the container's whole frozen env, read once.
+	envLines := o.inspectContainerEnv(rt, cname)
 	// Launch line to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4.
-	o.emitLaunchBanner(rt, cname, nil, o.bakedJailVersion(rt, cname))
+	if v, ok := runtime.BakedYoloVersionFromInspectEnv(envLines); ok {
+		o.emitLaunchBanner(rt, cname, nil, v)
+	} else {
+		o.emitLaunchBanner(rt, cname, nil, "")
+	}
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
 	} else {
@@ -1110,6 +1121,14 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.
 	o.warnIfNoPacks()
+	// THE PER-ENTRY CHANNEL, delivered before the exec: the same write the fresh
+	// path performs, checked and disclosed the same way. This is the §4.3 half the
+	// attach branch never had — until it did, 'yolo -p <name> -- claude' against a
+	// running jail parsed and validated the selection, composed the channel, and
+	// dropped it, silently.
+	if rc := o.deliverChannelOnAttach(cname, rt, cfg, staged, channel, envLines); rc != 0 {
+		return rc
+	}
 	// NOTHING TO HEAL HERE ANY MORE, and the absence is worth a note because the
 	// call this replaces was deliberate. An attach used to re-ensure the per-jail
 	// broker relay (behind the same gate the launch path uses, OQ-A11), because the
@@ -1135,6 +1154,66 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	o.maybeWarnAboutOOMKiller(rc, rt)
 	return rc
+}
+
+// deliverChannelOnAttach delivers this entry's provider/profile channel into the
+// RUNNING jail, and refuses the two states in which it cannot work. The mechanism is
+// the fresh path's own: writeUserEnvFile over the channel, into the live-mounted
+// yolo-user-env.sh — the bind shows the rewrite inside the jail instantly, and the
+// exec'd yolo-entrypoint re-runs the boot, whose FIRST step (hydrate) applies the
+// plain-form channel lines over whatever the entry's environment holds. Per-session
+// by construction: an already-running session's processes keep the env they started
+// with, and each new entry reads the file as written for it.
+//
+// The two refusals, both before the exec:
+//
+//   - A PRE-CHANGE JAIL with a profile selected. A jail launched before the channel
+//     moved onto the file carries the wire tables in its FROZEN container
+//     environment, and its (old) entrypoint's hydrate lets launch env beat the file —
+//     so this write would land and change nothing, and a typed '-p' would be silently
+//     inert, the exact failure this delivery exists to end. The frozen YOLO_PROVIDERS
+//     is the signature (post-change argv carries none); the remedy is a fresh jail.
+//     Scoped to a SELECTED profile: a profile-less attach to an old jail delivers
+//     nothing it could get wrong.
+//
+//   - THE CREDENTIAL PRE-FLIGHT, the same check the fresh path runs (§6.2, OQ-13).
+//     Its attach exemption existed because "attaching to a running jail delivers no
+//     environment" — this function is that sentence dying. A session that would start
+//     with a base URL and no token is the mysterious-first-API-call failure the gate
+//     refuses elsewhere; YOLO_ALLOW_MISSING_PROVIDERS=1 remains the loud hatch.
+func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap,
+	staged stagedPacks, channel *packChannel, envLines []string) int {
+	out := o.pr(o.Stderr)
+	if channel.profiles.Len() > 0 {
+		for _, l := range envLines {
+			if strings.HasPrefix(l, "YOLO_PROVIDERS=") {
+				out.printf("[bold red]Refusing to attach: this jail was launched by an older " +
+					"yolo that froze its provider environment into the container, where a " +
+					"per-entry profile cannot override it.[/bold red]")
+				out.print("[dim]Relaunch the jail ('yolo --new') to get one whose entries can " +
+					"switch providers. The selected profile would otherwise be silently inert.[/dim]")
+				return 1
+			}
+		}
+	}
+	// The SAME write the fresh path performs (run.go's lifecycle phase): one
+	// composition, one writer, the file the boot hydrates and every shell sources.
+	// What this entry did not compose is revoked by the rewrite — including a
+	// previous entry's shape vars, which an override-only channel would have left
+	// behind. The bind is live; no argv changes.
+	writeUserEnvFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh"),
+		channel.userEnv, channel)
+	if lines, refuse := o.checkProviderCredentials(cfg, staged.packs, channel, nil); len(lines) > 0 {
+		o.printProviderRefusal(lines)
+		if refuse {
+			return 1
+		}
+	}
+	// WHERE THE SELECTIONS LANDED, on this arm too — the disclosure line the fresh
+	// path prints beside its banner. An attach that delivers a profile owes the same
+	// sentence; OQ-10's rule (never "honored") travels with it.
+	o.noteUseProfiles(channel.profiles, staged.packs)
+	return 0
 }
 
 // detectHostTZ resolves the host timezone for the TZ env (or "").
@@ -1183,21 +1262,20 @@ func (o *Options) emitLaunchBanner(rt, cname string, resParts []string, jailVers
 	fmt.Fprintln(o.Stderr, banner)
 }
 
-// bakedJailVersion reads the YOLO_VERSION baked into a running container via
-// `<rt> inspect`, or "". Shown in the
-// attach banner only when it differs from the host version.
-func (o *Options) bakedJailVersion(rt, cname string) string {
+// inspectContainerEnv reads a running container's whole frozen environment via
+// `<rt> inspect`, one entry per line, or nil when the inspect cannot run. The
+// attach path's single source for both the banner's baked version and the channel
+// delivery's pre-change-jail probe (a frozen YOLO_PROVIDERS is the signature of a
+// jail launched before the channel moved onto the file).
+func (o *Options) inspectContainerEnv(rt, cname string) []string {
 	if o.Exec == nil {
-		return ""
+		return nil
 	}
 	res := o.Exec([]string{rt, "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", cname}, "", nil, 3*time.Second)
 	if !res.Ran || res.RC != 0 {
-		return ""
+		return nil
 	}
-	if v, ok := runtime.BakedYoloVersionFromInspectEnv(strings.Split(res.Stdout, "\n")); ok {
-		return v
-	}
-	return ""
+	return strings.Split(res.Stdout, "\n")
 }
 
 // resPartsFor reconstructs the banner's resource-limit parts (memory/cpus/pids)

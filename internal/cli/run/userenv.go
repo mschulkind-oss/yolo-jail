@@ -2,6 +2,7 @@ package run
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -79,6 +80,10 @@ const channelSectionHeader = "# --- per-entry channel (rewritten by every yolo l
 // So the chmod is explicit — a file created 0644 by an older yolo must be narrowed
 // in place, and every launch is the migration.
 func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *packChannel) {
+	// The parent must exist for the ATTACH write in particular: the fresh path runs
+	// prepareWsState first, an attach does not — it counts on the launch that created
+	// the jail, and mkdir is cheaper than that assumption.
+	_ = os.MkdirAll(filepath.Dir(userEnvFile), 0o755)
 	if channel == nil && (userEnv == nil || userEnv.Len() == 0) {
 		_ = os.WriteFile(userEnvFile, nil, userEnvFileMode)
 		_ = os.Chmod(userEnvFile, userEnvFileMode)
@@ -109,8 +114,8 @@ func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap, channel *pa
 			b.WriteString(exportPlain(k, channel.packEnv[k]))
 		}
 		for _, v := range channel.shapeVars {
-			// Unset has no file spelling and no producer emits it today — same
-			// silence the argv spelling had (assemble.go's old shape loop).
+			// Unset has no file spelling and no producer emits it today — the
+			// old argv loop skipped it with the same silence.
 			if v.Unset {
 				continue
 			}
