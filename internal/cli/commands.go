@@ -618,10 +618,17 @@ func runRun(args []string) int {
 	opts.AutoCapture = func(bins []string, platform string) {
 		autoCapture(bins, platform, os.Stdout, os.Stderr, true)
 	}
-	// Set the tmux/kitty jail indicator around the run, restoring on exit.
+	// Set the tmux/kitty jail indicator around the run, restoring on exit. The
+	// restore runs as subprocesses (kitten/tmux) with no timeout of their own,
+	// so it is spanned — the last unmeasured step between the report printing
+	// and the shell prompt returning (design H6).
 	restore := SetupJailIndicator()
 	if restore != nil {
-		defer restore()
+		defer func() {
+			sp := opts.Perf.Span("process.title_restore")
+			restore()
+			sp.End()
+		}()
 	}
 	return launchRunPipeline(opts)
 }

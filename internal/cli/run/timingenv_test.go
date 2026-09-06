@@ -1,11 +1,13 @@
 package run
 
 // timingenv_test.go pins the CALL SITE of the timing flag's only argv-side effect.
-// Options.Timing is read in two places: here (the env pair the launch carries into
-// the jail) and run.go's host-side total. The parse half is pinned in internal/cli
-// (TestParseRunArgsFlags); this proves the assembled container argv actually carries
-// the pair when --timing is set, and that a launch without it carries nothing — the
-// same callee-pinned/call-site-unpinned gap providershapeenv_test.go closes for the
+// The gate is read through timingEnabled() (the --timing flag OR YOLO_TIMING OR
+// YOLO_VERBOSE), at the argv pair below and at the collector construction in Run;
+// the host-side report those spans feed is pinned by timingspans_test.go. The
+// parse half is pinned in internal/cli (TestParseRunArgsFlags); this proves the
+// assembled container argv actually carries the pair when --timing is set, and
+// that a launch without it carries nothing — the same
+// callee-pinned/call-site-unpinned gap providershapeenv_test.go closes for the
 // provider env.
 
 import (

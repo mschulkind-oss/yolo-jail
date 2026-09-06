@@ -44,6 +44,12 @@ func Run(opts Options) int {
 		return 1
 	}
 
+	// The timing collector starts here — after the live-overlay refusal has had
+	// its say (a refused launch writes no file), before Phase 1, so the probes
+	// are spanned too. cname derives from the workspace alone
+	// (runtime.FromWorkspace), which is what makes it knowable this early.
+	o.initPerf(runtime.FromWorkspace(o.Workspace))
+
 	// --- Phase 1: probes (repo root, storage, config, runtime) ---
 	// Repo-root resolution is a HARD GATE for the container backends: without a
 	// flake there is nothing to build the image from, and silently running a
@@ -79,6 +85,7 @@ func Run(opts Options) int {
 	if !ok {
 		return 1
 	}
+	o.Perf.Mark("probes.done")
 
 	// The two container-only gates, hoisted ABOVE pack staging so a launch that is
 	// going to refuse still refuses before it does any staging work — the order the
@@ -658,7 +665,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// Sweep jails orphaned by an uncatchable kill before the attach decision.
+	sp := o.Perf.Span("launch.reap_orphaned_jails")
 	o.reapOrphanedJails(rt)
+	sp.End()
 
 	existingCID := ""
 	if !o.NeverAttach {
@@ -666,7 +675,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging on every invocation.
+	sp = o.Perf.Span("launch.refresh_jail_briefings")
 	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged)
+	sp.End()
 	if err != nil {
 		out.printf("[bold red]%s[/bold red]", err.Error())
 		return 1
@@ -694,11 +705,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// other.
 	lockDir := filepath.Join(paths.GlobalStorage(), "locks")
 	_ = os.MkdirAll(lockDir, 0o755)
+	lockSpan := o.Perf.Span("launch.acquire_workspace_lock")
 	lock, lerr := acquireWorkspaceLock(filepath.Join(lockDir, cname+".lock"), o.Workspace,
 		lockNotices{
 			warn:    func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
 			waiting: func(msg string) { out.printf("[bold cyan]%s[/bold cyan]", msg) },
 		})
+	lockSpan.End()
 	if lerr != nil {
 		out.printf("[bold red]%s[/bold red]", lerr.Error())
 		return 1
@@ -721,21 +734,28 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Retire jail-made workspace venvs from the old shared-store model.
 	o.retireJailMadeVenv(cfg)
 
-	timingStart := o.Now()
-
 	// Image build/load. The result carries the REF of the image it made ready —
 	// content-addressed on the normal path (C2), the legacy :latest tag on a
 	// degraded fallback that has no store path to hash. Everything downstream
 	// that names an image reads it from assembleInput.imageRef below; nothing
 	// re-derives it.
+	//
+	// This span replaces the old bare `timingStart` stopwatch (which began
+	// here, mid-pipeline, and produced the single Total): the report's zero of
+	// time is now collector construction at the top of Run, so the Total covers
+	// the probes and staging this call used to exclude.
+	sp = o.Perf.Span("launch.auto_load_image")
 	loadedImage := o.autoLoadImage(cfg, rt, repoRoot)
+	sp.End()
 	if !loadedImage.OK {
 		lock.Close()
 		return 1
 	}
 
 	// ws_state overlay prep.
+	sp = o.Perf.Span("launch.prepare_ws_state")
 	wsState := o.prepareWsState(cfg, loadedPacks)
+	sp.End()
 
 	// yolo-user-env.sh (frozen writer). The map is the channel's hydration, not a second
 	// ResolveEnvSources pass: one walk, one set of warnings, and the file cannot describe
@@ -870,7 +890,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		userEnv:          userEnv,
 		channel:          channel,
 	}
+	sp = o.Perf.Span("launch.assemble_argv")
 	runCmd := o.assembleRunCmd(in)
+	sp.End()
 
 	// THE SEVENTH bespoke pre-flight (profiles-as-pack-variants.md §6.2, OQ-13), at the
 	// one point in the pipeline where the assembled launch environment exists to check it
@@ -915,7 +937,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Start host-side port forwarding BEFORE the container.
 	var socatProcs []*exec.Cmd
 	if portSocketDir != "" {
+		sp = o.Perf.Span("launch.start_port_forwarding")
 		socatProcs = o.startHostPortForwarding(forwardHostPorts, cname, portSocketDir)
+		sp.End()
 	}
 
 	// Start host services (cgroup delegate + external) BEFORE the container,
@@ -928,7 +952,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// start on every launch for months with the only host-side record being a lockfile the
 	// user has to go read." The wrapper also carries the inert-backend report, so a backend
 	// that will start nothing says so instead of looking provisioned (B-0).
+	sp = o.Perf.Span("launch.start_loopholes")
 	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks)
+	sp.End()
 	// in.imageRef — NOT a re-derivation. The insert point is found by searching
 	// the argv for the image ref, so this must be the very value assembly put
 	// there or every pair below is silently dropped (see insertHostServiceEnv).
@@ -938,7 +964,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	runCmd = insertHostServiceEnv(runCmd, in.imageRef, hostServices)
 
 	// Final internal command tail.
-	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.Timing))
+	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.timingEnabled()))
 
 	if o.Getenv("YOLO_DEBUG") != "" {
 		// Write RAW (not via the rich-stripping printer): the argv contains
@@ -959,12 +985,25 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		lock.Close()
 	}
 	onTerminate := func() {
+		sp := o.Perf.Span("terminate.stop_jail")
 		o.stopJail(cname, rt)
+		sp.End()
+		sp = o.Perf.Span("terminate.cleanup_port_forwarding")
 		cleanupPortForwarding(socatProcs, portSocketDir)
+		sp.End()
 		lock.Close()
+		sp = o.Perf.Span("terminate.stop_loopholes")
 		o.stopLoopholes(hostServices, socketsDir, cname, rt)
+		sp.End()
 		// E3, after stopJail so the jail is not still writing the surfaces we read.
+		sp = o.Perf.Span("terminate.capture_config")
 		o.captureConfigOnTerminate(rt)
+		sp.End()
+		// The report prints HERE, inside the closure, because the proxy
+		// os.Exit(128+n)s the moment this returns — no statement after it
+		// will ever run, and defers do not fire on this path. The file sink
+		// already holds every event; this is the terminal copy (design D6).
+		o.emitTimingReport(0)
 	}
 
 	// Fresh-launch line (with resource parts) to stderr for log capture (audit
@@ -994,7 +1033,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// derive is about to receive rather than infer it from an env var.
 	o.noteUseProfiles(channel.profiles, loadedPacks)
 
-	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
+	// The whole child window — spawn through podman's own post-exit cleanup —
+	// under one span, with the proxy's internal transitions arriving as
+	// `child.*` marks through the stage hook (design H1/H2).
+	sp = o.Perf.Span("launch.run_with_proxy")
+	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate, o)
+	sp.End()
 	if runErr != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
@@ -1008,29 +1052,53 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// Normal exit teardown.
+	o.teardownAfterExit(socatProcs, portSocketDir, hostServices, socketsDir, cname, rt, rc)
+	o.emitTimingReport(rc)
+	return rc
+}
+
+// teardownAfterExit is the normal-exit shutdown chain, extracted from
+// runContainer so its span call sites are unit-reachable: the timing surface
+// this accompanies was call-site-unpinned for its whole life (the old single-
+// Total block's comment recorded the debt), and a chain this repo cannot unit-
+// test is a chain whose spans can silently stop being emitted. Deleting any
+// span below fails TestTeardownChainEmitsShutdownSpans.
+func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string,
+	hostServices []loopholeDaemon, socketsDir, cname, rt string, rc int) {
+	sp := o.Perf.Span("shutdown.cleanup_port_forwarding")
 	cleanupPortForwarding(socatProcs, portSocketDir)
+	sp.End()
+	sp = o.Perf.Span("shutdown.stop_loopholes")
 	o.stopLoopholes(hostServices, socketsDir, cname, rt)
+	sp.End()
 	// E3: the container is `--rm` and now gone, so fold this session's in-jail config
 	// edits into their overlay sidecars from the host side, before anyone can ask
 	// `yolo config diff` and get last session's answer.
+	sp = o.Perf.Span("shutdown.capture_config")
 	o.captureConfigOnTerminate(rt)
+	sp.End()
 	clearOwnerPID(cname)
+	sp = o.Perf.Span("shutdown.oom_check")
 	o.maybeWarnAboutOOMKiller(rc, rt)
+	sp.End()
+}
 
-	// The host-side half of --timing's report — the other is the env pair
-	// assemble.go puts on the container argv, which timingenv_test.go pins. This
-	// half is deliberately UNPINNED, and a reader should know that before trusting
-	// a green suite here: no test names the flag below this line, runContainer is
-	// out of a unit test's reach, and deleting the block ships green. Debt handed
-	// down rather than incurred — o.Profile was equally unpinned before the
-	// OQ-PT5 rename (docs/reference/providers.md). Whoever next touches this
-	// surface owns the pin; if none comes, the flag's tested surface is the parse
-	// and the argv pair, and the total is best-effort.
-	if o.Timing {
-		o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing ---[/bold cyan]")
-		o.pr(o.Stderr).printf("  Total (host-side):  %.3fs", o.Now().Sub(timingStart).Seconds())
+// emitTimingReport prints the host-side half of --timing's report. The other
+// halves: the YOLO_PROFILE=1 env pair assemble.go puts on the container argv
+// (pinned by timingenv_test.go) and the entrypoint's own perf log, which the
+// in-container branch prints. Called from the normal-exit tail and from INSIDE
+// onTerminate — never later, because the signal arm os.Exits past anything
+// after it.
+func (o *Options) emitTimingReport(rc int) {
+	if !o.timingEnabled() {
+		return
 	}
-	return rc
+	o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing (rc %d) ---[/bold cyan]", rc)
+	o.Perf.Report(o.Stderr, time.Now())
+	o.pr(o.Stderr).printf("[dim]  host file: %s[/dim]",
+		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
+	o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
+		filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-perf.log"))
 }
 
 // hostForwardPorts is the `network.forward_host_ports` entries this launch will
@@ -1162,13 +1230,23 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	runCmd := append([]string{rt, "exec"}, execFlags...)
 	runCmd = append(runCmd, cname, "yolo-entrypoint", targetCmd)
 
-	rc, err := runWithProxy(runCmd, nil, nil)
+	// The attach arm's child window. An attach session has almost no teardown
+	// of its own (the jail keeps running), so if the 30-second symptom
+	// reproduces HERE the delay is inside the runtime's exec — a different
+	// suspect list than the fresh-launch arm's, and the spans say which arm
+	// you are in.
+	sp := o.Perf.Span("attach.exec")
+	rc, err := runWithProxy(runCmd, nil, nil, o)
+	sp.End()
 	if err != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
 		return 1
 	}
+	sp = o.Perf.Span("shutdown.oom_check")
 	o.maybeWarnAboutOOMKiller(rc, rt)
+	sp.End()
+	o.emitTimingReport(rc)
 	return rc
 }
 

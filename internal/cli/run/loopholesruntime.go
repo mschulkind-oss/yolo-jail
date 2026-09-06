@@ -313,12 +313,19 @@ func (o *Options) cgroupDelegateHonored(set loopholes.Set) bool {
 func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt string) {
 	out := o.pr(o.Stdout)
 	for _, h := range handles {
+		// One span PER FRONT, not one for the loop: a fronted daemon's stop
+		// is front-close (≤2s) plus a process-group SIGTERM→5s→SIGKILL, and
+		// the question this exists to answer is WHICH daemon lingered
+		// (design H3) — a single span around the loop answers only "one of
+		// them did".
+		sp := o.Perf.Span("shutdown.stop_front." + h.name)
 		func() {
 			defer func() { _ = recover() }()
 			if h.stop != nil {
 				h.stop()
 			}
 		}()
+		sp.End()
 	}
 	if socketsDir == "" {
 		return
@@ -346,6 +353,11 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	}()
 
 	if cname != "" {
+		// A MARK, not a span: this findRunningContainer runs podman ps with
+		// timeout 0 (lifecycle.go), so if the runtime hangs here this mark is
+		// the last line in the timing file — the dangling record that names
+		// where the prompt went to die (design H4, OQ-T2).
+		o.Perf.Mark("shutdown.container_check")
 		if o.findRunningContainer(cname, rt) != "" {
 			out.printf("[dim]Container %s is still running; leaving its "+
 				"sockets dir alone.[/dim]", cname)

@@ -17,6 +17,12 @@
 //   - SIGHUP/SIGTERM -> restore cooked termios, run onTerminate, exit 128+n.
 //   - stdin EOF -> stop reading stdin, keep pumping the master until child exit
 //     (the decided semantics).
+//
+// Stage observation (StageHook/RunWithProxyHooked): the proxy is where the
+// shutdown-delay question lives — the gap between the child exiting and the
+// drain finishing is a named hypothesis (docs/design/perf-logging.md H2) — so
+// the proxy reports its own transitions to whoever wants them, without this
+// package learning what a timing span is.
 package ttyproxy
 
 import (
@@ -55,15 +61,46 @@ func setWinsize(fd int, ws *unix.Winsize) {
 //
 // Non-TTY stdin falls back to a plain spawn (no pty), matching Python.
 func RunWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func()) (int, error) {
+	return RunWithProxyHooked(cmd, onStarted, onTerminate, nil)
+}
+
+// Stage names handed to a StageHook, in the order a healthy pty session sees
+// them. A path that skips a stage (the plain fallback has no drain, no
+// termios) simply never reports it — the report shows what happened.
+const (
+	StageSpawned         = "spawned"
+	StageExited          = "exited"
+	StageDrainDone       = "drain_done"
+	StageTermiosRestored = "termios_restored"
+)
+
+// StageHook observes the proxy's own transitions as they happen. It must not
+// block, must not error, and runs on whatever goroutine got there first
+// (including the signal goroutine) — observers that can panic are wrapped by
+// the caller, not by this package.
+type StageHook func(stage string)
+
+func callStage(hook StageHook, stage string) {
+	if hook == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	hook(stage)
+}
+
+// RunWithProxyHooked is RunWithProxy plus a stage observer. The hook is the
+// seam the timing collector hangs `child.*` marks on; a nil hook is the
+// everyday no-observer case and costs nothing.
+func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate func(), hook StageHook) (int, error) {
 	inFd := int(os.Stdin.Fd())
 	if !isatty(inFd) {
-		return runPlain(cmd, onStarted)
+		return runPlain(cmd, onStarted, hook)
 	}
 
 	// Save cooked attrs to restore on suspend/exit.
 	cooked, err := unix.IoctlGetTermios(inFd, unix.TCGETS)
 	if err != nil {
-		return runPlain(cmd, onStarted)
+		return runPlain(cmd, onStarted, hook)
 	}
 
 	master, slave, err := openPty()
@@ -85,6 +122,7 @@ func RunWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func())
 		return 0, err
 	}
 	unix.Close(slave) // parent uses only the master end
+	callStage(hook, StageSpawned)
 	if onStarted != nil {
 		go safeCallback(onStarted, c.Process)
 	}
@@ -113,6 +151,7 @@ func RunWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func())
 			case syscall.SIGHUP, syscall.SIGTERM:
 				termOnce.Do(func() {
 					restoreCooked()
+					callStage(hook, StageTermiosRestored)
 					if onTerminate != nil {
 						onTerminate()
 					}
@@ -128,30 +167,33 @@ func RunWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func())
 		}
 	}()
 
-	rc := proxyLoop(inFd, master, c, cooked)
+	rc := proxyLoop(inFd, master, c, cooked, hook)
 
 	restoreCooked()
+	callStage(hook, StageTermiosRestored)
 	unix.Close(master)
 	return rc, nil
 }
 
-func runPlain(cmd []string, onStarted func(*os.Process)) (int, error) {
+func runPlain(cmd []string, onStarted func(*os.Process), hook StageHook) (int, error) {
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Start(); err != nil {
 		return 0, err
 	}
+	callStage(hook, StageSpawned)
 	if onStarted != nil {
 		go safeCallback(onStarted, c.Process)
 	}
 	err := c.Wait()
+	callStage(hook, StageExited)
 	return exitCode(err), nil
 }
 
 // proxyLoop pumps bytes between the host TTY and the master pty until the child
 // exits.
 // the stdin-EOF semantics (stop reading stdin, keep pumping master).
-func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios) int {
+func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHook) int {
 	outFd := int(os.Stdout.Fd())
 	var pending []byte
 	stdinClosed := false
@@ -165,6 +207,7 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios) int {
 		select {
 		case rc := <-exitedCh:
 			// Drain any final child output, then return.
+			callStage(hook, StageExited)
 			for {
 				n, err := unix.Read(master, buf)
 				if n > 0 {
@@ -174,6 +217,7 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios) int {
 					break
 				}
 			}
+			callStage(hook, StageDrainDone)
 			return rc
 		default:
 		}
@@ -200,6 +244,8 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios) int {
 			if rerr != nil || n == 0 {
 				// master closed (child exited) — wait for the reaper.
 				rc := <-exitedCh
+				callStage(hook, StageExited)
+				callStage(hook, StageDrainDone)
 				return rc
 			}
 		}

@@ -111,3 +111,39 @@ func TestSuspendTargetedSelfOnly(t *testing.T) {
 		t.Fatal("selfSuspend hung — SIGTSTP was not targeted/ignored as expected")
 	}
 }
+
+// The stage-hook order pin on the plain (non-TTY) path: spawned then exited,
+// and nothing else — the plain fallback has no drain and no termios to
+// restore, so those stages must stay silent rather than fire vacuously. The
+// pty path's stages are pinned end-to-end by the integration suite, where a
+// real terminal exists.
+func TestStageHookPlainPathOrder(t *testing.T) {
+	var stages []string
+	rc, err := RunWithProxyHooked([]string{"/bin/true"}, nil, nil, func(s string) {
+		stages = append(stages, s)
+	})
+	if err != nil || rc != 0 {
+		t.Fatalf("rc=%d err=%v", rc, err)
+	}
+	want := []string{StageSpawned, StageExited}
+	if len(stages) != len(want) {
+		t.Fatalf("stages = %v, want %v", stages, want)
+	}
+	for i := range want {
+		if stages[i] != want[i] {
+			t.Fatalf("stages = %v, want %v", stages, want)
+		}
+	}
+}
+
+// A hook that panics must not take the proxy with it — observers are
+// best-effort by contract, and the reverse (a diagnostics hook killing every
+// launch) is the failure the perf design forbids.
+func TestStageHookPanicIsContained(t *testing.T) {
+	rc, err := RunWithProxyHooked([]string{"/bin/true"}, nil, nil, func(string string) {
+		panic("observer bug")
+	})
+	if err != nil || rc != 0 {
+		t.Fatalf("panicking hook changed the outcome: rc=%d err=%v", rc, err)
+	}
+}

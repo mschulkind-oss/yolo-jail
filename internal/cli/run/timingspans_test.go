@@ -86,3 +86,59 @@ func TestInitPerfConstructsOnlyWhenEnabled(t *testing.T) {
 		t.Errorf("fast span crossed the notice threshold: %q", errb.String())
 	}
 }
+
+// THE PIN the old single-Total block's comment said the next toucher owed: the
+// normal-exit shutdown chain, extracted into teardownAfterExit exactly so this
+// is unit-reachable. Deleting any span call site inside the chain fails this
+// test — the shape AGENTS.md records this repo has shipped five times (a
+// callee pinned while the call site went unpinned).
+func TestTeardownChainEmitsShutdownSpans(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions(ws, home)
+	o.Timing = true
+	o.initPerf("yolo-ws-test0000")
+
+	socketsDir := t.TempDir() // non-empty so stopLoopholes runs its full body
+	o.teardownAfterExit(nil, "", nil, socketsDir, "yolo-ws-test0000", "podman", 0)
+
+	var report bytes.Buffer
+	o.Perf.Report(&report, time.Now())
+	got := report.String()
+	// In order, the exact names the chain owns.
+	for i, want := range []string{
+		"shutdown.cleanup_port_forwarding",
+		"shutdown.stop_loopholes",
+		"shutdown.container_check",
+		"shutdown.capture_config",
+		"shutdown.oom_check",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("report missing span %q; got:\n%s", want, got)
+		}
+		_ = i
+	}
+	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(fileBytes), "end    shutdown.oom_check") {
+		t.Errorf("file sink missing the chain's spans; got:\n%s", fileBytes)
+	}
+}
+
+// A timing-off teardown writes no file and emits nothing — the off path must
+// stay byte-silent, not merely unreported.
+func TestTeardownChainSilentWhenOff(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions(ws, home)
+	o.teardownAfterExit(nil, "", nil, "", "yolo-ws-test0000", "podman", 0)
+	if _, err := os.Stat(filepath.Join(ws, ".yolo", HostPerfLogName)); !os.IsNotExist(err) {
+		t.Fatal("timing-off teardown created host-perf.log")
+	}
+}

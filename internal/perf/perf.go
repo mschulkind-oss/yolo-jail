@@ -139,6 +139,9 @@ func (l *Log) emit(e Event) {
 	sinks := l.sinks
 	l.mu.Unlock()
 	for _, s := range sinks {
+		if s == nil {
+			continue // a nil sink is a wiring mistake, not a launch-ending event
+		}
 		s(e)
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
@@ -244,32 +245,52 @@ func (o *Options) timingEnabled() bool {
 // <workspace>/.yolo/home/, so one directory holds both halves of one launch.
 const HostPerfLogName = "host-perf.log"
 
-// initPerf constructs the collector when the gate is on, wiring two sinks:
+// initPerf constructs the collector when the gate is on. See newTimingLog for
+// the sinks; call once, after the early refusals have had their say — a
+// refused launch writes no file.
+func (o *Options) initPerf(cname string) {
+	o.Perf = newTimingLog(o.timingEnabled(), o.Workspace, cname, o.Stderr, func(msg string) {
+		o.pr(o.Stderr).printf("[dim]yolo: %s[/dim]", msg)
+	})
+}
+
+// newTimingLog builds the collector behind every timing gate, wiring two sinks:
 //
 //   - the file sink at <workspace>/.yolo/host-perf.log (design D2) — events
 //     land there AS THEY HAPPEN, so a hang is diagnosable by tail and the
 //     signal arm's os.Exit still leaves a record;
-//   - the slow-span notice — one dim stderr line per span past
-//     perf.SlowSpanThreshold, naming the culprit the moment it finishes.
+//   - the slow-span notice — one line per span past perf.SlowSpanThreshold,
+//     naming the culprit the moment it finishes (how the line is rendered is
+//     the caller's business; the run pipeline dims it).
 //
-// The clock is time.Now and NOT o.Now, by rule (design D8): o.Now exists so
-// tests can freeze time, and a span system built on a frozen clock reports
-// 0.000s everywhere under test. Call once, after the early refusals have had
-// their say — a refused launch writes no file.
-func (o *Options) initPerf(cname string) {
-	if !o.timingEnabled() {
-		return
+// The clock is time.Now, never an Options.Now seam, by rule (design D8): that
+// seam exists so tests can freeze time, and a span system built on a frozen
+// clock reports 0.000s everywhere under test.
+func newTimingLog(enabled bool, ws, cname string, stderr io.Writer, notice func(string)) *perf.Log {
+	if !enabled {
+		return nil
 	}
-	path := filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName)
+	path := filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName)
 	sinks := []perf.Sink{
-		perf.FileSink(path, cname, o.Stderr, time.Now()),
+		perf.FileSink(path, cname, stderr, time.Now()),
 		func(e perf.Event) {
 			if e.Kind == perf.KindEnd && e.Dur >= perf.SlowSpanThreshold {
-				o.pr(o.Stderr).printf("[dim]yolo: %s took %.3fs[/dim]", e.Name, e.Dur.Seconds())
+				notice(fmt.Sprintf("%s took %.3fs", e.Name, e.Dur.Seconds()))
 			}
 		},
 	}
-	o.Perf = perf.New(time.Now, sinks...)
+	return perf.New(time.Now, sinks...)
+}
+
+// TimingLogFor is the subcommand-facing constructor: the same gate and sinks
+// the run pipeline wires, for a command that is not the run pipeline (`yolo
+// stop` today — the tool you reach for when a session is ALREADY wedged, and
+// therefore the last place that should be unmeasured).
+func TimingLogFor(ws string, getenv func(string) string, stderr io.Writer) *perf.Log {
+	enabled := getenv(paths.TimingEnv) != "" || getenv(paths.VerboseEnv) != ""
+	return newTimingLog(enabled, ws, runtime.FromWorkspace(ws), stderr, func(msg string) {
+		fmt.Fprintf(stderr, "yolo: %s\n", msg)
+	})
 }
 
 func fillDefaults(o *Options) {
@@ -409,7 +430,10 @@ func NewDefaultOptions() Options {
 // macos-user path never imports the Linux-only ttyproxy package directly (which
 // would break the GOOS=darwin build).
 func RunWithProxy(argv []string) int {
-	rc, err := runWithProxy(argv, nil, nil)
+	// A bare &Options{}: this seam has no collector (macos-user's native runs
+	// have not grown one), and a nil *Options would panic on the field read —
+	// an empty Options' nil Perf is the intended no-op state.
+	rc, err := runWithProxy(argv, nil, nil, &Options{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "launch failed: %v\n", err)
 		return 1

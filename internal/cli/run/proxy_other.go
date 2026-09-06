@@ -13,17 +13,23 @@ import (
 // path (podman machine / Apple Container) is not exercised by the nested-jail
 // gate, and macos-user takes its own native path before reaching here. onStarted
 // runs after spawn; onTerminate is not wired (no signal proxy in the fallback).
-func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func()) (int, error) {
+//
+// The Options param mirrors the Linux half's stage-hook seam; this fallback
+// has only spawn and child-exit to mark, and a nil collector's Mark is a
+// no-op, so the marks are unconditional here too.
+func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(), o *Options) (int, error) {
 	_ = onTerminate
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Start(); err != nil {
 		return 0, err
 	}
+	o.Perf.Mark("child.spawned")
 	if onStarted != nil {
 		go onStarted(c.Process)
 	}
 	err := c.Wait()
+	o.Perf.Mark("child.exited")
 	if err == nil {
 		return 0, nil
 	}

@@ -18,7 +18,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -51,7 +54,18 @@ func runStop(args []string) int {
 		fmt.Fprintf(os.Stderr, "yolo stop: resolving the workspace: %v\n", err)
 		return 1
 	}
-	return stopJail(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), realStopExec)
+	// The timing gate rides the env opt-ins only — stop has no flags of its
+	// own to grow, and the person running it is often already asking "why is
+	// everything slow".
+	p := run.TimingLogFor(ws, os.Getenv, os.Stderr)
+	rc := stopJail(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), realStopExec, p)
+	if p != nil {
+		// Not dashed: TestUsageListsEveryParsedFlag reads `---`-prefixed
+		// literals in handlers as flags, and a report header is not one.
+		fmt.Fprintln(os.Stderr, "yolo stop timing:")
+		p.Report(os.Stderr, time.Now())
+	}
+	return rc
 }
 
 // realStopExec runs one runtime command, capturing stdout for the probes that
@@ -76,8 +90,11 @@ func realStopExec(argv []string) (string, bool, int) {
 // the container as it exits, so the next launch is fresh by construction). A
 // stopped or absent container is SUCCESS: stop is idempotent, and any leftover
 // is the next launch's stale-removal job, not this command's.
+//
+// p is the optional timing collector; a nil p makes every span a no-op, which
+// is the everyday off state.
 func stopJail(stdout, stderr io.Writer, ws, rt string,
-	run func(argv []string) (string, bool, int)) int {
+	run func(argv []string) (string, bool, int), p *perf.Log) int {
 	if rt == "" {
 		fmt.Fprintln(stderr, "yolo stop: no container runtime found (podman / container).")
 		return 1
@@ -92,7 +109,9 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 	// Is anything actually running? `stop` on a non-existent container errors,
 	// and an erroring stop would make the stop-then-launch series fail on its
 	// first, idempotent half.
+	sp := p.Span("stop.inspect")
 	state, ran, rc := run([]string{rt, "inspect", "--format", "{{.State.Running}}", cname})
+	sp.End()
 	if !ran {
 		fmt.Fprintf(stderr, "yolo stop: the %s runtime could not be run.\n", rt)
 		return 1
@@ -102,7 +121,10 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 		return 0
 	}
 
-	if _, ran, rc := run([]string{rt, "stop", cname}); !ran || rc != 0 {
+	sp = p.Span("stop.stop_container")
+	_, ran, rc = run([]string{rt, "stop", cname})
+	sp.End()
+	if !ran || rc != 0 {
 		fmt.Fprintf(stderr, "yolo stop: stopping %s failed (rc %d).\n", cname, rc)
 		return 1
 	}

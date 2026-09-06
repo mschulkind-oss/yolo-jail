@@ -693,10 +693,13 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if term := o.Getenv("TERM"); term != "" {
 		runCmd = append(runCmd, "-e", "TERM="+term)
 	}
-	if o.Timing {
+	if o.timingEnabled() {
 		// Named for the flag that used to own this meaning (--profile, before
 		// docs/reference/providers.md OQ-PT5 renamed it --timing). Nothing in the image
 		// reads it, so it stays put rather than gaining a rename this step does not own.
+		// timingEnabled() rather than the bare flag so the YOLO_TIMING/YOLO_VERBOSE
+		// host opt-ins drive the jail half too — the flag, the env var, and
+		// --verbose are one gate (design D1/D5).
 		runCmd = append(runCmd, "-e", "YOLO_PROFILE=1")
 	}
 
