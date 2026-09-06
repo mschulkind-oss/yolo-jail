@@ -41,7 +41,7 @@ Apple Silicon** — a hidden macOS user, `sudo`/`dscl`, Seatbelt (`sandbox-exec`
 macOS `path_helper`, Mach-O signature caching, native `aarch64-darwin` nix, and
 Apple Container networking. That is this task. Every behavior below is ported
 byte-for-byte or unit-tested but has **never been observed executing on
-hardware**; M1 is the sole place OQ-1 (path_helper PATH) and finding-6 (password
+hardware**; M1 is the sole place [OQ-1](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) (path_helper PATH) and finding-6 (password
 apply) get observed at all.
 
 **You are the security boundary.** The macos-user commands self-escalate per-op
@@ -86,7 +86,7 @@ alongside M1.
   run `go test`, reach the nix-daemon socket, and drive the `container`/AC CLI.
 - **Driver:** Track M §M0 in
   [../macos-revival-and-distribution-plan.md](../macos-revival-and-distribution-plan.md).
-  Deliverable is a new `mac-sandvault-session.md` recording the working recipe
+  Deliverable is a new [`mac-sandvault-session.md`](mac-sandvault-session.md) recording the working recipe
   (does not exist yet — write it here when M0 runs).
 - **Exercises:** the D1 `repo_path` path (`yolo internal write-repo-path`,
   `internal/repopath`) so an installed `yolo` finds the repo from any dir.
@@ -97,7 +97,7 @@ alongside M1.
 
 - **Runbook (drives every step):** [mac-macos-user-e2e.md](mac-macos-user-e2e.md)
   — you-drive / agent-advises. Preflight (`yolo check`) and `--dry-run` are
-  zero-sudo and can run inside SandVault; §3–§7 are the human's privileged
+  zero-sudo and can run inside SandVault; [§3](mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo)–[§7](mac-macos-user-e2e.md#7-cleanup) are the human's privileged
   one-shots.
 - **Verifies:** the native no-VM backend actually runs an agent as `_yolojail`
   under Seatbelt with `packages:` materialized via native aarch64-darwin nix.
@@ -111,7 +111,7 @@ alongside M1.
      inode**. macOS caches Mach-O code signatures per vnode, so overwriting a
      previously staged binary in place gets the next exec **SIGKILLed** (invalid
      signature). `PlanInvariants` (`runplan.go`) statically requires the `mv`.
-     **Observe:** run the launch (§4) **twice** — a second run must re-stage and
+     **Observe:** run the launch ([§4](mac-macos-user-e2e.md#4-first-real-run-under-seatbelt)) **twice** — a second run must re-stage and
      still exec, not die with SIGKILL. Confirm `/var/yolo-jail/yolo` is
      root-owned and world-readable+executable (`ls -l@ /var/yolo-jail/yolo`), and
      that it runs clean under Gatekeeper/quarantine (copied ad-hoc-signed Go
@@ -131,17 +131,17 @@ alongside M1.
      (`internal/macosuser/real.go`) now pipes the password to
      `sudo /bin/sh -c 'read -r pw; dscl . -passwd … "$pw"'` **via stdin** (sudo's
      `env_reset` stripped the old env-var approach, leaving an *empty* password);
-     its return value is now wired so failure is loud. **Observe:** after §3
+     its return value is now wired so failure is loud. **Observe:** after [§3](mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo)
      setup, `dscl . -read /Users/_yolojail` shows the user, and authentication is
      actually set (non-empty) — `dscl` empty-string semantics are the exact
      unknown this checks.
-  4. **OQ-1 path_helper — login-rc PATH re-prepend wins.** `WriteLoginRC`
+  4. **[OQ-1](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper — login-rc PATH re-prepend wins.** `WriteLoginRC`
      (`internal/entrypoint/darwin.go`) writes `.zprofile`/`.zshrc`/`.bash_profile`
      that re-prepend the sandbox PATH (`macosuser.SandboxPath`) **after** macOS
      `path_helper` reorders it. **Observe (the acceptance bar):** with
      `"packages": ["jq"]`, `yolo -- bash -lc 'which jq'` must resolve to a
      `/nix/store/…/bin/jq` — NOT `/usr/local/bin/jq` (Homebrew) or `/usr/bin`. A
-     Homebrew path here is a real OQ-1 regression; paste `echo $PATH` from inside
+     Homebrew path here is a real [OQ-1](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) regression; paste `echo $PATH` from inside
      the sandbox.
 
   The acceptance-bar build itself exercises `darwinpkg.Materialize` (native
@@ -165,7 +165,7 @@ alongside M1.
   cached tar. The runbook proves the make-or-break piece (host nix →
   AC-container sshd → `Trusted: 1` → `AC-CONTAINER-BUILDER-WORKS`).
 - **Signal:** a from-source `packages:`/image build **succeeding over the ssh-ng
-  container builder** (§6 of the runbook). Because the offload only triggers when
+  container builder** ([§6](mac-ac-container-builder.md#6--the-gating-test--host-nix-builds-through-the-ac-container) of the runbook). Because the offload only triggers when
   the plain build fails on macOS and no cache is available, this is the live path
   today (Cachix does not fill until a release).
 
@@ -189,19 +189,19 @@ alongside M1.
 A precise report turns a failure into a filed bug. Per step:
 
 - **M0:** what SandVault's profile blocked (nix daemon? AC CLI? Go build?) — that
-  defines the inside/outside labor split. The working recipe → `mac-sandvault-session.md`.
-- **M1 §1/§2:** the `yolo check` "macOS-user backend" section + the full
+  defines the inside/outside labor split. The working recipe → [`mac-sandvault-session.md`](mac-sandvault-session.md).
+- **M1 [§1](mac-macos-user-e2e.md#1-preflight--inspect-readiness-without-changing-anything-no-sudo)/[§2](mac-macos-user-e2e.md#2-dry-run-the-plan--still-no-sudo-nothing-executes):** the `yolo check` "macOS-user backend" section + the full
   `--dry-run` plan + any `PlanInvariants` violation verbatim.
-- **M1 §3:** setup output + verdict; whether `dscl . -read /Users/_yolojail`
+- **M1 [§3](mac-macos-user-e2e.md#3-one-time-setup--the-privileged-step-plain-yolo-not-sudo):** setup output + verdict; whether `dscl . -read /Users/_yolojail`
   shows a non-empty password (finding-6).
-- **M1 §4:** does it launch as `_yolojail`? any `sandbox-exec` error verbatim?
+- **M1 [§4](mac-macos-user-e2e.md#4-first-real-run-under-seatbelt):** does it launch as `_yolojail`? any `sandbox-exec` error verbatim?
   **Does a second run re-stage a fresh inode and still exec** (no SIGKILL)?
-- **M1 §5:** **the exact path `which jq` prints** (the acceptance-bar / OQ-1
+- **M1 [§5](mac-macos-user-e2e.md#5-the-acceptance-bar--packages-materialized-natively):** **the exact path `which jq` prints** (the acceptance-bar / [OQ-1](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)
   signal) + whether it built from source; if it shows `/usr/local/bin`, paste
   `echo $PATH` from inside the sandbox.
-- **M1 §6:** agent starts? host `~/.gitconfig`/`~/.ssh` invisible (scrubbed HOME)?
-- **J3:** which image path (§2a GHCR pull vs §2b tar); how the host reached the
-  container (AC internal IP vs published port); §6 verbatim (`Trusted: N` +
+- **M1 [§6](mac-macos-user-e2e.md#6-real-agent-optional-once-45-pass):** agent starts? host `~/.gitconfig`/`~/.ssh` invisible (scrubbed HOME)?
+- **J3:** which image path (§[2a](mac-ac-container-builder.md#2a-preferred--pull-from-ghcr--live--public-verified-2026-07-17) GHCR pull vs §[2b](mac-ac-container-builder.md#2b-fallback--build-on-a-linux-box--copy-the-tar-no-ghcr-yet) tar); how the host reached the
+  container (AC internal IP vs published port); [§6](mac-ac-container-builder.md#6--the-gating-test--host-nix-builds-through-the-ac-container) verbatim (`Trusted: N` +
   whether `AC-CONTAINER-BUILDER-WORKS` printed); any AC error at load/run/connect.
 
 Findings come back as a handoff doc; fixes happen in the jail; repeat as needed.
@@ -219,12 +219,12 @@ Findings come back as a handoff doc; fixes happen in the jail; repeat as needed.
   **warn-and-skip**, not crash (the shipped behavior is warn-and-skip;
   `orchestrator.go` — Open Decision #5 in the plan). If a package vanishes
   silently, report which.
-- **AC networking (J3 §5):** AC has no `--net=host` and networks each container
+- **AC networking (J3 [§5](mac-ac-container-builder.md#5-run-it--and-capture-the-addressport-the-ac-specific-unknown)):** AC has no `--net=host` and networks each container
   in its own VM; the verified path is the container's internal-network IP
   (`192.168.64.2:22`, no `-p`). If AC won't expose the sshd to the host nix
   daemon, that's the AC limit — fall back to QEMU `darwin.linux-builder`, a clean
   result, not a session failure.
-- **`dscl` empty-password semantics (finding-6)** and **OQ-1 path_helper** are
+- **`dscl` empty-password semantics (finding-6)** and **[OQ-1](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper** are
   the two headline unknowns until M1 observes them — do not assume, report the
   literal output.
 

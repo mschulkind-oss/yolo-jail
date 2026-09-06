@@ -1,7 +1,7 @@
 # RUNBOOK — prove the Apple Container Linux builder (zero sudo)
 
 > **STATUS 2026-07-17: ✅ PROVEN on real hardware — this test PASSED.**
-> Run on macOS 26.5 arm64, AC 0.12.3, nix 2.34.7. §2a pull from GHCR worked
+> Run on macOS 26.5 arm64, AC 0.12.3, nix 2.34.7. §[2a](#2a-preferred--pull-from-ghcr--live--public-verified-2026-07-17) pull from GHCR worked
 > (no build/scp). AC ran the container with an internal-network IP
 > `192.168.64.2:22`; host nix `store info` → **`Trusted: 1`**; the proof build
 > returned **`AC-CONTAINER-BUILDER-WORKS`**. AC is a supported container-builder
@@ -141,19 +141,19 @@ rm -rf "$WORK"
 
 ## What to report back (any outcome is useful)
 1. Prereq versions (AC, nix, skopeo, macOS).
-2. **How you got the image** (§2 path a/b/c) — quantifies the chicken-and-egg.
-3. **How the host reaches the container** (§5): AC container IP? published port?
+2. **How you got the image** ([§2](#2-get-the-builder-image-onto-the-mac) path a/b/c) — quantifies the chicken-and-egg.
+3. **How the host reaches the container** ([§5](#5-run-it--and-capture-the-addressport-the-ac-specific-unknown)): AC container IP? published port?
    neither (→ the real AC blocker)?
-4. **§6 result verbatim** — `Trusted: N` and whether `AC-CONTAINER-BUILDER-WORKS`
+4. **[§6](#6--the-gating-test--host-nix-builds-through-the-ac-container) result verbatim** — `Trusted: N` and whether `AC-CONTAINER-BUILDER-WORKS`
    printed. This is the answer.
 5. Any AC error at load/run/connect — paste it; those are the exact gaps I'd fix.
 
 ## Interpreting it
-- **§6 works** → AC container-builder is proven; I wire the CLI orchestration
+- **[§6](#6--the-gating-test--host-nix-builds-through-the-ac-container) works** → AC container-builder is proven; I wire the CLI orchestration
   (start container + point nix at `<HOST>:<PORT>`) and AC joins podman as a
   supported build path.
-- **§5 has no reachable path** (AC won't expose the sshd to the host nix daemon)
+- **[§5](#5-run-it--and-capture-the-addressport-the-ac-specific-unknown) has no reachable path** (AC won't expose the sshd to the host nix daemon)
   → that's the AC networking limit we suspected; AC falls back to QEMU
   `darwin.linux-builder`, and we document it. Still a clean, useful result.
-- **§2 needed a builder you didn't have** → underscores turning on Cachix/GHCR so
+- **[§2](#2-get-the-builder-image-onto-the-mac) needed a builder you didn't have** → underscores turning on Cachix/GHCR so
   the Mac pulls the image instead of building it.
