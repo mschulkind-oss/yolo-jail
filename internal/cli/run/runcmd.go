@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -85,6 +86,17 @@ type Options struct {
 	// deliberately NOT by fillDefaults: an off launch must construct nothing.
 	// The one thing it must never be given is o.Now (see initPerf).
 	Perf *perf.Log
+	// perfReportOnce makes the timing report once per Run invocation — a
+	// POINTER, not an embedded sync.Once, because Options is copied by value
+	// (Run's own signature) and a copied lock is a vet copylocks error. Created
+	// by initPerf, single-threaded, before either teardown arm exists; nil for
+	// a timing-off launch, which never reports.
+	//
+	// The signal arm's stopJail is what makes the child exit, which unblocks
+	// the normal exit arm while onTerminate is still running — both arms
+	// reaching emitTimingReport is the ORDINARY interleaving on that path, and
+	// the terminal should see one report and one Window A query, not two.
+	perfReportOnce *sync.Once
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
 	// ServiceReadyTimeout bounds each spawned host service's readiness wait
@@ -252,6 +264,9 @@ func (o *Options) initPerf(cname string) {
 	o.Perf = newTimingLog(o.timingEnabled(), o.Workspace, cname, o.Stderr, func(msg string) {
 		o.pr(o.Stderr).printf("[dim]yolo: %s[/dim]", msg)
 	})
+	if o.Perf != nil {
+		o.perfReportOnce = &sync.Once{}
+	}
 }
 
 // newTimingLog builds the collector behind every timing gate, wiring two sinks:

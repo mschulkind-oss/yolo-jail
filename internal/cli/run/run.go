@@ -419,7 +419,14 @@ func Run(opts Options) int {
 	// It cannot fail this launch. Every outcome inside is a warning (autoCapture in
 	// internal/cli), because nobody asked for this work and a machine that cannot do it
 	// must still get its jail.
+	//
+	// Spanned because it is the pipeline's biggest HIDDEN cost: a fresh machine's
+	// first launch grows by one installer download per uncaptured program, and
+	// the very first nested --timing run measured 109 of its 125 seconds in
+	// this call — every bit of it between two spans, pointing at nothing.
+	sp := o.Perf.Span("launch.auto_capture")
 	o.autoCaptureInstallerPrograms(staged.packs)
+	sp.End()
 	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel)
 }
 
@@ -1098,6 +1105,10 @@ func (o *Options) emitTimingReport(rc int, cname, rt string) {
 	if !o.timingEnabled() {
 		return
 	}
+	o.perfReportOnce.Do(func() { o.emitTimingReportLocked(rc, cname, rt) })
+}
+
+func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
 	o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing (rc %d) ---[/bold cyan]", rc)
 	o.Perf.Report(o.Stderr, time.Now())
 	if child, ok := o.Perf.LastEvent("child.exited"); ok {

@@ -53,7 +53,7 @@ func FileSink(path, cname string, errw io.Writer, now time.Time) Sink {
 		warnOnce(errw, path, err)
 		return func(Event) {}
 	}
-	fmt.Fprintf(f, "%s (%s) jail=%s ===\n", runPrefix+" ===", now.Format("2006-01-02 15:04:05"), cname)
+	fmt.Fprintf(f, "%s (%s) jail=%s ===\n", runPrefix, now.Format("2006-01-02 15:04:05"), cname)
 
 	var mu sync.Mutex // one write per event, under the sink's own lock
 	return func(e Event) {
