@@ -236,13 +236,13 @@ protocol to be request-shaped — so for a fronted daemon yolo can record
 bytes each way, duration. That is the honest audit ceiling. An earlier
 draft promised the front as "the natural home for the crossing audit
 log"; that claim is **withdrawn**
-([`loophole-packaging.md`](loophole-packaging.md) §2.1b hazard 3) — do
+([`loophole-packaging.md`](loophole-packaging.md) [§2.1](./loophole-packaging.md#21-the-manifest-vocabulary-publishes)b hazard 3) — do
 not design against it. Anything richer than connection-level is
 per-loophole, not framework.
 
 ### Tier 1 — one line per CONNECTION (every daemon, uniformly)
 
-Built 2026-08-15, [`boundary-broker.md`](boundary-broker.md) §7 step 1.
+Built 2026-08-15, [`boundary-broker.md`](boundary-broker.md) [§7](./boundary-broker.md#7-what-i-would-build-in-order) step 1.
 `internal/svcendpoint` emits one record per jail↔host connection —
 accepted *or* rejected — and `internal/crossaudit` appends it to
 **`GLOBAL_STORAGE/logs/crossings.log`**, one file per host:
@@ -330,7 +330,7 @@ before the steps, both blunter than anything in the client section:
   verify any of it from outside. A daemon on this path is trusted
   to the degree its author is.
 - **It is reachable only by a loophole yolo itself ships.** Under
-  [`loophole-packaging.md`](loophole-packaging.md) (§2.1, §2.3) a
+  [`loophole-packaging.md`](loophole-packaging.md) ([§2.1](./loophole-packaging.md#21-the-manifest-vocabulary-publishes), [§2.3](./loophole-packaging.md#23-why-not-export-internalsvcendpoint-and-why-not-just-publish-the-spec)) a
   pack-shipped loophole may not implement this section: its manifest
   declares `host_daemon.publishes: "socket"`, the daemon binds a
   plain AF_UNIX socket at `{socket}`, and yolo runs the one audited

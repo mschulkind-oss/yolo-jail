@@ -31,14 +31,14 @@ noncontainer profile a core set, then run the same stage inside the sandbox.**
 > words for two things that had none, which is why the gap between them was never
 > stated as one problem.
 
-**The most important section is §6** — the alternatives — because "the same as
+**The most important section is [§6](#6-alternatives)** — the alternatives — because "the same as
 everywhere else" has a cost on this backend that it does not have in an image, and
 the ruling turns on whether that cost is worth paying.
 
 **Reads with:** [`../reference/nix-across-backends.md`](../reference/nix-across-backends.md)
 (what nix produces for each backend, and why the image is a floor),
 [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the single shared home,
-which OQ-P3 depends on),
+which [OQ-P3](#OQ-P3) depends on),
 [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (the backend).
 
 ---
@@ -109,7 +109,7 @@ run the same step, they should run the same step.
 **Half one: a core set for the noncontainer profile.** `yoloNoncontainerPackages`
 gains a core list, the way `ociImage` has one — the same attr, evaluated for the
 native system. Minimum viable core is whatever the stage needs to run: `mise` and
-`nodejs`. Whether it extends to the rest of the image's floor is **OQ-P1**.
+`nodejs`. Whether it extends to the rest of the image's floor is **[OQ-P1](#OQ-P1)**.
 
 **Half two: a provisioning stage inside the sandbox.** The macos-user launch grows
 a step that runs the same `setupScript` body, inside the Seatbelt sandbox, as the
@@ -138,13 +138,13 @@ so a bare `yolo -- bash` pays nothing.
 - **Not a second config surface.** No `macos_packages`, no per-backend `mise_tools`.
   If a package is Linux-only, `platforms: ["linux"]` already says so.
 - **Not fixing the shared home.** The stage will write into it, which makes
-  OQ-P3 real, but the split itself is `macos-user-home-tiers.md`.
+  [OQ-P3](#OQ-P3) real, but the split itself is [`macos-user-home-tiers.md`](./macos-user-home-tiers.md).
 
 ## 6. Alternatives
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **A. Floor + stage** (§4) | **Recommended.** The only one that satisfies P3. Costs a native core closure and the questions below. |
+| **A. Floor + stage** ([§4](#4-the-proposed-shape)) | **Recommended.** The only one that satisfies P3. Costs a native core closure and the questions below. |
 | **B. Declarative only** — delete the imperative surfaces on this backend, refuse `mise_tools`/`lsp_servers`/`mcp_presets` loudly, tell users to write `packages:` | **Rejected, but it is the honest runner-up.** It satisfies P1 and P2 fully and costs nothing to build — today's warnings are already 80% of it. It fails P3: a user with one config across a Mac and a Linux host would need two spellings of the same intent. Revisit if the core closure in A proves painful. |
 | **C. Status quo + warnings** (what ships today) | **Rejected as an end state**, accepted as the interim. It is honest and it is not a backend anyone can use for real work. |
 | **D. Floor only** — core packages, no stage | **Rejected.** Puts `mise` on PATH and never runs `mise install`, which is a worse lie than the current absence: the tool exists and reports nothing to do. |
@@ -155,14 +155,14 @@ so a bare `yolo -- bash` pays nothing.
 | :--- | :--- |
 | A core package has no native darwin build | It is the same `yoloUnavailablePackages` mechanism `packages:` uses — but for a CORE package a skip must be **fatal**, not warned: a floor with a hole in it is not a floor. |
 | First launch builds a large closure natively | One-off per machine; nix caches. Cachix already applies (`--accept-flake-config`). Measure before assuming it is a problem. |
-| The stage's state lands in the shared home | Real, and it is OQ-P3. |
-| GNU-vs-BSD userland surprise | OQ-P2. |
+| The stage's state lands in the shared home | Real, and it is [OQ-P3](#OQ-P3). |
+| GNU-vs-BSD userland surprise | [OQ-P2](#OQ-P2). |
 
 ## 8. Sequencing
 
 Ship the unwarned agent-launcher case first — it is independent of every question
 below and it is the one failure that lands on a user's first real command. Then
-half one, gated on OQ-P1 and OQ-P2. Then half two, gated on OQ-P3. Half two is
+half one, gated on [OQ-P1](#OQ-P1) and [OQ-P2](#OQ-P2). Then half two, gated on [OQ-P3](#OQ-P3). Half two is
 worth nothing before half one, so there is no partial-credit ordering to be clever
 about.
 
@@ -203,7 +203,7 @@ about.
    install` writes to `MISE_DATA_DIR` and npm to a prefix, both under the sandbox
    home — which is machine-wide here. Two workspaces with different `mise_tools`
    would fight, and the second launch would silently reshape the first's toolchain.
-   This is the same collision `macos-user-home-tiers.md` describes for pack state,
+   This is the same collision [`macos-user-home-tiers.md`](./macos-user-home-tiers.md) describes for pack state,
    arriving through a different door.
 
    _Leaning:_ Block half two on the home split rather than shipping a known

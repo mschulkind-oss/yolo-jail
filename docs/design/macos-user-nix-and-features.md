@@ -10,16 +10,16 @@ doc was materially incomplete about every one of them:
 
 | New state | Entry | Where |
 | :--- | :--- | :--- |
-| **FIXED** | pack `launch` contributions never applied (`dc1349a6`) | §3.6 |
-| **WARNED** | pack `state` at `scope: workspace` is machine-wide here (`8ab03d2e`) | §3.1 |
-| **WARNED** | briefings + skills, including the built-in suite, are never delivered (`6a53a2a3`) | §3.6 |
-| **WARNED** | `lsp_servers` binaries never install (`6a53a2a3`) | Part 2 retraction, §3.6 |
-| **WARNED** | `resources` are not enforced (`8ab03d2e`) | §3.2 |
-| **WARNED** | `cache_relocations` are not implemented — and the symlink workaround is **false** (`8ab03d2e`) | §3.1 |
-| **WARNED** | every loophole is inert here, config-declared ones included (`35448719`, `6a53a2a3`, `a639394d`) | §3.5 |
+| **FIXED** | pack `launch` contributions never applied (`dc1349a6`) | [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
+| **WARNED** | pack `state` at `scope: workspace` is machine-wide here (`8ab03d2e`) | [§3.1](#31-bind-mounts--none-exist) |
+| **WARNED** | briefings + skills, including the built-in suite, are never delivered (`6a53a2a3`) | [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
+| **WARNED** | `lsp_servers` binaries never install (`6a53a2a3`) | Part 2 retraction, [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
+| **WARNED** | `resources` are not enforced (`8ab03d2e`) | [§3.2](#32-resource-limits--no-cgroups) |
+| **WARNED** | `cache_relocations` are not implemented — and the symlink workaround is **false** (`8ab03d2e`) | [§3.1](#31-bind-mounts--none-exist) |
+| **WARNED** | every loophole is inert here, config-declared ones included (`35448719`, `6a53a2a3`, `a639394d`) | [§3.5](#35-loopholes--mostly-moot-here-the-framework-still-ports) |
 
 Two claims are **retracted**: `lsp_servers` was never carried by a "bootstrap env → lazy install"
-channel (no such channel exists — Part 2), and §3.6 still called the config-diff approval prompt a
+channel (no such channel exists — Part 2), and [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) still called the config-diff approval prompt a
 live security gap on 2026-08-23 when it had been fixed on 2026-08-18 (`bb825486`). The 2026-08-23
 entries below (`d0961f2c`, `workspace_readonly` and `per_side_paths`) still hold.
 
@@ -205,15 +205,15 @@ pure functions of `*Env`. So the per-workspace config surface is preserved:
 | `packages:` | ✅ | native aarch64-darwin nix (Part 1) |
 | `security.blocked_tools` | ✅ | generated shims (`GenerateShims`) |
 | `mise_tools` | ✅ | `ConfigureMisePrism` |
-| `lsp_servers` | ⚠️ | **config renders, binaries never install** — WARNED 2026-08-24, see §3.6 |
+| `lsp_servers` | ⚠️ | **config renders, binaries never install** — WARNED 2026-08-24, see [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
 | `mcp_servers` + `mcp_presets` | ✅ | `GenerateMCPWrappers` |
 | `packs` selection | ⚠️ | staged + `YOLO_PACK_ROOT` → `LoadJailPacks` → surfaces/hooks. **Wired 2026-08-12 (B-0); UNVERIFIED on a Mac** |
 | `env_sources` | ✅ | `config.ResolveEnvSources`, layered into the launch env |
 | git identity | ✅ | host git config → `YOLO_GIT_*` → `configureGit` (host creds never cross) |
 | `macos_log` | ✅ | the `yolo-log` helper (Apple unified-logging bridge): `off`/`user`/`full` |
-| pack `launch` flags | ✅ | **FIXED 2026-08-24** (`dc1349a6`) — hoisted above the dispatch, see §3.6 |
-| briefings + skills (incl. built-ins) | ❌ | **never delivered** — WARNED 2026-08-24, see §3.6 |
-| pack `state`, scope `workspace` | ⚠️ | one shared home, so **machine-wide** here — WARNED 2026-08-24, see §3.1 |
+| pack `launch` flags | ✅ | **FIXED 2026-08-24** (`dc1349a6`) — hoisted above the dispatch, see [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
+| briefings + skills (incl. built-ins) | ❌ | **never delivered** — WARNED 2026-08-24, see [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
+| pack `state`, scope `workspace` | ⚠️ | one shared home, so **machine-wide** here — WARNED 2026-08-24, see [§3.1](#31-bind-mounts--none-exist) |
 
 > **The `packs` row was a ✅ that had never been true, and the correction is worth keeping
 > visible.** The row used to read "`agents` selection ✅ — `YOLO_AGENTS` → per-agent config",
@@ -252,10 +252,10 @@ And there is no "lazy install" channel to fall back on. **The only lazy-install 
 contribution (`internal/entrypoint/shims.go:166-228`) and `pnpm`
 (`internal/entrypoint/shims.go:272-296`, whose comment states "the only lazily-installed package
 manager is pnpm"). An `lsp_servers` entry contributes to neither. So the agent gets a config
-pointing at a language server that is not on disk. WARNED as of `6a53a2a3` — see §3.6.
+pointing at a language server that is not on disk. WARNED as of `6a53a2a3` — see [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc).
 
 Two stale ✅s in one twelve-row table (this one and `packs`) is why the sibling
-[backend-parity.md](backend-parity.md) §7 argues this matrix should eventually be **generated**
+[backend-parity.md](backend-parity.md) [§7](./backend-parity.md#7-what-this-does-not-propose) argues this matrix should eventually be **generated**
 from a per-backend census rather than maintained by hand beside the code.
 
 Two macOS-only pieces run here that the Linux boot does not: the `yolo-log`
@@ -307,7 +307,7 @@ of container features:
   > there is a second, narrower one — `SeatbeltCaptureProfile` in
   > `internal/macosuser/seatbeltcapture.go`, carried only by an install capture, which drops the
   > workspace and the sandbox home from that set and denies both. See
-  > [`../design/program-delivery.md`](program-delivery.md) §6.3. Like everything else dated after
+  > [`../design/program-delivery.md`](program-delivery.md) [§6.3](./program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package). Like everything else dated after
   > 2026-08-24 in this doc, it is unit-tested on Linux and **unverified on hardware**.)
   > So a host symlink from `~/.cache/<subdir>` to another disk resolves fine for the invoking
   > user and is refused inside the sandbox — which is the *worse* failure, because the cache
@@ -353,7 +353,7 @@ of container features:
 
   **WARNED, not fixed, and the reason is a real design constraint** — this is not a wiring
   gap like the pack `launch` flags. The single home *is* this backend's shared-credentials
-  mechanism (§3.5: one real `~/.claude/.credentials.json` is what makes the oauth-broker
+  mechanism ([§3.5](#35-loopholes--mostly-moot-here-the-framework-still-ports): one real `~/.claude/.credentials.json` is what makes the oauth-broker
   unnecessary here). Splitting the home per workspace would break the **machine** tier to
   repair the **workspace** tier. A fix has to restore both tiers explicitly, which is a design
   change and not a launch-time patch (`internal/cli/run/run.go:235-250`).
@@ -364,7 +364,7 @@ of container features:
   this backend** and has been writing to the workspace; it has a release-note entry.
   Not verified on hardware — the profile and its call sites are pinned by mutation-verified tests in
   a Linux jail, but nobody has watched a write fail on a Mac. See
-  [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5.
+  [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) [§5.5](./host-execution-from-the-workspace.md#55-backend-portability--the-mounts-are-not-the-policy).
 - **`per_side_paths`** → **structurally impossible, and it now SAYS so.** It gives the host and
   the sandbox different contents at the same path, which is a mount-namespace capability: Seatbelt
   can deny a path, it cannot fork one. As of `d0961f2c` it **warns** on this backend rather than
@@ -394,7 +394,7 @@ macOS has no cgroup filesystem, and there is no VM to size.
 
   A cap the user believes in but that does not hold is worse than a documented absence, so
   this warns and will keep warning (`internal/macosuser/orchestrator.go:173-177`;
-  [backend-parity.md](backend-parity.md) §7 records the same refusal).
+  [backend-parity.md](backend-parity.md) [§7](./backend-parity.md#7-what-this-does-not-propose) records the same refusal).
 - **`yolo-cglimit`** and the cgroup-delegate daemon → not present (Linux-only).
 
 ### 3.3 Networking and ports
@@ -507,7 +507,7 @@ and pins its host — which is precisely the oauth-broker's awkward case above.
 This is now on the roadmap as
 [Track L in the revival plan](../plans/macos-revival-and-distribution-plan.md):
 the framework plumbing is unblocked, but the specific access-scoping proxy is
-gated on **OQ-L1** (the scoping model must be pinned down first — a wrong model
+gated on **[OQ-L1](../plans/macos-revival-and-distribution-plan.md#open-questions-blocking)** (the scoping model must be pinned down first — a wrong model
 ships a false security boundary).
 
 ### 3.6 The container-launch preamble (config-diff prompt, image load, etc.)
@@ -637,29 +637,29 @@ implement it against — warning is terminal). Unstamped rows predate 2026-08-24
 > [!NOTE]
 > This matrix has now drifted twice (the `packs` row, the `lsp_servers` row). It should
 > eventually be **generated** from the per-backend census proposed in
-> [backend-parity.md](backend-parity.md) §4/§7 rather than maintained by hand beside the code.
+> [backend-parity.md](backend-parity.md) [§4](./backend-parity.md#4-the-proposal--a-backend-census-sibling-to-renderfieldset)/[§7](./backend-parity.md#7-what-this-does-not-propose) rather than maintained by hand beside the code.
 
 | Feature | Container (`podman`/`container`) | `macos-user` | Reason |
 |---|---|---|---|
 | `packages:` | baked into aarch64-linux image | native aarch64-darwin buildEnv on PATH | different nix target |
 | bind mounts (`/workspace`, home overlay) | yes | **none** | no container |
-| `cache_relocations` | podman ✅ / AC ⚠️ | **off** — IMPOSSIBLE, **WARNS since 2026-08-24** (`8ab03d2e`); a host symlink is **not** a workaround (§3.1) | no mount; Seatbelt denies writes outside the workspace/sandbox home and reads under `/Volumes` |
+| `cache_relocations` | podman ✅ / AC ⚠️ | **off** — IMPOSSIBLE, **WARNS since 2026-08-24** (`8ab03d2e`); a host symlink is **not** a workaround ([§3.1](#31-bind-mounts--none-exist)) | no mount; Seatbelt denies writes outside the workspace/sandbox home and reads under `/Volumes` |
 | `writable_home_dirs` | yes | n/a | native home is writable |
 | pack `state`, scope `workspace` | per-workspace dir per pack | **machine-wide** — WARNED since 2026-08-24 (`8ab03d2e`); mirror image of #39 | `SandboxHome()` is a constant with no workspace component; splitting it would break the machine tier |
 | pack `launch` flags | yes | ✅ **FIXED 2026-08-24** (`dc1349a6`) — was a 100% drop for copilot, a silent autonomy downgrade for claude | injection hoisted above the backend dispatch |
 | briefings + skills (incl. built-in suite) | `:ro` mount of the staged tree | ❌ **never delivered** — WARNED since 2026-08-24 (`6a53a2a3`); shims still generated, so `grep -r` exits 127 unexplained | delivery is a mount; needs a real native mechanism (OQ-BP-2) |
-| `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | ✅ **ENFORCED since 2026-08-23** (`d0961f2c`) via the Seatbelt profile — was a silent no-op | the wiring gap this doc predicted; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5 |
+| `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | ✅ **ENFORCED since 2026-08-23** (`d0961f2c`) via the Seatbelt profile — was a silent no-op | the wiring gap this doc predicted; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) [§5.5](./host-execution-from-the-workspace.md#55-backend-portability--the-mounts-are-not-the-policy) |
 | `per_side_paths` | yes | **WARNS since 2026-08-23** (`d0961f2c`) — no equivalent exists, and it no longer pretends otherwise | needs a mount namespace; Seatbelt filters permissions, it cannot give one path two contents |
-| `resources` (cpu/mem/pids) | podman-machine / AC native | **off** — IMPOSSIBLE, **WARNS since 2026-08-24** (`8ab03d2e`); a fix is refused, not pending | no cgroups/VM; `RLIMIT_AS` ≠ `--memory` and `RLIMIT_NPROC` is per-USER on a shared account (§3.2) |
+| `resources` (cpu/mem/pids) | podman-machine / AC native | **off** — IMPOSSIBLE, **WARNS since 2026-08-24** (`8ab03d2e`); a fix is refused, not pending | no cgroups/VM; `RLIMIT_AS` ≠ `--memory` and `RLIMIT_NPROC` is per-USER on a shared account ([§3.2](#32-resource-limits--no-cgroups)) |
 | `network` modes | yes | **n/a** | runs on host net |
 | `ports` / forward_host_ports | yes | **not wired** | container-path only |
 | `gpu` | Linux only | off | Metal, no CUDA/ROCm |
 | `devices` / `cgroup_rule` | Linux only | off | Linux kernel feature |
 | loopholes: audio / host-processes | yes | **moot** | native process reaches CoreAudio / host procs directly |
 | loopholes: claude-oauth-broker | yes | **skip** | shared home = shared creds; serialization only matters for concurrent sessions |
-| loopholes (any pack- *or* config-declared) — is the inertness reported? | n/a | ✅ **REPORTED since 2026-08-24** (`35448719` + `6a53a2a3`); briefing no longer advertises them (`a639394d`) | this backend starts no loophole host service at all (§3.5) |
+| loopholes (any pack- *or* config-declared) — is the inertness reported? | n/a | ✅ **REPORTED since 2026-08-24** (`35448719` + `6a53a2a3`); briefing no longer advertises them (`a639394d`) | this backend starts no loophole host service at all ([§3.5](#35-loopholes--mostly-moot-here-the-framework-still-ports)) |
 | loophole *framework* (new host-mediated access) | via mount + `--add-host` | ✅ (localhost socket + launch env) | native process reaches host localhost directly |
-| config-diff approval prompt | yes | ✅ **FIXED 2026-08-18** (`bb825486`) — this row said "not reached" until 2026-08-24 (§3.6 retraction) | gated on the arm itself; this backend has no attach path |
+| config-diff approval prompt | yes | ✅ **FIXED 2026-08-18** (`bb825486`) — this row said "not reached" until 2026-08-24 ([§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) retraction) | gated on the arm itself; this backend has no attach path |
 | `security.blocked_tools` shims | yes | ✅ | pure generator |
 | `mise_tools` | yes | ✅ | pure generator |
 | `lsp_servers` | yes | ⚠️ **config renders, binaries never install** — WARNED 2026-08-24 (`6a53a2a3`) | installer is the generated bootstrap script this backend does not run (Part 2 retraction) |
@@ -679,22 +679,22 @@ code are on the roadmap at the **front** of the revival plan's
 the fourth is a settled no-op. Two further questions were **opened on 2026-08-24** by the
 backend-parity sweep and are owned by that doc, not this one — they follow the four.
 
-1. **`macos_shared_root`** (§3.7) — **decided: drop the mention, don't implement.**
+1. **`macos_shared_root`** ([§3.7](#37-the-macos_shared_root-config-key--referenced-not-implemented)) — **decided: drop the mention, don't implement.**
    `/Users/Shared/yolo` covers the real need; remove the key from the
    plan-invariant error message. Roadmap **A3**.
-2. **Config-diff prompt on macos-user** (§3.6) — **decided: fix it now** by hoisting
+2. **Config-diff prompt on macos-user** ([§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc)) — **decided: fix it now** by hoisting
    `checkConfigChanges` ahead of the runtime split so every backend gates on it.
    Roadmap **A1**. — **DONE 2026-08-18** (`bb825486`), landed as a call site on the
    macos-user arm itself rather than a hoist, for the attach-path reason recorded in the
-   §3.6 retraction. Confirmed at `internal/cli/run/run.go:164`, 2026-08-24.
-3. **`claude-oauth-broker` on macos-user** (§3.5) — **decided: leave off.** The
+   [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) retraction. Confirmed at `internal/cli/run/run.go:164`, 2026-08-24.
+3. **`claude-oauth-broker` on macos-user** ([§3.5](#35-loopholes--mostly-moot-here-the-framework-still-ports)) — **decided: leave off.** The
    shared `/Users/_yolojail` home already gives one shared credentials file (the
    broker's main job on containers); refresh serialization only matters for
    *concurrent* Claude sessions and would need hard-to-port host redirection. Note
    `EndpointGrantCommands` as dead-until-needed. The loophole *framework* does
    port and is the motivating future case — roadmap
    [Track L / OQ-L1](../plans/macos-revival-and-distribution-plan.md).
-4. **Skip-list policy** (§1.3) — **decided: implement the written design** (hard
+4. **Skip-list policy** ([§1.3](#13-ordering-and-failure-handling)) — **decided: implement the written design** (hard
    error + per-platform `linux-only` override), retiring today's warn-and-skip. A
    silently dropped tool that the config *declared* masks typos and diverges from
    the documented contract. Roadmap **A2**.
@@ -705,7 +705,7 @@ These are **not** owned by this doc — they live in [backend-parity.md](backend
 is the sweep's home. Listed here because their answers change this backend's surface:
 
 - 💬 **OQ-BP-2 (theirs): do briefings and skills get DELIVERED to macos-user, or stay a
-  documented absence?** (§3.6, Part 2 table.) Today the agent starts with no `AGENTS.md`, no
+  documented absence?** ([§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc), Part 2 table.) Today the agent starts with no `AGENTS.md`, no
   `CLAUDE.md` and no skills — including the built-in suite — while the blocked-tool shims *are*
   generated. Warned as of `6a53a2a3`. A fix means composing above the dispatch and delivering by
   copy into the sandbox home: a real delivery mechanism, not a moved call. Their leaning is
@@ -717,7 +717,7 @@ is the sweep's home. Listed here because their answers change this backend's sur
   skip is worse than none. Their leaning is **not yet**, and per-key when it comes.
 
 **Settled by the sweep and NOT reopened here** (both recorded in
-[backend-parity.md](backend-parity.md) §7, both reflected above): per-workspace homes on
+[backend-parity.md](backend-parity.md) [§7](./backend-parity.md#7-what-this-does-not-propose), both reflected above): per-workspace homes on
 macos-user are **refused** — the single home is this backend's shared-credentials mechanism
-(§3.1, §3.5) — and enforcing `resources` via rlimits is **refused** on the semantics grounds in
-§3.2. Neither is a pending gap; both are terminal answers with a warning attached.
+([§3.1](#31-bind-mounts--none-exist), [§3.5](#35-loopholes--mostly-moot-here-the-framework-still-ports)) — and enforcing `resources` via rlimits is **refused** on the semantics grounds in
+[§3.2](#32-resource-limits--no-cgroups). Neither is a pending gap; both are terminal answers with a warning attached.

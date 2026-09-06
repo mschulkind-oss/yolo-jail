@@ -3,30 +3,30 @@
 **Status:** REFERENCE — the authority for authoring, debugging, or changing a
 pack. **Spot-verified 2026-08-23:**
 
-- **The kind set is right: 15 kinds, exactly the 15 in §3's table**
+- **The kind set is right: 15 kinds, exactly the 15 in [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table**
   (`internal/packdecl/kinds.go:283` `KnownKinds()`, pinned by
   `internal/packdecl/kinds_test.go:30`). Nothing missing, nothing extra. One
-  nuance: `KnownKinds()` returns them **sorted alphabetically**, while §3's table
+  nuance: `KnownKinds()` returns them **sorted alphabetically**, while [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table
   is in declaration order (`kinds.go:39-135`) — the table is not the wire order.
 - **The `hook` set is still exactly three** — `shared_credentials`,
   `per_jail_history`, `claude_plugins` (`internal/packdecl/packdecl.go:99`,
   drift-pinned by `internal/entrypoint/hookdrift_test.go:31`).
 - **`packs` really is user-scope only** — a workspace config naming one is a hard
   error (`internal/config/packs.go:488`).
-- **The command surface in §10 matches** (`internal/cli/pack.go:174-193`) — and
+- **The command surface in [§10](#10-command-surface) matches** (`internal/cli/pack.go:174-193`) — and
   it is a hand-rolled string switch, not cobra.
 - **`bundled_loopholes/` is gone**, with no Go embed of it anywhere.
-- **The six agent packs are right**, but §0 undercounts the inventory — see the
+- **The six agent packs are right**, but [§0](#0-three-principles) undercounts the inventory — see the
   note below.
 
-**Fixed here (2026-08-23):** the §3 loophole note's two "still outstanding" items
-(both are settled, one by shipping and one by deletion), and §5's list of
-non-agent surface owners. **Not verified:** §5's compose-engine layer fold and
-mode semantics, §7's Lua contract, §9's approval/lockfile flow, §11's worked
-examples, and the §14 gap list beyond the two items named above.
+**Fixed here (2026-08-23):** the [§3](#3-the-kinds-their-footprints-and-conflict-rules) loophole note's two "still outstanding" items
+(both are settled, one by shipping and one by deletion), and [§5](#5-config-surfaces-and-the-compose-engine)'s list of
+non-agent surface owners. **Not verified:** [§5](#5-config-surfaces-and-the-compose-engine)'s compose-engine layer fold and
+mode semantics, [§7](#7-the-derive-slot)'s Lua contract, [§9](#9-the-credential-boundary-the-pin-not-a-prompt)'s approval/lockfile flow, [§11](#11-worked-examples)'s worked
+examples, and the [§14](#14-gaps-between-the-schema-and-the-shipped-tooling) gap list beyond the two items named above.
 
 > [!NOTE]
-> **§0 says "the six that ship with yolo" and that is the AGENT subset, not the
+> **[§0](#0-three-principles) says "the six that ship with yolo" and that is the AGENT subset, not the
 > pack inventory.** `packs/` holds **twelve** packs (verified 2026-09-02): six agent
 > packs — `claude`, `copilot`, `opencode`, `pi`, `codex`, `agy` — plus six that
 > install no CLI at all, in two kinds: `audio`, `host-processes`,
@@ -66,11 +66,11 @@ Everything below follows from three rules. Read these first; the rest is their m
    tool-independent set — `program`, `skills`, `briefing`, `config`, `state`, and so on. It
    never names `claude` or `copilot`. A pack maps its tool onto those nouns. The boot path
    renders every pack in one loop with no switch on any tool name; the *selection of which
-   packs stage* is the only filter (§8).
+   packs stage* is the only filter ([§8](#8-selection-and-the-load-path)).
 
 3. **The manifest is static data.** Every claim a pack makes is readable without executing
    anything — that is what keeps linting, the origin gate, and content hashing honest. Lua
-   has exactly one job in a pack (`derive`, §7): it computes config *values*, and never
+   has exactly one job in a pack (`derive`, [§7](#7-the-derive-slot)): it computes config *values*, and never
    declares *effects*.
 
 ---
@@ -156,14 +156,14 @@ pack with no `pack.json` behaves as an empty `contributes`.
 ```
 
 `contributes` is a single list of typed **contributions**. Each has a required `kind` drawn
-from a closed set core owns (§3), plus the fields that kind uses. The struct is a flat
+from a closed set core owns ([§3](#3-the-kinds-their-footprints-and-conflict-rules)), plus the fields that kind uses. The struct is a flat
 superset — a contribution carries only the fields its kind reads. Decoding is strict
 (`DisallowUnknownFields`) and reports *every* problem, not the first, so a typo in one
 contribution does not mask a second. An unknown `kind` is a loud load error **at authoring**
 — every host-side read — and, across the version boundary only, a skipped-and-reported
 contribution instead: the in-jail load runs `packload.TolerateSkew()`, so a manifest using a
 kind a pre-`just load` entrypoint does not know still boots the jail, warning by name
-([`loophole-packaging.md`](loophole-packaging.md) §3.3a).
+([`loophole-packaging.md`](loophole-packaging.md) [§3.3](./loophole-packaging.md#33-footprint-entry--one-contribution-several-claims-and-the-enumeration-must-be-total)a).
 
 **Every path is relative and points into `$HOME` or the pack.** Absolute paths, `..`
 segments, and `:` are rejected as a security property, not a style rule: a pack — especially
@@ -213,7 +213,7 @@ because they widen the trust surface — machine-scope state (it leaks across wo
 prepends a host file. The review flag is an invitation to look, not a refusal.
 
 > **`loophole` is the 15th kind and it LANDED** (design:
-> [`loophole-packaging.md`](loophole-packaging.md) §3). A pack ships a host daemon by
+> [`loophole-packaging.md`](loophole-packaging.md) [§3](./loophole-packaging.md#3-the-15th-kind-loophole)). A pack ships a host daemon by
 > pointing at a module directory holding a `manifest.jsonc` — the same on-disk shape a
 > bundled loophole has — and it is the first kind whose claim is **host code execution**
 > rather than a host read, so it carries its own trust story and its own claim classes:
@@ -287,8 +287,8 @@ version.
   both exits at once and freeze the jail on the old version with nothing left to retry.
   (Until 2026-08-17 the launcher appended `@latest` unconditionally, so
   `foo@1.2.3` was installed as `foo@1.2.3@latest` and a version was not expressible at
-  all — the caveat that stalled the top row of `trust-paths.md` §1.)
-- `url` (required for `installer`) — the install-script URL (origin-gated, §9).
+  all — the caveat that stalled the top row of [`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict).)
+- `url` (required for `installer`) — the install-script URL (origin-gated, [§9](#9-the-credential-boundary-the-pin-not-a-prompt)).
 - `flags` — optional flags baked into the launcher.
 - `update` — optional array: the argv that makes the program update ITSELF, with the bin
   omitted (`"update": ["install"]` for claude, `["update", "--self"]` for pi). The launcher
@@ -297,7 +297,7 @@ version.
   by name on every other kind. It is a vendor's argv, so it is deliberately NOT a closed
   enum: the vendors disagree (`claude install`, `codex update`, `agy update`) and core
   hardcoding one is how `yolo pack update` came to skip the installer class entirely
-  (`program-delivery.md` OQ-PD14).
+  ([`program-delivery.md`](./program-delivery.md) [OQ-PD14](./program-delivery.md#decision-ledger)).
 A pack may declare **several** `program` contributions and each gets its own launcher —
 exclusivity is per `bin`, not per pack, so `shellcheck` + `shfmt` in one pack is ordinary.
 (Until 2026-08-03 only the *first* installed in a jail, while the host path reported all of
@@ -381,8 +381,8 @@ own tree, so a local skill always wins.
   **Honored** at both notches (the jail's skills staging and `yolo host apply`), and by
   wrapped-plugin discovery, which scans it rather than a fixed `skills/`. It became optional
   because every shipped pack declared the same literal while the resolver already defaulted it —
-  the validator was the only half of the code that thought the field mattered (§6a-3 of
-  `../plans/shipped-2026-08-pack-batch.md` §6a-3). A pack with no manifest at all still merges its `skills/` dir — the
+  the validator was the only half of the code that thought the field mattered ([§6](#6-composed-file-posture-what-writable-means)a-3 of
+  [`../plans/shipped-2026-08-pack-batch.md`](../plans/shipped-2026-08-pack-batch.md) [§6](#6-composed-file-posture-what-writable-means)a-3). A pack with no manifest at all still merges its `skills/` dir — the
   zero-ceremony case.
 - `into` (required, unless the contribution names an `agents` audience instead) —
   home-relative destination.
@@ -407,7 +407,7 @@ own tree, so a local skill always wins.
 > treats skills as safely mergeable. A zero-ceremony pack (a bare `skills/` dir, no
 > contribution) merges cleanly into whichever agent pack owns that destination; declaring an
 > explicit `skills` contribution that duplicates another pack's `into` is the case to avoid.
-> See §14.
+> See [§14](#14-gaps-between-the-schema-and-the-shipped-tooling).
 
 ### `briefing`
 Prose concatenated into a briefing file, attributed to its pack. **The destination is
@@ -483,11 +483,11 @@ Sole ownership is enforced before the container starts: two contributions claimi
 
 Rendering `files` at the HOST is still refused by name (`yolo host apply`): a bind mount
 means nothing off-container, and writing the tree into a real `$HOME` is a different
-posture with its own overwrite rules. See §14.
+posture with its own overwrite rules. See [§14](#14-gaps-between-the-schema-and-the-shipped-tooling).
 
 ### `config`
 A composed config surface the pack owns. `config` is a JSON array of surface definitions
-(§5) carried verbatim; the surface schema is validated by the config engine.
+([§5](#5-config-surfaces-and-the-compose-engine)) carried verbatim; the surface schema is validated by the config engine.
 - `config` (required) — the surface array.
 
 ```json
@@ -510,7 +510,7 @@ redefine the *surface* (`agent`, `name`, `path`, `codec`, `mode`, `transform`, `
 `retireOnFirstRender`) is refused by name at decode: a contributor contributes keys, and the
 owner decides where the file lands, in what format, and how it is maintained across boots.
 That refusal is what stops an overlay reproducing the silent `mode`-flip hazard a second
-`config` declaration can cause (`pack-config-collaboration.md` R1).
+`config` declaration can cause ([`pack-config-collaboration.md`](./pack-config-collaboration.md) R1).
 
 **If the target surface has no owner** among the selected packs, the overlay is **inert and
 reported by name** — it neither creates the file nor fails the launch:
@@ -659,7 +659,7 @@ Principle 1 restated concretely. There are two ways a file reaches the jail:
 - **Shared production via a neutral owner.** When two packs affect one file, no pack writes
   it. Each emits typed contributions and a **core-owned assembler** consumes all of them and
   writes the file into a staging tree it wholly owns; the staging tree is mounted read-only
-  into the jail. The compose engine (§5) is that owner for config; the stage-then-`:ro`-mount
+  into the jail. The compose engine ([§5](#5-config-surfaces-and-the-compose-engine)) is that owner for config; the stage-then-`:ro`-mount
   pattern is it for skills and briefings.
 
 ```
@@ -721,11 +721,11 @@ defaults  <  host  <  workspace  <  config-overlay  <  capture-overlay  <  compu
   surface path becomes this layer, read from its `/ctx` mount. This is how claude's own
   `~/.claude/settings.json` composes into the jail with no second declaration.
 - **`config-overlay`** carries the keys OTHER packs contribute to a surface this one owns
-  (§3), in `packs`-list order (later wins). Below `managed`, so the owner still wins a
+  ([§3](#3-the-kinds-their-footprints-and-conflict-rules)), in `packs`-list order (later wins). Below `managed`, so the owner still wins a
   genuine conflict.
 - **`capture-overlay`** carries a user's in-jail edits across regeneration (for `stateful`
   surfaces).
-- **`computed`** is the per-boot dynamic layer produced by `derive` (§7); a null value there
+- **`computed`** is the per-boot dynamic layer produced by `derive` ([§7](#7-the-derive-slot)); a null value there
   is an RFC-7386 tombstone that deletes the key.
 - **`managed`** is the floor yolo always wins.
 
@@ -877,7 +877,7 @@ Everything else is offline.
 - The lockfile (`~/.config/yolo-jail/packs.lock.json`, beside the user config) records the
   asked-for `source`, the resolved `commit`, the `ref`, and — for a fetched pack the user
   granted host access — the approved host-access claims and the commit they were approved at
-  (§9). Because trees are keyed by commit, a moving ref never corrupts an existing checkout.
+  ([§9](#9-the-credential-boundary-the-pin-not-a-prompt)). Because trees are keyed by commit, a moving ref never corrupts an existing checkout.
 - Launch resolves pins from the store and never fetches; a missing pin errors and points at
   `yolo pack install`. `yolo pack status` flags drift between the config address and the
   lock.
@@ -905,7 +905,7 @@ Everything else is offline.
 
 > [!IMPORTANT]
 > **REWRITTEN 2026-09-04.** This section described an approval prompt that
-> [`trust-paths.md`](trust-paths.md) **OQ-TP9** deleted as theatre, and it had also gone stale on a
+> [`trust-paths.md`](trust-paths.md) **[OQ-TP9](#why-there-is-no-approval-gate-oq-tp9-2026-09-04)** deleted as theatre, and it had also gone stale on a
 > second point: it said an unapproved fetched pack *"still loads … but its host claims are refused
 > with a printed notice"*, which **OQ-TP6 replaced with a fatal launch refusal on 2026-08-18**
 > (`6385dfbb`) — the code says so in as many words at `run/packrefusal.go:95`. Both are corrected
@@ -924,14 +924,14 @@ and miss another:
 - a shipped **loophole's** daemon, intercepts, host binds and devices.
 
 Static `env` is *not* host access — its values are literal strings — and neither is `derive.lua`
-(OQ-TP8: it is sandboxed, and the static `env` channel already carries the same field literally).
+([OQ-TP8](./trust-paths.md#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04): it is sandboxed, and the static `env` channel already carries the same field literally).
 
 **A pack has an origin**: embedded (ships with yolo), local (a `file://` directory the user
 controls), or fetched (cloned from a git ref). **Origin no longer decides host access.** It names the
 delivery route — a fetched pack must be `yolo pack install`ed to reach the store, and gets a lockfile
 entry with a commit — and nothing more.
 
-### Why there is no approval gate (OQ-TP9, 2026-09-04)
+### Why there is no approval gate ([OQ-TP9](#why-there-is-no-approval-gate-oq-tp9-2026-09-04), 2026-09-04)
 
 Selecting a pack means writing `packs` in `~/.config/yolo-jail/config.jsonc`, as the host user.
 `packs` is **user-scope only and inexpressible at workspace scope by construction** — that is the
@@ -942,7 +942,7 @@ So a prompt at `yolo pack install` refuses an actor who has already passed a str
 [`gate-placement-principle.md`](gate-placement-principle.md) Test 1 calls that theatre, and
 `internal/config/userlayer.go` already applied the same test, the same way, to `--user-layer` — the
 other route into `packs`. The gate's original rationale (a fetched pack must not `curl | sh`) was
-refuted in-house by [`pack-execution-trust.md`](pack-execution-trust.md) §2: `npm install -g` runs
+refuted in-house by [`pack-execution-trust.md`](pack-execution-trust.md) [§2](./pack-execution-trust.md#2-why-that-rationale-does-not-hold): `npm install -g` runs
 `postinstall` from the same fetched pack, ungated, so the set refuses one path to arbitrary in-jail
 execution while permitting another.
 
@@ -958,7 +958,7 @@ lockfile pin *consulted at launch* is a strictly better version of that, and cov
 > `yolo pack install`/`update` runs — the one network step — so content is frozen between installs.
 > What is true: the lockfile's **only** launch-time job today is the approval gate, so **deleting the
 > gate makes it write-only at launch.** The substance was already ruled by
-> [`loophole-packaging-overview.md`](loophole-packaging-overview.md) **OQ-LP8** — *"choosing to follow
+> [`loophole-packaging-overview.md`](loophole-packaging-overview.md) **[OQ-LP8](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)** — *"choosing to follow
 > a branch IS the trust decision"* — with two requirements it never delivered: say that in one plain
 > sentence, and **document tag pins as the shape for a pack carrying host execution.** Those are now
 > the only thing between a user and a mutable ref. **G2b is moot** once the approval is gone.
@@ -981,7 +981,7 @@ no prompt at install time can do.
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [ref]` | print claims + cross-pack collisions + review summary; `[ref]` is an embedded pack name **or a local path / `file://` source** so you can inspect a pack you are authoring |
-| `yolo pack install` / `update` | fetch configured packs, write the lockfile, report moved pins, prune dropped packs (the only network step); **prompt to approve a fetched pack's host access**, re-prompting only when a moved pin gains a claim (§9) |
+| `yolo pack install` / `update` | fetch configured packs, write the lockfile, report moved pins, prune dropped packs (the only network step); **prompt to approve a fetched pack's host access**, re-prompting only when a moved pin gains a claim ([§9](#9-the-credential-boundary-the-pin-not-a-prompt)) |
 | `yolo pack status` | show locked commits and flag config/lock drift |
 
 ---
@@ -1060,7 +1060,7 @@ dir.
   violated exactly once, by the `loophole` kind's own first draft: a loophole declaring only
   `host_bind_mounts` + `host_devices` produced no claims, so a fetched pack got an arbitrary
   absolute host path into a UID-0 jail with no prompt. Read
-  [`loophole-packaging.md`](loophole-packaging.md) §3.3 before adding any kind whose claims
+  [`loophole-packaging.md`](loophole-packaging.md) [§3.3](./loophole-packaging.md#33-footprint-entry--one-contribution-several-claims-and-the-enumeration-must-be-total) before adding any kind whose claims
   come from a file outside `pack.json` — and emit a claim for every crossing, or the
   crossing arrives through that branch.
 - Packs stay user scope — a workspace config cannot name one.
@@ -1088,9 +1088,9 @@ than scattered.
    `yolo check`, refuse pack-vs-pack, report pack-vs-user. The footprint union is the
    mechanism; the severity wiring is unbuilt.
 5. **Per-confinement field applicability.** Which kinds mean anything when a pack is rendered
-   somewhere other than a container (see §14) — `config`/`skills`/`briefing` port cleanly;
+   somewhere other than a container (see [§14](#14-gaps-between-the-schema-and-the-shipped-tooling)) — `config`/`skills`/`briefing` port cleanly;
    `files`/`install` are refused; `reads-host` and `state` at the host are genuinely unclear.
-   This is `yolo-as-environment-manager.md`'s concern.
+   This is [`yolo-as-environment-manager.md`](./yolo-as-environment-manager.md)'s concern.
 
 ---
 
@@ -1110,7 +1110,7 @@ Not yet wired:
   (`docs/plans/pack-host-management-plan.md` Phase 7). Refused by name, never silently
   skipped.
 
-- ~~**`from` on `briefing`, in a JAIL.**~~ **FIXED 2026-08-04** (shipped-2026-08-pack-batch.md §6a-4).
+- ~~**`from` on `briefing`, in a JAIL.**~~ **FIXED 2026-08-04** (shipped-2026-08-pack-batch.md [§6](#6-composed-file-posture-what-writable-means)a-4).
   `run.readPackBriefing` took a DIRECTORY and read a root `AGENTS.md`/`CLAUDE.md` regardless of
   `from`, so a pack whose prose lived elsewhere briefed at the host notch and not in a jail.
   Both readers now go through `packload.BriefingProseFor`, over
@@ -1135,7 +1135,7 @@ Not yet wired:
     deleting (reclaimed by `yolo prune`). `skills` used to work the same way and no longer does —
     see the next bullet.
   - **`skills` is COMPOSED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
-    shipped-2026-08-pack-batch.md §6a-2), which makes it the `briefing` story applied to a directory:
+    shipped-2026-08-pack-batch.md [§6](#6-composed-file-posture-what-writable-means)a-2), which makes it the `briefing` story applied to a directory:
     - **The user's own skills MOVE into the local pack** (`~/.config/yolo-jail/local/skills/`),
       where yolo composes them back into EVERY destination. That is the point of the ruling
       rather than a side effect: a personal skill used to live in each agent's dir
@@ -1151,7 +1151,7 @@ Not yet wired:
     - **Precedence is the LAYER ORDER**, so the local pack — appended last — outranks every
       shared pack. It did not before: the per-entry rule asked "did THIS PACK write it?", which
       refused any pack overwriting another's recorded name whatever the order, and the local
-      pack lost a flat-tier collision (§6a-5). Composition asks only "is this yolo's?", so the
+      pack lost a flat-tier collision ([§6](#6-composed-file-posture-what-writable-means)a-5). Composition asks only "is this yolo's?", so the
       refusal is unrepresentable rather than handled. **Superseded in part by S1 below:** layer
       order still decides which layer may write a name, but two packs *contending* for one
       unnamespaced name no longer reach that rule at all — it is refused.
@@ -1180,7 +1180,7 @@ Not yet wired:
       - A pack still carrying `"tier"` on a contribution is refused BY NAME with the migration in
         the message, rather than failing on the strict decoder's bare `unknown field "tier"`.
   - **`briefing` is GENERATED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
-    shipped-2026-08-pack-batch.md §6a). It was a delimited managed block inside the user's file; that
+    shipped-2026-08-pack-batch.md [§6](#6-composed-file-posture-what-writable-means)a). It was a delimited managed block inside the user's file; that
     mechanism existed to keep an append from growing without bound when source and destination
     are the same file, which accepted a premise the ruling rejects — that a briefing file is
     jointly owned. Three consequences a reader should know:
@@ -1223,7 +1223,7 @@ Resolved sharp edges (kept because the reasoning is the interesting part):
   `into`).
 
 - ~~**`config` exclusivity was documented and unenforced.**~~ **ENFORCED 2026-08-02**
-  (`pack-config-collaboration.md` Option 1 / R1). The table above has always called `config`
+  ([`pack-config-collaboration.md`](./pack-config-collaboration.md) Option 1 / R1). The table above has always called `config`
   Exclusive — *"a second writer must be `config-overlay`"* — while `manifest.Merge` resolved
   two declarations of one identity last-writer-wins, WHOLE: the survivor brought its own
   `mode`, `path`, `codec` and `defaults`, so a pack could flip another pack's surface from
@@ -1251,7 +1251,7 @@ Resolved sharp edges (kept because the reasoning is the interesting part):
 | The `packs` config key, precedence, entry schema | `yolo config-ref` |
 | The composition engine internals | `internal/agentcfg` |
 | Bringing host files INTO a jail as a user (the `host_files` key) | `docs/plans/host-file-staging.md` |
-| A pack shipping a LOOPHOLE (host daemon) — the `loophole` kind, §3 above | `docs/design/loophole-packaging-overview.md` to decide, `docs/design/loophole-packaging.md` for the trust model and what is still outstanding |
+| A pack shipping a LOOPHOLE (host daemon) — the `loophole` kind, [§3](#3-the-kinds-their-footprints-and-conflict-rules) above | `docs/design/loophole-packaging-overview.md` to decide, `docs/design/loophole-packaging.md` for the trust model and what is still outstanding |
 | Rendering a pack OUT to the host (the invert-the-flow design) | `docs/design/host-render-target.md` |
 | The credential/identity boundary a pack respects | `docs/design/agent-credentials.md`, `docs/design/identity-prism-decision.md` |
 | Composed-file read/write posture, in depth | `docs/design/composed-file-permissions.md` |

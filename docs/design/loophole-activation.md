@@ -9,15 +9,15 @@ summary: "A loophole is active today because it was present and something it nam
 # Nothing reaches your host because it happened to be there — loophole activation
 
 **Status:** DECIDED 2026-08-18; **five of six rulings BUILT, the sixth built NARROWER than written**
-(re-verified 2026-08-23). All thirteen questions are settled (Decision Ledger below), and §1.3's
+(re-verified 2026-08-23). All thirteen questions are settled (Decision Ledger below), and [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on)'s
 table's last holdout — the broker's jail wiring — landed 2026-08-19 when the manifest moved into
 `packs/claude` and `bundled_loopholes/` was deleted whole
-([`broker-as-a-pack.md`](broker-as-a-pack.md) §13). Two rows in that table are deliberately not ✅
-and never will be: the **host nix daemon** stays ungated by ruling (OQ-A11), and **a user's own
+([`broker-as-a-pack.md`](broker-as-a-pack.md) [§13](./broker-as-a-pack.md#13-what-empty-the-channel-actually-required--measured-2026-08-19)). Two rows in that table are deliberately not ✅
+and never will be: the **host nix daemon** stays ungated by ruling ([OQ-A11](#decision-ledger)), and **a user's own
 `loopholes:` block** is unchanged by design.
 
 > [!WARNING]
-> **R3 shipped narrower than it reads, and the difference matters to a pack author.** R3 (§2) says
+> **R3 shipped narrower than it reads, and the difference matters to a pack author.** R3 ([§2](#2-the-rulings)) says
 > *"`requires.command_on_path` is deleted from the schema. Not corrected — deleted."* **The schema
 > key is alive**: parsed and type-checked (`internal/loopholedecl/loopholedecl.go:697-703`), in the
 > pack-shippable subset, and **used by a shipped manifest today** —
@@ -28,7 +28,7 @@ and never will be: the **host nix daemon** stays ungated by ruling (OQ-A11), and
 > expresses. Read R3 as being about the broker, not the schema.
 
 **The one real gap is closed.** `default_enabled` collided with a live `enabled` key and the design
-never said which won; OQ-A9 ruled one key, renamed, governing all four manifest sources.
+never said which won; [OQ-A9](#decision-ledger) ruled one key, renamed, governing all four manifest sources.
 
 > [!WARNING]
 > **Two traps that will bite the implementation, both easy to walk into.** Deleting
@@ -65,20 +65,20 @@ the `requires.command_on_path` sniff is **deleted** rather than fixed — it is 
 bug in the mechanism. The principle behind it, in the maintainer's words: *"we don't give host
 access by default."*
 
-**If you read one section, read §1.3** — the inventory of everything that reaches your host and why
+**If you read one section, read [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on)** — the inventory of everything that reaches your host and why
 it is currently on. No two rows agree, and that is the whole argument.
 
-§1.4 is the finding that should worry you most: core's config schema names two loopholes by hand —
-and after OQ-A6 both of those names go, which is what makes the conversion mean something.
+[§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) is the finding that should worry you most: core's config schema names two loopholes by hand —
+and after [OQ-A6](#decision-ledger) both of those names go, which is what makes the conversion mean something.
 **Both went on 2026-08-18.** `host_processes` and `journal` are refusals now, `paths.BuiltinLoopholeNames`
-is deleted, and core's schema names no loophole at all. ~~§1.3's table has one row left that is not
+is deleted, and core's schema names no loophole at all. ~~[§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on)'s table has one row left that is not
 ✅ — the broker's jail wiring, blocked on a mechanism gap.~~ **That row went green on 2026-08-19**
 when the manifest moved into `packs/claude`; the two rows still not ✅ are ungated *by ruling*, not
 blocked (see the status line).
 
-**Reads with:** [`broker-as-a-pack.md`](broker-as-a-pack.md) (the sprint this came out of; §5.5 is
+**Reads with:** [`broker-as-a-pack.md`](broker-as-a-pack.md) (the sprint this came out of; [§5.5](./broker-as-a-pack.md#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble) is
 the connection preamble, §12 the `host-processes` conversion),
-[`loophole-packaging-overview.md`](loophole-packaging-overview.md) (§5 "Defaults, and what stays
+[`loophole-packaging-overview.md`](loophole-packaging-overview.md) ([§5](./loophole-packaging-overview.md#5-defaults-and-what-stays-bundled) "Defaults, and what stays
 bundled" — this supersedes its activation story),
 [`gate-placement-principle.md`](gate-placement-principle.md) (why a second gate over the same act is
 worse than none).
@@ -98,11 +98,11 @@ have since been settled and folded into the body.
 | **OQ-A6** | `journal` and `cgroup-delegate` **become manifest loopholes — in this sprint**, not after it · ✅ **BUILT 2026-08-18** | 2026-08-18 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A7** | A loophole-only pack **needs selecting**. No special case: shipped in the binary is not installed | 2026-08-17 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A8** | A loophole's settings are **typed and declared in its manifest**, not an opaque map — 📄 [`pack-config-keys.md`](pack-config-keys.md) | 2026-08-17 | [§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) |
-| **OQ-A10** | The broker's loophole is a contribution of **`packs/claude`**, not its own pack — and `broker-as-a-pack.md` §6 is corrected rather than left standing | 2026-08-18 | [§2](#2-the-rulings) |
+| **OQ-A10** | The broker's loophole is a contribution of **`packs/claude`**, not its own pack — and [`broker-as-a-pack.md`](./broker-as-a-pack.md) [§6](./broker-as-a-pack.md#6-what-the-pack-looks-like) is corrected rather than left standing | 2026-08-18 | [§2](#2-the-rulings) |
 | **OQ-A11** | **Gate the broker daemons** on the loophole record; **leave the nix socket** ungated and say why | 2026-08-18 | [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
 | **OQ-A12** | `yolo check` learns to read pack-shipped loopholes **in this sprint**, as part of the conversion | 2026-08-18 | [§4](#4-what-it-costs) |
 | **OQ-A13** | **R5 stands** — a workspace may still enable. Mirror the existing OFF-direction disclosure onto ON, and treat it as readability rather than a control | 2026-08-18 | [§2](#2-the-rulings) |
-| **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources. `SetEnabled` stops writing manifests; it instructs rather than writing config (see the note in §2) | 2026-08-18 | [§2](#2-the-rulings) |
+| **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources. `SetEnabled` stops writing manifests; it instructs rather than writing config (see the note in [§2](#2-the-rulings)) | 2026-08-18 | [§2](#2-the-rulings) |
 
 ---
 
@@ -121,7 +121,7 @@ a manifest omits it (`loopholedecl.go:509-511`), and **all four shipped manifest
 anyway** — the three bundled ones and the official audio pack's. So a loophole is on the moment it is
 *present*, and presence was never a decision the user made.
 
-*(Two corrections from the completeness sweep, §6. `Active` also requires `!Superseded()`
+*(Two corrections from the completeness sweep, [§6](#6-what-the-completeness-sweep-found). `Active` also requires `!Superseded()`
 (`loopholes.go:230-232`) — a capability another pack has taken over is inactive however enabled it
 is, and the code carries a note that a design doc already got this table wrong once. And the default
 above was first cited as `discover.go:50`, which is the **config-block** synthesis path, not the
@@ -152,12 +152,12 @@ fail, in opposite directions**:
   (`assemble_parts.go:408-435`), which decides the endpoint env var, the CA mount and the in-jail
   terminator. Without host `claude`, none of those land, so the jail's own claude refreshes directly
   against Anthropic — unserialized, which is exactly the concurrent single-use-refresh-token race the
-  broker exists to prevent ([`agent-credentials.md`](agent-credentials.md) §2.5).
+  broker exists to prevent ([`agent-credentials.md`](agent-credentials.md) [§2.5](./agent-credentials.md#25-the-claude-oauth-broker-loophole-claude-oauth-refresh)).
 
 So the user gets a host daemon they never asked for *and* no protection from it. It works on the
 maintainer's machine because that host has claude installed. A predicate that is true for the author
 and false for the product's core use case is the worst shape a default can have — and **R1 already
-has a counterexample sitting in the run pipeline**, which R6 does not by itself remove (OQ-A11).
+has a counterexample sitting in the run pipeline**, which R6 does not by itself remove ([OQ-A11](#decision-ledger)).
 
 **The dependency it was approximating is structural, not observational.** "Is there anything to
 refresh for" is really "is the claude pack selected" — which the pack system can express directly,
@@ -179,14 +179,14 @@ activates automatically but the capability is **empty until the workspace opts i
 That is R5's shape — user-scope install, workspace-scope opt-in — invented ad hoc for one loophole
 before the general rule existed. Two consequences:
 
-- **The upgrade population is much smaller and far better identified than §4 said.** `yolo-ps` only
+- **The upgrade population is much smaller and far better identified than [§4](#4-what-it-costs) said.** `yolo-ps` only
   "goes dark" for someone who *already* wrote a non-empty `host_processes.visible`. That is also a
-  precise trigger for OQ-A2's notice: a workspace with entries but no selected pack is exactly the
+  precise trigger for [OQ-A2](#decision-ledger)'s notice: a workspace with entries but no selected pack is exactly the
   case worth printing a line for, and it costs nothing to detect.
 - **After the ruling there are three gates for one feature** — select the pack, enable the loophole,
   list the processes.
 
-  **RULED (OQ-A5, 2026-08-18): keep all three, and do nothing clever.** They answer different
+  **RULED ([OQ-A5](#decision-ledger), 2026-08-18): keep all three, and do nothing clever.** They answer different
   questions — is it installed, is it running, what may it show — and collapsing them would mean a
   non-empty `visible` list **silently starting a host daemon**, which is the presence-activation this
   whole document deletes, wearing a different hat. The ceremony is the price of the rule being true.
@@ -204,7 +204,7 @@ platform allows — *"Linux only, cgroup v2 only"* (`loopholesruntime.go:104-107
 all. That is precisely the shape R1 deletes, in a host-side daemon, and the first draft did not
 mention it.
 
-**RULED (OQ-A4, 2026-08-18): it becomes opt-in, same as everything else.** No exception. The
+**RULED ([OQ-A4](#decision-ledger), 2026-08-18): it becomes opt-in, same as everything else.** No exception. The
 delegate hands a jail control of **its own** cgroup rather than reading host state, so R4's "we don't
 give host access by default" argument is genuinely weaker here — but weaker is not absent, and R1 is
 about the *mechanism*, not the severity. The moment one builtin stays presence-activated, "presence
@@ -219,19 +219,19 @@ is the argument for unifying them.*
 
 | | channel | on today because… | its config key | after the rulings |
 |---|---|---|---|---|
-| **broker daemon + relay** | *not gated at all* | `run.go` spawned the singleton every launch, no lookup | *none* | ✅ **DONE 2026-08-18** — gated on the loophole record (OQ-A11), launch path and attach path both |
-| **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | ✅ **DONE 2026-08-19** — a contribution of `packs/claude` (OQ-A10), `default_enabled: true`; `requires.command_on_path: "claude"` deleted as redundant under the pack's own selection, and `run.brokerLoopholeActive` gained the origin gate it was allowed to skip only while the record was bundled |
+| **broker daemon + relay** | *not gated at all* | `run.go` spawned the singleton every launch, no lookup | *none* | ✅ **DONE 2026-08-18** — gated on the loophole record ([OQ-A11](#decision-ledger)), launch path and attach path both |
+| **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | ✅ **DONE 2026-08-19** — a contribution of `packs/claude` ([OQ-A10](#decision-ledger)), `default_enabled: true`; `requires.command_on_path: "claude"` deleted as redundant under the pack's own selection, and `run.brokerLoopholeActive` gained the origin gate it was allowed to skip only while the record was bundled |
 | **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`, and the top-level key is now REFUSED |
 | **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the two merged under the plain name and the `requires` probe became `platforms: ["linux"]` |
-| **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the top-level key is REFUSED and the mode is the typed `full` setting, `scope: "user"` (OQ-K4) |
+| **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the top-level key is REFUSED and the mode is the typed `full` setting, `scope: "user"` ([OQ-K4](./pack-config-keys.md#decision-ledger)) |
 | **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`, gated on `Honored` (its record is a pack's, so the origin gate is live). `yolo-cglimit` is opt-in, as ruled |
-| **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **stays ungated** (OQ-A11) — image infrastructure, not a capability a jail reaches for; gating it is a `--no-nix` feature |
+| **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **stays ungated** ([OQ-A11](#decision-ledger)) — image infrastructure, not a capability a jail reaches for; gating it is a `--no-nix` feature |
 | a user's own | `loopholes:` config block | `enabled` defaults true | `loopholes.<name>.*` | unchanged |
 
 Read down the "on today because…" column and the diagnosis writes itself: **no two of these turn on
 the same way**, and only one of them was ever a decision the user made deliberately.
 
-**RULED (OQ-A11, 2026-08-18): gate the broker daemons on the loophole record; leave nix ungated, and
+**RULED ([OQ-A11](#decision-ledger), 2026-08-18): gate the broker daemons on the loophole record; leave nix ungated, and
 say why.** *(BUILT 2026-08-18, ahead of the move it was meant to precede — it is independent of every
 other step, and each launch it went unbuilt was a host daemon nobody asked for. `brokerEnsure` and
 `ensureBrokerRelay` now sit behind `brokerLoopholeActive(cfg)`, the same predicate
@@ -250,7 +250,7 @@ a capability a jail reaches for, so gating it is a `--no-nix`-shaped feature, no
 ruling. **The row stays in the table either way** — the table's credibility is the argument, and an
 inventory that quietly omits the crossing it cannot justify is worth less than one that names it.
 
-*Two rows were added by the completeness sweep (§6) and both matter. The broker splits in half — the
+*Two rows were added by the completeness sweep ([§6](#6-what-the-completeness-sweep-found)) and both matter. The broker splits in half — the
 daemon is ungated, only the jail wiring is — and the **host nix daemon socket** is mounted into jails
 because it exists, with no key anywhere. A writable socket to the host's nix-daemon builds and
 realises store paths on the host's behalf, which is a strictly larger crossing than `audio`'s pulse
@@ -288,7 +288,7 @@ the *appearance* of the separation with none of the substance.
 kin. Nothing writes into yolo's own schema. So a pack-shipped loophole that needs settings has
 nowhere to put them.
 
-**RULED (OQ-A8, 2026-08-17): a pack declares its config keys, typed.** 📄
+**RULED ([OQ-A8](#decision-ledger), 2026-08-17): a pack declares its config keys, typed.** 📄
 [`pack-config-keys.md`](pack-config-keys.md) is the design — a loophole's settings are declared in
 its own manifest with types and a per-key `scope`, supplied by the user under
 `loopholes.<name>.settings`, validated through the resolver core already injects, and delivered
@@ -328,7 +328,7 @@ nothing does).
 `default_enabled`, on the loophole manifest. Absent means off. This is what lets a pack "do the
 right thing by default" without yolo guessing on its behalf.
 
-> **RULED (OQ-A9, 2026-08-18): one key, renamed, governing all four manifest sources.**
+> **RULED ([OQ-A9](#decision-ledger), 2026-08-18): one key, renamed, governing all four manifest sources.**
 > `default_enabled` **is** `enabled` with the default flipped — not a second key beside it. `enabled`
 > becomes a **recognized-and-refused** key whose error names the rename, `SetEnabled` stops writing
 > manifest files, and the four shipped manifests are updated in the same commit. Two booleans over
@@ -356,7 +356,7 @@ right thing by default" without yolo guessing on its behalf.
 > reading a *newer* manifest ignores `default_enabled` and falls back to enabled-defaults-**true** —
 > so `audio` ships default-off and an older build runs it **on**. Deletion-shaped schema changes
 > cannot rely on the unknown-key skew note, whose wording tells the reader a *newer* build knows the
-> key: the exact opposite of the truth for a removed one (§4).
+> key: the exact opposite of the truth for a removed one ([§4](#4-what-it-costs)).
 
 **R3. `requires.command_on_path` is deleted from the schema.** Not corrected — deleted. It is the
 sniffing mechanism itself, and both of its uses are the argument against it: one is wrong for the
@@ -372,7 +372,7 @@ not a reason to be automatic.
 > user-scope *ceiling* that a workspace *narrows* is inexpressible, and a workspace can only **widen**.
 > For an allowlist like `host_processes.visible` that inverts the intended property: the weak,
 > agent-writable scope can only add capability. The claim below holds for a scalar switch and not for
-> a list. See [`pack-config-keys.md`](./pack-config-keys.md) §3, whose per-key `scope` field is the
+> a list. See [`pack-config-keys.md`](./pack-config-keys.md) [§3](./pack-config-keys.md#3-a-correction-this-forces--r5-is-false-for-lists), whose per-key `scope` field is the
 > answer.
 
 **R5. Install is user-scope; enable is either scope.** Already true and kept: `packs` is read from
@@ -381,11 +381,11 @@ scope, and `loopholes.<name>.enabled` is honored from both. So a workspace may s
 the user already installed — the weak, agent-editable scope is bounded by the strong one, which is
 what makes per-workspace enablement safe to offer at all.
 
-> **RULED (OQ-A13, 2026-08-18): R5 stands for the ON direction, and the disclosure is mirrored.**
+> **RULED ([OQ-A13](#decision-ledger), 2026-08-18): R5 stands for the ON direction, and the disclosure is mirrored.**
 > R5 was written when `enabled: true` was **inert** — the manifest default was already true, so the
 > only meaningful workspace power was turning things **off**. R2 inverts that and makes it the
 > activation verb. R5 is not narrowed in response: restricting enablement to user scope would cost
-> the per-workspace opt-in R5 exists for, which §1.2a shows `yolo-ps` already depends on.
+> the per-workspace opt-in R5 exists for, which [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole)a shows `yolo-ps` already depends on.
 >
 > Instead the existing disclosure becomes **symmetric**. `WorkspaceDisabledLoopholes`
 > (`validate_loopholes.go`) already computes exactly this and discards the `true` case; feeding it to
@@ -401,7 +401,7 @@ what makes per-workspace enablement safe to offer at all.
 >
 > - **The `yolo check` row discloses and then falls THROUGH**, where the OFF row stops. Off means
 >   there is nothing left to measure; on means the loophole is about to run, and its `doctor_cmd` is
->   the next thing a reader wants. Stopping there would undo OQ-A12 for exactly the activations
+>   the next thing a reader wants. Stopping there would undo [OQ-A12](#decision-ledger) for exactly the activations
 >   nobody expected. What the row replaces is the greenest line in the section — `[PASS] loophole X:
 >   disabled`, read off the manifest default (that walk resolves no config) with the file that
 >   overrode it named nowhere.
@@ -418,9 +418,9 @@ what makes per-workspace enablement safe to offer at all.
 > `<workspace>/.yolo/config-snapshot.json` under an rw bind mount, so whatever wrote the key could
 > rewrite the baseline — and a non-TTY launch **auto-accepted** it.
 >
-> **A disclosure an agent can suppress is not a control.** Both fixes shipped 2026-08-18: **OQ-D1**
+> **A disclosure an agent can suppress is not a control.** Both fixes shipped 2026-08-18: **[OQ-D1](./config-safety.md#decision-ledger)**
 > moved the approval record host-side to `~/.local/share/yolo-jail/approvals/<container-name>.json`,
-> which the jail never mounts, and **OQ-D2** made a non-interactive launch with a changed config a
+> which the jail never mounts, and **[OQ-D2](./config-safety.md#decision-ledger)** made a non-interactive launch with a changed config a
 > refusal that CI opts out of with `--accept-config-changes`. See
 > 📄 [`config-safety.md`](config-safety.md). The mirrored line in this section is therefore now
 > backed by a control, not just by a human happening to be watching.
@@ -429,8 +429,8 @@ what makes per-workspace enablement safe to offer at all.
 selecting the claude pack is the dependency — and R3's deletion is then free rather than a
 regression, because the sniff was standing in for exactly this.
 
-> **RULED (OQ-A10, 2026-08-18): a contribution of `packs/claude`, not a pack of its own.**
-> [`broker-as-a-pack.md`](broker-as-a-pack.md) §6 designs a separate `packs/claude-oauth-broker/`;
+> **RULED ([OQ-A10](#decision-ledger), 2026-08-18): a contribution of `packs/claude`, not a pack of its own.**
+> [`broker-as-a-pack.md`](broker-as-a-pack.md) [§6](./broker-as-a-pack.md#6-what-the-pack-looks-like) designs a separate `packs/claude-oauth-broker/`;
 > that is now **wrong and gets corrected there** rather than left as a second answer in a sibling
 > doc. R6's whole argument is that the dependency is structural, and a separate pack reinstates the
 > second selection step R6 deletes. A Bedrock user's escape is `supersedes` on the
@@ -462,7 +462,7 @@ regression, because the sniff was standing in for exactly this.
   host access without the origin gate's approval. Adding an origin restriction *specifically* to
   `default_enabled` would be the halfway-measure shape [OQ-LP14 was criticized for](loophole-packaging-overview.md).
 
-  **RULED (OQ-A3, 2026-08-16): `default_enabled: true` stays available to fetched packs,
+  **RULED ([OQ-A3](#decision-ledger), 2026-08-16): `default_enabled: true` stays available to fetched packs,
   unrestricted.** *"A pack I fetched can declare itself on"* is a sentence worth reading twice, and
   it survives the reading: what a fetched pack may **do** is already decided by the origin gate at
   `Honored`, and a declaration about a default cannot widen it. The practical bound is the real
@@ -490,7 +490,7 @@ regression, because the sniff was standing in for exactly this.
 **Every currently-active loophole goes dark on upgrade** unless its pack declares
 `default_enabled: true` or the user enables it.
 
-**RULED (OQ-A2, 2026-08-17): going dark is fine — build no migration machinery.** *"Even if packs
+**RULED ([OQ-A2](#decision-ledger), 2026-08-17): going dark is fine — build no migration machinery.** *"Even if packs
 ship built in, the user still needs to list them in their user config to get them, just like agents.
 No special case here."* A loophole you never listed behaving exactly like an agent pack you never
 listed is the rule working, and inventing an upgrade notice for it would carve out the special case
@@ -502,15 +502,15 @@ wonders where something went.
 > user config as explicit `enabled: true` entries. That makes the ruling a **no-op for precisely the
 > people who already have host daemons running** — the population it most exists to inform.
 >
-> Scope, for the record: "goes dark" means exactly **two** loopholes, `yolo-ps` and `audio`. §1.2a
+> Scope, for the record: "goes dark" means exactly **two** loopholes, `yolo-ps` and `audio`. [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole)a
 > narrows even that — `yolo-ps` was already inert for anyone who had not written
 > `host_processes.visible`, so the genuinely affected population is users with a non-empty `visible`
 > list.
 
-**The broker does NOT gain a way to be silently off** — settled by OQ-A1: it ships
+**The broker does NOT gain a way to be silently off** — settled by [OQ-A1](#decision-ledger): it ships
 `default_enabled: true` inside `packs/claude`, so selecting the claude pack is what turns it on, and
 the only way to end up without it is to not be running claude. That is strictly better than the
-status quo, where a jail-only user is silently unprotected (§1.1). Deleting `requires` therefore
+status quo, where a jail-only user is silently unprotected ([§1.1](#11-the-sniff-and-the-bug-it-is-causing-right-now)). Deleting `requires` therefore
 costs no warning surface here: there is nothing left to warn about.
 
 **`Active` gets thinner.** With `command_on_path` deleted, `requires` is just `file_exists`. That is
@@ -518,7 +518,7 @@ a simplification, not a loss — but the "loophole silently inactive" reports it
 at least *diagnosable*, and a missing program now surfaces as a daemon that fails to spawn. Worth
 checking that failure reads well before shipping.
 
-**RULED (OQ-A12, 2026-08-18): `yolo check` learns to read pack-shipped loopholes in this sprint.**
+**RULED ([OQ-A12](#decision-ledger), 2026-08-18): `yolo check` learns to read pack-shipped loopholes in this sprint.**
 Not after it. The health section reads only the non-pack sources, which costs nothing today because
 the only pack-shipped loophole (`audio-alsa`) has no `doctor_cmd` — but **this sprint moves the only
 two loopholes that have one**, the broker and `host-processes`. Landing the conversion without the
@@ -546,7 +546,7 @@ tolerance that shrugs at it.
 *Three questions from review that are bigger than the rulings and should not be answered inside
 them. Each gets an OQ; this section is the context they share.*
 
-**RULED (OQ-A6, 2026-08-18): they become manifest loopholes, and it happens IN this sprint.**
+**RULED ([OQ-A6](#decision-ledger), 2026-08-18): they become manifest loopholes, and it happens IN this sprint.**
 *(BUILT 2026-08-18. `packs/journal` and `packs/cgroup-delegate` ship, `paths.BuiltinLoopholeNames`
 is deleted, the spawn loop's builtin-name skip is deleted, and core's config schema names no
 loophole. Three things the ruling did not anticipate and the implementation had to settle are
@@ -555,16 +555,16 @@ recorded at the end of this section.)*
 afterwards, on the grounds that the sprint was already carrying a preamble, a pack conversion, a
 schema change and a deletion. **Overruled on scope, and the reason is sound**: the unification is the
 point of the sprint, and a channel emptied of everything except the two things yolo happens to have
-compiled in has not been emptied — it has been renamed. Deferring the conversion would leave §1.3's
+compiled in has not been emptied — it has been renamed. Deferring the conversion would leave [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on)'s
 table with two rows that still answer "why is it on?" differently from every other row.
 
 Three consequences to carry, since this is now in scope rather than filed:
 
-- **`journal`'s top-level config key goes.** §1.4 named it as one of the two loopholes core's schema
+- **`journal`'s top-level config key goes.** [§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) named it as one of the two loopholes core's schema
   hardcodes; converting it to a manifest is what removes the second name. Its settings move to the
-  typed manifest-declared keys OQ-A8 rules — which is what makes this conversion possible at all, and
+  typed manifest-declared keys [OQ-A8](#decision-ledger) rules — which is what makes this conversion possible at all, and
   is why the two questions could not have been sequenced the other way round.
-- **`cgroup-delegate` gets a `default_enabled`**, and per OQ-A4 that value is **false**. The two
+- **`cgroup-delegate` gets a `default_enabled`**, and per [OQ-A4](#decision-ledger) that value is **false**. The two
   rulings agree rather than merely coexisting: A4 says it stops starting itself, A6 says the switch
   it now needs lives in a manifest like every other.
 - **The sprint's honest size grows.** Recorded rather than argued: the reason I wanted this deferred
@@ -584,10 +584,10 @@ Three consequences to carry, since this is now in scope rather than filed:
 > - **The delegate's gate is `Honored`, not `Active` — and it is SHADOWABLE.** `brokerLoopholeActive`
 >   may stop at `Active()` because the broker's record is bundled under a reserved name; retiring
 >   this reservation means a pack a user installs can ship a `cgroup-delegate` loophole and turn
->   yolo's own in-process delegate on. That is not a new hole — it is exactly what **OQ-A3**
+>   yolo's own in-process delegate on. That is not a new hole — it is exactly what **[OQ-A3](#decision-ledger)**
 >   already admits (*"a fetched pack can declare itself on"*, bounded by the origin gate rather
 >   than by the declaration) — but it is a property the broker deliberately does **not** have, and
->   the difference is the reservation. Worth knowing before OQ-A10 retires the broker's.
+>   the difference is the reservation. Worth knowing before [OQ-A10](#decision-ledger) retires the broker's.
 > - **The retired config keys are not symmetric.** `host_processes` CONFIGURED a daemon;
 >   `journal` TURNED ONE ON. A silently-ignored `journal: "full"` leaves an agent that cannot read
 >   the host's logs with no thread back to the key, which is why both are refusals and why the
@@ -611,9 +611,9 @@ never **selected** (`packs.go:69`: *"a bare `packs: ["claude"]` entry selects on
 default"*). So "installed" is already free; what costs a line is selection. Which makes the sharper
 question: **does a loophole-only pack need selecting at all?** For `claude`, selection means
 something — install this agent. For `host-processes`, whose entire content is one loophole,
-selection and enablement are the same intent expressed twice, which is the ceremony OQ-A5 names.
+selection and enablement are the same intent expressed twice, which is the ceremony [OQ-A5](#decision-ledger) names.
 
-**RULED (OQ-A7, 2026-08-17): it needs selecting. No special case.** *"Even if packs ship built in,
+**RULED ([OQ-A7](#decision-ledger), 2026-08-17): it needs selecting. No special case.** *"Even if packs ship built in,
 the user still needs to list them in their user config to get them, just like agents."* My leaning
 was to let an embedded loophole-only pack be reachable by `enabled` alone, to save a line of
 ceremony. Overruled, and rightly: **"shipped in the binary" is not "installed"**, and a rule with one
@@ -627,7 +627,7 @@ exception is two rules. `host-processes` is listed in `packs` like anything else
 > daemon to the surfaces.
 
 **Where do a loophole's own settings live?** Settled — see [§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name)
-and 📄 [`pack-config-keys.md`](pack-config-keys.md) (**OQ-A8**).
+and 📄 [`pack-config-keys.md`](pack-config-keys.md) (**[OQ-A8](#decision-ledger)**).
 
 ---
 
@@ -639,8 +639,8 @@ might contradict these, config/migration, and an adversarial read. Verdict: **su
 on its own terms, with the gap concentrated in one place** — R2 introduces `default_enabled` onto a
 schema that already has a live `enabled` key with the opposite default, and never says which wins.
 
-It corrected three of this doc's own claims (§1's table, §1.1's mechanism, §1.3's inventory) and
-raised five questions, OQ-A9 through OQ-A13.
+It corrected three of this doc's own claims ([§1](#1-what-activates-a-loophole-today)'s table, [§1.1](#11-the-sniff-and-the-bug-it-is-causing-right-now)'s mechanism, [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on)'s inventory) and
+raised five questions, [OQ-A9](#decision-ledger) through [OQ-A13](#decision-ledger).
 
 **Refuted on inspection — recorded so they are not re-raised.** Each of these sounded like a problem
 and is not:
@@ -651,14 +651,14 @@ and is not:
   passes green**.
 - **"`default_enabled: true` lets a fetched pack buy host access."** It cannot. `Honored()` applies
   the origin gate independently of `Active()`, and `moduleClaims` enumerates every host crossing for
-  the install prompt. §3's defence holds and OQ-A3's answer stands. What remains is a question about
-  the *moment of consent*, which is OQ-A13 — not about access.
-- **"`inJailActive` violates R1."** By construction and correctly — see §3.
+  the install prompt. [§3](#3-what-this-does-not-license)'s defence holds and [OQ-A3](#decision-ledger)'s answer stands. What remains is a question about
+  the *moment of consent*, which is [OQ-A13](#decision-ledger) — not about access.
+- **"`inJailActive` violates R1."** By construction and correctly — see [§3](#3-what-this-does-not-license).
 - **"`yolo check` reports a fully-dark jail as all-green."** Each line is individually true, and a
   fresh install having nothing enabled *is* the ruling working. The real defect underneath is
-  OQ-A12.
+  [OQ-A12](#decision-ledger).
 - **"The pack-shipped subset refuses R4/R6 and nobody priced it."** Priced already:
-  [`broker-as-a-pack.md`](broker-as-a-pack.md) §11 names `publishes: "socket"` as the common blocker
+  [`broker-as-a-pack.md`](broker-as-a-pack.md) [§11](./broker-as-a-pack.md#11-what-no-bundled-loopholes-additionally-requires) names `publishes: "socket"` as the common blocker
   for all three conversions.
 
 **Worth knowing, changing no decision:** `yolo loopholes enable` works for **zero** loopholes — it

@@ -17,14 +17,14 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 > [`provider-catalog-and-selection-plan.md`](provider-catalog-and-selection-plan.md)).
 > Three positions below were **reversed**, not refined: the `wire_api` vocabulary is three
 > canonical names — `anthropic`, `openai-chat-completions`, `openai-responses` — and never the
-> four borrowed spellings the §3 diagram, §5's two examples and §8.2's derive listings still use
+> four borrowed spellings the [§3](#3-the-architectural-tension-prescribed-extension-point-vs-generic-fragments) diagram, [§5](#5-manifest-schemas--field-definitions)'s two examples and [§8.2](#82-projections-automatic-env-vs-prism-derivelua)'s derive listings still use
 > (OQ-PT1); profile names are declared by the user, at user scope only (OQ-CS5), and
 > **declaration is mandatory** — an undeclared name is a reportable error, not a silent no-op
-> (OQ-CS6, reversing `profiles-as-pack-variants.md` OQ-5); and `env_shape` is deleted — an
+> (OQ-CS6, reversing [`profiles-as-pack-variants.md`](./profiles-as-pack-variants.md) OQ-5); and `env_shape` is deleted — an
 > agent's delivery, credential included, is composed by that agent pack's own env-emitting
 > derive (OQ-PT9, folded into OQ-CS8). The body below is kept as the argument that produced
 > those answers, and still spells the key `api_key_env`, renamed `api_key_env_name`; of the
-> three, only §5.1's `wire_api` row was already corrected in place (2026-09-02, `a01dbda5`).
+> three, only [§5.1](#51-the-typed-provider-schema-kind-provider)'s `wire_api` row was already corrected in place (2026-09-02, `a01dbda5`).
 
 **Status:** DRAFT, 2026-08-29. Nothing built.
 
@@ -33,14 +33,14 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 2. **The Declarative Adapter Layer (`kind: "pack-fragment"`)**: An RFC-7386 JSON Merge Patch layer for tool-specific process flags (`env`), custom file surfaces, and non-standard bridges (e.g. `aws-bedrock` adapting Claude).
 3. **Ironclad Secret Hygiene (`env_sources` + `api_key_env`)**: Solves the secrets issue by enforcing that git-tracked manifests carry *only* environment variable names (`api_key_env: "DEEPSEEK_API_KEY"`), while plaintext credentials remain strictly in untracked `0600` host files.
 
-**The most important sections in this doc are §3 (The Architectural Tension & Dual-Layer Synthesis), §4 (The Secrets Issue & `env_sources`), and §5 (The Manifest Schemas)**.
+**The most important sections in this doc are [§3](#3-the-architectural-tension-prescribed-extension-point-vs-generic-fragments) (The Architectural Tension & Dual-Layer Synthesis), [§4](#4-the-secrets-issue-decoupling-configuration-from-credentials) (The Secrets Issue & `env_sources`), and [§5](#5-manifest-schemas--field-definitions) (The Manifest Schemas)**.
 
 > [!NOTE]
 > **A counter-design exists (2026-08-29):** [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md)
-> argues that most of §3's dual-layer architecture is already shipped (providers are a live derive
+> argues that most of [§3](#3-the-architectural-tension-prescribed-extension-point-vs-generic-fragments)'s dual-layer architecture is already shipped (providers are a live derive
 > source consumed by three packs; `packs/claude/derive.lua:5` already branches on the active
 > profile), and proposes one kind — a named variant of a pack's OWN declarations, generalizing
-> `kind: "autonomy"` — instead of `provider` + `pack-fragment`. Read its §9 for the point-by-point
+> `kind: "autonomy"` — instead of `provider` + `pack-fragment`. Read its [§9](#9-alignment-with-repo-principles) for the point-by-point
 > diff. This doc is unchanged; the open questions below are still live.
 
 **Reads with:** [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) (the counter-design), [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (stringly-typed references fail closed by default), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`host-agent-environment.md`](host-agent-environment.md) (the two-channel host env delivery these profiles feed), and [`pack-system.md`](pack-system.md) (the pack layer model).
@@ -54,7 +54,7 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 3. **P3 — Stringly-Typed References Fail Closed by Default.** Per [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md), cross-pack target references (`target: "claude"`) must be verified at load time. If a referenced target pack is not selected, launch resolution **fails fatally by default**, unless explicitly declared `"optional": true`.
 
    > [!WARNING]
-   > **The principle this cites was amended 2026-08-30 and P3 no longer states it correctly.** A reference now asks *two* questions, and `optional` answers only the second: **does this string name a real pack** (fatal always — `optional: true` does not excuse `target: "cloude"`) versus **is that pack selected here** (fatal when required, a clean skip when optional). As written, P3 lets a typo'd optional target be silently dropped — the exact failure §2 of the principle exists to prevent. The principle also gained **R5, placement**, which §8.1's "check against the active `packs` set" does not satisfy. See [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) §3 and §4, and [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §8.
+   > **The principle this cites was amended 2026-08-30 and P3 no longer states it correctly.** A reference now asks *two* questions, and `optional` answers only the second: **does this string name a real pack** (fatal always — `optional: true` does not excuse `target: "cloude"`) versus **is that pack selected here** (fatal when required, a clean skip when optional). As written, P3 lets a typo'd optional target be silently dropped — the exact failure [§2](#2-diagnosis-what-exists-today-and-why-it-breaks) of the principle exists to prevent. The principle also gained **R5, placement**, which [§8.1](#81-target-pack-verification-fail-closed-rule)'s "check against the active `packs` set" does not satisfy. See [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) [§3](./stringly-typed-references-principle.md#3-a-reference-asks-two-questions-and-only-one-of-them-is-optional) and [§4](./stringly-typed-references-principle.md#4-where-the-gate-goes-r5), and [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§8](./profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set).
 4. **P4 — Git-Tracked Packs Never Contain Secrets.** Reusable packs and fragments carry configuration, model aliases, and the *name* of the environment variable holding the credential (`api_key_env`). Secret values are ingested strictly at runtime from external `0600` files via `env_sources`.
 5. **P5 — Adapter Packs Bridge Non-Native Agents.** When an agent pack does not natively speak a provider's protocol, an independent adapter pack (e.g. `aws-bedrock`) contributes a `pack-fragment` to bridge the gap without modifying Core or the upstream agent pack.
 6. **P6 — Zero-Boilerplate Projection with Escape-Hatch Fallback.** Standard configuration facets (process environment variables, standard OpenAI/Anthropic endpoint structures) project automatically into the runtime environment without requiring bespoke Lua derivation in every pack.

@@ -8,7 +8,7 @@ and the verdicts:
 
 | Claim | Verdict |
 |---|---|
-| `podmanBaseMounts` / `appleContainerBaseMounts` exist and do what §2.2 says | **HOLDS**, moved — now `assemble_parts.go:64-124` and `:36-57` |
+| `podmanBaseMounts` / `appleContainerBaseMounts` exist and do what [§2.2](#22-base-mounts-podman-branch-podmanbasemounts-assemble_partsgo37-66) says | **HOLDS**, moved — now `assemble_parts.go:64-124` and `:36-57` |
 | The three `:ro`-base escape-hatch symlinks are exactly `.claude.json`, `.gitconfig`, `.bashrc` | **HOLDS** — `internal/storage/ensure.go:97,100,103` |
 | `--rm -i --init --read-only` argv | **HOLDS** — `assemble.go:158` |
 | Storage layout version = 2 | **HOLDS** — `const StorageLayoutVersion = 2`, `ensure.go:22` |
@@ -16,14 +16,14 @@ and the verdicts:
 | `PrepareSkills` / `SkillStagingName` | **HOLDS** — `internal/jailcontent/skills.go:87,77` |
 | `workspaceReadonlyMountArgs` at mounts.go:20-53 | **HOLDS** — the one line range in the doc that was still exact |
 | Docker removed, three resolvable runtimes | **HOLDS** — `validate.go:128-131` |
-| §2.5 per-agent overlay loop | **WRONG** — corrected in place |
-| §2.6 claude-shared-credentials mount | **WRONG** — corrected in place |
-| §7 gotcha 1 "`os.Rename` no longer appears anywhere in `internal/entrypoint`" | **WRONG** — corrected in place |
-| §7 gotcha 7 PATH | **WRONG** — corrected in place, and AGENTS.md is wrong too |
+| [§2.5](#25-per-pack-state-dir-overlays-assemblego185-196) per-agent overlay loop | **WRONG** — corrected in place |
+| [§2.6](#26-claude-shared-credentials) claude-shared-credentials mount | **WRONG** — corrected in place |
+| [§7](#7-gotchas) gotcha 1 "`os.Rename` no longer appears anywhere in `internal/entrypoint`" | **WRONG** — corrected in place |
+| [§7](#7-gotchas) gotcha 7 PATH | **WRONG** — corrected in place, and AGENTS.md is wrong too |
 
 **Not verified:** every line number not named above (they have drifted by up to
-~250 lines in `paths.go`), §3's file-class inventory, §4's sharing table, §5's
-lifecycle sequence, and §6's UID-mapping specifics.
+~250 lines in `paths.go`), [§3](#3-what-the-entrypoint-generates-at-boot-vs-what-persists)'s file-class inventory, [§4](#4-sharing-semantics-one-truth-per-host-per-workspace-or-per-boot)'s sharing table, [§5](#5-lifecycle)'s
+lifecycle sequence, and [§6](#6-ownership-and-uids)'s UID-mapping specifics.
 
 > [!WARNING]
 > **Treat every bare `file.go:NNN` in this doc as unverified unless the table
@@ -139,7 +139,7 @@ by `prepareWsState`, internal/cli/run/prepare.go:131-173); `GLOBAL_HOME` =
 | `ws/yolo-installed-lsps` | `/home/agent/.yolo-installed-lsps` | rw | (:55) |
 | `ws/bash_history` | `/home/agent/.bash_history` | rw | (:56) |
 | `ws/ssh` | `/home/agent/.ssh` | rw | dir, mkdir 0700 (prepare.go:134) (:57) |
-| `GLOBAL_MISE` (or volume) | `/mise` | rw | mise store — see §2.4 (:59-64) |
+| `GLOBAL_MISE` (or volume) | `/mise` | rw | mise store — see [§2.4](#24-the-mise-store-at-mise) (:59-64) |
 
 All single-file mountpoints are touched host-side before create so the bind has
 an inode to pin (prepare.go:140-146; GLOBAL_HOME side: storage/ensure.go:84-91).
@@ -198,7 +198,7 @@ Creation/seeding happens in `prepareWsState`
 (prepare.go:136-171): mkdir, then `seedAgentDir(GLOBAL_HOME/.<subdir>,
 ws/<subdir>)` copies **top-level regular files only** (auth tokens), never
 overwrites, skips subdirs (storagehelpers.go:39-65). Claude extras:
-`syncClaudeJSONSeed` (§4.3) and legacy migrations (`ws/claude-projects` →
+`syncClaudeJSONSeed` ([§4.3](#43-claudejson-seed-sync)) and legacy migrations (`ws/claude-projects` →
 `ws/claude/projects`, `ws/claude-settings.json` → `ws/claude/settings.json`;
 prepare.go:153-165). Copilot/gemini get their own selection-gated migrations
 (`ws/copilot-sessions` → `ws/copilot/session-state`, `ws/gemini-history` →
@@ -212,19 +212,19 @@ prepare.go:153-165). Copilot/gemini get their own selection-gated migrations
 `GLOBAL_HOME/.claude-shared-credentials` → same path in-container, **rw**, only
 when the claude pack is selected (non-AC). The dir and its `.credentials.json`
 are ensured/migrated host-side (`ensure.go:74`); the OAuth broker reads the same
-host file. How the jail's `~/.claude/.credentials.json` reaches it: §4.2.
+host file. How the jail's `~/.claude/.credentials.json` reaches it: [§4.2](#42-shared-credentials-claudes-is-the-live-case).
 
 > ### ⚠ Retracted 2026-08-23: the `assemble.go:156-160` anchor
 >
 > **This mount is no longer hardcoded core logic and is not in `assemble.go` at
 > all.** It is a pack `state` declaration with `scope: machine` —
 > `packs/claude/pack.json:125,136` — consumed by the generic `SharedDirs` loop at
-> `assemble.go:193-196` (§2.5). Nothing in core names
+> `assemble.go:193-196` ([§2.5](#25-per-pack-state-dir-overlays-assemblego185-196)). Nothing in core names
 > `.claude-shared-credentials`; other live references are
 > `internal/entrypoint/env.go:305-307` and `internal/storage/ensure.go:74`.
 >
-> This is the same shape as §4.2's note that "neither the file nor the dir is
-> named in Go any more" — the two sections had drifted apart, and §4.2 was the
+> This is the same shape as [§4.2](#42-shared-credentials-claudes-is-the-live-case)'s note that "neither the file nor the dir is
+> named in Go any more" — the two sections had drifted apart, and [§4.2](#42-shared-credentials-claudes-is-the-live-case) was the
 > one that was right.
 
 ### 2.7 Writable home dirs (config `writable_home_dirs`)
@@ -263,7 +263,7 @@ jail editing its workspace config gains nothing it couldn't get by writing to
 `/workspace` — hence it is safe at any scope and read from the merged config.
 
 **Other backends:** no-op. Apple Container mounts all of `ws` → `/home/agent`
-rw in one bind (§2.2), and macos-user's Seatbelt profile allows writes to the
+rw in one bind ([§2.2](#22-base-mounts-podman-branch-podmanbasemounts-assemble_partsgo37-66)), and macos-user's Seatbelt profile allows writes to the
 whole sandbox home, so every declared path is already writable there.
 
 ### 2.8 User-declared host files (config `host_files`)
@@ -287,12 +287,12 @@ destination path. Three mount-relevant pieces, all emitted by
 - **Writable destination**: because the home base is `:ro`, where a destination
   lands decides whether the composed write succeeds at all.
   `config.HostFileEntry.StagingFor` sorts each into three cases
-  (docs/design/composed-file-permissions.md §7.5):
+  (docs/design/composed-file-permissions.md [§7.5](./composed-file-permissions.md#75-the-blocking-decision-home-root-files-and-new-top-level-dirs)):
 
 | Destination | Staging | Mechanism |
 |---|---|---|
 | under `.config/`, `.cache/`, `.local/`, `go/`, `.npm-global/`, or a **selected** agent's overlay dir | none | already a rw bind; staging would shadow a yolo mount |
-| a home-root file (`~/.npmrc`) | symlink | a **relative, dangling** symlink in `GLOBAL_HOME` → `.config/yolo-home/<slug>`, resolving through the mount table into the rw `.config` overlay — the same hatch `.bashrc`/`.claude.json` use (§4.1) |
+| a home-root file (`~/.npmrc`) | symlink | a **relative, dangling** symlink in `GLOBAL_HOME` → `.config/yolo-home/<slug>`, resolving through the mount table into the rw `.config` overlay — the same hatch `.bashrc`/`.claude.json` use ([§4.1](#41-why-global_home-is-ro-with-symlink-escape-hatches)) |
 | a new top-level dir (`~/foo/bar.json`) | writable subtree | the `writable_home_dirs` recipe: backing dir + `GLOBAL_HOME` mountpoint + nested rw bind |
 
 The symlink shape is load-bearing and not interchangeable: a directory bind would
@@ -350,7 +350,7 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   72-118; helpers2.go:93-177).
 - **Host nvim config** → `/ctx/host-nvim-config` **ro** when present
   (assemble.go:282-286); the entrypoint copy-merges it into `~/.config/nvim`
-  (§3).
+  ([§3](#3-what-the-entrypoint-generates-at-boot-vs-what-persists)).
 - **/dev/null shadows**: over `/workspace/.vscode/mcp.json` and
   `/workspace/.overmind.sock` when present (assemble.go:288-294).
 - **`workspace_readonly` overlays**: `yolo-jail.jsonc` + each listed rel path
@@ -393,7 +393,7 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   from `briefingDestinations`/`briefingStagingName` in
   `internal/cli/run/briefingdest.go`, which the write half also calls). The key was
   the PACK until 2026-09-03; it moved because the composed content now varies per
-  destination (`briefing-audiences.md` §5), so a pack no longer identifies a file.
+  destination ([`briefing-audiences.md`](./briefing-audiences.md) [§5](./briefing-audiences.md#5-what-it-costs-and-what-it-lifts)), so a pack no longer identifies a file.
   Destinations are pack data, not pairs in a table:
   claude→`.claude/CLAUDE.md`, copilot→`.copilot/copilot-instructions.md`,
   codex→`.codex/AGENTS.md`, opencode→`.config/opencode/AGENTS.md`,
@@ -479,7 +479,7 @@ File classes:
   overlay dirs.
 
 **Shared mutable:**
-- `~/.claude-shared-credentials/.credentials.json` (§4.2), `~/.cache`, `/mise`.
+- `~/.claude-shared-credentials/.credentials.json` ([§4.2](#42-shared-credentials-claudes-is-the-live-case)), `~/.cache`, `/mise`.
 
 **Deliberately never touched by the entrypoint:** skills dirs (mounted `:ro`
 by the CLI; boot.go:459), `mise hook-env` at boot (flock deadlock — hook-env
@@ -494,7 +494,7 @@ anchor (fsx.go:49-63).
 | **Per-host (all workspaces)** | `GLOBAL_HOME` `:ro` base + `.claude-shared-credentials` (rw); `GLOBAL_MISE` at `/mise`; `GLOBAL_CACHE` at `~/.cache`; image-load cache under `cache/images/` (internal/image/image.go:139-145); layout-version marker; `~/.config/yolo-jail/config.jsonc` |
 | **Per-workspace** | everything in `<workspace>/.yolo/home`: the rw overlays (`npm-global`, `local`, `go`, `yolo-shims`, `yolo-launchers`, `config`, `ssh`), the 8 single-file mountpoints (7 `yolo-*` files + `bash_history`), per-selected-agent config dirs |
 | **Per-jail (container name)** | `containers/` tracking files, `agents/<cname>/` briefing+skills staging (paths.go:76-79), `logs/<cname>-socat.log` + `logs/broker-relay-<sha1(cname)[:8]>.log` (network.go:36; loopholesruntime.go:370) — `logs/host-service-<name>.log` is per-service, shared (loopholesruntime.go:214) |
-| **Per-host-workspace inside a home** | Claude history keyed on `sha256(YOLO_HOST_DIR)[:12]` (§4.4) |
+| **Per-host-workspace inside a home** | Claude history keyed on `sha256(YOLO_HOST_DIR)[:12]` ([§4.4](#44-history-isolation)) |
 | **Per-boot / ephemeral** | `/tmp`, `/run`, `/dev/shm`, anonymous volumes, `/tmp/yolo-jaild.pid` |
 | **Host-only, never mounted** | host `~/.local/share/mise` (ensure.go:143-148), host credentials generally |
 
@@ -529,7 +529,7 @@ Neither the file nor the dir is named in Go any more. Both come from the pack's
 itself is `Env.linkThroughShared` (`internal/entrypoint/claude.go`), and every
 decision it returns is logged to `~/.yolo-shared-creds.log`.
 
-**The harvest is gone** (2026-08-17, `pack-code-separation.md` §5/OQ-3), and with
+**The harvest is gone** (2026-08-17, [`pack-code-separation.md`](./pack-code-separation.md) [§5](./pack-code-separation.md#5-shared_credentials--generic-or-moved)/OQ-3), and with
 it this section's old claim to hold the codebase's **one sanctioned tmp+rename**.
 A pre-existing regular file used to be merged into the shared one by max
 `expiresAt` over claude's `claudeAiOauth` dict — a claude-schema merge inside a
@@ -637,7 +637,7 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
    non-mount-visible paths like image autoload and prune). **There is no
    exception left for mount-visible files**: the one that used to be listed here
    was the credentials harvest's tmp+rename into a rw *directory* mount, and the
-   harvest is deleted (§4.2, 2026-08-17). The rule is exceptionless for
+   harvest is deleted ([§4.2](#42-shared-credentials-claudes-is-the-live-case), 2026-08-17). The rule is exceptionless for
    mount-visible files — don't reintroduce one by reading this gotcha as
    permission.
 
@@ -692,7 +692,7 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
    i.e. `$HOME/.yolo-shims`, `$NPM_CONFIG_PREFIX/bin`, `<mise-shims>`,
    `$GOPATH/bin`, `$HOME/.local/bin`, `/bin`, `/usr/bin`,
    `$HOME/.yolo-launchers`. The two generated dirs sit at **opposite ends** on
-   purpose (§3): blockers must precede the real binary, lazy installers must not.
+   purpose ([§3](#3-what-the-entrypoint-generates-at-boot-vs-what-persists)): blockers must precede the real binary, lazy installers must not.
 
    > [!WARNING]
    > **Two published spellings of this PATH are wrong, in different ways

@@ -1,13 +1,13 @@
 # Capabilities — naming the job, so a pack can say a bundled loophole is unnecessary
 
 **Status:** **LANDED 2026-08-15**, re-checked 2026-08-23; **no open questions since 2026-09-02** —
-OQ-CAP (§10) was a confirmation rather than a fork, and it is now recorded as settled by the
-implementation that had already shipped its leaning (see §10). Designed 2026-08-13, rewritten the
+OQ-CAP ([§10](#10-open-question-design-detail)) was a confirmation rather than a fork, and it is now recorded as settled by the
+implementation that had already shipped its leaning (see [§10](#10-open-question-design-detail)). Designed 2026-08-13, rewritten the
 same day against [`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
 
 *(This line used to cite "queue row **A6**"; the roadmap's lettered queue was retired on 2026-08-17,
 and the ruling that letter pointed at is [`loophole-activation.md`](loophole-activation.md)
-**OQ-A6**. Two more places below still say "roadmap A6" and "three bundled loopholes exist" — both
+**[OQ-A6](./loophole-activation.md#decision-ledger)**. Two more places below still say "roadmap A6" and "three bundled loopholes exist" — both
 were true when written; there are **no bundled loopholes left** as of 2026-08-19, which narrows
 supersession's remaining scope to loopholes a pack's own selection cannot remove.)*
 
@@ -21,7 +21,7 @@ supersession's remaining scope to loopholes a pack's own selection cannot remove
 >
 > **Four corrections, in the order they matter:**
 >
-> 1. **§4 calls supersession "a third gate" — it is the FOURTH.** `Active()` was
+> 1. **[§4](#4-the-rule) calls supersession "a third gate" — it is the FOURTH.** `Active()` was
 >    `Enabled && SupportedHere() && RequirementsMet()` before this change, not
 >    `Enabled && RequirementsMet()`; the `platforms` declaration had already landed. The
 >    shipped order is `Enabled && !Superseded() && SupportedHere() && RequirementsMet()`,
@@ -29,7 +29,7 @@ supersession's remaining scope to loopholes a pack's own selection cannot remove
 >    beside `Enabled` because both are decisions a user's configuration made, where the two
 >    below are facts about the machine. `InactiveReason()` branches in the same order, which
 >    is what stops the gate and the explanation from disagreeing.
-> 2. **§5's "REFUSED AT LOAD" holds for the STRUCTURE and not for the MATCH.** An empty
+> 2. **[§5](#5-the-two-failure-modes-that-are-designed-out)'s "REFUSED AT LOAD" holds for the STRUCTURE and not for the MATCH.** An empty
 >    `capability`, a missing `because`, a duplicate, a control character: all refused at load,
 >    in `packdecl`, on both the strict and tolerant paths, because every one is
 >    version-invariant. A capability matching no `serves` is REPORTED, loudly, with the
@@ -41,10 +41,10 @@ supersession's remaining scope to loopholes a pack's own selection cannot remove
 >    direction of a warning is safe — an unmatched claim leaves the loophole running, while a
 >    refusal would take down `yolo loopholes list`, the command a user runs to find out what
 >    happened.
-> 3. **The footprint claim is DISPLAY-ONLY and deliberately NOT in `HostAccessClaims`.** §5
+> 3. **The footprint claim is DISPLAY-ONLY and deliberately NOT in `HostAccessClaims`.** [§5](#5-the-two-failure-modes-that-are-designed-out)
 >    says `pack footprint` "carries the same line", and it does — as a `Claim` whose Kind is
 >    the display label `supersedes`, deliberately absent from `packdecl`'s closed kind
->    registry, so two packs superseding one capability cannot be reported as a collision (§5's
+>    registry, so two packs superseding one capability cannot be reported as a collision ([§5](#5-the-two-failure-modes-that-are-designed-out)'s
 >    own rule) and no per-kind exhaustiveness test acquires a non-contribution. It is not an
 >    approval key: every string in that set GRANTS the pack something, while a supersession
 >    relinquishes; keying an approval on `capability` alone would be content-blind, and
@@ -60,7 +60,7 @@ supersession's remaining scope to loopholes a pack's own selection cannot remove
 
 > ### PREREQUISITE — read [`loophole-packaging.md`](loophole-packaging.md) first
 >
-> §9 below (OQ-CAP2) asked whether packs should be able to ship loopholes and recommended deciding
+> [§9](#9-oq-cap2--resolved-2026-08-13-with-b) below ([OQ-CAP2](#9-oq-cap2--resolved-2026-08-13-with-b)) asked whether packs should be able to ship loopholes and recommended deciding
 > that **before** building any of this. **The decision is made: (B), packs ship loopholes**, designed
 > in that doc. **Selection is now the primary mechanism for "do not run that loophole" — you
 > deselect the pack.**
@@ -70,9 +70,9 @@ supersession's remaining scope to loopholes a pack's own selection cannot remove
 > practice the one that auto-activates.** Concretely: the sections defending a public extension
 > surface against hypothetical third-party collisions went from ~90 lines to ~15 (the
 > "a pack cannot serve" argument, the namespace-inverts-the-skills-rule section, the over-broad-claim
-> failure mode, and the two-packs-disagree section); the OQ-CAP2 fork went from a 96-line
+> failure mode, and the two-packs-disagree section); the [OQ-CAP2](#9-oq-cap2--resolved-2026-08-13-with-b) fork went from a 96-line
 > three-option decision to a resolution. What GREW is the statement of what is left, because that is
-> the thing a reader now needs. §6 of `loophole-packaging.md` is the section-by-section record; this
+> the thing a reader now needs. [§6](#6-what-is-deliberately-not-built) of [`loophole-packaging.md`](./loophole-packaging.md) is the section-by-section record; this
 > file is the live document.
 
 **Why this is still a design doc and not three lines in a queue row.** The immediate need is one pack
@@ -104,13 +104,13 @@ different implementation would serve the same capability.
 it."* Three bundled loopholes exist and one of them auto-activates by design
 (`claude-oauth-broker`, `requires: {command_on_path: "claude"}`), so a user with Claude Code
 installed gets refresh serialization without knowing they need it. That default is deliberate and
-worth keeping ([`loophole-packaging.md`](loophole-packaging.md) §5.4) — which is exactly why it needs
+worth keeping ([`loophole-packaging.md`](loophole-packaging.md) [§5.4](./loophole-packaging.md#54-so-how-does-the-broker-stay-on-by-default)) — which is exactly why it needs
 a way to say "not this time".
 
 **What it is NOT the answer to, and this is the correction that matters.** Supersession does not
 protect the broker's default from being *removed*; a workspace `yolo-jail.jsonc` can already set
 `loopholes.claude-oauth-broker.enabled: false` and the broker vanishes with no message and a green
-`yolo check` ([`loophole-packaging.md`](loophole-packaging.md) §4.3 G1, §5.4). That hole is closed by
+`yolo check` ([`loophole-packaging.md`](loophole-packaging.md) [§4.3](./loophole-packaging.md#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G1, [§5.4](./loophole-packaging.md#54-so-how-does-the-broker-stay-on-by-default)). That hole is closed by
 **scoping `enabled`**, not by anything here. Supersession is the *considered* off switch; it is not a
 guard against the blunt one.
 
@@ -146,7 +146,7 @@ Nothing in the system can detect it, because "I will do it instead" is exactly t
 does not make. So: **`supersedes` is a claim that DEMAND vanished, not that SUPPLY moved.**
 
 **Granularity: always per job, never per component.** A loophole serving two capabilities with one
-superseded stays active for the other (§3's `every` rule). Superseding *all* of them retires the
+superseded stays active for the other ([§3](#3-why-a-capability-and-not-the-loopholes-name)'s `every` rule). Superseding *all* of them retires the
 loophole — an arithmetic consequence of retiring each job, not a separate "retire this loophole"
 power. There is deliberately no way to say "turn that component off": `enabled: false` already exists
 for that and is honest about being a blunt instrument where this is a statement about work.
@@ -157,7 +157,7 @@ for that and is honest about being a blunt instrument where this is a statement 
 > implementation. The conclusion survives for a better reason: **the implementation a pack ships has
 > a manifest of its own, and a statement about an implementation belongs there.** So `serves` lives
 > on the loophole manifest and travels *inside* the pack. Its old corollary — that pack-to-pack
-> provision is "unexpressible" — is now false and is deleted (§6).
+> provision is "unexpressible" — is now false and is deleted ([§6](#6-what-is-deliberately-not-built)).
 
 ## 3. Why a capability and not the loophole's name
 
@@ -192,7 +192,7 @@ Superseded() = serves is NON-EMPTY  AND  every served capability is superseded b
 
 **On the namespace, briefly.** Two declarations naming the same capability string is the mechanism
 working, not a collision — a capability name is an **interface** (a rendezvous point), where a skill
-name is an **identity**. Bare strings, no prefix; §5 makes an unmatched name a load error, so an
+name is an **identity**. Bare strings, no prefix; [§5](#5-the-two-failure-modes-that-are-designed-out) makes an unmatched name a load error, so an
 accidental collision surfaces immediately. *(This was a full section arguing against reaching for the
 skills-collision rule by analogy. At three bundled manifests that hazard is hypothetical, so it is
 two sentences.)*
@@ -225,12 +225,12 @@ same line.
 
 1. **"No pack ships it"** is now a reason a loophole is absent, so `loopholes list` must distinguish
    *superseded* from *not shipped* from *requirements unmet* — and per
-   [`loophole-packaging.md`](loophole-packaging.md) §5.1 that command is **census site 5**, which
+   [`loophole-packaging.md`](loophole-packaging.md) [§5.1](./loophole-packaging.md#51-selection-gates-discovery--and-the-census-is-seven-surfaces-not-four) that command is **census site 5**, which
    does not see pack loopholes today. The provenance this section promises is blocked on that
    convergence.
 2. **"A workspace config disabled it"** is the other, and it is the more dangerous one, because it is
    agent-editable and prints nothing at all today
-   ([`loophole-packaging.md`](loophole-packaging.md) §4.3 G1). Applying this section's own rule to
+   ([`loophole-packaging.md`](loophole-packaging.md) [§4.3](./loophole-packaging.md#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G1). Applying this section's own rule to
    `enabled` is a one-line launch notice and a `yolo check` warn instead of an `ok`.
 
 **Two packs disagreeing** (A supersedes X; B implicitly relies on X) is recorded as a known limit,
@@ -241,11 +241,11 @@ visibility above. At three bundled loopholes and one superseding pack, the confl
 
 | Not built | Why |
 |---|---|
-| **`needs: [<capability>]`** | Invents conflict resolution before the conflict exists (§5). Additive if it ever bites. |
+| **`needs: [<capability>]`** | Invents conflict resolution before the conflict exists ([§5](#5-the-two-failure-modes-that-are-designed-out)). Additive if it ever bites. |
 | **A yolo-owned registry of capability names** | Core deliberately does not know what an agent is. A central registry would rebuild the agent registry the pack system exists to avoid. Capabilities are declared by whoever holds the fact. |
 
 **Deleted 2026-08-13: "`serves` on a *pack* — unexpressible."** It is expressible now; it lives on
-the loophole manifest inside the pack (§2). The old row's reasoning — *"none of the kinds is a
+the loophole manifest inside the pack ([§2](#2-the-vocabulary--two-verbs)). The old row's reasoning — *"none of the kinds is a
 daemon, so a pack has nothing to serve with"* — was the premise
 [`loophole-packaging.md`](loophole-packaging.md) falsified.
 
@@ -298,7 +298,7 @@ known-broken failure surface, not three idle processes.
 7. The `Enabled` config knob and `RequirementsMet()` are unchanged and independent — three gates,
    any of which can deactivate.
 
-## 9. OQ-CAP2 — RESOLVED 2026-08-13 with **(B)**
+## 9. [OQ-CAP2](#9-oq-cap2--resolved-2026-08-13-with-b) — RESOLVED 2026-08-13 with **(B)**
 
 **The question, raised in review:** *"packs can't ship a loophole? then how are loopholes
 distributed? I think this is a mistake."*
@@ -323,12 +323,12 @@ has.
   **three first-party manifests**, of which **one** auto-activates in a way a pack can reasonably
   want to cancel.
 - **This document was cut to match**, rather than left standing with a caveat at the top. The
-  namespace argument (§3), the two verbs (§2) and the two failure modes (§5) are what survived; the
+  namespace argument ([§3](#3-why-a-capability-and-not-the-loopholes-name)), the two verbs ([§2](#2-the-vocabulary--two-verbs)) and the two failure modes ([§5](#5-the-two-failure-modes-that-are-designed-out)) are what survived; the
   sections that existed to defend a public extension surface against hypothetical third-party
   collisions were compressed to their conclusions.
 - **The size question is now genuinely open.** Whether a capability namespace is the right shape for
   one auto-activating loophole, or whether something blunter is, is
-  [`loophole-packaging.md`](loophole-packaging.md) **OQ-LP6** — a maintainer call, and it is now a
+  [`loophole-packaging.md`](loophole-packaging.md) **[OQ-LP6](./loophole-packaging.md#decision-ledger)** — a maintainer call, and it is now a
   decision about three first-party manifests rather than about a public surface. The counter-argument
   is in this doc's opening: a loophole manifest remains a public surface, so `serves` is a field
   third parties will write regardless.
@@ -339,7 +339,7 @@ loophole daemon is a **host** process, so this is packs crossing from *"configur
 *"run code on your machine"*. There is precedent for gated host **access** (a fetched pack's
 `host_files` claim is approved at install and recorded in the lockfile) but none for host
 **execution**. That is a real trust step and
-[`loophole-packaging.md`](loophole-packaging.md) §4 is where it is paid for — including the finding
+[`loophole-packaging.md`](loophole-packaging.md) [§4](./loophole-packaging.md#4-trust--the-existing-hole-is-real-but-the-kind-is-still-a-widening) is where it is paid for — including the finding
 that **an approval anchored to a claim STRING is content-blind**, which is a new invariant host reads
 never needed.
 
@@ -354,7 +354,7 @@ had already built it — `supersedes` is a field on the **manifest top level**
 `TestSupersedesIsNotAContributionKind` (`internal/packdecl/supersedes_test.go:120-136`) **refuses**
 the alternative outright: a `contributes[]` entry with `kind: "supersedes"` is a validation error.
 A question whose losing option is pinned rejected by a test is not open; recording that is what
-[`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md) §4b asked for. Reopen only
+[`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md) [§4](../plans/further-roadmap-ideas.md#4-two-rows-already-on-the-roadmap-that-i-would-drop)b asked for. Reopen only
 with a migration case nobody has.
 
 The reasoning, kept for the record: top-level matches `skills_tier` (a per-pack fact, not a

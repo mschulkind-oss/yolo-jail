@@ -1,7 +1,7 @@
 # A reproducible tool environment for the NON-CONTAINER notches, via nix
 
 **Status:** EXPLORATORY analysis, 2026-08-02 — **re-verified against the tree 2026-08-23**, and
-partly overtaken by it. §8 **Option 1 has largely SHIPPED** (the rename and the GC root, carried
+partly overtaken by it. [§8](#8-options-with-a-recommendation) **Option 1 has largely SHIPPED** (the rename and the GC root, carried
 as the roadmap's **N2** `11f8bb72` and **N1** `23cee7a6`, both 2026-08-05). **OQ-1 — the fork this
 doc could not pick — is ANSWERED BY EVENTS as of 2026-09-02:** the host notch is a place agents
 *run*. The launch verb shipped 2026-08-30 as `yolo host -- <cmd>` (`--at host --` as its alias),
@@ -10,9 +10,9 @@ and the maintainer's 2026-09-01 rulings in
 peer of jail launches (*"why would we NOT support env on the host too?"* — the withdrawn OQ-CS10,
 whose plan carries "the host notch runs the env derive" as a constraint, not a choice). See the
 Decision Ledger. **Six questions live, three settled.** Option 3's *installer* half is a separate
-product question (OQ-3) and remains unpicked.
+product question ([OQ-3](#OQ-3)) and remains unpicked.
 
-> **Postscript, 2026-08-23 (item 4 added 2026-08-30) — what moved underneath this doc.** §1–§8
+> **Postscript, 2026-08-23 (item 4 added 2026-08-30) — what moved underneath this doc.** [§1](#1-what-is-already-solved-stated-precisely)–[§8](#8-options-with-a-recommendation)
 > keep their original 2026-08-02 tense: read them as the analysis that *motivated* the work, not
 > as a description of today's tree. Four things changed, each annotated in place:
 >
@@ -22,22 +22,22 @@ product question (OQ-3) and remains unpicked.
 >    `darwinpkg.NativeSystem()`, derived from GOOS/GOARCH
 >    (`internal/darwinpkg/darwinpkg.go:29-32`, `:46-76`). This doc proposed `yoloHostPackages`;
 >    the shipped name is `noncontainer`, and the commit is explicit that it rejected the doc's
->    suggestion for §7's reason — "`host` is one notch and `guest` needs the identical
+>    suggestion for [§7](#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding)'s reason — "`host` is one notch and `guest` needs the identical
 >    mechanism, so naming it after either one would be the same lie in a new spelling"
 >    (`flake.nix:1196-1203`). The **Go package is still called `darwinpkg`**; that rename is
 >    mechanical and deliberately left for the consumer that needs it
 >    (`internal/darwinpkg/darwinpkg.go:8-14`).
-> 2. **The realized profile is GC-rooted** (N1, `23cee7a6`) — OQ-2, answered *and* built. §5.4's
+> 2. **The realized profile is GC-rooted** (N1, `23cee7a6`) — [OQ-2](#decision-ledger), answered *and* built. [§5.4](#54-what-if-the-user-has-no-nix)'s
 >    "one shipped gap" is closed; the reasoning that made it safe is preserved there as a warning.
-> 3. **`x86_64-darwin` is no longer dead for this flake.** §5.1's first caveat is **retracted**
+> 3. **`x86_64-darwin` is no longer dead for this flake.** [§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail)'s first caveat is **retracted**
 >    (see `### ⚠ Retracted` there): the flake grew a second nixpkgs input pinned to 26.05 for
 >    that system alone (`flake.nix:22-42`), after the 26.11 throw took the macOS nightly red for
 >    29 consecutive nights. Re-measured today: an Intel Mac gets **5 of 6** agent CLIs, not zero.
 > 4. **The `host` notch grew an exec half, and the apply command was renamed** (2026-08-30;
->    [`host-agent-environment.md`](host-agent-environment.md) §5.2, §6 and its OQ-2/OQ-7
+>    [`host-agent-environment.md`](host-agent-environment.md) [§5.2](./host-agent-environment.md#52-the-cli-shape-yolo-host-verb-and---host-removed-oq-7), [§6](./host-agent-environment.md#6-detailed-design-yolo-host-command) and its [OQ-2](#decision-ledger)/[OQ-7](#OQ-7)
 >    rulings). `yolo host -- <cmd>` ships, with `yolo --at host -- <cmd>` as its systematic
->    alias — so §3's premise that yolo never launches a process at `host`, and every conclusion
->    this doc derives from it (§3 row 2, §4.2, §7), is scoped to the **apply command**, not to
+>    alias — so [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed)'s premise that yolo never launches a process at `host`, and every conclusion
+>    this doc derives from it ([§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) row 2, [§4.2](#42-nix-shell-is-the-interesting-dark-horse--and-it-dies-on-the-launch-refusal), [§7](#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding)), is scoped to the **apply command**, not to
 >    the notch. `yolo apply --host` was REMOVED rather than deprecated: the command is now
 >    `yolo host apply` (or `yolo apply --at host`), and this doc's prose says so throughout.
 
@@ -45,12 +45,12 @@ product question (OQ-3) and remains unpicked.
 > way `yoloDarwinPackages` is wrong — it named the mechanism after the first notch that needed
 > it. This is about **every notch without a container image**: `guest` needs the identical
 > mechanism for the identical reason (a real home, no image, so no baked tool closure), and
-> §7 below already concluded exactly that. Keeping "host" in the title invited building
+> [§7](#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding) below already concluded exactly that. Keeping "host" in the title invited building
 > Phase 7's package layer twice, which is the one mistake this doc exists to prevent.
 >
-> The rename is not cosmetic for the STRUCTURE: §5 is still organized as "macOS vs Linux" and
-> §3 still enumerates host consumers. Both axes are secondary to the notch axis. §3 now opens
-> with the notch framing; §5's platform split is legitimately about platform (nix-ld has no
+> The rename is not cosmetic for the STRUCTURE: [§5](#5-macos-vs-linux) is still organized as "macOS vs Linux" and
+> [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) still enumerates host consumers. Both axes are secondary to the notch axis. [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) now opens
+> with the notch framing; [§5](#5-macos-vs-linux)'s platform split is legitimately about platform (nix-ld has no
 > darwin analogue) and is left alone.
 
 **The thesis, verbatim from the maintainer:**
@@ -64,18 +64,18 @@ form, and one does not.
 
 - **(b) `nix-shell` is the right shape — NO.** The same reason `flake.nix` already records for
   rejecting a devShell on `macos-user` applies at the `host` notch *with more force*, and the
-  measurement is in §4.1: a devShell puts **22 PATH entries and 121 environment variables**
+  measurement is in [§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force): a devShell puts **22 PATH entries and 121 environment variables**
   (clang/gcc, GNU coreutils/sed/grep, `CC`, `AR`, `NIX_CFLAGS_COMPILE`) in front of the user's
   own userland. The right shape is the **`buildEnv` + PATH-prepend** yolo already ships — and,
   for the imperative case, `nix profile`.
 - **(c) "mimic the in-jail env more" — YES, but only for about half of what the jail does**, and
-  the split is this doc's most useful output (§6). Roughly: the *tool closure* ports, the
+  the split is this doc's most useful output ([§6](#6-mimic-our-in-jail-envs-more--the-isolationenvironment-split)). Roughly: the *tool closure* ports, the
   *isolation* does not, and one whole mechanism (`/lib` + `LD_LIBRARY_PATH` + nix-ld) is
-  Linux-container-specific and has **no darwin analogue worth building** (§5.3).
+  Linux-container-specific and has **no darwin analogue worth building** ([§5.3](#53-the-lib--ld_library_path--nix-ld-mechanism-has-no-darwin-analogue-worth-building)).
 - **(a) orthogonal to confinement — NO, and this is the finding that matters most.** A host nix
   environment is not a peer of confinement; it is the **missing provisioning primitive below the
   `jail` notch**, and `guest` (env-manager Phase 7, unbuilt) needs the identical mechanism.
-  Building it as "a host feature" would build Phase 7's package layer twice. §7.
+  Building it as "a host feature" would build Phase 7's package layer twice. [§7](#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding).
 
 **The biggest single finding, and it is a surprise:** the mechanism is **already built, already
 cross-platform, and misnamed**. `packages.yoloDarwinPackages` is defined inside
@@ -112,19 +112,19 @@ non-macos-user notches a caller**."
 > `yolo check`'s extra-platforms remedy, which told an Intel Mac user to delete a line they did
 > not have. It survived because nothing tested the remedy string.
 
-**Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) §1 (the
+**Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) [§1](#1-what-is-already-solved-stated-precisely) (the
 shipped mechanism, in detail — this doc does not restate it),
-[`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) §3.5 + §4 (the dial and the
-dep-handoff design), [`host-render-target.md`](host-render-target.md) §2.1 (the kind census),
+[`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) [§3.5](./yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) + [§4](#4-the-mechanisms-compared-honestly) (the dial and the
+dep-handoff design), [`host-render-target.md`](host-render-target.md) [§2.1](./host-render-target.md#21-but-measure-how-much-of-a-pack-the-host-actually-wants) (the kind census),
 [`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md) Phase 4.3/6/7
 (what is deferred), [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md)
 §8.3/§8.4 (the `install_hints` matrix and the two defects it had, both since fixed),
 [`package-nested-attribute-paths.md`](package-nested-attribute-paths.md) (what a `packages:`
-entry may *say* — a sketch, and it resolves through the same `noncontainerResolved` block §2
+entry may *say* — a sketch, and it resolves through the same `noncontainerResolved` block [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)
 dissects).
 
 **Two docs are blocked on this one's OQ-1** and spell it `N3/OQ-1`:
-[`boundary-broker.md`](boundary-broker.md) §10 (its approval tier's shape differs by the answer)
+[`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) (its approval tier's shape differs by the answer)
 and [`agent-auth-modes.md`](agent-auth-modes.md) (which notes it *escaped* the dependency by
 making auth-as-packs host-complete without a launcher). The roadmap tracks it as
 [row 4, "Non-container nix"](../plans/roadmap.md).
@@ -133,20 +133,20 @@ making auth-as-packs host-complete without a launcher). The roadmap tracks it as
 
 > [!NOTE]
 > **Postscript, 2026-09-03 — a frame this doc predates, from a sibling.**
-> [`program-delivery.md`](program-delivery.md) §3.5 drew an axis that did not exist when §1–§8 were
+> [`program-delivery.md`](program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) drew an axis that did not exist when [§1](#1-what-is-already-solved-stated-precisely)–[§8](#8-options-with-a-recommendation) were
 > written: a dependency serves either the **agent** (evergreen, never pinned) or the **project**
 > (pinned, reproducible). This document analysed the non-container notches as a *packaging* problem
 > — how does a tool closure get here without an image. §3.5 says what the closure is **for**, and
 > that sharpens two things rather than changing any conclusion:
 >
 > - **`packages:` and `mise_tools` are project dependencies, so pinning them below `jail` is now a
->   RULING to satisfy, not merely a nice-to-have** (OQ-PD16 there routes the host notch here).
+>   RULING to satisfy, not merely a nice-to-have** ([OQ-PD16](./program-delivery.md#-oq-pd16--how-does-a-project-dependency-get-pinned-on-the-host-where-there-is-no-jail--resolved-2026-09-03) there routes the host notch here).
 > - **Agent CLIs are explicitly out of scope for pinning at any notch** — which bears directly on
 >   [OQ-7](#9-open-questions) (*should the jail get its agent CLIs from nix too?*): under §3.5 the
 >   answer must not make an agent CLI reproducible, because that class is ruled evergreen. That
->   narrows OQ-7 to a *delivery* question, never a pinning one.
+>   narrows [OQ-7](#OQ-7) to a *delivery* question, never a pinning one.
 >
-> Nothing in §1–§8 is retracted by this.
+> Nothing in [§1](#1-what-is-already-solved-stated-precisely)–[§8](#8-options-with-a-recommendation) is retracted by this.
 
 ## 0. Vocabulary — five terms this doc leans on
 
@@ -179,21 +179,21 @@ $ nix shell nixpkgs#hello --command bash -c 'echo $PATH'
 /nix/store/lxra5…-hello-2.12.3/bin:/home/agent/.yolo-shims:…   ← ONE entry prepended
 ```
 
-**The `host` notch** — `confinement: host` from the dial (§4 of the env-manager design): no
+**The `host` notch** — `confinement: host` from the dial ([§4](#4-the-mechanisms-compared-honestly) of the env-manager design): no
 confinement, your machine, your credentials. `yolo host apply` renders config into the real
 `$HOME` and **launches nothing** — which is exactly why the `launch` kind is honored-but-unbuilt
 *there*, at that command (`render.HostUnimplemented`, `internal/render/fieldset.go:96-98`,
 re-read 2026-08-30: *"launch flags apply to a process yolo starts, and `yolo host apply` only
 configures your tools — it never runs them, so there is no argv to inject them into.
 `yolo host -- <program>` is the notch that does the launching"*). Hold onto that: it is the crux
-of §4.2 — and note the sentence's tail now names a verb that SHIPPED (postscript 4).
+of [§4.2](#42-nix-shell-is-the-interesting-dark-horse--and-it-dies-on-the-launch-refusal) — and note the sentence's tail now names a verb that SHIPPED (postscript 4).
 
 > [!NOTE]
 > **That sentence was re-worded after this doc was written, and the reword is an argument in
 > this doc's favor.** The original text ("launch flags need a launcher"; for `env`, "the only
 > place to set these off-container is your shell profile") read as a fact about being
 > *off-container*, which it is not — at `guest`, macos-user already execs the agent. The
-> comment above the map now says so and names `yolo --at host -- <cmd>` (this doc's §8 Option 2)
+> comment above the map now says so and names `yolo --at host -- <cmd>` (this doc's [§8](#8-options-with-a-recommendation) Option 2)
 > as what would make both kinds renderable at `host` (`internal/render/fieldset.go:83-96`). So
 > the refusal is scoped to the **command**, not the notch, and the codebase now points at
 > Option 2 from inside the refusal itself.
@@ -211,15 +211,15 @@ The most common way to waste effort here is to design something that exists. So,
 | …and it works for **every** `eachDefaultSystem` system, Linux included | **SHIPPED, and now advertised by its name** | `flake.nix:1196-1210`; verified on `x86_64-linux` |
 | Realizing it and putting `<out>/bin` on an agent's PATH, no container | **SHIPPED** | `internal/darwinpkg` → `internal/macosuser/orchestrator.go` |
 | Per-package "no build on this platform" filtering, warn-and-skip | **SHIPPED** (a hard error is decided but unbuilt: revival plan **A2**) | `noncontainerSkippedNames` / `yoloUnavailablePackages` (`flake.nix:472-474`, `:1210`) |
-| Pinning to yolo's `flake.lock` rather than the user's channel | **SHIPPED** (structural — it *is* the flake) | `flake.lock`; rev `241313f4` at first writing, `f13ff45a` today, **plus a second `nixpkgs-x86-darwin` input** (§5.1) |
+| Pinning to yolo's `flake.lock` rather than the user's channel | **SHIPPED** (structural — it *is* the flake) | `flake.lock`; rev `241313f4` at first writing, `f13ff45a` today, **plus a second `nixpkgs-x86-darwin` input** ([§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail)) |
 | A target system that follows the machine instead of a constant | **SHIPPED 2026-08-05** (N2) — was `DarwinSystem = "aarch64-darwin"` | `darwinpkg.NativeSystem()`, `internal/darwinpkg/darwinpkg.go:46-76` |
 | A **gcroot** on the realized profile | **SHIPPED 2026-08-05** (N1) — the root *is* the build's `--out-link`, so it cannot be skipped | `internal/darwinpkg/gcroot.go`, `darwinpkg.go:117-141` |
 | The resolved profile **reported** to a human | **SHIPPED 2026-08-05** for `describe` (gated on `PrimBakedImage` being absent) and for `check`'s macos-user section | `internal/cli/describe.go:161-190`, `internal/cli/check/sections_macos.go:103-134` |
 | `yolo check` verifying nix + `/nix` + trusted-user on macOS | **SHIPPED** | `cli/check/section_nix_probe.go`, `sections_macos_platform.go` |
-| The same, on **Linux** | **STILL NOT WIRED** — `nixDaemonStoreCheck` and the platform block are `IsMacOS`-gated | `section_nix_probe.go:28-31`, `check.go:77-78` (OQ-9) |
-| The profile report, on **Linux** | **STILL NOT WIRED** — `checkPackageProfile` is called only from the macos-user backend section, which returns early off macOS | `sections_macos.go:100`; the gate is `sections_macos.go:46-60` (OQ-9) |
+| The same, on **Linux** | **STILL NOT WIRED** — `nixDaemonStoreCheck` and the platform block are `IsMacOS`-gated | `section_nix_probe.go:28-31`, `check.go:77-78` ([OQ-9](#OQ-9)) |
+| The profile report, on **Linux** | **STILL NOT WIRED** — `checkPackageProfile` is called only from the macos-user backend section, which returns early off macOS | `sections_macos.go:100`; the gate is `sections_macos.go:46-60` ([OQ-9](#OQ-9)) |
 | A **caller** for the profile at the `host` notch | **STILL DOES NOT EXIST** | `yolo host apply` never touches nix (`cli/apply.go`: no `packages` handling at all) |
-| `packages:` reported by `yolo host apply` / `check --at host` | **STILL DOES NOT EXIST** — `packages` is not a pack *kind*, so the `FieldSet` census never sees it; it is a top-level config key with no host handler | `render/fieldset.go`, `cli/apply.go` (OQ-8) |
+| `packages:` reported by `yolo host apply` / `check --at host` | **STILL DOES NOT EXIST** — `packages` is not a pack *kind*, so the `FieldSet` census never sees it; it is a top-level config key with no host handler | `render/fieldset.go`, `cli/apply.go` ([OQ-8](#OQ-8)) |
 
 **So the honest framing was never "should yolo build a host nix environment."** It was: *yolo
 already has one, for one notch on one platform, called by one backend, under a platform-specific
@@ -240,7 +240,7 @@ This is worth isolating, because it is the actual hole. The env-manager design s
 That is the *shipped intent* — packages are a jail concept, and below `jail` the design hands
 off to `install_hints`. But it is not what `macos-user` does: that backend **does** manage
 packages below the jail notch, natively, via the buildEnv. The design's own table
-([`host-render-target.md`](host-render-target.md) §2.2) records this as
+([`host-render-target.md`](host-render-target.md) [§2.2](./host-render-target.md#22-so-which-is-it-a-command-or-a-mode)) records this as
 `macos-user | … | program: ✅ (native nix)`.
 
 So the design contains a latent inconsistency that this exploration surfaces: **`packages:` is
@@ -255,7 +255,7 @@ symlink rather than invoking nix so the command stays instant
 `✗ packages   yolo does not manage packages here`: the shipped line says yolo does manage them,
 and names the store path. `yolo host apply` still says nothing at all, so the inconsistency is now
 **between two yolo commands** rather than between a doc and a backend — which is a sharper
-version of the same question, not a resolution of it (OQ-8).
+version of the same question, not a resolution of it ([OQ-8](#OQ-8)).
 
 ---
 
@@ -275,7 +275,7 @@ binary to a package name per host package manager, so `check-deps` / `yolo host 
 | Who runs it | the user (or Phase 4.3's confirm-gated offer) | yolo, silently, as a build |
 | Scope | machine-global | **process-scoped** if yolo launches; otherwise nothing |
 | Works with no nix | **yes** — the entire point | no |
-| Coverage across the six agent packs | **weak** (see below) | **6/6 on both arm64 Linux and arm64 macOS** (§5.1) |
+| Coverage across the six agent packs | **weak** (see below) | **6/6 on both arm64 Linux and arm64 macOS** ([§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail)) |
 
 The coverage asymmetry is stark and is most of the motivation. From §8.3's verified matrix:
 
@@ -295,7 +295,7 @@ nice."
 
 **But it does not make `install_hints` unnecessary, for three reasons.**
 
-1. **A user with no `/nix` gets nothing from a nix env** (§5.4), and telling a brew user to
+1. **A user with no `/nix` gets nothing from a nix env** ([§5.4](#54-what-if-the-user-has-no-nix)), and telling a brew user to
    install nix to get `copilot` is a worse experience than `brew install copilot-cli`.
 2. **`install_hints` answers a different question.** It covers a pack's *host dependencies*
    generally — the motivating case in the pack-host plan is `fzf` and `fd` for a
@@ -348,7 +348,7 @@ defects are one-line-ish fixes that a nix route makes *more* important, not less
 >   gets the package instead of a silent skip. **yolo does not set that variable on the user's
 >   behalf** — unfree is a licence decision the user makes once, machine-wide, and slipping the
 >   override in would make it for them silently. (This used to cite `allow_exec` as the
->   sibling invariant; that key is gone — see `pack-system.md` §1 — and the argument here
+>   sibling invariant; that key is gone — see [`pack-system.md`](./pack-system.md) [§1](./pack-system.md#1-what-a-pack-is-on-disk) — and the argument here
 >   never depended on it: a licence decision is the user's whether or not anything else
 >   works the same way.)
 > - **The warning has to ride on the BUILD path** (`flake.nix:475-484`). It is emitted from
@@ -404,10 +404,10 @@ user's shell rc, which is already refused by name. **Row 2 stopped being hypothe
 and the refusal's own text now points at it — so there IS a launch verb below `jail`, and row 3
 is the only row left with no consumer yolo controls.
 
-Two exits from that, and they are the real fork (§8, Options):
+Two exits from that, and they are the real fork ([§8](#8-options-with-a-recommendation), Options):
 
 - **Do launch.** Make `yolo --at host -- <cmd>` real, and the PATH-prepend serves it for free.
-  The design already wants this verb (§4.1: *"the second line is the case that started this"*).
+  The design already wants this verb ([§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force): *"the second line is the case that started this"*).
   Note that this also unblocks the `launch` kind at the host notch, which is currently
   honored-but-unbuilt for exactly this reason. This is the *coherent* answer.
 - **Do not launch; hand off a stable path.** Materialize the profile, symlink it to a fixed
@@ -424,10 +424,10 @@ with `nix develop` and behaves nothing like it.
 
 | | reproducible? | PATH pollution | must be *entered*? | non-bash shells | mutates the user's machine |
 |---|---|---|---|---|---|
-| **devShell** (`nix develop` / `nix-shell` / `print-dev-env`) | yes (flake-pinned) | **severe — see §4.1** | **yes** (subshell) or source a 70 KB script | `print-dev-env` emits **bash** syntax; `nix develop` spawns bash | no (but see §4.3) |
+| **devShell** (`nix develop` / `nix-shell` / `print-dev-env`) | yes (flake-pinned) | **severe — see [§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force)** | **yes** (subshell) or source a 70 KB script | `print-dev-env` emits **bash** syntax; `nix develop` spawns bash | no (but see [§4.3](#43-nix-profile-is-the-one-that-actually-answers-the-maintainers-copilot-question)) |
 | **`nix shell nixpkgs#x`** | yes | **none** (one dir prepended) | **yes** (subshell / `--command`) | wraps any command; no shell syntax involved | no |
 | **`buildEnv` + PATH prepend** (shipped) | yes (flake-pinned) | **none** | **no** — the caller sets PATH for the process it launches | shell-agnostic (it is an env var, set by the launcher) | no |
-| **`nix profile add`** | per-entry, drifting (§0) | user's whole profile | **no** — always on their PATH | shell-agnostic (their nix install did it) | **yes** — this is the point |
+| **`nix profile add`** | per-entry, drifting ([§0](#0-vocabulary--five-terms-this-doc-leans-on)) | user's whole profile | **no** — always on their PATH | shell-agnostic (their nix install did it) | **yes** — this is the point |
 
 ### 4.1 The flake's rejection of a devShell holds at the host notch, with more force
 
@@ -486,19 +486,19 @@ If a future need is "the environment must also set `SSL_CERT_FILE` / `PKG_CONFIG
 `FONTCONFIG_FILE`," a devShell is the nix-native way to express that. Today yolo carries those
 as a small explicit whitelist in Go (`darwinpkg.ProfilePaths` exposes exactly
 `PKG_CONFIG_PATH`), which is more legible and more auditable than a 121-variable dump. **If the
-env-var list grows past a handful, revisit.** (OQ-4.)
+env-var list grows past a handful, revisit.** ([OQ-4](#OQ-4).)
 
 ### 4.2 `nix shell` is the interesting dark horse — and it dies on the `launch` refusal
 
 `nix shell nixpkgs#a nixpkgs#b --command <cmd>` prepends exactly the requested store `bin`
-dirs and nothing else (verified in §0). It needs no flake output at all, no `buildEnv`
+dirs and nothing else (verified in [§0](#0-vocabulary--five-terms-this-doc-leans-on)). It needs no flake output at all, no `buildEnv`
 definition, no `--print-out-paths` parsing. It is the *cheapest* correct mechanism for
 "run this command with these tools available."
 
 **But it is a launcher.** It only exists as a wrapper around a process yolo starts. That puts it
 squarely on the wrong side of the constraint `render.HostUnimplemented` records for the `launch`
 kind: *`yolo host apply` only configures your tools — it never runs them.* So `nix shell` is a
-good fit for the `yolo host -- claude` / `yolo --at guest -- claude` rows of §3 — the first of
+good fit for the `yolo host -- claude` / `yolo --at guest -- claude` rows of [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) — the first of
 which now exists (postscript 4) — and **no fit at all** for the
 `yolo host apply`-then-user-runs-it row.
 
@@ -513,7 +513,7 @@ anyway). N1's GC root in particular has no `nix shell` analogue at all.
 ### 4.3 `nix profile` is the one that actually answers the maintainer's copilot question
 
 Worth stating plainly because the mechanism yolo would *like* (a scoped profile) does not solve
-row 3 of §3, and this one does. `nix profile add` puts the binary on the user's PATH **forever,
+row 3 of [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed), and this one does. `nix profile add` puts the binary on the user's PATH **forever,
 in every shell, with no cooperation from yolo** — which is precisely what a user asking "how do
 I install copilot" wants. It is what `depcheck.installCmd` already prints for the `nix` manager:
 `nix profile install nixpkgs#github-copilot-cli`.
@@ -530,15 +530,15 @@ nixpkgs#…` builds a **yolo-owned** profile the user's PATH does not see by def
 working here into a temp dir. That is a `buildEnv`-like stable path *with* generations, rollback,
 and `nix profile list` provenance — and it gcroots itself, which the current buildEnv path does
 not. It costs the imperative/declarative purity that env-manager §3.3's sealing story rests on:
-a profile is *mutable state*, and the closure table would gain a row. (OQ-3.)
+a profile is *mutable state*, and the closure table would gain a row. ([OQ-3](#OQ-3).)
 
 ### 4.4 Recommendation on mechanism
 
 **Generalize the existing `buildEnv` for the environment yolo launches; use `nix profile` (behind
 Phase 4.3's confirm) for the environment yolo does not.** They are not competing — they serve
-the two different consumers of §3, and neither serves the other's.
+the two different consumers of [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed), and neither serves the other's.
 
-Reject the devShell in all forms (§4.1). Keep `nix shell` in mind as a possible *simplification*
+Reject the devShell in all forms ([§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force)). Keep `nix shell` in mind as a possible *simplification*
 of the launcher path if the `buildEnv` output ever proves more machinery than it earns — but note
 it forfeits `flake.lock` pinning and the stable path.
 
@@ -578,9 +578,9 @@ Three caveats, all verified at the time — **the first is now retracted, see be
   daily is a **real** tradeoff, not a footnote, and it interacts with the packs' auto-updater-off
   managed keys (`claude`'s `preferences.autoUpdaterStatus: "disabled"`, copilot's
   `--no-auto-update`). Pin *and* disable updates and the user is on nixpkgs' cadence.
-- **3 of 6 are `unfree`** (§2). This is the sharpest practical blocker, and it hits `packages:`
-  today (OQ-6 — since **fixed**: they are now named and skipped rather than aborting the build,
-  and an opted-in user still gets them; re-measured 2026-08-23, §2).
+- **3 of 6 are `unfree`** ([§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)). This is the sharpest practical blocker, and it hits `packages:`
+  today ([OQ-6](#decision-ledger) — since **fixed**: they are now named and skipped rather than aborting the build,
+  and an opted-in user still gets them; re-measured 2026-08-23, [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)).
 
 ### ⚠ Retracted: "`x86_64-darwin` is dead, an Intel Mac gets nothing" (2026-08-23)
 
@@ -618,7 +618,7 @@ So the corrected statement is: **an Intel Mac gets 5 of the 6 agent CLIs, off a 
 line.** `antigravity-cli` is the one the mechanism skips there — where on `aarch64-darwin` with
 the same opt-in the skip list is empty. *Which* reason it skips for (absent from 26.05, or
 refused on that platform) this measurement does not distinguish; `yoloUnavailablePackages`
-carries names, and the reason is only printed on the build path (§2). The *deadline* framing in the
+carries names, and the reason is only printed on the build path ([§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)). The *deadline* framing in the
 roadmap survives intact and is the part to keep: 26.05 is the last release supporting
 `x86_64-darwin` and is security-fixed only to the end of 2026, after which the choice is a
 self-hosted arm64 Mac runner or macOS tests on `macos-user` only.
@@ -642,12 +642,12 @@ Spot-checked `corePackages` members by eval:
 
 So "mimic the in-jail env" at the tool level is *mostly* achievable on darwin — with the
 important twist that **you probably do not want the GNU userland ones on a Mac host**, which is
-the §4.1 BSD hazard arriving through the front door instead of the devShell's back door. A
+the [§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force) BSD hazard arriving through the front door instead of the devShell's back door. A
 `buildEnv` containing `gnugrep` still shadows `/usr/bin/grep` when its `bin` is prepended. The
 difference from a devShell is only that here it is a **declared** choice the user made in
 `packages:`, not an incidental dump. That is a big difference in *legibility* and none at all in
 *effect* — worth saying out loud, because it means the buildEnv's "no pollution" property is
-"no *undeclared* pollution," which is the honest version of the claim. (OQ-5.)
+"no *undeclared* pollution," which is the honest version of the claim. ([OQ-5](#OQ-5).)
 
 ### 5.3 The `/lib` + `LD_LIBRARY_PATH` + nix-ld mechanism has no darwin analogue worth building
 
@@ -684,7 +684,7 @@ Three sub-cases, and only one of them is interesting:
    `nix store info` and the `/nix`-exists probe, while on **Linux those probes are `IsMacOS`-gated
    and never run**. If a host nix env becomes a Linux feature, that gate needs revisiting.
    Telling a brew user to install nix to get `copilot` is worse than `brew install copilot-cli`,
-   so `install_hints` stays the floor (§2).
+   so `install_hints` stays the floor ([§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)).
 2. **nix present, user not trusted.** Already handled as a warning, not a failure, for
    macos-user: a non-trusted user can still substitute from `cache.nixos.org`; being trusted is
    what makes `--accept-flake-config` consult yolo's cachix. Same story would hold here.
@@ -695,7 +695,7 @@ Three sub-cases, and only one of them is interesting:
    identical here. `nixdiag.ParseDryRunWillBuild` already exists to classify this
    (build/substitutable/**inconclusive**, where inconclusive must never be read as a miss).
 
-**One shipped gap that a host feature makes worse — CLOSED 2026-08-05 (OQ-2, shipped as N1,
+**One shipped gap that a host feature makes worse — CLOSED 2026-08-05 ([OQ-2](#decision-ledger), shipped as N1,
 `23cee7a6`).** As written, `darwinpkg` built with `--no-link` and registered **no GC root**,
 unlike `internal/image/gcroot.go` which carefully roots the OCI image; a user's next
 `nix-collect-garbage` deleted the realized profile out from under a launch that had just
@@ -742,13 +742,13 @@ plus a launch env could supply it off-container:
 
 | What the jail provides | Mechanism | Class | Off-container? |
 |---|---|---|---|
-| `corePackages` / `fullPackages` (the ~60-package baked set) | OCI image layers | **environment** | ✅ a `buildEnv` of the same attrs (minus Linux-only ones, §5.2) |
+| `corePackages` / `fullPackages` (the ~60-package baked set) | OCI image layers | **environment** | ✅ a `buildEnv` of the same attrs (minus Linux-only ones, [§5.2](#52-what-the-jails-own-package-set-looks-like-on-darwin)) |
 | `packages:` (user's extras) | `extraPackages` → image | **environment** | ✅ **already shipped** as `yoloNoncontainerPackages`, GC-rooted since 2026-08-05 |
 | `mise_tools` | mise, PATH-ordered shims | **environment** | ✅ already runs natively on macos-user (`ConfigureMisePrism`) |
 | Env hygiene (`PAGER`/`GIT_PAGER=cat`, `BAT_PAGER=""`, `EDITOR=cat`, `VISUAL=nvim`, `OVERMIND_SOCKET`) | `-e` flags + generated `.bashrc` | **environment** | ⚠️ **only for a process yolo launches.** In a shell yolo does not start, this is a shell-rc edit — refused by name today (`KindEnv`). And `EDITOR=cat` in a *human's* shell is hostile: it exists because an agent cannot drive an editor |
 | `PATH` order (`.yolo-shims:.local/bin:$NPM_CONFIG_PREFIX/bin:<mise>:$GOPATH/bin:/bin:/usr/bin:.yolo-launchers`) | generated `.bashrc` / launch env | **environment** | ⚠️ same: yolo-launched yes, user's shell no. macos-user already needs a **login-rc re-prepend** (`.zprofile`/`.zshrc`/`.bash_profile`) to survive macOS `path_helper` — evidence of how far you must reach to own a PATH you did not start |
 | Blocked-tool shims (`grep -r`, `find`) | generated scripts, first on PATH | **hybrid — see below** | ⚠️ mechanically yes; the design flags it `!` ("shims would land on your real PATH — opt in explicitly") |
-| `/lib` farm + `LD_LIBRARY_PATH` + nix-ld | image + baked `Env` | **environment, but Linux-container-only** | ❌ no darwin analogue (§5.3); on a Linux host it would be actively wrong to set `LD_LIBRARY_PATH=/lib:/usr/lib` |
+| `/lib` farm + `LD_LIBRARY_PATH` + nix-ld | image + baked `Env` | **environment, but Linux-container-only** | ❌ no darwin analogue ([§5.3](#53-the-lib--ld_library_path--nix-ld-mechanism-has-no-darwin-analogue-worth-building)); on a Linux host it would be actively wrong to set `LD_LIBRARY_PATH=/lib:/usr/lib` |
 | Composed agent config (settings, MCP, LSP, skills, briefing) | the prism / `render` | **environment** | ✅ **already shipped** — `yolo host apply` |
 | Disposable home / overlay | bind mounts | **isolation** | ❌ |
 | Credential omission (no `~/.ssh`, no `~/.gitconfig`) | absence of a mount | **isolation** | ❌ — and inverted at `host`: your creds are *the point* |
@@ -768,18 +768,18 @@ wastes an agent's context, not because it is dangerous — that is an *environme
 notch the shims would land on **the human's** PATH, and a human typing `grep -r` and being told
 to use `rg` is a different product than an agent being nudged. The env-manager design already
 marks this `!` / opt-in rather than ✅, and that is right. **If yolo launches the host agent
-(§3 row 2), the shims can be scoped to that process and the dilemma dissolves** — another point
+([§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) row 2), the shims can be scoped to that process and the dilemma dissolves** — another point
 for the launcher answer over the rc-editing answer.
 
 **The most valuable "mimic" target is not any of the above.** It is the fact that **all six agent
-CLIs are in nixpkgs for all three live platforms** (§5.1) while the jail installs them
+CLIs are in nixpkgs for all three live platforms** ([§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail)) while the jail installs them
 **lazily, at first use, via npm and curl-to-shell** (`~/.yolo-launchers/` launchers; every shipped
 pack's `program` is `via: npm` or `via: installer` — re-counted 2026-08-23: four npm
 (`opencode`, `pi`, `copilot`, `codex`), two installer (`claude`, `agy`), zero nix). So the *jail* does not get its agent CLIs
 from nix either. A host nix env would be **more reproducible than the jail** on exactly the axis
 the maintainer's copilot question is about. That is a genuinely interesting inversion, and it
 raises a question this doc cannot answer alone: *should the jail's agent CLIs move to nix too?*
-(OQ-7.) Arguments both ways: nix gives one reproducible mechanism and drops the curl-to-shell
+([OQ-7](#OQ-7).) Arguments both ways: nix gives one reproducible mechanism and drops the curl-to-shell
 (also a supply-chain win); npm/installer gives same-day upstream versions, which for
 fast-moving agent CLIs may matter more than the pin. The unfree three complicate it.
 
@@ -804,7 +804,7 @@ under a different name. That is not orthogonality; that is a shared dependency.
 launches the process, so a prepend works. At `host`, `yolo host apply` launches nothing — hence
 the `launch` and `env` kinds' refusals — though its sibling verb `yolo host -- <cmd>` does launch
 (postscript 4). **The mechanism's *viability* is a function of the notch**, which is the
-definition of not-orthogonal. §3 is this argument in table form.
+definition of not-orthogonal. [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) is this argument in table form.
 
 **3. The primitive model already says so.** `internal/render/confinement.go:39-42` lists
 **`PrimBakedImage`** as a Primitive, with the comment: *"A provisioning primitive, not a
@@ -849,14 +849,14 @@ provisioning at the host notch as "print the remedy, the user runs it."
 
 **Both shipped** (`e40df9f1`): `install_hints` grew a `brew-cask` installer-flavor key, which
 wins over `brew` when a pack declares both (`internal/depcheck/depcheck.go:53-54`,
-`internal/packdecl/contributes.go:45-51`), and the unfree skip landed in the flake (§2). The
+`internal/packdecl/contributes.go:45-51`), and the unfree skip landed in the flake ([§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)). The
 rest of this option — *leave provisioning at the host notch as "print the remedy"* — is the
 status quo, and remains the answer if OQ-1 comes back "configure-only."
 
 **For:** zero new mechanism; both fixes are needed regardless; the design's "manifest is the
 floor" rule is satisfied. **Against:** leaves `install_hints` covering **0–1 of six** agent CLIs
-on a non-Arch Linux host (§2), which is the concrete weakness that started this. Does not touch
-the pre-existing `packages: ["claude-code"]` abort (OQ-6 — since fixed, and it was a **build**
+on a non-Arch Linux host ([§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)), which is the concrete weakness that started this. Does not touch
+the pre-existing `packages: ["claude-code"]` abort ([OQ-6](#decision-ledger) — since fixed, and it was a **build**
 abort, not an eval one), which was a real bug either way.
 
 ### Option 1 — Rename and generalize the shipped mechanism; add no new consumer  *(MOSTLY SHIPPED 2026-08-05)*
@@ -868,7 +868,7 @@ the resolved profile path. `yolo host apply` gains one line: *"packages: <n> res
 
 **For:** small; honest; fixes the GC-root gap; removes a platform-specific name from a
 platform-neutral output; and it is a **prerequisite for Phase 7.2** regardless of what happens
-at `host`. Does not touch the user's machine or their PATH. **Against:** solves row 3 of §3 only
+at `host`. Does not touch the user's machine or their PATH. **Against:** solves row 3 of [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) only
 by handing the user a path and asking them to wire it up. That is a real product gap, though it
 is exactly consistent with the "manifest is the floor" posture.
 
@@ -877,13 +877,13 @@ leftovers** — status re-checked 2026-08-23:
 
 | Sub-item | State |
 |---|---|
-| System-neutral name | **Shipped**, but as `yoloNoncontainerPackages`, **not** the `yoloHostPackages` this doc proposed — the axis is "no baked image," and `host` is only one of the notches that has it (§7) |
+| System-neutral name | **Shipped**, but as `yoloNoncontainerPackages`, **not** the `yoloHostPackages` this doc proposed — the axis is "no baked image," and `host` is only one of the notches that has it ([§7](#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding)) |
 | Stop hardcoding `aarch64-darwin` | **Shipped** — `darwinpkg.NativeSystem()` from GOOS/GOARCH; an unrecognized GOARCH passes through verbatim so nix rejects it loudly rather than resolving the wrong machine's package set |
-| GC root | **Shipped** — see §5.4 |
+| GC root | **Shipped** — see [§5.4](#54-what-if-the-user-has-no-nix) |
 | `describe` reports the profile | **Shipped** — `internal/cli/describe.go:161-190` |
-| `check` reports the profile | **Shipped for macos-user only** — the report lives inside the macOS backend section (OQ-9) |
+| `check` reports the profile | **Shipped for macos-user only** — the report lives inside the macOS backend section ([OQ-9](#OQ-9)) |
 | `check --at host` reports it | **Not shipped** — `check` has no `--at` at all; its only flags are `--build`/`--no-build` (`internal/cli/commands.go:653-680`) |
-| The `yolo host apply` line | **Not shipped** — `yolo host apply` still says nothing about `packages:` (OQ-8) |
+| The `yolo host apply` line | **Not shipped** — `yolo host apply` still says nothing about `packages:` ([OQ-8](#OQ-8)) |
 | Rename the **Go package** `darwinpkg` | **Not done, on purpose** — mechanical, left for the consumer that needs it (`internal/darwinpkg/darwinpkg.go:8-14`) |
 
 **And the finding that this option was never able to deliver on its own is now measured:** the
@@ -892,16 +892,16 @@ rename does not give `host` or Linux `guest` a consumer; only Options 2/3 (or Ph
 
 ### Option 2 — Option 1 plus `yolo --at host -- <cmd>` (the launcher)
 
-Make the design's own §4.1 escape valve real. yolo builds the launch env: profile `bin`
+Make the design's own [§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force) escape valve real. yolo builds the launch env: profile `bin`
 prepended, the pack's *guarded* autonomy posture (Phase 9, already correct), optionally the
 scoped shims, and execs the agent. The user's own shell is untouched.
 
 **For:** this is the shape everything else in the codebase is already built for — the same
 `render.Target`/`Profile` machinery, the same `buildEnv` realization macos-user does, and it
 unblocks `launch` and `env` at the host notch for a *scoped* process instead of by rc-editing.
-It makes the shim dilemma (§6) disappear. **Against:** a new verb (`--at` is `apply`-only
+It makes the shim dilemma ([§6](#6-mimic-our-in-jail-envs-more--the-isolationenvironment-split)) disappear. **Against:** a new verb (`--at` is `apply`-only
 today); "yolo launches your host agent" is a bigger product claim than "yolo configures it"; and
-the env-manager design's own §8 warns `host` will be over-used, which a convenient launcher
+the env-manager design's own [§8](#8-options-with-a-recommendation) warns `host` will be over-used, which a convenient launcher
 accelerates. Note this option does **not** answer "how do I install copilot" for a user who
 wants `copilot` in their own terminal.
 
@@ -935,7 +935,7 @@ which is OQ-1.
 > done except for the two reporting leftovers and the Go-package rename. **The fork is resolved:
 > Option 2 shipped** (`yolo host -- <cmd>`, 2026-08-30) and OQ-1's Answer block records the events
 > that settled it. What survives of Option 3 is not the fork's other arm but a separate installer
-> product ("put `copilot` on the user's own PATH, reproducibly"), which is OQ-3's question and is
+> product ("put `copilot` on the user's own PATH, reproducibly"), which is [OQ-3](#OQ-3)'s question and is
 > still unbuilt and unruled.
 
 **What would talk me out of all of it:** if the answer to OQ-1 is "the host notch is
@@ -950,13 +950,13 @@ conclusion is *"already solved for macos-user; the real gap is Linux `guest`, wh
 
 Six live, ordered by how much else they block; OQ-1 is kept in place below with its Answer filled
 (2026-09-02) because sibling docs cite it by position and ID. **IDs are cited outside this doc:**
-`OQ-1` is spelled **`N3/OQ-1`** in [`boundary-broker.md`](boundary-broker.md) §10 and
+`OQ-1` is spelled **`N3/OQ-1`** in [`boundary-broker.md`](boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) and
 [`agent-auth-modes.md`](agent-auth-modes.md), where it was named as a blocker — those blocks are
 now released; the roadmap called it "nix OQ-1". Both spellings mean this question and neither may
 be renumbered.
 
 > [!NOTE]
-> The ✅/❌/⚠️ marks in §5 and §6 are **platform-availability and portability** marks inside
+> The ✅/❌/⚠️ marks in [§5](#5-macos-vs-linux) and [§6](#6-mimic-our-in-jail-envs-more--the-isolationenvironment-split) are **platform-availability and portability** marks inside
 > tables — they are not answered-question markers, and there is no ✅-flavored OQ anywhere in
 > this doc. Live questions are the 💬 items below; settled ones are ledger rows.
 
@@ -966,12 +966,12 @@ be renumbered.
    (`internal/render/fieldset.go:83-103`). Option 2 said "run"; Option 3 said "install"; Option 1
    said "neither, just report."
 
-   **What it decided:** everything left in this doc — §3's consumer table had a different winner
+   **What it decided:** everything left in this doc — [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed)'s consumer table had a different winner
    per answer, and Options 2 and 3 are different products. It also gated the boundary broker's
-   approval tier (`boundary-broker.md` §10) and the status of the blocked-tool shims (§6).
+   approval tier ([`boundary-broker.md`](./boundary-broker.md) [§10](./boundary-broker.md#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12)) and the status of the blocked-tool shims ([§6](#6-mimic-our-in-jail-envs-more--the-isolationenvironment-split)).
 
    _Leaning was:_ **"a place agents run"** — Option 2, with the honest caveat that this is a
-   product call and the env-manager design's own §8 warns `host` will be over-used.
+   product call and the env-manager design's own [§8](#8-options-with-a-recommendation) warns `host` will be over-used.
 
    **Answer (2026-09-02, recording events rather than a fresh ruling):** **"a place agents run" —
    Option 2, which is built.** `yolo host -- <cmd>` shipped 2026-08-30 (`d546e9e1`: `syscall.Exec`
@@ -982,10 +982,10 @@ be renumbered.
    at host?" question with *"why would we NOT support env on the host too?"*, and that work's plan
    carries "the host notch runs the env derive" as a **constraint** (2026-09-01/02, `f55f2109`'s
    `packload.AgentEnv` is the one runner both notches will share). Reopen only if that shipped
-   behavior turns out to be unintended — the counter-argument (§8's over-use warning) was known
+   behavior turns out to be unintended — the counter-argument ([§8](#8-options-with-a-recommendation)'s over-use warning) was known
    and the events went the other way.
 
-2. 💬 **OQ-3 — Is `nix profile --profile <yolo-dir>` (§4.3) attractive or a trap?** It gives a
+2. 💬 **[OQ-3](#OQ-3) — Is `nix profile --profile <yolo-dir>` ([§4.3](#43-nix-profile-is-the-one-that-actually-answers-the-maintainers-copilot-question)) attractive or a trap?** It gives a
    stable path *plus* generations, rollback, and a self-managing GC root — but it is mutable
    state, which adds a row to the env-manager §3.3 closure table and interacts with `--sealed`.
 
@@ -1003,14 +1003,14 @@ be renumbered.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-4 — Does the environment need to carry *variables*, not just PATH?** A `buildEnv`
-   cannot; a devShell can, and that is the *only* real argument for one (§4.1). Re-verified
+3. 💬 **[OQ-4](#OQ-4) — Does the environment need to carry *variables*, not just PATH?** A `buildEnv`
+   cannot; a devShell can, and that is the *only* real argument for one ([§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force)). Re-verified
    2026-08-23: the Go whitelist is still exactly one variable, `PKG_CONFIG_PATH`, and only when
    `<out>/lib/pkgconfig` exists (`internal/darwinpkg/darwinpkg.go:169-192`). The jail's baked
    `Env` carries `SSL_CERT_FILE`, `LD_LIBRARY_PATH`, `PKG_CONFIG_PATH`, `FONTCONFIG_*`, `TZDIR`.
 
    **What it decides:** whether the devShell rejection gets re-opened on this one axis (never on
-   PATH — §4.1 is not in question). It also bounds how far "mimic the in-jail env" can go for a
+   PATH — [§4.1](#41-the-flakes-rejection-of-a-devshell-holds-at-the-host-notch-with-more-force) is not in question). It also bounds how far "mimic the in-jail env" can go for a
    non-container notch.
 
    _Leaning:_ keep the Go whitelist. One variable is not a case for 121, and an explicit list in
@@ -1022,9 +1022,9 @@ be renumbered.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-5 — Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
+4. 💬 **[OQ-5](#OQ-5) — Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
    *undeclared* pollution"?** A `buildEnv` containing `gnugrep` still shadows `/usr/bin/grep`
-   when prepended (§5.2) — the difference from a devShell is legibility, not effect. On a Mac
+   when prepended ([§5.2](#52-what-the-jails-own-package-set-looks-like-on-darwin)) — the difference from a devShell is legibility, not effect. On a Mac
    host that is the BSD-vs-GNU hazard arriving by the front door instead of the back.
 
    **What it decides:** whether a non-container profile should *warn* when a declared package
@@ -1041,7 +1041,7 @@ be renumbered.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-8 — Should the `packages:` key report at all below `jail`, and which command says
+5. 💬 **[OQ-8](#OQ-8) — Should the `packages:` key report at all below `jail`, and which command says
    so?** `packages` is not a pack kind, so the `FieldSet` census never sees it and `yolo host apply`
    prints nothing about it, while `macos-user` honors it natively. The env-manager design
    promises `check --at host` will print *"packages: yolo does not manage packages here."*
@@ -1063,7 +1063,7 @@ be renumbered.
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **OQ-9 — Do non-macOS `yolo check` runs need the nix probes and the profile report?**
+6. 💬 **[OQ-9](#OQ-9) — Do non-macOS `yolo check` runs need the nix probes and the profile report?**
    Re-verified 2026-08-23: `nixDaemonStoreCheck` and the extra-platforms/builder block are still
    `IsMacOS`-gated (`internal/cli/check/section_nix_probe.go:28-31`), and so is the whole
    platform section (`check.go:77-78`). The profile report added by N2 is **also** macOS-only —
@@ -1084,8 +1084,8 @@ be renumbered.
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-7 — Should the *jail* get its agent CLIs from nix too?** All six are in nixpkgs for
-   all three live platforms (§5.1); the jail installs them lazily via `npm -g` and
+7. 💬 **[OQ-7](#OQ-7) — Should the *jail* get its agent CLIs from nix too?** All six are in nixpkgs for
+   all three live platforms ([§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail)); the jail installs them lazily via `npm -g` and
    curl-to-shell — re-counted 2026-08-23, four `via: npm` and two `via: installer`, zero nix.
 
    **What it decides:** nothing else in this doc — it is listed last for that reason. But it is
@@ -1095,7 +1095,7 @@ be renumbered.
 
    _Leaning:_ **no, not now.** Same-day upstream versions matter more for a CLI that ships daily
    than the pin does, two of six already lag in nixpkgs, and three are unfree — which would put
-   the §2 warn-and-skip on the jail's critical path. Flagged because the research surfaced it,
+   the [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace) warn-and-skip on the jail's critical path. Flagged because the research surfaced it,
    not because I recommend it.
 
    <!-- vantage: oq id=OQ-7 leaning="No, not now. Daily-shipping CLIs need upstream freshness more than a pin, two of six already lag in nixpkgs, and three are unfree — which would put warn-and-skip on the jail's critical path. Also narrowed by program-delivery.md §3.5: agent CLIs are ruled evergreen, so this cannot be a pinning question." -->
@@ -1112,12 +1112,12 @@ traps that made each ruling safe are preserved there as `> [!WARNING]` blocks.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-1 / N3 | **The host notch is a place agents RUN (Option 2), answered by events**: `yolo host -- <cmd>` shipped with a fully composed launch env (`d546e9e1`, `e23df4aa`), and the provider-catalog rulings made host launches a peer of jail launches (*"the host notch runs the env derive"* — constraint, not choice) | 2026-09-02 (events 2026-08-30 → 09-02) | §9 OQ-1's Answer block |
-| OQ-2 | **Yes, GC-root it** — and the root IS the build's `--out-link`, at `build/package-roots/packages`, a sibling of the image roots so `prune` cannot sweep it. Shipped as **N1** (`23cee7a6`) | 2026-08-05 | §5.4 (+ its warning block) |
-| OQ-6 | **Warn-and-skip, via `meta.available`** — an unfree attr in `packages:` is skipped with a named reason instead of aborting the build; yolo never sets `allowUnfree` for the user, and an opted-in user still gets the package. Shipped `e40df9f1` | 2026-08-02 | §2 (+ its warning block) |
-| — | Option 0's two `install_hints` defects (brew-cask Brewfile verb; unfree hint) — **both fixed** | 2026-08-02 | §8 Option 0 |
-| N2 | **The mechanism is per-system and its name says so**: `yoloNoncontainerPackages` / `yoloUnavailablePackages` / `NativeSystem()`. Rejected this doc's `yoloHostPackages` — the axis is "no baked image," not "macOS," and not "`host`" either. Shipped `11f8bb72` | 2026-08-05 | §7, §8 Option 1 |
-| N1 | The roadmap's ID for OQ-2's fix. Same ruling, same commit — recorded separately because `internal/darwinpkg` cites it by this spelling | 2026-08-05 | §5.4 |
+| OQ-1 / N3 | **The host notch is a place agents RUN (Option 2), answered by events**: `yolo host -- <cmd>` shipped with a fully composed launch env (`d546e9e1`, `e23df4aa`), and the provider-catalog rulings made host launches a peer of jail launches (*"the host notch runs the env derive"* — constraint, not choice) | 2026-09-02 (events 2026-08-30 → 09-02) | [§9](#9-open-questions) OQ-1's Answer block |
+| OQ-2 | **Yes, GC-root it** — and the root IS the build's `--out-link`, at `build/package-roots/packages`, a sibling of the image roots so `prune` cannot sweep it. Shipped as **N1** (`23cee7a6`) | 2026-08-05 | [§5.4](#54-what-if-the-user-has-no-nix) (+ its warning block) |
+| OQ-6 | **Warn-and-skip, via `meta.available`** — an unfree attr in `packages:` is skipped with a named reason instead of aborting the build; yolo never sets `allowUnfree` for the user, and an opted-in user still gets the package. Shipped `e40df9f1` | 2026-08-02 | [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace) (+ its warning block) |
+| — | Option 0's two `install_hints` defects (brew-cask Brewfile verb; unfree hint) — **both fixed** | 2026-08-02 | [§8](#8-options-with-a-recommendation) Option 0 |
+| N2 | **The mechanism is per-system and its name says so**: `yoloNoncontainerPackages` / `yoloUnavailablePackages` / `NativeSystem()`. Rejected this doc's `yoloHostPackages` — the axis is "no baked image," not "macOS," and not "`host`" either. Shipped `11f8bb72` | 2026-08-05 | [§7](#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding), [§8](#8-options-with-a-recommendation) Option 1 |
+| N1 | The roadmap's ID for [OQ-2](#decision-ledger)'s fix. Same ruling, same commit — recorded separately because `internal/darwinpkg` cites it by this spelling | 2026-08-05 | [§5.4](#54-what-if-the-user-has-no-nix) |
 
 ---
 
@@ -1133,14 +1133,14 @@ Recorded so a later reader can tell measurement from inference. All run from ins
 | devShell PATH/env pollution: 22 entries, 121 vars | `nix print-dev-env --impure --json \| jq` on this repo's own one-package devShell |
 | `aarch64-darwin` `stdenv.cc` is `clang-wrapper-21.1.8`; `initialPath` is the GNU set | `nix eval '/workspace#devShells.aarch64-darwin.default.stdenv.{cc.name,initialPath}'` |
 | `nix shell` prepends exactly one dir | `nix shell nixpkgs#hello --command bash -c 'echo $PATH'` |
-| All six agent attrs exist for `aarch64-darwin` / both Linuxes, with the versions and unfree flags in §5.1 | `nix eval nixpkgs#legacyPackages.<sys>.<attr>.{meta.platforms,meta.unfree,version}` per attr |
-| `x86_64-darwin` throws for all six, for `hello`, **and for the flake's own `yoloDarwinPackages`** (even with an empty package list) — **no longer true of the flake; see the §5.1 retraction** | same eval, plus `nix eval --impure '/workspace#packages.x86_64-darwin.yoloDarwinPackages.drvPath'` → `error: Nixpkgs 26.11 has dropped support for x86_64-darwin.` |
-| An unfree attr in `packages:` aborts the eval; `NIXPKGS_ALLOW_UNFREE=1` fixes it — **superseded by §2's re-measurement: the abort is at BUILD, not eval** | `YOLO_EXTRA_PACKAGES='["claude-code"]' nix eval …yoloDarwinPackages.drvPath`, with and without the var |
+| All six agent attrs exist for `aarch64-darwin` / both Linuxes, with the versions and unfree flags in [§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail) | `nix eval nixpkgs#legacyPackages.<sys>.<attr>.{meta.platforms,meta.unfree,version}` per attr |
+| `x86_64-darwin` throws for all six, for `hello`, **and for the flake's own `yoloDarwinPackages`** (even with an empty package list) — **no longer true of the flake; see the [§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail) retraction** | same eval, plus `nix eval --impure '/workspace#packages.x86_64-darwin.yoloDarwinPackages.drvPath'` → `error: Nixpkgs 26.11 has dropped support for x86_64-darwin.` |
+| An unfree attr in `packages:` aborts the eval; `NIXPKGS_ALLOW_UNFREE=1` fixes it — **superseded by [§2](#2-what-install_hints-is-for-and-what-a-nix-env-would-and-would-not-replace)'s re-measurement: the abort is at BUILD, not eval** | `YOLO_EXTRA_PACKAGES='["claude-code"]' nix eval …yoloDarwinPackages.drvPath`, with and without the var |
 | `nix profile` records a locked flake URL per entry | `nix profile add --profile <tmp> nixpkgs#hello; nix profile list --profile <tmp>` |
-| npm-vs-nixpkgs versions in §5.1 | `npm view <pkg> version` for the four npm-distributed packs; `claude --version` in-jail for claude |
+| npm-vs-nixpkgs versions in [§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail) | `npm view <pkg> version` for the four npm-distributed packs; `claude --version` in-jail for claude |
 | `iptables`/`glibc`/`nix-ld` have no darwin build; the GNU userland core does | `nix eval nixpkgs#legacyPackages.aarch64-darwin.<pkg>.meta.platforms` |
 | No `DYLD_*` handling exists anywhere in the repo | `rg DYLD` → 2 hits, both vendored `x/sys` constants |
-| `darwinpkg` registers no gcroot — **fixed 2026-08-05, see §5.4** | `rg 'gcroot\|add-root' internal/darwinpkg internal/macosuser` → no matches; contrast `internal/image/gcroot.go` |
+| `darwinpkg` registers no gcroot — **fixed 2026-08-05, see [§5.4](#54-what-if-the-user-has-no-nix)** | `rg 'gcroot\|add-root' internal/darwinpkg internal/macosuser` → no matches; contrast `internal/image/gcroot.go` |
 
 ### 10.1 Re-verification pass, 2026-08-23
 
@@ -1160,9 +1160,9 @@ input). What changed is stated where it belongs; this is the audit trail.
 | The Go env whitelist is still one variable | **confirmed** | `PKG_CONFIG_PATH` only, `darwinpkg.go:169-192` |
 | Still no `DYLD_*` handling | **confirmed** | `rg DYLD` → the same 2 vendored `x/sys` hits |
 | Every shipped pack's agent CLI still comes from npm or an installer | **confirmed** | `rg '"via"' packs/*/pack.json` → 4 × `npm`, 2 × `installer` |
-| Nothing warns when a declared package shadows a system binary (OQ-5) | **confirmed absent** | no shadow check in `internal/darwinpkg` or `internal/macosuser` |
+| Nothing warns when a declared package shadows a system binary ([OQ-5](#OQ-5)) | **confirmed absent** | no shadow check in `internal/darwinpkg` or `internal/macosuser` |
 
-**Not re-verified in this pass:** the §5.1 **version** column (nixpkgs and npm versions have both
+**Not re-verified in this pass:** the [§5.1](#51-platform-coverage-of-the-six-agent-clis--verified-from-this-linux-jail) **version** column (nixpkgs and npm versions have both
 moved since 2026-08-02 — the freshness *argument* stands, the specific numbers are stale), and
 the exact package versions on the 26.05 `x86_64-darwin` line: a `builtins.getFlake`-based
 comparison eval was killed at 600s in-jail and is not worth the wall-clock. `antigravity-cli`'s

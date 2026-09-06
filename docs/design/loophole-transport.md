@@ -1,40 +1,40 @@
 # The loophole transport — how a jail reaches a host service, and why the unix socket is not enough
 
-**Status:** DESIGN 2026-08-12 → **IMPLEMENTED 2026-08-13** (§8, as built) → **last two clients ported
-2026-08-15** (§8.6) → **AUDITED AND RESTAMPED 2026-08-23**. **Zero open questions** — §7.1 is the
+**Status:** DESIGN 2026-08-12 → **IMPLEMENTED 2026-08-13** ([§8](#8-as-built--2026-08-13), as built) → **last two clients ported
+2026-08-15** ([§8.6](#86-the-last-two-clients--as-built-2026-08-15)) → **AUDITED AND RESTAMPED 2026-08-23**. **Zero open questions** — [§7.1](#71-settled--this-table-is-the-decision-ledger) is the
 Decision Ledger and every OQ-T is settled. Written because
 [PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32)
 solves a problem that is **not specific to the OAuth broker**, and standardizing its answer needs a
 document rather than a merge. Leans heavily on that PR, whose design is adopted almost wholesale —
-though **#32 itself is being replaced by this work rather than merged** (§7.3), so treat it as the
+though **#32 itself is being replaced by this work rather than merged** ([§7.3](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it)), so treat it as the
 spec and its test suite as the acceptance bar, not as code to relocate.
 
 **Two things in the body are PROPOSED-but-superseded rather than built, and both are named in the
 postscript below:** the per-jail relay PROCESS (deleted — the front is now a goroutine in `yolo run`)
 and the `unix-socket` survivors *(spent: `unix-socket` is a RETIRED value refused at load, and `cgroup-delegate` — the case this described — declares `"transport": "none"`; 2026-08-23)* (one left, `cgroup-delegate`, for a reason that is not a transport
-problem — §8.6.3).
+problem — [§8.6.3](#863-the-cgroup-delegate-cannot-move-and-the-blocker-is-not-its-client)).
 
 > [!WARNING]
 > ### Postscript 2026-08-23 — `internal/brokerrelay` is DELETED; "the relay" is a goroutine now
 >
 > Commit `7df7c5aa` (2026-08-19, *"the daemon says who it is shared across, and the relay stops
-> existing"*) removed the per-jail relay **process** this document's §3 describes as its topology.
+> existing"*) removed the per-jail relay **process** this document's [§3](#3-what-pr-32-does-and-why-the-shape-is-right) describes as its topology.
 > Verified 2026-08-23: `internal/brokerrelay` does not exist anywhere in the tree.
 >
 > **What replaced it, and why the design is unchanged.** The front — the TLS listener, the endpoint
 > file, the token check, the splice to the daemon's upstream — is now `svcendpoint.ServeFront` /
 > `ServeFrontWithOptions` (`internal/svcendpoint/front.go:25,61`), started as a **goroutine in the
-> launching `yolo run` process** (`internal/cli/run/loopholesruntime.go:686`). Everything §3.0
+> launching `yolo run` process** (`internal/cli/run/loopholesruntime.go:686`). Everything [§3.0](#30-what-loopback-tls-actually-is-in-plain-terms)
 > enumerates as the five steps of `loopback-tls` still happens, in the same order, in the same
 > process boundary class (host-side, per jail). **Read every occurrence of "the relay" below as "the
 > front", and every "a host process, one per jail" as "a goroutine in the launcher, one front per
-> jail per service."** §7.2's *"one relay per jail"* argument survives verbatim under that
+> jail per service."** [§7.2](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing)'s *"one relay per jail"* argument survives verbatim under that
 > substitution, which is why it was safe to make.
 >
 > **What actually changed, as design rather than plumbing:**
 >
 > - **The framework prepends its own connection preamble and NEVER parses the daemon's payload**
->   (`internal/svcendpoint/preamble.go`; `loopholedecl.HostDaemon.Preamble`). §2.1b hazard 3's
+>   (`internal/svcendpoint/preamble.go`; `loopholedecl.HostDaemon.Preamble`). [§2.1](#21-all-three-shipped-loopholes-are-affected--checked-not-assumed-three-was-the-count-on-2026-08-12-it-is-five-now--audio-host-processes-journal-cgroup-delegate-claude-oauth-broker-all-pack-shipped)b hazard 3's
 >   verdict — *"the front cannot be the crossing audit log; connection-level is the honest ceiling"*
 >   — is now enforced structurally rather than by discipline. The preamble defaults **ON** for a
 >   manifest and **OFF** for a `yolo-jail.jsonc` entry, because a config entry's daemon is a program
@@ -53,9 +53,9 @@ problem — §8.6.3).
 >   `claude-oauth-broker` is a contribution of `packs/claude`
 >   (`packs/claude/loopholes/claude-oauth-broker/`). Every path in this doc spelled
 >   `bundled_loopholes/claude-oauth-broker/…` should be read there. See
->   [`loophole-packaging.md`](loophole-packaging.md) §5.4 for the full accounting.
+>   [`loophole-packaging.md`](loophole-packaging.md) [§5.4](./loophole-packaging.md#54-so-how-does-the-broker-stay-on-by-default) for the full accounting.
 >
-> **§8.4's live defect and §8.5's stale-state warning are NOT retracted by any of this** — the
+> **[§8.4](#84-what-did-not-change-and-what-is-still-owed)'s live defect and [§8.5](#85-what-was-not-verified)'s stale-state warning are NOT retracted by any of this** — the
 > singleton still publishes through `hostservice.Serve`, and a long-lived host-wide daemon is still
 > invisible stale state that satisfies every liveness gate in the system.
 
@@ -66,7 +66,7 @@ framework's transport?
 **Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format — unchanged by
 anything here), [`../guides/loopholes.md`](../guides/loopholes.md) (**five** shipped loopholes as of
 2026-08-19 — this doc was written when there were three),
-[`boundary-broker.md`](boundary-broker.md) §10.3 (the client-auth convergence),
+[`boundary-broker.md`](boundary-broker.md) [§10.3](./boundary-broker.md#103-fit-against-yolo-concretely) (the client-auth convergence),
 [`../plans/roadmap.md`](../plans/roadmap.md) — the 🔒 rows on the fatal reachability witness
 and the slirp4netns fallback. *(This used to say "Thread C"; the roadmap's lettered threads were
 retired on 2026-08-17 and the name no longer resolves.)*
@@ -90,7 +90,7 @@ A loophole is a host daemon plus a Unix socket the jail can `connect()`:
 > jail (and anything else running as the same user on the host)."*
 
 Everything below is about what happens when that sentence stops being true — either because
-`connect()` cannot work (§2) or because "whoever can connect" stops being a small set (§4).
+`connect()` cannot work ([§2](#2-the-macos-problem-is-a-property-of-the-boundary-not-of-the-broker)) or because "whoever can connect" stops being a small set ([§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it)).
 
 ---
 
@@ -142,7 +142,7 @@ agent starts.
 
 ### 2.2 The framework already has a transport field
 
-Worth stating plainly because it makes §4 much smaller than it first looks:
+Worth stating plainly because it makes [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it) much smaller than it first looks:
 `internal/loopholes/loopholes.go:27` already declares
 `validTransports = []string{"tls-intercept", "unix-socket", "none"}`, and `runtime.go:37` already
 switches on it per platform (Apple Container skips `tls-intercept`).
@@ -150,13 +150,13 @@ switches on it per platform (Apple Container skips `tls-intercept`).
 **So this is not "add a transport concept to manifests" — it is "add a fourth value."** The
 vocabulary, the validation, and the per-platform switch all exist.
 
-> **Correction, as built (§8):** the last clause overstates it. `runtime.go` does not "switch per
+> **Correction, as built ([§8](#8-as-built--2026-08-13)):** the last clause overstates it. `runtime.go` does not "switch per
 > platform" on the transport — it consults `Transport` in exactly ONE place, to skip
 > `tls-intercept` loopholes on Apple Container, and that was the field's only behavioural reader in
 > the whole repo. There was no existing per-platform transport switch to hang `loopback-tls` on;
-> the *vocabulary* and the *validation* existed and the *mechanism* did not. That is why §4 turned
+> the *vocabulary* and the *validation* existed and the *mechanism* did not. That is why [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it) turned
 > out bigger than this section predicted, and why the one reader is now keyed on `intercepts`
-> instead — see §8.
+> instead — see [§8](#8-as-built--2026-08-13).
 
 This is why the answer belongs in the framework. Every host service the plans call for —
 **B1** (the crossing audit log), **B1b** (the git credential proxy), **B2** (approval-gated
@@ -195,11 +195,11 @@ filesystem was giving us for free:
 After that the relay splices the connection into the plumbing that already existed, so the daemon
 behind it never learns which transport carried the bytes.
 
-**Why any of it:** on macOS + podman a Unix socket does not work at all (§2), and per
-[`agent-credentials.md`](agent-credentials.md) §2.7 the same is true on Apple Container. TLS and
+**Why any of it:** on macOS + podman a Unix socket does not work at all ([§2](#2-the-macos-problem-is-a-property-of-the-boundary-not-of-the-broker)), and per
+[`agent-credentials.md`](agent-credentials.md) [§2.7](./agent-credentials.md#27-host-service-loopholes-secrets-that-never-enter-the-jail) the same is true on Apple Container. TLS and
 the pinned cert are there because the hop crosses a **shared** podman-machine bridge on which every
 jail holds `NET_RAW` — so a sibling could otherwise read or impersonate it. On Linux loopback none
-of that is load-bearing, which is why §3.3 had to argue about whether to use it there at all.
+of that is load-bearing, which is why [§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn) had to argue about whether to use it there at all.
 
 
 For the `tcp-publish` case the relay:
@@ -238,7 +238,7 @@ cert, via a dedicated root pool.
 
 > [!WARNING]
 > Every one of the four bullets was already superseded by **OQ-T7** (token delivery moves into the
-> endpoint file) and §8.3 (*"the token is minted by the listener, in process"*), and the artifacts
+> endpoint file) and [§8.3](#83-where-the-implementation-departed-and-why) (*"the token is minted by the listener, in process"*), and the artifacts
 > they name are now **gone**, not merely bypassed. Verified 2026-08-23, no hits anywhere outside
 > `docs/`:
 >
@@ -249,7 +249,7 @@ cert, via a dedicated root pool.
 >   not incidental: `TestNoBrokerTokenEnvEmitted` (`internal/cli/run/brokersingleton_test.go:249`)
 >   asserts *"no token environment variable exists, at all."*
 > - **the endpoint file DOES carry the secret now** — the bullet saying it *"carries no secret"* is
->   the exact claim §3.2 reversed, which is why the file is `0600`, per-jail, and **fails closed**
+>   the exact claim [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) reversed, which is why the file is `0600`, per-jail, and **fails closed**
 >   into a directory that is not `0700`.
 >
 > **The paragraph's conclusion is still true and is the reason to keep it:** the token is never
@@ -262,7 +262,7 @@ cert, via a dedicated root pool.
 |---|---|
 | loopback bind | the port is on the podman-machine bridge, i.e. the LAN |
 | TLS | a sibling jail on the shared bridge can sniff the hop |
-| pinning a **host-only** key | a sibling can impersonate the relay — and see §5, the broker CA cannot be used for this |
+| pinning a **host-only** key | a sibling can impersonate the relay — and see [§5](#5-the-cakey-defect-belongs-in-this-doc), the broker CA cannot be used for this |
 | per-jail bearer token | loopback TCP has no `connect()`-implies-authorized property; the socket-file model does not survive the port |
 | re-read on every dial | a relay restart otherwise strands the jail until relaunch |
 
@@ -294,14 +294,14 @@ what the filesystem used to provide.
 |---|---|
 | loopback bind | anything on the LAN |
 | TLS | a sibling **sniffing** the bridge (they hold `NET_RAW`) |
-| pinned host-only-key cert | a sibling **impersonating the relay** — and see §5: the broker CA cannot do this job |
+| pinned host-only-key cert | a sibling **impersonating the relay** — and see [§5](#5-the-cakey-defect-belongs-in-this-doc): the broker CA cannot do this job |
 | **per-jail token** | a sibling **impersonating the jail** to its relay |
 | re-read on every dial | not security — a relay restart otherwise strands the jail |
 
 ### 3.2 Where should the token be delivered — env, or the published file?
 
 Raised in review: *"we need to issue a token in the file we write inside the jail and verify
-that."* The premise it came from (that connecting yields a token) is not what #32 does — §3 —
+that."* The premise it came from (that connecting yields a token) is not what #32 does — [§3](#3-what-pr-32-does-and-why-the-shape-is-right) —
 **but the underlying proposal is a real improvement, for reasons other than the one that prompted
 it.**
 
@@ -313,7 +313,7 @@ it.**
 | a sibling jail | no — per-jail | no — per-jail mount |
 | a same-user host process | yes (host-side token file) | yes (host-side token file) |
 
-So neither choice changes the threat model in §3.1. The differences are operational, and two of
+So neither choice changes the threat model in [§3.1](#31-the-threat-model-spelled-out--who-the-token-is-actually-against). The differences are operational, and two of
 them favour the file:
 
 1. **Env is inherited; a file is not.** `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN` propagates to
@@ -372,7 +372,7 @@ Three reasons that lands, and the third is fatal to the old argument:
 **1. The same-user set is the INTENDED boundary, not a gap.** The product deliberately matches the
 host: anything running as you can act as you. So "a same-user host process can use this jail's
 privileges" is the *specification*, not a weakness. Calling it "the widest weakness in the loophole
-model" — as §4.1 did — imported a threat model the product does not claim.
+model" — as [§4.1](#41-per-jail-client-secrets-everywhere) did — imported a threat model the product does not claim.
 
 **2. A `0600` file is the boundary, and the token is exactly that for a transport with no file.**
 This is the cleanest framing and it comes from the review: file permissions are how you say
@@ -386,7 +386,7 @@ path makes it literal), so both connections arrive at the host socket carrying *
 There is nothing for the kernel to tell apart. The repo's own protocol doc has said so all along —
 *"a daemon trusts whoever can `connect()` — which is the jail (and anything else running as the
 same user on the host)"* — which is only true **because** peer credentials cannot separate them.
-So the old §3.3 cited as decisive a mechanism that answers a question with one possible answer.
+So the old [§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn) cited as decisive a mechanism that answers a question with one possible answer.
 
 **What actually survives for keeping the socket, having dropped the security claim:**
 
@@ -423,18 +423,18 @@ So the separate-user case needs one extra grant step on macOS, not a second tran
 
 ## 4. The generalization, and the trust-model upgrade hiding inside it
 
-**Decided (§7.4): `loopback-tls` becomes the framework's ONLY transport**, owned by the framework
+**Decided ([§7.4](#74-oq-t9--one-transport-or-two--decided-unify)): `loopback-tls` becomes the framework's ONLY transport**, owned by the framework
 rather than by `brokerrelay`. `unix-socket` retires; `none` stays (it means "no daemon", not "a
 different transport"). An earlier draft framed this as adding a fourth value to the field described
-in §2.2 — the field and its per-platform switch still do the work, there is just one fewer value to
+in [§2.2](#22-the-framework-already-has-a-transport-field) — the field and its per-platform switch still do the work, there is just one fewer value to
 switch on when the migration finishes.
 
 The framework owns endpoint publication, cert pinning, and token issuance. Daemons keep speaking
 `frameproto` and never learn which transport carried the bytes. The wire protocol in
 [`loophole-protocol.md`](loophole-protocol.md) is **unchanged**; this is the layer beneath it.
 
-**`host-processes` is the second consumer and it already exists** (§2.1) — it is `unix-socket`
-today and broken on macOS for the same reason. So the "wait for a second consumer" test in §6 is
+**`host-processes` is the second consumer and it already exists** ([§2.1](#21-all-three-shipped-loopholes-are-affected--checked-not-assumed-three-was-the-count-on-2026-08-12-it-is-five-now--audio-host-processes-journal-cgroup-delegate-claude-oauth-broker-all-pack-shipped)) — it is `unix-socket`
+today and broken on macOS for the same reason. So the "wait for a second consumer" test in [§6](#6-what-i-would-build-in-order) is
 already satisfied; it just has not been noticed, because `yolo-ps` failing is quiet where the
 broker failing is not.
 
@@ -442,11 +442,11 @@ Selection should be **automatic by platform, overridable by config**: `loopback-
 socket cannot cross (macOS + podman), `unix` elsewhere. A user should not have to know what
 virtiofs is to run a loophole on a Mac.
 
-> **Superseded by §7.4's own decision, and no selection key shipped.** This paragraph predates
+> **Superseded by [§7.4](#74-oq-t9--one-transport-or-two--decided-unify)'s own decision, and no selection key shipped.** This paragraph predates
 > "unify"; with one transport there is nothing to select and nothing to override, so an override
-> could only mean "no daemon", which `enabled: false` already says. What OQ-T2's reasoning actually
+> could only mean "no daemon", which `enabled: false` already says. What [OQ-T2](#82-three-claims-in-this-document-that-the-code-did-not-support)'s reasoning actually
 > rested on — that the active choice is *visible* rather than silent — is preserved: `yolo loopholes
-> list` still prints `transport=` per loophole. See §8.
+> list` still prints `transport=` per loophole. See [§8](#8-as-built--2026-08-13).
 
 ### 4.1 Per-jail client secrets, everywhere
 
@@ -456,7 +456,7 @@ every request, on both transports.**
 Today's *"the socket file is the authentication"* means a daemon trusts anything running as the
 same user on the host — a browser extension, an unrelated npm postinstall, another jail.
 
-> **Reframed 2026-08-13 (see §3.3).** An earlier draft called this "the weakest claim in the
+> **Reframed 2026-08-13 (see [§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn)).** An earlier draft called this "the weakest claim in the
 > loophole design". It is not a weakness — it is the **specification**, chosen to match the host,
 > where anything running as you can already read your credentials or act as you. The jail extends
 > that unchanged: anything as your user may use privileges granted to this jail. So there is no gap
@@ -464,7 +464,7 @@ same user on the host — a browser extension, an unrelated npm postinstall, ano
 > makes.
 
 > **Correction to an earlier draft, which said per-jail secrets fix that weakness. They do not.**
-> Per §3.1, a same-user host process can read the host-side token file exactly as the relay does,
+> Per [§3.1](#31-the-threat-model-spelled-out--who-the-token-is-actually-against), a same-user host process can read the host-side token file exactly as the relay does,
 > so the "anything running as the same user" gap **survives** this change untouched. Claiming
 > otherwise would be precisely the overclaim [`boundary-broker.md`](boundary-broker.md) §6.2 warns
 > against — manufacturing the appearance of a boundary.
@@ -481,7 +481,7 @@ same user on the host — a browser extension, an unrelated npm postinstall, ano
 **Three independent designs have now arrived at the same fix:**
 
 1. **PR #32** — a per-jail bearer token, because TCP forced the question.
-2. **unYOLO** ([`boundary-broker.md`](boundary-broker.md) §10.3) — *"the caller presents a named
+2. **unYOLO** ([`boundary-broker.md`](boundary-broker.md) [§10.3](./boundary-broker.md#103-fit-against-yolo-concretely)) — *"the caller presents a named
    broker-client secret before the broker accepts a request"*, with operators on a **separate**
    listener holding **distinct** credentials.
 3. **This repo's own attribution work** — the per-jail relay already injects `jail_id` host-side
@@ -500,13 +500,13 @@ visible in `ps` today, and this is the same mistake one layer down.
 
 ## 5. The `ca.key` defect belongs in this doc
 
-> **FIXED 2026-08-12** — per §5.1, via a `state_files` key on the loophole manifest. The shipped
+> **FIXED 2026-08-12** — per [§5.1](#51-the-fix), via a `state_files` key on the loophole manifest. The shipped
 > broker declares `["ca.crt", "server.crt", "server.key"]`, so those three files each cross on
 > their own `:ro` mount and the state **directory** no longer crosses at all. The section below is
 > kept as the analysis; OQ-T6 records why the narrow form was chosen.
 
 [Issue #33](https://github.com/mschulkind-oss/yolo-jail/issues/33), open, no PR — and it is
-inseparable from §3, because it is *why* #32 pins its own cert instead of reusing the broker CA.
+inseparable from [§3](#3-what-pr-32-does-and-why-the-shape-is-right), because it is *why* #32 pins its own cert instead of reusing the broker CA.
 
 **Measured from inside a live jail, 2026-08-12:**
 
@@ -541,7 +541,7 @@ obtain independently.
 | **Attacker in jail A, victim = jail A** | **No.** A UID-0 process already owns that jail — it can read credential files directly, `LD_PRELOAD`, patch binaries, read `/proc/*/environ`. Minting a cert is more work for less. |
 | **Attacker in jail A, victim = sibling jail B** | **Only with traffic redirection too** (ARP spoof on a shared bridge, DNS control). Given that, yes — forge any host, jail B trusts it. |
 | **Escalate to the host** | **No.** The CA signs certs; it is not a credential for anything upstream. |
-| **Escalate to the broker** | **No.** Broker authorization is the socket (Linux) or the pre-shared token (§3). #32 deliberately does not use this CA. |
+| **Escalate to the broker** | **No.** Broker authorization is the socket (Linux) or the pre-shared token ([§3](#3-what-pr-32-does-and-why-the-shape-is-right)). #32 deliberately does not use this CA. |
 
 **And for the headline case it yields nothing new:** the Claude credential is what flows over
 `platform.claude.com`, and `.claude-shared-credentials` is **machine-global and already mounted into
@@ -571,7 +571,7 @@ a capability the attacker must separately obtain. On expected impact, #37 wins.
 
 **Still fix this, for reasons that survive the downgrade:** it is free (three files instead of a
 directory), it is least-privilege with no argument for the status quo, it removes a precondition so
-that §3's pinning defends a narrower attacker, and it is publicly filed — which carries weight
+that [§3](#3-what-pr-32-does-and-why-the-shape-is-right)'s pinning defends a narrower attacker, and it is publicly filed — which carries weight
 independent of severity.
 
 **A structural alternative worth naming:** the reason *case 2* exists at all is that **one CA is
@@ -619,24 +619,24 @@ after, because #32's security argument explicitly assumes the CA is untrustworth
 merges #32 alone may reasonably conclude the CA problem was handled.
 
 **It also removes a rung from the ladder**: with the CA private key gone from the jail, pinning in
-§3 defends against a narrower and more plausible attacker, and `NODE_EXTRA_CA_CERTS` stops being a
+[§3](#3-what-pr-32-does-and-why-the-shape-is-right) defends against a narrower and more plausible attacker, and `NODE_EXTRA_CA_CERTS` stops being a
 liability.
 
 ### 5.2 Why it was not acted on — and what else was not
 
 Fair question, and the answer is not flattering: **the audit that found it produced findings, not
-work items.** `sequencing-2026-07.md` §4d recorded four verified defects on ~2026-08-02 and none of them was
+work items.** `sequencing-2026-07.md` [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it)d recorded four verified defects on ~2026-08-02 and none of them was
 carried into the queue in [`../plans/roadmap.md`](../plans/roadmap.md), so
 subsequent planning simply did not see them. The pack batch that followed was scoped from the
 queue.
 
 **Re-checked 2026-08-12 — all four are still unfixed:**
 
-| §4d defect | State today | Evidence |
+| [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it)d defect | State today | Evidence |
 |---|---|---|
-| **`ca.key` readable in-jail** | ✅ fixed 2026-08-12 | §5.1's `state_files` narrowing; verified in a nested jail — `ca.key` absent, the three needed files present |
+| **`ca.key` readable in-jail** | ✅ fixed 2026-08-12 | [§5.1](#51-the-fix)'s `state_files` narrowing; verified in a nested jail — `ca.key` absent, the three needed files present |
 | **Claude creds symlink dangles on macos-user** | 🔴 open | Thread B; blocks the Teams auth mode on macOS |
-| **Config-approval snapshot is agent-writable** | ✅ fixed 2026-08-18 | [`config-safety.md`](config-safety.md) OQ-D1: the approval record moved to `~/.local/share/yolo-jail/approvals/<container-name>.json`, host-side and never mounted, so there is no in-jail path to it at any mode. The workspace keeps only `config-assembled.json`, the host→jail delivery copy, whose integrity is not load-bearing |
+| **Config-approval snapshot is agent-writable** | ✅ fixed 2026-08-18 | [`config-safety.md`](config-safety.md) [OQ-D1](./config-safety.md#decision-ledger): the approval record moved to `~/.local/share/yolo-jail/approvals/<container-name>.json`, host-side and never mounted, so there is no in-jail path to it at any mode. The workspace keeps only `config-assembled.json`, the host→jail delivery copy, whose integrity is not load-bearing |
 | **Two shipped docs contradict the code** | ✅ fixed 2026-08-12 | `USER_GUIDE.md` and `bundled_loopholes/claude-oauth-broker/README.md` both said *"no background timer / no proactive refresh"* while `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default. Both now describe the real loop (tick 60 s, lead 300 s, 5 s fast retry ×12, `--no-background-refresh`). The separate `--host-creds-file` staleness was already fixed |
 
 **The process lesson, which matters more than the four items:** an audit whose output lives only in
@@ -650,17 +650,17 @@ All four are now rows in the queue.
 
 ## 6. What I would build, in order
 
-1. **Fix `ca.key`** (§5.1). Narrow, known, publicly filed, and a prerequisite for reading #32's
+1. **Fix `ca.key`** ([§5.1](#51-the-fix)). Narrow, known, publicly filed, and a prerequisite for reading #32's
    security argument correctly.
-2. **Build the unified `loopback-tls` transport in the framework, superseding #32** (§7.3). Not a
-   merge: #32 is closed and its design is the spec (§7.3 lists what must be carried over, and its
+2. **Build the unified `loopback-tls` transport in the framework, superseding #32** ([§7.3](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it)). Not a
+   merge: #32 is closed and its design is the spec ([§7.3](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it) lists what must be carried over, and its
    test suite is what to re-derive against). Until this ships, macOS + podman cannot run a jail —
-   a deliberate cost, recorded in §7.3.
-3. **Unify on `loopback-tls`** (§4, decided in §7.4) — no longer "add a fourth value" but
+   a deliberate cost, recorded in [§7.3](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it).
+3. **Unify on `loopback-tls`** ([§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it), decided in [§7.4](#74-oq-t9--one-transport-or-two--decided-unify)) — no longer "add a fourth value" but
    **replace three with one**. `unix-socket` retires. `host-processes` is the first port and the
    proof, because it is broken on macOS today (row **D4**) and its failure is harmless; the broker
    relay follows. Then drop `unix-socket` from `validTransports`.
-4. **Per-jail client secrets on `loopback-tls`** (§4.1) — scoped down from "both transports" per
+4. **Per-jail client secrets on `loopback-tls`** ([§4.1](#41-per-jail-client-secrets-everywhere)) — scoped down from "both transports" per
    OQ-T3, since on `unix-socket` the per-jail mount already provides the isolation and a token
    there buys only attribution.
 
@@ -682,23 +682,23 @@ is recorded as decided, with the reasoning, so nothing looks quietly dropped.
 ### 7.1 Settled — this table is the Decision Ledger
 
 *(Confirmed 2026-08-23: still zero open questions. Every `OQ-T` in this doc is settled here or in
-§7.2–§7.4; nothing below awaits a ruling.)*
+[§7.2](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing)–[§7.4](#74-oq-t9--one-transport-or-two--decided-unify); nothing below awaits a ruling.)*
 
-**All of §7 is now settled.** OQ-T1 (§7.2) and OQ-T8 (§7.3) closed 2026-08-13; OQ-T9 (§7.4)
+**All of [§7](#7-decisions--settled-and-the-two-that-are-not) is now settled.** [OQ-T1](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing) ([§7.2](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing)) and [OQ-T8](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it) ([§7.3](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it)) closed 2026-08-13; [OQ-T9](#74-oq-t9--one-transport-or-two--decided-unify) ([§7.4](#74-oq-t9--one-transport-or-two--decided-unify))
 the same day. Nothing in this design is waiting on a decision — the remaining work is execution,
 tracked as row **T1** in [`../plans/roadmap.md`](../plans/roadmap.md).
 
 | Was | Answer | Why it did not need a ruling |
 |---|---|---|
-| **OQ-T2** transport selection: automatic, configured, or both? | **Automatic by platform, with an explicit config override.** | The "silent fallback nobody notices" objection is already answered by shipped code: `yolo loopholes list` prints `transport=` per loophole, so the active choice is visible without asking. A Mac user should not have to know what virtiofs is to run a loophole, and an override costs one key. |
-| **OQ-T3** per-jail secrets on `unix-socket` too? | **No — `loopback-tls` only.** | §3.1 established they do not close the same-user gap, and §3.3 that the socket's per-jail mount already gives sibling isolation. On that path a token buys only attribution, at the cost of a new failure mode on a path that works. |
+| **[OQ-T2](#82-three-claims-in-this-document-that-the-code-did-not-support)** transport selection: automatic, configured, or both? | **Automatic by platform, with an explicit config override.** | The "silent fallback nobody notices" objection is already answered by shipped code: `yolo loopholes list` prints `transport=` per loophole, so the active choice is visible without asking. A Mac user should not have to know what virtiofs is to run a loophole, and an override costs one key. |
+| **OQ-T3** per-jail secrets on `unix-socket` too? | **No — `loopback-tls` only.** | [§3.1](#31-the-threat-model-spelled-out--who-the-token-is-actually-against) established they do not close the same-user gap, and [§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn) that the socket's per-jail mount already gives sibling isolation. On that path a token buys only attribution, at the cost of a new failure mode on a path that works. |
 | **OQ-T4** does `macos-user` make this moot? | **No, not today.** | Factual, not a preference: it has no VM, but the broker is unwired there (the cross-uid grant, now `EndpointGrantCommands`, still has zero call sites) and skills/briefings never reach that home at all (see Thread B). Re-ask if P7 lands. |
-| **OQ-T5** is the endpoint file jail-writable, and does it matter? | **A jail can rewrite its own, and it gains nothing.** | It already holds its own token, and redirecting its own endpoint only breaks its own connection. A sibling cannot reach it — separate per-jail mounts. Now stated in §3.2 rather than left to inference. **This changes with §3.2's decision:** the file is secret-bearing, so it must be `0600` and per-jail — but the tamper analysis is unchanged. |
-| **OQ-T6** per-file mounts: general or one-off? | **Narrow, shipped** as the `state_files` manifest key. | Done 2026-08-12. The general `mounts_into_jail` (default-nothing, whole surface, breaking) is folded into the §4 work, which it subsumes cleanly. |
-| **OQ-T7** token delivery: env, endpoint file, or a separate file? | **The endpoint file** — decided by the maintainer 2026-08-13. | See §3.2 for the four consequences that must land with it, including deleting the env var rather than deprecating it. |
-| **§3.3 / OQ-T9** drop the socket, unify on TCP? | **DECIDED 2026-08-13: unify.** `unix-socket` retired. | I had called `SO_PEERCRED` decisive; it cannot distinguish the jail from a same-user host process (both arrive as the same uid under rootless podman), and the same-user set is the *intended* boundary rather than a gap. What is left is a complexity-vs-uniformity engineering call, which is a decision, not a finding. See §7.4. |
+| **OQ-T5** is the endpoint file jail-writable, and does it matter? | **A jail can rewrite its own, and it gains nothing.** | It already holds its own token, and redirecting its own endpoint only breaks its own connection. A sibling cannot reach it — separate per-jail mounts. Now stated in [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) rather than left to inference. **This changes with [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file)'s decision:** the file is secret-bearing, so it must be `0600` and per-jail — but the tamper analysis is unchanged. |
+| **OQ-T6** per-file mounts: general or one-off? | **Narrow, shipped** as the `state_files` manifest key. | Done 2026-08-12. The general `mounts_into_jail` (default-nothing, whole surface, breaking) is folded into the [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it) work, which it subsumes cleanly. |
+| **OQ-T7** token delivery: env, endpoint file, or a separate file? | **The endpoint file** — decided by the maintainer 2026-08-13. | See [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) for the four consequences that must land with it, including deleting the env var rather than deprecating it. |
+| **[§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn) / [OQ-T9](#74-oq-t9--one-transport-or-two--decided-unify)** drop the socket, unify on TCP? | **DECIDED 2026-08-13: unify.** `unix-socket` retired. | I had called `SO_PEERCRED` decisive; it cannot distinguish the jail from a same-user host process (both arrive as the same uid under rootless podman), and the same-user set is the *intended* boundary rather than a gap. What is left is a complexity-vs-uniformity engineering call, which is a decision, not a finding. See [§7.4](#74-oq-t9--one-transport-or-two--decided-unify). |
 
-### 7.2 OQ-T1 — token or mTLS? — **SETTLED: token, and mTLS changes nothing**
+### 7.2 [OQ-T1](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing) — token or mTLS? — **SETTLED: token, and mTLS changes nothing**
 
 Originally framed as a question for the maintainer, because #32's author asked it. **The review
 closed it with one question — *"we mint a unique token per jail, how does mTLS change this?"* — and
@@ -725,9 +725,9 @@ rather than softened, because it named an advantage that does not exist at one r
 
 The one thing that would genuinely reopen it: a **single shared** relay serving many jails. Then the
 verifier no longer maps one-to-one to a caller and a signed subject starts doing real work. #32's
-architecture is deliberately one relay per jail, and §7.3 keeps it that way.
+architecture is deliberately one relay per jail, and [§7.3](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it) keeps it that way.
 
-### 7.3 OQ-T8 — ship the unification instead of #32? — **DECIDED: yes, replace it**
+### 7.3 [OQ-T8](#73-oq-t8--ship-the-unification-instead-of-32--decided-yes-replace-it) — ship the unification instead of #32? — **DECIDED: yes, replace it**
 
 **Answered 2026-08-13 by the maintainer: we ship the unified transport instead of merging #32.**
 My recommendation was the opposite (merge first, migrate after); recorded here because the decision
@@ -745,27 +745,27 @@ has consequences that must be planned for rather than discovered.
    plaintext-dial rejection, wrong-cert MITM rejection, `tcpfile:` dial, ENOENT attribution — is the
    spec to re-derive against, and re-deriving is slower than relocating.
 
-**What must be carried over from #32, because it was reverse-engineered the hard way** (§3, §3.1):
+**What must be carried over from #32, because it was reverse-engineered the hard way** ([§3](#3-what-pr-32-does-and-why-the-shape-is-right), [§3.1](#31-the-threat-model-spelled-out--who-the-token-is-actually-against)):
 binding `127.0.0.1:0` rather than probing a port; the TLS key living **only** in process memory;
 publishing the public cert plus `host:port` and re-reading it **fresh on every dial** so a relay
 restart needs no jail relaunch; exact-cert pinning via a dedicated root pool rather than trusting a
 CA; constant-time token comparison with a framed length cap; and **one relay per jail** — which
-§7.2 now depends on.
+[§7.2](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing) now depends on.
 
 **What to tell him.** Closing an outside contributor's green, tested, conflict-free PR needs a real
 explanation, and there is one: his diagnosis of #31 was correct and is why this document exists, his
 transport design is being adopted almost wholesale, and the reason we are not merging it is that it
-lives in `brokerrelay` where §3.3's mitigation (1) says it would drift — the framework has to own
+lives in `brokerrelay` where [§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn)'s mitigation (1) says it would drift — the framework has to own
 it, and `host-processes` (row **D4**) is broken on macOS for exactly the same reason his broker is.
 He also filed [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33), which is fixed. That is
 a genuine contribution record even with the PR closed, and the close comment should say so.
 
-### 7.4 OQ-T9 — one transport, or two? — **DECIDED: unify**
+### 7.4 [OQ-T9](#74-oq-t9--one-transport-or-two--decided-unify) — one transport, or two? — **DECIDED: unify**
 
 **Answered 2026-08-13 by the maintainer: unify on `loopback-tls`, retire `unix-socket`.** Kept here
 because the reasoning matters for the migration.
 
-The security argument for two was withdrawn (§3.3): `SO_PEERCRED` cannot distinguish the jail from a
+The security argument for two was withdrawn ([§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn)): `SO_PEERCRED` cannot distinguish the jail from a
 same-user host process, and that set is the *intended* boundary rather than a gap. The remaining case
 was complexity-vs-uniformity, and uniformity won — two models that drift is worse than a loopback TLS
 handshake, and the migration is bounded at **two consumers**: the broker relay and `host-processes`.
@@ -801,7 +801,7 @@ from it. Written at the end of the build so the doc is not read as a plan whose 
 
 `internal/svcendpoint` is the transport — one stdlib-only leaf package owning **both halves**,
 because the file format, the token frame and the pin are one contract and splitting server from
-client is how they drift (§3.3). `Listen` binds `127.0.0.1:0`, mints a P-256 certificate whose
+client is how they drift ([§3.3](#33-drop-the-unix-socket-and-unify-on-loopback-tcp--the-security-argument-withdrawn)). `Listen` binds `127.0.0.1:0`, mints a P-256 certificate whose
 private key is never marshalled, mints a 32-byte token, and publishes
 `<host:port> <base64 cert DER> <token>` atomically at `0600` into the jail's per-jail directory
 (created `0700`, and publication **fails closed** into one that is not). `Dial` re-reads that file
@@ -815,23 +815,23 @@ mechanical proof that a daemon never learns its transport.
 
 ### 8.2 Three claims in this document that the code did not support
 
-1. **§2.2 overstates what existed.** `Transport` was consulted in exactly one behavioural place —
+1. **[§2.2](#22-the-framework-already-has-a-transport-field) overstates what existed.** `Transport` was consulted in exactly one behavioural place —
    the Apple Container skip — not in a per-platform switch. That reader is now keyed on
    `len(Intercepts)`, which is the thing that actually emits the `--add-host` flags it skips, and
    that re-key is what allowed `tls-intercept` to retire alongside `unix-socket`.
-2. **§7.4's "bounded at two consumers" undercounts by two.** There were four host services on the
+2. **[§7.4](#74-oq-t9--one-transport-or-two--decided-unify)'s "bounded at two consumers" undercounts by two.** There were four host services on the
    retired transport, not two: `cgroup-delegate` and `journal` also have clients baked into the
    image — generated **Python** speaking `AF_UNIX`, neither of which even speaks `frameproto` (one
    is newline-JSON, one uses stream IDs 1/2/3). Retiring the value did not migrate them.
-3. **OQ-T2's config override has no domain.** See the inline note in §4.
+3. **[OQ-T2](#82-three-claims-in-this-document-that-the-code-did-not-support)'s config override has no domain.** See the inline note in [§4](#4-the-generalization-and-the-trust-model-upgrade-hiding-inside-it).
 
 ### 8.3 Where the implementation departed, and why
 
-- **The token is minted by the listener, in process.** §3.2 decides *where the token is delivered*
+- **The token is minted by the listener, in process.** [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file) decides *where the token is delivered*
   and is silent on *who generates it*. #32 minted it host-side because env delivery forced two
   writers to agree; OQ-T7 removes that reason. One writer, one file, one rename — no persistence, no
   second artifact to leak, and rotation for free.
-- **The token is per-(jail, service), not per-jail.** §7.2's answer holds at one relay per jail *per
+- **The token is per-(jail, service), not per-jail.** [§7.2](#72-oq-t1--token-or-mtls--settled-token-and-mtls-changes-nothing)'s answer holds at one relay per jail *per
   service*; a shared per-jail token would mean one leaked endpoint file granted the others. Free
   under in-process minting.
 - **A one-byte accept ack was added to the wire.** Without it a token mismatch is a post-accept drop,
@@ -860,7 +860,7 @@ CLI→singleton are still host→host Unix; the host broker singleton daemon.
 > Unix hop and is now derived generically as `paths.HostSingletonSocket("claude-oauth-broker")`
 > rather than from `broker.BrokerSingletonSocket` by name — byte-identical, and a test pins the
 > pair so `yolo broker status`, `yolo check` and the front reach one file. Hops A, C and D are
-> unchanged in substance. §8.3's *"the relay's own Unix socket left the mounted directory"* is
+> unchanged in substance. [§8.3](#83-where-the-implementation-departed-and-why)'s *"the relay's own Unix socket left the mounted directory"* is
 > likewise still the live rule (`frontSocketFile`): the fronted daemon's upstream is host-only, so
 > the jail can neither reach the retired transport nor unlink the front's socket.
 
@@ -878,7 +878,7 @@ CLI→singleton are still host→host Unix; the host broker singleton daemon.
 > ```
 >
 > and in a 0700 directory it publishes a 673-byte **`-rw------- ASCII text`** token file at the path
-> three sites dial with `net.Dial("unix", …)`. §3.2's first consequence — the file must never land in
+> three sites dial with `net.Dial("unix", …)`. [§3.2](#32-where-should-the-token-be-delivered--env-or-the-published-file)'s first consequence — the file must never land in
 > a shared directory — is the only reason this fails closed rather than writing a bearer token into a
 > world-readable `/tmp`. Tracked as row **T3** in
 > [`../plans/roadmap.md`](../plans/roadmap.md); the fix direction is this
@@ -887,12 +887,12 @@ CLI→singleton are still host→host Unix; the host broker singleton daemon.
 **Still owed:**
 
 - ~~**`yolo-cglimit` and `yolo-journalctl` are still `AF_UNIX` Python clients**~~ — **DONE
-  2026-08-15, with one service left behind on purpose. See §8.6.**
+  2026-08-15, with one service left behind on purpose. See [§8.6](#86-the-last-two-clients--as-built-2026-08-15).**
 - **A `loopholes:` config entry still gets a plain socket**, and this is the one place the retired
   value survives. `internal/hostservice` is `internal/`, so nothing yolo ships lets a third-party
   daemon publish an endpoint file; flipping that path would kill those daemons rather than migrate
   them. Retirement there means the value is unwritable in a manifest and rejected by name, which is
-  §7.4 item 2's actual requirement.
+  [§7.4](#74-oq-t9--one-transport-or-two--decided-unify) item 2's actual requirement.
 - **The macOS `guest` cross-uid grant is built but uncalled.** `macosuser.EndpointGrantCommands`
   emits two `chmod +a` ACEs (read on the file, traverse on its directory) and replaces
   `BrokerSocketGrantCommands`, which had zero call sites, no test, and would have `chgrp`ed and
@@ -918,7 +918,7 @@ four failure layers distinguishable, and token rotation picked up with no restar
 > socket at `/tmp/yolo-claude-oauth-broker.sock` — i.e. a binary from *before* `462729e` (13:07 the
 > next day) made `hostservice.Serve` publish an endpoint file. `BrokerIsAlive`'s four gates (pid
 > file, pid live, socket exists, ping) therefore all pass, `brokerEnsure` no-ops, and the whole chain
-> works end to end **on a daemon this tree can no longer start** (the correction in §8.4). The
+> works end to end **on a daemon this tree can no longer start** (the correction in [§8.4](#84-what-did-not-change-and-what-is-still-owed)). The
 > end-to-end hop through the relay's front is real and tested in-process; what is NOT established is
 > that a host with no surviving pre-migration singleton reaches a broker at all.
 >
@@ -929,7 +929,7 @@ four failure layers distinguishable, and token rotation picked up with no restar
 
 ### 8.6 The last two clients — as built, 2026-08-15
 
-§8.4 owed a port of `yolo-cglimit` and `yolo-journalctl` off generated Python. Both are ported.
+[§8.4](#84-what-did-not-change-and-what-is-still-owed) owed a port of `yolo-cglimit` and `yolo-journalctl` off generated Python. Both are ported.
 **Only one of the two services followed them onto the transport**, and the reason the other did not
 is the most useful thing in this section.
 
@@ -940,7 +940,7 @@ is the most useful thing in this section.
 - **The journal bridge is on `loopback-tls`.** `journald.ServeEndpoint` publishes its own endpoint
   file via `svcendpoint.Listen`; the client dials it with `svcendpoint.Dial`.
   `YOLO_SERVICE_JOURNAL_SOCKET` became `..._ENDPOINT`, with **no dual emission and no client-side
-  fallback** — §8.3's argument, applied again.
+  fallback** — [§8.3](#83-where-the-implementation-departed-and-why)'s argument, applied again.
 - **`unix-socket` is now unreachable, not merely unwritable.** The run pipeline carried its own
   private `transportLegacySocket = "unix-socket"` for the two built-ins; it is deleted.
   `loopholedecl.RetiredTransportUnixSocket` survives with exactly one production reader,
@@ -955,17 +955,17 @@ a `net.Conn` lacks, so widening the two signatures was the entire server-side ch
 own guidance decides it: *"Every daemon that CAN take Listen directly should"* — a splice would mean
 two listeners and a host-only socket for no benefit. `Serve` (AF_UNIX) stays for host-to-host use,
 and its existing test suite still pins the protocol **with its assertions unchanged**, which is the
-same mechanical proof §8.1 records for `hostservice.Serve`.
+same mechanical proof [§8.1](#81-what-exists-now) records for `hostservice.Serve`.
 
 #### 8.6.3 The `cgroup-delegate` cannot move, and the blocker is not its client
 
-This is the correction worth carrying forward, because §7.4 and §8.2 both frame the remaining work
+This is the correction worth carrying forward, because [§7.4](#74-oq-t9--one-transport-or-two--decided-unify) and [§8.2](#82-three-claims-in-this-document-that-the-code-did-not-support) both frame the remaining work
 as *"the clients are Python."* For the journal bridge that was the whole story. For the cgroup
 delegate it is **not the story at all**: `cmd/yolo-cglimit` is a baked Go binary and the delegate
 still cannot move.
 
 **`SO_PEERCRED` is what does not survive the hop.** The delegate's security model is kernel-attested
-identity ([`security-shim.md`](security-shim.md) §2, *"we never trust the container to identify
+identity ([`security-shim.md`](security-shim.md) [§2](./security-shim.md#2-cgroup-delegate-daemon-internalcgdcgdgo-212-lines), *"we never trust the container to identify
 itself"*): `create_and_join` writes the peer's **host-namespace** pid — read off the connection by
 the kernel, never sent by the caller — into the job cgroup's `cgroup.procs`, and that write *is* the
 mechanism that moves the caller into the cgroup.
@@ -988,7 +988,7 @@ next reader meets it before reaching for `publishes: "socket"`.
 
 #### 8.6.4 The scope was larger than "two consumers", again
 
-§7.4 predicted two consumers; §8.2 corrected it to four. The port found a fifth thing, of a different
+[§7.4](#74-oq-t9--one-transport-or-two--decided-unify) predicted two consumers; [§8.2](#82-three-claims-in-this-document-that-the-code-did-not-support) corrected it to four. The port found a fifth thing, of a different
 kind: **the ship set is spelled twice.** `flake.nix`'s `shippedBinaries` filters what a
 source-checkout image installs, and `scripts/stage-source-bundle.sh`'s `SHIPPED_BINARIES` filters
 what a *shipped bundle* carries as prebuilt artifacts — which `flake.nix`'s prebuilt short-circuit
@@ -1020,5 +1020,5 @@ a plain nested launch dies before any container starts):
   exists for this), so the round trip is proven and the privileged write is the part the environment
   cannot supply.
 
-**Not verified, same as §8.5:** macOS + podman, Apple Container and `macos-user`. Everything above ran
+**Not verified, same as [§8.5](#85-what-was-not-verified):** macOS + podman, Apple Container and `macos-user`. Everything above ran
 on Linux.

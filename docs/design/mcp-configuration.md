@@ -1,16 +1,16 @@
 # MCP configuration: the node/npx wrapper, per-agent formats, and the pi gap
 
-**Status:** REFERENCE for §1 and §2's *rules*; **§2's mechanism and §3 are
+**Status:** REFERENCE for [§1](#1-the-nodenpx-wrapper) and [§2](#2-how-mcp-config-flows-and-how-agents-differ)'s *rules*; **[§2](#2-how-mcp-config-flows-and-how-agents-differ)'s mechanism and [§3](#3-pi-and-mcp) are
 STALE** — see the retraction below. **Spot-verified 2026-08-23:** the wrapper
 generator (`GenerateMCPWrappers`, `internal/entrypoint/mcp_wrappers.go:7`, called
 from `boot.go:472` / `darwin.go:59`); the shared loader (`LoadMCPServers`,
 `internal/entrypoint/mcp.go:84`); the `${VAR}` non-interpolation ruling
 (`mcp.go:33-61`, and no `os.Expand`/`ExpandEnv` anywhere in `internal/entrypoint`
-or `internal/render`); and the two dead helpers in §2
+or `internal/render`); and the two dead helpers in [§2](#2-how-mcp-config-flows-and-how-agents-differ)
 (`internal/config/derived.go:33,65` — still zero call sites, now not even in
 tests). **Not verified:** the per-agent config-file paths and schema shapes in
-§2's table, the pi-adapter research in §3 (2026-07-18, external and unrechecked),
-and the `LD_LIBRARY_PATH` root-cause narrative in §1.
+[§2](#2-how-mcp-config-flows-and-how-agents-differ)'s table, the pi-adapter research in [§3](#3-pi-and-mcp) (2026-07-18, external and unrechecked),
+and the `LD_LIBRARY_PATH` root-cause narrative in [§1](#1-the-nodenpx-wrapper).
 
 > ### ⚠ Retracted 2026-08-23: "every agent's `configure_*()` writes MCP"
 >
@@ -32,14 +32,14 @@ and the `LD_LIBRARY_PATH` root-cause narrative in §1.
 > `~/.gemini/antigravity-cli/mcp_config.json`).
 >
 > **`gemini` is not an agent any more** (`internal/entrypoint/env.go:280-283`),
-> so §2's gemini row and §3's "six agents in the registry" are both wrong. There
+> so [§2](#2-how-mcp-config-flows-and-how-agents-differ)'s gemini row and [§3](#3-pi-and-mcp)'s "six agents in the registry" are both wrong. There
 > is no registry, and the six agent packs are `claude`, `copilot`, `opencode`,
 > `pi`, `codex`, `agy`.
 >
-> The *rules* in §2 — presets expand in-jail, `null` removes, `requires_env`
+> The *rules* in [§2](#2-how-mcp-config-flows-and-how-agents-differ) — presets expand in-jail, `null` removes, `requires_env`
 > gates, no `${VAR}` interpolation — all still hold, because they live in the one
 > shared loader that every projection reads. Only the "who writes the file" half
-> changed. §1's wrapper and its gap are untouched and current.
+> changed. [§1](#1-the-nodenpx-wrapper)'s wrapper and its gap are untouched and current.
 
 This doc explains three things that keep coming up:
 
@@ -47,7 +47,7 @@ This doc explains three things that keep coming up:
    where *custom* servers bypass it.
 2. **How MCP config flows** end-to-end and how it differs across agents.
 3. **pi and MCP** — why pi has no MCP today, and what a "detect the adapter and
-   fill it in" approach would look like. *(Read §3 as a 2026-07 proposal, not as
+   fill it in" approach would look like. *(Read [§3](#3-pi-and-mcp) as a 2026-07 proposal, not as
    shipped behaviour — and note it predates the pack/`derive.lua` model that
    would now carry it.)*
 
@@ -257,7 +257,7 @@ then writes the result in that agent's native shape:
 | **codex** | `~/.codex/config.toml` | `[mcp_servers.<name>]` TOML tables | Yes |
 | **opencode** | `~/.config/opencode/opencode.json` | `mcp` object — `type:"local"`, `command:[argv]`, `environment` | Yes |
 | **agy** | `~/.gemini/antigravity-cli/mcp_config.json` | `mcpServers` object | Yes |
-| **pi** | `~/.pi/agent/settings.json` | — none — | **No** (see §3) |
+| **pi** | `~/.pi/agent/settings.json` | — none — | **No** (see [§3](#3-pi-and-mcp)) |
 
 > [!WARNING]
 > **The `gemini` row is retired (2026-08-23).** The gemini AGENT was removed
@@ -388,7 +388,7 @@ user:
    translated to pi's shape (add `lifecycle:"lazy"` + `settings.directTools:true`
    in the wrapper, like opencode's `type:"local"` translation), reconciled via a
    `yolo-managed-mcp-servers.json` sidecar exactly like the other agents. Route
-   bare `node`/`npx` through the wrapper (see §1's fix).
+   bare `node`/`npx` through the wrapper (see [§1](#1-the-nodenpx-wrapper)'s fix).
 4. **If absent:** two options —
    - **(a) Auto-install** the adapter at boot (`pi install npm:pi-mcp-adapter`
      with `YOLO_BYPASS_SHIMS=1`, mirroring how we lazily npm-install the agents).
