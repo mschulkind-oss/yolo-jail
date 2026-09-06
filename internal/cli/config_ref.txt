@@ -402,6 +402,11 @@
     that file, truncating it to empty when nothing resolves, so a removed
     credential stops being exported.  Values already live in a RUNNING jail
     persist until it restarts.
+    The same file carries the per-entry provider channel (see `use_profiles`):
+    the tables and provider env a launch composes land in a marked section as
+    unconditional exports, rewritten by every ENTRY — a fresh launch and an
+    attach alike — so `-p` reaches a running jail.  Those lines are not
+    overridable defaults; the whole section is recomposed each time.
     Example: [
       "~/.config/yolo-jail/defaults.env",
       {"DEBUG": "1"},
