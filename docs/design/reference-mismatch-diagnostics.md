@@ -8,14 +8,14 @@ summary: "Closing the gap between what stringly-typed-references-principle.md as
 
 # What a mistyped name does to you today
 
-**Status:** DESIGN, 2026-08-30 — **and 4 of §7's 6 steps SHIPPED within 72 hours, out of order**
+**Status:** DESIGN, 2026-08-30 — **and 4 of [§7](#7-sequencing-by-user-visible-payoff)'s 6 steps SHIPPED within 72 hours, out of order**
 (re-verified 2026-09-02). Steps 2, 3 and 6 landed in the provider arc — the selection-key
 validation (`86a56f6b`, then renamed with everything else to `use_profiles` in `43d24e9e`), the
 `wire_api` closed enum (`2ced4944`, `0f04632d`) plus the `base_url` userinfo refusal (`0bc29bd5`),
-and the credential preflight (`c77cfd05`, **with a scope deviation this doc must own** — see §7
+and the credential preflight (`c77cfd05`, **with a scope deviation this doc must own** — see [§7](#7-sequencing-by-user-visible-payoff)
 step 6). **Step 1 — the warning channel — is still unbuilt and is still the highest-payoff item
-here**; steps 4 and 5 wait on OQ-RM2/OQ-RM3, which remain unruled. Executes the amended
-[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) — its §7 census
+here**; steps 4 and 5 wait on [`OQ-RM2`](#OQ-RM2)/[`OQ-RM3`](#OQ-RM3), which remain unruled. Executes the amended
+[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) — its [§7](./stringly-typed-references-principle.md#7-census--what-the-code-does-today-and-what-r1r5-ask-for) census
 is the gap; this doc is how it closes, from the user's side.
 
 **The short version (as written 2026-08-30; three of the four are now checked).** Four references
@@ -24,7 +24,7 @@ way you found out is that nothing happened. A fifth — capability supersession 
 an excellent message, and prints it to a channel the summary line does not count. So the work is not
 "add validation": it is **move three checks to a surface that can decide them, make one of them
 exist at all, and stop printing findings where nobody reads them.** No new mechanism, no new config
-key, no new manifest field. **What survives today: the buried-warning channel (§3, step 1) and the
+key, no new manifest field. **What survives today: the buried-warning channel ([§3](#3-the-buried-warning-class-is-structural-not-stylistic), step 1) and the
 supersession relocation (step 4).**
 
 **The most important sections are [§1](#1-the-reproduction) (the four-line config that returns
@@ -34,7 +34,7 @@ supersession relocation (step 4).**
 **Reads with:** [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
 (R1–R5, which this executes), [`gate-placement-principle.md`](gate-placement-principle.md) (R5's
 parent — put the gate where the authority changes), and
-[`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §8 (the same two-questions split,
+[`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§8](./profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set) (the same two-questions split,
 applied to a design that has not shipped).
 
 ---
@@ -49,8 +49,8 @@ Not an argument — a measurement, taken 2026-08-30 in this jail against `yolo` 
 > (`validate.go:1058-1072`), and rewritten with the current key (`use_profiles`) the same config
 > produces **three separate `[FAIL]` rows** — unknown CLI name `cloude`, unknown `wire_api` value,
 > `base_url` carrying userinfo — the exact opposite of the `[PASS]` measured here. The one
-> mechanism from this section still reproducing is the buried supersession warning (§3), because
-> step 1 has not shipped. Read the rest of §1 as the before picture.
+> mechanism from this section still reproducing is the buried supersession warning ([§3](#3-the-buried-warning-class-is-structural-not-stylistic)), because
+> step 1 has not shipped. Read the rest of [§1](#1-the-reproduction) as the before picture.
 
 ```jsonc
 // yolo-jail.jsonc
@@ -104,12 +104,12 @@ $ yolo check --no-build
 ## 2. The three experiences a mismatch produces today
 
 *(Status 2026-09-02: the first row is EMPTY now — its three mechanisms all moved to the third row
-when §7 steps 2–3 shipped. The second row is the whole live problem.)*
+when [§7](#7-sequencing-by-user-visible-payoff) steps 2–3 shipped. The second row is the whole live problem.)*
 
 | What you get | Which mechanisms | What it costs you |
 | :--- | :--- | :--- |
 | **`[PASS]`, then nothing works** | ~~`use_profiles` keys, `wire_api`, `base_url`~~ — none left | The whole debugging distance. The symptom is an agent using the wrong endpoint or no profile at all, several layers from the typo. |
-| **A warning you will not see** | `supersedes` capability match, `env_sources` missing files | Printed, then buried — see §3. |
+| **A warning you will not see** | `supersedes` capability match, `env_sources` missing files | Printed, then buried — see [§3](#3-the-buried-warning-class-is-structural-not-stylistic). |
 | **`[FAIL]`, named, with the fix** | every config **key**, and since 2026-09-01/02 the three reference checks above | Nothing. This is the model. |
 
 ---
@@ -145,7 +145,7 @@ host-process-list]. Nothing was superseded, so every loophole keeps running
 ```
 
 Offending string, declaring pack, did-you-mean, the candidate set, and the consequence — this is
-principle R3 done correctly, and it is the template for §4. **Nothing about this message changes.**
+principle R3 done correctly, and it is the template for [§4](#4-every-message-before-and-after). **Nothing about this message changes.**
 What changes is that it becomes a refusal on the launch path, and stops being a line the summary
 cannot count.
 
@@ -160,7 +160,7 @@ existing check or gives an existing namespace the check its neighbours already h
 
 | | |
 | :--- | :--- |
-| **Today** | ~~`[PASS] Merged config is semantically valid`~~ **SHIPPED (§7 step 2)**: a mistyped `use_profiles` key now `[FAIL]`s naming every installed CLI (`unknownProfileCLIMessage`, `validate.go:1133-1141`) |
+| **Today** | ~~`[PASS] Merged config is semantically valid`~~ **SHIPPED ([§7](#7-sequencing-by-user-visible-payoff) step 2)**: a mistyped `use_profiles` key now `[FAIL]`s naming every installed CLI (`unknownProfileCLIMessage`, `validate.go:1133-1141`) |
 | **After (as proposed)** | `[FAIL] config.pack_profiles.cloude: no pack named 'cloude' is selected — did you mean 'claude'? Selected packs: [claude, pi, codex]. Add the pack to 'packs', or remove this entry.` — the shipped message differs in two honest ways: the key is `use_profiles`, and there is **no edit-distance did-you-mean**, only the full candidate list. Whether that residue is worth building is R3's call, not settled here. |
 | **Where** | `yolo check` **and** launch preflight. Both shipped. |
 | **Also fixed** | `-p <name> -- <bin>` resolves the binary to a pack slug and refuses when no pack owns that bin. Today it keys the profile by binary basename with no check; every shipped pack happens to have `bin == slug`, so it works by coincidence. |
@@ -173,7 +173,7 @@ existing check or gives an existing namespace the check its neighbours already h
 | **After** | `[FAIL] config.providers.bedrock.wire_api: unknown protocol 'totally-not-a-wire-api' — expected one of: anthropic, openai-chat, openai-completions, responses` |
 | **Where** | `yolo check`, at parse time. It is a closed enum; nothing needs resolving. |
 
-> **CORRECTED 2026-09-02 by OQ-PT1 in [`providers.md`](../reference/providers.md)
+> **CORRECTED 2026-09-02 by [`OQ-PT1`](../reference/providers.md#why-its-this-way) in [`providers.md`](../reference/providers.md)
 > §3.0a/§3.1.** This mock-up is where the enum's four values were minted, and the list it quoted is
 > retired: `anthropic`, `openai-chat`, `openai-completions` and `responses` were the union of the
 > spellings three agents happened to use, in which two names covered ONE protocol and the protocol
@@ -218,7 +218,7 @@ existing check or gives an existing namespace the check its neighbours already h
 
 ### 4.6 Skew: your image is older than your tree
 
-The one genuinely new sentence, and the reason the refusals in §4.1–4.4 are affordable.
+The one genuinely new sentence, and the reason the refusals in [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist)–4.4 are affordable.
 
 | | |
 | :--- | :--- |
@@ -267,12 +267,12 @@ The honest list. Each of these is a config that launches now and will not after.
 | An active profile whose key was never hydrated | launches, fails at the agent | **refused** | populate the `env_sources` file |
 | A pack tree newer than the image | any of the above, unexplained | **refused, naming `just load`** | `just load` on the host |
 
-> **CORRECTED 2026-09-02 by OQ-PT1 in [`providers.md`](../reference/providers.md)
+> **CORRECTED 2026-09-02 by [`OQ-PT1`](../reference/providers.md#why-its-this-way) in [`providers.md`](../reference/providers.md)
 > §3.0a/§3.4.** Row 2's "four known protocols" and its recovery column are both retired. The
-> vocabulary is the three canonical names above (§4.2's note), and adding one is **not** "a
+> vocabulary is the three canonical names above ([§4.2](#42-an-invented-wire_api)'s note), and adding one is **not** "a
 > one-line enum addition": it is a line in `packdecl`'s `knownWireAPIs` **plus a dialect row in
 > every derive that can speak it**, because a protocol no derive translates is a name in the list
-> that delivers nothing to any agent. That cost is the point of OQ-PT1 — a canonical name that
+> that delivers nothing to any agent. That cost is the point of [`OQ-PT1`](../reference/providers.md#why-its-this-way) — a canonical name that
 > nobody translates is worthless by construction, so the enum may no longer grow ahead of the
 > derives that would give it meaning.
 
@@ -285,7 +285,7 @@ The honest list. Each of these is a config that launches now and will not after.
 
 **We are pre-1.0 with one maintainer and no external pack ecosystem, and these are cheap to fix
 when they fire.** That is the premise this work is built on; it is a ruling, not an assumption
-(§9 ledger).
+([§9](#9-open-questions) ledger).
 
 ---
 
@@ -302,24 +302,24 @@ when they fire.** That is the premise this work is built on; it is a ruling, not
    `43d24e9e`.)* **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
    unresolvable pack); live at `validateUseProfiles` (`validate.go:1074-1126`) with the CLI-flag
    preflight in `internal/cli/run/packs.go:363-400`, pinned by
-   `internal/config/useprofilekeys_test.go`. One deviation from §4.1's proposed message: the shipped
+   `internal/config/useprofilekeys_test.go`. One deviation from [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist)'s proposed message: the shipped
    refusal **lists every installed CLI name but computes no edit-distance did-you-mean**.
 3. **`wire_api` enum and `base_url` credential refusal.** **SHIPPED** — the canonical closed enum
    (`2ced4944` + `0f04632d`, `validateWireAPI` at `validate.go:1047-1053`) and the userinfo refusal
    (`0bc29bd5`, `providerURLProblem` at `validate.go:978-991`). Adjacent hardening from the same
-   cluster: a composed `base_url`+`endpoints` pair is refused (`5d8bd1fe`, OQ-PT2).
+   cluster: a composed `base_url`+`endpoints` pair is refused (`5d8bd1fe`, [`OQ-PT2`](../reference/providers.md#why-its-this-way)).
 4. **Relocate the supersession match to the launch path.** Message unchanged; disposition and
-   surface change. Needs OQ-RM2 ruled first. **NOT SHIPPED** — `discover.go:717-728` /
+   surface change. Needs [`OQ-RM2`](#OQ-RM2) ruled first. **NOT SHIPPED** — `discover.go:717-728` /
    `supersede.go:207-237` still carry the report-not-refuse comments verbatim, and
    `SupersessionProblems()` still reaches no `yolo check` section.
 5. **The skew diagnostic.** Ships with or before step 4 — a refusal that cannot say "your image is
-   old" is a worse refusal than the warning it replaces. **NOT SHIPPED**; needs OQ-RM3.
+   old" is a worse refusal than the warning it replaces. **NOT SHIPPED**; needs [`OQ-RM3`](#OQ-RM3).
 6. **The active-profile credential preflight.** **SHIPPED — with a deliberate scope change this doc
    must record rather than paper over.** `c77cfd05` gates on the **selected pack**, not the active
    profile — its commit message says *"the earlier active-profile scoping is withdrawn"* — and the
-   requirement now keys on catalog membership (`868b610f`, OQ-PT4's dissolution:
+   requirement now keys on catalog membership (`868b610f`, [`OQ-PT4`](../reference/providers.md#why-its-this-way)'s dissolution:
    `packload.ProviderCredentialGaps`, `internal/packload/providers.go:271-298`, wired at
-   `internal/cli/run/providerpreflight.go:51-63`). §4.5's "Scope: Active profiles only" is
+   `internal/cli/run/providerpreflight.go:51-63`). [§4.5](#45-an-active-profile-whose-credential-was-never-hydrated)'s "Scope: Active profiles only" is
    therefore superseded; the shipped rule is broader and was chosen on review, not by accident.
 
 Steps 1–3 were independent of every design question in flight, which is presumably why 2 and 3 are
@@ -331,7 +331,7 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
 
 - **Not a change to `env_sources`' permissiveness.** A host file absent on this machine is
   portability, not a typo, and there is no candidate set to suggest from. It stays a skip. Only its
-  *visibility* changes (step 1), plus the derived credential check in §4.5.
+  *visibility* changes (step 1), plus the derived credential check in [§4.5](#45-an-active-profile-whose-credential-was-never-hydrated).
 - **Not a new config key, manifest field, or contribution kind.** Every check here is on a name that
   already exists.
 - **Not validation of provider reachability.** Whether `base_url` answers is a runtime fact about a
@@ -339,18 +339,20 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
 - **Not a general audit of every warning in the tree.** Step 1 fixes the *channel*; individual
   warnings elsewhere keep their current severity unless a later doc argues otherwise.
 - **Not `pack-fragment` target resolution.** That mechanism does not exist; see
-  [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §8.
+  [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§8](./profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set).
 
 ---
 
 ## 9. Open Questions
 
-1. 💬 **OQ-RM1: Does `yolo check` refuse, or only report, the launch-only checks?** §4.1's pack-slug
-   check is decidable at `check` time. §4.4's supersession match is decidable there too, on the
+1. 💬 **OQ-RM1: Does `yolo check` refuse, or only report, the launch-only checks?** [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist)'s pack-slug
+   check is decidable at `check` time. [§4.4](#44-a-supersession-that-matches-nothing)'s supersession match is decidable there too, on the
    host. But `check` is also the command you run *to find out what is wrong*, which is the argument
    that kept the supersedes finding non-fatal in the first place. **This decides whether `check`
    ever exits non-zero for a reference mismatch, or only ever shows `[FAIL]` rows that the launch
    then enforces.**
+
+   <!-- vantage: oq id=OQ-RM1 leaning="`check` shows [FAIL] and exits non-zero, as it already does for unknown keys; after the 2026-09-02 narrowing the part still open is only the LAUNCH-ONLY checks, §4.4's supersession match among them." -->
 
    _Leaning:_ `check` shows `[FAIL]` and exits non-zero — it already does exactly this for unknown
    keys, and a `check` that passes on a config the next launch refuses is the defect roadmap 💬 10
@@ -358,7 +360,7 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
    reports one subsystem, not to `check`, which is the pre-flight. *(Narrowed by events 2026-09-02:
    steps 2–3 shipped as `[FAIL]`s that already exit non-zero — `check.go:112-115` short-circuits on
    `sectionMergedConfig` failures — so the leaning is the shipped behaviour for every parse-time
-   check. What this question still decides is only the LAUNCH-ONLY checks: §4.4's supersession
+   check. What this question still decides is only the LAUNCH-ONLY checks: [§4.4](#44-a-supersession-that-matches-nothing)'s supersession
    match and anything else `check` cannot decide from the host.)*
 
    **Answer:**
@@ -368,8 +370,10 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
    Two dispositions with very different feels. **(a)** Refuse the launch: nothing starts until the
    claim is fixed. **(b)** Refuse the *pack*: it does not load, its other contributions do not
    render, the launch proceeds without it — which is
-   [`trust-paths.md`](trust-paths.md) OQ-TP6's rule ("a refused contribution refuses the launch",
+   [`trust-paths.md`](trust-paths.md) [`OQ-TP6`](./trust-paths.md#decision-ledger)'s rule ("a refused contribution refuses the launch",
    built 2026-08-18) read the other way.
+
+   <!-- vantage: oq id=OQ-RM2 leaning="(a) refuse the launch, for consistency with the shipped OQ-TP6 rule — no partial packs: fix it, remove it, or approve it. A pack that half-loads is the state that rule exists to delete." -->
 
    _Leaning:_ (a), refuse the launch, for consistency with the shipped TP6 rule — *"no partial
    packs: fix it, remove it, or approve it."* A pack that half-loads is the state that rule exists
@@ -379,10 +383,12 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-RM3: How does the skew message get its two hashes?** §4.6 wants to say *"image
+3. 💬 **OQ-RM3: How does the skew message get its two hashes?** [§4.6](#46-skew-your-image-is-older-than-your-tree) wants to say *"image
    `<hash-a>`, tree `<hash-b>`"*. `ensureJailImage` does this with `nix eval .#installPrefix.outPath`
    against `readlink /bin/yolo-entrypoint` — an eval, ~0.3 s, never a build. On the launch path that
    is 0.3 s added to **every** launch, to produce a sentence needed on almost none of them.
+
+   <!-- vantage: oq id=OQ-RM3 leaning="Compute the two hashes lazily — only once a reference has already failed to match — so the 0.3 s eval never lands on the happy path." -->
 
    _Leaning:_ Compute it **lazily — only when a reference has already failed to match.** The refusal
    is the slow path by definition, and 0.3 s on the way to an error message nobody minds. Do not put
@@ -394,6 +400,8 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
 4. 💬 🤷 **OQ-RM4: Is there an escape hatch, and what is it called?** Every other fatal in this repo
    has one — `YOLO_ALLOW_STALE_IMAGE`, `YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_NO_HOST_LOOPBACK` —
    each loud, each naming itself in the refusal.
+
+   <!-- vantage: oq id=OQ-RM4 leaning="No hatch, at least at first: the other three exist for conditions outside the user's config, and a mistyped name is always the config. If a real case turns up, YOLO_ALLOW_UNMATCHED_REFERENCES is the spelling that matches the family." -->
 
    _Leaning:_ **No hatch, at least at first.** Those three exist because the condition can be true
    through no fault of the user's config (an offline machine, a host that cannot forward loopback).
@@ -410,6 +418,6 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| RM-P1 | **Fail closed, and break things.** Pre-1.0, one maintainer, no external pack ecosystem — a breaking change with a one-command recovery is cheaper than a silent wrong result. *"it's breaking, so it breaks, what's wrong with that? we're early, we can break things."* | 2026-08-30 | §6, and R1 of [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) |
-| RM-P2 | **Skew is not an exemption from fail-closed; it is a message.** The remedy for a version-boundary mismatch is a diagnostic that names the rebuild, not a downgrade to a warning. The repo already does this in `ensureJailImage`. | 2026-08-30 | §4.6, and R5 |
-| RM-P3 | **The gate moves, the severity does not.** Where a validation point cannot resolve the registry or its actor cannot act, relocate the check upstream rather than lowering it. | 2026-08-30 | §5, and R5 |
+| RM-P1 | **Fail closed, and break things.** Pre-1.0, one maintainer, no external pack ecosystem — a breaking change with a one-command recovery is cheaper than a silent wrong result. *"it's breaking, so it breaks, what's wrong with that? we're early, we can break things."* | 2026-08-30 | [§6](#6-what-starts-failing-that-works-today), and R1 of [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) |
+| RM-P2 | **Skew is not an exemption from fail-closed; it is a message.** The remedy for a version-boundary mismatch is a diagnostic that names the rebuild, not a downgrade to a warning. The repo already does this in `ensureJailImage`. | 2026-08-30 | [§4.6](#46-skew-your-image-is-older-than-your-tree), and R5 |
+| RM-P3 | **The gate moves, the severity does not.** Where a validation point cannot resolve the registry or its actor cannot act, relocate the check upstream rather than lowering it. | 2026-08-30 | [§5](#5-where-each-check-lands-and-why-not-somewhere-else), and R5 |

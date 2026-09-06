@@ -23,26 +23,26 @@ built**, and `60376fed` does not invalidate any premise below — see the postsc
 > `parseDottedSpec` still splits on
 > one dot at [`flake.nix#L173`](../../flake.nix#L173) under the comment *"Validator (yolo check)
 > rejects multi-dot strings, so we only handle one dot here"*; and `flake.nix` contains no
-> `attrByPath`, no `hasAttrByPath`, and no `resolvePackagePath`. §5.1's resolver does not exist in
+> `attrByPath`, no `hasAttrByPath`, and no `resolvePackagePath`. [§5.1](#51-resolution-algorithm-flakenix)'s resolver does not exist in
 > any form.
 >
 > **One worked example has died in the pin (found 2026-09-02):** `llvmPackages_16` was removed
 > from nixpkgs (*"unmaintained and obsolete"*), so this doc's `llvmPackages_16.libclang.dev`
 > example no longer evaluates against the pinned rev (`f13ff45a`). The *shape* it illustrates is
 > unchanged — substitute a maintained set (e.g. `llvmPackages_19.libclang.dev`) when implementing
-> the test list in §7. The other examples still hold against the pin: `rocmPackages` has exactly
+> the test list in [§7](#7-test-plan). The other examples still hold against the pin: `rocmPackages` has exactly
 > 114 attributes, `rocmPackages.clr` and `xorg.libX11` are derivations, `gtk4.outputs` is
 > `[out dev devdoc debug]`.
 >
 > **`60376fed` (2026-08-20) does not change this doc's premises — it *is* one of them.** This doc
-> was written on 2026-08-22, two days after that commit, and §2.1 already cites it by hash and
+> was written on 2026-08-22, two days after that commit, and [§2.1](#21-the-current-failure) already cites it by hash and
 > quotes the error it introduced. `requireDerivation` is at
-> [`flake.nix#L255`](../../flake.nix#L255), exactly as §2.1 says, and
+> [`flake.nix#L255`](../../flake.nix#L255), exactly as [§2.1](#21-the-current-failure) says, and
 > [`integration/packagecollection_test.go`](../../integration/packagecollection_test.go) exists
-> already — so §7's first bullet list is *extending* a suite, not creating one. Nothing here is
+> already — so [§7](#7-test-plan)'s first bullet list is *extending* a suite, not creating one. Nothing here is
 > stale.
 >
-> **One consequence of `60376fed` the body does not yet record.** §2.1 quotes the refusal
+> **One consequence of `60376fed` the body does not yet record.** [§2.1](#21-the-current-failure) quotes the refusal
 > accurately but *truncated*. The full `nonPackageError` message ends with two more lines
 > ([`flake.nix#L248-L254`](../../flake.nix#L248)):
 >
@@ -61,7 +61,7 @@ built**, and `60376fed` does not invalidate any premise below — see the postsc
 > `xorg.libX11` to `libX11` is not wrong afterwards — but the message must stop saying the dotted
 > form is unselectable, or the error becomes the lie.
 >
-> Everything else in §1–§7 is stated as of 2026-08-22 and still reads true.
+> Everything else in [§1](#1-goal--principles)–[§7](#7-test-plan) is stated as of 2026-08-22 and still reads true.
 
 **The short version.** A `packages` entry like `"rocmPackages.clr"` currently fails because yolo assumes any dot indicates an output selection on a top-level package. But in Nix, derivation outputs *are* attributes on the derivation itself. Unifying dotted strings as a general attribute path walk (`lib.attrByPath`) supports arbitrary nested collections (`rocmPackages.clr`, `llvmPackages_16.libclang.dev`, `darwin.apple_sdk.frameworks.Security`) without new syntax, provided the resolver preserves the base derivation for the `/lib` symlink farm and header propagation.
 
@@ -252,13 +252,15 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    of the `foo` collection?
 
    **What it decides:** the resolver's central disambiguation rule, and therefore the whole feature.
-   §5.1's `walk` already encodes an answer — it tests `builtins.elem (head remaining) (curr.outputs
+   [§5.1](#51-resolution-algorithm-flakenix)'s `walk` already encodes an answer — it tests `builtins.elem (head remaining) (curr.outputs
    or ["out"])` *before* it tries a deeper attribute — so ruling the other way is not a tweak to that
-   code, it is a different algorithm. It also decides what §4.2's base-derivation contract means in
+   code, it is a different algorithm. It also decides what [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s base-derivation contract means in
    the ambiguous case: an output resolution keeps `foo` as the base and feeds `getLib foo` to the
    `/lib` farm, while a member resolution makes `foo.bar` the base and feeds `getLib foo.bar`. Those
    produce **different image contents**, silently, from the same config string. This is the rule the
    roadmap's 💬 10 row names as gating the item as a whole rather than one corner of it.
+
+   <!-- vantage: oq id=OQ-1 leaning="Output wins on the leaf; a deeper path wins over both — if the remaining path is exactly one component and it is in `curr.outputs`, resolve it as an output, otherwise keep walking. Held loosely: refusing the ambiguity with a throw that names both candidate resolutions is the alternative worth ruling for instead." -->
 
    _Leaning:_ **output wins on the leaf; a deeper path wins over both.** Concretely: if the remaining
    path is exactly one component and that component is in `curr.outputs`, resolve it as an output;
