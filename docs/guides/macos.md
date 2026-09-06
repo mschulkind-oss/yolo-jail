@@ -912,7 +912,7 @@ into the already-mounted directory. A file is what virtiofs carries fine, and
 the address lives inside it rather than in the mount.
 
 **There is no broker relay any more** (deleted 2026-08-19,
-`docs/design/broker-as-a-pack.md` §7). `internal/brokerrelay`, its
+`docs/design/broker-as-a-pack.md` [§7](../design/broker-as-a-pack.md#7-what-this-deletes-what-it-costs-what-it-forecloses)). `internal/brokerrelay`, its
 `/tmp/yolo-broker-relay-<hash>.{pid,lock,sock}` files and its
 `~/.local/share/yolo-jail/logs/broker-relay-<hash>.log` are gone, and so is the
 attach-time healing that used to restart one. The front is a **goroutine inside

@@ -145,7 +145,7 @@ same hazard one layer down.
 ## The canonical wire_api vocabulary
 
 Three names — `anthropic`, `openai-chat-completions`, `openai-responses` — deliberately
-**nobody's dialect**, so a pass-through cannot work by accident (OQ-PT1). Pack authors write
+**nobody's dialect**, so a pass-through cannot work by accident ([OQ-PT1](#why-its-this-way)). Pack authors write
 canonical names; `KnownWireAPI` in `internal/packdecl` is the single closed set, enforced at
 manifest and config layers; a value outside it is refused on the authoring path and
 dropped-and-reported across a version boundary (the tolerant skew path).
@@ -307,18 +307,18 @@ comments and sibling docs):
 
 | Ruling | Why it holds |
 | :--- | :--- |
-| OQ-PT1 — three canonical names, nobody's dialect | A pass-through cannot work by accident; borrowed spellings cannot be translated because none is canonical. |
-| OQ-PT2 — refuse the composed `base_url`+`endpoints` pair | The shorthand-as-override is the ambiguous spelling once more than one protocol exists; per-field override is spelled `endpoints.<protocol>.base_url`. |
-| OQ-PT4 — the credential requirement follows catalog membership | Pack presence means in the dictionary; a `null`-dropped provider leaves the dictionary and the requirement together. |
-| OQ-PT5 — `--timing` takes the timing meaning; `-p`/`--profile` are name-only | The overloaded parse cost two fix commits; the heuristic is deleted, not made careful. |
-| OQ-PT9 — everything goes to the derive, credential included | The sandbox never was the boundary: a derive already controls `mcp_servers` commands, and a fetched pack's `env` is granted in-jail exec knowingly. |
-| OQ-CS1 — selection written into each agent's own key | "Activating a profile should work for all." |
-| OQ-CS2 — never write the selection key when no profile is active | An interactive in-agent choice must survive the next launch. |
-| OQ-CS4/CS7 — provider-declared flat options; core checks the key census only | "Model can't be the only config we'll want"; a validated value set is the enum mistake one layer up. |
-| OQ-CS5 — `profiles` and `use_profiles` are user-scope-only | A workspace config is agent-editable and travels with the repo; it cannot steer endpoints. |
-| OQ-CS6 — declaration is mandatory | An undeclared name is diagnosable instead of silently inert; reverses the old free-form ruling deliberately. |
-| OQ-CS8 — the agent pack composes the binding in its own derive | Core stops holding an agent→protocol table; each agent declares how a selection reaches it. |
-| OQ-CS10 (withdrawn → constraint) — the host notch runs the env derive | `yolo host -- claude` composes the same environment; the composition is host-launch-time, so the derive is too. |
+| [OQ-PT1](#why-its-this-way) — three canonical names, nobody's dialect | A pass-through cannot work by accident; borrowed spellings cannot be translated because none is canonical. |
+| [OQ-PT2](#why-its-this-way) — refuse the composed `base_url`+`endpoints` pair | The shorthand-as-override is the ambiguous spelling once more than one protocol exists; per-field override is spelled `endpoints.<protocol>.base_url`. |
+| [OQ-PT4](#why-its-this-way) — the credential requirement follows catalog membership | Pack presence means in the dictionary; a `null`-dropped provider leaves the dictionary and the requirement together. |
+| [OQ-PT5](#why-its-this-way) — `--timing` takes the timing meaning; `-p`/`--profile` are name-only | The overloaded parse cost two fix commits; the heuristic is deleted, not made careful. |
+| [OQ-PT9](#why-its-this-way) — everything goes to the derive, credential included | The sandbox never was the boundary: a derive already controls `mcp_servers` commands, and a fetched pack's `env` is granted in-jail exec knowingly. |
+| [OQ-CS1](#why-its-this-way) — selection written into each agent's own key | "Activating a profile should work for all." |
+| [OQ-CS2](#why-its-this-way) — never write the selection key when no profile is active | An interactive in-agent choice must survive the next launch. |
+| [OQ-CS4](#why-its-this-way)/CS7 — provider-declared flat options; core checks the key census only | "Model can't be the only config we'll want"; a validated value set is the enum mistake one layer up. |
+| [OQ-CS5](#why-its-this-way) — `profiles` and `use_profiles` are user-scope-only | A workspace config is agent-editable and travels with the repo; it cannot steer endpoints. |
+| [OQ-CS6](#why-its-this-way) — declaration is mandatory | An undeclared name is diagnosable instead of silently inert; reverses the old free-form ruling deliberately. |
+| [OQ-CS8](#why-its-this-way) — the agent pack composes the binding in its own derive | Core stops holding an agent→protocol table; each agent declares how a selection reaches it. |
+| [OQ-CS10](#why-its-this-way) (withdrawn → constraint) — the host notch runs the env derive | `yolo host -- claude` composes the same environment; the composition is host-launch-time, so the derive is too. |
 
 ## Current values
 

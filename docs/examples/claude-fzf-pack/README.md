@@ -23,15 +23,15 @@ block; and `zai` ships neither. The argument is unaffected; the number was.)* Co
 
 | File | Role |
 |---|---|
-| `pack.json` | the manifest: five contributions (two `requires`, `files`, `config-overlay`, `briefing`) |
-| `bin/file-suggestion.sh` | the finder itself — **a reference implementation to replace** |
-| `AGENTS.md` | briefing prose telling the agent the finder exists and not to edit it in place |
+| [`pack.json`](pack.json) | the manifest: five contributions (two `requires`, `files`, `config-overlay`, `briefing`) |
+| [`bin/file-suggestion.sh`](bin/file-suggestion.sh) | the finder itself — **a reference implementation to replace** |
+| [`AGENTS.md`](AGENTS.md) | briefing prose telling the agent the finder exists and not to edit it in place |
 
-### ⚠ `bin/file-suggestion.sh` is a starting point, not your script
+### ⚠ [`bin/file-suggestion.sh`](bin/file-suggestion.sh) is a starting point, not your script
 
 The real finder lives at `~/.dotfiles/claude/file-suggestion.sh` on the host,
 which is invisible from inside a jail (the credential boundary — see
-`AGENTS.md` "Limitations"), so it could not be copied in. What ships here is a
+[`AGENTS.md`](AGENTS.md) "Limitations"), so it could not be copied in. What ships here is a
 **working** `fd | fzf --filter` implementation written from scratch and verified
 end to end.
 
@@ -338,7 +338,7 @@ Reported, not fixed (they live in files under concurrent development):
    during this work: a test pack deleted from config kept generating its
    `fzf` launcher (which then broke `fzf` per finding #1) across
    several launches, and the only fix was deleting the staging dir by hand. This
-   contradicts the invariant stated in `AGENTS.md` ("`stagePacks` copies only the
+   contradicts the invariant stated in [`AGENTS.md`](AGENTS.md) ("`stagePacks` copies only the
    SELECTED packs into the mounted tree (and clears it, so a dropped pack stops
    rendering)") — the clear covers `_official` only.
 4. **`yolo config ls` cannot show a configured pack's surface mode.** It merges
