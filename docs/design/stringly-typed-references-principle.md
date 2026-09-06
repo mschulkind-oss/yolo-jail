@@ -18,12 +18,12 @@ than rewritten, per the convention its siblings follow.
 > ([`supersede.go:208-237`](../../internal/loopholes/supersede.go#L208-L237)), and this doc's census
 > reported that case backwards. **(2)** The census was wrong about three of its five rows, in a doc
 > whose entire subject is that silence must not mask a mismatch. **(3)** `optional: true` as first
-> written disabled the typo check along with the selection check — the exact failure §2 names.
+> written disabled the typo check along with the selection check — the exact failure [§2](#2-why) names.
 >
 > The severity rule survives intact: **fail closed**. What it gained is **R5, placement** — and the
 > discriminator it needed was already written down twice in this repo, in
 > [`gate-placement-principle.md`](gate-placement-principle.md) and in `kinds.go`'s
-> structure-versus-skew rule. §5 is the worked contrast that was missing.
+> structure-versus-skew rule. [§5](#5-the-worked-contrast-two-answers-to-skew-both-in-this-tree-both-right) is the worked contrast that was missing.
 
 **Audience:** anyone designing a manifest field, configuration key, or cross-component reference
 where one component names another by string — pack slugs, profile tags, capability identifiers,
@@ -35,7 +35,7 @@ where the authority changes — **R5 is that principle applied to references**),
 [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one blessed path).
 
 **Reads with:** [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) — the
-design doc that closes the gap between §6's two columns, written from the user's side.
+design doc that closes the gap between [§6](#6-the-rules)'s two columns, written from the user's side.
 
 ---
 
@@ -62,7 +62,7 @@ Placement says *where* — and placement is what makes the severity affordable.
    whole cost.
 3. **Explicit intent beats implicit guessing.** An author who genuinely means "apply this only if
    that component is present" can say so. An author who typed a name wrong cannot say anything,
-   which is why the two cases must not share a disposition (§3).
+   which is why the two cases must not share a disposition ([§3](#3-a-reference-asks-two-questions-and-only-one-of-them-is-optional)).
 4. **The repo is already moving this way, twice, for measured reasons.** A failed nix build used to
    fall back to the cached image; *"a broken build then looked like a working jail running **stale**
    code, reported two layers from its cause"* — fatal since 2026-08-15. The in-jail reachability
@@ -132,9 +132,9 @@ Same failure class, opposite dispositions, and the discriminator is *who can act
 ### 5.1 The departure that produced R5
 
 [`supersede.go:208-237`](../../internal/loopholes/supersede.go#L208-L237) documents its own
-divergence from [`pack-capabilities.md`](pack-capabilities.md) §5:
+divergence from [`pack-capabilities.md`](pack-capabilities.md) [§5](./pack-capabilities.md#5-the-two-failure-modes-that-are-designed-out):
 
-> **REPORTED, NOT REFUSED, and this is a deliberate departure** … §5's premise is that "the namespace
+> **REPORTED, NOT REFUSED, and this is a deliberate departure** … [§5](#5-the-worked-contrast-two-answers-to-skew-both-in-this-tree-both-right)'s premise is that "the namespace
 > is closed by the loopholes present, so this is decidable" — true of the SET, but the set is a fact
 > about one machine at one moment, and a refusal keyed on it is refusable by circumstance.
 
@@ -180,7 +180,7 @@ IDs are stable — R1–R4 keep their numbering because sibling docs cite them.
 
 ### R1: Fail closed by default
 A reference whose target does not exist in the resolvable universe aborts. This is not conditional
-on `optional` (§3).
+on `optional` ([§3](#3-a-reference-asks-two-questions-and-only-one-of-them-is-optional)).
 
 ### R2: Explicit opt-in for permissive *selection*, never for existence
 `"optional": true` means *"apply only if the named target is selected here."* It never means *"skip
@@ -206,7 +206,7 @@ attributable to skew, say *that*, with the rebuild command.
   validated against the live resolved registry, at the point R5 selects.
 
 ### R5: Place the gate where the reference is decidable and the failure is actionable
-§4. If the natural validation point cannot resolve the registry, or its actor cannot act on the
+[§4](#4-where-the-gate-goes-r5). If the natural validation point cannot resolve the registry, or its actor cannot act on the
 refusal, move the gate upstream. Lowering severity to fit the wrong location is the anti-pattern
 this rule exists to name.
 
@@ -222,17 +222,17 @@ this rule exists to name.
 > [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md).
 
 *(Third column re-measured 2026-09-02: three rows flipped to their targets when
-[`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) §7 steps 2–3 shipped in
+[`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) [§7](./reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) steps 2–3 shipped in
 the provider arc. The strikethrough text is the 2026-08-30 measurement, kept as the before
 picture.)*
 
 | Mechanism | String field | **Today (2026-08-30, updated 2026-09-02)** | **Target under R1–R5** |
 | :--- | :--- | :--- | :--- |
 | `use_profiles` (was `agent_profiles` → `pack_profiles`) | the `<cli>` key | ~~**Unchecked.** The key is compared to nothing; `{"cloude": "bedrock"}` returns `[PASS]`.~~ **CHECKED since `86a56f6b`**: `validateUseProfiles` ([`validate.go:1074-1126`](../../internal/config/validate.go#L1074-L1126)) fails a key naming no installed CLI, listing the candidates; the retired spellings refuse by name (`validate.go:1058-1072`). | ✅ **Reached.** Fatal at `check` and at launch, against the installed-CLI universe. |
-| `pack-capabilities` | `supersedes.capability` | **A stderr warning** at discovery ([`discover.go:717-728`](../../internal/loopholes/discover.go#L717-L728)). `SupersessionProblems()` is a value-shaped seam whose "obvious next reader" does not exist yet. Structural validity (empty `capability`, missing `because`, duplicates) *is* refused at load in `packdecl`. **Still true 2026-09-02 — the one unreached row.** | Fatal on the **launch** path, where `NewHostSet` holds the full set. Reported, not fatal, at `loopholes list`. Message unchanged (§5.2). Gated on OQ-RM2. |
+| `pack-capabilities` | `supersedes.capability` | **A stderr warning** at discovery ([`discover.go:717-728`](../../internal/loopholes/discover.go#L717-L728)). `SupersessionProblems()` is a value-shaped seam whose "obvious next reader" does not exist yet. Structural validity (empty `capability`, missing `because`, duplicates) *is* refused at load in `packdecl`. **Still true 2026-09-02 — the one unreached row.** | Fatal on the **launch** path, where `NewHostSet` holds the full set. Reported, not fatal, at `loopholes list`. Message unchanged ([§5.2](#52-what-r5-does-not-excuse)). Gated on [`OQ-RM2`](./reference-mismatch-diagnostics.md#OQ-RM2). |
 | `providers.*` | `wire_api` | ~~**Unchecked beyond "is a string".** `"totally-not-a-wire-api"` passes.~~ **CLOSED ENUM since `2ced4944`/`0f04632d`** (`validateWireAPI`, [`validate.go:1047-1053`](../../internal/config/validate.go#L1047-L1053)) — three canonical members, translated per agent by the derives. | ✅ **Reached** (R4). |
 | `providers.*` | `base_url` | ~~**Unchecked beyond "is a string".** A plaintext credential in a git-tracked file passes.~~ **REFUSED since `0bc29bd5`** (`providerURLProblem`, [`validate.go:978-991`](../../internal/config/validate.go#L978-L991)): userinfo in a provider URL fails validation. | ✅ **Reached.** |
-| `env_sources` | file paths | **Warn + skip** ([`envsources.go:173-175`](../../internal/config/envsources.go#L173-L175), repinned — the file was restructured) — a stderr `warning:` line, not a trace log. | **Unchanged — this is correct.** A host path absent on this machine is portability, not a typo. The *active-selection* credential preflight shipped separately (`c77cfd05`, scoped to the selected pack — see reference-mismatch §7 step 6). |
+| `env_sources` | file paths | **Warn + skip** ([`envsources.go:173-175`](../../internal/config/envsources.go#L173-L175), repinned — the file was restructured) — a stderr `warning:` line, not a trace log. | **Unchanged — this is correct.** A host path absent on this machine is portability, not a typo. The *active-selection* credential preflight shipped separately (`c77cfd05`, scoped to the selected pack — see reference-mismatch [§7](./reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) step 6). |
 | Config **keys** (all) | key names | **Fatal.** `reportUnknownKeys` ([`validate.go:119-126`](../../internal/config/validate.go#L119-L126)) — `[FAIL] config.agent_profilez: unknown key`. | Unchanged — this row is the model. |
 
 > [!NOTE]
@@ -242,12 +242,12 @@ picture.)*
 > a component** and you got `[PASS]`. Field names lived in a closed namespace and were enforced;
 > references to components were not. That asymmetry was the entire subject of this doc — and as of
 > 2026-09-02 it survives in exactly one mechanism, the supersession match, whose relocation waits
-> on OQ-RM2.
+> on [`OQ-RM2`](./reference-mismatch-diagnostics.md#OQ-RM2).
 
 **`pack-fragment` has been removed from this census.** It is a proposal in an `in-review` doc
 ([`pack-profiles.md`](pack-profiles.md)), not a mechanism; the first version listed it as a live test
 case while that doc cited this one as its authority. Two same-day docs each grounding the other in an
-unbuilt thing is not evidence. See [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §8
+unbuilt thing is not evidence. See [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§8](./profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set)
 for the counter-design's treatment.
 
 ---
@@ -265,7 +265,7 @@ principle — it asserts facts about a host, and the first version of this censu
 That is R5's second test, and `DecodeTolerant` is the shipped case where skip-and-report is right.
 
 **It does not make a warning acceptable because a refusal is inconvenient to place.** Inconvenient
-placement is the finding, not the exemption (§5.1, reason 3).
+placement is the finding, not the exemption ([§5.1](#51-the-departure-that-produced-r5), reason 3).
 
 **It says nothing about severity for values that are not references.** A malformed URL, a bad enum,
 a missing required field are schema validation and were already fatal. This principle is only about

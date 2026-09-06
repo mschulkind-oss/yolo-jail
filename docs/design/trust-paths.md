@@ -9,28 +9,28 @@ summary: "Twenty-six paths, enumerated from the code, each with when trust is ex
 # Every path by which someone else's content runs in your jail
 
 **Status:** INVENTORY, 2026-08-17; **compacted 2026-09-03.** Six questions settled, and **two of the
-rulings SHIPPED and are still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both
+rulings SHIPPED and are still in the tree** — [`OQ-TP5`](#decision-ledger) (`b3a29ad8`) and [`OQ-TP6`](#decision-ledger) (`6385dfbb`), both
 2026-08-18, both re-verified against the code **2026-08-23**, anchors repinned **2026-09-02** (the
-provider arc moved several files under them; every behaviour is unchanged). **Nine questions settled and ONE open** as of 2026-09-04 — OQ-TP8 ruled ungated, OQ-TP9 deleted the
-fetched-pack approval prompt as theatre, and OQ-TP7 was RETIRED because TP9 removed its subject.
+provider arc moved several files under them; every behaviour is unchanged). **Nine questions settled and ONE open** as of 2026-09-04 — [`OQ-TP8`](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) ruled ungated, [`OQ-TP9`](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the
+fetched-pack approval prompt as theatre, and [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) was RETIRED because TP9 removed its subject.
 Beyond the rulings,
 **everything here is inventory** — traced in the code, with the anchors inline.
 
 > [!IMPORTANT]
 > **The npm arc left this document on 2026-09-03, and that is the largest change it has had.**
-> OQ-TP3 and OQ-TP4 are **RETIRED** and OQ-TP5 is **SUPERSEDED** — see the
+> [`OQ-TP3`](#decision-ledger) and [`OQ-TP4`](#decision-ledger) are **RETIRED** and [`OQ-TP5`](#decision-ledger) is **SUPERSEDED** — see the
 > [Decision Ledger](#decision-ledger). The reason is a ruling made elsewhere:
-> [`program-delivery.md`](./program-delivery.md) §3.5 draws a boundary this document never had, between
+> [`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) draws a boundary this document never had, between
 > a dependency that serves the **agent** and one that serves the **project**, and rules the agent
-> class **evergreen**. All four packs OQ-TP5 governed (pi, copilot, codex, opencode) are agent CLIs,
+> class **evergreen**. All four packs [`OQ-TP5`](#decision-ledger) governed (pi, copilot, codex, opencode) are agent CLIs,
 > so *"no evergreen npm"* is now false of every member it had. There is no npm pin to place, no
 > lockfile row to design, and no install/update split to enforce.
 >
 > **What that leaves is what this document should always have been:** the census, the verdict about
-> declarations-vs-content, and the three findings in §3 — none of which the ruling touches.
+> declarations-vs-content, and the three findings in [§3](#3-three-findings-that-outrank-the-entire-pinning-question) — none of which the ruling touches.
 > Roughly a hundred lines of npm argument came out; nothing else moved.
 >
-> ⚠ **`§1 row 1` is still a live anchor and was deliberately NOT renumbered**, and the code
+> ⚠ **[`§1 row 1`](#1-the-verdict) is still a live anchor and was deliberately NOT renumbered**, and the code
 > comments that cite it now describe SUPERSEDED behaviour. The evergreen work landed 2026-09-04:
 > `_poll_and_report` is deleted, and an unpinned agent package is updated by the launcher at the
 > user's own invocation, throttled by a stamp and gated by `agent_updates`. `yolo pack update`
@@ -50,10 +50,10 @@ sure where this pinning even helps."* That is right, and this document is the gr
 proposal should have been built on.
 
 > [!IMPORTANT]
-> **The proposal's central premise is false, and I verified it myself.** §3 of
+> **The proposal's central premise is false, and I verified it myself.** [§3](#3-three-findings-that-outrank-the-entire-pinning-question) of
 > [`pack-execution-trust.md`](./pack-execution-trust.md) says the commit pin "is the rule already
 > applied one level up". It is not applied anywhere. See
-> [§1's lockfile finding](#the-lockfile-is-a-receipt-not-a-gate) — which is also the crux of both
+> [§1's lockfile finding](#1-the-verdict) — which is also the crux of both
 > npm questions.
 
 **What pinning actually buys, stated honestly:** it bounds trust in **time**, never in scope. It
@@ -67,14 +67,14 @@ against exactly one threat, the silent update.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays — deriving it would be a regression | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
-| **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2](#agent-context-needs-no-gate-of-its-own) |
-| **OQ-TP3** | **RETIRED, not answered.** *"Is pinning worth building, and where first?"* — its ranking put npm first, and npm no longer takes a pin. Its still-open half (*must a pack pin, or merely may it?*) was inherited at wider scope as `program-delivery.md` OQ-PD6 and ruled there: the receipt is the pin, for **project** dependencies; an agent dependency has no pin to obey | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) §3.5, OQ-PD6 |
-| **OQ-TP4** | **RETIRED as posed.** *"Where does an EMBEDDED pack's npm version get pinned?"* — nowhere, because it is not pinned at all. Its three options (manifest / lockfile / user config) were all venues for a record that the evergreen ruling deletes the need for. **What must not be re-derived:** option (a)'s cost — pinning in the manifest makes yolo's release cadence the ceiling on agent-CLI freshness — which is the same objection `program-delivery.md` §5.1 hits, and is now an argument *for* the ruling rather than a cost of one option | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) §3.5, OQ-PD12 |
-| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by `program-delivery.md` OQ-PD12 and REVERSED IN CODE 2026-09-04**: all four packs it governed are agent dependencies, which are ruled **evergreen** — updated by the launcher at the user's own invocation (NOT on the boot path; B2/OQ-PD12a deleted the eager-at-boot shape the same day it was proposed). `_poll_and_report` is gone; a PINNED package still resolves nothing | 2026-08-18 · superseded 2026-09-03 · reversed in code 2026-09-04 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
+| **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch ([`OQ-TP6`](#decision-ledger)). The hardcoded `mayAccessHost=true` stays — deriving it would be a regression | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2](#2-the-inventory) |
+| **OQ-TP3** | **RETIRED, not answered.** *"Is pinning worth building, and where first?"* — its ranking put npm first, and npm no longer takes a pin. Its still-open half (*must a pack pin, or merely may it?*) was inherited at wider scope as [`program-delivery.md`](./program-delivery.md) [`OQ-PD6`](./program-delivery.md#decision-ledger) and ruled there: the receipt is the pin, for **project** dependencies; an agent dependency has no pin to obey | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`OQ-PD6`](./program-delivery.md#decision-ledger) |
+| **OQ-TP4** | **RETIRED as posed.** *"Where does an EMBEDDED pack's npm version get pinned?"* — nowhere, because it is not pinned at all. Its three options (manifest / lockfile / user config) were all venues for a record that the evergreen ruling deletes the need for. **What must not be re-derived:** option (a)'s cost — pinning in the manifest makes yolo's release cadence the ceiling on agent-CLI freshness — which is the same objection [`program-delivery.md`](./program-delivery.md) [§5.1](./program-delivery.md#51-a1--bake-everything-into-the-image) hits, and is now an argument *for* the ruling rather than a cost of one option | 2026-09-03 | [`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`OQ-PD12`](./program-delivery.md#decision-ledger) |
+| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it had nowhere to record. ⚠ **SUPERSEDED 2026-09-03 by [`program-delivery.md`](./program-delivery.md) [`OQ-PD12`](./program-delivery.md#decision-ledger) and REVERSED IN CODE 2026-09-04**: all four packs it governed are agent dependencies, which are ruled **evergreen** — updated by the launcher at the user's own invocation (NOT on the boot path; B2/[`OQ-PD12a`](./program-delivery.md#decision-ledger) deleted the eager-at-boot shape the same day it was proposed). `_poll_and_report` is gone; a PINNED package still resolves nothing | 2026-08-18 · superseded 2026-09-03 · reversed in code 2026-09-04 | [§1 row 1](#1-the-verdict) |
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. Untouched by the evergreen ruling — it is about consent, not cadence | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
-| **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` keeps running with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate fails a parity check: `host.go:458` folds each pack's **static** `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive computes a field the manifest can already state literally, and gating the computed path while the literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home at that notch. The disclosure is the commit pin (OQ-LP8), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§12 OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) |
-| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refuses an actor who has already passed a stronger one — [`gate-placement-principle.md`](gate-placement-principle.md) Test 1, already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house by `pack-execution-trust.md` §2 (ungated `npm postinstall` is the same arbitrary in-jail execution). **Keep** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner; ⚠ **CORRECTED same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on is OQ-LP8's two undelivered DOC requirements, not enforcement; deleting the gate makes the lockfile write-only at launch, and **G2b is moot**. ⛔ Retires OQ-TP7 | 2026-09-04 | [§12 OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) |
+| **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` keeps running with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate fails a parity check: `host.go:458` folds each pack's **static** `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive computes a field the manifest can already state literally, and gating the computed path while the literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home at that notch. The disclosure is the commit pin ([`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§12 OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) |
+| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refuses an actor who has already passed a stronger one — [`gate-placement-principle.md`](gate-placement-principle.md) Test 1, already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house by [`pack-execution-trust.md`](./pack-execution-trust.md) [§2](./pack-execution-trust.md#2-why-that-rationale-does-not-hold) (ungated `npm postinstall` is the same arbitrary in-jail execution). **Keep** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner; ⚠ **CORRECTED same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on is [`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)'s two undelivered DOC requirements, not enforcement; deleting the gate makes the lockfile write-only at launch, and **G2b is moot**. ⛔ Retires [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) | 2026-09-04 | [§12 OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) |
 
 > [!NOTE]
 > **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit — anchors
@@ -96,20 +96,20 @@ against exactly one threat, the silent update.
 
 > [!WARNING]
 > **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
-> were `OQ-T1..T4` and collided with [`loophole-transport.md`](loophole-transport.md), which already
-> owned `OQ-T1..T9` — and *those* are the ones cited from code, by name:
-> *"loophole-transport.md OQ-T2"* (`loopholescmd.go:195`), *"loophole-transport.md OQ-T5"*
-> (`macosuser.go:388`), `OQ-T7` (`svcendpoint/doc.go:44`).
+> were [`OQ-T1..T4`](./loophole-transport.md#71-settled--this-table-is-the-decision-ledger) and collided with [`loophole-transport.md`](loophole-transport.md), which already
+> owned [`OQ-T1..T9`](./loophole-transport.md#71-settled--this-table-is-the-decision-ledger) — and *those* are the ones cited from code, by name:
+> *"[`loophole-transport.md`](./loophole-transport.md) [`OQ-T2`](./loophole-transport.md#71-settled--this-table-is-the-decision-ledger)"* (`loopholescmd.go:195`), *"[`loophole-transport.md`](./loophole-transport.md) [`OQ-T5`](./loophole-transport.md#71-settled--this-table-is-the-decision-ledger)"*
+> (`macosuser.go:388`), [`OQ-T7`](./loophole-transport.md#71-settled--this-table-is-the-decision-ledger) (`svcendpoint/doc.go:44`).
 >
-> Two docs answering to one ID space is worse than a rename: a reader grepping `OQ-T3` landed in
+> Two docs answering to one ID space is worse than a rename: a reader grepping [`OQ-T3`](./loophole-transport.md#71-settled--this-table-is-the-decision-ledger) landed in
 > whichever file they opened first. This doc yielded because its IDs were cited only from
 > `roadmap.md`, which moved in the same commit; the transport's are cited from three code files and
-> did not move. **A stale `OQ-T1..T4` referring to trust-paths therefore means "written before
-> 2026-08-18" — it is not a dangling reference, it is an old spelling of `OQ-TP1..TP4`.**
+> did not move. **A stale [`OQ-T1..T4`](./loophole-transport.md#71-settled--this-table-is-the-decision-ledger) referring to trust-paths therefore means "written before
+> 2026-08-18" — it is not a dangling reference, it is an old spelling of [`OQ-TP1..TP4`](#decision-ledger).**
 
 > [!NOTE]
-> **The section numbers are an API too.** `§1 row 1` is cited from `internal/cli/packupdate.go`,
-> `internal/cli/pack.go`, `internal/entrypoint/shims.go` and two tests; `§3.1` from
+> **The section numbers are an API too.** [`§1 row 1`](#1-the-verdict) is cited from `internal/cli/packupdate.go`,
+> `internal/cli/pack.go`, `internal/entrypoint/shims.go` and two tests; [`§3.1`](#31-a-refused-contribution-refuses-the-launch-) from
 > `internal/cli/run/packrefusal.go`, `internal/entrypoint/packsurfaces.go`, `internal/cli/run/packs.go`
 > and `docs/RELEASE-NOTES.md`. Renumber a section only with a grep in hand.
 
@@ -140,11 +140,11 @@ per row. `LockEntry` ([`lock.go`](../../internal/packsrc/lock.go#L33-L53)) recor
 | `ApprovedHostAccess` | ⛔ **DELETED 2026-09-04** with `packMayAccessHost`, by [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04). It was the lockfile's only launch-time reader, so **the lockfile is now write-only at launch** — `packsrc.LockEntry`'s doc comment records the deletion and refuses its reintroduction | was a real gate; was theatre |
 | `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message and the `pack status` listing, both in [`internal/cli/pack.go`](../../internal/cli/pack.go). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-09-04**. Cited by SYMBOL rather than by line: the four `#L` anchors this row carried all drifted or died within a month |
 
-That split is **OQ-LP8 / G2b**, already open and already ruled in shape. It is the same shape the
+That split is **[`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04) / G2b**, already open and already ruled in shape. It is the same shape the
 origin gate had before [§3.1](#31-a-refused-contribution-refuses-the-launch-): *true of the decision,
 false of its enforcement.*
 
-**Two structural facts about the file itself.** They were the origin of OQ-TP4, which is now
+**Two structural facts about the file itself.** They were the origin of [`OQ-TP4`](#decision-ledger), which is now
 retired — kept because they remain true of the lockfile and constrain anything built on it:
 
 - **There is nowhere to put an npm version.** `LockEntry`'s fields are everything about a *git* pin
@@ -163,26 +163,26 @@ retired — kept because they remain true of the lockfile and constrain anything
 
    > [!IMPORTANT]
    > **SUPERSEDED 2026-09-03 — this row no longer asks for a pin, and the anchor is kept only
-   > because code cites it.** OQ-TP5 ruled *no evergreen npm* on 2026-08-18 and it was built
+   > because code cites it.** [`OQ-TP5`](#decision-ledger) ruled *no evergreen npm* on 2026-08-18 and it was built
    > (`b3a29ad8`): the hourly poll became informational, and `YOLO_PACK_UPDATE=1` — which only
    > `yolo pack update` sets — became the sole path that resolves a version. ⚠ **That stopped
    > being what the code does on 2026-09-04**: the poll is deleted and the launch path updates an
    > unpinned agent package itself. What survives unchanged is the PINNED half — a declared
    > selector still resolves nothing.
    >
-   > What changed is the ruling above it. [`program-delivery.md`](./program-delivery.md) §3.5
+   > What changed is the ruling above it. [`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)
    > classifies the npm-declaring packs (pi, copilot, opencode — **three since 2026-09-04**, when
-   > `dadafbde` flipped codex to its vendor installer under OQ-PD13) as **agent dependencies** and
+   > `dadafbde` flipped codex to its vendor installer under [`OQ-PD13`](./program-delivery.md#decision-ledger)) as **agent dependencies** and
    > rules that class **evergreen** — updated at the USER'S OWN INVOCATION of the agent, with no
    > pin, because there is nothing for an agent CLI to be reproducible against. (An earlier draft
-   > of §3.5 said *"on the boot path at every launch"*; B2/OQ-PD12a superseded that the same day,
+   > of [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) said *"on the boot path at every launch"*; B2/[`OQ-PD12a`](./program-delivery.md#decision-ledger) superseded that the same day,
    > and **there is no boot step anywhere in the shipped design**.) So this row's open question
-   > (*where does the resolved version get recorded?*, OQ-TP4) is retired unanswered: nothing
+   > (*where does the resolved version get recorded?*, [`OQ-TP4`](#decision-ledger)) is retired unanswered: nothing
    > records it because nothing needs to obey it.
    >
-   > **Two measurements settled it**, both 2026-09-03. The mechanism OQ-TP5 built has never fired
+   > **Two measurements settled it**, both 2026-09-03. The mechanism [`OQ-TP5`](#decision-ledger) built has never fired
    > in steady state — the launcher hosting it sat last on `PATH` and was shadowed by the real
-   > binary the moment the first install landed (`program-delivery.md` OQ-PD8; B2 moved the
+   > binary the moment the first install landed ([`program-delivery.md`](./program-delivery.md) [`OQ-PD8`](./program-delivery.md#decision-ledger); B2 moved the
    > launch dir to SECOND on 2026-09-04, which is what makes the launcher reachable at all).
    > And the four agents
    > it governs were **six weeks stale**: copilot 1.0.48 against 1.0.82, codex 0.145.0 against
@@ -196,7 +196,7 @@ retired — kept because they remain true of the lockfile and constrain anything
    > is *"the same trust as any dependency the user already installs."* That reasoning should stay:
    > this row is about **when the bytes change**, not about **whose bytes they are.**
    >
-   > This becomes load-bearing under `program-delivery.md` OQ-PD13, which prefers a vendor's native
+   > This becomes load-bearing under [`program-delivery.md`](./program-delivery.md) [`OQ-PD13`](./program-delivery.md#decision-ledger), which prefers a vendor's native
    > installer over npm for agent CLIs wherever one exists. Flipping a pack's `via` from `npm` to
    > `installer` moves that contribution from **ungated** to **approvable and refusable**
    > ([§3.1](#31-a-refused-contribution-refuses-the-launch-)). For the embedded packs that ship
@@ -211,7 +211,7 @@ retired — kept because they remain true of the lockfile and constrain anything
 2. **A loophole's daemon FILE, and a plugin's HOOK BODIES** — the two gated crossings whose approval
    string genuinely does not cover the bytes. `["python3","{loophole_dir}/acme.py"]` is one claim
    string forever; `plugin <name> hooks (runs code at agent lifecycle events)` is a **constant** with
-   no path and no digest in it. This is OQ-LP8/G2b, already open on purpose.
+   no path and no digest in it. This is [`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)/G2b, already open on purpose.
 
    > **"Plugin" and "hook body", defined — they are the AGENT's extension mechanism, not yolo's.**
    > A pack may ship a **Claude Code plugin**: a `.claude-plugin/plugin.json` manifest that the agent
@@ -317,7 +317,7 @@ not set up its own children, which is the dev loop this repo runs on.
 - **Pinning anything while `~/.config/yolo-jail/local` exists.** The implicit local pack needs no
   config line, has no lockfile entry, no commit, no claim, gets **full trust**, and is appended
   **last** so it outranks everything — selected by one `os.Stat` that follows symlinks.
-- **Pinning a refusal that is not enforced where it executes.** Retired as of §3.1's ruling, and kept
+- **Pinning a refusal that is not enforced where it executes.** Retired as of [§3.1](#31-a-refused-contribution-refuses-the-launch-)'s ruling, and kept
   in this list because it is the shape to check any *new* gate against.
 
 ---
@@ -325,14 +325,14 @@ not set up its own children, which is the dev loop this repo runs on.
 ## 2. The inventory
 
 Ordered from most-trusted origin to least. "Silent change" is the column the exercise exists for, and
-this table is the evidence for §1's "three of twenty-six" (row 26 arrived 2026-09-02 and pinning
+this table is the evidence for [§1](#1-the-verdict)'s "three of twenty-six" (row 26 arrived 2026-09-02 and pinning
 does not move it — a derive is inside the commit the lockfile already closes over).
 
 | # | Path | Grants | Trust extended | Can change silently? |
 | :-- | :--- | :--- | :--- | :--- |
 | 1 | the yolo binary — built-in skills + composed briefing | agent context | never | only via your own upgrade |
-| 2 | **embedded pack `program via installer`** (claude, agy) | in-jail exec as UID 0 | **never** — embedded origin grants unconditionally | **yes, and as of 2026-09-03 that is the RULING, not a gap** — agent CLIs are evergreen (`program-delivery.md` §3.5). Two independent movers: the URL's bytes, and the vendor's own updater. ⚠ *The old text said "the vendor's own **hourly** self-update"; measured 2026-09-03 that is wrong twice over — yolo's launcher calls `"$REAL_BIN" install` on an hourly stamp, not the vendor, and with no `--force` and no target it is a **no-op when already installed**. Claude in this workspace had not moved since 2026-07-24* |
-| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **as the code stands: no.** The hourly poll only reports and `yolo pack update` is the only act that resolves (OQ-TP5, built 2026-08-18). ⚠ **Ruled to change**: agent CLIs become evergreen and resolve at every launch (`program-delivery.md` OQ-PD12), and the four packs on this row are all agent CLIs. Measured 2026-09-03, the mechanism has never fired — the launcher is `PATH`-shadowed, and all four were six weeks stale |
+| 2 | **embedded pack `program via installer`** (claude, agy) | in-jail exec as UID 0 | **never** — embedded origin grants unconditionally | **yes, and as of 2026-09-03 that is the RULING, not a gap** — agent CLIs are evergreen ([`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)). Two independent movers: the URL's bytes, and the vendor's own updater. ⚠ *The old text said "the vendor's own **hourly** self-update"; measured 2026-09-03 that is wrong twice over — yolo's launcher calls `"$REAL_BIN" install` on an hourly stamp, not the vendor, and with no `--force` and no target it is a **no-op when already installed**. Claude in this workspace had not moved since 2026-07-24* |
+| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **as the code stands: no.** The hourly poll only reports and `yolo pack update` is the only act that resolves ([`OQ-TP5`](#decision-ledger), built 2026-08-18). ⚠ **Ruled to change**: agent CLIs become evergreen and resolve at every launch ([`program-delivery.md`](./program-delivery.md) [`OQ-PD12`](./program-delivery.md#decision-ledger)), and the four packs on this row are all agent CLIs. Measured 2026-09-03, the mechanism has never fired — the launcher is `PATH`-shadowed, and all four were six weeks stale |
 | 4 | `flake.nix` / `flake.lock` | in-jail exec (everything on PATH) | implicit, at PR merge | no for inputs (locked revs, hermetic build) |
 | 5 | **the implicit local pack** `~/.config/yolo-jail/local` | everything, at maximum trust | **never**, and deliberately | **yes, continuously** — live dir, re-read every launch, no record |
 | 6 | explicit `file://` local pack | same as 5 | implicit in the config line | yes, every launch — no copy, no hash |
@@ -341,25 +341,25 @@ does not move it — a derive is inside the commit the lockfile already closes o
 | 9 | workspace `mounts` | host read | implicit at the config diff; **never on a fresh clone** | yes — `git pull`, the agent's own edit, or the host dir's contents |
 | 10 | workspace `env_sources` | host read, exfiltration-shaped | implicit; never on a fresh clone | yes — re-read live each launch; a missing file warns and skips |
 | 11 | workspace `mcp_servers` / `lsp_servers` / `packages` / `mise_tools` | in-jail exec | implicit at a diff that shows the NAME, never what it resolves to | mixed — the most useful contrast in the table |
-| 12 | **the config gate itself** (`CheckConfigChanges`) | — it *is* the gate | — | **fails open three ways in 40 lines** (§3.3) |
+| 12 | **the config gate itself** (`CheckConfigChanges`) | — it *is* the gate | — | **fails open three ways in 40 lines** ([§3.3](#33-the-config-gate-fails-open-and-the-workspace-file-is-agent-writable)) |
 | 13 | workspace `yolo-jail.config.lua` — **activated by existing** | agent context, transitively in-jail exec | **never**; not a config key, so outside the diff, drift and snapshot | yes, every boot, with nothing to diff against |
 | 14 | workspace `mise.toml` | in-jail exec | **never** — trust asserted *for* you on the podman argv | yes — `git pull`, and `latest` resolves at install |
 | 15 | `agents_md_extra`, blocked-tool messages, source-less `host_files` | agent context | implicit at the diff, which does carry the prose | covered by the diff; the finding is scope asymmetry |
 | 16 | **`.yolo/handover.md`** | agent context, framed as an authoritative task list | **never** — no key, no prompt, no validation, no attribution | **yes, continuously** — an ordinary file any agent can write |
 | 17 | fetched pack — **content** (skills, briefing, files, config-overlay) | agent context | **never** for a claim-free pack | yes, on every mechanism at once |
 | 18 | fetched pack — `env` | in-jail exec in practice (no key allowlist, so `LD_PRELOAD` etc.) | **never**, explicitly | yes; no claim, so nothing to compare |
-| 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — excluded from the claim table by design | yes trivially; it was never approved (§3.2) |
-| 20 | **fetched pack — `program via installer`** | in-jail exec as UID 0 | explicit prompt, and since 2026-08-18 an unapproved one refuses the launch (§3.1) | yes — unpinned URL plus hourly self-update |
-| 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | explicit prompt for the code-running components — **first enforced at launch 2026-08-18** (§3.1) | **yes — the weakest claim string in the system**, a constant with no path or digest |
+| 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — excluded from the claim table by design | yes trivially; it was never approved ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)) |
+| 20 | **fetched pack — `program via installer`** | in-jail exec as UID 0 | explicit prompt, and since 2026-08-18 an unapproved one refuses the launch ([§3.1](#31-a-refused-contribution-refuses-the-launch-)) | yes — unpinned URL plus hourly self-update |
+| 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | explicit prompt for the code-running components — **first enforced at launch 2026-08-18** ([§3.1](#31-a-refused-contribution-refuses-the-launch-)) | **yes — the weakest claim string in the system**, a constant with no path or digest |
 | 22 | fetched pack — `reads-host` / `mount` / host-prepending `briefing` | host read | **explicit, once** | yes — a moved ref with unchanged claim strings carries the approval forward |
-| 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | explicit, per crossing | yes — the claim pins the argv, not the file (OQ-LP8) |
+| 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | explicit, per crossing | yes — the claim pins the argv, not the file ([`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)) |
 | 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** |
-| 26 | **any pack's `derive.lua`** (`yolo.derive` + `yolo.env`) — **row added 2026-09-02**; this census had no entry for pack-shipped Lua, the gap 💬 18's D9 filed | **sandboxed Lua execution** — in-jail at every boot with live tables (`packsurfaces.go:193`); **host-side** during `yolo host apply` as a sentinel-input key-name probe (`hostrender.go:377`); and — since `3144fbed`, the same day this row was written — **host-side at every `yolo host -- <cmd>` launch with REAL inputs**: `packload.AgentEnv` runs the pack's env derive over the resolved provider table, credential included (`internal/cli/host.go:458`; the jail-launch twin is `run/profilechannel.go:97`). The VM is allowlist-built (no `os`/`io`/`require`/`load`, fresh state, timeout — `agentcfg/luahook/vm.go`), so the grant is *unvalidated config-surface and env output* plus whatever `ctx` carries — under 💬 18's OQ-PT9 ruling, resolved provider credentials — **not** process exec | **never, any origin** — `DeriveScript` reads `<pack root>/derive.lua` with no origin gate and no claim (`packload/deriveenv.go:35`), while the same fetched pack may not *name a host file to read* | yes — the mirror re-resolves, and a derive is content, not a claim |
+| 26 | **any pack's `derive.lua`** (`yolo.derive` + `yolo.env`) — **row added 2026-09-02**; this census had no entry for pack-shipped Lua, the gap 💬 18's D9 filed | **sandboxed Lua execution** — in-jail at every boot with live tables (`packsurfaces.go:193`); **host-side** during `yolo host apply` as a sentinel-input key-name probe (`hostrender.go:377`); and — since `3144fbed`, the same day this row was written — **host-side at every `yolo host -- <cmd>` launch with REAL inputs**: `packload.AgentEnv` runs the pack's env derive over the resolved provider table, credential included (`internal/cli/host.go:458`; the jail-launch twin is `run/profilechannel.go:97`). The VM is allowlist-built (no `os`/`io`/`require`/`load`, fresh state, timeout — `agentcfg/luahook/vm.go`), so the grant is *unvalidated config-surface and env output* plus whatever `ctx` carries — under 💬 18's [`OQ-PT9`](../reference/providers.md#why-its-this-way) ruling, resolved provider credentials — **not** process exec | **never, any origin** — `DeriveScript` reads `<pack root>/derive.lua` with no origin gate and no claim (`packload/deriveenv.go:35`), while the same fetched pack may not *name a host file to read* | yes — the mirror re-resolves, and a derive is content, not a claim |
 
 ### Agent context needs no gate of its own
 
-**RULED (OQ-TP2, 2026-08-18): nothing explicit.** Skills, briefing prose and the rest of the
+**RULED ([`OQ-TP2`](#decision-ledger), 2026-08-18): nothing explicit.** Skills, briefing prose and the rest of the
 agent-facing surface (rows 17, 15, 16) get no gate and no separate disclosure line, because **the
 lockfile already pins a commit, and a commit closes over the whole tree** — prose included. A second
 mechanism aimed at the same bytes would be the halfway-measure shape this repo keeps deleting.
@@ -368,11 +368,11 @@ mechanism aimed at the same bytes would be the halfway-measure shape this repo k
 pin covers *fetched* packs only. That is not a gap: **fetched packs are the only ones whose content
 someone else controls.** A local pack is your own files under your own authority, and an embedded one
 is yolo's own code. (An embedded pack's *tree* is yolo's own code; the npm **package** it names is
-not — which is why OQ-TP4 used to sit alongside this ruling. It is retired: that package is an
+not — which is why [`OQ-TP4`](#decision-ledger) used to sit alongside this ruling. It is retired: that package is an
 **agent dependency** and is now ruled evergreen, so no pin covers it and none is wanted.)
 
 **This ruling inherits the enforcement gap**, and is worth exactly as much as that gap is closed:
-until `LockEntry.Commit` is consulted at launch ([§1](#the-lockfile-is-a-receipt-not-a-gate)), "the
+until `LockEntry.Commit` is consulted at launch ([§1](#1-the-verdict)), "the
 pin covers it" is a statement about the design rather than about a running system.
 
 ---
@@ -381,7 +381,7 @@ pin covers it" is a statement about the design rather than about a running syste
 
 ### 3.1 A refused contribution refuses the launch ⚠
 
-**RULED and BUILT 2026-08-18 (OQ-TP6, which obviates OQ-TP1).** *"If the installer is refused, that
+**RULED and BUILT 2026-08-18 ([`OQ-TP6`](#decision-ledger), which obviates [`OQ-TP1`](#decision-ledger)).** *"If the installer is refused, that
 should be fatal. We can't run packs with selective things disabled by refusals. Fix the pack, remove
 the pack, approve. Those are the choices."*
 
@@ -500,7 +500,7 @@ Two properties of the refusal are load-bearing, and any future change must prese
 3. **No escape hatch, deliberately.** Every other fatal in this system has one
    (`YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_ALLOW_STALE_IMAGE`) because the user may be unable to
    repair the cause from where they are standing. The argument that it does not hold here — *the
-   approve path is one command away* — is exactly what OQ-TP7 disputes for CI and offline runs. A
+   approve path is one command away* — is exactly what [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) disputes for CI and offline runs. A
    fourth choice would be the partial pack this ruling retires.
 
 #### "So should we just remove the gate?"
@@ -550,24 +550,24 @@ write. The only four user-scope-only things are `packs`, source-bearing `host_fi
 
 [`pack-execution-trust.md`](./pack-execution-trust.md) should be read with three corrections:
 
-1. **Its §3 premise is false** — no commit pin is enforced anywhere
-   ([§1](#the-lockfile-is-a-receipt-not-a-gate)).
+1. **Its [§3](#3-three-findings-that-outrank-the-entire-pinning-question) premise is false** — no commit pin is enforced anywhere
+   ([§1](#1-the-verdict)).
 2. **Its permit/refuse table's top row is expressible but not taken.** It used to be flatly
    inexpressible — `npm` could not carry a version through the launcher template — and that was fixed
    on 2026-08-17 ([`npmspec.go`](../../internal/entrypoint/npmspec.go)). The correction it becomes is
-   narrower and still bites: nothing pins by default, so §1's ranking is untouched and the proposal
+   narrower and still bites: nothing pins by default, so [§1](#1-the-verdict)'s ranking is untouched and the proposal
    gains an option it never had, not an argument.
 3. **Its scope is too narrow to matter.** It gates execution kinds while `skills`, `briefing` and
    `env` — all of which reach the agent, and `env` of which reaches execution — stay ungated and
    undisclosed.
 
 **What survives:** P1's *shape* is right — content-addressing is the only answer to "is this the same
-code" — but it is worth building in the three places of §1 and nowhere else.
+code" — but it is worth building in the three places of [§1](#1-the-verdict) and nowhere else.
 
 > [!NOTE]
-> **"P1" in the paragraph above is `pack-execution-trust.md`'s P1** (*a fetched pack may cause
+> **"P1" in the paragraph above is [`pack-execution-trust.md`](./pack-execution-trust.md)'s P1** (*a fetched pack may cause
 > execution only of content it pins*), **not this document's** [P1](#p1-trust-flows-downward-and-a-parent-controlling-its-child-is-not-a-finding)
-> (*trust flows DOWNWARD*), which was added later in §1 and is unrelated. Neither was renumbered —
+> (*trust flows DOWNWARD*), which was added later in [§1](#1-the-verdict) and is unrelated. Neither was renumbered —
 > both are cited as written, and a rename would break more than it clarifies. The two never appear in
 > the same argument; this note exists so a reader who lands here from a grep does not merge them.
 
@@ -577,23 +577,23 @@ code" — but it is worth building in the three places of §1 and nowhere else.
 
 > [!NOTE]
 > **Two questions were RETIRED here on 2026-09-03 and live in the [Decision Ledger](#decision-ledger):
-> OQ-TP3 and OQ-TP4, both npm-pinning questions.** They are not answered — they are moot.
-> [`program-delivery.md`](./program-delivery.md) §3.5 rules that an **agent dependency** is
+> [`OQ-TP3`](#decision-ledger) and [`OQ-TP4`](#decision-ledger), both npm-pinning questions.** They are not answered — they are moot.
+> [`program-delivery.md`](./program-delivery.md) [§3.5](./program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) rules that an **agent dependency** is
 > evergreen, and every pack either question governed installs an agent CLI. There is no pin to
 > place, so *"where does it live"* and *"who must carry one"* have no subject left.
 >
 > The two things worth keeping from them are in the ledger rows, not here: TP4's cost analysis of
 > pinning in the manifest (it makes yolo's release cadence the ceiling on agent-CLI freshness — now
-> an argument **for** evergreen), and TP3's inherited half, ruled as `program-delivery.md` OQ-PD6.
+> an argument **for** evergreen), and TP3's inherited half, ruled as [`program-delivery.md`](./program-delivery.md) [`OQ-PD6`](./program-delivery.md#decision-ledger).
 >
-> **Nothing below is open.** OQ-TP9 (the approval prompt is theatre) and OQ-TP8 (pack Lua stays
+> **Nothing below is open.** [`OQ-TP9`](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) (the approval prompt is theatre) and [`OQ-TP8`](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) (pack Lua stays
 > ungated) were both ruled 2026-09-04 and are kept in place with their reasoning pending the next
-> compaction; OQ-TP7 is RETIRED because TP9 deleted its subject, and is kept for the third-gate trap
+> compaction; [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) is RETIRED because TP9 deleted its subject, and is kept for the third-gate trap
 > its analysis records. **[OQ-TP10](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
 > is open** — the TP9 build found that the banner TP9 kept as its compensating disclosure does not
 > cover plugin hooks.
 
-### ⛔ OQ-TP7 — `yolo check` cannot predict the fatal refusal, and the refusal names a fix that needs a tty and a network — RETIRED (2026-09-04)
+### ⛔ [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) — `yolo check` cannot predict the fatal refusal, and the refusal names a fix that needs a tty and a network — RETIRED (2026-09-04)
 
 > [!IMPORTANT]
 > **RETIRED, not answered — [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deletes its subject.** Every one of the six refusal
@@ -616,7 +616,7 @@ pinned by tests. What did not ship with it is the rest of the loop around it —
 measured, both still live.
 
 *("The preflight" here means the **`yolo check` command**, the thing AGENTS.md tells a human to run
-before asking for a restart. Not §3.1's **mechanical pre-flights**, which are four checks inside
+before asking for a restart. Not [§3.1](#31-a-refused-contribution-refuses-the-launch-)'s **mechanical pre-flights**, which are four checks inside
 `stagePacks` on the launch path. Different code, different time.)*
 
 #### Gap 1 — `check` reports PASS on a config that cannot start a jail
@@ -635,7 +635,7 @@ has **no caller anywhere under `internal/cli/check/`**.
 words at [`check/packs.go:189`](../../internal/cli/check/packs.go): *"the launch refuses it … so
 reporting it as a warning would mean `yolo check` passing on a config that cannot start a jail"*
 (pinned by [`packs_test.go:285`](../../internal/cli/check/packs_test.go)). That was defensible while
-this refusal was a warning. OQ-TP6 made it fatal and left `check` behind.
+this refusal was a warning. [`OQ-TP6`](#decision-ledger) made it fatal and left `check` behind.
 
 #### Gap 2 — the refusal's third option is not always available
 
@@ -652,7 +652,7 @@ your yes in the lockfile."* Approve was unavailable in two states, and the messa
   producer** does to a pack the user never touched. That user is offline, refused, and cannot approve.
 
 The two ends have drifted apart rather than together: `resolveHostApproval` now says *"approval
-requires an interactive terminal, and stdin is not one"*, while the launch refusal — the one OQ-TP6
+requires an interactive terminal, and stdin is not one"*, while the launch refusal — the one [`OQ-TP6`](#decision-ledger)
 made the entire user experience of the failure — still says none of it.
 
 #### Why this is a question and not a bug report
@@ -677,7 +677,7 @@ Whichever wins, the `hostAccessGates` row and `run.packRefusals` move with it. G
 decision — it asks only whether the refusal should state its own preconditions, and whether an
 approval should be recordable without a fetch.
 
-**What it decides:** whether OQ-TP6's *"the reader can act on it"* is true from every place a user
+**What it decides:** whether [`OQ-TP6`](#decision-ledger)'s *"the reader can act on it"* is true from every place a user
 actually reads it — a CI log, an offline laptop, and `yolo check`, the command the workflow tells
 them to run before restarting.
 
@@ -685,7 +685,7 @@ them to run before restarting.
 > `check/packs.go` 130→141, 162→173, 157→168, 170→189; `packs_test.go` 250→285; `pack.go`
 > 1240-1246→1253. Cite this cluster by SYMBOL when it moves again.
 
-### 💬 OQ-TP10 — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
+### 💬 [`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
 
 Opened 2026-09-04 by the [OQ-TP9](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)
 build, which found it while deleting the gate. **This punctures a claim TP9's own answer makes**, so
@@ -722,7 +722,7 @@ if (a) turns out to have no honest rendering, which should be discovered rather 
 **Answer:**
 > _(empty — fill in when decided)_
 
-### ✅ OQ-TP9 — is the fetched-pack approval prompt a gate, or theatre? — RESOLVED (2026-09-04)
+### ✅ [`OQ-TP9`](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) — is the fetched-pack approval prompt a gate, or theatre? — RESOLVED (2026-09-04)
 
 Opened and ruled 2026-09-04, from a review challenge: *"an agent can't add packs here unless they
 already have host access. so what's the danger?"*
@@ -745,7 +745,7 @@ prompts."*
 **The original rationale was already refuted in-house.** The gate began as a flat refusal of
 `program via installer` to fetched packs, on the ground that it *"would let a git ref execute
 arbitrary code in the jail."*
-[`pack-execution-trust.md`](pack-execution-trust.md) §2 showed `npm install -g` runs `postinstall`
+[`pack-execution-trust.md`](pack-execution-trust.md) [§2](./pack-execution-trust.md#2-why-that-rationale-does-not-hold) showed `npm install -g` runs `postinstall`
 from the same fetched pack, ungated — *"two cases that should be treated alike, decided oppositely."*
 The split survived 2026-08-18 on a **different** reason (when the bytes change, not whose they are),
 which is a pinning argument, not an approval argument.
@@ -764,7 +764,7 @@ which is a pinning argument, not an approval argument.
 >    *"the actor genuinely changes: a workspace config travels with a repo and is agent-editable, so
 >    allowing the key would hand an agent something it could not otherwise get."* It is the load-
 >    bearing half, and it is not what this ruling touches.
-> 3. **Enforce the commit pin — [OQ-LP8 / G2b](loophole-packaging.md).** This is the condition, not a
+> 3. **Enforce the commit pin — [OQ-LP8 / G2b](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04).** This is the condition, not a
 >    nice-to-have. The one thing the prompt did that had content was re-firing when a **moved pin
 >    gained a claim**; today the lockfile records a commit and *nothing consults it at launch*. So
 >    yolo built a prompt where the obvious prior art built a pin, and the prompt is the part that
@@ -785,7 +785,7 @@ which is a pinning argument, not an approval argument.
 >   (`packs.go:175` → `packMayAccessHost`). **Deleting the gate makes the lockfile write-only at
 >   launch**, which is the accurate version of the concern.
 >
-> So the follow-on is **documentation, not enforcement**, and OQ-LP8 already ruled the substance —
+> So the follow-on is **documentation, not enforcement**, and [`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04) already ruled the substance —
 > *"choosing to follow a branch IS the trust decision"* — with two requirements it never delivered:
 > say that in one plain sentence, and **document tag pins as the shape for a pack carrying host
 > execution.** With the prompt gone those are the only thing between a user and a mutable ref, so
@@ -807,7 +807,7 @@ which is a pinning argument, not an approval argument.
 > pack reads this launch stays. Disclosure is not consent, costs nothing, and is what actually tells
 > a user what crossed.
 >
-> **And it inherits a ruling.** [`pack-execution-trust.md`](pack-execution-trust.md) §6 — *"approval
+> **And it inherits a ruling.** [`pack-execution-trust.md`](pack-execution-trust.md) [§6](./pack-execution-trust.md#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) — *"approval
 > must be readable"*, RULED and never built — was aimed at the terse one-token-per-line claim strings
 > the prompt printed. TP9 deletes that renderer, but the ruling is **retargeted, not retired**: the
 > banner (`packload.FootprintOf`, a separate rendering) becomes the ONLY place a user sees what a
@@ -816,10 +816,10 @@ which is a pinning argument, not an approval argument.
 > **What this retires:** [OQ-TP7](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04)
 > entirely (no refusal to predict, no approve path to be unreachable). **What it leaves standing:**
 > [OQ-TP6](#decision-ledger)'s rule — a refused contribution refuses the launch — which is about
-> consent, not cadence, and stays correct with no subject. **What it makes overdue:** OQ-LP8's two
+> consent, not cadence, and stays correct with no subject. **What it makes overdue:** [`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)'s two
 > undelivered documentation requirements — see the correction above; G2b itself is moot.
 
-### ✅ OQ-TP8 — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident? — RESOLVED (2026-09-04)
+### ✅ [`OQ-TP8`](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident? — RESOLVED (2026-09-04)
 
 Added 2026-09-02, executing 💬 18's **D9**, which found this census had no row for the one channel
 where a pack ships *code yolo runs* rather than content an agent reads. Row 26 now records the
@@ -840,13 +840,13 @@ allowlist sandbox — `SkipOpenLibs`, only base/string/table/math opened, `os`/`
 deleted, fresh state per run, instruction-budget timeout (`internal/agentcfg/luahook/vm.go`). So a
 derive cannot exec, read files, or reach the network. Its two real powers are (i) **unvalidated
 output into config surfaces** — the same trust as row 17's content and the place 💬 18's headline
-defect lived — and (ii) **reading whatever `ctx` carries**, which under OQ-PT9's ruling includes
+defect lived — and (ii) **reading whatever `ctx` carries**, which under [`OQ-PT9`](../reference/providers.md#why-its-this-way)'s ruling includes
 resolved provider credentials, with the auditability trade that ruling recorded (a derive reading a
 secret is silent; a written config artifact shows in `yolo config diff`).
 
 **What it decides:** whether ungated stays the documented rule, or pack Lua joins the claim table.
 Options: (a) **rule it ungated and record why** — rows 18/19 already grant fetched packs equivalent
-in-jail channels knowingly, the sandbox bounds it, and the commit pin (OQ-LP8, once enforced)
+in-jail channels knowingly, the sandbox bounds it, and the commit pin ([`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04), once enforced)
 closes over `derive.lua` like all content; (b) an approval claim for *fetched* packs' derives
 ("runs sandboxed config code at boot and at host apply"), which adds a prompt line but no new
 mechanism; (c) gate only the **host-side** probe on origin, since that is the one place the Lua
@@ -880,7 +880,7 @@ survive the parity check below.
 > **What this does NOT say.** It is not *"packs are trusted."* It is that **this channel adds nothing
 > to a pack's existing reach**, so an approval claim here would be disclosure theatre — the objection
 > the in-jail half already carried, now shown to apply to the host half for the same reason. The
-> honest disclosure remains the one rows 18/19 lean on: the **commit pin** (OQ-LP8, once enforced),
+> honest disclosure remains the one rows 18/19 lean on: the **commit pin** ([`OQ-LP8`](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04), once enforced),
 > which closes over `derive.lua` exactly as it closes over every other file a pack ships. Row 26
 > keeps the facts; the ledger keeps the reason.
 >

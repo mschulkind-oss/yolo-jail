@@ -6,7 +6,7 @@ Re-checked 2026-08-23. 11.1 and 11.2 have dated UPDATE blocks below (the PATH sp
 **contents-only**, leaving the directory inode alone because a live jail's `/ctx/packs` bind
 captured it (`internal/packstage/packstage.go:29,48,230` — "rule 3"), and the host-side half
 shipped as [`../plans/host-pack-drop-cleanup.md`](../plans/host-pack-drop-cleanup.md)'s four
-rulings on 2026-08-03. **The remaining value of this doc is §5's questions and the reasoning, not
+rulings on 2026-08-03. **The remaining value of this doc is [§5](#5-open-questions-collected--none-of-them-are-open-any-more)'s questions and the reasoning, not
 its defect list.** Companion to
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md) Phase 11,
 which lists these as work items; this doc carries the context and the decisions needed before
@@ -24,7 +24,7 @@ by omission.
 
 > **UPDATE 2026-08-02 — 11.1 is FIXED, and by removing its cause rather than handling it.**
 > The lazy launchers moved out of `~/.yolo-shims` into their own dir, `~/.yolo-launchers`,
-> ordered **last** on PATH (after `/bin`). §0's premise 1 below — *"`~/.yolo-shims` is FIRST on
+> ordered **last** on PATH (after `/bin`). [§0](#0-what-program-is-supposed-to-do)'s premise 1 below — *"`~/.yolo-shims` is FIRST on
 > PATH, so a shim always wins over `/bin`"* — is still true of the **blockers**, and no longer
 > true of the launchers, which is exactly the distinction the section was missing.
 >
@@ -37,7 +37,7 @@ by omission.
 > Verified in a real container: a pack declaring `{"kind":"program","bin":"fzf",…}` now leaves
 > `command -v fzf` → `/bin/fzf`, `fzf --version` → 0, while its launcher is still generated at
 > `~/.yolo-launchers/fzf` (running it directly still exits 1, which is what proves ORDERING is
-> the whole fix). See [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) §1.
+> the whole fix). See [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) [§1](../plans/proposed-fixes-open-findings.md#1-the-program-shim-shadowing-a-baked-binary-111).
 
 > **UPDATE 2026-08-03 — Q1.3 and Q2.1 are both ANSWERED, and 11.2 is FIXED.**
 >
@@ -57,7 +57,7 @@ by omission.
 > There is none — `shellcheck` + `shfmt`, or `jq` + `yq`, is ordinary. So
 > `InstallContribution() *Install` became `InstallContributions() []Install`, and
 > `GenerateAgentLaunchers` is a nested loop. My own stated objection ("N launchers means N
-> shadowing hazards") did not survive the §1 ruling above: with installers ordered after
+> shadowing hazards") did not survive the [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) ruling above: with installers ordered after
 > `/bin`, a launcher cannot shadow anything, so ten are no riskier than one.
 >
 > One thing the fix had to get right that the analysis below does not mention: `HonoredInstall`
@@ -299,10 +299,10 @@ why they are compacted here rather than left as live questions.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **Q1.1** | **Moot.** Launchers moved to `~/.yolo-launchers`, ordered LAST on PATH, so an installer is unreachable while any real binary of that name exists — there is nothing to fall through to. The exit-1 tail is unchanged and still right for a genuinely absent tool | 2026-08-02 | §1 UPDATE, [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) §1 |
-| **Q1.2** | **Moot, same cause.** Generation is harmless once ordering decides the winner; the launcher is still generated and still exits 1 when run directly, which is what proves ORDERING is the whole fix | 2026-08-02 | §1 UPDATE |
-| **Q1.3** | **Yes — build it.** The `requires` kind shipped: asserts a binary is present, generates nothing, names a missing bin at boot, feeds `check-deps`/`apply --host`. `CombineShared`, not `CombineExclusive` | 2026-08-03 | §1 UPDATE |
-| **Q2.1** | **A loop bug, not a rule** — 11.2 fixed | 2026-08-03 | §2 UPDATE |
+| **Q1.1** | **Moot.** Launchers moved to `~/.yolo-launchers`, ordered LAST on PATH, so an installer is unreachable while any real binary of that name exists — there is nothing to fall through to. The exit-1 tail is unchanged and still right for a genuinely absent tool | 2026-08-02 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE, [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) [§1](../plans/proposed-fixes-open-findings.md#1-the-program-shim-shadowing-a-baked-binary-111) |
+| **Q1.2** | **Moot, same cause.** Generation is harmless once ordering decides the winner; the launcher is still generated and still exits 1 when run directly, which is what proves ORDERING is the whole fix | 2026-08-02 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE |
+| **Q1.3** | **Yes — build it.** The `requires` kind shipped: asserts a binary is present, generates nothing, names a missing bin at boot, feeds `check-deps`/`apply --host`. `CombineShared`, not `CombineExclusive` | 2026-08-03 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE |
+| **Q2.1** | **A loop bug, not a rule** — 11.2 fixed | 2026-08-03 | [§2](#2-defect-112--only-the-first-program-per-pack-installs-in-a-jail) UPDATE |
 | **Q3.1** | **Prune only unconfigured slugs, contents-only** — and a configured-but-unresolvable fetched pack is **KEPT**, exactly as this doc leaned. The staging root's own inode is never removed, because a live jail's `/ctx/packs` bind captured it | 2026-08-03 | `internal/packstage/packstage.go:29,48,230` (rule 3) |
 
 > [!WARNING]

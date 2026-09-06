@@ -115,9 +115,9 @@ Steps 1–2 unblock everything. Step 6 is independent and zero-risk — land it 
 ## Don't
 
 - **Don't schedule D9.** `derive.lua` being ungated executable pack content absent from
-  `trust-paths.md`'s census is filed there as a census gap, not a verdict. Not this plan's work.
+  [`trust-paths.md`](./trust-paths.md)'s census is filed there as a census gap, not a verdict. Not this plan's work.
 - Don't reopen the enum as a free string — that restores what
-  [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) §7 step 3 closed.
+  [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) [§7](./reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) step 3 closed.
 - Don't fix D3 (`packs/zai`'s duplicated URL) here — the ruled fix is composing the provider's fact,
   which needs the sibling plan's derive work. A test pinning the two literals equal is the interim
   if that plan slips.
