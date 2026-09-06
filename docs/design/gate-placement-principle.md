@@ -61,7 +61,7 @@ smaller, cheaper, structural one — usually falls straight out.
 ## Worked examples, all from this repo
 
 **A confirmation that was theatre, and the real gap behind it.**
-[`loophole-packaging.md`](loophole-packaging.md) §4.3a proposed digesting every file a loophole would
+[`loophole-packaging.md`](loophole-packaging.md) [§4.3a](loophole-packaging.md#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) proposed digesting every file a loophole would
 execute and re-confirming when it changed. Test 1 kills it: installing a loophole means editing your
 own user config, which already requires host access as you. But the *finding* underneath was real —
 an **agent** can rewrite a daemon that lives in a live-mounted workspace, and an agent has none of
@@ -94,7 +94,7 @@ fail closed without one. A gate that cannot tell a human from a pipe is not aski
 
 > [!IMPORTANT]
 > **That criticism was true and too small, and this page is the reason it should have been caught.**
-> The prompt was **deleted outright on 2026-09-04** ([`trust-paths.md`](trust-paths.md) OQ-TP9),
+> The prompt was **deleted outright on 2026-09-04** ([`trust-paths.md`](trust-paths.md) [OQ-TP9](trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)),
 > because it fails **Test 1** at the top of this document: selecting a pack means writing `packs` in
 > the user config as the host user, which already exceeds everything the prompt withheld. This page
 > named the prompt as flawed on the *pipe* ground, defended its **neighbour** (`packs` being
@@ -162,7 +162,7 @@ a human"* — and it is right about **prompts**. It is wrong wherever the thing 
 safe is not *who* is present but that somebody **SAID** the dangerous precondition holds.
 
 The worked case is the stale-image launch
-([`image-staging-vs-baking.md`](image-staging-vs-baking.md) OQ-2, shipped `7830f65`). The design's
+([`image-staging-vs-baking.md`](image-staging-vs-baking.md) [OQ-2](image-staging-vs-baking.md#101-decision-ledger), shipped `7830f65`). The design's
 own leaning was to prompt an interactive human and refuse a pipe; the shipped code refuses **both**
 and takes `YOLO_ALLOW_STALE_IMAGE=1` as the way past. The reason generalises: what makes running on
 a stale image safe is knowing the image *is* stale — **precisely the knowledge whose absence caused

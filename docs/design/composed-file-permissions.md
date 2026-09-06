@@ -1,38 +1,38 @@
 # Composed-file permissions — what the prism makes read-only, and what it must not
 
 **Status:** design + audit, 2026-07-25; **defect register re-verified 2026-08-23 —
-four of the six entries are FIXED, including the only data-loss one (§4.2).** The taxonomy
-(§1) and the `0o444` finding (§6) are unchanged and still load-bearing.
+four of the six entries are FIXED, including the only data-loss one ([§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token)).** The taxonomy
+([§1](#1-the-one-paragraph-answer)) and the `0o444` finding ([§6](#6-why-0o444-is-not-a-posture)) are unchanged and still load-bearing.
 
 > **Postscript, 2026-08-23 — the audit worked; do not go hunting the bugs it found.**
-> §1–§10 keep their original tense (a 2026-07-25 snapshot). This block is the delta.
-> **The most dangerous thing to read stale in this doc is §4**, because every entry is
+> [§1](#1-the-one-paragraph-answer)–[§10](#10-open-questions) keep their original tense (a 2026-07-25 snapshot). This block is the delta.
+> **The most dangerous thing to read stale in this doc is [§4](#4-defect-register--verified-bugs-each-with-its-fix)**, because every entry is
 > written as a live bug with a probe attached, and most of them are gone.
 >
 > | Defect | Verdict | Evidence (verified 2026-08-23) |
 > |---|---|---|
-> | §4.1 `~/.gitconfig` unwritable | **LIVE (mechanism), FIXED (legibility)** | The decoy symlink is untouched — `EnsureSymlink(GlobalHome/.gitconfig → .config/git/config)`, `internal/storage/ensure.go:100` — and the `:ro` bind still lands at `internal/cli/run/assemble_parts.go:261`, so `git config --global` still fails `Device or resource busy`. But the composed file now carries a header naming `git config --global` and `[include]`s a writable sibling FIRST (`gitIncludeHeader()`, `assemble_parts.go:282-285,321`; `config.local` at `:326`; `TestComposeGitconfigIncludesWritableSiblingFirst`, `gitidentity_test.go:154`). The code states the residue itself at `:316-318`. |
-> | §4.2 copilot OAuth wipe | ✅ **FIXED — both halves** | Option (c) shipped: the first-migration branch ADOPTS the on-disk residue. `overlay = emptyOverlay(kind)` survives only as an initial value (`internal/agentcfg/staterender.go:187`), superseded at `:191-211` by `residue := dropYoloOwnedSubtrees(dropNullLeaves(mergeDiff(pure, current)), pure)`, labelled *"B1 (⚠ DATA LOSS FIX)"* at `:164`. Option (a) shipped too: `copilot/config` is now `"mode": "rmw"` (`packs/copilot/pack.json:29`), i.e. preserve-unknown-keys with no capture sidecar — so the token never enters the overlay either. **NOTE the file moved**: `staterender.go` is in `internal/agentcfg/`, not `internal/entrypoint/`. |
-> | §4.3 `claude/config` dead surface | ✅ **FIXED** | It is no longer dead — `"mode": "rmw"` (`packs/claude/pack.json:44,46`) and it IS written at boot via `renderSurfaceRMWSurface` (`internal/entrypoint/packsurfaces.go:281`). The dead-surface flag this section asked for exists anyway (`manifest.ModeUnrendered`, `internal/agentcfg/manifest/manifest.go:170`, surfaced as `surfaceRow.Reserved`), and `configRender` filters on it (`internal/cli/config.go:217-223`) with a message when the surface is named explicitly. |
-> | §4.4 `config render` lies | ⚠ **HALF-FIXED** | The *reads-its-own-output* half is fixed by A7: the host layer is read only for the two surfaces that get one at boot (`internal/cli/config.go:272`, gated by `surfaceHasHostLayer`), so the probes in this section no longer reproduce. The *missing layers* half is LIVE and now **deliberate and disclosed**: `Compose` is still called with no `Overlay`/`Workspace`/`Computed` (`config.go:276-281`), the scope comment at `:244-253` says why, and `--explain` prints a notice for surfaces that carry a computed layer (`:293-296`). Read §4.4 as "a documented preview", not "the debugging command lies". |
-> | §4.5 symlink-target reservation | ✅ **FIXED** (was already, still holds) | `reservedHomeFiles` (`internal/config/writablehome.go:64`) and `reservedHomeSubtrees` (`:104`); both pins live — `TestHostFileReservedDestsCoverSymlinkTargets` (`internal/config/hostfiles_test.go:895`), `TestHostFileDestGuardIsPurelyLexical` (`internal/config/hostfilesstaging_test.go:73`). |
-> | §2 umask comment | ✅ **FIXED** | The false claim is gone and replaced by a comment saying it was false (`internal/entrypoint/helpers.go:38-44`), with an explicit `os.Chmod(path, 0o755)` at `:45` for `writeExecutable`. `writeInPlaceString` still passes an umask-masked `0o644` (`helpers.go:51`, `internal/entrypoint/fsx.go:43`) — but no longer claims otherwise, which was the defect. |
+> | [§4.1](#41-gitconfig-is-unwritable-and-git-config---global-fails) `~/.gitconfig` unwritable | **LIVE (mechanism), FIXED (legibility)** | The decoy symlink is untouched — `EnsureSymlink(GlobalHome/.gitconfig → .config/git/config)`, `internal/storage/ensure.go:100` — and the `:ro` bind still lands at `internal/cli/run/assemble_parts.go:261`, so `git config --global` still fails `Device or resource busy`. But the composed file now carries a header naming `git config --global` and `[include]`s a writable sibling FIRST (`gitIncludeHeader()`, `assemble_parts.go:282-285,321`; `config.local` at `:326`; `TestComposeGitconfigIncludesWritableSiblingFirst`, `gitidentity_test.go:154`). The code states the residue itself at `:316-318`. |
+> | [§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) copilot OAuth wipe | ✅ **FIXED — both halves** | Option (c) shipped: the first-migration branch ADOPTS the on-disk residue. `overlay = emptyOverlay(kind)` survives only as an initial value (`internal/agentcfg/staterender.go:187`), superseded at `:191-211` by `residue := dropYoloOwnedSubtrees(dropNullLeaves(mergeDiff(pure, current)), pure)`, labelled *"B1 (⚠ DATA LOSS FIX)"* at `:164`. Option (a) shipped too: `copilot/config` is now `"mode": "rmw"` (`packs/copilot/pack.json:29`), i.e. preserve-unknown-keys with no capture sidecar — so the token never enters the overlay either. **NOTE the file moved**: `staterender.go` is in `internal/agentcfg/`, not `internal/entrypoint/`. |
+> | [§4.3](#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) `claude/config` dead surface | ✅ **FIXED** | It is no longer dead — `"mode": "rmw"` (`packs/claude/pack.json:44,46`) and it IS written at boot via `renderSurfaceRMWSurface` (`internal/entrypoint/packsurfaces.go:281`). The dead-surface flag this section asked for exists anyway (`manifest.ModeUnrendered`, `internal/agentcfg/manifest/manifest.go:170`, surfaced as `surfaceRow.Reserved`), and `configRender` filters on it (`internal/cli/config.go:217-223`) with a message when the surface is named explicitly. |
+> | [§4.4](#44-yolo-config-render-does-not-show-what-the-jail-gets) `config render` lies | ⚠ **HALF-FIXED** | The *reads-its-own-output* half is fixed by A7: the host layer is read only for the two surfaces that get one at boot (`internal/cli/config.go:272`, gated by `surfaceHasHostLayer`), so the probes in this section no longer reproduce. The *missing layers* half is LIVE and now **deliberate and disclosed**: `Compose` is still called with no `Overlay`/`Workspace`/`Computed` (`config.go:276-281`), the scope comment at `:244-253` says why, and `--explain` prints a notice for surfaces that carry a computed layer (`:293-296`). Read [§4.4](#44-yolo-config-render-does-not-show-what-the-jail-gets) as "a documented preview", not "the debugging command lies". |
+> | [§4.5](#45-host_files-reserves-symlink-aliases-but-not-their-targets--fixed) symlink-target reservation | ✅ **FIXED** (was already, still holds) | `reservedHomeFiles` (`internal/config/writablehome.go:64`) and `reservedHomeSubtrees` (`:104`); both pins live — `TestHostFileReservedDestsCoverSymlinkTargets` (`internal/config/hostfiles_test.go:895`), `TestHostFileDestGuardIsPurelyLexical` (`internal/config/hostfilesstaging_test.go:73`). |
+> | [§2](#2-where-composed-files-actually-live-and-why-nothing-is-enforced-today) umask comment | ✅ **FIXED** | The false claim is gone and replaced by a comment saying it was false (`internal/entrypoint/helpers.go:38-44`), with an explicit `os.Chmod(path, 0o755)` at `:45` for `writeExecutable`. `writeInPlaceString` still passes an umask-masked `0o644` (`helpers.go:51`, `internal/entrypoint/fsx.go:43`) — but no longer claims otherwise, which was the defect. |
 >
-> **Of the "model" work in §9, only item 1 had shipped when this was written. Since
+> **Of the "model" work in [§9](#9-work-items), only item 1 had shipped when this was written. Since
 > then: nothing else in that list has.** Item 2 (overlay auto-retire) does not exist —
 > `mergeAccumulate` (`internal/agentcfg/engine.go:106-128`) never drops a key that
 > agrees with the layer beneath, and `internal/agentcfg/staterender.go:250-252` still
 > calls it *"the never-aging overlay."* Item 4 is still four modes with `0o444`
-> (see the cross-doc note in §7.4). Item 5's steering gap narrowed but did not close:
+> (see the cross-doc note in [§7.4](#74-what-this-means-for-host_files-four-modes)). Item 5's steering gap narrowed but did not close:
 > `pi` and `codex` now ship skills (`packs/pi/pack.json:22-23`,
-> `packs/codex/pack.json:19-20`) — **`opencode` still does not**, so §8.2 gap 2 is one
+> `packs/codex/pack.json:19-20`) — **`opencode` still does not**, so [§8.2](#82-what-steering-exists-today-and-the-gaps) gap 2 is one
 > agent, not three.
 >
-> **Two architectural drifts that make §1.0 and §3 read oddly.** `agents.AgentSpec`
-> no longer exists — agents are packs, and what §1.0 calls a "hard-coded per-agent
+> **Two architectural drifts that make [§1.0](#10-the-second-axis-is-the-surface-host-linked) and [§3](#3-the-12-declared-surfaces-as-they-actually-behave) read oddly.** `agents.AgentSpec`
+> no longer exists — agents are packs, and what [§1.0](#10-the-second-axis-is-the-surface-host-linked) calls a "hard-coded per-agent
 > allowlist" is now the `reads-host` contribution kind (`AGENTS.md`, "AGENTS ARE
 > PACKS"). And **the gemini pack is gone entirely** (`packs/` has no `gemini` dir),
-> so §3's struck-through row and §4.5's gemini mentions are moot by deletion. The
+> so [§3](#3-the-12-declared-surfaces-as-they-actually-behave)'s struck-through row and [§4.5](#45-host_files-reserves-symlink-aliases-but-not-their-targets--fixed)'s gemini mentions are moot by deletion. The
 > *count* "12 declared surfaces, 11 rendered" is therefore no longer a fixed number:
 > surfaces come from whichever packs are selected.
 
@@ -48,7 +48,7 @@ is traced from the live tree or probed inside a running jail; each claim carries
 
 **Scope.** This doc is about the *permission and writability* posture of files the
 composition engine produces. The mount stack itself is documented in
-[jail-home.md](jail-home.md) §2 and not restated; the layering engine is
+[jail-home.md](jail-home.md) [§2](jail-home.md#2-the-physical-layers-in-mount-order) and not restated; the layering engine is
 [agent-settings-composition.md](../plans/agent-settings-composition.md).
 
 ---
@@ -71,7 +71,7 @@ kinds**, and the mistake to date has been treating them as one:
 The design rule that follows is **one question, not four modes**: *does anything
 other than yolo write this file?* If no → read-only. If yes → read-write with
 capture, and the capture must be visible. There is no third answer, and
-"read-only-ish" (`0o444` DAC) is not one — see §6.
+"read-only-ish" (`0o444` DAC) is not one — see [§6](#6-why-0o444-is-not-a-posture).
 
 There is a **second, orthogonal axis** — *does a host file cross into this surface?* — and
 it sharpens the rule rather than replacing it: see
@@ -82,7 +82,7 @@ it sharpens the rule rather than replacing it: see
 > needs. A *program* writing its own config is unsteerable and is exactly what
 > capture exists for. A *human-directed agent* is steerable — and for that writer,
 > capture is often the **wrong** outcome, because the durable answer was a config
-> key it should have edited instead. Read §1 for the posture, §8 for who to serve.
+> key it should have edited instead. Read [§1](#1-the-one-paragraph-answer) for the posture, [§8](#8-who-is-writing-program-operation-vs-directed-agent) for who to serve.
 
 ### 1.0 The second axis: is the surface HOST-LINKED?
 
@@ -168,7 +168,7 @@ the rw `~/.claude` overlay — verified), it survives every restart, and yolo ne
 regenerates it. That is precisely what makes "State" a *safe* posture rather than a
 compromise: no capture sidecar, no overlay precedence, no first-migration hazard. The
 issue this row guards against is not the file's persistence — it is the temptation to
-**compose** it, which is what §4.2 shows happening to `copilot/config` with a live OAuth
+**compose** it, which is what [§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) shows happening to `copilot/config` with a live OAuth
 token as the casualty.
 
 So the row is not "yolo has business here"; it is **"yolo must inject a little and compose
@@ -425,7 +425,7 @@ loophole.
 **Restart is fine here, and that is a point in mise's favour.** Support tooling is
 installed once and not edited at runtime, so the restart cost the key carries is
 irrelevant for this use case — the friction argument that justifies `mise use -g`
-(§3.0.1) does not even apply. Which sharpens the guidance: `mise_tools` for *support
+([§3.0.1](#301-should-yolo-manage-mise-tools-at-all)) does not even apply. Which sharpens the guidance: `mise_tools` for *support
 tooling*, `mise use -g` only for a genuine mid-session need, `mise.toml` for anything the
 project depends on.
 
@@ -487,14 +487,14 @@ overlay" as "safe to make read-only".
 
 > [!WARNING]
 > **Most of this register is CLOSED as of 2026-08-23 — see the verdict table in the
-> postscript at the top before acting on any entry here.** 4.2, 4.3, 4.5 and the §2
+> postscript at the top before acting on any entry here.** 4.2, 4.3, 4.5 and the [§2](#2-where-composed-files-actually-live-and-why-nothing-is-enforced-today)
 > umask row are fixed; 4.4 is half-fixed and its remaining half is deliberate; only
 > 4.1's mechanism is still live. The register is kept in its original tense because
 > each entry carries the *probe* that proved the bug, and the probes are what make the
-> §1 taxonomy more than an assertion — §4.2 in particular is the doc's whole case that
+> [§1](#1-the-one-paragraph-answer) taxonomy more than an assertion — [§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) in particular is the doc's whole case that
 > demoting a Shared file to Derived is a data-loss move.
 
-**This section IS the work list for defects**; §9 sequences it rather than restating
+**This section IS the work list for defects**; [§9](#9-work-items) sequences it rather than restating
 it. Every entry below was reproduced by probe, not inferred, and each carries the fix
 inline so the section is actionable on its own. All five are independent of any
 redesign — they are broken today.
@@ -542,7 +542,7 @@ a deleted `.yolo/prism/`, or a corrupt sidecar all trigger it. `seedAgentDir`
 copies the token file in from `GlobalHome`, so a fresh workspace inherits the
 token *and then wipes it on the first render*.
 
-This is the clearest possible demonstration of the §1 taxonomy: `copilot/config`
+This is the clearest possible demonstration of the [§1](#1-the-one-paragraph-answer) taxonomy: `copilot/config`
 was classified as a "write-once `{"yolo": true}` bootstrap file"
 (config-migration-to-prism.md:120, stale-risk rated NONE) when it is really a
 Shared credential file. **Fix: it must not be a wholesale-composed surface** —
@@ -570,7 +570,7 @@ skip it by construction.
 ### 4.4 `yolo config render` does not show what the jail gets
 
 `render` is documented as the offline twin of the boot render ("what render
-prints is what the jail gets", §6). It is not: `renderSurface` builds
+prints is what the jail gets", [§6](#6-why-0o444-is-not-a-posture)). It is not: `renderSurface` builds
 `Inputs{Surface, HostBytes, Script, VM}` (config.go:165-170) with **no Overlay,
 no Workspace, and no Computed layer**, and it reads the "host" layer from the
 surface's own destination path. In-jail that makes the rendered file its own
@@ -608,7 +608,7 @@ cleaned segments so `.config/yolo-homework/` stays claimable), which also closes
 adjacent case of a user planting an unrelated file among yolo's staged ones.
 
 `~/.config/git/ignore` is deliberately still claimable: it is a `:ro` bind, but it is not
-an alias of anything, so it belongs to the §4.1 legibility problem rather than to this one.
+an alias of anything, so it belongs to the [§4.1](#41-gitconfig-is-unwritable-and-git-config---global-fails) legibility problem rather than to this one.
 
 **The guard is lexical, and that is the fix rather than a shortcut.** Resolving a
 destination through the filesystem is wrong in both outcomes: `filepath.EvalSymlinks`
@@ -622,7 +622,7 @@ is worse than one that rejects a spelling. Pinned by
 
 ## 5. The capture overlay is invisible, and partly noise
 
-Capture is load-bearing (§3.1) but three things are wrong with it today.
+Capture is load-bearing ([§3.1](#31-the-evidence-that-agents-do-write-these-files)) but three things are wrong with it today.
 
 **It has no UI.** `yolo config` implements exactly one subcommand, `render`
 (config.go:66-72). The sidecars live in `<workspace>/.yolo/prism/`, which is
@@ -729,7 +729,7 @@ declared in the manifest but deliberately never rendered, written bespoke becaus
   same root cause, one fix;
 - and require a home to persist in, which is the "explicitly allow for" part: a
   credential file needs a writable, *non-composed* location. `~/.copilot/` is already a
-  writable overlay (§2), so the file can simply stay where it is once the prism stops
+  writable overlay ([§2](#2-where-composed-files-actually-live-and-why-nothing-is-enforced-today)), so the file can simply stay where it is once the prism stops
   owning it — no new mount, no new allowlist entry. The requirement is to stop
   composing it, not to relocate it.
 
@@ -766,7 +766,7 @@ ROADMAP item 5, config packs — and probably wants that mechanism, not this one
 
 ### 5.2 How to actually de-compose a credential surface
 
-§5.1 concluded "de-compose credential surfaces first" without showing a mechanism —
+[§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision) concluded "de-compose credential surfaces first" without showing a mechanism —
 a fair objection. Here it is, with the options tested rather than asserted.
 
 **The precedent already works and is worth reading first.** `~/.claude.json` is declared
@@ -822,7 +822,7 @@ residue is preserved.
 The "recursion" intuition is understandable but is the *steady state*, not this fix: each
 boot's render becomes next boot's baseline, so the residue is re-derived every boot rather
 than accumulated once. That is a fixed point, not a growing structure — and it is exactly
-why the baseline file is load-bearing for one cycle (§5.1). The rationale for discarding
+why the baseline file is load-bearing for one cycle ([§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)). The rationale for discarding
 on first migration was that capturing would "pin stale bespoke output" — a concern about
 the *historical* migration away from bespoke writers, which is now complete.
 
@@ -837,7 +837,7 @@ So option (c) fixes [§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) for *
 surface at once, with no per-surface code — and it is a strictly better first-boot
 behavior in general, not just for credentials: adopting what is on disk is what a
 migration *should* do. Its cost is that the token then lives in the overlay sidecar,
-which is exactly what §5.1 wants to avoid. **So (c) is the right bug fix and the wrong
+which is exactly what [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision) wants to avoid. **So (c) is the right bug fix and the wrong
 end state.**
 
 **(b) Capture allow/denylist** — capture everything except credential-shaped keys.
@@ -925,9 +925,9 @@ actually costs:
 - A `yolo config reset` in that window discards the baseline *and* leaves the edited file
   in place, so the edit is then adopted as if it were original — surprising, but not
   destructive.
-- The one genuine loss case remains §5.1's: something deletes `last_render` while an
+- The one genuine loss case remains [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)'s: something deletes `last_render` while an
   uncaptured edit exists. Nothing in yolo does that today except `config reset`, where it
-  is the intent — see §5.1; it is not a `prune` hazard and not a timing fix.
+  is the intent — see [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision); it is not a `prune` hazard and not a timing fix.
 
 **Which reprioritizes the options.** Since nothing is lost, an inotify watcher is
 solving a staleness problem, not a data-loss problem, and its costs (debounce against
@@ -936,7 +936,7 @@ flock-free sidecar path) are no longer justified by urgency.
 
 | Option | Buys | Cost | Verdict |
 |---|---|---|---|
-| **`yolo config capture`** subcommand | an explicit checkpoint; makes the mechanism nameable (§8's real problem) | small — the capture half of `ComposeStateful` without re-rendering | **do this** |
+| **`yolo config capture`** subcommand | an explicit checkpoint; makes the mechanism nameable ([§8](#8-who-is-writing-program-operation-vs-directed-agent)'s real problem) | small — the capture half of `ComposeStateful` without re-rendering | **do this** |
 | capture in the existing `onTerminate` hook | closes the window automatically | best-effort only (SIGKILL skips it); host-side, so it reads surfaces through the workspace mount | worth it after the above |
 | inotify on `yolo-jaild` | eliminates the deferral | debounce + a real race story | **not now** — no data loss to justify it |
 | shrink the problem via [§8](#8-who-is-writing-program-operation-vs-directed-agent)'s class split | fewer surfaces need capture at all | design work | do anyway, for its own reasons |
@@ -1025,7 +1025,7 @@ keys and make the ⚠ signal meaningful.
 `~/.claude.json` is the model here and it is already right: yolo does a
 read-modify-write that injects only `mcpServers` and the workspace `projects`
 entry, preserving everything else. `copilot/config` must move to this posture
-(§4.2). The rule: **if a file holds credentials or session state, yolo may inject
+([§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token)). The rule: **if a file holds credentials or session state, yolo may inject
 keys but must never render it from layers**, because a first-migration boot
 renders from defaults alone.
 
@@ -1039,13 +1039,13 @@ renders from defaults alone.
 > *"open — one decision with"* each other and OQ-B), and as **`OQ-B`** in
 > [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md)
 > (`:940`, the host-side twin: should `files` at the host be `0o444`?). **Those three
-> IDs are the API; §6 and §7.4 are this cluster's *argument*, and the argument is what
+> IDs are the API; [§6](#6-why-0o444-is-not-a-posture) and [§7.4](#74-what-this-means-for-host_files-four-modes) are this cluster's *argument*, and the argument is what
 > E2's own leaning is waiting on.** Anyone answering one of them is answering all four.
 >
 > Status verified 2026-08-23: **still four modes**, still enumerated `readonly`,
 > `once`, `copy`, `capture` (`internal/config/hostfiles.go:59-62,68`), and `readonly`
 > is still a chmod (`internal/entrypoint/hostfiles.go:111-129`). One detail has moved
-> since §6 was written and it sharpens the asymmetry rather than softening it:
+> since [§6](#6-why-0o444-is-not-a-posture) was written and it sharpens the asymmetry rather than softening it:
 > `hostFileModes` (`:152-158`) now returns `(0o555, 0o755)` for an executable host
 > source and `(0o444, 0o644)` otherwise — so `0o444` is the *default* locked mode, no
 > longer the unconditional one.
@@ -1055,13 +1055,13 @@ plus one seed flag**, which is the same taxonomy as above:
 
 | Today | Becomes | Why |
 |---|---|---|
-| `readonly` | **`readonly`**, but implemented as a `:ro` mount where possible, else `copy` + a header comment — never a bare `0o444` | `0o444` is asymmetric (§6). A source-bearing file is Derived: the host file is the truth, so non-persistence is the actual goal, not unwriteability. |
+| `readonly` | **`readonly`**, but implemented as a `:ro` mount where possible, else `copy` + a header comment — never a bare `0o444` | `0o444` is asymmetric ([§6](#6-why-0o444-is-not-a-posture)). A source-bearing file is Derived: the host file is the truth, so non-persistence is the actual goal, not unwriteability. |
 | `copy` | merged into `readonly` | They differ only in the chmod, which is the part that does not work. |
 | `once` | **`once`** (kept) | The genuine "seed then leave alone" case; no sidecar, no precedence puzzle. Cheapest correct posture for a source-less file. |
-| `capture` | **`capture`** (kept, explicit) | The Shared case. Only mode that writes sidecars; must be visible per §7.2. |
+| `capture` | **`capture`** (kept, explicit) | The Shared case. Only mode that writes sidecars; must be visible per [§7.2](#72-shared--read-write-with-visible-capture). |
 
 Net: **`readonly` (derived, non-persistent), `once` (seeded), `capture`
-(shared)** — three, down from four, and each maps to exactly one row of the §1
+(shared)** — three, down from four, and each maps to exactly one row of the [§1](#1-the-one-paragraph-answer)
 table.
 
 ### 7.5 The blocking decision: home-root files and new top-level dirs
@@ -1112,7 +1112,7 @@ bind) — that is the case the mechanism was built for.
 
 ## 8. Who is writing: program operation vs directed agent
 
-**This is the split §1 was missing**, and it changes what "serve the writer" means.
+**This is the split [§1](#1-the-one-paragraph-answer) was missing**, and it changes what "serve the writer" means.
 "Something other than yolo writes this file" hides two writers with opposite needs:
 
 | | **Class 1 — program operation** | **Class 2 — human-directed agent** |
@@ -1138,7 +1138,7 @@ Two consequences follow, and they pull in opposite directions:
 
 So the design goal is not "capture more" or "capture less" — it is **route by class**:
 make class 1 work silently, and make class 2 *fail loudly with the alternative named*.
-That reframes §6's `0o444` finding: the mode bit is not a security measure, it is the
+That reframes [§6](#6-why-0o444-is-not-a-posture)'s `0o444` finding: the mode bit is not a security measure, it is the
 **class-2 routing signal**, and its asymmetry (root bypasses, non-root gets EACCES) is
 bad precisely because it routes some agents and not others.
 
@@ -1208,7 +1208,7 @@ tree, so there is a pattern to copy rather than invent.
 3. **No composed file says it is generated.** Exactly two generated files carry a
    header — the git config and `yolo-user-env.sh` — and **neither is a prism surface**.
    All 11 rendered surfaces are header-free (byte-probed). Worse, the git config's
-   header is the one nobody can read: the file is EROFS in-jail (§4.1). A structured
+   header is the one nobody can read: the file is EROFS in-jail ([§4.1](#41-gitconfig-is-unwritable-and-git-config---global-fails)). A structured
    `json` surface *cannot* carry a comment header at all, which is the connection to
    the comment work in ROADMAP item 3.
 4. **`yolo config ls|diff|reset` is undiscoverable.** It appears only inside the
@@ -1240,7 +1240,7 @@ Class-2 guidance depends on this and the boundary is sharper than the docs sugge
   split-brain is load-bearing and undocumented.
 - **The approval prompt only fires on fresh launch**, after the attach branch has
   returned — so attaching never re-checks config. In a non-TTY the launch is now
-  **refused** rather than auto-accepted (`config-safety.md` OQ-D2); `--accept-config-changes`
+  **refused** rather than auto-accepted ([`config-safety.md`](config-safety.md) [OQ-D2](config-safety.md#decision-ledger)); `--accept-config-changes`
   grants the approval for that one launch.
 
 ### 8.4 What to do about it
@@ -1276,40 +1276,40 @@ Ordered by "fixes a real defect" before "improves the model".
 — five verified bugs, each with its fix stated inline. Sequence them **4.2 first** (it is
 the only data-loss one, and de-composing that surface also removes credentials from the
 capture diff, so it unblocks [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)),
-then 4.3/4.5 (cheap correctness), then 4.4 and the §2 umask fix.
+then 4.3/4.5 (cheap correctness), then 4.4 and the [§2](#2-where-composed-files-actually-live-and-why-nothing-is-enforced-today) umask fix.
 
 **The model:** *(status re-checked 2026-08-23 — item 1 shipped; **items 2, 4 and 6 are
-untouched**; item 3 is subsumed by the §5.2 resolution; item 5 narrowed from three
+untouched**; item 3 is subsumed by the [§5.2](#52-how-to-actually-de-compose-a-credential-surface) resolution; item 5 narrowed from three
 agents to one, `opencode`. Item 4 is `E1`/`E2`/`OQ-B` and belongs to them, not here —
-see §7.4.)*
+see [§7.4](#74-what-this-means-for-host_files-four-modes).)*
 
 1. ~~`yolo config ls` + boot divergence notice + `config diff` / `config reset`~~ —
    **✅ SHIPPED 2026-07-25** (`e138c55`, `91d2c2a`). This was the prerequisite for
    `capture` being defensible at all. Remaining gap is not the machinery but its
    *discoverability* — see item 5.
-2. Overlay auto-retire: drop a captured key equal to the layer beneath it (§5).
+2. Overlay auto-retire: drop a captured key equal to the layer beneath it ([§5](#5-the-capture-overlay-is-invisible-and-partly-noise)).
 3. Separate the overlay (durable) from `last_render` (a one-boot pending-edit
    baseline, NOT a cache — deleting it silently discards uncaptured edits, proved in
    [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)).
 4. Collapse `host_files`' four modes to three; implement `readonly` as `:ro`
-   where possible instead of `0o444` (§7.4).
+   where possible instead of `0o444` ([§7.4](#74-what-this-means-for-host_files-four-modes)).
 5. Steer directed agents at composed surfaces — the docs-only gap in
    [§8.4](#84-what-to-do-about-it), which is the highest value-per-effort item here.
 6. Home-root destinations via `EnsureSymlink`; new top-level dirs via
-   `writable_home_dirs` staging (§7.5).
+   `writable_home_dirs` staging ([§7.5](#75-the-blocking-decision-home-root-files-and-new-top-level-dirs)).
 
 **Evidence still missing:** whether pi, codex, opencode, and agy rewrite their own
 settings files. Nobody has launched them in a jail long enough to know, and their
 empty overlays prove nothing. Until someone does, they stay in the Shared bucket
 (rw + capture) — the conservative choice, since demoting a Shared file to Derived
-is what caused §4.2.
+is what caused [§4.2](#42-copilotconfig-can-wipe-a-live-oauth-token).
 
 ## 10. Open questions
 
 IDs (`CFP-*`) minted 2026-08-23. Nothing outside this doc cited these three — they
 were bare bullets — so naming them broke no cross-reference. **CFP-1 is deliberately
 NOT a fourth ID for the `0o444`-vs-`:ro` question**; that one is `E1`/`E2`/`OQ-B`
-elsewhere (see §7.4). CFP-1 is the narrower consequence question that only arises
+elsewhere (see [§7.4](#74-what-this-means-for-host_files-four-modes)). CFP-1 is the narrower consequence question that only arises
 *after* E2 is answered yes.
 
 1. 💬 **CFP-1: Does `:ro` for a Derived surface need host-side composition — and is
@@ -1329,7 +1329,7 @@ elsewhere (see §7.4). CFP-1 is the narrower consequence question that only aris
 2. 💬 **CFP-2: Should `macos-user` and Apple Container get a documented degradation
    table?** Both lose `:ro` silently — AC ignores it outright (apple/container#889) and
    macos-user has no bind mounts at all, so every `:ro` surface degrades to a writable
-   materialized copy. §6's footnote is the only record. This decides whether "read-only"
+   materialized copy. [§6](#6-why-0o444-is-not-a-posture)'s footnote is the only record. This decides whether "read-only"
    in this doc means anything on two of the three backends.
 
    _Leaning:_ yes, per-surface, but only when `macos-user` is next worked on — writing
@@ -1344,7 +1344,7 @@ elsewhere (see §7.4). CFP-1 is the narrower consequence question that only aris
 3. 💬 **CFP-3: Is per-workspace the right scope for overlay sidecars?** They live under
    `<workspace>/.yolo/prism/`, so the same host file composed in two workspaces can
    diverge invisibly in different directions. Unexamined rather than obviously wrong.
-   This is the *same* scope question §5.1's options ③/④ are blocked on ("is a captured
+   This is the *same* scope question [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)'s options ③/④ are blocked on ("is a captured
    edit per-workspace or per-machine?"), so answering it unblocks the sidecar-location
    decision too.
 
