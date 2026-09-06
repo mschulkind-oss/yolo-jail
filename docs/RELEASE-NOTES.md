@@ -37,13 +37,11 @@ or Ctrl-C-ing that session tears the jail down, so the next launch is already fr
 The replacement is deliberately two commands: **`yolo stop`** (new; from the workspace whose jail
 it is — graceful stop, idempotent, `--rm` sweeps the container) followed by an ordinary `yolo`
 launch. Every message that used to recommend `--new` names this series now. A typed `--new` is
-refused by name with the same remedy, not silently ignored.
+nothing at all — an unrecognized token, read the way any unknown flag is.
 
-**Who this bites.** Scripts or muscle memory using `--new` — they now fail loudly with the fix in
-the message. The capture pipeline's "never attach" need moved to an internal seam (`NeverAttach`),
+**Who this bites.** Scripts or muscle memory using `--new` — the token now fails as an unknown
+command would. The capture pipeline's "never attach" need moved to an internal seam (`NeverAttach`),
 not a flag.
-
-### Launching a jail on `/workspace` from inside a jail now REFUSES
 
 ### Launching a jail on `/workspace` from inside a jail now REFUSES
 

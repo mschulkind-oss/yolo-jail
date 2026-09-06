@@ -64,15 +64,4 @@ func TestStopEndsTheWorkspaceJail(t *testing.T) {
 	if !strings.Contains(r2.combined(), "No jail running") {
 		t.Errorf("the no-op stop must say so:\n%s", r2.combined())
 	}
-
-	// The removed flag refuses by name, naming the series.
-	r3 := runCommand(t, dir, append(jailRunArgs(), "--new", "--", "true"))
-	if r3.rc == 0 {
-		t.Fatalf("--new must refuse, not launch:\n%s", r3.combined())
-	}
-	for _, want := range []string{"--new was removed", "yolo stop"} {
-		if !strings.Contains(r3.combined(), want) {
-			t.Errorf("the --new refusal should name %q:\n%s", want, r3.combined())
-		}
-	}
 }

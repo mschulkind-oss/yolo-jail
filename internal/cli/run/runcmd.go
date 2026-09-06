@@ -50,10 +50,6 @@ type Options struct {
 	NeverAttach bool
 	// Timing is --timing: report this launch's startup performance timings.
 	Timing bool
-	// RemovedNewFlag is the removed --new flag, seen on the argv: runRun refuses
-	// with the replacement series rather than launching (the removal is a
-	// RELEASE-NOTES behaviour change, 2026-09-06).
-	RemovedNewFlag bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
 	// AcceptConfigChanges is --accept-config-changes: it grants the config-change

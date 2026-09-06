@@ -580,19 +580,11 @@ func runRun(args []string) int {
 	}
 	opts := run.NewDefaultOptions()
 	opts.Color = true
-	// Nothing here can fail but the by-name removal: the fold makes no refusal, so
-	// a mistyped flag is either swallowed or read as the command it follows, never
-	// an early exit. The one refusal the fold used to make (a -p with no readable
-	// name) went with the heuristic that needed it — docs/reference/providers.md
-	// OQ-PT5. The removed --new is the deliberate exception: an ignored removal
-	// would fall to the parser's default branch and become the command.
+	// Nothing here can fail: the fold makes no refusal, so a mistyped flag is either
+	// swallowed or read as the command it follows, never an early exit. The one
+	// refusal the fold used to make (a -p with no readable name) went with the
+	// heuristic that needed it — docs/reference/providers.md OQ-PT5.
 	parseRunArgs(args, &opts)
-	if opts.RemovedNewFlag {
-		fmt.Fprintf(os.Stderr, "yolo: --new was removed — it force-replaced a RUNNING jail "+
-			"(killing its sessions) in one step, which hid the destructive half.\n"+
-			"To replace this workspace's jail: 'yolo stop', then run yolo again.\n")
-		return 1
-	}
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's
 	// composed profile/provider channel, which run.Run composes above the backend

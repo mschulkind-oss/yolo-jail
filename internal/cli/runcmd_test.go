@@ -111,7 +111,7 @@ func TestRunPassesHelpThroughToInnerCommand(t *testing.T) {
 		// The `--`→run rewrite of `yolo -- claude --help`.
 		{"run -- claude --help", []string{"claude", "--help"}},
 		{"run -- bash -h", []string{"bash", "-h"}},
-		{"--new run -- claude --help", []string{"claude", "--help"}},
+		{"--timing run -- claude --help", []string{"claude", "--help"}},
 		// An implicit command start keeps its own flags too.
 		{"run claude --help", []string{"claude", "--help"}},
 	}
@@ -129,14 +129,9 @@ func TestRunPassesHelpThroughToInnerCommand(t *testing.T) {
 // creates.
 func TestParseRunArgsFlags(t *testing.T) {
 	var opts run.Options
-	parseRunArgs(strings.Fields("--new run --timing --dry-run --network host -- true"), &opts)
+	parseRunArgs(strings.Fields("run --timing --dry-run --network host -- true"), &opts)
 	if !opts.Timing || !opts.DryRun {
 		t.Errorf("flags not parsed: %+v", opts)
-	}
-	// --new is REMOVED: it must not launch, and the flag's presence must be
-	// visible to runRun's by-name refusal rather than swallowed.
-	if !opts.RemovedNewFlag {
-		t.Errorf("the removed --new must surface for the by-name refusal: %+v", opts)
 	}
 	if opts.Network != "host" {
 		t.Errorf("Network = %q, want host", opts.Network)

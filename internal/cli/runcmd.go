@@ -44,9 +44,6 @@ running session is never yanked out from under you. Ending it is deliberate and
 two-stepped: 'yolo stop' (from the workspace), then an ordinary launch.
 
 Flags:
-  --new              REMOVED. Refuses, naming the replacement: it force-replaced a
-                     RUNNING jail (killing its sessions) in one step. To replace
-                     this workspace's jail: 'yolo stop', then launch again.
   --network <mode>   Override the network mode for this launch
                      (also --network=<mode>).
   --profile <sel>   Select the active profile for this launch (also -p <sel>,
@@ -75,7 +72,7 @@ Global options are listed by 'yolo --help'; the full config reference is
 // runFlags is every flag runRun itself consumes. It exists so the usage text and
 // the parser cannot drift apart silently (TestRunUsageListsEveryRunFlag), and so
 // runHelpRequested's "keep scanning past a run flag" branch has one definition.
-var runFlags = []string{"--new", "--profile", "--timing", "--dry-run", "--network", "--accept-config-changes"}
+var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes"}
 
 // applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,
 // repeatable) merges into the per-CLI selection table, anything else is a bare
@@ -192,12 +189,6 @@ func parseRunArgs(args []string, opts *run.Options) {
 			afterDashDash = true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
-		// REMOVED 2026-09-06, and refused BY NAME rather than silently ignored:
-		// an ignored flag would fall to the default branch and become the command,
-		// and a flag that quietly did nothing is the silently-inert shape every
-		// other removal in this repo refuses. runRun prints the replacement series.
-		case a == "--new":
-			opts.RemovedNewFlag = true
 		case a == "--timing":
 			opts.Timing = true
 		// An ordinary value flag, in both spellings, glued or not. The value's
