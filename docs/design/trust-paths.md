@@ -713,6 +713,8 @@ lifecycle events. This is row 21 reopening on the disclosure side.
 | **(b)** | Qualify the claim — say the banner covers host crossings, and point at `yolo pack footprint` for in-jail code | Free, and dishonest in the way TP9 objected to elsewhere: it leaves the compensating disclosure not compensating |
 | **(c)** | Reclassify `KindSkills` off `disclosureSkip` wholesale | Cheapest to write, worst to read — a pack's skills tree is prose an agent reads, and announcing every skill file would bury the hooks in the noise that made `disclosureSkip` right in the first place |
 
+<!-- vantage: oq id=OQ-TP10 leaning="(a) — give plugin claims their own disclosure class, so hooks and `mcpServers` render on the banner beside mounts and host reads. TP9's argument was about authority, not visibility; keeping the banner as the compensating disclosure while leaving a hole in it is the shape this census exists to catch. (c) is the tempting cheap version and destroys the signal; (b) is acceptable only if (a) turns out to have no honest rendering." -->
+
 _Leaning:_ **(a).** TP9's argument was that the gate withheld nothing the user had not already granted
 — which is true of *authority* and says nothing about *visibility*. Disclosure was the half TP9 kept
 precisely because it is not consent; keeping it while leaving a hole in it is the shape this census

@@ -1824,6 +1824,8 @@ question, not an afterthought: [OQ-PD3](#decision-ledger) rules that whatever pi
 part of the general seam, so "move pnpm into mise" is the natural answer *and* the one most likely
 to re-break whatever the exclusion was protecting.
 
+<!-- vantage: oq id=OQ-PD19 leaning="Narrow both steps to the pnpm question and retire the rest. Step five dissolves for agent dependencies by OQ-PD6's own amendment, and step three's user-scope venue goes with it. What survives is one concrete question — how does yolo pin pnpm, given mise is closed to it and nobody remembers why — which is small, real, and not what either step proposed to build." -->
+
 _Leaning:_ **Narrow both steps to the pnpm question and retire the rest.** Step five dissolves for
 agent dependencies by [`OQ-PD6`](#decision-ledger)'s own amendment; step three's user-scope venue goes with it, because a
 record nothing obeys does not need to reach further than the thing it observes. What survives is one
