@@ -11,11 +11,11 @@ summary: "The 'new project, new jail' flow fused a one-time host→jail transiti
 **Status:** IMPLEMENTED, 2026-08-23 (`dbfb4cc8`, `415d353b`, `8f01278c`, `994ff3ce`,
 `459937ca`). Decided 2026-08-22.
 
-> **2026-08-23.** Shipped, with two divergences from what §4 and §8 specify — one the
+> **2026-08-23.** Shipped, with two divergences from what [§4](#4-the-proposed-shape) and [§8](#8-sequencing) specify — one the
 > design asked for and the code could not have (the standing briefing line), one the
 > design missed outright (a consume that must be gated on delivery). Both are in
-> **§9**, which is the section to read against the code. §1–§8 are preserved in their
-> original tense, describing the design as it was decided the day before, so §4's
+> **[§9](#9-follow-up-what-shipped-and-where-it-diverges-from-4)**, which is the section to read against the code. [§1](#1-the-diagnosis)–[§8](#8-sequencing) are preserved in their
+> original tense, describing the design as it was decided the day before, so [§4](#4-the-proposed-shape)'s
 > "plus the standing line" is a record of the decision, not of the system.
 
 **The short version.** "Start a project, get into a jail" is really two events that got fused into one: a **one-time transition** (the host agent sets up the jail and gets in) and a **recurring startup** (every session the agent orients itself and finds its task). The built-in `jail-startup` skill enforces the fusion by making "read `.yolo/handover.md`" a ritual that runs on *every* session — which is exactly right for neither half. It's wrong for the recurring half (it re-reads a stale file as the task on every session) and it buries the transition half's real job: the host agent gathers context the jail can't see, provisions the access it needs, and has to carry that context *and the task* across the boundary fluidly, without a ritual. My recommendation: keep the transition on the host (`yolo init` + its briefing), keep the orientation passive (the environment briefing already in `CLAUDE.md`), **delete the skill** (the ritual), keep the handoff file (the carrier), and make the carry-in fluid and one-time. The open question is how the jail agent tells a *fresh* handoff — work it — from a *stale* one — ignore it.
@@ -84,7 +84,7 @@ The skill does four things, and each is either redundant or actively wrong for t
 
 1. **It makes `handover.md` authoritative on every session, not just the transition.** "The outer
    agent was REQUIRED to write a handover document... Read it now" (`SKILL.md:13`). Treating the
-   file as the task is *right* at the transition — that's the point of the handoff, §4. What is
+   file as the task is *right* at the transition — that's the point of the handoff, [§4](#4-the-proposed-shape). What is
    wrong is doing it on the 40th session too, when the file is stale and its work is long done.
    This session went sideways on exactly that: a four-week-old handoff, read as the current task.
 
@@ -99,7 +99,7 @@ The skill does four things, and each is either redundant or actively wrong for t
    the human remembers the phrase. A startup behavior that depends on an unguaranteed invocation
    on both ends is a startup behavior that will intermittently not happen.
 
-4. **It runs on every session, for a one-time event.** This is the structural point from §1.
+4. **It runs on every session, for a one-time event.** This is the structural point from [§1](#1-the-diagnosis).
    The skill has no way to know whether it's the handoff session or the 40th session after, and
    so it behaves identically in both.
 
@@ -135,11 +135,11 @@ sequenceDiagram
     participant U as Human
     participant J as Jail agent
     H->>H: yolo init (prints host briefing)
-    H->>H: gather context the jail can't see; provision access
+    H->>H: gather context the jail can't see#59; provision access
     H->>H: write .yolo/handover.md (context + task)
     H->>U: "enter with yolo -- claude"
     U->>J: yolo -- claude
-    J->>J: agent starts up; reads the fresh handoff, works the task
+    J->>J: agent starts up#59; reads the fresh handoff, works the task
 ```
 
 Two concrete changes follow from P1–P3:
@@ -152,7 +152,7 @@ Two concrete changes follow from P1–P3:
   The handoff stays mandatory — it is now the *deliverable* — but the **magic phrase** and the
   "the human relays the task" framing go away: the human just enters.
 - **Delete the `jail-startup` skill.** Its content is either redundant (the orientation, P2) or
-  the recurring-ritual prior (§3) — the mandatory, magic-phrase, every-session shape that re-reads
+  the recurring-ritual prior ([§3](#3-why-the-skill-is-the-wrong-mechanism)) — the mandatory, magic-phrase, every-session shape that re-reads
   a stale handoff as the task. The on-demand skills (`configuring-the-jail`,
   `diagnosing-the-jail`) stay — those are user-requested, not startup, and are what the
   environment briefing already points at.
@@ -171,7 +171,7 @@ wait for the user — is the whole story, so no standing line is added: an alway
 move the pinned jail-header bytes (`TestBriefingJailHeaderIsUnchanged`). So the first launch shows
 the handoff and consumes the pointer; later launches find no pointer and the task comes from the
 user. The durable content stays committed for the long term. This is what turns the file from
-"always the task" (the recurring ritual, §3) into "the task at the transition, context after."
+"always the task" (the recurring ritual, [§3](#3-why-the-skill-is-the-wrong-mechanism)) into "the task at the transition, context after."
 
 ## 5. What it deletes, and what it forecloses
 
@@ -196,9 +196,9 @@ user. The durable content stays committed for the long term. This is what turns 
 **Forecloses**
 
 - Nothing the handoff is for. The host-agent-carries-work-in case is *the* case, not a foreclosed
-  one (OQ-2, resolved). What this design forecloses is the **ritual** — the mandatory-file +
+  one ([OQ-2](#decision-ledger), resolved). What this design forecloses is the **ritual** — the mandatory-file +
   magic-phrase + every-session shape — not the carry-in. The file stays; the ritual goes. The only
-  thing genuinely foreclosed is the alternative of dropping the file entirely (§6), which would
+  thing genuinely foreclosed is the alternative of dropping the file entirely ([§6](#6-alternatives-considered)), which would
   break the carry-in and is now rejected.
 
 **Does not change**
@@ -211,11 +211,11 @@ user. The durable content stays committed for the long term. This is what turns 
 
 | Alternative | Verdict |
 |---|---|
-| **Keep the skill, make it passive/conditional** (fire only on a fresh `handover.md`, else defer to the user) | Rejected. Still a skill — the thing you're skeptical of — and it needs a freshness or consumption heuristic to know "fresh," which is exactly the first-vs-later-session distinction §1 says the design shouldn't have to make. The orientation it would add is already in the briefing. |
+| **Keep the skill, make it passive/conditional** (fire only on a fresh `handover.md`, else defer to the user) | Rejected. Still a skill — the thing you're skeptical of — and it needs a freshness or consumption heuristic to know "fresh," which is exactly the first-vs-later-session distinction [§1](#1-the-diagnosis) says the design shouldn't have to make. The orientation it would add is already in the briefing. |
 | **Keep the skill as-is** | Rejected. It is the mechanism causing the confusion; this is the status quo that produced this session. |
-| **Consume the handover on first read** (rename/delete `.yolo/handover.md` once the first session reads it, so later sessions find nothing) | Now the leading candidate for the one-time mechanism (OQ-4). It encodes "one-time transition" exactly: a present handoff is fresh, a consumed one is stale. The cost is a consumed-marker and a write the agent — or, better, the entrypoint — must make. This is the mechanism to decide in OQ-4. |
-| **Delete the skill + keep the handoff as the one-time carrier** | **Recommended.** §4. The file carries the host agent's context + task; the carry-in is fluid and one-time (OQ-4). |
-| **Delete the skill + the file mechanism entirely** | Rejected now. It forecloses the host-agent-carries-work-in case, which OQ-2 confirms is real. A user-as-relay model can't carry gathered context or provisioned-access notes across the boundary. |
+| **Consume the handover on first read** (rename/delete `.yolo/handover.md` once the first session reads it, so later sessions find nothing) | Now the leading candidate for the one-time mechanism ([OQ-4](#decision-ledger)). It encodes "one-time transition" exactly: a present handoff is fresh, a consumed one is stale. The cost is a consumed-marker and a write the agent — or, better, the entrypoint — must make. This is the mechanism to decide in [OQ-4](#decision-ledger). |
+| **Delete the skill + keep the handoff as the one-time carrier** | **Recommended.** [§4](#4-the-proposed-shape). The file carries the host agent's context + task; the carry-in is fluid and one-time ([OQ-4](#decision-ledger)). |
+| **Delete the skill + the file mechanism entirely** | Rejected now. It forecloses the host-agent-carries-work-in case, which [OQ-2](#decision-ledger) confirms is real. A user-as-relay model can't carry gathered context or provisioned-access notes across the boundary. |
 | **A host-side skill for the new-project/new-jail flow** | Rejected. The host agent already gets the whole flow from `yolo init`'s printed briefing (the self-documenting-CLI principle); a host-side skill would duplicate the CLI's own output. |
 
 ## 7. Risks
@@ -224,7 +224,7 @@ user. The durable content stays committed for the long term. This is what turns 
 |---|---|
 | Deleting the skill changes the built-in suite; the test uses `jail-startup` as its sentinel | Move the sentinel to a surviving member (`configuring-the-jail`). The invariant ("the built-in suite reached every declared target") is unchanged; only the name probed changes. |
 | An existing user on the passive-relay model sees a behavior change | That is the intended simplification, and it's a one-paragraph note in the host briefing (the new "write the handoff, then tell the human to enter" step) rather than a silent removal. |
-| A fresh jail agent reads a STALE handoff as the task (this session's bug) | The one-time mechanism (OQ-4) is what prevents it: a consumed/marked handoff is not re-read as the task. Until OQ-4 is settled, the environment-briefing line ("a stale handoff is context, never the task") is the guard. |
+| A fresh jail agent reads a STALE handoff as the task (this session's bug) | The one-time mechanism ([OQ-4](#decision-ledger)) is what prevents it: a consumed/marked handoff is not re-read as the task. Until [OQ-4](#decision-ledger) is settled, the environment-briefing line ("a stale handoff is context, never the task") is the guard. |
 | The host agent gathers context and provisions access but forgets to write the handoff, so the jail agent starts blind | The host briefing's final step is now explicitly "write the handoff (context + task), then tell the human to enter." The carry-in only works if the host agent does its part; the briefing makes that part explicit and last. |
 
 ## 8. Sequencing
@@ -246,14 +246,14 @@ The work lands in this order, each a coherent commit:
 5. Sweep the references (`AGENTS.md`, the design docs) and any stale `.yolo/handover.md` handling
    that still assumes the file is mandatory or is the whole content.
 
-## 9. Follow-up: what shipped, and where it diverges from §4
+## 9. Follow-up: what shipped, and where it diverges from [§4](#4-the-proposed-shape)
 
-Implemented 2026-08-23. §1–§8 above are the design as decided; this section is the system.
+Implemented 2026-08-23. [§1](#1-the-diagnosis)–[§8](#8-sequencing) above are the design as decided; this section is the system.
 Two things came out different, and both are worth knowing before reading the code.
 
 ### 9a. There is no standing "where your task comes from" line
 
-§4 and §8-step-3 call for a line that is *always* in the briefing, so an agent with no
+[§4](#4-the-proposed-shape) and [§8](#8-sequencing)-step-3 call for a line that is *always* in the briefing, so an agent with no
 handoff knows to wait for the user. It does not exist, and cannot cheaply: the jail's
 config-independent header bytes are pinned by `TestBriefingJailHeaderIsUnchanged`, and an
 always-present line moves that surface for every existing user. Weighed against what the
@@ -261,8 +261,8 @@ line buys — restating a default the agent already follows — the pinned bytes
 
 The one-time-ness the line was really carrying moved *inside* the conditional section,
 where it costs the pinned header nothing: a rendered Handoff now says the section appears
-once and its pointer has been consumed. §7's risk row ("until OQ-4 is settled, the
-environment-briefing line is the guard") is moot — OQ-4 settled, and the consume is the
+once and its pointer has been consumed. [§7](#7-risks)'s risk row ("until [OQ-4](#decision-ledger) is settled, the
+environment-briefing line is the guard") is moot — [OQ-4](#decision-ledger) settled, and the consume is the
 guard.
 
 > [!WARNING]
@@ -273,7 +273,7 @@ guard.
 
 ### 9b. Consuming is gated on a briefing actually being written
 
-§4 says the run pipeline "reads the pointer, renders the handoff, and consumes the
+[§4](#4-the-proposed-shape) says the run pipeline "reads the pointer, renders the handoff, and consumes the
 pointer," and the first implementation did those three in that order, unconditionally. That
 loses handoffs. The briefing-write loop is driven by pack *declarations* — a jail whose
 packs declare no briefing destination writes nothing at all (the zero-pack jail
@@ -321,14 +321,14 @@ the mechanism renames rather than deletes.
 
 ## Decision Ledger
 
-OQ-1 through OQ-4 resolved 2026-08-22 (design). OQ-5 and OQ-6 are implementation-time
-rulings from the 2026-08-23 review; both are divergences from §4, documented in §9.
+[OQ-1](#decision-ledger) through [OQ-4](#decision-ledger) resolved 2026-08-22 (design). [OQ-5](#decision-ledger) and [OQ-6](#decision-ledger) are implementation-time
+rulings from the 2026-08-23 review; both are divergences from [§4](#4-the-proposed-shape), documented in [§9](#9-follow-up-what-shipped-and-where-it-diverges-from-4).
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-1 | Keep `.yolo/handover.md` as the transition carrier — the file stays. | 2026-08-22 | §4 |
-| OQ-2 | The host-agent-carries-work-in case is real; the file is the carrier for real work, not garnish. | 2026-08-22 | §4, P1 |
-| OQ-3 | Keep the enter-instructions in `yolo init`'s host briefing. | 2026-08-22 | §4 |
-| OQ-4 | Consume-on-first-read, done by the **run pipeline** when it builds the briefing; the content is filed + committed and the pointer is minimal. | 2026-08-22 | §4 (handoff's shape) |
-| OQ-5 | **No** standing "where your task comes from" line — the pinned jail header vetoes it. One-time-ness is stated inside the conditional section instead. | 2026-08-23 | §9a |
-| OQ-6 | Consume is gated on a briefing having been written this launch; read before the render, consume after the write. The agent-vs-shell residual is mitigated by a stderr notice, not by an agent test. | 2026-08-23 | §9b, §9c |
+| OQ-1 | Keep `.yolo/handover.md` as the transition carrier — the file stays. | 2026-08-22 | [§4](#4-the-proposed-shape) |
+| OQ-2 | The host-agent-carries-work-in case is real; the file is the carrier for real work, not garnish. | 2026-08-22 | [§4](#4-the-proposed-shape), P1 |
+| OQ-3 | Keep the enter-instructions in `yolo init`'s host briefing. | 2026-08-22 | [§4](#4-the-proposed-shape) |
+| OQ-4 | Consume-on-first-read, done by the **run pipeline** when it builds the briefing; the content is filed + committed and the pointer is minimal. | 2026-08-22 | [§4](#4-the-proposed-shape) (handoff's shape) |
+| OQ-5 | **No** standing "where your task comes from" line — the pinned jail header vetoes it. One-time-ness is stated inside the conditional section instead. | 2026-08-23 | [§9a](#9a-there-is-no-standing-where-your-task-comes-from-line) |
+| OQ-6 | Consume is gated on a briefing having been written this launch; read before the render, consume after the write. The agent-vs-shell residual is mitigated by a stderr notice, not by an agent test. | 2026-08-23 | [§9b](#9b-consuming-is-gated-on-a-briefing-actually-being-written), [§9c](#9c-the-residual-core-cannot-tell-an-agent-from-a-shell) |

@@ -17,20 +17,20 @@ for the rationale.
 > This doc is now git-only.
 
 Written 2026-07-23. Recommendation revised 2026-07-23 (allowlist framing).
-Implemented 2026-07-23 (host-compose + `:ro` mount; the (c′) variant in §5).
+Implemented 2026-07-23 (host-compose + `:ro` mount; the (c′) variant in [§5](#5-mechanism-options-all-preserve-the-3-allowlist)).
 
 > **Verification pass, 2026-08-23.** Nothing here needed correcting. Spot-checked:
 > `gitIdentityMountArgs` is a method on `*Options` at
 > `internal/cli/run/assemble_parts.go:216` with the `--get` / `--global --get` split
-> §1 describes at `:218-224`; `composeGitconfig` at `:280`; `gitConfigValue` at
+> [§1](#1-how-it-works-now-a-host-composed-read-only-config) describes at `:218-224`; `composeGitconfig` at `:280`; `gitConfigValue` at
 > `:338`; the macOS-user imperative replay survives as `configureGit` at
 > `internal/entrypoint/identity.go:12`; `collectIdentityEnv` exists nowhere but in a
 > comment naming what it replaced (`assemble_parts.go:218`); the staleness regression
 > test is `TestGitIdentityMountStaleClearedEmail`
 > (`internal/cli/run/gitidentity_test.go:116`); and jj has zero occurrences in
 > non-test code. The one thing worth reading alongside this doc that did NOT exist
-> when it was written is the §5 (c′) trade-off's *downstream* cost — see the warning
-> at the end of §5.
+> when it was written is the [§5](#5-mechanism-options-all-preserve-the-3-allowlist) (c′) trade-off's *downstream* cost — see the warning
+> at the end of [§5](#5-mechanism-options-all-preserve-the-3-allowlist).
 
 ---
 
@@ -112,8 +112,8 @@ actively dangerous:
   commit object`. A signing host would make every in-jail commit fail. This
   alone rules the wholesale-inherit approach out.
 
-So the allowlist stays. The only questions are *what's on it* (§3) and *how it's
-applied* (§5).
+So the allowlist stays. The only questions are *what's on it* ([§3](#3-what-is-on-the-allowlist-the-are-there-other-settings-question)) and *how it's
+applied* ([§5](#5-mechanism-options-all-preserve-the-3-allowlist)).
 
 ---
 
@@ -129,7 +129,7 @@ point at a host path that won't exist in the jail:**
 | `user.email` | ✅ (current) | author identity — the whole point |
 | `core.excludesFile` | ✅ (special) | composed to point at the **in-jail** gitignore path, not host-derived — correct as-is |
 | `user.signingkey` | ❌ | credential-adjacent; useless without key material in jail |
-| `commit.gpgsign` / `tag.gpgsign` | ❌ | **breaks every commit** if forwarded without a key (proven, §2) |
+| `commit.gpgsign` / `tag.gpgsign` | ❌ | **breaks every commit** if forwarded without a key (proven, [§2](#2-the-security--sanity-posture-is-an-allowlist--and-thats-the-point)) |
 | `credential.helper` | ❌ | credential leak; jail auth is a separate explicit channel |
 | `url.*.insteadOf` | ❌ | can silently reroute fetches through host credential paths |
 | `core.pager`, `pager.*`, `color.ui` | ❌ | UI — fights the jail's `PAGER=cat` agent hygiene |
@@ -170,10 +170,10 @@ minimal (b) unset-patch.
 
 ---
 
-## 5. Mechanism options (all preserve the §3 allowlist)
+## 5. Mechanism options (all preserve the [§3](#3-what-is-on-the-allowlist-the-are-there-other-settings-question) allowlist)
 
 - **(a) Leave imperative as-is.** Keep `git config --global`, accept the
-  add-only staleness (§4). Zero work. Bug remains. *Rejected — leaves the bug.*
+  add-only staleness ([§4](#4-the-bug-the-port-fixes-the-old-setter-was-add-only-staleness)). Zero work. Bug remains. *Rejected — leaves the bug.*
 
 - **(b) Imperative + unset (the minimal fix).** Keep `git config --global` as
   the editor, track yolo's owned key list, and each boot `--unset` any owned key
@@ -200,11 +200,11 @@ minimal (b) unset-patch.
   `git config --global` edits fail — accepted deliberately: every other `:ro`
   surface behaves the same way, and the file is regenerated each run regardless,
   so a persisted edit would be a lie. macOS-user can't bind a `:ro` file, so it
-  keeps (b)-style imperative forwarding (§1).
+  keeps (b)-style imperative forwarding ([§1](#1-how-it-works-now-a-host-composed-read-only-config)).
 
 The earlier draft's headline idea — `GIT_CONFIG_GLOBAL` **with** an `[include]`
 of the host `~/.gitconfig` — is **rejected**: it breaks the allowlist and can
-break committing (§2).
+break committing ([§2](#2-the-security--sanity-posture-is-an-allowlist--and-thats-the-point)).
 
 > [!WARNING]
 > **(c′)'s accepted trade-off had a cost this doc under-stated. Half of it has since
@@ -227,7 +227,7 @@ break committing (§2).
 > `assemble_parts.go:316-318`: `git config --global` *still* targets `~/.gitconfig`
 > and *still* fails — "but the file it fails on now TELLS the user where to write."
 > The decoy symlink is untouched, so the confusing error remains the first thing an
-> agent hits. Tracked as defect §4.1 of
+> agent hits. Tracked as defect [§4.1](composed-file-permissions.md#41-gitconfig-is-unwritable-and-git-config---global-fails) of
 > [composed-file-permissions.md](composed-file-permissions.md).
 > **The decision is not in question; only its legibility is.**
 
@@ -235,12 +235,12 @@ break committing (§2).
 
 ## 6. Decision (as implemented)
 
-**Policy (§3): the allowlist is `user.name` + `user.email`** (plus the in-jail
+**Policy ([§3](#3-what-is-on-the-allowlist-the-are-there-other-settings-question)): the allowlist is `user.name` + `user.email`** (plus the in-jail
 `core.excludesFile` for the gitignore). It satisfies "maintain author identity,
 pass no credentials, don't confuse agents with UI settings" with nothing else in
 scope. `init.defaultBranch` was considered and declined.
 
-**Mechanism (§5): (c′) — host-compose + `:ro` mount** on the container backends,
+**Mechanism ([§5](#5-mechanism-options-all-preserve-the-3-allowlist)): (c′) — host-compose + `:ro` mount** on the container backends,
 imperative forward retained on macOS-user. This fixes the staleness bug by
 construction (fresh composition each run), reuses the gitignore mount machinery,
 and keeps the "no credentials, no UI" allowlist properties. Trade-off accepted:

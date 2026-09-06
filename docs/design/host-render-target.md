@@ -1,49 +1,49 @@
 # Managing host agent configs from yolo — the host as a reduced render target
 
-**Status:** LARGELY IMPLEMENTED — steps 1, 4, 5 and 6 of §8 shipped; step 3 shipped
+**Status:** LARGELY IMPLEMENTED — steps 1, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) shipped; step 3 shipped
 **half** (the `Target` abstraction exists; the two render paths were never collapsed).
 Written as design 2026-07-27, fact-checked 2026-07-30, **re-verified against the tree
 2026-08-23** (see the shipped-status postscript below).
 
-> **Postscript, 2026-08-23 — this stopped being a proposal. Read §1–§7 in their
+> **Postscript, 2026-08-23 — this stopped being a proposal. Read [§1](#1-the-measurement-the-render-core-has-no-jail-dependencies)–[§7](#7-three-walkthroughs) in their
 > original tense as the argument that produced the code, and read this block for what
 > is actually true now.** The most important thing to know before hunting a bug in
-> here: **§6.1's three destructive probes are fixed**, and §8's ordering was followed
+> here: **[§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive)'s three destructive probes are fixed**, and [§8](#8-what-i-would-actually-do-in-order)'s ordering was followed
 > almost exactly.
 >
-> | §8 step | Status 2026-08-23 | Evidence |
+> | [§8](#8-what-i-would-actually-do-in-order) step | Status 2026-08-23 | Evidence |
 > |---|---|---|
 > | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go:84-90`) aborts unless `surfacesAreLocal() \|\| force`; wired into `configReset` (`:640`) and `configCapture` (`:843,848`). Probes 1–3 are no longer reachable without `--force`. |
-> | 2. Decide the capture-privacy question (§9.3) | ✅ **answered by step 1** | The refusal *is* the answer; no key-level redaction was invented. See the OQ ledger. |
+> | 2. Decide the capture-privacy question ([§9.3](#9-open-questions--the-discussion-part)) | ✅ **answered by step 1** | The refusal *is* the answer; no key-level redaction was invented. See the OQ ledger. |
 > | 3. `internal/render` with `Target` | ⚠ **half** | `Target` ships (`internal/render/target.go:39`) with `Jail`/`Preview`/`Host` constructors at `:168,175,181` — plus two things this doc did not predict: a `Kind` notch enum (`:78`, `SelectableNotches` at `:144`) and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go:73`), and `Env.renderTarget()` (`:180-188`) dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. |
-> | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`internal/macosuser/runplan.go:200-210`, asserted at `:314`); it is the `guest` notch (`render.GuestProfileMacOS`, `confinement.go:130`). §9.7's "zero surfaces, silently" is over. |
+> | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`internal/macosuser/runplan.go:200-210`, asserted at `:314`); it is the `guest` notch (`render.GuestProfileMacOS`, `confinement.go:130`). [§9.7](#9-open-questions--the-discussion-part)'s "zero surfaces, silently" is over. |
 > | 5. `FieldSet` | ✅ **shipped, and went further** | `internal/render/fieldset.go:13` with `Honors`/`Refuse`; plus a third state this doc never named — `HostUnimplemented` (`:116`), *honored-but-unbuilt*, so a kind is never silently absent. |
 > | 6. `yolo config apply --host` | ✅ **shipped** | `applyHost` with `--assert`; end-to-end tests at `internal/cli/applyhostlocalpack_test.go` and `applyhostidempotent_test.go`. |
 >
 > **Three claims in the body are now false and would send a reader wrong:**
 >
-> 1. **§3.4's "two hand-maintained tables die" did NOT happen.** `surfaceHasHostLayer`
+> 1. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s "two hand-maintained tables die" did NOT happen.** `surfaceHasHostLayer`
 >    and `surfaceHasComputedLayer` are still Go-side maps at
 >    `internal/cli/configls.go:199,206`, still read at `configls.go:181,184` and
 >    `config.go:272,293`. They were the *stated payoff* of step 3, and step 3 shipped
 >    without them.
-> 2. **§3.3's `Posture` field does not exist under that name.** It became two things:
+> 2. **[§3.3](#33-what-each-target-supplies)'s `Posture` field does not exist under that name.** It became two things:
 >    `ModeSet` (`internal/render/modes.go:42`, with `JailModes`/`HostModes`/
 >    `UndecidedModes`) answering *which surface modes this notch runs and records*, and
 >    `Profile` (`confinement.go:96`) answering *what confinement primitives it has*. The
 >    `observe|assert|own` triple survives as the `--assert` flag, not as a struct field.
-> 3. **§9.8's "macos-user for Linux" is no longer hypothetical.**
+> 3. **[§9.8](#9-open-questions--the-discussion-part)'s "macos-user for Linux" is no longer hypothetical.**
 >    `render.GuestProfileLinux()` (`confinement.go:136`) is a declared profile
 >    (namespaces + Landlock) and `confinement` is a real config key
 >    (`internal/config/confinement.go:45,65`). The fourth row exists in the vocabulary
 >    even where no backend fills it.
 >
-> **§6.1 stays in the doc verbatim and must not be softened**: it is the measured
+> **[§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) stays in the doc verbatim and must not be softened**: it is the measured
 > evidence that the target was never a parameter, and its probes are what justified
 > steps 1 and 3. The finding is historical; the diagnosis is not.
 Started as *"how could we pull all of this pack stuff out of yolo, yet still use it in yolo,
 but also manage the host configs — a separate util"*; the measurement said the extraction is
-the wrong shape (§1.3, §2.3), so **this doc designs the capability inside yolo.** The
+the wrong shape ([§1.3](#13-what-this-measurement-means), [§2.3](#23-extraction-settled-and-the-answer-is-no)), so **this doc designs the capability inside yolo.** The
 extraction analysis is kept as evidence, not as a proposal.
 
 > **Refresh note (2026-07-30).** Since this was written, the pack manifest moved from nine
@@ -54,14 +54,14 @@ extraction analysis is kept as evidence, not as a proposal.
 > **install-time approval** rather than never. This doc's *design* survives all of that intact —
 > the host is still a reduced render target, the fix is still collapsing two render paths — but
 > its field-census and code-citation details were updated to the current vocabulary. The
-> load-bearing sections (§2, §3, §6) are unaffected in substance. See
+> load-bearing sections ([§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall), [§3](#3-the-design-inside-yolo), [§6](#6-the-host-as-a-reduced-target)) are unaffected in substance. See
 > [pack-system.md](pack-system.md) for the current kind set and the approval model.
 
-**Audience:** whoever decides whether the host target happens. **§2 and §3 are the
-load-bearing sections** — §2 measures how much of a pack even applies off-container and
-concludes the host is a *reduced target*; §3 is the design, which turns out to be mostly
-*deleting a duplicate renderer* yolo already has two copies of. §6 is the part that needs a
-ruling, §9 is what I could not settle, §8 is the order I would build it in.
+**Audience:** whoever decides whether the host target happens. **[§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall) and [§3](#3-the-design-inside-yolo) are the
+load-bearing sections** — [§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall) measures how much of a pack even applies off-container and
+concludes the host is a *reduced target*; [§3](#3-the-design-inside-yolo) is the design, which turns out to be mostly
+*deleting a duplicate renderer* yolo already has two copies of. [§6](#6-the-host-as-a-reduced-target) is the part that needs a
+ruling, [§9](#9-open-questions--the-discussion-part) is what I could not settle, [§8](#8-what-i-would-actually-do-in-order) is the order I would build it in.
 
 **Reads with:** [pack-system.md](pack-system.md) (the pack system as built — this doc
 assumes it, including the compose engine and its layer stack),
@@ -72,14 +72,14 @@ must honor).
 
 
 > [!WARNING]
-> **§1–§7's `file:line` anchors are BULK-ROTTED and were not repaired (measured 2026-08-23).**
+> **[§1](#1-the-measurement-the-render-core-has-no-jail-dependencies)–[§7](#7-three-walkthroughs)'s `file:line` anchors are BULK-ROTTED and were not repaired (measured 2026-08-23).**
 > About twenty are off, and one is not a drift at all: `internal/agents/skills.go` **does not
 > exist** — that package is `internal/jailcontent` since the agent registry was deleted. Others
 > measured wrong: `packsurfaces.go:48,83,115,107`, `configls.go:341,330`,
 > `configdiff.go:381-404,415-419`, `config/packs.go:422,444`, `writablehome.go:84,88,108`,
 > `assemble.go:369-372`. A quoted string at `hostfiles.go:1022-1024` (*"a pack added tomorrow
-> needs"*) appears **nowhere** in `internal/`. **Treat every §1–§7 anchor as "where to look", never
-> as a citation** — the §8 status table, the Decision Ledger and the §9 questions were re-verified
+> needs"*) appears **nowhere** in `internal/`. **Treat every [§1](#1-the-measurement-the-render-core-has-no-jail-dependencies)–[§7](#7-three-walkthroughs) anchor as "where to look", never
+> as a citation** — the [§8](#8-what-i-would-actually-do-in-order) status table, the Decision Ledger and the [§9](#9-open-questions--the-discussion-part) questions were re-verified
 > and are exact.
 >
 > Three counts in those sections are also wrong and are left for whoever fixes the anchors: `:153`
@@ -93,30 +93,30 @@ must honor).
 **The capability is one declaration, several environments.** A pack already says how `pi` is
 configured — approval prompts, MCP servers, skills. You write it once and it renders only
 inside a jail; the day you need that same agent to behave the same way *on the host*, none of
-it is available. Nothing intrinsic to the mechanism requires that (§2).
+it is available. Nothing intrinsic to the mechanism requires that ([§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall)).
 
 **Most of a pack does not apply to a host, and that resizes the whole idea.** A field census
-(§2.1) says four of nine manifest fields are meaningless without a container, one (`install`)
+([§2.1](#21-but-measure-how-much-of-a-pack-the-host-actually-wants)) says four of nine manifest fields are meaningless without a container, one (`install`)
 must be refused outright, `mounts` is simply unavailable, and exactly one — `surfaces` — is
 target-independent. **A pack is mostly a jail-provisioning format with a config format inside
-it.** So "move the packs out" was the wrong move (§2.3): what is portable is the *render*, and
+it.** So "move the packs out" was the wrong move ([§2.3](#23-extraction-settled-and-the-answer-is-no)): what is portable is the *render*, and
 it never needed to leave the repo to become portable.
 
 **The axis is not jail-vs-host, it is how much confinement the environment has** — and we
 already ship two points on it (`podman`/`container` and `macos-user`, which has no container
-and no bind mounts at all), with `surfaces` the one capability every row supports (§2.2). That
+and no bind mounts at all), with `surfaces` the one capability every row supports ([§2.2](#22-so-which-is-it-a-command-or-a-mode)). That
 makes the host a third, *reduced* target rather than a separate product.
 
 **And there is a finding that makes this urgent rather than speculative: yolo already composes
-into the invoking human's real home, by accident, and it is currently destructive** (§6.1).
+into the invoking human's real home, by accident, and it is currently destructive** ([§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive)).
 Probes below truncate a real `~/.config/mise/config.toml` and rewrite a real
 `~/.claude/settings.json`. This is not a posture we would be *adopting*; it is one we are
 *already in* without having designed it.
 
-**The design (§3) is smaller than the problem sounds, because the hard part is a deletion.**
+**The design ([§3](#3-the-design-inside-yolo)) is smaller than the problem sounds, because the hard part is a deletion.**
 `Compose`/`ComposeStateful` have two independent callers — the boot render in
 `internal/entrypoint` and the host-side `config` verbs in `internal/cli` — and three code
-comments admit the second mirrors the first. Every §6.1 defect is a drift between those two
+comments admit the second mirrors the first. Every [§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) defect is a drift between those two
 copies. Collapse them into one renderer parameterized by an explicit `Target`, and the host
 becomes a third target rather than a third copy.
 
@@ -125,7 +125,7 @@ becomes a third target rather than a third copy.
 ## 1. The measurement: the render core has no jail dependencies
 
 Everything in this section is `go list -deps` and `wc -l`, not estimate. **Read it as
-evidence, not as a proposal** (§2.3): it is why a non-jail target is reachable at all. A
+evidence, not as a proposal** ([§2.3](#23-extraction-settled-and-the-answer-is-no)): it is why a non-jail target is reachable at all. A
 renderer that already imports nothing jail-shaped is one that can be pointed at a different
 home without untangling anything first.
 
@@ -163,7 +163,7 @@ Plus the pack *corpus*: `packs/` is 7 files, 28 KB, 504 lines of JSON.
 ### 1.2 The four places yolo reaches into it
 
 These are the only couplings, and every one is a real call site rather than a category. They
-matter to §3 for a different reason than they used to: each one is a place where *the target is
+matter to [§3](#3-the-design-inside-yolo) for a different reason than they used to: each one is a place where *the target is
 currently implicit*, so each is a place a `Target` parameter either fixes or must not disturb.
 
 **(1) Reservation lists — 9 call sites, all `packload.Embedded*`.**
@@ -197,8 +197,8 @@ writes files; it does *not* know about mounts.
 (`packs.go:45`), the writable/shared-dir mount loop (`assemble.go:175-186`), skills
 (`prepare.go:68-81`), `/ctx/packs` + `YOLO_PACK_ROOT` (`packs.go:30`, `assemble.go:369-372`),
 `hostFileArgs`. This is argv generation — it exists to fill mounts, and a mount is exactly what
-§2.2 says the reduced targets do not have. So it is not something a `Target` generalizes; it
-is something the jail target alone runs (§4.3).
+[§2.2](#22-so-which-is-it-a-command-or-a-mode) says the reduced targets do not have. So it is not something a `Target` generalizes; it
+is something the jail target alone runs ([§4.3](#43-staging-and-mount-assembly--the-one-that-must-not-be-generalized)).
 
 **(4) Storage paths — `internal/paths`.** `PacksDir()` (the pack store, three non-test call
 sites, all constructing a `packsrc.Store`), `GlobalHome()` (the shared tier),
@@ -216,8 +216,8 @@ product: we built a mechanism for declaring how an agent is configured, and **it
 at the container wall** — for no reason intrinsic to what it does.
 
 The consumer is not external. **It is the same person, on the other side of that wall.** Which
-is also why the answer is not a second repo (§2.3): the same-person case is served by giving
-the existing renderer a second target, and §1 says nothing stands in the way of that.
+is also why the answer is not a second repo ([§2.3](#23-extraction-settled-and-the-answer-is-no)): the same-person case is served by giving
+the existing renderer a second target, and [§1](#1-the-measurement-the-render-core-has-no-jail-dependencies) says nothing stands in the way of that.
 
 ---
 
@@ -253,14 +253,14 @@ mean anything with no container?":
 |---|---|---|
 | `config` | ✅ **the whole point** | composed config surfaces. The one kind whose meaning is target-independent |
 | `config-overlay` | ✅ | a contribution to another pack's surface — same story as `config` (it lands in a composed surface) |
-| `skills` | ✅ **ports (as a merge)** | built-in < pack < user is a *composition*, not a mount, so it is written as an artifact (§2.2), not bound |
+| `skills` | ✅ **ports (as a merge)** | built-in < pack < user is a *composition*, not a mount, so it is written as an artifact ([§2.2](#22-so-which-is-it-a-command-or-a-mode)), not bound |
 | `briefing` | ✅ ports | concatenated prose — also a composition result, written not mounted |
 | `env` | ✅ | static environment variables — literal strings, no container needed |
-| `mount` | ❌ **unavailable** | reads a host-home dir into a jail via a `:ro` `/ctx` mount. No mount namespace off-container, and a copy goes silently stale (§2.2). macos-user already *filters* rather than degrades |
+| `mount` | ❌ **unavailable** | reads a host-home dir into a jail via a `:ro` `/ctx` mount. No mount namespace off-container, and a copy goes silently stale ([§2.2](#22-so-which-is-it-a-command-or-a-mode)). macos-user already *filters* rather than degrades |
 | `reads-host` | ❌ meaningless | it exists to carry a host file *into* a jail. Off-container the source and destination are one filesystem |
 | `hook` | ⚠ 1 of 3 | `shared_credentials` is a no-op (host creds are *already* machine-global); `per_jail_history` has no jail to key on; `claude_plugins` works |
-| `launch` | ⚠ only with a launcher | `--dangerously-skip-permissions` is a *jail* posture. Meaningful only if yolo also launches the host agent, which is the §2.2 question |
-| `program` | ❌ **refuse** | `via: installer` is curl-to-shell; `via: npm` mutates a real toolchain. §6.4 |
+| `launch` | ⚠ only with a launcher | `--dangerously-skip-permissions` is a *jail* posture. Meaningful only if yolo also launches the host agent, which is the [§2.2](#22-so-which-is-it-a-command-or-a-mode) question |
+| `program` | ❌ **refuse** | `via: installer` is curl-to-shell; `via: npm` mutates a real toolchain. [§6.4](#64-what-else-changes-on-a-host-target) |
 | `state` | ❌ meaningless | names a writable home subtree (per-workspace or machine). Off-container the home dir simply *is* writable, and there is no per-jail home to escape |
 | `files` | ❌ meaningless | a pack-owned tree bound into a jail. Off-container there is nothing to bind into |
 
@@ -274,7 +274,7 @@ uses most kinds; `opencode` uses `program` + `briefing` + `config` — so on a h
 **So a pack is not a config format that yolo happens to consume** — it is mostly a
 *jail-provisioning* format with a config format inside it. That is the crux of the confusion
 this doc started in, and it cuts two ways. It is why moving the packs out was the wrong move
-(§2.3): the module would have a dominant vocabulary that is inapplicable in the environment it
+([§2.3](#23-extraction-settled-and-the-answer-is-no)): the module would have a dominant vocabulary that is inapplicable in the environment it
 was extracted for. And it is why the host target is *narrow*: it renders the one field that
 means something everywhere, and refuses the rest by name.
 
@@ -293,7 +293,7 @@ the strongest instance.
 
 **(a) is what I would build, and (b) is what it means.** They are not alternatives at the
 level of code — (a) *is* the first increment of (b). The distinction that matters is which
-one we *name*, because naming (b) commits us to a much larger surface (§9.1).
+one we *name*, because naming (b) commits us to a much larger surface ([§9.1](#9-open-questions--the-discussion-part)).
 
 **The strongest evidence that (b) is the real structure is already shipped:
 `macos-user`.** That backend runs a real agent as a real macOS user with **no container, no
@@ -310,12 +310,12 @@ of the three rows below already ship:
 | Environment | Confinement | `program` | `mount` | `config` |
 |---|---|---|---|---|
 | `podman` / `container` | namespaces, disposable | ✅ | ✅ binds | ✅ |
-| `macos-user` | Seatbelt, real user, real home | ✅ (native nix) | ❌ **not available** | ✅ *(should — see §9.7)* |
+| `macos-user` | Seatbelt, real user, real home | ✅ (native nix) | ❌ **not available** | ✅ *(should — see [§9.7](#9-open-questions--the-discussion-part))* |
 | **host** (proposed) | **none** | ❌ refuse | ❌ **not available** | ✅ |
 
 (Column names are the current kinds: `program` was `install`, `mount` is the host-read kind,
 `config` was `surfaces`.) Read down the `config` column: **it is the one row-independent
-capability.** That is the same conclusion §2.1 reached kind by kind, arrived at from the
+capability.** That is the same conclusion [§2.1](#21-but-measure-how-much-of-a-pack-the-host-actually-wants) reached kind by kind, arrived at from the
 runtime side instead. And
 the "something like macos-user on Linux" idea is the missing fourth row — a bwrap/Landlock
 confined-but-not-containerized environment. **It needs no new concept**; it is another
@@ -343,7 +343,7 @@ The distinction matters because a copy is silently stale: edit the source and th
 environment keeps the old bytes with nothing to indicate it. For `mounts` — `AGENTS.md`
 and skills trees — that means a pack update that appears to apply and doesn't. So
 `mounts` is **unavailable** without a mount namespace, and a target that cannot honor it
-must say so by name (§6.2's `FieldSet`), exactly as macos-user already does for
+must say so by name ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)'s `FieldSet`), exactly as macos-user already does for
 `host_files`.
 
 **Skills are the interesting exception**, and worth being precise about because they look
@@ -366,12 +366,12 @@ we'd be extracting is not "the pack system"; it is the config core, and the pack
 would then live in two repos with its schema split across a boundary that the census says
 falls in the middle of a single manifest.
 
-The rest of this doc designs the capability **inside yolo**. §3 is that design.
+The rest of this doc designs the capability **inside yolo**. [§3](#3-the-design-inside-yolo) is that design.
 
 What the earlier extraction analysis is kept for, since it was measured and remains true:
-the pack packages have **zero edges** to `config`/`paths`/`cli`/`entrypoint` (§1). That is
+the pack packages have **zero edges** to `config`/`paths`/`cli`/`entrypoint` ([§1](#1-the-measurement-the-render-core-has-no-jail-dependencies)). That is
 not an argument for a second repo — it is the reason the in-yolo work is tractable at all.
-A renderer with no jail dependencies is one that a non-jail target can call. §1 stays as
+A renderer with no jail dependencies is one that a non-jail target can call. [§1](#1-the-measurement-the-render-core-has-no-jail-dependencies) stays as
 that evidence, not as a proposal.
 
 ---
@@ -407,7 +407,7 @@ Two mirrored helpers and a header promising equivalence. The first two are hones
 duplicates; the third is a claim that has to be re-earned by hand every time either side
 changes.
 
-**Every §6.1 defect is a drift between these two paths**, not an isolated bug. `reset`
+**Every [§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) defect is a drift between these two paths**, not an isolated bug. `reset`
 truncates `~/.config/mise/config.toml` because the host path composes with no computed layer
 while the boot path always has one. `surfaceHasHostLayer` is a hand-maintained 2-entry map in
 `cli` restating what the entrypoint knows structurally. The host path resolves `~` against
@@ -464,7 +464,7 @@ func Host(home string) Target            // the new one
 ```
 
 The three constructors are the whole API surface. **`HostLayer` is the subtle field** and
-§6.3 is about it: in a jail the `host` layer comes from a `:ro` `/ctx` mount, so it is a
+[§6.3](#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output) is about it: in a jail the `host` layer comes from a `:ro` `/ctx` mount, so it is a
 *different file* from the output; on a host target it is the output file itself, which makes
 composition a fixpoint over its own result. That is why every host-target surface is `rmw`.
 
@@ -472,7 +472,7 @@ composition a fixpoint over its own result. That is why every host-target surfac
 
 Worth separating, because these land at step 3 with no new user-facing feature and no risk:
 
-- **The §6.1 data-loss bugs stop being possible by construction.** `reset` cannot compose
+- **The [§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) data-loss bugs stop being possible by construction.** `reset` cannot compose
   without a computed layer, because `Tables` is a field a target must fill in — and
   `Host()` declares it empty, which makes `mise/config` *refused* rather than truncated.
 - **Two hand-maintained tables die.** `surfaceHasHostLayer` and `surfaceHasComputedLayer`
@@ -484,7 +484,7 @@ Worth separating, because these land at step 3 with no new user-facing feature a
   through `packload`. These two are the ones still standing.
 - **`yolo config render` becomes a faithful preview.** Today it is documented as approximating
   the boot render; with one renderer it *is* the boot render against a temp home.
-- **macos-user gets a row instead of a silent no-op** (§9.7).
+- **macos-user gets a row instead of a silent no-op** ([§9.7](#9-open-questions--the-discussion-part)).
 
 ### 3.5 The two places this could go wrong
 
@@ -503,7 +503,7 @@ Being explicit, because both are load-bearing:
 
 ## 4. The four couplings under a `Target`
 
-§1.2 listed them. Here is what each one does when the target becomes explicit — **two are
+[§1.2](#12-the-four-places-yolo-reaches-into-it) listed them. Here is what each one does when the target becomes explicit — **two are
 untouched, one is where the whole design lives, and one is the one that must not be
 generalized.**
 
@@ -516,7 +516,7 @@ claim a path a pack added tomorrow needs"). That union is a statement about *yol
 **A `Target` changes nothing here, and that is worth stating as a constraint rather than an
 observation.** The lists are consumed at init time — `hostFileWritableRoots` is a package-level
 value built by a func literal (`hostfiles.go:1028`), which is why `packreg`'s `init()` exists at
-all. **Nothing in §3 may make the pack set lazier or more fallible than it is today**, because
+all. **Nothing in [§3](#3-the-design-inside-yolo) may make the pack set lazier or more fallible than it is today**, because
 the failure direction is silent and permissive: reserve nothing, no error
 (`internal/packreg/packreg.go:17`). `internal/render` takes a `Target`, not a pack *source*; it
 never touches this path.
@@ -532,7 +532,7 @@ init-time. They look alike and are not.
 process `$HOME`. **That is already the parameter a host target needs** — it is simply reached
 through an `*entrypoint.Env` that carries twenty other things with it.
 
-So §3.2's move is small in code and large in meaning: the writers take a `Target` instead of an
+So [§3.2](#32-where-the-code-goes)'s move is small in code and large in meaning: the writers take a `Target` instead of an
 `*Env`, and `entrypoint` supplies `render.Jail(e)`. The `*Env` stops being a hidden target
 declaration and becomes one of three explicit ones.
 
@@ -554,15 +554,15 @@ branch.
 
 `stagePacks`, the writable/shared-dir mount loop, `/ctx/packs`, `YOLO_PACK_ROOT`,
 `hostFileArgs`: **this is jail-target-only code and should stay recognizably so.** It exists to
-fill mounts, and §2.2 says the reduced targets have none. A `Target` that grew a "how do I
-stage" method would be inviting exactly the emulation §2.2 rules out.
+fill mounts, and [§2.2](#22-so-which-is-it-a-command-or-a-mode) says the reduced targets have none. A `Target` that grew a "how do I
+stage" method would be inviting exactly the emulation [§2.2](#22-so-which-is-it-a-command-or-a-mode) rules out.
 
 Which also disposes of the **"the mount is the filter"** worry: it stays entirely inside
 `cli/run/packs.go`, where it is already documented (`packs.go:69`). Nobody can "optimize" the
 stager into rendering packs nobody asked for without editing the file that explains why not.
 
 The macos-user backend is the live proof that this separation is the right one: it renders
-surfaces (or should — §9.7) while running none of the staging path, because it has no mounts.
+surfaces (or should — [§9.7](#9-open-questions--the-discussion-part)) while running none of the staging path, because it has no mounts.
 That is a target with a render and no provisioning, which is precisely the host target's shape,
 already shipping.
 
@@ -575,12 +575,12 @@ lives, what "machine-global" means — and the seams were already built for inje
 `paths`, because the lockfile lives beside the user config *on purpose* (packs being user
 scope).
 
-For §3 the only one that matters is **`SidecarDir`**, and it matters more than it looks. The
-`rmw` reconcile sidecar (§6.3) is what makes a host-target write reversible; if the host target
+For [§3](#3-the-design-inside-yolo) the only one that matters is **`SidecarDir`**, and it matters more than it looks. The
+`rmw` reconcile sidecar ([§6.3](#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output)) is what makes a host-target write reversible; if the host target
 and the jail target ever shared a sidecar path, a `--revert` on one would consult the other's
 memory of what it asserted. So `SidecarDir` is a `Target` field, not a `paths` lookup, and the
 host target's must be its own — the first genuinely new storage decision this design forces
-(§9.5).
+([§9.5](#9-open-questions--the-discussion-part)).
 
 ---
 
@@ -593,7 +593,7 @@ host target does not get a weaker version of them — it gets none, and has to s
   adopts. `MayGrantHostFiles()` is enforceable only because `LoadPacks` reads
   `paths.UserConfigPath()` *directly, while knowing* the workspace config is agent-writable. On
   a host target there is no mount table, so `hostFiles` is not "less safe" — it is meaningless
-  (§6.4).
+  ([§6.4](#64-what-else-changes-on-a-host-target)).
 - **The user-scope rule is inexpressible-not-forbidden**, and that is a property of yolo's
   config loader rather than of the pack format. It keeps working on a host target for the same
   reason: the loader is the same loader. Worth noting because it is the one jail-shaped rule
@@ -601,15 +601,15 @@ host target does not get a weaker version of them — it gets none, and has to s
 - **The origin gate loses its top tier.** `OriginEmbedded` means "in the yolo release", which
   still has meaning on a host target — but the *reason* the gate is tolerable in a jail
   (whatever runs, runs in a disposable environment) does not. So the gate needs to be stricter
-  off-container, not merely equivalent (§6.4, §9.2).
+  off-container, not merely equivalent ([§6.4](#64-what-else-changes-on-a-host-target), [§9.2](#9-open-questions--the-discussion-part)).
 - **The disposability premise.** The whole threat model is "the container is blast-radius
-  reduction, never authorization." A host target has no blast radius, and the postures in §6.5
+  reduction, never authorization." A host target has no blast radius, and the postures in [§6.5](#65-the-posture-stated-as-a-table)
   exist because of that, not in spite of it.
-- **Provisioning, per §2.1.** `install`, `writableDirs`, `sharedDirs`, `hostFiles`,
+- **Provisioning, per [§2.1](#21-but-measure-how-much-of-a-pack-the-host-actually-wants).** `install`, `writableDirs`, `sharedDirs`, `hostFiles`,
   `retireMiseTools`, and `mounts` are six of nine manifest fields, and all six are statements
   about *building an environment*. A host target does not build one — it is handed one it did
-  not make and cannot describe. Every one of the six must be refused by name (§6.2's
-  `FieldSet`), because the alternative is a silent skip, and §9.7 is what a silent skip looks
+  not make and cannot describe. Every one of the six must be refused by name ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)'s
+  `FieldSet`), because the alternative is a silent skip, and [§9.7](#9-open-questions--the-discussion-part) is what a silent skip looks
   like after a year in production.
 
 ---
@@ -682,7 +682,7 @@ is correctly read-only and `claude/config` correctly refuses (it's `rmw`).
 
 **Why this is a design finding and not just a bug report.** The root cause is that "which home
 am I composing into?" is an *implicit* `paths.Home()` host-side and an *explicit* `e.Home`
-in-jail — i.e. it is §3.1's duplication, seen from the failure end. The entrypoint got this
+in-jail — i.e. it is [§3.1](#31-the-core-problem-there-are-already-two-render-paths)'s duplication, seen from the failure end. The entrypoint got this
 right on purpose
 (`env.go:76`, "deliberately not the process `$HOME`"); the host CLI never had to decide,
 because it was only ever meant to *preview*. A host target forces the parameter to be explicit
@@ -696,8 +696,8 @@ is there; `reset` and `capture` just don't consult it.)
 
 ### 6.2 The four targets, and what `FieldSet` is for
 
-§3.3 gives the struct. What §6 adds is the *set of targets it has to express*, ordered by
-confinement (§2.2's axis):
+[§3.3](#33-what-each-target-supplies) gives the struct. What [§6](#6-the-host-as-a-reduced-target) adds is the *set of targets it has to express*, ordered by
+confinement ([§2.2](#22-so-which-is-it-a-command-or-a-mode)'s axis):
 
 | Target | Home | `host` layer | Output | Blast radius |
 |---|---|---|---|---|
@@ -708,15 +708,15 @@ confinement (§2.2's axis):
 
 Only the last row is new. `preview` is `yolo config render` with its target finally stated;
 `macos-user` **ships today** and is supposed to render surfaces into a real home already
-(§9.7). That is what makes "target" a description of the code rather than a concept invented
+([§9.7](#9-open-questions--the-discussion-part)). That is what makes "target" a description of the code rather than a concept invented
 for the host case: yolo already renders into a real home on a real OS with no container.
 
-**`FieldSet` is what makes §2.1's census executable rather than a table in a doc.** The host
+**`FieldSet` is what makes [§2.1](#21-but-measure-how-much-of-a-pack-the-host-actually-wants)'s census executable rather than a table in a doc.** The host
 target declares `install`/`writableDirs`/`sharedDirs`/`hostFiles`/`retireMiseTools`/`mounts`
 inapplicable, so a pack using one gets a **refusal naming the field** instead of a silent skip.
 Two reasons to insist on the naming rather than the skipping:
 
-- §9.7 is what a silent skip looks like after a year in production — a backend rendering zero
+- [§9.7](#9-open-questions--the-discussion-part) is what a silent skip looks like after a year in production — a backend rendering zero
   surfaces every launch, with nothing in the output to say so.
 - macos-user's `host_files` filter already does it the right way, and the reason is written in
   the code: a passed-through entry "would render with an empty host layer and silently serve
@@ -759,8 +759,8 @@ There are three known answers and the ecosystem has picked two of them:
    managed keys wholesale each boot rather than reconciling against a sidecar, so a UI-added
    entry in a yolo-owned key is overwritten with a drop notice. The design point below still
    holds: the agent's own keys survive because yolo only rewrites the keys it declares.) A
-   host-target `--revert` (§7.2) is the one place that still wants a memory of what was
-   asserted — see the open question in §9.5.
+   host-target `--revert` ([§7.2](#72-the-human-manages-their-own-machine)) is the one place that still wants a memory of what was
+   asserted — see the open question in [§9.5](#9-open-questions--the-discussion-part).
 
 **(3) is the answer, and it is already the shipped design for exactly this problem.**
 `claude/config` (`~/.claude.json`, agent-owned, yolo asserts keys into it) is a host-target
@@ -779,7 +779,7 @@ That has a crisp consequence worth stating as a rule:
 > a host target does no whole-file composition. A key yolo *does* manage is overwritten on
 > the next `apply` (regenerate-don't-reconcile) — which is correct and the only workable
 > option for a key yolo owns. `computed`-mode overwrite-every-*whole-file* is unacceptable
-> here for the same reason probe 2 is a bug. *(Confirmed 2026-08-01, env-manager plan OQ-4.)*
+> here for the same reason probe 2 is a bug. *(Confirmed 2026-08-01, env-manager plan [OQ-4](../plans/environment-manager-plan.md#blocks-phase-4-host-render).)*
 
 ### 6.4 What else changes on a host target
 
@@ -789,17 +789,17 @@ That has a crisp consequence worth stating as a rule:
 - **`reads-host` (was `hostFiles`) is meaningless and must be refused.** It names a host file
   to mount into a jail. On a host target the source and the destination are the same
   filesystem. Honoring it would be a copy the user did not ask for.
-- **`mount` is unavailable, and must be refused rather than emulated** (§2.2). No mount
+- **`mount` is unavailable, and must be refused rather than emulated** ([§2.2](#22-so-which-is-it-a-command-or-a-mode)). No mount
   namespace means no `:ro`, and a copy goes silently stale — a pack update that appears to
   apply and doesn't. macos-user's `reads-host`/`host_files` filter is the precedent. The
   *composed* artifacts a pack delivers — the merged skills tree, `AGENTS.md` — are a separate
   question: those are composition results (their own `skills`/`briefing` kinds now) and port
-  like config surfaces do, which is why §7.3's walkthrough writes them and §6.5's `assert`
+  like config surfaces do, which is why [§7.3](#73-one-pack-three-environments)'s walkthrough writes them and [§6.5](#65-the-posture-stated-as-a-table)'s `assert`
   posture covers them.
-- **The origin gate keeps its tiers, and off-container it needs to stay strict** (§5).
+- **The origin gate keeps its tiers, and off-container it needs to stay strict** ([§5](#5-what-a-host-target-cannot-inherit)).
   `OriginEmbedded` still means "shipped in the yolo release." Since this was written, a
   *fetched* pack's host access stopped being an outright refusal and became **install-time
-  approval** (recorded per-commit in the lockfile — see [pack-system.md](pack-system.md) §9).
+  approval** (recorded per-commit in the lockfile — see [pack-system.md](pack-system.md) [§9](pack-system.md#9-the-credential-boundary-the-pin-not-a-prompt)).
   That is the right primitive to build a host target on: the consent step already exists. But
   the reason the gate is *tolerable* in a jail — whatever runs, runs in something disposable —
   is gone off-container, so a host target must gate at least as tightly as the jail, and
@@ -813,12 +813,12 @@ That has a crisp consequence worth stating as a rule:
   a machine-global dir — on a host target the credentials file *is* already machine-global,
   so the hook is a no-op at best and a broken symlink at worst. `per_jail_history` keys on
   `YOLO_HOST_DIR` and has no meaning. `claude_plugins` runs `claude` against the user's real
-  config. The `Hooks` map in §3.3 makes this a data decision instead of a code branch.
+  config. The `Hooks` map in [§3.3](#33-what-each-target-supplies) makes this a data decision instead of a code branch.
 
 ### 6.5 The posture, stated as a table
 
-Since §6.3 collapses the four modes to one on a host target, what remains is *how much the
-renderer is allowed to do*. This is `Target.Posture` from §3.3:
+Since [§6.3](#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output) collapses the four modes to one on a host target, what remains is *how much the
+renderer is allowed to do*. This is `Target.Posture` from [§3.3](#33-what-each-target-supplies):
 
 | Posture | Reads | Writes | Use |
 |---|---|---|---|
@@ -848,7 +848,7 @@ enforces:
 > --host` from.**
 
 This is the same boundary packs already draw. Packs are **user scope only**: a workspace
-config cannot name one (`pack-system.md` §8), *precisely because* a workspace config travels
+config cannot name one ([`pack-system.md`](pack-system.md) [§8](pack-system.md#8-selection-and-the-load-path)), *precisely because* a workspace config travels
 with a repo and is agent-editable, so it must not decide what crosses into your environment.
 The host is your realest environment, so that rule is *most* load-bearing there, not least: a
 repo you `cd` into must not be able to reach into `~/.claude/settings.json`.
@@ -861,12 +861,12 @@ Three consequences, each of which removes a problem the workspace-scoped framing
   nothing.
 - **`${workspace}` surfaces are refused, not bound.** A surface keyed on `${workspace}` (e.g.
   claude's `projects["${workspace}"]`) is inherently per-repo; on a host target it has no
-  referent and is refused by `FieldSet` (§6.4) — consistent with "no workspace input," not a
+  referent and is refused by `FieldSet` ([§6.4](#64-what-else-changes-on-a-host-target)) — consistent with "no workspace input," not a
   special case.
 - **A host sidecar, if one is ever needed** (for capture — the agent's own between-applies
   edits, not a `--revert`; see the env-manager plan's reframed OQ-A), lives at a
   **user/machine-scoped** path like `~/.local/state/yolo-jail/host-render/`, keyed by the
-  target file, **never by workspace.** §4.4's `SidecarDir` becomes a user-scope constant for
+  target file, **never by workspace.** [§4.4](#44-storage-paths--an-argument-not-a-constant)'s `SidecarDir` becomes a user-scope constant for
   the host target, not a per-workspace path.
 
 The one honest exception is the *invocation*: you might be standing in a repo when you type
@@ -898,14 +898,14 @@ yolo -- claude
   entrypoint: program, mount, state, files, …     # unchanged: the jail-only kinds
 ```
 
-That single changed line is the entire jail-side risk, and §3.5 says how to retire it:
+That single changed line is the entire jail-side risk, and [§3.5](#35-the-two-places-this-could-go-wrong) says how to retire it:
 byte-equality of every shipped pack's rendered surfaces, before and after. If the diff is
 empty, the refactor is done — the boot path cannot have gotten quieter or louder, because
-`genStep`'s A12 policy never moved (§4.2).
+`genStep`'s A12 policy never moved ([§4.2](#42-in-jail-rendering--this-is-the-coupling-that-becomes-the-design)).
 
 ### 7.2 The human manages their own machine
 
-At §8 step 5, with `render.Host($HOME)` as the target:
+At [§8](#8-what-i-would-actually-do-in-order) step 5, with `render.Host($HOME)` as the target:
 
 ```
 $ yolo config apply --host --dry-run
@@ -928,8 +928,8 @@ $ yolo config apply --host --revert     # removes exactly what the sidecar says 
 
 Three things to notice. `mise/config` is *refused* rather than truncated — probe 2 turned into
 a designed outcome, and it is refused because `render.Host()` declares `Tables` empty rather
-than because someone remembered to add a check (§3.4). The INAPPLICABLE block is `FieldSet`
-being legible instead of silent, which is the §9.7 lesson applied. And `--revert` is meaningful
+than because someone remembered to add a check ([§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)). The INAPPLICABLE block is `FieldSet`
+being legible instead of silent, which is the [§9.7](#9-open-questions--the-discussion-part) lesson applied. And `--revert` is meaningful
 *only* because the reconcile sidecar already exists; without it, "undo" is indistinguishable
 from "delete the user's keys."
 
@@ -938,7 +938,7 @@ from "delete the user's keys."
 `house-rules` has a `skills` tree, a `briefing` (`AGENTS.md`), and a `config` surface whose
 dynamic layer is produced by a `derive.lua` MCP projection. In a jail the surfaces are composed
 and the trees arrive as `:ro` mounts. On macos-user and on the host the surfaces are asserted
-into the real home, the merged skills tree is *written* (a composition result, §2.2), and
+into the real home, the merged skills tree is *written* (a composition result, [§2.2](#22-so-which-is-it-a-command-or-a-mode)), and
 anything that needed a real mount is **refused by name**.
 **Same manifest, no target-specific kinds** — the manifest declares paths and reshapes, and
 the *target* decides what is honored. That is the whole content of "core does not know what an
@@ -972,23 +972,23 @@ first.** Nothing here needs a new module or a decision about one.
    live data-loss path on the maintainer's own machine and it should not wait for an
    architecture decision. It is also the cheapest possible down-payment on step 3: it makes the
    implicit target explicit at the one place it currently misfires.
-2. **Decide the capture-privacy question** (§9.3) — cheap, and the other thing probe 3
+2. **Decide the capture-privacy question** ([§9.3](#9-open-questions--the-discussion-part)) — cheap, and the other thing probe 3
    surfaced. Independent of everything below.
-3. **Introduce `internal/render` with `Target`** (§3.2, §3.3), collapsing the two render paths
+3. **Introduce `internal/render` with `Target`** ([§3.2](#32-where-the-code-goes), [§3.3](#33-what-each-target-supplies)), collapsing the two render paths
    into one. **This is the load-bearing step**, and its value does not depend on a host target
    ever shipping: it deletes the duplicated writers, retires `surfaceHasHostLayer` and
    `surfaceHasComputedLayer`, and makes `yolo config render` a faithful preview instead of an
-   approximation (§3.4). Retire the risk with §3.5's byte-equality check.
-4. **Fix macos-user by making it a target row** (§9.7), not a special case. This is the cheapest
+   approximation ([§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)). Retire the risk with [§3.5](#35-the-two-places-this-could-go-wrong)'s byte-equality check.
+4. **Fix macos-user by making it a target row** ([§9.7](#9-open-questions--the-discussion-part)), not a special case. This is the cheapest
    possible proof that step 3's abstraction is the right one: an existing backend that is
    *supposed* to render surfaces into a real home, currently rendering none. If `Target` cannot
    express macos-user cleanly it will not express the host either — and we learn that for the
    price of a bug fix.
-5. **Add `FieldSet`** (§6.2) so an inapplicable field is a refusal naming the field. Sequenced
+5. **Add `FieldSet`** ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)) so an inapplicable field is a refusal naming the field. Sequenced
    after step 4 deliberately: macos-user is the case that tells us what the refusal messages
    need to say, because it is the one where we already know silence was the wrong answer.
-6. **Ship `yolo config apply --host`** (§2.2 option a) — `observe`, then `assert`, `own` maybe
-   never, `install` refused outright (§6.4). **This is where the §2 motivating case lands**: the
+6. **Ship `yolo config apply --host`** ([§2.2](#22-so-which-is-it-a-command-or-a-mode) option a) — `observe`, then `assert`, `own` maybe
+   never, `install` refused outright ([§6.4](#64-what-else-changes-on-a-host-target)). **This is where the [§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall) motivating case lands**: the
    `pi` pack you already trust, applied to the host you are about to debug on.
 
 **If only one of these ever happens, it should be #1.** If two, #1 and #3 — because #3 is the
@@ -1011,7 +1011,7 @@ compacted into the ledger and kept in place only as anchors.
 | :--- | :--- | :--- | :--- |
 | 9.1 | **The second sense** — yolo is an interface for describing environments agents run in; the host target is one notch of a `confinement` dial, not a special case | 2026-07-27 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md); shipped as `internal/render/confinement.go` + the `confinement` config key (`internal/config/confinement.go:45`) |
 | 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented | 2026-08-23 (verified) | `refuseHostSideWrite`, `internal/cli/configdiff.go:84-90` |
-| 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as §6.6 argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go:284-296`), with the two rejected alternatives written into the doc comment |
+| 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped) argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go:284-296`), with the two rejected alternatives written into the doc comment |
 | 9.7 | **Fixed** — macos-user is the `guest` notch and receives packs | 2026-08-23 (verified) | `YOLO_PACK_ROOT` set at `internal/macosuser/runplan.go:200-210`, asserted `:314`; `render.GuestProfileMacOS` (`confinement.go:130`) |
 | 9.8 | **A real fourth row, and it needed no new concept** — as predicted. Declared in the vocabulary; no backend fills it yet | 2026-08-23 (verified) | `render.GuestProfileLinux()` = namespaces + Landlock (`internal/render/confinement.go:136`) |
 
@@ -1031,18 +1031,18 @@ mechanism** — which is why shipping steps 1–6 did not close them.
    **Answer:** > _(empty — fill in when decided)_
 3. 💬 **9.6 (see below): do the reservation lists survive contact with a *configured*
    pack?** Unchanged 2026-08-23 — still init-time, still permissive-on-failure. _Leaning:_
-   leave it; §3 must not make it worse and should not try to fix it.
+   leave it; [§3](#3-the-design-inside-yolo) must not make it worse and should not try to fix it.
    **Answer:** > _(empty — fill in when decided)_
 
 The original prose for all eight follows, unedited apart from the status marks.
 
 **✅ 9.1 — RESOLVED (2026-07-27). Is yolo "a jail" or "an interface for describing environments agents run in"?**
 **Answered 2026-07-27, in the second sense** — see
-[yolo-as-environment-manager.md](yolo-as-environment-manager.md), which takes §2.2's confinement
+[yolo-as-environment-manager.md](yolo-as-environment-manager.md), which takes [§2.2](#22-so-which-is-it-a-command-or-a-mode)'s confinement
 axis as the product's organizing idea (a `confinement: jail|sandbox|host` dial, with `runtime`
 demoted to a mechanism hint) and makes this doc's host target one notch of it rather than a
 special case. The reasoning below is what the question looked like before that ruling, and its
-cost analysis still applies. §2.2's
+cost analysis still applies. [§2.2](#22-so-which-is-it-a-command-or-a-mode)'s
 confinement axis says the second is already true *descriptively* — `macos-user` ships, has no
 container, and is documented as one product with the container backends. What is unsettled is
 whether we say so **normatively**, because that changes the scope of everything: a "jail" has
@@ -1052,15 +1052,15 @@ has the opposite one (that is the job).
 The cost of naming it is that the boundary stops being self-evident. Today "does it run in the
 container?" answers most scope questions for free. Adopt the wider framing and every future
 feature needs an explicit ruling about which confinement levels it applies to — that is what
-`FieldSet` (§6.2) is for, and it is real ongoing work, not a one-time rename. My recommendation
-is to build §8 steps 1–5, which are correct under *either* framing, and let the naming follow
+`FieldSet` ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)) is for, and it is real ongoing work, not a one-time rename. My recommendation
+is to build [§8](#8-what-i-would-actually-do-in-order) steps 1–5, which are correct under *either* framing, and let the naming follow
 from whether the host target actually gets used.
 
 **💬 9.2 — OPEN. Does a host target defeat the sandbox's purpose?** The threat model is "the container is
 blast-radius reduction, never authorization." A render that writes the human's real dotfiles has
 no blast radius — fine *if it is understood as a distinct, narrower feature*, corrosive if it
 becomes the recommended way to configure agents because it is more convenient. Refusing
-`install` (§6.4) is the load-bearing mitigation, and I would want it stated as an invariant
+`install` ([§6.4](#64-what-else-changes-on-a-host-target)) is the load-bearing mitigation, and I would want it stated as an invariant
 rather than a default. **The strongest version of the worry:** once `apply --host` exists,
 "why not just run the agent on the host with the good config?" is one step away, and the answer
 has to be a product decision rather than a missing feature.
@@ -1069,7 +1069,7 @@ has to be a product decision rather than a missing feature.
 key hint — into `<workspace>/.yolo/prism/*.overlay.json`. `.yolo/` is gitignored so it is not a
 commit leak, but it is agent-readable, and the whole point of the credential boundary is that
 the agent's workspace does not see host secrets. Options: refuse when `surfacesAreLocal()` is
-false (which is §8 step 1 anyway, and probably sufficient), or key-level redaction, which needs
+false (which is [§8](#8-what-i-would-actually-do-in-order) step 1 anyway, and probably sufficient), or key-level redaction, which needs
 a notion of which keys are sensitive and I do not think we should invent one.
 
 **💬 9.4 — OPEN. What does `install` mean on a host target, if not "never"?** "Never" is my recommendation
@@ -1077,7 +1077,7 @@ and also a real limitation: the most useful thing a pack could do for a fresh ma
 *install the agent*. If the answer is eventually "yes, with an explicit per-invocation grant",
 that grant is a new security surface and needs its own design — it is not a flag.
 
-**✅ 9.5 — RESOLVED (2026-08-01, §6.6): user-scoped; the collision question dissolved. Where does a host target's sidecar live, and who arbitrates?** §4.4's problem. The jail
+**✅ 9.5 — RESOLVED (2026-08-01, [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped)): user-scoped; the collision question dissolved. Where does a host target's sidecar live, and who arbitrates?** [§4.4](#44-storage-paths--an-argument-not-a-constant)'s problem. The jail
 target's reconcile sidecars live in `<workspace>/.yolo/prism/`, which is workspace-scoped
 because a jail is. A host target's assertions are *machine*-scoped — the config it wrote is not
 about any workspace — so the sidecar wants to be somewhere like
@@ -1087,10 +1087,10 @@ sidecar is the only record of who put what there. Last-writer-wins with a shared
 probably right, but it should be *decided*, because the alternative failure is a `--revert` that
 removes another workspace's keys.
 
-**💬 9.6 — OPEN (unchanged 2026-08-23). Do the reservation lists survive contact with a *configured* pack?** §4.1 keeps them
+**💬 9.6 — OPEN (unchanged 2026-08-23). Do the reservation lists survive contact with a *configured* pack?** [§4.1](#41-reservation-lists--untouched-and-deliberately-so) keeps them
 init-time and untouched, which is correct for the embedded corpus. But if a non-embedded pack
 ever needs to participate in a reservation — and `hostfiles.go:704-710` already documents that as
-a known gap — the lists become fallible, and the failure direction is permissive. §3 must not
+a known gap — the lists become fallible, and the failure direction is permissive. [§3](#3-the-design-inside-yolo) must not
 make this worse; it should not try to fix it either.
 
 **✅ 9.7 — FIXED (verified 2026-08-23; it gets packs now). macos-user is the existing host-shaped target, and it currently gets no packs at all.**
@@ -1100,22 +1100,22 @@ and `YOLO_PACK_ROOT` is never set on that backend — verified, zero occurrences
 container path. So on macos-user the pack loop runs over an empty list every launch, silently.
 That backend is the closest thing to a host target we already ship (a real macOS home, no
 container, composed by the same writers), which makes it the natural first non-jail target — and
-the reason §8 puts it before `FieldSet` rather than after.
+the reason [§8](#8-what-i-would-actually-do-in-order) puts it before `FieldSet` rather than after.
 
 > **Fixed, verified 2026-08-23.** `YOLO_PACK_ROOT` *is* set on that backend now —
 > `internal/macosuser/runplan.go:200-210`, with `internal/macosuser/runplan.go:314`
-> asserting the bootstrap argv carries it. The prediction in §8 held: making it a
+> asserting the bootstrap argv carries it. The prediction in [§8](#8-what-i-would-actually-do-in-order) held: making it a
 > target row was the cheapest proof the abstraction was right, and it is now the
 > `guest` notch (`render.GuestProfileMacOS`, `internal/render/confinement.go:130`).
 > **Keep the finding.** "A backend rendering zero surfaces every launch, with nothing
 > in the output to say so" is the reason `FieldSet` refuses by name instead of
-> skipping (§6.2), and it is cited from
+> skipping ([§6.2](#62-the-four-targets-and-what-fieldset-is-for)), and it is cited from
 > [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) as the canonical
 > example of a silent skip. It is documentation, not archaeology.
 
 **✅ 9.8 — RESOLVED (2026-08-23): a real row, declared as `GuestProfileLinux`. Is a "macos-user for Linux" a real fourth row, or a distraction?** A bwrap/Landlock
 environment — real user, real home, no container — would sit between `macos-user` and the bare
-host on §2.2's axis. **The relevant point for this doc is that it needs no new concept**: it is
+host on [§2.2](#22-so-which-is-it-a-command-or-a-mode)'s axis. **The relevant point for this doc is that it needs no new concept**: it is
 another confinement level with the same `surfaces`-yes / `install`-maybe / `mounts`-unavailable
 profile, which is evidence the axis is real rather than a framing imposed to make the table
 tidy. Whether anyone wants it on Linux — where a container is cheap and already works, unlike on
@@ -1129,39 +1129,39 @@ container runtime installed.
 
 Against the whole thing:
 
-- **§6.1's defects are fixable in about twenty lines, today.** If the only real motivation is
-  "host-side composition is currently destructive", then §8 step 1 is the entire answer and
+- **[§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive)'s defects are fixable in about twenty lines, today.** If the only real motivation is
+  "host-side composition is currently destructive", then [§8](#8-what-i-would-actually-do-in-order) step 1 is the entire answer and
   steps 3–6 are a large response to a small question. This is the most uncomfortable objection
   and the honest reply is: step 1 should ship regardless, and whether anything follows it should
   depend on whether anyone actually wants the host target — not on this doc.
 - **The host target may have no users.** The `pi`-on-the-host case is one person's workflow, and
-  the alternative ("copy the settings once by hand") costs minutes, not hours. Everything in §6
+  the alternative ("copy the settings once by hand") costs minutes, not hours. Everything in [§6](#6-the-host-as-a-reduced-target)
   is designed against a need that has been *stated* but not yet *felt repeatedly*.
 - **A host target is a genuinely new risk surface** and the sandbox is the product. Pointing the
   same pipeline — including pack-supplied `installerUrl` — at a human's live environment is a
-  different posture from everything else here, and §6.4's refusals are the only thing standing
+  different posture from everything else here, and [§6.4](#64-what-else-changes-on-a-host-target)'s refusals are the only thing standing
   between the two. Refusals are a weaker guarantee than "there is no code path."
 - **`Target` could become the thing that makes every field a matrix.** Today a pack field either
   works or the code doesn't compile. With four targets and a `FieldSet`, every new manifest field
   needs a ruling per row, and the rulings live in a different package from the field. That is
-  real ongoing cost (§9.1), paid by whoever adds the *next* pack feature rather than by this
+  real ongoing cost ([§9.1](#9-open-questions--the-discussion-part)), paid by whoever adds the *next* pack feature rather than by this
   design.
 
-Against §3 specifically, which is the part I would defend hardest:
+Against [§3](#3-the-design-inside-yolo) specifically, which is the part I would defend hardest:
 
 - **It refactors the boot path, and the boot path is fatal by policy.** A12 made a pack failure
   halt the jail. A regression in `internal/render` does not misconfigure an agent — it stops
-  jails from starting, including the one the maintainer is reading this in. §3.5's byte-equality
+  jails from starting, including the one the maintainer is reading this in. [§3.5](#35-the-two-places-this-could-go-wrong)'s byte-equality
   check is the mitigation, and it needs to actually be written, not intended.
 - **Two implementations that mirror each other are not obviously worse than one with four
   parameters.** The duplication is legible: each path is readable on its own, and the three
   "Mirrors internal/cli…" comments mean nobody is confused about it. A single renderer with a
   `Target` struct trades that for a place where every caller's assumptions coexist. My answer is
-  §6.1 — the duplication has already produced data loss, and it did so precisely *because* each
+  [§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) — the duplication has already produced data loss, and it did so precisely *because* each
   side was readable on its own — but "the drift was documented" is a fair rebuttal to "the drift
   was invisible."
 
-The counter to all of it, and the reason I would still do §8 steps 1 and 3: the *reason* the
-§6.1 defects exist is that the target was never a parameter. That is an architectural fact
+The counter to all of it, and the reason I would still do [§8](#8-what-i-would-actually-do-in-order) steps 1 and 3: the *reason* the
+[§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) defects exist is that the target was never a parameter. That is an architectural fact
 rather than a bug, it will keep producing bugs of this shape, and making it explicit is worth
 doing even if no host target is ever shipped.
