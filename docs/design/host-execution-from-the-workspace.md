@@ -49,7 +49,7 @@ but software development working normally. [§1](#1-the-verdict) draws the line 
 those from the five paths worth spending anything on, and states plainly what the fix does and
 does not buy against prompt injection.
 
-**Backend caveat up front:** everything in §5 that is a *mount* reaches podman only — Apple
+**Backend caveat up front:** everything in [§5](#5-what-we-can-actually-do) that is a *mount* reaches podman only — Apple
 Container ignores `:ro`, and `macos-user` has no mounts at all and silently ignores both keys.
 The blind-cell control turns out to be natively expressible in that backend's Seatbelt profile
 and the derived-directory one does not ([§5.5](#55-backend-portability--the-mounts-are-not-the-policy)).
@@ -206,7 +206,7 @@ your cloud credentials — the exact things [the briefing promises are invisible
 | 4 | `.git/config` → `core.pager` | `git log`, `git diff` — anything paged at a TTY | blind | ✅ (via `--paginate`; off-TTY git skips the pager) |
 | 5 | `.git/config` → `core.hooksPath` | any hooked command | blind | ✅ local value beats a global one |
 | 6 | **`.git/hooks/pre-commit`** | **`git commit`** | blind | ✅ |
-| 7 | `.git/config` → `core.sshCommand`, `gpg.program`+`log.showSignature`, `diff.*.textconv`, `filter.*.clean`, `credential.helper` | fetch/push, `log`, `diff`, `checkout` | blind | not individually re-measured; documented upstream (§7 sources) |
+| 7 | `.git/config` → `core.sshCommand`, `gpg.program`+`log.showSignature`, `diff.*.textconv`, `filter.*.clean`, `credential.helper` | fetch/push, `log`, `diff`, `checkout` | blind | not individually re-measured; documented upstream ([§7](#7-prior-art-and-sources) sources) |
 | 8 | **`.claude/settings.json` / `settings.local.json`** → `hooks`, `apiKeyHelper` | opening the repo in a host agent session | blind | ✅ writable; see the warning below |
 | 9 | `Justfile` / `flake.nix` / `package.json` | `just done`, `just load`, `npm install` | product | ✅ writable |
 
@@ -257,7 +257,7 @@ neighbouring threat.
 | Guardrail | What it keys on | Why it misses | Verdict |
 | :--- | :--- | :--- | :--- |
 | **git `safe.directory`** (CVE-2022-24765) | **ownership** — refuses to parse `.git/config` or run hooks in a repo owned by *another* user | The jail writes through a userns that maps to **your** UID. Ownership never changes, so the check is satisfied on every one of rows 2–7 | **Structurally blind.** Not a partial mitigation — a zero one |
-| **mise trust** | **path** | The path was trusted before the agent existed and stays trusted through arbitrary rewrites (§2) | **Blind by default**, closeable via `paranoid` (§5.2) |
+| **mise trust** | **path** | The path was trusted before the agent existed and stays trusted through arbitrary rewrites ([§2](#2-the-inventory)) | **Blind by default**, closeable via `paranoid` ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)) |
 
 **And upstream is not coming.** Git's security team's stated position on config-driven
 execution is that it belongs to integrators, not to git: tools should not run git
@@ -266,16 +266,16 @@ opportunistically against untrusted repositories. That is a reasonable line — 
 directory an agent writes.
 
 > [!NOTE]
-> **The same shape as `trust-paths.md`'s central finding, rotated 180°.** That doc found that
+> **The same shape as [`trust-paths.md`](trust-paths.md)'s central finding, rotated 180°.** That doc found that
 > every inbound gate keys on a **declaration** and none on **content**. Here the two outbound
 > guardrails key on **ownership** and **path** — and again, neither on content. A jail session
 > changes content and nothing else, which is precisely the axis nothing measures.
 
 ---
 
-## 4. What is actually new here versus `trust-paths.md`
+## 4. What is actually new here versus [`trust-paths.md`](trust-paths.md)
 
-`trust-paths.md` row 14 already notes workspace `mise.toml` — as **in-jail** execution, trust
+[`trust-paths.md`](trust-paths.md) row 14 already notes workspace `mise.toml` — as **in-jail** execution, trust
 *asserted for you* on the podman argv via `MISE_TRUSTED_CONFIG_PATHS=/workspace`
 ([`boot.go:192-210`](../../internal/entrypoint/boot.go)). That is correct and it is a different
 row from this one. **The inbound row asks "whose code runs in my jail"; this document's row 1
@@ -387,7 +387,7 @@ recorded here so it is not re-derived.
 ### 5.3 Tripwire: report changes to the danger set
 
 Hash the danger set at launch, diff at exit, show the human. **Rejected as the primary
-control**, for the reason `trust-paths.md` §1 gives about lockfiles: a mechanism that only
+control**, for the reason [`trust-paths.md`](trust-paths.md) [§1](trust-paths.md#1-the-verdict) gives about lockfiles: a mechanism that only
 *reports* is a receipt, not a gate — and for the product cell it duplicates `git diff`, which already works
 and which the human already reads. It has exactly one non-redundant use: **blind-cell paths on Apple
 Container**, where `:ro` cannot be enforced and detection is all that is available. That is a
@@ -402,7 +402,7 @@ latency from write to execution) is the thing it exists to do. So do not put it 
 | Sub-problem | Existing primitive | State |
 | :--- | :--- | :--- |
 | **The dev server itself** | `network.ports` (`"HOST:JAIL"`) publishes a jail port to the host, so the server runs in the sandbox and you browse it from the host as usual ([`config_ref.txt:602-604`](../../internal/cli/config_ref.txt)) | ships; already the documented intent in [`sandbox-comparison.md`](../research/sandbox-comparison.md) §"Example" — *"the developer sees ports on localhost; the agent sees container-internal hostnames"* |
-| **`node_modules/`, `.venv/` and friends** | `per_side_paths` shadow-mounts a derived directory so **host and jail each get their own copy** and it *"never crosses the host↔jail boundary"* ([`mounts.go:54-69`](../../internal/cli/run/mounts.go)) | ships, and **`node_modules` joined the default set 2026-08-23** (OQ-HX5). Root-level only; a monorepo names `packages/*/node_modules` explicitly |
+| **`node_modules/`, `.venv/` and friends** | `per_side_paths` shadow-mounts a derived directory so **host and jail each get their own copy** and it *"never crosses the host↔jail boundary"* ([`mounts.go:54-69`](../../internal/cli/run/mounts.go)) | ships, and **`node_modules` joined the default set 2026-08-23** ([OQ-HX5](#decision-ledger)). Root-level only; a monorepo names `packages/*/node_modules` explicitly |
 
 The connection worth making explicit: **`per_side_paths` was built for a correctness problem**
 — interpreter symlinks and native builds that break when two platforms share a directory — and
@@ -460,7 +460,7 @@ is the same trick again. A `workspace_readonly` entry is therefore one more line
 **So the blind-cell control is not merely portable to `macos-user` — it is a better fit there
 than the mount is anywhere else.** No `:ro` to be ignored (the Apple Container failure mode),
 no mount at all, and it lands in the one file that is already the backend's whole write policy.
-That was OQ-HX6, and it **shipped on 2026-08-23** — see the Decision Ledger.
+That was [OQ-HX6](#decision-ledger), and it **shipped on 2026-08-23** — see the Decision Ledger.
 
 **The honest asymmetry: `per_side_paths` does not port, and cannot.** It needs *two different
 contents at one path* — the host's `node_modules` and the jail's, simultaneously. That is a
@@ -471,7 +471,7 @@ has no fix on `macos-user`.** I would rather record that than invent one.
 
 | Control | `podman` | `container` (Apple) | `macos-user` |
 | :--- | :--- | :--- | :--- |
-| `workspace_readonly` (the blind cell) | ✅ enforced | ❌ `:ro` ignored, warns loudly | ✅ **wired 2026-08-23** as SBPL denies (OQ-HX6) |
+| `workspace_readonly` (the blind cell) | ✅ enforced | ❌ `:ro` ignored, warns loudly | ✅ **wired 2026-08-23** as SBPL denies ([OQ-HX6](#decision-ledger)) |
 | `per_side_paths` (`node_modules`, `.venv`) | ✅ enforced | ✅ (a mount, not a `:ro` mount) | ❌ **no equivalent exists** — needs namespaces; **warns since 2026-08-23** |
 | `core.hooksPath` redirect ([§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)) | ✅ | ✅ | ✅ — a git config key, backend-independent |
 | mise `paranoid` ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)) | ✅ | ✅ | ✅ — host-side, backend-independent |
@@ -480,7 +480,7 @@ has no fix on `macos-user`.** I would rather record that than invent one.
 **Why the watcher recommendation survives on `macos-user` despite `ports` being unwired.**
 That backend runs a native process on the host's real network, so there is no port to forward
 and `ports` / `forward_host_ports` are documented as not wired
-([`macos-user-nix-and-features.md`](./macos-user-nix-and-features.md) §3.3) — you reach the dev
+([`macos-user-nix-and-features.md`](./macos-user-nix-and-features.md) [§3.3](macos-user-nix-and-features.md#33-networking-and-ports)) — you reach the dev
 server directly. What "in the jail" buys there is not network isolation but **the Seatbelt
 profile and the `_yolojail` uid**: the watcher executes agent output as a confined,
 low-privilege user instead of as you. That was the point of moving it in the first place, so
@@ -559,7 +559,7 @@ partly ornamental.
 - **Not a general "review everything the agent writes" policy.** the product cell is already covered by
   ordinary diff review; the proposal is deliberately six paths wide.
 - **Not a fix for `macos-user`.** That backend has its own inversion already documented in
-  [`macos-user-build-step-threat-model.md`](./macos-user-build-step-threat-model.md); §5.1's
+  [`macos-user-build-step-threat-model.md`](./macos-user-build-step-threat-model.md); [§5.1](#51-the-blind-cell-deny--and-the-mechanism-is-already-built)'s
   mechanism is a container mount and does not reach it.
 - **Not a defence against a human who runs `just load` on unreviewed agent output.** That is
   the product cell, and the control is reading the diff. This repo's documented workflow actively asks for
@@ -574,7 +574,7 @@ partly ornamental.
 
 ## 7. Prior art and sources
 
-**Every comparable agent sandbox already does §5.1**, which is the strongest argument that the
+**Every comparable agent sandbox already does [§5.1](#51-the-blind-cell-deny--and-the-mechanism-is-already-built)**, which is the strongest argument that the
 entry set is right and not paranoid: `clampdown` makes `.git/config`, `.git/hooks`,
 `.gitmodules`, `.claude`, `.codex`, `.devcontainer`, `.idea` and `.mcp.json` read-only by
 default, and masks `.env`/`.envrc` outright — stated rationale, *"prevent a compromised agent
@@ -600,7 +600,7 @@ disclosure was the same move in a different place: gate the dangerous reads behi
 | **OQ-HX5** | **Yes — `node_modules` joins `.venv` in the default per-side set**, on the correctness argument (a `node_modules` shared between a macOS host and a Linux jail is already broken for any native build), with the host-execution benefit as a side effect. Root-level only. **Built 2026-08-23** (`d0961f2c`) | 2026-08-23 | [§5.4](#54-standing-execution-move-the-watcher-into-the-jail), `internal/cli/run/mounts.go` |
 | **OQ-HX6** | **Yes — wire it, and treat the silent no-op as the bug.** `workspace_readonly` entries render as `(deny file-write* (subpath …))` after the writable-set allow in the Seatbelt profile. The `per_side_paths` sub-question resolved to **warn, not refuse** — the key is inert there and cannot be made otherwise, but refusing it would break configs that carry it harmlessly for other backends. **Built 2026-08-23** (`d0961f2c`) | 2026-08-23 | [§5.5](#55-backend-portability--the-mounts-are-not-the-policy), `internal/macosuser/seatbelt.go` |
 | **OQ-HX2** | **Half-answered by measurement, then archived unruled.** The cost is far smaller than assumed — only `git push -u` and branching from a remote-tracking ref write local config, both with config-free equivalents — and the "lock hooks, leave config" option does not exist, because `core.hooksPath` defeats it. See [Steps not taken](#steps-not-taken-2026-08-23) | 2026-08-23 | [§5.6](#56-what-i-would-actually-build--and-what-i-would-drop) |
-| **OQ-HX1**, **OQ-HX4**, **OQ-HX3** | **Not taken now.** Each is a live option with a recorded reopen trigger rather than a question awaiting a ruling | 2026-08-23 | [Steps not taken](#steps-not-taken-2026-08-23) |
+| **[OQ-HX1](#-workspace_readonly-from-user-scope-config-was-oq-hx1)**, **[OQ-HX4](#-have-yolo-set-corehookspath-itself-was-oq-hx4)**, **[OQ-HX3](#-recommend-host-side-mise-paranoid-was-oq-hx3)** | **Not taken now.** Each is a live option with a recorded reopen trigger rather than a question awaiting a ruling | 2026-08-23 | [Steps not taken](#steps-not-taken-2026-08-23) |
 
 ---
 
@@ -617,7 +617,7 @@ several also cost either a workflow change or a behaviour yolo cannot enforce. T
 line, and it is worth restating because it is the one that will decide the next one of these
 too.
 
-### ⬜ The `.git` control plane — `workspace_readonly` over `.git/config`, `.git/hooks`, `.git/info` (was OQ-HX2)
+### ⬜ The `.git` control plane — `workspace_readonly` over `.git/config`, `.git/hooks`, `.git/info` (was [OQ-HX2](#decision-ledger))
 
 **The strongest of the not-taken set, and the closest to worth doing.** Its argument is
 [§1](#1-the-verdict)'s persistence table: `.git/hooks` is the only channel that survives every
@@ -640,7 +640,7 @@ remote-tracking ref do, and both have config-free equivalents.
 the persistence argument is enough. If it is picked up, **it must be the whole `.git` control
 plane**: locking `.git/hooks` alone is defeated by one `core.hooksPath` line.
 
-### ⬜ Have yolo set `core.hooksPath` itself (was OQ-HX4)
+### ⬜ Have yolo set `core.hooksPath` itself (was [OQ-HX4](#-have-yolo-set-corehookspath-itself-was-oq-hx4))
 
 Hooks need somewhere tracked to live before `.git/hooks` can be locked, and the agent cannot
 set the key by design. *Why not now:* it is only needed if the `.git` control plane above is
@@ -649,7 +649,7 @@ own is the kind of quiet host-side mutation
 [`config-safety.md`](./config-safety.md) exists to make loud. *What reopens it:* taking the
 item above. The fallback if the objection stands is a runbook line plus a `yolo check` warning.
 
-### ⬜ `workspace_readonly` from user-scope config (was OQ-HX1)
+### ⬜ `workspace_readonly` from user-scope config (was [OQ-HX1](#-workspace_readonly-from-user-scope-config-was-oq-hx1))
 
 Would close the bootstrap gap — the workspace config self-locks only once it *has* entries —
 and make the fix once rather than per-repo. *Why not now:* it only matters if the `.git`
@@ -659,7 +659,7 @@ at user scope; [`inherit.go:189-193`](../../internal/config/inherit.go) excludes
 on user scope, but I did not confirm it and will not assert it. *What reopens it:* wanting the
 protection in more than one repo.
 
-### ⬜ Recommend host-side mise `paranoid` (was OQ-HX3)
+### ⬜ Recommend host-side mise `paranoid` (was [OQ-HX3](#-recommend-host-side-mise-paranoid-was-oq-hx3))
 
 Closes the `cd` channel at its root, durably — since CVE-2026-35533's fix a workspace config
 cannot turn `paranoid` back off. *Why not now:* it is a change to the human's machine, not to

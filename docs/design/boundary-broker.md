@@ -16,20 +16,20 @@ things a loophole cannot express today: a request that OUTLIVES its connection, 
 whose answer comes from a HUMAN rather than from the host filesystem.** Those two absences are
 the whole design, and they are smaller than they sound.
 
-**The most important thing in this doc is §5:** for the motivating GitHub case, an approval queue
+**The most important thing in this doc is [§5](#5-three-tiers-not-two--and-git-wants-the-middle-one):** for the motivating GitHub case, an approval queue
 is probably the *wrong* tier. There are three tiers, not two, and the middle one needs no human.
 
-**Before building any of it, read §10.** [unyolo.io](https://unyolo.io/) is an MIT-licensed
+**Before building any of it, read [§10](#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12).** [unyolo.io](https://unyolo.io/) is an MIT-licensed
 credential broker that converged on this design independently and solves several problems this doc
-had not thought of. **§10 was rewritten 2026-08-12 from the source rather than the website, and the
+had not thought of. **[§10](#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) was rewritten 2026-08-12 from the source rather than the website, and the
 verdict flipped: B1b is a BUILD, not an adoption** — but a smaller build than it looked, because
-the transport half already exists in this repo. §10.6 says which of unYOLO's ideas to take.
+the transport half already exists in this repo. [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) says which of unYOLO's ideas to take.
 
 **Scope note.** Claude auth switching was originally sketched here as a third use case. It is a
 different feature that wants the same front door, and it is now
 [`agent-auth-modes.md`](agent-auth-modes.md) — split out because it shares this doc's front door
-and none of its blockers (this waits on nix OQ-1 — the ID that used to be called N3; that waits
-on nothing). §6 keeps only the
+and none of its blockers (this waits on nix [OQ-1](agent-auth-modes.md#12-decision-ledger) — the ID that used to be called N3; that waits
+on nothing). [§6](#6-the-risks-worth-naming-before-any-code) keeps only the
 constraint the two share.
 
 **Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format this extends),
@@ -40,7 +40,7 @@ since 2026-08-19), [`../plans/roadmap.md`](../plans/roadmap.md) — **💬 5** f
 and 🧊 for B2.
 
 > [!NOTE]
-> **"B1 / B1b / B2 / B3" are THIS doc's numbering (§7), not roadmap rows.** The roadmap carried a
+> **"B1 / B1b / B2 / B3" are THIS doc's numbering ([§7](#7-what-i-would-build-in-order)), not roadmap rows.** The roadmap carried a
 > lettered queue until 2026-08-17, when it was restructured into states (💬 / 📦 / 🔒 / 🧊) and the
 > letters stopped resolving. They are kept here because three docs name the same work by these
 > letters; when citing the roadmap, cite the **state row or the OQ ID**, never a letter.
@@ -90,7 +90,7 @@ decides several things below, and getting it wrong would oversell the feature.
 
 Every loophole today is synchronous: *"A client opens the Unix socket, sends one length-prefixed
 JSON request, and reads framed response data until the server closes the connection."* *(That
-quote is the pre-loopback-TLS wording, like §1's — the current
+quote is the pre-loopback-TLS wording, like [§1](#1-what-already-exists-stated-precisely)'s — the current
 [`loophole-protocol.md`](loophole-protocol.md) says the same thing transport-generically, since
 the jail-facing hop is no longer a socket file. The constraint is unchanged.)* The request
 lives exactly as long as the connection.
@@ -121,7 +121,7 @@ hard way and are the reason `--assert` on a real `$HOME` is trustworthy:
    not block forever and not default yes.
 2. **Only ask when something is actually at stake.** A confirmation that fires on every run trains
    people to hit `y` without reading. This is the single biggest design risk of the whole feature
-   — see §6.
+   — see [§6](#6-the-risks-worth-naming-before-any-code).
 
 ---
 
@@ -206,7 +206,7 @@ guarantees down to compensate.
 The framing above ("no access, or hand over a token") is a false binary, and the missing option
 is the one the GitHub case most likely wants. **Approval is the heaviest of three tiers, and the
 maintainer's own instinct — "it's possible for the git thing that we'll want to just filter access
-instead" — is right more often than this doc's §3 implies.**
+instead" — is right more often than this doc's [§3](#3-use-case-a-approval-gated-host-credentials-the-github-case) implies.**
 
 | Tier | Credential lives | Human in the loop | Right when |
 |---|---|---|---|
@@ -222,7 +222,7 @@ express.
 It stops working at two points. First, expressiveness: a GitHub PAT cannot say "may comment, may
 not push," or "may push only to `agent/*`". Second, and more important, **a token inside the jail
 is unauditable and un-revokable per-action for its whole lifetime** — which is the boundary
-becoming a fiction for that credential, exactly as §3 says.
+becoming a fiction for that credential, exactly as [§3](#3-use-case-a-approval-gated-host-credentials-the-github-case) says.
 
 **Proxy is the tier this doc was missing.** Route the operation through a host-side proxy that
 injects the credential *after the request leaves the jail*. The jail holds nothing; the host holds
@@ -233,7 +233,7 @@ running in the sandbox cannot read or exfiltrate it.
 
 For git specifically that is a credential helper or an `http.extraHeader` pointing at a host-side
 endpoint, and it delivers **this doc's own central rule — the action crosses, the credential does
-not — with no human in the loop at all.** It also gets the audit log (§7 step 1) for free, since
+not — with no human in the loop at all.** It also gets the audit log ([§7](#7-what-i-would-build-in-order) step 1) for free, since
 every request passes through one place.
 
 **And yolo already ships this mechanism.** `claude-oauth-broker` is a credential-injecting
@@ -249,10 +249,10 @@ it is a build rather than an adoption.
 **So the recommendation for the GitHub case changes:** reach for **proxy** first, and reserve
 **approve** for the operations where a human would actually say no. Posting a PR comment is
 probably proxy-tier. Force-pushing to `main` is approve-tier. That distinction is the same
-forcing question as §6.1, applied earlier.
+forcing question as [§6.1](#6-the-risks-worth-naming-before-any-code), applied earlier.
 
 **What this does not change.** The approval tier still needs to exist for the class of action
-where the judgment is irreducibly human, and the two absences in §2 are still what it costs.
+where the judgment is irreducibly human, and the two absences in [§2](#2-the-two-absences-and-why-they-are-the-whole-design) are still what it costs.
 Nothing below is retracted — it is re-scoped to a smaller set of verbs than "anything using host
 credentials."
 
@@ -288,7 +288,7 @@ and deliberately does **not** log bodies. An approval broker wants the opposite 
 — the human needs the body to decide — which is a real tension worth resolving deliberately rather
 than by default.
 
-> **Half of this shipped 2026-08-15 (§7 step 1), and the shipped half is narrower than the
+> **Half of this shipped 2026-08-15 ([§7](#7-what-i-would-build-in-order) step 1), and the shipped half is narrower than the
 > sentence above.** `crossings.log` records that jail X *connected to service Y*, with byte counts
 > — not that it "asked to post a PR comment", which is per-request content the front cannot see.
 > So the audit tells you which loopholes get used, how much, by whom, and how often a connection
@@ -324,15 +324,15 @@ Each step is independently useful, which is the property that makes this safe to
    alongside `unreachable` for a connection that authenticated and found its daemon gone.
 
    What it does NOT do, deliberately: it records that a crossing happened and how big it was, not
-   what was asked. §6.4's tension ("an approval broker wants the opposite for the ask itself") is
+   what was asked. [§6.4](#6-the-risks-worth-naming-before-any-code)'s tension ("an approval broker wants the opposite for the ask itself") is
    untouched and still has to be resolved when step 3 arrives.
-2. **The injecting proxy for git** (§5). No human, no queue, no new protocol beyond a credential
+2. **The injecting proxy for git** ([§5](#5-three-tiers-not-two--and-git-wants-the-middle-one)). No human, no queue, no new protocol beyond a credential
    helper — and it satisfies the "action crosses, credential does not" rule outright. This is the
    step that most likely *removes* the need for step 3 in the motivating case.
 3. **One allowlisted verb, synchronous approval.** Human answers at a foreground `yolo approve`
    while the jail blocks with a timeout. Proves the preview-and-validate design without any
    durable queue. Fail-closed on timeout. Pick the verb from what step 1 shows people ask for and
-   step 2 cannot cover — deliberately *not* pre-chosen here any more, because §5 makes
+   step 2 cannot cover — deliberately *not* pre-chosen here any more, because [§5](#5-three-tiers-not-two--and-git-wants-the-middle-one) makes
    `github.pr_comment` a poor first candidate: it is proxy-tier.
 4. **The durable queue.** Only once (3) shows the synchronous version is genuinely too limiting —
    which it may not be, if the human is usually present.
@@ -373,7 +373,7 @@ possibly step 1.** The reasons:
   ([`handoff-guest-notch-macos.md`](../plans/handoff-guest-notch-macos.md), env-manager Phase 7 —
   was "P7"). This is a thing that does not exist yet. Wrong-things-first is the right default when
   the wrong things include silent data loss.
-- **Its upstream design question is now answered:** nix **OQ-1** (formerly *N3*) — whether `host`
+- **Its upstream design question is now answered:** nix **[OQ-1](noncontainer-nix-environment.md#decision-ledger)** (formerly *N3*) — whether `host`
   is a place agents *run* or only get *configured* — closed 2026-09-02 as **run**
   ([`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) Decision Ledger): `yolo
   host -- <cmd>` shipped with a composed launch env. That is the world in which this doc said a
@@ -383,11 +383,11 @@ possibly step 1.** The reasons:
 - **Step 1 (the audit log) is the exception** and could be done any time: it is small, it is
   strictly additive, it has no design risk, and it produces the evidence that would tell us which
   verbs are worth gating. If any part of this jumps the queue, that is the part.
-- **Step 2 (the injecting proxy) is the second exception**, and it never waited on nix OQ-1 the
-  way the approval tier did (both are now unblocked — OQ-1 closed 2026-09-02) — it has no human in
+- **Step 2 (the injecting proxy) is the second exception**, and it never waited on nix [OQ-1](noncontainer-nix-environment.md#decision-ledger) the
+  way the approval tier did (both are now unblocked — [OQ-1](noncontainer-nix-environment.md#decision-ledger) closed 2026-09-02) — it has no human in
   it, so it does not care whether `host` is a place agents run. It is also the step that makes the motivating use case work, which is a better
   reason to do it than its position here suggests.
-- **Auth-mode modeling was split out** to [`agent-auth-modes.md`](agent-auth-modes.md) (**B3** in §7's numbering)
+- **Auth-mode modeling was split out** to [`agent-auth-modes.md`](agent-auth-modes.md) (**B3** in [§7](#7-what-i-would-build-in-order)'s numbering)
   and is **higher value than anything in this doc**, because it is a real gap today rather than a
   new capability. It waits on nothing.
 
@@ -400,8 +400,8 @@ becomes cheap to justify.
 ## 9. Open questions for the maintainer
 
 **Three are live — A, C and the packaging half of E.** OQ-A is the one that sizes the project:
-if synchronous-only suffices, most of §7 step 3 never gets written. OQ-B is settled and OQ-D was
-delegated; both are in §9.1 so they stop being counted as open here.
+if synchronous-only suffices, most of [§7](#7-what-i-would-build-in-order) step 3 never gets written. OQ-B is settled and OQ-D was
+delegated; both are in [§9.1](#91-decision-ledger) so they stop being counted as open here.
 
 1. 💬 **OQ-A — is the synchronous version enough?** Most of the complexity here is durability. If
    the human is usually at the keyboard, a blocking ask with a timeout may cover the real need —
@@ -409,7 +409,7 @@ delegated; both are in §9.1 so they stop being counted as open here.
 
    _Leaning:_ **Yes for v1** — build step 2 synchronously and let a real timeout teach us whether a
    request needs to outlive its connection. The durability design does not get cheaper by being
-   written first, and §2 names outliving-the-connection as one of the two absences, so this is the
+   written first, and [§2](#2-the-two-absences-and-why-they-are-the-whole-design) names outliving-the-connection as one of the two absences, so this is the
    one worth testing rather than assuming. *(Sharpened 2026-09-02: every verb yolo ships today is
    synchronous request/response over `hostservice` — `refresh`/`cached`/`proxy`/`ping` in
    `internal/oauthbroker/handler.go` — and nothing anywhere in the repo has yet needed a request
@@ -443,8 +443,8 @@ delegated; both are in §9.1 so they stop being counted as open here.
    worth answering before step 3 rather than after.
 
    > [!NOTE]
-   > **The security half of OQ-E is SETTLED (§10.3, §10.6): authority stays in the unix socket.**
-   > What is still open is only *packaging* — which client the human reaches for. §7 notes that
+   > **The security half of OQ-E is SETTLED ([§10.3](#103-fit-against-yolo-concretely), [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)): authority stays in the unix socket.**
+   > What is still open is only *packaging* — which client the human reaches for. [§7](#7-what-i-would-build-in-order) notes that
    > `yolo approve`, a TUI and a web app are all clients of the same daemon, which is what makes
    > the remaining half a preference rather than a constraint.
 
@@ -454,16 +454,16 @@ delegated; both are in §9.1 so they stop being counted as open here.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-B1b — vendor unYOLO's policy engine, or re-derive it?** §10.6's verdict is *build B1b,
+4. 💬 **[OQ-B1b](#9-open-questions-for-the-maintainer) — vendor unYOLO's policy engine, or re-derive it?** [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)'s verdict is *build B1b,
    do not adopt `gh-broker`* — but it leaves one piece genuinely open, and it sizes **B1b alone**
    rather than the whole broker. `authorization/policy` + `authorization/budget` + `internal/copyx`
    are MIT, **stdlib-only**, ~2,100 lines with a 1,456-line test file, and drop into `vendor/` with
    no new module requirements and no change to the `goSrc` fileset.
 
    _Leaning:_ **Copy at a pinned SHA rather than take a module dependency**, if the policy model is
-   wanted verbatim. Given §10.4's no-compatibility policy a module edge buys nothing, and this is
+   wanted verbatim. Given [§10.4](#104-maturity--the-decisive-negative)'s no-compatibility policy a module edge buys nothing, and this is
    the one piece where copying plausibly beats re-deriving. What decides it is whether we want
-   *that* policy model at all — everything else in §10.6 says re-derive.
+   *that* policy model at all — everything else in [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) says re-derive.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -472,17 +472,17 @@ delegated; both are in §9.1 so they stop being counted as open here.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-B | Approvals are **per-action by default**; a reusable grant is bounded by duration **AND** use count, and the operator may only **narrow** — chain is policy ceiling ≥ request ≥ operator's grant | 2026-08-12 | §10.1, §10.6, §10.8 |
-| OQ-D | **Not open here — delegated** to [`agent-auth-modes.md`](agent-auth-modes.md) §10 OQ-1. Kept as a pointer because it decides whether this daemon ever holds auth state | 2026-08-12 | §6, §10 |
+| OQ-B | Approvals are **per-action by default**; a reusable grant is bounded by duration **AND** use count, and the operator may only **narrow** — chain is policy ceiling ≥ request ≥ operator's grant | 2026-08-12 | [§10.1](#101-the-six-claims-from-the-website-pass-checked-against-code), [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker), [§10.8](#108-what-this-changes-in-the-plan) |
+| OQ-D | **Not open here — delegated** to [`agent-auth-modes.md`](agent-auth-modes.md) [§10](agent-auth-modes.md#10-order-of-work) [OQ-1](agent-auth-modes.md#12-decision-ledger). Kept as a pointer because it decides whether this daemon ever holds auth state | 2026-08-12 | [§6](#6-the-risks-worth-naming-before-any-code), [§10](#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) |
 
 > [!WARNING]
 > **OQ-B corrects a reading this document itself got backwards.** An earlier draft had the human
 > *widening* a grant at the prompt; unYOLO's `validApprovalConstraints` rejects that outright
-> (§10.1, correction 1). Narrowing-only is the whole reason a reusable approval does not decay into
+> ([§10.1](#101-the-six-claims-from-the-website-pass-checked-against-code), correction 1). Narrowing-only is the whole reason a reusable approval does not decay into
 > an allowlist — do not "simplify" it back to a single bound or to operator-set limits.
 >
 > **OQ-D is a pointer, not an open question — do not count it as one.** Answering it means running
-> auth §5 for a while and reporting *there*; nothing in this doc waits on it except §6's
+> auth [§5](#5-three-tiers-not-two--and-git-wants-the-middle-one) for a while and reporting *there*; nothing in this doc waits on it except [§6](#6-the-risks-worth-naming-before-any-code)'s
 > "does the daemon hold auth state" branch, which is downstream of B2 anyway.
 
 ---
@@ -490,7 +490,7 @@ delegated; both are in §9.1 so they stop being counted as open here.
 ## 10. Prior art — unYOLO (re-analyzed FROM SOURCE 2026-08-12)
 
 [unyolo.io](https://unyolo.io/) is an MIT-licensed **access-control framework for coding agents**,
-by Onur Solmaz ([@osolmaz](https://github.com/osolmaz)). Its thesis is this doc's §3 rule almost
+by Onur Solmaz ([@osolmaz](https://github.com/osolmaz)). Its thesis is this doc's [§3](#3-use-case-a-approval-gated-host-credentials-the-github-case) rule almost
 verbatim: the agent never receives a credential; the broker holds it and executes the operation. It
 ships three brokers — **gh-broker** (GitHub), **hf-broker** (Hugging Face), **sudo-broker** (Unix
 commands) — plus an approvals UI as a plugin for OpenClaw (a different agent host, not Claude Code).
@@ -498,8 +498,8 @@ commands) — plus an approvals UI as a plugin for OpenClaw (a different agent h
 **This section was rewritten from the code.** The first pass (same date) was written from the
 project's website and threat-model page; this one is based on the repository at commit `eaee5fe`
 (2026-08-10) — 893 Go files, 440 commits — plus the GitHub API for maturity signals and the HN
-thread, which was finally retrieved. **Every §10.1 claim below was checked against a file.** The
-headline correction is in §10.6: the earlier "probably an adoption" is wrong.
+thread, which was finally retrieved. **Every [§10.1](#101-the-six-claims-from-the-website-pass-checked-against-code) claim below was checked against a file.** The
+headline correction is in [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker): the earlier "probably an adoption" is wrong.
 
 **Two premises the queue carried were wrong**, and both mattered:
 
@@ -530,7 +530,7 @@ Also confirmed: the `presentation` projection is a fixed vocabulary, not free te
 `unknown|low|medium|high|critical` with `Title`/`Summary`/`Target`/`Facts`/`Warnings`/`PlanHash`
 (`approval/view/presentation.go:68-102`).
 
-**Correction 1 — the operator can only narrow, never widen.** §10 previously said the human could
+**Correction 1 — the operator can only narrow, never widen.** [§10](#10-prior-art--unyolo-re-analyzed-from-source-2026-08-12) previously said the human could
 "widen it to a bounded window they choose." Wrong: `validApprovalConstraints` rejects any constraint
 exceeding what was requested (`constraints.Duration > duration` → false), and the request was itself
 bounded by policy. The chain is **policy ceiling ≥ request ≥ operator's grant**, monotonically
@@ -620,7 +620,7 @@ not an in-jail self-report — the per-jail *relay* that used to do this was del
 `7df7c5aa`; `internal/svcendpoint` + `internal/hostservice` are the current mechanism), and a host
 singleton that holds the credential. B1b is that pattern aimed at `github.com` instead of
 `platform.claude.com` — including the `ca.key`-must-not-cross lesson already learned the hard way
-(#33). **The mechanism §5 called "not speculative" is not merely not speculative; it is shipped, in
+(#33). **The mechanism [§5](#5-three-tiers-not-two--and-git-wants-the-middle-one) called "not speculative" is not merely not speculative; it is shipped, in
 this repo, and debugged.**
 
 **b. The dependency asymmetry rules out wholesale adoption.** yolo has **3 direct dependencies**
@@ -710,7 +710,7 @@ substantive:
   part, but after running a few agents on my own data for a while I think the harder problem is what
   they can see. Prompts turned out to be pretty much useless as a boundary there, so I ended up
   pushing all of it server-side."* The author's reply conflates read-gating with action-gating and
-  does not engage the exfiltration framing. **This is the same gap §10.7 names for both projects.**
+  does not engage the exfiltration framing. **This is the same gap [§10.7](#107-where-it-does-not-help) names for both projects.**
 - **`TZubiri`** juxtaposes *"product about access control"* against
   `curl -fsSL https://unyolo.io/install.sh | sh` with no further comment; a third user filed issue
   #140 over it. The author says the installer is intentional.
@@ -724,58 +724,58 @@ discharged by reading the code rather than by the thread.
 **Verdict: reimplement the ideas, with one narrow vendoring option. Not adopt, not vendor
 wholesale, not ignore.** The four decisive facts, in order of weight:
 
-1. **B1b's transport already exists in this repo** (§10.3a). Adopting `gh-broker` would replace a
+1. **B1b's transport already exists in this repo** ([§10.3](#103-fit-against-yolo-concretely)a). Adopting `gh-broker` would replace a
    mechanism yolo owns, has shipped, and has already debugged with an external 73-module daemon.
    That is the argument that settles it; everything below is confirmation.
-2. **The GitHub App requirement** (§10.2). Today this jail reads `origin` with a fine-grained PAT
+2. **The GitHub App requirement** ([§10.2](#102-what-gh-broker-actually-does--the-b1b-question-answered)). Today this jail reads `origin` with a fine-grained PAT
    from `.env`. gh-broker's production path wants a registered GitHub App with a private key and a
    webhook secret, and explicitly rejects inline PATs outside development. For a
    single-developer tool that is a large step change in setup cost — and yolo does not need it,
    because a PAT plus a policy engine gives the same per-operation control.
-3. **Maturity** (§10.4): bus factor 1, 5 weeks old, importable tags that lag the real work, and a written
+3. **Maturity** ([§10.4](#104-maturity--the-decisive-negative)): bus factor 1, 5 weeks old, importable tags that lag the real work, and a written
    promise to break formats in place.
-4. **Build shape** (§10.3b/e): 73 modules vs yolo's 3, no nix packaging, 19 MB of CC BY 4.0
+4. **Build shape** ([§10.3](#103-fit-against-yolo-concretely)b/e): 73 modules vs yolo's 3, no nix packaging, 19 MB of CC BY 4.0
    snapshots if `brokers/github` is bundled.
 
 **Which ideas earn their complexity — take these:**
 
 - **The four-effect policy evaluation, deny-before-grant.** `allow` / `deny` / `request` /
-  `no_match` as outcomes of one evaluation, with deny checked first. This collapses §5's three
+  `no_match` as outcomes of one evaluation, with deny checked first. This collapses [§5](#5-three-tiers-not-two--and-git-wants-the-middle-one)'s three
   *architectures* into one policy *file*, and it is the single highest-value idea here. Already
-  recorded in §10.1 of the earlier pass; now verified as ~110 lines of evaluator
+  recorded in [§10.1](#101-the-six-claims-from-the-website-pass-checked-against-code) of the earlier pass; now verified as ~110 lines of evaluator
   (`authorization/policy/decide.go`).
 - **`Grantable` as a code-owned per-operation flag.** The real deny floor. One bool, validated at
   parse time, and it makes "approval can never unlock this verb" *unrepresentable* rather than
   merely unwritten — the same shape as the launchers-ordered-last invariant yolo already likes.
 - **A server-owned operation registry** (operation → target kinds → permitted attrs, validated
-  before evaluation). This is §6.5's *do not let this become a general RPC* made concrete and
+  before evaluation). This is [§6.5](#6-the-risks-worth-naming-before-any-code)'s *do not let this become a general RPC* made concrete and
   mechanical instead of aspirational.
 - **Both bounds on a grant — duration AND uses — narrowing-only.** The correct answer to **OQ-B**,
-  and stronger than the one currently recorded there (§10.1, correction 1).
+  and stronger than the one currently recorded there ([§10.1](#101-the-six-claims-from-the-website-pass-checked-against-code), correction 1).
 
 **Which do NOT earn it yet — defer, with the trigger that would change the answer:**
 
 - **Content-addressed plans.** The digest is 20 lines, but its *value* requires a durable queue, a
-  separate executor process, and a re-check at execution — unYOLO has all three; yolo's §7 step 3
+  separate executor process, and a re-check at execution — unYOLO has all three; yolo's [§7](#7-what-i-would-build-in-order) step 3
   deliberately has none. Ceremony until then. **Trigger:** B2 step 4 (the durable queue).
 - **`expected_revision` + idempotency keys.** These exist to stop two operators double-approving.
-  A single foreground `yolo approve` cannot race itself. **Trigger:** the second front-end in §7.1
+  A single foreground `yolo approve` cannot race itself. **Trigger:** the second front-end in [§7.1](#71-one-front-door-several-front-ends)
   actually being built — at which point take it rather than re-deriving it.
 - **One-time decision tokens.** Their purpose is to make an *out-of-band* channel (Telegram
   callback buttons) unforgeable. yolo's approval path is a unix socket whose posture is already
   "the socket file is the authentication." **Trigger:** approvals ever leaving the socket.
 - **The grant store** (SQLite + goose). Not separable from `authorization/grants` in any case, and
-  §7 step 3 is synchronous by design.
-- **A separate operator listener with distinct credentials.** Still the right answer to §7.1's
+  [§7](#7-what-i-would-build-in-order) step 3 is synchronous by design.
+- **A separate operator listener with distinct credentials.** Still the right answer to [§7.1](#71-one-front-door-several-front-ends)'s
   caution — but that caution only bites if the approval UI is HTTP. Keep authority in the unix
-  socket and the problem does not arise. **Trigger:** the web UI in §7.1.
+  socket and the problem does not arise. **Trigger:** the web UI in [§7.1](#71-one-front-door-several-front-ends).
 
 **The one vendoring option, if the policy model is wanted verbatim:** `authorization/policy` +
 `authorization/budget` + `internal/copyx` are MIT, **stdlib-only**, ~2,100 lines with a 1,456-line
 test file, and drop into `vendor/` with **no new module requirements** and no change to the `goSrc`
-fileset. Given §10.4's no-compatibility policy, copying at a pinned SHA is strictly safer than a
+fileset. Given [§10.4](#104-maturity--the-decisive-negative)'s no-compatibility policy, copying at a pinned SHA is strictly safer than a
 module dependency, and it is the one piece where copying plausibly beats re-deriving. **This is a
-genuine fork in the road and it is the maintainer's call — tracked as `💬 OQ-B1b` in §9.**
+genuine fork in the road and it is the maintainer's call — tracked as [`💬 OQ-B1b`](#9-open-questions-for-the-maintainer) in [§9](#9-open-questions-for-the-maintainer).**
 (It used to point at "the B1b row in `roadmap.md`", which was never a row: the roadmap cites
 questions by ID and holds none of its own, so the pointer resolved to nothing in either direction.)
 
@@ -791,14 +791,14 @@ same shape without contact, and that is still the most useful signal in this sec
 - **Its threat model assumes what yolo provides, and vice versa.** Verified at
   `docs/security/THREAT_MODEL.md:124-128`: it does *not* sandbox provider code, validate arbitrary
   shell strings, proxy arbitrary provider APIs, or replace host hardening. yolo *is* the sandbox and
-  does none of the credential brokering. Complementary layers — which is why §10.3g holds even
+  does none of the credential brokering. Complementary layers — which is why [§10.3](#103-fit-against-yolo-concretely)g holds even
   though the verdict is "build."
-- **Its non-protections list names our §6.5 risk.** "Does not validate arbitrary shell strings" is
+- **Its non-protections list names our [§6.5](#6-the-risks-worth-naming-before-any-code) risk.** "Does not validate arbitrary shell strings" is
   the same admission as *do not let this become a general RPC* — and `sudo-broker` is exactly the
   product shaped like that risk. Still worth reading before writing any yolo verb that shells out.
 - **The threat model does not address prompt injection** or distinguish a malicious agent from a
-  confused one — the same gap `sequencing-2026-07.md` §4e names for yolo. **The HN thread's one real critique
-  (§10.5) is precisely this**, and it went unanswered. Neither project has an answer.
+  confused one — the same gap `sequencing-2026-07.md` [§4e](../plans/sequencing-2026-07.md#4e-open-questions-the-maintainer-must-decide) names for yolo. **The HN thread's one real critique
+  ([§10.5](#105-the-hacker-news-thread--retrieved-and-nearly-empty)) is precisely this**, and it went unanswered. Neither project has an answer.
 
 ### 10.8 What this changes in the plan
 
@@ -806,12 +806,12 @@ same shape without contact, and that is still the most useful signal in this sec
   transport is `claude-oauth-broker`'s pattern re-aimed. The row's "possibly an ADOPTION" note is
   retired.
 - **B1b now carries one decision:** vendor the stdlib-only policy engine, or re-derive the model?
-  §10.6 recommends vendoring it.
+  [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) recommends vendoring it.
 - **B2 should take** the four-effect evaluation, `Grantable`, and two-bound narrowing-only grants —
   and should **defer** content-addressed plans, `expected_revision`, and decision tokens until the
-  triggers in §10.6 fire.
-- **§5's three tiers should still be re-expressed as one policy file with three effects.**
+  triggers in [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) fire.
+- **[§5](#5-three-tiers-not-two--and-git-wants-the-middle-one)'s three tiers should still be re-expressed as one policy file with three effects.**
 - **OQ-B is answered** — per-action by default, operator may only narrow. Better than the earlier
   reading, which had the human widening.
-- **OQ-E's security half stands** (§10.3, §10.6): keep authority in the unix socket, and the
+- **OQ-E's security half stands** ([§10.3](#103-fit-against-yolo-concretely), [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker)): keep authority in the unix socket, and the
   separate-listener problem never arises.

@@ -65,8 +65,8 @@ destination, and only *selected* packs stage. Nothing is active by default — a
 empty `packs` yields a jail with no agent and no briefing. Two packs may name one
 `into` (an agent pack plus a house-rules pack); first writer wins the mount, since
 podman rejects a duplicate mount destination. See
-[`pack-system.md`](pack-system.md) §3 (`briefing` kind) and
-[`jail-home.md`](jail-home.md) §2.9.
+[`pack-system.md`](pack-system.md) [§3](pack-system.md#3-the-kinds-their-footprints-and-conflict-rules) (`briefing` kind) and
+[`jail-home.md`](jail-home.md) [§2.9](jail-home.md#29-remaining-mounts-in-assembly-order).
 
 ## What the generated briefing contains
 
@@ -90,7 +90,7 @@ each file from four parts, in order:
    > declare it but the grant is honored only if the user approved it at `yolo
    > pack install`; and at the `yolo host apply` notch the path it names IS the
    > generated destination, so the host render ignores it outright. See
-   > [`pack-system.md`](pack-system.md) §3 and §9.
+   > [`pack-system.md`](pack-system.md) [§3](pack-system.md#3-the-kinds-their-footprints-and-conflict-rules) and [§9](pack-system.md#9-the-credential-boundary-the-pin-not-a-prompt).
 
    > [!IMPORTANT]
    > **The jail must not read yolo's own host output back in** — the briefing
@@ -98,7 +98,7 @@ each file from four parts, in order:
    > was reading yolo's generated output back in as the user's tree",
    > `internal/cli/run/prepare.go`). Once the 2026-08-04 ruling
    > ([`shipped-2026-08-pack-batch.md`](../plans/shipped-2026-08-pack-batch.md)
-   > §6a) made the host destination a file
+   > [§6a](../plans/shipped-2026-08-pack-batch.md#6a-ruled--briefings-are-fully-generated-and-controlled)) made the host destination a file
    > yolo composes wholesale, `after: "host:.claude/CLAUDE.md"` named yolo's own
    > output: the jail prepended a file already holding every pack's prose and
    > then composed the same packs again at part 4. Measured 2026-08-31 in a real
@@ -127,7 +127,7 @@ each file from four parts, in order:
    standing counterpart line for the no-handoff case, because an
    always-present line moves the bytes
    `TestBriefingJailHeaderIsUnchanged` pins —
-   host-to-jail-handoff.md §9a) → Environment
+   [host-to-jail-handoff.md](host-to-jail-handoff.md) [§9a](host-to-jail-handoff.md#9a-there-is-no-standing-where-your-task-comes-from-line)) → Environment
    (workspace, home, network,
    forwarded ports, and the *configured* resource limits with a
    `yolo-cglimit` pointer — nothing when none are set) → the rg
@@ -141,7 +141,7 @@ each file from four parts, in order:
    (conditional: yolo-jail source workspaces only). There is no tool
    inventory, no MCP listing (agents read their own generated config), and
    the handoff is a conditional section, not a skill — see
-   host-to-jail-handoff.md.
+   [host-to-jail-handoff.md](host-to-jail-handoff.md).
 3. **`agents_md_extra`**, appended verbatim — the config key
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
    arbitrary extra instructions into every generated briefing.
@@ -156,7 +156,7 @@ each file from four parts, in order:
    pack rather than through part 1.
 
 **Parts 1–3 are the same at every destination; part 4 is not** (changed 2026-09-03,
-[`briefing-audiences.md`](briefing-audiences.md) §5). A `briefing` contribution may
+[`briefing-audiences.md`](briefing-audiences.md) [§5](briefing-audiences.md#5-what-it-costs-and-what-it-lifts)). A `briefing` contribution may
 carry `agents: [...]` — the launcher commands its prose is *for* — and it then
 reaches only the destinations whose owning pack declared a matching `agent`. A
 contribution naming no audience broadcasts, which is what every shipped pack does,
@@ -242,7 +242,7 @@ captured at container start), and the skills refresh clears *inside* the staged
 dirs rather than recreating them. If either write path ever switches to
 unlink-and-recreate, running jails silently stop seeing refreshes — treat the
 in-place rule as load-bearing. The general form of it is
-[`jail-home.md`](jail-home.md) §7 gotcha 1 (`WriteInPlace`,
+[`jail-home.md`](jail-home.md) [§7](jail-home.md#7-gotchas) gotcha 1 (`WriteInPlace`,
 `internal/entrypoint/fsx.go:35-40`).
 
 Generation happens early in the run pipeline, **before** the container exists
@@ -290,7 +290,7 @@ examples below were written when `gemini` was still an agent — read them as
 > there. Under that model the symlink recipe above is the *jail-notch* story;
 > at the host the one-copy-in-the-local-pack is the sharing mechanism, and it
 > exists precisely because per-agent copies drift. See
-> [`pack-system.md`](pack-system.md) §14.
+> [`pack-system.md`](pack-system.md) [§14](pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling).
 
 Note the symlink is resolved on the **host at generation time** — the
 in-jail file is a materialized merged copy. Retargeting a host symlink
@@ -308,9 +308,9 @@ propagates on the next `yolo` invocation like any other briefing edit.
 - **One session / handover to the next agent:** write `.yolo/handover.md`
   in the workspace — it's surfaced as a **Handoff** section in the next
   launch's briefing and consumed once that briefing is written
-  (host-to-jail-handoff.md). Consumption is announced on stderr with the
+  ([host-to-jail-handoff.md](host-to-jail-handoff.md)). Consumption is announced on stderr with the
   `mv` that undoes it, because core cannot tell `yolo -- claude` from
-  `yolo -- bash` and either one carries the handoff away (§9c).
+  `yolo -- bash` and either one carries the handoff away ([§9c](host-to-jail-handoff.md#9c-the-residual-core-cannot-tell-an-agent-from-a-shell)).
 
 ## Gotchas
 
@@ -331,7 +331,7 @@ propagates on the next `yolo` invocation like any other briefing edit.
   > pack's `reads-host` contribution, and **the gate is ORIGIN, not a baked
   > list**: `HonoredHostFiles` honors it for an embedded or local pack and
   > refuses a fetched one outright. `claude` and `pi` each declare just
-  > `settings.json`. See [`jail-home.md`](jail-home.md) §2.9.
+  > `settings.json`. See [`jail-home.md`](jail-home.md) [§2.9](jail-home.md#29-remaining-mounts-in-assembly-order).
 
 <!-- changelog -->
 <!-- NOTE 2026-08-23: entries below are HISTORY, not current state. They name
@@ -341,8 +341,8 @@ propagates on the next `yolo` invocation like any other briefing edit.
   equivalents; the `agents` config key retracted (it is now a hard error naming
   `packs`); `gemini` removed as an agent (`~/.gemini/` is agy's tree now); staging
   filenames corrected to `briefing-<pack>.md` (per-DESTINATION since 2026-09-03)
-- The Handoff section has no standing counterpart line, and its pointer is consumed only once a briefing has actually been written — a jail with no briefing destination leaves it fresh (host-to-jail-handoff.md §9)
-- Deleted the `jail-startup` skill; the one-time host→jail handoff is now a conditional **Handoff** section in the briefing, consumed by the run pipeline on the launch that reads it (host-to-jail-handoff.md)
+- The Handoff section has no standing counterpart line, and its pointer is consumed only once a briefing has actually been written — a jail with no briefing destination leaves it fresh ([host-to-jail-handoff.md](host-to-jail-handoff.md) [§9](host-to-jail-handoff.md#9-follow-up-what-shipped-and-where-it-diverges-from-4))
+- Deleted the `jail-startup` skill; the one-time host→jail handoff is now a conditional **Handoff** section in the briefing, consumed by the run pipeline on the launch that reads it ([host-to-jail-handoff.md](host-to-jail-handoff.md))
 - Agent library model: briefings/skills are now generated only for the agents selected in the `agents` config (default claude), driven by the agent registry (`src/entrypoint/agent_registry.py`); added opencode + pi
 - [8e08ea37] Removed the MCP-server listing from the generated briefing (agents read their own generated config) and dropped the mcp_servers/mcp_presets plumbing from generate_agents_md
 - [89dc5579] Slimmed the Skills section to the one non-discoverable fact: user-level skill dirs read-only in-jail, workspace-level writable, promote via the host

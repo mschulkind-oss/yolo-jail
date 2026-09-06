@@ -8,7 +8,7 @@ summary: "A relative env_sources file entry resolves beside the file that declar
 
 # Where relative `env_sources` paths resolve — beside the declaring file
 
-**Status:** DECIDED and IMPLEMENTED, 2026-08-30 (OQ-E1/E2 ruled the same day; commit
+**Status:** DECIDED and IMPLEMENTED, 2026-08-30 ([OQ-E1](#decision-ledger)/E2 ruled the same day; commit
 `7f600ef7`). The host-notch refusal that preceded the ruling shipped hours earlier as
 `b08dda02` and is superseded by it — kept, narrowed to a backstop.
 
@@ -25,7 +25,7 @@ before, config-dir now — which was the hole: a cloned repo could plant `prod.e
 workspace and a user config's relative entry fed it into the jail's environment.
 
 **Reads with:** [`host-agent-environment.md`](host-agent-environment.md) (the design this
-extends — its §5.4/§6.1 step 3 define the env_sources channel at the host notch),
+extends — its [§5.4](host-agent-environment.md#54-what-needs-host-env-actually-means--and-why-a-pack-cannot-declare-it)/[§6.1](host-agent-environment.md#61-execution-flow) step 3 define the env_sources channel at the host notch),
 [`storage-and-config.md`](storage-and-config.md) (the user/workspace config scopes the
 boundary argument leans on).
 
@@ -102,8 +102,8 @@ notch.
 
 | Option | Rule | Verdict |
 | :--- | :--- | :--- |
-| **A. Refusal at the host notch** | Relative entries skipped with a warning naming the remedy | Shipped 2026-08-30 (`b08dda02`), **superseded the same day** by OQ-E1's ruling — correct security, wrong shape: it banned a useful spelling instead of fixing what the spelling meant. Survives as the backstop (§2). |
-| **B. Anchor at the user config's dir, host notch only** | Post-merge anchor swap in `hostEnvVars` | **Rejected.** A dialect split (one spelling, two meanings by surface) plus a wrong-file guess for included entries. See the warning in §2. |
+| **A. Refusal at the host notch** | Relative entries skipped with a warning naming the remedy | Shipped 2026-08-30 (`b08dda02`), **superseded the same day** by [OQ-E1](#decision-ledger)'s ruling — correct security, wrong shape: it banned a useful spelling instead of fixing what the spelling meant. Survives as the backstop ([§2](#2-how-it-is-built--anchoring-at-load-time)). |
+| **B. Anchor at the user config's dir, host notch only** | Post-merge anchor swap in `hostEnvVars` | **Rejected.** A dialect split (one spelling, two meanings by surface) plus a wrong-file guess for included entries. See the warning in [§2](#2-how-it-is-built--anchoring-at-load-time). |
 | **C. Beside the declaring file, everywhere** | Anchor at load time, per file, both notches | **RULED and IMPLEMENTED** (`7f600ef7`). Git's `include.path` convention; the only version where the workspace's own entries are structurally unchanged. |
 
 ## 5. Non-goals
@@ -120,12 +120,12 @@ notch.
 | Risk (from the proposal) | How it landed |
 | :--- | :--- |
 | Provenance plumbing touches the most load-bearing config code | The load-time design avoided plumbing entirely — one function called at the one funnel every file already passes through; no merge changes, no new shapes |
-| User-config entries silently change meaning in existing jails | Deliberate, ruled (OQ-E2: unified); discovery through the resolution warnings, which name the new absolute path, and a one-time config-diff re-approval for the workspace config |
-| The dialect split re-enters as "host-only anchoring" | OQ-E2 ruled it out in advance; §2's warning records why |
+| User-config entries silently change meaning in existing jails | Deliberate, ruled ([OQ-E2](#decision-ledger): unified); discovery through the resolution warnings, which name the new absolute path, and a one-time config-diff re-approval for the workspace config |
+| The dialect split re-enters as "host-only anchoring" | [OQ-E2](#decision-ledger) ruled it out in advance; [§2](#2-how-it-is-built--anchoring-at-load-time)'s warning records why |
 
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-E1 | **Declaring-file anchoring (option C) replaces the refusal** — *"yes"* | 2026-08-30 | §1, §2 (`7f600ef7`) |
-| OQ-E2 | **Unified: both notches, jail included** — *"yes unified"*; host-only anchoring is B wearing C's implementation and is ruled out | 2026-08-30 | §1 table, §4 (`7f600ef7`) |
+| OQ-E1 | **Declaring-file anchoring (option C) replaces the refusal** — *"yes"* | 2026-08-30 | [§1](#1-the-rule), [§2](#2-how-it-is-built--anchoring-at-load-time) (`7f600ef7`) |
+| OQ-E2 | **Unified: both notches, jail included** — *"yes unified"*; host-only anchoring is B wearing C's implementation and is ruled out | 2026-08-30 | [§1](#1-the-rule) table, [§4](#4-the-option-space-with-verdicts) (`7f600ef7`) |

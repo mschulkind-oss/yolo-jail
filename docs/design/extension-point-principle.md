@@ -2,8 +2,8 @@
 
 **Status:** PRINCIPLE — cited as a rule by sibling docs, so it is amended rather than rewritten.
 Last reviewed **2026-08-23**. Its live test case is [`broker-as-a-pack.md`](broker-as-a-pack.md)
-§3.1: the pack-shipped binary capability was designed as a *general* capability before its first
-consumer needed it (OQ-BP5/BP6 are still open), which is this principle doing its job.
+[§3.1](broker-as-a-pack.md#31-what-is-actually-unresolved-here): the pack-shipped binary capability was designed as a *general* capability before its first
+consumer needed it ([OQ-BP5](broker-as-a-pack.md#OQ-BP5)/BP6 are still open), which is this principle doing its job.
 
 **Audience:** anyone adding a mechanism that someone outside this repo will build on — a pack
 manifest field, a loophole manifest field, a contribution kind, a config key, a hook name. Read this
@@ -59,7 +59,7 @@ applies to **implementation**, not to **extension points**:
 
 ### A worked contrast, both from this repo, one week apart
 
-- **[`loophole-transport.md`](loophole-transport.md) §6 — waiting was right.** The generic
+- **[`loophole-transport.md`](loophole-transport.md) [§6](loophole-transport.md#6-what-i-would-build-in-order) — waiting was right.** The generic
   `loopback-tls` transport was deliberately *not* generalized before a second consumer. Correct,
   because a transport is **internal**: we own both consumers (the broker relay and
   `host-processes`), nobody outside writes one, and the second consumer taught us the shape for
@@ -68,7 +68,7 @@ applies to **implementation**, not to **extension points**:
   "one loophole, one pack, hardcode the name and move on." But a loophole manifest is a **public
   surface** — the whole point of the loophole framework is that people write their own. A
   hardcoded `supersedes: "claude-oauth-broker"` would have been the workaround we then supported
-  forever, and it would have baked in the error §3 of that doc exists to prevent: naming the
+  forever, and it would have baked in the error [§3](pack-capabilities.md#3-why-a-capability-and-not-the-loopholes-name) of that doc exists to prevent: naming the
   implementation instead of the job.
 
 Same repo, same fortnight, opposite answers — and the discriminator is not "how many consumers" but
@@ -105,11 +105,11 @@ prism's layer model, the transport. Those follow the ordinary rule — wait for 
 because we are the second consumer.
 
 **It is not a licence to add fields nobody asked for.** [`pack-capabilities.md`](pack-capabilities.md)
-§7 lists three things it deliberately does *not* build (pack-to-pack `serves`, `needs`, a central
+[§7](pack-capabilities.md#7-the-first-party-instance) lists three things it deliberately does *not* build (pack-to-pack `serves`, `needs`, a central
 registry) and gives a reason for each. Designing the extension point means settling the *semantics*
 so later additions fit — not shipping the additions.
 
 **It does not make the first instance special.** If designing the general mechanism cannot be
 justified without the one use case, the use case is doing the arguing and the design will fit it too
-closely. The test in [`pack-capabilities.md`](pack-capabilities.md) §3 — *would this survive the
+closely. The test in [`pack-capabilities.md`](pack-capabilities.md) [§3](pack-capabilities.md#3-why-a-capability-and-not-the-loopholes-name) — *would this survive the
 implementation being replaced?* — is the one that catches that.
