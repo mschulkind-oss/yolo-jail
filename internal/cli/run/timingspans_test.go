@@ -142,3 +142,89 @@ func TestTeardownChainSilentWhenOff(t *testing.T) {
 		t.Fatal("timing-off teardown created host-perf.log")
 	}
 }
+
+// parseDieAndCleanup against real `podman events --format '{{.Time}}
+// {{.Status}}'` shapes: the first die wins, the last cleanup wins, garbage
+// and empty logs are skips/not-found, never errors.
+func TestParseDieAndCleanup(t *testing.T) {
+	die, cleanup, ok := parseDieAndCleanup("1757152800.500 create\n" +
+		"1757152810.250 die\n" +
+		"1757152813.750 cleanup\n")
+	if !ok {
+		t.Fatal("die not found")
+	}
+	if die.UnixMilli() != 1757152810250 {
+		t.Errorf("die = %v, want unix-milli 1757152810250", die.UnixMilli())
+	}
+	if cleanup == nil || cleanup.Sub(die) != 3500*time.Millisecond {
+		t.Errorf("cleanup = %v, want die+3.5s", cleanup)
+	}
+
+	// Several dies (a stop-timeout escalation): the FIRST is the one that
+	// bounds Window A.
+	die, _, ok = parseDieAndCleanup("1757152810.250 die\n1757152815.000 die\n")
+	if !ok || die.Unix() != 1757152810 {
+		t.Errorf("first die must win; got %v ok=%v", die, ok)
+	}
+
+	if _, _, ok := parseDieAndCleanup(""); ok {
+		t.Error("empty log must be not-found (the rootless file-backend case)")
+	}
+	if _, _, ok := parseDieAndCleanup("garbage line\n1.5 not-a-status\n"); ok {
+		t.Error("garbage must be skipped, not fatal")
+	}
+}
+
+// The attribution's contract against a fake Exec: a good fixture renders the
+// die→exit gap, and every failure mode (not podman, exec failed, timeout,
+// nonzero rc, no events) renders nothing — silence is the failure mode.
+func TestAttributeWindowA(t *testing.T) {
+	ws := t.TempDir()
+	o := goldenOptions(ws, t.TempDir())
+	o.Timing = true
+	o.initPerf("yolo-ws-test0000")
+
+	podmanExit := time.Unix(1757152830, 0).UTC() // 20s after the die below
+	fixture := "1757152800.5 start\n1757152810.25 die\n1757152825.0 cleanup\n"
+
+	cases := []struct {
+		name string
+		rt   string
+		res  ExecResult
+		want bool
+	}{
+		{"good fixture", "podman", ExecResult{Stdout: fixture, RC: 0, Ran: true}, true},
+		{"not podman", "container", ExecResult{Stdout: fixture, RC: 0, Ran: true}, false},
+		{"exec failed", "podman", ExecResult{Ran: false}, false},
+		{"timeout", "podman", ExecResult{Timeout: true, Ran: true}, false},
+		{"nonzero rc", "podman", ExecResult{RC: 1, Ran: true}, false},
+		{"no events", "podman", ExecResult{RC: 0, Ran: true}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				if argv[0] != "podman" || argv[1] != "events" {
+					t.Errorf("unexpected probe argv %v", argv)
+				}
+				for _, a := range argv {
+					if a == "--until" {
+						t.Logf("bounded: %v", argv)
+					}
+				}
+				return tc.res
+			}
+			line, ok := o.attributeWindowA("yolo-ws-test0000", tc.rt, podmanExit.Add(-time.Minute), podmanExit)
+			if ok != tc.want {
+				t.Fatalf("ok = %v, want %v (line %q)", ok, tc.want, line)
+			}
+			if ok {
+				if !strings.Contains(line, "19.750s") { // 1757152830 - 1757152810.25
+					t.Errorf("gap wrong in %q", line)
+				}
+				if !strings.Contains(line, "cleanup event") {
+					t.Errorf("cleanup delta missing in %q", line)
+				}
+			}
+		})
+	}
+}

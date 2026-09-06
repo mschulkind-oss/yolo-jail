@@ -166,6 +166,32 @@ func (s *Span) End() {
 	})
 }
 
+// LastEvent returns the most recent recorded event with the given name.
+// Window A attribution uses it to read the child.exited mark's timestamp
+// without the run package keeping its own copy of the clock.
+func (l *Log) LastEvent(name string) (Event, bool) {
+	if !l.enabled() {
+		return Event{}, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := len(l.events) - 1; i >= 0; i-- {
+		if l.events[i].Name == name {
+			return l.events[i], true
+		}
+	}
+	return Event{}, false
+}
+
+// StartTime returns the collector's zero of time — the moment of construction,
+// which initPerf places right after the launch's early refusals.
+func (l *Log) StartTime() time.Time {
+	if !l.enabled() {
+		return time.Time{}
+	}
+	return l.start
+}
+
 // Report renders the completed events to w in the same register as the
 // entrypoint's perf log (boot.go's dump): elapsed-since-start, delta from the
 // previous line, and the label — plus a duration column the entrypoint has no

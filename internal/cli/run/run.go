@@ -1003,7 +1003,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// os.Exit(128+n)s the moment this returns — no statement after it
 		// will ever run, and defers do not fire on this path. The file sink
 		// already holds every event; this is the terminal copy (design D6).
-		o.emitTimingReport(0)
+		o.emitTimingReport(0, cname, rt)
 	}
 
 	// Fresh-launch line (with resource parts) to stderr for log capture (audit
@@ -1053,7 +1053,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// Normal exit teardown.
 	o.teardownAfterExit(socatProcs, portSocketDir, hostServices, socketsDir, cname, rt, rc)
-	o.emitTimingReport(rc)
+	o.emitTimingReport(rc, cname, rt)
 	return rc
 }
 
@@ -1089,12 +1089,22 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 // in-container branch prints. Called from the normal-exit tail and from INSIDE
 // onTerminate — never later, because the signal arm os.Exits past anything
 // after it.
-func (o *Options) emitTimingReport(rc int) {
+//
+// The Window A attribution line renders only when a child.exited mark exists
+// (the fresh-launch and attach arms both produce one) and podman's event log
+// answers — every failure mode is silence, and the attribution's own run is
+// spanned so it can never become a mystery itself.
+func (o *Options) emitTimingReport(rc int, cname, rt string) {
 	if !o.timingEnabled() {
 		return
 	}
 	o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing (rc %d) ---[/bold cyan]", rc)
 	o.Perf.Report(o.Stderr, time.Now())
+	if child, ok := o.Perf.LastEvent("child.exited"); ok {
+		if line, ok := o.attributeWindowA(cname, rt, o.Perf.StartTime(), child.At); ok {
+			o.pr(o.Stderr).printf("[dim]  %s[/dim]", line)
+		}
+	}
 	o.pr(o.Stderr).printf("[dim]  host file: %s[/dim]",
 		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
 	o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
@@ -1246,7 +1256,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	sp = o.Perf.Span("shutdown.oom_check")
 	o.maybeWarnAboutOOMKiller(rc, rt)
 	sp.End()
-	o.emitTimingReport(rc)
+	o.emitTimingReport(rc, cname, rt)
 	return rc
 }
 
