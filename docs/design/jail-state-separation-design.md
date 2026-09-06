@@ -359,7 +359,7 @@ boundary; every derived artifact (venv, cache, store) stays on its side.
    `per_side_paths` from `yolo-jail.jsonc`; emit one
    `-v {ws_state}/venv-<slug>:{workspace_path}` per entry.
 5. Register `ws_state/venv*` and the jail-land store with prune/storage
-   accounting; update `storage-and-config.md` (the mount-rationale comment
+   accounting; update [`storage-and-config.md`](./storage-and-config.md) (the mount-rationale comment
    at run_cmd.py:1153 and doc line 82/274 describe the old invariant).
 6. Migration routine per § "Migration": layout-version marker in
    `GLOBAL_STORAGE`, host-store dangling-symlink prune, lazy per-workspace

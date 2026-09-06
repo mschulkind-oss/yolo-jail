@@ -11,7 +11,7 @@ summary: "yolo's host daemons bind the host's loopback and tell the jail to dial
 **Status:** DECIDED and BUILT — 2026-08-18, reopened once and closed again 2026-09-04 (frontmatter
 `status: accepted`). Zero open questions; **eight rulings**, all shipped, counting the ledger rows
 below. **Three things in it are still unverified on hardware nobody here has**, and none is an open
-question: the slirp4netns fallback (§3.2.1) has never run on a real old-passt host, the
+question: the slirp4netns fallback ([§3.2.1](#321-dial-the-name-not-the-gateway)) has never run on a real old-passt host, the
 unnamed-backend rescue ([§6.2](#62-a-podman-too-old-to-name-its-stack), added 2026-09-04) has never
 run on a real podman below 5.1, and the fatal witness reaches your own jails only after a host
 `just load`. The first and last are 🔒 rows in [`../plans/roadmap.md`](../plans/roadmap.md).
@@ -19,7 +19,7 @@ run on a real podman below 5.1, and the fatal witness reaches your own jails onl
 > [!WARNING]
 > **A nested jail gives this entire document a free green.** Podman-in-podman forces `--net=host`,
 > which is the one mode where the jail's loopback and the launcher's are the same loopback — so no
-> amount of nested testing can observe the class of bug this doc exists for (§3 row 6, §7). Use the
+> amount of nested testing can observe the class of bug this doc exists for ([§3](#3-the-networking-modes-spelled-out) row 6, [§7](#7-the-in-jail-witness)). Use the
 > bare-`podman run` reproduction in [`../../AGENTS.md`](../../AGENTS.md) instead; the jail is the
 > "host" for a container it starts, and the bug reproduces exactly.
 
@@ -42,8 +42,8 @@ from every jail from `58ce9ee` (2026-08-13) until the fix landed.
 
 **Start with [§2](#2-the-mental-model-two-namespaces-two-loopbacks)** if the networking is the unclear
 part; everything else depends on it. **Reads with**
-[`loophole-transport.md`](./loophole-transport.md) — §3.0 is the loopback-bind security model this
-preserves, §7.4 the decision that retired `unix-socket`.
+[`loophole-transport.md`](./loophole-transport.md) — [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) is the loopback-bind security model this
+preserves, [§7.4](#74-current-mode) the decision that retired `unix-socket`.
 
 ## Decisions
 
@@ -162,7 +162,7 @@ the packet actually arrive?**
 > [§3.2.1](#321-dial-the-name-not-the-gateway).
 
 **Verification status, stated honestly.** The pasta rows and both slirp4netns rows are **measured**
-(§3.1, §3.2, 2026-08-17). The netavark row comes from documented behaviour and from `46d5417`'s
+([§3.1](#31-where-pasta-actually-forwards), [§3.2](#32-both-fixes-measured-from-a-development-jail), 2026-08-17). The netavark row comes from documented behaviour and from `46d5417`'s
 findings, **not** re-measured. Whether `--map-host-loopback` exists on a given *user's* passt build is
 a host fact yolo probes for rather than assumes ([§6.1](#61-the-ladder)).
 
@@ -175,10 +175,10 @@ A differential probe from inside a jail:
 | `169.254.1.2:22` | connects, `SSH-2.0-OpenSSH_10.4` | the mapping is real and reaches the host |
 | `169.254.1.3:22` | times out | control — the mapping is specific, not a catch-all |
 | the two yolo ports | **refused**, not timed out | the packet reached a host stack and got an RST |
-| `192.168.1.131:22` | refused | the jail's own copy of the host's address, per §2 |
+| `192.168.1.131:22` | refused | the jail's own copy of the host's address, per [§2](#2-the-mental-model-two-namespaces-two-loopbacks) |
 
 **Pasta forwards `169.254.1.2` to the host's global address, not its loopback.** That single fact
-kills the "bind somewhere else" family in §5.
+kills the "bind somewhere else" family in [§5](#5-why-bind-somewhere-else-has-nowhere-to-go).
 
 ### 3.2 Both fixes, measured from a development jail
 
@@ -203,11 +203,11 @@ CONNECT
 
 | probe | result | what it establishes |
 | :--- | :--- | :--- |
-| `--network=pasta`, dial `169.254.1.2` | **FAIL** | the outage of §1, reproduced on demand |
-| `--network=pasta:--map-host-loopback,169.254.1.2` | **CONNECT** | §6's fix works, with the exact argv the launcher emits |
+| `--network=pasta`, dial `169.254.1.2` | **FAIL** | the outage of [§1](#1-the-symptom), reproduced on demand |
+| `--network=pasta:--map-host-loopback,169.254.1.2` | **CONNECT** | [§6](#6-the-fix)'s fix works, with the exact argv the launcher emits |
 | `--network=slirp4netns`, dial `10.0.2.2` | **FAIL** | podman passes `--disable-host-loopback` by default |
-| `--network=slirp4netns:allow_host_loopback=true`, dial `10.0.2.2` | **CONNECT** | the option forwards the host's loopback — **to that address**, which is the catch: §3.2.1 |
-| `--network=pasta:--bogus-flag` | `Error: pasta failed with exit code 1` (rc 126) | **a wrong option is a failed launch, not a degraded one** — why §6 detects positively and emits nothing when unsure |
+| `--network=slirp4netns:allow_host_loopback=true`, dial `10.0.2.2` | **CONNECT** | the option forwards the host's loopback — **to that address**, which is the catch: [§3.2.1](#321-dial-the-name-not-the-gateway) |
+| `--network=pasta:--bogus-flag` | `Error: pasta failed with exit code 1` (rc 126) | **a wrong option is a failed launch, not a degraded one** — why [§6](#6-the-fix) detects positively and emits nothing when unsure |
 
 Measured 2026-08-17 on podman 5.8.4 with the bundled pasta 2026_07_16 and slirp4netns 1.3.4. Two
 implementation notes settled along the way: passt accepts the same address for `--map-host-loopback`
@@ -273,7 +273,7 @@ const DefaultAdvertiseHost = "host.containers.internal"  // advertise: "wherever
 
 The daemon writes the advertised host and port into an endpoint file the jail reads, and the jail
 dials it. Correct **if and only if** the runtime forwards `host.containers.internal` to the host's
-loopback — which [`loophole-transport.md`](./loophole-transport.md) §3.0 states as an assumption
+loopback — which [`loophole-transport.md`](./loophole-transport.md) [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) states as an assumption
 rather than something checked.
 
 **The premise was never universally true, and the counter-evidence predated the design by four
@@ -287,7 +287,7 @@ returns EADDRNOTAVAIL."* The knowledge was in the tree; the design contradicted 
 
 > [!NOTE]
 > **Binding `0.0.0.0` or the host's global address WOULD work.** This section rejects it on security
-> grounds, not because it fails — and the §3.1 probe proves it: `169.254.1.2:22` connected and
+> grounds, not because it fails — and the [§3.1](#31-where-pasta-actually-forwards) probe proves it: `169.254.1.2:22` connected and
 > returned the host's SSH banner, because `sshd` does not bind loopback-only. Pasta's tunnel delivers
 > to the host's global address, so **anything listening there is reachable from a jail**. Our daemons
 > were unreachable purely because of the address they chose.
@@ -313,7 +313,7 @@ out on a host:
   still gate *access*, so this is not an open door. What is lost is that a loopback-bound socket is
   unreachable from the network **by construction** — no auth bug can be exploited remotely, because
   no packet can arrive. Binding globally converts that structural guarantee into a dependency on the
-  auth path being correct. §3.0 exists for precisely that distinction.
+  auth path being correct. [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) exists for precisely that distinction.
 - **Every jail could reach every other jail's port.** Under pasta all jails resolve
   `host.containers.internal` to the same tunnel, so a globally-bound daemon is visible to all of them.
   Each per-jail relay would still reject a foreign token — but that is a move from *unreachable* to
@@ -332,8 +332,8 @@ out on a host:
 | Option | Verdict |
 | :--- | :--- |
 | **Make the runtime forward loopback** | ✅ **Taken.** Bind, cert pinning, per-jail token and the one-transport decision all survive untouched |
-| **Bind `0.0.0.0` / the LAN address** | ❌ It *works*, but trades a structural guarantee for permanent LAN exposure that §3.0 exists to prevent |
-| **Bind-mounted AF_UNIX socket on Linux** | ❌ Works and is LAN-free, but reopens a decision `loophole-transport.md` §7.4 retired *on purpose*. Only if the ladder in §6.1 runs out entirely, and then as a written amendment |
+| **Bind `0.0.0.0` / the LAN address** | ❌ It *works*, but trades a structural guarantee for permanent LAN exposure that [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) exists to prevent |
+| **Bind-mounted AF_UNIX socket on Linux** | ❌ Works and is LAN-free, but reopens a decision [`loophole-transport.md`](./loophole-transport.md) [§7.4](./loophole-transport.md#74-oq-t9--one-transport-or-two--decided-unify) retired *on purpose*. Only if the ladder in [§6.1](#61-the-ladder) runs out entirely, and then as a written amendment |
 
 ---
 
@@ -346,7 +346,7 @@ token and the single-transport decision all survive verbatim, and
 `TestAdvertiseHostDiffersFromBindHost` keeps passing unmodified — real signal that nothing
 security-shaped moved.
 
-**OQ-R1 — yolo may take ownership of the default path.** `bridge` used to mean *"emit nothing, let
+**[OQ-R1](#decisions) — yolo may take ownership of the default path.** `bridge` used to mean *"emit nothing, let
 podman decide"*. It now means *"emit the option that makes this host work, when we can positively
 identify it."* A transport that works only by luck of the host's network stack is not a transport.
 
@@ -356,13 +356,13 @@ warned about it. We do not override a setting someone chose deliberately.
 ### 6.1 The ladder
 
 Every rung requires a **positive fact**. Anything unproven emits nothing and keeps today's argv
-byte-for-byte, because a wrong network option is a container that fails to *start* (§3.2) — the one
+byte-for-byte, because a wrong network option is a container that fails to *start* ([§3.2](#32-both-fixes-measured-from-a-development-jail)) — the one
 outcome this area may never produce.
 
 1. **pasta that advertises `--map-host-loopback`** → `--network=pasta:--map-host-loopback,169.254.1.2`
 2. **else slirp4netns, if podman itself reports the binary** →
    `--network=slirp4netns:allow_host_loopback=true` **and**
-   `--add-host=host.containers.internal:10.0.2.2` — both flags, per §3.2.1
+   `--add-host=host.containers.internal:10.0.2.2` — both flags, per [§3.2.1](#321-dial-the-name-not-the-gateway)
 3. **a podman that named no stack at all** → rung 2, on the same bar ([§6.2](#62-a-podman-too-old-to-name-its-stack))
 4. **else** warn and launch
 
@@ -371,7 +371,7 @@ execs the helper, so a binary yolo can see and podman cannot is a container that
 Podman reports `host.slirp4netns.executable` as `""` when it has none, which makes the empty string a
 positive fact.
 
-**OQ-R3 — an old passt degrades; it is never refused.** yolo runs on the host it is given. The
+**[OQ-R3](#decisions) — an old passt degrades; it is never refused.** yolo runs on the host it is given. The
 requirement that survives is on the *message*: it names what breaks, the passt version that fixes it,
 and the command that checks — and it must not read as an error, because launching is correct and the
 user has done nothing wrong.
@@ -386,9 +386,9 @@ user has done nothing wrong.
 The launcher read that empty string as *"unrecognised backend"* and emitted nothing — rung 4 of the
 ladder, byte-for-byte today's argv, silence. Correct for a podman that would not answer; wrong here,
 because this host **has** a rootless stack and can forward the loopback. Every jail-facing service was
-down on it, exactly as in §1, and nothing said so at launch.
+down on it, exactly as in [§1](#1-the-symptom), and nothing said so at launch.
 
-**OQ-R7 — an UNREAD backend is not an unrecognised one.** The two are the same empty string one layer
+**[OQ-R7](#decisions) — an UNREAD backend is not an unrecognised one.** The two are the same empty string one layer
 down, so the launcher records the difference where it can still see it: `podman info` parsed, the host
 is rootless, and `rootlessNetworkCmd` was empty. That fact — `backendUnnamed` — is positive in the
 same sense every other fact here is, so a podman that did not run, would not answer, answered
@@ -429,7 +429,7 @@ to evaluate it is **at boot, from inside the jail** (`internal/entrypoint/reacha
 
 ### 7.1 The severity rule
 
-**OQ-R2 — an enabled jail-facing service the jail cannot reach is a failed launch.** One rule, no
+**[OQ-R2](#decisions) — an enabled jail-facing service the jail cannot reach is a failed launch.** One rule, no
 per-service severity. It composes with [`loophole-activation.md`](./loophole-activation.md): nothing
 is enabled unless it was asked for, so the fatal only ever fires for a service the user deliberately
 turned on. *"Enabled but unreachable"* is a genuine contradiction; *"present but unused"* is not a
@@ -455,13 +455,13 @@ collide: *fail when a service is unreachable* plus *an old passt cannot reach an
 an old-passt host cannot launch at all, reintroducing the refusal R3 rejected.
 
 From inside, the two cases are the same observation — a service that does not answer — and the facts
-that separate them are all host facts. So **OQ-R6 — the launcher's decision rides in on the wire**, as
+that separate them are all host facts. So **[OQ-R6](#decisions) — the launcher's decision rides in on the wire**, as
 `YOLO_HOST_LOOPBACK` (`paths.HostLoopbackEnvVar`), with every state spelled:
 
 | Value | Means | May escalate |
 | :--- | :--- | :--- |
 | `requested` | the forwarding option reached the argv | ✅ |
-| `shared` | the jail shares the launcher's netns — nothing to forward | ✅ (**OQ-R5**) |
+| `shared` | the jail shares the launcher's netns — nothing to forward | ✅ (**[OQ-R5](#decisions)**) |
 | `unsupported` | yolo identified the stack and could not make it forward | ❌ — a known limitation (R3) |
 | `unknown` | no conclusion: rootful, unrecognised backend, explicit `network.mode`, opt-out | ❌ |
 | *absent* | the launcher predates this variable | ❌ — same default as `unknown` |
@@ -470,7 +470,7 @@ that separate them are all host facts. So **OQ-R6 — the launcher's decision ri
 unrecognised value must never be read as permission to fail a launch, so escalating values are
 matched exactly and everything else falls through to safe.
 
-**OQ-R5 — a shared namespace is the strongest case, not the weakest.** `--net=host` and a nested jail
+**[OQ-R5](#decisions) — a shared namespace is the strongest case, not the weakest.** `--net=host` and a nested jail
 share the launcher's stack, so `advertiseHostFor` publishes `127.0.0.1` for them, which *"is not
 merely correct, it is the ONLY thing that works."* No gateway name, no forwarding hop, no rootless
 stack in the path: a service unreachable there has no ambiguity to hide in.
@@ -483,7 +483,7 @@ stack in the path: a service unreachable there has no ambiguity to hide in.
 > never reach it; it reads the same `sharesLauncherNetns` predicate `advertiseHostFor` uses, so the
 > severity the witness applies and the address the daemons publish cannot disagree. The witness
 > gives `shared` its own diagnosis (naming pasta only to rule it out — there is no forwarding hop in
-> that mode) **and escalates on it** (OQ-R5). The whole table is one allowlist,
+> that mode) **and escalates on it** ([OQ-R5](#decisions)). The whole table is one allowlist,
 > `loopbackDisposition.escalates()`, matching the two positive claims and defaulting everything else
 > to safe. Widening it forced the verdict to be rewritten: it opened *"yolo requested host-loopback
 > forwarding"*, false of a launch that never needed any, so the lead sentence is now
@@ -491,7 +491,7 @@ stack in the path: a service unreachable there has no ambiguity to hide in.
 
 ### 7.3 Which fault classes escalate
 
-**OQ-R4 — all three.** The witness distinguishes three failures
+**[OQ-R4](#decisions) — all three.** The witness distinguishes three failures
 ([`reachability.go#L155-L169`](../../internal/entrypoint/reachability.go#L155-L169)) and every one of
 them means "this service is enabled and this jail cannot use it":
 
@@ -525,7 +525,7 @@ because both are the kind that get re-derived:
 > ([`assemble_parts.go#L408`](../../internal/cli/run/assemble_parts.go#L408)) with **no publish
 > gate**, because it is a host-wide singleton rather than a per-jail daemon. So *"broker configured,
 > singleton down"* reaches the jail as `faultUnpublished` **by design** — and under this ruling that
-> refuses **every jail on the host**, not just one. Consistent with §1, which calls a jail with no
+> refuses **every jail on the host**, not just one. Consistent with [§1](#1-the-symptom), which calls a jail with no
 > Claude auth the case closest to fatal, and accepted deliberately (2026-08-18). It is the largest
 > behaviour change in this document.
 
@@ -571,7 +571,7 @@ A nested podman is forced onto `--net=host`, the one mode where the bug **cannot
 
 **Blind is not the same as impossible.** `yolo`'s forced `--net=host` is what blinds the nested path;
 a bare `podman run --network=pasta …` from the same jail reproduces the outage and demonstrates the
-fix in one command each (§3.2). The carve-out carries that recipe, because "you cannot test this
+fix in one command each ([§3.2](#32-both-fixes-measured-from-a-development-jail)). The carve-out carries that recipe, because "you cannot test this
 here" is the belief that let the option ship unmeasured for a day longer than it needed to.
 
 `yolo check`'s output now labels each green *"host-side, says nothing about in-jail reachability"*,
@@ -610,8 +610,8 @@ underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail
 
 - **Not** a change to `internal/svcendpoint`. A patch touching the bind or the advertise host is the
   wrong patch.
-- **Not** a change to the §3.0 security model. Loopback-bind stands; this makes it *reachable*.
-- **Not** a revival of `unix-socket` as a second transport (§5.1).
+- **Not** a change to the [§3.0](./loophole-transport.md#30-what-loopback-tls-actually-is-in-plain-terms) security model. Loopback-bind stands; this makes it *reachable*.
+- **Not** a revival of `unix-socket` as a second transport ([§5.1](#51-what-binding-globally-would-cost)).
 - **Not** macOS work. Apple Container and `macos-user` do not use pasta.
 
 ---
@@ -622,34 +622,34 @@ underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail
 | :--- | :--- |
 | yolo now dictates a network option and a future podman default shifts under it | Detect from `podman info` rather than assuming; emit nothing for unrecognised backends, which is exactly the old behaviour |
 | A user with an explicit `network.mode` keeps the bug | Warn on that path naming the reachability risk, rather than overriding a setting they chose |
-| A flaky witness bricks launches now R2's fatal is wired | It shipped as a warning first and was proven at real boots both ways before the flip (§7.4); a 30s budget; the escape hatch |
-| The netavark row (§3) is unverified | It does not gate the fix — the pasta path is measured and unrecognised backends keep the old behaviour |
-| The slirp4netns fallback is unverified on a real old-passt host | Nobody has one. The flags are measured (§3.2.1); what is unproven is a host yolo has never seen accepting `--network=slirp4netns` at all |
+| A flaky witness bricks launches now R2's fatal is wired | It shipped as a warning first and was proven at real boots both ways before the flip ([§7.4](#74-current-mode)); a 30s budget; the escape hatch |
+| The netavark row ([§3](#3-the-networking-modes-spelled-out)) is unverified | It does not gate the fix — the pasta path is measured and unrecognised backends keep the old behaviour |
+| The slirp4netns fallback is unverified on a real old-passt host | Nobody has one. The flags are measured ([§3.2.1](#321-dial-the-name-not-the-gateway)); what is unproven is a host yolo has never seen accepting `--network=slirp4netns` at all |
 | A host running slirp with a non-default CIDR | The `10.0.2.2` pin misses and services stay unreachable — but the jail is told `requested`, which R4/R2 would escalate. Bounded and known, not eliminated |
 
 ---
 
 ## 10. Status
 
-**Built:** the launcher fix and its ladder (§6), the in-jail witness (§7) and the escape hatch, **all
+**Built:** the launcher fix and its ladder ([§6](#6-the-fix)), the in-jail witness ([§7](#7-the-in-jail-witness)) and the escape hatch, **all
 four disposition spellings** ([§7.2](#72-what-may-escalate)) with absent reserved for a launcher
 older than the variable, the boot log, `yolo check`'s honesty labels, and the `AGENTS.md` carve-out.
 
 **Built as of 2026-08-18 — the three severity changes**, which shipped together because two of them
 are invisible until the fatal is on: `shared` joined the escalating set
-([§7.2](#72-what-may-escalate), OQ-R5), the escalation widened to all three fault classes
-([§7.3](#73-which-fault-classes-escalate), OQ-R4), and the witness became FATAL
-([§7.4](#74-current-mode), OQ-R2). The guard test that made the flip a deliberate act rather than a
+([§7.2](#72-what-may-escalate), [OQ-R5](#decisions)), the escalation widened to all three fault classes
+([§7.3](#73-which-fault-classes-escalate), [OQ-R4](#decisions)), and the witness became FATAL
+([§7.4](#74-current-mode), [OQ-R2](#decisions)). The guard test that made the flip a deliberate act rather than a
 typo was deleted by the change it was guarding, which is how it was meant to be passed; the
-observation it was holding out for is recorded in §7.4.
+observation it was holding out for is recorded in [§7.4](#74-current-mode).
 
-**Built 2026-09-04 — OQ-R7**, the unnamed-backend rescue ([§6.2](#62-a-podman-too-old-to-name-its-stack)),
+**Built 2026-09-04 — [OQ-R7](#decisions)**, the unnamed-backend rescue ([§6.2](#62-a-podman-too-old-to-name-its-stack)),
 found by CI going red on a runner-image podman downgrade rather than by anyone's host.
 
 **Not built:** nothing. Every question this document raised is answered and every ruling in the
 ledger is in the code.
 
-**Still unverified on hardware nobody here has:** OQ-R7 joins the slirp4netns fallback in that column.
+**Still unverified on hardware nobody here has:** [OQ-R7](#decisions) joins the slirp4netns fallback in that column.
 The rescue emits the flags the fallback already emits, and its decision and gathering are pinned by
 unit tests through the production seams — but no one here has a podman below 5.1 to launch on, and a
 nested jail is structurally blind to this whole class ([§7.5](#75-a-nested-jail-is-structurally-blind-to-this)).

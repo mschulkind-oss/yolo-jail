@@ -9,12 +9,12 @@ summary: "SUPERSEDED IN PART. The proposal — replace the mechanism list with o
 # What a fetched pack may execute, and what you are agreeing to
 
 **Status:** SUPERSEDED IN PART, 2026-08-17 — **supersession map and every code anchor re-verified
-2026-08-23.** §5 is live; **OQ-X1 was RETIRED 2026-09-04 (subsumed by `trust-paths.md` OQ-TP9)**; §6 is RULED, **retargeted by TP9 onto the startup banner, and BUILT there 2026-09-04**; §3's premise is FALSE and §4's
+2026-08-23.** [§5](#5-the-shallow-pin-problem) is live; **[OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) was RETIRED 2026-09-04 (subsumed by [`trust-paths.md`](./trust-paths.md) [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04))**; [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) is RULED, **retargeted by TP9 onto the startup banner, and BUILT there 2026-09-04**; [§3](#3-the-principle)'s premise is FALSE and [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation)'s
 table is retired. **Read the map below before trusting any section of this document**, because
 "superseded in part" without saying which part is worse than no warning at all.
 
 > [!CAUTION]
-> **This document's central premise is FALSE, established by the inventory it provoked.** §3 says the
+> **This document's central premise is FALSE, established by the inventory it provoked.** [§3](#3-the-principle) says the
 > commit pin "is the rule already applied one level up". It is applied **nowhere**:
 > `LockEntry.Commit` has four readers, all display-only, and the launch path re-resolves the
 > *config's* ref against the local mirror instead. **Still true, verified 2026-08-23, repinned 2026-09-02**: the field is
@@ -24,7 +24,7 @@ table is retired. **Read the map below before trusting any section of this docum
 > [`trust-paths.md`](./trust-paths.md) first — it enumerates all 25 paths, finds that pinning changes
 > an outcome in **three** of them, and surfaced a verified hole that outranked this proposal
 > entirely: the origin gate this document generalizes **was not enforced in the jail**. *That hole is
-> now closed* — OQ-TP6 made a refused contribution refuse the launch (built 2026-08-18, `6385dfbb`) —
+> now closed* — [OQ-TP6](#decision-ledger) made a refused contribution refuse the launch (built 2026-08-18, `6385dfbb`) —
 > but it was closed by deleting the split, not by adopting P1.
 >
 > Written from a review challenge that turned out to be right: *"a fetched pack can't introduce an
@@ -37,26 +37,26 @@ cannot separate them, because both run in the same place. The property that actu
 from unsafe is **pinning**, and this repo just ruled on it one level up: an approval binds to a
 *specific commit*. Apply the same rule one level down — **a fetched pack may cause execution only of
 content it pins** — and the mechanism list disappears. *That last clause is the sentence that turned
-out to be false; see §3.*
+out to be false; see [§3](#3-the-principle).*
 
 ### Which parts to trust — the supersession map
 
 | § | What it claims | Status as of 2026-08-23 |
 | :--- | :--- | :--- |
-| **§1** | the origin gate covers `reads-host`, `mount`, host-prepending `briefing` and `program via installer`; `via: npm` is ungated | ✅ **authoritative** — re-verified today at [`contributes.go:963-981`](../../internal/packdecl/contributes.go) and [`contributes.go:30`](../../internal/packdecl/contributes.go). One thing moved: a refusal is now **fatal**, not a warning (OQ-TP6) |
-| **§2** | `npm install -g` runs arbitrary code too, so containment cannot separate the two | ✅ **the observation stands** — but the asymmetry is now a **decided** one rather than an oversight. See the note inside §2 |
-| **§3** | P1: a fetched pack may cause execution only of content it pins — *"the rule already applied one level up"* | ⚠️ **premise FALSE, shape survives.** No commit pin is enforced anywhere; P1 itself is neither adopted nor rejected |
-| **§4** | the permit/refuse table | ❌ **retired.** Its live-hole row was closed a different way (OQ-TP5, `b3a29ad8`); the rest are unbuilt proposals. Kept as documentation, annotated in place |
-| **§5** | a digest-pinned installer script is not a digest-pinned binary | ✅ **authoritative and live** — untouched by anything since, and it is what OQ-X1 turns on |
-| **§6** | approval prose must say what is touched, in which direction, on whose machine | ✅ **authoritative, RULED, and BUILT 2026-09-04** — retargeted by TP9 onto the startup banner, which renders each claim as a sentence (`packload.Claim.DisclosureSentence`). The terse-token form it replaced is quoted in §6 |
-| **§7** | four things this does not license | ✅ **three of four hold**; the *"not a new lockfile"* bullet is refuted — see the warning there |
+| **[§1](#1-what-the-gate-does-today)** | the origin gate covers `reads-host`, `mount`, host-prepending `briefing` and `program via installer`; `via: npm` is ungated | ✅ **authoritative** — re-verified today at [`contributes.go:963-981`](../../internal/packdecl/contributes.go) and [`contributes.go:30`](../../internal/packdecl/contributes.go). One thing moved: a refusal is now **fatal**, not a warning ([OQ-TP6](#decision-ledger)) |
+| **[§2](#2-why-that-rationale-does-not-hold)** | `npm install -g` runs arbitrary code too, so containment cannot separate the two | ✅ **the observation stands** — but the asymmetry is now a **decided** one rather than an oversight. See the note inside [§2](#2-why-that-rationale-does-not-hold) |
+| **[§3](#3-the-principle)** | P1: a fetched pack may cause execution only of content it pins — *"the rule already applied one level up"* | ⚠️ **premise FALSE, shape survives.** No commit pin is enforced anywhere; P1 itself is neither adopted nor rejected |
+| **[§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation)** | the permit/refuse table | ❌ **retired.** Its live-hole row was closed a different way ([OQ-TP5](#decision-ledger), `b3a29ad8`); the rest are unbuilt proposals. Kept as documentation, annotated in place |
+| **[§5](#5-the-shallow-pin-problem)** | a digest-pinned installer script is not a digest-pinned binary | ✅ **authoritative and live** — untouched by anything since, and it is what [OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) turns on |
+| **[§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04)** | approval prose must say what is touched, in which direction, on whose machine | ✅ **authoritative, RULED, and BUILT 2026-09-04** — retargeted by TP9 onto the startup banner, which renders each claim as a sentence (`packload.Claim.DisclosureSentence`). The terse-token form it replaced is quoted in [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) |
+| **[§7](#7-what-this-does-not-license)** | four things this does not license | ✅ **three of four hold**; the *"not a new lockfile"* bullet is refuted — see the warning there |
 
 **Reads with:** [`trust-paths.md`](./trust-paths.md) (**read this first** — the inventory that
-superseded §3 and §4, and where OQ-TP3/TP4/TP7 live) ·
+superseded [§3](#3-the-principle) and [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation), and where [OQ-TP3](./trust-paths.md#decision-ledger)/TP4/TP7 live) ·
 [`program-delivery.md`](./program-delivery.md) (restates the venue question at wider scope than the
-pack system) · [`pack-system.md`](./pack-system.md) (§9, the origin gate) ·
-[`loophole-packaging-overview.md`](./loophole-packaging-overview.md) (§4, the four gates) ·
-[`broker-as-a-pack.md`](./broker-as-a-pack.md) (§3.1 designs pack-shipped binaries, which is the
+pack system) · [`pack-system.md`](./pack-system.md) ([§9](./pack-system.md#9-the-credential-boundary-the-pin-not-a-prompt), the origin gate) ·
+[`loophole-packaging-overview.md`](./loophole-packaging-overview.md) ([§4](./loophole-packaging-overview.md#4-trust-this-is-a-widening-and-the-first-draft-got-that-wrong), the four gates) ·
+[`broker-as-a-pack.md`](./broker-as-a-pack.md) ([§3.1](./broker-as-a-pack.md#31-what-is-actually-unresolved-here) designs pack-shipped binaries, which is the
 other half of this question) · [`gate-placement-principle.md`](./gate-placement-principle.md).
 
 ---
@@ -81,8 +81,8 @@ let a git ref execute arbitrary code in the jail."*
 > [!NOTE]
 > **This section describes a gate that no longer exists, and the note that used to sharpen it is
 > spent.** As drafted, the host computed the refusal, printed a warning and staged the pack anyway;
-> OQ-TP6 then made it FATAL (built 2026-08-18, `6385dfbb`). **Both are now moot**:
-> [`trust-paths.md`](trust-paths.md) OQ-TP9 deleted the whole fetched-pack host-access gate on
+> [OQ-TP6](#decision-ledger) then made it FATAL (built 2026-08-18, `6385dfbb`). **Both are now moot**:
+> [`trust-paths.md`](trust-paths.md) [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the whole fetched-pack host-access gate on
 > 2026-09-04, taking `packMayAccessHost`, `run.refusedLaunchError` and
 > `internal/cli/run/packrefusal.go` with it — which is why the file this note used to cite is not
 > in the tree. Read the section for what the gate WAS; nothing in it is current behaviour.
@@ -104,21 +104,21 @@ three execute inside the sandbox. Containment is a property of *where*, and all 
 *where*.
 
 **Nor is "we already allow native binary downloads" a contradiction to explain away** — it is the
-clue. [`broker-as-a-pack.md`](./broker-as-a-pack.md) §3.1 designs pack-shipped binaries and makes a
+clue. [`broker-as-a-pack.md`](./broker-as-a-pack.md) [§3.1](./broker-as-a-pack.md#31-what-is-actually-unresolved-here) designs pack-shipped binaries and makes a
 `sha256` **mandatory**, with this reasoning: the lockfile's commit pins the pack's tree, a downloaded
 artifact is not in that tree, so without a digest "pinned pack" silently means "pinned manifest,
 unpinned executable". That is the whole distinction, and it has nothing to do with mechanism.
 
 > [!IMPORTANT]
 > **The asymmetry this section calls an oversight was RULED a deliberate one on 2026-08-18, and this
-> document lost that argument.** [`trust-paths.md`](./trust-paths.md) §3.1 keeps both halves on
+> document lost that argument.** [`trust-paths.md`](./trust-paths.md) [§3.1](./trust-paths.md#31-a-refused-contribution-refuses-the-launch-) keeps both halves on
 > purpose: *"an npm install names a registry package and is not origin-gated — it is the same trust
 > as any dependency the user already installs"*, and the gate *"is about `curl | sh` specifically,
-> not about installing things."* The ruling's own reason for the split is not containment (which §2
+> not about installing things."* The ruling's own reason for the split is not containment (which [§2](#2-why-that-rationale-does-not-hold)
 > correctly demolishes) but **when the bytes change**, not whose they are — and that half was
-> answered separately by OQ-TP5 removing the evergreen npm poll.
+> answered separately by [OQ-TP5](#decision-ledger) removing the evergreen npm poll.
 >
-> So §2's *observation* is still correct and worth keeping — a reader who re-derives *"npm runs
+> So [§2](#2-why-that-rationale-does-not-hold)'s *observation* is still correct and worth keeping — a reader who re-derives *"npm runs
 > postinstall, therefore the gate is inconsistent"* has found a real fact — but it is no longer an
 > open finding. Two cases that look alike were decided oppositely **with a stated reason**, which is
 > exactly what the `host_bind_mounts` withdrawal it compares itself to did not have.
@@ -142,18 +142,18 @@ things a pack pulls in from outside its own tree.
 > print ([`pack.go:1121-1126`](../../internal/cli/pack.go),
 > [`pack.go:1350`](../../internal/cli/pack.go)), while the launch path re-resolves the
 > **config's** `?ref=` against the local mirror. Verified 2026-08-18 by
-> [`trust-paths.md`](./trust-paths.md) §1 and re-verified 2026-08-23; the gap is tracked there as
-> **OQ-LP8 / G2b**. So P1 is not "the same rule one level down" — there is no rule one level up yet,
+> [`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict) and re-verified 2026-08-23; the gap is tracked there as
+> **[OQ-LP8](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04) / G2b**. So P1 is not "the same rule one level down" — there is no rule one level up yet,
 > and adopting P1 would mean building the enforcement it claims to inherit.
 >
 > **What survives is the SHAPE.** Content-addressing really is the only answer to *"is this the same
-> code I looked at?"*, and that much is endorsed by `trust-paths.md` §4. What does not survive is the
+> code I looked at?"*, and that much is endorsed by [`trust-paths.md`](./trust-paths.md) [§4](./trust-paths.md#4-what-this-says-about-the-proposal). What does not survive is the
 > claim that adopting it is free because the precedent exists.
 
 > [!NOTE]
 > **Two different `P1`s, and a sibling doc cites one of them by that name.** This document's P1 is
 > *"a fetched pack may cause execution only of content it pins."* [`trust-paths.md`](./trust-paths.md)
-> §1 later introduced its own, unrelated **P1 — *"trust flows DOWNWARD"***. When `trust-paths.md` §4
+> [§1](#1-what-the-gate-does-today) later introduced its own, unrelated **P1 — *"trust flows DOWNWARD"***. When [`trust-paths.md`](./trust-paths.md) [§4](./trust-paths.md#4-what-this-says-about-the-proposal)
 > says *"P1's shape is right"*, it means **this** one. Neither was renumbered, because both are cited
 > as written.
 
@@ -171,7 +171,7 @@ the thing running today is the thing you reviewed. Only a pin does that.
 > 2026-08-23:
 >
 > - **Row 3 (floating `npm` → refuse) is the one row that named a live hole, and the hole was closed
->   by a different mechanism.** OQ-TP5 ruled *no evergreen npm* on 2026-08-18 (built `b3a29ad8`) —
+>   by a different mechanism.** [OQ-TP5](#decision-ledger) ruled *no evergreen npm* on 2026-08-18 (built `b3a29ad8`) —
 >   `install` obeys what is recorded, `yolo pack update` is the only act that resolves a version, and
 >   the hourly poll only reports. That deletes the *silent change*, which was the danger; it does
 >   **not** refuse the floating declaration, which is what this row proposed. Anyone re-proposing the
@@ -183,18 +183,18 @@ the thing running today is the thing you reviewed. Only a pin does that.
 >   ([`npmspec.go:62-70`](../../internal/entrypoint/npmspec.go), verified 2026-08-23). A version is
 >   **expressible and nothing takes it** — every shipped pack still declares a bare name, and an
 >   unversioned declaration still resolves to `@latest` at `npmspec.go:62-66`. Whether a pack should
->   be *required* to pin is [`trust-paths.md`](./trust-paths.md) OQ-TP3; where an embedded pack's pin
->   would even live is OQ-TP4. Neither is this table's to answer.
-> - **Rows 4 and 5 are the gate that already exists** (§1), now fatal rather than warned.
+>   be *required* to pin is [`trust-paths.md`](./trust-paths.md) [OQ-TP3](./trust-paths.md#decision-ledger); where an embedded pack's pin
+>   would even live is [OQ-TP4](./trust-paths.md#decision-ledger). Neither is this table's to answer.
+> - **Rows 4 and 5 are the gate that already exists** ([§1](#1-what-the-gate-does-today)), now fatal rather than warned.
 > - **Row 1 is a proposal in a different document** — [`broker-as-a-pack.md`](./broker-as-a-pack.md)
->   §3.1 — and nothing here advanced it.
+>   [§3.1](./broker-as-a-pack.md#31-what-is-actually-unresolved-here) — and nothing here advanced it.
 
 | declaration | pinned? | verdict under P1 | today |
 | :--- | :--- | :--- | :--- |
-| jail-side binary + mandatory `sha256` | ✅ fully — the digest **is** what runs | ✅ allow | (proposed in broker-as-a-pack §3.1) |
+| jail-side binary + mandatory `sha256` | ✅ fully — the digest **is** what runs | ✅ allow | (proposed in broker-as-a-pack [§3.1](./broker-as-a-pack.md#31-what-is-actually-unresolved-here)) |
 | `npm` with a pinned version **and** integrity | ✅ the registry resolves to fixed bytes | ✅ allow | allowed, unpinned |
 | `npm install -g <pkg>` (floating, resolves to latest) | ❌ resolves at run time | ❌ **refuse** — closes a live hole | **allowed** |
-| installer URL + `sha256` | ⚠️ the *script* is pinned; what the script downloads is not | ⚠️ **OQ-X1** | refused |
+| installer URL + `sha256` | ⚠️ the *script* is pinned; what the script downloads is not | ⚠️ **[OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)** | refused |
 | installer URL, no digest | ❌ contents can change at any moment | ❌ refuse | refused |
 
 **Two changes fall out, and they point in opposite directions** — which is the sign the rule is doing
@@ -214,7 +214,7 @@ the script itself fetches more at run time, and those fetches are unpinned. A bi
 such second hop — the digest covers exactly what executes.
 
 So the two are **not** equivalent even when both carry a digest, and any rule that treats them as
-equivalent is overselling the installer case. That is OQ-X1, and it is the only genuinely open
+equivalent is overselling the installer case. That is [OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04), and it is the only genuinely open
 question here.
 
 ---
@@ -225,7 +225,7 @@ question here.
 
 > [!IMPORTANT]
 > **The ruling outlived its original surface.** It was aimed at the fetched-pack APPROVAL PROMPT, and
-> [`trust-paths.md`](trust-paths.md) **OQ-TP9** (2026-09-04) deleted that prompt as theatre. TP9
+> [`trust-paths.md`](trust-paths.md) **[OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)** (2026-09-04) deleted that prompt as theatre. TP9
 > RETARGETED the ruling rather than retiring it: the **startup transparency banner** — a separate
 > rendering, `packload.FootprintOf` read through `run.disclosedClaims` — is now the only place a user
 > sees what a pack reaches, so *"understandable by a new user"* applies to it and matters more than
@@ -250,14 +250,14 @@ question here.
 > as claiming otherwise.** A wrapped plugin's `hooks` and `mcpServers` are reported under
 > `KindSkills`, which `run.disclosureClasses` classifies `disclosureSkip` — so they appear in
 > `yolo pack footprint` and **in no launch banner at all**, while the agent runs the hook at every
-> tool call. Found while OQ-TP9 was landing and pinned where the behaviour actually is:
+> tool call. Found while [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) was landing and pinned where the behaviour actually is:
 > `run.TestWrappedPluginHooksAreDeliveredAndDisclosed` asserts the FOOTPRINT claim (green), and its
-> own doc comment names the banner as the gap. Filed as **OQ-TP10** in
+> own doc comment names the banner as the gap. Filed as **[OQ-TP10](./trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)** in
 > [`trust-paths.md`](trust-paths.md).
 >
 > It matters more since TP9 than it would have before: a fetched pack's plugin components used to be
 > refused, so there was nothing to disclose; now every pack's hooks arrive and an on-demand report is
-> all a user has. **Making §6's rendering readable does not close it** — the claim is filtered out by
+> all a user has. **Making [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04)'s rendering readable does not close it** — the claim is filtered out by
 > class in `run.disclosedClaims` and never reaches the renderer at all.
 
 **What the terse form looked like, and why it failed.** Verified 2026-08-23, repinned 2026-09-02:
@@ -300,7 +300,7 @@ This pack wants to:
   *Built as the unpinned half only, which is the whole of today's truth: `packdecl.Contribution`
   carries `url` and no digest, so an installer line says **NOT PINNED** in words and shows no digest.
   Whoever adds a digest field must render what it COVERS — the script, not what the script itself
-  downloads (§5's shallow-pin problem, and retired OQ-X1's surviving condition);
+  downloads ([§5](#5-the-shallow-pin-problem)'s shallow-pin problem, and retired [OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)'s surviving condition);
   `TestDisclosureSentenceSaysAnInstallerIsUnpinned` fails if a pin word appears while no field
   carries one.*
 
@@ -324,7 +324,7 @@ This pack wants to:
   > npm programs — **pi, copilot, codex, opencode** — are all embedded. So "no new lockfile" holds
   > only for digests declared inside a pack's own tree; the moment a pin has to describe something
   > the tree does not contain, there is no home for it. That is
-  > [`trust-paths.md`](./trust-paths.md) **OQ-TP4**, and
+  > [`trust-paths.md`](./trust-paths.md) **[OQ-TP4](./trust-paths.md#decision-ledger)**, and
   > [`program-delivery.md`](./program-delivery.md) argues the venue question is not the pack system's
   > alone.
 - **Not** a claim that pinning makes code safe. A pinned malicious binary is still malicious. Pinning
@@ -334,48 +334,48 @@ This pack wants to:
 
 ## Decision Ledger
 
-**This document owns exactly one OQ ID — `OQ-X1` — and it is still open.** Everything else that
+**This document owns exactly one OQ ID — [`OQ-X1`](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) — and it is still open.** Everything else that
 settled about this proposal was settled *elsewhere*, so those rows carry the ID of the question that
 settled them; rows ruled inside this document are identified by their **section**, because minting an
 `OQ-` namespace here would create IDs that nothing in the tree cites.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **§6** | Approval prose must name **what is touched, in which direction, and on whose machine**; the claim string stays the machine-comparable record and the prose is only a rendering. Ruled 2026-08-17; **retargeted onto the startup banner by TP9 and BUILT there 2026-09-04** (`packload.Claim.DisclosureSentence`) | 2026-09-04 | [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) |
-| **§4 row 2** | The launcher's unconditional `@latest` append is fixed (`65f14342`), so a version, dist-tag or range is expressible. The objection is spent; the row is still not *taken* | 2026-08-17 | [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation) |
-| **§3** | P1's justification — *"the rule already applied one level up"* — is **false**. The commit pin is recorded and never consulted; P1's *shape* survives, its *precedent* does not | 2026-08-17 | [§3](#3-the-principle) · `trust-paths.md` §1 |
-| **§7** | *"Not a new lockfile"* is **refuted**: the lockfile is per **fetched** pack and has no field for a package version; every npm-declaring pack is embedded | 2026-08-18 | [§7](#7-what-this-does-not-license) · `trust-paths.md` OQ-TP4 |
-| **OQ-TP6** | The gate **stays** and its refusal is now **fatal** — no partial packs. This is what §1/§2 said was missing, closed by deleting the host/jail split rather than by adopting P1. Ruled and built (`6385dfbb`). The same ruling keeps `npm` **deliberately ungated**: the gate is about `curl \| sh`, not about installing things | 2026-08-18 | `trust-paths.md` §3.1 |
-| **OQ-TP5** | §4 row 3's live hole is closed by **removing the evergreen mechanism**, not by refusing the floating declaration: `install` obeys the record, `yolo pack update` is the only act that resolves, the poll only reports. Built (`b3a29ad8`) | 2026-08-18 | `trust-paths.md` §1 row 1 |
-| **OQ-TP1** | **Obviated** by OQ-TP6 — there is nothing to carry into a jail if no jail starts | 2026-08-18 | `trust-paths.md` §3.1 |
+| **[§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04)** | Approval prose must name **what is touched, in which direction, and on whose machine**; the claim string stays the machine-comparable record and the prose is only a rendering. Ruled 2026-08-17; **retargeted onto the startup banner by TP9 and BUILT there 2026-09-04** (`packload.Claim.DisclosureSentence`) | 2026-09-04 | [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) |
+| **[§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation) row 2** | The launcher's unconditional `@latest` append is fixed (`65f14342`), so a version, dist-tag or range is expressible. The objection is spent; the row is still not *taken* | 2026-08-17 | [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation) |
+| **[§3](#3-the-principle)** | P1's justification — *"the rule already applied one level up"* — is **false**. The commit pin is recorded and never consulted; P1's *shape* survives, its *precedent* does not | 2026-08-17 | [§3](#3-the-principle) · [`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict) |
+| **[§7](#7-what-this-does-not-license)** | *"Not a new lockfile"* is **refuted**: the lockfile is per **fetched** pack and has no field for a package version; every npm-declaring pack is embedded | 2026-08-18 | [§7](#7-what-this-does-not-license) · [`trust-paths.md`](./trust-paths.md) [OQ-TP4](./trust-paths.md#decision-ledger) |
+| **OQ-TP6** | The gate **stays** and its refusal is now **fatal** — no partial packs. This is what [§1](#1-what-the-gate-does-today)/[§2](#2-why-that-rationale-does-not-hold) said was missing, closed by deleting the host/jail split rather than by adopting P1. Ruled and built (`6385dfbb`). The same ruling keeps `npm` **deliberately ungated**: the gate is about `curl \| sh`, not about installing things | 2026-08-18 | [`trust-paths.md`](./trust-paths.md) [§3.1](./trust-paths.md#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP5** | [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation) row 3's live hole is closed by **removing the evergreen mechanism**, not by refusing the floating declaration: `install` obeys the record, `yolo pack update` is the only act that resolves, the poll only reports. Built (`b3a29ad8`) | 2026-08-18 | [`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict) row 1 |
+| **OQ-TP1** | **Obviated** by [OQ-TP6](#decision-ledger) — there is nothing to carry into a jail if no jail starts | 2026-08-18 | [`trust-paths.md`](./trust-paths.md) [§3.1](./trust-paths.md#31-a-refused-contribution-refuses-the-launch-) |
 
 **Still open elsewhere — RECOUNTED 2026-09-04, and the list is now empty of trust questions.**
-`trust-paths.md` **OQ-TP3** and **OQ-TP4** were RETIRED 2026-09-03 (moot under the evergreen ruling —
-an agent dependency takes no pin); **OQ-TP7** was RETIRED 2026-09-04 because **OQ-TP9** deleted the
-refusal it was about; **OQ-LP8**'s substance is ruled and what remains is two undelivered
-documentation requirements, with **G2b** moot once the approval is gone. `program-delivery.md`
-**OQ-PD1…PD8** are all ruled (2026-08-24). **Both trust docs are at zero open questions.**
+[`trust-paths.md`](./trust-paths.md) **[OQ-TP3](./trust-paths.md#decision-ledger)** and **[OQ-TP4](./trust-paths.md#decision-ledger)** were RETIRED 2026-09-03 (moot under the evergreen ruling —
+an agent dependency takes no pin); **[OQ-TP7](./trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04)** was RETIRED 2026-09-04 because **[OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)** deleted the
+refusal it was about; **[OQ-LP8](./loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)**'s substance is ruled and what remains is two undelivered
+documentation requirements, with **G2b** moot once the approval is gone. [`program-delivery.md`](./program-delivery.md)
+**[OQ-PD1](./program-delivery.md#decision-ledger)…PD8** are all ruled (2026-08-24). **Both trust docs are at zero open questions.**
 
 ---
 
 ## Open Questions
 
-### ⛔ OQ-X1 — does a digest-pinned installer script satisfy P1, given its own fetches are not pinned? — RETIRED (2026-09-04)
+### ⛔ [OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) — does a digest-pinned installer script satisfy P1, given its own fetches are not pinned? — RETIRED (2026-09-04)
 
-§5 is the tension. A pinned script is strictly better than an unpinned one and strictly worse than a
+[§5](#5-the-shallow-pin-problem) is the tension. A pinned script is strictly better than an unpinned one and strictly worse than a
 pinned binary, and P1 as written does not say which side of the line it falls on.
 
 **What it decides:** whether an agent distributed only by `curl | sh` can be installed by a fetched
 pack at all, or whether such packs must wait for the agent to ship a binary or a pinned npm version.
 
 > [!IMPORTANT]
-> **RETIRED 2026-09-04, subsumed by [`trust-paths.md`](trust-paths.md) OQ-TP9 — and subsumed in the
+> **RETIRED 2026-09-04, subsumed by [`trust-paths.md`](trust-paths.md) [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) — and subsumed in the
 > direction the leaning pointed, only further.** This question asks whether a digest-pinned installer
 > is pinned *enough to be allowed through the origin gate*. **There is no gate.** TP9 deleted the
 > fetched-pack approval and the origin gate on host access, so a fetched pack may declare
 > `program via installer` unconditionally — digest or no digest. The question has no subject, and it
 > was already asking about **P1, a principle this document's own header records as neither adopted
-> nor rejected** (§3's premise is false).
+> nor rejected** ([§3](#3-the-principle)'s premise is false).
 >
 > **The leaning's argument is what TP9 generalised.** *"We would be refusing the honest spelling
 > while permitting the disguised one"* is [§2](#2-why-that-rationale-does-not-hold)'s
@@ -395,15 +395,15 @@ _Leaning (superseded — see above):_ **Allow it, labelled honestly as a shallow
 is permitted — an npm package's postinstall fetches whatever it likes too, so the second hop exists
 there as well and we would be refusing the honest spelling while permitting the disguised one. That
 is exactly the inversion this document exists to remove. The condition is that the approval prose
-(§6) must *say* it is a shallow pin, rather than showing a digest that implies more than it delivers.
+([§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04)) must *say* it is a shallow pin, rather than showing a digest that implies more than it delivers.
 
 > [!NOTE]
 > **One premise of that leaning drifted, and it makes the question easier rather than harder.** The
 > leaning says *"once pinned `npm` is permitted"* — as of 2026-08-23 npm is permitted **whether or
-> not it is pinned**, and OQ-TP5 chose to remove the silent-update mechanism instead of requiring a
+> not it is pinned**, and [OQ-TP5](#decision-ledger) chose to remove the silent-update mechanism instead of requiring a
 > pin. So the comparison is no longer "pinned npm vs. pinned installer" but "**un**pinned npm vs.
 > pinned installer", which strengthens the leaning: refusing a digest-pinned script while permitting
-> a bare package name would be the inversion at its sharpest. What has *not* changed is §5's
+> a bare package name would be the inversion at its sharpest. What has *not* changed is [§5](#5-the-shallow-pin-problem)'s
 > substance — the installer's second hop is real, and the approval prose still has to say so.
 
 **Answer:**

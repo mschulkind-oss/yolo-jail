@@ -6,7 +6,7 @@ the sole builder.** Ratifies revival-plan
 has landed: `internal/builder` and the `yolo builder {setup,start,stop,status}`
 commands are deleted, and `yolo check`'s Image Build section plus the run-path
 failure remedy (`nixdiag.LinuxBuilderRemedy`) are rewired onto the container
-builder; the user-facing docs of §9 are reconciled. This doc remains the
+builder; the user-facing docs of [§9](#9-user-facing-docs--reconciled-2026-07-23) are reconciled. This doc remains the
 canonical record of *why*, plus the mechanism explanation for both builders and
 the diagnosis of the (now-moot) VM-builder bug that was part of the evidence.
 
@@ -35,7 +35,7 @@ Three layers, in happy-path order:
    almost everyone.
 2. **A builder (the fallback), for an uncached `packages:` derivation.** This is
    what this doc is about. There are **two** implementations of it in the tree
-   (§2) — and the decision here is to keep one and delete the other.
+   ([§2](#2-the-two-builder-mechanisms)) — and the decision here is to keep one and delete the other.
 3. **macos-user needs no builder at all** — it runs native `aarch64-darwin`
    binaries, no Linux image. Out of scope here.
 
@@ -63,7 +63,7 @@ Constants in `internal/builder/builder.go` (`BuilderPort = 31022`,
 `BuilderKeyPath = /etc/nix/builder_ed25519`). Wired into exactly two places:
 the `yolo builder` command (`internal/cli/commands.go`) and `yolo check`'s
 Image Build section (`internal/cli/check/`). **Notably, the real `yolo` run path
-does *not* use it** — see §2b.
+does *not* use it** — see §[2b](#2b-the-container-builder--internalcontainerbuilder-the-keeper).
 
 ### 2b. The container builder — `internal/containerbuilder` (the keeper)
 
@@ -95,14 +95,14 @@ happy-path.** Proven end-to-end:
 | macos-user | n/a (no builder) | n/a (no builder) |
 | Setup cost | `yolo builder setup` (one sudo) + interactive first boot | **none** — automatic, part of the build |
 | Idle RAM | a ~3 GB VM (idle-stop never finished) | **0** (ephemeral per build) |
-| `sudo` at build time | yes (key reconcile — see §5) | **no** |
+| `sudo` at build time | yes (key reconcile — see [§5](#5-the-vm-builder-bug-kept-as-evidence--a-manual-unblock)) | **no** |
 
 Per [happy-path-principle.md](happy-path-principle.md), a second builder only
 earns its place if it covers a cell the first cannot. The VM builder covers
 **none**. The one historical reason it was kept — *"can Apple Container even host
 an sshd container the host daemon can reach?"* was unproven
 ([macos-container-builder-exploration.md](../research/macos-container-builder-exploration.md)
-§5) — is **discharged** (proven 2026-07-17). So it drops entirely, not to a
+[§5](#5-the-vm-builder-bug-kept-as-evidence--a-manual-unblock)) — is **discharged** (proven 2026-07-17). So it drops entirely, not to a
 "parked fallback." (`macos-linux-builder-explained.md:184` already said "the
 current builder direction is the container builder"; this makes it official and
 deletes the loser.)
@@ -134,7 +134,7 @@ All four landed together:
    (now argument-free; the container path restarts no daemon) describes the
    automatic container-builder offload, consumed by both
    `internal/cli/run/imageload.go` and `yolo check`.
-4. ✅ **Reconciled the user-facing docs** (§9).
+4. ✅ **Reconciled the user-facing docs** ([§9](#9-user-facing-docs--reconciled-2026-07-23)).
 
 Verified by `go build ./...`, `go vet`, the package unit tests (incl. new
 `preflightBuilderNeeds` coverage), and a from-source `yolo` binary on a real
@@ -194,7 +194,7 @@ root. As of 2026-07-23 the tree carried three untracked, unignored, git-untracke
 dirs:
 
 - `keys/` — a stray builder keypair whose pubkey did **not** match `/etc/nix`;
-  the direct trigger of the §5 wedge.
+  the direct trigger of the [§5](#5-the-vm-builder-bug-kept-as-evidence--a-manual-unblock) wedge.
 - `src/` (`_version.py`) and `yolo_jail.egg-info/` — stale Python packaging
   artifacts from before the Go port (`git ls-files src/` → empty; ROADMAP J2
   note).
@@ -231,7 +231,7 @@ automatic container-builder offload (with a user's own nix-darwin `linux-builder
 
 - [docs/guides/macos.md](../guides/macos.md) — "Building the image on macOS" §
   reframed to the automatic offload; the `nix run nixpkgs#darwin.linux-builder`
-  VM subsection is gone (§8 escape hatch retained). Header/anchor unchanged.
+  VM subsection is gone ([§8](#8-escape-hatch-unchanged-by-removal) escape hatch retained). Header/anchor unchanged.
 - [happy-path-principle.md](happy-path-principle.md) — the worked example's single
   fallback is now the container builder; the persistent VM is listed under
   "deliberately NOT supported (as a shipped builder)."
@@ -240,7 +240,7 @@ automatic container-builder offload (with a user's own nix-darwin `linux-builder
   fallback is reframed from "Nix remote Linux builder" (the VM) to the automatic
   container offload.
 - Research/planning docs (`macos-support-matrix.md`, `macos-linux-builder-explained.md`,
-  `macos-container-builder-exploration.md`, `macos-no-vm-direction.md`,
+  `macos-container-builder-exploration.md`, [`macos-no-vm-direction.md`](./macos-no-vm-direction.md),
   `platform-comparison.md`) carry superseded/DONE status pointers; the moot
-  `yolo builder` CLI-doc backlog items (`self-documenting-cli.md`,
+  `yolo builder` CLI-doc backlog items ([`self-documenting-cli.md`](./self-documenting-cli.md),
   `cli-visual-polish.md`) are dropped.

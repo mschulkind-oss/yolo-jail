@@ -19,7 +19,7 @@ unreachable by nix-ld. The sections below record the root-cause investigation
 and the alternatives that were weighed and rejected.
 
 **Why this doc exists:** the MCP node/npx wrapper (see
-[mcp-configuration.md](mcp-configuration.md) §1) keeps generating "just patch it
+[mcp-configuration.md](mcp-configuration.md) [§1](./mcp-configuration.md#1-the-nodenpx-wrapper)) keeps generating "just patch it
 here too" fixes (the custom-`mcp_servers` gap being the latest). That's
 whack-a-mole. This doc pins the actual mechanism so the fix can be structural,
 and records the dead ends so they aren't re-explored from scratch.
@@ -292,7 +292,7 @@ problem** — the rest are glibc-only, static, or musl.
    rides the same delivery paths as the rest of the image: the CI Linux image
    build (`ci.yml`), the release-gated Cachix publish (`publish.yml`
    `push-image-cache`, wired pending account), and the on-demand macOS container
-   builder (see `../research/macos-container-builder-exploration.md`). The flake's
+   builder (see [`../research/macos-container-builder-exploration.md`](../research/macos-container-builder-exploration.md)). The flake's
    "no-Linux-builder property" comment (`flake.nix:52-60`) is specifically
    about host-cross-compiled Go binaries, not an image-wide invariant. A
    no_std Rust shim builds in seconds on the builder.

@@ -19,7 +19,7 @@ write-write race rather than mere leakage. The fix is the two-tier structure the
 container backends already have, inside the one account this backend has: a
 per-workspace home under `/Users/_yolojail/workspaces/<cname>`, with the machine
 tier reached by the symlinks `shared_credentials` already uses. **The trap is that a
-naive split repairs the workspace tier by breaking the machine one** (§3).
+naive split repairs the workspace tier by breaking the machine one** ([§3](#3-why-it-has-not-been-fixed-by-simply-splitting)).
 
 > [!NOTE]
 > **Terms coined here.** A **tier** is a scope at which jail state is kept
@@ -52,7 +52,7 @@ are one directory here:
 The machine tier is the one that is *right*: a single account holding one set of
 agent credentials is the whole point of a dedicated sandbox user, and it is what
 makes `shared_credentials` work here with no broker at all
-(macos-user-nix-and-features.md §3.5). The other two rows are the defect.
+([macos-user-nix-and-features.md](./macos-user-nix-and-features.md) [§3.5](./macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports)). The other two rows are the defect.
 
 ## 2. What the collapse actually costs
 
@@ -126,8 +126,8 @@ not removed it.
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **A. Per-workspace home under the shared account** (§5) | **Recommended.** Restores both tiers with mechanisms already present — the slug pack staging keys on, and the symlinks `shared_credentials` already writes. |
-| **B. Split the account** — one `_yolojail` uid per workspace | **Rejected**, in §8. Restores every tier by DAC rather than layout, and costs admin on every new project. |
+| **A. Per-workspace home under the shared account** ([§5](#5-the-proposal)) | **Recommended.** Restores both tiers with mechanisms already present — the slug pack staging keys on, and the symlinks `shared_credentials` already writes. |
+| **B. Split the account** — one `_yolojail` uid per workspace | **Rejected**, in [§8](#8-risks). Restores every tier by DAC rather than layout, and costs admin on every new project. |
 | **C. Per-session home** | **Rejected for now**, and it is OQ-HT-3. Two launches on one workspace sharing a home is what attach does elsewhere; the difference is that macos-user has no attach. |
 | **D. Leave it, keep warning** (today) | **Rejected as an end state.** It was defensible while the cost was leakage between workspaces. Content delivery made it a race on files an agent reads as instructions, which is a different kind of wrong. |
 
@@ -151,7 +151,7 @@ on macos-user exactly the mechanism this backend's design says it does not need.
 
 1. 💬 **OQ-HT-1: Which paths are machine tier?** Credentials are certain. Agent
    *history* (`~/.claude/projects/`) is the interesting one: sharing it is symptom 1
-   in §2, but cross-workspace history is a thing some people want. This decides how
+   in [§2](#2-what-the-collapse-actually-costs), but cross-workspace history is a thing some people want. This decides how
    much of the shared home survives the split, and therefore how much the migration
    in OQ-HT-2 has to move.
 
@@ -166,7 +166,7 @@ on macos-user exactly the mechanism this backend's design says it does not need.
    has been running this backend has real credentials at the old paths. Migration
    has to move them to the machine tier without a re-login, or the fix costs every
    user an auth dance on upgrade. **This is the blocking question**: it gates this
-   design, and it gates OQ-P3 in
+   design, and it gates [OQ-P3](./macos-user-provisioning.md#OQ-P3) in
    [`macos-user-provisioning.md`](macos-user-provisioning.md), whose stage writes
    into the same home.
 

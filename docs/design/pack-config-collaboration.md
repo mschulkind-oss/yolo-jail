@@ -2,36 +2,36 @@
 
 **Status:** analysis + **rulings**, 2026-08-02. Written to answer a specific question before
 changing anything: *"the claude pack needs to add support for the `fileSuggestion` key, then the
-fzf pack feeds into this new key?"* Reviewed the same day; §7 records four rulings that
-constrain the implementation, and the recommended order (§6) is confirmed.
+fzf pack feeds into this new key?"* Reviewed the same day; [§7](#7-rulings) records four rulings that
+constrain the implementation, and the recommended order ([§6](#6-options-with-a-recommendation)) is confirmed.
 
 **Both options are SHIPPED** (2026-08-02). Option 2 wired `config-overlay` at both render
 paths, with R2's ownerless-overlay reporting and R3's provenance visibility in `yolo config
 diff`; Option 1 then made `config` exclusivity a LOUD COLLISION — named in `yolo pack
 footprint`, refused at launch and by `yolo host apply`, naming both packs and teaching the
 `config-overlay` conversion — which also settled R4 by removing the state that produced the
-double `rendered` line. See §6 for what that means in the code, §8 for what shipping Option 2
-settled, and §9 for Option 1.
+double `rendered` line. See [§6](#6-options-with-a-recommendation) for what that means in the code, [§8](#8-what-building-option-2-settled-that-this-doc-did-not) for what shipping Option 2
+settled, and [§9](#9-what-building-option-1-settled-that-this-doc-did-not) for Option 1.
 
 **Short answer: no, and the reason is worth understanding.** The claude pack needs no change,
 and the fzf pack does not feed into anything the claude pack declares. But the mechanism that
 makes that true today is **accidental**, and this doc is about the difference between "works"
 and "correct".
 
-**Reads with:** [`pack-system.md`](pack-system.md) §5 (the layer model and the four modes),
-§3 `config-overlay` (the shipped kind), and
+**Reads with:** [`pack-system.md`](pack-system.md) [§5](./pack-system.md#5-config-surfaces-and-the-compose-engine) (the layer model and the four modes),
+[§3](#3-why-it-works--and-the-trap-underneath) `config-overlay` (the shipped kind), and
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md) (the work
 that made host rendering real).
 
-**A note on tense.** §1–§5 are preserved as written, in the present tense of 2026-08-02,
+**A note on tense.** [§1](#1-the-three-layouts-you-could-imagine)–[§5](#5-what-is-actually-wrong-ranked) are preserved as written, in the present tense of 2026-08-02,
 because the argument for *why* Option 2 was the right answer only holds if the state it argued
-from is legible. Where they say `config-overlay` "is inert", read "was inert before §8".
+from is legible. Where they say `config-overlay` "is inert", read "was inert before [§8](#8-what-building-option-2-settled-that-this-doc-did-not)".
 
 ---
 
 ## 0. Four terms, because the rest of this doc leans on them
 
-Skip if `pack-system.md` §5 is fresh; these are its definitions restated in one place.
+Skip if [`pack-system.md`](./pack-system.md) [§5](./pack-system.md#5-config-surfaces-and-the-compose-engine) is fresh; these are its definitions restated in one place.
 
 **Surface** — one config *file* a pack declares, identified by `agent/name` (e.g.
 `claude/settings`). The identity is what yolo keys on internally; `path` is where it lands.
@@ -58,7 +58,7 @@ so a `managed` key overrides anything below it — including a value the user or
 | `rmw` | read-modify-write: merge `managed` into whatever is in the file, touch nothing else, no sidecars | a file the **agent itself** owns and mutates |
 | `computed` | compose from layers and overwrite wholesale every boot | a file **yolo** solely authors |
 
-`mode` is the pivot of §3 and §4: `rmw` and `stateful` are key-scoped writers, `computed` is
+`mode` is the pivot of [§3](#3-why-it-works--and-the-trap-underneath) and [§4](#4-your-insight-stated-precisely-this-got-simpler-because-claude-writes-the-file-too): `rmw` and `stateful` are key-scoped writers, `computed` is
 not, and that difference decides whether two packs can share a file by accident.
 
 **`config-overlay`** — a contribution *kind* (one of fifteen; see `yolo config-ref`). Where
@@ -66,7 +66,7 @@ not, and that difference decides whether two packs can share a file by accident.
 another pack owns**, naming it by identity. It folds in at the `config-overlay` position above
 — below `managed`, so the owner still wins a genuine conflict — with per-key provenance so an
 override is traceable rather than silent. It is the routing mechanism, and it is **inert**
-(§1 Layout C).
+([§1](#1-the-three-layouts-you-could-imagine) Layout C).
 
 ---
 
@@ -90,23 +90,23 @@ story — the `claude` pack would need to know about fzf.
 ### Layout B — "the second pack declares the same surface" (what works today)
 
 The fzf pack declares `agent: "claude", name: "settings"` itself, with only its own key in
-`managed` (§0: the top layer, the keys yolo asserts and always wins — so this pack insists on
+`managed` ([§0](#0-four-terms-because-the-rest-of-this-doc-leans-on-them): the top layer, the keys yolo asserts and always wins — so this pack insists on
 `fileSuggestion` and stays out of every other key). Two packs then both declare the surface
 identity `claude/settings`.
 
 This is what I verified working end to end, at both notches, in either pack order. **It is
-also the layout with the sharp edge** — see §3.
+also the layout with the sharp edge** — see [§3](#3-why-it-works--and-the-trap-underneath).
 
 ### Layout C — "the second pack overlays a surface the first owns" (the designed answer)
 
 The fzf pack declares `kind: "config-overlay"` naming `surface: "claude/settings"`, and
 contributes only keys. Where `config` declares-and-owns a surface, `config-overlay` contributes
-to one **another pack owns** (§0), folding in below `managed` so the owner still wins a genuine
+to one **another pack owns** ([§0](#0-four-terms-because-the-rest-of-this-doc-leans-on-them)), folding in below `managed` so the owner still wins a genuine
 conflict. The `claude` pack stays the sole *owner* of the file; the fzf pack is explicitly a
 *contributor*, with per-key provenance so an override is legible.
 
 **And if the owning pack is not selected?** Then the overlay has no surface to fold into, and
-the answer is **no effect, reported by name** (ruling R2, §7):
+the answer is **no effect, reported by name** (ruling R2, [§7](#7-rulings)):
 
 ```
 config-overlay  no effect — claude/settings has no owner (the `claude` pack is not selected)
@@ -122,7 +122,7 @@ further edit.
 validates, has a combine rule (`CombineOverlay`), and the compose engine accepts overlay
 inputs (`Inputs.Overlays`) — but no boot-path code collects `config-overlay` contributions and
 feeds them to the assembler. So a `config-overlay` in a manifest does nothing at all
-(`pack-system.md` §14).
+([`pack-system.md`](./pack-system.md) [§14](./pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling)).
 
 ---
 
@@ -203,7 +203,7 @@ pack silently changed claude's settings surface from `stateful` to `rmw`.**
 
 That is a real behavior change, not a cosmetic one. `stateful` captures a user's in-jail edits
 into a sidecar overlay and replays them across regeneration; `rmw` has no sidecars at all
-(`pack-system.md` §5). So the working configuration in §2 quietly disabled in-jail edit
+([`pack-system.md`](./pack-system.md) [§5](./pack-system.md#5-config-surfaces-and-the-compose-engine)). So the working configuration in [§2](#2-what-actually-happens-today-layout-b-verified) quietly disabled in-jail edit
 capture for `~/.claude/settings.json`, and nothing reported it. `yolo pack footprint` lists
 both surfaces without flagging the identity clash.
 
@@ -254,18 +254,18 @@ agent-owned files, which is why the gap has stayed invisible.
 
 | # | Problem | Severity |
 |---|---|---|
-| ~~**1**~~ | ~~**A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it.~~ **FIXED** (§9): refused at launch, at `yolo host apply`, and named in `pack footprint`. | **general hazard in the pack mechanism** (ruling R1) |
-| ~~**2**~~ | ~~`config-overlay` — the designed mechanism for exactly this — is **inert**.~~ **FIXED** (§8). | **missing feature** |
-| ~~**3**~~ | ~~`yolo pack footprint` does not flag an identity clash between two `config` contributions.~~ **FIXED** (§9). Footprint also reports `config-overlay` claims now, which it previously skipped. | **unenforced invariant** |
-| **4** | No mechanism exists for a second pack to contribute to a `computed` surface. Latent — no shipped pack does this — but it is the case the accident does not cover. | ~~**latent gap**~~ **CLOSED by §8** — all three modes now carry overlays |
-| ~~**5**~~ | ~~A duplicated surface prints one `rendered` line per declaring pack.~~ **FIXED** (§9), by refusing the clash rather than deduping the line. | **misleading output** (ruling R4) |
+| ~~**1**~~ | ~~**A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it.~~ **FIXED** ([§9](#9-what-building-option-1-settled-that-this-doc-did-not)): refused at launch, at `yolo host apply`, and named in `pack footprint`. | **general hazard in the pack mechanism** (ruling R1) |
+| ~~**2**~~ | ~~`config-overlay` — the designed mechanism for exactly this — is **inert**.~~ **FIXED** ([§8](#8-what-building-option-2-settled-that-this-doc-did-not)). | **missing feature** |
+| ~~**3**~~ | ~~`yolo pack footprint` does not flag an identity clash between two `config` contributions.~~ **FIXED** ([§9](#9-what-building-option-1-settled-that-this-doc-did-not)). Footprint also reports `config-overlay` claims now, which it previously skipped. | **unenforced invariant** |
+| **4** | No mechanism exists for a second pack to contribute to a `computed` surface. Latent — no shipped pack does this — but it is the case the accident does not cover. | ~~**latent gap**~~ **CLOSED by [§8](#8-what-building-option-2-settled-that-this-doc-did-not)** — all three modes now carry overlays |
+| ~~**5**~~ | ~~A duplicated surface prints one `rendered` line per declaring pack.~~ **FIXED** ([§9](#9-what-building-option-1-settled-that-this-doc-did-not)), by refusing the clash rather than deduping the line. | **misleading output** (ruling R4) |
 
 Note that #1, #3 and #5 are one defect seen from three angles: the footprint promises
 exclusivity, the merge silently allows a replacement, and the output shows the replacement
 happening without calling it that.
 
 **#1 is not about any one pack's politeness.** A pack *can* avoid the flip by matching the
-owner's `mode` (see §6), but that fixes one pack, not the mechanism — the next pack anyone
+owner's `mode` (see [§6](#6-options-with-a-recommendation)), but that fixes one pack, not the mechanism — the next pack anyone
 writes can do the same damage to any surface. That is ruling R1, and it is why #1 outranks the
 missing feature it would be tempting to fix first.
 
@@ -281,7 +281,7 @@ built in Phase 7 and names both packs). This is the one-writer rule finally enfo
 of merely written down. Per ruling R4 it also collapses the double `rendered` line: once a
 clash is a collision, the second line is reportable as a conflict rather than printed as noise.
 
-Shipped 2026-08-02 — see §9 for what it turned out to require.
+Shipped 2026-08-02 — see [§9](#9-what-building-option-1-settled-that-this-doc-did-not) for what it turned out to require.
 
 Ruling R1 makes this the load-bearing half rather than the tidy-up: the hazard is the
 mechanism's, so only enforcement closes it.
@@ -304,7 +304,7 @@ Collect `config-overlay` contributions in the boot path and the host render, fee
 The `claude` pack remains the sole owner of `~/.claude/settings.json` and keeps its
 `stateful` mode; the fzf pack contributes one key and cannot change the file's mode, path, or
 codec. It also closes the last inert kind, and it is the only option that answers the
-`computed`-surface case in §4.
+`computed`-surface case in [§4](#4-your-insight-stated-precisely-this-got-simpler-because-claude-writes-the-file-too).
 
 Per ruling R2, an overlay whose owner is not selected is **inert and says so by name** — it
 neither creates the file nor fails the launch. Per ruling R3, provenance must be **visible in
@@ -354,7 +354,7 @@ constrains the implementation.
 - **R1 — the `mode` flip is HARMFUL, full stop.** *Ruling: "yes, very harmful. my setup
   doesn't matter. this is a general mechanism."*
 
-  This raises the severity in §5 rather than lowering it. The question was framed wrongly:
+  This raises the severity in [§5](#5-what-is-actually-wrong-ranked) rather than lowering it. The question was framed wrongly:
   whether *this* maintainer relies on in-jail edit capture for `~/.claude/settings.json` is
   irrelevant, because **a pack silently changing another pack's surface `mode` is a general
   defect in the pack mechanism.** Any pack can do it to any surface, and the victim is
@@ -362,7 +362,7 @@ constrains the implementation.
 
   The consequence for the plan: **matching `mode: "stateful"` in the fzf pack is a workaround,
   not a fix, and must not be presented as one.** It makes one pack polite; it leaves the
-  mechanism able to do the same damage on the next pack anyone writes. Problem #1 in §5 stays
+  mechanism able to do the same damage on the next pack anyone writes. Problem #1 in [§5](#5-what-is-actually-wrong-ranked) stays
   ranked as a real hazard, and the enforcement in Option 1 becomes load-bearing rather than
   tidy-up.
 
@@ -425,7 +425,7 @@ and the choice is recorded here rather than only in a code comment.
 without saying what happens if it says more. Every surface-defining field — `agent`, `name`,
 `path`, `codec`, `mode`, `transform`, `defaults`, `retireOnFirstRender` — is now refused BY
 NAME at decode, with the rule in the message rather than a generic "unknown field" (each of
-those keys is real; it is just not a contributor's to set). This is what makes §6's promise
+those keys is real; it is just not a contributor's to set). This is what makes [§6](#6-options-with-a-recommendation)'s promise
 mechanical: *"the fzf pack contributes one key and cannot change the file's mode, path, or
 codec."* Without the refusal that is a convention, and R1's `mode` flip would come straight
 back through the correct syntax.
@@ -447,7 +447,7 @@ layer fold, so precedence becomes write order: overlays first, then the derived 
 the owner's `managed`, then `defaults` fill only where absent. The keys are force-written, not
 seeded, because an overlay body says `managed` — "keep this key at this value" — so
 fill-if-absent would make the fzf case work on the first boot and then never pick up a changed
-value. That mode matters: `claude/settings` is `stateful` but `claude/config` is `rmw`, and §4
+value. That mode matters: `claude/settings` is `stateful` but `claude/config` is `rmw`, and [§4](#4-your-insight-stated-precisely-this-got-simpler-because-claude-writes-the-file-too)
 predicted the fully-generated (`computed`) case is where routing becomes mandatory. All three
 modes now carry overlays.
 
@@ -468,7 +468,7 @@ sending a user to investigate a by-design absence is its own kind of misreport.
 
 ### Still open after Option 2
 
-- ~~**Option 1** (§6)~~ **SHIPPED** — see §9.
+- ~~**Option 1** ([§6](#6-options-with-a-recommendation))~~ **SHIPPED** — see [§9](#9-what-building-option-1-settled-that-this-doc-did-not).
 - ~~**`yolo pack footprint` does not show overlay claims.**~~ **FIXED** with Option 1:
   `FootprintOf` now emits one `config-overlay` claim per contribution, keyed by the identity
   it targets. It does not collide (`CombineOverlay`), so it is a claim line only.
@@ -502,7 +502,7 @@ sending a user to investigate a by-design absence is its own kind of misreport.
 
 ## 9. What building Option 1 settled that this doc did not
 
-Shipped 2026-08-02, deliberately AFTER Option 2 (§6's recommended order, confirmed in review):
+Shipped 2026-08-02, deliberately AFTER Option 2 ([§6](#6-options-with-a-recommendation)'s recommended order, confirmed in review):
 a correct expression had to exist before the incorrect one could be refused. Five decisions the
 implementation had to make.
 
@@ -557,5 +557,5 @@ answer, so the refusal stays where the pack set is known.
 - **The render fingerprint is byte-identical.** Refusing a collision changes no rendered file
   for a valid pack set, which is the invariant `TestRenderFingerprintStable` exists to hold.
 - **`docs/examples/claude-fzf-pack/` converted** to `config-overlay` in the same change, per
-  `docs/plans/handoff-fzf-pack-adoption.md` §2.4. It would otherwise have been the first thing
+  `docs/plans/handoff-fzf-pack-adoption.md` [§2.4](../plans/handoff-fzf-pack-adoption.md#24-the-pack-declares-config-which-will-eventually-be-wrong--converted-2026-08-02). It would otherwise have been the first thing
   the new refusal broke — by design, since it used Layout B because Layout C did not work yet.
