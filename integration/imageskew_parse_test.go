@@ -44,7 +44,7 @@ func TestParseSkewMode(t *testing.T) {
 }
 
 // TestEffectiveSkewMode: darwin can't attribute a mismatch (the image may have
-// been built on a Linux runner, whose installPrefix legitimately differs from a
+// been built on a Linux runner, whose imageIdentity legitimately differs from a
 // darwin eval), so a hard failure is downgraded to a warning there — a false
 // "stale image" reddening the macOS nightly is worse than a missed one. Linux
 // keeps the hard failure, and warn/off are never UPgraded.
@@ -68,14 +68,13 @@ func TestEffectiveSkewMode(t *testing.T) {
 	}
 }
 
-// TestInstallPrefixFromLink locks the parse of the /bin/yolo-entrypoint symlink
-// the flake bakes into the image. If flake.nix ever stops pointing /bin/<name> at
-// <installPrefix>/opt/yolo-jail/bin/<name> (the shadow-hardening layout), this
+// TestIdentityFromLink locks the parse of the /etc/yolo-jail-image-identity
+// symlink the flake bakes into the image. If flake.nix ever stops baking it, this
 // test still passes but the real probe starts erroring — which surfaces as a
 // DEGRADED line, not a false "stale image". That is the intended failure mode.
-func TestInstallPrefixFromLink(t *testing.T) {
-	const prefix = "/nix/store/bh2wnsa9rmbacx6lciwcfind54n1b5pj-yolo-jail-install-prefix"
-	got, err := installPrefixFromLink(prefix + entrypointLinkSuffix + "\n")
+func TestIdentityFromLink(t *testing.T) {
+	const prefix = "/nix/store/bh2wnsa9rmbacx6lciwcfind54n1b5pj-yolo-jail-image-identity"
+	got, err := identityFromLink(prefix + "\n")
 	if err != nil {
 		t.Fatalf("valid link errored: %v", err)
 	}
@@ -84,12 +83,12 @@ func TestInstallPrefixFromLink(t *testing.T) {
 	}
 	for _, bad := range []string{
 		"",
-		"/bin/yolo-entrypoint",                 // not a store path
-		"/nix/store/abc-x/bin/yolo-entrypoint", // wrong layout (no /opt/yolo-jail)
-		"relative/opt/yolo-jail/bin/yolo-entrypoint",
+		"/etc/yolo-jail-image-identity", // not a store path (an unresolved link)
+		"relative/nix/store/abc-x",
+		"/nix/store/../etc/passwd",
 	} {
-		if _, err := installPrefixFromLink(bad); err == nil {
-			t.Errorf("installPrefixFromLink(%q) = nil error, want a parse failure", bad)
+		if _, err := identityFromLink(bad); err == nil {
+			t.Errorf("identityFromLink(%q) = nil error, want a parse failure", bad)
 		}
 	}
 }
@@ -101,10 +100,10 @@ func TestInstallPrefixFromLink(t *testing.T) {
 // it produces a still-stale image and a second round of confusion).
 func TestSkewMessageIsActionable(t *testing.T) {
 	msg := skewMessage("localhost/yolo-jail:latest", "podman",
-		"/nix/store/aaa-yolo-jail-install-prefix", "/nix/store/bbb-yolo-jail-install-prefix")
+		"/nix/store/aaa-yolo-jail-image-identity", "/nix/store/bbb-yolo-jail-image-identity")
 	for _, want := range []string{
-		"/nix/store/aaa-yolo-jail-install-prefix", // what the source wants
-		"/nix/store/bbb-yolo-jail-install-prefix", // what is loaded
+		"/nix/store/aaa-yolo-jail-image-identity", // what the source wants
+		"/nix/store/bbb-yolo-jail-image-identity", // what is loaded
 		rebuildEnv + "=1",                         // the one-command fix
 		skewEnv + "=warn",                         // the documented escape hatch
 		"nix build --impure .#ociImage",           // the manual fix

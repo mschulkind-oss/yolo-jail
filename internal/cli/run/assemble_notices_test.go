@@ -158,6 +158,7 @@ func TestAssembleNoticesGoToStderr(t *testing.T) {
 				rt:            tc.rt,
 				cname:         "yolo-ws-abcd1234",
 				imageRef:      goldenImageRef,
+				jailPrefix:    goldenJailPrefix,
 				packs:         claudePackFixture(t),
 				agentsPath:    "/agents/yolo-ws-abcd1234",
 				wsState:       "/ws/.yolo/home",

@@ -47,12 +47,12 @@ func (o *Options) refuseOnSourceSkew(repoRoot string) bool {
 			"  " + repoRoot + "\n" +
 			"              is at  " + short(skew.TreeCommit) + "\n" +
 			"  they differ in  " + strings.Join(skew.Changed, ", ") + "\n\n" +
-			"The jail IMAGE is rebuilt from the tree on every launch. The yolo you just ran\n" +
+			"The jail's yolo-entrypoint is BUILT AND MOUNTED from the tree on every launch\n" +
+			"(and the image is rebuilt from it too). The yolo you just ran\n" +
 			"changes only when you run `just install`. Launching now would pair a launcher\n" +
 			"and a yolo-entrypoint built from different source — which fails deep inside the\n" +
 			"boot, naming neither half (the last one refused with\n" +
-			"`mkdir /home/agent/.yolo: read-only file system`), and only after building and\n" +
-			"streaming the whole image.\n\n" +
+			"`mkdir /home/agent/.yolo: read-only file system`).\n\n" +
 			"[bold]Fix:[/bold]  (cd " + repoRoot + " && just install)\n\n" +
 			"[bold]If you just ran that[/bold], the path above is not where it installed — compare it\n" +
 			"with `go env GOBIN` (or `$(go env GOPATH)/bin`), check `command -v -a yolo` for an\n" +

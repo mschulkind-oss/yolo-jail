@@ -16,6 +16,16 @@ import (
 // it may only be carried.
 const goldenImageRef = "localhost/yolo-jail:d00dfeedcafe1234"
 
+// goldenJailPrefix is the fixture's host-side install prefix — the two
+// directories every launch bind-mounts at /opt/yolo-jail. Fixed strings, never a
+// real path: resolving one for real can run a `nix build` (jailprefix.go), which
+// the argv-assembly tests must stay free of, and a golden argv carrying a nix
+// store hash would drift with every Go commit.
+var goldenJailPrefix = jailPrefix{
+	binDir:   "/host/prefix/bin/linux-test",
+	shareDir: "/host/prefix",
+}
+
 // TestAssembledArgvCarriesTheThreadedImageRef pins the CALL SITE at
 // assemble.go's "--- image + entrypoint ---" line.
 //
@@ -57,7 +67,7 @@ func TestAssembledArgvCarriesTheThreadedImageRef(t *testing.T) {
 	}
 	// And it must sit exactly where podman expects the positional image: last
 	// flag before the entrypoint.
-	if i+1 >= len(a) || a[i+1] != "yolo-entrypoint" {
+	if i+1 >= len(a) || a[i+1] != JailEntrypointPath {
 		t.Errorf("the ref at argv[%d] is not immediately followed by the entrypoint: %v", i, a[i:])
 	}
 }

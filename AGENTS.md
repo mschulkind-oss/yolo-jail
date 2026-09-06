@@ -107,9 +107,13 @@ end (`docs/design/loophole-transport.md` §8.4).
 
 **A new `cmd/` binary must be added to `flake.nix`'s `shippedBinaries` AND to
 `scripts/stage-source-bundle.sh`'s `SHIPPED_BINARIES`** or it silently vanishes
-from the image (source build) or from a shipped bundle's image, while
+from the jail (source build) or from a shipped bundle, while
 `go build ./...` stays green. `internal/entrypoint/shippedclients_test.go` pins
-all three spellings together; `goprobe` is the one declared exemption.
+all three spellings together; `goprobe` is the one declared exemption. The list
+now filters what goes into the MOUNTED prefix and which `/bin/<name>` symlinks
+the image bakes — the binaries themselves are not image content any more — and
+the layout those two halves have to agree on is pinned across the two languages
+by `run.TestFlakeAndLauncherAgreeOnThePrefixLayout`.
 
 **Host ship set is just `{yolo}`** — `just install` runs `go install ./cmd/yolo`
 and nothing else. The other four are image-side only.
@@ -133,25 +137,41 @@ there is no sync step.
 - `just build-go` → `scripts/build-go.sh` → `dist-go/<goos>-<goarch>/`. This is
   the cross-compile step. **`just deploy` does NOT cross-compile** — it is
   `just install` (host `go install ./cmd/yolo`) plus Claude-broker priming.
-- **No dev-override fast loop any more.** The old `/opt/yolo-jail/dist-go`
-  wrapper (which let the outer jail's `yolo`/`yolo-entrypoint` prefer a
-  `just build-go` artifact over the baked binary) is GONE, along with the
-  `/opt/yolo-jail` source bind. The image now bakes REAL-FILE copies of all
-  four shipped binaries at `/opt/yolo-jail/bin/` (with `/bin/<name>` symlinks
-  and the flake bundle at `/opt/yolo-jail/share/yolo-jail`; see `installPrefix`
-  in `flake.nix`). **The outer jail's binaries are now frozen at the
-  host-loaded image** until a host `just load` — you can no longer live-patch
-  them in-jail. Verify Go changes by launching a **nested** jail (from a
-  throwaway workspace — see "Nested-jail verification is mandatory" under
-  Testing for the full command and why the `cd` matters): its `AutoLoadImage`
-  nix-builds the
-  live `/workspace` checkout from source (the `goSrc` fileset, NOT `dist-go/`),
-  so the nested image carries your edits for all four binaries. This is the
-  accepted fast-loop regression. **`YOLO_REPO_ROOT` is not optional** — since
-  2026-08-31 the cwd no longer selects the flake, so a bare `yolo -- bash`
-  resolves the BAKED `/opt/yolo-jail/share/yolo-jail` bundle and verifies the
-  image you already have. The launch prints which one it took
-  (`Flake source: … (…)`); read that line before believing a nested green.
+- **THE IMAGE DOES NOT CONTAIN YOLO ANY MORE** (2026-09-06). `/opt/yolo-jail` is
+  TWO `:ro` BIND MOUNTS the launch supplies — the linux binaries at `bin/`, the
+  flake bundle at `share/yolo-jail/` — and the container argv names
+  `/opt/yolo-jail/bin/yolo-entrypoint` absolutely
+  (`internal/cli/run/jailprefix.go`). The image bakes only the mountpoints and
+  the `/bin/<name>` symlinks that point into them (`flake.nix`:
+  `jailPrefixLinks`). **That takes `goSrc` out of the image derivation**, so a
+  commit touching only `cmd/` or `internal/` no longer moves
+  `nix eval .#ociImage.outPath` — no rebuild, no `podman load`. MEASURED; the
+  image now moves only for `flake.nix`, `flake.lock` or `packages:`
+  (`docs/design/image-staging-vs-baking.md` C8, which also states the security
+  delta: what executes in the jail is now host-mutable with no rebuild, and that
+  is the trade being made deliberately).
+  **This is NOT the old `/opt/yolo-jail/dist-go` dev-override**, which is still
+  gone and still a bad idea: that was a SECOND copy that let a stale binary
+  shadow the baked one and made a fixed jail look broken. There is no baked copy
+  now, so there is nothing to shadow — one copy, named absolutely, and a missing
+  mount fails saying which path is missing.
+  Where the mounted binaries come from: the flake source's own
+  `bin/linux-<arch>/` when it ships one (every installed bundle, and the bundle
+  inside a mounted prefix — so a nested jail never compiles Go for this), else
+  `nix build .#installPrefix` of that source. The launch prints which
+  (`Jail binaries: … (built from the flake source | prebuilt, from the flake
+  bundle)`), beside the `Flake source:` line.
+  **The outer jail's binaries are still frozen for the session** — they were
+  chosen by the host launcher when this jail started — so you still cannot
+  live-patch them in-jail. Verify Go changes by launching a **nested** jail (from
+  a throwaway workspace — see "Nested-jail verification is mandatory" under
+  Testing for the full command and why the `cd` matters): it builds the live
+  `/workspace` checkout's `.#installPrefix` and mounts THAT, so your edits are
+  what pid1 runs. **`YOLO_REPO_ROOT` is not optional** — since 2026-08-31 the cwd
+  no longer selects the flake, so a bare `yolo -- bash` resolves the MOUNTED
+  `/opt/yolo-jail/share/yolo-jail` bundle and verifies the jail you already have.
+  The launch prints which one it took (`Flake source: … (…)`); read that line
+  before believing a nested green.
 - `just build-go` is now purely the **cross-compile-for-shipping** step
   (`bin/linux-<arch>` prebuilt artifacts consumed by the flake's prebuilt
   short-circuit in a shipped bundle) — it no longer feeds any in-jail run.
@@ -178,9 +198,10 @@ there is no sync step.
     *host's own* jails keep running the host-loaded image until a host `just
     load` — so host-gating is real for **shipping** a flake change to the
     maintainer's day-to-day jails, not for **validating** it.
-- **The `goSrc` fileset trap** (`flake.nix`): the hermetic image build only sees
-  `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `packs/`.
-  A Go package outside that set **silently vanishes from the image**; the moment
+- **The `goSrc` fileset trap** (`flake.nix`): the hermetic Go build only sees
+  `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `packs/`. (It feeds the
+  MOUNTED prefix now, not the image — same trap, one layer over.)
+  A Go package outside that set **silently vanishes from the jail**; the moment
   anything under `cmd/` imports it the build fails with "cannot find module
   providing package" while `go build ./...` stays green. Add it to the fileset
   by hand. `packs/` is the live example of an explicit entry (`bundled_loopholes/`
@@ -197,7 +218,8 @@ there is no sync step.
   image — and still prints the whole report. **`SkipBuild` is untouched:** no
   build ran, so nothing failed.
 - **THE TWO HALVES DEPLOY ON DIFFERENT CADENCES, and a launch now REFUSES when
-  they disagree.** The image rebuilds itself on every launch (`AutoLoadImage`) from
+  they disagree.** The jail's `yolo-entrypoint` is built and mounted on every
+  launch (and the image rebuilt) from
   whatever flake `reporoot.Resolve` picked — the LIVE TREE only when
   `YOLO_REPO_ROOT` names one; otherwise the bundle `just install` staged, which
   ships with the binary and so can never be older than it. The host `yolo`
@@ -260,13 +282,18 @@ there is no sync step.
   builds a fresh host `yolo`, but the image is loaded at most once and reused — so
   the suite used to test new host code against an old baked `yolo-entrypoint`
   (this is what made a new `pack.json` field look like a regression: ~10 tests
-  failed with `unknown field "tier"` from the PREVIOUS entrypoint). Now
-  `ensureJailImage` compares `nix eval .#installPrefix.outPath` (what this tree
-  would bake — an eval, ~0.3s, never a build) against `readlink
-  /bin/yolo-entrypoint` inside the loaded image, and **aborts with the fix
-  command** on a mismatch. `installPrefix` is the right oracle because it covers
-  exactly the `goSrc` fileset + `flake.nix` while being invariant across the
-  full/minimal variants and `packages:` lib-farm images. Knobs:
+  failed with `unknown field "tier"` from the PREVIOUS entrypoint). **That exact
+  class is now impossible**: the entrypoint is MOUNTED from this tree, so the
+  suite's `yolo` and the `yolo-entrypoint` it runs come from one tree by
+  construction. What a stale image can still be wrong about is what the FLAKE
+  decides — baked packages, the `/lib` farm, `/etc`, the image env — so
+  `ensureJailImage` compares `nix eval .#imageIdentity.outPath` (an eval, ~0.3s,
+  never a build) against `readlink /etc/yolo-jail-image-identity` inside the
+  loaded image, and **aborts with the fix command** on a mismatch.
+  `imageIdentity` is the right oracle because it is a derivation over `flake.nix`
+  + `flake.lock` and nothing else — exactly the image's input set — while being
+  invariant across the full/minimal variants and `packages:` lib-farm images.
+  Knobs:
   `YOLO_TEST_REBUILD_IMAGE=1` forces a rebuild+reload (~45s in-jail);
   `YOLO_TEST_IMAGE_SKEW=warn|off` downgrades the check (`fail` is the default,
   and darwin auto-downgrades to `warn` because a Linux-runner-built image can
@@ -422,6 +449,10 @@ there is no sync step.
   The `.bashrc` export (`internal/entrypoint/shell.go`) is a second, independently-written copy of
   the same order and is now compared to `BootPath` **entry by entry** — the two disagreed about
   `$HOME/.local/bin` (second vs fifth) for months behind a test that only checked the ends.
+  **`/opt/yolo-jail/bin` is deliberately NOT on it**, even though that is where every yolo binary now
+  lives: the image bakes `/bin/<name>` symlinks into the mount instead, which reaches the same names
+  with none of this list moving in any of its three copies — and keeps working for a consumer that
+  scrubs PATH and spells `/bin/yolo`. Do not "fix" that by adding a fourth entry.
 - **Two generated script dirs, ADJACENT AT THE HEAD of PATH** — they are different
   mechanisms, not one dir with two kinds of file in it, and their order relative
   to each other is what carries the meaning:

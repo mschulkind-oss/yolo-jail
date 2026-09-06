@@ -104,9 +104,10 @@ directory is fully covered by mounts; its image content is irrelevant.
 └─ siblings outside /home/agent:
      /mise        <- GLOBAL_MISE bind (named volume on macOS)  (assemble_parts.go:59-64)
      /workspace   <- the workspace, rw                          (assemble_parts.go:41)
-     /opt/yolo-jail <- BAKED into the image (not a mount): real-file CLI copies
-                       at /opt/yolo-jail/bin + flake bundle at share/yolo-jail
-                       (flake.nix installPrefix). No source bind any more.
+     /opt/yolo-jail <- TWO :ro MOUNTS (since 2026-09-06): the linux binaries at
+                       bin/ and the flake bundle at share/yolo-jail/, supplied by
+                       the launch (internal/cli/run/jailprefix.go). The image
+                       bakes only the mountpoints and the /bin/<name> symlinks.
      /ctx/*       <- read-only context (host nvim/claude files, config mounts)
 ```
 
@@ -320,12 +321,23 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
 - **`ws/yolo-user-env.sh`** → `/home/agent/.config/yolo-user-env.sh` rw;
   written pre-assembly by `writeUserEnvFile` (run.go:176-177; mount
   assemble.go:171-176). AC: materialized.
-- **In-jail CLI repo**: no longer a mount. `/opt/yolo-jail` is BAKED into the
-  image (`flake.nix` `installPrefix`): real-file copies of the four shipped
-  binaries at `/opt/yolo-jail/bin` plus the flake bundle at
-  `/opt/yolo-jail/share/yolo-jail`. The in-jail CLI finds its repo root the same
-  way a host install does — exe-relative bundle discovery (`reporoot.Resolve`
-  step 3) — so there is no source bind and no `YOLO_REPO_ROOT` env to set.
+- **In-jail CLI + repo**: TWO `:ro` mounts, and it is the same install prefix a
+  host install has — `bin/` beside `share/yolo-jail/`, so the in-jail CLI finds
+  its repo root exactly the way a host install does (exe-relative bundle
+  discovery, `reporoot.BundledSourceDirFrom`), with no `YOLO_REPO_ROOT` to set.
+  What changed on 2026-09-06 is who provides the content: the image BAKED it
+  until then (`flake.nix` `installPrefix` in `corePackages`), and now the launch
+  mounts it — `<host bin dir>:/opt/yolo-jail/bin` and
+  `<host bundle>:/opt/yolo-jail/share/yolo-jail`
+  (`internal/cli/run/jailprefix.go`). The image keeps the mountpoints (a
+  `--read-only` rootfs cannot grow one) and the `/bin/<name>` symlinks that
+  point into them. That is what took `goSrc` out of the image derivation, so a
+  Go-only commit costs no image rebuild
+  ([image-staging-vs-baking.md](image-staging-vs-baking.md) C8) — and it is why
+  what runs in the jail is now host-mutable without one (C8's security delta).
+  This is NOT the old `/opt/yolo-jail/dist-go` source bind: there is no second
+  copy to shadow, and the container argv names
+  `/opt/yolo-jail/bin/yolo-entrypoint` absolutely.
 - **Host nix daemon + store**: `/nix/var/nix/daemon-socket` rw + `/nix/store`
   ro + `NIX_REMOTE=daemon`, when both exist and runtime isn't AC; macOS podman
   additionally requires opt-in via `YOLO_NIX_HOST_DAEMON`

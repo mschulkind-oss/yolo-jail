@@ -139,9 +139,9 @@ func warmJail() {
 	// A warmup shells out to `yolo run`, which calls AutoLoadImage, and the run path never
 	// sets SkipBuild — it is a dormant seam by design ("a missing flake is fatal, not a
 	// degraded cached-image launch", run/imageload.go). So a launch that needs an image
-	// REALISES one, and on darwin it always needs one: installPrefix there is a darwin
-	// derivation that "can never match a darwin eval even at the identical commit", which is
-	// the very reason the skew check downgrades itself to a warning on this platform
+	// REALISES one, and on darwin it always needs one: the image identity there is a darwin
+	// derivation whose store path a Linux-runner-built image can never carry, which is the
+	// very reason the skew check downgrades itself to a warning on this platform
 	// (imageskew_test.go). The workflow's own `podman load` step does not change that.
 	//
 	// Measured, twice: on the 2026-08-22 nightly the warmup burned 20m7s before being killed,

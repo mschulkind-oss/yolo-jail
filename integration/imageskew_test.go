@@ -24,20 +24,30 @@ import (
 // the loaded image behind the suite's back, so unrelated tests flip pass/fail
 // between runs.
 //
-// THE CHECK. Ask the two sides what they were built from and compare:
+// WHAT THE ORACLE MEASURES CHANGED WHEN THE BINARIES LEFT THE IMAGE. It used to
+// be `.#installPrefix` versus `readlink /bin/yolo-entrypoint`, because the image
+// BAKED the shipped binaries and the flake bundle, so installPrefix's store path
+// hashed exactly the inputs that decided the image's yolo-jail content (the goSrc
+// fileset plus flake.nix). The install prefix is now BIND-MOUNTED at launch
+// (internal/cli/run/jailprefix.go), which retires half the original problem
+// outright: the suite's `yolo` and the yolo-entrypoint it runs come from the SAME
+// tree by construction, so the `unknown field "tier"` class cannot recur.
 //
-//   - what the SOURCE wants — `nix eval .#installPrefix.outPath`. installPrefix
-//     is the derivation that bakes the four shipped binaries plus the flake
-//     bundle into the image, so its store path is a hash of exactly the inputs
-//     that decide the image's yolo-jail content: the goSrc fileset (go.mod/sum,
-//     vendor/, cmd/, internal/, packs/) and flake.nix. It is
-//     an EVAL, not a build: ~0.3s, so it can run on every suite start (the
+// What a stale image can still be wrong about is everything the FLAKE decides —
+// baked packages, the /lib link farm, /etc, the image env — and that is what this
+// now compares.
+//
+// THE CHECK. Ask the two sides what the IMAGE was built from and compare:
+//
+//   - what the SOURCE wants — `nix eval .#imageIdentity.outPath`. imageIdentity
+//     is a derivation over flake.nix + flake.lock and nothing else, which is
+//     exactly the image's input set now that the Go build is not in it. It is an
+//     EVAL, not a build: ~0.3s, so it can run on every suite start (the
 //     constraint that the suite must not rebuild the image every run is about the
 //     multi-minute `nix build`, which this deliberately avoids).
-//   - what the LOADED IMAGE has — `readlink /bin/yolo-entrypoint` inside it. The
-//     flake points that symlink at <installPrefix>/opt/yolo-jail/bin/... (see the
-//     shadow-hardening note on installPrefix in flake.nix), so one ~0.15s
-//     container run recovers the store path the image actually carries.
+//   - what the LOADED IMAGE has — `readlink /etc/yolo-jail-image-identity`
+//     inside it. imageIdentity bakes that symlink pointing at its own store path,
+//     so one ~0.15s container run recovers what the image actually carries.
 //
 // WHY NOT REUSE AutoLoadImage's NOTION. Because it answers a different question,
 // and it has answered it two different ways.
@@ -67,13 +77,14 @@ import (
 // nested-jail verification, so the check inherits the repo's existing rule rather
 // than inventing a second, conflicting notion of "what the source tree is".
 //
-// WHY installPrefix AND NOT ociImage. `.#ociImage.outPath` also folds in the
+// WHY imageIdentity AND NOT ociImage. `.#ociImage.outPath` also folds in the
 // package set — the `packages:` lib-farm tests build --impure per-workspace
 // images, and CI loads the ociImageMinimal variant — so it would report skew for
-// image variants that carry the identical yolo-jail code. installPrefix is
-// invariant across both (verified: same path with and without
-// YOLO_EXTRA_PACKAGES, and shared by the full and minimal variants), and is
-// docs-insensitive, so it fires on source drift and only on source drift.
+// image variants built from the identical flake. imageIdentity is invariant
+// across both (it reads neither YOLO_EXTRA_PACKAGES nor the variant flag) and is
+// docs-insensitive, so it fires on flake drift and only on flake drift. It is
+// also invariant across every Go change, which is not a weakening: a Go change
+// can no longer make a loaded image stale, because the binaries are mounted.
 const (
 	// skewEnv downgrades or disables the check: "fail" (default), "warn", "off".
 	skewEnv = "YOLO_TEST_IMAGE_SKEW"
@@ -83,16 +94,14 @@ const (
 	rebuildEnv = "YOLO_TEST_REBUILD_IMAGE"
 )
 
-// entrypointLinkSuffix is the tail of the /bin/yolo-entrypoint symlink the flake
-// bakes into every jail image:
+// identityLinkPath is where imageIdentity bakes a symlink to its own store path.
+// Reading it inside a loaded image yields what that image was built from.
 //
-//	/bin/yolo-entrypoint -> <installPrefix>/opt/yolo-jail/bin/yolo-entrypoint
-//
-// Cutting it off a live readlink yields the installPrefix store path the loaded
-// image was built from. yolo-entrypoint is the right probe target of the four
-// shipped binaries because it is the one that runs INSIDE the container as pid1 —
-// the binary whose staleness produced the `unknown field "tier"` failures.
-const entrypointLinkSuffix = "/opt/yolo-jail/bin/yolo-entrypoint"
+// It replaced `readlink /bin/yolo-entrypoint`, which is no longer an oracle for
+// anything: that link now points at /opt/yolo-jail/bin/yolo-entrypoint — a fixed
+// string naming the launch's bind mount — so it reads the same in every image
+// ever built and would report "matches" always.
+const identityLinkPath = "/etc/yolo-jail-image-identity"
 
 // degraded reports a harness precondition that could not be met. Every early
 // return on the image path goes through this: a degraded run may still be worth
@@ -140,44 +149,41 @@ func parseSkewMode(v string) (skewMode, error) {
 // attributed with confidence, returning the reason for the downgrade ("" when
 // none happened).
 //
-// darwin is the one such case. There, installPrefix is a DARWIN derivation that
-// cross-compiles Linux binaries, so a locally built image matches a local
-// `.#installPrefix` eval — but the macOS nightly loads an image built on an
-// ubuntu runner, whose installPrefix is the x86_64-LINUX one and will never
-// match a darwin eval even at the identical commit. The harness cannot tell the
+// darwin is the one such case. imageIdentity is built with the HOST pkgs, so a
+// darwin eval and an x86_64-linux eval of the same commit are different store
+// paths — and the macOS nightly loads an image built on an ubuntu runner. The harness cannot tell the
 // two provenances apart from here, and a false "stale image" that reds the
 // nightly is worse than a missed one, so on darwin the finding is reported and
 // the suite proceeds.
 func effectiveSkewMode(mode skewMode, goos string) (skewMode, string) {
 	if mode == skewFail && goos == "darwin" {
 		return skewWarn, "on darwin the image may have been built on a Linux runner, " +
-			"whose installPrefix legitimately differs from a local eval — reporting instead of failing"
+			"whose imageIdentity legitimately differs from a local eval — reporting instead of failing"
 	}
 	return mode, ""
 }
 
-// installPrefixFromLink extracts the installPrefix store path from a
-// /bin/yolo-entrypoint symlink target. Kept pure (no exec) so the parse is
-// covered by the -short suite, where no container runs.
-func installPrefixFromLink(link string) (string, error) {
+// identityFromLink validates the /etc/yolo-jail-image-identity symlink target as
+// a store path. Kept pure (no exec) so the parse is covered by the -short suite,
+// where no container runs.
+func identityFromLink(link string) (string, error) {
 	link = strings.TrimSpace(link)
-	prefix, ok := strings.CutSuffix(link, entrypointLinkSuffix)
-	if !ok || !strings.HasPrefix(prefix, "/nix/store/") {
-		return "", fmt.Errorf("unexpected /bin/yolo-entrypoint target %q "+
-			"(want <nix store path>%s)", link, entrypointLinkSuffix)
+	if !strings.HasPrefix(link, "/nix/store/") || strings.Contains(link, "..") {
+		return "", fmt.Errorf("unexpected %s target %q (want a /nix/store path)",
+			identityLinkPath, link)
 	}
-	return prefix, nil
+	return link, nil
 }
 
-// expectedInstallPrefix evaluates (never builds) the installPrefix store path
+// expectedImageIdentity evaluates (never builds) the imageIdentity store path
 // this source tree would bake into the image.
 //
 // --impure mirrors every other nix invocation in the repo and is not
-// load-bearing here: installPrefix does not read YOLO_EXTRA_PACKAGES, so the
-// pure and impure evals agree (verified). stderr is dropped on purpose — nix
-// emits untrusted-flake-config warnings and a "Git tree is dirty" notice that
-// would bury the one line we want.
-func expectedInstallPrefix() (string, error) {
+// load-bearing here: imageIdentity does not read YOLO_EXTRA_PACKAGES, so the pure
+// and impure evals agree. stderr is dropped on purpose — nix emits
+// untrusted-flake-config warnings and a "Git tree is dirty" notice that would
+// bury the one line we want.
+func expectedImageIdentity() (string, error) {
 	if _, err := exec.LookPath("nix"); err != nil {
 		return "", fmt.Errorf("nix is not on PATH")
 	}
@@ -188,11 +194,11 @@ func expectedInstallPrefix() (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "nix",
 		"--extra-experimental-features", "nix-command flakes",
-		"eval", "--impure", "--raw", ".#installPrefix.outPath")
+		"eval", "--impure", "--raw", ".#imageIdentity.outPath")
 	cmd.Dir = repoRoot
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("nix eval .#installPrefix failed: %w", err)
+		return "", fmt.Errorf("nix eval .#imageIdentity failed: %w", err)
 	}
 	path := strings.TrimSpace(string(out))
 	if !strings.HasPrefix(path, "/nix/store/") {
@@ -201,9 +207,9 @@ func expectedInstallPrefix() (string, error) {
 	return path, nil
 }
 
-// loadedInstallPrefix asks the loaded image which installPrefix it carries, by
-// reading the /bin/yolo-entrypoint symlink inside it.
-func loadedInstallPrefix(rt, image string) (string, error) {
+// loadedImageIdentity asks the loaded image what it was built from, by reading
+// the identity symlink inside it.
+func loadedImageIdentity(rt, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
 	defer cancel()
 	argv := []string{"run", "--rm"}
@@ -214,12 +220,12 @@ func loadedInstallPrefix(rt, image string) (string, error) {
 	if rt == "podman" {
 		argv = append(argv, "--network=none")
 	}
-	argv = append(argv, image, "readlink", "/bin/yolo-entrypoint")
+	argv = append(argv, image, "readlink", identityLinkPath)
 	out, err := exec.CommandContext(ctx, rt, argv...).Output()
 	if err != nil {
 		return "", fmt.Errorf("%s %s: %w", rt, strings.Join(argv, " "), err)
 	}
-	return installPrefixFromLink(string(out))
+	return identityFromLink(string(out))
 }
 
 // checkImageSkew compares the loaded image against the source tree and, by
@@ -239,13 +245,13 @@ func checkImageSkew(rt, image string) {
 		return
 	}
 
-	want, err := expectedInstallPrefix()
+	want, err := expectedImageIdentity()
 	if err != nil {
 		degraded("cannot determine what this source tree would bake into the image "+
 			"(%v) — skipping the staleness check", err)
 		return
 	}
-	got, err := loadedInstallPrefix(rt, image)
+	got, err := loadedImageIdentity(rt, image)
 	if err != nil {
 		degraded("cannot read the loaded image's baked yolo-jail version (%v) — "+
 			"skipping the staleness check", err)
@@ -294,16 +300,16 @@ func TestImageSkewOracleAnswers(t *testing.T) {
 		t.Skip("no jail image loaded")
 	}
 
-	want, err := expectedInstallPrefix()
+	want, err := expectedImageIdentity()
 	if err != nil {
 		t.Fatalf("source-tree side of the staleness check is broken: %v\n"+
 			"Until this works, the suite cannot tell a stale image from a fresh one.", err)
 	}
-	got, err := loadedInstallPrefix(rt, image)
+	got, err := loadedImageIdentity(rt, image)
 	if err != nil {
 		t.Fatalf("image side of the staleness check is broken: %v\n"+
-			"Has flake.nix stopped pointing /bin/yolo-entrypoint at "+
-			"<installPrefix>%s?", err, entrypointLinkSuffix)
+			"Has flake.nix stopped baking the %s symlink (imageIdentity)?",
+			err, identityLinkPath)
 	}
 	t.Logf("source tree wants %s; %s has %s", want, image, got)
 }
@@ -315,11 +321,11 @@ func TestImageSkewOracleAnswers(t *testing.T) {
 func skewMessage(image, rt, want, got string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "STALE JAIL IMAGE — refusing to run the container suite.\n\n")
-	fmt.Fprintf(&b, "  %s was built from a DIFFERENT source tree than the one under test.\n", image)
-	fmt.Fprintf(&b, "  TestMain always builds a fresh host `yolo`, so every container test would\n")
-	fmt.Fprintf(&b, "  exercise new host-side code against an OLD in-jail yolo-entrypoint, old\n")
-	fmt.Fprintf(&b, "  shims and old baked packages: a pass would prove nothing and a failure\n")
-	fmt.Fprintf(&b, "  would point at the wrong code.\n\n")
+	fmt.Fprintf(&b, "  %s was built from a DIFFERENT flake than the one under test.\n", image)
+	fmt.Fprintf(&b, "  The jail's own binaries are MOUNTED from this tree, so those are fresh — but\n")
+	fmt.Fprintf(&b, "  everything the flake decides is not: baked packages, the /lib link farm, /etc,\n")
+	fmt.Fprintf(&b, "  the image env. A test that touches any of them would pass or fail for a reason\n")
+	fmt.Fprintf(&b, "  that is not in the code under test.\n\n")
 	fmt.Fprintf(&b, "    source tree wants: %s\n", want)
 	fmt.Fprintf(&b, "    loaded image has : %s\n\n", got)
 	fmt.Fprintf(&b, "  Fix (pick one):\n")

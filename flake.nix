@@ -753,8 +753,8 @@
           withNestedPodman = false;
         };
 
-        # ── Baked install prefix (/opt/yolo-jail) ─────────────────────────
-        # ONE derivation lays down the entire in-jail install, mirroring a
+        # ── The install prefix (/opt/yolo-jail) — MOUNTED, NOT BAKED ──────
+        # ONE derivation lays down the entire yolo-jail install, mirroring a
         # host install (Homebrew/tarball) so the exe-relative resolver
         # (internal/reporoot) finds the flake bundle the SAME way inside and
         # outside the jail — one layout, one resolution method. Contents:
@@ -763,41 +763,49 @@
         #   /opt/yolo-jail/share/yolo-jail/flake.nix
         #   /opt/yolo-jail/share/yolo-jail/flake.lock
         #   /opt/yolo-jail/share/yolo-jail/bin/linux-<arch>/<binary>
-        #   /bin/<binary>            → $out/opt/yolo-jail/bin/<binary>  (store path)
+        #
+        # ⚠ IT IS NO LONGER PART OF THE IMAGE. The launch BIND-MOUNTS this
+        # layout in — `-v <host bin dir>:/opt/yolo-jail/bin:ro` plus
+        # `-v <host flake bundle>:/opt/yolo-jail/share/yolo-jail:ro`, emitted by
+        # internal/cli/run/jailprefix.go — and the container argv names
+        # /opt/yolo-jail/bin/yolo-entrypoint by absolute path. That is what takes
+        # `goSrc` OUT of the image derivation: a commit touching only cmd/ or
+        # internal/ no longer moves .#ociImage's store path, so it costs no image
+        # rebuild and no `podman load` (docs/design/image-staging-vs-baking.md §5).
+        # This attr stays because it is still the thing that gets mounted whenever
+        # the resolved flake source has no prebuilt bin/linux-<arch> of its own —
+        # a live checkout — where the launcher realizes it with
+        # `nix build .#installPrefix` (image.BuildJailPrefix).
+        #
+        # THE SECURITY DELTA, stated rather than slid past: what executes in the
+        # jail — pid1 included — used to be immutable image content addressed by
+        # the image's own content hash, and is now a host directory that changes
+        # with no rebuild and no reload. Editing the host's staged bundle changes
+        # the next launch's yolo-entrypoint. That mutability IS the feature being
+        # bought (that is what makes a Go-only commit free), and it is a real
+        # property traded away: a host that can write ~/.local/share/yolo-jail
+        # could already replace the `yolo` that builds the argv, so the boundary
+        # this moves is not the host's — it is the reproducibility of the jail's
+        # own binaries, which are now only as pinned as the directory mounted in.
         #
         # The binaries under /opt/yolo-jail/bin are COPIED, not symlinked into
         # goBinaries: a symlink would make /proc/self/exe (os.Executable)
         # resolve through to goBinaries' own store path, which has no
         # share/yolo-jail sibling — the bundle would then be undiscoverable.
         # Copying keeps the binary co-located with the flake bundle in ONE
-        # store path, so exeDir/../share/yolo-jail always resolves. The
-        # dev-override (/opt/yolo-jail/dist-go) fast loop is GONE: iteration
-        # now goes through a real image rebuild in a nested jail (accepted
-        # regression). goprobe is excluded — it is a dev-only deployment
-        # tripwire that must never reach the runtime PATH.
-        #
-        # SHADOW HARDENING: /bin/<binary> targets the ABSOLUTE STORE PATH
-        # ($out/opt/yolo-jail/bin/<binary>), not the /opt/yolo-jail/bin/<binary>
-        # mountpoint. A launcher that binds a source tree over /opt/yolo-jail
-        # (e.g. a pre-6f6cdca `-v …:/opt/yolo-jail:ro`, which has no bin/ subdir)
-        # would dangle a /bin symlink that hopped THROUGH /opt/yolo-jail — and
-        # since catatonit execs /bin/yolo-entrypoint as pid1, that bricked the
-        # whole container with "failed to exec pid1" before any Go ran. The store
-        # path is mounted :ro and is never a shadow target, so boot survives ANY
-        # mount over /opt/yolo-jail; at worst the in-jail exe-relative RESOLVER
-        # degrades to a warning (soft), never a boot brick (hard). This is pure
-        # upside — os.Executable still resolves to the store path either way, so
-        # ../share/yolo-jail resolution is unaffected.
+        # store path, so exeDir/../share/yolo-jail always resolves. goprobe is
+        # excluded — it is a dev-only deployment tripwire that must never reach
+        # the runtime PATH.
         #
         # THIS LIST IS THE FILTER, and a `cmd/` binary missing from it VANISHES
-        # from the image while `go build ./...` stays green — the same silent
+        # from the jail while `go build ./...` stays green — the same silent
         # class as the goSrc fileset trap above, one layer down. goBinaries
-        # compiles every cmd/*/ directory; only the names here are copied out,
-        # /bin-linked and put on PATH. goprobe is the deliberate omission (a
-        # dev-only deployment tripwire that must never reach the runtime PATH),
-        # which is exactly why an accidental omission looks identical to it.
-        # Check with `nix eval .#installPrefix.outPath` — cheap, never a build —
-        # and by looking for the binary next to the others in /bin.
+        # compiles every cmd/*/ directory; only the names here are copied into
+        # the prefix, and only the names here get a /bin/<name> link in the image
+        # (jailPrefixLinks below). goprobe is the deliberate omission, which is
+        # exactly why an accidental omission looks identical to it. Check with
+        # `nix eval .#installPrefix.outPath` — cheap, never a build — and by
+        # looking for the binary next to the others in /opt/yolo-jail/bin.
         #
         # yolo-cglimit and yolo-journalctl are the in-jail loophole clients that
         # used to be Python generated into ~/.local/bin at boot
@@ -808,14 +816,15 @@
         shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" "yolo-cglimit" "yolo-journalctl" "yolo-serial" ];
         installPrefix = pkgs.runCommand "yolo-jail-install-prefix" { } ''
           mkdir -p $out/opt/yolo-jail/bin \
-                   $out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch} \
-                   $out/bin
+                   $out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}
 
           # The self-contained flake bundle — "two files and a binary" — that
-          # a nested `yolo` rebuilds into the very image it is running from
-          # (when cwd is not a source checkout). flake.nix hits its own
-          # prebuilt short-circuit (builtins.pathExists ./bin/linux-<arch>),
-          # so this bundle reproduces THIS image without a Go toolchain.
+          # a nested `yolo` rebuilds into the very image it is running from.
+          # flake.nix hits its own prebuilt short-circuit
+          # (builtins.pathExists ./bin/linux-<arch>), so this bundle reproduces
+          # THIS image without a Go toolchain — and, since the prefix is mounted,
+          # it also gives a nested launch a bin/linux-<arch> to mount straight
+          # through, so no nested jail ever compiles Go to get its own prefix.
           cp ${./flake.nix} $out/opt/yolo-jail/share/yolo-jail/flake.nix
           cp ${./flake.lock} $out/opt/yolo-jail/share/yolo-jail/flake.lock
 
@@ -826,25 +835,79 @@
             chmod +x "$out/opt/yolo-jail/bin/$name"
             cp "$src" "$out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}/$name"
             chmod +x "$out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}/$name"
-            # Point /bin/<name> straight at the store copy, NOT through the
-            # /opt/yolo-jail/bin mountpoint. $out expands to this derivation's
-            # store path, which is mounted :ro and can never be a bind-mount
-            # shadow target — so exec of /bin/<name> (the boot-critical
-            # yolo-entrypoint as pid1 included) survives any launcher mounting
-            # over /opt/yolo-jail. See the shadow-hardening note above.
-            ln -s "$out/opt/yolo-jail/bin/$name" "$out/bin/$name"
           done
+        '';
+
+        # ── What the IMAGE bakes for the mounted prefix: NAMES ONLY ────────
+        # /bin/<name> → /opt/yolo-jail/bin/<name>, one symlink per shipped
+        # binary. This derivation depends on the NAME LIST and nothing else, so
+        # it is invariant across every Go change — which is the whole point:
+        # `goSrc` feeds the prefix, and the prefix is a mount, so the image's
+        # only remaining knowledge of yolo's own binaries is what they are
+        # CALLED.
+        #
+        # WHY SYMLINKS AND NOT A PATH ENTRY. Putting /opt/yolo-jail/bin on PATH
+        # would mean editing THREE independently-written copies of one order —
+        # BootPath (internal/entrypoint/boot.go, the authority), the .bashrc
+        # export (internal/entrypoint/shell.go) and macosuser.SandboxPath — plus
+        # the image's own config.Env, for a set of names nothing else in the jail
+        # provides. Symlinks reach the same names with zero PATH churn, and they
+        # keep working for a consumer that scrubs PATH and spells /bin/yolo.
+        #
+        # SHADOW HARDENING, INVERTED — deliberately, and this is the one place
+        # the old rule is reversed. These links used to target the absolute store
+        # path precisely so that a bind mount over /opt/yolo-jail could not dangle
+        # them: a dangling /bin/yolo-entrypoint bricked pid1 ("failed to exec
+        # pid1") before any Go ran. Now the mount IS the target, so the hazard is
+        # answered on the other side instead: the container argv names
+        # /opt/yolo-jail/bin/yolo-entrypoint ABSOLUTELY (assemble.go), so pid1
+        # never resolves through /bin, and a missing mount fails as a plain "no
+        # such file" naming the path rather than as an unattributable brick.
+        # Running this image WITHOUT the mount (a bare `podman run
+        # localhost/yolo-jail:latest`) leaves /bin/yolo* dangling — that is
+        # expected, and `bash`, coreutils and every nixpkgs tool still work.
+        jailPrefixDir = "/opt/yolo-jail";
+        jailPrefixLinks = pkgs.runCommand "yolo-jail-prefix-links" { } ''
+          mkdir -p $out/bin
+          for name in ${builtins.concatStringsSep " " shippedBinaries}; do
+            ln -s ${jailPrefixDir}/bin/$name $out/bin/$name
+          done
+        '';
+
+        # ── The image's own identity, for staleness checks ─────────────────
+        # A store path that moves when — and only when — an INPUT TO THE IMAGE
+        # moves. Since the Go build left the image derivation, that is exactly
+        # `flake.nix` + `flake.lock`: every package set, FHS link, /etc file and
+        # env entry is spelled in the first, and every nixpkgs version in the
+        # second. It is read back OUT of a loaded image by
+        # `readlink /etc/yolo-jail-image-identity` and compared against
+        # `nix eval .#imageIdentity.outPath` (integration/imageskew_test.go).
+        #
+        # It replaces `installPrefix` in that role, which covered the goSrc
+        # fileset + flake.nix and was the right oracle only while the binaries
+        # were baked. It is invariant across the full/minimal variants and across
+        # `packages:` lib-farm images, as installPrefix was, and now also across
+        # every Go change — because a Go change can no longer make a loaded image
+        # stale.
+        imageIdentity = pkgs.runCommand "yolo-jail-image-identity" { } ''
+          mkdir -p $out/etc
+          cp ${./flake.nix} $out/flake.nix
+          cp ${./flake.lock} $out/flake.lock
+          ln -s $out $out/etc/yolo-jail-image-identity
         '';
 
         # Core packages: everything the integration test suite in
         # integration/ actually touches, plus POSIX essentials.
         # Shared between the full and minimal image variants.
         #
-        # Split in two on purpose: ``installPrefix`` is OUR OWN Go build,
-        # everything below it comes from nixpkgs.  ``imageClosureRoot`` (below)
-        # wants the nixpkgs half ALONE — a flake.lock bump cannot move our Go
-        # binaries, and including them would make the weekly diff pay for two
-        # `go build`s it can never learn anything from.
+        # Split in two on purpose: ``jailPrefixLinks`` and ``imageIdentity`` are
+        # OURS, everything below them comes from nixpkgs.  ``imageClosureRoot``
+        # (below) wants the nixpkgs half ALONE, so the weekly flake.lock diff
+        # reports what nixpkgs moved and nothing else.  (It used to say
+        # ``installPrefix`` here, and the reason was that a flake.lock bump
+        # cannot move our Go binaries and the diff should not pay for two `go
+        # build`s.  That argument is now structural: the Go build is not in the
+        # image at all — it is mounted in.)
         corePackagesFromNixpkgs = [
           imagePkgs.bashInteractive
           imagePkgs.coreutils-full
@@ -901,7 +964,11 @@
           # points glibc at this store path.
           imagePkgs.tzdata
         ];
-        corePackages = [ installPrefix ] ++ corePackagesFromNixpkgs;
+        # NOTE the absence: `installPrefix` is NOT here any more, and that
+        # absence is the whole change — it is what removes `goSrc` from the image
+        # derivation. What is here in its place carries only names
+        # (jailPrefixLinks) and the image's own identity (imageIdentity).
+        corePackages = [ jailPrefixLinks imageIdentity ] ++ corePackagesFromNixpkgs;
 
         # Extras that bulk the image up but aren't exercised by the
         # integration test suite.  Kept out of the minimal variant so CI
@@ -993,9 +1060,15 @@
               mkdir -p ./var/tmp ./var/cache ./var/log ./run ./var/lib/containers
 
               # Pre-create mountpoint directories for --read-only root filesystem.
-              # /opt/yolo-jail is NOT here: it is baked content (installPrefix),
-              # not a bind mount, so the OCI layer already provides it.
+              # /opt/yolo-jail/{bin,share/yolo-jail} ARE here now: the install
+              # prefix stopped being baked content (installPrefix left
+              # corePackages) and became two bind mounts the launch supplies, so
+              # the image has to provide the mountpoints. Both levels are spelled
+              # out rather than relying on the runtime to create them on demand —
+              # podman does (the /ctx note below), Apple Container is not verified
+              # to, and this is the one mount whose absence costs pid1.
               mkdir -p ./home/agent ./workspace ./tmp ./mise
+              mkdir -p ./opt/yolo-jail/bin ./opt/yolo-jail/share/yolo-jail
               # F8: the ./ctx/* entries are NOT required. podman creates a nested
               # mountpoint under /ctx on demand even with --read-only — verified live:
               # /ctx/host-pi exists and carries a mount while appearing in no image
@@ -1160,12 +1233,20 @@
         # cross-compiled with no Linux builder. Buildable in-jail today to
         # prove the channel; baked into the image at Stage 10/11.
         packages.goBinaries = goBinaries;
-        # The baked install prefix (/opt/yolo-jail bin + share bundle + /bin
-        # symlinks) as a standalone package: builds in seconds off cached
-        # goBinaries, so tests and humans can assert the exe-relative layout
-        # (real-file bin/, share/yolo-jail/flake.nix, bin/linux-<arch>/) without
-        # streaming a full image.
+        # The install prefix (/opt/yolo-jail bin + share bundle) as a standalone
+        # package: builds in seconds off cached goBinaries, so tests and humans
+        # can assert the exe-relative layout (real-file bin/,
+        # share/yolo-jail/flake.nix, bin/linux-<arch>/) without streaming a full
+        # image. Since the prefix is MOUNTED rather than baked, this is also what
+        # the run path realizes (image.BuildJailPrefix → `nix build
+        # .#installPrefix`) whenever the resolved flake source ships no prebuilt
+        # bin/linux-<arch> of its own — i.e. a live checkout.
         packages.installPrefix = installPrefix;
+        # What the image was built FROM, as one store path: the oracle the
+        # integration suite compares against `readlink
+        # /etc/yolo-jail-image-identity` inside a loaded image. See the
+        # definition above for why it is flake.nix + flake.lock and nothing else.
+        packages.imageIdentity = imageIdentity;
         # The /lib symlink farm alone — buildable in seconds, so tests and
         # humans can assert lib discovery (e.g. that a "foo.dev" package
         # spec still lands libfoo.so in /lib) without building an image.

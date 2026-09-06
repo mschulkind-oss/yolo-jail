@@ -36,21 +36,47 @@ func NixFlakeFlags() []string {
 	}
 }
 
-// ociBuildArgv returns the argv for building the image: `nix … build .#ociImage
-// --impure --out-link <outLink> --print-build-logs`, plus extraArgs (the
-// macOS container-builder offload appends `--builders …` here).
+// flakeBuildArgv returns the argv for building ONE attr of this repo's flake:
+// `nix … build .#<attr> --impure --out-link <outLink> --print-build-logs`, plus
+// extraArgs (the macOS container-builder offload appends `--builders …` here).
 //
-// The run path (buildImageStorePathArgs) and the `yolo check` preflight
-// (BuildOCIImage) share this builder so the two cannot drift on flags — a
-// preflight that says "it builds" while consulting a different substituter set
-// than the run does is worse than no preflight.
-func ociBuildArgv(outLink string, extraArgs []string) []string {
+// Every nix BUILD this repo runs goes through here, so none of them can drift on
+// flags — a `yolo check` preflight that says "it builds" while consulting a
+// different substituter set than the run does is worse than no preflight, and a
+// prefix build that resolved the flake differently from the image build beside it
+// would be a launch whose two halves came from two evaluations.
+//
+// --impure on every attr, including ones that read no YOLO_EXTRA_PACKAGES
+// (installPrefix does not): the flake as a whole reads the environment, and
+// keeping one spelling is worth more than shaving an eval that is identical
+// either way (verified: installPrefix evaluates to the same path pure or impure).
+func flakeBuildArgv(attr, outLink string, extraArgs []string) []string {
 	argv := []string{"nix"}
 	argv = append(argv, NixFlakeFlags()...)
 	argv = append(argv,
-		"build", ".#ociImage", "--impure",
+		"build", ".#"+attr, "--impure",
 		"--out-link", outLink,
 		"--print-build-logs",
 	)
 	return append(argv, extraArgs...)
 }
+
+// ociBuildArgv is flakeBuildArgv for the image attr — the run path
+// (buildImageStorePathArgs) and the `yolo check` preflight (BuildOCIImage) both
+// name it rather than spelling ".#ociImage" twice.
+func ociBuildArgv(outLink string, extraArgs []string) []string {
+	return flakeBuildArgv(ociImageAttr, outLink, extraArgs)
+}
+
+// The flake attrs the CLI builds. Named so a rename in flake.nix breaks
+// compilation at one place rather than at a runtime "attribute missing".
+const (
+	// ociImageAttr is the jail image (streamLayeredImage).
+	ociImageAttr = "ociImage"
+	// installPrefixAttr is the /opt/yolo-jail install prefix the launch
+	// BIND-MOUNTS into the jail — bin/<binary> plus the share/yolo-jail flake
+	// bundle. It is no longer part of the image (that is what keeps `goSrc` out
+	// of the image derivation), so the run path realizes it separately whenever
+	// the resolved flake source ships no prebuilt binaries of its own.
+	installPrefixAttr = "installPrefix"
+)
