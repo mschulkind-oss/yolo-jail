@@ -663,7 +663,14 @@ func writeProject(t *testing.T, configJSON string) string {
 			"config naming one is a `yolo check` error. Use writeProjectWithPacks so the "+
 			"key lands in the user config where it is read:\n%s", configJSON)
 	}
-	t.Cleanup(func() { forceRemoveContainer(dir) })
+	t.Cleanup(func() {
+		forceRemoveContainer(dir)
+		// Before t.TempDir()'s own RemoveAll runs (cleanups are LIFO, so this
+		// one goes first): a pack's vendor installer can leave a read-only
+		// directory in the workspace's home overlay that RemoveAll cannot
+		// unlink through. See makeTreeRemovable.
+		makeTreeRemovable(dir)
+	})
 	return dir
 }
 
