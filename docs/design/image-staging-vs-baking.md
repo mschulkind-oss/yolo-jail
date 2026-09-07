@@ -938,6 +938,14 @@ A failed prefix build **refuses the launch** ([OQ-2](#101-decision-ledger)'s rul
 the image no longer carries a `yolo-entrypoint`, so there is nothing to fall back on. The out-link is
 the prefix's GC root, keyed by source tree, and deliberately outside both reapers' reach —
 `build/roots/` belongs to `PruneOrphanImageRoots`, which deletes anything that is not a loaded image.
+**What that leaves behind is measured in [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md)
+[§2.3](./disk-levers-and-backfill.md#23-yolos-own-store-outputs-are-never-collected--the-c8-finding):**
+one link per checkout roots the *newest* prefix, so a superseded one is unrooted store garbage the
+moment the link moves on — and nothing collects it (the host daemon's `min-free` is 0; yolo's own
+store GC is opt-in). MEASURED 2026-09-06: 220 of 231 `*-install-prefix` paths and all 245
+`*-go-0-dev` outputs unrooted, ≥ 28.8 GB, +0.43 GB/day. The same single link also does not root
+the prefix an *older* running jail from the same checkout is still executing from — that is
+[OQ-BF4](./disk-levers-and-backfill.md#OQ-BF4) there.
 
 **THE SECURITY DELTA, and it is a trade rather than a free win.** `/bin/<name>` used to target an
 immutable store path on purpose, and what runs in the jail — pid1 included — was image content

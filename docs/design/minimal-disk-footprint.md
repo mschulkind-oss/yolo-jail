@@ -6,7 +6,7 @@
 
 **The most important section is [§5](#5-invariants--what-must-not-break)** (the invariants). Automating a sweep is what turns storage-lifecycle's "safe at an arbitrary moment" from an aspiration into a load-bearing requirement, and [§5](#5-invariants--what-must-not-break) is where that bill comes due.
 
-**Scope note.** This doc owns the *mechanism* — what gets deleted, when, by whom, and what the offline fallback becomes. The *measurement and the verdict* are [`image-staging-vs-baking.md`](image-staging-vs-baking.md) [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk)'s, and that doc's [OQ-5](./image-staging-vs-baking.md#101-decision-ledger) ruling is what this one executes.
+**Scope note.** This doc owns the *mechanism* — what gets deleted, when, by whom, and what the offline fallback becomes. The *measurement and the verdict* are [`image-staging-vs-baking.md`](image-staging-vs-baking.md) [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk)'s, and that doc's [OQ-5](./image-staging-vs-baking.md#101-decision-ledger) ruling is what this one executes. **Split 2026-09-06:** the cross-store lever ranking, the *backfill* disposition (automatic vs. offered, one-time vs. recurring — the bytes each fix stopped producing but did not remove), and the stores [§8](#8-what-this-does-not-cover) declines — yolo's own never-collected `/nix/store` outputs, the cache purge's trigger, the vendors' version dirs — are [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md)'s. This doc keeps Ledgers A–C and [OQ-DF2](#OQ-DF2)–[OQ-DF4](#OQ-DF4); where that doc reaches one of this doc's knobs it defers here by ID.
 
 > [!NOTE]
 > **Citations into [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) are by section and item ID ([§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk), C2, C3, OQ-N), never by line number.** That file was under concurrent edit on 2026-08-25 and its line numbers moved twice while this doc was being written. Section and item IDs are its stable surface.
@@ -20,6 +20,7 @@
 - [`../plans/cache-relocation.md`](../plans/cache-relocation.md) — the settled threat model (yolo does not manage host symlinks/mounts) that bounds anything proposed here, and the icebox questions this ruling partly moots.
 - [`storage-and-config.md`](storage-and-config.md) — where these bytes live, and the state/config separation the budget has to respect.
 - [`../plans/handoff-cachix-cache.md`](../plans/handoff-cachix-cache.md) — the binary cache that makes *deletion cheaper to undo*, which is a complement to this doc, not an alternative to it.
+- [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) — the sibling split out 2026-09-06: every store ranked by measured bytes, the automatic-vs-offered rule for the backlogs this doc's fixes left on disk, and the finding that nothing on the machine ever runs `nix store gc` against yolo's own outputs.
 
 ---
 
@@ -416,6 +417,7 @@ Concretely, on this machine today, the fallback would not fire no matter how man
 - **Apple Container's image store.** It has no reclaimer either — `PruneOldImages` and `PruneStoppedContainers` emit podman `--format` templates that the `container` CLI does not implement. I **could not measure it** (no `container` runtime in this jail, [§2.1](#21-levels)), and I decline to design a reclaimer against an unmeasured cost. Named here so it is not mistaken for covered.
 - **`packages:` scope.** Ruled workspace-scope, emphatically, by [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) [OQ-4](./image-staging-vs-baking.md#101-decision-ledger): *fix the cost, not the scope.* This doc fixes cost. It does not reopen scope.
 - **Per-workspace overlay growth and the `nce`/`staticcheck` cache subdirs** that no reaper covers today. Real, small relative to the image ledgers, and orthogonal to the mechanism argued here.
+- **The backfill, and every store that is not one of the three ledgers.** What happens to the bytes already on disk when a fix ships — the 52.73 GB podman backlog the shipped reap has not yet been allowed to run against, the ~49 GiB of cache older than the 30-day rule, the ~20.6 GB of tars a `keep=3` default retains, the ≥ 28.8 GB of yolo's own unrooted `/nix/store` outputs that nothing collects (all MEASURED 2026-09-06) — and whether each is reclaimed automatically or *offered*, is [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md)'s. Where it touches a knob of this doc's (`ImageCacheKeep`, the component that deletes Ledger B) it defers to [OQ-DF2](#OQ-DF2)/[OQ-DF3](#OQ-DF3) by ID.
 
 ---
 
