@@ -319,6 +319,33 @@ not the workspace that can see it**, no per-workspace accounting exists, and yol
 the only thing that would ever bound it — a rule that has never run. A store can therefore grow from
 assets whose generating workspace may never exist again, and nothing in the model notices.
 
+**And there is a second axis nobody has pulled: the host may already have the same cache.** Pooling
+across workspaces is done. Sharing with the HOST is not done at all — the host's own `~/.cache` is
+not mounted into a jail (verified from `/proc/self/mountinfo`: no mount has its root under
+`/@home/matt/.cache`). So a machine where pants runs both on the host and in a jail carries **two**
+caches. yolo already has the pattern for the alternative — it shares the host's nix store rather than
+duplicating it (`hostNixStore`, `internal/cli/run/hostprobes.go`) — it simply has never applied it to
+a cache.
+
+Whether that is safe splits the pants cache exactly down its middle, and the split is the answer:
+
+| Half | Size | Shareable? | Why |
+| :--- | ---: | :--- | :--- |
+| `lmdb_store` | 27 G | **yes** — content-addressed (`cache/`, `directories/`, `files/`, `immutable/`) | pants' own default is ONE per-user store shared by every repo on the machine, so multi-process sharing is the designed norm, not a workaround |
+| `named_caches` | 14 G | **no** | not content-addressed, and **path-poisoned**: a sampled `pex_root/…/INTERP-INFO` records interpreters as `"/home/agent/.cache/nce/…/python"` — the JAIL's home. On the host those records read `/home/matt/…`. Shared, each side would hold interpreter records naming a home that does not exist there |
+
+> [!NOTE]
+> **The blocker is path-shaped, not arch-shaped**, which is worth stating because arch is the
+> intuitive worry. On a Linux host with a matching arch both halves are *binary*-compatible; it is the
+> embedded absolute home path that breaks `named_caches` anyway. Arch and OS do matter in one place —
+> a macOS host, where the jail is Linux in a VM: there the split is moot because nothing is
+> compatible, and the honest answer is not to share at all. `storePackagesEligible` already spells
+> that predicate for C4's own reasons.
+>
+> `nce` (2.0 G, and *uncovered* by the purge's default subdir list) is the tail of this: it is the
+> content-addressed download store those `INTERP-INFO` records point INTO, so it is coupled to
+> `named_caches` and cannot be reasoned about separately from it.
+
 > [!WARNING]
 > **A path expression must be evaluated in the frame that runs it.** `PurgeCacheByAge` is rooted at
 > `joinPath(gs, "cache")`, which resolves to the 114 G host tree when the HOST `yolo` runs it and to
@@ -360,6 +387,7 @@ turns on.
 | L6 | **C4 opt-in (`YOLO_STORE_PACKAGES=1`)** | steady state | one lean image per machine (1.5 GB) instead of one ~3 GB-unique image per distinct `packages:` list | shipped; opt-in per launch | shipped today |
 | L7 | **Run A7's version prune on every launcher invocation**, not only after an update | backfill | **≈ 1.28 GB** per workspace here; × N workspaces | a call-site change in the launcher template; evidence is the live symlink, complete by construction | steady state shipped 2026-09-04 |
 | L8 | **Small liveness-gated sweeps into the automatic slot** — agent staging orphans, retired loophole state, superseded captures | both | 36.5 MiB + 1.9 MiB + 0 here | already tri-state gated; trigger only | reapers shipped |
+| L9 | **Alias a host cache instead of pooling a second copy of it** — the CAS half of pants (`lmdb_store`), and the same question for npm/uv/pip/go-build | **neither backfill nor retention — a third kind** | up to **27 G** of pants alone stops existing twice; unmeasured for the others (the host's own copies are not visible from a jail) | a writable host bind is a bigger trust step than the `:ro` nix store precedent (`hostNixStore`, `internal/cli/run/hostprobes.go`); gated on host OS/arch matching, and **only for the content-addressed half** | nothing built; [OQ-BF10](#OQ-BF10) |
 | — | Worktrees under `/workspace/.claude/worktrees` | not yolo's | 985 MB + 4 M metadata | `git worktree prune` for the two prunable entries; the rest are Claude Code's | out of scope, named so it is not mistaken |
 | — | Host `min-free` | not yolo's to pull | would bound the store's dead set continuously | a human edits `nix.conf`; `yolo check` already warns (P5) | the warning is the hint pattern again |
 
@@ -852,6 +880,32 @@ the rulings it needs.
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+10. 💬 **OQ-BF10: Should yolo ALIAS a host cache rather than pool a second copy of it — and for
+    which caches?** This is a third disposition the rest of the doc does not have. Backfill deletes
+    what accumulated; retention bounds what accumulates; aliasing makes the store **not exist
+    twice**. For pants' content-addressed half that is up to 27 G on this machine, and the same
+    question applies to npm, uv, pip and go-build, whose host-side copies a jail cannot see to
+    measure. yolo already shares the host's nix store read-only rather than duplicating it
+    (`hostNixStore`), so the pattern exists; it has never been applied to a cache.
+
+    Three things the ruling has to settle, because they do not follow from each other:
+    **(1) which half** — only the content-addressed one; `named_caches` is path-poisoned and must
+    stay per-frame ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store) Class C).
+    **(2) writable or read-only** — a cache is useless read-only, so this is a WRITABLE host bind,
+    which is a strictly bigger trust step than the `:ro` nix store precedent: jail code could then
+    write into the host user's own cache. **(3) the migration** — aliasing does not delete the
+    40 G already pooled jail-side; it strands it, so a ruling here creates its own backfill item.
+
+    <!-- vantage: oq id=OQ-BF10 leaning="Yes for the content-addressed half, gated on the host being the same OS and arch as the jail, writable, and only for caches whose tool documents a shared per-user store (pants lmdb_store, npm, go-build). Not named_caches, ever. Treat the stranded jail-side copy as a backfill row on the first aliased launch. Do NOT alias on macOS - the jail is Linux in a VM and nothing is compatible." -->
+
+    _Leaning:_ **Yes for the content-addressed half only**, gated on the host matching the jail's OS
+    and arch, writable, and limited to caches whose own tool documents a shared per-user store —
+    pants' `lmdb_store`, npm, go-build. Never `named_caches`. Not on macOS at all. And the stranded
+    jail-side copy becomes a backfill row on the first aliased launch, which is the honest cost.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
 
 ## 12. Inherited rulings
 
