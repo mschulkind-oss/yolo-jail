@@ -1206,36 +1206,6 @@ their reasoning lives in the body sections that govern them. Two more were ruled
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-7: Should the bundle's image binaries stop carrying the `git describe` stamp, so that
-   `just install` after a commit that moved no image input does not mint a new image?** [§1.1](#11-what-triggers-a-rebuild-and-how-often) item 3:
-   `scripts/build-go.sh:55` stamps `buildVersion` and `GitCommit` into the binaries the bundle's flake
-   copies into `installPrefix`, so every commit — and a dirty tree — changes the image store path even when
-   nothing in `goSrc` or the flake files moved; the from-source nix build has no stamp and does not. This
-   decides whether the default launch path's rebuild trigger is "an image input changed" (matching the
-   `YOLO_REPO_ROOT` path and `version.SourceSkew`'s own definition of what the image is built from) or
-   "`just install` ran". The cost of removing the stamp is the in-jail version banner, which today reads
-   `YOLO_VERSION` from the launcher first (`internal/version/version.go:94`) and would fall back to the
-   stamp only where the launcher set nothing.
-
-   <!-- vantage: oq id=OQ-7 leaning="Stamp only the host yolo that go install builds, and leave the bundle's image binaries unstamped so they match what nix's own build produces; the jail already learns its version from YOLO_VERSION. Low stakes: a from-source developer usually runs just install because goSrc moved, so the wasted rebuilds are the docs-only-then-install case - but there is no reason for a version string to be image content." -->
-
-   _Leaning:_ **Stamp only the host `yolo`** (the `go install` at `Justfile:65`) and leave the bundle's
-   image binaries unstamped, matching what the nix build produces; the jail already learns its version
-   from `YOLO_VERSION`. Low stakes — a from-source developer usually installs *because* `goSrc` moved, so
-   the waste is the docs-only-then-install case — but a version string has no business being image content.
-
-   **Answer:**
-   > **MOOT, 2026-09-06 — ruled in the ledger, not implemented.** [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) removed the binaries from the
-   > image, so the stamp is no longer image content and the question's whole premise ("changes the image
-   > store path") is false. MEASURED: two bundles differing only in their prebuilt binaries' bytes
-   > evaluate to the same `.#ociImage.outPath` (`kwvlhbp8…`) and to different `.#installPrefix` paths;
-   > the same pair under the pre-C8 flake evaluate to two different images. The leaning's second
-   > sentence — *"a version string has no business being image content"* — got its wish by a route that
-   > did not touch the stamp. Leave `scripts/build-go.sh` alone: what a `just install` mints now is a
-   > `runCommand` copying seven files, and the stamp still serves the in-jail banner's fallback for a
-   > launcher that set no `YOLO_VERSION`.
-
----
 
 ## 11. What to do first — dependency-ordered
 
