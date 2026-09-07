@@ -726,6 +726,30 @@
       "agent_updates": false
       "agent_updates": { "*": true, "claude": false }
 
+  [bold]perf_logging[/bold] (boolean): Time every launch and record it.  Default FALSE.
+    The persistent form of `--timing`: the host-side span table (probes, image
+    load, the child window, the whole shutdown chain) printed to stderr at exit,
+    appended as it happens to <workspace>/.yolo/host-perf.log, plus the
+    in-container breakdown.  Any span over a second also names itself on stderr
+    the moment it ends, so a slow launch says who is holding it while you wait.
+
+    WHAT IT COSTS: about 2 KB and 35 lines per launch, capped at ~110 KB per
+    workspace (the file keeps the last 50 runs and trims the rest at open), and
+    tens of milliseconds of wall clock.  The line count is structural -- one
+    start/end pair per span -- so a 30-second shutdown writes the same 2 KB as a
+    fast one.  What it mostly costs is OUTPUT: every launch prints a report.
+
+    Equivalent per-launch spellings, for when you do not want it always on:
+    `yolo --timing -- ...`, the global `yolo --verbose`, or YOLO_TIMING=1 in the
+    environment.
+
+    USER SCOPE ONLY.  It is read at the very top of a launch, before any
+    workspace config is loaded, so a workspace value is never consulted -- and
+    /workspace is writable by whatever runs in the jail.  A workspace value is a
+    `yolo check` error.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "perf_logging": true
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify
@@ -1493,6 +1517,7 @@
   YOLO_RUNTIME          Override container runtime (podman/container)
   YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
   YOLO_TIMING           Set to 1 to enable --timing's span logging without the flag
+                        (for one shell; `perf_logging: true` is the persistent form)
   YOLO_VERBOSE          Set to 1 to enable the global --verbose/-v gate (same
                         spans in v1; the home for future diagnostics)
   YOLO_EXTRA_PACKAGES   JSON array of extra nix packages (internal)

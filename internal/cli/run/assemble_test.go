@@ -78,6 +78,12 @@ func goldenOptions(workspace, home string) *Options {
 		Getpid:      func() int { return 1 },
 		IsTTYStdout: func() bool { return false },
 		IsTTYStdin:  func() bool { return false },
+		// The persistent timing opt-in reads the REAL user config unless pinned,
+		// so a maintainer with `perf_logging: true` in their own
+		// ~/.config/yolo-jail/config.jsonc would flip every fixture here to a
+		// timing launch — failing the off-path assertions on their machine and
+		// nowhere else. Pinned for the same reason Getenv and PathExists are.
+		PerfLoggingConfig: func() bool { return false },
 	}
 	fillDefaults(o)
 	// fillDefaults would set real Getenv etc.; re-apply the deterministic stubs.
@@ -87,6 +93,7 @@ func goldenOptions(workspace, home string) *Options {
 	o.PathExists = func(string) bool { return false }
 	o.IsTTYStdout = func() bool { return false }
 	o.IsTTYStdin = func() bool { return false }
+	o.PerfLoggingConfig = func() bool { return false }
 	return o
 }
 

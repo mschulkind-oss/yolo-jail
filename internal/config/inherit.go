@@ -166,7 +166,19 @@ var inheritCensus = map[string]keyDisposition{
 	// preflight, where they would only invite a judgement about a host image.
 	"packages":  {nested: true, reason: "baked into the image an inner launcher builds"},
 	"resources": {nested: true, reason: "memory/cpu limits an inner launcher applies to its container"},
-	"network":   {nested: true, reason: "the network mode an inner launcher gives its container"},
+	// `perf_logging` is the persistent form of --timing (docs/design/perf-logging.md).
+	// NESTED, because an inner launcher IS a launcher: the preference is "time the
+	// launches I make", and a nested launch is one of them — which is also how the
+	// feature was verified in the first place. NOT preflight: no read-only command
+	// times anything, so emitting it there would add a key `yolo check` can see and
+	// cannot evaluate.
+	//
+	// This does NOT contradict the ruling that YOLO_TIMING is never forwarded into a
+	// jail (§4, D5). That ruling is about the host↔jail ENV wire, whose two halves
+	// redeploy on different cadences; this file is a generated config an inner
+	// launcher reads as its own user scope, and it re-derives its own gate from it.
+	"perf_logging": {nested: true, reason: "an inner launcher times the launches it makes"},
+	"network":      {nested: true, reason: "the network mode an inner launcher gives its container"},
 	// `env_sources` is nested-only for a measured reason, not a judgement: its string
 	// entries are HOST FILE PATHS, and resolving them in-jail emits "env_sources file not
 	// found, skipping" on every in-jail check (measured 2026-08-14). An inner launcher

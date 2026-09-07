@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
@@ -264,5 +265,67 @@ func TestWindowAUntilIsNeverInTheFuture(t *testing.T) {
 	if slack := time.Until(got); slack > time.Second {
 		t.Errorf("--until is %v in the future (%s) — podman will BLOCK until then, "+
 			"adding that wait to every timed shutdown", slack.Round(time.Millisecond), until)
+	}
+}
+
+// THE CALL-SITE PIN for the persistent opt-in: fillDefaults must fold
+// `perf_logging` into Options.Timing, so every downstream timingEnabled() sees
+// one answer without re-reading a file. Delete the fold and this fails.
+func TestPerfLoggingConfigFoldsIntoTiming(t *testing.T) {
+	cases := []struct {
+		name       string
+		flag       bool
+		configSays bool
+		want       bool
+	}{
+		{"neither", false, false, false},
+		{"config only", false, true, true},
+		{"flag only", true, false, true},
+		{"both", true, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := &Options{
+				Timing:            tc.flag,
+				PerfLoggingConfig: func() bool { return tc.configSays },
+			}
+			fillDefaults(o)
+			if o.Timing != tc.want {
+				t.Errorf("after fillDefaults, Timing = %v, want %v", o.Timing, tc.want)
+			}
+			if got := o.timingEnabled(); got != tc.want {
+				t.Errorf("timingEnabled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// fillDefaults must install the REAL reader when none is injected. Asserting
+// only that the seam is non-nil is NOT enough — that passes with the default
+// wired to a stub returning false, which is the config key silently inert in
+// production while every test that injects a seam stays green (AGENTS.md's
+// callee-pinned/call-site-unpinned shape). So this writes an actual user config
+// and requires the default to have read it.
+func TestPerfLoggingConfigDefaultsToTheRealReader(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(config.UserLayerEnv, "")
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"),
+		[]byte(`{"perf_logging": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	o := &Options{} // NOTHING injected: the production wiring is under test
+	fillDefaults(o)
+	if o.PerfLoggingConfig == nil {
+		t.Fatal("fillDefaults left PerfLoggingConfig nil; the config key would never be read")
+	}
+	if !o.Timing {
+		t.Error(`fillDefaults did not honor "perf_logging": true from the user config — ` +
+			"the seam is wired to something that is not config.PerfLoggingEnabled")
 	}
 }

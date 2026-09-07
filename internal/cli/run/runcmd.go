@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -56,8 +57,20 @@ type Options struct {
 	// Timing is --timing: report this launch's performance timings — grown from
 	// a single total into the full span system (docs/design/perf-logging.md).
 	// timingEnabled() is the effective gate: this flag OR the host-process
-	// YOLO_TIMING/YOLO_VERBOSE opt-ins.
+	// YOLO_TIMING/YOLO_VERBOSE opt-ins. fillDefaults also folds the persistent
+	// `perf_logging` user-config opt-in into it, so everything downstream reads
+	// ONE answer and no call site re-reads a file.
 	Timing bool
+	// PerfLoggingConfig reads the persistent `perf_logging` opt-in from the user
+	// config. nil => config.PerfLoggingEnabled.
+	//
+	// A seam for the reason every host-environment read in this struct is one:
+	// without it, fillDefaults would consult the DEVELOPER's real
+	// ~/.config/yolo-jail/config.jsonc during unit tests, and a maintainer who
+	// turned timing on for their own jails would watch the off-path tests
+	// (TestTeardownChainSilentWhenOff) start failing on their machine and
+	// nowhere else. goldenOptions pins it false.
+	PerfLoggingConfig func() bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
 	// AcceptConfigChanges is --accept-config-changes: it grants the config-change
@@ -347,6 +360,15 @@ func fillDefaults(o *Options) {
 	}
 	if o.Getenv == nil {
 		o.Getenv = os.Getenv
+	}
+	if o.PerfLoggingConfig == nil {
+		o.PerfLoggingConfig = config.PerfLoggingEnabled
+	}
+	// The persistent opt-in folds into the flag HERE, once, single-threaded,
+	// before any span exists — so the five timingEnabled() call sites downstream
+	// stay a field read rather than five reads of a file on every launch.
+	if !o.Timing && o.PerfLoggingConfig() {
+		o.Timing = true
 	}
 	if o.LookPath == nil {
 		o.LookPath = func(name string) (string, bool) {

@@ -103,6 +103,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostWrappers(config, workspace, errs)
 	validateHostApplyOnLaunch(config, workspace, errs)
 	validateAgentUpdates(config, workspace, errs)
+	validatePerfLogging(config, workspace, errs)
 	validatePacks(workspace, errs)
 	validatePrograms(config, workspace, errs)
 
@@ -586,6 +587,35 @@ func validateAgentUpdates(config *jsonx.OrderedMap, workspace string, errs *[]st
 			"whatever runs in the jail, so a workspace value would let an agent freeze its "+
 			"own updates. It is read from "+paths.UserConfigPath()+" and a workspace value "+
 			"has no effect. Move it there, or remove it.")
+	}
+}
+
+// validatePerfLogging type-checks `perf_logging` and refuses the workspace
+// spelling. Both halves are defense-in-depth against a value that LOOKS accepted:
+// the key is read from user scope directly (PerfLoggingEnabled), at the top of
+// run.Run before any merged config exists, so a workspace value would not be
+// consulted no matter how well-formed it is. Saying so beats a silent no-op.
+func validatePerfLogging(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(perfLoggingKey)
+	if !present {
+		// Every workspace key survives into the merged map, so an absent key here
+		// proves the workspace config has none either — no re-read needed.
+		return
+	}
+	if v != nil {
+		if prob := perfLoggingProblem(v); prob != "" {
+			add(errs, "config."+perfLoggingKey+": "+prob)
+		}
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(perfLoggingKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+perfLoggingKey+": user-scope only — it is read at the top of "+
+			"a launch, before any workspace config is loaded, so a workspace value is "+
+			"never consulted. It is read from "+paths.UserConfigPath()+". Move it there, "+
+			"or remove it. (Per-launch instead: `yolo --timing`, or YOLO_TIMING=1.)")
 	}
 }
 
