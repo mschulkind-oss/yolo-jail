@@ -167,6 +167,34 @@ distinguishes the two, which nothing could before.
 > is still hypotheses. The measurement that settles it is one `--timing` quit on the real host, whose
 > report names the arm and whose `host-perf.log` survives it.
 
+### 8.1 What it costs to leave on
+
+Measured on one complete nested launch, 2026-09-06 (podman 5.8.4):
+
+| Cost | Measured | Bound |
+| :--- | ---: | :--- |
+| Log file, one launch | **2,194 bytes / 35 lines** | — |
+| Log file, per workspace | — | **~110 KB**, hard: trim-to-50-runs at open |
+| Added wall-clock, post-exit | **39 ms** (whole chain incl. attribution) | — |
+| `shutdown.window_a_podman_events` | **0.019s** | 3s exec timeout |
+
+The line count is stable because it is structural — one `start`/`end` pair per span plus the marks,
+about 35 events for a fresh launch, fewer for an attach. It does not grow with how *long* anything
+took, so a pathological 30-second shutdown writes the same 2 KB as a fast one.
+
+> [!WARNING]
+> **This was 3.002s per launch until `--until` was fixed.** `podman events --until <future>` waits
+> for that wall-clock moment instead of returning what it has, and the first version passed
+> `podmanExited+5s`. The instrument had the exact bug class it was built to find, and what exposed
+> it was its own report — a suspiciously round `3.002s` on every single run. Pinned by
+> `TestWindowAUntilIsNeverInTheFuture`.
+
+**The remaining cost of always-on is noise, not resources.** An enabled launch prints the span table
+to stderr *and* sets `YOLO_PROFILE=1`, which makes the in-container half print its own
+`=== YOLO Jail Profile ===` block. There is deliberately no "record to the file but stay quiet" mode
+yet: the file only exists when the gate is on. If always-on recording turns out to be what is
+wanted, that split — always append, print only when asked — is the shape to add, and it is small.
+
 **What the signal path proved instead.** SIGTERM to the launcher, under a real pty: `terminate.*`
 spans reached the file *after* the arm's `os.Exit(128+n)`, and the report printed at rc 143. That is
 [D3](#decision-ledger) working — an end-of-run dump would have lost the whole record on the one path
