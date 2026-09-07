@@ -228,3 +228,41 @@ func TestAttributeWindowA(t *testing.T) {
 		})
 	}
 }
+
+// THE 3-SECOND BUG, pinned. `podman events --until <future>` does not return
+// what it has and exit — it WAITS until that wall-clock moment. The first
+// shipped version passed podmanExited+5s, so every timed shutdown stalled for
+// the full exec timeout (measured 3.002s per launch, vs 0.02s with an --until
+// of now). Any future offset reintroduced here fails this test.
+func TestWindowAUntilIsNeverInTheFuture(t *testing.T) {
+	ws := t.TempDir()
+	o := goldenOptions(ws, t.TempDir())
+	o.Timing = true
+	o.initPerf("yolo-ws-test0000")
+
+	var until string
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		for i, a := range argv {
+			if a == "--until" && i+1 < len(argv) {
+				until = argv[i+1]
+			}
+		}
+		return ExecResult{Ran: true}
+	}
+	// A child that exited a minute ago — the ordinary case.
+	o.attributeWindowA("yolo-ws-test0000", "podman", time.Now().Add(-2*time.Minute), time.Now().Add(-time.Minute))
+
+	if until == "" {
+		t.Fatal("no --until on the events argv; the query would stream unbounded")
+	}
+	got, err := time.Parse(time.RFC3339, until)
+	if err != nil {
+		t.Fatalf("--until %q is not RFC3339: %v", until, err)
+	}
+	// Second-granularity RFC3339 rounds down, so "now" can format up to a
+	// second behind; anything beyond that is a real future wait.
+	if slack := time.Until(got); slack > time.Second {
+		t.Errorf("--until is %v in the future (%s) — podman will BLOCK until then, "+
+			"adding that wait to every timed shutdown", slack.Round(time.Millisecond), until)
+	}
+}

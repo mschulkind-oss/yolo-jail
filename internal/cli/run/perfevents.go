@@ -36,12 +36,27 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 	if rt != "podman" || o.Perf == nil {
 		return "", false
 	}
-	// The until bound gets slack past the podman exit because conmon's
-	// cleanup event can land moments after the run process is gone.
+	// --until IS NOW, AND MUST NEVER BE IN THE FUTURE. `podman events` treats a
+	// future --until as an instruction to keep watching until that wall-clock
+	// moment arrives, so it BLOCKS rather than returning what it already has.
+	// This first shipped as podmanExited+5s — slack for a cleanup event landing
+	// after the run process is gone — and that slack made every timed shutdown
+	// stall for the full windowAEventsTimeout: measured 3.002s on every launch,
+	// against 0.02s for an --until of now (podman 5.8.4, 2026-09-06). A timing
+	// feature that adds three seconds to the thing it measures is worse than no
+	// feature, and it is exactly the delay class this exists to find.
+	//
+	// No slack is needed: attribution runs AFTER the whole teardown chain, so
+	// "now" is already later than the podman exit and later than any cleanup
+	// event conmon has written. Pinned by TestWindowAUntilIsNeverInTheFuture.
+	until := time.Now()
+	if podmanExited.After(until) {
+		until = podmanExited // clock skew only; still never a future wait
+	}
 	argv := []string{
 		"podman", "events",
 		"--since", since.UTC().Format(time.RFC3339),
-		"--until", podmanExited.Add(5 * time.Second).UTC().Format(time.RFC3339),
+		"--until", until.UTC().Format(time.RFC3339),
 		"--filter", "container=" + cname,
 		"--format", "{{.Time}} {{.Status}}",
 	}
