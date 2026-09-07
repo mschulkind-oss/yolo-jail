@@ -334,8 +334,13 @@ func TestRunNormalResolvesAndThreadsTheJailPrefix(t *testing.T) {
 // a full image build before it refuses.
 func TestPrefixIsResolvedBeforeTheImageLoad(t *testing.T) {
 	src := runSource(t)
-	prefixAt := strings.Index(src, "o.resolveJailPrefix(repoRoot)")
-	imageAt := strings.Index(src, "o.autoLoadImage(cfg, rt, repoRoot)")
+	// Matched on the call NAME, not on a full argument list. Pinning the argv
+	// spelling makes this fail for reasons that have nothing to do with the
+	// order it exists to protect: C5 added a storePackagesPlan argument to
+	// autoLoadImage and broke this pin at merge time while the ordering it
+	// asserts was never in question.
+	prefixAt := strings.Index(src, "o.resolveJailPrefix(")
+	imageAt := strings.Index(src, "o.autoLoadImage(")
 	if prefixAt < 0 || imageAt < 0 {
 		t.Fatalf("could not locate both call sites (prefix=%d image=%d)", prefixAt, imageAt)
 	}
