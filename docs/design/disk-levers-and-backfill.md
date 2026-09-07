@@ -19,7 +19,8 @@ labelled **MEASURED** / **NOT MEASURED** in the manner of
 retention** — stopping new growth — is mostly shipped: C3 stopped the tars, C8 stopped the
 per-commit image rebuild, [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3) gave the podman reaper a
 trigger. **Backfill** — the bytes already on disk from before each fix — is the larger number on
-this machine today and nothing addresses it: **~52.7 GB** of podman images the shipped reaper has never
+this machine today and nothing addresses it: **~49 GiB** of cache files older than the
+30-day rule that `yolo prune` would already purge, **~52.7 GB** of podman images the shipped reaper has never
 been allowed to run against, **~20.6 GB** of image tars that are dead on a streaming runtime but
 kept by a `keep=3` default, and **≥ 28.8 GB** of yolo's own unrooted `/nix/store` outputs that no
 collector has ever visited, because **nothing on this machine ever runs `nix store gc`** —
@@ -121,8 +122,8 @@ Levels, growth, who reclaims today, and how much of the level is backfill. "Trig
 | :--- | :--- | :--- | :--- | :--- |
 | Podman image store (nested, this jail) | **30 rows / 29 images / 52.73 GB**, 100 % reclaimable (0 containers) at ~23:20; **24 images / 38.68 GB** earlier the same day, before six C4/C5/C8 verification launches. 28 are `yolo-jail`: 24 tagged, 4 `<none>` | 28 images between 2026-09-04 13:54 and 2026-09-06 21:45 — ~12/day at the dev-loop rate | `PruneOldImages` (`internal/prune/probes.go`), veto-protected; **auto-trigger shipped today** (`AutoReapOldImages`), debounced 24 h. **Has never fired here** — `build/last-image-reap` is absent | The whole store: the reap's first pass selects **14 of 24** tagged images ([§2.2](#22-the-image-reap-priced-against-this-store)) |
 | yolo's own outputs in `/nix/store` | **231** `*-yolo-jail-install-prefix` paths, **19.77 GB**, **220 unrooted**; **245** `*-yolo-jail-go-0-dev` paths, **10.02 GB**, **all 245 unrooted**; **316** `*-stream-yolo-jail` scripts, 298 unrooted (closures NOT MEASURED) | +79 prefixes, +68 Go builds, +104 streams since 2026-08-15 ([§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk): 152/177/212) — **≈ 0.43 GB/day** of unrooted garbage | **None.** `nix store gc` is reachable only via `yolo prune --nix-gc --apply` (host-only, default off) and the daemon's `min-free = 0` ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)) | **≥ 28.8 GB** (220 × 85.6 MB + 245 × 40.9 MB), plus the unrooted stream closures |
-| `~/.cache` — **NOT yolo's, and NOT what the purge walks** (⚠ see [§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)) | **114 G**: pants 40 G, uv 34 G, go-build 18 G, images 11 G, pex 6.1 G, nce 2.0 G, pip 1.9 G, npm 1.5 G | NOT MEASURED | **none.** A separate btrfs subvolume (`subvol=/@home`); no yolo reaper reaches it | **not reclaimable by yolo at all** |
-| `paths.GlobalCache()` — the tree `PurgeCacheByAge` actually walks | **14 G**: npm 2.1 G, go-build 75 M, images 9.9 GiB, uv 88 K, nix 352 K, pip 0, node-gyp 0. **`pants` and `pex` do not exist in it** | NOT MEASURED (no second sample) | `PurgeCacheByAge` (30 d) over uv/pip/npm/go-build/mise/pex/pants/node-gyp/gopls, rooted at `joinPath(gs, "cache")`; `yolo prune --apply` only | **≈2.2 G at most**, and the npm 2.1 G is the one subdir with a live reuse story ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)) |
+| Host `GLOBAL_CACHE` — `paths.GlobalCache()`, **shared by every workspace**; a jail sees it as `~/.cache` | **114 G**: pants 40 G (`lmdb_store` 27 G + `named_caches` 14 G), uv 34 G, go-build 18 G, images 11 G, pex 6.1 G, nce 2.0 G, pip 1.9 G, npm 1.5 G, staticcheck 941 M, nix 298 M, copilot 102 M | NOT MEASURED (no second sample) | `PurgeCacheByAge` (30 d) over uv/pip/npm/go-build/mise/pex/pants/node-gyp/gopls; `yolo prune --apply` only. `nce`, `staticcheck` uncovered | **49.34 GiB in ~369 k files older than 30 d** (pants 39.36 / 211 056 files, pex 6.44, uv 3.06, npm 0.41, pip 0.07, go-build 0); **+1.86 GiB** in `nce` (uncovered) |
+| The NESTED jail's own `paths.GlobalCache()` | **14 G**: images 9.9 GiB, npm 2.1 G, go-build 75 M, uv 88 K, nix 352 K | NOT MEASURED | same reaper, run by the in-jail `yolo` | a second, smaller instance of the row above — **not** a correction to it ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)) |
 | Image tars, host (`~/.cache/images`) | **3 tars, 10.7 GB**, newest 2026-08-24 | zero since C3 | `PruneImageCache` **keep=3** — so "none" to remove | **all 10.7 GB**: dead on podman since C3, kept only by the default |
 | Image tars, nested (`cache/images`) | **3 tars, 9.9 GiB**, newest 2026-08-25 19:17 | zero since C3 | same | **all 9.9 GiB** |
 | Nested state dir (`~/.local/share/yolo-jail`) | **15.0 GiB**: cache 13.4 (images 9.9, npm 2.1, copilot 1.3), mise 1.1, captures 406.5 MiB, agents 47.2 MiB | NOT MEASURED | per-subdir, all `yolo prune` only | see rows above |
@@ -298,12 +299,32 @@ days" holds an eighth of what is retained today. This is the evidence [OQ-BF3](#
 > image now changes only on `flake.*` and `packages:`. A liveness veto is doing duty as a reuse cache
 > it was never justified as ([OQ-BF8](#OQ-BF8)).
 
-**Class C — not yolo's asset, and its reuse is another tool's story.** `~/.cache` (114 G) is a
-separate btrfs subvolume; `PurgeCacheByAge` is rooted at `joinPath(gs, "cache")` and never walks it.
-`pants` appears in this repository in exactly two files — the default subdir list in
-`internal/prune/cachepurge.go` and its test. There is no `pants.toml`, no `BUILD` file, no
-invocation, and `pants` is not on PATH in a jail. It is a speculative directory name, and the 40 G
-under it is neither reachable nor ours to reason about.
+**Class C — yolo's directory, another workspace's asset, and no per-workspace accounting.** This is
+the largest bucket and the most interesting one, because the first reading of it was wrong twice.
+
+`paths.GlobalCache()` is documented as *"the shared cache dir"* — **machine-wide, shared by every
+workspace** — and a jail sees it mounted at `~/.cache`. Verified from `/proc/self/mountinfo`: this
+jail's `/home/agent/.cache` has its mount root at `/@home/matt/.local/share/yolo-jail/cache`. So the
+114 G tree IS yolo's own global cache, and `yolo prune` on the HOST walks exactly it.
+
+What wrote the 40 G is a real pants build cache — `lmdb_store` 27 G plus `named_caches` 14 G, pants'
+own layout. `pants` is not on PATH in *this* workspace and appears in this repository only in
+`internal/prune/cachepurge.go`'s default subdir list and its test. So it was written by a
+**different workspace's jail**: a pants-using project, pooling into the shared dir by design.
+
+That makes the maintainer's point sharper rather than weaker. The sharing is deliberate and it buys
+something real (a warm npm cache across workspaces). But the same mechanism charges one project's
+unbounded third-party build cache to yolo's global store, where **the workspace that generated it is
+not the workspace that can see it**, no per-workspace accounting exists, and yolo's 30-day rule is
+the only thing that would ever bound it — a rule that has never run. A store can therefore grow from
+assets whose generating workspace may never exist again, and nothing in the model notices.
+
+> [!WARNING]
+> **A path expression must be evaluated in the frame that runs it.** `PurgeCacheByAge` is rooted at
+> `joinPath(gs, "cache")`, which resolves to the 114 G host tree when the HOST `yolo` runs it and to
+> the nested jail's own 14 G tree when an in-jail `yolo` does. Reading that expression in the jail's
+> frame while pricing a host operation is what produced a retraction of this lever that was itself
+> wrong, on 2026-09-07. Both numbers are correct; they describe different machines.
 
 > [!WARNING]
 > **atime is contaminated in that tree and cannot be used as reuse evidence.** A spread sample of
@@ -331,7 +352,7 @@ turns on.
 
 | # | Lever | Kind | Bytes here (dated 2026-09-06) | What it costs to pull | State |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| L1 | ~~**Run the cache age-purge on the host `GLOBAL_CACHE`**~~ **⚠ RETRACTED — measured against the wrong tree** | both | **≈2.2 G**, not 49.34 GiB | the 49.34 GiB was `~/.cache`, which `PurgeCacheByAge` never walks; adding `nce` to the default list is still worth doing but it is megabytes here | reaper shipped 2026-07-22; trigger = human. **Demoted from #1 to last** |
+| L1 | **Run the cache age-purge that already exists** (`PurgeCacheByAge`, 30 d) on the host `GLOBAL_CACHE`; add `nce` to the default list | both | **49.34 GiB** covered + **1.86 GiB** `nce`; steady state unbounded today | a trigger, not a reaper: the walk over ~369 k files is the expensive part (minutes; NOT MEASURED precisely); regeneration is a **re-download of unknown size** (pants 39 GiB). ⚠ The bytes are a THIRD-PARTY build cache yolo pools ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store) Class C) | reaper shipped 2026-07-22; trigger = human |
 | L2 | **Let the shipped image reap run** — the first `AutoReapOldImages` pass against the backlog | backfill (steady state shipped) | **≈ 24 GB** of 52.73 here; ~3.5 GB more behind the `<none>` rows ([OQ-DF3](./minimal-disk-footprint.md#OQ-DF3) REACH) | zero code; the cost is **time on the launch path** — fourteen `rmi -f` of multi-GB images before the container starts (NOT MEASURED; see [§5.3](#53-triggers-defaults-and-the-post-launch-slot)) | shipped today; never fired here |
 | L3 | **Delete yolo's own superseded store outputs** — named `nix store delete` of unrooted `*-install-prefix` / `*-go-0-dev` paths, never a blanket GC | both | **≥ 28.8 GB**; +0.43 GB/day | new mechanism; **prerequisite: per-jail durable prefix roots** ([OQ-BF4](#OQ-BF4)) or nix's liveness check is the only veto and its view of containers is unestablished; host-only | nothing built |
 | L4 | **`ImageCacheKeep` → 0 where the runtime streams** (podman) | backfill | **≈ 20.6 GB** (10.7 host + 9.9 nested) | one constant, one predicate on the runtime; regeneration = a build; the fallback reader `newestTars` keeps working on whatever exists | knob is [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s ([OQ-DF1](./minimal-disk-footprint.md#11-open-questions) already ruled "keep zero" for the writer) |
@@ -410,7 +431,7 @@ that needs a TTY runs there — by then the TTY is the container's.
 | Superseded vendor versions (A7) | **automatic** | evidence complete (the live symlink, per workspace); regeneration = a vendor download of one build, which the launcher does anyway | `_prune_versions` at every launcher invocation, keep 2 | unchanged |
 | Agent staging, loophole state, captures | **automatic** | tri-state gated already; kilobytes to hundreds of MB | in the slot | in the slot |
 | yolo's own unrooted store outputs | **automatic, gated on [OQ-BF4](#OQ-BF4)**; until then **offered** | evidence complete only once every running jail's prefix has a durable root; nix's own liveness check is the second veto; regeneration = a `nix build` | first pass deletes every unrooted `*-install-prefix` / `*-go-0-dev` by name (`nix store delete`, which refuses a live path) | per launch, in the slot, host-only |
-| Cache age-purge (`paths.GlobalCache()`, ≈2.2 G — NOT `~/.cache`) | **offered once, then automatic** | evidence complete (mtime) but regeneration is a re-fetch — P4. Much smaller than first measured ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)) | one prompt with the measured size; **y** deletes in the slot and enables the steady state; **n** asks again in 7 d; **never** opts the class out | automatic, 30 d, in the slot, once consented |
+| Cache age-purge (host `GLOBAL_CACHE`) | **offered once, then automatic** | evidence complete (mtime) but regeneration is an unbounded re-fetch — P4 | one prompt with the measured size; **y** deletes in the slot and enables the steady state; **n** asks again in 7 d; **never** opts the class out | automatic, 30 d, in the slot, once consented |
 | `<none>` podman rows | **offered** until [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3) REACH is ruled | evidence partial (no tag); the store is shared with non-yolo images | the offer names the count and the chain bytes they hold; acceptance is a `podman rmi` of the listed IDs, never `image prune` | whatever REACH rules |
 | Worktrees | **never** | not yolo's bytes | none | none |
 
@@ -419,7 +440,7 @@ The offer has one shape for every offered class, so a user learns it once:
 ```console
 $ yolo
 Reclaimable on this machine (measured 2026-09-06 21:45, older than yolo's rules allow):
-  cache files older than 30 d       2.1 GiB   (npm)
+  cache files older than 30 d      49.3 GiB   (pants 39.4, pex 6.4, uv 3.1, npm 0.4)
   nameless podman images            4 rows    (holding a 3.6 GB layer chain)
 Reclaim now? [y]es / [n]ot now (ask again in 7 days) / ne[v]er (yolo prune stays available)
 ```
@@ -632,10 +653,10 @@ the rulings it needs.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-BF2: Does the cache age-purge get a launch-path trigger at all?** It carries the same trigger
-   defect as the tars — a 30-day rule that has never run — but its size is now **≈2.2 G, not the
-   49.34 GiB first measured**: that figure was taken against `~/.cache`, which the purge never
-   walks ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)). What is left is the npm cache, whose reuse story is real. The answer decides
+2. 💬 **OQ-BF2: Does the cache age-purge get a launch-path trigger at all?** It is the largest
+   measured backfill (49.34 GiB) and the same trigger defect as the tars — a 30-day rule that
+   has never run — but its regeneration cost is the one this doc cannot bound, and the bytes are a
+   third-party build cache yolo pools ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store) Class C). The answer decides
    whether L1 is "offered once, then automatic in the slot" (the [§5.2](#52-two-tiers-one-mapping)
    row) or stays manual, and whether `nce` and `staticcheck` join the default list.
 
