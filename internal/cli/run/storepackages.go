@@ -140,7 +140,11 @@ func storePackagesEligible(rt string, isMacOS, storeMounted bool) (bool, string)
 // exist. Here it is worse than on macos-user, because an opt-in image does not contain the
 // package either.
 func (o *Options) planStorePackages(cfg *jsonx.OrderedMap, rt, repoRoot string, storeMounted bool) (storePackagesPlan, bool) {
-	out := o.pr(o.Stdout)
+	// STDERR, matching the refusals below rather than diverging from them: every
+	// print in this file is a launch notice, and stdout belongs to the jailed
+	// command. The failures here were already on stderr while the two progress
+	// lines were not, which is the split that let C8's twin break CI.
+	out := o.pr(o.Stderr)
 	if !envTruthy(o.Getenv(StorePackagesOptInEnv)) {
 		return storePackagesPlan{}, true
 	}
@@ -200,7 +204,7 @@ func (o *Options) addImageExtras(plan storePackagesPlan, repoRoot string) (store
 	if !plan.Active {
 		return plan, true
 	}
-	o.pr(o.Stdout).print("[dim]Realizing the image's bulk extras from the nix store " +
+	o.pr(o.Stderr).print("[dim]Realizing the image's bulk extras from the nix store " +
 		"(the image will be the lean variant)…[/dim]")
 	profile, err := o.buildImageExtras()(repoRoot)
 	if err != nil {
@@ -221,7 +225,7 @@ func (o *Options) buildImageExtras() func(string) (string, error) {
 	}
 	inJail := o.inJail()
 	return func(repoRoot string) (string, error) {
-		return realBuildImageExtras(repoRoot, inJail, o.Stdout)
+		return realBuildImageExtras(repoRoot, inJail, o.Stderr)
 	}
 }
 

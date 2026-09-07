@@ -381,7 +381,7 @@ func fillDefaults(o *Options) {
 	}
 	if o.BuildJailPrefix == nil {
 		o.BuildJailPrefix = func(repoRoot string) (string, []string) {
-			return image.BuildJailPrefix(repoRoot, o.Stdout)
+			return image.BuildJailPrefix(repoRoot, o.Stderr)
 		}
 	}
 	if o.RepoRoot == nil {

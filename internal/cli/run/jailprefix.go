@@ -121,6 +121,14 @@ func (o *Options) resolveJailPrefix(root string) (jailPrefix, bool) {
 	if prebuilt := prebuiltBinDir(root); o.PathExists(filepath.Join(prebuilt, "yolo-entrypoint")) {
 		return jailPrefix{binDir: prebuilt, shareDir: root}, true
 	}
+	// STDERR, like every other launch notice and like the refusal just below
+	// (warnIfNoPacks states the rule): stdout belongs to the jailed command, so
+	// a notice printed there is swallowed by the user's redirect or corrupts
+	// what they pipe. This sentence used to be printed by image.BuildJailPrefix
+	// onto o.Stdout, and it broke CI on every runner that has to build the
+	// prefix — TestBuildNoticeGoesToStderr is the regression.
+	o.pr(o.Stderr).print("[dim]Building yolo's own binaries (.#installPrefix) — " +
+		"they are mounted into the jail, not baked into the image…[/dim]")
 	storePath, tail := o.BuildJailPrefix(root)
 	if storePath == "" {
 		o.pr(o.Stderr).print("[bold red]Cannot start jail: could not build yolo's own " +

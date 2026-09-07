@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -387,5 +388,99 @@ func TestAppleContainerAlsoMountsTheJailPrefix(t *testing.T) {
 	}
 	if argv[len(argv)-1] != JailEntrypointPath {
 		t.Errorf("the Apple Container argv ends with %q, want %q", argv[len(argv)-1], JailEntrypointPath)
+	}
+}
+
+// TestPrefixBuildNoticeGoesToStderr pins the STREAM of the one notice the prefix
+// step prints, for the reason TestAssembleNoticesGoToStderr states in full:
+// stdout belongs to the jailed command, so a launch notice printed there is
+// swallowed by the user's redirect or corrupts what they pipe.
+//
+// THIS IS THE SECOND TIME THIS EXACT OUTAGE SHIPPED, through a different door.
+// 6580186c moved assembleRunCmd's notices to stderr on 2026-09-06, after the
+// host-loopback note had spent two days prepending itself to every integration
+// test that asserts a jailed command's exact output. C8 then reintroduced it:
+// image.BuildJailPrefix printed "Building yolo's own binaries…" to whatever
+// writer the run path handed it, and the run path handed it o.Stdout — so
+// TestHostComposedBriefingIsNotDeliveredTwice read its count "1" back as
+// "Building yolo's own binaries… 1", and TestProvidersRenderInTheAgentsOwn-
+// Vocabulary declared a byte-correct provider env wrong, on both architectures
+// (CI run 34079261711 — the same two tests as the first time).
+//
+// A unit test is the only cheap proof. The leak needs a flake source with no
+// prebuilt binaries — a live checkout, which is every CI runner and no user with
+// an installed bundle — and it only becomes visible in tests that assert a
+// jailed command's stdout, i.e. after a full image build.
+//
+// All three halves matter. Delete the print and the stderr half fails; move it
+// back to o.Stdout and the stdout half fails; hoist it above the prebuilt probe
+// and the silence half fails.
+func TestPrefixBuildNoticeGoesToStderr(t *testing.T) {
+	// A LIVE CHECKOUT ships no bin/linux-<arch>, so this is the branch that builds.
+	root := stageBundle(t, false)
+	store := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := &Options{
+		Stdout:          &stdout,
+		Stderr:          &stderr,
+		BuildJailPrefix: func(string) (string, []string) { return store, nil },
+	}
+	fillDefaults(o)
+
+	if _, ok := o.resolveJailPrefix(root); !ok {
+		t.Fatal("resolveJailPrefix refused a checkout whose build succeeded")
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("the prefix build notice reached STDOUT, which belongs to the jailed "+
+			"command — every integration test that asserts exact command output breaks "+
+			"on every runner that has to build the prefix:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Building yolo's own binaries") {
+		t.Errorf("the build notice was not printed at all. A launch that stops to run "+
+			"`nix build .#installPrefix` must say why it paused; stderr was:\n%s",
+			stderr.String())
+	}
+
+	// AND THE PREBUILT BRANCH SAYS NOTHING, on either stream. That is the default
+	// on every installed machine and it builds nothing, so announcing a build here
+	// would be false — and it is exactly what hoisting the print to the top of
+	// resolveJailPrefix would do.
+	var quietOut, quietErr bytes.Buffer
+	q := &Options{
+		Stdout: &quietOut,
+		Stderr: &quietErr,
+		BuildJailPrefix: func(string) (string, []string) {
+			t.Fatal("a bundle with prebuilt binaries must not trigger a build")
+			return "", nil
+		},
+	}
+	fillDefaults(q)
+	if _, ok := q.resolveJailPrefix(stageBundle(t, true)); !ok {
+		t.Fatal("resolveJailPrefix refused a prebuilt bundle")
+	}
+	if quietOut.Len() != 0 || quietErr.Len() != 0 {
+		t.Errorf("mounting prebuilt binaries announced a build it never ran:\n%s%s",
+			quietOut.String(), quietErr.String())
+	}
+}
+
+// TestPrefixNixProgressGoesToStderr pins the OTHER writer in the same decision:
+// image.BuildJailPrefix streams nix's own progress summaries to the writer it is
+// given, so handing it o.Stdout leaks build chatter onto the jailed command's
+// stream even now that the notice sentence has moved out.
+//
+// An EXPRESSION assertion, in the shape TestPrefixIsResolvedBeforeTheImageLoad
+// and TestRunNormalResolvesAndThreadsTheJailPrefix already use, and for the same
+// reason: the wiring is inside fillDefaults' closure, and driving it runs a real
+// `nix build`. Weaker than driving it, and the strongest thing available here.
+func TestPrefixNixProgressGoesToStderr(t *testing.T) {
+	body, err := os.ReadFile("runcmd.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "image.BuildJailPrefix(repoRoot, o.Stderr)") {
+		t.Error("fillDefaults no longer hands image.BuildJailPrefix o.Stderr. Nix's " +
+			"progress summaries would land on stdout, which belongs to the jailed " +
+			"command — the leak CI run 34079261711 was made of")
 	}
 }

@@ -101,7 +101,7 @@ func TestStorePackagesDefaultIsBaked(t *testing.T) {
 // doing it silently: a fast path that quietly is not one gets its cost attributed to the
 // wrong mechanism.
 func TestStorePackagesIneligibleFallsBackLoudly(t *testing.T) {
-	o, out, _ := storeOptions(t, map[string]string{StorePackagesOptInEnv: "1"})
+	o, _, errOut := storeOptions(t, map[string]string{StorePackagesOptInEnv: "1"})
 	o.MaterializeStorePackages = func(string, []any) (string, []string, error) {
 		t.Fatal("an ineligible launch must not run nix")
 		return "", nil, nil
@@ -116,8 +116,10 @@ func TestStorePackagesIneligibleFallsBackLoudly(t *testing.T) {
 		t.Fatal("the plan must be inactive, or the image is built without packages the " +
 			"jail then has no way to get")
 	}
-	if !strings.Contains(out.String(), StorePackagesOptInEnv) {
-		t.Errorf("the fallback was SILENT; output was:\n%s", out)
+	// On STDERR, like every other launch notice; TestStorePackagesNoticesGoToStderr
+	// is the pin for the stream itself.
+	if !strings.Contains(errOut.String(), StorePackagesOptInEnv) {
+		t.Errorf("the fallback was SILENT; output was:\n%s", errOut)
 	}
 }
 
@@ -408,5 +410,76 @@ func TestEnvTruthyMatchesTheOtherOptInDials(t *testing.T) {
 		if envTruthy(no) {
 			t.Errorf("envTruthy(%q) = true", no)
 		}
+	}
+}
+
+// TestStorePackagesNoticesGoToStderr pins the stream of every progress line C4/C5
+// prints. The rule is warnIfNoPacks': stdout belongs to the jailed command, so a
+// launch notice there is swallowed by the user's redirect or corrupts a piped payload.
+//
+// This file shipped with the split that causes the bug: its REFUSALS were already on
+// stderr while its two PROGRESS lines were on stdout. That is the identical defect C8's
+// build notice shipped, and it broke CI twice in two days through two separate call
+// sites (6580186c, then CI run 34079261711 — both times taking out
+// TestHostComposedBriefingIsNotDeliveredTwice and TestProvidersRenderInTheAgentsOwn-
+// Vocabulary). Here it is LATENT rather than constant only because the path is opt-in:
+// the first CI job to set YOLO_STORE_PACKAGES=1 would reproduce that outage exactly.
+//
+// Each block pins one print site — delete the print and its stderr half fails, move it
+// back to o.Stdout and its stdout half fails.
+func TestStorePackagesNoticesGoToStderr(t *testing.T) {
+	// (1) The ineligible-fallback notice: opted in, but this backend cannot.
+	ineligible, stdout, stderr := storeOptions(t, map[string]string{StorePackagesOptInEnv: "1"})
+	if _, ok := ineligible.planStorePackages(
+		cfgWithPackages(t, `{"packages": ["zbar"]}`), "container", "/repo", true); !ok {
+		t.Fatal("an ineligible opt-in must not refuse the launch")
+	}
+	assertNoticeOnStderr(t, "the ineligible-fallback notice", stdout, stderr, StorePackagesOptInEnv)
+
+	// (2) The `packages:` realization notice, on the active path.
+	active, stdout, stderr := storeOptions(t, map[string]string{StorePackagesOptInEnv: "1"})
+	active.MaterializeStorePackages = func(string, []any) (string, []string, error) {
+		return "/nix/store/aaa-profile", nil, nil
+	}
+	if _, ok := active.planStorePackages(
+		cfgWithPackages(t, `{"packages": ["zbar"]}`), "podman", "/repo", true); !ok {
+		t.Fatal("planStorePackages refused an eligible opt-in")
+	}
+	assertNoticeOnStderr(t, "the `packages:` realization notice", stdout, stderr,
+		"Realizing `packages:`")
+
+	// (3) The image-extras notice (C5).
+	extras, stdout, stderr := storeOptions(t, map[string]string{StorePackagesOptInEnv: "1"})
+	extras.BuildImageExtras = func(string) (string, error) { return "/nix/store/extras", nil }
+	if _, ok := extras.addImageExtras(storePackagesPlan{Active: true}, "/repo"); !ok {
+		t.Fatal("addImageExtras refused")
+	}
+	assertNoticeOnStderr(t, "the image-extras notice", stdout, stderr, "bulk extras")
+}
+
+// assertNoticeOnStderr: the notice reached stderr, and stdout — the jailed command's
+// own stream — stayed empty.
+func assertNoticeOnStderr(t *testing.T, what string, stdout, stderr *bytes.Buffer, want string) {
+	t.Helper()
+	if stdout.Len() != 0 {
+		t.Errorf("%s reached STDOUT, which belongs to the jailed command:\n%s", what, stdout)
+	}
+	if !strings.Contains(stderr.String(), want) {
+		t.Errorf("%s is missing from stderr (wanted %q):\n%s", what, want, stderr)
+	}
+}
+
+// TestImageExtrasNixProgressGoesToStderr is the expression pin for the other writer in
+// the same decision — realBuildImageExtras streams nix's progress to the writer
+// buildImageExtras hands it, and driving that closure runs a real `nix build`. Same
+// shape and same reason as TestPrefixNixProgressGoesToStderr.
+func TestImageExtrasNixProgressGoesToStderr(t *testing.T) {
+	body, err := os.ReadFile("storepackages.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "realBuildImageExtras(repoRoot, inJail, o.Stderr)") {
+		t.Error("buildImageExtras no longer hands realBuildImageExtras o.Stderr; nix's " +
+			"progress summaries would land on the jailed command's stdout")
 	}
 }

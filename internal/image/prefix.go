@@ -1,7 +1,6 @@
 package image
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -57,6 +56,20 @@ func JailPrefixOutLink(repoRoot string) string {
 // the launch rather than proceed, because the jail would have no yolo-entrypoint
 // to exec.
 //
+// `out` RECEIVES NIX'S OWN PROGRESS SUMMARIES AND NOTHING ELSE. The launch
+// notice that announces the build is the CALLER's, printed on the caller's
+// chosen stream (internal/cli/run.resolveJailPrefix) — because only the CLI
+// layer knows that a launch is usually `yolo -- cmd`, so stdout belongs to the
+// jailed command and a notice there corrupts it. The notice lived HERE from C8
+// until 2026-09-07, and the run path handed it o.Stdout: it prepended itself to
+// every integration test that asserts the jailed command's exact output
+// (TestHostComposedBriefingIsNotDeliveredTwice read its count "1" back as
+// "Building yolo's own binaries… 1"; TestProvidersRenderInTheAgentsOwn-
+// Vocabulary saw a byte-correct provider env declared wrong), which is the same
+// outage 6580186c had just fixed for assembleRunCmd's printer, re-entering
+// through a new call site. Keeping the sentence in the CLI layer is what makes
+// the stream a decision someone can test.
+//
 // The returned path is the derivation root; the mountable prefix is
 // <storePath>/opt/yolo-jail (JailPrefixSubdir).
 func BuildJailPrefix(repoRoot string, out io.Writer) (string, []string) {
@@ -67,8 +80,6 @@ func BuildJailPrefix(repoRoot string, out io.Writer) (string, []string) {
 	if err := os.MkdirAll(filepath.Dir(outLink), 0o755); err != nil {
 		return "", []string{"could not create build dir: " + err.Error()}
 	}
-	fmt.Fprintln(out, "Building yolo's own binaries (.#installPrefix) — "+
-		"they are mounted into the jail, not baked into the image…")
 	return runNixBuild(
 		flakeBuildArgv(installPrefixAttr, outLink, nil),
 		repoRoot, os.Environ(), outLink, out)
