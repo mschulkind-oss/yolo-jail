@@ -522,7 +522,56 @@ unbounded `nix store gc`; removes a path any `roots/*`, `jail-prefix-*`, or reso
 TTY; blocks the container's start on any delete or any walk; or retries a deletion whose first
 attempt was refused for liveness.
 
-### 5.5 What done looks like
+### 5.5 `yolo stores` — the inventory, including what nothing reclaims
+
+**Decided by the maintainer, 2026-09-07:** before any of the dispositions above are built, yolo gets
+a command that lists every store and its size — *"even if we need some time to chip away at their
+control."* This section is that command's design. It is the executable form of
+[§2.1](#21-every-store-one-table), and its reason to exist is the half of that table `yolo prune` cannot show.
+
+**Why it is not `prune --dry-run`.** `prune` already prices what it would reclaim, and that is a
+different question. `prune --dry-run` answers *"what would I delete?"*; `stores` answers *"what
+exists on this machine, how big is it, and is anything at all responsible for it?"* Every store in
+[§2.1](#21-every-store-one-table) with **no reclaimer and no trigger** is invisible to `prune` by construction — the
+unrooted `/nix/store` outputs, the `nce` cache, Apple Container's store — and those are precisely
+the rows the maintainer wants a handle on. A listing that could only show reclaimable stores would
+reproduce the blind spot it exists to close.
+
+**What it prints, per store:** the path; the size, and whether that size was *measured, cached or
+unknown*; the growth rate when a prior sample exists, else `—`; the reclaimer, or **`none`**; the
+trigger, or **`none`**; and a plain verdict of whether yolo can reclaim it at all
+(`yolo` / `human` / `not yolo's`). A store nothing owns must be as legible as one that is swept.
+
+> [!IMPORTANT]
+> **The header states which machine's view it measured, and this is not cosmetic.**
+> `paths.GlobalCache()` resolves to the host's 114 G tree when the host `yolo` runs it and to a
+> nested jail's own 14 G tree when an in-jail `yolo` does. Reading that expression in the wrong frame
+> is what produced a wrong retraction of L1 on 2026-09-07 ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store) Class C). A report that does not
+> say whose disk it walked invites the same error, so the frame is part of the output, not a footnote.
+
+**Cost, because the walk is the expensive part.** Default is one directory-level size per store root —
+seconds. The age breakdown (the *dead* column, which is what makes a number actionable) needs a
+per-file walk over ~369 k files and costs minutes, so it is opt-in behind `--age` and prints its own
+elapsed time. Any figure that came from a cached sample rather than this run is labelled with the
+sample's date. **No figure is ever printed without saying how it was obtained** — that is the
+discipline this whole doc is built on, and the command is where it becomes a product surface.
+
+**Degenerate inputs.** A store that does not exist prints `absent`, size 0 — not an error, because a
+fresh machine has almost none of them. A store that cannot be read prints `unknown` with the reason.
+**One unreadable store never fails the command**: a partial inventory is the useful answer, and
+exiting non-zero on it would make the command unusable exactly where it matters most.
+
+**Triggers and forbidden behavior.** On demand only — never on the launch path, and never in the
+housekeeping slot ([§5.1](#51-the-housekeeping-slot)); the slot's own measurement is the cheap one it already needs. The
+command **must never delete, move or mutate any store**, must never take the nix GC lock (which
+would stall concurrent host builds — the same reason [§2.4](#24-caveats) declined the GC dry-run), and must
+never launch a container to measure one. `--json` is a first-class output for agents, on the
+`config drift` precedent.
+
+**Growth needs two samples**, which is the one thing a read-only command cannot give itself; see
+[OQ-BF9](#OQ-BF9).
+
+### 5.6 What done looks like
 
 Observable, on a machine that upgrades onto this:
 
@@ -612,21 +661,26 @@ Observable, on a machine that upgrades onto this:
 
 ## 10. Sequencing — what I would build, in order
 
-1. **L4 and L7 — two small changes with no new mechanism.** `ImageCacheKeep` 0 where the runtime
+1. **`yolo stores` — the inventory first** ([§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims)). It is the maintainer's stated
+   minimum, it is the only item here that needs no ruling on any of [§11](#11-open-questions)'s questions, and it
+   makes every later step checkable: each disposition below can then be shown to have moved a
+   number rather than argued to have. It also surfaces the rows nothing owns, which is where the
+   next policy will have to come from.
+2. **L4 and L7 — two small changes with no new mechanism.** `ImageCacheKeep` 0 where the runtime
    streams; `_prune_versions` at every launcher invocation. Both are P3-clean, both take a backlog
    with them on their first run, both are testable at the callee *and* the call site.
-2. **L2's ordering — move the shipped image reap into the housekeeping slot**, with the machine-wide
+3. **L2's ordering — move the shipped image reap into the housekeeping slot**, with the machine-wide
    lock ([§5.4](#54-one-writer-concurrency-failure)). This is the first thing that makes the slot exist,
    and the first pass over a backlog stops holding a launch. Fold L8's small sweeps into the same
    slot.
-3. **The offer** — the recorded-answer file, the measurement stamp, the pre-attach prompt — with L1
+4. **The offer** — the recorded-answer file, the measurement stamp, the pre-attach prompt — with L1
    as its first client. This is where P4 becomes code.
-4. **[OQ-BF4](#OQ-BF4) — durable roots for every running jail's prefix**, and the in-jail gate. A
+5. **[OQ-BF4](#OQ-BF4) — durable roots for every running jail's prefix**, and the in-jail gate. A
    correctness fix independent of disk, and L3's prerequisite.
-5. **L3 — named `nix store delete` of yolo's own superseded outputs**, automatic in the slot,
+6. **L3 — named `nix store delete` of yolo's own superseded outputs**, automatic in the slot,
    host-only, once 4 has landed. Until then the same set is *offered*, computed by name.
-6. **Re-measure**, in this jail and on the host: the tables in [§2](#2-measured-2026-09-06) are the
-   baseline, and the done-conditions in [§5.5](#55-what-done-looks-like) are what to check.
+7. **Re-measure**, in this jail and on the host: the tables in [§2](#2-measured-2026-09-06) are the
+   baseline, and the done-conditions in [§5.6](#56-what-done-looks-like) are what to check.
 
 ---
 
@@ -776,6 +830,25 @@ the rulings it needs.
    — derivable from the container list rather than guessed — and let `--keep-images` own the reuse
    buffer it is already named for. Lowering `10` to another underived constant repeats the defect
    at a new number.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+9. 💬 **OQ-BF9: May `yolo stores` write a sample ledger, so growth is measurable at all?** A
+   growth rate needs two dated samples, and a read-only command cannot produce the first one.
+   Almost every "growth" cell in [§2.1](#21-every-store-one-table) reads NOT MEASURED for exactly this reason — there
+   was no second sample — so the inventory would ship able to say how big a store is and unable to
+   say whether it is growing, which is the number that decides whether a store needs a policy at
+   all. The cost is that [§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims)'s
+   "must never mutate" acquires one exception, and an exception to a forbidden-behavior rule is
+   worth a ruling rather than a default.
+
+   <!-- vantage: oq id=OQ-BF9 leaning="Yes: append one dated line per store per run under the state dir, default on, --no-record to opt out, and the command is the single writer of that ledger. Size it bounded (last 30 samples per store) so the handle on growth cannot itself become a store that grows. A pure-read command that can never report a rate fails the maintainer's stated purpose - keeping a handle on stores whose control comes later." -->
+
+   _Leaning:_ **Yes — append one dated line per store per run**, default on, `--no-record` to opt
+   out, the command as the ledger's single writer, and the ledger itself **bounded** (last 30
+   samples per store) so the handle on growth cannot become a store that grows. A pure-read command
+   that can never report a rate fails the stated purpose.
 
    **Answer:**
    > _(empty — fill in when decided)_
