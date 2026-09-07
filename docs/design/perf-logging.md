@@ -11,7 +11,7 @@ summary: "The launcher's only timing number was a single host-side Total. This d
 **Status:** DECIDED 2026-09-06 and built in the same change (two maintainer rulings up front: the flag
 surface is **both** `--timing` grown and a new `--verbose`; the persistent log lives in
 **`<workspace>/.yolo/`**). Six Open Questions remain — all of them *fix candidates this feature is
-supposed to name*, not gaps in this design; see [§7](#7-open-questions).
+supposed to name*, not gaps in this design; see [§7](#7-open-questions). **Built and measured on a real launch** the same day — what that changed is [§8](#8-what-the-first-real-runs-measured).
 
 ## Decision Ledger
 
@@ -26,6 +26,8 @@ supposed to name*, not gaps in this design; see [§7](#7-open-questions).
 | D7 | A span slower than `perf.SlowSpanThreshold` (1s) names itself on stderr, dim, the moment it ends — the culprit announced live, which is the whole point when the terminal is sitting there hung. | 2026-09-06 | [§3](#3-the-collector--internalperf) | ✅ |
 | D8 | The collector's clock is `time.Now`, never the `Options.Now` seam — that seam exists so tests can freeze time, and a span system built on a frozen clock reports `0.000s` everywhere under test. | 2026-09-06 | [§3](#3-the-collector--internalperf) | ✅ |
 | D9 | Window A attribution runs `podman events` through the `o.Exec` seam, gated on the podman runtime, always with `--until` (the journald backend streams otherwise) and a 3s timeout; every failure is silence. | 2026-09-06 | [§6](#6-window-a-attribution-and-where-reports-print) | ✅ |
+| D10 | `launch.auto_capture` is spanned. Not in the original design — the first real `--timing` run put 109 of its 125 seconds between two spans, in `autoCaptureInstallerPrograms`. A span table's holes are only visible on a real launch. | 2026-09-06 | [§8](#8-what-the-first-real-runs-measured) | ✅ |
+| D11 | The report is emitted once per `Run`, guarded by a `*sync.Once` on Options. On the signal path BOTH teardown arms legitimately run — the terminate arm's `stopJail` makes the child exit, unblocking the normal-exit arm mid-teardown — so the guard is about not printing twice, not about a fault. Pointer, not embedded: `Options` is passed by value and vet's copylocks refuses a copied lock. | 2026-09-06 | [§8](#8-what-the-first-real-runs-measured) | ✅ |
 
 ## 1. The symptom, and why it had no answer
 
@@ -137,6 +139,38 @@ never become a new mystery.
 Report placement (D6): the normal-arm report prints in `Run`, before the deferred title restore;
 the signal arm's prints inside `onTerminate` — the last statement that will ever run, because the
 tty proxy `os.Exit`s the moment it returns.
+
+## 8. What the first real runs measured
+
+The spans exist to answer a question, so the first answers belong here — measured in a nested jail
+(`/tmp/yolo-nested`, `YOLO_REPO_ROOT=/workspace`, the binary by path), 2026-09-06.
+
+| Span | First run | After a store prune |
+| :--- | ---: | ---: |
+| `launch.auto_capture` | 109.0s | 0.002s |
+| `launch.auto_load_image` | 7.3s | 85.9s |
+| `launch.run_with_proxy` (whole child window) | 7.8s | 4.6s |
+| the entire `shutdown.*` chain | 0.045s | 0.045s |
+
+Two things follow, and both are about where NOT to look next.
+
+**On this host, in this mode, teardown is not the delay.** The whole shutdown chain measures tens of
+milliseconds; the seconds live in the image build and the installer capture, which are launch costs.
+That does not refute the 30-second symptom — see the warning below — it says the instrument now
+distinguishes the two, which nothing could before.
+
+> [!WARNING]
+> **A nested jail cannot confirm or refute H1.** Podman-in-podman forces `--net=host` and the nested
+> store, image and mount set are not the maintainer's; Window A is exactly the stretch whose cost is
+> a property of the real host's storage driver and network stack (the same structural blindness
+> [AGENTS.md](../../AGENTS.md) records for reachability). The ranked table in [§2](#2-the-shutdown-path-the-map-the-spans-pin)
+> is still hypotheses. The measurement that settles it is one `--timing` quit on the real host, whose
+> report names the arm and whose `host-perf.log` survives it.
+
+**What the signal path proved instead.** SIGTERM to the launcher, under a real pty: `terminate.*`
+spans reached the file *after* the arm's `os.Exit(128+n)`, and the report printed at rc 143. That is
+[D3](#decision-ledger) working — an end-of-run dump would have lost the whole record on the one path
+most worth seeing.
 
 ## 7. Open Questions
 
