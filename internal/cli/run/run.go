@@ -1051,7 +1051,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		sp = o.Perf.Span("terminate.capture_config")
 		o.captureConfigOnTerminate(rt)
 		sp.End()
-		o.pruneShadowMountPoints()
 		// The report prints HERE, inside the closure, because the proxy
 		// os.Exit(128+n)s the moment this returns — no statement after it
 		// will ever run, and defers do not fire on this path. The file sink
@@ -1134,7 +1133,6 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 	sp = o.Perf.Span("shutdown.oom_check")
 	o.maybeWarnAboutOOMKiller(rc, rt)
 	sp.End()
-	o.pruneShadowMountPoints()
 }
 
 // emitTimingReport prints the host-side half of --timing's report. The other
