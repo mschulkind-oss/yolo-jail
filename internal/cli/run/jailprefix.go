@@ -3,6 +3,7 @@ package run
 import (
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
@@ -118,6 +119,23 @@ func prebuiltBinDir(root string) string {
 // mount cleanly and die at exec, and yolo-entrypoint is the one member whose
 // absence is fatal rather than degrading.
 func (o *Options) resolveJailPrefix(root string) (jailPrefix, bool) {
+	p, ok := o.jailPrefixSource(root)
+	if !ok {
+		return jailPrefix{}, false
+	}
+	// The darwin VM-visibility gate goes HERE, on the RESULT, and not inside
+	// either arm: the one mount whose absence means "no pid1" must not be
+	// reachable-or-not depending on which arm produced it. Inert off darwin.
+	if msg := prefixUnreachableFromVM(p, o.IsMacOS, o.Getenv("YOLO_NIX_HOST_DAEMON")); msg != "" {
+		o.pr(o.Stderr).print(msg)
+		return jailPrefix{}, false
+	}
+	return p, true
+}
+
+// jailPrefixSource is resolveJailPrefix's two arms — the prebuilt bundle and the
+// built checkout — with no policy on top of them.
+func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 	if prebuilt := prebuiltBinDir(root); o.PathExists(filepath.Join(prebuilt, "yolo-entrypoint")) {
 		return jailPrefix{binDir: prebuilt, shareDir: root}, true
 	}
@@ -170,4 +188,86 @@ func describeJailPrefix(p jailPrefix) string {
 		return p.binDir + " (built from the flake source)"
 	}
 	return p.binDir + " (prebuilt, from the flake bundle)"
+}
+
+// prefixUnreachableFromVM is the darwin pre-flight on the two mount sources: it
+// returns the refusal text when this launch would bind a path the runtime VM
+// cannot see, and "" when it would not.
+//
+// THE RULE IT ENFORCES IS NOT NEW. macOS runs containers in a VM, and that VM
+// shares the user's home and /private — not /nix. yolo has always known this:
+// shouldMountHostNix (hostprobes.go) SKIPS the nix store + daemon socket on
+// macOS for exactly this reason, and docs/guides/macos.md states the failure it
+// avoids by name — "the bind mount would fail with a statfs error at startup".
+//
+// C8 then made yolo's own binaries a bind mount too (2026-09-06), and a LIVE
+// CHECKOUT has to build them, which puts them in /nix/store — the one tree the
+// rule says is not there. Measured on the 2026-09-07 nightly (run 34117863296):
+// every launch died as
+//
+//	Error: statfs /nix/store/…-yolo-jail-install-prefix/opt/yolo-jail/bin: no such file or directory
+//
+// with rc 125, taking ~30 tests down at ~30s each. The design doc had said this
+// arm was unverified on hardware (image-staging-vs-baking.md §9); this is what
+// the hardware said.
+//
+// WHY A REFUSAL AND NOT A COPY. Mirroring the prefix under $HOME would work
+// without asking anyone, at ~66 MB per build plus a lifecycle to reap — a second
+// delivery mechanism for the binaries, in a file whose whole subject is that
+// there is exactly one. The population that hits this is a macOS developer
+// pointed at a live checkout (an INSTALLED bundle stages under $HOME and is
+// already fine, which is every Homebrew and `just install` user), and for them
+// one line of machine setup is cheaper than a mechanism.
+//
+// IT REUSES YOLO_NIX_HOST_DAEMON RATHER THAN ADDING A DIAL, because that
+// variable already means precisely "my runtime VM does share /nix into the
+// container" (hostprobes.go, docs/guides/macos.md). A second dial for one fact
+// is the shape shouldMountHostNix warns about: two dials that disagree about
+// what counts as true turn "I set the variable and nothing happened" into a
+// legitimate bug report. Setting it here also turns the nix delegation mounts
+// on, which is not a side effect — it is the same claim about the same VM.
+func prefixUnreachableFromVM(p jailPrefix, isMacOS bool, nixOptIn string) string {
+	if !isMacOS {
+		return ""
+	}
+	if envTruthy(nixOptIn) {
+		return ""
+	}
+	// BOTH sources, not just the one a caller happens to think of first: the
+	// share half is what the in-jail yolo resolves its flake bundle from, and a
+	// launch that mounted one and not the other would boot and then fail
+	// somewhere with no mention of the VM.
+	var unreachable []string
+	for _, dir := range []string{p.binDir, p.shareDir} {
+		if underDir(dir, hostNixStore) {
+			unreachable = append(unreachable, dir)
+		}
+	}
+	if len(unreachable) == 0 {
+		return ""
+	}
+	return "[bold red]Cannot start jail: the install prefix is in the nix store, " +
+		"which this Mac's runtime VM does not share.[/bold red]\n" +
+		"  " + strings.Join(unreachable, "\n  ") + "\n" +
+		"They are BIND-MOUNTED into the jail (they are not baked into the image any\n" +
+		"more), so podman would fail with `statfs …: no such file or directory` and\n" +
+		"rc 125 before pid1 ran. Two ways forward:\n" +
+		"  • Share /nix with the VM and say so — `podman machine init -v /nix:/nix`\n" +
+		"    (a fresh machine; `-v` is set at init) and export YOLO_NIX_HOST_DAEMON=1,\n" +
+		"    which is yolo's one spelling of \"my VM shares /nix\".\n" +
+		"  • Or launch from an INSTALLED bundle instead of a live checkout: `just\n" +
+		"    install` stages one under $HOME, which the VM does share, and it ships\n" +
+		"    prebuilt binaries so nothing is built in the store at all. Unset\n" +
+		"    YOLO_REPO_ROOT to select it.\n" +
+		"docs/guides/macos.md — Nix daemon and /nix sharing"
+}
+
+// underDir reports whether path is dir itself or anything beneath it. Spelled as
+// a path-segment test rather than a string prefix so /nix/store-of-my-own is not
+// mistaken for a path inside /nix/store.
+func underDir(path, dir string) bool {
+	if path == dir {
+		return true
+	}
+	return strings.HasPrefix(path, dir+string(filepath.Separator))
 }

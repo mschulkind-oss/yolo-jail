@@ -82,7 +82,15 @@ jobs:
           sudo installer -pkg /tmp/podman.pkg -target /
           echo "/opt/podman/bin" >> "$GITHUB_PATH"
           export PATH="/opt/podman/bin:$PATH"
-          podman machine init --cpus 2 --memory 4096 --disk-size 30
+          # -v /nix:/nix is LOAD-BEARING, not tuning. Since 2026-09-06 yolo's own
+          # binaries are BIND-MOUNTED into the jail rather than baked into the
+          # image, and a live checkout (which is what this job runs) has to build
+          # them — so the mount source is a /nix/store path. Podman Machine shares
+          # the user's home and /private, never /nix, so every launch died as
+          # `Error: statfs /nix/store/…-yolo-jail-install-prefix/opt/yolo-jail/bin:
+          # no such file or directory` with rc 125, taking ~30 tests down on the
+          # 2026-09-07 nightly (run 34117863296). `-v` can only be set at init.
+          podman machine init --cpus 2 --memory 4096 --disk-size 30 -v /nix:/nix
           podman machine start
 
       - name: Download jail image
@@ -100,6 +108,14 @@ jobs:
         run: go test -count=1 -timeout 0 -v ./integration
         env:
           YOLO_RUNTIME: podman
+          # The other half of the -v /nix:/nix above: this is yolo's ONE spelling
+          # of "my runtime VM does share /nix into the container" (hostprobes.go's
+          # shouldMountHostNix, docs/guides/macos.md). Without it the launcher
+          # refuses a store-path install prefix on darwin outright — deliberately,
+          # since the alternative is podman's unattributable statfs error — and it
+          # also keeps skipping the nix daemon-socket + store mounts this machine
+          # can now actually carry. Setting it is the claim, not a workaround.
+          YOLO_NIX_HOST_DAEMON: "1"
           # Intel macOS runner + QEMU podman machine: cold jail starts
           # (mise store bootstrap) and in-test nix image builds run
           # 5-15 minutes — the 300s default killed ten tests

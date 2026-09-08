@@ -292,6 +292,38 @@ With the variable set, YOLO Jail will bind-mount `/nix/var/nix/daemon-socket`
 and `/nix/store:ro` into the jail and export `NIX_REMOTE=daemon`, exactly as
 on Linux.
 
+### The same rule now decides whether a live checkout can launch at all
+
+Since 2026-09-06 yolo's own binaries are **bind-mounted** into the jail rather
+than baked into the image (`docs/design/image-staging-vs-baking.md` C8). An
+installed bundle — Homebrew, the release archive, `just install` — ships them
+prebuilt under `$HOME`, which the VM does share, so nothing changes for it. A
+**live checkout** ships none, so they are built, and a built prefix lives in
+`/nix/store` — the one tree the VM does not share. Podman reports that as
+
+```text
+Error: statfs /nix/store/…-yolo-jail-install-prefix/opt/yolo-jail/bin: no such file or directory
+```
+
+and exits 125 before pid1 runs. Measured on the 2026-09-07 macOS nightly (run
+34117863296), where it took down ~30 tests.
+
+yolo now **refuses that launch** with both fixes named, rather than letting
+podman report it as an unattributable `statfs`. To run from a live checkout on
+macOS, share `/nix` with the VM and say so:
+
+```bash
+podman machine init --cpus 4 --memory 8192 -v /nix:/nix   # -v is init-only
+podman machine start
+export YOLO_NIX_HOST_DAEMON=1
+YOLO_REPO_ROOT=~/code/yolo-jail yolo
+```
+
+`YOLO_NIX_HOST_DAEMON` is deliberately the same variable as above: it means "my
+runtime VM shares `/nix`", and that one fact decides both the nested-Nix mounts
+and the install prefix. Otherwise unset `YOLO_REPO_ROOT` and launch from the
+installed bundle, which needs no machine changes.
+
 ## Installation
 
 Two options. Homebrew is easiest; the source install is for hacking on the CLI

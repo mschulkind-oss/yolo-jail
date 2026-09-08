@@ -962,10 +962,20 @@ the argv is absolute, so a missing mount fails as "no such file" naming the path
 ignored there as everywhere else on that backend — apple/container#889). **`macos-user` needed nothing
 and got nothing**: it runs no container, loads no image, and its `yolo` is the host's own binary. That
 is the same "no image" fact [§3.3](#33-the-other-three-backends-shapes) records, reaching the same conclusion from the other end.
-**NOT VERIFIED ON HARDWARE**: both macOS arms. Only podman-on-Linux was exercised (a nested jail booted
-on the mounted prefix, resolved its flake bundle at `/opt/yolo-jail/share/yolo-jail` from
-inside, and ran
-`yolo --version`).
+**macOS podman: MEASURED, AND IT FAILED.** The 2026-09-07 nightly (run 34117863296) died on every
+launch with `Error: statfs /nix/store/…-yolo-jail-install-prefix/opt/yolo-jail/bin: no such file or
+directory` and rc 125, ~30 tests at ~30 s each. Podman Machine shares the user's home and `/private`,
+never `/nix` — the same fact `shouldMountHostNix` already skips the nested-Nix mounts on macOS for —
+and a LIVE CHECKOUT's prefix is built, so it is a store path. An installed bundle is unaffected: it
+ships prebuilt binaries under `$HOME`. Guarded 2026-09-08: `prefixUnreachableFromVM`
+(`internal/cli/run/jailprefix.go`) refuses the launch on darwin when either mount source is under
+`/nix/store` and `YOLO_NIX_HOST_DAEMON` — yolo's one spelling of "my VM shares `/nix`" — is not set,
+naming both fixes instead of leaving podman's `statfs` to speak for it. The nightly now inits its
+machine with `-v /nix:/nix` and sets the variable, so CI exercises the documented fix rather than
+routing around it.
+**Apple Container: still NOT VERIFIED ON HARDWARE.** Same rule, no measurement. Only podman-on-Linux
+was exercised at C8 (a nested jail booted on the mounted prefix, resolved its flake bundle at
+`/opt/yolo-jail/share/yolo-jail` from inside, and ran `yolo --version`).
 
 ### Ranking summary
 
@@ -1237,8 +1247,9 @@ struck by the step that came after it.
    stamped or not, by taking the binaries out of the image. MEASURED in [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06). Do not implement it.
 9. ~~**C8 — yolo's own binaries by mount.**~~ **SHIPPED 2026-09-06**, all three backends in one pass, on
    the maintainer's authorization. Not in this list before, because [§8](#8-what-this-does-not-cover) refused it; that refusal is
-   retracted there. It removes the trigger behind ~half of all commits and moots step 8. **Unverified:
-   both macOS arms** — no hardware here.
+   retracted there. It removes the trigger behind ~half of all commits and moots step 8. **macOS podman
+   was measured on 2026-09-07 and it failed** — a store-path prefix is not visible to Podman Machine;
+   refused with both fixes named since 2026-09-08, see [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06). Apple Container is still unverified — no hardware here.
 
 **What is not in this list, deliberately.** The disk work [OQ-5](#101-decision-ledger) licenses — podman's untagged image store,
 the cache subdirs, whether any reclaimer runs without a human typing `yolo prune` — is

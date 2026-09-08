@@ -484,3 +484,104 @@ func TestPrefixNixProgressGoesToStderr(t *testing.T) {
 			"command — the leak CI run 34079261711 was made of")
 	}
 }
+
+// TestPrefixUnreachableFromVMTable is the darwin gate's decision, arm by arm.
+// The store paths are spelled with hostNixStore rather than a literal so the two
+// cannot drift apart — the whole predicate is "is this the tree the VM does not
+// share".
+func TestPrefixUnreachableFromVMTable(t *testing.T) {
+	store := jailPrefix{
+		binDir:   filepath.Join(hostNixStore, "abc-yolo-jail-install-prefix", "opt", "yolo-jail", "bin"),
+		shareDir: filepath.Join(hostNixStore, "abc-yolo-jail-install-prefix", "opt", "yolo-jail", "share", "yolo-jail"),
+	}
+	home := jailPrefix{
+		binDir:   "/Users/me/.local/share/yolo-jail/flake-bundle/bin/linux-arm64",
+		shareDir: "/Users/me/.local/share/yolo-jail/flake-bundle",
+	}
+	cases := []struct {
+		name    string
+		p       jailPrefix
+		isMacOS bool
+		optIn   string
+		refuse  bool
+	}{
+		{"linux never refuses — /nix is right there", store, false, "", false},
+		{"darwin + a store prefix is the measured outage", store, true, "", true},
+		{"darwin + the operator says the VM shares /nix", store, true, "1", false},
+		{"darwin + a bundle under $HOME is what the VM does share", home, true, "", false},
+		{"darwin + only the SHARE half in the store still refuses",
+			jailPrefix{binDir: home.binDir, shareDir: store.shareDir}, true, "", true},
+		{"darwin + only the BIN half in the store still refuses",
+			jailPrefix{binDir: store.binDir, shareDir: home.shareDir}, true, "", true},
+		// A directory whose NAME starts with the store's is not inside it. The
+		// segment test exists for this case, so it is asserted rather than trusted.
+		{"darwin + a sibling of /nix/store is not in it", jailPrefix{
+			binDir:   hostNixStore + "-of-my-own/bin",
+			shareDir: hostNixStore + "-of-my-own/share/yolo-jail",
+		}, true, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := prefixUnreachableFromVM(tc.p, tc.isMacOS, tc.optIn)
+			if tc.refuse != (msg != "") {
+				t.Fatalf("refuse=%v, want %v (message: %q)", msg != "", tc.refuse, msg)
+			}
+			if !tc.refuse {
+				return
+			}
+			// The refusal has to carry both fixes, because a message that only
+			// names the cause leaves the reader with a broken Mac and no next
+			// step — which is what the raw `statfs` error already did.
+			for _, want := range []string{"podman machine init -v /nix:/nix", "YOLO_NIX_HOST_DAEMON=1", "just"} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("refusal does not mention %q:\n%s", want, msg)
+				}
+			}
+		})
+	}
+}
+
+// TestDarwinRefusesAStorePrefix is the CALL-SITE pin: it fails if the gate stops
+// being consulted by resolveJailPrefix, which is the only way the check can be
+// switched off wholesale with the table above still green (AGENTS.md names that
+// shape). It drives the LIVE-CHECKOUT arm, because building is what puts the
+// prefix in the store in the first place.
+func TestDarwinRefusesAStorePrefix(t *testing.T) {
+	root := stageBundle(t, false)
+	store := filepath.Join(hostNixStore, "abc-yolo-jail-install-prefix")
+	o, calls := prefixOptions(t, func(string) (string, []string) { return store, nil })
+	o.IsMacOS = true
+	var buf bytes.Buffer
+	o.Stderr = &buf
+
+	if _, ok := o.resolveJailPrefix(root); ok {
+		t.Fatal("a darwin launch accepted a /nix/store prefix its VM cannot see — " +
+			"podman fails that with `statfs …: no such file or directory` and rc 125, " +
+			"which is the 2026-09-07 nightly (run 34117863296) in full")
+	}
+	if *calls != 1 {
+		t.Errorf("the prefix build ran %d times, want 1 — the refusal is about where the "+
+			"result LANDED, so it must come after the build, not instead of it", *calls)
+	}
+	if !strings.Contains(buf.String(), "runtime VM does not share") {
+		t.Errorf("refusal did not reach stderr:\n%s", buf.String())
+	}
+}
+
+// TestDarwinAcceptsAPrefixTheVMCanSee is the other half of the pin: the gate must
+// not refuse the arm every Homebrew and `just install` user is on. A bundle under
+// $HOME ships prebuilt binaries and never touches the store, and a darwin launch
+// that refused it would be a total outage rather than a diagnosis.
+func TestDarwinAcceptsAPrefixTheVMCanSee(t *testing.T) {
+	root := stageBundle(t, true)
+	o, _ := prefixOptions(t, func(string) (string, []string) {
+		t.Fatal("a prebuilt bundle must not build")
+		return "", nil
+	})
+	o.IsMacOS = true
+
+	if _, ok := o.resolveJailPrefix(root); !ok {
+		t.Fatal("a darwin launch refused a prefix under $HOME (a t.TempDir(), which is " +
+			"not in the nix store) — the gate is meant to catch the store, not macOS")
+	}
+}
