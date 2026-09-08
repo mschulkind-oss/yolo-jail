@@ -2,6 +2,7 @@ package nixdiag
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -145,5 +146,42 @@ func TestFmtDuration(t *testing.T) {
 		if got := FmtDuration(in); got != want {
 			t.Errorf("FmtDuration(%d) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A mistyped `packages:` entry is a CONFIG TYPO, not a build problem, and nix
+// reports it as `attribute 'X' missing` under a derivationStrict stack trace.
+// Before this classifier the generic branch printed ten lines of that trace, so
+// a real launch spent a full build cycle and 25 lines of nixpkgs internals to
+// say one word (measured 2026-09-08: `"staticcheck"`, which nixpkgs calls
+// `go-tools`).
+func TestDiagnoseNamesAMissingPackage(t *testing.T) {
+	tail := []string{
+		"       … while evaluating attribute 'conf' of derivation 'stream-yolo-jail'",
+		"       error: attribute 'staticcheck' missing",
+		"       at /nix/store/qm7-source/flake.nix:310:56:",
+	}
+	title, remediation := DiagnoseNixBuildFailure(tail, false, "some remedy")
+	if !strings.Contains(title, "staticcheck") {
+		t.Errorf("title = %q, want it to name the package", title)
+	}
+	if strings.Contains(title, "nix build failed") {
+		t.Errorf("title = %q — the generic branch swallowed a nameable cause", title)
+	}
+	if !strings.Contains(remediation, "search.nixos.org") {
+		t.Errorf("remediation = %q, want a place to look the name up", remediation)
+	}
+}
+
+// A build failure that is NOT a missing attribute must keep its old behaviour:
+// the matcher is anchored on nix's exact wording so an unrelated message that
+// merely contains "missing" cannot be captured by it.
+func TestDiagnoseLeavesOtherFailuresAlone(t *testing.T) {
+	title, _ := DiagnoseNixBuildFailure([]string{"error: builder for '/nix/store/x.drv' failed"}, false, "r")
+	if title != "nix build failed" {
+		t.Errorf("title = %q, want the generic classification", title)
+	}
+	if _, ok := missingAttribute("warning: a file is missing somewhere"); ok {
+		t.Error("matched a message that is not nix's missing-attribute error")
 	}
 }

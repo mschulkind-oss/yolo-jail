@@ -7,6 +7,7 @@
 package nixdiag
 
 import (
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -100,6 +101,20 @@ func DiagnoseNixBuildFailure(stderrTail []string, isMacOS bool, remedy string) (
 	if ambiguousMac {
 		return "Image build needs a Linux builder (or a cached package)",
 			"A Linux derivation had to be built from source and couldn't be.\n" + remedy
+	}
+	// A MISTYPED OR NON-EXISTENT `packages:` ENTRY, which is a config typo and not a
+	// build problem at all. nix reports it as `error: attribute 'X' missing` buried
+	// under a derivationStrict stack trace, and the generic branch below then prints
+	// ten lines of that trace — so the reader is handed nixpkgs internals when the
+	// answer is "that package has a different name". Measured 2026-09-08 on a real
+	// launch: `"staticcheck"` (nixpkgs calls it `go-tools`) cost a full build cycle
+	// and 25 lines of trace to say one word.
+	if name, ok := missingAttribute(text); ok {
+		return "No nixpkgs package named " + strconv.Quote(name),
+			"A `packages:` entry names an attribute nixpkgs does not have.\n" +
+				"Search for the right name: https://search.nixos.org/packages?query=" + url.QueryEscape(name) + "\n" +
+				"Common mismatches: the ATTRIBUTE is often not the command — staticcheck is `go-tools`,\n" +
+				"`node` is `nodejs`, `pip` is `python3Packages.pip`."
 	}
 	// Fallback: the last 10 stderr lines (or empty).
 	if len(stderrTail) == 0 {
@@ -298,4 +313,20 @@ func intSettingFromConfig(nixConfigShow, key string) (int64, bool) {
 		return n, true
 	}
 	return 0, false
+}
+
+// missingAttributeRe matches nix's own wording for an attribute that is not in the
+// set being indexed. It is anchored on the quoted name so a path or a message that
+// merely contains the word "missing" cannot be mistaken for one.
+var missingAttributeRe = regexp.MustCompile(`error: attribute '([^']+)' missing`)
+
+// missingAttribute extracts the attribute name nix could not find, if that is what
+// went wrong. Reported once, for the FIRST occurrence: a build stops at the first
+// missing attribute, so a second would be from an unrelated trace frame.
+func missingAttribute(text string) (string, bool) {
+	m := missingAttributeRe.FindStringSubmatch(text)
+	if len(m) < 2 {
+		return "", false
+	}
+	return m[1], true
 }
