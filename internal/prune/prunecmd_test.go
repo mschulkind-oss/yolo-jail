@@ -256,12 +256,13 @@ func TestApplyOnTempRoot(t *testing.T) {
 	if _, err := os.Stat(shadowedChild); !os.IsNotExist(err) {
 		t.Error("apply must delete the shadowed dir's CONTENTS")
 	}
-	// rm called for the stopped container; rmi -f for the 1 old image (id1).
+	// rm called for the stopped container; a plain (never forcing) rmi for the
+	// 1 old image (id1).
 	if !containsCall(rmCalls, "podman rm yolo-dead-1") {
 		t.Errorf("expected 'podman rm yolo-dead-1' in %v", rmCalls)
 	}
-	if !containsCall(rmCalls, "podman rmi -f id1") {
-		t.Errorf("expected 'podman rmi -f id1' in %v", rmCalls)
+	if !containsCall(rmCalls, "podman rmi id1") {
+		t.Errorf("expected 'podman rmi id1' in %v", rmCalls)
 	}
 }
 
@@ -310,7 +311,7 @@ func TestApplyNeverRemovesAnInUseImage(t *testing.T) {
 	o.Out = &buf
 	Run(o)
 
-	for _, live := range []string{"podman rmi -f idA", "podman rmi -f idB", "podman rmi -f idC"} {
+	for _, live := range []string{"podman rmi idA", "podman rmi idB", "podman rmi idC"} {
 		if containsCall(rmCalls, live) {
 			t.Errorf("prune force-removed an image a live jail runs (%q) — `rmi -f` "+
 				"takes its container with it:\n%v", live, rmCalls)
@@ -318,9 +319,15 @@ func TestApplyNeverRemovesAnInUseImage(t *testing.T) {
 	}
 	// And the veto is not "remove nothing": an image outside the sentinel and
 	// outside the keep window is still reclaimed.
-	if !containsCall(rmCalls, "podman rmi -f idCold") {
-		t.Errorf("expected 'podman rmi -f idCold' in %v — the gate must still let "+
+	if !containsCall(rmCalls, "podman rmi idCold") {
+		t.Errorf("expected 'podman rmi idCold' in %v — the gate must still let "+
 			"genuinely unused images go", rmCalls)
+	}
+	// And it is never the FORCING form: `rmi -f` removes the containers using an
+	// image, which is how an auto-reap killed four jails that had been up for
+	// days (2026-09-08).
+	if containsCall(rmCalls, "podman rmi -f idCold") {
+		t.Errorf("prune used the forcing form: %v", rmCalls)
 	}
 	if !hasLine(&buf, "    • idCold") {
 		t.Errorf("the removed image was not reported:\n%s", buf.String())

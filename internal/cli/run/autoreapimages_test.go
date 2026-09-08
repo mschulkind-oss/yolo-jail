@@ -56,7 +56,9 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 				return ExecResult{Ran: true, RC: 0, Stdout: imgOut}
 			}
 			if len(argv) >= 2 && argv[1] == "rmi" {
-				rmiCalls = append(rmiCalls, argv[3])
+				// argv[2]: the removal is `rmi <id>`, never `rmi -f <id>` —
+				// forcing takes the running containers with the image.
+				rmiCalls = append(rmiCalls, argv[2])
 				return ExecResult{Ran: true, RC: 0}
 			}
 			return ExecResult{Ran: true, RC: 0}
@@ -113,7 +115,7 @@ func TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness(t *testing.T) {
 			t.Error("an unreadable liveness ledger must decline before ever probing images")
 		}
 		if len(argv) >= 2 && argv[1] == "rmi" {
-			rmiCalls = append(rmiCalls, argv[3])
+			rmiCalls = append(rmiCalls, argv[2])
 		}
 		return ExecResult{Ran: true, RC: 0}
 	}

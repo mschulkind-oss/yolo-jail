@@ -269,6 +269,23 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 		// as PruneOrphanImageRoots' guard #1.
 		return []string{}
 	}
+	// GUARD #0, AND THE ONLY ONE THAT ASKS THE RUNTIME WHAT IS ACTUALLY RUNNING.
+	// The veto below reads a TEN-ENTRY LRU of recently-LOADED store paths, and a
+	// running jail only appends to it when it LAUNCHES — so a jail that has been
+	// up for days while other launches load other images ages out of the window
+	// and stops being protected while it is still running. Measured 2026-09-08:
+	// a day of commits to internal/ moved goSrc on every launch, four jails up
+	// 3-4 days aged out, and one auto-reap `rmi -f`'d their images and took the
+	// containers with them mid-session (the exact outcome the comment above this
+	// function warns about, through the one path its evidence cannot see).
+	//
+	// `podman ps` is the direct question. Unreadable => decline entirely, the
+	// same polarity as guard #1: "nothing is running" and "I cannot tell" must
+	// not be the same answer when the action is destructive.
+	inUse, inUseKnown := imagesInUseByRunningContainers(rt, run)
+	if !inUseKnown {
+		return []string{}
+	}
 	res := run([]string{rt, "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"}, psTimeout)
 	if !res.Ran || res.RC != 0 {
 		return []string{}
@@ -296,14 +313,21 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 	}
 	toRemove := []string{}
 	for _, id := range OldImagesToRemove(images, keep) {
-		if keepIDs[id] {
+		if keepIDs[id] || inUse[id] {
 			continue
 		}
 		toRemove = append(toRemove, id)
 	}
 	if apply {
 		for _, id := range toRemove {
-			run([]string{rt, "rmi", "-f", id}, rmiTimeout)
+			// NO -f. Forcing is what turned a disk-space sweep into a jail
+			// killer: `rmi -f` removes the CONTAINERS using an image, so every
+			// mistake in the selection above costs somebody their session. A
+			// plain `rmi` FAILS on an image a container still uses, which makes
+			// the safety a property of podman rather than of this function
+			// getting its evidence right — belt to guard #0's braces, and the
+			// half that keeps working when the evidence is wrong.
+			run([]string{rt, "rmi", id}, rmiTimeout)
 		}
 	}
 	return toRemove
@@ -403,4 +427,26 @@ func LiveYoloContainers(rt string, run RunFunc) runtime.LiveSet {
 		return runtime.LiveSet{Known: false}
 	}
 	return runtime.LiveSet{Known: true, Names: runtime.ParsePodmanLive(res.Stdout)}
+}
+
+// imagesInUseByRunningContainers asks the runtime which image IDs currently have
+// a container on them. known=false when the question could not be answered, and
+// the caller then declines to remove anything.
+//
+// Every runtime yolo drives spells this the same way, and the ID is matched
+// against the same `{{.ID}}` column `podman images` prints, so no tag parsing is
+// involved — a jail runs a content-addressed ref, and tags are exactly what the
+// LRU veto already reasons about badly.
+func imagesInUseByRunningContainers(rt string, run RunFunc) (map[string]bool, bool) {
+	res := run([]string{rt, "ps", "--format", "{{.ImageID}}"}, psTimeout)
+	if !res.Ran || res.RC != 0 {
+		return nil, false
+	}
+	inUse := map[string]bool{}
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if id := strings.TrimSpace(line); id != "" {
+			inUse[id] = true
+		}
+	}
+	return inUse, true
 }

@@ -126,14 +126,30 @@ func TestPruneStoppedContainersDegrade(t *testing.T) {
 }
 
 // imagesRunner returns a RunFunc answering the `images` probe with rows and
-// recording every `rmi -f <id>`.
+// recording every `rmi <id>`. `ps` answers empty — nothing running — so a test
+// that wants the in-use veto exercised uses imagesRunnerWithRunning instead.
 func imagesRunner(rows string, rmiCalls *[]string) RunFunc {
+	return imagesRunnerWithRunning(rows, "", rmiCalls)
+}
+
+// imagesRunnerWithRunning is imagesRunner plus the `podman ps` answer: one
+// image ID per line, the images a running container is currently using.
+func imagesRunnerWithRunning(rows, psRows string, rmiCalls *[]string) RunFunc {
 	return func(argv []string, _ time.Duration) ProbeResult {
 		if len(argv) >= 2 && argv[1] == "images" {
 			return ProbeResult{Stdout: rows, Ran: true}
 		}
+		if len(argv) >= 2 && argv[1] == "ps" {
+			return ProbeResult{Stdout: psRows, Ran: true}
+		}
 		if len(argv) >= 2 && argv[1] == "rmi" {
-			*rmiCalls = append(*rmiCalls, argv[3]) // rmi -f <id>
+			// argv[2], not argv[3]: the removal is `rmi <id>` now. `rmi -f`
+			// removed the CONTAINERS using an image, which is what killed live
+			// jails mid-session on 2026-09-08.
+			if len(argv) > 2 && argv[2] == "-f" {
+				panic("prune must never force-remove an image: it takes running containers with it")
+			}
+			*rmiCalls = append(*rmiCalls, argv[2])
 			return ProbeResult{Ran: true}
 		}
 		return ProbeResult{Ran: true}
@@ -395,5 +411,69 @@ func TestAnUnreadableLedgerDeclinesToSweep(t *testing.T) {
 	}
 	if len(rmiCalls) != 0 {
 		t.Errorf("made rmi calls with an unreadable ledger: %v", rmiCalls)
+	}
+}
+
+// THE 2026-09-08 INCIDENT, as a test. Four jails that had been up 3-4 days were
+// killed mid-session by an auto-reap. The veto they should have been saved by is
+// a TEN-ENTRY LRU of recently-LOADED store paths, and only a LAUNCH appends to
+// it — so a jail that is running but not relaunching ages out while other
+// launches load other images (that day: a commit to internal/ per launch, each
+// moving goSrc, each loading a new image). Once outside the window the image was
+// unprotected, `rmi -f` removed it, and podman took the running container too.
+//
+// The fix is to ask the runtime what is RUNNING rather than to infer it from
+// load recency. This test fails if that probe is removed: the image is
+// deliberately absent from the sentinel, exactly as an aged-out one is.
+func TestPruneOldImagesSpareRunningContainersImageEvenWhenAgedOutOfTheLRU(t *testing.T) {
+	rows := "idRunning localhost/yolo-jail:aaaaaaaaaaaaaaaa 2026-07-01 09:00:00 +0000 UTC\n" +
+		"idCold localhost/yolo-jail:bbbbbbbbbbbbbbbb 2026-07-02 09:00:00 +0000 UTC\n"
+
+	var rmiCalls []string
+	// protected is EMPTY: the running jail's image has aged out of the LRU, which
+	// is the whole premise. liveKnown=true, so the fail-safe is not what saves it.
+	run := imagesRunnerWithRunning(rows, "idRunning\n", &rmiCalls)
+	removed := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run)
+
+	for _, id := range removed {
+		if id == "idRunning" {
+			t.Errorf("prune selected the image a running container uses: %v", removed)
+		}
+	}
+	for _, call := range rmiCalls {
+		if call == "idRunning" {
+			t.Errorf("prune removed a running container's image — this is the bug that "+
+				"killed four live jails: %v", rmiCalls)
+		}
+	}
+	// The veto must not become "remove nothing": a genuinely unused image goes.
+	if len(rmiCalls) != 1 || rmiCalls[0] != "idCold" {
+		t.Errorf("rmi calls = %v, want exactly [idCold]", rmiCalls)
+	}
+}
+
+// An unanswerable `podman ps` must DECLINE, not proceed: "nothing is running"
+// and "I cannot tell" are the same observation, and the action is destructive.
+// Same polarity as the liveKnown fail-safe.
+func TestPruneOldImagesDeclinesWhenRunningSetIsUnknown(t *testing.T) {
+	rows := "idCold localhost/yolo-jail:bbbbbbbbbbbbbbbb 2026-07-02 09:00:00 +0000 UTC\n"
+	var rmiCalls []string
+	run := func(argv []string, _ time.Duration) ProbeResult {
+		if len(argv) >= 2 && argv[1] == "ps" {
+			return ProbeResult{Ran: false} // the runtime did not answer
+		}
+		if len(argv) >= 2 && argv[1] == "images" {
+			return ProbeResult{Stdout: rows, Ran: true}
+		}
+		if len(argv) >= 2 && argv[1] == "rmi" {
+			rmiCalls = append(rmiCalls, argv[2])
+		}
+		return ProbeResult{Ran: true}
+	}
+	if removed := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run); len(removed) != 0 {
+		t.Errorf("removed %v with an unreadable running set; want nothing", removed)
+	}
+	if len(rmiCalls) != 0 {
+		t.Errorf("removed images with an unreadable running set: %v", rmiCalls)
 	}
 }

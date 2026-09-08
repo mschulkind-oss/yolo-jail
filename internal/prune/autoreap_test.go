@@ -47,8 +47,14 @@ func imagesRunnerCounting(rows string, rmiCalls *[]string, imagesCalls *int) Run
 			return ProbeResult{Stdout: rows, Ran: true}
 		}
 		if len(argv) >= 2 && argv[1] == "rmi" {
-			*rmiCalls = append(*rmiCalls, argv[3]) // rmi -f <id>
+			// `rmi <id>` — NOT `rmi -f <id>`, which is what this index used to
+			// read. Forcing removed the CONTAINERS using an image and killed
+			// live jails mid-session (2026-09-08); the plain form fails instead.
+			*rmiCalls = append(*rmiCalls, argv[2])
 			return ProbeResult{Ran: true}
+		}
+		if len(argv) >= 2 && argv[1] == "ps" {
+			return ProbeResult{Ran: true} // nothing running
 		}
 		return ProbeResult{Ran: true}
 	}
