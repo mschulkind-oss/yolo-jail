@@ -315,3 +315,40 @@ func must(t *testing.T, err error) {
 // ensure jsonx import stays used (config-shaped helpers referenced in other
 // tests may drop it; keep a trivial reference).
 var _ = jsonx.NewOrderedMap
+
+// THE PREFLIGHT MUST READ WHAT THE LAUNCH READS. `yolo check` used to parse
+// `yolo-jail.jsonc` alone (LoadJSONCWithIncludes) while a launch composes it
+// with `yolo-jail.local.jsonc` (config.LoadWorkspaceConfig, local wins). So an
+// unknown key in the local file PASSED check and then REFUSED the launch —
+// and that refusal ends with "Run `yolo check` for a full preflight", pointing
+// at the tool that had just cleared it (measured 2026-09-08).
+//
+// This fails if the load reverts to the single-file form.
+func TestCheckReadsTheWorkspaceLocalOverride(t *testing.T) {
+	var out bytes.Buffer
+	o := baseOptions(t, &out)
+	o.PathExists = func(p string) bool {
+		_, err := os.Stat(p)
+		return err == nil
+	}
+	if err := os.WriteFile(filepath.Join(o.Workspace, "yolo-jail.jsonc"),
+		[]byte(`{"network": {"mode": "bridge"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(o.Workspace, "yolo-jail.local.jsonc"),
+		[]byte(`{"definitely_not_a_key": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	Check(o)
+	got := out.String()
+	if !strings.Contains(got, "definitely_not_a_key") {
+		t.Errorf("check did not read yolo-jail.local.jsonc — a key the LAUNCH refuses "+
+			"passed the preflight:\n%s", got)
+	}
+	// And it says which files it read, so a local override that contributed keys
+	// is named rather than silently folded in.
+	if !strings.Contains(got, "yolo-jail.local.jsonc") {
+		t.Errorf("check did not name the local override it parsed:\n%s", got)
+	}
+}

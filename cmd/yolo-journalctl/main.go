@@ -111,10 +111,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if endpoint == "" {
+		// The instructions name the PACK-ERA spelling. They used to say
+		// `journal: "user"` in yolo-jail.jsonc — a top-level key retired on
+		// 2026-08-19 when every loophole became a pack's, and now a hard config
+		// REFUSAL. So the one message a user reads at exactly the moment the
+		// bridge is missing told them to write something that fails the next
+		// launch (measured 2026-09-08).
 		fmt.Fprint(stderr, "yolo-journalctl: host journal bridge is not available.\n")
 		fmt.Fprintf(stderr, "  %s is not set in this jail\n", endpointEnv)
-		fmt.Fprint(stderr, "  enable it by setting `journal: \"user\"` (or \"full\") in yolo-jail.jsonc\n")
-		fmt.Fprint(stderr, "  or in ~/.config/yolo-jail/config.jsonc, then restart the jail.\n")
+		fmt.Fprint(stderr, "  1. select the pack in ~/.config/yolo-jail/config.jsonc (user scope only):\n")
+		fmt.Fprint(stderr, "       \"packs\": [\"journal\"]\n")
+		fmt.Fprint(stderr, "  2. enable the loophole, in either scope:\n")
+		fmt.Fprint(stderr, "       \"loopholes\": {\"journal\": {\"enabled\": true}}\n")
+		fmt.Fprint(stderr, "  For the SYSTEM journal rather than just your own units, add\n")
+		fmt.Fprint(stderr, "  \"settings\": {\"full\": true} to that entry — user config only, by ruling.\n")
+		fmt.Fprint(stderr, "  Then restart the jail.\n")
 		return 1
 	}
 

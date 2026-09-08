@@ -221,13 +221,24 @@ func TestUnsetEndpointExplainsHowToEnableIt(t *testing.T) {
 	for _, want := range []string{
 		"host journal bridge is not available",
 		endpointEnv,
-		`journal: "user"`,
-		"yolo-jail.jsonc",
+		// The PACK-ERA spelling. Every loophole became a pack's on 2026-08-19.
+		`"packs": ["journal"]`,
+		`"loopholes"`,
+		`"enabled": true`,
 		"config.jsonc",
 	} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("stderr is missing %q:\n%s", want, errOut.String())
 		}
+	}
+	// AND THE RETIRED SPELLING MUST NEVER COME BACK. This test used to REQUIRE
+	// `journal: "user"` — it pinned that the message said something, not that
+	// the something was true, so it went on passing for the three weeks after
+	// that key became a hard config refusal. A user who followed the advice got
+	// a launch that refused (measured 2026-09-08).
+	if strings.Contains(errOut.String(), `journal: "user"`) {
+		t.Errorf("the message names the RETIRED top-level `journal` key, which is now a "+
+			"config refusal — following it breaks the next launch:\n%s", errOut.String())
 	}
 	if strings.Contains(errOut.String(), ".sock") {
 		t.Errorf("the client still mentions a socket path — the fallback is back: %q", errOut.String())

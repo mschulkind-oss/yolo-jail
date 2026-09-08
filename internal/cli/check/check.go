@@ -396,14 +396,36 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 		r.ok("No user config found: " + userPath)
 	}
 
-	wsPath := filepath.Join(workspace, "yolo-jail.jsonc")
-	workspaceConfig, err := config.LoadJSONCWithIncludes(wsPath, "yolo-jail.jsonc", true, func(string) {}, nil)
+	// LoadWorkspaceConfig, NOT LoadJSONCWithIncludes on yolo-jail.jsonc alone —
+	// the workspace half of the sentence above it. A launch composes
+	// `yolo-jail.jsonc` + `yolo-jail.local.jsonc` (config/load.go's
+	// LoadWorkspaceConfig, local wins); check read only the first, so the two
+	// disagreed about what the config even IS.
+	//
+	// Measured 2026-09-08: an unknown key in `yolo-jail.local.jsonc` PASSED
+	// `yolo check` and then REFUSED the launch with `config.<key>: unknown key`
+	// — and that refusal ends with "Run `yolo check` for a full preflight",
+	// pointing the user at the tool that had just cleared it. A preflight that
+	// does not read what the launch reads is worse than no preflight, because it
+	// is believed.
+	wsPath := filepath.Join(workspace, config.WorkspaceConfigName)
+	localPath := filepath.Join(workspace, config.WorkspaceLocalConfigName)
+	workspaceConfig, err := config.LoadWorkspaceConfig(workspace, true, func(string) {})
 	if err != nil {
 		workspaceConfig = jsonx.NewOrderedMap()
 		r.fail(err.Error(), "")
 		failed = true
-	} else if o.PathExists(wsPath) {
-		r.ok("Parsed workspace config: " + wsPath)
+	} else if o.PathExists(wsPath) || o.PathExists(localPath) {
+		// Name every file that was actually read: a local override that silently
+		// contributed keys is the thing a reader most needs to see named.
+		parsed := []string{}
+		if o.PathExists(wsPath) {
+			parsed = append(parsed, wsPath)
+		}
+		if o.PathExists(localPath) {
+			parsed = append(parsed, localPath)
+		}
+		r.ok("Parsed workspace config: " + strings.Join(parsed, " + "))
 	} else {
 		r.ok("No workspace yolo-jail.jsonc found")
 	}
