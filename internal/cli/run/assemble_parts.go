@@ -256,6 +256,10 @@ func (o *Options) gitIdentityMountArgs(rt, wsState string, mountTargets map[stri
 	// Identity uses `--get` (effective config for the host CWD, i.e. repo-local
 	// wins) to match the old collectIdentityEnv; the gitignore path stays
 	// `--global --get` as before.
+	// Three `git config` execs, spanned together: the other half of what made
+	// argv assembly cost seconds on a real host.
+	gsp := o.Perf.Span("assemble.host_git_identity")
+	defer gsp.End()
 	name := o.hostGitConfigGet([]string{"git", "config", "--get", "user.name"})
 	email := o.hostGitConfigGet([]string{"git", "config", "--get", "user.email"})
 

@@ -449,7 +449,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		if applied != "bridge" {
 			runCmd = append(runCmd, "--net="+applied)
 		}
+		// Spanned because it EXECS `podman info`, and argv assembly measured
+		// 2.080s on a real host with no way to see which of its exec probes that
+		// was (2026-09-08). Assembly is otherwise pure string work.
+		hlsp := o.Perf.Span("assemble.host_loopback_probe")
 		hostLoopback = decideHostLoopback(o.hostLoopbackFactsFor(rt, netMode))
+		hlsp.End()
 		runCmd = append(runCmd, hostLoopback.args...)
 		if hostLoopback.warning != "" {
 			out.print(hostLoopback.warning)

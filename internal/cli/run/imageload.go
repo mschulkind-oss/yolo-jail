@@ -54,6 +54,9 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 	return load(image.AutoLoadOptions{
 		Runtime:  rt,
 		RepoRoot: repoRoot,
+		// The call site that makes the image load's phases individually visible.
+		// nil on a non-timing launch, where every span is a no-op.
+		Perf: o.Perf,
 		// Never skip the build on the run path: Run() now hard-exits before here
 		// when the repo root is unresolved (a missing flake is fatal, not a
 		// degraded cached-image launch), so repoRoot is always non-empty here.

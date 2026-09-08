@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
@@ -370,5 +371,31 @@ func TestWindowAExplainsWhyItHasNothing(t *testing.T) {
 				t.Errorf("why = %q, want it to mention %q", why, tc.wantWhy)
 			}
 		})
+	}
+}
+
+// The call-site pin for the image-load split: run must hand its collector to
+// AutoLoadImage, or the phases inside a 175-second image load stay invisible
+// and `launch.auto_load_image` remains one unactionable number.
+func TestImageLoadReceivesTheCollector(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	o := goldenOptions(ws, home)
+	o.Timing = true
+	o.initPerf("yolo-ws-test0000")
+
+	var got *perf.Log
+	seen := false
+	o.autoLoad = func(opts image.AutoLoadOptions) image.LoadResult {
+		got, seen = opts.Perf, true
+		return image.LoadResult{OK: true, Ref: "localhost/yolo-jail:test"}
+	}
+	o.autoLoadImage(newConfig(), "podman", "/repo", storePackagesPlan{})
+	if !seen {
+		t.Fatal("autoLoadImage did not reach the loader")
+	}
+	if got != o.Perf {
+		t.Error("AutoLoadOptions.Perf is not the launch's collector — image phases would be unspanned")
 	}
 }

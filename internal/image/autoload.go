@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
 
 // AutoLoadOptions carries the injectable seams for AutoLoadImage so the load
@@ -35,6 +36,17 @@ type AutoLoadOptions struct {
 	// only honest option; if none exists AutoLoadImage fails with a degraded
 	// diagnosis rather than a nix-build one.
 	SkipBuild bool
+	// Perf is the launch's timing collector, so the phases INSIDE an image load
+	// are visible individually. It arrives nil on every non-timing launch and
+	// every method on it is a no-op then, so the spans below are unconditional.
+	//
+	// This exists because `launch.auto_load_image` was ONE span over four
+	// unrelated things — the nix build, the stream, podman's load, and the tar
+	// materialize — and a real host measured 175s in it with no way to say which
+	// part that was. The fixes for a slow nix build and a slow 3.2 GB stream have
+	// nothing in common, so the number had to be split before it could be acted
+	// on.
+	Perf *perf.Log
 	// ExtraPackages is the config `packages` list (JSON-encoded into
 	// YOLO_EXTRA_PACKAGES). nil/empty → unset.
 	ExtraPackages []any
@@ -294,7 +306,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// offload that rescued the build is not reported as a failure.
 	buildFailed := false
 	if !o.SkipBuild {
+		bsp := o.Perf.Span("image.nix_build")
 		currentPath, buildTail = o.BuildStorePath(o.RepoRoot, o.ExtraPackages, outLink)
+		bsp.End()
 
 		// macOS build-offload (J3): a from-source `packages:` build needs Linux. If
 		// the plain build failed on macOS, start a container builder and retry the
@@ -512,7 +526,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			// therefore no window in which a concurrent load of a different config
 			// could bind this ref to someone else's image. StreamRepoTag carries the
 			// argument in full.
+			ssp := o.Perf.Span("image.stream_load")
 			total, streamed := o.StreamLoad(currentPath, StreamRepoTag(currentPath), loadArgv)
+			ssp.End()
 			if !streamed {
 				// The seam already printed WHICH END failed and what it said; this
 				// line is the headline it hangs under, and is the same sentence a
@@ -663,7 +679,9 @@ func (o *AutoLoadOptions) loadAppleContainerFromCache(cacheFile, storePath, cont
 	// failure it is trying to avoid.
 	for pass := 0; pass < 2; pass++ {
 		if !fileExists(cacheFile) {
+			msp := o.Perf.Span("image.materialize_tar")
 			totalBytes := o.Materialize(storePath, cacheFile)
+			msp.End()
 			if totalBytes == 0 {
 				fmt.Fprintln(out, "Error streaming image to cache.")
 				return false
