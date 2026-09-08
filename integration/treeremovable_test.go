@@ -288,6 +288,13 @@ func TestUnshareRemoveAllGatesOnTheRuntime(t *testing.T) {
 // any one step.
 func TestRemoveWorkspaceTreeEscalatesWhenRemoveAllFails(t *testing.T) {
 	dir := t.TempDir()
+	// PIN THE RUNTIME. removeWorkspaceTree asks detectRuntime(), which answers
+	// from the machine: "" on a runner with no container tooling and "container"
+	// on a Mac that has Apple Container — and both of those refuse before the
+	// stub is reached, so the sequence under test would silently become
+	// [remove, remove]. That is exactly how this test went red on check-macos
+	// while passing on every Linux job (run 34274235608).
+	t.Setenv("YOLO_RUNTIME", "podman")
 
 	var order []string
 	restoreRemove, restoreUnshare := removeAllFn, unshareRemoveAllFn

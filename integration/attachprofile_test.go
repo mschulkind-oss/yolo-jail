@@ -17,6 +17,7 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -48,11 +49,21 @@ func TestAttachDeliversTheSelectedProfile(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(dir, releaseName), []byte("go\n"), 0o644)
 	})
 
-	// Wait for the first session's COMMAND to have run — the FIRST-HAS marker prints
+	// Wait for the first session's COMMAND to have run — the FIRST-HAS answer prints
 	// only after the boot's provisioning finishes, which is well after the container
-	// exists. (runningContainers>0 would race the marker; the marker IS the sync point.)
+	// exists. (runningContainers>0 would race the answer; the answer IS the sync point.)
+	//
+	// THE ANSWER, NOT THE MENTION. `strings.Contains(…, "FIRST-HAS-")` used to be the
+	// condition, and the boot echoes the command it is about to run — `⚡ Executing:
+	// bash -lc 'echo FIRST-HAS-$(env | grep -c …)'` — so the literal appears BEFORE
+	// bash has started, and the wait fell through to an assertion on output that did
+	// not exist yet. It passed only when the echo and the answer landed inside one
+	// 50ms poll; it failed on run 34274235608 (linux/amd64) and on the 2026-09-06
+	// macOS nightly with the same message. Matching a DIGIT is what makes this a
+	// sync point rather than a coin flip.
+	answered := firstHasAnswer
 	deadline := time.Now().Add(jailTimeout())
-	for !strings.Contains(first.combined(), "FIRST-HAS-") {
+	for !answered.MatchString(first.combined()) {
 		select {
 		case err := <-first.done:
 			t.Fatalf("first launch exited (%v) before its session ran:\n%s", err, first.combined())
@@ -96,5 +107,43 @@ func TestAttachDeliversTheSelectedProfile(t *testing.T) {
 	// which packs declared the name it carried.
 	if !strings.Contains(r.stderr, "Profile zai: declared: zai") {
 		t.Errorf("the attach must print where the selection landed:\n%s", r.stderr)
+	}
+}
+
+// firstHasAnswer is the first session's sync point: the ANSWER to the env probe,
+// which is the marker followed by a digit. Named and hoisted out of the wait loop
+// so the test below can hold it against the two strings that decide whether it is
+// a sync point at all.
+var firstHasAnswer = regexp.MustCompile(`FIRST-HAS-[0-9]`)
+
+// TestFirstHasSyncPointIgnoresTheCommandEcho runs under -short (no container):
+// it pins the DISTINCTION the wait loop above depends on, which no passing run of
+// that test can demonstrate — a green there means the answer arrived, never that
+// the wait would have noticed if it had not.
+//
+// The boot prints the command before running it, so the marker's own literal is
+// in yolo's output BEFORE bash exists. A `Contains("FIRST-HAS-")` wait therefore
+// falls through to an assertion on output that has not been written, and passes
+// only by landing inside one 50ms poll. Run 34274235608 is where that coin came
+// up tails on linux/amd64; the 2026-09-06 macOS nightly is where it did first.
+func TestFirstHasSyncPointIgnoresTheCommandEcho(t *testing.T) {
+	// Verbatim from run 34274235608's own log — the line that satisfied the old
+	// wait. Kept as a fixture rather than paraphrased, because a paraphrase is
+	// what would let the next reader think this case is hypothetical.
+	echo := `⚡ Executing: bash -lc 'echo FIRST-HAS-$(env | grep -c '^ANTHROPIC_BASE_URL=' || true); ` +
+		`for _ in $(seq 1 600); do [ -f /workspace/release-attach-profile ] && break; sleep 0.5; done'`
+
+	if !strings.Contains(echo, "FIRST-HAS-") {
+		t.Fatal("the fixture no longer contains the bare marker, so this test is pinning nothing " +
+			"— re-read the boot's command echo before changing it")
+	}
+	if firstHasAnswer.MatchString(echo) {
+		t.Error("the sync point matches yolo's command ECHO, so the wait loop returns before " +
+			"bash has run and the FIRST-HAS-0 assertion reads output that does not exist yet")
+	}
+	for _, answer := range []string{"FIRST-HAS-0", "FIRST-HAS-1\n", "boot noise\nFIRST-HAS-0\n"} {
+		if !firstHasAnswer.MatchString(answer) {
+			t.Errorf("the sync point does not match the real answer %q, so the wait can only time out", answer)
+		}
 	}
 }
