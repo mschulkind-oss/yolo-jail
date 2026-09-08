@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -27,6 +28,7 @@ func TestApplyVerboseFlagStripsAndPublishes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(paths.VerboseEnv, "")
+			resetVerboseFlagTyped(t)
 			got := applyVerboseFlag(tc.in)
 			if len(got) != len(tc.want) {
 				t.Fatalf("applyVerboseFlag(%v) = %v, want %v", tc.in, got, tc.want)
@@ -60,5 +62,67 @@ func TestVerboseFlagKeepsRouting(t *testing.T) {
 		if d := routeDecision(applyVerboseFlag(argv[1:])); d != "run" && d != "dispatch:run" && d != "dispatch:stop" {
 			t.Errorf("routing after verbose strip of %v = %q", argv, d)
 		}
+	}
+}
+
+// resetVerboseFlagTyped restores the process-scoped "the flag was typed" signal
+// after a test that sets it. It is package state by design (the front door writes
+// it once, before any subcommand runs), so a test that leaves it set would hand
+// every later test in this package a printing launch it never asked for.
+func resetVerboseFlagTyped(t *testing.T) {
+	t.Helper()
+	prev := verboseFlagTyped
+	t.Cleanup(func() { verboseFlagTyped = prev })
+	verboseFlagTyped = false
+}
+
+// THE CALL-SITE PIN for D12's trap: `--verbose` and an inherited YOLO_VERBOSE=1
+// are the SAME env var downstream (the strip publishes the flag as that
+// variable), and they must still behave differently — the typed flag prints the
+// timing report, the environment records in silence. The distinguishing signal is
+// Options.Verbose, so this drives the real front door and reads what the launch
+// pipeline was handed.
+//
+// Delete `opts.Verbose = explicitVerbose()` from runRun, or the
+// `verboseFlagTyped = true` from applyVerboseFlag, and the first case goes red;
+// set the field off anything the environment can also say and the second does.
+func TestTypedVerboseReachesTheLaunchButTheEnvVarDoesNot(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		env  string
+		want bool
+	}{
+		{"typed --verbose", []string{"yolo", "--verbose", "--", "true"}, "", true},
+		{"typed -v", []string{"yolo", "-v", "--", "true"}, "", true},
+		{"inherited YOLO_VERBOSE", []string{"yolo", "--", "true"}, "1", false},
+		{"neither", []string{"yolo", "--", "true"}, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(paths.VerboseEnv, tc.env)
+			resetVerboseFlagTyped(t)
+
+			var seen run.Options
+			prev := launchRunPipeline
+			launchRunPipeline = func(o run.Options) int { seen = o; return 0 }
+			t.Cleanup(func() { launchRunPipeline = prev })
+
+			captureBoth(t, func() {
+				if rc := Main(tc.argv); rc != 0 {
+					t.Errorf("Main(%v) = %d, want 0 with the pipeline stubbed", tc.argv, rc)
+				}
+			})
+			if seen.Verbose != tc.want {
+				t.Errorf("Options.Verbose = %v, want %v — the launch cannot tell a typed "+
+					"--verbose from an exported %s, so one of them reports wrongly",
+					seen.Verbose, tc.want, paths.VerboseEnv)
+			}
+			// The env var still reaches the pipeline for RECORDING, through the
+			// Getenv seam every gate reads; only the printing half is in doubt here.
+			if tc.env != "" && os.Getenv(paths.VerboseEnv) == "" {
+				t.Error("the environment opt-in was lost; recording would be off too")
+			}
+		})
 	}
 }

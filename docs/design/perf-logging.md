@@ -8,7 +8,9 @@ summary: "The launcher's only timing number was a single host-side Total. This d
 
 # Performance logging — timing spans across the yolo lifecycle
 
-**Status:** DECIDED 2026-09-06 and built in the same change (two maintainer rulings up front: the flag
+**Status:** DECIDED 2026-09-06 and built in the same change; **amended 2026-09-08 by
+[D12](#decision-ledger)**, which split RECORDING from REPORTING so an always-on setting stops
+printing a table at every jail quit (two maintainer rulings up front: the flag
 surface is **both** `--timing` grown and a new `--verbose`; the persistent log lives in
 **`<workspace>/.yolo/`**). Six Open Questions remain — all of them *fix candidates this feature is
 supposed to name*, not gaps in this design; see [§7](#7-open-questions). **Built and measured on a real launch** the same day — what that changed is [§8](#8-what-the-first-real-runs-measured).
@@ -28,6 +30,7 @@ supposed to name*, not gaps in this design; see [§7](#7-open-questions). **Buil
 | D9 | Window A attribution runs `podman events` through the `o.Exec` seam, gated on the podman runtime, always with `--until` (the journald backend streams otherwise) and a 3s timeout; every failure is silence. | 2026-09-06 | [§6](#6-window-a-attribution-and-where-reports-print) | ✅ |
 | D10 | `launch.auto_capture` is spanned. Not in the original design — the first real `--timing` run put 109 of its 125 seconds between two spans, in `autoCaptureInstallerPrograms`. A span table's holes are only visible on a real launch. | 2026-09-06 | [§8](#8-what-the-first-real-runs-measured) | ✅ |
 | D11 | The report is emitted once per `Run`, guarded by a `*sync.Once` on Options. On the signal path BOTH teardown arms legitimately run — the terminate arm's `stopJail` makes the child exit, unblocking the normal-exit arm mid-teardown — so the guard is about not printing twice, not about a fault. Pointer, not embedded: `Options` is passed by value and vet's copylocks refuses a copied lock. | 2026-09-06 | [§8](#8-what-the-first-real-runs-measured) | ✅ |
+| D12 | **RECORDING and REPORTING are separate gates.** Every opt-in records to `<workspace>/.yolo/host-perf.log`; only an EXPLICIT per-invocation flag (`--timing`, `--verbose`/`-v`) prints the span table, the Window A line and the in-container block. A PERSISTENT setting — `perf_logging: true`, or `YOLO_TIMING`/`YOLO_VERBOSE` exported in a shell profile — records in silence, plus one dim line naming the file. The principle for classifying the next opt-in: *an explicit per-invocation flag prints; a persistent setting records silently.* | 2026-09-08 | [§4](#4-the-gates), [§8.1](#81-what-it-costs-to-leave-on) | ✅ |
 
 ## 1. The symptom, and why it had no answer
 
@@ -100,17 +103,41 @@ A slow span names itself as it ends (D7): one dim stderr line per span past
 
 ## 4. The gates
 
-`--timing` (run flag) is grown, not replaced: it now means "span the whole launch, the child
-window, and the shutdown chain", reported to stderr and appended to the file. The in-jail half it
-already wired — the `YOLO_PROFILE=1` argv pair and the bash timers — is untouched (D4).
+There are **two** gates, not one (D12), and every opt-in below answers both:
 
-`--verbose` / `-v` is a new **global** flag, stripped at the front door beside `--user-layer` and
+| Gate | What it is | Records to the file | Prints the report |
+| :--- | :--- | :---: | :---: |
+| `--timing` | run flag, typed this launch | ✅ | ✅ |
+| `--verbose` / `-v` | global flag, typed this launch | ✅ | ✅ |
+| `perf_logging: true` | user config, always on | ✅ | ❌ |
+| `YOLO_TIMING=1` / `YOLO_VERBOSE=1` | environment, usually a shell profile | ✅ | ❌ |
+
+`--timing` (run flag) is grown, not replaced: it means "span the whole launch, the child window,
+and the shutdown chain", reported to stderr and appended to the file. The in-jail half it already
+wired — the `YOLO_PROFILE=1` argv pair and the bash timers — is untouched (D4), and rides the
+REPORTING gate, because it is print-only: the jail appends to its own `~/.yolo-perf.log` either
+way.
+
+`--verbose` / `-v` is a **global** flag, stripped at the front door beside `--user-layer` and
 published through the process environment the same way, so it reaches every subcommand without
 four flag parsers growing a fifth forgetter. For v1 it enables the same span surface; it exists so
 non-timing diagnostics have a gate to grow into that does not further load the word "timing".
 
-Two host-process env vars, `YOLO_TIMING` and `YOLO_VERBOSE`, enable the same surface without flag
-surgery (`YOLO_TIMING=1 yolo -- bash`). Both are deliberately **not** forwarded into the jail (D5).
+Two host-process env vars, `YOLO_TIMING` and `YOLO_VERBOSE`, enable RECORDING without flag surgery
+(`YOLO_TIMING=1 yolo -- bash`). Both are deliberately **not** forwarded into the jail (D5).
+
+**The trap in that table**: the `--verbose` flag *publishes itself* as `YOLO_VERBOSE`, so the two
+rows that must behave differently are the same variable to every `Getenv` reader downstream. The
+distinction is carried in-process instead — `internal/cli`'s `verboseFlagTyped`, handed to the
+pipeline as `run.Options.Verbose`. A second env var could not do it: it would be inherited by the
+next `yolo` too, which is the very thing being distinguished. In the pipeline the two gates are
+`timingRecording()` (any opt-in) and `timingReporting()` (the two explicit flags), and the
+persistent opt-in reaches the first ONLY — `fillDefaults` reads `perf_logging` into a field of its
+own rather than folding it into `Options.Timing`, which is what it did until D12 and what erased
+the distinction.
+
+`yolo stop` is the same rule in its small form: recording rides the env opt-ins (it has no
+`--timing` of its own), printing needs a `--verbose` typed on that invocation.
 
 ## 5. Where the log lives
 
@@ -139,6 +166,11 @@ never become a new mystery.
 Report placement (D6): the normal-arm report prints in `Run`, before the deferred title restore;
 the signal arm's prints inside `onTerminate` — the last statement that will ever run, because the
 tty proxy `os.Exit`s the moment it returns.
+
+Both arms go through the same `emitTimingReport`, which is also where D12's two gates part company:
+a launch that recorded without being asked to report prints one dim line naming the file and
+returns, so the attribution query above never runs on that path. The `*sync.Once` (D11) covers both
+outcomes, so the quiet line cannot double either.
 
 ## 8. What the first real runs measured
 
@@ -189,11 +221,21 @@ took, so a pathological 30-second shutdown writes the same 2 KB as a fast one.
 > it was its own report — a suspiciously round `3.002s` on every single run. Pinned by
 > `TestWindowAUntilIsNeverInTheFuture`.
 
-**The remaining cost of always-on is noise, not resources.** An enabled launch prints the span table
-to stderr *and* sets `YOLO_PROFILE=1`, which makes the in-container half print its own
-`=== YOLO Jail Profile ===` block. There is deliberately no "record to the file but stay quiet" mode
-yet: the file only exists when the gate is on. If always-on recording turns out to be what is
-wanted, that split — always append, print only when asked — is the shape to add, and it is small.
+**The remaining cost of always-on was noise, not resources — and that is now fixed** (D12,
+2026-09-08). It was real: with `perf_logging: true` every jail quit dumped a ~25-line table to
+stderr and, through `YOLO_PROFILE=1`, an in-container `=== YOLO Jail Profile ===` block on top of
+it, scrolling away whatever the user had been reading. The split this section predicted — *always
+append, print only when asked* — is what shipped, and it was small:
+
+- the persistent opt-ins (`perf_logging: true`, an exported `YOLO_TIMING`/`YOLO_VERBOSE`) record
+  everything and print **one dim line** naming the file;
+- an explicit `--timing` or `--verbose` prints the full report, both halves, exactly as before;
+- what the quiet path KEEPS is the part that is not noise: the file, written as it happens (D3),
+  and the live slow-span notices (D7) — one line that names a culprit while the user is still
+  waiting is the opposite of a table nobody asked for. Window A attribution is part of the report,
+  so a quiet launch does not even run its `podman events` query.
+
+So the resource row above is now the whole cost of leaving it on.
 
 **What the signal path proved instead.** SIGTERM to the launcher, under a real pty: `terminate.*`
 spans reached the file *after* the arm's `os.Exit(128+n)`, and the report printed at rc 143. That is

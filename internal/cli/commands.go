@@ -585,6 +585,12 @@ func runRun(args []string) int {
 	// refusal the fold used to make (a -p with no readable name) went with the
 	// heuristic that needed it — docs/reference/providers.md OQ-PT5.
 	parseRunArgs(args, &opts)
+	// The global --verbose / -v never reaches parseRunArgs (the front door strips
+	// it before subcommand resolution), so its EXPLICIT half is handed over here.
+	// The env var it publishes already turns recording on through the Getenv seam;
+	// this field is what additionally makes the report PRINT, which an inherited
+	// YOLO_VERBOSE=1 must not do (D12, docs/design/perf-logging.md).
+	opts.Verbose = explicitVerbose()
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's
 	// composed profile/provider channel, which run.Run composes above the backend

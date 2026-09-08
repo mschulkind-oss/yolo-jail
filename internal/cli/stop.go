@@ -54,12 +54,18 @@ func runStop(args []string) int {
 		fmt.Fprintf(os.Stderr, "yolo stop: resolving the workspace: %v\n", err)
 		return 1
 	}
-	// The timing gate rides the env opt-ins only — stop has no flags of its
+	// The timing gate rides the env opt-ins only — stop has no --timing of its
 	// own to grow, and the person running it is often already asking "why is
 	// everything slow".
 	p := run.TimingLogFor(ws, os.Getenv, os.Stderr)
 	rc := stopJail(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), realStopExec, p)
-	if p != nil {
+	// D12, stop's small case of it: recording and REPORTING are different
+	// questions. The spans are already in <ws>/.yolo/host-perf.log; the table
+	// prints only when the user asked for it on THIS invocation, which for stop
+	// means the global --verbose / -v. An inherited YOLO_VERBOSE=1 (a shell
+	// profile's "always on") records in silence — same rule the run pipeline's
+	// timingReporting() states, same reason.
+	if p != nil && explicitVerbose() {
 		// Not dashed: TestUsageListsEveryParsedFlag reads `---`-prefixed
 		// literals in handlers as flags, and a report header is not one.
 		fmt.Fprintln(os.Stderr, "yolo stop timing:")

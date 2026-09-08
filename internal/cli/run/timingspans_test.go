@@ -14,30 +14,115 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
 
-// The timing gate is a pure OR of the flag and the two host-process env
-// opt-ins — pinned as a table so a fourth spelling cannot appear without this
-// test noticing (design D1/D5).
-func TestTimingEnabledGate(t *testing.T) {
+// THE TWO GATES, side by side — the whole of D12 as a table, so neither the
+// recording set nor the (much smaller) reporting set can gain a spelling
+// without this test noticing.
+//
+// The rule the rows encode: EVERY opt-in records; only an EXPLICIT
+// per-invocation flag (--timing, --verbose/-v) prints. The env spellings are
+// what a shell profile exports and the config key is always-on, so both record
+// in silence — the pair of rows that were a single "enabled" answer until D12.
+func TestTimingGatesSplitRecordingFromReporting(t *testing.T) {
 	cases := []struct {
-		name string
-		flag bool
-		env  map[string]string
-		want bool
+		name          string
+		flag          bool
+		verbose       bool
+		perfLoggingOn bool
+		env           map[string]string
+		record        bool
+		report        bool
 	}{
-		{"off by default", false, nil, false},
-		{"flag", true, nil, true},
-		{"YOLO_TIMING", false, map[string]string{paths.TimingEnv: "1"}, true},
-		{"YOLO_VERBOSE", false, map[string]string{paths.VerboseEnv: "1"}, true},
-		{"empty env is off", false, map[string]string{paths.TimingEnv: ""}, false},
+		{name: "off by default"},
+		{name: "--timing flag", flag: true, record: true, report: true},
+		{name: "--verbose flag", verbose: true, record: true, report: true},
+		{name: "YOLO_TIMING records quietly",
+			env: map[string]string{paths.TimingEnv: "1"}, record: true},
+		{name: "YOLO_VERBOSE records quietly",
+			env: map[string]string{paths.VerboseEnv: "1"}, record: true},
+		{name: "perf_logging records quietly", perfLoggingOn: true, record: true},
+		{name: "empty env is off", env: map[string]string{paths.TimingEnv: ""}},
+		{name: "flag wins over a quiet env", flag: true,
+			env: map[string]string{paths.TimingEnv: "1"}, record: true, report: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			o := &Options{Timing: tc.flag, Getenv: func(k string) string { return tc.env[k] }}
-			if got := o.timingEnabled(); got != tc.want {
-				t.Errorf("timingEnabled() = %v, want %v", got, tc.want)
+			o := &Options{
+				Timing:        tc.flag,
+				Verbose:       tc.verbose,
+				perfLoggingOn: tc.perfLoggingOn,
+				Getenv:        func(k string) string { return tc.env[k] },
+			}
+			if got := o.timingRecording(); got != tc.record {
+				t.Errorf("timingRecording() = %v, want %v", got, tc.record)
+			}
+			if got := o.timingReporting(); got != tc.report {
+				t.Errorf("timingReporting() = %v, want %v", got, tc.report)
 			}
 		})
 	}
+}
+
+// THE CALL-SITE PIN for the split, at the one place a user sees it: the exit
+// report. A launch that recorded WITHOUT being asked to report prints one dim
+// line naming the file and NOTHING else — no header, no span table, no Window A
+// query — while an explicit --timing launch prints the whole report. Delete the
+// quiet branch in emitTimingReport and the first half fails; delete the report
+// call and the second half does.
+func TestQuietRecordingPrintsOnlyTheFileLine(t *testing.T) {
+	newLaunch := func(t *testing.T, ws string, explicit bool) (*Options, *bytes.Buffer) {
+		t.Helper()
+		o := goldenOptions(ws, t.TempDir())
+		// The persistent opt-in, exactly as fillDefaults would have folded it.
+		o.perfLoggingOn = true
+		o.Timing = explicit
+		var errb bytes.Buffer
+		o.Stderr = &errb
+		o.initPerf("yolo-ws-test0000")
+		if o.Perf == nil {
+			t.Fatal("a recording launch constructed no collector")
+		}
+		sp := o.Perf.Span("launch.thing")
+		sp.End()
+		return o, &errb
+	}
+
+	t.Run("quiet", func(t *testing.T) {
+		ws := t.TempDir()
+		o, errb := newLaunch(t, ws, false)
+		o.emitTimingReport(0, "yolo-ws-test0000", "podman")
+		got := errb.String()
+		for _, unwanted := range []string{"Host-side timing", "launch.thing", "Total:"} {
+			if strings.Contains(got, unwanted) {
+				t.Errorf("quiet launch printed %q; stderr:\n%s", unwanted, got)
+			}
+		}
+		if !strings.Contains(got, filepath.Join(ws, ".yolo", HostPerfLogName)) {
+			t.Errorf("quiet launch never named the file it wrote; stderr:\n%s", got)
+		}
+		if strings.Count(got, "\n") != 1 {
+			t.Errorf("quiet launch printed %d lines, want exactly 1:\n%s",
+				strings.Count(got, "\n"), got)
+		}
+		// The recording half is untouched by the silence.
+		body, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+		if err != nil {
+			t.Fatalf("quiet launch wrote no host-perf.log: %v", err)
+		}
+		if !strings.Contains(string(body), "end    launch.thing") {
+			t.Errorf("quiet launch recorded no spans; file:\n%s", body)
+		}
+	})
+
+	t.Run("explicit --timing", func(t *testing.T) {
+		o, errb := newLaunch(t, t.TempDir(), true)
+		o.emitTimingReport(0, "yolo-ws-test0000", "podman")
+		got := errb.String()
+		for _, want := range []string{"Host-side timing", "launch.thing", "host file:"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("explicit launch missing %q; stderr:\n%s", want, got)
+			}
+		}
+	})
 }
 
 // initPerf's contract: nothing constructed and no file when the gate is off;
@@ -269,33 +354,42 @@ func TestWindowAUntilIsNeverInTheFuture(t *testing.T) {
 	}
 }
 
-// THE CALL-SITE PIN for the persistent opt-in: fillDefaults must fold
-// `perf_logging` into Options.Timing, so every downstream timingEnabled() sees
-// one answer without re-reading a file. Delete the fold and this fails.
-func TestPerfLoggingConfigFoldsIntoTiming(t *testing.T) {
+// THE CALL-SITE PIN for the persistent opt-in: fillDefaults must read
+// `perf_logging` once, into its own field, so recording turns on WITHOUT the
+// launch looking like the user typed --timing. Delete the read and the config
+// key stops recording; fold it back into o.Timing (what it did until D12) and
+// the reporting column goes wrong, which is the noise this split removed.
+func TestPerfLoggingConfigRecordsWithoutReporting(t *testing.T) {
 	cases := []struct {
 		name       string
 		flag       bool
 		configSays bool
-		want       bool
+		record     bool
+		report     bool
 	}{
-		{"neither", false, false, false},
-		{"config only", false, true, true},
-		{"flag only", true, false, true},
-		{"both", true, true, true},
+		{"neither", false, false, false, false},
+		{"config only", false, true, true, false},
+		{"flag only", true, false, true, true},
+		{"both", true, true, true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(paths.TimingEnv, "")
+			t.Setenv(paths.VerboseEnv, "")
 			o := &Options{
 				Timing:            tc.flag,
 				PerfLoggingConfig: func() bool { return tc.configSays },
 			}
 			fillDefaults(o)
-			if o.Timing != tc.want {
-				t.Errorf("after fillDefaults, Timing = %v, want %v", o.Timing, tc.want)
+			if o.Timing != tc.flag {
+				t.Errorf("fillDefaults mutated Timing to %v — the flag must stay the "+
+					"record of what the USER typed", o.Timing)
 			}
-			if got := o.timingEnabled(); got != tc.want {
-				t.Errorf("timingEnabled() = %v, want %v", got, tc.want)
+			if got := o.timingRecording(); got != tc.record {
+				t.Errorf("timingRecording() = %v, want %v", got, tc.record)
+			}
+			if got := o.timingReporting(); got != tc.report {
+				t.Errorf("timingReporting() = %v, want %v", got, tc.report)
 			}
 		})
 	}
@@ -320,14 +414,20 @@ func TestPerfLoggingConfigDefaultsToTheRealReader(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Setenv(paths.TimingEnv, "")
+	t.Setenv(paths.VerboseEnv, "")
+
 	o := &Options{} // NOTHING injected: the production wiring is under test
 	fillDefaults(o)
 	if o.PerfLoggingConfig == nil {
 		t.Fatal("fillDefaults left PerfLoggingConfig nil; the config key would never be read")
 	}
-	if !o.Timing {
+	if !o.timingRecording() {
 		t.Error(`fillDefaults did not honor "perf_logging": true from the user config — ` +
 			"the seam is wired to something that is not config.PerfLoggingEnabled")
+	}
+	if o.timingReporting() {
+		t.Error("the user config turned REPORTING on; the persistent opt-in records silently (D12)")
 	}
 }
 

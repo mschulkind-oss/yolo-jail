@@ -1016,7 +1016,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	runCmd = insertHostServiceEnv(runCmd, in.imageRef, hostServices)
 
 	// Final internal command tail.
-	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.timingEnabled()))
+	// timingReporting(), not the recording gate: the in-container timing block is
+	// PRINT-ONLY (the jail appends to ~/.yolo-perf.log with or without it), so a
+	// silently-recording launch must not switch it on — it is the second half of
+	// the noise D12 removes, and the larger half on a fast host.
+	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.timingReporting()))
 
 	if o.Getenv("YOLO_DEBUG") != "" {
 		// Write RAW (not via the rich-stripping printer): the argv contains
@@ -1135,22 +1139,50 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 	sp.End()
 }
 
-// emitTimingReport prints the host-side half of --timing's report. The other
-// halves: the YOLO_PROFILE=1 env pair assemble.go puts on the container argv
-// (pinned by timingenv_test.go) and the entrypoint's own perf log, which the
-// in-container branch prints. Called from the normal-exit tail and from INSIDE
-// onTerminate — never later, because the signal arm os.Exits past anything
-// after it.
+// emitTimingReport ends the launch's timing surface — in one of two ways, and
+// which one is D12's whole question.
+//
+// A launch that RECORDED but was never asked to report (the persistent opt-ins:
+// `perf_logging: true`, an exported YOLO_TIMING/YOLO_VERBOSE) prints ONE dim
+// line naming the file it just wrote, and nothing else: the events are already
+// on disk, and a ~25-line table at every jail quit scrolls away whatever the
+// user was reading, which is the noise this split removes. A launch whose user
+// typed --timing or --verbose gets the full report — they asked for it, now.
+//
+// The full report's other halves: the YOLO_PROFILE=1 env pair assemble.go puts
+// on the container argv (pinned by timingenv_test.go) and the entrypoint's own
+// perf log, which the in-container branch prints. Called from the normal-exit
+// tail and from INSIDE onTerminate — never later, because the signal arm
+// os.Exits past anything after it.
 //
 // The Window A attribution line renders only when a child.exited mark exists
 // (the fresh-launch and attach arms both produce one) and podman's event log
 // answers — every failure mode is silence, and the attribution's own run is
-// spanned so it can never become a mystery itself.
+// spanned so it can never become a mystery itself. It is part of the REPORT, so
+// the quiet path never runs that query at all.
 func (o *Options) emitTimingReport(rc int, cname, rt string) {
-	if !o.timingEnabled() {
+	// The Once is created by initPerf exactly when a collector is, so a nil one
+	// IS "this launch recorded nothing" — the recording gate, read off the state
+	// it produced rather than re-evaluated here.
+	if o.perfReportOnce == nil {
 		return
 	}
-	o.perfReportOnce.Do(func() { o.emitTimingReportLocked(rc, cname, rt) })
+	o.perfReportOnce.Do(func() {
+		if !o.timingReporting() {
+			o.noteTimingLogLocation()
+			return
+		}
+		o.emitTimingReportLocked(rc, cname, rt)
+	})
+}
+
+// noteTimingLogLocation is the quiet path's entire output: one dim line, so a
+// launch that recorded silently is still DISCOVERABLE — the maintainer who
+// turned `perf_logging` on months ago has to be able to find the file without
+// re-reading the config reference.
+func (o *Options) noteTimingLogLocation() {
+	o.pr(o.Stderr).printf("[dim]yolo: timings recorded in %s (--timing prints them)[/dim]",
+		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
 }
 
 func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {

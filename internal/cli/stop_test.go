@@ -7,10 +7,14 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -121,5 +125,53 @@ func TestStopJailEmitsTimingSpans(t *testing.T) {
 		if !strings.Contains(report.String(), want) {
 			t.Errorf("stop report missing %q; got:\n%s", want, report.String())
 		}
+	}
+}
+
+// D12 AT STOP'S DOOR, both arms, through the real handler. `yolo stop` has no
+// --timing of its own, so its recording gate is the env opt-ins — which is
+// exactly the "always on in a shell profile" shape that must NOT print. Only a
+// --verbose / -v typed on this invocation gets the table; either way the run
+// block lands in <ws>/.yolo/host-perf.log.
+//
+// Deleting the `explicitVerbose()` conjunct from runStop fails the quiet half;
+// deleting the report block fails the loud half. The backend is pinned to
+// macos-user so the handler needs no container runtime and spawns nothing.
+func TestStopReportsTimingOnlyWhenAskedOnThisInvocation(t *testing.T) {
+	cases := []struct {
+		name  string
+		typed bool
+	}{
+		{"an exported YOLO_TIMING records in silence", false},
+		{"a typed -v prints the report", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := t.TempDir()
+			t.Chdir(ws)
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("YOLO_RUNTIME", "macos-user")
+			t.Setenv(paths.TimingEnv, "1")
+			t.Setenv(paths.VerboseEnv, "")
+			resetVerboseFlagTyped(t)
+			if tc.typed {
+				// The front door's own strip is what sets the signal — never the
+				// test, or the wiring under test would be the thing stubbed out.
+				applyVerboseFlag([]string{"-v"})
+			}
+
+			var rc int
+			_, stderr := captureBoth(t, func() { rc = runStop([]string{"stop"}) })
+			if rc != 0 {
+				t.Fatalf("runStop = %d, want 0 (macos-user has no jail to stop)", rc)
+			}
+			if got := strings.Contains(stderr, "yolo stop timing:"); got != tc.typed {
+				t.Errorf("report printed = %v, want %v; stderr:\n%s", got, tc.typed, stderr)
+			}
+			// The recording half holds in BOTH arms: the file is the point.
+			if _, err := os.Stat(filepath.Join(ws, ".yolo", run.HostPerfLogName)); err != nil {
+				t.Errorf("stop recorded no %s: %v", run.HostPerfLogName, err)
+			}
+		})
 	}
 }

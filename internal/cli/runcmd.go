@@ -58,9 +58,12 @@ Flags:
                      the in-container breakdown (entrypoint config generation, mise,
                      the command itself). Spans append to
                      <workspace>/.yolo/host-perf.log as they happen, and any span
-                     over a second names itself on stderr. YOLO_TIMING=1 enables
-                     the same surface without the flag; the global --verbose/-v
-                     (before the subcommand) also enables it.
+                     over a second names itself on stderr. The global --verbose/-v
+                     (before the subcommand) prints the same report.
+                     ASKING IS WHAT PRINTS: the always-on spellings — YOLO_TIMING=1
+                     or YOLO_VERBOSE=1 in the environment, "perf_logging": true in
+                     the user config — record the same spans to the same file and
+                     print nothing but one dim line naming it.
   --dry-run          macos-user runtime only: print the plan without launching.
   --accept-config-changes
                      Approve a changed jail config on a launch with no terminal

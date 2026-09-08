@@ -54,15 +54,33 @@ type Options struct {
 	// is fresh per capture so nothing CAN be running; this makes that true by
 	// construction rather than by luck (capturehost.go's comment).
 	NeverAttach bool
-	// Timing is --timing: report this launch's performance timings — grown from
-	// a single total into the full span system (docs/design/perf-logging.md).
-	// timingEnabled() is the effective gate: this flag OR the host-process
-	// YOLO_TIMING/YOLO_VERBOSE opt-ins. fillDefaults also folds the persistent
-	// `perf_logging` user-config opt-in into it, so everything downstream reads
-	// ONE answer and no call site re-reads a file.
+	// Timing is --timing, AS TYPED ON THIS INVOCATION: an explicit, per-launch
+	// request for this launch's performance timings — the full span system
+	// (docs/design/perf-logging.md).
+	//
+	// It is one of the two EXPLICIT signals (Verbose is the other), and that
+	// distinction is the whole of D12: an explicit flag records AND prints, while
+	// a persistent setting (`perf_logging: true`, or YOLO_TIMING/YOLO_VERBOSE
+	// exported in a shell profile) records SILENTLY. So nothing folds into this
+	// field any more — fillDefaults used to fold the config opt-in here, which
+	// erased exactly the distinction the two gates below now make. Call sites read
+	// the gates (timingRecording / timingReporting), never this field.
 	Timing bool
+	// Verbose is the global --verbose / -v flag, AS TYPED ON THIS INVOCATION —
+	// the second explicit signal, equal to Timing in every gate below.
+	//
+	// It exists because the front door publishes that flag as YOLO_VERBOSE
+	// (internal/cli/verbose.go, so every Getenv-seam reader in the process sees
+	// it), which leaves `--verbose` and a YOLO_VERBOSE=1 inherited from a shell
+	// profile INDISTINGUISHABLE downstream — and under D12 they must differ: the
+	// typed flag prints, the environment does not. An in-process field is the
+	// signal a second env var could not be, since an env var would be inherited by
+	// the next `yolo` too, which is the very thing being distinguished.
+	// internal/cli sets it from the front door's own strip.
+	Verbose bool
 	// PerfLoggingConfig reads the persistent `perf_logging` opt-in from the user
-	// config. nil => config.PerfLoggingEnabled.
+	// config. nil => config.PerfLoggingEnabled. Its answer is folded into
+	// perfLoggingOn once, by fillDefaults.
 	//
 	// A seam for the reason every host-environment read in this struct is one:
 	// without it, fillDefaults would consult the DEVELOPER's real
@@ -71,6 +89,11 @@ type Options struct {
 	// (TestTeardownChainSilentWhenOff) start failing on their machine and
 	// nowhere else. goldenOptions pins it false.
 	PerfLoggingConfig func() bool
+	// perfLoggingOn is PerfLoggingConfig()'s answer, read ONCE by fillDefaults,
+	// single-threaded, before any span exists — so timingRecording() stays a field
+	// read rather than a read of a file on every call site. Unexported because it
+	// is derived state: a caller sets the seam, never this.
+	perfLoggingOn bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
 	// AcceptConfigChanges is --accept-config-changes: it grants the config-change
@@ -286,13 +309,37 @@ func (o *Options) captureConfigOnTerminate(rt string) {
 	o.CaptureOnTerminate(o.Workspace, rt)
 }
 
-// timingEnabled is the effective timing gate: the --timing flag, or either
-// host-process env opt-in (YOLO_TIMING for this surface, YOLO_VERBOSE for the
-// global flag's published form — v1 aliases them, design D1). Pure, so the
-// gate is table-testable without launching anything; called through Getenv so
-// injected environments behave exactly like real ones.
-func (o *Options) timingEnabled() bool {
-	return o.Timing || o.Getenv(paths.TimingEnv) != "" || o.Getenv(paths.VerboseEnv) != ""
+// timingRecording is the RECORDING gate: does this launch collect spans and
+// append them to <workspace>/.yolo/host-perf.log as they happen? EVERY opt-in
+// turns it on — the two explicit flags, either host-process env opt-in
+// (YOLO_TIMING for this surface, YOLO_VERBOSE for the global flag's published
+// form, design D1), and the persistent `perf_logging` user config (read once by
+// fillDefaults into perfLoggingOn).
+//
+// Pure, so the gate is table-testable without launching anything; called through
+// Getenv so injected environments behave exactly like real ones.
+func (o *Options) timingRecording() bool {
+	return o.timingReporting() || o.perfLoggingOn ||
+		o.Getenv(paths.TimingEnv) != "" || o.Getenv(paths.VerboseEnv) != ""
+}
+
+// timingReporting is the REPORTING gate: does this launch PRINT — the span table
+// at exit, the Window A attribution line below it, and the in-container half
+// (the YOLO_PROFILE=1 argv pair and the bash timers it switches on, which are
+// print-only; the jail appends to its own ~/.yolo-perf.log either way)?
+//
+// Only the two EXPLICIT per-invocation flags say yes (D12). A persistent setting
+// — `perf_logging: true`, or YOLO_TIMING/YOLO_VERBOSE exported in a shell
+// profile — records and stays quiet, because it is "always on" and a ~25-line
+// table at every jail quit scrolls away whatever the user was reading. The
+// principle, whenever a new opt-in has to be classified: an explicit
+// per-invocation flag prints; a persistent setting records silently.
+//
+// What the quiet path keeps: the file (above), the live slow-span notices
+// (newTimingLog — low-volume, and they name a culprit while the user is still
+// waiting), and one dim line at exit naming the file (noteTimingLogLocation).
+func (o *Options) timingReporting() bool {
+	return o.Timing || o.Verbose
 }
 
 // HostPerfLogName is the host half's file, under <workspace>/.yolo/ beside
@@ -304,7 +351,7 @@ const HostPerfLogName = "host-perf.log"
 // the sinks; call once, after the early refusals have had their say — a
 // refused launch writes no file.
 func (o *Options) initPerf(cname string) {
-	o.Perf = newTimingLog(o.timingEnabled(), o.Workspace, cname, o.Stderr, func(msg string) {
+	o.Perf = newTimingLog(o.timingRecording(), o.Workspace, cname, o.Stderr, func(msg string) {
 		o.pr(o.Stderr).printf("[dim]yolo: %s[/dim]", msg)
 	})
 	if o.Perf != nil {
@@ -340,10 +387,15 @@ func newTimingLog(enabled bool, ws, cname string, stderr io.Writer, notice func(
 	return perf.New(time.Now, sinks...)
 }
 
-// TimingLogFor is the subcommand-facing constructor: the same gate and sinks
-// the run pipeline wires, for a command that is not the run pipeline (`yolo
-// stop` today — the tool you reach for when a session is ALREADY wedged, and
-// therefore the last place that should be unmeasured).
+// TimingLogFor is the subcommand-facing constructor: the same RECORDING gate and
+// sinks the run pipeline wires, for a command that is not the run pipeline
+// (`yolo stop` today — the tool you reach for when a session is ALREADY wedged,
+// and therefore the last place that should be unmeasured).
+//
+// It answers "record?" only. Whether the caller PRINTS what it recorded is the
+// caller's decision under D12, because only the caller knows whether a flag was
+// typed on this invocation: `yolo stop --verbose` reports, an inherited
+// YOLO_VERBOSE=1 records in silence.
 func TimingLogFor(ws string, getenv func(string) string, stderr io.Writer) *perf.Log {
 	enabled := getenv(paths.TimingEnv) != "" || getenv(paths.VerboseEnv) != ""
 	return newTimingLog(enabled, ws, runtime.FromWorkspace(ws), stderr, func(msg string) {
@@ -364,11 +416,15 @@ func fillDefaults(o *Options) {
 	if o.PerfLoggingConfig == nil {
 		o.PerfLoggingConfig = config.PerfLoggingEnabled
 	}
-	// The persistent opt-in folds into the flag HERE, once, single-threaded,
-	// before any span exists — so the five timingEnabled() call sites downstream
-	// stay a field read rather than five reads of a file on every launch.
-	if !o.Timing && o.PerfLoggingConfig() {
-		o.Timing = true
+	// The persistent opt-in is read HERE, once, single-threaded, before any span
+	// exists — so the gate call sites downstream stay a field read rather than a
+	// read of a file on every launch. It lands in its OWN field: folding it into
+	// o.Timing (what this did until D12) erased the difference between "the user
+	// typed --timing just now" and "this machine always records", and that
+	// difference is exactly what decides whether the table prints. Skipped when a
+	// flag already answers the question — the file read buys nothing then.
+	if !o.timingReporting() {
+		o.perfLoggingOn = o.PerfLoggingConfig()
 	}
 	if o.LookPath == nil {
 		o.LookPath = func(name string) (string, bool) {
