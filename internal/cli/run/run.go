@@ -1154,12 +1154,27 @@ func (o *Options) emitTimingReport(rc int, cname, rt string) {
 }
 
 func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
+	// ATTRIBUTION RUNS BEFORE THE TABLE IS RENDERED, and the ordering is the
+	// whole point: attributeWindowA spans its own `podman events` call, so
+	// running it after Report() left that span in the FILE and missing from the
+	// printed table on every launch — the one number the reader is looking at is
+	// the one that could not appear in it. Measured on a real host 2026-09-08.
+	// The line it produces still prints BELOW the table, where it belongs.
+	var attribution, why string
+	if child, ok := o.Perf.LastEvent("child.exited"); ok {
+		line, ok, reason := o.attributeWindowA(cname, rt, o.Perf.StartTime(), child.At)
+		attribution, why = line, reason
+		if !ok {
+			attribution = ""
+		}
+	}
 	o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing (rc %d) ---[/bold cyan]", rc)
 	o.Perf.Report(o.Stderr, time.Now())
-	if child, ok := o.Perf.LastEvent("child.exited"); ok {
-		if line, ok := o.attributeWindowA(cname, rt, o.Perf.StartTime(), child.At); ok {
-			o.pr(o.Stderr).printf("[dim]  %s[/dim]", line)
-		}
+	switch {
+	case attribution != "":
+		o.pr(o.Stderr).printf("[dim]  %s[/dim]", attribution)
+	case why != "":
+		o.pr(o.Stderr).printf("[dim]  %s[/dim]", why)
 	}
 	o.pr(o.Stderr).printf("[dim]  host file: %s[/dim]",
 		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))

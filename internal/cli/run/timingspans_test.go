@@ -214,7 +214,7 @@ func TestAttributeWindowA(t *testing.T) {
 				}
 				return tc.res
 			}
-			line, ok := o.attributeWindowA("yolo-ws-test0000", tc.rt, podmanExit.Add(-time.Minute), podmanExit)
+			line, ok, _ := o.attributeWindowA("yolo-ws-test0000", tc.rt, podmanExit.Add(-time.Minute), podmanExit)
 			if ok != tc.want {
 				t.Fatalf("ok = %v, want %v (line %q)", ok, tc.want, line)
 			}
@@ -327,5 +327,48 @@ func TestPerfLoggingConfigDefaultsToTheRealReader(t *testing.T) {
 	if !o.Timing {
 		t.Error(`fillDefaults did not honor "perf_logging": true from the user config — ` +
 			"the seam is wired to something that is not config.PerfLoggingEnabled")
+	}
+}
+
+// Attribution must EXPLAIN its blanks. Two real-host launches produced no
+// Window A line and no way to tell whether the query failed, timed out, or
+// found nothing — so every non-applicable outcome now carries a reason, and
+// only the wrong-runtime case stays mute (there is nothing to say).
+func TestWindowAExplainsWhyItHasNothing(t *testing.T) {
+	ws := t.TempDir()
+	o := goldenOptions(ws, t.TempDir())
+	o.Timing = true
+	o.initPerf("yolo-ws-test0000")
+	exited := time.Now()
+
+	cases := []struct {
+		name    string
+		rt      string
+		res     ExecResult
+		wantWhy string
+	}{
+		{"no die event", "podman", ExecResult{Ran: true, Stdout: "1757152800.5 start\n"}, "no container `die` event"},
+		{"timeout", "podman", ExecResult{Ran: true, Timeout: true}, "did not answer within"},
+		{"could not run", "podman", ExecResult{Ran: false}, "could not be run"},
+		{"nonzero rc", "podman", ExecResult{Ran: true, RC: 125}, "exited 125"},
+		{"not podman: silent", "container", ExecResult{Ran: true}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o.Exec = func([]string, string, []string, time.Duration) ExecResult { return tc.res }
+			line, ok, why := o.attributeWindowA("yolo-ws-test0000", tc.rt, exited.Add(-time.Minute), exited)
+			if ok || line != "" {
+				t.Fatalf("expected no attribution, got %q", line)
+			}
+			if tc.wantWhy == "" {
+				if why != "" {
+					t.Errorf("wrong-runtime case must stay silent, got %q", why)
+				}
+				return
+			}
+			if !strings.Contains(why, tc.wantWhy) {
+				t.Errorf("why = %q, want it to mention %q", why, tc.wantWhy)
+			}
+		})
 	}
 }

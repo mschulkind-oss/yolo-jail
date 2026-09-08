@@ -32,9 +32,15 @@ const windowAEventsTimeout = 3 * time.Second
 // every failure mode: wrong runtime, missing binary, timeout, nonzero rc,
 // unparsable or absent events (a rootless file backend can legitimately have
 // none).
-func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Time) (string, bool) {
+// The second return is the LINE; the third is WHY there is none. Silence was the
+// original design and it was wrong in practice: two real-host launches produced no
+// attribution at all and no way to tell whether the query failed, timed out, or
+// simply found nothing — an observability feature that cannot explain its own
+// blank is the failure it exists to remove. The reason is rendered once, dim,
+// beneath the table.
+func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Time) (string, bool, string) {
 	if rt != "podman" || o.Perf == nil {
-		return "", false
+		return "", false, "" // not applicable: say nothing at all
 	}
 	// --until IS NOW, AND MUST NEVER BE IN THE FUTURE. `podman events` treats a
 	// future --until as an instruction to keep watching until that wall-clock
@@ -63,12 +69,20 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 	sp := o.Perf.Span("shutdown.window_a_podman_events")
 	res := o.Exec(argv, "", nil, windowAEventsTimeout)
 	sp.End()
-	if !res.Ran || res.Timeout || res.RC != 0 {
-		return "", false
+	switch {
+	case res.Timeout:
+		return "", false, fmt.Sprintf("Window A unattributed: `podman events` did not answer within %s", windowAEventsTimeout)
+	case !res.Ran:
+		return "", false, "Window A unattributed: `podman events` could not be run"
+	case res.RC != 0:
+		return "", false, fmt.Sprintf("Window A unattributed: `podman events` exited %d", res.RC)
 	}
 	dieAt, cleanupAt, ok := parseDieAndCleanup(res.Stdout)
 	if !ok {
-		return "", false
+		// The ordinary case on a host whose events backend keeps nothing (the
+		// rootless file backend expires them), so it is stated plainly rather
+		// than as a fault.
+		return "", false, "Window A unattributed: no container `die` event in podman's log for this jail"
 	}
 	line := fmt.Sprintf("Window A (container died → podman exit): %.3fs",
 		podmanExited.Sub(dieAt).Seconds())
@@ -76,7 +90,7 @@ func (o *Options) attributeWindowA(cname, rt string, since, podmanExited time.Ti
 		line += fmt.Sprintf(" — podman's own cleanup event landed %s after the die",
 			cleanupAt.Sub(dieAt).Round(time.Millisecond))
 	}
-	return line, true
+	return line, true, ""
 }
 
 // parseDieAndCleanup reads `podman events --format '{{.Time}} {{.Status}}'`
