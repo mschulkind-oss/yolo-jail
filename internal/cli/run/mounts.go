@@ -104,6 +104,19 @@ func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []s
 				"entry[/yellow]")
 			continue
 		}
+		// PODMAN, not yolo, creates the workspace-side mount point — and because
+		// /workspace is a live bind of the user's own directory, it creates it THERE,
+		// root-owned, and leaves it behind when the container goes. On a fresh repo
+		// that is two empty directories (`node_modules`, `.venv`) appearing in a tree
+		// the user never touched; reported 2026-09-08 against a `git init` and one
+		// launch, and reproduced with no agent in the jail at all.
+		//
+		// Recording the ones that were ABSENT here is what lets teardown remove
+		// exactly those again (pruneShadowMountPoints). A path that already existed
+		// is the user's, whatever it holds, and is never a candidate.
+		if !fileExists(hostPath) {
+			o.shadowMountPoints = append(o.shadowMountPoints, hostPath)
+		}
 		backing := filepath.Join(wsState, "venv-shadows", strings.ReplaceAll(rel, "/", "__"))
 		_ = os.MkdirAll(backing, 0o755)
 		args = append(args, "-v", backing+":/workspace/"+rel)
@@ -168,4 +181,26 @@ func pyReprStr(s string) string {
 	}
 	b.WriteByte('\'')
 	return b.String()
+}
+
+// pruneShadowMountPoints removes the workspace-side mount points this launch's
+// per-side shadows caused podman to create, and nothing else.
+//
+// Three properties, each one a refusal to guess:
+//
+//   - ONLY paths this launch found absent (venvShadowMountArgs recorded them).
+//     A directory that was already there is the user's.
+//   - os.Remove, which is rmdir on a directory: it FAILS on a non-empty one.
+//     So a real node_modules or .venv — one the user populated on the host, or
+//     one another jail is still using — survives by construction rather than by
+//     a check that could be wrong.
+//   - Errors are dropped. This is tidying, and tidying may never be the reason
+//     a teardown reports a problem.
+//
+// Called from both teardown arms: the litter is the same either way, and the
+// signal arm is the one that used to leave it behind for good.
+func (o *Options) pruneShadowMountPoints() {
+	for _, p := range o.shadowMountPoints {
+		_ = os.Remove(p)
+	}
 }

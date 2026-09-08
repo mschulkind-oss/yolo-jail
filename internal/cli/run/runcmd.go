@@ -111,6 +111,12 @@ type Options struct {
 	// reaching emitTimingReport is the ORDINARY interleaving on that path, and
 	// the terminal should see one report and one Window A query, not two.
 	perfReportOnce *sync.Once
+	// shadowMountPoints are the workspace-side per-side shadow paths
+	// (`node_modules`, `.venv`, …) that did NOT exist when this launch assembled
+	// its mounts. podman creates them in the user's own directory to mount over
+	// and leaves them behind; teardown removes exactly these, and only while
+	// they are still empty. Populated by venvShadowMountArgs.
+	shadowMountPoints []string
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
 	// ServiceReadyTimeout bounds each spawned host service's readiness wait
