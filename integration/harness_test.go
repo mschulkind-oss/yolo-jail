@@ -672,10 +672,12 @@ func writeProject(t *testing.T, configJSON string) string {
 	t.Cleanup(func() {
 		forceRemoveContainer(dir)
 		// Before t.TempDir()'s own RemoveAll runs (cleanups are LIFO, so this
-		// one goes first): a pack's vendor installer can leave a read-only
-		// directory in the workspace's home overlay that RemoveAll cannot
-		// unlink through. See makeTreeRemovable.
-		makeTreeRemovable(dir)
+		// one goes first): a pack's vendor installer can leave a tree in the
+		// workspace's home overlay that RemoveAll cannot unlink through —
+		// read-only directories in one class, files owned by a rootless-podman
+		// subuid in the other. See removeWorkspaceTree, which handles both and
+		// leaves nothing for TempDir's own cleanup to trip on.
+		removeWorkspaceTree(t, dir)
 	})
 	return dir
 }
