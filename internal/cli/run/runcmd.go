@@ -493,6 +493,9 @@ func fillDefaults(o *Options) {
 			return err == nil
 		}
 	}
+	if o.HostCASProbe == nil {
+		o.HostCASProbe = hostcas.DefaultProbe
+	}
 	if o.BuildJailPrefix == nil {
 		o.BuildJailPrefix = func(repoRoot string) (string, []string) {
 			return image.BuildJailPrefix(repoRoot, o.Stderr)
