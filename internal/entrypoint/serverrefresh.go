@@ -68,10 +68,13 @@ import (
 // Presence is a STAT, not a probe: `$NPM_CONFIG_PREFIX/lib/node_modules/<pkg>/package.json`
 // for npm (the path `_installed_version` already reads) and `$GOBIN/<bin>` for go (the test
 // the bootstrap's go arm already makes). Freshness is another stat. So a jail whose servers
-// are all installed and all fresh runs a handful of stats and exits, and the launcher pays
-// one process spawn — measured at ~15 ms, against the several forks (`date`, `stat`,
-// `command -v`) the launcher already makes on the same path. A jail with NO yolo-installed
-// servers pays nothing at all: `serverRefreshEnabled` bakes the call out of the launcher.
+// are all installed and all fresh runs a handful of stats and exits — measured 2026-09-09 at
+// 6.5 ms per invocation, ten in a row.
+//
+// The comparison that matters, and the one that cannot drift: this is ONE process spawn on a
+// path where the launcher already forks `date`, `stat` and `command -v` several times before
+// it reaches the exec. And a jail with NO yolo-installed server pays nothing at all — the
+// launcher's baked SERVERS_ENABLED is 0 and the call is never made.
 
 // ServerRefreshInterval is the seconds between refreshes of one server package.
 //

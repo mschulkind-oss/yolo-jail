@@ -22,60 +22,97 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // --- the call site ---------------------------------------------------------------------
 
-// TestGeneratedLauncherCallsTheServerRefresh is the load-bearing cell. Delete the refresh
-// block from either template, or the splice that fills it, and the servers stop moving with
-// nothing else failing.
-func TestGeneratedLauncherCallsTheServerRefresh(t *testing.T) {
-	home := t.TempDir()
-	e := NewEnv(map[string]string{
-		"JAIL_HOME":            home,
-		"YOLO_PACK_ROOT":       writePackWithProgram(t, "agenty", "yolo-not-a-real-agent"),
-		"YOLO_MCP_PRESETS":     `["sequential-thinking"]`,
-		"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest",
-		"YOLO_LSP_NPM_INSTALL": "pyright",
-	})
-	if err := GenerateAgentLaunchers(e); err != nil {
+// writePackWithServerAgent stages a one-pack YOLO_PACK_ROOT declaring `program <bin>` with
+// the given `via`.
+//
+// writePackWithProgram (launchercollision_test.go) hardcodes `via: npm`, which reaches ONE of
+// the two launcher templates. That is the gap this exists to close: deleting the refresh call
+// from the NATIVE template alone left every cell in this file green (measured), which is the
+// unpinned-call-site shape AGENTS.md names.
+func writePackWithServerAgent(t *testing.T, via, bin string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "srvpack")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(filepath.Join(e.LaunchDir(), "yolo-not-a-real-agent"))
-	if err != nil {
+	entry := `{"kind":"program","bin":"` + bin + `","via":"npm","package":"` + bin + `-pkg"}`
+	if via == "native" {
+		entry = `{"kind":"program","bin":"` + bin +
+			`","via":"installer","url":"https://example.invalid/i.sh"}`
+	}
+	manifest := `{"name":"srvpack","contributes":[` + entry + `]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := string(body)
+	return root
+}
 
-	for _, want := range []string{
-		// The call itself, and the exact argv the CLI parses. A rename on either side
-		// leaves the launcher invoking a subcommand `yolo internal` refuses.
-		"yolo internal refresh-servers",
-		`--home="$HOME"`,
-		`--npm="$SERVERS_NPM"`,
-		`--go="$SERVERS_GO"`,
-		`--updates="$UPDATES_ENABLED"`,
-		// The BAKED set. Reading these from the environment instead is the macos-user
-		// `env -i` defect capturesDir and receiptsFile are baked to avoid, so the values
-		// have to be IN the script.
-		"\nSERVERS_ENABLED=1\n",
-		"@modelcontextprotocol/server-sequential-thinking",
-		"pyright",
-		"golang.org/x/tools/gopls@latest",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the generated launcher is missing %q — the transitive refresh is not "+
-				"wired, so a yolo-installed MCP/LSP server only ever moves when the "+
-				"bootstrap reinstalls it:\n%s", want, got)
-		}
-	}
-	// Ordering is the design's ONE hard constraint (§3.5): the refresh must complete
-	// before the exec, because the agent spawns its servers itself.
-	call := strings.Index(got, "if [ \"$SERVERS_ENABLED\" = \"1\" ]")
-	execAt := strings.LastIndex(got, `exec "$REAL_BIN" "$@"`)
-	if call < 0 || execAt < 0 || call > execAt {
-		t.Errorf("the refresh is not ordered before the exec (call=%d exec=%d) — a "+
-			"half-updated server set at connect time is worse than a stale one", call, execAt)
+// TestGeneratedLauncherCallsTheServerRefresh is the load-bearing cell. Delete the refresh
+// block from EITHER template, or the splice that fills it, and the servers stop moving with
+// nothing else failing.
+//
+// BOTH templates, in one table: they are separately-written strings and a fix applied to one
+// is not a fix.
+func TestGeneratedLauncherCallsTheServerRefresh(t *testing.T) {
+	for _, via := range []string{"npm", "native"} {
+		t.Run(via, func(t *testing.T) {
+			const bin = "yolo-not-a-real-agent"
+			home := t.TempDir()
+			e := NewEnv(map[string]string{
+				"JAIL_HOME":            home,
+				"YOLO_PACK_ROOT":       writePackWithServerAgent(t, via, bin),
+				"YOLO_MCP_PRESETS":     `["sequential-thinking"]`,
+				"YOLO_LSP_GO_INSTALL":  "golang.org/x/tools/gopls@latest",
+				"YOLO_LSP_NPM_INSTALL": "pyright",
+			})
+			if err := GenerateAgentLaunchers(e); err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(filepath.Join(e.LaunchDir(), bin))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(body)
+
+			for _, want := range []string{
+				// The call itself, and the exact argv the CLI parses. A rename on either
+				// side leaves the launcher invoking a subcommand `yolo internal` refuses.
+				"yolo internal refresh-servers",
+				`--home="$HOME"`,
+				`--npm="$SERVERS_NPM"`,
+				`--go="$SERVERS_GO"`,
+				`--updates="$UPDATES_ENABLED"`,
+				// The BAKED set. Reading these from the environment instead is the
+				// macos-user `env -i` defect capturesDir and receiptsFile are baked to
+				// avoid, so the values have to be IN the script.
+				"\nSERVERS_ENABLED=1\n",
+				"@modelcontextprotocol/server-sequential-thinking",
+				"pyright",
+				"golang.org/x/tools/gopls@latest",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("the %s launcher is missing %q — the transitive refresh is "+
+						"not wired, so a yolo-installed MCP/LSP server only ever moves "+
+						"when the bootstrap reinstalls it:\n%s", via, want, got)
+				}
+			}
+			// Ordering is the design's ONE hard constraint (§3.5): the refresh must
+			// complete before the exec, because the agent spawns its servers itself.
+			call := strings.Index(got, "if [ \"$SERVERS_ENABLED\" = \"1\" ]")
+			execAt := strings.LastIndex(got, `exec "$REAL_BIN" "$@"`)
+			if call < 0 || execAt < 0 || call > execAt {
+				t.Errorf("the %s launcher does not order the refresh before the exec "+
+					"(call=%d exec=%d) — a half-updated server set at connect time is "+
+					"worse than a stale one", via, call, execAt)
+			}
+		})
 	}
 }
 
@@ -83,22 +120,27 @@ func TestGeneratedLauncherCallsTheServerRefresh(t *testing.T) {
 // is what keeps the cell above from passing against a generator that bakes the call
 // unconditionally. A jail with no yolo-installed server must pay no process spawn.
 func TestALauncherWithNoServersCarriesNoRefresh(t *testing.T) {
-	home := t.TempDir()
-	e := NewEnv(map[string]string{
-		"JAIL_HOME":      home,
-		"YOLO_PACK_ROOT": writePackWithProgram(t, "agenty", "yolo-not-a-real-agent"),
-	})
-	if err := GenerateAgentLaunchers(e); err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(filepath.Join(e.LaunchDir(), "yolo-not-a-real-agent"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "\nSERVERS_ENABLED=0\n") {
-		t.Errorf("a jail with no yolo-installed servers did not bake SERVERS_ENABLED=0, so "+
-			"every agent invocation spawns a subprocess to discover there is nothing to "+
-			"do:\n%s", body)
+	for _, via := range []string{"npm", "native"} {
+		t.Run(via, func(t *testing.T) {
+			const bin = "yolo-not-a-real-agent"
+			home := t.TempDir()
+			e := NewEnv(map[string]string{
+				"JAIL_HOME":      home,
+				"YOLO_PACK_ROOT": writePackWithServerAgent(t, via, bin),
+			})
+			if err := GenerateAgentLaunchers(e); err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(filepath.Join(e.LaunchDir(), bin))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), "\nSERVERS_ENABLED=0\n") {
+				t.Errorf("the %s launcher in a jail with no yolo-installed servers did "+
+					"not bake SERVERS_ENABLED=0, so every agent invocation spawns a "+
+					"subprocess to discover there is nothing to do:\n%s", via, body)
+			}
+		})
 	}
 }
 
@@ -476,5 +518,71 @@ func TestTheServerSetReadsTheEnvListAndTheSentinel(t *testing.T) {
 	// Declared twice is installed once.
 	if n := strings.Count(got.npm, "pyright"); n != 1 {
 		t.Errorf("npm set %q names pyright %d times", got.npm, n)
+	}
+}
+
+// --- the splice ------------------------------------------------------------------------
+
+// TestTheRefreshCallQuotesTheServerLists is the BEHAVIOURAL half of the splice contract for
+// the two newest sentinels, and it exists because `bash -n` cannot answer the question.
+// TestLauncherTemplatesParseWithHostileValues feeds the hostile value through these lists
+// too, but a raw `SERVERS_NPM=$(touch witness)` is perfectly valid bash — measured: splicing
+// the list raw left that cell GREEN. Only running the launcher and reading the argv the
+// subcommand actually received settles it.
+//
+// It is also the strongest form of the call-site pin: a launcher that never invoked the
+// refresh would log no argv at all.
+func TestTheRefreshCallQuotesTheServerLists(t *testing.T) {
+	home := t.TempDir()
+	fakeBin := filepath.Join(home, "fakebin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yoloLog := filepath.Join(home, "yolo.log")
+	argvLogger(t, fakeBin, "yolo", yoloLog, "")
+	argvLogger(t, fakeBin, "npm", filepath.Join(home, "npm.log"),
+		`if [ "${1:-}" = install ]; then
+    mkdir -p "$NPM_CONFIG_PREFIX/bin"
+    printf '#!/bin/sh\necho LAUNCHED\n' > "$NPM_CONFIG_PREFIX/bin/tool"
+    chmod +x "$NPM_CONFIG_PREFIX/bin/tool"
+fi`)
+
+	// A LIST whose first element carries the payload, so the cell measures both halves at
+	// once: the value must be data, and the list must still arrive as ONE argument (the
+	// Go side splits it, not the shell).
+	npmList := hostileValue("-srvnpm") + " second-pkg"
+	goList := "example.invalid/" + hostileValue("-srvgo") + "@latest"
+	body := npmAgentLauncher(
+		&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool"},
+		filepath.Join(home, "stamps"),
+		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true,
+		launcherServers{npm: npmList, gomods: goList})
+
+	out, rc := runLauncher(t, home, "tool", body, fakeBin)
+	if rc != 0 {
+		t.Errorf("launcher failed (rc=%d) — a hostile server list must be data, not code:\n%s",
+			rc, out)
+	}
+	assertNoWitness(t, home, "-srvnpm", "the refresh call's --npm list")
+	assertNoWitness(t, home, "-srvgo", "the refresh call's --go list")
+
+	log := logLines(t, yoloLog)
+	if len(log) == 0 {
+		t.Fatalf("the launcher never invoked `yolo internal refresh-servers` — the "+
+			"transitive refresh is not called at all:\n%s", out)
+	}
+	for _, want := range []string{
+		"internal", "refresh-servers",
+		"--npm=" + npmList,
+		"--go=" + goList,
+	} {
+		if !hasExactArg(log, want) {
+			t.Errorf("the refresh subcommand did not receive %q as one intact argument.\n"+
+				"got argv:\n%s", want, strings.Join(log, "\n"))
+		}
+	}
+	// And the agent still ran: the refresh is a step before the exec, never instead of it.
+	if !strings.Contains(out, "LAUNCHED") {
+		t.Errorf("the launcher did not exec the agent after refreshing its servers:\n%s", out)
 	}
 }

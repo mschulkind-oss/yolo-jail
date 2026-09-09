@@ -27,7 +27,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|refresh-servers|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -50,6 +50,11 @@ func runInternal(args []string) int {
 		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
+	case "refresh-servers":
+		// Evergreen's TRANSITIVE half (program-delivery.md §3.5, OQ-PD12a), called by
+		// the GENERATED AGENT LAUNCHERS before they exec the agent. Hidden for
+		// capture-materialize's reason: it installs into the home it is pointed at.
+		return runRefreshServers(args[1:])
 	case "bundle-dir":
 		// The flake-bundle paths `just install` stages through, printed so the
 		// recipe never recomputes them — the drift that once aimed `rm -rf` at the
