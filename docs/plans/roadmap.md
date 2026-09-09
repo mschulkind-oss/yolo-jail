@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 16 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 16 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-09**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -426,8 +426,9 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../
 >   component deletes stopped being a question once the reclaimers were built: the launch path runs
 >   the same veto-protected sweep `yolo prune --apply` runs, debounced.
 > - **[OQ-DF3](../design/minimal-disk-footprint.md#111-decision-ledger) — all three halves ruled and shipped.** SAFETY retired in advance by C2 +
->   `4064f720` (fail-safe veto); NUMBER ruled 2026-09-06 (`--keep-images` stays 2, now as an undo
->   margin rather than the safety mechanism); TRIGGER shipped with it (`AutoReapOldImages`); REACH
+>   `4064f720` (fail-safe veto); NUMBER ruled 2026-09-06 (`--keep-images` stayed 2, as an undo
+>   margin rather than the safety mechanism — ⚠ **superseded in mechanism 2026-09-09: the flag is
+>   deleted, see the shipped item above**); TRIGGER shipped with it (`AutoReapOldImages`); REACH
 >   shipped 2026-09-08 — `mkOciImage` bakes `org.yolo-jail.owner` and the candidate list is a UNION
 >   of the repository-name probe and a `--filter label=` probe, two queries because podman refuses
 >   both in one (MEASURED). An image that lost its tag is still provably yolo's.
@@ -436,8 +437,8 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../
 >
 > **[OQ-DF3](../design/minimal-disk-footprint.md#111-decision-ledger)'s NUMBER ruling has since been superseded in shape, not in value**, by
 > [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger): the global
-> `keep=2` window is the wrong *mechanism*, and its replacement is the 📦 item below. Read that row
-> before touching `--keep-images`.
+> `keep=2` window was the wrong *mechanism*, and its replacement **shipped 2026-09-09** — there is
+> no `--keep-images` to touch any more. Read the ✅ item above.
 
 ### 💬 17 — Mistyped names return `[PASS]`: mostly closed by the provider arc; the buried channel remains
 
@@ -573,7 +574,7 @@ had been up 3–4 days, taking the containers with them. The image half was fixe
 >   than *fresh machine* — **built** `3c9e8de9`.
 > - ✅ **[OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) — `keep` is the wrong MECHANISM, not the wrong number, and there is NO undo.**
 >   *"I don't know that I've ever rolled back, only evolved forward."* **Ruled, unbuilt — it is the
->   📦 item below**, and it is what replaces `--keep-images 2`.
+>   ✅ item below — SHIPPED 2026-09-09**, and it is what replaced `--keep-images 2`.
 >
 > The contradiction the doc recorded is gone with LS1: `imageroots.go` no longer justifies a
 > destructive guard with a liveness claim, because it makes no liveness claim.
@@ -752,18 +753,33 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   `YOLO_LEGACY_IMAGE_STREAM` are deleted in the same change, so *a measured `nix:`-source copy that
   loads AND BOOTS on podman/Linux and on Apple Container is the safety property*, not a nice-to-have.
 
-- 📦 **2. Image retention by per-workspace current pointer — replacing the global `--keep-images 2`.**
-  📄 [`the-load-sentinel-is-not-a-liveness-oracle.md` §6.2](../design/the-load-sentinel-is-not-a-liveness-oracle.md#62-retention-after-the-two-rulings) ·
-  [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), ruled 2026-09-08 and
-  sharpened 2026-09-09. `OldImagesToRemove` sorts every row by `Created` and keeps the newest N with
-  no notion of a workspace or a config, so on four workspaces two images are evicted per pass however
-  recently each was used. **The unit becomes the CONFIGURATION, and there is no undo buffer** —
-  *"I don't know that I've ever rolled back, only evolved forward."* ⚠ **The blocker this row carried
-  for a day is gone:** a superseded-copy count of zero means one pointer per workspace in
-  `<workspace>/.yolo/`, union'd with the `podman ps` veto — **no config-identity grouping key is
-  needed**, and any doc still saying LS3 waits on one is stale. `keep` is podman IMAGES only; nix
-  roots are [OQ-LS1](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s
-  one-week age policy, already built.
+- ✅ **2. Image retention by per-workspace current pointer — SHIPPED 2026-09-09** (`ae190ac4`), and
+  it left this section the day it was filed. 📄
+  [`the-load-sentinel-is-not-a-liveness-oracle.md` §6.2](../design/the-load-sentinel-is-not-a-liveness-oracle.md#62-retention-after-the-two-rulings) ·
+  [`OQ-LS3`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger). **`--keep-images` is deleted, not retuned** — it
+  is now a refusal naming its replacement — and retention is the union of one current-image pointer
+  per workspace with the `podman ps` veto. `DefaultKeepImages`, `OldImagesToRemove` and
+  `ProtectedImageTags` are gone with it.
+  **Measured on this machine, which inverted the expectation:** the new rule reclaims MORE, not
+  less — 6 of 8 images against the old rule's 3 — because the ten-entry sentinel LRU, not `keep`,
+  was doing the retaining. That is [`disk-levers-and-backfill.md` §2.2](../design/disk-levers-and-backfill.md#22-the-image-reap-priced-against-this-store)'s finding, now in
+  numbers.
+  ⚠ **One departure from the design's letter, and it is the right one:** the pointers live under
+  `BuildDir()` keyed by container name, not in `<workspace>/.yolo/`, because the reaper needs the
+  *union* and has no way to enumerate workspaces that is not itself a registry — both candidates
+  forget a workspace, one of them within the same `yolo prune` run. The workspace is recorded
+  inside each pointer so it can be checked rather than merely counted.
+  ⚠ **On the day it ships, a machine that has not launched since the upgrade has no pointers, so
+  `yolo prune` DECLINES and exits non-zero** naming the missing evidence. That is
+  [`OQ-LS2`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s rule working, not a bug — but it is the one
+  user-visible edge, and `integration/` has no `yolo prune` coverage to catch it (the unit suite
+  stubs the runtime, so it structurally cannot). **That gap is the follow-up worth doing.**
+  ⚠ **A residual the build named rather than hid:** `AutoLoadImage` brackets its own inspect and
+  sentinel append under the housekeeping lock, and the pointer write takes the same lock
+  immediately *after* that bracket — leaving a few-ms window in which a concurrent sweep sees an
+  image with no pointer. Worst case is a failed `podman run`, not a killed jail, and a relaunch of
+  an unchanged config re-uses the previous pointer. The clean fix is to move the write inside that
+  existing bracket, deliberately not taken to keep the diff out of `internal/image/`.
 
 - 📦 **3. Alias a host CAS instead of pooling a second copy of it.** 📄
   [`disk-levers-and-backfill.md` §3](../design/disk-levers-and-backfill.md#3-the-levers-ranked) ·

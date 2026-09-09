@@ -453,7 +453,7 @@ a jail can legitimately run one whose load was many launches ago.
 
 Per-config content tags armed a prune pass that had never fired. `PruneOldImages` filters by
 repository and removes with `rmi -f`; while one tag named everything the query returned one row
-and `keep=2` could select nothing. With a row per name it could select a second workspace's live
+and the global keep-window of the day could select nothing (that window is gone — see [`OQ-LS3`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)). With a row per name it could select a second workspace's live
 image, so the same change deduplicated by image ID and added a liveness veto read from the
 sentinel, later hardened to decline when the ledger cannot be read. The retention *number* and
 its trigger belong to [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md).
@@ -742,5 +742,5 @@ values themselves are stated.
 | Launch → boot profile list | `YOLO_STORE_PROFILES`, colon-separated, precedence-ordered | `entrypoint.StoreProfilesEnv` |
 | The farm | `/run/yolo/packages/{bin,lib,lib/pkgconfig}`; `bin` sits immediately before `/bin` in `BootPath` | `entrypoint.StorePackagesRoot`, `BootPath` |
 | `packages:` into the flake | `YOLO_EXTRA_PACKAGES` (JSON), read with `builtins.getEnv` | `image.AutoLoadOptions.ExtraPackages`; `extraPackages` (`flake.nix`) |
-| Image reap on the launch path | keep 2, at most once per 24 h, opt out with `YOLO_NO_AUTO_IMAGE_REAP` | `prune.DefaultKeepImages`, `prune.AutoReapInterval`; `autoReapOptOutEnv` (`internal/cli/run/autoreapimages.go`) |
+| Image reap on the launch path | every image except each workspace's current one, at most once per 24 h, opt out with `YOLO_NO_AUTO_IMAGE_REAP` | `prune.ReadCurrentImagePointers`, `prune.AutoReapInterval`; `autoReapOptOutEnv` (`internal/cli/run/autoreapimages.go`) |
 | Binary-cache substituter | `yolo-jail.cachix.org` | `nixConfig` (`flake.nix`) |

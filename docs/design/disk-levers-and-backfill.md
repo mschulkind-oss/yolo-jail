@@ -296,7 +296,8 @@ days" holds an eighth of what is retained today. This is the evidence [OQ-BF3](#
 
 > [!IMPORTANT]
 > **The image store carries two policies with two different justifications, and only one of them is
-> about reuse.** `--keep-images` (default 2) is a reuse-and-undo buffer. The load sentinel's LRU is a
+> about reuse.** `--keep-images` (default 2) WAS a reuse-and-undo buffer — deleted 2026-09-09 by
+> [`OQ-LS3`](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), which replaced the global window with one current-image pointer per workspace. The load sentinel's LRU is a
 > **liveness veto** — `AddLoadedPath`'s own comment reasons about *concurrent jails*: "several images
 > stay loaded at once now, and a jail can legitimately run one whose load was many launches ago."
 > Those are different claims, and [§2.2](#22-the-image-reap-priced-against-this-store) measured that the LRU, not `keep`, sets the floor. Its size is
@@ -522,7 +523,8 @@ Stated once, with units, because "periodically" is not a trigger:
   Each walk has a **60 s budget**; a class that exceeds it reports what it summed so far as
   "≥ N GiB (partial)" and the offer says so.
 - **Defaults, with units:** debounce **24 h**; re-ask **7 d**; offer threshold **1 GiB**; cache age
-  **30 d** (unchanged); images `keep` **2** (unchanged); versions keep **2** (unchanged);
+  **30 d** (unchanged); images: one current per workspace (was `keep` **2**, deleted 2026-09-09 —
+  [`OQ-LS3`](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)); versions keep **2** (unchanged);
   `ImageCacheKeep` **0 on podman, 3 elsewhere**; walk budget **60 s**; store-delete scope
   **yolo's own output names only** (`*-yolo-jail-install-prefix`, `*-yolo-jail-go-0-dev`, and any
   path a `run-result-*`/`jail-prefix-*` link of this machine ever pointed at, if a ledger of them
@@ -1110,7 +1112,9 @@ row cannot carry them.
 
    _Leaning:_ **Keep the veto, stop letting its length set retention.** Size it by concurrent jails
    — derivable from the container list rather than guessed — and let `--keep-images` own the reuse
-   buffer it is already named for. Lowering `10` to another underived constant repeats the defect
+   buffer it is already named for. *(⚠ Preserved as the leaning it was: `--keep-images` no longer
+   exists, deleted 2026-09-09 by [`OQ-LS3`](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), so this half of the leaning is now unbuildable as
+   written. The answer below went further in the same direction.)* Lowering `10` to another underived constant repeats the defect
    at a new number.
 
    **Answer (2026-09-08): the question dissolves — its premise is being removed, not answered.**
