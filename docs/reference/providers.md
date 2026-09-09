@@ -189,6 +189,17 @@ table, string, math libraries only; no `os`, no `io`). Two registrations:
   implementation is what keeps `yolo -- claude` and `yolo host -- claude` composing the same
   environment. An in-jail env derive has no consumer and is never run.
 
+> [!WARNING]
+> **The env half is not a surface, and the host render's key probe is not its seam.** A
+> `yolo.env` producer is recorded under the agent name alone, in storage of its own, so a pack
+> may declare a real surface named `env` without colliding with the environment composition —
+> keying the producer as `(agent, "env")` makes that collision representable, which is the
+> whole reason it is not keyed that way. The host notch needs a REAL invocation for the same
+> reason: `hostTableKeys` probes each derive against a sentinel table for key NAMES only and
+> deliberately passes no content (a jail's derived tables embed jail-absolute paths), so an env
+> path built into the boot loop alone composes nothing for `yolo host`, which has no jail to
+> boot.
+
 The derive context (`DeriveCtx`) carries: the live tables (`mcp_servers`, `lsp_servers`,
 `providers`, `use_profiles`), `selected_provider` (the active profile's provider), and
 `profile` (that profile's resolved options). **Selection resolution is one rule**: the
@@ -200,6 +211,19 @@ per-invocation and never serialized; `YOLO_PROVIDERS` stays secret-free.
 
 Errors are fatal at the boot step (`genStep` → the jail refuses to start) and refuse the
 launch host-side. There is deliberately no second reporting channel.
+
+> [!WARNING]
+> **The `yolo.*` table is a host↔jail version boundary; a new function must be tolerated
+> before it is called.** The host stages the `derive.lua` the in-jail entrypoint executes and
+> the two halves deploy on different cadences, so a newer host stages a script calling a
+> `yolo.*` member the running image never registered. The whole script runs in order to
+> REGISTER its producers, which makes the blast radius the script rather than the call: adding
+> `yolo.env` took down BOTH claude surfaces at boot on every pre-existing image, over a
+> producer the entrypoint does not even invoke. So the two paths that render a surface — the
+> jail's boot loop and `yolo check`'s dry run, sharing `deriveComputedLayer` — read an unknown
+> `yolo.<name>` tolerantly and report it (`DeriveCtx.UnknownAPI`), while `AgentEnv` on the host
+> refuses it: strict is the zero value, and tolerance is asked for only at the boundary that
+> can name why.
 
 > [!NOTE]
 > **Retired 2026-09-05 — the credential no longer rides the argv.** The env derive's output
@@ -258,13 +282,23 @@ first-slash model format and options nesting; codex's binary-verified `responses
 model a selection names is resolved IN THE DERIVE — alias = the profile's `model` option or
 `default`, then the provider's `models` map; core resolves no model.
 
-The user-facing spellings: `-p <sel>` / `--profile <sel>` take BOTH grammars — a bare
+The user-facing spellings: on the run path `-p <sel>` / `--profile <sel>` take BOTH grammars — a bare
 NAME selects that profile for every selected pack (uniformly, whether or not a command
 follows `--`), and `cli=name` (comma-separated, repeatable) selects for the named CLI only.
 The persistent form is `use_profiles` in user config. Profile names refuse `=` at
 declaration so the two grammars cannot be ambiguous, and neither flag means startup
 timing — that is `--timing`. (The former third spelling `--pack-profile` is deleted —
 never in a release, and redundant once `-p` carried both grammars.)
+
+> [!WARNING]
+> **The flag is parsed per notch, and only the run path takes the pair grammar.**
+> `applyProfileValue` is where `cli=name` is understood; `yolo host` and `yolo host env` parse
+> the flag in their own bodies and accept a bare profile NAME only — one notch runs one agent,
+> so there is nothing for a pair to key against. Neither host parser ever carried the timing
+> meaning, so [OQ-PT5](#why-its-this-way)'s split touched the run path alone: do not "unify"
+> them, the grammars differ because the notches do. The run path's help scan mirrors its parse
+> flag for flag, which is the other half of the split — `-p` consumes the next token there
+> too, so `yolo -p -h` reads a profile named `-h` rather than answering help, deliberately.
 
 ## Profiles and options
 

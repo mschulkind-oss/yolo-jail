@@ -10,11 +10,9 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 
 > **DRAFT SUPERSEDED, 2026-09-02.** This first pass never left draft, and the design was built
 > from a different shape — read [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md)
-> (the parent), [`providers.md`](../reference/providers.md) and
-> [`providers.md`](../reference/providers.md), plus the two plans
-> that carried their build order
-> ([`provider-table-fidelity-plan.md`](provider-table-fidelity-plan.md),
-> [`provider-catalog-and-selection-plan.md`](provider-catalog-and-selection-plan.md)).
+> (the parent) and [`providers.md`](../reference/providers.md), which is the reference the two
+> review docs and the two implementation plans behind them were all distilled into (the plans
+> were deleted when their work landed, 2026-09-02; `git log` holds them).
 > Three positions below were **reversed**, not refined: the `wire_api` vocabulary is three
 > canonical names — `anthropic`, `openai-chat-completions`, `openai-responses` — and never the
 > four borrowed spellings the [§3](#3-the-architectural-tension-prescribed-extension-point-vs-generic-fragments) diagram, [§5](#5-manifest-schemas--field-definitions)'s two examples and [§8.2](#82-projections-automatic-env-vs-prism-derivelua)'s derive listings still use

@@ -60,7 +60,7 @@ func writeClaudeBedrockLocalPack(t *testing.T, home string) {
 
 // shippedClaudeDeriveLua is the REAL packs/claude derive.lua, read from the embedded pack
 // tree rather than copied into this file: bedrock parity is the acceptance bar of the
-// env-derive move (provider-catalog-and-selection-plan.md build order step 3), and a
+// env-derive move (docs/reference/providers.md, OQ-CS8), and a
 // hand-written stub here would pin whatever the stub said instead of what ships. A local
 // fixture that drifted from the shipped producer would make the host notch look green
 // while composing different variables than the jail notch.

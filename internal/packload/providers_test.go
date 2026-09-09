@@ -113,8 +113,8 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 }
 
 // TestComposeProvidersHonorTheNullDropBelowTheTopLevel pins the merge's own convention one
-// level under the entry (docs/reference/providers.md's note, provider-table-
-// fidelity-plan.md step 4): a null in the user's override is a DELETE wherever it appears,
+// level under the entry (docs/reference/providers.md's note on the null-drop): a null in
+// the user's override is a DELETE wherever it appears,
 // not a value. At the top level ComposeProviders already dropped the whole entry; below it
 // the per-field fold set the key to a literal null instead — `models.fast: null` composed
 // an alias whose value is nothing, which no reader of the table has a meaning for.

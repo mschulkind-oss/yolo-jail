@@ -259,8 +259,8 @@ type Contribution struct {
 	// "default"/"fast" → "glm-5.3[1m]". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
 	Models map[string]string `json:"models,omitempty"`
-	// Options is the profile surface the provider DECLARES (provider-catalog-and-
-	// selection.md §5.2, OQ-CS4): a FLAT map of option name to default value, read
+	// Options is the profile surface the provider DECLARES (docs/reference/providers.md,
+	// OQ-CS4): a FLAT map of option name to default value, read
 	// exactly like its neighbour Models — no `kind`, no `values`, no wrapper object
 	// (OQ-CS7 ruled the nested form out; `default` was the only field left in it).
 	//

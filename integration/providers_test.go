@@ -62,8 +62,8 @@ func renderedSurface(t *testing.T, dir string, rel ...string) []byte {
 // validates a value against a set YOLO owns; the defect is that the consumer owns a
 // different set, so the whole chain went green while writing values the agents refuse.
 //
-// This test LANDED RED, ON PURPOSE (commit cee9c1fc, per provider-table-fidelity-plan.md
-// build order step 1): it is the regression test for three defects that shipped, and the
+// This test LANDED RED, ON PURPOSE, and it landed FIRST (commit cee9c1fc): it is the
+// regression test for three defects that shipped, and the
 // step that fixed each turned its subtest green — A0 (7fa624ba) turned D10/D11 green, A3
 // (0f04632d) turned D1 green, and all four subtests are green as of A3.
 //
