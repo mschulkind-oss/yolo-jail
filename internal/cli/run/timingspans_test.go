@@ -499,3 +499,52 @@ func TestImageLoadReceivesTheCollector(t *testing.T) {
 		t.Error("AutoLoadOptions.Perf is not the launch's collector — image phases would be unspanned")
 	}
 }
+
+// TestInitPerfPublishesTheCollectorToTheCaller closes a measurement hole that
+// LOOKED instrumented. `yolo run`'s deferred title restore spans itself as
+// process.title_restore on the front door's own copy of Options — and Options
+// crosses the launchRunPipeline seam BY VALUE, so a collector built inside the
+// pipeline was invisible there. Span on a nil *perf.Log is a deliberate silent
+// no-op, so the span never fired and design H6 stayed unmeasured while every
+// reader of the code saw a span.
+//
+// The assertion is that a CALLER's holder ends up non-nil, because that is the
+// only thing standing between "spanned" and "spanned on nil".
+func TestInitPerfPublishesTheCollectorToTheCaller(t *testing.T) {
+	ws := t.TempDir()
+	ref := &PerfRef{}
+	o := &Options{Workspace: ws, PerfRef: ref}
+	fillDefaults(o)
+	o.Getenv = func(k string) string {
+		if k == paths.TimingEnv {
+			return "1"
+		}
+		return ""
+	}
+
+	o.initPerf("yolo-ws-test0000")
+
+	if o.Perf == nil {
+		t.Fatal("the gate was on and no collector was built — this test cannot say anything")
+	}
+	if ref.Log == nil {
+		t.Fatal("initPerf did not publish the collector to the caller's ref. Anything the front " +
+			"door spans after Run returns — the title restore, design H6 — then spans a nil " +
+			"collector and records nothing, silently.")
+	}
+	if ref.Log != o.Perf {
+		t.Error("the caller got a DIFFERENT collector; its spans would land in another sink")
+	}
+	// And the span it exists for actually records.
+	if sp := ref.Log.Span("process.title_restore"); sp == nil {
+		t.Error("the published collector produced a nil span while timing is on")
+	}
+}
+
+// TestInitPerfWithNoRefIsFine: a nil holder is the normal case for every caller
+// that does not span past Run, and must not be a special case at the call site.
+func TestInitPerfWithNoRefIsFine(t *testing.T) {
+	o := &Options{Workspace: t.TempDir()}
+	fillDefaults(o)
+	o.initPerf("yolo-ws-test0000") // must not panic
+}

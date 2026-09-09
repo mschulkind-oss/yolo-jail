@@ -123,6 +123,10 @@ type Options struct {
 	// deliberately NOT by fillDefaults: an off launch must construct nothing.
 	// The one thing it must never be given is o.Now (see initPerf).
 	Perf *perf.Log
+	// PerfRef, when non-nil, receives the collector initPerf builds, so a caller
+	// holding a COPY of Options can span work that happens after Run returns.
+	// Pointer for the reason above; nil is fine and means "no caller is asking".
+	PerfRef *PerfRef
 	// perfReportOnce makes the timing report once per Run invocation — a
 	// POINTER, not an embedded sync.Once, because Options is copied by value
 	// (Run's own signature) and a copied lock is a vet copylocks error. Created
@@ -347,6 +351,11 @@ func (o *Options) timingReporting() bool {
 // <workspace>/.yolo/home/, so one directory holds both halves of one launch.
 const HostPerfLogName = "host-perf.log"
 
+// PerfRef is a one-field holder a caller passes in to be handed the collector
+// Run constructs. It exists because Options crosses the launchRunPipeline seam
+// by value, so the front door cannot see a pointer the callee assigns.
+type PerfRef struct{ Log *perf.Log }
+
 // initPerf constructs the collector when the gate is on. See newTimingLog for
 // the sinks; call once, after the early refusals have had their say — a
 // refused launch writes no file.
@@ -356,6 +365,20 @@ func (o *Options) initPerf(cname string) {
 	})
 	if o.Perf != nil {
 		o.perfReportOnce = &sync.Once{}
+	}
+	// Publish it to the CALLER, which cannot otherwise see it: Options is passed
+	// BY VALUE (launchRunPipeline's seam), so a collector constructed here is
+	// invisible to the front door that wrapped this call. The same reason
+	// perfReportOnce is a *sync.Once rather than a value.
+	//
+	// WHAT THIS FIXES, and it is a measurement hole rather than a style point:
+	// `yolo run`'s deferred title restore spanned itself as
+	// process.title_restore, on the front door's own copy of Options, whose Perf
+	// is nil forever. Span on a nil *Log is a silent no-op, so the span never
+	// fired and design H6 — the last unmeasured step between the report printing
+	// and the prompt returning — stayed unmeasured while looking instrumented.
+	if o.PerfRef != nil {
+		o.PerfRef.Log = o.Perf
 	}
 }
 

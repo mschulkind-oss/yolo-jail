@@ -674,8 +674,14 @@ func runRun(args []string) int {
 	// and the shell prompt returning (design H6).
 	restore := SetupJailIndicator()
 	if restore != nil {
+		// The collector is built INSIDE the pipeline, and Options crosses that
+		// seam by value — so spanning this on our own copy's Perf was spanning
+		// nil, silently, forever (Span on a nil *Log is a no-op by design). The
+		// ref is handed in so the callee can publish the collector back.
+		ref := &run.PerfRef{}
+		opts.PerfRef = ref
 		defer func() {
-			sp := opts.Perf.Span("process.title_restore")
+			sp := ref.Log.Span("process.title_restore")
 			restore()
 			sp.End()
 		}()
