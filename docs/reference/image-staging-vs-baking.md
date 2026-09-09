@@ -418,13 +418,17 @@ shape of fix named.
 the repository (`localhost/yolo-jail`, unqualified on Apple Container) plus a tag that is the
 first sixteen hex characters of the SHA-256 of the store path it was built from. Not the `:latest`
 tag, and not the store path itself. The same sixteen characters key the store path's durable GC
-root under the image roots directory and its legacy cache-tar name, so a reaper can correlate a
-loaded image, its root and its tar with no reverse lookup, and the three can never drift apart.
+root under the image roots directory, its transient archive on the backends that need one, and
+its legacy cache-tar name — so a reaper can correlate a loaded image, its root and its files with
+no reverse lookup, and they can never drift apart.
 
-The image is **named on the way in.** nixpkgs' stream script takes `--repo_tag`, so
-`StreamRepoTag` puts the content name into the archive's `RepoTags` and `podman load` cannot
-name it anything else; Apple Container's converters likewise take the ref as the name they
-write. Naming it *after* the load — `podman tag :latest <ref>` — read a shared mutable name a
+The image is **named on the way in**, and since layer-aware delivery that is STRUCTURAL rather
+than won. nix2container's `image.json` carries no repo:tag at all, so the copy's destination argv
+is the only name an image can get: `containers-storage:<content ref>` on podman/Linux, and the
+`<ref>` half of an `oci-archive:`/`docker-archive:` destination on the backends whose loader takes
+a file. There is no baked `:latest` left for a post-load retag to read. (`StreamRepoTag`, which
+bought the same property by overriding the stream archive's `RepoTags`, is deleted with the
+stream.) Naming it *after* the load — `podman tag :latest <ref>` — read a shared mutable name a
 second time with nothing serialising loads across workspaces, and a concurrent launch of a
 different config could move `:latest` in between; the loser then bound its content ref to the
 winner's image, and because the binding is a permanent name the wrong image would run forever.

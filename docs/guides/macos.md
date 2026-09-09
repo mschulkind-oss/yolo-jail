@@ -785,14 +785,29 @@ If `yolo run` fails to load the image, try manually (there is no `yolo build`
 subcommand — see the warning under *Install from source*):
 
 ```bash
-# Build the image
-nix build .#ociImage --no-link --print-out-paths
+# Build the image manifest AND the copier that reads it. `./result` is a
+# nix2container image.json naming the layer digests — not a tarball, and not a
+# script whose stdout is one — and `./result-1` is the skopeo that can read it.
+nix build --impure --accept-flake-config .#ociImage .#imageCopier
 
-# Stream it into Podman
-STORE_PATH=$(nix build .#ociImage --no-link --print-out-paths)
-# If using a remote builder, stream via SSH:
-ssh nix-builder "$STORE_PATH" | podman load
+# Deliver it. On Podman Machine the storage lives inside the VM and does not
+# share /nix, so the archive goes through `podman load -i`, which streams it
+# over podman's own connection into the VM:
+./result-1/bin/skopeo --insecure-policy copy \
+    "nix:$(readlink -f ./result)" \
+    "docker-archive:/tmp/jail-image.tar:localhost/yolo-jail:latest"
+podman load -i /tmp/jail-image.tar && rm /tmp/jail-image.tar
+
+# On Apple Container, the same copy into an OCI archive:
+#   ./result-1/bin/skopeo --insecure-policy copy \
+#       "nix:$(readlink -f ./result)" \
+#       "oci-archive:/tmp/jail-image.oci:yolo-jail:latest"
+#   container image load -i /tmp/jail-image.oci && rm /tmp/jail-image.oci
 ```
+
+There is no remote-builder variant of this any more: the copier is a *darwin*
+build (it runs on your Mac and reads your local `/nix/store`), so the layers a
+Linux builder realized are copied back by `nix build` and tarred locally.
 
 ### Slow first build
 
