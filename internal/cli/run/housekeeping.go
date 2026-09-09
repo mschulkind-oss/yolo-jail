@@ -1,6 +1,7 @@
 package run
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,6 +34,37 @@ import (
 //     writes to stderr or not at all.
 //  3. IT IS NOT A BACKGROUND JOB. Same process, same lifetime, same YOLO_*
 //     environment the launch had.
+
+// housekeepingNote records what the slot did. IT NEVER WRITES TO THE TERMINAL,
+// and that is the whole point of the function existing.
+//
+// THE BUG THIS FIXES. The slot's notices started on stdout, moved to stderr
+// when OQ-BF5 put them after the container attaches — and stderr is the SAME
+// TERMINAL. A dim line from the launcher's goroutine lands on top of whatever
+// the agent's TUI is drawing, so a reclaim overlaid a running session. §5.1
+// already said it: "Nothing that needs a TTY runs there — by then the TTY is
+// the container's." Both streams are the container's, not just stdout.
+//
+// The file is <workspace>/.yolo/housekeeping.log, beside boot.log and
+// host-perf.log, so the three things a launch does behind the user's back are
+// greppable in one place. `yolo stores` and `yolo prune` are the human-facing
+// surfaces for this information; a launch is not.
+//
+// Best-effort: a launch must never fail because housekeeping could not write a
+// note about itself.
+func (o *Options) housekeepingNote(format string, args ...any) {
+	dir := paths.WorkspaceStateDir(o.Workspace)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "housekeeping.log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s  %s\n", o.Now().UTC().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
 
 // housekeepingLockName is the machine-wide lock every housekeeping pass and
 // every load-and-record step takes.
@@ -142,7 +174,7 @@ func (o *Options) measureAndPurgeCache(consented bool) {
 	}
 	removed, _ := prune.PurgeCacheByAge(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now())
 	if removed > 0 {
-		o.pr(o.Stderr).printf("[dim]Reclaimed %s of cache older than %d days, as agreed.[/dim]",
+		o.housekeepingNote("cache: reclaimed %s older than %d days, as agreed",
 			prune.FmtBytes(removed), int(cacheAgeDays))
 	}
 }
@@ -283,9 +315,7 @@ func (o *Options) reapSupersededStoreOutputs(rt string) {
 	removed := prune.DeleteSupersededStoreOutputs(candidates, true, run)
 	done()
 	if len(removed) > 0 {
-		// STDERR: by now the pty is the container's (slot property 2).
-		o.pr(o.Stderr).printf("[dim]Reclaimed %d superseded yolo store output(s) "+
-			"(disk-levers-and-backfill.md OQ-BF3).[/dim]", len(removed))
+		o.housekeepingNote("store outputs: reclaimed %d superseded path(s) (OQ-BF3)", len(removed))
 	}
 }
 
@@ -336,8 +366,8 @@ func (o *Options) reapSmallAutomaticClasses(rt string) {
 		hostArchiveKeepInSlot, true)
 	done()
 	if dirs+gens > 0 {
-		o.pr(o.Stderr).printf("[dim]Reclaimed %d agent staging dir(s) and %d retired loophole "+
-			"state generation(s).[/dim]", dirs, gens)
+		o.housekeepingNote("small classes: reclaimed %d agent staging dir(s), %d loophole state generation(s)",
+			dirs, gens)
 	}
 }
 
@@ -370,8 +400,7 @@ func (o *Options) reapImageTars(rt string) {
 	bytes, files := prune.PruneImageCache(filepath.Join(paths.GlobalStorage(), "cache", "images"), keep, true)
 	done()
 	if files > 0 {
-		o.pr(o.Stderr).printf("[dim]Reclaimed %s of cached image tar(s) — this runtime streams, "+
-			"so it keeps %d (minimal-disk-footprint.md OQ-DF1, disk-levers OQ-BF6).[/dim]",
+		o.housekeepingNote("image tars: reclaimed %s (this runtime streams, so it keeps %d)",
 			prune.FmtBytes(bytes), keep)
 	}
 }

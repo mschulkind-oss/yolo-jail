@@ -1095,7 +1095,13 @@ run if you want them gone.
 
 Reclaiming is `yolo prune` (dry-run by default, `--apply` to act). Most classes are also reclaimed
 automatically after a jail starts, at most once a day each; `YOLO_NO_AUTO_IMAGE_REAP=1` turns that
-off. The one class yolo will not reclaim without asking is the shared build-tool cache, because
+off. **That automatic work never prints to your terminal** — by the time it runs, the terminal
+belongs to whatever is running in the jail, and a line there would land on top of it. It is
+recorded in `<workspace>/.yolo/housekeeping.log` instead, beside `boot.log`:
+
+```bash
+tail ~/code/myproject/.yolo/housekeeping.log
+``` The one class yolo will not reclaim without asking is the shared build-tool cache, because
 re-fetching it is unbounded — you will be offered it on a TTY launch when there is at least a
 gigabyte of it older than 30 days, and answering "never" stops the asking for good.
 

@@ -456,6 +456,19 @@ view of every store. Not a background job: it is the same process, the same life
 Everything slow in this design runs there: the cache walk, the deletes, the store queries. Nothing
 that needs a TTY runs there — by then the TTY is the container's.
 
+> [!WARNING]
+> **"The TTY is the container's" means BOTH STREAMS, and reading it as stdout-only shipped a
+> regression.** The slot's notices went to stdout, moved to stderr when the reap landed here, and
+> stderr is the same terminal — so a reclaim printed on top of a running agent's TUI. Reported by
+> the maintainer 2026-09-09, one launch after it shipped.
+>
+> The slot's only output surface is `<workspace>/.yolo/housekeeping.log` (`housekeepingNote`),
+> beside `boot.log` and `host-perf.log`. `yolo stores` and `yolo prune` are the human-facing
+> surfaces; a launch is not one. This applies to the DECLINE warnings too: [OQ-LS2](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS2)'s
+> "loud" means "not silent", and a greppable log line is not silence — the non-zero exit still
+> lands where a human actually asked, on `yolo prune`. The **offer** is the one thing that does
+> use the terminal, and legitimately: it happens BEFORE the container attaches.
+
 ### 5.2 Two tiers, one mapping
 
 | Store | Tier | Why (P3/P4 test) | First pass over the backfill | Steady state after |

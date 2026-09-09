@@ -49,9 +49,14 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 	var rmiCalls []string
 	var buf, stdout bytes.Buffer
 	o := &Options{
-		Stdout: &bytes.Buffer{},
-		Stderr: &buf, // the notice moved to STDERR when OQ-BF5 put the reap in the post-launch slot: stdout is the container's by then
-		Now:    func() time.Time { return time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC) },
+		// A REAL workspace, because the slot's only output surface is
+		// <workspace>/.yolo/housekeeping.log — without it housekeepingNote has
+		// nowhere to write and the assertion below passes vacuously. Caught by
+		// mutating the log text and watching the test stay green.
+		Workspace: t.TempDir(),
+		Stdout:    &stdout,
+		Stderr:    &buf,
+		Now:       func() time.Time { return time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC) },
 		Exec: func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 			if len(argv) >= 2 && argv[1] == "images" {
 				return ExecResult{Ran: true, RC: 0, Stdout: imgOut}
@@ -77,12 +82,18 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 	if len(rmiCalls) != 1 || rmiCalls[0] != "id-old" {
 		t.Fatalf("rmi calls = %v, want [id-old] (id-live is protected by the load sentinel)", rmiCalls)
 	}
-	if !strings.Contains(buf.String(), "Reclaimed 1 stale yolo-jail image") {
-		t.Errorf("expected a notice naming the reclaim on STDERR, got: %q", buf.String())
+	// TO THE LOG, NOT THE TERMINAL — rewritten, not repaired. This asserted
+	// stderr, which was wrong for a reason a terminal shows and a test does not:
+	// the slot runs after the container attaches, so BOTH streams belong to the
+	// jailed command, and a dim line from the launcher's goroutine lands on top
+	// of whatever the agent's TUI is drawing. Reported live by the maintainer.
+	if !strings.Contains(readHousekeepingLog(t, o.Workspace), "reclaimed 1 stale yolo-jail image") {
+		t.Errorf("expected the reclaim in <workspace>/.yolo/housekeeping.log, got: %q",
+			readHousekeepingLog(t, o.Workspace))
 	}
-	if stdout.Len() != 0 {
-		t.Errorf("the reap wrote %q to STDOUT — in the housekeeping slot that is the jailed "+
-			"command's stream (OQ-BF5)", stdout.String())
+	if stdout.Len() != 0 || buf.Len() != 0 {
+		t.Errorf("the slot wrote to the terminal (stdout=%q stderr=%q) — both streams are the "+
+			"jailed command's once it has attached", stdout.String(), buf.String())
 	}
 
 	// A second call on the same clock must be debounced: no further rmi and no
@@ -116,7 +127,7 @@ func TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness(t *testing.T) {
 	newOpts := func(t *testing.T, imagesOut string, rmiCalls *[]string) (*Options, *bytes.Buffer, *bytes.Buffer) {
 		t.Setenv("HOME", t.TempDir())
 		var out, errBuf bytes.Buffer
-		o := &Options{}
+		o := &Options{Workspace: t.TempDir()} // see the note above: the log needs a workspace
 		fillDefaults(o)
 		o.Stdout = &out
 		o.Stderr = &errBuf
@@ -154,14 +165,17 @@ func TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness(t *testing.T) {
 		if len(rmiCalls) != 0 {
 			t.Errorf("rmi called with no readable liveness ledger: %v", rmiCalls)
 		}
-		if !strings.Contains(errBuf.String(), "declined") {
-			t.Errorf("a decline must be reported LOUDLY (OQ-LS2): stderr=%q — silence about not "+
-				"acting is the defect this whole effort started from, and a dim line was refused "+
-				"as the wrong volume for something that should be impossible here", errBuf.String())
+		// RECORDED IN FULL, and not on the terminal. OQ-LS2's "loud" is about not
+		// being silent, and a log line the user can grep is not silence — where a
+		// human actually asked, `yolo prune` still fails with a non-zero exit.
+		// Overlaying a running agent's TUI was never what loud meant.
+		if !strings.Contains(readHousekeepingLog(t, o.Workspace), "DECLINED") {
+			t.Errorf("a decline must be recorded (OQ-LS2): log=%q",
+				readHousekeepingLog(t, o.Workspace))
 		}
-		if out.Len() != 0 {
-			t.Errorf("the warning must not touch stdout — that belongs to the jailed command; got %q",
-				out.String())
+		if out.Len() != 0 || errBuf.Len() != 0 {
+			t.Errorf("the decline touched the terminal (stdout=%q stderr=%q) — the slot runs "+
+				"after attach, so both streams are the container's", out.String(), errBuf.String())
 		}
 	})
 }
@@ -184,4 +198,16 @@ func TestAutoReapOldImagesOptOut(t *testing.T) {
 	}
 
 	o.autoReapOldImages("podman")
+}
+
+// readHousekeepingLog reads the slot's log for a workspace, or "" when it does
+// not exist. The slot's ONLY output surface, by design: see
+// Options.housekeepingNote for why nothing there may reach the terminal.
+func readHousekeepingLog(t *testing.T, ws string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(ws, ".yolo", "housekeeping.log"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }

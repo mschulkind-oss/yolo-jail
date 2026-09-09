@@ -54,28 +54,15 @@ func (o *Options) autoReapOldImages(rt string) {
 	removed, ran, declined := prune.AutoReapOldImages(rt, buildDir, prune.DefaultKeepImages, o.Now(), run)
 	switch {
 	case declined != "":
-		// OQ-LS2, the automatic path. This is LOUD and on STDERR, and both are
-		// deliberate. Loud because a decline here should be impossible: the
-		// reap runs on a launch that is about to `podman run`, so a runtime
-		// that cannot answer `ps` cannot start a container either — reaching
-		// this branch means something is wrong, not that housekeeping was
-		// quietly skipped. Stderr because stdout belongs to the jailed command.
-		//
-		// NOT a dim line, which was the first proposal: dim is the volume for
-		// something routine, and the only routine case (debounced, or nothing
-		// to remove) says nothing at all.
-		o.pr(o.Stderr).printf("[yellow]Warning: the automatic image reap declined — %s. "+
-			"Nothing was reclaimed, and the launch continues.[/yellow]\n"+
-			"[dim]  This should not happen on a launch that is starting a container: the same "+
-			"runtime answered the image load a moment ago. `yolo prune` will report the same "+
-			"cause with a non-zero exit.[/dim]", declined)
+		// TO THE LOG, NOT THE TERMINAL. This runs in the post-launch slot, where
+		// both streams belong to the jailed command — a warning here lands on top
+		// of whatever the agent's TUI is drawing. It is still recorded in full,
+		// and `yolo prune` reports the same cause with a non-zero exit where a
+		// human actually asked (OQ-LS2).
+		o.housekeepingNote("images: reap DECLINED — %s. Nothing was reclaimed. "+
+			"This should not happen on a launch that is starting a container: the same "+
+			"runtime answered the image load a moment ago.", declined)
 	case ran && len(removed) > 0:
-		// STDERR, not stdout, since OQ-BF5 moved this into the post-launch
-		// housekeeping slot: by then the pty is attached and stdout belongs to
-		// the jailed command, so a line there lands inside the user's session
-		// output — and would corrupt anything they piped.
-		o.pr(o.Stderr).printf("[dim]Reclaimed %d stale yolo-jail image(s) automatically "+
-			"(minimal-disk-footprint.md OQ-DF3; `yolo prune` shows the full picture).[/dim]",
-			len(removed))
+		o.housekeepingNote("images: reclaimed %d stale yolo-jail image(s) (OQ-DF3)", len(removed))
 	}
 }
