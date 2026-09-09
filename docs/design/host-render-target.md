@@ -781,6 +781,18 @@ That has a crisp consequence worth stating as a rule:
 > option for a key yolo owns. `computed`-mode overwrite-every-*whole-file* is unacceptable
 > here for the same reason probe 2 is a bug. *(Confirmed 2026-08-01, env-manager plan [OQ-4](../plans/environment-manager-plan.md#blocks-phase-4-host-render).)*
 
+> [!NOTE]
+> **Challenged 2026-09-09 as SCOPED rather than wrong.** The rule above holds for a host
+> file the human owns and yolo asserts keys into. It is silent about the user who has
+> ADOPTED `yolo host apply` as their source of truth — for whom "undeclared keys are
+> preserved for free" is not a benefit but the thing they are trying to stop, and who wants
+> composition, a capture overlay and a `--revert` exactly as a jail has them.
+> [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) argues that the
+> missing variable is an ownership DECLARATION rather than a notch, and proposes a
+> user-scope `host_management` key that selects the mode. It does not dispute this
+> paragraph's mechanism, and it keeps the one asymmetry that survives: deletion from a real
+> home. Nothing is built.
+
 ### 6.4 What else changes on a host target
 
 - **`${workspace}` has no referent.** claude's `projects["${workspace}"]` is a per-jail
