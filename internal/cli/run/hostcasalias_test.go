@@ -202,9 +202,15 @@ func TestPlanHostCASAliasReadsTheGetenvSeam(t *testing.T) {
 }
 
 // The launcher's own default is the real probe, so a machine WITH a host store
-// gets the alias without anything else being configured. Pinned because the
-// alternative default — a probe that reports nothing — would make every unit
-// test above pass while the feature never fired in production.
+// gets the alias without anything else being configured.
+//
+// TO BE ACCURATE ABOUT WHAT THIS CATCHES: hostcas.Plan defaults a nil probe to
+// DefaultProbe itself, so losing this line is not a functional regression — the
+// feature still fires. What it pins is the launcher's own convention, that every
+// seam on Options is non-nil after fillDefaults, which is what lets every other
+// call site read a seam without defending against nil. The stronger claim ("the
+// feature would never fire") was written into an earlier commit message for this
+// line and is wrong; it is corrected here rather than left in the log alone.
 func TestFillDefaultsWiresTheRealProbe(t *testing.T) {
 	o := &Options{}
 	fillDefaults(o)
