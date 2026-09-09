@@ -132,10 +132,11 @@ Flags:
   --keep-images <n>        Keep the newest <n> jail images (default 2).
   --no-image-cache         Skip the image-tarball cache sweep.
   --image-cache-keep <n>   Keep the newest <n> cached image tarballs.
-                           Default: 0 on podman (it streams into `load` and writes
-                           no tar), 3 on Apple Container (which cannot stream, so
-                           its tar is the only copy). An offline start still reads
-                           whatever tars exist — this bounds what is KEPT.
+                           Default: 0 on podman (it streams the image straight
+                           into the runtime and writes no tar), 3 on Apple
+                           Container (which cannot stream, so its tar is the only
+                           copy). An offline start still reads whatever tars
+                           exist -- this bounds what is KEPT, not what is read.
   --no-build-roots         Skip the nix build GC roots.
   --no-image-roots         Skip the nix image GC roots.
   --no-shadowed-home       Skip the shadowed jail-home sweep.
