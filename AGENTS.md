@@ -171,6 +171,15 @@ there is no sync step.
   is a nix2container `image.json` and `skopeo copy` writes straight into
   containers-storage, skipping every layer the store already has (a
   `flake.nix`-only edit went from a 12.8s floor to 2.2s / 1 layer / 26 MB).
+  ⚠ **On a ROOTLESS podman — the common configuration — that copy runs as
+  `podman unshare -- <copier> copy …`, and it must.** Writing a rootless store
+  reproduces each layer's ownership under `/etc/subuid`, so containers/storage
+  needs a user namespace, and AppArmor 4 (Ubuntu 24.04's default
+  `apparmor_restrict_unprivileged_userns=1`) denies an unprivileged one. podman
+  maps through setuid `newuidmap` and hands the finished namespace over via
+  `_CONTAINERS_USERNS_CONFIGURED=done`. **Rootful podman takes the bare copy** —
+  it needs no namespace, and `podman unshare` refuses there outright. The branch
+  is decided from `podman info` BEFORE the copy, never by retrying a failure.
   macOS podman and Apple Container still take an archive, because the VM owns
   the store. MEASURED; the
   image now moves only for `flake.nix`, `flake.lock` or `packages:`
@@ -430,6 +439,18 @@ there is no sync step.
   the `10.0.2.2` gateway). This proves the FLAG does what it claims; it still
   says nothing about a given host's passt build, which is why the launcher probes
   for the flag before emitting it.
+- **CARVE-OUT 2, the same shape and a different axis: a nested jail is BLIND to every
+  ROOTLESS-only path, because podman-in-podman runs as ROOT.** `--userns=host` is forced (doubly
+  nested user namespaces fail mounting `/proc`), so a nested jail's podman reports
+  `rootless: false` and takes every rootful branch. Anything that only exists on a rootless podman
+  — ID mapping, `/etc/subuid`, `newuidmap`, an unprivileged user namespace, and therefore **image
+  delivery into a rootless store** — is untested no matter how green the nested launch is.
+  **Measured 2026-09-09, and this is how it shipped:** layer-aware delivery passed a nested jail
+  and `just check-ci`, then took `main` red for two hours on every container CI job with
+  `Error during unshare(...): Operation not permitted`, because CI runners are rootless and this
+  jail is not. The instruments that settle it are a **real rootless host** or **CI** (rootless on
+  both arches) — report `podman info --format '{{.Host.Security.Rootless}}'` alongside any claim
+  that a delivery path works.
 
 ## Invariants & gotchas
 

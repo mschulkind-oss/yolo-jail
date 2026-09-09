@@ -767,6 +767,29 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   `oci-archive`. (3) podman/macOS `podman load -i` against a skopeo-written `docker-archive` — new
   code. Commands are in [`docs/guides/macos.md`](../guides/macos.md).
 
+  ⚠ **SAME-DAY FOLLOW-UP: it took `main` red for two hours, on a class the design had already
+  named.** Every container CI job failed with `Error during unshare(...): Operation not permitted`.
+  Writing a **rootless** `containers-storage` reproduces each layer's ownership under `/etc/subuid`,
+  so containers/storage needs an unprivileged user namespace — and Ubuntu 24.04's default
+  `apparmor_restrict_unprivileged_userns=1` denies one. **Proven causally on a VM:** same binary,
+  same command, knob `1` fails and knob `0` succeeds. Fixed in `424342c3` by running the SAME copy
+  as `podman unshare -- <copier> copy …` when `podman info` says rootless, decided before the copy
+  and never by retrying — [`OQ-LI7`](../design/layer-aware-image-delivery.md#91-decision-ledger), ruled 2026-09-09. One
+  mechanism, one destination, layer negotiation kept on every Linux host.
+
+  ⚠ **The instructive part is not the bug, it is that R7 named the fix and its own reassurance
+  suppressed it.** R7's mitigation column, written before the build, said *"the copy runs under
+  `podman unshare` — a change to how the copier is invoked, not to the design. Verify on the first
+  real host, not in a nested jail."* The clause before it said *"Our layers are entirely root-owned
+  … which is the case that works"* — and that is backwards: root-owned layers are precisely the
+  case that NEEDS the mapping, which is why this failed on every rootless host rather than an exotic
+  one. A risk register that carries the right mitigation behind a wrong premise reads as closed.
+  R7 is retired as behaviour; R8 is what made it fatal rather than a degrade.
+
+  ⚠ **And a nested jail could not have caught it, for a reason now in `AGENTS.md` as a second
+  carve-out:** podman-in-podman forces `--userns=host` and runs as ROOT, so a nested jail reports
+  `rootless: false` and takes every rootful branch. Every rootless-only path is invisible to it.
+
   **New CI cost:** every image-building job also builds `.#imageCopier` (~2 min cold per nixpkgs, 0
   warm). `publish.yml` and `just cachix-push` push it — an optimization only, with nothing wired to
   a cache miss ([`OQ-LI1`](../design/layer-aware-image-delivery.md#91-decision-ledger)).
