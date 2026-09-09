@@ -72,7 +72,7 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 		t.Error("run.go calls autoReapOldImages on the pre-container path again — OQ-BF5 moved it " +
 			"into the housekeeping slot so a first pass over a backlog stops holding the launch")
 	}
-	if !strings.Contains(string(runSrc), "o.runHousekeeping(rt)") {
+	if !strings.Contains(string(runSrc), "o.runHousekeeping(rt, reclaimConsent)") {
 		t.Fatal("run.go no longer runs the housekeeping slot from onStarted — every automatic " +
 			"class then silently stops running")
 	}
@@ -83,6 +83,15 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 	if !strings.Contains(string(hkSrc), "o.autoReapOldImages(rt)") ||
 		!strings.Contains(string(hkSrc), "withHousekeepingLock") {
 		t.Fatal("the slot no longer runs the image reap under the machine-wide lock")
+	}
+	if !strings.Contains(string(hkSrc), "o.measureAndPurgeCache(reclaimConsent)") {
+		t.Fatal("the slot no longer measures the cache class — the offered tier reads what the " +
+			"LAST slot measured (§5.3 measure late, offer early), so without this the offer " +
+			"never has a size and silently never fires")
+	}
+	if !strings.Contains(string(runSrc), "o.maybeOfferReclaim()") {
+		t.Fatal("run.go no longer makes the offer before the container attaches — the offered " +
+			"tier stops existing and OQ-BF1's whole disposition is inert")
 	}
 	if !strings.Contains(string(hkSrc), "o.reapSupersededStoreOutputs()") {
 		t.Fatal("the slot no longer reclaims yolo's own superseded store outputs (OQ-BF3) — " +

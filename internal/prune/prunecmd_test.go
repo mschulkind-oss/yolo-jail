@@ -95,7 +95,10 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		"Superseded install captures",
 		"Shadowed seed subtrees",
 		"  targets: .cache, .npm, .npm-global, .local, go (each overlay-masked at runtime)",
-		"Cache purge  (subdirs=uv,pip,npm,go-build,mise,pex,pants,node-gyp,gopls, age > 30d)",
+		// `nce` joined the list under OQ-BF2 (1.86 GiB already dead here, covered
+		// by nothing). `staticcheck` is still absent on purpose — it SELF-TRIMS,
+		// so a 30-day rule there can only ever be a no-op that costs a walk.
+		"Cache purge  (subdirs=uv,pip,npm,go-build,mise,pex,pants,node-gyp,gopls,nce, age > 30d)",
 		"Agent log purge  (copilot/logs, gemini/tmp, gemini-cli/logs; age > 30d)",
 		"  Claude transcripts (claude/projects) are durable user data — never purged",
 	} {

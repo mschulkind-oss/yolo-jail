@@ -1030,6 +1030,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		fmt.Fprintln(o.Stderr, shquoteJoinDebug(runCmd))
 	}
 
+	// THE OFFERED TIER (§5.3's trigger), before the container attaches and while
+	// the terminal is still ours. It never walks anything — it reads what the
+	// LAST launch's slot measured, which is what "measure late, offer early"
+	// means. A non-TTY launch gets one printed line and no prompt.
+	reclaimConsent := o.maybeOfferReclaim()
+
 	// Launch under the TTY proxy. on_started releases the lock once the
 	// container is visible; on_terminate is the window-close/SIGTERM teardown.
 	onStarted := func(_ *os.Process) {
@@ -1044,7 +1050,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// and the container is visible — so a reap can never be looking at this
 		// launch's image before its container exists — and on the proxy's
 		// goroutine, so nothing here delays the jail.
-		o.runHousekeeping(rt)
+		o.runHousekeeping(rt, reclaimConsent)
 	}
 	onTerminate := func() {
 		sp := o.Perf.Span("terminate.stop_jail")

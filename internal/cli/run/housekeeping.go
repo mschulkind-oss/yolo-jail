@@ -3,6 +3,7 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -90,13 +91,64 @@ func (o *Options) withHousekeepingLock(fn func()) {
 // debounced on its own stamp. What IS load-bearing is that this runs AFTER the
 // container is visible (so a reap can never race this launch's own image) and
 // that nothing here can fail the launch.
-func (o *Options) runHousekeeping(rt string) {
+func (o *Options) runHousekeeping(rt string, reclaimConsent bool) {
 	sp := o.Perf.Span("housekeeping.slot")
 	defer sp.End()
 	o.withHousekeepingLock(func() {
 		o.autoReapOldImages(rt)
 		o.reapSupersededStoreOutputs()
+		o.measureAndPurgeCache(reclaimConsent)
 	})
+}
+
+// measureAndPurgeCache is the offered tier's SLOT half (§5.3, "measure late,
+// offer early"): it walks the host cache, stamps what it found for the NEXT
+// launch to offer on, and purges only if this launch already has consent.
+//
+// The walk lives here and never in front of a launch — §2.1 measured 369k files
+// in this class. It is bounded by cacheWalkBudget, and a class that exceeds it
+// reports what it summed so far as partial, which the offer then says out loud
+// rather than presenting a short count as the whole truth.
+func (o *Options) measureAndPurgeCache(consented bool) {
+	if o.inJail() {
+		return // the host cache is the host's to sweep
+	}
+	gs := paths.GlobalStorage()
+	cacheRoot := filepath.Join(gs, "cache")
+	subdirs := prune.CachePurgeDefaultSubdirs
+
+	// DRY-RUN FIRST, always: the measurement is what the next launch offers on,
+	// and it must exist whether or not this launch may delete anything.
+	start := o.Now()
+	bytes, files := prune.PurgeCacheByAge(cacheRoot, subdirs, nil, cacheAgeDays, false, o.Now())
+	RecordOfferMeasurement(cachePurgeClass, offerMeasurement{
+		Bytes:   bytes,
+		Detail:  fmtCachePurgeDetail(files),
+		When:    o.Now(),
+		Partial: o.Now().Sub(start) >= cacheWalkBudget,
+	})
+	if !consented || bytes == 0 {
+		return
+	}
+	removed, _ := prune.PurgeCacheByAge(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now())
+	if removed > 0 {
+		o.pr(o.Stderr).printf("[dim]Reclaimed %s of cache older than %d days, as agreed.[/dim]",
+			prune.FmtBytes(removed), int(cacheAgeDays))
+	}
+}
+
+// cacheAgeDays is §5.3's unchanged 30-day rule.
+const cacheAgeDays = 30
+
+// cacheWalkBudget is §5.3's 60 s: past it, the figure is reported as partial
+// rather than as a total that happens to be short.
+const cacheWalkBudget = 60 * time.Second
+
+func fmtCachePurgeDetail(files int) string {
+	if files == 1 {
+		return "1 file"
+	}
+	return strconv.Itoa(files) + " files"
 }
 
 // lockHousekeepingFn is the load path's half of OQ-BF5's lock: it hands

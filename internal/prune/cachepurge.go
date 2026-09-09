@@ -8,8 +8,21 @@ import (
 
 // CachePurgeDefaultSubdirs are the ~/.cache subdirs safe to purge by age —
 // content is pure CAS with a fast re-download/recompute path.
+//
+// `nce` was ADDED by OQ-BF2 (measured: 1.86 GiB already dead here, covered by
+// nothing). `staticcheck` is deliberately still ABSENT, and the reason is a
+// measurement rather than caution: it SELF-TRIMS. Both it and `go-build` use
+// Go's own cache, which evicts entries unused for five days and sweeps at most
+// once a day (trimLimit/trimInterval, cmd/go/internal/cache), leaving a
+// `trim.txt` marker — verified present in both on 2026-09-08. A 30-day rule
+// over a self-trimming cache can only ever be a no-op that costs a walk, and
+// §2.1's own table shows it: of every subdir measured for files older than 30
+// days, go-build is the only ZERO.
+//
+// go-build stays on the list because removing it is a behaviour change with no
+// bytes behind it, but it must never be cited as evidence that this purge works.
 var CachePurgeDefaultSubdirs = []string{
-	"uv", "pip", "npm", "go-build", "mise", "pex", "pants", "node-gyp", "gopls",
+	"uv", "pip", "npm", "go-build", "mise", "pex", "pants", "node-gyp", "gopls", "nce",
 }
 
 // CachePurgeHeavySubdirs are opt-in age-purge subdirs with a meaningful re-fetch
