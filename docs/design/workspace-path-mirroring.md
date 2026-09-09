@@ -270,24 +270,35 @@ will re-derive them otherwise.
 the tree is in `flake.nix`'s hermetic image build; `scripts/build-go.sh` — the cross-compile step
 `just build-go` runs — passes none.
 
-> [!WARNING]
-> **⚠ Re-measured 2026-09-09 and the counts did NOT reproduce — the finding is CONDITIONAL on the
-> build, not a property of every binary.** Today's `dist-go/linux-amd64/yolo` and
-> `dist-go/linux-amd64/yolo-entrypoint` contain **zero** source-shaped
-> `/workspace/{internal,cmd,vendor}/…` paths. What remains is 77 and 13 raw `/workspace` hits
-> respectively, and those are the runtime mount-path constant — a string `-trimpath` neither
-> touches nor should. `go version -m` on that binary still records **no** `-trimpath` build
-> setting, so the flag really is absent; the paths simply were not embedded this time.
+> [!IMPORTANT]
+> **Re-measured twice on 2026-09-09. The finding STANDS; an intermediate retraction of it was
+> wrong and is withdrawn.** Built from this tree with no flag: **460 distinct
+> `/workspace/{internal,cmd,vendor}/…` source paths**. Built with `-trimpath`: **zero**. The
+> mechanism paragraph below is why — the *compile* action is path-independent, the LINK output is
+> not.
 >
-> **This is consistent with the mechanism paragraph directly below, and that paragraph is why the
-> section survives the retraction:** the *compile* action is already path-independent, and it is
-> the LINK output that carries the build directory — so the absolute paths appear when the cached
-> link actions were produced somewhere else, and vanish when they were not. **The recommendation is
-> unchanged and does not rest on the number**: two build paths in one repo disagree about
-> `-trimpath` for no reason, and the fix is one line. What this retraction removes is the right to
-> quote 394 as a standing payoff. Do not re-measure by counting `strings | grep` lines — that
-> merges adjacent literals and inflates badly; match the byte pattern
-> `/workspace/(internal|cmd|vendor)/` against the binary instead.
+> **What the bad retraction got wrong, because it is the trap here.** It measured the checked-in
+> `dist-go/` binary, found no `/workspace/…` paths, and concluded the defect was conditional. The
+> defect was there; it was wearing a different root. Go's build cache is position-independent
+> enough to reuse a compile action recorded under another directory, so a binary can carry
+> **`/home/<user>/code/yolo-jail/…`** — the HOST's home layout, baked into an artifact built inside
+> the jail — instead of `/workspace/…`. Grepping for one root and declaring the class absent is
+> how a real finding gets retracted.
+>
+> So the honest statement is stronger than the original: **without the flag the source paths are
+> always present; what varies is which root they name.** That is a better justification than
+> consistency with `flake.nix`, and it is the reason the count differs between two builds of one
+> tree.
+>
+> **How to re-measure**, since both wrong answers came from bad method: match the byte pattern
+> against the binary — `/workspace/(internal|cmd|vendor)/` **and** `/home/[^/]+/code/` — never
+> `strings | grep`, which merges adjacent literals and inflates badly. `go version -m <binary>`
+> reports whether `-trimpath` was set, and note that under `-trimpath` it stops reporting the
+> `-ldflags` setting.
+>
+> **Shipped 2026-09-09** (`8ff96e15`): `scripts/build-go.sh` passes `-trimpath`, and
+> `internal/entrypoint/gobuildflags_test.go` pins it against `flake.nix` so the two build paths
+> cannot disagree again.
 
 **MEASURED**, on the mechanism: Go's *compile* action is already path-independent (it runs
 with `-trimpath "$WORK/b001=>"`), but the link output is not. Identical source built at two
