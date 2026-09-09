@@ -1264,8 +1264,9 @@ row cannot carry them.
     >    line is drawn: an active alias always prints (a writable bind of the host user's cache is
     >    host access), and so does a decline the user could act on — unwritable, not a directory,
     >    empty over a warm copy, or an unmakeable mountpoint. Everything else is a structural fact
-    >    about the machine with no action behind it, and prints nothing, on §5.3's degenerate rule
-    >    and §5.1's warning about what launch noise costs. `yolo stores` is where every decline is
+    >    about the machine with no action behind it, and prints nothing, on
+    >    [§5.3](#53-triggers-defaults-and-the-post-launch-slot)'s degenerate rule and
+    >    [§5.1](#51-the-housekeeping-slot)'s warning about what launch noise costs. `yolo stores` is where every decline is
     >    legible on demand.
     > 5. **Concurrency adds no new class, and yolo serialises nothing.** It cannot: it does not
     >    launch the host's tool. It does not need to either — yolo ALREADY pools one `lmdb_store`
