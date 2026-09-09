@@ -54,91 +54,6 @@ func EffectivePackages(config *jsonx.OrderedMap, platform string) []any {
 	return packages
 }
 
-// FilterMCPServersByEnv drops MCP servers whose requires_env gate isn't
-// satisfied by envMap. Non-dict input returns unchanged.
-// Null entries (preset removals) pass through. Preserves insertion order.
-func FilterMCPServersByEnv(mcpServers any, envMap map[string]string) any {
-	m, ok := asMap(mcpServers)
-	if !ok {
-		return mcpServers
-	}
-	filtered := jsonx.NewOrderedMap()
-	for _, name := range m.Keys() {
-		cfg, _ := m.Get(name)
-		if cm, ok := asMap(cfg); ok {
-			required, _ := cm.Get("requires_env")
-			if reqList, ok := asList(required); ok {
-				drop := false
-				for _, v := range reqList {
-					if s, ok := asStr(v); ok && envMap[s] == "" {
-						drop = true
-						break
-					}
-				}
-				if drop {
-					continue
-				}
-			}
-		}
-		filtered.Set(name, cfg)
-	}
-	return filtered
-}
-
-// FilterMCPServersByCapabilities drops MCP servers whose declared `provides` capability
-// is already natively provided by the target agent/mode (nativeCaps).
-func FilterMCPServersByCapabilities(mcpServers any, nativeCaps []string) any {
-	m, ok := asMap(mcpServers)
-	if !ok {
-		return mcpServers
-	}
-	capSet := make(map[string]bool, len(nativeCaps))
-	for _, c := range nativeCaps {
-		capSet[c] = true
-	}
-	filtered := jsonx.NewOrderedMap()
-	for _, name := range m.Keys() {
-		cfg, _ := m.Get(name)
-		if cm, ok := asMap(cfg); ok {
-			if provV, ok := cm.Get("provides"); ok {
-				if s, ok := asStr(provV); ok && capSet[s] {
-					continue // suppressed because agent has native capability
-				}
-			}
-		}
-		filtered.Set(name, cfg)
-	}
-	return filtered
-}
-
-// EffectiveMCPServerNames returns preset names, then config servers added
-// (append if new) or removed (null drops from the list). Returns []any to
-// preserve non-string preset entries (they never match a server name, so they
-// are inert but must not be dropped).
-func EffectiveMCPServerNames(mcpServers, mcpPresets any) []any {
-	var names []any
-	if truthy(mcpPresets) {
-		if presets, ok := asList(mcpPresets); ok {
-			names = append(names, presets...)
-		}
-	}
-	m, ok := asMap(mcpServers)
-	if !ok {
-		return names
-	}
-	for _, name := range m.Keys() {
-		cfg, _ := m.Get(name)
-		if cfg == nil {
-			names = removeFirstAny(names, name)
-			continue
-		}
-		if _, ok := asMap(cfg); ok && !containsAny(names, name) {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
 // SelectedAgents is a TRANSITIONAL SHIM and always returns the empty set. It ignores
 // its argument, which is retained only to keep the call sites unchanged while they are
 // converted.
@@ -445,17 +360,6 @@ func containsStr(list []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// removeFirstAny removes the first element equal to string s (only string
-// elements can match), preserving order.
-func removeFirstAny(list []any, s string) []any {
-	for i, v := range list {
-		if vs, ok := v.(string); ok && vs == s {
-			return append(list[:i:i], list[i+1:]...)
-		}
-	}
-	return list
 }
 
 // filterPackagesForPlatform drops entries whose `platforms` list excludes `platform`.
