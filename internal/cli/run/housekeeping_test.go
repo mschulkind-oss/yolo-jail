@@ -118,3 +118,50 @@ func TestStoreOutputReapIsHostOnly(t *testing.T) {
 			"unrooted there, so it must refuse rather than guess (the same refusal RunNixStoreGC has)")
 	}
 }
+
+// TestEachClassDebouncesSeparately is §5.3's "at most once per 24 h PER STORE
+// CLASS". Two facts, and the second is the one a shared stamp would break: each
+// class has its own stamp, so one class running does not silence another.
+func TestEachClassDebouncesSeparately(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := &Options{}
+	fillDefaults(o)
+	o.Now = time.Now
+
+	dueA, doneA := o.classDebounce("cache")
+	if !dueA {
+		t.Fatal("a class with no stamp must be due")
+	}
+	dueB, _ := o.classDebounce("store-outputs")
+	if !dueB {
+		t.Fatal("a second class is due independently — a shared stamp would let one class " +
+			"running silence every other for a day")
+	}
+	doneA()
+	if again, _ := o.classDebounce("cache"); again {
+		t.Error("a completed class must debounce until the interval elapses")
+	}
+	if other, _ := o.classDebounce("store-outputs"); !other {
+		t.Error("completing one class must not debounce another")
+	}
+}
+
+// TestDebounceStampsOnCompletionNotEntry: the slot's goroutine dies when the
+// terminate arm calls os.Exit, so a pass can be cut mid-flight. A stamp written
+// on ENTRY turns one interrupted pass into a day of not running — which is the
+// original 404 GiB defect's exact shape, at a smaller scale.
+func TestDebounceStampsOnCompletionNotEntry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := &Options{}
+	fillDefaults(o)
+	o.Now = time.Now
+
+	due, _ := o.classDebounce("cache") // take the decision, never call done
+	if !due {
+		t.Fatal("expected due")
+	}
+	if stillDue, _ := o.classDebounce("cache"); !stillDue {
+		t.Fatal("an interrupted pass stamped the debounce — the next launch must retry, not " +
+			"wait out a day on work that never happened")
+	}
+}

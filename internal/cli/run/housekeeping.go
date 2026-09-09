@@ -113,6 +113,13 @@ func (o *Options) measureAndPurgeCache(consented bool) {
 	if o.inJail() {
 		return // the host cache is the host's to sweep
 	}
+	// The walk is the expensive thing in this whole design, so it is the one
+	// most in need of the per-class debounce. A consented purge is NOT exempt:
+	// there is nothing new to reclaim an hour after the last one.
+	due, done := o.classDebounce("cache")
+	if !due {
+		return
+	}
 	gs := paths.GlobalStorage()
 	cacheRoot := filepath.Join(gs, "cache")
 	subdirs := prune.CachePurgeDefaultSubdirs
@@ -127,6 +134,7 @@ func (o *Options) measureAndPurgeCache(consented bool) {
 		When:    o.Now(),
 		Partial: o.Now().Sub(start) >= cacheWalkBudget,
 	})
+	done()
 	if !consented || bytes == 0 {
 		return
 	}
@@ -189,6 +197,34 @@ func (o *Options) lockHousekeepingFn() func() func() {
 	}
 }
 
+// classDebounce is §5.3's "at most once per 24 h PER STORE CLASS", generalised
+// from the image reap's single `last-image-reap` stamp exactly as the design
+// says it should be: one stamp per class under BuildDir().
+//
+// WITHOUT THIS THE SLOT IS A PER-LAUNCH WALK. The cache class alone was measured
+// at 369k files; running it on every launch is the cost §5.3's budget and
+// debounce exist to bound, and it would show up as a launch that got slower for
+// no visible reason.
+//
+// STAMP ON COMPLETION, never before: the slot's goroutine dies when the
+// terminate arm calls os.Exit, so a pass can be cut mid-flight. A stamp written
+// first turns one interrupted pass into a day of not running.
+func (o *Options) classDebounce(class string) (due bool, done func()) {
+	stamp := filepath.Join(paths.BuildDir(), "last-"+class+"-reap")
+	if !prune.DueForAutoImageReap(stamp, prune.AutoReapInterval, o.Now()) {
+		return false, func() {}
+	}
+	return true, func() {
+		// MkdirAll first: prune.RecordAutoImageReap discards its write error on
+		// purpose (a failed stamp only means the next launch retries), which is
+		// the safe direction but silently NEVER debounces on a machine whose
+		// build dir does not exist yet — caught by
+		// TestEachClassDebouncesSeparately on a fresh HOME.
+		_ = os.MkdirAll(filepath.Dir(stamp), 0o755)
+		prune.RecordAutoImageReap(stamp, o.Now())
+	}
+}
+
 // reapSupersededStoreOutputs is OQ-BF3 on the launch path: delete yolo's own
 // unrooted install-prefix and Go-build outputs by name.
 //
@@ -208,6 +244,10 @@ func (o *Options) reapSupersededStoreOutputs() {
 	if o.Getenv(autoReapOptOutEnv) != "" {
 		return
 	}
+	due, done := o.classDebounce("store-outputs")
+	if !due {
+		return
+	}
 	buildDir := paths.BuildDir()
 	rootDirs := []string{
 		filepath.Join(buildDir, "roots"),
@@ -219,9 +259,11 @@ func (o *Options) reapSupersededStoreOutputs() {
 	}
 	candidates := prune.SupersededStoreOutputs("/nix/store", rootDirs, prune.StoreOutputGrace, o.Now())
 	if len(candidates) == 0 {
+		done()
 		return
 	}
 	removed := prune.DeleteSupersededStoreOutputs(candidates, true, run)
+	done()
 	if len(removed) > 0 {
 		// STDERR: by now the pty is the container's (slot property 2).
 		o.pr(o.Stderr).printf("[dim]Reclaimed %d superseded yolo store output(s) "+
