@@ -453,6 +453,27 @@ there is no sync step.
   yolo could not ask is never refused for what it cannot help (OQ-R3). The escape
   hatch is `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded from the host env, and
   the refusal names it.
+- **ONE host directory is bind-mounted WRITABLE into the jail, and it is the only one.**
+  A recognised **content-addressed** host cache is aliased at the path the jail's own copy of the
+  tool already uses, so it stops existing twice (`internal/hostcas`, `internal/cli/run/hostcasalias.go`;
+  `docs/design/disk-levers-and-backfill.md` L9 / OQ-BF10). Today that set is pants' `lmdb_store`
+  alone — ~27 GB that used to be duplicated per machine.
+  **The gate is CONTENT ADDRESSING, and the reason is injection rather than size.** A path-keyed
+  cache lets a jail write content the host tool later reads *because of where it sits* — the jail
+  chooses both key and bytes. A CAS rejects a blob whose digest does not match its key, so the worst
+  a hostile jail can do is waste space. ⚠ **npm's `_cacache` and Go's build cache look like
+  candidates and are NOT**: npm's index maps a request URL to an integrity digest and Go's maps a
+  writer-chosen action ID to an output ID, so both are exactly the injection channel above, inside a
+  store whose *content* half really is content-addressed. Verified, not assumed, before they were
+  dropped from the set. Do not add a store to `hostcas.Stores` without checking which half its index
+  keys on.
+  Also gated on: matching host OS+arch, a writable source, **never macOS**, a non-empty source (an
+  empty host store over a warm private copy hides a cache and buys nothing), and **never a segment
+  the user relocated** — `cache_relocations` outranks the alias, because a user who moved `pants` off
+  the home disk would otherwise have 27 GB silently put back by the feature meant to save space.
+  Every failure degrades to the private copy; none can refuse a launch. The launch discloses the
+  alias by name, and `yolo stores` lists it as `not yolo's` so no reclaimer offers to delete host bytes.
+
 - **Nix inside the jail** delegates to the host daemon: the CLI mounts
   `/nix/var/nix/daemon-socket` + `/nix/store:ro` and sets `NIX_REMOTE=daemon`.
   Without this you get "build users group has no members".

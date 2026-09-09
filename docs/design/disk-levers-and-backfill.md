@@ -127,7 +127,7 @@ Levels, growth, who reclaims today, and how much of the level is backfill. "Trig
 | :--- | :--- | :--- | :--- | :--- |
 | Podman image store (nested, this jail) | **30 rows / 29 images / 52.73 GB**, 100 % reclaimable (0 containers) at ~23:20; **24 images / 38.68 GB** earlier the same day, before six C4/C5/C8 verification launches. 28 are `yolo-jail`: 24 tagged, 4 `<none>` | 28 images between 2026-09-04 13:54 and 2026-09-06 21:45 — ~12/day at the dev-loop rate | `PruneOldImages` (`internal/prune/probes.go`), veto-protected; **auto-trigger shipped today** (`AutoReapOldImages`), debounced 24 h. **Has never fired here** — `build/last-image-reap` is absent | The whole store: the reap's first pass selects **14 of 24** tagged images ([§2.2](#22-the-image-reap-priced-against-this-store)) |
 | yolo's own outputs in `/nix/store` | **231** `*-yolo-jail-install-prefix` paths, **19.77 GB**, **220 unrooted**; **245** `*-yolo-jail-go-0-dev` paths, **10.02 GB**, **all 245 unrooted**; **316** `*-stream-yolo-jail` scripts, 298 unrooted (closures NOT MEASURED) | +79 prefixes, +68 Go builds, +104 streams since 2026-08-15 (the 2026-08-15 baseline behind [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model): 152/177/212) — **≈ 0.43 GB/day** of unrooted garbage | **None.** `nix store gc` is reachable only via `yolo prune --nix-gc --apply` (host-only, default off) and the daemon's `min-free = 0` ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)) | **≥ 28.8 GB** (220 × 85.6 MB + 245 × 40.9 MB), plus the unrooted stream closures |
-| Host `GLOBAL_CACHE` — `paths.GlobalCache()`, **shared by every workspace**; a jail sees it as `~/.cache` | **114 G**: pants 40 G (`lmdb_store` 27 G + `named_caches` 14 G), uv 34 G, go-build 18 G, images 11 G, pex 6.1 G, nce 2.0 G, pip 1.9 G, npm 1.5 G, staticcheck 941 M, nix 298 M, copilot 102 M | NOT MEASURED (no second sample) | `PurgeCacheByAge` (30 d) over uv/pip/npm/go-build/mise/pex/pants/node-gyp/gopls; `yolo prune --apply` only. `nce`, `staticcheck` uncovered | **49.34 GiB in ~369 k files older than 30 d** (pants 39.36 / 211 056 files, pex 6.44, uv 3.06, npm 0.41, pip 0.07, go-build 0); **+1.86 GiB** in `nce` (uncovered) |
+| Host `GLOBAL_CACHE` — `paths.GlobalCache()`, **shared by every workspace**; a jail sees it as `~/.cache` | **114 G**: pants 40 G (`lmdb_store` 27 G + `named_caches` 13 G), uv 34 G, go-build 18 G, images 11 G, pex 6.1 G, nce 2.0 G, pip 1.9 G, npm 1.5 G, staticcheck 941 M, nix 298 M, copilot 102 M | NOT MEASURED (no second sample) | `PurgeCacheByAge` (30 d) over uv/pip/npm/go-build/mise/pex/pants/node-gyp/gopls; `yolo prune --apply` only. `nce`, `staticcheck` uncovered | **49.34 GiB in ~369 k files older than 30 d** (pants 39.36 / 211 056 files, pex 6.44, uv 3.06, npm 0.41, pip 0.07, go-build 0); **+1.86 GiB** in `nce` (uncovered) |
 | The NESTED jail's own `paths.GlobalCache()` | **14 G**: images 9.9 GiB, npm 2.1 G, go-build 75 M, uv 88 K, nix 352 K | NOT MEASURED | same reaper, run by the in-jail `yolo` | a second, smaller instance of the row above — **not** a correction to it ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)) |
 | Image tars, host (`~/.cache/images`) | **3 tars, 10.7 GB**, newest 2026-08-24 | zero since C3 | `PruneImageCache` **keep=3** — so "none" to remove | **all 10.7 GB**: dead on podman since C3, kept only by the default |
 | Image tars, nested (`cache/images`) | **3 tars, 9.9 GiB**, newest 2026-08-25 19:17 | zero since C3 | same | **all 9.9 GiB** |
@@ -314,7 +314,12 @@ workspace** — and a jail sees it mounted at `~/.cache`. Verified from `/proc/s
 jail's `/home/agent/.cache` has its mount root at `/@home/matt/.local/share/yolo-jail/cache`. So the
 114 G tree IS yolo's own global cache, and `yolo prune` on the HOST walks exactly it.
 
-What wrote the 40 G is a real pants build cache — `lmdb_store` 27 G plus `named_caches` 14 G, pants'
+⚠ **`named_caches` read 14 G here until 2026-09-09, and the sum gave it away**: 27 + 14 is 41, not
+the 40 the same paragraph states. Re-measured on the L9 build, it is **13 G**, and 27 + 13 reproduces
+the 40. The total was right and one addend was wrong — which is the arithmetic a reader is least
+likely to check, and exactly why a doc should not carry a sum it does not compute.
+
+What wrote the 40 G is a real pants build cache — `lmdb_store` 27 G plus `named_caches` 13 G, pants'
 own layout. `pants` is not on PATH in *this* workspace and appears in this repository only in
 `internal/prune/cachepurge.go`'s default subdir list and its test. So it was written by a
 **different workspace's jail**: a pants-using project, pooling into the shared dir by design.
@@ -339,7 +344,7 @@ Whether that is safe splits the pants cache exactly down its middle, and the spl
 | Half | Size | Shareable? | Why |
 | :--- | ---: | :--- | :--- |
 | `lmdb_store` | 27 G | **yes** — content-addressed (`cache/`, `directories/`, `files/`, `immutable/`) | pants' own default is ONE per-user store shared by every repo on the machine, so multi-process sharing is the designed norm, not a workaround |
-| `named_caches` | 14 G | **no** | not content-addressed, and **path-poisoned**: a sampled `pex_root/…/INTERP-INFO` records interpreters as `"/home/agent/.cache/nce/…/python"` — the JAIL's home. On the host those records read `/home/matt/…`. Shared, each side would hold interpreter records naming a home that does not exist there |
+| `named_caches` | 13 G | **no** | not content-addressed, and **path-poisoned**: a sampled `pex_root/…/INTERP-INFO` records interpreters as `"/home/agent/.cache/nce/…/python"` — the JAIL's home. On the host those records read `/home/matt/…`. Shared, each side would hold interpreter records naming a home that does not exist there |
 
 > [!NOTE]
 > **The blocker is path-shaped, not arch-shaped**, which is worth stating because arch is the

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 16 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 16 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-09**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -781,95 +781,36 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   an unchanged config re-uses the previous pointer. The clean fix is to move the write inside that
   existing bracket, deliberately not taken to keep the diff out of `internal/image/`.
 
-- 📦 **3. Alias a host CAS instead of pooling a second copy of it.** 📄
-  [`disk-levers-and-backfill.md` §3](../design/disk-levers-and-backfill.md#3-the-levers-ranked) ·
-  [OQ-BF10](../design/disk-levers-and-backfill.md#111-decision-ledger), ruled 2026-09-08 (L9); nine of
-  that doc's ten rulings shipped 2026-09-08/09 and this is the deferred slice. **Content-addressed
-  stores only, and the reason is injection, not size**: a path-keyed store like pants'
-  `named_caches` lets a jail write content the host tool later reads because of *where it sits*; a
-  CAS rejects a blob whose digest does not match. Gated on matching host OS+arch, writable, **never
-  on macOS**. Up to ~27 GB of pants' `lmdb_store` stops existing twice. Precedent for the trust step
-  is the `:ro` nix-store bind (`hostNixStore`, `internal/cli/run/hostprobes.go`); this one is
-  writable, which is the whole widening. **Sequencing step 7 rides with it:** re-measure against [§2](../design/disk-levers-and-backfill.md#2-measured-2026-09-06)'s
-  baseline, in-jail and on the host.
-
-**The slug-escaping mount bug is FIXED (2026-09-05)** and has left this section. A `reads-host`
-grant with no `into` is keyed on the pack's STAGED DIRECTORY on both sides now — one new accessor,
-`packload.Pack.StagedSlug`, read by `packload.hostSourceFor` (the jail's host-layer read) and
-`run.hostFileArgs` (the host's mount destination) — so the two halves evaluate ONE EXPRESSION over
-one string rather than two strings that happen to agree for the names yolo ships.
-⚠ **None of the row's three candidates was taken**, and the fourth beats all of them on their own
-terms: `p.Name` stays the user's handle, so no message moves (beats (c)); no name is refused
-(beats (a)); and the shared escaping that keeps the pack and `host_files` staging namespaces from
-colliding is untouched (beats (b)). The third `CtxPath` call site, `HostFileConflicts`, deliberately
-did NOT move: it is reporting, both sides of its own comparison use one key, and `Name` is the only
-string safe to print there — the check is lint-shaped, and a lint-time pack is loaded out of a
-throwaway staging dir whose basename names the temp tree. That trap is closed rather than
-documented away: `pack lint`, `pack footprint` and `yolo check` now stage into
-`<temp>/<the pack's dir or slug>`, so `StagedSlug` never names a temp dir.
-**Measured end-to-end in a nested jail, both directions:** the fixed launcher mounts
-`/ctx/host-house_5frules/settings.json` and the composed surface carries the user's own key; the
-previous launcher against the same image mounts `/ctx/host-house_rules/` and the surface loses that
-key in silence — the fail-open read, reproduced. **No shipped pack's mount path moved**: all
-fifteen names are slug-clean, and the only two `reads-host` grants in the tree (`packs/claude`,
-`packs/pi`) set `into`, which routes around the pack key entirely.
-
-**Three rows closed 2026-09-05:** the `ShimContent` injection (all four vectors, not the two the
-row named), `hostskills.Changed` on a symlinked source, and `Pack.Name` — which turned out to be
-the doc rather than the derivation.
-
-**The `Pack.Name` row closed 2026-09-05, and it was the DOC that was wrong** — the second of the
-two outcomes it named, so the code is untouched. A pack's effective name comes from the config
-line (its explicit `name`, else the last segment of the source address), never from `pack.json`,
-and it has to: it is simultaneously the staging dir (`PackEntry.Slug`, so `packstage` rule 3 and
-the pack-drop prune key on it), the handle `yolo pack ls` prints and `yolo pack explain` takes,
-and — through `packload.CtxPath` — the `/ctx` dir a `reads-host` grant with no `into` is mounted
-at, which the jail re-derives from the STAGED DIRECTORY because that is all it has. Every one of
-those is fixed from the config line alone, before a git source is fetched or any manifest is read.
-`packload.LoadDir`'s manifest rung is real but unreachable: config lowering fills the name in
-first, at every production call site. Corrected in `packload.Pack`, `packdecl.Manifest`,
-`config.PackEntry`, `pack-system.md` [§2](../reference/pack-system.md#the-manifest) and `config-ref`; pinned by
-`run.TestConfiguredPackNameComesFromTheAddressNotTheManifest` (the reproduction, on the real
-staging path), `run.TestStagedPackNameIsWhatTheJailWillDerive`,
-`config.TestEveryLoweredPackEntryCarriesAName` and
-`packload.TestEmbeddedPackManifestNamesMatchTheirDirs`. The
-`integration/packaudience_test.go` workaround is GONE — its fixture now stages from a
-`house-rules/` dir whose manifest says `house`, so the refusal naming `house-rules` is the
-end-to-end measurement.
-
-⚠ **The look found a second defect**, a different bug in the same derivation and one that DOES
-move a mount path: the `Pack.Name` row was replaced by the slug-escaping row, which was then built
-and shipped the same day — see the paragraph at the head of this section.
-
-**The `ShimContent` shell injection is FIXED (2026-09-05)** and has left this section.
-`msg`/`sug` are now `shquote.Quote`'d into a bare argv word after `echo` (`echoStderr` in
-`internal/entrypoint/shims.go`), which is the same splice contract the 2026-09-03 launcher pass
-wrote on `npmLauncherTemplate`. **The emitted grammar did NOT have to move**, so the ruling the row
-asked for was not needed: same lines, same order, same `>&2`, same `exit 127`, and the only change
-to the script is the literal's delimiter (`"…"` → `'…'`). `shims_behavior_test.go` is untouched and
-green, and `TestShimStderrIsExactlyTheConfiguredText` now pins that the bytes the shim PRINTS are
-unchanged — the assertion that separates quoting from stripping.
-⚠ **Building it found a sibling the row did not name:** `block_flags` and `allow_flags` inject the
-same way (`-q) touch /pwn;; -z` closes the `case` arm and opens its own), and they are the one
-thing here that **cannot** be quoted — a case pattern is a glob, and quoting the shipped `-*[rR]*`
-would silently unblock `grep -rn`. They are validated against a glob vocabulary instead, per
-pattern rather than per entry, with a boot warning naming what was dropped. Verified in a nested
-jail: payload text printed verbatim, no marker file, shipped glob intact, `grep -n` still passing
-through.
-
-**Program delivery [§10](../design/program-delivery.md#10-what-i-would-build-in-order)'s removal act SHIPPED 2026-09-04** and has left this section: it is
-`yolo programs ls` / `remove` / `remove --apply` plus the `programs.autoprune` config key, default
-off and user-scope only (`internal/entrypoint/orphanremove.go`, `internal/cli/programs.go`,
-`internal/config/programs.go`). ⚠ **Its footgun was answered by a design choice, not a special
-case:** the candidate set is *the bytes minus the declarations, never a record*, so an orphan whose
-sentinel record is gone is the ORDINARY case rather than the dangerous one. Re-measured live at
-**7 orphans, 448.6 MB** in this repo's jail.
-
-**Five items shipped on 2026-09-03** and left under the archiving rule: the host-launch gate
-(now [`host-apply-staleness.md`](../reference/host-apply-staleness.md), IMPLEMENTED),
-briefing-audiences steps 3–7, the `packload.Embedded()` temp-dir leak, the launcher-template
-splices, and the orphan-message cause. Two of the three small ones corrected the row that queued
-them, and one merge decided 💬 20 in code — see that row.
+- ✅ **3. Alias a host CAS instead of pooling a second copy of it — SHIPPED 2026-09-09**
+  (`2bceedef`). 📄 [`disk-levers-and-backfill.md` §3](../design/disk-levers-and-backfill.md#3-the-levers-ranked) ·
+  [`OQ-BF10`](../design/disk-levers-and-backfill.md#111-decision-ledger) (L9). A recognised content-addressed host cache is
+  bind-mounted **writable** at the path the jail's own copy already uses; `internal/hostcas` holds
+  the decision, `AGENTS.md`'s invariants now carry the rule.
+  ⚠ **The build NARROWED the ruling's own store list, on measurement, and that is the most useful
+  thing it did.** The leaning named npm and go-build alongside pants. Both were dropped: npm's
+  `_cacache/index-v5` maps a **request URL** to an integrity digest and Go's maps a
+  **writer-chosen action ID** to an output ID — so in each, a jail writing the index *and* the blob
+  gets the host tool to read its bytes for that key. That is precisely the injection channel the
+  ruling exists to avoid, sitting inside a store whose *content* half genuinely is
+  content-addressed. Only pants' `lmdb_store` survived, and its CAS claim was verified rather than
+  asserted (the 64-hex filename **is** the sha256 of the contents, checked on a 232 MB blob).
+  **~27 GB stops existing twice.**
+  ⚠ **Two gates the ruling did not name, both found by asking what breaks:** a cold host store is
+  refused (an empty source over a warm private copy hides a cache and forces the unbounded re-fetch
+  the offered tier exists to never impose), and **`cache_relocations` outranks the alias** — a user
+  who moved `pants` off the home disk would otherwise have 27 GB silently put back by the feature
+  meant to save space.
+  **Sequencing step 7 rode with it — and the re-measurement found three things the ledger should
+  know.** L9's number holds exactly (26.83 GiB, unchanged). **L7 has NOT run**: still 7 vendor
+  builds where keep=2 would leave 2. **L4 fired nested but not on the host**: the host's three image
+  tars are untouched, still newest 2026-08-24. And [`OQ-BF2`](../design/disk-levers-and-backfill.md#111-decision-ledger)'s self-trim finding is confirmed by a
+  second dated sample — the only two subdirs that shrank are the two with a `trim.txt`, while `pex`,
+  which does not self-trim, grew.
+  ⚠ **Not verified, and it is the one uid surprise worth knowing:** nested podman forces
+  `--userns=host`, so container root *is* the launcher's uid and writes landed as root. On a real
+  rootless host, container root maps through `/etc/subuid` and the write *should* land owned by the
+  host user — unobserved. Nor is the concurrent case (host pants and jail pants against one
+  `lmdb_store`), nor macOS, where the feature refuses outright.
 
 # 🔒 Waiting
 
