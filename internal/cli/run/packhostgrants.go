@@ -21,21 +21,33 @@ import (
 //
 // hostFileArgs mounts each pack's DECLARED host files read-only under /ctx.
 //
-// THE CREDENTIAL BOUNDARY, and the enforcement moved rather than loosened. It used to
-// be a fixed per-agent constant in the Go registry, unwidenable by config (which is what
-// retiring host_claude_files/host_pi_files bought). It is now a pack declaration gated
-// on the pack's content ORIGIN: an EMBEDDED pack ships with yolo, so its declaration
-// carries yolo's own authority — the same authority the Go table had. A FETCHED pack is
-// refused, because installing a third-party pack approves distributing content, not
-// handing that repository your host config.
+// THE CREDENTIAL BOUNDARY, and what enforces it is NOT what this comment said until
+// 2026-09-09. It used to be a fixed per-agent constant in the Go registry, unwidenable by
+// config (which is what retiring host_claude_files/host_pi_files bought). It then became a
+// pack declaration gated on the pack's content ORIGIN — embedded yes, fetched refused.
+//
+// THAT ORIGIN GATE NO LONGER EXISTS. OQ-TP9 (docs/design/trust-paths.md) deleted it on
+// 2026-09-04 as theatre: selecting a pack means writing user-scope config as the host user,
+// and `packs` is inexpressible at workspace scope by construction, so the gate refused an
+// actor who had already passed a stronger one — gate-placement-principle.md's Test 1.
+// HonoredHostFiles now returns every declaration and refuses nothing; its always-nil
+// `refused` return is vestigial.
+//
+// So the boundary today is DISCLOSURE, not consent: every grant is enumerated on the launch
+// banner and by `yolo pack footprint`, and what keeps a hostile declaration out is that
+// adding one requires user-scope config access in the first place.
+//
+// ⚠ Do not read the absence of a gate here as an absence of enforcement, and do not
+// re-add one without re-reading OQ-TP9 — a refusal that duplicates a stronger upstream
+// check is the exact shape that ruling deleted.
 //
 // Still no config key is read and no YOLO_HOST_*_FILES env is emitted.
 func (o *Options) hostFileArgs(in *assembleInput) []string {
 	var args []string
 	for _, p := range in.packs {
-		// HonoredHostFiles enforces the ORIGIN gate: an embedded or local pack may name
-		// a host file, a fetched one never can. The refusal is reported at staging time,
-		// so reaching here with an empty grant is already accounted for.
+		// HonoredHostFiles refuses NOTHING (OQ-TP9 retired the origin gate 2026-09-04) —
+		// the second return is always nil. An empty grant here means the pack declared no
+		// host files, never that one was withheld.
 		granted, _ := p.HonoredHostFiles()
 		for _, hf := range granted {
 			hostFile := filepath.Join(homeDir(), filepath.FromSlash(hf.From))
@@ -89,8 +101,10 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 const acCtxDirRel = ".yolo-ctx"
 
 // hostMountArgs mounts each pack's DECLARED `mount` contributions read-only under
-// /ctx. Same credential boundary as hostFileArgs (HonoredMounts applies the origin
-// gate — a fetched pack is refused), but the source may be a whole DIRECTORY and the
+// /ctx. Same credential boundary as hostFileArgs — which since OQ-TP9 means DISCLOSURE
+// rather than an origin gate; HonoredMounts also refuses nothing, for the stated reason
+// that a mount reads the host home exactly like a host file. The difference from
+// hostFileArgs is shape, not authority: the source may be a whole DIRECTORY and the
 // destination is the pack's chosen /ctx path rather than a config-surface feed.
 //
 // A directory is mounted directly (a dir source is not the single-file nested-bind
