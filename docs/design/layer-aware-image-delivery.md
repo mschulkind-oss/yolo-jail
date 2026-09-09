@@ -231,15 +231,35 @@ naming a package. The curated set has to be last.
 The cost of choosing correctness here is exactly **one small layer re-stored per `packages:`
 change**: the top tier is symlinks and directories, not content, and the budget gives it one slot.
 
-> [!WARNING]
-> **NOT MEASURED, and it is a prerequisite rather than a detail:** how today's single customisation
-> layer resolves that same collision. `contents` lists `binPathLinks` **first** and `extraPackages`
-> last (`flake.nix:1086-1090`), and nixpkgs merges the lot into one layer — so whether the curated
-> `/bin/bash` currently wins by being first or loses by being last is a property of that merge, not
-> of this plan. Splitting the merge into two layers **changes that resolution either way**. The
-> recipe: bake an image with a `packages:` entry that ships a colliding `bin/` name, then read
-> `/bin/<name>`'s target before and after. The layer plan must pin the answer with a test, because
-> a silent flip here breaks the boot, not a convenience.
+> [!IMPORTANT]
+> **VERIFIED 2026-09-08, and it is the reason the ordering is a constraint rather than a preference:
+> today's resolution rule and the split's resolution rule have OPPOSITE polarity.**
+>
+> Today every entry in `contents` lands in **one** layer, and nixpkgs builds it with
+> `symlinkJoin` (`streamLayeredImage`'s `customisationLayer`, nixpkgs
+> `pkgs/build-support/docker/default.nix:1075-1079`), which is a loop of
+> `lndir -silent <path> $out`. **`lndir` keeps the FIRST link and skips the rest**, non-fatally —
+> measured directly on 2026-09-08 with two trees each carrying `bin/bash`:
+>
+> ```console
+> $ lndir -silent $A $out && lndir -silent $B $out
+> bash: Keeping existing link to …/a/bin/bash
+> $ cat $out/bin/bash
+> FIRST
+> ```
+>
+> `contents` is `[ binPathLinks ] ++ corePackages ++ fullPackages ++ extraPackages`
+> (`flake.nix:1086-1090`), so **`binPathLinks` wins today because it is FIRST** — which is also how
+> a baked `packages:` entry gets `/bin/fzf` while never being able to take `/bin/bash`.
+>
+> Split into three layers and that rule is gone: there is no `symlinkJoin` spanning the tiers any
+> more, so the union filesystem decides, and the union rule is **the HIGHEST layer wins**. First
+> becomes last. Keeping the curated set authoritative therefore requires putting the top tier
+> **above** extras — the exact inversion of its position in `contents`.
+>
+> **What the layer plan owes this**: a test that reads `/bin/bash`'s target in a built image whose
+> `packages:` ships a colliding `bin/` name, asserted equal before and after the split. A silent
+> flip here does not lose a convenience — it replaces the shell the boot runs through.
 
 ### 3.2 The copy
 
@@ -628,13 +648,27 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    > — on a miss, a source build of skopeo lands in front of a jail start. That is the actual
    > question, and it is a different and smaller one than a supply-chain ruling.
    >
-   > **The ruling:** take the input, pinned, with the legacy attribute kept as the escape
-   > ([OQ-LI5](#OQ-LI5)); do **not** make the cachix a precondition for a launch. Concretely, the
-   > patched skopeo must be built by the release, published to the existing cache, and **the launch
-   > must not be the thing that discovers it is missing** — if the copy tool is absent, the launch
-   > falls back to the legacy stream rather than starting a Go/C build. The leaning's measurement
-   > condition stands and is now the gate on the default flip: **measure the cold skopeo build
-   > before it ships**, because a ten-minute one makes the fallback the primary path in practice.
+   > **The ruling, and the maintainer stated the invariant it has to satisfy:** *"our cachix should
+   > never be load bearing, only ever an optimization."*
+   >
+   > Take the input, pinned, with the legacy attribute kept as the escape ([OQ-LI5](#OQ-LI5)) — and
+   > **no part of this design may make `yolo-jail.cachix.org` a precondition for anything.** That is
+   > now a constraint on the implementation, not a preference to weigh:
+   >
+   > - The patched skopeo is built by the release and published to the cache, but a **cache miss must
+   >   never put a source build in front of a jail start.** If the copy tool is absent, the launch
+   >   takes the legacy stream; it does not compile.
+   > - **No path may require `--accept-flake-config`.** The flake's `nixConfig` is discarded for any
+   >   caller who does not pass it (and for any non-trusted user), so a design that only works with
+   >   the substituter honoured is a design that fails for the default invocation.
+   > - The cache going away — expired, renamed, unreachable, or the account gone — must cost
+   >   **time only**, never function. That is the test for "optimization": remove the substituter
+   >   and everything still builds from `cache.nixos.org` plus source.
+   >
+   > The leaning's measurement condition stands and is now the gate on the default flip: **measure
+   > the cold skopeo build before it ships.** Under the invariant above, a ten-minute cold build does
+   > not merely weaken the leaning — it means the legacy stream is the real path on any machine with
+   > a miss, which is a reason to reconsider the mechanism rather than to lean on the cache.
 
 2. ✅ **[OQ-LI2](#OQ-LI2) — RULED 2026-09-08, AGAINST the leaning, because the premise under it went away: does Apple Container move to the `nix:` source in the same pass?** Today it
    writes two full-size files per load — `materializeImage` produces a docker-archive and
