@@ -504,9 +504,16 @@ legacy number is no longer measurable on that host.
   fast but may never be what makes it work, and no cache miss selects a degraded path.
 - **A prerequisite in another package.** The `created` constant forces prune's keep-window
   ordering to change before this ships ([§3.3](#33-what-does-not-change)).
-- **Reaping frees less.** Today each image is ~2.7 GB of unique layers, so `rmi` of one
-  reclaims ~2.7 GB. Under a layer plan, images share their base, so reaping one frees only its
-  delta. This is the *good* direction — N images cost base + N×delta instead of N×2.7 GB — but
+- **Reaping frees less, and the retention policy inverts because of it.** Today each image is
+  ~2.7 GB of unique layers, so `rmi` of one reclaims ~2.7 GB. Under a layer plan, images share
+  their base, so reaping one frees only its delta. This is the *good* direction — N images cost
+  base + N×delta instead of N×2.7 GB — and it has a consequence for retention that is easy to get
+  backwards: **every kept image is a reference that holds the shared base in place**, since `rmi`
+  removes only layers no remaining image references. A too-small keep-window becomes a way to
+  *lose* the base and pay a full re-copy, which is why
+  [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)
+  [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3) rules that the count rises with
+  this change and its unit becomes the configuration rather than the machine. But
   anyone reading `yolo prune`'s reclaim figure will see it drop, and should not read that as
   the reaper breaking.
 - **`just load` and any other host recipe that pipes `./result`** stops being meaningful; the

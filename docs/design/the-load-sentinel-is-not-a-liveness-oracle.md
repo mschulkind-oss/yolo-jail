@@ -433,13 +433,59 @@ should wait for the layer plan rather than move now.
    > between**, and it has nothing to do with rollback — which is why not caring about rollback is
    > the right instinct and still leaves the number mattering.
    >
-   > **Ruling: leave it at 2, and revisit after the layer plan, not before.** Today an extra image
-   > costs ~2.7 GB of unique layers, so 2 is a defensible floor for a machine that alternates
-   > between a couple of workspaces. Once
-   > [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md) lands, images **share their
-   > base** and an extra one costs only its delta — at which point raising `keep` is nearly free
-   > and the alternation cost disappears. Raising it now would spend 2.7 GB per slot to buy
-   > something that is about to become cheap.
+   > **REVISED 2026-09-08 after the maintainer read it again, and the revision is a bigger change
+   > than the number:** *"So you're saying this keep 2 is not per workspace. This is one of the old
+   > \[dials\] it seems, just the wrong mechanism."*
+   >
+   > **Correct, and MEASURED in the code: the window is GLOBAL.** `OldImagesToRemove`
+   > (`internal/prune/prune.go:208-221`) sorts **every** `yolo-jail` row by `Created`, keeps the
+   > newest `keep`, and returns the rest. There is no notion of a workspace, a `packages:` list or a
+   > configuration anywhere in it. So on a machine with four workspaces, four distinct images and
+   > `keep=2`, **two are evicted on every pass no matter how recently each was used** — and the two
+   > that survive are simply the two most recently BUILT. That is not a retention policy for
+   > alternation; it is a retention policy for one workspace that happens to be applied to all of
+   > them.
+   >
+   > **So the ruling is not a number. Two changes, in this order:**
+   >
+   > 1. **The unit becomes the CONFIGURATION, not the machine.** Keep each distinct config's
+   >    current image, plus at most N superseded per config — which is what "how many things do I
+   >    alternate between" actually asks. C2 already supplies the key: every distinct store path has
+   >    its own permanent tag, so the grouping exists and is only being ignored. This subsumes
+   >    [OQ-LI4](./layer-aware-image-delivery.md#OQ-LI4)'s reorder rather than competing with it —
+   >    recency orders *within* a group once there is a group.
+   > 2. **Then N goes up, because the layer plan makes it nearly free.** *"Now that we're doing that,
+   >    these additional images should actually be very tiny, so we can keep a bunch of them."* The
+   >    headline number in [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md) is the
+   >    argument: **3.47 GB shipped to move 27 MB.** Once the base is a pinned shared tier, a
+   >    superseded image costs its delta, and a keep-window measured in tens is the same order of
+   >    disk that `keep=2` costs today.
+   >
+   > **And the maintainer's warning is the load-bearing part** — *"we need those base layers to not
+   > disappear."* Two sides, and they are not symmetric:
+   >
+   > - **Podman side: keeping MORE images protects the base, which inverts the usual intuition
+   >   about retention.** `rmi` removes only layers no remaining image references, so every kept
+   >   image is a reference that holds the shared base in place. A too-small keep-window is now a
+   >   way to *lose* the base and force a full re-copy — the opposite of what a small number was
+   >   supposed to buy.
+   > - **Nix side: there is no second copy to lose, which is better than the doc assumed.**
+   >   VERIFIED in nix2container's source: `newLayers` with an empty `tarDirectory` calls
+   >   **`TarPathsSum`** (`nix/layers.go:67-105`), which computes a digest and size and **writes no
+   >   tar**. A layer is `{Digest, DiffIDs, Size, Paths}` — metadata plus the list of store paths it
+   >   covers. So "the base layer" in the store *is* the ordinary nixpkgs closure, rooted by the
+   >   image derivation like everything else; nothing new needs protecting, and this is exactly why
+   >   [§6](./layer-aware-image-delivery.md#6-alternatives-considered)'s option C (a real OCI layout
+   >   in the store) was rejected — that one *would* be a second copy.
+   >
+   > **The coupling to read alongside this, because the two rulings interact:** [OQ-LS1](#OQ-LS1)
+   > makes GC roots age-based, so an image root can age out and let its closure become collectable.
+   > If podman still holds the blobs, nothing is lost. If both go, the re-copy needs the closure
+   > back — and most of it is stock nixpkgs, so that is a **download** from `cache.nixos.org` rather
+   > than a compile. The part that is not substitutable is the fraction that is ours: the `nix-ld`
+   > override, `binPathLinks`, and the patched skopeo (measured at 34 s,
+   > [OQ-LI1](./layer-aware-image-delivery.md#OQ-LI1)). Bounded, but it is the honest floor on "you
+   > can wait again next build".
    >
    > **What is settled regardless:** `keep` is no longer load-bearing for safety in either
    > direction. The `podman ps` veto protects what is in use, and this doc's whole point is that
