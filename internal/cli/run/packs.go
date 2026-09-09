@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
@@ -38,6 +39,40 @@ const packCtxDir = "/ctx/packs"
 // Slug escapes every character outside [A-Za-z0-9.-] as "_xx", so "_official" is not
 // reachable from any pack name). The prune therefore keeps it unconditionally.
 const officialStagingDir = "_official"
+
+// touchAgentStagingDir stamps AGENTS_DIR/<cname>'s own mtime, so that the agent-staging
+// reaper's AGE FLOOR actually covers the window this launch is about to spend inside.
+//
+// THE FLOOR ALREADY CLAIMS TO DO THIS and could not. prune.PruneOrphanAgentStaging keeps a
+// dir "modified within olderThan … covering a jail mid-startup whose container/tracking
+// record hasn't landed yet" — but it reads AGENTS_DIR/<cname>'s mtime while staging writes
+// the `packs` CHILD, and on a RELAUNCH that child already exists, so MkdirAll is a no-op
+// and the parent keeps whatever mtime a previous session left. Measured on the host that
+// failed: weeks-old parents with seconds-old contents inside.
+//
+// The window is real and wide: stagePacks runs early in Run (run.go), and the dir is only
+// protected by NAME once runtimeWriteTracking records it — which happens after the argv is
+// assembled, with the nix build, the briefing refresh and AUTO-CAPTURE in between. A
+// capture sub-launch is a full in-process Run of its own (internal/cli.runCaptureJail), so
+// its housekeeping slot sweeps with ITS cname as the launching one; adding the launching
+// cname to `known` (housekeeping.go) therefore cannot spare the OUTER jail, and did not.
+// The observed symptom was four "declares a `files` tree that is not in its staged content"
+// warnings followed by `Error: statfs …/agents/<cname>/packs: no such file or directory`.
+//
+// A timestamp rather than a name is deliberate: it protects the dir from EVERY sweeper in
+// EVERY process — a concurrent launch of another workspace, a capture sub-launch, a manual
+// `yolo prune` — without any of them having to learn who else is mid-launch.
+//
+// REAL WALL CLOCK, not o.Now(): this writes a filesystem mtime that a different process
+// will compare against its own clock, so an injectable logical clock has nothing to offer
+// here (same reasoning as waitServiceReady's, loopholesruntime.go).
+//
+// Best-effort. A launch must not fail because a timestamp could not be set; the worst case
+// is the behaviour that shipped before this existed.
+func touchAgentStagingDir(cname string) {
+	now := time.Now()
+	_ = os.Chtimes(filepath.Join(paths.AgentsDir(), cname), now, now)
+}
 
 // stagePacks stages every pack for this run — the EMBEDDED official packs plus the
 // user's configured ones — and returns them loaded, so the mount assembler can act on
@@ -64,6 +99,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return "", nil, nil, err
 	}
+	touchAgentStagingDir(cname)
 
 	// The OFFICIAL packs, materialized out of the binary — but only the ones the config
 	// NAMED. A bare `packs: ["claude"]` entry selects one; nothing is on by default.

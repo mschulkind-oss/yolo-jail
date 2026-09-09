@@ -370,10 +370,20 @@ func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string) {
 	// directory`, after auto-capture held the slot open long enough for the window
 	// to matter.
 	//
-	// The age floor did not save it and could not: it reads AGENTS_DIR/<cname>'s
-	// mtime, and staging creates the `packs` CHILD, which leaves the parent's mtime
-	// at whatever a previous session left. Directories on that host carried mtimes
-	// weeks old with a freshly staged `packs` inside.
+	// ⚠ THE LAUNCHING NAME IS NOT THE WHOLE PROTECTION, and must not be read as it.
+	// It only ever covers the sweep that runs INSIDE the launch it belongs to, and the
+	// launch that failed was not that: AUTO-CAPTURE runs a full Run of its own per
+	// installer program (internal/cli.runCaptureJail), so the sweep that judged
+	// 887995ca an orphan was passed the CAPTURE jail's cname, from a launch whose slot
+	// legitimately knew nothing about the outer one. The cross-launch half is
+	// stagePacks stamping AGENTS_DIR/<cname>'s own mtime (touchAgentStagingDir), which
+	// arms the age floor below for every sweeper in every process.
+	//
+	// The age floor did not save it and could not, BEFORE that stamp existed: it reads
+	// AGENTS_DIR/<cname>'s mtime, and staging creates the `packs` CHILD, which on a
+	// relaunch leaves the parent's mtime at whatever a previous session left.
+	// Directories on that host carried mtimes weeks old with a freshly staged `packs`
+	// inside.
 	//
 	// ⚠ The slot's own header comment claims it "runs late enough that this launch's
 	// own container is visible". That is true of the IMAGE and false of the
