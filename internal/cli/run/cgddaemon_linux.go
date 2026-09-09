@@ -29,6 +29,18 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 	ln.SetUnlinkOnClose(false)
 	_ = os.Chmod(sockPath, 0o777)
 
+	// PRINCIPLE 5 of docs/reference/security-shim.md: every operation is recorded
+	// with the caller's host PID, the operation and the result, on the host
+	// filesystem outside the container's reach. loopholeLogDir() is under the
+	// host's own state dir, which a jail cannot write.
+	//
+	// The warn sink is the housekeeping log, never the terminal: this runs behind a
+	// launch that may be handing the TTY to an agent, and a notice printed there
+	// overlays whatever is drawing.
+	audit := cgd.NewAuditor(loopholeLogDir(), func(msg string) {
+		o.housekeepingNote("cgd-audit: %s", msg)
+	})
+
 	var (
 		mu              sync.Mutex
 		containerCgroup string
@@ -55,6 +67,15 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 				}
 				r, ok := cgd.ParseRequest(line)
 				if !ok {
+					// AN UNPARSEABLE REQUEST IS AN EVENT, not nothing: it is what a
+					// probe of this socket looks like from in here, so it is the last
+					// thing that should be dropped silently. cgd.RequestOp returns ""
+					// for it, which the log renders as UNPARSEABLE.
+					audit.Append(cgd.AuditEvent{
+						PeerPID: cgdPeerPID(c),
+						Op:      cgd.RequestOp(line),
+						Err:     "request did not parse",
+					})
 					return
 				}
 				mu.Lock()
@@ -69,11 +90,26 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 					resp.Set("ok", false)
 					resp.Set("error", "Container cgroup not yet available")
 					writeJSONLine(c, resp)
+					audit.Append(cgd.AuditEvent{
+						PeerPID: cgdPeerPID(c),
+						Op:      cgd.RequestOp(line),
+						Err:     "container cgroup not yet available",
+					})
 					return
 				}
 				peerPID := cgdPeerPID(c)
 				resp := cgd.Handle(r, cg, peerPID)
 				writeJSONLine(c, resp)
+				// Logged AFTER the answer so a slow disk cannot delay the reply, and
+				// with the handler's own verdict rather than a second derivation of it.
+				ok2, errText := cgdResponseVerdict(resp)
+				audit.Append(cgd.AuditEvent{
+					PeerPID: peerPID,
+					Op:      cgd.RequestOp(line),
+					Cgroup:  cg,
+					OK:      ok2,
+					Err:     errText,
+				})
 			}(conn)
 		}
 	}()
@@ -130,4 +166,22 @@ func writeJSONLine(conn *net.UnixConn, m *jsonx.OrderedMap) {
 		return
 	}
 	_, _ = conn.Write(append([]byte(s), '\n'))
+}
+
+// cgdResponseVerdict reads the handler's own answer rather than recomputing it.
+// The audit line must say what the caller was TOLD, so deriving the verdict a
+// second time from the request would let the two disagree — which is exactly the
+// kind of divergence an audit trail is consulted to rule out.
+func cgdResponseVerdict(resp *jsonx.OrderedMap) (ok bool, errText string) {
+	if v, present := resp.Get("ok"); present {
+		if b, isBool := v.(bool); isBool {
+			ok = b
+		}
+	}
+	if v, present := resp.Get("error"); present {
+		if s, isStr := v.(string); isStr {
+			errText = s
+		}
+	}
+	return ok, errText
 }

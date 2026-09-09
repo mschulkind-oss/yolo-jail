@@ -127,13 +127,39 @@ container's own cgroup). No general-purpose RPC, no shell execution, no file I/O
 cgroup tree. **The OpenSSH parallel:** it accepts a tiny, finite set of messages from the
 untrusted side — a state machine small enough to enumerate exhaustively.
 
+**The per-request audit log.** Every request that reaches a caller leaves one tab-separated line
+under the host's state dir (`logs/cgroup-delegate-audit.log`), naming the UTC time, the caller's
+host PID from `SO_PEERCRED`, the operation, the container cgroup it was scoped to, and the verdict
+the caller was actually told. `cgd.Auditor` writes it; `cgd.RequestOp` names the operation.
+
+**Three paths record, not one.** The ordinary answer, a request refused because the container
+cgroup is not yet resolved, and a request that did not parse at all — the last of which is what a
+probe of this socket looks like from the host side, and so the last thing that may be dropped
+silently. It renders as `op=UNPARSEABLE` rather than blank.
+
 > [!WARNING]
-> **The per-request audit log is not implemented.** Principle 5 below states that every cgroup
-> operation is written to a host-side audit log with the caller's PID, the operation and the
-> result. `cgd.RequestOp` exists for exactly that and **has no production caller**: the
-> in-process server parses the request, resolves the container cgroup, and answers, writing no
-> log line. Treat the audit trail as an *unmet* invariant — the code is the thing that is wrong
-> here, not this sentence — and do not cite it as a property of the shipped system.
+> **The trail is best-effort, deliberately, and it says so when it stops.** Refusing a cgroup
+> operation because its log line could not be appended would turn a full disk into a jail that
+> cannot set a memory limit, and the security boundary here is the three-operation protocol and the
+> container-scoped cgroup root — not this file. So a write failure never fails the operation. It is
+> also never silent: the first failure per process is reported once, through the housekeeping log,
+> saying operations are continuing UNRECORDED. **This is a forensic record, not a tamper-proof
+> store, and it does not claim to be one.**
+
+> [!WARNING]
+> **The op and cgroup fields cross from the untrusted side, so they are escaped, not trusted.** A
+> newline in either would let a caller forge an entry in the one file whose entire purpose is to be
+> believed afterwards. `sanitizeAuditField` escapes newlines, carriage returns and tabs — escaping
+> rather than stripping, so evidence of the attempt survives in the record.
+
+> [!NOTE]
+> **This was unimplemented until 2026-09-09, and the shape of the miss is worth remembering.**
+> Principle 5 stated the invariant, `cgd.RequestOp` carried the doc comment *"extracts the op field
+> ... for the audit log"*, and the one line joining them was never written — so the helper had no
+> production caller and an audit of the shim would have found a documented trail that produced no
+> bytes. Nothing about the surrounding code looked unfinished. `run.TestCgroupDelegateServeLoopAuditsEveryPath`
+> now pins the call site by name, because the package's own tests all stayed green while the
+> delegate logged nothing.
 
 ### 3. Port-forward bridge
 
@@ -205,11 +231,10 @@ can only affect the container environment.
    config validation means no container. A changed config with nobody to ask means a refused
    launch, and the default answer to the prompt is No.
 
-5. **Everything is logged.** Every cgroup operation should be recorded with the caller's host PID,
-   the operation and the result, on the host filesystem outside the container's reach. **This
-   principle is currently unmet** — see the warning under component 2. It is kept here with its
-   number because it is the property an audit is entitled to expect, not because it is
-   implemented.
+5. **Everything is logged.** Every cgroup operation is recorded with the caller's host PID, the
+   operation and the result, on the host filesystem outside the container's reach — a jail can be
+   given read access to that directory but cannot write it. **Met since 2026-09-09**; unmet for
+   months before that, with the helper it needed already written. See component 2.
 
 6. **The shim dies with the container.** The delegate and the forwarding helpers are tied to the
    container's lifecycle; when the container exits the host cleans up. There are no orphaned
