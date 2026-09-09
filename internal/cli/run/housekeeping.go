@@ -98,6 +98,7 @@ func (o *Options) runHousekeeping(rt string, reclaimConsent bool) {
 		o.autoReapOldImages(rt)
 		o.reapSupersededStoreOutputs()
 		o.measureAndPurgeCache(reclaimConsent)
+		o.reapSmallAutomaticClasses(rt)
 	})
 }
 
@@ -270,3 +271,60 @@ func (o *Options) reapSupersededStoreOutputs() {
 			"(disk-levers-and-backfill.md OQ-BF3).[/dim]", len(removed))
 	}
 }
+
+// reapSmallAutomaticClasses is §5.2's fourth automatic row — agent staging
+// orphans and retired loophole state. Kilobytes to hundreds of MB, tri-state
+// gated already, and listed in the mapping as "in the slot" for both the first
+// pass and the steady state.
+//
+// SMALL IS WHY THEY ARE HERE, not why they are optional. 443 dirs / 36.5 MiB and
+// 6 generations / 1.9 MiB were measured; the reason to reclaim them
+// automatically is that they have complete evidence and a trivial regeneration,
+// which is P3, and the reason they were never reclaimed is the same one that let
+// 404 GiB accrue — nothing ran the reaper.
+//
+// The captures class is deliberately NOT here: capture.PruneSupersededCaptures
+// needs the CaptureRecords reader `yolo prune` constructs, and wiring a second
+// copy of that into the launch path would be a second definition of what a
+// superseded capture is. It stays a `yolo prune` class until that reader has one
+// home.
+func (o *Options) reapSmallAutomaticClasses(rt string) {
+	if o.inJail() {
+		return
+	}
+	if o.Getenv(autoReapOptOutEnv) != "" {
+		return
+	}
+	due, done := o.classDebounce("small-classes")
+	if !due {
+		return
+	}
+	run := func(argv []string, timeout time.Duration) prune.ProbeResult {
+		res := o.Exec(argv, "", nil, timeout)
+		return prune.ProbeResult{Stdout: res.Stdout, RC: res.RC, Ran: res.Ran && !res.Timeout}
+	}
+	live := prune.LiveYoloContainers(rt, run)
+	if !live.Known {
+		// Tri-state, unchanged: a staging dir belonging to a jail we cannot see
+		// is not an orphan. Not stamped — the next launch retries.
+		return
+	}
+	known := map[string]struct{}{}
+	for name := range live.Names {
+		known[name] = struct{}{}
+	}
+	_, dirs, _ := prune.PruneOrphanAgentStaging(paths.AgentsDir(), known, live.Known,
+		time.Hour, true, o.Now())
+	_, gens, _ := prune.PruneRetiredLoopholeState(filepath.Join(paths.GlobalStorage(), "state"),
+		hostArchiveKeepInSlot, true)
+	done()
+	if dirs+gens > 0 {
+		o.pr(o.Stderr).printf("[dim]Reclaimed %d agent staging dir(s) and %d retired loophole "+
+			"state generation(s).[/dim]", dirs, gens)
+	}
+}
+
+// hostArchiveKeepInSlot mirrors `yolo prune`'s hostArchiveKeep. Spelled here
+// rather than exported from prune because it is that command's flag default, and
+// the slot must not silently change what a manual prune keeps.
+const hostArchiveKeepInSlot = 3

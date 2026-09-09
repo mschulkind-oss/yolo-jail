@@ -165,3 +165,44 @@ func TestDebounceStampsOnCompletionNotEntry(t *testing.T) {
 			"wait out a day on work that never happened")
 	}
 }
+
+// TestSmallClassesKeepTheirTriState: agent staging is liveness-gated, and a
+// staging dir belonging to a jail the runtime cannot enumerate is not an orphan.
+// Unlike the image ROOTS (OQ-LS1), this class has an authority, so unknown must
+// still decline — and must NOT stamp, or one unreachable moment costs a day.
+func TestSmallClassesKeepTheirTriState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := &Options{}
+	fillDefaults(o)
+	o.Now = time.Now
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		return ExecResult{Ran: false} // the runtime cannot be enumerated
+	}
+	o.reapSmallAutomaticClasses("podman")
+
+	if due, _ := o.classDebounce("small-classes"); !due {
+		t.Fatal("a declined pass stamped its debounce — one unreachable runtime would then cost " +
+			"a full day of not reclaiming, which is the defect this whole design started from")
+	}
+}
+
+// TestSlotRunsEveryAutomaticClass pins §5.2's mapping against the slot's body.
+// Each row there is a class nothing else reclaims automatically; one dropped
+// call is a store that silently stops being swept, with every unit test green.
+func TestSlotRunsEveryAutomaticClass(t *testing.T) {
+	src, err := os.ReadFile("housekeeping.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range []string{
+		"o.autoReapOldImages(rt)",
+		"o.reapSupersededStoreOutputs()",
+		"o.measureAndPurgeCache(reclaimConsent)",
+		"o.reapSmallAutomaticClasses(rt)",
+	} {
+		if !strings.Contains(string(src), call) {
+			t.Errorf("the housekeeping slot no longer calls %s — that is a §5.2 automatic-tier "+
+				"row with no other collector", call)
+		}
+	}
+}
