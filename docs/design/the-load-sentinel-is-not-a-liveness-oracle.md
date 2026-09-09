@@ -22,7 +22,7 @@ liveness — and the two are not the same question. A jail that is *running* but
 **Start with [§4](#4-two-consumers-two-different-questions)** — everything else is
 evidence for the claim that the two consumers are asking different questions.
 
-**Reads with:** [`image-staging-vs-baking.md`](image-staging-vs-baking.md) (C2, which
+**Reads with:** [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#the-content-addressed-image-ref) (the content-addressed image ref, which
 demoted this same sentinel out of the load decision — the precedent this doc extends),
 [`minimal-disk-footprint.md`](minimal-disk-footprint.md) ([OQ-DF3](minimal-disk-footprint.md#OQ-DF3), which armed the
 automatic reap that fired).

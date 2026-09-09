@@ -99,7 +99,7 @@ audit that produced it.
 | :--- | :--- | :--- |
 | `pack-code-separation.md` | "NOTHING BUILT. 2026-08-15" | all four rulings in the tree |
 | `loophole-activation.md` | broker jail wiring "🛑 blocked" | shipped 2026-08-19 |
-| `image-staging-vs-baking.md` | "Nothing built" | C1 shipped, `--accept-flake-config` live |
+| `image-staging-vs-baking.md` (since retired into [`docs/reference/`](../reference/image-staging-vs-baking.md)) | "Nothing built" | C1 shipped, `--accept-flake-config` live |
 | `rocm-passthrough-design.md` | "Draft / implementation-ready" | shipped in June |
 | `program-kind-defects.md` | "No code changed" | all three defects fixed |
 | `macos-revival…plan.md` | "nothing engineering-side fully open" | false; D1 retired, D2 reverted, D3 superseded |

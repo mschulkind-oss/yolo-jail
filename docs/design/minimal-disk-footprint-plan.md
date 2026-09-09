@@ -78,7 +78,7 @@ Container still writes one tar per store path, and the fallback READER (`newestT
   full/minimal/lean trio share one value. That is enough for ownership; it is not a per-image key.
 - **Editing `flake.nix` mints exactly one new image per machine, once.** The closure is unchanged,
   so it shares every layer — the 91.36 kB-unique re-stream case
-  ([`image-staging-vs-baking.md`](image-staging-vs-baking.md) [§1.8](image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5)),
+  ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) [the cost model](../reference/image-staging-vs-baking.md#cost-model)),
   not 2.836 GB. It also moves `imageIdentity`, so the integration skew check demands a rebuild —
   and nix sees TRACKED files only, so `git add` first or that check reports a false match.
 - **A `<none>` row can be LIVE.** A re-stream takes the tag and leaves the running jail's image

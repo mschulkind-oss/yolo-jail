@@ -333,7 +333,7 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   `--read-only` rootfs cannot grow one) and the `/bin/<name>` symlinks that
   point into them. That is what took `goSrc` out of the image derivation, so a
   Go-only commit costs no image rebuild
-  ([image-staging-vs-baking.md](image-staging-vs-baking.md) C8) — and it is why
+  ([image-staging-vs-baking.md](../reference/image-staging-vs-baking.md#the-mounted-prefix)) — and it is why
   what runs in the jail is now host-mutable without one (C8's security delta).
   This is NOT the old `/opt/yolo-jail/dist-go` source bind: there is no second
   copy to shadow, and the container argv names

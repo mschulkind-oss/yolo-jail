@@ -27,9 +27,9 @@ and neither half works without the other.
 independent reasons the bytes move, only one of which is the transport. If you disagree with
 that section the rest of the design does not follow.
 
-**Reads with:** [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) — this doc is the
+**Reads with:** [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) — this doc is the
 successor to its candidate C6 and an answer to its
-[OQ-6](./image-staging-vs-baking.md#102-open-questions), and it owns the bake-vs-deliver cost
+[OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way), and it owns the bake-vs-deliver cost
 model I am extending rather than restating;
 [`minimal-disk-footprint.md`](./minimal-disk-footprint.md) (the "zero retained tars" ruling
 this must not reopen); [`nix-across-backends.md`](../reference/nix-across-backends.md) (what
@@ -65,7 +65,7 @@ The three alternatives, priced:
 | Mechanism | What it costs | Verdict |
 | :--- | :--- | :--- |
 | **nix2container + layer plan** | one flake input; a patched skopeo that is a source build (not in `cache.nixos.org`); a second delivery mechanism for one release | **Adopt.** The only option that can express P2 at all. |
-| OCI layout in the nix store, then `skopeo copy oci:… containers-storage:…` | a second full copy of every image *in the nix store* — 3.2 GB per distinct image | **Reject.** Re-opens the ruling that cached image copies are a bug ([`OQ-5`](./image-staging-vs-baking.md#101-decision-ledger) in [`image-staging-vs-baking.md`](./image-staging-vs-baking.md)). |
+| OCI layout in the nix store, then `skopeo copy oci:… containers-storage:…` | a second full copy of every image *in the nix store* — 3.2 GB per distinct image | **Reject.** Re-opens the ruling that cached image copies are a bug ([`OQ-5`](../reference/image-staging-vs-baking.md#why-its-this-way) in [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)). |
 | Keep `streamLayeredImage` | nothing new; the 81 s stays | **Reject as the endpoint.** It cannot express P2 — see [§6](#6-alternatives-considered). |
 
 **What I am NOT claiming.** This does not make a `flake.lock` bump cheap; a new nixpkgs is
@@ -131,7 +131,7 @@ archive. The other 94.2% is nixpkgs, and it moves when nixpkgs moves.
 > [!IMPORTANT]
 > **That 5.8% is the ceiling on what layer order can buy, not a promise.** Nothing pins those
 > two layers to the top: the popularity contest put them there for this closure, and
-> [`image-staging-vs-baking.md` §1.9](./image-staging-vs-baking.md#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)
+> [`image-staging-vs-baking.md` "Cost model"](../reference/image-staging-vs-baking.md#cost-model)
 > measured the first differing layer at **position 78 or 79 of 99** across real image pairs,
 > because adding one store path re-partitions the contest. P2 is what turns an accident into
 > a property.
@@ -149,7 +149,7 @@ Three reasons, and they stack. A design that fixes fewer than all three fixes a 
    disk, not of podman's — one full-size write and one full-size read happen inside the
    loader on every load.
 3. **Overlay keys a layer by its parent chain, not by its diff digest.** This is
-   [`image-staging-vs-baking.md` §1.9](./image-staging-vs-baking.md#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)'s
+   [`image-staging-vs-baking.md` "Cost model"](../reference/image-staging-vs-baking.md#cost-model)'s
    finding, and it is the one people re-derive wrongly: 97 of 99 digests can be identical and
    podman still writes everything from the first moved layer upward, because each of those
    layers now has a different parent. Reuse covers the chain *prefix* and nothing above it.
@@ -215,10 +215,10 @@ the top tier**, a ceiling of 100 total to stay where the current image already s
 > list is last-wins in the tar, which would silently flip `gcc` vs `binutils` for `bin/ld`.
 
 **Why the extras tier is separate, and why it is the tier that pays today.** After C8
-([`image-staging-vs-baking.md` §4](./image-staging-vs-baking.md#4-candidates-ranked)) the
+([`image-staging-vs-baking.md` "The mounted prefix"](../reference/image-staging-vs-baking.md#the-mounted-prefix)) the
 image no longer moves for a Go change at all — it moves for `flake.nix`, `flake.lock` and
 `packages:`. Of those three, `packages:` is the one that varies *per workspace*: each distinct
-list is its own image ([§1.5](./image-staging-vs-baking.md#15-the-multiplication-factor-packages-and---impure)),
+list is its own image ([one image per distinct `packages:` list](../reference/image-staging-vs-baking.md#one-image-per-distinct-packages-list)),
 and today the second workspace on a machine pays a full 3.47 GB load for a list that differs
 by one package. With the extras tier pinned, it pays that package's closure and the top tier.
 
@@ -233,7 +233,7 @@ by one package. With the extras tier pinned, it pays that package's closure and 
 one: `packages:` varies **per workspace**, while the top tier moves only when `flake.nix` is
 edited — which for a user is "when yolo is upgraded". Podman's overlay store chains layers (a
 layer's stored identity depends on every layer beneath it, which is why
-[`image-staging-vs-baking.md` §1.9](./image-staging-vs-baking.md#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)
+[`image-staging-vs-baking.md` "Cost model"](../reference/image-staging-vs-baking.md#cost-model)
 measured a deep first-differing layer re-storing everything behind it), so the most volatile tier
 belongs **on top**. By that rule alone extras should be above the top tier.
 
@@ -357,7 +357,7 @@ disturbs them. It does not:
 | **macos-user** | not applicable | No container, no image. |
 
 **Two mechanisms, deliberately, and I own the cost.** This is the same shape
-[`image-staging-vs-baking.md` §9](./image-staging-vs-baking.md#9-risks) R1 accepted for C4/C5
+[`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#store-delivered-packages) accepted for store-delivered packages
 and the same one [`happy-path-principle.md`](./happy-path-principle.md) warns about. The
 mitigation is the same too: the unit is the **launch**, exactly one mechanism is live in any
 launch, and the launch says which one it took on stdout.
@@ -544,12 +544,12 @@ legacy number is no longer measurable on that host.
 - **Not a registry.** No pushing, no pulling, no daemon. The destination is the local
   `containers-storage` and nothing else.
 - **Not the binary-cache question.** That is
-  [`image-staging-vs-baking.md` §6](./image-staging-vs-baking.md#6-the-binary-cache-alternative-argued-fairly),
+  [`image-staging-vs-baking.md` "The binary cache"](../reference/image-staging-vs-baking.md#the-binary-cache),
   it is about the *nix* side, and it is orthogonal — a substituted closure still has to reach
   podman.
 - **Not a re-decision of `packages:` scope.** It stays workspace-scope
-  ([`OQ-4`](./image-staging-vs-baking.md#101-decision-ledger) in
-  [`image-staging-vs-baking.md`](./image-staging-vs-baking.md)). This fixes the cost, never
+  ([`OQ-4`](../reference/image-staging-vs-baking.md#why-its-this-way) in
+  [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)). This fixes the cost, never
   the scope.
 - **Not C4/C5.** The store-package fast path keeps its dial and its semantics; this changes
   what the *other* launches pay.
@@ -579,7 +579,7 @@ buys the write half and none of the transfer half.
 **B. `streamLayeredImage` with a stable `fromImage` base.** Expresses ordering with no new
 dependency. It makes the stream *bigger*: nixpkgs' generator re-emits the base image's layers
 into the archive, so the write side gains rather than loses — the prescription in
-[`image-staging-vs-baking.md` §1.9](./image-staging-vs-baking.md#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)
+[`image-staging-vs-baking.md` "Cost model"](../reference/image-staging-vs-baking.md#cost-model)
 says exactly this, and I agree with it.
 **Verdict: rejected.**
 
@@ -588,7 +588,7 @@ Layer-aware with a stock skopeo and no flake input — genuinely attractive for 
 Then the second copy shows up: the layout *is* the image, in blobs, in the store, ~3.2 GB per
 distinct image, retained until a GC. That is the artifact
 [`minimal-disk-footprint.md`](./minimal-disk-footprint.md) and
-[`OQ-5`](./image-staging-vs-baking.md#101-decision-ledger) ruled a bug after one machine
+[`OQ-5`](../reference/image-staging-vs-baking.md#why-its-this-way) ruled a bug after one machine
 accumulated 404 GiB of it.
 **Verdict: rejected.**
 
@@ -615,7 +615,7 @@ developing this repo, is the common case — on every backend that cannot opt in
 | **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](./happy-path-principle.md) warns about. | **Retired 2026-09-08 — the risk is removed rather than accepted** ([OQ-LI5](#OQ-LI5)): `streamLayeredImage` is deleted in the same change and there is no legacy knob, so there is never more than one delivery mechanism to keep true. The residual risk moves to R8. |
 | **R8. No way back if a delivery bug ships**, the cost of retiring R3. A machine that cannot copy cannot start a jail until a fix ships. | Bounded by evidence rather than by a fallback: the default does not flip until a `nix:`-source copy has been measured loading and booting on every backend that gets it ([§3.5](#35-one-mechanism-no-way-back), [OQ-LI2](#OQ-LI2)). `YOLO_ALLOW_STALE_IMAGE=1` still launches an already-loaded image, which is the hatch for "get back in", and a failed build is already fatal with nix's own stderr. |
 | **R4. The layer plan is a new thing to keep true.** A package added to `flake.nix` in the wrong tier silently costs a full copy per build, and nothing fails. | The done-condition ([§3.10](#310-what-done-looks-like)) is a measurement, so make it a test: assert that a `flake.nix`-only change copies under a byte budget. A budget test fails loudly when a tier assignment drifts; a comment does not. |
-| **R5. Only two machines are measured**, both of them mine, one of them nested. Absolute numbers are illustrative; the ratios are not. | Same standing caveat as [`image-staging-vs-baking.md` §9](./image-staging-vs-baking.md#9-risks) R7. The two hosts agree on the ratio (84% and 86%) and disagree on the absolutes by 1.8×, which is exactly what that caveat predicts. |
+| **R5. Only two machines are measured**, both of them mine, one of them nested. Absolute numbers are illustrative; the ratios are not. | Same standing caveat as the one [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model) states over its cost model. The two hosts agree on the ratio (84% and 86%) and disagree on the absolutes by 1.8×, which is exactly what that caveat predicts. |
 | **R6. Apple Container is unverified on hardware**, and a delivery change that assumes its converters behave is a guess. | [OQ-LI2](#OQ-LI2) keeps it explicitly undecided rather than silently included. Leaving it on the current path costs nothing it is not already paying. |
 | **R7. Rootless `containers-storage` writes can trip on ID mapping** when a copy runs outside the user namespace podman uses. | Our layers are entirely root-owned (`fakeRootCommands` writes `root:x:0:0`, `flake.nix:1120-1122`), which is the case that works. If a real host disagrees, the copy runs under `podman unshare` — a change to how the copier is invoked, not to the design. Verify on the first real host, not in a nested jail. |
 
@@ -728,7 +728,7 @@ so R3 is never a live cost and this doc never has to say it is.
    >    over nixpkgs' skopeo, so the marginal cost is compiling one Go program, not bootstrapping a
    >    toolchain.
    > 3. **The failure mode already exists and is correct.** A build that runs and fails is FATAL
-   >    ([`image-staging-vs-baking.md`](./image-staging-vs-baking.md) [OQ-2](./image-staging-vs-baking.md#101-decision-ledger)):
+   >    ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) [OQ-2](../reference/image-staging-vs-baking.md#why-its-this-way)):
    >    nix's own stderr is printed and the launch refuses. "Build it when we need it" therefore
    >    inherits an honest error rather than needing a new degrade path.
    > 4. **It is GC-rooted with the image it belongs to.** Nothing collects it out from under a
@@ -793,8 +793,8 @@ so R3 is never a live cost and this doc never has to say it is.
    writes two full-size files per load — `materializeImage` produces a docker-archive and
    `convertViaSkopeo` (`internal/image/autoload.go:1032`) writes an OCI layout from it. A
    `nix:` source deletes both and needs no new dependency it does not already have. Nobody
-   here has the hardware, and [`image-staging-vs-baking.md` §4](./image-staging-vs-baking.md#4-candidates-ranked)
-   has called this path "unproven" twice. This decides whether the second-largest disk consumer
+   here has the hardware, and [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#backends)
+   records this path as not exercised on hardware. This decides whether the second-largest disk consumer
    on macOS is fixed now or waits.
 
    <!-- vantage: oq id=OQ-LI2 leaning="Not in the same pass — build it Linux-first, and let Apple Container follow once someone can measure it on hardware." -->
@@ -839,7 +839,7 @@ so R3 is never a live cost and this doc never has to say it is.
    >
    > **And the confusion is the question's fault, so here is the answer to "what is store packages
    > and do I need to know".** `YOLO_STORE_PACKAGES=1` is a launch-time opt-in from
-   > [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) C4/C5: instead of BAKING a
+   > [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#store-delivered-packages) ("store-delivered packages"): instead of BAKING a
    > workspace's `packages:` into its own image, the launch builds the stock image with `packages:`
    > removed and delivers those tools from a symlink farm over the mounted nix store. One image per
    > machine instead of one per distinct package list.

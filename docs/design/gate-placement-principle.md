@@ -162,7 +162,7 @@ a human"* — and it is right about **prompts**. It is wrong wherever the thing 
 safe is not *who* is present but that somebody **SAID** the dangerous precondition holds.
 
 The worked case is the stale-image launch
-([`image-staging-vs-baking.md`](image-staging-vs-baking.md) [OQ-2](image-staging-vs-baking.md#101-decision-ledger), shipped `7830f65`). The design's
+([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#a-failed-build-is-fatal) [OQ-2](../reference/image-staging-vs-baking.md#why-its-this-way), shipped `7830f65`). The design's
 own leaning was to prompt an interactive human and refuse a pipe; the shipped code refuses **both**
 and takes `YOLO_ALLOW_STALE_IMAGE=1` as the way past. The reason generalises: what makes running on
 a stale image safe is knowing the image *is* stale — **precisely the knowledge whose absence caused

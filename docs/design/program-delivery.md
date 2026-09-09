@@ -70,7 +70,7 @@ records *what you got* is not an attestation that it is *what someone published*
 supersedes.
 
 **Reads with:** [`trust-paths.md`](trust-paths.md) (the trust half, and the two questions this doc
-supersedes), [`image-staging-vs-baking.md`](image-staging-vs-baking.md) (the measured cost of
+supersedes), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the measured cost of
 baking — every "why don't we just bake it" answer is priced there),
 [`pack-system.md`](pack-system.md) (the `program` contribution kind),
 [`program-kind-defects.md`](program-kind-defects.md) (the earlier pass at this mechanism, whose
@@ -108,8 +108,8 @@ managed program — `yolo programs remove --apply`, [§10](#10-what-i-would-buil
 class has a content-addressed record, the capture manifest ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)).*
 
 **P2. Cadence decides venue.** Bake what moves on *yolo's own* release cadence; deliver at launch
-what moves on someone else's. This is [`image-staging-vs-baking.md`](image-staging-vs-baking.md)
-[§1](./image-staging-vs-baking.md#1-the-cost-model)'s stratification finding restated as a placement rule, and it is why "bake everything" is not
+what moves on someone else's. This is the stratification finding of [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)'s
+[cost model](../reference/image-staging-vs-baking.md#cost-model), restated as a placement rule, and it is why "bake everything" is not
 the answer to a class whose whole problem is that it moves when we do not
 ([§5.1](#51-a1--bake-everything-into-the-image)).
 
@@ -892,17 +892,19 @@ against the disk (step two), and for the installer class the capture manifest ([
 ### 5.1 A1 — Bake everything into the image
 
 *"I'm not entirely sure why we don't bake all these things."* Here is the honest bill, and every
-number is [`image-staging-vs-baking.md`](image-staging-vs-baking.md)'s.
+number is [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)'s.
 
 **What it gets right, and it is not small:** baking is the *only* class in the inventory that is
 provably uniform. The input is `flake.lock`, not a registry; the build is hermetic; the resolution is
 recorded. If uniformity were the only axis, this would win outright.
 
-**Rebuild cadence — the maintainer's own objection, priced.** [§1.1](./image-staging-vs-baking.md#11-what-triggers-a-rebuild-and-how-often) there: **60.5 %** of a 200-commit
-window already forces an image rebuild, and [§1.4](./image-staging-vs-baking.md#14-the-amplification-factor--the-number-this-doc-exists-for): the two most recently loaded images differ by
+**Rebuild cadence — the maintainer's own objection, priced.** As measured on 2026-08-15, before
+content-addressed tags, streaming and the mounted prefix each retired one of these costs
+([what moves the image](../reference/image-staging-vs-baking.md#what-moves-the-image) records what is left): **60.5 %** of a 200-commit
+window forced an image rebuild, and ([the cost model](../reference/image-staging-vs-baking.md#cost-model)) the two most recently loaded images differed by
 **one package, a 180.2 KiB delta**, for which the pipeline wrote a fresh **3.28 GiB** tar and ran a
-full `podman load`. [§1.5](./image-staging-vs-baking.md#15-the-multiplication-factor-packages-and---impure): `packages:` is workspace-settable and there is one `:latest` tag, so two
-workspaces with different lists **reload the whole image on every alternation, forever**. Adding
+full `podman load`. [One image per distinct `packages:` list](../reference/image-staging-vs-baking.md#one-image-per-distinct-packages-list): `packages:` is workspace-settable and there was one `:latest` tag, so two
+workspaces with different lists **reloaded the whole image on every alternation, forever**. Adding
 agent CLIs to that set means every CLI bump is an image rebuild and a multi-gigabyte reload for
 everyone on the machine — and it couples an agent vendor's release cadence to yolo's, which is
 exactly the cost [`trust-paths.md`](trust-paths.md) [`OQ-TP4`](./trust-paths.md#decision-ledger) option (a) named.
@@ -919,7 +921,7 @@ was ordered **last, after `/bin`**, precisely so a pack's `program fzf` could no
 `/bin/fzf` ([`pack-system.md`](pack-system.md) §`program`); B2 moved it ahead and replaced position
 with a generation-time check ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)), and the trap keeps its shape — a name the image
 bakes gets no launcher. Baking `claude` would make a pack's declared `claude` unreachable, silently —
-and `image-staging`'s R2 warns that a half-migration (baked *and* staged) silently runs the baked
+and [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#store-delivered-packages) warns that a half-migration (baked *and* staged) silently runs the baked
 one. (ii) Expressibility: a vendor installer script with its own
 updater is not a nixpkgs package, so baking it is a packaging project per tool — the very
 "mechanism we can't control" problem, relocated.
@@ -965,7 +967,7 @@ boot.
 | the receipt's file format | `packs.lock.json` — schema-versioned, already the place a resolution would go |
 
 **What it costs.** A new artifact class and its retention policy — and this repo's track record there
-is 404 GiB of image tars accrued in 24 days (`image-staging` [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk)), plus **MEASURED** just over 1 GB
+is 404 GiB of image tars accrued in 24 days (`image-staging` [the tar history](../reference/image-staging-vs-baking.md#the-tars-that-are-no-longer-written)), plus **MEASURED** just over 1 GB
 of claude builds (4 versions, 2.1.165–2.1.220) sitting in one workspace's
 `~/.local/share/claude/versions`. It also has a genuine cold-start hole: the first resolve has no
 receipt to obey, so *something* resolves, and the honest answer is that the update act does it in
@@ -1460,11 +1462,11 @@ here is used here, and publishing one is a provenance question for
   attestation, no SBOM — a borrowed lockfile may carry its ecosystem's checksums (`mise.lock` does,
   [§5.6](#56-a6--borrow-the-ecosystems-lockfiles)), but verifying them is that ecosystem's
   behaviour, not a yolo guarantee.
-- **The image cost model.** [`image-staging-vs-baking.md`](image-staging-vs-baking.md) owns rebuild
+- **The image cost model.** [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) owns rebuild
   frequency, tar sizes, content-addressed tags and the binary cache. [§5.1](#51-a1--bake-everything-into-the-image) here *cites* those numbers
   and adds none.
 - **Whether `packages:` should stay workspace-scope.** Ruled 2026-08-25 — it does (`image-staging`
-  [`OQ-4`](./image-staging-vs-baking.md#101-decision-ledger), *"yes, has to be"*); fix the cost, not the scope.
+  [`OQ-4`](../reference/image-staging-vs-baking.md#why-its-this-way), *"yes, has to be"*); fix the cost, not the scope.
 - **Agent context** — skills, briefings, config surfaces. Regenerated every launch (class 2), ruled
   by [`OQ-TP2`](./trust-paths.md#decision-ledger), and out of scope here for the same reason.
 - **Offline or air-gapped operation as a goal.** Reconcile must work offline; *first* resolve need
@@ -1527,18 +1529,18 @@ here is used here, and publishing one is a provenance question for
 > ruling as history — the npm template now reads *"It used to only REPORT"* — which is what this
 > paragraph asked of whoever landed it.
 
-### 8.2 [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) — a framing inversion, not a contradiction
+### 8.2 [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) — a framing inversion, not a contradiction
 
 No factual claim here contradicts that document, and its numbers are used as authoritative. But the
 two rank the same fact oppositely, and a reader moving between them should know:
 
 | Fact | `image-staging` reads it as | this doc reads it as |
 | :--- | :--- | :--- |
-| Agent CLIs, mise tools and LSP servers are delivered at launch, never baked | a **virtue** — [§5](./image-staging-vs-baking.md#5-the-central-table-must-bake--could-move--already-delivered)'s "ALREADY DELIVERED" column, the reason the image is cheap | the **source of all divergence** ([§3](#3-four-delivery-classes-and-the-rule-that-falls-out), [§4](#4-how-two-jails-diverge-today-measured)) |
+| Agent CLIs, mise tools and LSP servers are delivered at launch, never baked | a **virtue** — its [what a launch delivers](../reference/image-staging-vs-baking.md#what-a-launch-delivers) list, the reason the image is cheap | the **source of all divergence** ([§3](#3-four-delivery-classes-and-the-rule-that-falls-out), [§4](#4-how-two-jails-diverge-today-measured)) |
 
 **Both are true, and P2 reconciles them:** delivery is right for cost and wrong for uniformity, and
 the missing piece is not the venue but the receipt. Anyone proposing to bake more must clear
-`image-staging` [§1](./image-staging-vs-baking.md#1-the-cost-model)'s cost model *and* its R2 (a package both baked and staged silently runs the baked
+`image-staging`'s [cost model](../reference/image-staging-vs-baking.md#cost-model) *and* its [one-mechanism-per-launch rule](../reference/image-staging-vs-baking.md#store-delivered-packages) (a package both baked and staged silently runs the baked
 one) before this document's uniformity argument is even reached.
 
 ---
@@ -1550,7 +1552,7 @@ one) before this document's uniformity argument is even reached.
 | R1 | **A receipt that nothing enforces becomes another display-only field.** The precedent is exact: `LockEntry.Commit` has four readers and all of them print ([`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict)). | **Ruled** ([OQ-PD7](#decision-ledger)): reports only, on purpose — and the record names where a gate would live if the reports ever justify one. |
 | R2 | **A ledger in the wrong scope is worse than none.** The stamp/spec split is the live proof: a machine-global record describing a per-workspace install already produces cross-workspace throttle bleed ([§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected)). | **Ruled** ([OQ-PD1](#decision-ledger)): the record follows the declaration's scope, and the bytes are content-addressed so their scope stops mattering ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)). |
 | R3 | **Removal is destructive and the bytes are large.** Uninstalling on pack-drop can delete a 189 MB binary a user still runs from another workspace's muscle memory. | **Ruled** ([OQ-PD4](#decision-ledger)) and shipped in that shape ([§10](#10-what-i-would-build-in-order) step four): boot catalogs orphans informationally; removal only on an explicit act; autoprune ships as an option, default off. The LSP sentinel's silent uninstall is the pattern *not* to copy at this size. |
-| R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk)); npm's cacache is at 672 MB and grew 27 MB in six days of observation with nothing pruning; claude keeps 4 versions (just over 1 GB) per workspace. | Retention landed with the caches that are yolo's: `yolo prune` reaps superseded capture entries (`46874f2d`) and A7 prunes the vendors' version dirs at the act that creates one (`5fe5ba5c`); `yolo prune`'s cache purge names `npm` among the caches it can clear (`internal/prune/cachepurge.go`). The image-tar side is `image-staging`'s. |
+| R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` [the tar history](../reference/image-staging-vs-baking.md#the-tars-that-are-no-longer-written)); npm's cacache is at 672 MB and grew 27 MB in six days of observation with nothing pruning; claude keeps 4 versions (just over 1 GB) per workspace. | Retention landed with the caches that are yolo's: `yolo prune` reaps superseded capture entries (`46874f2d`) and A7 prunes the vendors' version dirs at the act that creates one (`5fe5ba5c`); `yolo prune`'s cache purge names `npm` among the caches it can clear (`internal/prune/cachepurge.go`). The image-tar side is `image-staging`'s. |
 | R5 | **A seam that implies tier-3 coverage is a lie.** A vendor self-updater cannot be recorded at all (until captured, [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)), and an `npx -y` argv can be *pinned* in the render yolo writes but its resolution is still never recorded. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones ([§5.5](#55-a5--do-nothing-and-say-so), [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)). |
 | R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image ([§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives)). | **Paid** (`0a4d241c`): skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. Residual: the sibling enums named in [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives), and the `just load` ordering. |
 | R7 | **Uniformity borrowed from a lockfile is a function of that lockfile's quality** — and [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) generalises the borrowing to every native lock we adopt. The core is measured (a workspace-local `mise.lock` governs resolution against the shared store); **NOT MEASURED**: format stability across mise's own upgrades, and full-launch behaviour under `MISE_LOCKFILE`. | Treat tier 2 as "record and compare" until the launch path is measured; do not promise obedience we do not own. |

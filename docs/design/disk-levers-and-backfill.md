@@ -16,8 +16,8 @@ its own ruling; [OQ-BF9](#OQ-BF9)'s sibling [OQ-LS3](./the-load-sentinel-is-not-
 is blocked on a key that does not exist yet). Written as a design sketch on 2026-09-06, when nothing
 was built. Every number below was measured in this
 development jail on 2026-09-06 (times given where the store moved during the day) and is
-labelled **MEASURED** / **NOT MEASURED** in the manner of
-[`image-staging-vs-baking.md`](image-staging-vs-baking.md) [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk).
+labelled **MEASURED** / **NOT MEASURED** in the manner of the measurements behind
+[`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model).
 
 **The short version.** The maintainer's two questions are one distinction. **Steady-state
 retention** — stopping new growth — is mostly shipped: C3 stopped the tars, C8 stopped the
@@ -59,8 +59,9 @@ and defers.
 - [`minimal-disk-footprint.md`](minimal-disk-footprint.md) — the three ledgers, invariants P1–P7, and the
   [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3) ruling whose automatic-on-launch disposition this doc
   either extends or distinguishes, per store.
-- [`image-staging-vs-baking.md`](image-staging-vs-baking.md) — the cost model; [§1.9](./image-staging-vs-baking.md#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)/[§1.10](./image-staging-vs-baking.md#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)
-  (the layer-chain and time measurements), C4/C5/C8 (shipped today), and [OQ-6](./image-staging-vs-baking.md#102-open-questions) (C6).
+- [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) — the [cost model](../reference/image-staging-vs-baking.md#cost-model)
+  (the layer-chain and time measurements), [store-delivered packages](../reference/image-staging-vs-baking.md#store-delivered-packages)
+  and [the mounted prefix](../reference/image-staging-vs-baking.md#the-mounted-prefix) (shipped today), and [OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way) (C6).
 - [`../plans/storage-lifecycle.md`](../plans/storage-lifecycle.md) — the consumer map, the rooting
   work, and the bounded store GC this doc proposes to replace with something narrower.
 - [`agent-cli-copies.md`](agent-cli-copies.md) [§5.1](./agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one) and
@@ -125,7 +126,7 @@ Levels, growth, who reclaims today, and how much of the level is backfill. "Trig
 | Store | Level (MEASURED unless marked) | Growth | Reclaimer / trigger today | Backfill |
 | :--- | :--- | :--- | :--- | :--- |
 | Podman image store (nested, this jail) | **30 rows / 29 images / 52.73 GB**, 100 % reclaimable (0 containers) at ~23:20; **24 images / 38.68 GB** earlier the same day, before six C4/C5/C8 verification launches. 28 are `yolo-jail`: 24 tagged, 4 `<none>` | 28 images between 2026-09-04 13:54 and 2026-09-06 21:45 — ~12/day at the dev-loop rate | `PruneOldImages` (`internal/prune/probes.go`), veto-protected; **auto-trigger shipped today** (`AutoReapOldImages`), debounced 24 h. **Has never fired here** — `build/last-image-reap` is absent | The whole store: the reap's first pass selects **14 of 24** tagged images ([§2.2](#22-the-image-reap-priced-against-this-store)) |
-| yolo's own outputs in `/nix/store` | **231** `*-yolo-jail-install-prefix` paths, **19.77 GB**, **220 unrooted**; **245** `*-yolo-jail-go-0-dev` paths, **10.02 GB**, **all 245 unrooted**; **316** `*-stream-yolo-jail` scripts, 298 unrooted (closures NOT MEASURED) | +79 prefixes, +68 Go builds, +104 streams since 2026-08-15 ([§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk): 152/177/212) — **≈ 0.43 GB/day** of unrooted garbage | **None.** `nix store gc` is reachable only via `yolo prune --nix-gc --apply` (host-only, default off) and the daemon's `min-free = 0` ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)) | **≥ 28.8 GB** (220 × 85.6 MB + 245 × 40.9 MB), plus the unrooted stream closures |
+| yolo's own outputs in `/nix/store` | **231** `*-yolo-jail-install-prefix` paths, **19.77 GB**, **220 unrooted**; **245** `*-yolo-jail-go-0-dev` paths, **10.02 GB**, **all 245 unrooted**; **316** `*-stream-yolo-jail` scripts, 298 unrooted (closures NOT MEASURED) | +79 prefixes, +68 Go builds, +104 streams since 2026-08-15 (the 2026-08-15 baseline behind [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model): 152/177/212) — **≈ 0.43 GB/day** of unrooted garbage | **None.** `nix store gc` is reachable only via `yolo prune --nix-gc --apply` (host-only, default off) and the daemon's `min-free = 0` ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)) | **≥ 28.8 GB** (220 × 85.6 MB + 245 × 40.9 MB), plus the unrooted stream closures |
 | Host `GLOBAL_CACHE` — `paths.GlobalCache()`, **shared by every workspace**; a jail sees it as `~/.cache` | **114 G**: pants 40 G (`lmdb_store` 27 G + `named_caches` 14 G), uv 34 G, go-build 18 G, images 11 G, pex 6.1 G, nce 2.0 G, pip 1.9 G, npm 1.5 G, staticcheck 941 M, nix 298 M, copilot 102 M | NOT MEASURED (no second sample) | `PurgeCacheByAge` (30 d) over uv/pip/npm/go-build/mise/pex/pants/node-gyp/gopls; `yolo prune --apply` only. `nce`, `staticcheck` uncovered | **49.34 GiB in ~369 k files older than 30 d** (pants 39.36 / 211 056 files, pex 6.44, uv 3.06, npm 0.41, pip 0.07, go-build 0); **+1.86 GiB** in `nce` (uncovered) |
 | The NESTED jail's own `paths.GlobalCache()` | **14 G**: images 9.9 GiB, npm 2.1 G, go-build 75 M, uv 88 K, nix 352 K | NOT MEASURED | same reaper, run by the in-jail `yolo` | a second, smaller instance of the row above — **not** a correction to it ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)) |
 | Image tars, host (`~/.cache/images`) | **3 tars, 10.7 GB**, newest 2026-08-24 | zero since C3 | `PruneImageCache` **keep=3** — so "none" to remove | **all 10.7 GB**: dead on podman since C3, kept only by the default |
@@ -171,9 +172,9 @@ is what "the shipped reaper does not reclaim the whole backlog" actually means:
 
 > [!IMPORTANT]
 > **The LRU-10 sets the floor, and C6 is what lowers it.** Ten protected images at the measured
-> ~2.7 GB unique each ([§1.9](./image-staging-vs-baking.md#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)) is a **~25 GB steady state** on any machine
+> ~2.7 GB unique each ([the cost model](../reference/image-staging-vs-baking.md#cost-model)) is a **~25 GB steady state** on any machine
 > that mints images faster than the LRU ages them, and no `keep` value changes it. A stable layer
-> chain ([OQ-6](./image-staging-vs-baking.md#102-open-questions)) would make ten coexisting images cost ten trailing layers instead of ten
+> chain ([OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way)) would make ten coexisting images cost ten trailing layers instead of ten
 > re-chained tails — the same lever priced there as time is priced here as the veto's floor.
 
 ### 2.3 yolo's own store outputs are never collected — the C8 finding
@@ -205,7 +206,7 @@ Three consequences, stated as findings:
 1. **C8 traded a tracked cost for an untracked one.** Before C8 a Go-only commit cost podman ~2.7 GB
    and ~26 s (tracked: Ledger C has a reaper and, since today, a trigger) *and* realized an install
    prefix plus a Go build in the store (~125 MB, untracked). After C8 the podman half is gone
-   ([§4](./image-staging-vs-baking.md#4-candidates-ranked) C8) and the store half is **all that is left**:
+   ([the mounted prefix](../reference/image-staging-vs-baking.md#the-mounted-prefix)) and the store half is **all that is left**:
    ≈ 0.43 GB/day at the 22-day rate, with no reaper, no trigger and no ledger. The 152 prefixes
    that existed on 2026-08-15 prove the accumulation predates C8; what C8 changed is that a
    superseded prefix becomes garbage *immediately* (its checkout's single out-link moves on)
@@ -240,7 +241,8 @@ Three consequences, stated as findings:
 
 ### 2.4 Caveats
 
-- **One machine, one jail.** Same limitation as every sibling measurement (image-staging R7).
+- **One machine, one jail.** Same limitation as every sibling measurement (the one-machine caveat
+  [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model) states over its cost model).
   The *shape* — a reaper whose trigger is a human, a floor set by an LRU, a store nobody collects —
   does not depend on the magnitude.
 - **The podman store moved during the day.** 38.68 GB / 24 images was true around midday; 52.73 GB
@@ -387,7 +389,7 @@ turns on.
 | L2 | **Let the shipped image reap run** — the first `AutoReapOldImages` pass against the backlog | backfill (steady state shipped) | **≈ 24 GB** of 52.73 here; ~3.5 GB more behind the `<none>` rows ([OQ-DF3](./minimal-disk-footprint.md#OQ-DF3) REACH) | zero code; the cost is **time on the launch path** — fourteen `rmi -f` of multi-GB images before the container starts (NOT MEASURED; see [§5.3](#53-triggers-defaults-and-the-post-launch-slot)) | shipped today; never fired here |
 | L3 | **Delete yolo's own superseded store outputs** — named `nix store delete` of unrooted `*-install-prefix` / `*-go-0-dev` paths, never a blanket GC | both | **≥ 28.8 GB**; +0.43 GB/day | new mechanism; **prerequisite: per-jail durable prefix roots** ([OQ-BF4](#OQ-BF4)) or nix's liveness check is the only veto and its view of containers is unestablished; host-only | nothing built |
 | L4 | **`ImageCacheKeep` → 0 where the runtime streams** (podman) | backfill | **≈ 20.6 GB** (10.7 host + 9.9 nested) | one constant, one predicate on the runtime; regeneration = a build; the fallback reader `newestTars` keeps working on whatever exists | knob is [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s ([OQ-DF1](./minimal-disk-footprint.md#112-open-questions) already ruled "keep zero" for the writer) |
-| L5 | **C6 — a stable layer chain** ([OQ-6](./image-staging-vs-baking.md#102-open-questions)) | steady state | lowers the LRU floor from ~10 × 2.7 GB to ~10 × (trailing layers); saves ~17.6 s of podman write per image that still rebuilds | a `flake.nix` change against an already-loaded base ref; Apple Container unproven | re-opened, unbuilt; **re-priced down for storage by C8** (the Go-only trigger is gone; what still rebuilds is `flake.*` and `packages:`) and **up as the floor-setter** |
+| L5 | **C6 — a stable layer chain** ([OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way)) | steady state | lowers the LRU floor from ~10 × 2.7 GB to ~10 × (trailing layers); saves ~17.6 s of podman write per image that still rebuilds | a `flake.nix` change against an already-loaded base ref; Apple Container unproven | re-opened, unbuilt; **re-priced down for storage by C8** (the Go-only trigger is gone; what still rebuilds is `flake.*` and `packages:`) and **up as the floor-setter** |
 | L6 | **C4 opt-in (`YOLO_STORE_PACKAGES=1`)** | steady state | one lean image per machine (1.5 GB) instead of one ~3 GB-unique image per distinct `packages:` list | shipped; opt-in per launch | shipped today |
 | L7 | **Run A7's version prune on every launcher invocation**, not only after an update | backfill | **≈ 1.28 GB** per workspace here; × N workspaces | a call-site change in the launcher template; evidence is the live symlink, complete by construction | steady state shipped 2026-09-04 |
 | L8 | **Small liveness-gated sweeps into the automatic slot** — agent staging orphans, retired loophole state, superseded captures | both | 36.5 MiB + 1.9 MiB + 0 here | already tri-state gated; trigger only | reapers shipped |
@@ -632,7 +634,7 @@ Observable, on a machine that upgrades onto this:
   ([OQ-BF4](#OQ-BF4)); the count of unrooted `*-yolo-jail-install-prefix` paths is ≤ the number of
   checkouts on the machine, and `*-yolo-jail-go-0-dev` paths number 0 after the slot runs.
 - A launch's wall clock is unchanged by any reclaim: measured before and after on the same
-  workspace, the cold and warm figures in [§1.8](./image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5) hold.
+  workspace, the cold and warm figures in [the cost model](../reference/image-staging-vs-baking.md#cost-model) hold.
 
 ---
 
@@ -663,7 +665,9 @@ Observable, on a machine that upgrades onto this:
 - **What it moves:** the shipped image reap from pre-start to the slot — an ordering change to a
   three-line call site, but one whose only test today is a real launch
   ([`minimal-disk-footprint.md`](minimal-disk-footprint.md) [§9](./minimal-disk-footprint.md#9-risks) R7).
-- **What it forecloses:** nothing in image-staging's list. C6 and C4 stay exactly as ranked there;
+- **What it forecloses:** nothing in image-staging's candidate ranking (its shipped rows are now
+  [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)'s body; C6 is
+  [`layer-aware-image-delivery.md`](layer-aware-image-delivery.md)'s). C6 and C4 stay exactly as ranked there;
   this doc only re-prices C6 as the floor-setter.
 - **What it does not buy:** the ~65 GB of *live* cache on this host, the device's non-yolo growth
   ([`minimal-disk-footprint.md`](minimal-disk-footprint.md) [§2.4](./minimal-disk-footprint.md#24-re-measured-2026-09-02--the-backlog-is-gone-here-and-the-device-kept-filling-anyway)),
@@ -702,7 +706,7 @@ Observable, on a machine that upgrades onto this:
   profile ([`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)).
 - **Apple Container's image store** — NOT MEASURED, no reaper, not designed against here.
 - **The worktrees** — named in [§2.1](#21-every-store-one-table) so they are not mistaken for yolo's; never touched.
-- **C6's design** — image-staging's [OQ-6](./image-staging-vs-baking.md#102-open-questions); this doc only adds the floor argument.
+- **C6's design** — image-staging's [OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way); this doc only adds the floor argument.
 
 ---
 
@@ -1076,7 +1080,7 @@ row cannot carry them.
    > which the [`macos.md`](../guides/macos.md) runbook claims and no CI job exercises.
    >
    > **Still not verified on hardware:** Apple Container. The same VM fact applies and no
-   > measurement exists ([`image-staging-vs-baking.md`](./image-staging-vs-baking.md) [§4](./image-staging-vs-baking.md#4-candidates-ranked) C8).
+   > measurement exists ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#backends)).
    > The refusal covers it — it is keyed on darwin, not on the runtime — so that backend now fails
    > with a sentence rather than `statfs`, which is the most that can be claimed from here.
 
@@ -1211,9 +1215,9 @@ are authoritative.
 
 | ID | Ruling | What it fixes here |
 | :--- | :--- | :--- |
-| `image-staging` [OQ-5](./image-staging-vs-baking.md#101-decision-ledger) | The tar backlog is a **bug**; minimal disk is the goal; yolo **may** delete without `--apply`. | Licenses the automatic tier at all; the offered tier is this doc's refinement for classes that ruling did not measure. |
+| `image-staging` [OQ-5](../reference/image-staging-vs-baking.md#why-its-this-way) | The tar backlog is a **bug**; minimal disk is the goal; yolo **may** delete without `--apply`. | Licenses the automatic tier at all; the offered tier is this doc's refinement for classes that ruling did not measure. |
 | `minimal-disk` [OQ-DF1](./minimal-disk-footprint.md#112-open-questions) | *"Stream, keep zero tars."* | L4's number is that ruling applied to the reaper's default ([OQ-BF6](#OQ-BF6)). |
 | `minimal-disk` [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3) (NUMBER + TRIGGER) | `keep=2`, automatic on the launch path, debounced 24 h, `YOLO_NO_AUTO_IMAGE_REAP=1`. | The precedent P3 generalises and P4 distinguishes ([§4](#4-why-backfill-and-steady-state-do-not-share-a-disposition)); its REACH half stays open there. |
-| `image-staging` [OQ-8](./image-staging-vs-baking.md#101-decision-ledger) (C8) | yolo's binaries are delivered by mount; the out-link is the prefix's GC root, keyed by checkout. | The store-garbage finding ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)) and [OQ-BF4](#OQ-BF4). |
+| `image-staging` [OQ-8](../reference/image-staging-vs-baking.md#why-its-this-way) (C8) | yolo's binaries are delivered by mount; the out-link is the prefix's GC root, keyed by checkout. | The store-garbage finding ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding)) and [OQ-BF4](#OQ-BF4). |
 | `agent-cli-copies` A7 / [`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md) | Keep-newest-2 over the vendor's version dir, run by the act that installed the new one. | L7 widens the trigger, not the rule. |
 | `program-delivery` [OQ-PD17](./program-delivery.md#decision-ledger) | Capture store reap is the complement of the resolver; K = 1; no age floor. | L8 gives it a trigger, not a policy. |

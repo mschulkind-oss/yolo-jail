@@ -39,7 +39,7 @@ actively wrong.
 **Reads with:** [`trust-paths.md`](trust-paths.md) ([OQ-TP4](trust-paths.md#decision-ledger) owns pinning for the **shipped** packs — a
 `LockEntry` field to record an npm version. Whether *this* doc depends on it is now [OQ-CI6](#decision-ledger): a fixture
 pack can be pinned with mechanisms that already ship),
-[`image-staging-vs-baking.md`](image-staging-vs-baking.md) (why the CLIs are not baked into the
+[`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#what-a-launch-delivers) (why the CLIs are not baked into the
 image, which is the constraint [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution) works inside).
 
 ---
@@ -383,7 +383,7 @@ headroom for a cost only one test pays.
 > nightly's redness is costing something while the real change is in flight, but it is a stopgap and
 > should be labelled one.
 
-Baking the CLIs into the image is **not** a lever — [`image-staging-vs-baking.md`](image-staging-vs-baking.md) deliberately keeps
+Baking the CLIs into the image is **not** a lever — [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#what-a-launch-delivers) deliberately keeps
 agent CLIs out of the image so a jail launch delivers them lazily, and reversing that to speed up a
 test would be the tail wagging the dog.
 

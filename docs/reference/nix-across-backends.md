@@ -32,7 +32,7 @@ other difference follows from that one.
 | Platform filtering of the declared list | `internal/config` (`EffectivePackages`, `PackagesExcludedOn`) |
 
 **Reads with:** [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md),
-[`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md),
+[`image-staging-vs-baking.md`](image-staging-vs-baking.md),
 [`macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md).
 
 ---

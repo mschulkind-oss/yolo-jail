@@ -295,7 +295,7 @@ on Linux.
 ### The same rule now decides whether a live checkout can launch at all
 
 Since 2026-09-06 yolo's own binaries are **bind-mounted** into the jail rather
-than baked into the image (`docs/design/image-staging-vs-baking.md` C8). An
+than baked into the image ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#the-mounted-prefix)). An
 installed bundle — Homebrew, the release archive, `just install` — ships them
 prebuilt under `$HOME`, which the VM does share, so nothing changes for it. A
 **live checkout** ships none, so they are built, and a built prefix lives in

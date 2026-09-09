@@ -194,7 +194,7 @@ sandbox reads the staged pack root and runs the toolchain, so what is untested i
 `sudo -u _yolojail` staging step above it, not the confinement.
 
 **And the one with a clock on it, which arrived here by losing its parent.** It was carried by the
-🛑 nightly entry and cited [`image-staging-vs-baking.md` §7](../design/image-staging-vs-baking.md#7-the-silent-fallback-defect--why-staging-is-worthless-without-honest-failure) —
+🛑 nightly entry and cited [`image-staging-vs-baking.md` "A failed build is fatal"](../reference/image-staging-vs-baking.md#a-failed-build-is-fatal) —
 a section about the silent-fallback defect that **never mentions darwin**. Its real home is
 [`macos-support-matrix.md` §0](../research/macos-support-matrix.md#0-the-platform-deadline--x86_64-darwin-is-on-a-clock), which now carries it; this row
 keeps the summary because it is the only item in this file with a **deadline** rather than a
@@ -402,7 +402,7 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../
 📄 [`minimal-disk-footprint.md` §11.2](../design/minimal-disk-footprint.md#112-open-questions) —
 **~~[OQ-DF1](../design/minimal-disk-footprint.md#112-open-questions)~~ (ruled 2026-08-25) · [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions) · [OQ-DF3](../design/minimal-disk-footprint.md#112-open-questions) · [OQ-DF4](../design/minimal-disk-footprint.md#112-open-questions)**
 
-**This row is the other half of the 📦 disk item below, and it exists because of what [OQ-5](../design/image-staging-vs-baking.md#101-decision-ledger) did and
+**This row is the other half of the 📦 disk item below, and it exists because of what [OQ-5](../reference/image-staging-vs-baking.md#why-its-this-way) did and
 did not settle.** You ruled that the cached tars are a **bug** and that yolo may delete them without
 `--apply`. That settles the *premise* and the *goal*; it does not say which component does the
 deleting, how far into podman's shared image store yolo may reach, or whether *"minimal"* is ever
@@ -432,7 +432,7 @@ load ledger now declines the sweep instead of vetoing nothing. **So [OQ-DF3](../
 whether a veto is needed.** What is unruled is the RETENTION RULE and the REACH into a podman store
 shared with your non-yolo work — and the retention half now has a price attached: a coexisting
 content-tagged image measures **2.836 GB unique** unless it is a same-store-path re-stream, which is
-91.36 kB ([`image-staging-vs-baking.md` §1.8](../design/image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5)). **[OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)** decides which
+91.36 kB ([`image-staging-vs-baking.md` "Cost model"](../reference/image-staging-vs-baking.md#cost-model)). **[OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)** decides which
 component does the deleting, which is why the 📦 row below is still scoped to the mechanism rather
 than to any number.
 
@@ -917,7 +917,7 @@ them, and one merge decided 💬 20 in code — see that row.
   from the host side** — the doc says so itself, so answering CR1 alone answers half a question.
   📄 [`cache-relocation.md`](cache-relocation.md).
 
-  **[OQ-5](../design/image-staging-vs-baking.md#101-decision-ledger)'s ruling costs this row one of its two motivating consumers, and nothing else.** Relocating
+  **[OQ-5](../reference/image-staging-vs-baking.md#why-its-this-way)'s ruling costs this row one of its two motivating consumers, and nothing else.** Relocating
   `cache/images` to a spare disk was the second one, and it is what `yolo prune`'s own hint used to
   recommend — **no longer**: `4064f720` retired that advice on 2026-08-25, and the hint now printed
   (`internal/prune/prunecmd.go:281-284`) tells you to reclaim the backlog instead. Under *"I see no
@@ -934,9 +934,9 @@ them, and one merge decided 💬 20 in code — see that row.
   💬 5's OQ-A ruling plus an appetite. 📄
   [`boundary-broker.md` §8](../design/boundary-broker.md#8-where-this-sits-against-the-rest-of-the-queue--my-priority-read).
 
-- 🧊 **C4/C5 — the opt-in fast image path.** Shape ruled 2026-08-25 (image-staging [OQ-1](../design/image-staging-vs-baking.md#101-decision-ledger): opt-in,
+- 🧊 **C4/C5 — the opt-in fast image path.** Shape ruled 2026-08-25 (image-staging [OQ-1](../reference/image-staging-vs-baking.md#why-its-this-way): opt-in,
   baked path retained); the gating re-measurement is TAKEN
-  ([`image-staging-vs-baking.md` §1.8](../design/image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5)) and reports a flat
+  ([`image-staging-vs-baking.md` "Cost model"](../reference/image-staging-vs-baking.md#cost-model)) and reports a flat
   curve on the workload it could measure — C3 discharged C4's disk case, C2 its frequency case, the
   52 s cold launch is one C4 does not shorten, and **the one workload C4 exists for is explicitly
   not measured there**. Genuinely awaiting your go/no-go; queueing it before that call would be

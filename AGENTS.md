@@ -147,8 +147,9 @@ there is no sync step.
   commit touching only `cmd/` or `internal/` no longer moves
   `nix eval .#ociImage.outPath` — no rebuild, no `podman load`. MEASURED; the
   image now moves only for `flake.nix`, `flake.lock` or `packages:`
-  (`docs/design/image-staging-vs-baking.md` C8, which also states the security
-  delta: what executes in the jail is now host-mutable with no rebuild, and that
+  ([`docs/reference/image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md#the-mounted-prefix),
+  whose [security delta](docs/reference/image-staging-vs-baking.md#the-security-delta) states the
+  trade: what executes in the jail is now host-mutable with no rebuild, and that
   is the trade being made deliberately).
   **This is NOT the old `/opt/yolo-jail/dist-go` dev-override**, which is still
   gone and still a bad idea: that was a SECOND copy that let a stale binary
@@ -460,7 +461,8 @@ there is no sync step.
 - **`packages:` can come from the mounted nix store instead of the image** — `YOLO_STORE_PACKAGES=1`,
   podman + Linux + a running nix daemon only, otherwise the launcher says so and bakes. The
   ruling is **opt-in fast path, baked path retained, per LAUNCH and never per package**
-  (`docs/design/image-staging-vs-baking.md` §4 C4/C5, OQ-1 / R2): an opt-in launch builds the
+  ([`docs/reference/image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md#store-delivered-packages),
+  ruling [OQ-1](docs/reference/image-staging-vs-baking.md#why-its-this-way)): an opt-in launch builds the
   image with **no `YOLO_EXTRA_PACKAGES`** and gets its tools from a boot-written symlink farm at
   `/run/yolo/packages` (`internal/entrypoint/storepackages.go`); a launch that does not opts into
   nothing and gets them from `/bin`. Exactly one mechanism is live in any jail — a package both
@@ -549,7 +551,7 @@ there is no sync step.
 | Config-change confirmation flow | `docs/design/config-safety.md` |
 | Timing spans: `--timing`, `--verbose`, `perf_logging`, the host perf log, Window A attribution | `docs/reference/perf-logging.md` |
 | Storage paths and state separation | `docs/design/storage-and-config.md` |
-| What the image must bake vs. what a launch delivers; the rebuild/reload cost model | `docs/design/image-staging-vs-baking.md` |
+| What the image must bake vs. what a launch delivers; the mounted prefix; the rebuild/reload cost model | [`docs/reference/image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md) |
 | Cgroup delegate security model | `docs/design/security-shim.md` |
 | macOS backends | `docs/guides/macos.md` |
 | macos-user nix integration + disabled-feature surface | `docs/design/macos-user-nix-and-features.md` |

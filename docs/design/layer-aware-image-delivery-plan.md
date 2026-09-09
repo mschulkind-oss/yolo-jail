@@ -184,8 +184,8 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
   but the degraded branch still reads legacy ones.
 - **Docs describing the old thing**, by path: `docs/reference/nix-across-backends.md:75`;
   `docs/guides/USER_GUIDE.md:164`; `docs/design/minimal-disk-footprint.md:184` (the
-  `streamLayeredImage` diagram), `:216`, `:318`, `:401`; `docs/design/image-staging-vs-baking.md` C3
-  and its [OQ-6](image-staging-vs-baking.md#OQ-6) answer; `docs/guides/macos.md:791`;
+  `streamLayeredImage` diagram), `:216`, `:318`, `:401`; [`docs/reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#streaming-into-the-runtime)
+  (the streaming section) and its [OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way) row; `docs/guides/macos.md:791`;
   `AGENTS.md:148`; and the skill shipped into every jail,
   `internal/jailcontent/builtinskills/developing-yolo-jail/SKILL.md:64,143,162`.
 - **Surfaces that are neither.** The three workflows and `Justfile:204-205`
@@ -215,7 +215,7 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
   copier is built, and that is the whole consequence ([OQ-LI1](layer-aware-image-delivery.md#OQ-LI1)'s three constraints). And don't
   materialize an OCI layout in the nix store
   ([§6](layer-aware-image-delivery.md#6-alternatives-considered) C):
-  [OQ-5](image-staging-vs-baking.md#101-decision-ledger) ruled that a bug after 404 GiB.
+  [OQ-5](../reference/image-staging-vs-baking.md#why-its-this-way) ruled that a bug after 404 GiB.
 - Don't fold this into the prune liveness defect, and don't re-decide
   [OQ-LI4](layer-aware-image-delivery.md#OQ-LI4)'s ordering key — cite
   [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3), which makes the retention **unit**
@@ -228,7 +228,7 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
 **All three parts of the gate are open. Any one of them stops all work.**
 
 1. **The maintainer's go/no-go on adopting nix2container at all.**
-   [OQ-6](image-staging-vs-baking.md#OQ-6) explicitly *moved* that authorization to this design and
+   [OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way) explicitly *moved* that authorization to this design and
    granted none — "the withheld authorization stays withheld".
    [§1](layer-aware-image-delivery.md#1-the-verdict)'s "Adopt nix2container" is a verdict written
    for the decider, not an approval, and the doc's own status is "DESIGN SKETCH. Nothing built."
