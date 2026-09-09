@@ -257,10 +257,18 @@ func (e *Env) Lookup(key string) (string, bool) {
 // GeneratedBinDir is HOME/.yolo/bin — the parent of every directory of yolo-GENERATED
 // executables in the jail, and the single bind-mount ANCHOR behind them.
 //
-// It gathers them in the FILESYSTEM only. Its children sit at opposite ends of PATH by
-// design — blockers first, launchers last — so nothing may ever put this parent on PATH
-// and pick up both at once. Mirrors the host's own <state>/bin/{wrap} shape, which is what
-// gives the three mechanisms one vocabulary (host-agent-environment.md §5.3, OQ-6).
+// It gathers them in the FILESYSTEM only, and nothing may ever put this parent on PATH.
+//
+// ⚠ THE REASON CHANGED WITH B2, and this comment gave the old one until 2026-09-09. The two
+// children were once at opposite ENDS of PATH (blockers first, launchers last), so putting
+// the parent on PATH would have collapsed a deliberate span. They are now ADJACENT AT THE
+// HEAD — blockers first, launchers second, ahead of every install prefix — and the rule
+// survives for a sharper reason: the parent holds both, so a launcher reached through it
+// would be reachable from the BLOCKERS' position, which is the one precedence relation
+// interception depends on. See BlockDir and LaunchDir, and BootPath for the order itself.
+//
+// Mirrors the host's own <state>/bin/{wrap} shape, which is what gives the mechanisms one
+// vocabulary (host-agent-environment.md OQ-6).
 func (e *Env) GeneratedBinDir() string { return filepath.Join(e.Home, ".yolo", "bin") }
 
 // BlockDir is HOME/.yolo/bin/block — the BLOCKER dir, ordered FIRST on PATH.

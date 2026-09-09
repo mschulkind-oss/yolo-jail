@@ -445,8 +445,13 @@ func HomeSurfaces() []HomeSurface {
 
 // GeneratedBinDir returns $HOME/.local/share/yolo-jail/bin — the parent of every
 // directory of yolo-GENERATED executables. It is a gathering point in the FILESYSTEM
-// only: its children sit at opposite ends of PATH by design (blockers first, launchers
-// last), so nothing may ever put this parent on PATH and pick up all three at once.
+// only, and nothing may ever put this parent on PATH.
+//
+// ⚠ Its children are ADJACENT AT THE HEAD of PATH since B2 (2026-09-04), not at opposite
+// ends as this comment said until 2026-09-09, and there are TWO of them (block, launch) —
+// not the three it counted. The rule holds for a better reason than the span it used to
+// protect: the parent holds both, so a launcher reached through it would be reachable from
+// the blockers' position. entrypoint.Env.GeneratedBinDir carries the same note.
 //
 // See host-agent-environment.md OQ-6 for the naming ruling that created it.
 func GeneratedBinDir() string { return GeneratedBinDirUnder(home()) }

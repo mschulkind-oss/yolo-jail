@@ -552,7 +552,7 @@ there is no sync step.
   so a jail whose packs declare no briefing destination leaves the pointer fresh
   instead of eating it. Core cannot tell an agent launch from `yolo -- bash`, so a
   consumed handoff is announced on stderr with the `mv` that restores it — see
-  [docs/design/host-to-jail-handoff.md](docs/design/host-to-jail-handoff.md) §9.
+  [docs/reference/host-to-jail-handoff.md](docs/reference/host-to-jail-handoff.md#consuming-the-pointer).
   Skill priority: built-in < host user-level < workspace.
 
 ## Where things live
@@ -564,17 +564,20 @@ there is no sync step.
 | Pack authoring + the `packs` key | `yolo pack --help`, `docs/reference/pack-system.md` |
 | CLI surface | `yolo --help` |
 | End-user usage, devices/GPU, mise tools, `yolo-cglimit` | `docs/guides/USER_GUIDE.md` |
-| Mounts, overlays, home layout | `docs/design/jail-home.md` |
-| Per-agent briefing generation | `docs/design/agent-briefings.md` |
-| MCP/LSP config, node wrappers, `LD_LIBRARY_PATH` story | `docs/design/mcp-configuration.md` |
+| Mounts, overlays, home layout | `docs/reference/jail-home.md` |
+| Per-agent briefing generation, and skills staging | `docs/reference/agent-briefings.md` |
+| MCP/LSP config and the node/npx wrappers | `docs/reference/mcp-configuration.md` |
+| The `LD_LIBRARY_PATH` / nix-ld story, and the `/lib` farm | `docs/reference/mise-node-dynamic-linking.md` |
 | Loopholes (`audio`, `host-processes`, `journal`, `cgroup-delegate` in packs of their own; `claude-oauth-broker` contributed by `packs/claude`) | `docs/guides/loopholes.md`, `docs/reference/loophole-protocol.md` |
 | Config-change confirmation flow | `docs/design/config-safety.md` |
 | Timing spans: `--timing`, `--verbose`, `perf_logging`, the host perf log, Window A attribution | `docs/reference/perf-logging.md` |
-| Storage paths and state separation | `docs/design/storage-and-config.md` |
+| Storage paths and state separation | `docs/reference/storage-and-config.md` |
 | What the image must bake vs. what a launch delivers; the mounted prefix; the rebuild/reload cost model | [`docs/reference/image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md) |
 | Cgroup delegate security model | `docs/design/security-shim.md` |
 | macOS backends | `docs/guides/macos.md` |
-| macos-user nix integration + disabled-feature surface | `docs/design/macos-user-nix-and-features.md` |
+| macos-user nix integration + disabled-feature surface | `docs/reference/macos-user-nix-and-features.md` |
+| The standing macOS direction (three axes, one composed product) | `docs/reference/macos-no-vm-direction.md` |
+| The one-time host→jail handoff | `docs/reference/host-to-jail-handoff.md` |
 
 Agent logs, for debugging: `~/.copilot/logs/`,
 `~/.claude/projects/` inside the jail; same paths under
