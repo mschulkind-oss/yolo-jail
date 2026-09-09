@@ -40,6 +40,70 @@ cross-reference; commit `9721660` moved [`handoff-cachix-cache.md`](handoff-cach
 `docs/plans/README.md`. The "Action" column and the [§4](#4-cross-reference-patch-plan) patch plan below record
 what was done.
 
+## The 2026-09-09 disposition — the restructure this file's taxonomy finally licensed
+
+**The count was never the problem; the exit was.** `docs/design/` held 81 files and 48,288 lines
+against four docs in `docs/reference/`. The `system-doc` genre has a final
+phase — built → distill into an evergreen reference → **delete the design doc** — and it had fired
+four times against roughly forty docs that qualified. So the planning tree was not full of open
+work. It was full of **finished work that never left**, and the mixing is what made the corpus
+unmanageable: a reader cannot tell a live proposal from a system description by looking at the
+directory.
+
+`AGENTS.md`'s own *Where things live* table was the tell. It pointed at `docs/reference/` for two
+topics and at `docs/design/` for nine others, with no principle separating them except when
+somebody last did the graduation.
+
+### The buckets, measured 2026-09-09
+
+| Bucket | Count | What it meant here | Disposition |
+| :--- | :--- | :--- | :--- |
+| **A** | 40 | Reference — describes a built system. **37 of the 40 carried zero live `💬`.** Fourteen were named by `AGENTS.md` as *the* authority for a topic. | → `docs/reference/` |
+| **B** | 25 | Active design. 20 carry live questions; 5 are fully ruled. | **Stays in `docs/design/`.** This is what the planning tree is for. |
+| **C** | 14 | History — decided, built, and finished. | Folded into a reference where it duplicated one, else archived (`git rm`; git keeps it). |
+
+### What the disposition is NOT allowed to do
+
+> [!IMPORTANT]
+> **A reference doc may not carry a live `💬`.** Where a doc mixed a built system with an unanswered
+> question, the question stayed behind in `docs/design/` as a **stub at the original filename** — so
+> the roadmap row that routes it keeps resolving — and only the built body graduated. Deciding this
+> per-doc, rather than by a rule, is why the graduation is a rewrite and not a `git mv`.
+
+> [!WARNING]
+> **Rule IDs are an API and archiving breaks them.** `OQ-N`, `P1`, `R3`, `Test 1`, `CFP-2`, `SS-6`
+> are cited from Go comments, sibling docs and the roadmap — this repo's convention is that a
+> comment cites the design doc explaining *why*. A ruling that survives keeps its **original id** in
+> the reference's `## Why it's this way` appendix, because after the design doc is deleted that
+> appendix is the only place the id resolves. Measured cost before starting: 25 files cite
+> `profiles-as-pack-variants.md`, 21 cite `pack-config-collaboration.md`, 20 cite
+> `pack-config-keys.md`, 13 cite `host-apply-staleness.md` (several by `R3`), ~37 cite
+> `loophole-activation.md`. **Nine of the fourteen C docs had code citations and so were not freely
+> deletable** — only five were.
+
+### Where the work was hardest, and why
+
+Two families were not "docs in the wrong tree" but **one subsystem described three times**, which is
+the shape that actually causes drift:
+
+- **Loopholes** — five docs, 6,766 lines. `loophole-protocol` and `loophole-transport` were clean and
+  separable; `loophole-activation`, `loophole-packaging-overview` and `loophole-packaging` overlapped
+  heavily and all three said "built", while the last buried the subsystem's only two live questions
+  at line 2,443. Two of the three needed a status correction the same night, and a kind count that
+  had rotted in the overview was asserted identically in two other files. **One fact, four copies,
+  three of them wrong** — that is the argument for consolidating, not against it.
+- **Packs** — ten docs around `pack-system.md`, which `AGENTS.md` names as the authority. Its opening note said
+  fifteen kinds where the code declares nineteen, and its command-surface section described an
+  approval prompt deleted four days earlier.
+
+### The lesson for the next run
+
+**Start from the code, not from the status lines.** The 2026-07-03 sweep hunted docs that were *done
+and still filed as pending*. This one mostly found the inverse: **reference docs whose content
+rotted while their status line kept asserting a verification date.** `jail-home.md` is the type
+specimen — "Spot-verified 2026-08-23", with a mount table and a PATH section that two later changes
+had falsified. A status line is a claim like any other, and it is the one nobody re-checks.
+
 ## The three buckets (your taxonomy)
 
 - **A — Reference (keep in place).** Describes a system that *still exists*, at
