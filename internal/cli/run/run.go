@@ -1316,11 +1316,14 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// Launch line to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4.
-	if v, ok := runtime.BakedYoloVersionFromInspectEnv(envLines); ok {
-		o.emitLaunchBanner(rt, cname, nil, v)
-	} else {
-		o.emitLaunchBanner(rt, cname, nil, "")
-	}
+	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
+	o.emitLaunchBanner(rt, cname, nil, baked)
+	// THE SKEW LINE. The banner prints the baked version; this prints the
+	// DIFFERENCE, which is the actionable half. It matters more now than it did:
+	// since flake-bundle generations, an old jail keeps WORKING across a host
+	// install instead of breaking, so nothing else would tell the user their
+	// session is running last week's yolo-entrypoint (attachskew.go).
+	o.warnIfJailIsOlderThanTheLauncher(baked)
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
 	} else {
