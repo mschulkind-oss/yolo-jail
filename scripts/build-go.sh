@@ -48,10 +48,23 @@ fi
 VERSION="${VERSION:-$(git describe --tags --dirty --always 2>/dev/null || true)}"
 COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 
+# -trimpath, matching the hermetic build in flake.nix (OQ-WP2). Without it the
+# link output carries the absolute directory the build ran in, and Go's build
+# cache is position-independent enough to REUSE a compile action recorded
+# elsewhere — so the two are not the same fact. Measured 2026-09-09 on this
+# repo: the dist-go/ binaries sitting in the tree held 5429 references to
+# /home/matt/code/yolo-jail/... (1267 distinct source files) because the cache
+# entries had been produced on the HOST, while a fresh in-jail build of the same
+# tree wrote 694 /workspace/... paths instead. Either way the binary states where
+# it was built, and the host spelling states the maintainer's home directory
+# layout inside an artifact whose whole point is that the jail cannot see it.
+# With the flag both counts are zero and the paths read as
+# github.com/mschulkind-oss/yolo-jail/internal/..., which is also what makes a
+# shipped bundle reproducible between the host build and the jail build.
 for cmd in "${CMDS[@]}"; do
     echo "build-go: ${cmd} -> ${OUTDIR}/${cmd} (${GOOS}/${GOARCH})"
     CGO_ENABLED="${CGO_ENABLED:-0}" GOOS="$GOOS" GOARCH="$GOARCH" \
-        go build \
+        go build -trimpath \
         -ldflags "-X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=${VERSION} -X github.com/mschulkind-oss/yolo-jail/internal/version.GitCommit=${COMMIT}" \
         -o "${OUTDIR}/${cmd}" "./cmd/${cmd}"
 done
