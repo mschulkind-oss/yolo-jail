@@ -13,7 +13,11 @@
 //     and flushed on resume.
 //   - NO Setsid (setsid broke `podman -it`); NEVER signal.Notify(SIGTSTP)
 //     (default disposition required to actually stop).
-//   - SIGCONT -> re-raw the host TTY. SIGWINCH -> TIOCSWINSZ to the pty.
+//   - SIGCONT -> re-raw the host TTY, and resync the window size (a resize while
+//     stopped raises no signal we will see). SIGWINCH -> TIOCSWINSZ to the pty,
+//     then a TARGETED SIGWINCH at the child pid — the runtime shares our process
+//     group on the host tty and reads its size from the proxy pty, so without the
+//     poke it can read a stale size and nothing ever corrects it (resyncWinsize).
 //   - SIGHUP/SIGTERM -> restore cooked termios, run onTerminate, exit 128+n.
 //   - stdin EOF -> stop reading stdin, keep pumping the master until child exit
 //     (the decided semantics).
@@ -45,6 +49,53 @@ const (
 // getWinsize reads the terminal window size from fd.
 func getWinsize(fd int) (*unix.Winsize, error) {
 	return unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
+}
+
+// resyncWinsize copies the host tty's window size onto the proxy pty and then
+// POKES THE CHILD, in that order. It is the fix for size drift — the ptys in a
+// jail chain disagreeing about rows and columns, which shows up as an agent TUI
+// wrapping in the wrong place until something forces a redraw.
+//
+// THE RACE. yolo does not setsid the runtime child (it cannot — setsid leaves
+// podman with no controlling tty and breaks `-it`'s pty allocation; see the
+// frozen-behavior notes above), so podman stays in this process's group ON THE
+// HOST TTY and the kernel signals it with the same SIGWINCH, simultaneously. Its
+// STDIO, though, is the proxy pty. If podman's handler runs before ours it reads
+// the size we have not written yet and pushes that stale value into the
+// container, and nothing corrects it: TIOCSWINSZ on the proxy pty raises no
+// SIGWINCH because that pty has no foreground process group to raise it at
+// (verified — tcgetpgrp on it returns ENOTTY). A coin flip with no recovery path,
+// decided per resize.
+//
+// Measured 2026-09-09 across eight live jails on terrapin: both outer ptys agreed
+// and several containers were a row short, three of them re-drifting on their own
+// within fifteen minutes. A bare `kill -WINCH` at the podman pid fixed each
+// instantly, which is what places the fault at this boundary.
+//
+// TARGETED AT THE PID, never the process group: a pgroup signal from here would
+// be jail-visible, which the frozen-behavior block rules out for the same reason
+// it rules out the ^Z broadcast. Unconditional rather than compared against a
+// last-sent size — a redundant signal costs one redraw, while tracking the last
+// size adds a second source of truth that can itself go stale.
+//
+// This does not suppress the racing first signal; podman may still act once on a
+// stale size and then correct itself. And it cannot help a window that is garbled
+// while every pty already AGREES: the kernel raises no SIGWINCH for a TIOCSWINSZ
+// that writes the size already there, so there is nothing to re-signal. That case
+// is a repaint fault in the TUI or the emulator, and no amount of this fixes it.
+func resyncWinsize(inFd, master int, c *exec.Cmd) {
+	ws, err := getWinsize(inFd)
+	if err != nil {
+		return
+	}
+	setWinsize(master, ws)
+	// AFTER the write, which is the whole point: podman re-reads from the proxy
+	// pty, so it must be authoritative before we ask. Errors are ignored in the
+	// existing style of this file — after the child exits this is a signal to a
+	// dead pid, which is the normal way a session ends.
+	if c != nil && c.Process != nil {
+		_ = c.Process.Signal(syscall.SIGWINCH)
+	}
 }
 
 // setWinsize writes the window size to fd (TIOCSWINSZ).
@@ -143,11 +194,16 @@ func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate f
 		for s := range sigCh {
 			switch s {
 			case syscall.SIGWINCH:
-				if ws, err := getWinsize(inFd); err == nil {
-					setWinsize(master, ws)
-				}
+				resyncWinsize(inFd, master, c)
 			case syscall.SIGCONT:
 				setRaw(inFd, cooked) // host TTY was cooked while suspended
+				// AND RESIZE. A window resized while we were stopped changed the
+				// host tty behind our back, and the resulting SIGWINCH is only
+				// delivered if one was pending — a resize that happened before the
+				// stop, or several that coalesced, leaves us resumed at the wrong
+				// size with no further signal coming. Same drift, different
+				// trigger.
+				resyncWinsize(inFd, master, c)
 			case syscall.SIGHUP, syscall.SIGTERM:
 				termOnce.Do(func() {
 					restoreCooked()

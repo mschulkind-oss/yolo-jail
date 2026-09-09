@@ -195,7 +195,22 @@ Concretely (`src/cli/tty_proxy.py`):
   6. SIGCONT handler retakes raw mode when `fg` resumes us.  The
      queued-after-^Z bytes get flushed.
   7. SIGWINCH handler propagates host TTY size changes to the inside
-     pty via `TIOCSWINSZ`.
+     pty via `TIOCSWINSZ`, **and then sends a targeted `SIGWINCH` to
+     the runtime child's pid**.  The write alone is not enough and this
+     line used to claim it was: because we do not `setsid` the child
+     (see below), podman is in our process group on the host tty and
+     gets the same kernel `SIGWINCH` we do, while reading its size from
+     the proxy pty.  If its handler wins the race it reads the size we
+     have not written yet and pushes that stale value into the
+     container — and nothing corrects it, since `TIOCSWINSZ` on the
+     proxy pty raises no signal (that pty has no foreground process
+     group; `tcgetpgrp` returns `ENOTTY`).  The poke goes after the
+     write, so podman's re-read cannot be early, and at the **pid**,
+     never the group — a group signal here would be jail-visible.
+     `SIGCONT` resyncs the same way, since a resize while stopped may
+     leave no signal for us to see.  Measured 2026-09-09 across eight
+     live jails: several containers a row short of both outer ptys,
+     three re-drifting within fifteen minutes.
   8. When stdin isn't a TTY (CliRunner, pipes, automation),
      `run_with_proxy` falls back to plain `subprocess.Popen` so test
      harnesses keep working.
@@ -214,6 +229,13 @@ resume together.  We want that.
 
 We tried it and removed it.  `setsid()` would put podman in its own
 session with no controlling TTY, breaking `-it`'s pty allocation.
+
+This is also why item 7 needs its targeted re-signal rather than the
+textbook fix.  Giving podman its own session would make the proxy pty
+a real controlling terminal, so `TIOCSWINSZ` would signal it
+naturally and the race would not exist — but that is precisely the
+change this section forbids.  Do not reintroduce `setsid` to fix
+window resizes.
 We want podman to inherit our session and just have the slave pty as
 its stdio.  Bash's job-control machinery still tracks the proxy
 because bash put the proxy in its own pgrp before `tcsetpgrp`'d the
@@ -297,13 +319,17 @@ output (e.g. claude's exit summary) would be truncated.
 
 ## Files involved
 
-  * `src/cli/tty_proxy.py` — the proxy module.
-  * `src/cli/run_cmd.py` — three call sites use `run_with_proxy`:
-    exec-into-existing (line ~615), exec-into-raced-existing (~670),
-    new-container (~1860).
-  * `src/cli/__init__.py` — re-exports `run_with_proxy` so tests can
-    `from cli import run_with_proxy`.
-  * `tests/test_cli_unit.py` — `TestRunWithProxy` covers the no-TTY
-    fallback path.
-  * `scratch/test_tty_proxy.py` — manual smoke test harness (not
-    committed; gitignored under `scratch/`).
+The code is Go; this section described the deleted Python tree until
+2026-09-09.
+
+  * `internal/ttyproxy/ttyproxy.go` — the proxy. `RunWithProxy` is the
+    entry point, `resyncWinsize` is item 7, and the package doc carries
+    the frozen-behavior list this document is the long form of.
+  * `internal/cli/run/proxy_linux.go` / `proxy_other.go` — the
+    `runWithProxy` wrapper and its non-Linux plain-exec fallback.
+  * `internal/cli/run/run.go` — two call sites: `attachExisting` (the
+    exec-into-existing arm, and its raced twin) and the fresh launch.
+  * `internal/cli/run/runcmd.go` — a third, for the non-jail passthrough.
+  * `internal/ttyproxy/ttyproxy_test.go` — the no-TTY fallback, pty
+    passthrough, the targeted-suspend guard, and
+    `TestWinchResignalsTheChild` for item 7.
