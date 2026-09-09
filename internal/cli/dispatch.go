@@ -31,6 +31,7 @@ var registry = map[string]func(args []string) int{
 	"init-user-config":      runInitUserConfig,
 	"broker":                runBroker,
 	"prune":                 runPrune,
+	"stores":                runStores,
 	"programs":              runPrograms,
 	"macos-setup":           runMacosSetup,
 	"macos-teardown":        runMacosTeardown,

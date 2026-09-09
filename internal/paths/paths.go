@@ -552,6 +552,17 @@ func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 // created to pin. Different lifetime, different dir.
 func PackageRootsDir() string { return filepath.Join(BuildDir(), "package-roots") }
 
+// StoreSamplesDir returns $HOME/.local/share/yolo-jail/stores — the bounded
+// sample ledger `yolo stores` writes, one <store-key>.samples file per store,
+// one dated line per store per run (docs/design/disk-levers-and-backfill.md
+// OQ-BF9).
+//
+// A DEDICATED LEAF, and a small one by construction: the ledger is capped at the
+// last 30 samples per store, so the handle on growth cannot itself become a
+// store that grows. `yolo stores` is its only writer — nothing on the launch
+// path, and nothing in internal/prune, reads or writes here.
+func StoreSamplesDir() string { return filepath.Join(GlobalStorage(), "stores") }
+
 // FlakeBundleDir is where a from-source `just install` stages the self-contained
 // flake bundle (flake.nix + flake.lock + prebuilt bin/linux-<arch>/) so an
 // installed `yolo` builds the jail image with no source checkout — the

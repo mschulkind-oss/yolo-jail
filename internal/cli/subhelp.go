@@ -33,6 +33,8 @@ package cli
 import (
 	"io"
 	"slices"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/stores"
 )
 
 // subUsage is one command's help registration.
@@ -81,10 +83,13 @@ var subcommandUsage = map[string]subUsage{
 	// doctor is an alias for check (same handler, same body), so it registers the
 	// same text — which names the alias — rather than a near-duplicate that would
 	// drift.
-	"doctor":                {text: checkUsage},
-	"stop":                  {text: stopUsage},
-	"ps":                    {text: psUsage},
-	"prune":                 {text: pruneUsage, valueFlags: []string{"--keep-images", "--image-cache-keep", "--cache-age", "--nix-gc-max"}},
+	"doctor": {text: checkUsage},
+	"stop":   {text: stopUsage},
+	"ps":     {text: psUsage},
+	"prune":  {text: pruneUsage, valueFlags: []string{"--keep-images", "--image-cache-keep", "--cache-age", "--nix-gc-max"}},
+	// The text lives with the command, in internal/cli/stores, because that package
+	// owns the flags it documents; this table stays the one complete inventory.
+	"stores":                {text: stores.Usage},
 	"loopholes":             {text: loopholesUsage},
 	"broker":                {text: brokerUsage, valueFlags: []string{"-n", "--lines"}},
 	"init":                  {text: initUsage, valueFlags: []string{"--mount", "-m"}},

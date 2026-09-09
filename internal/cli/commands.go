@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/stores"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -265,6 +266,41 @@ func pruneOptions(args []string) prune.Options {
 		}
 		opts.CacheRelocations = m
 	}
+	return opts
+}
+
+// runStores runs `yolo stores` (the read-only store inventory + its bounded
+// sample ledger). Everything it does lives in internal/cli/stores; this front
+// door exists to answer --help before any store is walked, and to hand over the
+// ONE thing that package cannot resolve for itself.
+//
+// That one thing is the CONFIG-AWARE RUNTIME, and it is the same line prune's
+// front door carries for the same reason: internal/cli/stores does not import
+// internal/config, so without this it would fall back to a config-blind probe
+// and report an Apple Container host's image store as "no container runtime".
+// A line that can be deleted with the stores package's own suite still green,
+// which is why storesOptions is split out and pinned by TestStoresOptionsWiring.
+func runStores(args []string) int {
+	// Before the walk: an inventory of every store on the machine is the LAST
+	// thing someone asking what this command does wants to wait for. See subhelp.go.
+	if answerHelp("stores", args, os.Stdout) {
+		return 0
+	}
+	return stores.Run(storesOptions(args))
+}
+
+// storesOptions turns `yolo stores`'s argv into the engine's Options plus the
+// config-aware runtime resolver — see runStores for why that one seam is the
+// front door's to inject.
+func storesOptions(args []string) stores.Options {
+	opts := stores.ParseArgs(args)
+	opts.Color = true
+	opts.IsTTYStdout = isTTYStdout
+	ws, err := os.Getwd()
+	if err != nil {
+		ws = "."
+	}
+	opts.DetectRuntime = func() string { return detectListingRuntime(ws) }
 	return opts
 }
 

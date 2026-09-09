@@ -13,6 +13,10 @@ var commandHelp = []struct{ name, blurb string }{
 	{"check", "Validate runtime, nix, config, image, and running jails (alias: doctor)"},
 	{"ps", "List running yolo-* jails and their workspaces"},
 	{"prune", "Reclaim disk: stale containers, images, caches (dry-run unless --apply)"},
+	// Sits beside prune because the two answer different questions about the same
+	// disk: prune prices what it WOULD delete, stores prices what EXISTS — including
+	// the stores nothing reclaims, which prune cannot show by construction.
+	{"stores", "Inventory every store: size, growth, what reclaims it (and what nothing does)"},
 	{"broker", "Manage the Claude OAuth broker (status|stop|restart|logs)"},
 	{"loopholes", "List and self-check host-capability loopholes"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
