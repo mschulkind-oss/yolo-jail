@@ -116,6 +116,21 @@ jobs:
           # also keeps skipping the nix daemon-socket + store mounts this machine
           # can now actually carry. Setting it is the claim, not a workaround.
           YOLO_NIX_HOST_DAEMON: "1"
+          # The image this job tests is the one `build-image` built from THIS
+          # commit on a Linux runner, downloaded and loaded two steps up. A
+          # darwin-side eval of the image attribute cannot vouch for it — the
+          # harness already downgrades its own skew check for exactly that
+          # reason ("on darwin the image may have been built on a Linux runner")
+          # — so every launch here decides the loaded image came from a
+          # DIFFERENT source tree and demands a from-source rebuild. That
+          # rebuild is an x86_64-linux derivation on a darwin host, so it
+          # offloads to the Linux builder container, and THAT PATH HAS NEVER RUN
+          # IN THIS JOB: measured 2026-09-09, `nix` cannot reach the builder's
+          # published 127.0.0.1:31022 and every test fails as IMAGE BUILD
+          # FAILED. It was invisible until the statfs fix let launches get far
+          # enough to try. So this job asserts its own state, which is what the
+          # hatch is for: the loaded image IS this commit's.
+          YOLO_ALLOW_STALE_IMAGE: "1"
           # Intel macOS runner + QEMU podman machine: cold jail starts
           # (mise store bootstrap) and in-test nix image builds run
           # 5-15 minutes — the 300s default killed ten tests

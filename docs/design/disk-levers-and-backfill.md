@@ -1039,6 +1039,28 @@ row cannot carry them.
    > not a store path and has nothing to root or reclaim. So BF3 and BF4 need no macOS arm, and
    > neither is gated on this any more.
    >
+   > **MEASURED ON HARDWARE 2026-09-09 (run 34300425634): the statfs failure is GONE — zero
+   > occurrences against 59 in the pre-fix run — and it exposed the next layer.** With the prefix
+   > mount reachable, every launch got as far as the image build and then failed there:
+   >
+   > ```text
+   > IMAGE BUILD FAILED — the jail image was NOT rebuilt from this source tree.
+   >   cannot build on 'ssh-ng://root@127.0.0.1:31022': failed to start SSH connection
+   > ```
+   >
+   > Two facts, both new, and neither is a regression from the fix. **(1)** A darwin-side eval
+   > cannot vouch for a Linux-runner-built image, so the launcher refuses it as "a DIFFERENT source
+   > tree" and demands a from-source rebuild — an `x86_64-linux` derivation on a darwin host, which
+   > offloads to the Linux builder container. **(2) That offload has never run in this job at all**
+   > — 0 starts in the pre-fix run and 0 in the last green nightly (2026-09-04), verified in both
+   > full logs. It was unreachable behind the statfs failure and is now the visible one.
+   >
+   > CI answers this with `YOLO_ALLOW_STALE_IMAGE=1`, which is the hatch's stated purpose: the job
+   > asserts its own state, because the loaded image IS this commit's, built by the `build-image`
+   > job two steps earlier. The harness already downgrades its own skew check on darwin for the
+   > identical structural reason. What stays unproven is the container-builder offload on macOS,
+   > which the [`macos.md`](../guides/macos.md) runbook claims and no CI job exercises.
+   >
    > **Still not verified on hardware:** Apple Container. The same VM fact applies and no
    > measurement exists ([`image-staging-vs-baking.md`](./image-staging-vs-baking.md) [§4](./image-staging-vs-baking.md#4-candidates-ranked) C8).
    > The refusal covers it — it is keyed on darwin, not on the runtime — so that backend now fails
