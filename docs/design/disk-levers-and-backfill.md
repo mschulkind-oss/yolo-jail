@@ -3,7 +3,7 @@ title: "Disk levers and backfill — the bytes the fixes left behind, and whethe
 date: 2026-09-06
 status: accepted # re-stamped 2026-09-09: ruled 2026-09-08 and nine of ten rulings built, so it is no longer in review
 tags: [design, disk, prune, podman, nix, backfill]
-summary: "Two questions the maintainer asked together: what are the big space-reduction levers, ranked and costed; and how does yolo clean up — or offer to clean up — the stores that already grew before each fix. Steady-state retention is largely shipped; backfill is the larger number today and nothing addresses it. Includes the finding that yolo's own nix outputs are never collected."
+summary: "Two questions the maintainer asked together: what are the big space-reduction levers, ranked and costed; and how does yolo clean up — or offer to clean up — the stores that already grew before each fix. Nine of the ten rulings shipped 2026-09-08/09 — including the finding that yolo's own nix outputs were never collected, which now has a collector. OQ-BF10, host-CAS aliasing, is the deferred slice."
 vantage:
   status-chip: true
 ---
