@@ -32,6 +32,11 @@ func filesPack(t *testing.T, name, from, into string, contents map[string]string
 	t.Helper()
 	root := t.TempDir()
 	if len(contents) == 0 {
+		// MkdirAll first: a `files` `from` may name a file NESTED in the pack
+		// ("files/models.json" on the host this was measured from), not only one at the root.
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, from)), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(root, from), []byte("single-file tree\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -354,5 +359,80 @@ func TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome(t *testin
 	briefingPath := filepath.Join(paths.GlobalHome(), ".pi", "agent", "AGENTS.md")
 	if fi, err := os.Stat(briefingPath); err != nil || fi.IsDir() {
 		t.Errorf("briefing mountpoint in GlobalHome %s was not created as file: %v", briefingPath, err)
+	}
+}
+
+// TestPackFilesWarnsDifferentlyWhenTheStagedTreeVanished pins the message SPLIT at its real
+// call site.
+//
+// The two causes print identically before this: "check the pack's `from`, and any
+// only/exclude filters" is right for a pack that names a path it does not carry, and sends
+// the reader to audit a correct manifest when what actually happened is that yolo's own
+// staged tree was deleted mid-launch. On the host that produced this, the four warnings
+// were the ONLY readable diagnosis of a reap whose next line was podman's bare `statfs`.
+func TestPackFilesWarnsDifferentlyWhenTheStagedTreeVanished(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	var buf strings.Builder
+	o.Stdout = &buf
+
+	pack := filesPack(t, "matt", "files/models.json", ".pi/agent/models.json", nil)
+	// The reap: the whole staged tree goes, not just this contribution's source.
+	if err := os.RemoveAll(pack.Root); err != nil {
+		t.Fatal(err)
+	}
+	in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
+	in.packs = append(in.packs, pack)
+
+	if mounts := filesMounts(o.assembleRunCmd(in), ".pi/agent/models.json"); mounts != nil {
+		t.Errorf("a vanished source must not be mounted, got %v", mounts)
+	}
+	warning := buf.String()
+	// It says the TREE is gone, and names the tree.
+	for _, want := range []string{"matt", "staged tree is GONE", pack.Root, "statfs"} {
+		if !strings.Contains(warning, want) {
+			t.Errorf("vanished-tree warning missing %q; got:\n%s", want, warning)
+		}
+	}
+	// And it does NOT send the reader to audit a manifest that was never wrong.
+	for _, unwanted := range []string{"only/exclude", "pack lint"} {
+		if strings.Contains(warning, unwanted) {
+			t.Errorf("vanished-tree warning must not blame the pack's config (%q); got:\n%s",
+				unwanted, warning)
+		}
+	}
+}
+
+// The other polarity: a staged tree that IS there, with a `from` that is not. This is the
+// user's config error, and the message keeps the advice — plus the `from` verbatim, so the
+// reader does not have to subtract a staging root out of an absolute path, and a pointer to
+// the command that answers the same question without a launch.
+func TestPackFilesWarnsAboutTheFromWhenTheTreeIsStaged(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	var buf strings.Builder
+	o.Stdout = &buf
+
+	// The tree exists and carries content; only the declared `from` is absent.
+	pack := filesPack(t, "matt-fzf", "bin", ".claude/bin", nil)
+	if err := os.Remove(filepath.Join(pack.Root, "bin")); err != nil {
+		t.Fatal(err)
+	}
+	in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
+	in.packs = append(in.packs, pack)
+
+	_ = o.assembleRunCmd(in)
+	warning := buf.String()
+	for _, want := range []string{"matt-fzf", ".claude/bin", `"bin"`, "only/exclude", "pack lint"} {
+		if !strings.Contains(warning, want) {
+			t.Errorf("absent-`from` warning missing %q; got:\n%s", want, warning)
+		}
+	}
+	if strings.Contains(warning, "GONE") {
+		t.Errorf("a staged tree that is present must not be reported as vanished; got:\n%s", warning)
 	}
 }

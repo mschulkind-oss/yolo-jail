@@ -39,6 +39,14 @@ type packFilesTarget struct {
 	Pack string
 	Src  string // absolute host path: <staged pack root>/<from>
 	Dest string // home-relative, as declared (validated relative, no "..", no ":")
+
+	// Root is the pack's whole staged tree, and From the `from` that was joined onto it.
+	// Both exist for the SKIP MESSAGE and only for it: "this contribution's source is
+	// missing" and "the pack's entire staged tree is missing" are different events with
+	// different readers, and Src alone cannot tell them apart. See
+	// packFilesSkipWarning.
+	Root string
+	From string
 }
 
 // packFilesTargets resolves every loaded pack's `files` contributions, in declaration
@@ -62,6 +70,8 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 				Pack: p.Name,
 				Src:  filepath.Join(p.Root, filepath.FromSlash(c.From)),
 				Dest: c.Into,
+				Root: p.Root,
+				From: c.From,
 			})
 		}
 	}
@@ -87,7 +97,8 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 //     whole container with a bare "statfs …: no such file or directory" on a missing bind
 //     source, and an `only`/`exclude` filter that dropped the tree is an ordinary (if
 //     usually mistaken) user config, not a reason to refuse the launch. The warning is
-//     what keeps this from being another silent drop.
+//     what keeps this from being another silent drop. Which warning it is, is
+//     packFilesSkipWarning's decision — the two causes need different reactions.
 func (o *Options) packFilesMountArgs(in *assembleInput) []string {
 	var args []string
 	for _, t := range packFilesTargets(in.packs) {
@@ -101,13 +112,47 @@ func (o *Options) packFilesMountArgs(in *assembleInput) []string {
 			}
 			args = append(args, "-v", t.Src+":/home/agent/"+t.Dest+":ro")
 		default:
-			o.pr(o.Stdout).print("[yellow]Warning: pack " + t.Pack + " declares a `files` tree " +
-				"that is not in its staged content, skipping: " + t.Dest +
-				" (nothing staged at " + t.Src + " — check the pack's `from`, and any " +
-				"only/exclude filters)[/yellow]")
+			o.pr(o.Stdout).print("[yellow]" + packFilesSkipWarning(t) + "[/yellow]")
 		}
 	}
 	return args
+}
+
+// packFilesSkipWarning is the sentence a skipped `files` contribution prints, and it is
+// TWO sentences because the reader has two different jobs.
+//
+// A MISSING `from` is the user's pack: yolo staged the tree it was given and the declared
+// path is not in it, so the fix is in the pack — the `from`, or an `only`/`exclude` filter
+// that dropped it. The message names the `from` verbatim rather than making the reader
+// subtract the staging root out of an absolute path, and names `yolo pack lint`, which
+// answers the same question without a launch.
+//
+// A MISSING STAGED ROOT is not the user's pack at all, and printing the advice above for it
+// sends a reader to audit a manifest that was never wrong. stagePacks wrote that directory
+// EARLIER IN THIS LAUNCH, unconditionally, so its absence means something removed it since —
+// which is a thing that really happened (a housekeeping sweep in a concurrent capture
+// sub-launch reaped it, 2026-09-09; see touchAgentStagingDir). It is also terminal: the
+// pack-manifest mount's source is that same tree, so podman is about to fail the container
+// with `statfs …/packs: no such file or directory`, and the four `files` warnings a real
+// host printed were the only readable diagnosis of it — this emitter is the one place that
+// probes a staged path before handing it to the runtime.
+//
+// Both share ONE Src computation (packFilesTargets: filepath.Join(Root, From)), so a
+// `from` of "files/models.json" and a `from` of "bin" differ in the message for the same
+// reason they differ on disk — because the two packs declared different sources, not
+// because two code paths built them.
+func packFilesSkipWarning(t packFilesTarget) string {
+	if !isDir(t.Root) {
+		return "Warning: pack " + t.Pack + "'s staged tree is GONE, so its `files` claim on " +
+			t.Dest + " cannot be delivered: nothing at " + t.Root + ". yolo staged that " +
+			"directory earlier in this launch, so this is not a problem with the pack's " +
+			"`from` or its filters — something removed it since. Expect the container to " +
+			"fail on the same path (`statfs …: no such file or directory`); re-run the launch."
+	}
+	return "Warning: pack " + t.Pack + " declares a `files` tree that is not in its staged " +
+		"content, skipping: " + t.Dest + " (`from` is \"" + t.From + "\", and nothing " +
+		"staged at " + t.Src + " — check that path in the pack, and any only/exclude " +
+		"filters; `yolo pack lint <pack-dir>` reports this without a launch)"
 }
 
 // preparePackFiles creates each `files` destination's mountpoint inside GlobalHome,
