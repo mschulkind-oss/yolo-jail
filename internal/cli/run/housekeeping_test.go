@@ -6,6 +6,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // TestHousekeepingLockSkipsWhenHeld pins the choice that makes the slot safe to
@@ -82,5 +83,29 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 	if !strings.Contains(string(hkSrc), "o.autoReapOldImages(rt)") ||
 		!strings.Contains(string(hkSrc), "withHousekeepingLock") {
 		t.Fatal("the slot no longer runs the image reap under the machine-wide lock")
+	}
+	if !strings.Contains(string(hkSrc), "o.reapSupersededStoreOutputs()") {
+		t.Fatal("the slot no longer reclaims yolo's own superseded store outputs (OQ-BF3) — " +
+			"that class has no other collector at all, and was measured accruing 0.43 GB/day")
+	}
+}
+
+// TestStoreOutputReapIsHostOnly: in-jail /nix/store is a read-only bind of the
+// host's and the gcroots dir is unmounted, so a jail cannot tell rooted from
+// unrooted. Guessing there deletes a path some host launch is rooting.
+func TestStoreOutputReapIsHostOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_VERSION", "0.0.0-test") // inJail() reads this
+	o := &Options{}
+	fillDefaults(o)
+	called := false
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult {
+		called = true
+		return ExecResult{Ran: true}
+	}
+	o.reapSupersededStoreOutputs()
+	if called {
+		t.Fatal("the store-output reap ran inside a jail — it cannot distinguish rooted from " +
+			"unrooted there, so it must refuse rather than guess (the same refusal RunNixStoreGC has)")
 	}
 }

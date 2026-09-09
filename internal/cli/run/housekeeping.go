@@ -4,8 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // housekeeping.go is the POST-LAUNCH SLOT and the lock that serialises it
@@ -93,6 +95,7 @@ func (o *Options) runHousekeeping(rt string) {
 	defer sp.End()
 	o.withHousekeepingLock(func() {
 		o.autoReapOldImages(rt)
+		o.reapSupersededStoreOutputs()
 	})
 }
 
@@ -131,5 +134,45 @@ func (o *Options) lockHousekeepingFn() func() func() {
 			_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 			_ = f.Close()
 		}
+	}
+}
+
+// reapSupersededStoreOutputs is OQ-BF3 on the launch path: delete yolo's own
+// unrooted install-prefix and Go-build outputs by name.
+//
+// AUTOMATIC ONLY BECAUSE OQ-BF4 LANDED. The ruling made this conditional on
+// every running jail's prefix having a durable root, and the reason is exact:
+// before that, "unrooted" did not mean "unused", it meant "we have not been
+// recording" — and deleting on that basis takes pid1's binary out from under a
+// live jail. It reads the roots BF4 writes.
+//
+// Host-only. In-jail /nix/store is a read-only bind of the host's and the
+// gcroots dir is unmounted, so a jail cannot tell rooted from unrooted and must
+// not guess; the same refusal RunNixStoreGC already has.
+func (o *Options) reapSupersededStoreOutputs() {
+	if o.inJail() {
+		return
+	}
+	if o.Getenv(autoReapOptOutEnv) != "" {
+		return
+	}
+	buildDir := paths.BuildDir()
+	rootDirs := []string{
+		filepath.Join(buildDir, "roots"),
+		filepath.Join(buildDir, "prefix-roots"),
+	}
+	run := func(argv []string, timeout time.Duration) prune.ProbeResult {
+		res := o.Exec(argv, "", nil, timeout)
+		return prune.ProbeResult{Stdout: res.Stdout, RC: res.RC, Ran: res.Ran && !res.Timeout}
+	}
+	candidates := prune.SupersededStoreOutputs("/nix/store", rootDirs, prune.StoreOutputGrace, o.Now())
+	if len(candidates) == 0 {
+		return
+	}
+	removed := prune.DeleteSupersededStoreOutputs(candidates, true, run)
+	if len(removed) > 0 {
+		// STDERR: by now the pty is the container's (slot property 2).
+		o.pr(o.Stderr).printf("[dim]Reclaimed %d superseded yolo store output(s) "+
+			"(disk-levers-and-backfill.md OQ-BF3).[/dim]", len(removed))
 	}
 }

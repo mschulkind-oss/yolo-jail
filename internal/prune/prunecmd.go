@@ -651,6 +651,33 @@ func Run(opts Options) int {
 		}
 	}
 
+	// --- yolo's own superseded store outputs ---
+	//
+	// OQ-BF3/L3: ≥ 28.8 GB with ≈ 0.43 GB/day of accrual and no collector at
+	// all. NOT a store GC — a named, self-scoped deletion of paths yolo itself
+	// realized, gated on OQ-BF4's rooting and on nix's own liveness refusal. See
+	// internal/prune/storeoutputs.go for why each of those three is load-bearing.
+	if !opts.InJail() && !opts.NoImageRoots {
+		p.line("")
+		p.line("[bold]yolo's own superseded store outputs[/bold]")
+		rootDirs := []string{
+			joinPath(opts.BuildDir(), "roots"),
+			joinPath(opts.BuildDir(), "prefix-roots"),
+		}
+		candidates := SupersededStoreOutputs(hostNixStoreDir, rootDirs, StoreOutputGrace, opts.Now())
+		removed := DeleteSupersededStoreOutputs(candidates, apply, opts.Exec)
+		switch {
+		case len(candidates) == 0:
+			p.line("  [dim]none[/dim]")
+		default:
+			p.line(fmt.Sprintf("  %s: %s of %s output(s)  [dim](by name; nix refuses any that is still live)[/dim]",
+				verb(apply, "would remove", "removed"), fmtComma(len(removed)), fmtComma(len(candidates))))
+			for _, sp := range removed {
+				p.line("    • " + describeStoreOutput(hostNixStoreDir, sp))
+			}
+		}
+	}
+
 	// --- Prefix GC roots (the jail's own binaries) ---
 	//
 	// A SEPARATE SECTION from the image roots above, with the OPPOSITE policy,
