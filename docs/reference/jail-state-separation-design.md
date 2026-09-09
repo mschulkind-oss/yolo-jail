@@ -231,7 +231,11 @@ state is untouched, and the shadow backing starts empty and is populated by the 
   [`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md).
 - **The upstream defect itself.** Layers 1–3 above **heal** the symptom; nothing here **fixes**
   fact 1, so every future backend that records a side-specific path reintroduces the class. That is
-  tracked as `SS-6` in [`../design/jail-state-separation-design.md`](../design/jail-state-separation-design.md).
+  tracked as `SS-6` — which lives in the **stub design doc**, deliberately kept at
+  [`docs/design/jail-state-separation-design.md`](../design/jail-state-separation-design.md) under
+  this file's own basename, because a reference doc may not carry a live `💬`. ⚠ **That target is
+  the `docs/design/` twin, not this file** — a basename-driven link sweep has already "corrected" it
+  to point here once.
 - **Sharing anything else across the boundary.** The governing rule is the scope: sources and
   lockfiles, nothing derived.
 
