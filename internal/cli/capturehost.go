@@ -343,6 +343,26 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	// user-config edit from turning a capture into a prompt about a directory they have
 	// never seen.
 	opts.AcceptConfigChanges = true
+	// NO CONTROLLING TERMINAL IN A CAPTURE JAIL. A capture is machine-driven and
+	// nobody is watching for a question, so the jail must not be able to ask one.
+	//
+	// ⚠ Detaching the driver's stdin is NOT enough, and that is the whole reason
+	// this is here. internal/capture's driver already leaves cmd.Stdin nil, so the
+	// installer's stdin is /dev/null — and codex's installer still asked
+	// "Start Codex now? [y/N]" and waited, because a vendor installer that has to
+	// survive `curl | sh` reads /dev/tty rather than stdin. With -t on the container
+	// there IS a /dev/tty, so the redirect is bypassed by design.
+	//
+	// Forcing both predicates false drops podman's -t, which is what removes the
+	// pty. An installer's prompt then either takes its default on EOF or fails
+	// loudly, and either is better than a capture that blocks forever on a machine
+	// with no human — which is what auto-capture does on a fresh host, three times
+	// in a row, before the launch the user actually asked for.
+	//
+	// It also silences the reclaim offer for the same reason (offer.go gates on
+	// IsTTYStdout): a sub-launch nobody typed must not interrupt to ask about disk.
+	opts.IsTTYStdout = func() bool { return false }
+	opts.IsTTYStdin = func() bool { return false }
 	// macos-user runs the capture natively, under the narrowed Seatbelt profile slice 6
 	// built (macosuser.SeatbeltCaptureProfile): no container, a throwaway staging home on
 	// neutral ground, and the shared /Users/_yolojail denied for the duration.
