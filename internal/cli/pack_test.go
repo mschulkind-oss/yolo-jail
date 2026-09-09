@@ -988,3 +988,74 @@ func TestPackLintFootprintNamesSkillsSource(t *testing.T) {
 		t.Errorf("footprint does not name the resolved skills source:\n%s", out.String())
 	}
 }
+
+// TestPackLintCatchesAFilesFromThatStagesNothing closes the gap that let four launch-time
+// warnings be the FIRST report of a `files` `from` naming a path the pack does not carry.
+//
+// `pack lint` already asked this question for `skills`, and `files` needs it more: `from`
+// is REQUIRED on this kind precisely because there is no conventional source to fall back
+// to, so a typo has nowhere to land. Before this, such a pack lint-passed, printed a
+// footprint claim of a "read-only tree", and then produced one
+// run.packFilesSkipWarning per contribution on every launch — which is exactly what a real
+// host printed on 2026-09-09, four times across two local packs.
+func TestPackLintCatchesAFilesFromThatStagesNothing(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false)
+	// The tree really does carry `files/`; the manifest names `filez/`.
+	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "files", "models.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"t","contributes":[` +
+		`{"kind":"files","from":"filez","into":".pi/agent/models.json"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc == 0 {
+		t.Fatalf("a `files` `from` that stages nothing must fail lint — it delivers nothing "+
+			"and a launch can only warn about it:\n%s%s", out.String(), errw.String())
+	}
+	report := out.String() + errw.String()
+	for _, want := range []string{"files `from`", "filez", ".pi/agent/models.json", "only/exclude"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("lint report missing %q:\n%s", want, report)
+		}
+	}
+	// And it must not ALSO tell the author to "move them under skills/" — the content is
+	// already where their manifest meant to point, so the second line would contradict the
+	// first. This is the arm the switch's `missingFilesSource` case exists for.
+	if strings.Contains(report, "move them under skills/") {
+		t.Errorf("the precise diagnosis must suppress the unclaimed-content advice:\n%s", report)
+	}
+}
+
+// The other polarity, so the check above cannot be satisfied by failing every `files` pack:
+// a `from` that DOES stage — including one naming a single FILE, which `files` may and
+// stagedUnder's prefix-only test could not see.
+func TestPackLintAcceptsAFilesFromNamingOneFile(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false)
+	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "files", "models.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"t","contributes":[` +
+		`{"kind":"files","from":"files/models.json","into":".pi/agent/models.json"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false); rc != 0 {
+		t.Fatalf("a `files` `from` naming one staged FILE must lint clean:\n%s%s",
+			out.String(), errw.String())
+	}
+}

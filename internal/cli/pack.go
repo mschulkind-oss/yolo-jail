@@ -446,6 +446,32 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 				src, strings.TrimSuffix(src, "/")))
 		}
 	}
+	// THE SAME QUESTION FOR `files`, which needs it MORE than skills does and did not have
+	// it. `from` is REQUIRED on this kind precisely because there is no convention to fall
+	// back to (packdecl.appendContributionProblems), so the declaration is the only thing
+	// that can name the tree — and until this check existed, a `from` naming a path the pack
+	// does not carry lint-passed, footprint-claimed a "read-only tree", and then surfaced at
+	// LAUNCH as run.packFilesSkipWarning, one warning per contribution, on a real host
+	// (2026-09-09: four of them across two local packs).
+	//
+	// No exemption, unlike skills: there is no conventional `files` source to be lenient
+	// about. And AT-OR-UNDER rather than stagedUnder's prefix-only test, because a `files`
+	// `from` may legally name a single FILE — one of the two shapes packFilesMountArgs
+	// splits on, and the one the measured host used (`files/models.json`).
+	missingFilesSource := false
+	for _, c := range pack.Decl.Contributions() {
+		if c.Kind != packdecl.KindFiles || c.From == "" {
+			continue
+		}
+		if !stagedAtOrUnder(res.Staged, c.From) {
+			missingFilesSource = true
+			problems = append(problems, fmt.Sprintf(
+				"files `from` is %q, but nothing stages at that path — the contribution into "+
+					"%q would deliver nothing, and a launch skips it with a warning per "+
+					"contribution (check the path, and any only/exclude filters)",
+				c.From, c.Into))
+		}
+	}
 
 	// The two checks below replaced ONE bad one: "pack has neither a skills/ dir nor an
 	// AGENTS.md — it would stage files nothing reads". That rule asked "did this pack stage
@@ -469,8 +495,11 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// one, and printing a second, contradictory line beside it is how a fixed rule becomes new
 	// noise.
 	switch {
-	case missingSkillsSource:
-		// Already diagnosed, precisely.
+	case missingSkillsSource, missingFilesSource:
+		// Already diagnosed, precisely. `files` joins this arm for the identical reason
+		// skills is here: a typo'd `from` leaves the pack's real tree UNCLAIMED, so question
+		// 2 fires too — telling the author to "move them under skills/" content that is
+		// already exactly where their manifest meant to point.
 	// 1. DOES THIS PACK DO ANYTHING? Zero declared contributions AND nothing a reader picks
 	//    up by convention. Both halves are required: the pack `pack init` scaffolds has no
 	//    pack.json at all, and the jail's zero-ceremony merge still delivers its skills/ tree
@@ -746,6 +775,23 @@ func sampleOf(items []string, n int) []string {
 	}
 	return append(append([]string{}, items[:n]...),
 		fmt.Sprintf("+%d more", len(items)-n))
+}
+
+// stagedAtOrUnder reports whether the pack staged anything AT the pack-relative path `src`
+// or under it. The `files` half of "did this contribution's declared source stage
+// anything", where `from` may name a single file as legitimately as a directory.
+//
+// Through stagedPathClaimed so the at-or-under rule has ONE definition: the unclaimed-content
+// check already had to answer the same question from the other direction, and two spellings
+// of "is this path covered by that source" is exactly the drift the `from` resolvers were
+// unified to end.
+func stagedAtOrUnder(staged []string, src string) bool {
+	for _, s := range staged {
+		if stagedPathClaimed(s, []string{src}) {
+			return true
+		}
+	}
+	return false
 }
 
 // stagedUnder reports whether any staged path lives under the pack-relative dir `root`.
