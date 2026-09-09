@@ -92,7 +92,7 @@ const (
 // The json tags make this type `yolo broker status --format json` directly:
 // every field the human report prints is already here, so the document is the
 // struct rather than a second assembly of the same facts that could disagree
-// with it (docs/design/self-documenting-cli.md item 7).
+// with it (docs/reference/self-documenting-cli.md item 7).
 type Status struct {
 	PID          int  `json:"pid"`
 	PIDPresent   bool `json:"pid_present"` // pid is not None

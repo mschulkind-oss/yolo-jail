@@ -12,7 +12,7 @@ package cli
 // an agent hunting for a bug in the feature instead of reading the flag it forgot to pass.
 //
 // NO APPROVAL GATE, ON THE HOST OR IN A JAIL. That is a ruling, not an omission:
-// docs/design/gate-placement-principle.md Test 1 — passing an argv to `yolo` requires the
+// docs/reference/gate-placement-principle.md Test 1 — passing an argv to `yolo` requires the
 // ability to run commands, which already exceeds anything this argument grants. Anyone who
 // can pass it can equally edit the user config file. A prompt here would refuse an actor who
 // has already cleared a stronger bar.

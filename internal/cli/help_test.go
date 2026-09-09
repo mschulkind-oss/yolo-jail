@@ -96,7 +96,7 @@ func listedCommandNames(t *testing.T) map[string]bool {
 
 // TestEveryRegisteredCommandIsListedInHelp is the REVERSE direction of
 // TestUsageListedCommandsAreRegistered, and the standard's enforcement item 2
-// (docs/design/self-documenting-cli.md): registry → help, so a command that
+// (docs/reference/self-documenting-cli.md): registry → help, so a command that
 // exists and is not advertised fails the build.
 //
 // This direction is the one that was missing, and its absence is why four

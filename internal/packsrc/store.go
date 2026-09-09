@@ -314,7 +314,7 @@ func (s *Store) Materialize(a Addr, commit string) (*Resolved, error) {
 // (where no staged tree is mounted, so this branch never fires).
 //
 // It lives HERE, in the one function that owns resolution, rather than at a call site
-// (docs/design/storage-and-config.md OQ-SC1, ruled option (i)). The fallback was
+// (docs/reference/storage-and-config.md OQ-SC1, ruled option (i)). The fallback was
 // written once in `yolo check` and the launcher never learned it — two callers of one
 // resolution rule, only one of them correct, with the test pinning only the caller
 // that was. Every caller is now correct by construction, including a future one. The

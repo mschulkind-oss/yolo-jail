@@ -11,7 +11,7 @@ package cli
 // appended to .gitignore, `yolo init-user-config --help` wrote
 // ~/.config/yolo-jail/config.jsonc, `yolo check --help` ran a full check
 // including a nix build, and `yolo prune --help` walked the disk. Interrogating
-// a tool must never change the machine (docs/design/self-documenting-cli.md,
+// a tool must never change the machine (docs/reference/self-documenting-cli.md,
 // item 1: help is a REQUEST — stdout, exit 0, no side effect).
 //
 // The shape is the one `run`/`config`/`pack`/`apply`/`describe`/`check-deps`

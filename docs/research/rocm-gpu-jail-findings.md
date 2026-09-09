@@ -34,7 +34,7 @@ it.
 >
 > If a workload ever does hit `CREATE_QUEUE EINVAL` on an older ROCm build, the
 > remedy (raise the host memlock cap) is documented in
-> [rocm-passthrough-design.md §7.2](../design/rocm-passthrough-design.md#72-locked-memory-limit-blocks-queue-creation-in-jail--resolved-by-rocm-72-userspace-2026-06-06) — but it is not the default need.
+> [rocm-passthrough-design.md §7.2](../reference/rocm-passthrough.md#72-locked-memory-limit-blocks-queue-creation-in-jail--resolved-by-rocm-72-userspace-2026-06-06) — but it is not the default need.
 > The onnxruntime EP work (gfx1151 code objects / migraphx asserts-LLVM) remains
 > the next item.
 >

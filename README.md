@@ -314,7 +314,7 @@ The `runtime` config picks how the agent is isolated:
 - **Separate Auth**: Run `gh auth login`, `codex login`, etc. inside the jail once
 - **User Mapping**: Files created in the jail are owned by your host user (matching UID/GID)
 - **Blocked Tools**: Configurable list of tools that return clear error messages
-- **Config Safety**: Changes to `yolo-jail.jsonc` require human confirmation at next startup — agents cannot silently modify the jail environment. See [docs/design/config-safety.md](docs/design/config-safety.md).
+- **Config Safety**: Changes to `yolo-jail.jsonc` require human confirmation at next startup — agents cannot silently modify the jail environment. See [docs/reference/config-safety.md](docs/reference/config-safety.md).
 - **Read-Only Mounts**: Extra mounts are read-only by default
 
 ## Troubleshooting
@@ -338,9 +338,9 @@ See [CONTRIBUTING.md](https://github.com/mschulkind-oss/.github/blob/main/CONTRI
 - [User Guide](docs/guides/USER_GUIDE.md) — Detailed setup, configuration, and troubleshooting
 - [macOS Setup](docs/guides/macos.md) — macOS-specific installation and setup guide
 - [Platform Comparison](docs/research/platform-comparison.md) — Feature matrix: Linux vs macOS
-- [Config Safety](docs/design/config-safety.md) — How config change approval works
-- [Storage & Config](docs/design/storage-and-config.md) — Storage hierarchy and mount layout
-- [Happy-path principle](docs/design/happy-path-principle.md) — fill the matrix, support one tool per capability
+- [Config Safety](docs/reference/config-safety.md) — How config change approval works
+- [Storage & Config](docs/reference/storage-and-config.md) — Storage hierarchy and mount layout
+- [Happy-path principle](docs/reference/happy-path-principle.md) — fill the matrix, support one tool per capability
 
 ## License
 

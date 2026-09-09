@@ -214,7 +214,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		briefings = append(briefings, o.packBriefingProses(entry.Name, p)...)
 	}
-	// THE NEEDS CLOSURE (docs/design/wire-bridge.md §3.1, WB-D10): extend the
+	// THE NEEDS CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10): extend the
 	// selected set with every pack a live `needs` entry pulls in, transitively.
 	// Here — after both staging loops, because a configured pack's bins can be
 	// what a when_bins condition keys on (and a configured manifest can declare
@@ -933,7 +933,7 @@ func pruneDroppedPackStaging(stagingRoot string, live map[string]bool) ([]string
 // address fails for every local pack in here and Resolve falls back to the tree the
 // outer launcher delivered under YOLO_PACK_ROOT. That fallback used to exist only in
 // `yolo check`, so `yolo run` refused the launch and the nested verification AGENTS.md
-// mandates was impossible with a local pack selected (docs/design/storage-and-config.md
+// mandates was impossible with a local pack selected (docs/reference/storage-and-config.md
 // §10). Deliberately silent here, unlike check: staging the delivered copy is the
 // NORMAL case for a nested launch, not a degradation worth a line of output.
 //

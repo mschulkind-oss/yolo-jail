@@ -187,7 +187,7 @@ func TestResolveLocalRejectsMissingDir(t *testing.T) {
 // working, out of the tree the launcher delivered under YOLO_PACK_ROOT. `yolo check`
 // knew that and `yolo run` did not, so a nested launch was refused outright and the
 // nested verification AGENTS.md mandates was impossible with a local pack selected
-// (docs/design/storage-and-config.md §10, OQ-SC1 ruled option (i)).
+// (docs/reference/storage-and-config.md §10, OQ-SC1 ruled option (i)).
 //
 // Delete the fallback from Resolve and this goes red, at BOTH callers at once — which
 // is the property the ruling bought and the reason the test lives here rather than in

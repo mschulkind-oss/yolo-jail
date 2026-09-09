@@ -632,7 +632,7 @@ must not collapse onto one approved claim.
 > **theatre**: selecting a pack means writing user-scope config as the host user, and the `packs`
 > key is inexpressible at workspace scope by construction — so the gate refused an actor who had
 > already passed a strictly stronger check. That is exactly what
-> [the gate-placement principle](../design/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)'s Test 1 exists to delete. The prompt, its
+> [the gate-placement principle](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)'s Test 1 exists to delete. The prompt, its
 > lockfile record and the launch-time gate all went together.
 >
 > **What replaced it is nothing, and that is the point.** What keeps a hostile declaration out is

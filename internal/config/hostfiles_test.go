@@ -700,7 +700,7 @@ func TestSourceLessHostFiles(t *testing.T) {
 	}
 }
 
-// ---- destination staging (docs/design/composed-file-permissions.md §7.5) ----
+// ---- destination staging (docs/reference/composed-file-permissions.md §7.5) ----
 
 // TestHostFileStagingCategories pins which destinations need host-side staging to
 // be writable. This is the whole reason ~/.npmrc did not work: the jail home is a

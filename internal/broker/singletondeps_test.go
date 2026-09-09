@@ -22,7 +22,7 @@ import (
 // the constant ever disagree, every one of those keeps working in isolation while
 // two brokers run — one per spelling — and the flock that stops a concurrent
 // single-use-refresh-token burn is held by neither against the other
-// (docs/design/agent-credentials.md §2.5).
+// (docs/reference/agent-credentials.md §2.5).
 //
 // The derivation was CHOSEN so this holds byte-for-byte rather than being adapted to
 // it: `/tmp/yolo-<name>.sock` for name="claude-oauth-broker" IS

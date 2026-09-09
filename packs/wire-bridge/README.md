@@ -8,7 +8,7 @@ loopback, crosses no boundary, reads no host state, and holds no grant, which is
 exactly why it is declared as a service (a daemon in a namespace, an endpoint
 file, a restart policy, a reachability witness) rather than wearing loophole
 vocabulary it would misuse — see
-[wire-bridge.md](../../docs/design/wire-bridge.md) §2, where the kind ruling and
+[wire-bridge.md](../../docs/reference/wire-bridge.md) §2, where the kind ruling and
 the loophole/service decomposition are written down.
 
 ## The user story: nothing to configure

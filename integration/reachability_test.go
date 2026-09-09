@@ -7,7 +7,7 @@ import (
 )
 
 // In-jail reachability of the loopback-TLS transport — the coverage gap that let
-// docs/design/loopback-tls-reachability.md's outage ship. Every jail-facing host
+// docs/reference/loopback-tls-reachability.md's outage ship. Every jail-facing host
 // service publishes an ADVERTISED address for the jail to dial, and until now
 // nothing anywhere asserted that a jail can actually dial it: `yolo check` runs
 // host-side and substitutes 127.0.0.1 (internal/svcendpoint/dial.go), so it stays
@@ -140,7 +140,7 @@ echo "PROBED $probed"
 			r.stdout, r.stderr)
 	case len(unreachable) > 0:
 		t.Fatalf("loopback-TLS is unreachable from inside the jail for: %v.  Every in-jail "+
-			"client of those services is down.  See docs/design/loopback-tls-reachability.md; "+
+			"client of those services is down.  See docs/reference/loopback-tls-reachability.md; "+
 			"`podman info --format '{{.Host.RootlessNetworkCmd}}'` on the host names the "+
 			"network stack.\nstdout: %s", unreachable, r.stdout)
 	}

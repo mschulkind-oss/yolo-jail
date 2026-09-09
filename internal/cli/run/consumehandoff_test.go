@@ -1,7 +1,7 @@
 package run
 
 // consumehandoff_test.go pins the one-time host→jail carry-in
-// (docs/design/host-to-jail-handoff.md): a fresh .yolo/handover.md is rendered into the
+// (docs/reference/host-to-jail-handoff.md): a fresh .yolo/handover.md is rendered into the
 // jail's briefing and the pointer is consumed, so the handoff surfaces on exactly one
 // launch and never returns as a stale task.
 //

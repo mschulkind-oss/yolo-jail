@@ -40,7 +40,7 @@ package macosuser
 //
 // NOT MEASURED, anywhere: that any of it works on a Mac. No Seatbelt profile has been loaded by
 // a kernel, no `sudo dscl` has run, this backend's installer pipeline is itself unverified on
-// hardware (docs/design/macos-user-nix-and-features.md), and podman-in-podman cannot exercise
+// hardware (docs/reference/macos-user-nix-and-features.md), and podman-in-podman cannot exercise
 // this backend at all. The hardware checklist is in install-capture.md's slice 6 section.
 
 import (

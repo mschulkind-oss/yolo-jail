@@ -1206,7 +1206,7 @@ The argument *against* is about target, and it survives every backend:
   `paths.Home()` (`internal/cli/config.go:188`) — so host-side it feeds the
   developer's own dotfiles back into the composition — and it passes neither
   `Computed` nor `Overlay`. Both defects are already logged
-  (`docs/design/composed-file-permissions.md:260`), and the neighbouring file
+  (`../reference/composed-file-permissions.md:260`), and the neighbouring file
   already documents the root cause it doesn't apply
   (`configls.go:309-311`). Also: `yolo config render user` does not exist
   (`no surfaces for agent "user"`) even though the help text advertises `user` and
@@ -1562,7 +1562,7 @@ widening the boundary.
 > The adoption-lens objection ("user-config-only is an adoption wall") stands as a real
 > cost and is accepted: onboarding is a printed `yolo pack add` line in `yolo check`, one
 > copy-paste worse, and threat-model-identical. See
-> [../design/three-decisions.md §0.1](../design/three-decisions.md).
+> `three-decisions.md` (archived 2026-09-09; superseded by `docs/reference/pack-system.md`) §0.1 (`three-decisions.md`, archived 2026-09-09 — superseded by [`pack-system.md`](../reference/pack-system.md)).
 
 ### 💬 [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) — what happens when two people attach to the same jail with different pack sets
 

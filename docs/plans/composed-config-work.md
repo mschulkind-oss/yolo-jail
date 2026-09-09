@@ -17,7 +17,7 @@ decision, and sized. Written because the work had scattered across ~8,900 lines 
 docs and the same item appeared in up to five places with different framing.
 
 **What this is not.** The reasoning. That stays in
-[composed-file-permissions.md](../design/composed-file-permissions.md) (postures, the
+[composed-file-permissions.md](../reference/composed-file-permissions.md) (postures, the
 audit, the writer-class split), [host-file-staging.md](host-file-staging.md) (the shipped
 `host_files` design), and [packs-and-the-prism.md](../design/packs-and-the-prism.md) (the
 longer-term shape). This doc is the *what to do*, with a pointer per item.
@@ -78,15 +78,15 @@ Each is independently shippable in roughly one sitting.
 
 | # | Item | Kind | Size | Where |
 |---|---|---|---|---|
-| 1.1 | **Reserve symlink targets** — `~/.config/git/config`, `~/.config/bashrc`, `~/.claude/claude.json` validate as `host_files` destinations while their aliases are rejected | defect | small | `internal/config/writablehome.go` reserved lists; [§4.5](../design/composed-file-permissions.md) |
-| 1.2 | **Mark `claude/config` non-rendered** so `config render claude` stops printing a composition the jail never performs (it currently dumps `machineID`, the full `mcpServers` table, onboarding state) | defect | small | `internal/cli/config.go` render loop + a manifest flag; [§4.3](../design/composed-file-permissions.md) |
-| 1.3 | **Fix the `writeInPlaceString` umask claim** — the comment asserts "0o644, umask-independent"; `os.WriteFile`'s perm is masked, so `umask 077` yields `0o600`. Set modes explicitly | defect (latent) | small | `internal/entrypoint/helpers.go`; [§2](../design/composed-file-permissions.md) |
-| 1.4 | **Make `~/.gitconfig`'s unwritability legible** — the symlink is a decoy (target shadowed by a `:ro` bind), so `git config --global` fails "Device or resource busy" | defect | small | drop the decoy symlink or surface the reason; [§4.1](../design/composed-file-permissions.md) |
+| 1.1 | **Reserve symlink targets** — `~/.config/git/config`, `~/.config/bashrc`, `~/.claude/claude.json` validate as `host_files` destinations while their aliases are rejected | defect | small | `internal/config/writablehome.go` reserved lists; [§4.5](../reference/composed-file-permissions.md) |
+| 1.2 | **Mark `claude/config` non-rendered** so `config render claude` stops printing a composition the jail never performs (it currently dumps `machineID`, the full `mcpServers` table, onboarding state) | defect | small | `internal/cli/config.go` render loop + a manifest flag; [§4.3](../reference/composed-file-permissions.md) |
+| 1.3 | **Fix the `writeInPlaceString` umask claim** — the comment asserts "0o644, umask-independent"; `os.WriteFile`'s perm is masked, so `umask 077` yields `0o600`. Set modes explicitly | defect (latent) | small | `internal/entrypoint/helpers.go`; [§2](../reference/composed-file-permissions.md) |
+| 1.4 | **Make `~/.gitconfig`'s unwritability legible** — the symlink is a decoy (target shadowed by a `:ro` bind), so `git config --global` fails "Device or resource busy" | defect | small | drop the decoy symlink or surface the reason; [§4.1](../reference/composed-file-permissions.md) |
 | 1.5 | **Fix `config-ref`'s `reset`-re-seeds-`once` promise** — it documents behavior that cannot happen. Either implement it or remove the claim | defect (docs lie) | small | `internal/cli/config_ref.txt`; this is exactly what host-file-staging's "Scope: the line" exists to prevent |
-| 1.6 | **Feed `config render` the overlay + computed layers** (or relabel it a defaults+host preview). Today it omits both and reads "host" from its own destination, so it attributes mise's computed `tools` to `host` and prints a claude `model` present in no boot layer | defect | small–medium | `internal/cli/config.go`; [§4.4](../design/composed-file-permissions.md) |
+| 1.6 | **Feed `config render` the overlay + computed layers** (or relabel it a defaults+host preview). Today it omits both and reads "host" from its own destination, so it attributes mise's computed `tools` to `host` and prints a claude `model` present in no boot layer | defect | small–medium | `internal/cli/config.go`; [§4.4](../reference/composed-file-permissions.md) |
 | 1.7 | **Give `pi`/`codex`/`opencode` a skills dir** — they are `Skills: ""` and get `continue`d, so they have **no skills at all, including yolo's own built-in suite**, while their briefing tells them to "read configuring-the-jail" | defect | **two lines** | `internal/agents/agents.go`; the mount loop already handles it |
 | 1.9 | **`host_files`' `transform` key is inert** — it is documented (`config_ref.txt:283` "path to a Lua hook; works on every codec"), in the schema allowlist (`hostfiles.go:72`), parsed and path-cleaned (`:539`), and copied onto the surface (`entrypoint/hostfiles.go:135`). But **nothing reads `Surface.Transform`**: `compose.go:255` passes `in.Script`, which every producer fills from the global `config.lua` pair only (`prism.go:124,275`; `cli/config.go:193`). Its sole readers are two `!= ""` display checks in `configls.go`. So a user's per-surface hook is silently ignored | defect (**documented key does nothing**) | small | wire `Surface.Transform` into the compose path, or remove the key + doc line |
-| 1.8 | **Steer directed agents at composed surfaces** — extend `configuring-the-jail` to cover composed files, and add a generated-by-yolo header where the codec allows. Zero of the four built-in skills mention the prism, a composed surface, or `yolo config ls` | improvement, **highest value/effort in the set** | docs-only | [§8.4](../design/composed-file-permissions.md); depends on 1.7 to reach all agents |
+| 1.8 | **Steer directed agents at composed surfaces** — extend `configuring-the-jail` to cover composed files, and add a generated-by-yolo header where the codec allows. Zero of the four built-in skills mention the prism, a composed surface, or `yolo config ls` | improvement, **highest value/effort in the set** | docs-only | [§8.4](../reference/composed-file-permissions.md); depends on 1.7 to reach all agents |
 
 **Do 1.7 + 1.8 together** — 1.8's guidance is worthless to three agents until 1.7 lands.
 1.8 is also Phase 0 of the config-packs plan, so it pays twice.
@@ -157,8 +157,8 @@ places which makes it look smaller than it is.
 | 3.5 | **`managed`/`defaults` array-append pinning** | no user surface has needed it |
 | 3.6 | ~~**Non-agent prism ports**~~ — **RESOLVED 2026-07-27: not a gap.** MCP and LSP are already ported as the **computed layer** of per-agent surfaces (`copilot/mcp`, `copilot/lsp`, `agy/mcp`) — the right model, since neither has a file of its own to write. `identity` is host-composed and `:ro`-mounted by design (`gitIdentityMountArgs`). So `config render mcp` reporting "no surfaces" is CORRECT: there is no such surface, by design | — |
 | 3.7 | **Rename the recovered state** — four terms for one concept; "captured edits" is the proposed umbrella, **not** "managed" (already taken) | mechanical, wants one pass |
-| 3.9 | **Decide where composition runs** — host-side (before the container exists) vs in-jail (today). Available because composition **never probes the container**: every `computed` producer reads config/env/paths only, with no `os.Stat`/`exec.Command`/`LookPath` in layer construction (`prism.go:448`, `agent_configs.go:167`), and `yolo config render` already composes host-side. Moving it makes pack failures **pre-flight instead of fail-open `genStep` warnings**, lets `readonly` be a real `:ro` mount (unblocks **3.2**), and keeps pack logic outside the boundary entirely. Costs: in-jail re-render/capture timing must move host-side (**3.3** by another route), and macos-user has no mount step, so it needs a separate answer | **design decision, gates 3.1/3.2/3.3 and the pack-logic mechanism** | one decision + a real port; see [what-yolo-is.md](../design/what-yolo-is.md) |
-| 3.8 | **Parameterize `/workspace` out of `builtin.go`** — claude's `defaults`/`managed` hardcode the literal path (`internal/agentcfg/builtin.go:104`), so surface data is jail-shaped even though the engine is not. Wants a `${workspace}` substitution at compose time. Small, but it is a **prerequisite** for surfaces-as-pack-data and for reusing the engine outside a jail — see [what-yolo-is.md](../design/what-yolo-is.md) | small; parked only because it has no standalone payoff yet |
+| 3.9 | **Decide where composition runs** — host-side (before the container exists) vs in-jail (today). Available because composition **never probes the container**: every `computed` producer reads config/env/paths only, with no `os.Stat`/`exec.Command`/`LookPath` in layer construction (`prism.go:448`, `agent_configs.go:167`), and `yolo config render` already composes host-side. Moving it makes pack failures **pre-flight instead of fail-open `genStep` warnings**, lets `readonly` be a real `:ro` mount (unblocks **3.2**), and keeps pack logic outside the boundary entirely. Costs: in-jail re-render/capture timing must move host-side (**3.3** by another route), and macos-user has no mount step, so it needs a separate answer | **design decision, gates 3.1/3.2/3.3 and the pack-logic mechanism** | one decision + a real port; see [what-yolo-is.md](../reference/what-yolo-is.md) |
+| 3.8 | **Parameterize `/workspace` out of `builtin.go`** — claude's `defaults`/`managed` hardcode the literal path (`internal/agentcfg/builtin.go:104`), so surface data is jail-shaped even though the engine is not. Wants a `${workspace}` substitution at compose time. Small, but it is a **prerequisite** for surfaces-as-pack-data and for reusing the engine outside a jail — see [what-yolo-is.md](../reference/what-yolo-is.md) | small; parked only because it has no standalone payoff yet |
 
 ---
 
@@ -173,15 +173,15 @@ Proposed, following that policy:
 
 | Doc | Verdict |
 |---|---|
-| `design/composed-file-permissions.md` | **keep (A)** — the reference for postures + the audit. The one doc to read. |
+| `../reference/composed-file-permissions.md` | **keep (A)** — the reference for postures + the audit. The one doc to read. |
 | `design/packs-and-the-prism.md` | **keep (A)** — the conceptual frame; distinct audience (deciding an architecture, not implementing) |
-| `design/what-yolo-is.md` | **keep (A)** — the boundaries question (what is separable from the sandbox) + how pack *logic* would ship. Answers the two questions the packs sketch left open |
+| `../reference/what-yolo-is.md` | **keep (A)** — the boundaries question (what is separable from the sandbox) + how pack *logic* would ship. Answers the two questions the packs sketch left open |
 | `plans/composed-config-work.md` *(this)* | **keep (B)** — the single work list |
 | `plans/host-file-staging.md` | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
 | `plans/agent-settings-composition.md` | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |
 | `plans/sequencing-2026-07.md` | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |
-| `design/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the [§3.2](../design/config-migration-to-prism.md#32-the-rule-key-first-migration-on-the-absence-of-last_render)/[§3.3](../design/config-migration-to-prism.md#33-defensive-handling-of-dangling-sidecars) sidecar state machine is not documented elsewhere |
-| `design/agent-credentials.md`, `design/jail-home.md` | **keep (A)** — different questions (what crosses the boundary; how the home is built) |
+| `../reference/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the [§3.2](../reference/config-migration-to-prism.md#32-the-rule-key-first-migration-on-the-absence-of-last_render)/[§3.3](../reference/config-migration-to-prism.md#33-defensive-handling-of-dangling-sidecars) sidecar state machine is not documented elsewhere |
+| `../reference/agent-credentials.md`, `../reference/jail-home.md` | **keep (A)** — different questions (what crosses the boundary; how the home is built) |
 
 **Rule going forward, to stop the sprawl recurring:** a *posture or mechanism* goes in
 `composed-file-permissions.md`; a *work item* goes here; a *sequencing decision* goes in
@@ -193,9 +193,9 @@ ROADMAP. Nothing gets three homes.
 
 Found during the audit; small but they are the kind of thing that makes a doc untrustworthy.
 
-- `composed-file-permissions.md` [§9](../design/composed-file-permissions.md#9-work-items) item 6 is **stale** — the `EnsureSymlink` home-root
+- `composed-file-permissions.md` [§9](../reference/composed-file-permissions.md#9-work-items) item 6 is **stale** — the `EnsureSymlink` home-root
   staging shipped 2026-07-25.
-- [§4.3](../design/composed-file-permissions.md#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) **overstates** the `claude/config` defect: the `ls`/`diff`/`reset` half already
+- [§4.3](../reference/composed-file-permissions.md#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) **overstates** the `claude/config` defect: the `ls`/`diff`/`reset` half already
   skips it; only `render` renders it.
 - ~~ROADMAP + agent-settings-composition claiming `config render mise` → "no surfaces"~~ —
   **fixed 2026-07-26** (`22f7f2b`); mise is ported.

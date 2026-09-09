@@ -7,7 +7,7 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // (~/.config/mise/config.toml) is now composed by ConfigureMisePrism through the
 // agentcfg engine — the old in-place GenerateMiseConfig editor (and its stale-
 // runtime scrub, dedupe, retire, and base-tool machinery) is gone; the prism's
-// first-migration seed replaces it (docs/design/config-migration-to-prism.md
+// first-migration seed replaces it (docs/reference/config-migration-to-prism.md
 // §4.1).
 
 // loadInjectedTools parses YOLO_MISE_TOOLS as a JSON object (default {}). It is
@@ -18,7 +18,7 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // image (flake.nix imagePkgs.nodejs_24 / python3 / go), RPATH-self-contained, so
 // mise must never install a second copy — a duplicate mise runtime is the
 // non-nix binary behind the LD_LIBRARY_PATH / MCP-wrapper whack-a-mole
-// (docs/design/mise-node-dynamic-linking.md) and the host↔baked version skew.
+// (docs/reference/mise-node-dynamic-linking.md) and the host↔baked version skew.
 // Bare node/python/go resolve to the baked /bin/<tool>, the same binaries the
 // MCP wrappers and Go tooling target — one of each. A workspace MAY still pin
 // its own node/python/go via YOLO_MISE_TOOLS or /workspace/mise.toml (the

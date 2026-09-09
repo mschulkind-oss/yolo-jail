@@ -12,7 +12,7 @@ package config
 // testable, and inert unless passed.
 //
 // WHY THERE IS NO APPROVAL GATE ON IT, and this is a ruling rather than an omission
-// (docs/design/gate-placement-principle.md Test 1 — the authority test): passing an argv to
+// (docs/reference/gate-placement-principle.md Test 1 — the authority test): passing an argv to
 // `yolo` requires the ability to run commands, which already exceeds anything the argument
 // grants. An actor who can pass `--user-layer` can equally write the user config file, or
 // run the daemon directly. A gate here would refuse an actor who has already passed a
@@ -37,7 +37,7 @@ package config
 // ONE CONSTRAINT worth knowing, because it is the first thing an agent will trip over: the
 // jail's home ROOT is mounted :ro, so `mkdir ~/mypack` fails. The pack has to go somewhere
 // writable — `~/.local/share/...` is the natural home (it is one of the rw anchors), or the
-// workspace. That is jail-home policy (docs/design/jail-home.md), not a limit of this flag,
+// workspace. That is jail-home policy (docs/reference/jail-home.md), not a limit of this flag,
 // and the layer file itself lands fine because ~/.config is writable — which is exactly the
 // R8 property doing its job.
 

@@ -5,7 +5,7 @@ package cli
 // `check`), and the one place the accepted spellings are decided.
 //
 // It exists because of who operates this CLI. Agents are the primary operators
-// (docs/design/self-documenting-cli.md, item 7 and its "Why this matters here
+// (docs/reference/self-documenting-cli.md, item 7 and its "Why this matters here
 // specifically" §2): the jail is credential-isolated, so an in-jail agent cannot
 // check the host by hand, and until this flag existed the only way it could read
 // jail state, a reclaim plan or a loophole's health was to scrape ANSI-decorated

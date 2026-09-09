@@ -37,7 +37,7 @@ briefing, and after that the task comes from the user.
 **Reads with:** [`agent-briefings.md`](agent-briefings.md) (how the section is composed and
 delivered), [`storage-and-config.md`](storage-and-config.md#per-workspace-state) (the
 workspace state dir the pointer lives in),
-[`../design/self-documenting-cli.md`](../design/self-documenting-cli.md) (why the transition
+[`../reference/self-documenting-cli.md`](../reference/self-documenting-cli.md) (why the transition
 instructions belong in `yolo init`'s own output rather than in a skill).
 
 ---

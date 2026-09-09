@@ -15,7 +15,7 @@ import (
 // from a jail it believes is like every other one: that its config file reflects the
 // user's, that its home is its own, that a skill it edits stays edited. Each of those
 // is false here, silently, and none has a moment of use to attach the correction to
-// (docs/design/information-at-the-point-of-need.md: no moment → the briefing).
+// (docs/reference/information-at-the-point-of-need.md: no moment → the briefing).
 //
 // NOT EVERYTHING THE HUMAN IS TOLD BELONGS HERE, and the filter is that same
 // principle. `resources` and `cache_relocations` are read-and-ignored on this backend

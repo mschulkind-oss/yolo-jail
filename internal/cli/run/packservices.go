@@ -1,7 +1,7 @@
 package run
 
 // packservices.go composes the launch's SERVICE contributions
-// (packdecl.KindService, docs/design/wire-bridge.md §2.1) into the container
+// (packdecl.KindService, docs/reference/wire-bridge.md §2.1) into the container
 // argv. In this build exactly one thing is composed: a service's jail_daemon
 // joins the YOLO_JAIL_DAEMONS payload through internal/loopholes'
 // RuntimeArgsForWithJailDaemons — the loophole JailDaemon wire shape verbatim

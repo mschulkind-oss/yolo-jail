@@ -336,7 +336,7 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 // Both disclosures are READABILITY rather than a control, and the ON wording is
 // held to that: it names the file that holds the switch and stops. Nothing
 // reachable from here establishes that a human read that file — the approval diff
-// is a separate mechanism with its own integrity story (docs/design/config-safety.md),
+// is a separate mechanism with its own integrity story (docs/reference/config-safety.md),
 // and a line implying review would be worth less than no line at all.
 //
 // Neither direction consults the loophole's own manifest default, so a workspace

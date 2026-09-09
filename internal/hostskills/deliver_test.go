@@ -407,7 +407,7 @@ func TestNoSkillsLeavesNoTrace(t *testing.T) {
 // the destination need. The change predicate has to model that: a source measured by its link
 // TARGETS can never equal a destination holding their CONTENT, so every apply reports a change
 // it already made, archives a copy of what it just wrote, and — at the host-launch gate —
-// prompts on every start forever (docs/design/host-apply-staleness.md R3).
+// prompts on every start forever (docs/reference/host-apply-staleness.md R3).
 //
 // Both symlink shapes, because they failed differently: a LINKED FILE inside a real skill dir
 // (delivered, then reported changed forever), and a whole skill dir that is itself a LINK (the

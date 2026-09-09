@@ -274,7 +274,7 @@ type Contribution struct {
 	// and means something no other null in this config means (see that type).
 	Options map[string]OptionDefault `json:"options,omitempty"`
 
-	// --- service (docs/design/wire-bridge.md §2.1, WB-D16) ---
+	// --- service (docs/reference/wire-bridge.md §2.1, WB-D16) ---
 	// The service half of the §2.1 decomposition table, exactly — the fields a
 	// daemon needs to run and be found, and nothing from the table's loophole
 	// column. Name (REQUIRED, shared with provider/profile above) is the service's

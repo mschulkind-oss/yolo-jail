@@ -12,7 +12,7 @@ entirely Go now.
 today's host↔jail state separation: why a shared mise store with mismatched
 workspace paths corrupts `mise install`, and the `.mise.toml` trust-hook fix.
 The *design* that resolved it is
-[jail-state-separation-design.md](../design/jail-state-separation-design.md)
+[jail-state-separation-design.md](../reference/jail-state-separation-design.md)
 (split store + neutral `/mise` path + per-side venvs); this doc is kept as the
 root-cause narrative and rejected alternatives.
 
@@ -196,7 +196,7 @@ generated `.mise.local.toml` already exists — verified false, nothing in
 `src/` writes one, and it couldn't work anyway since the workspace is shared
 with the host. The viable channel is `MISE_ENV=jail` + a checked-in
 `mise.jail.toml`, host-inert — see
-[jail-state-separation-design.md](../design/jail-state-separation-design.md).)*
+[jail-state-separation-design.md](../reference/jail-state-separation-design.md).)*
 
 - \+ Zero core changes; works today per-project.
 - ‒ Per-project whack-a-mole; doesn't protect the shared state dir from the
@@ -277,7 +277,7 @@ What it costs beyond F:
   and worse, the jail's venv pre-create hook (shell.py:291) sees the
   existing `.venv` dir and skips, leaving a broken venv. F+ therefore
   needs a venv strategy — the shipped answer is
-  [jail-state-separation-design.md](../design/jail-state-separation-design.md):
+  [jail-state-separation-design.md](../reference/jail-state-separation-design.md):
   per-side venvs via a shadow mount (`ws_state/venv` bound over
   `/workspace/.venv`). Note venv sharing was already half-broken today:
   console-script shebangs embed the venv's own absolute path, which
@@ -336,7 +336,7 @@ same-path mount and kills the whole bug class, not just rust.
 _(Revised 2026-07-03: with the accepted separation bundle, A's host↔jail
 benefit is obsolete and it doesn't cover the same-version jail↔jail
 collision — see the "Residual issue" section in
-[jail-state-separation-design.md](../design/jail-state-separation-design.md); new
+[jail-state-separation-design.md](../reference/jail-state-separation-design.md); new
 leaning is boot-time prune (C) instead.)_
 
 **Answer:**
@@ -376,7 +376,7 @@ and un-gate the `mise trust` calls (run without a path argument).
 A shared-workspace `.venv` can only point at one side's interpreter. The
 pre-create hook currently skips when the dir exists, so an existing host-side
 venv would sit broken in-jail. Shipped answer:
-[jail-state-separation-design.md](../design/jail-state-separation-design.md).
+[jail-state-separation-design.md](../reference/jail-state-separation-design.md).
 
 _Leaning (revised 2026-07-03):_ Shadow mount — bind `ws_state/venv` over
 `/workspace/.venv` so each side sees its own venv at the idiomatic path;

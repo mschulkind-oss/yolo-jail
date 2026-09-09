@@ -34,7 +34,7 @@ $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs
 > file was a lettered queue — rows **B1 / B1b / B2 / B3 / B4**, **threads A–C**, IDs like **N3** and
 > **S5**. Restructuring into states retired the letters, and several sibling docs still cite them.
 > Where they went: **B-rows** → [`boundary-broker.md` §7](../design/boundary-broker.md#7-what-i-would-build-in-order)'s own
-> numbering; **Thread A** → [`retired-decisions.md`](../design/retired-decisions.md); **Thread C** →
+> numbering; **Thread A** → [`retired-decisions.md`](../plans/retired-decisions.md); **Thread C** →
 > [`shipped-2026-08-12.md`](shipped-2026-08-12.md); **N3** → [`nix OQ-1`](../design/noncontainer-nix-environment.md#9-open-questions) in
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** →
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
@@ -238,7 +238,7 @@ leaning and an empty Answer in Stage E.
   collision **silently**, where `yolo host apply` refuses. Warn at launch, fail `yolo check`, or refuse
   the boot.
 - **E1 + E2 + [`pack-host-management-plan.md`](pack-host-management-plan.md) OQ-B are ONE decision** — the `0o444`-vs-`:ro`
-  asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` [§7.4](../design/composed-file-permissions.md#74-what-this-means-for-host_files-four-modes) is the
+  asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` [§7.4](../reference/composed-file-permissions.md#74-what-this-means-for-host_files-four-modes) is the
   fourth, and it is cross-linked rather than given its own ID, because minting a fourth name for one
   question is how a decision becomes four decisions. Decide them together or none.
 - **OQ-CO and [OQ-S4](BACKLOG.md#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) are the same question asked of different kinds:** should the two notches agree?
@@ -444,7 +444,7 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../
 
 📄 [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md) —
 **[OQ-RM1](../design/reference-mismatch-diagnostics.md#9-open-questions) (narrowed) · [OQ-RM2](../design/reference-mismatch-diagnostics.md#9-open-questions) · [OQ-RM3](../design/reference-mismatch-diagnostics.md#9-open-questions) · [OQ-RM4](../design/reference-mismatch-diagnostics.md#9-open-questions)** · executes the amended
-[`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md)
+[`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
 
 **You ruled the premise on 2026-08-30, and the provider arc built most of it within 72 hours** —
 [§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) steps 2, 3 and 6 shipped (selection-key validation, the `wire_api` enum, the `base_url`
@@ -866,7 +866,7 @@ sentinel record is gone is the ORDINARY case rather than the dangerous one. Re-m
 **7 orphans, 448.6 MB** in this repo's jail.
 
 **Five items shipped on 2026-09-03** and left under the archiving rule: the host-launch gate
-(now [`host-apply-staleness.md`](../design/host-apply-staleness.md), IMPLEMENTED),
+(now [`host-apply-staleness.md`](../reference/host-apply-staleness.md), IMPLEMENTED),
 briefing-audiences steps 3–7, the `packload.Embedded()` temp-dir leak, the launcher-template
 splices, and the orphan-message cause. Two of the three small ones corrected the row that queued
 them, and one merge decided 💬 20 in code — see that row.
@@ -898,7 +898,7 @@ them, and one merge decided 💬 20 in code — see that row.
   order.
 
 - 🔒 **Program delivery [§10](../design/program-delivery.md#10-what-i-would-build-in-order) — the two steps that are blocked, not merely unscheduled.** 📄
-  [`program-delivery.md` §10](../design/program-delivery.md#10-what-i-would-build-in-order). The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
+  [`program-delivery.md` §10](../design/program-delivery.md#10-what-i-would-build-in-order). The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../reference/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
   ✅ **EVERGREEN SHIPPED 2026-09-04** ([`evergreen-agent-updates.md`](evergreen-agent-updates.md)),
   A7's V-axis prune with it. **One piece of it did not:** the MCP/LSP transitive refresh (that
   plan's build-order step 7). A yolo-installed MCP or LSP server still moves only when the
@@ -1211,12 +1211,12 @@ asked to make and these are not blocking anything:
   so the launcher warns and the jail silently sees the host's copy.)*
 
 **And one body of work was unowned rather than undecided, found 2026-09-09.**
-[`self-documenting-cli.md`](../design/self-documenting-cli.md)'s P1 tail routes every generic CLI item
+[`self-documenting-cli.md`](../reference/self-documenting-cli.md)'s P1 tail routes every generic CLI item
 to *"generic CLI backlog (proposed: `docs/plans/self-documenting-cli.md`, not yet created)"* — and
 that file was never created, so four items have had no owner for weeks. None needs a ruling. Named
 here so they stop being invisible:
 
-- ⚠ **The bar's own [§4](../design/self-documenting-cli.md#4-top-level-help-lists-every-registered-command) is violated, and by more than the doc says.** *"Top-level help lists every
+- ⚠ **The bar's own [§4](../reference/self-documenting-cli.md#4-top-level-help-lists-every-registered-command) is violated, and by more than the doc says.** *"Top-level help lists every
   registered command"* is a MUST, and **four registry commands are absent from `commandHelp`** —
   measured 2026-09-09 by diffing the two maps: `macos-teardown`, `macos-unshare`, `doctor` and
   **`host`**. The doc says "the three unlisted macos commands"; there are two of those, plus `doctor`
@@ -1257,10 +1257,14 @@ are named here so they are owned rather than rediscovered. Two that DO need a ru
 - **`integration/` has no `yolo prune` coverage**, and [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s build made that matter: it added a
   non-zero exit that fires on a *healthy* machine which has not launched since the upgrade. The
   unit suite stubs the runtime, so it structurally cannot see that path.
-- **`run` and `init` still silently ignore an unknown flag.** That is
-  [`self-documenting-cli.md`](../design/self-documenting-cli.md)'s requirement 3, whose other half shipped 2026-09-09 (unknown
-  `--format` values now exit 2 with stdout empty). A typo'd flag on the one command everybody runs
-  is the worst place left for silence.
+- **Unknown flags are silently ignored, and by MORE commands than I first wrote.** Corrected
+  2026-09-09: not just `run` and `init` — **`check` does it too and says so in `checkOptions`' own
+  comment** (*"any stray flag is ignored"*), and `ps`/`prune` have no general refusal either
+  (`prune` refuses only flags it used to have, by name). That is
+  [`self-documenting-cli.md`](../reference/self-documenting-cli.md)'s requirement 3, whose other half shipped 2026-09-09:
+  unknown `--format` VALUES now exit 2 with stdout empty. A typo'd flag on the commands everybody
+  runs is the worst place left for silence, and the fix wants to be one parse helper rather than
+  five per-command branches.
 - **The `--format json` refusal on *acting* verbs is a per-verb branch, not a mechanism.** A new
   reporting verb gets the flag automatically; a new acting verb needs its guard added by hand.
   Handled rather than unrepresentable — the honest cost, stated so nobody assumes otherwise.

@@ -91,7 +91,7 @@ func mergeValue(target, patch any) any {
 
 // mergeAccumulate composes over onto base like deepMerge, but PRESERVES null
 // tombstones even when the key is absent in base. It is the §5 overlay
-// accumulation primitive (docs/design/config-migration-to-prism.md §3.4):
+// accumulation primitive (docs/reference/config-migration-to-prism.md §3.4):
 //
 //	overlay = mergeAccumulate(overlay, delta)   # deletions persist across boots
 //

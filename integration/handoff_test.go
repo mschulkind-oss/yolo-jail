@@ -1,7 +1,7 @@
 package integration
 
 // handoff_test.go is the end-to-end half of the one-time host→jail carry-in
-// (docs/design/host-to-jail-handoff.md): a real launch, against a real briefing file
+// (docs/reference/host-to-jail-handoff.md): a real launch, against a real briefing file
 // inside a real jail.
 //
 // The unit tests in internal/cli/run pin the wire from .yolo/handover.md through

@@ -24,7 +24,7 @@
 // machine running them: the scan, the text/binary classification, and the relocatable decision
 // are MEASURED. What is NOT measured anywhere is the macOS side that makes them necessary — no
 // Seatbelt profile has been loaded by a kernel, and this backend's installer pipeline is itself
-// unverified on hardware (docs/design/macos-user-nix-and-features.md). See seatbeltcapture.go.
+// unverified on hardware (docs/reference/macos-user-nix-and-features.md). See seatbeltcapture.go.
 package capture
 
 import (

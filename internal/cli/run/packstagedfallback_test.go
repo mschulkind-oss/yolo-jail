@@ -2,7 +2,7 @@ package run
 
 // packstagedfallback_test.go pins the LAUNCH call site of the staged-tree fallback.
 //
-// packsrc.Store.Resolve owns the rule (docs/design/storage-and-config.md §10, OQ-SC1
+// packsrc.Store.Resolve owns the rule (docs/reference/storage-and-config.md §10, OQ-SC1
 // ruled option (i)), and internal/packsrc/store_test.go pins the rule itself. This file
 // exists for the OTHER half of the failure that produced it: the rule had been written
 // once already, in `yolo check`, and the launcher never learned it — so the fix and its

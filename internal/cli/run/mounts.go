@@ -64,7 +64,7 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 // deps), so the two sides were never able to share it safely. That it also closes
 // a host-execution channel — host-side tooling `require()`ing what the jail wrote,
 // invisibly, because node_modules is gitignored — is a side effect, and the
-// weaker of the two reasons. See docs/design/host-execution-from-the-workspace.md
+// weaker of the two reasons. See docs/reference/host-execution-from-the-workspace.md
 // §5.4 and §5.6 item 2.
 //
 // Root-level only, exactly like `.venv`: a monorepo's `packages/*/node_modules`

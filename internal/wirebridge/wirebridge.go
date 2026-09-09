@@ -1,5 +1,5 @@
 // Package wirebridge is the translation half of the wire bridge
-// (docs/design/wire-bridge.md §4): it converts Anthropic Messages wire
+// (docs/reference/wire-bridge.md §4): it converts Anthropic Messages wire
 // requests into OpenAI chat-completions requests and translates the answers
 // back, so claude can ride a chat-completions-only provider such as cerebras.
 //

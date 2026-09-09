@@ -248,7 +248,7 @@ func Run(opts Options) int {
 			agentArgv = []string{"/bin/zsh", "-l"}
 		}
 		var homeOverlay string
-		// CONFIG-CHANGE APPROVAL, on this arm too (docs/design/config-safety.md:
+		// CONFIG-CHANGE APPROVAL, on this arm too (docs/reference/config-safety.md:
 		// "Every config change requires explicit approval"). The gate used to live
 		// only inside runContainer, several lines below the return above — the same
 		// shape of omission pack staging had before B-0, and with the same signature:
@@ -829,7 +829,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
 	// mount + broker env are emitted by the assembler when the socket exists).
 	//
-	// GATED ON THE LOOPHOLE RECORD (docs/design/loophole-activation.md OQ-A11), which
+	// GATED ON THE LOOPHOLE RECORD (docs/reference/loophole-system.md OQ-A11), which
 	// is the same predicate the assembler already consults to decide the endpoint
 	// variable, the CA mount and the in-jail terminator. Until this gate existed the
 	// broker was THE counterexample to R1 sitting in the run pipeline: brokerEnsure was

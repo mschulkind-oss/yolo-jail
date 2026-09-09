@@ -171,7 +171,7 @@ func hasPathPrefix(p, dir string) bool {
 
 // prepareHostFiles provisions everything a host_files destination needs to be
 // writable, BEFORE the container starts. Three cases, matching
-// config.HostFileEntry.StagingFor (docs/design/composed-file-permissions.md §7.5):
+// config.HostFileEntry.StagingFor (docs/reference/composed-file-permissions.md §7.5):
 //
 //   - None: nothing to do — the destination is already under a rw bind.
 //   - Symlink: materialize a RELATIVE symlink in GlobalHome pointing into the

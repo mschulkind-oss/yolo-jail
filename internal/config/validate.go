@@ -524,7 +524,7 @@ func validateHostWrappers(config *jsonx.OrderedMap, workspace string, errs *[]st
 //
 // A plain boolean for host_wrappers' reason: what the key decides is whether the mechanism
 // runs at all, not which surfaces or which agents it covers — two tiers of "up to date" was
-// refused outright (docs/design/host-apply-staleness.md OQ-HS4), so there is nothing for a
+// refused outright (docs/reference/host-apply-staleness.md OQ-HS4), so there is nothing for a
 // list to enumerate.
 //
 // The scope half is the same defense-in-depth host_wrappers takes, and the leak it guards is

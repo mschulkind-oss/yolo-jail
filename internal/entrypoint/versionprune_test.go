@@ -1,7 +1,7 @@
 package entrypoint
 
 // versionprune_test.go RUNS A7, the V-axis prune
-// (docs/design/agent-cli-copies.md §5.1, adopted by
+// (docs/reference/agent-cli-copies.md §5.1, adopted by
 // docs/plans/evergreen-agent-updates.md's A7 section).
 //
 // WHAT IT IS FOR, in one measurement: this development jail's one workspace held five

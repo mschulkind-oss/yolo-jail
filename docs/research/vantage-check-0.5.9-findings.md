@@ -186,7 +186,7 @@ linter agree. Only the detection is missing.
 
 From a document in `docs/plans/`: `internal/cli/pack.go`, `docs/design/program-delivery.md`,
 `packs/claude/pack.json` and `flake.nix` produce **no finding**, while `roadmap.md` and
-`../design/pack-system.md` correctly do. The rule resolves only against the document's directory,
+`../reference/pack-system.md` correctly do. The rule resolves only against the document's directory,
 so repo-root-relative citations — very common here — are real, followable references it ignores.
 
 The corpus-wide count of 318 `ref/unlinked-file` findings therefore *understates* the work.

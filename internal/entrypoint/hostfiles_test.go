@@ -336,7 +336,7 @@ func TestConfigureHostFilesEmptyEnvIsNoop(t *testing.T) {
 }
 
 // TestHostFilesHomeRootViaSymlink is the entrypoint half of the ~/.npmrc case
-// (docs/design/composed-file-permissions.md §7.5). The CLI stages a DANGLING
+// (docs/reference/composed-file-permissions.md §7.5). The CLI stages a DANGLING
 // relative symlink in the :ro home base pointing into a writable overlay; the
 // render must then work unchanged — the write follows the link, `once` seeds
 // because Stat on a dangling link is ENOENT, and readonly's chmod lands on the

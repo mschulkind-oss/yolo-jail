@@ -18,7 +18,7 @@ const DefaultBrokerIP = "host-gateway"
 // Transport values.
 //
 // THERE ARE TWO, and that is the whole point of the unification
-// (docs/design/loophole-transport.md §7.4). `transport` now answers exactly one
+// (docs/reference/loophole-transport.md §7.4). `transport` now answers exactly one
 // question — "does this loophole have a host daemon a jail dials, and if so how"
 // — where it used to conflate that with "does this loophole intercept TLS".
 const (
@@ -93,7 +93,7 @@ const (
 // It exists because ONE loophole in the tree cannot be spawned per jail at all:
 // the Claude OAuth broker holds the flock that stops two jails burning the same
 // single-use refresh token, so a second copy of it is not a second daemon, it is
-// the race the loophole exists to prevent (docs/design/agent-credentials.md §2.5,
+// the race the loophole exists to prevent (docs/reference/agent-credentials.md §2.5,
 // broker-as-a-pack.md §5.2). Before this key, the run pipeline expressed that by
 // testing the loophole's NAME.
 const (

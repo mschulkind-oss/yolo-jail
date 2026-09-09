@@ -15,7 +15,7 @@ never a value. Two endpoints: the native one Cerebras serves
 (`https://api.cerebras.ai/v1`, OpenAI chat completions) and `http://127.0.0.1:8214` —
 the wire bridge's loopback URL, declared as the `anthropic` endpoint and made true by
 the `wire-bridge` pack this pack's `needs` entry joins whenever claude or copilot is in
-the launch ([wire-bridge.md](../../docs/design/wire-bridge.md) §3). The one alias is
+the launch ([wire-bridge.md](../../docs/reference/wire-bridge.md) §3). The one alias is
 `qwen-3.8-27b` (public since 2026-09-03; agentic-coding tuned, parallel tool calls +
 strict schemas, 64K context free / 128K paid, ~1500 tok/s). `gpt-oss-120b` is
 deliberately absent: Cerebras's own docs warn it "may invoke tools it wasn't given" and
@@ -56,8 +56,8 @@ Then `yolo -p cerebras` (or the persistent spelling, `"use_profiles": {"pi": "ce
 | pi | a `cerebras` catalog entry — `api: "openai-completions"`, `apiKey: "${CEREBRAS_API_KEY}"` (the reference, not the value) — plus `defaultProvider`/`defaultModel` when a profile is selected | its derive, reading `YOLO_PROVIDERS` (the `openai` endpoint) |
 | opencode | a `cerebras` catalog entry — `baseURL` and `apiKey: "{env:CEREBRAS_API_KEY}"` under `options` — plus `model = "cerebras/qwen-3.8-27b"` when a profile is selected. Cerebras's own integrations index lists OpenCode as a supported client. | its derive, reading `YOLO_PROVIDERS` (the `openai` endpoint) |
 | copilot | BYOK env routed through the wire bridge: `COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214`, `COPILOT_PROVIDER_TYPE=anthropic`, `COPILOT_MODEL=qwen-3.8-27b`, `COPILOT_PROVIDER_API_KEY` — its derive prefers the anthropic endpoint of any provider declaring one (D-3), and the bridge speaks that wire | the copilot pack's env derive; the bridge from its `needs`-joined pack |
-| claude | routed at the bridge: `ANTHROPIC_BASE_URL=http://127.0.0.1:8214`, the key as `ANTHROPIC_AUTH_TOKEN`, auto-compact sized to the 64K window — Cerebras has no native Anthropic-compatible endpoint; the bridge ([wire-bridge.md](../../docs/design/wire-bridge.md)) is the translating service that makes the declared URL true, joined automatically through this pack's `needs` entry | its derive, reading `YOLO_PROVIDERS`; the bridge from its `needs`-joined pack |
-| codex | **nothing — no entry and no selection** | codex speaks `responses` only and the bridge translates exactly one pair, anthropic ↔ chat-completions — codex-on-cerebras stays unwireable ([wire-bridge.md](../../docs/design/wire-bridge.md) §7) |
+| claude | routed at the bridge: `ANTHROPIC_BASE_URL=http://127.0.0.1:8214`, the key as `ANTHROPIC_AUTH_TOKEN`, auto-compact sized to the 64K window — Cerebras has no native Anthropic-compatible endpoint; the bridge ([wire-bridge.md](../../docs/reference/wire-bridge.md)) is the translating service that makes the declared URL true, joined automatically through this pack's `needs` entry | its derive, reading `YOLO_PROVIDERS`; the bridge from its `needs`-joined pack |
+| codex | **nothing — no entry and no selection** | codex speaks `responses` only and the bridge translates exactly one pair, anthropic ↔ chat-completions — codex-on-cerebras stays unwireable ([wire-bridge.md](../../docs/reference/wire-bridge.md) §7) |
 | agy | **nothing, ever** | Google-locked: its only custom-endpoint hook speaks the Gemini protocol (design doc's audit table) |
 
 A launch that selects this pack and never hydrates `CEREBRAS_API_KEY` **refuses

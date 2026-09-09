@@ -37,7 +37,7 @@ func seedReclaimable(t *testing.T, gs string) (tarBytes int64) {
 }
 
 // TestPruneJSONParsesAndCarriesTheSummary is enforcement item 4 of
-// docs/design/self-documenting-cli.md for `prune`: the output is PARSED, and its
+// docs/reference/self-documenting-cli.md for `prune`: the output is PARSED, and its
 // numbers are checked against the measurement rather than against a string.
 func TestPruneJSONParsesAndCarriesTheSummary(t *testing.T) {
 	o, gs := baseOpts(t)

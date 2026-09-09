@@ -3,7 +3,7 @@ package config
 // assembled.go owns the HOST → JAIL delivery of the merged config.
 //
 // It exists because one file used to do two unrelated jobs. Until OQ-D1
-// (docs/design/config-safety.md) <workspace>/.yolo/config-snapshot.json was BOTH
+// (docs/reference/config-safety.md) <workspace>/.yolo/config-snapshot.json was BOTH
 // the record of what a human last approved AND the copy of the assembled config
 // an in-jail LoadConfig reads back for its own workspace. Those two jobs pull in
 // opposite directions:
@@ -45,7 +45,7 @@ import (
 // and is rewritten on every fresh launch.
 //
 // The name is deliberately not the old config-snapshot.json. "Snapshot" is the
-// approval vocabulary in docs/design/config-safety.md, and leaving that word on
+// approval vocabulary in docs/reference/config-safety.md, and leaving that word on
 // the workspace-side file would keep pointing readers at the mount the ruling
 // just moved the approval record out of.
 func WorkspaceAssembledConfigPath(workspace string) string {

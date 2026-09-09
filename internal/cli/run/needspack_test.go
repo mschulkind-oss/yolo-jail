@@ -1,7 +1,7 @@
 package run
 
 // needspack_test.go pins the launch call site of the `needs` closure
-// (docs/design/wire-bridge.md §3.1). packload.ResolveNeeds' own tests pin the
+// (docs/reference/wire-bridge.md §3.1). packload.ResolveNeeds' own tests pin the
 // closure; this file exists for the OTHER half of the rule — the call site in
 // stagePacks. A test that pins the callee while the call site is unpinned is not
 // a test (AGENTS.md, Testing): delete the ResolveNeeds call from packs.go and

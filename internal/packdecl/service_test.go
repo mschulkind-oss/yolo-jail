@@ -6,7 +6,7 @@ import (
 )
 
 // service_test.go pins the `kind: "service"` vocabulary
-// (docs/design/wire-bridge.md §2.1, WB-D16): the decode round-trip, the
+// (docs/reference/wire-bridge.md §2.1, WB-D16): the decode round-trip, the
 // required fields, the anti-loophole refusal, and the name exclusivity that
 // keeps two daemons off one endpoint file. The census pin itself lives in
 // kinds_test.go (it must fail when the kind lands — that is the trap the plan

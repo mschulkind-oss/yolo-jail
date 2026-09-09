@@ -51,7 +51,7 @@ func (s Set) RuntimeArgsFor(from []*Loophole, runtime string) []string {
 
 // RuntimeArgsForWithJailDaemons is Set.RuntimeArgsFor with ADDITIONAL entries joined
 // into the SAME YOLO_JAIL_DAEMONS payload — the doorway pack services walk
-// (packdecl.KindService, docs/design/wire-bridge.md §2.1). The env var is ONE frozen
+// (packdecl.KindService, docs/reference/wire-bridge.md §2.1). The env var is ONE frozen
 // contract with ONE writer, and this method is what keeps it that way: a service's
 // daemon ({name, cmd, restart}, the loophole JailDaemon shape verbatim) is appended
 // here rather than emitted by a second `-e YOLO_JAIL_DAEMONS` further down the argv,

@@ -10,7 +10,7 @@ import "strings"
 //
 // THE LIST IS EXHAUSTIVE OVER THE REGISTRY, minus hiddenFromCommandHelp — that
 // is the standard's item 4 ("top-level help lists every registered command",
-// docs/design/self-documenting-cli.md) and it is now enforced in BOTH
+// docs/reference/self-documenting-cli.md) and it is now enforced in BOTH
 // directions: TestEveryRegisteredCommandIsListedInHelp walks the registry and
 // requires each key to be RENDERED here or explicitly hidden with a reason.
 // Until 2026-09-09 only help→registry was checked, and four registered commands

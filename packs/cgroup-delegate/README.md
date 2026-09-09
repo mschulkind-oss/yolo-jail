@@ -50,7 +50,7 @@ the peer's **host-namespace pid**, read off the connection by the kernel and nev
 the caller, into the job cgroup's `cgroup.procs` — and that write is what moves the caller
 into the cgroup. A TCP connection carries no peer credential at all, and a loopback-TLS
 *front* would be worse than nothing, because `SO_PEERCRED` on the upstream socket would
-attest **yolo's own** pid. See [`security-shim.md`](../../docs/design/security-shim.md) §2
+attest **yolo's own** pid. See [`security-shim.md`](../../docs/reference/security-shim.md) §2
 and `startCgroupDelegate` in `internal/cli/run/loopholesruntime.go`.
 
 ## What the conversion also retired

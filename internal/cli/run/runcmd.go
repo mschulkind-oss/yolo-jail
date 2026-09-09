@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -98,7 +99,7 @@ type Options struct {
 	DryRun bool
 	// AcceptConfigChanges is --accept-config-changes: it grants the config-change
 	// approval on a launch with no terminal to prompt on, which without it is a
-	// REFUSED launch (docs/design/config-safety.md, OQ-D2).
+	// REFUSED launch (docs/reference/config-safety.md, OQ-D2).
 	//
 	// A flag and not an environment variable, because it grants an APPROVAL rather
 	// than suppressing a diagnosis, and an approval must not be inherited by every
@@ -183,6 +184,18 @@ type Options struct {
 	RepoRoot func() (reporoot.Resolution, bool)
 	// PathExists tests filesystem presence. nil => os.Stat.
 	PathExists func(string) bool
+	// HostCASProbe answers "does this host path exist, is it a writable
+	// directory, is it empty?" for L9's host-cache alias (hostcasalias.go).
+	// nil => hostcas.DefaultProbe.
+	//
+	// A seam for the reason PerfLoggingConfig is one: without it the decision
+	// reads the DEVELOPER's real ~/.cache, so a maintainer who happens to have a
+	// pants store would get an extra -v on every fixture in this package and
+	// nobody else would. Every argv golden is already immune by a second route
+	// (goldenOptions' Getenv returns "" for HOME, so there is no cache root to
+	// look under), and the two protections are deliberate: one keeps the
+	// DECISION host-independent, the other keeps the FIXTURES so.
+	HostCASProbe func(string) hostcas.Presence
 	// BuildJailPrefix realizes the /opt/yolo-jail install prefix the launch
 	// mounts into the jail, for a flake source that ships no prebuilt binaries
 	// (a live checkout). Returns (storePath, nixStderrTail); "" is failure and

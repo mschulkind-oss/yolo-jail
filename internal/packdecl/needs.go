@@ -1,7 +1,7 @@
 package packdecl
 
 // needs.go is the `needs` half of CONDITIONAL PACK DEPENDENCY
-// (docs/design/wire-bridge.md §3.1): a pack's declaration that ANOTHER pack belongs
+// (docs/reference/wire-bridge.md §3.1): a pack's declaration that ANOTHER pack belongs
 // in the launch when a condition on the selected set holds. The first instance is
 // cerebras needing wire-bridge when claude is among the launch's agents, but the
 // vocabulary is general and lands on its own — the design is explicit that it is

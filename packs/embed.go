@@ -33,7 +33,7 @@
 // requirements (9caba669 moved the blocked tools out of core — core blocks nothing by
 // default), the third kind of CLI-less pack. `wire-bridge` is the fourth kind and the
 // first of it: a `kind: "service"` pack, one in-jail daemon and its endpoint file,
-// no grants (docs/design/wire-bridge.md §2.1).
+// no grants (docs/reference/wire-bridge.md §2.1).
 // Anything here that reasons about "the six agent packs" (a comment, a test's name
 // list) is describing the agent SUBSET, not this list.
 //

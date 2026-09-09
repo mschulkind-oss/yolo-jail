@@ -1292,7 +1292,7 @@ jail is *running under* is fixed until a restart, this is how an agent knows its
 edit has not yet taken effect. To see the full effective config the jail is running
 under — the merged, canonicalized form — use `yolo config dump`.
 
-See [docs/design/config-safety.md](../design/config-safety.md) for the full workflow.
+See [../reference/config-safety.md](../reference/config-safety.md) for the full workflow.
 
 ---
 

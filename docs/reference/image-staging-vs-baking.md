@@ -52,7 +52,7 @@ in-flight design for making the image's *layer order* the unit of transfer — t
 doc does not own), [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md)
 and [`../design/disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md) (what
 reclaims the images, tars and store outputs this pipeline leaves behind),
-[`../design/jail-home.md`](../design/jail-home.md) (every other mount).
+[`../reference/jail-home.md`](../reference/jail-home.md) (every other mount).
 
 ---
 
@@ -325,7 +325,7 @@ staged packs; and, generated every boot by `internal/entrypoint`, the blocker an
 directories, `.bashrc`, the MCP wrappers, the `ld.so.cache` and timezone files under `/run`,
 and every pack surface. Agent CLIs install into the writable npm prefix, mise tools into `/mise`;
 only `mise` itself is baked. Which of these is in the image is documented in
-[`../design/jail-home.md`](../design/jail-home.md) and
+[`../reference/jail-home.md`](../reference/jail-home.md) and
 [`../design/program-delivery.md`](../design/program-delivery.md); this doc owns the two that are
 about the image itself — yolo's binaries, above, and `packages:`, below.
 
@@ -700,7 +700,7 @@ ones cited from sibling docs and code comments and are never renumbered.
 | ID | Ruling | Date |
 | :--- | :--- | :--- |
 | OQ-1 | Store delivery ships as an **opt-in fast path with the baked path retained**, and "retained" is per *launch*, never per package — two mechanisms, accepted deliberately. | 2026-08-25 |
-| OQ-2 | A build that **ran and failed** is fatal: the classification and nix's own stderr are printed and the launch refuses. The opt-out is `YOLO_ALLOW_STALE_IMAGE=1`, not a TTY test; `SkipBuild`'s silence is untouched. This knowingly diverges from [`../design/gate-placement-principle.md`](../design/gate-placement-principle.md)'s "tell a human from a pipe": what makes a stale run safe is that somebody *said* it may be stale. | 2026-08-15 |
+| OQ-2 | A build that **ran and failed** is fatal: the classification and nix's own stderr are printed and the launch refuses. The opt-out is `YOLO_ALLOW_STALE_IMAGE=1`, not a TTY test; `SkipBuild`'s silence is untouched. This knowingly diverges from [`../reference/gate-placement-principle.md`](../reference/gate-placement-principle.md)'s "tell a human from a pipe": what makes a stale run safe is that somebody *said* it may be stale. | 2026-08-15 |
 | OQ-3 | **Content-addressed image tags**; the LRU-membership variant on `:latest` is refused. `localhost/yolo-jail:latest` is not a public surface. The "making cachix useful" caveat concerns the nix binary cache, a different surface. | 2026-08-25 |
 | OQ-4 | **`packages:` stays workspace-scope** — "yes, has to be". Fix the cost, never the scope. | 2026-08-25 |
 | OQ-5 | Retained image tars are a **bug**, not a configuration; the goal is minimal disk; yolo may delete cached tars without `--apply`. Executed in [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md). | 2026-08-25 |

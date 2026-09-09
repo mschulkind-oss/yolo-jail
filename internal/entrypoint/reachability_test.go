@@ -1469,7 +1469,7 @@ func TestReachabilityRecordLandsAfterTheFindingsItSummarises(t *testing.T) {
 		t.Fatalf("no summary recorded:\n%s", out)
 	}
 	// The explanation is the last thing the witness says about a broken service.
-	explain := strings.LastIndex(out, "docs/design/loopback-tls-reachability.md")
+	explain := strings.LastIndex(out, "docs/reference/loopback-tls-reachability.md")
 	if explain < 0 {
 		t.Fatalf("no explanation emitted for a broken service:\n%s", out)
 	}

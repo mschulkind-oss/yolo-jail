@@ -1,7 +1,7 @@
 package check
 
 // needspack_test.go pins `yolo check`'s half of the `needs` closure
-// (docs/design/wire-bridge.md §3.1, WB-D12): the additions print beside the pack
+// (docs/reference/wire-bridge.md §3.1, WB-D12): the additions print beside the pack
 // list, and a closure refusal is a FAIL — the launch refuses both, so a check
 // that passed on either would pass on a config that cannot start a jail.
 

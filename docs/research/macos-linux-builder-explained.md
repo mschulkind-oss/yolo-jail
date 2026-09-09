@@ -11,7 +11,7 @@
 > **STATUS (2026-07-23):** The VM-builder *direction* discussed below — the [§3](#3-the-real-options)
 > Option C launchd plist, the [§5](#5-what-this-means-for-the-code-we-already-have) rework recommendation, and the `yolo builder`
 > commands — is **SUPERSEDED**. The on-demand **container** builder is the sole
-> shipped builder; see [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md)
+> shipped builder; see `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md))
 > (Open Decision #3, RESOLVED). The conceptual/mental-model content here (why
 > macOS needs a Linux builder, the Rosetta stone, the lifecycle mechanics) stays
 > valid; only the "we should build the VM this way" recommendation is retired.
@@ -19,7 +19,7 @@
 You know Linux, not macOS. This doc explains *why* macOS needs a "Linux
 builder" at all, the macOS-specific machinery involved (translated to Linux
 terms), and the real options for running it — so the choice in
-[macos-no-vm-direction.md](../design/macos-no-vm-direction.md) /
+[macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) /
 [macos-container-builder-exploration.md](macos-container-builder-exploration.md) is an
 informed one, not a leap of faith.
 
@@ -170,7 +170,7 @@ Fine for a 30-second "does my Mac boot the VM?" check; never for actual use.
 ### Non-options (for completeness)
 - **Colima / Docker-VM as the builder** — it's a Docker VM, not a nix builder;
   you'd install nix *inside* it and copy closures. Strictly more setup than any
-  of A–C. Already rejected in [happy-path-principle.md](../design/happy-path-principle.md).
+  of A–C. Already rejected in [happy-path-principle.md](../reference/happy-path-principle.md).
 - **A remote Linux box on your LAN** — works (it's the same ssh-remote-builder
   mechanism), but requires you to *own and run* a Linux machine. Fine as a
   power-user escape hatch, not a default.

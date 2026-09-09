@@ -8,7 +8,7 @@ import (
 )
 
 // mise_migration_test.go pins the mise global-config PRISM port
-// (docs/design/config-migration-to-prism.md §4.1). The bespoke in-place editor
+// (docs/reference/config-migration-to-prism.md §4.1). The bespoke in-place editor
 // (GenerateMiseConfig) is gone; ConfigureMisePrism composes the surface through
 // the engine. The §4.1 guarantee — a stale yolo-written default runtime line no
 // longer shadows the baked /bin/<tool> — is now delivered by the prism's

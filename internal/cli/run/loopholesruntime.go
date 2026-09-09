@@ -392,7 +392,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 // SO_PEERCRED.
 //
 // The delegate's whole security model is kernel-attested identity
-// (docs/design/security-shim.md §2, "we never trust the container to identify
+// (docs/reference/security-shim.md §2, "we never trust the container to identify
 // itself"). `create_and_join` writes the peer's HOST-NAMESPACE PID — read off
 // the connection by the kernel, never sent by the caller — into the job
 // cgroup's cgroup.procs, and that write is what moves the caller into the

@@ -1,7 +1,7 @@
 package run
 
 // wirebridgepack_test.go pins the shipped wire-bridge pack and the cerebras
-// need that stages it (docs/design/wire-bridge.md §3, §5) at the tier the
+// need that stages it (docs/reference/wire-bridge.md §3, §5) at the tier the
 // launch actually runs: the staged set, the composed argv, and the two env
 // vars a bridged launch carries. packload.ResolveNeeds' closure and
 // wirebridged's boot decision have their own tables; what only this file can

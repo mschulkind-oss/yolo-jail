@@ -1,7 +1,7 @@
 package cli
 
 // hostapplygate_test.go walks §4.3's table row by row, plus §4.4's two failure classes and
-// §7's "in-jail is a hard no-op" (docs/design/host-apply-staleness.md).
+// §7's "in-jail is a hard no-op" (docs/reference/host-apply-staleness.md).
 //
 // THE CALL SITE IS PINNED SEPARATELY, at the bottom, and it has to be: every test that calls
 // hostApplyGate directly would still pass with the one line in hostExec deleted, which is

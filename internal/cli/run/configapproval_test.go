@@ -14,7 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// configapproval_test.go covers the LAUNCHER half of docs/design/config-safety.md's
+// configapproval_test.go covers the LAUNCHER half of docs/reference/config-safety.md's
 // two rulings: what a refused non-interactive launch actually prints (OQ-D2), and
 // that the launcher never reaches into the workspace for the approval record
 // (OQ-D1). The decision logic itself lives in internal/config and is tested there;

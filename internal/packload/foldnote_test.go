@@ -3,7 +3,7 @@ package packload
 // foldnote_test.go pins the one thing the fold used to do silently: drop a config patch
 // that names no surface its own pack declares.
 //
-// That drop is the OQ-Z5 shape (docs/design/zai-plumbing.md): a patch written for a claude
+// That drop is the OQ-Z5 shape (docs/reference/zai-plumbing.md): a patch written for a claude
 // surface, moved into a pack that owns no claude surface, merges into nothing and — before
 // the note existed — looked to its author exactly like a patch that had folded. The review
 // that found it verified the silence directly: a `setings` typo produced no problem, no

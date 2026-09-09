@@ -10,7 +10,7 @@ const hostWrappersKey = "host_wrappers"
 
 // HostWrappersEnabled reports whether the user has opted in to host launch wrappers —
 // the generated `bin/wrap` directory a user prepends to PATH so a bare `claude` composes
-// its environment through `yolo host` (docs/design/host-agent-environment.md §5.1).
+// its environment through `yolo host` (docs/reference/host-agent-environment.md §5.1).
 //
 // # It is read from the USER config directly, and that is the security boundary
 //

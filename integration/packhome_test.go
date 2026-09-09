@@ -97,7 +97,7 @@ func TestPackHomeSharesHostStores(t *testing.T) {
 }
 
 // TestIsolatedHomeCarriesOnlyItsOwnConfig pins the two properties the DEFAULT isolation
-// adds on top of the store rule above (docs/design/storage-and-config.md §10.5):
+// adds on top of the store rule above (docs/reference/storage-and-config.md §10.5):
 //
 //  1. the isolated home carries the config the caller stated and nothing else, so a
 //     machine-local `security`/`mise_tools`/`mcp_servers`/`loopholes` block cannot merge

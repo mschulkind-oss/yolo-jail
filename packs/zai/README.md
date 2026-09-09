@@ -1,7 +1,7 @@
 # `zai` — the official pack that ships z.ai as a provider
 
 The first real consumer of the provider/profile pair
-([`zai-plumbing.md`](../../docs/design/zai-plumbing.md) §4 route B): z.ai's service facts as
+([`zai-plumbing.md`](../../docs/reference/zai-plumbing.md) §4 route B): z.ai's service facts as
 one `kind: "provider"` contribution, and the selection that points the agents at them as one
 `kind: "profile"`. The pack installs **no CLI**. The GLM Coding Plan speaks both wire
 protocols, so one provider serves an anthropic-speaking agent and chat-completions ones at
@@ -60,7 +60,7 @@ selection that points them at it: one `kind: "profile"` contribution, `{"name": 
 §5.2). The selection is not a second channel: the derive that wrote the catalog writes the
 selection key too, per agent, in that agent's own dialect. This pack ships no per-agent
 config-overlay — the one that carried claude's endpoint was deleted with `env_shape`
-(2026-09-02, [`zai-plumbing.md`](../../docs/design/zai-plumbing.md) §4).
+(2026-09-02, [`zai-plumbing.md`](../../docs/reference/zai-plumbing.md) §4).
 
 Selecting it — `-p zai` before the `--`, or `-p pi=zai` for one agent, or the
 persistent `"use_profiles": {"pi": "zai"}` — is what makes each agent's derive write its own

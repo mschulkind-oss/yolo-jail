@@ -33,7 +33,7 @@ other difference follows from that one.
 
 **Reads with:** [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md),
 [`image-staging-vs-baking.md`](image-staging-vs-baking.md),
-[`macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md).
+[`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md).
 
 ---
 

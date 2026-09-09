@@ -1652,9 +1652,19 @@
     installation is fully independent; installs never cross the boundary.
 
   [bold]Blocked Tools[/bold]
-    By default, grep is replaced by rg and find by fd. These are shims —
-    set YOLO_BYPASS_SHIMS=1 in scripts that need the real commands.
-    Configure via security.blocked_tools in yolo-jail.jsonc.
+    NOTHING is blocked by default. Blocking is opt-in, two ways:
+    • the "guardrails" pack — add it to "packs" and grep -r / find are
+      replaced by rg / fd (this is where the old default went, 2026-09-04)
+    • security.blocked_tools in yolo-jail.jsonc — your own list, and an
+      entry naming the same tool as a pack's REPLACES it whole
+    A blocker also declares a replacement, and is generated only when that
+    replacement is on the agent's PATH — so a block can never leave a jail
+    with neither the tool nor its alternative. The old unconditional default
+    assumed the image bakes rg and fd, which is false on the macos-user
+    backend: it bakes nothing, so the block removed a tool and pointed at a
+    binary that did not exist.
+    Once generated, a blocker is unconditional at run time — set
+    YOLO_BYPASS_SHIMS=1 for installers and scripts that need the real tool.
 
   [bold]Venvs & Python[/bold]
     Venvs are per side: /workspace/.venv (plus any venv path configured in

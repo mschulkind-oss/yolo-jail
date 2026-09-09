@@ -43,7 +43,7 @@ func (o *Options) checkMacosUserBackend(r *reporter) {
 		"A green check here means the preconditions are in place, not that a "+
 			"run will succeed on this hardware.  Inspect the full plan with "+
 			"`yolo --dry-run`; the definitive test is a real run on a Mac "+
-			"(docs/design/macos-no-vm-direction.md).")
+			"(docs/reference/macos-no-vm-direction.md).")
 	if !o.IsMacOS {
 		r.fail("runtime 'macos-user' requires macOS",
 			"It isolates via a dedicated macOS user account; use 'podman' "+

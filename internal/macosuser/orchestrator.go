@@ -202,7 +202,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// a protection on the container backends that is absent here, with nothing in the
 	// config to hint at the difference. Shipping that silently would repeat exactly
 	// the defect the workspace_readonly wiring above exists to fix.
-	// See docs/design/host-execution-from-the-workspace.md §5.5.
+	// See docs/reference/host-execution-from-the-workspace.md §5.5.
 	if perSide := cfgStrList(opts.Config, "per_side_paths"); len(perSide) > 0 {
 		out.print("[yellow]Warning: per_side_paths is NOT enforced on macos-user[/yellow] — " +
 			"per-side shadowing needs a mount namespace and this backend has none, so " +
@@ -306,7 +306,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	if !deps.SandboxUserExists() {
 		out.printf("[bold red]Sandbox user '%s' does not exist.[/bold red]\n"+
 			"Run the one-time setup to create it (`yolo macos-setup`; see "+
-			"`docs/design/macos-no-vm-direction.md`).", SandboxUser)
+			"`docs/reference/macos-no-vm-direction.md`).", SandboxUser)
 		return 1
 	}
 	// THE WORKSPACE MUST BE SHARED WITH THE SANDBOX, and this is the cheapest place

@@ -2,7 +2,7 @@ package entrypoint
 
 // prism_mise.go is the prism-backed replacement for GenerateMiseConfig — the
 // first NON-agent-config surface ported onto the composition engine
-// (docs/design/config-migration-to-prism.md §4.1, a HIGH stale-risk surface).
+// (docs/reference/config-migration-to-prism.md §4.1, a HIGH stale-risk surface).
 //
 // Why the port kills the stale-runtime bug for free. The bespoke
 // GenerateMiseConfig was an in-place editor: it added and updated `[tools]`

@@ -305,7 +305,7 @@ func markedManifestBytes(path string) ([]byte, bool, error) {
 // copies the tree verbatim and then REWRITES the manifest to carry yolo's ownership marker
 // (markManifest), so the destination is deliberately one file different from the source. A
 // digest of the two would report CHANGED on every apply forever, which as a change predicate
-// means a prompt on every launch (docs/design/host-apply-staleness.md R3).
+// means a prompt on every launch (docs/reference/host-apply-staleness.md R3).
 //
 // So the tree is compared with the manifest excluded, and the manifest is compared against its
 // MARKED form. Every failure to read either side reads as CHANGED, matching Changed's

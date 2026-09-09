@@ -6,7 +6,7 @@ builder (`internal/containerbuilder`), and the VM-based alternative it was
 weighed against — `internal/builder` plus the `yolo builder` commands — is
 **deleted from the tree** (verified 2026-08-23: no `internal/builder` directory).
 Read this for *why the image must contain nix* and why alpine is not an option;
-for what runs today read [`../design/linux-builder-lifecycle.md`](../design/linux-builder-lifecycle.md)
+for what runs today read `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md))
 and [`macos-linux-builder-explained.md`](macos-linux-builder-explained.md).
 Note that the Python-era file names below (`builder.py`) are historical — the
 whole tool is Go now.
@@ -124,7 +124,7 @@ podman→container-builder, AC→container-builder *if it works*, else QEMU.
 > a host-reachable port (macOS 26.5 arm64, AC 0.12.3) — the "unproven bet" is
 > discharged. The QEMU fallback for AC is therefore no longer needed: the
 > container builder is the sole shipped builder on **both** runtimes. See
-> [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md).
+> `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md)).
 
 ## 6. Recommendation / plan
 

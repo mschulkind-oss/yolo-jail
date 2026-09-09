@@ -6,7 +6,7 @@
 // loop) and in-jail (the operating agent's "what is my config, and why?" aid),
 // and it is the CLI surface that makes the Lua transform mechanism discoverable
 // and operable by interrogation — the self-documenting-CLI gap
-// (docs/design/self-documenting-cli.md) this closes for the composed surfaces.
+// (docs/reference/self-documenting-cli.md) this closes for the composed surfaces.
 package cli
 
 import (

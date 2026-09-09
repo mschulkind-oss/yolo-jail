@@ -9,7 +9,7 @@ package cli
 // §5 capture overlay outranks the host layer PERMANENTLY and had no user-facing
 // view at all, so a surface could silently diverge from what its layers would
 // produce with the divergence recorded only in a sidecar the user has never heard
-// of (docs/design/composed-file-permissions.md §5). This is the missing half of a
+// of (docs/reference/composed-file-permissions.md §5). This is the missing half of a
 // mechanism already in production, not new-feature polish.
 
 import (

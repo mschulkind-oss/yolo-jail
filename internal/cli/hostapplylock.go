@@ -1,6 +1,6 @@
 package cli
 
-// hostapplylock.go names ONE WRITER for a host home (docs/design/host-apply-staleness.md §4.6).
+// hostapplylock.go names ONE WRITER for a host home (docs/reference/host-apply-staleness.md §4.6).
 //
 // # Why idempotence is not enough
 //

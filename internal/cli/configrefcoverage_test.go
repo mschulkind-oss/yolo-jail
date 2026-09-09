@@ -1,7 +1,7 @@
 package cli
 
 // configrefcoverage_test.go is enforcement item 3 of
-// docs/design/self-documenting-cli.md, and the doc calls it "the highest-leverage
+// docs/reference/self-documenting-cli.md, and the doc calls it "the highest-leverage
 // single test given config-ref is hand-maintained" for a plain reason: `yolo
 // config-ref` is the CLI's only concept surface for the config schema, an
 // in-jail agent has nothing else to read, and the schema and the text that

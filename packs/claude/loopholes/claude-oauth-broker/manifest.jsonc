@@ -88,7 +88,7 @@
   // so: ONE daemon per machine serving every jail on it, ensured under a host-wide
   // flock rather than spawned per jail.  That is not a preference — the flock this
   // daemon holds is what stops two jails burning the same single-use refresh token
-  // (docs/design/agent-credentials.md §2.5), so a second copy of it IS the race the
+  // (docs/reference/agent-credentials.md §2.5), so a second copy of it IS the race the
   // loophole exists to prevent.  The run pipeline used to express this by testing
   // the loophole's NAME; `scope` is what replaced that.
   //

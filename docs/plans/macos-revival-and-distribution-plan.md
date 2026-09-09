@@ -104,7 +104,7 @@ the 07-21 build and not of today's. See [`roadmap.md`](roadmap.md)'s 🔒 macOS 
   landed" a month after the revert.
 
 **Inputs:** `docs/research/repo-root-and-distribution.md` (the source-access
-work), `docs/design/macos-no-vm-direction.md` (the settled "compose both
+work), `../reference/macos-no-vm-direction.md` (the settled "compose both
 backends" direction), `docs/research/macos-support-matrix.md` (the status
 tracker). The real-hardware audit findings and the earlier nix-shell/direction
 docs that seeded this plan were archived once their conclusions landed here —
@@ -125,7 +125,7 @@ macos-user backend, at which point SandVault retires.
 
 ## 0. Standing decisions — do not relitigate
 
-- **Composed product** (2026-07-16, `docs/design/macos-no-vm-direction.md`):
+- **Composed product** (2026-07-16, `../reference/macos-no-vm-direction.md`):
   macos-user (native user + Seatbelt, no VM) is the fast default; Apple
   Container is the fallback cell for Linux-only packages or VM-grade isolation.
 - **Acceptance bar:** macos-user must honor `packages:` via native
@@ -165,7 +165,7 @@ macos-user backend, at which point SandVault retires.
 > below; the header table carries the same rows.
 
 Three items promoted from the "Open items" list in
-[macos-user-nix-and-features.md](../design/macos-user-nix-and-features.md) once
+[macos-user-nix-and-features.md](../reference/macos-user-nix-and-features.md) once
 the maintainer resolved them. All three are pure-Go / flake-only and
 Linux-jail-developable + testable; none needs Mac hardware. Do them before any
 remaining fallback/roadmap work below.
@@ -702,7 +702,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 ## Track L — loophole framework on macos-user (future; use-case-gated)
 
 > **Status: NOT STARTED. Sequencing UNCHANGED** — recorded 2026-07-23 from the
-> `macos-user-nix-and-features.md` [§3.5](../design/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports) discussion, still a forward-looking
+> `macos-user-nix-and-features.md` [§3.5](../reference/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports) discussion, still a forward-looking
 > capability and not a revival blocker.
 >
 > **2026-09-03, and read this before reusing part 1 for anything:** a revision of
@@ -737,7 +737,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > "bundled" and the number "three" are stale. See `AGENTS.md`.
 
 The three *bundled* loopholes don't need porting to macos-user (see
-[macos-user-nix-and-features.md §3.5](../design/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports):
+[macos-user-nix-and-features.md §3.5](../reference/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports):
 `audio`/`host-processes` are moot on a native process, and `claude-oauth-broker`
 is redundant with the shared `/Users/_yolojail` home). But the **loophole
 framework** — "a host-side daemon mediates the jail's access to a resource" — is
@@ -760,7 +760,7 @@ credential and never lets it cross into the jail.
 
 1. **Framework plumbing (unblocked, mechanical).** Generalize the loophole
    host-service start/stop so it runs on the macos-user launch path (today it lives
-   only in `runContainer`; see [§3.6](../design/macos-user-nix-and-features.md#36-the-container-launch-preamble-config-diff-prompt-image-load-etc)), emitting a localhost socket/port + the
+   only in `runContainer`; see [§3.6](../reference/macos-user-nix-and-features.md#36-the-container-launch-preamble-config-diff-prompt-image-load-etc)), emitting a localhost socket/port + the
    launch-env var per active loophole instead of a mount + `--add-host`. Reuse the
    existing manifest/`Discover` machinery; the transport just changes.
 2. **The specific access-scoping proxy (BLOCKED — see [OQ-L1](#open-questions-blocking)).** The daemon that
@@ -1033,7 +1033,7 @@ tree today": read the daggers.* Verified 2026-08-23.
    matrix cell the VM builder did, in a strictly more happy-path way (the VM
    builder's foreground-QEMU trap, per-build first-boot `sudo`, and CWD-relative
    `KEYS` reconcile — the last of which is a live wedge, see
-   [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md) —
+   `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md)) —
    are precisely the complexity the container path avoids). The only reason the
    VM builder was ever kept as a fallback (AC couldn't be shown to host an sshd
    container) is discharged. **Action:** delete `internal/builder` + the `yolo

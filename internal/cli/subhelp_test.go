@@ -1,6 +1,6 @@
 package cli
 
-// subhelp_test.go is the enforcement half of docs/design/self-documenting-cli.md
+// subhelp_test.go is the enforcement half of docs/reference/self-documenting-cli.md
 // item 1: every command answers `--help` on demand, to stdout, exit 0, with no
 // side effect.
 //

@@ -111,7 +111,7 @@ type HostRenderResult struct {
 	// deserves to know they will not survive, in observe, before the write. Empty for every
 	// JSON surface (JSON has no comments) and for an uncommented TOML one.
 	Formatting []string
-	// WouldChange is THE CHANGE PREDICATE (docs/design/host-apply-staleness.md §3.4, coined
+	// WouldChange is THE CHANGE PREDICATE (docs/reference/host-apply-staleness.md §3.4, coined
 	// there): would an `--assert` alter this destination's CONTENT, as it stands on disk right
 	// now? False means "in sync" — the render is a no-op and nothing needs the user's
 	// attention.

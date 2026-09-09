@@ -5,7 +5,7 @@
 // window-close/SIGTERM tear the jail down cleanly. All signal teardown stays
 // in one process.
 //
-// Frozen behavior (from docs/design/ctrl-z-and-the-tty-proxy.md):
+// Frozen behavior (from docs/reference/ctrl-z-and-the-tty-proxy.md):
 //   - non-TTY stdin -> transparent plain spawn (no pty).
 //   - ^Z (0x1A) suspends the PROXY via TARGETED SIGTSTP to self (NEVER a
 //     pgroup-wide signal — that would stop podman, a jail-visible change); the

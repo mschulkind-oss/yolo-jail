@@ -8,7 +8,7 @@
 // inputs are the ones it states rather than whatever ~/.config/yolo-jail/config.jsonc
 // the machine happens to have. A test that needs a `packs` selection asks for it
 // (writeProjectWithPacks/packHome); a test that wants the machine's own config opts in
-// by name and states why (ambientHome). docs/design/storage-and-config.md §10.5.
+// by name and states why (ambientHome). docs/reference/storage-and-config.md §10.5.
 //
 // The package is deliberately test-only (all files are *_test.go), so it stays
 // outside the flake's goSrc fileset — editing a test never invalidates the jail
@@ -610,7 +610,7 @@ func runYolo(t *testing.T, dir, script string, opts ...runOption) result {
 // jailRunArgs is the argv prefix every jail-launching helper shares:
 // `run --accept-config-changes`.
 //
-// The flag is not incidental. Since docs/design/config-safety.md OQ-D2, a launch
+// The flag is not incidental. Since docs/reference/config-safety.md OQ-D2, a launch
 // with a CHANGED config and no terminal to approve it on is REFUSED, and this
 // harness is that launch by definition — `cmd.Stdin` is never a tty. Several tests
 // rewrite yolo-jail.jsonc between two launches of the same workspace on purpose
@@ -758,7 +758,7 @@ func section(s, start, end string) string {
 // all (imageskew_test.go, packagecollection_test.go drive nix and podman directly). A
 // NEW test therefore cannot read machine state by forgetting a helper — it would have to
 // skip the gate that makes it a container test in the first place. See
-// docs/design/storage-and-config.md §10.5 / OQ-SC3, and isolateHome for what an ambient
+// docs/reference/storage-and-config.md §10.5 / OQ-SC3, and isolateHome for what an ambient
 // config can do to an assertion (satisfy it, not just break it).
 //
 // The user config it delivers is EMPTY, so nothing is active unless the test asks:

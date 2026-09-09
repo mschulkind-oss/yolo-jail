@@ -1,7 +1,7 @@
 package cli
 
 // hostapplysurvey_test.go pins THE CHANGE PREDICATE end to end, through the same call site
-// `yolo host apply --dry-run` uses (docs/design/host-apply-staleness.md §3.4, §10 step 1).
+// `yolo host apply --dry-run` uses (docs/reference/host-apply-staleness.md §3.4, §10 step 1).
 //
 // THE FIRST PROPERTY IS R3, the design's highest-consequence failure: *"a freshly-applied home
 // prompts not at all, ever, until something actually changes."* Everything §4.3 builds on top of

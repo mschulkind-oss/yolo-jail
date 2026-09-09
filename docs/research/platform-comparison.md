@@ -25,7 +25,7 @@ anything from this doc.
 >    The accepted runtime set is `podman`, `container`, `macos-user`
 >    (`internal/config/validate.go:134`). See
 >    [`../guides/macos.md`](../guides/macos.md) and
->    [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md).
+>    [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md).
 >    The sibling doc [`macos-support-matrix.md`](macos-support-matrix.md) is the
 >    live authority for macOS feature support and supersedes this doc's macOS
 >    columns where they disagree.

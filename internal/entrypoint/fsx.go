@@ -7,7 +7,7 @@
 //   - WriteInPlace: truncate + write the SAME inode; NEVER tmp+rename. A
 //     file->file bind mount is pinned to the inode it captured at container
 //     start, so an atomic rename swaps in a new inode the mount can't see, and
-//     running jails silently stop seeing refreshes (docs/design/agent-briefings.md,
+//     running jails silently stop seeing refreshes (docs/reference/agent-briefings.md,
 //     "treat as load-bearing"). Go's os.WriteFile already truncates in place —
 //     this wrapper exists to NAME the invariant and to be the single audited
 //     write path (a lint rule bans rename-based writes outside fsx).
@@ -19,7 +19,7 @@
 //     (ensure_global_storage creates relative symlinks; the drift/golden
 //     compares readlink targets as strings, not resolved paths).
 //
-// Source of truth: docs/design/agent-briefings.md + the storage/prune incident
+// Source of truth: docs/reference/agent-briefings.md + the storage/prune incident
 // history.
 package entrypoint
 

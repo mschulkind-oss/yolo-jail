@@ -1,7 +1,7 @@
 package cli
 
 // outputformat_test.go is enforcement item 4 of
-// docs/design/self-documenting-cli.md: every state-reporting command accepts
+// docs/reference/self-documenting-cli.md: every state-reporting command accepts
 // `--format json` and emits valid, ANSI-free JSON.
 //
 // It DISPATCHES THROUGH THE REGISTRY rather than calling the engines, because

@@ -25,7 +25,7 @@ import (
 // backends (internal/cli/run/mounts.go), and macos-user has no mounts, so it
 // used to accept the key and silently do nothing. A security key that lies is
 // worse than one that refuses — the config reads as protection that is not
-// there. See docs/design/host-execution-from-the-workspace.md §5.5, §5.6 item 1.
+// there. See docs/reference/host-execution-from-the-workspace.md §5.5, §5.6 item 1.
 //
 // Entries that are absolute or escape the workspace are dropped rather than
 // emitted; config validation already rejects both (internal/config/validate.go

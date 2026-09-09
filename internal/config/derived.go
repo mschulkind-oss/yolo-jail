@@ -276,6 +276,24 @@ func NormalizeBlockedTools(securitySection *jsonx.OrderedMap) []any {
 // as before and is unaffected by any of this.
 func defaultBlockedList() []any { return []any{} }
 
+// DefaultBlockedTools is defaultBlockedList as strings, for callers outside this
+// package that must AGREE with the default rather than restate it.
+//
+// It exists for exactly one consumer today: the test tying `config_ref.txt`'s
+// "Blocked Tools" prose to this function. That prose promised "grep is replaced by
+// rg and find by fd" for five days after the default went empty — the CLI's own
+// concept surface telling a user something false about their jail — and a doc
+// cannot be checked against an unexported symbol.
+func DefaultBlockedTools() []string {
+	out := make([]string, 0, len(defaultBlockedList()))
+	for _, v := range defaultBlockedList() {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // value-model utilities
 // ---------------------------------------------------------------------------

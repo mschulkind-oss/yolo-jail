@@ -48,7 +48,7 @@ presence, selection is an explicit act.
 | User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`) |
 | The five derives + the provider packs | `packs/{claude,codex,pi,opencode,copilot,zai,cerebras}` |
 
-**Reads with:** [`pack-system.md`](../design/pack-system.md) (what a pack is, how derives are
+**Reads with:** [`pack-system.md`](../reference/pack-system.md) (what a pack is, how derives are
 loaded), [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the
 source-verified per-agent vocabularies the dialect maps translate into).
 

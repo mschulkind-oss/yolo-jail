@@ -230,7 +230,7 @@ func DescribeEnvSources(workspace string, cfg *jsonx.OrderedMap) []string {
 //
 // On the HOST it is the opposite. `yolo host -- claude` starts from the invoking shell's
 // os.Environ(), which may well carry an AWS_PROFILE that has to go — the motivating case
-// in docs/design/host-agent-environment.md §2.2, where the hand-written wrapper's first
+// in docs/reference/host-agent-environment.md §2.2, where the hand-written wrapper's first
 // act is `unset AWS_PROFILE`. No config SURFACE can express a removal at all, which is
 // one of the reasons the process-env channel has to exist (§1 P1).
 //

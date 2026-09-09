@@ -1,7 +1,7 @@
 package run
 
 // packservices_test.go pins the launch call site of the service composition
-// (docs/design/wire-bridge.md §2.1, §5). serviceJailDaemons' own shaping is
+// (docs/reference/wire-bridge.md §2.1, §5). serviceJailDaemons' own shaping is
 // trivial; this file exists for the OTHER half of the rule — the argv. A test
 // that pins the helper while the call site is unpinned is not a test
 // (AGENTS.md, Testing): delete the serviceJailDaemons call from assemble.go's

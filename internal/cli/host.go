@@ -155,7 +155,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	_ = out
 
 	// THE HOST-RENDER GATE, before anything else this function does (hostapplygate.go, and
-	// docs/design/host-apply-staleness.md §4.1). It is the host notch's answer to the jail's
+	// docs/reference/host-apply-staleness.md §4.1). It is the host notch's answer to the jail's
 	// launch-time config approval, and it sits FIRST for the reason the credential pre-flight
 	// below gives for its own placement: a launch that is going to be stopped should be stopped
 	// while the only thing it has done is read some files. It is silent unless the user opted
@@ -312,7 +312,7 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 // environment, the agent name it resolved, and the facts the credential pre-flight reads
 // beside them.
 //
-// The order is the one docs/design/host-agent-environment.md §6.1 step 3 specifies, and
+// The order is the one docs/reference/host-agent-environment.md §6.1 step 3 specifies, and
 // each step is there for a reason the previous one cannot cover:
 //
 //  1. os.Environ() — the user's own shell, which the agent should otherwise inherit whole.
@@ -338,7 +338,7 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 // vars-only projection `yolo host env` reads, so the observe verb and the exec half
 // cannot disagree about what a launch would carry.
 //
-// The sources are docs/design/host-agent-environment.md §5.4's, in order:
+// The sources are docs/reference/host-agent-environment.md §5.4's, in order:
 //
 //  1. the pack env fold, per pack — each pack's static `kind: "env"` contributions, then
 //     the ones the same pack gated on the launch's active profile, so a gated entry wins

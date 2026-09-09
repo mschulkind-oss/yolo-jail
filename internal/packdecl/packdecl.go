@@ -100,7 +100,7 @@ type Manifest struct {
 
 	// Needs is the pack's conditional pack dependencies: packs that join the
 	// launch beside this one when a condition on the selected set holds
-	// (docs/design/wire-bridge.md §3.1). See needs.go for why it is a top-level
+	// (docs/reference/wire-bridge.md §3.1). See needs.go for why it is a top-level
 	// key rather than a 19th contribution kind, which rules bind the vocabulary
 	// (WB-D9..D12), and what is validated here versus at resolution.
 	Needs []PackNeed `json:"needs,omitempty"`

@@ -21,7 +21,7 @@ jails, not to prove it works. Watch the build output: a failed nix build
 silently fell back to the stale image (fatal since 2026-08-15; see AGENTS.md).
 
 **Design + empirical validation:**
-[../design/mise-node-dynamic-linking.md](../design/mise-node-dynamic-linking.md)
+[../reference/mise-node-dynamic-linking.md](../reference/mise-node-dynamic-linking.md)
 §Resolution is the full blueprint — this doc is just the sequenced work list.
 
 ## The problem (why this existed) — now solved

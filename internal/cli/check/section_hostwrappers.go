@@ -10,7 +10,7 @@ import (
 )
 
 // sectionHostWrappers observes whether the generated host launch-wrapper directory is
-// actually on PATH (docs/design/host-agent-environment.md §5.5, OQ-4).
+// actually on PATH (docs/reference/host-agent-environment.md §5.5, OQ-4).
 //
 // # Why this observation lives HERE and not in apply
 //
@@ -80,7 +80,7 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 }
 
 // hostApplyOnLaunchRow says whether a wrapped launch re-checks its own render before exec'ing
-// (docs/design/host-apply-staleness.md §4.2, which asks for a line "when the feature is
+// (docs/reference/host-apply-staleness.md §4.2, which asks for a line "when the feature is
 // available and off, naming where to learn to turn it on").
 //
 // AVAILABLE-AND-OFF IS THE CASE THAT NEEDS SAYING, and the reason is the whole point of the

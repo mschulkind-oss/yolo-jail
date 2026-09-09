@@ -194,7 +194,7 @@ edit, so each step's proof is its own CI cell on both arches.
   menu. pi's evergreen story is `pi update --self` under [OQ-PD14](../design/program-delivery.md#decision-ledger), which needs no `via` change at all.
 - **Don't flip `opencode` yet.** Two independent blockers: its `INSTALL_DIR=$HOME/.opencode/bin` is
   a bare assignment with no override, and `/home/agent` is a **`:ro`** bind
-  ([`jail-home.md` §2.2](../design/jail-home.md)) with no `state at: .opencode` in its manifest — so
+  ([`jail-home.md` §2.2](../reference/jail-home.md)) with no `state at: .opencode` in its manifest — so
   `mkdir -p "$HOME/.opencode/bin"` fails EROFS before anything downloads. It needs a writable-dir
   contribution *and* an answer for a binary that is neither on `BootPath` nor at the launcher's
   `REAL_BIN`. Both are design work, not this plan's.

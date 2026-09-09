@@ -837,7 +837,7 @@ only. Confirmed by probe 2026-08-04. It is a host-render gap, not a lint one; li
 correct to accept that pack, since a jail really does read it.
 
 **Still open, and NOT a Stage E item** (it is a validation gap, tracked in
-[composed-file-permissions.md §4.5](../design/composed-file-permissions.md)): **reserved
+[composed-file-permissions.md §4.5](../reference/composed-file-permissions.md)): **reserved
 destinations miss symlink targets.** `~/.config/git/config`, `~/.config/bashrc`, and
 `~/.claude/claude.json` validate while their aliases are rejected. Verified still live —
 `internal/config/helpers.go:87-95` resolves symlinks lexically with an `EvalSymlinks` fallback,

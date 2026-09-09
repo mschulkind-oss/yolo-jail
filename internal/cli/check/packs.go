@@ -97,7 +97,7 @@ func (o *Options) sectionPacks(r *reporter) {
 	// the Embedded()-only check at the bottom of this function cannot answer: a user's own
 	// pack declaring a surface a shipped pack owns is invisible to a check that only ever
 	// looks at what yolo ships, and that is the single most likely instance of the clash
-	// (docs/design/pack-config-collaboration.md R1).
+	// (docs/reference/pack-system.md R1).
 	var loaded []*packload.Pack
 	byName := map[string]*packload.Pack{}
 	for _, p := range packload.Embedded() {
@@ -181,7 +181,7 @@ func (o *Options) sectionPacks(r *reporter) {
 		}
 	}
 
-	// The NEEDS CLOSURE (docs/design/wire-bridge.md §3.1, WB-D10), beside the pack
+	// The NEEDS CLOSURE (docs/reference/wire-bridge.md §3.1, WB-D10), beside the pack
 	// list and before the exclusivity checks below, for the reason those checks
 	// give: the launch runs them over the COMPLETE set — the closure runs inside
 	// staging, before every pre-flight — so check running them over anything

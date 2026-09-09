@@ -25,7 +25,7 @@ source are marked **UNCONFIRMED**.
 
 Companion docs: [`agent-config-distribution.md`](./agent-config-distribution.md)
 (how config is *shared*; this doc is how it is *pointed*) and
-[`../design/loopback-tls-reachability.md`](../design/loopback-tls-reachability.md)
+[`../reference/loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md)
 (why host-reachability is the load-bearing half).
 
 ---

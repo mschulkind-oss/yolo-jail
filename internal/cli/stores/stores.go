@@ -175,7 +175,7 @@ func ParseArgs(args []string) Options {
 		case a == "--json":
 			o.JSON = true
 		// `--format json` is the CANONICAL spelling across yolo's
-		// state-reporting commands (docs/design/self-documenting-cli.md item 7),
+		// state-reporting commands (docs/reference/self-documenting-cli.md item 7),
 		// and it is accepted here so the family is uniform. `stores` shipped the
 		// bare `--json` first and keeps it: an agent that learned one spelling
 		// must not have to remember which command wants which, because a flag

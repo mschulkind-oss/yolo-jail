@@ -22,7 +22,7 @@ func SnapshotJSON(config *jsonx.OrderedMap) (string, error) {
 // $HOME/.local/share/yolo-jail/approvals/<container-name>.json.
 //
 // It used to live at <workspace>/.yolo/config-snapshot.json and that was the
-// defect (docs/design/config-safety.md, OQ-D1). The workspace is bind-mounted
+// defect (docs/reference/config-safety.md, OQ-D1). The workspace is bind-mounted
 // READ-WRITE, so whatever can edit yolo-jail.jsonc could also rewrite the only
 // record of what was last approved — and the next launch then had nothing to
 // show. Note the shape of it: DELETING the record has always failed safe, so
@@ -51,7 +51,7 @@ func ApprovalSnapshotPath(workspace string) string {
 // presence. It briefly survived OQ-D1 as a migration signal (presence meant "not
 // a first run"), which left a residual hole: an agent could delete it alongside
 // a config edit and pass the edit off as a silent first run. OQ-S3
-// (docs/design/scoped-config-approvals.md) closed that on 2026-08-29 by making a
+// (docs/reference/config-safety.md) closed that on 2026-08-29 by making a
 // fresh workspace with a NON-EMPTY config prompt regardless, at which point the
 // signal meant nothing and CheckConfigChanges stopped consulting it.
 //
@@ -65,7 +65,7 @@ func LegacyWorkspaceSnapshotPath(workspace string) string {
 }
 
 // AcceptConfigChangesFlag is the CLI flag that grants config-change approval on a
-// launch with nobody to prompt (docs/design/config-safety.md, OQ-D2).
+// launch with nobody to prompt (docs/reference/config-safety.md, OQ-D2).
 //
 // A FLAG AND NOT AN ENVIRONMENT VARIABLE, deliberately, even though this repo's
 // other bypasses (YOLO_ALLOW_STALE_IMAGE, YOLO_ALLOW_UNREACHABLE_SERVICES) are env

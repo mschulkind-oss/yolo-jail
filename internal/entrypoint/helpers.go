@@ -21,7 +21,7 @@ func sha256Hex(s string) string {
 // internal/storage; this one is not a shared helper anyone is missing.
 
 // writeExecutable writes content to path (truncate-in-place via WriteInPlace
-// to preserve inodes for bind-mounted files, per docs/design/agent-briefings.md)
+// to preserve inodes for bind-mounted files, per docs/reference/agent-briefings.md)
 // then sets mode 0o755 explicitly. Used by shims and mcp_wrappers; other
 // generators that emit executable scripts already chmod to 0o755 directly, so
 // every generated executable now agrees on one mode.

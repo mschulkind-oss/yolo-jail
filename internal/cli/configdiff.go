@@ -6,7 +6,7 @@ package cli
 // `mode: capture` is only defensible if divergence is visible AND reversible: a
 // captured edit outranks the host layer forever, so without these two commands the
 // only cure is knowing to delete a file in <workspace>/.yolo/prism/ by hand
-// (docs/design/composed-file-permissions.md §5).
+// (docs/reference/composed-file-permissions.md §5).
 //
 // `diff` carries a SECOND kind of divergence for the same reason: a pack's
 // `config-overlay` contributions to a surface another pack owns (ruling R3,

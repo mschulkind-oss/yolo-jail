@@ -17,7 +17,7 @@ packs whose whole content is declarative facts (zai the first, cerebras the seco
 nothing by default since 9caba669 — the blocked tools are opt-in through it); and
 `wire-bridge` is the first `kind: "service"` pack — one in-jail daemon and its
 endpoint file, no grants, joined to a launch automatically through cerebras's
-`needs` entry when claude or copilot is selected (docs/design/wire-bridge.md §2-§3).
+`needs` entry when claude or copilot is selected (docs/reference/wire-bridge.md §2-§3).
 Anything that says "the six" is
 describing the agent SUBSET.
 
@@ -382,7 +382,7 @@ there is no sync step.
   reachability probe — therefore gets a **free green** from a nested jail no
   matter how broken it is. That is how a total loopback-TLS outage shipped and
   went unnoticed for four days
-  (`docs/design/loopback-tls-reachability.md` §3 row 6, §7; the same warning
+  (`docs/reference/loopback-tls-reachability.md` §3 row 6, §7; the same warning
   heads `integration/reachability_test.go`). A nested green means the plumbing is
   wired, never that the forwarding works: the only measurement that settles it is
   a REAL jail on a rootless host, reported together with
@@ -569,11 +569,11 @@ there is no sync step.
 | MCP/LSP config and the node/npx wrappers | `docs/reference/mcp-configuration.md` |
 | The `LD_LIBRARY_PATH` / nix-ld story, and the `/lib` farm | `docs/reference/mise-node-dynamic-linking.md` |
 | Loopholes (`audio`, `host-processes`, `journal`, `cgroup-delegate` in packs of their own; `claude-oauth-broker` contributed by `packs/claude`) | `docs/guides/loopholes.md`, `docs/reference/loophole-protocol.md` |
-| Config-change confirmation flow | `docs/design/config-safety.md` |
+| Config-change confirmation flow | `docs/reference/config-safety.md` |
 | Timing spans: `--timing`, `--verbose`, `perf_logging`, the host perf log, Window A attribution | `docs/reference/perf-logging.md` |
 | Storage paths and state separation | `docs/reference/storage-and-config.md` |
 | What the image must bake vs. what a launch delivers; the mounted prefix; the rebuild/reload cost model | [`docs/reference/image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md) |
-| Cgroup delegate security model | `docs/design/security-shim.md` |
+| Cgroup delegate security model | `docs/reference/security-shim.md` |
 | macOS backends | `docs/guides/macos.md` |
 | macos-user nix integration + disabled-feature surface | `docs/reference/macos-user-nix-and-features.md` |
 | The standing macOS direction (three axes, one composed product) | `docs/reference/macos-no-vm-direction.md` |

@@ -1,5 +1,5 @@
 // Package hostwrap generates and resolves the HOST launch wrappers described in
-// docs/design/host-agent-environment.md §5.1.
+// docs/reference/host-agent-environment.md §5.1.
 //
 // A wrapper is a three-line shell script named after a program a selected pack installs.
 // It holds no logic — it execs `yolo host -- <program> "$@"` — because there must be

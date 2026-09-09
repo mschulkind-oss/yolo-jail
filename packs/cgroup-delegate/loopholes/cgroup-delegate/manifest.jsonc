@@ -10,7 +10,7 @@
 // into the cgroup.  A TCP connection carries no peer credential at all, and a
 // loopback-TLS FRONT would be worse than nothing, because SO_PEERCRED on the upstream
 // socket would then attest YOLO'S OWN pid (see startCgroupDelegate in
-// internal/cli/run/loopholesruntime.go, and docs/design/security-shim.md §2).
+// internal/cli/run/loopholesruntime.go, and docs/reference/security-shim.md §2).
 //
 // So what this file IS, precisely: a SWITCH and an identity.  It is the thing that
 // makes the delegate opt-in like everything else, and the thing that puts it in `yolo

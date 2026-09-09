@@ -24,7 +24,7 @@ package config
 //     host-side. The raw bind was already filtering — by accident.
 //
 // THE MODEL. "User level" is not a fixed path; it is the scope that owns the machine a
-// daemon runs on (docs/design/gate-placement-principle.md). On the human's laptop that is
+// daemon runs on (docs/reference/gate-placement-principle.md). On the human's laptop that is
 // their config. Inside jail A, the machine is jail A, so jail A's own config is the user
 // level and jail A's agent legitimately owns it — the blast radius is a container you throw
 // away. So the inner scope is GENERATED, per consumer, from the effective config.

@@ -447,7 +447,7 @@ func TestCheckLoopholesReportsTheRetiredDirectory(t *testing.T) {
 // substitutes 127.0.0.1 — where the daemons bind, and the one address a jail cannot
 // use. That is structural: `yolo check` runs host-side, and the advertised address is
 // only meaningful inside a namespace the runtime built, so this section reported PASS
-// through a total in-jail outage (docs/design/loopback-tls-reachability.md §7). It
+// through a total in-jail outage (docs/reference/loopback-tls-reachability.md §7). It
 // cannot be fixed by dialling differently, so what is pinned here is the wording: a
 // green that labels itself, and the once-per-run pointer at the in-jail probe.
 func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {

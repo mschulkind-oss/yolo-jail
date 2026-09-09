@@ -250,7 +250,7 @@ var hostHome string
 // `mise_tools`, `mcp_servers`, `loopholes` and the conventional local pack all merge
 // into a launched jail from ~/.config/yolo-jail/config.jsonc, so an ambient config does
 // not merely break assertions — it can SATISFY them, for a reason the test never states.
-// See docs/design/storage-and-config.md §10.5 / OQ-SC3.
+// See docs/reference/storage-and-config.md §10.5 / OQ-SC3.
 //
 // Each link's TARGET IS CREATED FIRST, and that is not defensive tidying. A symlink
 // to a missing directory is DANGLING, and os.MkdirAll — which

@@ -1025,7 +1025,7 @@ func SourceLessHostFilesFrom(merged *jsonx.OrderedMap) []HostFileEntry {
 // WRITABLE inside the jail. The jail home is a `:ro` bind of GlobalHome with
 // read-write binds nested inside it, so where a destination lands decides whether
 // the entrypoint's composed write succeeds at all — an uncovered path EROFS-fails
-// (docs/design/composed-file-permissions.md §7.5).
+// (docs/reference/composed-file-permissions.md §7.5).
 type HostFileStaging int
 
 const (

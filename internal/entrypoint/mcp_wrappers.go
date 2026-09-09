@@ -19,7 +19,7 @@ func GenerateMCPWrappers(e *Env) error {
 // No LD_LIBRARY_PATH export: nix-ld (the /lib64 interpreter) resolves libstdc++
 // env-free for the FHS mise node, and the nix /bin/node this wrapper execs is
 // RPATH-self-contained — so the scrubbed-child-env case the old export guarded
-// against is now covered structurally. See docs/design/mise-node-dynamic-linking.md
+// against is now covered structurally. See docs/reference/mise-node-dynamic-linking.md
 // (step 7). FONTCONFIG_* stay: they are chromium font config, unrelated to the loader.
 const chromeWrapper = `#!/bin/bash
 # Self-contained wrapper: sets its own env since agents sanitize child processes.

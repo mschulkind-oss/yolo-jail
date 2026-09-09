@@ -183,7 +183,7 @@ const (
 	// KindService: a DAEMON a pack contributes to a namespace — a jail daemon (a
 	// yolo-jaild subcommand run under `supervise`) or a host daemon (a `yolo
 	// internal daemon` self-exec), or both — plus its endpoint file, its restart
-	// policy and its reachability witness (docs/design/wire-bridge.md §2.1;
+	// policy and its reachability witness (docs/reference/wire-bridge.md §2.1;
 	// WB-D16 rules the kind PRIMARY vocabulary, and the wire bridge is its first
 	// instance).
 	//

@@ -19,7 +19,7 @@ boot wiring, preflight, docs, tests).
 > **Prism-native by construction.** This plan was revised (2026-07-22) to align
 > with the config-composition ("prism") migration
 > ([`agent-settings-composition.md`](agent-settings-composition.md),
-> [`config-migration-to-prism.md`](../design/config-migration-to-prism.md)).
+> [`config-migration-to-prism.md`](../reference/config-migration-to-prism.md)).
 > AGY has **zero legacy bespoke state** to migrate — it is a brand-new agent —
 > so it is the cleanest possible surface to be born *directly on the prism*
 > rather than as yet another bespoke `Configure*` writer that Phase C would then
@@ -228,7 +228,7 @@ there is one config path now, so AGY needs no special-casing.
 
 - **Phase 4: Docs & verification**
   * Add the `agy` bullet to `internal/cli/config_ref.txt`; note it in
-    `docs/design/agent-briefings.md` and `docs/design/mcp-configuration.md` and
+    `../reference/agent-briefings.md` and `../reference/mcp-configuration.md` and
     `docs/guides/USER_GUIDE.md`.
   * Run `just test-fast`; nested-jail verify (a throwaway `{"agents":["agy"]}`
     workspace, two boots to prove the [§5](#5-execution-roadmap--phases) capture loop).

@@ -1,7 +1,7 @@
 package cli
 
 // hostapplysurvey.go accumulates THE CHANGE PREDICATE across one whole host apply
-// (docs/design/host-apply-staleness.md §3.4, §10 step 1).
+// (docs/reference/host-apply-staleness.md §3.4, §10 step 1).
 //
 // Each of the four written kinds computes the predicate for its own destinations — see
 // entrypoint.HostRenderResult.WouldChange and hostskills.Result.WouldChange — and each already

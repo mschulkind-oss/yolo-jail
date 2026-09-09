@@ -195,8 +195,8 @@ So: **user-level packs, existing per-workspace effects.** No conflict.
 **Blocks:** D1, and reprices E's `:ro` work and capture timing.
 
 **This is the big one.** Full argument in
-[../design/what-yolo-is.md](../design/what-yolo-is.md) and
-[../design/three-decisions.md](../design/three-decisions.md); here is the decision-shaped
+[../reference/what-yolo-is.md](../reference/what-yolo-is.md) and
+`three-decisions.md` (archived 2026-09-09; superseded by `docs/reference/pack-system.md`) (`three-decisions.md`, archived 2026-09-09 — superseded by [`pack-system.md`](../reference/pack-system.md)); here is the decision-shaped
 summary.
 
 ### What is true

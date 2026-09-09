@@ -1,7 +1,7 @@
 package packload
 
 // needs.go resolves the `needs` vocabulary (internal/packdecl/needs.go,
-// docs/design/wire-bridge.md §3.1): the transitive closure over the selected
+// docs/reference/wire-bridge.md §3.1): the transitive closure over the selected
 // packs' conditional dependencies, run at selection and BEFORE staging.
 //
 // BEFORE STAGING is the load-bearing half of the placement, and it is not a

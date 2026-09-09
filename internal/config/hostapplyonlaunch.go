@@ -9,7 +9,7 @@ const hostApplyOnLaunchKey = "host_apply_on_launch"
 
 // HostApplyOnLaunchEnabled reports whether the user has opted in to having
 // `yolo host -- <bin>` check its own render before exec'ing
-// (docs/design/host-apply-staleness.md §4.2).
+// (docs/reference/host-apply-staleness.md §4.2).
 //
 // # What the key does, and what it deliberately does NOT do
 //

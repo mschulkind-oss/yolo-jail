@@ -504,7 +504,7 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 
 // handoffPointer is the per-workspace file the host agent files to carry a one-time task
 // across the boundary, and handoffConsumed is where it moves once a briefing has carried
-// it (docs/design/host-to-jail-handoff.md).
+// it (docs/reference/host-to-jail-handoff.md).
 const (
 	handoffPointer  = "handover.md"
 	handoffConsumed = handoffPointer + ".consumed"

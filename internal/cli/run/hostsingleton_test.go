@@ -130,7 +130,7 @@ func dialFrontLine(t *testing.T, endpointPath, req string) string {
 //
 // The broker holds a flock that serializes Claude OAuth refreshes; Anthropic mints
 // SINGLE-USE refresh tokens, so two brokers are not two daemons, they are two
-// processes racing to burn the same token (docs/design/agent-credentials.md §2.5).
+// processes racing to burn the same token (docs/reference/agent-credentials.md §2.5).
 // The run pipeline used to protect that by testing the loophole's NAME. This asserts
 // the declaration does the same job: a `scope: "host"` record whose daemon is
 // already up gets FRONTED, and its command is never executed.

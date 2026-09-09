@@ -99,7 +99,7 @@ var retiredTopLevelConfigKeys = set(
 // their error messages — sorted.
 //
 // Exported for the config-ref coverage check
-// (docs/design/self-documenting-cli.md, enforcement item 3): config_ref.txt is
+// (docs/reference/self-documenting-cli.md, enforcement item 3): config_ref.txt is
 // hand-maintained and lives in another package, so "is every accepted key
 // documented?" needs the schema's own list rather than a second copy of it in a
 // test. A copy is what the check exists to catch.
@@ -233,7 +233,7 @@ var validMCPPresets = set("chrome-devtools", "sequential-thinking")
 //
 // Kept as a seam rather than deleted: `mise_tools` remains a real user knob (the
 // legitimate case is "mine, in every jail, but not on my host" — see
-// docs/design/composed-file-permissions.md §3.0.1), and MergeMiseTools still folds user
+// docs/reference/composed-file-permissions.md §3.0.1), and MergeMiseTools still folds user
 // entries over this empty base. If a future default is genuinely un-bakeable, it goes
 // here; anything bakeable goes in flake.nix instead.
 var defaultMiseToolsKeys = []string{}

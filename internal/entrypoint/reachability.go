@@ -17,7 +17,7 @@ package entrypoint
 //
 // The advertised host (`host.containers.internal`) is only MEANINGFUL from inside a
 // network namespace the container runtime built, so the only honest place to
-// evaluate it is here. See docs/design/loopback-tls-reachability.md §7.
+// evaluate it is here. See docs/reference/loopback-tls-reachability.md §7.
 //
 // # What it is actually catching
 //
@@ -29,11 +29,11 @@ package entrypoint
 // host every loopback-TLS service is unreachable from every jail, and the symptom
 // is `connect: connection refused` in whatever client the agent reaches for first,
 // hours later, with no clue that the fault is the network stack. See
-// docs/design/loopback-tls-reachability.md §2-§3 for the whole map.
+// docs/reference/loopback-tls-reachability.md §2-§3 for the whole map.
 //
 // # FATAL — an enabled service this jail cannot use is a failed launch
 //
-// docs/design/loopback-tls-reachability.md OQ-R2 rules the severity: "an enabled
+// docs/reference/loopback-tls-reachability.md OQ-R2 rules the severity: "an enabled
 // jail-facing service that the jail cannot reach is a failed launch", scoped by
 // OQ-R3 to mean "yolo TRIED and failed" rather than "this host cannot". Since
 // 2026-08-18 that is the mode this file SHIPS in. It landed as a warning first,
@@ -86,7 +86,7 @@ package entrypoint
 //
 // RunDarwinBootstrap (darwin.go) does not call this. macos-user is a native
 // sandbox with no network namespace and no pasta, so there is no forwarding hop to
-// get wrong — docs/design/loopback-tls-reachability.md §8 puts macOS out of scope
+// get wrong — docs/reference/loopback-tls-reachability.md §8 puts macOS out of scope
 // explicitly.
 
 import (
@@ -473,11 +473,11 @@ func unusableServicesMessage(d loopbackDisposition, names []string, fatal bool) 
 		return "warning: " + body +
 			"  (OQ-R2 rules this a failed launch; this witness is running in warn mode on\n" +
 			"  this launch, so the jail is starting anyway.)\n" +
-			"  docs/design/loopback-tls-reachability.md"
+			"  docs/reference/loopback-tls-reachability.md"
 	}
 	return "Error: " + body +
 		"  Refusing to start: an enabled jail-facing service the jail cannot use is a\n" +
-		"  failed launch (docs/design/loopback-tls-reachability.md, OQ-R2).\n" +
+		"  failed launch (docs/reference/loopback-tls-reachability.md, OQ-R2).\n" +
 		"  If this jail is knowingly fine without those services — you are debugging the\n" +
 		"  host daemon itself, or you only need a shell — launch anyway:\n" +
 		"      " + paths.AllowUnreachableServicesEnv + "=1 <your yolo command>"
@@ -523,7 +523,7 @@ func unusableOverrideNotice(names []string) string {
 		"  Nothing was repaired; the launch was merely allowed to proceed, and every\n" +
 		"  in-jail client of those services will still fail. Unset it to have an\n" +
 		"  unusable service refuse the launch again.\n" +
-		"  docs/design/loopback-tls-reachability.md"
+		"  docs/reference/loopback-tls-reachability.md"
 }
 
 // serviceListPhrase renders the affected services as a sentence fragment ending
@@ -587,7 +587,7 @@ const reachabilitySharedExplanation = "" +
 	"  Look at the daemon instead: is it running (`yolo check` where this jail was\n" +
 	"  launched from), and did it republish its endpoint after a restart? For a\n" +
 	"  nested jail that is the jail that launched this one, not the host machine.\n" +
-	"  docs/design/loopback-tls-reachability.md"
+	"  docs/reference/loopback-tls-reachability.md"
 
 // reachabilityLimitationExplanation is the OQ-R3 path: yolo could not ask this
 // host to forward its loopback, and launched anyway. It must not read as an error
@@ -603,7 +603,7 @@ const reachabilityLimitationExplanation = "" +
 	"  not be able to change it. This jail's launch output names what to upgrade and\n" +
 	"  the command that checks. Nothing else about the jail is affected, and this\n" +
 	"  will never fail a launch.\n" +
-	"  docs/design/loopback-tls-reachability.md"
+	"  docs/reference/loopback-tls-reachability.md"
 
 // reachabilityFaultExplanation is the other side of that split: the option went
 // out on the argv and the service is still unreachable, so the network stack is
@@ -616,7 +616,7 @@ const reachabilityFaultExplanation = "" +
 	"  Look at the host side: is the daemon running (`yolo check` on the host), and\n" +
 	"  did it republish its endpoint after a restart? Every in-jail client of those\n" +
 	"  services will fail the same way until it answers.\n" +
-	"  docs/design/loopback-tls-reachability.md"
+	"  docs/reference/loopback-tls-reachability.md"
 
 // reachabilityExplanation is the diagnosis for the two states that establish
 // nothing: `unknown` — a launcher that ran and reached no conclusion — and an
@@ -627,7 +627,7 @@ const reachabilityFaultExplanation = "" +
 // taken, since it does not know which.
 //
 // It names the mechanism first and the remedy second, in that order
-// on purpose: the remedy (docs/design/loopback-tls-reachability.md §6) now exists
+// on purpose: the remedy (docs/reference/loopback-tls-reachability.md §6) now exists
 // in the launcher — internal/cli/run/hostloopback.go asks the runtime to forward
 // the host's loopback — so anyone reading this line is on a host where the
 // launcher DECLINED to ask, and the reason it declined was printed at launch. The
@@ -648,7 +648,7 @@ const reachabilityExplanation = "" +
 	"  yolo asks for that forwarding itself on the default network.mode; if it could\n" +
 	"  not — old passt, an explicit network.mode, a rootful or unrecognised runtime,\n" +
 	"  or YOLO_NO_HOST_LOOPBACK — it said so in this jail's launch output above.\n" +
-	"  docs/design/loopback-tls-reachability.md is the whole map."
+	"  docs/reference/loopback-tls-reachability.md is the whole map."
 
 // enabledServiceEndpoints lists the loopback-TLS services this launch wired up, in
 // a deterministic order (the results are warnings, and Go's map order is not

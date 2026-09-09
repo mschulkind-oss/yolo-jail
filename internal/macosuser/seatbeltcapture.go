@@ -48,7 +48,7 @@ package macosuser
 //
 // NOT MEASURED, anywhere: that Seatbelt honors it. No kernel has ever loaded this profile. This
 // backend's installer pipeline is itself unverified on hardware
-// (docs/design/macos-user-nix-and-features.md), podman-in-podman cannot exercise this backend at
+// (docs/reference/macos-user-nix-and-features.md), podman-in-podman cannot exercise this backend at
 // all, and a Linux jail cannot run sandbox-exec. Two specific things a human on a Mac must check
 // rather than assume:
 //

@@ -1,5 +1,5 @@
 // Package wirebridged is the `yolo-jaild wire-bridge` subcommand: the transport
-// half of the wire bridge (docs/design/wire-bridge.md §3-§5). internal/wirebridge
+// half of the wire bridge (docs/reference/wire-bridge.md §3-§5). internal/wirebridge
 // is the translation library and is deliberately I/O-free; everything with a
 // socket, a file, a clock or a key in it lives here — the loopback listener, the
 // upstream dial, the SSE line framing, the status codes, the outbound

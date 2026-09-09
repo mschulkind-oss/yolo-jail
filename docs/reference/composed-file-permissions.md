@@ -53,7 +53,7 @@ There is no fourth answer, and "read-only-ish" is not one of the three: a `0o444
 the layer fold), [`config-migration-to-prism.md`](config-migration-to-prism.md) (the boot state
 machine and the capture sidecars), [`jail-home.md`](jail-home.md) (the mount stack these postures
 sit on), [`git-identity.md`](git-identity.md) (the worked Derived case),
-[`../design/composed-file-permissions.md`](../design/composed-file-permissions.md) (the three
+[`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md) (the three
 open questions this reference left behind).
 
 ---

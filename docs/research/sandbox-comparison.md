@@ -27,7 +27,7 @@ should be re-read from the vendor docs before being quoted.
 >   "container wall vs. per-syscall filtering" dichotomy in §"The Core
 >   Difference" less clean than this doc draws it — on `macos-user`, yolo-jail
 >   is using the same OS primitive Claude Code's macOS sandbox uses. See
->   [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md).
+>   [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md).
 
 A developer-experience comparison of the two sandboxing approaches available
 when running Claude Code: the **built-in Claude Code sandbox** (bubblewrap on

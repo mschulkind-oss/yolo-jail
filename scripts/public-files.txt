@@ -26,8 +26,8 @@ mise.toml
 .gitignore
 
 # Public documentation
-docs/design/config-safety.md
-docs/design/storage-and-config.md
+docs/reference/config-safety.md
+docs/reference/storage-and-config.md
 docs/guides/USER_GUIDE.md
 
 # Community & governance

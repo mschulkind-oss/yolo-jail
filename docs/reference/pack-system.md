@@ -57,7 +57,7 @@ they are rendered into a jail.
 **Reads with:** [`providers.md`](providers.md) (the `provider` and `profile` kinds, the
 `profile:` modifier, and everything a selection does — the authority for all of it),
 [`../guides/loopholes.md`](../guides/loopholes.md) (what a loophole is, and its settings
-block), [`../design/wire-bridge.md`](../design/wire-bridge.md) (`needs`, and the `service`
+block), [`wire-bridge.md`](wire-bridge.md) (`needs`, and the `service`
 kind), [`../design/trust-paths.md`](../design/trust-paths.md) (the 25 trust paths, and why
 there is no approval gate), [`../design/program-delivery.md`](../design/program-delivery.md)
 (the launcher, its PATH position, and evergreen updates).
@@ -734,8 +734,8 @@ selected SET that no per-target combine rule can state. That is why it is a top-
 `internal/packdecl/needs.go` refuses only version-invariant structure (an empty pack name, a
 name carrying `=`, an empty bin entry). The two facts about the pack UNIVERSE are checked
 where the universe is known, at `packload.ResolveNeeds`. Four rules govern it, and
-[`../design/wire-bridge.md`](../design/wire-bridge.md)
-[§3.1](../design/wire-bridge.md#31-the-vocabulary) is the authority:
+[`wire-bridge.md`](wire-bridge.md)
+[`wire-bridge.md`](wire-bridge.md#kind-service--the-vocabulary-it-landed-as) is the authority:
 
 - **The named pack must be embedded** (WB-D9). A fetched pack needs-ing another fetched pack
   would make selection itself a supply-chain channel; refusing keeps `packs:` the only place
@@ -1280,7 +1280,7 @@ scope only and inexpressible at workspace scope by construction** — that is th
 restriction, and it is the one that survives, because a workspace config travels with a repo
 and is agent-editable. **An agent cannot add a pack.** So a prompt at `yolo pack install`
 refuses an actor who has already passed a strictly stronger gate, which
-[`../design/gate-placement-principle.md`](../design/gate-placement-principle.md) Test 1 calls
+[`../reference/gate-placement-principle.md`](../reference/gate-placement-principle.md) Test 1 calls
 theatre — and `internal/config/userlayer.go` already applied the same test, the same way, to
 `--user-layer`, the other route into `packs`.
 

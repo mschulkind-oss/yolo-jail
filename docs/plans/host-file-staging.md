@@ -33,7 +33,7 @@ yolo-declared; this plan adds a **user** path beside them, it does not touch the
 | **2** — host-side wiring | `YOLO_HOST_FILES` emission, `:ro` source mounts, destination staging | `internal/cli/run/hostfiles.go` |
 | **2** — macos-user | source-less entries only (`SourceLessHostFilesFrom`) | `internal/macosuser/runplan.go` |
 | **3** — visibility | `yolo config ls` / `diff` / `reset` + a boot-time divergence notice | `internal/cli/config{ls,diff}.go`, `internal/entrypoint/prism.go` |
-| **4** — docs | `host_files` block in `config-ref`; `agent-credentials.md` [§2.4](../design/agent-credentials.md#24-user-declared-host-files-host_files--per-entry-scope); `jail-home.md` [§2.8](../design/jail-home.md#28-user-declared-host-files-config-host_files); D4 annotated | — |
+| **4** — docs | `host_files` block in `config-ref`; `agent-credentials.md` [§2.4](../reference/agent-credentials.md#24-user-declared-host-files-host_files--per-entry-scope); `jail-home.md` [§2.8](../reference/jail-home.md#28-user-declared-host-files-config-host_files); D4 annotated | — |
 | **tests** | unit coverage per phase, plus 4 real-container tests | `integration/hostfiles_test.go` |
 
 Verified in a nested jail: all four modes render; `once` keeps an in-jail edit,
@@ -52,7 +52,7 @@ the diverged surface.
    writable-subtree staging [Delivery](#delivery-directories-and-refresh)
    describes; that would make the destination a *directory*. They use the
    `GlobalHome` relative-symlink hatch. See
-   [composed-file-permissions.md §7.5](../design/composed-file-permissions.md) for
+   [composed-file-permissions.md §7.5](../reference/composed-file-permissions.md) for
    why each alternative breaks `mode: once`, one of them permanently.
 3. **No surfaces are appended to `BuiltinManifest`.** Each user surface renders
    standalone through the extracted surface-taking render cores, so the
@@ -141,11 +141,11 @@ Both are pre-existing prism defects, tracked under #3 so they do not get lost:
 - **`copilot/config` can lose an OAuth token** on a first-migration boot — it
   renders statefully with `Defaults: {"yolo": true}` and no host layer, so an
   absent/corrupt sidecar reduces a token-bearing file to one key.
-  [composed-file-permissions.md §4.2](../design/composed-file-permissions.md).
+  [composed-file-permissions.md §4.2](../reference/composed-file-permissions.md).
 - **Reserved destinations miss symlink *targets*** — `~/.config/git/config`,
   `~/.config/bashrc` and `~/.claude/claude.json` validate while their aliases
   (`~/.gitconfig`, `~/.bashrc`, `~/.claude.json`) are rejected. [§4.5
-  there](../design/composed-file-permissions.md).
+  there](../reference/composed-file-permissions.md).
 
 ## The decision
 
@@ -914,7 +914,7 @@ Enforcement is the exact `cache_relocations` precedent
 > a bind-mounted empty file succeeds, so the seed never happens). Those go through a
 > dangling `GlobalHome` relative symlink instead. A destination already under a rw
 > bind (`~/.config/…`, the common case) needs nothing.
-> See [composed-file-permissions.md §7.5](../design/composed-file-permissions.md).
+> See [composed-file-permissions.md §7.5](../reference/composed-file-permissions.md).
 
 - **Composed output** lands in the jail home via the existing overlay-dir
   mechanism. A user surface whose `path` is under a **new** directory (e.g.
@@ -1204,9 +1204,9 @@ surfaces too, which have carried silent capture overlays since the prism cutover
 15. **`internal/cli/config_ref.txt`** — a `host_files` block: the string|object
     union, codec auto-detect table, per-entry scope rule, the four modes + their
     per-kind defaults, and that capture is opt-in.
-16. **`docs/design/agent-credentials.md`** — add `host_files` to the credential
+16. **`../reference/agent-credentials.md`** — add `host_files` to the credential
     matrix; the per-entry source-bearing = user-scope boundary.
-17. **`docs/design/jail-home.md`** — user surfaces in the home overlay; writable
+17. **`../reference/jail-home.md`** — user surfaces in the home overlay; writable
     subtree registration; the composed-wins ordering vs. a dir copy.
 18. **[`agent-settings-composition.md`](agent-settings-composition.md)** — annotate D4 (reversed + generalized),
     fix the [§4](agent-settings-composition.md#4-layers-and-scope) layer table's `agent_config.<agent>` claim (decided-but-unwired), and

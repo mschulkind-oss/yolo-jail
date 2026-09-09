@@ -70,7 +70,7 @@ type inheritScopeFile struct {
 // slirp4netns) and the CLI has a whole podman-in-podman branch (--userns=host, forced
 // --net=host, --cgroups=disabled). Apple Container has no nested container runtime inside
 // its VM, and macos-user has no container at all — a Seatbelt-confined native process
-// cannot start one, and the macos-user census (docs/design/macos-user-nix-and-features.md)
+// cannot start one, and the macos-user census (docs/reference/macos-user-nix-and-features.md)
 // already states that nothing is bind-mounted there.
 //
 // Deliberately keyed on the runtime STRING rather than on a probe: this decides whether to

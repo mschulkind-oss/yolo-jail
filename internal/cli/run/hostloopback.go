@@ -1,7 +1,7 @@
 package run
 
 // hostloopback.go asks the container runtime to forward the HOST'S LOOPBACK into
-// the jail, which is the fix for docs/design/loopback-tls-reachability.md §6.
+// the jail, which is the fix for docs/reference/loopback-tls-reachability.md §6.
 //
 // # The bug, in three sentences
 //
@@ -384,7 +384,7 @@ func decideHostLoopback(f hostLoopbackFacts) hostLoopbackPlan {
 		"host-loopback forwarding (" + strings.Join(plan.args, " ") + ").\n" +
 		"  Jail-facing services (Claude OAuth broker, yolo-ps, yolo-journalctl) will be\n" +
 		"  unreachable from inside this jail. Unset it to restore the fix.\n" +
-		"  docs/design/loopback-tls-reachability.md[/yellow]"}
+		"  docs/reference/loopback-tls-reachability.md[/yellow]"}
 }
 
 // hostLoopbackPlanFor is decideHostLoopback minus the opt-out, split out so the
@@ -419,7 +419,7 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 			"  loopback into the jail; with an explicit mode that is your call to make, and\n" +
 			"  without it jail-facing services (Claude OAuth broker, yolo-ps,\n" +
 			"  yolo-journalctl) may be unreachable from inside the jail.\n" +
-			"  docs/design/loopback-tls-reachability.md[/yellow]"}
+			"  docs/reference/loopback-tls-reachability.md[/yellow]"}
 	}
 
 	switch f.backend {
@@ -565,7 +565,7 @@ func pastaUnsupportedWarning(f hostLoopbackFacts) string {
 		"  Upgrade passt to " + minPasstVersion + " or newer (the release that added it) and\n" +
 		"  check with: pasta --version\n" +
 		"  Launching without it — nothing else changes.\n" +
-		"  docs/design/loopback-tls-reachability.md[/yellow]"
+		"  docs/reference/loopback-tls-reachability.md[/yellow]"
 }
 
 // slirpFallbackPhrase says why the OTHER stack was not used, which is the
@@ -598,7 +598,7 @@ func slirpFallbackNotice(f hostLoopbackFacts) string {
 		"  The cost is that slirp4netns is the older and slower rootless stack.\n" +
 		"  Upgrade passt to " + minPasstVersion + " or newer and yolo goes back to pasta by itself;\n" +
 		"  " + hostLoopbackOptOutEnv + "=1 turns off both.\n" +
-		"  docs/design/loopback-tls-reachability.md[/cyan]"
+		"  docs/reference/loopback-tls-reachability.md[/cyan]"
 }
 
 // unnamedBackendNotice is slirpFallbackNotice's twin for a podman too old to say
@@ -623,7 +623,7 @@ func unnamedBackendNotice(f hostLoopbackFacts) string {
 		"  the older and slower one.\n" +
 		"  Upgrade podman to " + minPodmanReportingVersion + " or newer and yolo reads the stack instead of asking;\n" +
 		"  " + hostLoopbackOptOutEnv + "=1 turns this off.\n" +
-		"  docs/design/loopback-tls-reachability.md[/cyan]"
+		"  docs/reference/loopback-tls-reachability.md[/cyan]"
 }
 
 // podmanVersionSuffix renders " (4.9.3)" when podman reported a version, and
@@ -672,7 +672,7 @@ func slirpUnsupportedWarning(f hostLoopbackFacts) string {
 		"  not confirm it supports host-loopback forwarding" + versionSuffix(f) + ", so jail-facing\n" +
 		"  services (Claude OAuth broker, yolo-ps, yolo-journalctl) may be unreachable from\n" +
 		"  inside this jail. Check with: slirp4netns --help | grep host-loopback\n" +
-		"  docs/design/loopback-tls-reachability.md[/yellow]"
+		"  docs/reference/loopback-tls-reachability.md[/yellow]"
 }
 
 // versionSuffix renders " (reported: X)" when a version is known.

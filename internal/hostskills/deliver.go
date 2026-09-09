@@ -152,7 +152,7 @@ type Result struct {
 	// Detail carries the reason for a refusal, the archive path for an archived entry, or
 	// the qualified invocation name for a tier-A write — whatever makes the line useful.
 	Detail string
-	// WouldChange is THE CHANGE PREDICATE for this entry (docs/design/host-apply-staleness.md
+	// WouldChange is THE CHANGE PREDICATE for this entry (docs/reference/host-apply-staleness.md
 	// §3.4): would an --assert alter the home here? False means "in sync".
 	//
 	// It is the skills half of the same question entrypoint.HostRenderResult.WouldChange
@@ -573,7 +573,7 @@ func Changed(src, dest string) bool {
 // Without it the flat plugin delivery (Request.excludePaths) compared a filtered copy against
 // an unfiltered source and reported CHANGED forever — which as a mere archive gate cost one
 // spurious archive per apply, and as a change predicate would make every launch prompt
-// (docs/design/host-apply-staleness.md R3).
+// (docs/reference/host-apply-staleness.md R3).
 // The skip applies to the SOURCE only, because an excluded path never reaches the
 // destination at all (copyTreeExcept returns before it creates one). A difference that must
 // be held aside on both sides is changedTreeSkipping's case.

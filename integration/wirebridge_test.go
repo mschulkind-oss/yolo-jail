@@ -9,7 +9,7 @@ import (
 )
 
 // TestWireBridgeTranslatesAnthropicToOpenai is the end-to-end tier for the wire
-// bridge (docs/design/wire-bridge.md): one real launch — user config selecting
+// bridge (docs/reference/wire-bridge.md): one real launch — user config selecting
 // claude and cerebras (the bridge NOT listed; the needs closure must join it,
 // and the banner line says so) with claude profiled at cerebras — proves the
 // whole chain in a single jail:

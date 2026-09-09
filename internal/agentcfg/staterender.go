@@ -2,7 +2,7 @@ package agentcfg
 
 // staterender.go is the stateful boot render harness: the §5 capture-diff
 // overlay loop plus the §3.2 first-migration bootstrap from
-// docs/design/config-migration-to-prism.md. Compose (compose.go) renders ONE
+// docs/reference/config-migration-to-prism.md. Compose (compose.go) renders ONE
 // surface as a pure function of its layers; ComposeStateful wraps it with the
 // per-boot state machine that decides the overlay layer from the sidecar files
 // and reports what the caller must persist.
@@ -130,7 +130,7 @@ type StatefulOutput struct {
 // programmer error (unknown codec, or a Compose failure such as a Lua error),
 // matching Compose's fail-closed contract (§3.4).
 //
-// The two paths (docs/design/config-migration-to-prism.md §3.2):
+// The two paths (docs/reference/config-migration-to-prism.md §3.2):
 //
 //	first migration (last_render absent/untrusted):
 //	    render  = Compose(overlay=∅)

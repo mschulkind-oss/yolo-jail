@@ -1,7 +1,7 @@
 package cli
 
 // hostapplygate.go is THE LAUNCH HOOK: at `yolo host -- <bin>`, behave like a jail launch and
-// then exec (docs/design/host-apply-staleness.md §4.1, §4.3, §4.4).
+// then exec (docs/reference/host-apply-staleness.md §4.1, §4.3, §4.4).
 //
 // # Why the launch is the only moment
 //

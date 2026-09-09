@@ -151,7 +151,7 @@ const CgdEndpointName = BuiltinCgroupLoopholeName + ServiceEndpointExt
 // loopback (an old passt, a stack yolo does not recognise) — a KNOWN LIMITATION —
 // or because yolo DID ask for that forwarding and the service is unreachable
 // anyway — a FAULT. Only the second is a broken jail, and only the second may ever
-// fail a launch (docs/design/loopback-tls-reachability.md, OQ-R2 as scoped by
+// fail a launch (docs/reference/loopback-tls-reachability.md, OQ-R2 as scoped by
 // OQ-R3: "unsupported is not broken").
 //
 // The producer is internal/cli/run/hostloopback.go, which is the only place that
@@ -499,7 +499,7 @@ func AgentsDir() string { return filepath.Join(GlobalStorage(), "agents") }
 // last-approved config snapshot for each workspace lives, one
 // <container-name>.json per workspace.
 //
-// HOST-SIDE IS THE WHOLE POINT (docs/design/config-safety.md, OQ-D1). The
+// HOST-SIDE IS THE WHOLE POINT (docs/reference/config-safety.md, OQ-D1). The
 // snapshot is the record of what a human approved, and it used to sit at
 // <workspace>/.yolo/config-snapshot.json — inside the bind mount an agent has
 // read-WRITE access to. Anything that can edit yolo-jail.jsonc could therefore

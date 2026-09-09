@@ -12,7 +12,7 @@ import (
 // absent, and the ordering the last-match-wins policy depends on. They measure nothing about
 // Apple Seatbelt. No kernel has ever loaded this profile; this backend cannot be exercised from
 // a Linux jail at all, and its installer pipeline is itself unverified on hardware
-// (docs/design/macos-user-nix-and-features.md). A human with a Mac is what closes that gap —
+// (docs/reference/macos-user-nix-and-features.md). A human with a Mac is what closes that gap —
 // see docs/plans/install-capture.md's slice 6 hardware checklist.
 
 const testStagingRoot = "/Users/Shared/yolo-captures/probetool"

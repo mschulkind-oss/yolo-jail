@@ -8,7 +8,7 @@ package loopholes
 // journal" cannot go and look — `loopholes list` is the whole of what it has, and
 // until this file existed the answer arrived as a %-36s column followed by
 // free-text continuation lines, which is a format that can only be regex'd
-// wrongly (docs/design/self-documenting-cli.md item 7).
+// wrongly (docs/reference/self-documenting-cli.md item 7).
 //
 // ONE STATE COMPUTATION, TWO RENDERINGS. The human label and the JSON `state`
 // come from listState below, not from two switches that agree today: a loophole

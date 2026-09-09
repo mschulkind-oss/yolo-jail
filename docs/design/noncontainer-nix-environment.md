@@ -657,7 +657,7 @@ Inside the jail, non-nix binaries (mise-installed node, pip/npm native modules) 
 libraries through a three-part Linux-only contraption: the `binPathLinks` **`/lib` symlink
 farm**, the baked `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` in the image `Env`, and
 **nix-ld** as the FHS interpreter at `/lib64` (`docs/plans/nix-ld-dynamic-linking.md`,
-`docs/design/mise-node-dynamic-linking.md`).
+`../reference/mise-node-dynamic-linking.md`).
 
 The darwin analogue would be `DYLD_LIBRARY_PATH` / `DYLD_FALLBACK_LIBRARY_PATH`, and it does not
 work, for reasons that are not yolo's to fix:

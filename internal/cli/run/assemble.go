@@ -401,7 +401,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// (podman's default since 5.0) forwards host.containers.internal to the
 	// host's global address and every loopback-TLS service is unreachable from
 	// every jail — see hostloopback.go and
-	// docs/design/loopback-tls-reachability.md §6. Every failure path there emits
+	// docs/reference/loopback-tls-reachability.md §6. Every failure path there emits
 	// nothing, so the worst case is exactly the behaviour above.
 	//
 	// Both emitting branches below spell the selector as `--net=` + appliedNetMode, so
@@ -816,7 +816,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// without the baked env still gets a correct LD_LIBRARY_PATH. It is the
 		// dlopen-by-soname discovery path for nix-built processes (which never
 		// traverse /lib64 and so are unreachable by nix-ld); nix-ld handles the
-		// FHS-binary case. See docs/design/mise-node-dynamic-linking.md step 6/7.
+		// FHS-binary case. See docs/reference/mise-node-dynamic-linking.md step 6/7.
 		"-e", "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/" + storage.LinuxMultilib(),
 		"-e", "HOME=/home/agent",
 		"-e", "EDITOR=cat",

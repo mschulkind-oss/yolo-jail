@@ -31,7 +31,7 @@ the other direction** — three rows already on the roadmap that I think should 
 
 **Reads with:** [`roadmap.md`](roadmap.md) (the live state; this file is deliberately NOT it),
 [`BACKLOG.md`](BACKLOG.md) (the one implementable list for the packs cluster — an item lives there
-once it is real), [`../design/retired-decisions.md`](../design/retired-decisions.md) (where a *no*
+once it is real), [`../plans/retired-decisions.md`](../plans/retired-decisions.md) (where a *no*
 goes, so it stops being re-proposed), [`README.md`](README.md#keeping-this-corpus-honest--the-five-checks-so-they-are-re-runnable)
 (the five sweeps §I1 proposes automating — run them by hand until it is built).
 
@@ -274,7 +274,7 @@ wearing a decision's clothes.
 decided in all but name."* If that is true then it is not a question — it is either 📦 or it is
 nothing, and asking for a ruling to confirm what is already decided spends the scarcest thing in this
 project, which is your attention. **Drop it from 💬**: either queue the one line or retire the idea
-to [`../design/retired-decisions.md`](../design/retired-decisions.md).
+to [`../plans/retired-decisions.md`](../plans/retired-decisions.md).
 
 > [!NOTE]
 > **The general shape, since it will recur.** A row belongs in 💬 when two answers lead to
@@ -335,5 +335,5 @@ has swept since.
 **Verdict: do the cheap half only, and only when passing through.** A `docs/plans/archive/` move is
 mechanical, but a shipped plan is still the best account of *why* something is shaped the way it is,
 and the repo has already been bitten by treating "old" as "safe to delete". If a sweep happens, the
-rule that matters is the one [`retired-decisions.md`](../design/retired-decisions.md) already states:
+rule that matters is the one [`retired-decisions.md`](../plans/retired-decisions.md) already states:
 a decision *not* to build never leaves, whatever happens to the plan around it.

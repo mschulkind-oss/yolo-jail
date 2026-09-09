@@ -8,7 +8,7 @@ import (
 )
 
 // TestCheckJSONParsesAndAgreesWithTheText is enforcement item 4 of
-// docs/design/self-documenting-cli.md for `check`: the output is PARSED, not
+// docs/reference/self-documenting-cli.md for `check`: the output is PARSED, not
 // string-matched, and it is compared against the human report of the SAME
 // fixture rather than against a second expectation someone typed.
 //

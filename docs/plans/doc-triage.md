@@ -195,15 +195,15 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 
 | Surviving doc (link source) | Currently points to (archived) | Repoint to |
 |---|---|---|
-| `docs/design/macos-no-vm-direction.md` (×3) | `plans/macos-backend-direction.md`, `plans/macos-nix-shell-backend-proposal.md` | `plans/macos-revival-and-distribution-plan.md` [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate) (the standing decision), drop the "reads with" line for the excised doc |
+| `../reference/macos-no-vm-direction.md` (×3) | `plans/macos-backend-direction.md`, `plans/macos-nix-shell-backend-proposal.md` | `plans/macos-revival-and-distribution-plan.md` [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate) (the standing decision), drop the "reads with" line for the excised doc |
 | `docs/plans/macos-revival-and-distribution-plan.md` (Inputs header) | `handoff-macos-post-ejection.md`, `macos-nix-shell-backend-proposal.md` | reword to "(archived — see git history)"; the plan already contains their conclusions |
 | `docs/research/macos-support-matrix.md` | `handoff-macos-user-revive-plan.md` | repointed to the revival plan |
 | `docs/research/macos-linux-builder-explained.md` (×2) | `handoff-macos-ondemand-builder.md` | `research/macos-container-builder-exploration.md` (the live builder direction) |
-| `docs/design/mise-node-dynamic-linking.md` | `handoff-macos-ondemand-builder.md` | same as above |
+| `../reference/mise-node-dynamic-linking.md` | `handoff-macos-ondemand-builder.md` | same as above |
 | `docs/research/claude-token-logouts.md`, `claude-oauth-refresh-mechanics.md` (×3) | `plans/claude-oauth-mitm-proxy-plan.md` | `bundled_loopholes/claude-oauth-broker/README.md` (live broker architecture) |
 | `docs/guides/loopholes.md` | `plans/claude-oauth-mitm-proxy-plan.md` | same broker README |
-| `docs/guides/macos.md` | `plans/macos-backend-direction.md` | `design/macos-no-vm-direction.md` |
-| `docs/research/rocm-gpu-jail-findings.md`, `docs/design/rocm-passthrough-design.md` | `rocm-memlock-handoff.md` | keep the *design* doc's own [§7.2](../design/rocm-passthrough-design.md#72-locked-memory-limit-blocks-queue-creation-in-jail--resolved-by-rocm-72-userspace-2026-06-06) (the handoff's durable content); demote the handoff link to "(resolved; see git history)" |
+| `docs/guides/macos.md` | `plans/macos-backend-direction.md` | `../reference/macos-no-vm-direction.md` |
+| `docs/research/rocm-gpu-jail-findings.md`, `docs/reference/rocm-passthrough.md` | `rocm-memlock-handoff.md` | keep the *design* doc's own [§7.2](../reference/rocm-passthrough.md#72-locked-memory-limit-blocks-queue-creation-in-jail--resolved-by-rocm-72-userspace-2026-06-06) (the handoff's durable content); demote the handoff link to "(resolved; see git history)" |
 | `docs/qa/macos-user-review-findings.md` | `handoff-macos-user-revive-plan.md` | this doc is itself being archived, so no repoint needed |
 
 ## 5. Decisions (settled with the reviewer) + the executed reorg

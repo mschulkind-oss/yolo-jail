@@ -14,7 +14,7 @@ prerequisite has **shipped** — it is no longer a prerequisite, it is done. Fou
 questions are collected in [§9](#9-open-questions); three of them are questions only a Mac can answer.
 
 **Reads with:** [`environment-manager-plan.md`](environment-manager-plan.md) Phase 7 (the
-spec), [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md)
+spec), [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
 (the existing backend — see the correction in [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) before trusting it),
 [`../guides/macos.md`](../guides/macos.md) (usage),
 [`../design/noncontainer-nix-environment.md` §5](../design/noncontainer-nix-environment.md#5-macos-vs-linux)

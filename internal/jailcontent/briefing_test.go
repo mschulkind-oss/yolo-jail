@@ -184,7 +184,7 @@ func TestBriefingConfinementHeader(t *testing.T) {
 	}
 }
 
-// The one-time handoff (docs/design/host-to-jail-handoff.md): a fresh handoff renders as
+// The one-time handoff (docs/reference/host-to-jail-handoff.md): a fresh handoff renders as
 // a prominent Handoff section, and NOTHING is emitted without one — there is no standing
 // "where your task comes from" line, because an always-present line would move the pinned
 // jail header (TestBriefingJailHeaderIsUnchanged). The design called for that line; the

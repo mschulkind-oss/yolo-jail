@@ -132,8 +132,8 @@ cacheable by construction).
   run offloads the build to on the active runtime (podman/Apple Container) over
   `ssh-ng`, then tears down (zero idle RAM, no VM, no `sudo`, no `yolo builder`
   command). The single shipped/documented fallback, per the
-  [happy-path principle](../design/happy-path-principle.md); see
-  [../design/linux-builder-lifecycle.md](../design/linux-builder-lifecycle.md).
+  [happy-path principle](../reference/happy-path-principle.md); see
+  `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md)).
   (A user's *own* nix-darwin `linux-builder` or `/etc/nix/machines` box still
   works as an advanced escape hatch — that's their nix config, orthogonal to
   ours.)

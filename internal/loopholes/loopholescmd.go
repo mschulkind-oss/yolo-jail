@@ -222,7 +222,7 @@ func List(deps Deps) int {
 			fmt.Fprintf(deps.Out, "      %s\n", lh.Description)
 		}
 		// ANYTHING THAT TURNS SOMETHING OFF MUST NAME WHO DID IT AND WHY
-		// (docs/design/pack-capabilities.md §5). An unexplained disappearance is the
+		// (docs/reference/pack-system.md §5). An unexplained disappearance is the
 		// failure mode the whole mechanism exists to avoid, and `loopholes list` is the
 		// command a user runs to find out what happened — so the pack, the capability and
 		// the pack author's own `because` are printed here, one line per claim.
@@ -230,7 +230,7 @@ func List(deps Deps) int {
 			fmt.Fprintf(deps.Out, "      %s\n", s.Line())
 		}
 		// THE SETTINGS DECLARATIONS ARE PRINTED HERE BECAUSE THERE IS NOWHERE ELSE
-		// LEFT (docs/design/pack-config-keys.md). `yolo config-ref` is generated from
+		// LEFT (docs/reference/pack-system.md). `yolo config-ref` is generated from
 		// core's own schema, and the entire point of this mechanism is that these keys
 		// are NOT in core's schema — a pack declares them. So a user who cannot see
 		// them here can only discover a key by guessing it wrong and reading the

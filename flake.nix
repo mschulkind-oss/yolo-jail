@@ -508,7 +508,7 @@
         ) resolvedPackageSpecs;
 
         # nix-ld as the FHS ELF interpreter (replaces the raw glibc ld.so at
-        # /lib64).  Variant A of docs/design/mise-node-dynamic-linking.md: a
+        # /lib64).  Variant A of docs/reference/mise-node-dynamic-linking.md: a
         # custom build with the real loader baked into DEFAULT_NIX_LD (an
         # option_env! in nix-ld's source) so a fully-scrubbed environment still
         # resolves the loader with zero runtime wiring — this is what closes the
@@ -801,7 +801,7 @@
         # /opt/yolo-jail/bin/yolo-entrypoint by absolute path. That is what takes
         # `goSrc` OUT of the image derivation: a commit touching only cmd/ or
         # internal/ no longer moves .#ociImage's store path, so it costs no image
-        # rebuild and no `podman load` (docs/design/image-staging-vs-baking.md §5).
+        # rebuild and no `podman load` (docs/reference/image-staging-vs-baking.md §5).
         # This attr stays because it is still the thing that gets mounted whenever
         # the resolved flake source has no prebuilt bin/linux-<arch> of its own —
         # a live checkout — where the launcher realizes it with
@@ -839,7 +839,7 @@
         #
         # yolo-cglimit and yolo-journalctl are the in-jail loophole clients that
         # used to be Python generated into ~/.local/bin at boot
-        # (docs/design/loophole-transport.md §8.4). ~/.local/bin PRECEDES /bin on
+        # (docs/reference/loophole-transport.md §8.4). ~/.local/bin PRECEDES /bin on
         # PATH, so a leftover script shadows the binary named here — retiring the
         # generator has to also unlink the file it used to write, which
         # entrypoint's stale-wrapper cleanup does.
@@ -1072,7 +1072,7 @@
             (map (p: "${p}")
               (corePackagesFromNixpkgs ++ fullPackages ++ extraPackages)) + "\n");
 
-        # `withExtras = false` is C5 (docs/design/image-staging-vs-baking.md §4 C5): the
+        # `withExtras = false` is C5 (docs/reference/image-staging-vs-baking.md §4 C5): the
         # same image with `fullPackages` and the chromium half of the /lib farm left out,
         # for a launch that delivers them from the mounted nix store instead. Orthogonal to
         # `minimal`, which is CI's variant and also drops the nested-podman config.

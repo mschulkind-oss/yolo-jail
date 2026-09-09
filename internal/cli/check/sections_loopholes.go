@@ -78,7 +78,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 	//
 	// Both lines are READABILITY, not a control, and the ON wording is held to that:
 	// it names the file holding the switch and stops. The config-approval diff is the
-	// mechanism that asks a human (docs/design/config-safety.md); a check row implying
+	// mechanism that asks a human (docs/reference/config-safety.md); a check row implying
 	// review would be worth less than no row.
 	//
 	// A workspace file that merely RESTATES the manifest default is disclosed too.
@@ -504,7 +504,7 @@ func (o *Options) checkLoopbackTLSService(r *reporter, label, endpointPath, name
 // ADVERTISED address (the runtime's gateway name) is only meaningful from inside a
 // network namespace the runtime built. A host-side prober therefore cannot fail for
 // the reason a jail's clients fail, which is how a total loopback-TLS outage sat under
-// an all-green check for four days (docs/design/loopback-tls-reachability.md §7).
+// an all-green check for four days (docs/reference/loopback-tls-reachability.md §7).
 //
 // So the output is made honest instead: each green says what it is, and this says
 // where the answer it CANNOT give actually lives. Once, not per service — on a broken
@@ -514,7 +514,7 @@ func (o *Options) checkLoopbackTLSService(r *reporter, label, endpointPath, name
 const hostSideProbeCaveat = "the probes above are HOST-SIDE: they dial 127.0.0.1, " +
 	"where these daemons bind, so a green means the daemon answers — never that a JAIL " +
 	"can reach it. Only the in-jail probe that runs at jail startup can say that " +
-	"(docs/design/loopback-tls-reachability.md §7)."
+	"(docs/reference/loopback-tls-reachability.md §7)."
 
 // firstLine returns the first line of s, or "" when s is empty.
 func firstLine(s string) string {

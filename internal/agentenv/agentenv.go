@@ -10,7 +10,7 @@
 // (internal/packload AgentEnv, docs/reference/providers.md — Derives and Why it's this way, OQ-CS8):
 // the agent's own pack states the provider→environment binding in its derive.lua, and
 // both notches run that one producer — one runner, one Lua producer — which is what
-// docs/design/host-agent-environment.md §2.2 claims as jail/host parity: `yolo --
+// docs/reference/host-agent-environment.md §2.2 claims as jail/host parity: `yolo --
 // claude` and `yolo host -- claude` compose the same environment from the same
 // resolved profile, a claim two independent compositions could not keep.
 //

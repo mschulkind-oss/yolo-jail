@@ -109,7 +109,7 @@ merges rather than adding a parallel path.
    per-workspace r/w overlay). yolo never writes an agent's *project*/workspace
    config; `/workspace` is the operating agent's and mirrors the host, except the
    enumerated `/dev/null` isolation shadows. This is the **config-ownership
-   principle** in [../design/storage-and-config.md](../design/storage-and-config.md)
+   principle** in [../reference/storage-and-config.md](../reference/storage-and-config.md)
    [§1.1](#11-what-yolo-generates-this-way-the-surfaces) — the durable statement; this doc obeys it.
 3. **Compose by layered deep-merge.** Sources stack in a fixed precedence order
    and deep-merge over the *decoded* structure (format-independent). No depth

@@ -25,7 +25,7 @@ Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environ
 > needs host capabilities a nested Linux jail cannot exercise, so it is host/Mac-gated and
 > deferred. Two things sharpened since 2026-08-01. **7.1's precondition landed**: the
 > zero-surfaces bug (1.4/G3) was fixed 2026-08-12, so macOS `guest` stages packs — though
-> `docs/design/macos-user-nix-and-features.md:174` records the row as ⚠️ *UNVERIFIED on a Mac*.
+> `../reference/macos-user-nix-and-features.md:174` records the row as ⚠️ *UNVERIFIED on a Mac*.
 > **7.2 has no code at all**: `bwrap`/`Landlock` appear in Go only as a profile constant
 > (`internal/render/confinement.go:132-136`) and a label; and the notch's render policy is
 > explicitly unstated — `KindGuest: UndecidedModes("… Phase 7's to state")`
@@ -74,7 +74,7 @@ approval — is shipped and is the substrate every phase renders through
 **Reads with:** the design doc (the spec); [`BACKLOG.md`](BACKLOG.md) Stage G +
 [`../design/host-render-target.md`](../design/host-render-target.md) (Phase 1's
 detailed design); [`../reference/pack-system.md`](../reference/pack-system.md#selection-and-the-load-path) (the pack
-substrate); [`happy-path-principle.md`](../design/happy-path-principle.md) (the
+substrate); [`happy-path-principle.md`](../reference/happy-path-principle.md) (the
 constraint on how many knobs each phase may expose).
 
 ---
@@ -466,7 +466,7 @@ manifest surface, and (behind a confirm) can run the remedies including `sudo`.
 > [!WARNING]
 > **Verified 2026-08-23. 7.1's stated precondition landed; 7.2 has no code.** 7.1: the
 > zero-surfaces bug it points at (1.4/G3) was fixed 2026-08-12, so macOS `guest` does stage
-> packs — but `docs/design/macos-user-nix-and-features.md:174` records that row as ⚠️
+> packs — but `../reference/macos-user-nix-and-features.md:174` records that row as ⚠️
 > **UNVERIFIED on a Mac**, so "renders surfaces" is wired, not measured. 7.2: `bwrap` and
 > `Landlock` exist in Go **only as names** — the profile constant `GuestProfileLinux()`
 > (`internal/render/confinement.go:132-136`), a primitive label (`:69`), and a briefing test.
@@ -510,7 +510,7 @@ real, LSM-confined home on both platforms, and `describe` prints the composed pr
 > (`internal/jailcontent/builtinskills/`). The startup-ritual skill (`n`) was deleted and the
 > one-time handoff became a conditional **Handoff** section in the briefing
 > (`internal/jailcontent/briefing.go:69`; see
-> [`../design/host-to-jail-handoff.md`](../design/host-to-jail-handoff.md)).
+> [`../reference/host-to-jail-handoff.md`](../reference/host-to-jail-handoff.md)).
 >
 > **What 8.2 was really for is still owed, and now has no home.** Nothing stamps a rendered
 > briefing with the notch it was made for, and nothing asserts that stamp against observable

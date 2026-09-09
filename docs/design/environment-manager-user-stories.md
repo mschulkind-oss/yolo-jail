@@ -363,7 +363,7 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    `stagePacks` ever runs, and `YOLO_PACK_ROOT` is never set, so
    `LoadJailPacks`/`ConfigurePackSurfaces`/`RunPackHooks` (`entrypoint/darwin.go:57-62`) loop
    over an empty list on every single launch. Eleven surfaces are declared; zero render; nothing
-   errors. `docs/design/macos-user-nix-and-features.md:174` still claims pack selection works.
+   errors. `../reference/macos-user-nix-and-features.md:174` still claims pack selection works.
 
    The design doc's own [§8](yolo-as-environment-manager.md#8-what-this-costs) says it out loud: *"`guest` must actually work before any of this is
    honest. A three-notch story with a broken middle is worse than a one-notch story that
@@ -390,7 +390,7 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    > - Pinned by `internal/cli/run/packstagedispatch_test.go:87` (the handler receives a pack root
    >   that **exists on disk** with `_official/claude/pack.json` in it) and `:131` (the empty-config
    >   half), plus `internal/macosuser/packroot_test.go`.
-   > - `docs/design/macos-user-nix-and-features.md:174` no longer claims selection works: it now
+   > - `../reference/macos-user-nix-and-features.md:174` no longer claims selection works: it now
    >   reads ⚠️ *"Wired 2026-08-12 (B-0); UNVERIFIED on a Mac"*, with a retained blockquote at
    >   `:178-195` recording that the old ✅ row had never been true.
    >
@@ -1181,7 +1181,7 @@ saying what moved and what the question still decides. **IDs are cited from
    (`internal/jailcontent/briefing.go:143`). The leaning's precondition — *"do not ship the
    three-notch vocabulary until `guest` renders on at least one platform"* — was overtaken by G3
    landing on macOS 2026-08-12, but that platform's staging remains **UNVERIFIED on real hardware**
-   (`docs/design/macos-user-nix-and-features.md:174`). So Q7's real question today is narrower and
+   (`../reference/macos-user-nix-and-features.md:174`). So Q7's real question today is narrower and
    sharper: **does the Linux `guest` row stay in the table as a promise, given the vocabulary is
    already out?**
 

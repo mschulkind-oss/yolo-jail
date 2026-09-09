@@ -1,7 +1,7 @@
 package cli
 
 // usageexamples_test.go is the last clause of the standard's item 2
-// (docs/design/self-documenting-cli.md): "Help lists synopsis, flags, positional
+// (docs/reference/self-documenting-cli.md): "Help lists synopsis, flags, positional
 // args, effects, and ≥1 example". The first four were DONE, with
 // TestUsageListsEveryParsedFlag deriving flag coverage from the handlers' own
 // source. Examples were the remaining half, and only `run` and `pack` had one.
