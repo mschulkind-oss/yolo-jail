@@ -20,16 +20,24 @@ three packs short).**
   drift-pinned by `internal/entrypoint/hookdrift_test.go:31`).
 - **`packs` really is user-scope only** — a workspace config naming one is a hard
   error (`internal/config/packs.go:488`).
-- **The command surface in [§10](#10-command-surface) matches** (`internal/cli/pack.go:174-193`) — and
-  it is a hand-rolled string switch, not cobra.
+- **The VERB LIST in [§10](#10-command-surface) matches** (`internal/cli/pack.go:174-193`) — and
+  it is a hand-rolled string switch, not cobra. ⚠ **What that row's "matches" did not
+  cover, and what is corrected 2026-09-09:** [§10](#10-command-surface)'s `install`/`update` cell described a
+  host-access approval prompt that [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted on 2026-09-04.
+  [§9](#9-the-credential-boundary-the-pin-not-a-prompt) was rewritten for that the same day; [§10](#10-command-surface) was missed, so the doc contradicted
+  itself for five days. `packMain` (`internal/cli/pack.go`) now takes no stdin at all, and
+  says so in its own doc comment.
 - **`bundled_loopholes/` is gone**, with no Go embed of it anywhere.
 - **The six agent packs are right**, but [§0](#0-three-principles) undercounts the inventory — see the
   note below.
 
 **Fixed here (2026-08-23):** the [§3](#3-the-kinds-their-footprints-and-conflict-rules) loophole note's two "still outstanding" items
 (both are settled, one by shipping and one by deletion), and [§5](#5-config-surfaces-and-the-compose-engine)'s list of
-non-agent surface owners. **Not verified:** [§5](#5-config-surfaces-and-the-compose-engine)'s compose-engine layer fold and
-mode semantics, [§7](#7-the-derive-slot)'s Lua contract, [§9](#9-the-credential-boundary-the-pin-not-a-prompt)'s approval/lockfile flow, [§11](#11-worked-examples)'s worked
+non-agent surface owners. **Fixed here (2026-09-09):** [§10](#10-command-surface)'s deleted approval prompt
+(above), and [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s `program` entry, whose launcher dir name and PATH position were
+both two renames and one reorder out of date — and whose stated *rationale* had been
+inverted by B2 rather than merely moved. **Not verified:** [§5](#5-config-surfaces-and-the-compose-engine)'s compose-engine layer
+fold and mode semantics, [§7](#7-the-derive-slot)'s Lua contract, [§11](#11-worked-examples)'s worked
 examples, and the [§14](#14-gaps-between-the-schema-and-the-shipped-tooling) gap list beyond the two items named above.
 
 > [!NOTE]
@@ -76,7 +84,7 @@ Everything below follows from three rules. Read these first; the rest is their m
    packs stage* is the only filter ([§8](#8-selection-and-the-load-path)).
 
 3. **The manifest is static data.** Every claim a pack makes is readable without executing
-   anything — that is what keeps linting, the origin gate, and content hashing honest. Lua
+   anything — that is what keeps linting, disclosure, and content hashing honest. Lua
    has exactly one job in a pack (`derive`, [§7](#7-the-derive-slot)): it computes config *values*, and never
    declares *effects*.
 
@@ -121,7 +129,8 @@ the honest case it kept meeting. Two things replaced it, one enforcing and one i
   with a [`program`](#program) contribution, which owns the launcher, is exclusive by that
   name, and is disclosed at launch. This is a naming rule, not a sandbox: the channels that
   really run pack code — `program via installer`, a loophole's host daemon — are governed
-  by disclosure and approval, and nothing here pretends otherwise.
+  by disclosure plus the host-user authority that selecting a pack already requires
+  ([§9](#9-the-credential-boundary-the-pin-not-a-prompt)), and nothing here pretends otherwise.
 - the executables a pack ships are a **claim** in its footprint, so `yolo pack footprint`
   and `yolo pack lint` say `executables  3 files  bin/a.sh, …`. A mode bit is a property of
   the tree, with no manifest line a reader could otherwise find it on.
@@ -186,7 +195,7 @@ target combine:
 
 | Kind | Claims | Combine rule |
 |---|---|---|
-| `program` | a name on `PATH` + a lazy launcher in `~/.yolo-launchers/` | **Exclusive** — two packs, one `bin` → error |
+| `program` | a name on `PATH` + a lazy launcher in `~/.yolo/bin/launch/` (unless the image already provides the name — see below) | **Exclusive** — two packs, one `bin` → error |
 | `requires` | a binary that must *already* be on `PATH` (asserted, never installed) | **Shared** — many packs may require one binary |
 | `skills` | a merge-target skills dir | **Merge** — many packs into one dir is the feature |
 | `briefing` | a concat slot at a path | **Concat** — ordered |
@@ -226,16 +235,21 @@ prepends a host file. The review flag is an invitation to look, not a refusal.
 > rather than a host read, so it carries its own trust story and its own claim classes:
 >
 > - Its claims come from a file OUTSIDE `pack.json`, so they are produced at the
->   `packload` layer (`Pack.LoopholeHostAccessClaims`), not in `packdecl`, which has no pack
+>   `packload` layer (`Pack.loopholeClaims`), not in `packdecl`, which has no pack
 >   root and no internal imports. Same layer and same reason as a wrapped plugin's claims.
 > - The enumeration is **TOTAL**: every declaration that crosses the boundary emits its own
->   separately-approvable claim (the daemon argv + `doctor_cmd`, one per intercept, one per
+>   separately-disclosed claim (the daemon argv + `doctor_cmd`, one per intercept, one per
 >   bind, one per SOCKET bind as read-write host IPC, one per device). `state_files` needs
->   none. This is load-bearing rather than thorough — the origin gate returns **true on an
->   empty claim set**, so a crossing with no claim is a crossing nobody is asked about.
-> - The three producers of a pack's host-access claims are merged by **one helper**
->   (`packload.Pack.HostAccessClaims`) called at both gates, with a source-level test that
->   fails if either reaches for a producer directly.
+>   none. This is load-bearing rather than thorough — **a crossing with no claim is a
+>   crossing that appears in no report at all**, and since 2026-09-04 the footprint and the
+>   launch banner are the only reports there are.
+> - **There is no gate to share, and that is the current state rather than a gap.** This
+>   bullet used to say the three producers of a pack's host-access claims were merged by one
+>   helper (`packload.Pack.HostAccessClaims`) called at both gates, pinned by a source-level
+>   test. [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the helper and both gates on 2026-09-04, and that test's
+>   own successor records why enumerating them was the wrong shape: a list of *two* gates
+>   could be satisfied vacuously by a third copied into `yolo check`. What is pinned now is
+>   the ABSENCE of any of them — see [§10](#10-command-surface).
 > - Refused at the **host** render target with the counterparty reason, and excluded from
 >   `JailFields()` explicitly: its jail-side effects are produced by the run pipeline before
 >   the container exists, not by the render path ([§3.4](./loophole-packaging.md#34-at-the-host-target-where-there-is-no-jail-refused--and-the-naive-reason-is-backwards) of that doc).
@@ -269,16 +283,55 @@ prepends a host file. The review flag is an invitation to look, not a refusal.
 The per-kind fields:
 
 ### `program`
-Installs a tool and puts it on `PATH` via a launcher that installs on first invocation.
+Installs a tool and puts it on `PATH` via a launcher that installs on first invocation —
+and thereafter mediates every invocation, which is what keeps an agent dependency current.
 
-The launcher goes in `~/.yolo-launchers/`, which is **last** on PATH — after `/bin`. That
-is deliberate and it is the whole reason the dir exists separately from `~/.yolo-shims`
-(the blocked-tool shims, which are first): an installer only needs to run when nothing
-else provides the name. Ordering it before `/bin` made a pack declaring `program fzf`
-shadow the image's working `/bin/fzf` and then fail, because the launcher execs an
-absolute install path and never consults PATH — declaring the dependency honestly broke
-it. The consequence to know: a name the **image** bakes now wins over the pack's declared
-version.
+The launcher goes in `~/.yolo/bin/launch/<bin>`, which is **SECOND** on PATH: immediately
+after `~/.yolo/bin/block/` (the blocked-tool shims, which stay first because interception
+must outrank installation) and **ahead of every install prefix** —
+`$NPM_CONFIG_PREFIX/bin`, `$HOME/.local/bin`, `$GOPATH/bin` — and so ahead of `/bin`.
+`entrypoint.BootPath` (`internal/entrypoint/boot.go`) is the authority for that order; the
+`.bashrc` export and `macosuser.SandboxPath` are two more copies of it, compared to
+`BootPath` entry by entry. The dirs were `~/.yolo-launchers/` and `~/.yolo-shims/` until
+2026-08-30 (`a813b865`).
+
+> [!IMPORTANT]
+> **This position is load-bearing, and the previous one was a defect — not a neutral
+> detail.** Until 2026-09-04 (B2) the launch dir sat **last, after `/bin`**, on the
+> reasoning that an installer only needs to run when nothing else provides the name. That
+> reasoning defeated the update the launcher exists to carry: a launcher ordered *after*
+> the prefixes it installs *into* is unreachable the moment it succeeds, so the lazy
+> install ran exactly once per home and the hourly update never ran again — measured, with
+> `claude.stamp` untouched for nine days and nineteen before that. An **agent dependency**
+> wants to be current, so the launcher has to mediate every invocation, not just the first
+> ([`program-delivery.md`](program-delivery.md) [§3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), P6, is the standing account and the
+> authority over this paragraph).
+
+**What the old position bought is now bought by a check at generation time.** Ordering the
+launcher before `/bin` was originally what made a pack declaring `program fzf` shadow the
+image's working `/bin/fzf` and then *fail* — the launcher execs an absolute install path
+and never consults PATH, so declaring the dependency honestly broke it. That collision is
+representable again under B2, and what prevents it is
+`internal/entrypoint/launchercollision.go`: **no launcher is written at all for a name
+`/bin`, `/usr/bin`, or a declared `mise_tools` entry already provides** (plus the
+store-delivered package farm, `/run/yolo/packages/bin`, on a launch that opts into it).
+Same outcome, weaker guarantee — the failure is now **handled** rather than
+unrepresentable, which is the honest cost. The consequence to know is unchanged: a name the
+**image** bakes still wins over the pack's declared version, now because the launcher
+declines to exist.
+
+> [!WARNING]
+> **The collision check must never be spelled *"is this name already resolvable on
+> PATH?"*** — spelled that way it is a silent kill switch that destroys the feature. After
+> one successful install `~/.local/bin/claude` exists, so the next boot writes no launcher,
+> so PATH resolves the installed binary directly, and evergreen works exactly once: green,
+> silent, and identical to the freeze B2 exists to end. The install prefixes are therefore
+> excluded from the probe path by the property that *defines* them — every one lives under
+> the jail home, and nothing the image ships does. **Declared, not installed, for mise
+> too:** `GenerateAgentLaunchers` runs before `ConfigureMisePrism`, so the shim directory is
+> empty on a cold boot and a check that read it would shadow a project dependency on
+> exactly the boots where the project is new.
+
 - `bin` (required) — the command name.
 - `via` (required) — `npm` or `installer`.
 - `package` (required for `npm`) — the npm package, optionally with a version selector:
@@ -295,7 +348,10 @@ version.
   (Until 2026-08-17 the launcher appended `@latest` unconditionally, so
   `foo@1.2.3` was installed as `foo@1.2.3@latest` and a version was not expressible at
   all — the caveat that stalled the top row of [`trust-paths.md`](./trust-paths.md) [§1](./trust-paths.md#1-the-verdict).)
-- `url` (required for `installer`) — the install-script URL (origin-gated, [§9](#9-the-credential-boundary-the-pin-not-a-prompt)).
+- `url` (required for `installer`) — the install-script URL. It is one of [§9](#9-the-credential-boundary-the-pin-not-a-prompt)'s six
+  crossings, so it is **disclosed** at launch and flagged review-worthy in the footprint —
+  and, since 2026-09-04, gated by nothing: a fetched pack's installer URL is honored
+  exactly like an embedded pack's.
 - `flags` — optional flags baked into the launcher.
 - `update` — optional array: the argv that makes the program update ITSELF, with the bin
   omitted (`"update": ["install"]` for claude, `["update", "--self"]` for pi). The launcher
@@ -625,26 +681,36 @@ it into a pack unchanged.
 follow, and none of them is optional:
 
 1. **Its claims come from outside `pack.json`**, so they are produced at the `packload`
-   layer (`Pack.LoopholeHostAccessClaims`) — the same layer, and for the same reason, as a
-   wrapped plugin's. `packdecl` has no pack root and no internal imports, so a claim
-   computed there could only be a bare `loophole <name>`: a consent key blind to the daemon
-   it approves.
-2. **The enumeration is TOTAL.** One separately-approvable claim per crossing: the daemon
+   layer (`Pack.loopholeClaims`, feeding `packload.FootprintOf`) — the same layer, and for
+   the same reason, as a wrapped plugin's. `packdecl` has no pack root and no internal
+   imports, so a claim computed there could only be a bare `loophole <name>`: a line blind
+   to the daemon it discloses. (It was `Pack.LoopholeHostAccessClaims` until 2026-09-04,
+   when [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the approval the name referred to; the layering argument is
+   untouched by that, which is why it is restated rather than retired.)
+2. **The enumeration is TOTAL.** One separately-disclosed claim per crossing: the daemon
    argv (with `doctor_cmd` folded in — it is host execution too), one per intercept (which
    claims even with no daemon: it installs a CA every TLS client in the jail trusts), one per
    bind mount, one per **socket** bind as its own read-write host-IPC class (`:ro` is no
    boundary for an AF_UNIX socket — measured), and one per device. `state_files` needs none:
-   it stays inside yolo's own state tree.
-3. **The claim string is the raw argv** — placeholders unexpanded, nothing elided. It is a
-   lockfile comparison key, not display text: an ellipsis collapses two daemons onto one
-   approved claim, and an expanded `{loophole_dir}` is machine-specific, so it never matches
-   and re-prompts forever (and the prompt fails closed on a non-TTY, which would refuse the
-   loophole permanently). The footprint's *Detail* may abbreviate; the two are deliberately
-   different strings.
+   it stays inside yolo's own state tree. **Totality got sharper, not looser, when the
+   prompt went**: a claim-free crossing is now a crossing the user never hears about at
+   all, because the footprint and the launch banner are the only reports left
+   (`internal/packload/footprint.go`, the `loophole →` block).
+3. **The claim string is the raw argv** — placeholders unexpanded, nothing elided, joined
+   with `shquote.Join`. **The reason is INJECTIVITY, and it survived the prompt's deletion
+   intact:** two different argvs must never render to one claim. An ellipsis collapses two
+   daemons onto one line; a bare space join collapses `["sh","-c","a b"]` and
+   `["sh","-c","a","b"]` — the same failure arrived at by accident. Nothing ever execs the
+   string (the spawn reads the argv list), and `{loophole_dir}` stays unexpanded so the
+   line reads the same on every machine. The footprint's *Detail*, and the banner's
+   `Claim.DisclosureSentence`, are **renderings** of that identity and may abbreviate; the
+   record and the prose are deliberately different strings
+   ([`pack-execution-trust.md`](pack-execution-trust.md) [§6](./pack-execution-trust.md#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04), whose injectivity requirement is pinned by
+   `TestDisclosureSentenceDistinguishesClaimsThatDiffer`).
 4. **Exclusive by NAME**, not per pack — one pack shipping three loopholes is ordinary, the
    same rule `program` has per `bin`. A shadowed loophole name is a daemon nobody audited
    running under a name the user trusts, and everything downstream keys on the name: the
-   state dir, the endpoint, the `enabled` toggle, the approved claim.
+   state dir, the endpoint, the `enabled` toggle, the disclosed claim.
 
 Refused at the **host** notch, and the reason is the inverse of the generic one: a loophole
 is a host daemon whose only client is a container, so with no jail there is no client, no
@@ -882,9 +948,15 @@ Everything else is offline.
   errors instead of hanging. **The jail has no git credentials by design**, so fetch is
   host-only.
 - The lockfile (`~/.config/yolo-jail/packs.lock.json`, beside the user config) records the
-  asked-for `source`, the resolved `commit`, the `ref`, and — for a fetched pack the user
-  granted host access — the approved host-access claims and the commit they were approved at
-  ([§9](#9-the-credential-boundary-the-pin-not-a-prompt)). Because trees are keyed by commit, a moving ref never corrupts an existing checkout.
+  asked-for `source`, the resolved `commit`, and the `ref` — **and nothing else. There is
+  no approval record in it, and the absence is a ruling rather than an omission**
+  ([§9](#9-the-credential-boundary-the-pin-not-a-prompt)): `ApprovedHostAccess` and its `ApprovedAt` were deleted 2026-09-04 with the
+  prompt that wrote them, and `packsrc.LockEntry`'s own doc comment refuses to have either
+  back without a design ruling — *a field asserting an approval nothing enforces is worse
+  than no field.* Because trees are keyed by commit, a moving ref never corrupts an
+  existing checkout. Since the gate went, the lockfile is **write-only at launch**: a
+  launch resolves a fetched pack from the local mirror at the config's ref
+  (`packsrc.Store.resolveFromStore`) and consults no lock entry.
 - Launch resolves pins from the store and never fetches; a missing pin errors and points at
   `yolo pack install`. `yolo pack status` flags drift between the config address and the
   lock.
@@ -988,8 +1060,47 @@ no prompt at install time can do.
 | `yolo pack ls` | list configured packs and what each stages |
 | `yolo pack explain <name>` | stage one pack and show what it stages and what it dropped (`file://` local only) |
 | `yolo pack footprint [ref]` | print claims + cross-pack collisions + review summary; `[ref]` is an embedded pack name **or a local path / `file://` source** so you can inspect a pack you are authoring |
-| `yolo pack install` / `update` | fetch configured packs, write the lockfile, report moved pins, prune dropped packs (the only network step); **prompt to approve a fetched pack's host access**, re-prompting only when a moved pin gains a claim ([§9](#9-the-credential-boundary-the-pin-not-a-prompt)) |
+| `yolo pack install` / `update` | fetch configured packs, materialize each commit into the store, write the lockfile, report whether each pin **moved**, prune the entries of packs that left the config (the only network step). **It asks nothing** — see the note below |
 | `yolo pack status` | show locked commits and flag config/lock drift |
+
+**No `yolo pack` verb asks a question, and `packMain` takes no stdin at all.** `install`
+and `update` fetch and report; every other verb inspects. That is a property of the whole
+surface rather than an omission from one row: the only reader ever threaded through here
+was the fetched-pack host-access approval prompt, which
+[`trust-paths.md`](trust-paths.md) **[OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)** deleted as theatre on 2026-09-04
+([§9](#9-the-credential-boundary-the-pin-not-a-prompt) carries the reasoning). `install` and `update` share one body and differ only in
+name and intent — the distinction a user cares about is *did my pins move*, which the
+output reports directly.
+
+> [!WARNING]
+> **Do not re-add a prompt here, and do not add one at `check`, `footprint` or the
+> entrypoint either.** The reason is not that prompting is unpleasant; it is that reaching
+> this command with a fetched pack configured means you already edited `packs` in
+> `~/.config/yolo-jail/config.jsonc` **as the host user**, which grants strictly more than
+> any prompt here could withhold — so the gate refused an actor who had already passed a
+> stronger one ([`gate-placement-principle.md`](gate-placement-principle.md) Test 1). The original containment
+> rationale (*a fetched pack must not `curl | sh`*) was refuted in-house by
+> [`pack-execution-trust.md`](pack-execution-trust.md) [§2](./pack-execution-trust.md#2-why-that-rationale-does-not-hold): `npm install -g` runs `postinstall` from
+> the same fetched pack, ungated, so the gate refused one path to arbitrary in-jail
+> execution while permitting another.
+>
+> The absence is **pinned, not merely documented**.
+> `internal/packload/hostaccessgates_test.go`'s
+> `TestNoFetchedPackHostAccessGateExists` walks every non-test `.go` file under
+> `internal/`, `cmd/` and `packs/` over the **AST** and fails if any of **fourteen** named
+> retired gate identifiers reappears — `NeedsHostAccess`, `NeedsHostAccessContributions`,
+> `MayAccessHost`, `MayGrantHostFiles`, `packMayAccessHost`, `resolveHostApproval`,
+> `ApprovedHostAccess`, `HostAccessApproved`, `HostAccessClaims` and five more. (Comments
+> are exempt by construction: the scan sees identifiers only, because the prose recording
+> the deletion has to be able to *name* what it deleted.) Its sibling
+> `TestTheDisclosureThatReplacedTheGateIsStillWired` fails if the disclosure that replaced
+> the gate goes missing, and `internal/cli/run/packnohostgate_test.go` is the behavioural
+> half — a genuinely fetched, never-approved pack whose host claims `stagePacks` honors.
+> **A hit in any of them is a claim that the ruling was reversed, and that belongs in
+> [`trust-paths.md`](trust-paths.md) before it belongs in a `.go` file.** Deleting a row from the list to
+> get green is the specific failure the test was rewritten to prevent: its predecessor
+> enumerated the two gates *by name*, so a third gate copied into `yolo check` would have
+> satisfied it vacuously. A scan for zero gates has no such hole.
 
 ---
 
@@ -999,7 +1110,7 @@ no prompt at install time can do.
 
 Selected as `"claude"`. It declares, in one `contributes[]`:
 
-- `program` — installs `claude` from its installer URL (origin-gated).
+- `program` — installs `claude` from its installer URL (a disclosed crossing, [§9](#9-the-credential-boundary-the-pin-not-a-prompt)).
 - `briefing` — its `AGENTS.md` composed into `~/.claude/CLAUDE.md`, prepending the user's own
   `~/.claude/CLAUDE.md` if present.
 - `skills` — its `skills/` tree merged into `~/.claude/skills`.
@@ -1033,8 +1144,8 @@ acme-conventions/
         └── SKILL.md
 ```
 
-Configured as `"file:///home/me/acme-conventions"`. It declares no host access, so nothing
-is origin-gated; it works identically as an embedded, local, or fetched pack. `yolo pack
+Configured as `"file:///home/me/acme-conventions"`. It declares no host access, so it has
+nothing to disclose; it works identically as an embedded, local, or fetched pack. `yolo pack
 lint` validates it, `yolo pack install` records it in the lockfile, and every jail gets the
 prose appended to its briefing (attributed to the pack) and the skill merged into the skills
 dir.
@@ -1045,12 +1156,12 @@ dir.
 
 - **Reading a manifest is inert; SELECTING one is not.** Every claim a pack makes is static
   data — readable, diffable, and printable without running any of it, which is what makes
-  `yolo pack footprint`, `pack lint` and the install prompt possible at all. What that
-  guarantee does **not** extend to is honoring the claim: `program` installs a tool in the
-  jail, and `loophole` starts a process **on your machine**. So the cost of *looking* is
-  zero and the cost of *choosing* is exactly what the claim says it is — which is why a
-  claim must name its target precisely (the raw argv, the exact path) rather than
-  summarize, and why the two gates below exist.
+  `yolo pack footprint`, `pack lint` and the startup disclosure banner possible at all.
+  What that guarantee does **not** extend to is honoring the claim: `program` installs a
+  tool in the jail, and `loophole` starts a process **on your machine**. So the cost of
+  *looking* is zero and the cost of *choosing* is exactly what the claim says it is — which
+  is why a claim must name its target precisely (the raw argv, the exact path) rather than
+  summarize, and why **selection, not a prompt, is where the decision lives** (see below).
 
   The sentence this replaces read *"the manifest stays static data — every claim readable
   without executing anything"*. Still literally true, and it stopped saying the thing it
@@ -1058,18 +1169,36 @@ dir.
   you nothing", and with a loophole reading the claim is safe while selecting it is host
   execution ([`loophole-packaging.md`](loophole-packaging.md) R1). Sharpened in the commit
   that added the kind, as that doc required.
-- The credential boundary holds — a fetched pack reads the host only for claims the user
-  approved at install, and a pin that gains access re-prompts; a fetched pack never reads the
-  host silently.
+- **The credential boundary is drawn at SELECTION, and a fetched pack never reads the host
+  UNDISCLOSED.** *(Rewritten 2026-09-09; it read "a fetched pack reads the host only for
+  claims the user approved at install, and a pin that gains access re-prompts", which
+  [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) made false on 2026-09-04.)* Origin no longer decides host access at
+  all: a fetched pack's claims are honored exactly like an embedded pack's. What holds the
+  line is that naming a pack in `packs` requires writing `~/.config/yolo-jail/config.jsonc`
+  as the host user — user scope only, inexpressible at workspace scope by construction, so
+  **an agent cannot add a pack** — plus the startup banner, which says what each loaded
+  pack actually reaches this launch ([§9](#9-the-credential-boundary-the-pin-not-a-prompt)).
 
-  **The gate returns TRUE on an EMPTY claim set** ("reads nothing, runs nothing; the gate is
-  moot"), which makes this invariant conditional on the enumeration being total. It was
-  violated exactly once, by the `loophole` kind's own first draft: a loophole declaring only
-  `host_bind_mounts` + `host_devices` produced no claims, so a fetched pack got an arbitrary
-  absolute host path into a UID-0 jail with no prompt. Read
-  [`loophole-packaging.md`](loophole-packaging.md) [§3.3](./loophole-packaging.md#33-footprint-entry--one-contribution-several-claims-and-the-enumeration-must-be-total) before adding any kind whose claims
-  come from a file outside `pack.json` — and emit a claim for every crossing, or the
-  crossing arrives through that branch.
+  > [!WARNING]
+  > **The enumeration must still be TOTAL, and the reason got sharper rather than
+  > weaker.** The deleted gate returned TRUE on an empty claim set ("reads nothing, runs
+  > nothing; the gate is moot"), so totality was load-bearing for it too — and it was
+  > violated exactly once, by the `loophole` kind's own first draft: a loophole declaring
+  > only `host_bind_mounts` + `host_devices` produced no claims, so a fetched pack got an
+  > arbitrary absolute host path into a UID-0 jail with nobody told. Under disclosure the
+  > same hole is worse, because a claim-free crossing is now a crossing that appears in **no
+  > report at all** rather than one that skipped a prompt. Read
+  > [`loophole-packaging.md`](loophole-packaging.md) [§3.3](./loophole-packaging.md#33-footprint-entry--one-contribution-several-claims-and-the-enumeration-must-be-total) before adding any kind whose claims
+  > come from a file outside `pack.json` — and emit a claim for every crossing, or the
+  > crossing arrives through that branch.
+  >
+  > **Known live gap, so it is not re-derived:** a wrapped plugin's `hooks` and
+  > `mcpServers` are reported under the `skills` kind, which the banner's own filter
+  > classifies as skip — so they show in `yolo pack footprint` and in **no launch banner**,
+  > while the agent runs the hook at every tool call. Filed as
+  > [`trust-paths.md`](trust-paths.md) [OQ-TP10](./trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner); pinned where the behaviour actually is by
+  > `run.TestWrappedPluginHooksAreDeliveredAndDisclosed`, whose doc comment names the
+  > banner as the gap.
 - Packs stay user scope — a workspace config cannot name one.
 - The source set for `derive` stays closed and core-owned — a pack projects, never invents.
 - `derive` is deterministic.

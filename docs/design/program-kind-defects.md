@@ -96,9 +96,12 @@ Two facts make the defects below possible:
 1. **`~/.yolo-shims` is FIRST on PATH.** The documented order *at the time this was written*
    was
    `$HOME/.yolo-shims:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:/bin:/usr/bin`
-   (AGENTS.md). So a shim always won over `/bin`. **No longer true for launchers** — see the
-   update at the top: they live in `~/.yolo-launchers`, last on PATH. Still true for
-   blockers, where it is the point.
+   (AGENTS.md). So a shim always won over `/bin`. **Still true for blockers, where it is the
+   point** — they are `~/.yolo/bin/block` now and still first. **For launchers the position
+   moved twice**: to a separate dir ordered LAST on 2026-08-02, then to `~/.yolo/bin/launch`
+   ordered **SECOND** on 2026-09-04 (B2), ahead of every install prefix. So launchers precede
+   `/bin` again, and what stops the collision below is the generation-time check named in the
+   update at the top — not the ordering this bullet describes.
 2. **The image bakes a substantial toolchain.** `flake.nix` puts ~100 packages in
    `corePackages`, including `fd` (`flake.nix:658`) and `fzf` (`flake.nix:721`) — the two the
    fzf pack needs.
@@ -312,17 +315,37 @@ why they are compacted here rather than left as live questions.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **Q1.1** | **Moot.** Launchers moved to `~/.yolo-launchers`, ordered LAST on PATH, so an installer is unreachable while any real binary of that name exists — there is nothing to fall through to. The exit-1 tail is unchanged and still right for a genuinely absent tool | 2026-08-02 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE, [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) [§1](../plans/proposed-fixes-open-findings.md#1-the-program-shim-shadowing-a-baked-binary-111) |
-| **Q1.2** | **Moot, same cause.** Generation is harmless once ordering decides the winner; the launcher is still generated and still exits 1 when run directly, which is what proves ORDERING is the whole fix | 2026-08-02 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE |
+| **Q1.1** | **Moot — but by a DIFFERENT mechanism since 2026-09-04.** Ruled moot in 2026-08-02 on ordering: launchers moved to `~/.yolo-launchers`, ordered LAST on PATH, so an installer was unreachable while any real binary of that name existed. **B2 moved the dir SECOND on PATH** (`~/.yolo/bin/launch`, `entrypoint.BootPath`), so ordering no longer decides it; what keeps Q1.1 moot is that **no launcher is generated at all** for a name `/bin`, `/usr/bin` or a declared `mise_tools` entry provides (`internal/entrypoint/launchercollision.go`). The exit-1 tail is unchanged and still right for a genuinely absent tool | 2026-08-02, re-grounded 2026-09-04 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE, [`program-delivery.md` §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) [§1](../plans/proposed-fixes-open-findings.md#1-the-program-shim-shadowing-a-baked-binary-111) |
+| **Q1.2** | **Moot, same cause — and INVERTED by B2.** In 2026-08-02 the answer was that generation is harmless because ordering decides the winner. Under B2 ordering does not decide it, so **generation is exactly where the decision moved**: the launcher for a colliding name is not written, and the one that is written still exits 1 when run directly. The 2026-08-02 reasoning is preserved because it is the argument the current check had to replace, not because it still holds | 2026-08-02, inverted 2026-09-04 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE, [`program-delivery.md` §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **Q1.3** | **Yes — build it.** The `requires` kind shipped: asserts a binary is present, generates nothing, names a missing bin at boot, feeds `check-deps`/`apply --host`. `CombineShared`, not `CombineExclusive` | 2026-08-03 | [§1](#1-defect-111--a-program-contribution-shadows-a-baked-binary-and-breaks-it) UPDATE |
 | **Q2.1** | **A loop bug, not a rule** — 11.2 fixed | 2026-08-03 | [§2](#2-defect-112--only-the-first-program-per-pack-installs-in-a-jail) UPDATE |
 | **Q3.1** | **Prune only unconfigured slugs, contents-only** — and a configured-but-unresolvable fetched pack is **KEPT**, exactly as this doc leaned. The staging root's own inode is never removed, because a live jail's `/ctx/packs` bind captured it | 2026-08-03 | `internal/packstage/packstage.go:29,48,230` (rule 3) |
 
 > [!WARNING]
-> **Q1.1/Q1.2 are moot, not answered — and the distinction is load-bearing.** What makes them
-> unaskable is **PATH ORDER**: `~/.yolo-shims` (blockers) precedes the real tool because
-> interception is its whole job, and `~/.yolo-launchers` (lazy installers) comes last, after
-> `/bin`, so a launcher is reached only when nothing else provides the name. Reorder those two dirs
-> and both questions come straight back, along with the defect they describe. The consequence to
-> hold: **a name the image bakes now beats a pack's declared version** — right for `fzf`, and worth
-> re-checking before baking any package whose name a pack also claims.
+> **Q1.1/Q1.2 are moot, not answered — and the distinction is load-bearing.** The 2026-08-02
+> version of this warning said what made them unaskable was **PATH ORDER**: `~/.yolo-shims`
+> (blockers) precedes the real tool because interception is its whole job, and `~/.yolo-launchers`
+> (lazy installers) comes last, after `/bin`, so a launcher is reached only when nothing else
+> provides the name — *"reorder those two dirs and both questions come straight back."*
+>
+> **That reorder shipped 2026-09-04 (B2), and the prediction was right about the mechanism while
+> the defects stayed fixed.** The dirs are now `~/.yolo/bin/block` (still FIRST) and
+> `~/.yolo/bin/launch` (**SECOND**, ahead of every install prefix and so ahead of `/bin`);
+> `entrypoint.BootPath` is the authority. The reorder was not a regression — a launcher ordered
+> *after* the prefixes it installs *into* is unreachable the moment it succeeds, so the lazy
+> install ran once per home and the hourly update never ran again (measured). What holds
+> Q1.1/Q1.2 down now is a **generation-time check**,
+> `internal/entrypoint/launchercollision.go`: no launcher is written for a name `/bin`,
+> `/usr/bin` or a declared `mise_tools` entry already provides. Same outcome, weaker guarantee —
+> the failure is HANDLED rather than unrepresentable. See
+> [`program-delivery.md` §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) for the standing account.
+>
+> The consequence to hold is unchanged: **a name the image bakes still beats a pack's declared
+> version** — right for `fzf`, and worth re-checking before baking any package whose name a pack
+> also claims. What changed is *why*: the launcher declines to exist, rather than sitting behind
+> `/bin` unreached.
+>
+> ⚠ **The check must never be spelled "is this name already resolvable on PATH?"** — that reading
+> folds in the dirs a launcher installs into, so after one success no launcher is written, PATH
+> resolves the installed binary directly, and evergreen works exactly once. Green, silent, and
+> identical to the freeze B2 exists to end.
