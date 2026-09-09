@@ -290,10 +290,12 @@ The launcher goes in `~/.yolo/bin/launch/<bin>`, which is **SECOND** on PATH: im
 after `~/.yolo/bin/block/` (the blocked-tool shims, which stay first because interception
 must outrank installation) and **ahead of every install prefix** —
 `$NPM_CONFIG_PREFIX/bin`, `$HOME/.local/bin`, `$GOPATH/bin` — and so ahead of `/bin`.
-`entrypoint.BootPath` (`internal/entrypoint/boot.go`) is the authority for that order; the
-`.bashrc` export and `macosuser.SandboxPath` are two more copies of it, compared to
-`BootPath` entry by entry. The dirs were `~/.yolo-launchers/` and `~/.yolo-shims/` until
-2026-08-30 (`a813b865`).
+`entrypoint.BootPath` (`internal/entrypoint/boot.go`) is the authority for that order, and
+there are two more independently-written copies of it: the `.bashrc` export, compared to
+`BootPath` **entry by entry** by `TestBashrcPathMatchesBootPathOrder` (the two had drifted
+about `$HOME/.local/bin` behind a test that only checked the ends), and
+`macosuser.SandboxPath`, which moves with them. The dirs were `~/.yolo-launchers/` and
+`~/.yolo-shims/` until 2026-08-30 (`a813b865`).
 
 > [!IMPORTANT]
 > **This position is load-bearing, and the previous one was a defect — not a neutral
