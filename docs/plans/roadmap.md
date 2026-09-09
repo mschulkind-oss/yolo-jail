@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 16 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 16 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-09**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -733,84 +733,43 @@ twelve questions are live with no home**, two of which stand whether or not mirr
 measurement is the first act of the whole sequence, and LS3 is a prerequisite of the layer work's
 step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
 
-- 📦 **1. Layer-aware image delivery — nix2container + a pinned layer plan + `skopeo copy`.** 📄
-  [`layer-aware-image-delivery.md` §8](../design/layer-aware-image-delivery.md#8-what-i-would-build-in-order) ·
-  authorized by [OQ-LI6](../design/layer-aware-image-delivery.md#92-open-questions) (2026-09-09), every design question
-  ruled (✅ 23 above). **81.0s of a 96.1s load, for a 27.2 MB payload in a 3.47 GB image.**
-  ✅ **THE MEASUREMENT GATE IS CLEARED, 2026-09-09 — and the gate's own premise was wrong.** It
-  asked for *"a measurement on your host, not this jail"*, on the assumption those differ. **They do
-  not for a nix build:** this jail runs `NIX_REMOTE=daemon` against the host's mounted daemon socket
-  with `/nix/store` bind-mounted `:ro`, and `nix store info` reports `Store URL: daemon`,
-  `Trusted: 0` — an untrusted client cannot build locally, and a jail-local build is exactly what
-  fails with *"build users group has no members"*. So the derivation is built by the host daemon on
-  host CPU, and an in-jail wall-clock IS a host wall-clock.
-  **`nix build --no-link 'github:nlewo/nix2container#skopeo-nix2container'` cold: 2m27s** with the
-  flake's own nixpkgs `follows` (34s without), against your stated tripwire of ten minutes — the
-  difference between comfortable and marginal, and comfortably on the right side. Warm re-run is 0s;
-  the copier is in the store at `/nix/store/…-skopeo-1.21.0`. **The build is authorized on your own
-  criterion.** ⚠ **There is no fallback by ruling**
-  ([OQ-LI5](../design/layer-aware-image-delivery.md#91-decision-ledger)): `streamLayeredImage` and
-  `YOLO_LEGACY_IMAGE_STREAM` are deleted in the same change, so *a measured `nix:`-source copy that
-  loads AND BOOTS on podman/Linux and on Apple Container is the safety property*, not a nice-to-have.
+- ✅ **1. Layer-aware image delivery — SHIPPED 2026-09-09** (`04e39353`), and it left this section
+  the day its gate cleared. 📄 [`layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) ·
+  [`OQ-LI6`](../design/layer-aware-image-delivery.md#92-open-questions). `.#ociImage` is a nix2container `image.json` over a
+  pinned three-tier layer plan; `.#imageCopier` is the patched skopeo; delivery is
+  `internal/image/layercopy.go`. **`streamLayeredImage`, `StreamRepoTag`, the stream pipe, the
+  Apple Container converter pair, the retained tar and the ssh-to-builder helper are DELETED** —
+  no knob, no fallback, per [`OQ-LI5`](../design/layer-aware-image-delivery.md#91-decision-ledger).
 
-- ✅ **2. Image retention by per-workspace current pointer — SHIPPED 2026-09-09** (`ae190ac4`), and
-  it left this section the day it was filed. 📄
-  [`the-load-sentinel-is-not-a-liveness-oracle.md` §6.2](../design/the-load-sentinel-is-not-a-liveness-oracle.md#62-retention-after-the-two-rulings) ·
-  [`OQ-LS3`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger). **`--keep-images` is deleted, not retuned** — it
-  is now a refusal naming its replacement — and retention is the union of one current-image pointer
-  per workspace with the `podman ps` veto. `DefaultKeepImages`, `OldImagesToRemove` and
-  `ProtectedImageTags` are gone with it.
-  **Measured on this machine, which inverted the expectation:** the new rule reclaims MORE, not
-  less — 6 of 8 images against the old rule's 3 — because the ten-entry sentinel LRU, not `keep`,
-  was doing the retaining. That is [`disk-levers-and-backfill.md` §2.2](../design/disk-levers-and-backfill.md#22-the-image-reap-priced-against-this-store)'s finding, now in
-  numbers.
-  ⚠ **One departure from the design's letter, and it is the right one:** the pointers live under
-  `BuildDir()` keyed by container name, not in `<workspace>/.yolo/`, because the reaper needs the
-  *union* and has no way to enumerate workspaces that is not itself a registry — both candidates
-  forget a workspace, one of them within the same `yolo prune` run. The workspace is recorded
-  inside each pointer so it can be checked rather than merely counted.
-  ⚠ **On the day it ships, a machine that has not launched since the upgrade has no pointers, so
-  `yolo prune` DECLINES and exits non-zero** naming the missing evidence. That is
-  [`OQ-LS2`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s rule working, not a bug — but it is the one
-  user-visible edge, and `integration/` has no `yolo prune` coverage to catch it (the unit suite
-  stubs the runtime, so it structurally cannot). **That gap is the follow-up worth doing.**
-  ⚠ **A residual the build named rather than hid:** `AutoLoadImage` brackets its own inspect and
-  sentinel append under the housekeeping lock, and the pointer write takes the same lock
-  immediately *after* that bracket — leaving a few-ms window in which a concurrent sweep sees an
-  image with no pointer. Worst case is a failed `podman run`, not a killed jail, and a relaunch of
-  an unchanged config re-uses the previous pointer. The clean fix is to move the write inside that
-  existing bracket, deliberately not taken to keep the diff out of `internal/image/`.
+  **Measured, and the delta case is the one that matters:**
 
-- ✅ **3. Alias a host CAS instead of pooling a second copy of it — SHIPPED 2026-09-09**
-  (`2bceedef`). 📄 [`disk-levers-and-backfill.md` §3](../design/disk-levers-and-backfill.md#3-the-levers-ranked) ·
-  [`OQ-BF10`](../design/disk-levers-and-backfill.md#111-decision-ledger) (L9). A recognised content-addressed host cache is
-  bind-mounted **writable** at the path the jail's own copy already uses; `internal/hostcas` holds
-  the decision, `AGENTS.md`'s invariants now carry the rule.
-  ⚠ **The build NARROWED the ruling's own store list, on measurement, and that is the most useful
-  thing it did.** The leaning named npm and go-build alongside pants. Both were dropped: npm's
-  `_cacache/index-v5` maps a **request URL** to an integrity digest and Go's maps a
-  **writer-chosen action ID** to an output ID — so in each, a jail writing the index *and* the blob
-  gets the host tool to read its bytes for that key. That is precisely the injection channel the
-  ruling exists to avoid, sitting inside a store whose *content* half genuinely is
-  content-addressed. Only pants' `lmdb_store` survived, and its CAS claim was verified rather than
-  asserted (the 64-hex filename **is** the sha256 of the contents, checked on a 232 MB blob).
-  **~27 GB stops existing twice.**
-  ⚠ **Two gates the ruling did not name, both found by asking what breaks:** a cold host store is
-  refused (an empty source over a warm private copy hides a cache and forces the unbounded re-fetch
-  the offered tier exists to never impose), and **`cache_relocations` outranks the alias** — a user
-  who moved `pants` off the home disk would otherwise have 27 GB silently put back by the feature
-  meant to save space.
-  **Sequencing step 7 rode with it — and the re-measurement found three things the ledger should
-  know.** L9's number holds exactly (26.83 GiB, unchanged). **L7 has NOT run**: still 7 vendor
-  builds where keep=2 would leave 2. **L4 fired nested but not on the host**: the host's three image
-  tars are untouched, still newest 2026-08-24. And [`OQ-BF2`](../design/disk-levers-and-backfill.md#111-decision-ledger)'s self-trim finding is confirmed by a
-  second dated sample — the only two subdirs that shrank are the two with a `trim.txt`, while `pex`,
-  which does not self-trim, grew.
-  ⚠ **Not verified, and it is the one uid surprise worth knowing:** nested podman forces
-  `--userns=host`, so container root *is* the launcher's uid and writes landed as root. On a real
-  rootless host, container root maps through `/etc/subuid` and the write *should* land owned by the
-  host user — unobserved. Nor is the concurrent case (host pants and jail pants against one
-  `lmdb_store`), nor macOS, where the feature refuses outright.
+  | | before | after |
+  | :--- | :--- | :--- |
+  | cold, empty store | 39.5 s · 99 layers | **24.0 s · 91 layers** |
+  | `flake.nix`-only edit | **12.8 s floor** — re-spools 3.47 GB for an identical image | **2.2 s · 1 layer · 26 MB** |
+
+  Full integration suite green including `YOLO_TEST_REBUILD_IMAGE=1`. Zero store paths in two
+  layers (575 paths, 0 duplicates).
+
+  ⚠ **The design left a gap that would have shipped an unrunnable image, and the build closed it.**
+  [§3.4](../design/layer-aware-image-delivery.md#34-which-backends-get-it) said podman/macOS stays *"unchanged (stream into `podman load`)"* — but
+  [`OQ-LI5`](../design/layer-aware-image-delivery.md#91-decision-ledger) deleted the stream, so that row named a mechanism
+  that no longer existed. Left as written, every macOS podman launch would have copied into the
+  Mac's own containers-storage, which the Podman Machine VM never reads. It now takes an archive
+  plus `podman load -i`, chosen by backend before anything runs.
+
+  ⚠ **NEITHER macOS BACKEND IS VERIFIED, and one is a new way the nightly can go red.** No Mac was
+  available. Three checks, in order: (1) `nix build .#imageCopier` on **x86_64-darwin** — nixpkgs
+  there resolves skopeo **1.22.2** against unstable's 1.24.0, and the patch targets
+  `vendor/go.podman.io/image/v5`, which exists in both, so the question is whether every hunk
+  applies across two minors. It fails loudly at build time, and `nightly-macos.yml` runs on
+  `macos-26-intel`. (2) Apple Container `container image load -i` against a skopeo-written
+  `oci-archive`. (3) podman/macOS `podman load -i` against a skopeo-written `docker-archive` — new
+  code. Commands are in [`docs/guides/macos.md`](../guides/macos.md).
+
+  **New CI cost:** every image-building job also builds `.#imageCopier` (~2 min cold per nixpkgs, 0
+  warm). `publish.yml` and `just cachix-push` push it — an optimization only, with nothing wired to
+  a cache miss ([`OQ-LI1`](../design/layer-aware-image-delivery.md#91-decision-ledger)).
 
 # 🔒 Waiting
 

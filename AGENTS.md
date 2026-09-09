@@ -128,9 +128,16 @@ every later entry died as
 `stat /opt/yolo-jail/bin/yolo-entrypoint: no such file or directory`, forever
 (measured 2026-09-09: a jail up since +1114, bricked by the install that took the
 host to +1160). Generations are collected in the housekeeping slot by LIVENESS,
-never by age — the tri-state rule every reaper here follows, because
-"unreferenced" and "I could not ask the runtime" are the same empty answer. Never
-hand `scripts/stage-source-bundle.sh` the stable path.
+never by age, because a bundle a running jail has bind-mounted is pinned by an
+inode no age can see. The TRI-STATE half of that is universal here —
+"unreferenced" and "I could not ask the runtime" are the same empty answer, so a
+reaper that cannot ask declines rather than sweeping. ⚠ **The liveness half is
+NOT universal, and one reaper deliberately inverts it:** `OQ-LS1` ruled the nix
+GC-root reaper to a pure ONE-WEEK AGE cutoff with no liveness veto, against the
+leaning, because liveness is a wrong predictor in both directions there — a jail
+stopped five seconds ago is not live, and a jail up three weeks pins a closure
+nobody will rebuild. Pick per reaper; do not generalise either half.
+Never hand `scripts/stage-source-bundle.sh` the stable path.
 
 **Daemons are subcommands, not separate binaries.** Host daemons are hidden
 self-exec subcommands of `yolo`:
@@ -159,7 +166,13 @@ there is no sync step.
   the `/bin/<name>` symlinks that point into them (`flake.nix`:
   `jailPrefixLinks`). **That takes `goSrc` out of the image derivation**, so a
   commit touching only `cmd/` or `internal/` no longer moves
-  `nix eval .#ociImage.outPath` — no rebuild, no `podman load`. MEASURED; the
+  `nix eval .#ociImage.outPath` — no rebuild, and **no `podman load` anywhere on
+  the podman/Linux path at all** since layer-aware delivery landed: `.#ociImage`
+  is a nix2container `image.json` and `skopeo copy` writes straight into
+  containers-storage, skipping every layer the store already has (a
+  `flake.nix`-only edit went from a 12.8s floor to 2.2s / 1 layer / 26 MB).
+  macOS podman and Apple Container still take an archive, because the VM owns
+  the store. MEASURED; the
   image now moves only for `flake.nix`, `flake.lock` or `packages:`
   ([`docs/reference/image-staging-vs-baking.md`](docs/reference/image-staging-vs-baking.md#the-mounted-prefix),
   whose [security delta](docs/reference/image-staging-vs-baking.md#the-security-delta) states the

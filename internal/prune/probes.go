@@ -508,12 +508,23 @@ func PruneOldImages(rt string, protected map[string]struct{}, protectedKnown boo
 	// used to feed OldImagesToRemove's keep window, so an image's POSITION
 	// decided whether it lived; OQ-LS3 deleted that window and the function with
 	// it. Kept because both entrances print the IDs they are removing and a
-	// newest-first list of hashes is readable where an arbitrary one is not —
-	// and because CreatedAt is still the only time this pass has, which is what
-	// the design's deferred "sort by last-used" would replace.
+	// newest-first list of hashes is readable where an arbitrary one is not.
 	//
-	// LEXICAL, never parsed: podman's CreatedAt is ISO-ish and sorts correctly as
-	// a string, which is the property the deleted function documented.
+	// ⚠ AND IT IS NO LONGER A TIME. Layer-aware delivery pinned the image's
+	// `created` to a CONSTANT — nix2container rejects "now", and OQ-LI4 refused a
+	// per-build timestamp because it would trade away content addressing to feed a
+	// sort. So every yolo image now reports the same CreatedAt and this sort is a
+	// stable no-op that preserves podman's own listing order.
+	//
+	// Harmless, and deliberately not "fixed" here: NO destructive decision reads
+	// it. OQ-LS3 deleted the keep window, so retention is the per-workspace
+	// pointer set plus the `podman ps` veto and nothing consults position. If a
+	// real recency order is ever wanted for the REPORT, the load sentinel is the
+	// instrument (OQ-LI4's ruling), not a timestamp.
+	//
+	// LEXICAL, never parsed: podman's CreatedAt is ISO-ish and sorted correctly as
+	// a string, which is the property the deleted function documented — and which
+	// is why a constant degrades to a no-op instead of to garbage.
 	sort.SliceStable(images, func(i, j int) bool { return images[i].Created > images[j].Created })
 	toRemove := []string{}
 	for _, e := range images {
