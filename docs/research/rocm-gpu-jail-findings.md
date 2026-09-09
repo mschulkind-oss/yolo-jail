@@ -33,8 +33,15 @@ it.
 >   to the hard cap otherwise — verified 2026-08-23.)
 >
 > If a workload ever does hit `CREATE_QUEUE EINVAL` on an older ROCm build, the
-> remedy (raise the host memlock cap) is documented in
-> [rocm-passthrough-design.md §7.2](../reference/rocm-passthrough.md#72-locked-memory-limit-blocks-queue-creation-in-jail--resolved-by-rocm-72-userspace-2026-06-06) — but it is not the default need.
+> 7.1.1-era diagnosis is preserved below and in git history. ⚠ **Do not reach for
+> the remedy it names.** "Raise the host memlock cap" was deleted from the design
+> on purpose, and [`rocm-passthrough.md`](../reference/rocm-passthrough.md#the-memlock-clamp) now carries a warning
+> against restoring it: the ~16 MB queue-ring requirement behind it was specific
+> to an older userspace, current ROCm runs real compute at an 8 MB cap (verified
+> down to 64 KB), and the advice nudged users toward an unlimited-locked-memory
+> DoS vector. What ships instead is an **adaptive clamp** — the launch emits
+> `--ulimit memlock` at exactly the host's own hard ceiling, because a rootless
+> container that tries to exceed it does not degrade, it fails to start.
 > The onnxruntime EP work (gfx1151 code objects / migraphx asserts-LLVM) remains
 > the next item.
 >

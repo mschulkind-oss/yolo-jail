@@ -362,7 +362,7 @@ disturbs them. It does not:
 
 **Two mechanisms, deliberately, and I own the cost.** This is the same shape
 [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#store-delivered-packages) accepted for store-delivered packages
-and the same one [`happy-path-principle.md`](./happy-path-principle.md) warns about. The
+and the same one [`happy-path-principle.md`](../reference/happy-path-principle.md) warns about. The
 mitigation is the same too: the unit is the **launch**, exactly one mechanism is live in any
 launch, and the launch says which one it took on stdout.
 
@@ -503,7 +503,7 @@ legacy number is no longer measurable on that host.
 
 > [!NOTE]
 > **A nested jail CAN see this class**, unlike the reachability class that gets a structural
-> free green ([`loopback-tls-reachability.md`](./loopback-tls-reachability.md)). Podman-in-podman
+> free green ([`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md)). Podman-in-podman
 > has its own `containers-storage`, so a nested launch exercises the real copy against a real
 > destination. What a nested jail *cannot* tell you is the absolute number on the maintainer's
 > host, which is the one in [§2.1](#21-the-pipeline-as-built).
@@ -616,7 +616,7 @@ developing this repo, is the common case — on every backend that cannot opt in
 | :--- | :--- |
 | **R1. A third-party flake input on the critical path of every launch.** nix2container is one maintainer's project; an abandoned input strands the image pipeline. | The input is pinned in `flake.lock` and nothing auto-updates it, so abandonment upstream changes nothing until someone bumps it — the failure is not "it disappears", it is "it stops evaluating against a newer nixpkgs". **The escape is no longer a retained legacy attribute** ([OQ-LI5](#91-decision-ledger) deleted it): it is that the dependency is small and forkable — a `fetchpatch2` over nixpkgs' skopeo plus a nix library — and that [§6](#6-alternatives-considered)'s option C (an OCI layout in the store) remains a known, costed way to keep layer-aware delivery with a stock skopeo. Both are work; neither is a rewrite of this design. |
 | **R2. The patched skopeo is a source build not in `cache.nixos.org`.** A `flake.lock` bump now also rebuilds skopeo, on a machine that may be offline or slow. | Measure it once and decide the substituter question ([OQ-LI1](#91-decision-ledger)). The failure mode is a slow build, and C1 already makes a failed build fatal-and-explained rather than silent. |
-| **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](./happy-path-principle.md) warns about. | **Retired 2026-09-08 — the risk is removed rather than accepted** ([OQ-LI5](#91-decision-ledger)): `streamLayeredImage` is deleted in the same change and there is no legacy knob, so there is never more than one delivery mechanism to keep true. The residual risk moves to R8. |
+| **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](../reference/happy-path-principle.md) warns about. | **Retired 2026-09-08 — the risk is removed rather than accepted** ([OQ-LI5](#91-decision-ledger)): `streamLayeredImage` is deleted in the same change and there is no legacy knob, so there is never more than one delivery mechanism to keep true. The residual risk moves to R8. |
 | **R8. No way back if a delivery bug ships**, the cost of retiring R3. A machine that cannot copy cannot start a jail until a fix ships. | Bounded by evidence rather than by a fallback: the default does not flip until a `nix:`-source copy has been measured loading and booting on every backend that gets it ([§3.5](#35-one-mechanism-no-way-back), [OQ-LI2](#91-decision-ledger)). `YOLO_ALLOW_STALE_IMAGE=1` still launches an already-loaded image, which is the hatch for "get back in", and a failed build is already fatal with nix's own stderr. |
 | **R4. The layer plan is a new thing to keep true.** A package added to `flake.nix` in the wrong tier silently costs a full copy per build, and nothing fails. | The done-condition ([§3.10](#310-what-done-looks-like)) is a measurement, so make it a test: assert that a `flake.nix`-only change copies under a byte budget. A budget test fails loudly when a tier assignment drifts; a comment does not. |
 | **R5. Only two machines are measured**, both of them mine, one of them nested. Absolute numbers are illustrative; the ratios are not. | Same standing caveat as the one [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model) states over its cost model. The two hosts agree on the ratio (84% and 86%) and disagree on the absolutes by 1.8×, which is exactly what that caveat predicts. |

@@ -151,7 +151,7 @@ the removal.
 ### ⚠️ `yolo apply --host` is removed — use `yolo host apply`
 
 **What changed** (2026-08-30). The `--host` shorthand is **removed outright, not deprecated**
-(`host-agent-environment.md` [OQ-7](reference/host-agent-environment.md#delivering-environment-to-host-agents-two-channels-and-a-wrapper-directory)). Two spellings remain, and they do the same thing:
+(`host-agent-environment.md` [OQ-7](reference/host-agent-environment.md#delivering-environment-to-host-agents--two-channels-and-a-wrapper-directory)). Two spellings remain, and they do the same thing:
 `yolo apply --at host` (the systematic form, one notch of the `--at` dial) and
 **`yolo host apply`** (the ergonomic one). The removed flag now fails like any other unknown
 argument, and prints the usage that names its replacements.
@@ -225,13 +225,13 @@ act — `mise upgrade` / `mise lock` in the workspace, committed like any depend
 
 **Who this bites.** Anyone relying on fuzzy pins (`node = "24"`, `just = "latest"`) drifting
 forward on their own. They now freeze at whatever is installed until you upgrade deliberately —
-which is the ruling ([OQ-PD3](design/program-delivery.md#design-goals)): no version changes with nobody present.
+which is the ruling ([OQ-PD3](design/program-delivery.md#decision-ledger)): no version changes with nobody present.
 
 ### Boot prints an orphan catalog — and its first run may surprise you
 
 **What changed** (2026-08-24, `af46c9b4`). The boot reports, informationally, every npm package
 and `~/.local/bin` binary that no selected pack, preset, or LSP recipe declares. Nothing is
-deleted — removal stays an explicit act ([OQ-PD4](design/program-delivery.md#design-goals)). Installs also start leaving receipts at
+deleted — removal stays an explicit act ([OQ-PD4](design/program-delivery.md#decision-ledger)). Installs also start leaving receipts at
 `<workspace>/.yolo/receipts.jsonl` (one JSON line per install yolo runs: resolved version or
 artifact digest, act, time).
 
@@ -516,7 +516,7 @@ two channels — a *bundled* manifest could declare `publishes: "endpoint"`, `ja
 `ca_cert` and an unscoped `requires.file_exists`; a pack-shipped one could not. With the bundled
 channel retired, **every module manifest yolo reads is held to the subset, including its own**.
 Two other rules changed shape with it: `loopholes.ReservedLoopholeNames` is deleted (no name is
-reserved any more — exclusivity across packs is what refuses a duplicate), and the §[4.3a](design/loophole-packaging.md#a-idoq-lp5a-oq-lp5-does-jail_env-stay-refused-for-pack-shipped-loopholes) placement
+reserved any more — exclusivity across packs is what refuses a duplicate), and the §[4.3a](design/loophole-packaging.md#-oq-lp5--does-jail_env-stay-refused-for-pack-shipped-loopholes) placement
 rule no longer exempts anything, since yolo's own loopholes are staged outside every workspace.
 
 ### ⚠️ The per-jail Claude OAuth broker relay is gone; `yolo broker status` reports differently
@@ -945,14 +945,14 @@ directions: it never polled, and `update` honours the pin rather than overriding
 **Why.** *"I don't want magical evergreen npm packages."* A binary that changes between two
 invocations with nobody present is a silent-change path that no pin, lockfile or approval prompt
 can ever cover, because there is no act to attach them to. Deleting the mechanism is cheaper than
-gating it. 📄 [`trust-paths.md` §1](design/trust-paths.md#1-the-verdict) row 1 ([OQ-TP5](design/trust-paths.md#design-goals)).
+gating it. 📄 [`trust-paths.md` §1](design/trust-paths.md#1-the-verdict) row 1 ([OQ-TP5](design/trust-paths.md#decision-ledger)).
 
 > [!NOTE]
 > **The lockfile half of that ruling is not built.** `update` resolves the registry's latest and
 > installs it; nothing yet **records** which version it got, so `install` has no pin to reinstall
 > from. There is nowhere to put one: `LockEntry` has no package-version field, and the lockfile is
 > per *fetched* pack while all four packs declaring npm programs are *embedded*. That is
-> [`trust-paths.md`](design/trust-paths.md) [OQ-TP4](design/trust-paths.md#design-goals), open when this shipped and retired 2026-09-03. The user-visible consequence is
+> [`trust-paths.md`](design/trust-paths.md) [OQ-TP4](design/trust-paths.md#decision-ledger), open when this shipped and retired 2026-09-03. The user-visible consequence is
 > only that two jails updated at different times can hold different versions — which was already
 > true, and is now at least the result of somebody asking.
 
@@ -1073,7 +1073,7 @@ choice would be the partial pack this change exists to retire.
 it from a hardcoded permissive answer — so the curl-to-bash launcher was written for a fetched,
 unapproved pack anyway. The warning was true about the decision and false about the outcome. Refusing
 on the host deletes the problem instead of plumbing a decision across the boundary.
-📄 [`trust-paths.md` §3.1](design/trust-paths.md#31-a-refused-contribution-refuses-the-launch-), [OQ-TP6](design/trust-paths.md#design-goals).
+📄 [`trust-paths.md` §3.1](design/trust-paths.md#31-a-refused-contribution-refuses-the-launch-), [OQ-TP6](design/trust-paths.md#decision-ledger).
 
 ### ⚠️ An unreachable host service now refuses the launch
 

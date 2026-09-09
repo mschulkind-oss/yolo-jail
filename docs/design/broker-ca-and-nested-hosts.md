@@ -48,9 +48,9 @@ into a refused launch.
 > and a `yolo check` that stamps **PASS** on the very area it skipped. [§3](#3-how-three-layers-each-declined-to-report-it) is the part worth your
 > time.
 
-**Reads with:** [`loopback-tls-reachability.md`](./loopback-tls-reachability.md) ([§7.3](loopback-tls-reachability.md#73-which-fault-classes-escalate) — the fatal
+**Reads with:** [`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md) ([§7.3](../reference/loopback-tls-reachability.md#which-fault-classes-escalate) — the fatal
 witness that finally surfaced this, and the containment patch), and
-[`loophole-transport.md`](./loophole-transport.md) [§7.4](loophole-transport.md#74-oq-t9--one-transport-or-two--decided-unify) (the transport whose own cert code took the
+[`loophole-transport.md`](../reference/loophole-transport.md) [§7.4](../reference/loophole-transport.md#oq-t9) (the transport whose own cert code took the
 opposite approach and said so).
 
 ---
@@ -209,10 +209,10 @@ reporting on the wrong side of a boundary, in the confident direction.**
 Nothing about the broker changed. The **reachability witness became fatal** on 2026-08-18, and two of
 its rulings composed with a third fact:
 
-1. a nested jail's disposition is `shared`, which **may escalate** ([OQ-R5](loopback-tls-reachability.md#decisions));
-2. an endpoint nobody published is `faultUnpublished`, which **now also escalates** ([OQ-R4](loopback-tls-reachability.md#decisions));
+1. a nested jail's disposition is `shared`, which **may escalate** ([OQ-R5](../reference/loopback-tls-reachability.md#why-its-this-way));
+2. an endpoint nobody published is `faultUnpublished`, which **now also escalates** ([OQ-R4](../reference/loopback-tls-reachability.md#why-its-this-way));
 3. the broker's endpoint variable is wired on the loophole being *active*, with **no publish gate** —
-   deliberate, and accepted in [`loopback-tls-reachability.md`](./loopback-tls-reachability.md) [§7.3](loopback-tls-reachability.md#73-which-fault-classes-escalate).
+   deliberate, and accepted in [`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md) [§7.3](../reference/loopback-tls-reachability.md#which-fault-classes-escalate).
 
 Measured, with a freshly built launcher from inside this jail:
 
@@ -223,7 +223,7 @@ Refusing to start ... host services unusable from inside the jail: claude-oauth-
 ```
 
 A months-old silent defect became a hard refusal **of the one launch shape required to verify a fix
-for it**. That is the failure mode [OQ-R2](loopback-tls-reachability.md#decisions)'s own implementation note is about: a fatal that refuses the
+for it**. That is the failure mode [OQ-R2](../reference/loopback-tls-reachability.md#why-its-this-way)'s own implementation note is about: a fatal that refuses the
 loop you would use to repair it.
 
 **Contained the same day** by `brokerEndpointIsUnpublishable`
@@ -267,7 +267,7 @@ Two things to decide alongside it, in [§7](#7-open-questions).
 - **Not** a redesign of the broker, its singleton model, or its transport. This is a packaging bug
   plus three observability bugs.
 - **Not** a change to the severity rulings in
-  [`loopback-tls-reachability.md`](./loopback-tls-reachability.md). The witness behaved correctly: an
+  [`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md). The witness behaved correctly: an
   enabled service the jail could not use was exactly what it reported.
 - **Not** a general "audit every discarded return value" project. [§3.1](#31-a-return-value-thrown-away) is one call site with a known
   consequence; a tree-wide sweep is a different proposal with a different cost.

@@ -65,7 +65,7 @@ built**, and `60376fed` does not invalidate any premise below — see the postsc
 
 **The short version.** A `packages` entry like `"rocmPackages.clr"` currently fails because yolo assumes any dot indicates an output selection on a top-level package. But in Nix, derivation outputs *are* attributes on the derivation itself. Unifying dotted strings as a general attribute path walk (`lib.attrByPath`) supports arbitrary nested collections (`rocmPackages.clr`, `llvmPackages_16.libclang.dev`, `darwin.apple_sdk.frameworks.Security`) without new syntax, provided the resolver preserves the base derivation for the `/lib` symlink farm and header propagation.
 
-**Reads with:** [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) (how `packages:` materializes off-container), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the image build path), [`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md) (the `/lib` symlink farm and dlopen discovery).
+**Reads with:** [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) (how `packages:` materializes off-container), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the image build path), [`mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md) (the `/lib` symlink farm and dlopen discovery).
 
 ---
 

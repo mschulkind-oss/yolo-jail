@@ -64,7 +64,7 @@ and defers.
   and [the mounted prefix](../reference/image-staging-vs-baking.md#the-mounted-prefix) (shipped today), and [OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way) (C6).
 - [`../plans/storage-lifecycle.md`](../plans/storage-lifecycle.md) — the consumer map, the rooting
   work, and the bounded store GC this doc proposes to replace with something narrower.
-- [`agent-cli-copies.md`](agent-cli-copies.md) [§5.1](./agent-cli-copies.md#51-a7--prune-stale-versions-executed-by-whoever-installed-the-new-one) and
+- [`agent-cli-copies.md`](../reference/agent-cli-copies.md) [§5.1](../reference/agent-cli-copies.md#the-v-axis-prune) and
   [`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md) — A7, the vendor-version prune, which is the one reclaimer here whose steady state shipped with a trigger that skips its own backfill.
 
 ---
@@ -121,7 +121,7 @@ and **it never proposes that yolo delete anything under a workspace working tree
 Levels, growth, who reclaims today, and how much of the level is backfill. "Trigger" is the
 *only* thing that runs the reclaimer. The host `GLOBAL_CACHE` is visible from this jail at
 `~/.cache` (a rw bind of the host's `~/.local/share/yolo-jail/cache`, per
-[`jail-home.md`](jail-home.md)); the nested jail's own state dir is `~/.local/share/yolo-jail`.
+[`jail-home.md`](../reference/jail-home.md)); the nested jail's own state dir is `~/.local/share/yolo-jail`.
 
 | Store | Level (MEASURED unless marked) | Growth | Reclaimer / trigger today | Backfill |
 | :--- | :--- | :--- | :--- | :--- |
@@ -394,7 +394,7 @@ turns on.
 | L6 | **C4 opt-in (`YOLO_STORE_PACKAGES=1`)** | steady state | one lean image per machine (1.5 GB) instead of one ~3 GB-unique image per distinct `packages:` list | shipped; opt-in per launch | shipped today |
 | L7 | **Run A7's version prune on every launcher invocation**, not only after an update | backfill | **≈ 1.28 GB** per workspace here; × N workspaces | a call-site change in the launcher template; evidence is the live symlink, complete by construction | steady state shipped 2026-09-04 |
 | L8 | **Small liveness-gated sweeps into the automatic slot** — agent staging orphans, retired loophole state, superseded captures | both | 36.5 MiB + 1.9 MiB + 0 here | already tri-state gated; trigger only | reapers shipped |
-| L9 | **Alias a host cache instead of pooling a second copy of it** — the CAS half of pants (`lmdb_store`), and the same question for npm/uv/pip/go-build | **neither backfill nor retention — a third kind** | up to **27 G** of pants alone stops existing twice; unmeasured for the others (the host's own copies are not visible from a jail) | a writable host bind is a bigger trust step than the `:ro` nix store precedent (`hostNixStore`, `internal/cli/run/hostprobes.go`); gated on host OS/arch matching, and **only for the content-addressed half** | nothing built; [OQ-BF10](#OQ-BF10) |
+| L9 | **Alias a host cache instead of pooling a second copy of it** — the CAS half of pants (`lmdb_store`), and the same question for npm/uv/pip/go-build | **neither backfill nor retention — a third kind** | up to **27 G** of pants alone stops existing twice; unmeasured for the others (the host's own copies are not visible from a jail) | a writable host bind is a bigger trust step than the `:ro` nix store precedent (`hostNixStore`, `internal/cli/run/hostprobes.go`); gated on host OS/arch matching, and **only for the content-addressed half** | shipped 2026-09-09 (`internal/hostcas`); [OQ-BF10](#OQ-BF10) |
 | — | Worktrees under `/workspace/.claude/worktrees` | not yolo's | 985 MB + 4 M metadata | `git worktree prune` for the two prunable entries; the rest are Claude Code's | out of scope, named so it is not mistaken |
 | — | Host `min-free` | not yolo's to pull | would bound the store's dead set continuously | a human edits `nix.conf`; `yolo check` already warns (P5) | the warning is the hint pattern again |
 
@@ -511,8 +511,8 @@ Stated once, with units, because "periodically" is not a trigger:
 - **Offered tier — trigger:** **before** the container attaches, on a TTY, when a class's last
   measurement shows **≥ 1 GiB** reclaimable and no answer is on record, or the recorded answer is
   "not now" and **≥ 7 days** old. Non-TTY: one printed line naming the size and `yolo prune --apply`;
-  no prompt, no deletion (the same polarity [`config-safety.md`](config-safety.md)'s
-  [OQ-D2](./config-safety.md#decision-ledger) chose for a non-interactive config change: never an
+  no prompt, no deletion (the same polarity [`config-safety.md`](../reference/config-safety.md)'s
+  [OQ-D2](../reference/config-safety.md#why-its-this-way) chose for a non-interactive config change: never an
   implicit yes). **This trigger is per class and recurs** — [OQ-BF1](#OQ-BF1) ruled that an offer is
   not consumed by being given once. `y` moves the class to the automatic tier so it is never asked
   again; `never` is the only answer that stops the asking without deleting anything; everything else
@@ -675,7 +675,7 @@ Observable, on a machine that upgrades onto this:
   this machine, today. The steady state after is the LRU floor plus live caches.
 - **What it complicates:** a second stamp family and a recorded-answer file under `BuildDir()`; a
   machine-wide lock the load path has to take; a prompt on the launch path, which
-  [`config-safety.md`](config-safety.md) already put there once, so the pattern exists but the
+  [`config-safety.md`](../reference/config-safety.md) already put there once, so the pattern exists but the
   surface grows.
 - **What it moves:** the shipped image reap from pre-start to the slot — an ordering change to a
   three-line call site, but one whose only test today is a real launch
@@ -718,7 +718,7 @@ Observable, on a machine that upgrades onto this:
 - **Agent logs and transcripts, browser profiles** — durable user data, excluded as in
   [`minimal-disk-footprint.md`](minimal-disk-footprint.md) [§8](./minimal-disk-footprint.md#8-what-this-does-not-cover).
 - **`macos-user`** — no image, no tars, no podman; its `buildEnv` closure is rooted by its own
-  profile ([`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)).
+  profile ([`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)).
 - **Apple Container's image store** — NOT MEASURED, no reaper, not designed against here.
 - **The worktrees** — named in [§2.1](#21-every-store-one-table) so they are not mistaken for yolo's; never touched.
 - **C6's design** — image-staging's [OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way); this doc only adds the floor argument.
@@ -771,7 +771,7 @@ verdict.
 | [OQ-BF7](#OQ-BF7) | **Retired from the question list — an outage with one measured cause needs a fix, not a disposition.** Shipped as a **refusal** (`prefixUnreachableFromVM`), not as staging or baking. Its claimed coupling to BF3/BF4 is discharged: under the refusal there is no third place for the prefix to live | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF7](#OQ-BF7) | ✅ `6a855b6d` |
 | [OQ-BF8](#OQ-BF8) | **Dissolved — the premise is being removed.** Liveness moves to `podman ps` ([`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)), so the LRU stops being retention and the cap needs no derivation. It is **not** deleted: it keeps its MRU role for GC roots and the load diagnosis, and whether that half survives is [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) | 2026-09-08 | [§2.2](#22-the-image-reap-priced-against-this-store) | n/a — dissolved |
 | [OQ-BF9](#OQ-BF9) | **Yes — one dated line per store per run, default on, `--no-record` to opt out, `yolo stores` the single writer, bounded to 30 samples per store.** Unblocks [OQ-DF4](./minimal-disk-footprint.md#OQ-DF4), which has been waiting for a first sample; rule this first | 2026-09-08 | [§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims) | ✅ `e85e0690` |
-| [OQ-BF10](#OQ-BF10) | **Content-addressed stores only — and the reason is injection, not size.** A path-keyed store like `named_caches` lets a jail write content the host tool reads because of where it sits; a CAS rejects a blob that does not match its digest. Gated on matching OS and arch, writable, never on macOS. Scope stops here pending a post-implementation storage analysis | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF10](#OQ-BF10) | ⬜ later slice |
+| [OQ-BF10](#OQ-BF10) | **Content-addressed stores only — and the reason is injection, not size.** A path-keyed store like `named_caches` lets a jail write content the host tool reads because of where it sits; a CAS rejects a blob that does not match its digest. Gated on matching OS and arch, writable, never on macOS. Scope stops here pending a post-implementation storage analysis | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF10](#OQ-BF10) | ✅ `SHA_PLACEHOLDER` |
 
 ### 11.2 The questions as argued
 
@@ -1224,6 +1224,63 @@ row cannot carry them.
     > set is not a follow-up item in this doc; it is a question to re-ask against a
     > post-implementation measurement, which [OQ-BF9](#OQ-BF9)'s sample ledger is what makes
     > possible.
+
+    > [!NOTE]
+    > **BUILT 2026-09-09 — `internal/hostcas`**, emitted by `internal/cli/run/hostcasalias.go` and
+    > explained by a new `yolo stores` section. Six things the build had to settle that the ruling
+    > left implicit, recorded here because each is a decision a reader would otherwise re-litigate:
+    >
+    > 1. **No config key, and no env dial.** The ruling's "gated on …" list is exhaustive and
+    >    contains no user opt-in, the precedent it names (`hostNixStore`) is a capability probe
+    >    rather than a dial, and there is nothing for a key to carry: yolo picks BOTH sides of the
+    >    mount from a table, so no path is user-supplied. The recognised set is therefore code
+    >    (`hostcas.Stores`), which is also what "the scope stops here" needs — a config key would
+    >    hand the CAS test to a user who cannot check it.
+    > 2. **The set is pants' `lmdb_store` ALONE**, which NARROWS the leaning's "pants
+    >    `lmdb_store`, npm, go-build". Under "aliased if and only if content-addressed" npm and
+    >    go-build both fail, and the reason is MEASURED rather than cautious: npm's
+    >    `_cacache/index-v5` maps a REQUEST URL to an integrity digest (sampled entry keyed
+    >    `make-fetch-happen:request-cache:https://registry.npmjs.org/…`), and Go's `<actionID>-a`
+    >    maps a writer-chosen action ID to an output ID. In both, a jail that writes the index AND
+    >    the blob has the host tool read its bytes for that key — the injection channel, in a store
+    >    whose content half really is a CAS. Half a directory whose halves must stay consistent is
+    >    not an aliasable unit. `uv` and `pip` are index/URL-keyed too.
+    > 3. **The CAS claim is measured, not asserted.** `lmdb_store/immutable/files/<2-hex>/<64-hex>`
+    >    — and the 64-hex name IS the sha256 of the file's contents, verified on a 232 MB blob
+    >    2026-09-09; those files are mode `r-xr-xr-x`.
+    > 4. **One gate the ruling does not name: the cold-start refusal.** An EMPTY host store aliased
+    >    over a warm private copy hides a cache and buys nothing, forcing exactly the unbounded
+    >    re-fetch [§5.2](#52-two-tiers-one-mapping)'s offered tier exists to never impose without
+    >    asking (P4). Emptiness is one `ReadDir`, so it costs nothing. The partial case — a small
+    >    host store over a large private one — is allowed: it is a one-time partial re-fetch into a
+    >    store BOTH sides then reuse.
+    > 5. **Concurrency adds no new class, and yolo serialises nothing.** It cannot: it does not
+    >    launch the host's tool. It does not need to either — yolo ALREADY pools one `lmdb_store`
+    >    across every workspace's jail (that is how the 27 G got there), and each jail is its own
+    >    PID namespace, so concurrent multi-namespace writers are the shipped status quo rather
+    >    than something aliasing introduces. What aliasing widens is the participant SET, not its
+    >    kind. **The named residual:** LMDB's stale-reader reaping is keyed on pid through an
+    >    `fcntl` record lock on `lock.mdb` — namespace-blind and shared, so it cannot reap a LIVE
+    >    reader; the failure direction is a slot nothing reclaims, i.e. wasted space, which is the
+    >    ruling's own stated worst case. Whether its process-shared robust write mutex recovers a
+    >    dead owner whose TID was in another PID namespace is **NOT MEASURED**.
+    > 6. **Nothing is recorded, so there is no writer to name.** The decision is a pure function of
+    >    the host's filesystem and platform, so the launcher and `yolo stores` re-derive it through
+    >    one `hostcas.Plan`. A stamp would be a second source of truth for a question the disk
+    >    answers, and it would go stale the first time a user deleted their pants cache.
+    >
+    > **The stranded copy, per the ruling:** nothing is migrated and nothing is deleted by the
+    > alias. The bind lands ON the private copy's own directory, so the bytes simply stop being
+    > read; `PurgeCacheByAge` already covers `pants`, and the new `yolo stores` row names the path
+    > and the reclaimer (pinned against prune's own subdir list, so the row cannot promise a
+    > reclaimer that would not run).
+    >
+    > **Not double-counted:** the aliased row is its OWN section with verdict `not yolo's`, because
+    > [§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims)'s state-dir row sums the
+    > shared-cache section and a host-owned 27 G tree folded in there would inflate yolo's own
+    > footprint. `yolo prune` needs no change: `PurgeCacheByAge` is rooted at
+    > `paths.GlobalCache()/<subdir>` and the alias source is under the host user's XDG cache root,
+    > which the same-tree gate keeps outside it.
 
 ## 12. Inherited rulings
 

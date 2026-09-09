@@ -33,7 +33,7 @@ yolo-declared; this plan adds a **user** path beside them, it does not touch the
 | **2** — host-side wiring | `YOLO_HOST_FILES` emission, `:ro` source mounts, destination staging | `internal/cli/run/hostfiles.go` |
 | **2** — macos-user | source-less entries only (`SourceLessHostFilesFrom`) | `internal/macosuser/runplan.go` |
 | **3** — visibility | `yolo config ls` / `diff` / `reset` + a boot-time divergence notice | `internal/cli/config{ls,diff}.go`, `internal/entrypoint/prism.go` |
-| **4** — docs | `host_files` block in `config-ref`; `agent-credentials.md` [§2.4](../reference/agent-credentials.md#24-user-declared-host-files-host_files--per-entry-scope); `jail-home.md` [§2.8](../reference/jail-home.md#28-user-declared-host-files-config-host_files); D4 annotated | — |
+| **4** — docs | `host_files` block in `config-ref`; `agent-credentials.md` [§2.4](../reference/agent-credentials.md#user-declared-host-files-host_files); `jail-home.md` [§2.8](../reference/jail-home.md#extra-mounts-a-config-declares); D4 annotated | — |
 | **tests** | unit coverage per phase, plus 4 real-container tests | `integration/hostfiles_test.go` |
 
 Verified in a nested jail: all four modes render; `once` keeps an in-jail edit,

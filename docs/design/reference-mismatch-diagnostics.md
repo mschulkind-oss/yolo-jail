@@ -25,7 +25,7 @@ printed there — that is the remaining highest-payoff item, and it needs no rul
 questions are unruled, not two**: steps 4 and 5 wait on [`OQ-RM2`](#OQ-RM2)/[`OQ-RM3`](#OQ-RM3), while
 [`OQ-RM1`](#OQ-RM1) and [`OQ-RM4`](#OQ-RM4) also still carry empty Answer blocks. ⚠ Every
 [§7](#7-sequencing-by-user-visible-payoff) file:line below has drifted — treat them as where to look, not as citations. Executes the amended
-[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) — its [§7](./stringly-typed-references-principle.md#7-census--what-the-code-does-today-and-what-r1r5-ask-for) census
+[`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) — its [§7](../reference/stringly-typed-references-principle.md#the-shape-of-the-enforcement-mechanism-by-mechanism) census
 is the gap; this doc is how it closes, from the user's side.
 
 **The short version (as written 2026-08-30; three of the four are now checked).** Four references
@@ -41,8 +41,8 @@ supersession relocation (step 4).**
 `[PASS]`), [§4](#4-every-message-before-and-after) (what each message becomes), and
 [§6](#6-what-starts-failing-that-works-today) (what breaks for you).**
 
-**Reads with:** [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
-(R1–R5, which this executes), [`gate-placement-principle.md`](gate-placement-principle.md) (R5's
+**Reads with:** [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
+(R1–R5, which this executes), [`gate-placement-principle.md`](../reference/gate-placement-principle.md) (R5's
 parent — put the gate where the authority changes), and
 [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§8](./profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set) (the same two-questions split,
 applied to a design that has not shipped).
@@ -428,6 +428,6 @@ the ones that shipped first. **Step 1 remains independent, unshipped, and first 
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| RM-P1 | **Fail closed, and break things.** Pre-1.0, one maintainer, no external pack ecosystem — a breaking change with a one-command recovery is cheaper than a silent wrong result. *"it's breaking, so it breaks, what's wrong with that? we're early, we can break things."* | 2026-08-30 | [§6](#6-what-starts-failing-that-works-today), and R1 of [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) |
+| RM-P1 | **Fail closed, and break things.** Pre-1.0, one maintainer, no external pack ecosystem — a breaking change with a one-command recovery is cheaper than a silent wrong result. *"it's breaking, so it breaks, what's wrong with that? we're early, we can break things."* | 2026-08-30 | [§6](#6-what-starts-failing-that-works-today), and R1 of [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) |
 | RM-P2 | **Skew is not an exemption from fail-closed; it is a message.** The remedy for a version-boundary mismatch is a diagnostic that names the rebuild, not a downgrade to a warning. The repo already does this in `ensureJailImage`. | 2026-08-30 | [§4.6](#46-skew-your-image-is-older-than-your-tree), and R5 |
 | RM-P3 | **The gate moves, the severity does not.** Where a validation point cannot resolve the registry or its actor cannot act, relocate the check upstream rather than lowering it. | 2026-08-30 | [§5](#5-where-each-check-lands-and-why-not-somewhere-else), and R5 |

@@ -205,7 +205,7 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
 
 ## A7 — the V-axis prune, and it ships INSIDE this plan
 
-Added 2026-09-04 by [OQ-CP1](../reference/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04), which reversed the sequencing on the
+Added 2026-09-04 by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1), which reversed the sequencing on the
 condition that this comes with it. It is **not** a stopgap to be deleted when capture lands.
 
 **The rule.** After an update installs a new version, the act that installed it prunes the program's
@@ -216,7 +216,7 @@ in the same workspace, immediately, on success.
 `~/.local/share/<bin>/versions/*` is one symlink, `~/.local/bin/<bin>`, in the same tree. Everything
 else there is unreferenced *by construction for that workspace*. No filesystem support is required,
 so it works identically on ext4 and btrfs — which capture does not
-([`../reference/agent-cli-copies.md` §4.1](../reference/agent-cli-copies.md#41-the-ext4-inversion-in-the-terms-p2-asks-for)).
+([`../reference/agent-cli-copies.md` §4.1](../reference/agent-cli-copies.md#the-ext4-inversion)).
 
 **Why it is a prerequisite rather than a companion.** [OQ-PD18](../design/program-delivery.md#decision-ledger)
 ruled auto-capture default-on. A new workspace materializes whatever the store holds, then evergreen
@@ -238,7 +238,7 @@ problem with a different oracle, and it is capture's, not this plan's.
 
 ## Blockers
 
-- ✅ **ASKED AND ANSWERED 2026-09-04 — this lands FIRST, ahead of capture** ([OQ-CP1](../reference/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)).
+- ✅ **ASKED AND ANSWERED 2026-09-04 — this lands FIRST, ahead of capture** ([OQ-CP1](../reference/agent-cli-copies.md#oq-cp1)).
   [OQ-PD15](../design/program-delivery.md#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it--resolved-2026-09-03) had sequenced it behind capture because evergreen multiplies the cost capture removes; both
   halves measured false. Capture collapses the **workspace** axis, evergreen multiplies the
   **version** axis, and *"under capture there is nothing to prune"* is wrong — the vendor's

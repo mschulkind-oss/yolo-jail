@@ -34,7 +34,7 @@ product question ([OQ-3](#OQ-3)) and remains unpicked.
 >    that system alone (`flake.nix:22-42`), after the 26.11 throw took the macOS nightly red for
 >    29 consecutive nights. Re-measured today: an Intel Mac gets **5 of 6** agent CLIs, not zero.
 > 4. **The `host` notch grew an exec half, and the apply command was renamed** (2026-08-30;
->    [`host-agent-environment.md`](host-agent-environment.md) [§5.2](./host-agent-environment.md#52-the-cli-shape-yolo-host-verb-and---host-removed-oq-7), [§6](./host-agent-environment.md#6-detailed-design-yolo-host-command) and its [OQ-2](#decision-ledger)/[OQ-7](#OQ-7)
+>    [`host-agent-environment.md`](../reference/host-agent-environment.md) [§5.2](../reference/host-agent-environment.md#the-wrapper-directory), [§6](../reference/host-agent-environment.md#the-command-surface) and its [OQ-2](#decision-ledger)/[OQ-7](#OQ-7)
 >    rulings). `yolo host -- <cmd>` ships, with `yolo --at host -- <cmd>` as its systematic
 >    alias — so [§3](#3-where-a-non-container-nix-env-would-actually-be-consumed)'s premise that yolo never launches a process at `host`, and every conclusion
 >    this doc derives from it ([§3](#3-where-a-non-container-nix-env-would-actually-be-consumed) row 2, [§4.2](#42-nix-shell-is-the-interesting-dark-horse--and-it-dies-on-the-launch-refusal), [§7](#7-is-it-orthogonal-to-confinement-no--and-this-is-the-load-bearing-finding)), is scoped to the **apply command**, not to
@@ -112,7 +112,7 @@ non-macos-user notches a caller**."
 > `yolo check`'s extra-platforms remedy, which told an Intel Mac user to delete a line they did
 > not have. It survived because nothing tested the remedy string.
 
-**Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) [§1](#1-what-is-already-solved-stated-precisely) (the
+**Reads with:** [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) [§1](#1-what-is-already-solved-stated-precisely) (the
 shipped mechanism, in detail — this doc does not restate it),
 [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) [§3.5](./yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) + [§4](#4-the-mechanisms-compared-honestly) (the dial and the
 dep-handoff design), [`host-render-target.md`](host-render-target.md) [§2.1](./host-render-target.md#21-but-measure-how-much-of-a-pack-the-host-actually-wants) (the kind census),
@@ -348,7 +348,7 @@ defects are one-line-ish fixes that a nix route makes *more* important, not less
 >   gets the package instead of a silent skip. **yolo does not set that variable on the user's
 >   behalf** — unfree is a licence decision the user makes once, machine-wide, and slipping the
 >   override in would make it for them silently. (This used to cite `allow_exec` as the
->   sibling invariant; that key is gone — see [`pack-system.md`](./pack-system.md) [§1](./pack-system.md#1-what-a-pack-is-on-disk) — and the argument here
+>   sibling invariant; that key is gone — see [`pack-system.md`](../reference/pack-system.md) [§1](../reference/pack-system.md#what-a-pack-is-on-disk) — and the argument here
 >   never depended on it: a licence decision is the user's whether or not anything else
 >   works the same way.)
 > - **The warning has to ride on the BUILD path** (`flake.nix:475-484`). It is emitted from

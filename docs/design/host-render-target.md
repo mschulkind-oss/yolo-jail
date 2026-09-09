@@ -66,7 +66,7 @@ extraction analysis is kept as evidence, not as a proposal.
 > the host is still a reduced render target, the fix is still collapsing two render paths — but
 > its field-census and code-citation details were updated to the current vocabulary. The
 > load-bearing sections ([§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall), [§3](#3-the-design-inside-yolo), [§6](#6-the-host-as-a-reduced-target)) are unaffected in substance. See
-> [pack-system.md](pack-system.md) for the current kind set and the approval model.
+> [pack-system.md](../reference/pack-system.md) for the current kind set and the approval model.
 
 **Audience:** whoever decides whether the host target happens. **[§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall) and [§3](#3-the-design-inside-yolo) are the
 load-bearing sections** — [§2](#2-the-motivation-an-agent-config-that-stops-at-the-container-wall) measures how much of a pack even applies off-container and
@@ -74,9 +74,9 @@ concludes the host is a *reduced target*; [§3](#3-the-design-inside-yolo) is th
 *deleting a duplicate renderer* yolo already has two copies of. [§6](#6-the-host-as-a-reduced-target) is the part that needs a
 ruling, [§9](#9-open-questions--the-discussion-part) is what I could not settle, [§8](#8-what-i-would-actually-do-in-order) is the order I would build it in.
 
-**Reads with:** [pack-system.md](pack-system.md) (the pack system as built — this doc
+**Reads with:** [pack-system.md](../reference/pack-system.md) (the pack system as built — this doc
 assumes it, including the compose engine and its layer stack),
-[what-yolo-is.md](what-yolo-is.md) (the earlier "is the
+[what-yolo-is.md](../reference/what-yolo-is.md) (the earlier "is the
 engine separable?" answer, which this reaches the same conclusion as from the pack side),
 [composed-file-permissions.md](composed-file-permissions.md) (the postures a host-side writer
 must honor).
@@ -309,7 +309,7 @@ one we *name*, because naming (b) commits us to a much larger surface ([§9.1](#
 **The strongest evidence that (b) is the real structure is already shipped:
 `macos-user`.** That backend runs a real agent as a real macOS user with **no container, no
 image, no bind mounts** — and the framing in
-[macos-no-vm-direction.md](macos-no-vm-direction.md) already isolated why:
+[macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) already isolated why:
 *"almost everything on the disabled list follows mechanically from no container."* A
 Seatbelt profile is a weaker confinement than a namespace, `packages:` materializes as
 native darwin nix rather than image layers, and yolo already treats that as one product
@@ -839,7 +839,7 @@ That has a crisp consequence worth stating as a rule:
 - **The origin gate keeps its tiers, and off-container it needs to stay strict** ([§5](#5-what-a-host-target-cannot-inherit)).
   `OriginEmbedded` still means "shipped in the yolo release." Since this was written, a
   *fetched* pack's host access stopped being an outright refusal and became **install-time
-  approval** (recorded per-commit in the lockfile — see [pack-system.md](pack-system.md) [§9](pack-system.md#9-the-credential-boundary-the-pin-not-a-prompt)).
+  approval** (recorded per-commit in the lockfile — see [pack-system.md](../reference/pack-system.md) [§9](../reference/pack-system.md#the-credential-boundary-disclosure-not-consent)).
   That is the right primitive to build a host target on: the consent step already exists. But
   the reason the gate is *tolerable* in a jail — whatever runs, runs in something disposable —
   is gone off-container, so a host target must gate at least as tightly as the jail, and
@@ -888,7 +888,7 @@ enforces:
 > --host` from.**
 
 This is the same boundary packs already draw. Packs are **user scope only**: a workspace
-config cannot name one ([`pack-system.md`](pack-system.md) [§8](pack-system.md#8-selection-and-the-load-path)), *precisely because* a workspace config travels
+config cannot name one ([`pack-system.md`](../reference/pack-system.md) [§8](../reference/pack-system.md#selection-and-the-load-path)), *precisely because* a workspace config travels
 with a repo and is agent-editable, so it must not decide what crosses into your environment.
 The host is your realest environment, so that rule is *most* load-bearing there, not least: a
 repo you `cd` into must not be able to reach into `~/.claude/settings.json`.

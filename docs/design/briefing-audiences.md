@@ -31,12 +31,12 @@ also how the jail's known one-prose-per-pack limit gets lifted for free ([§5](#
 **The most important section is [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)** — where a destination's identity comes from, and why an
 earlier draft got it wrong. Everything else follows from it.
 
-**Reads with:** [`agent-briefings.md`](agent-briefings.md) (how briefings are composed and
+**Reads with:** [`agent-briefings.md`](../reference/agent-briefings.md) (how briefings are composed and
 delivered today), [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) [§2.5](profiles-as-pack-variants.md#25-the-stringly-typed-hole-that-is-live-today) and [§8](profiles-as-pack-variants.md#8-fail-closed-but-on-the-right-set)
 (the CLI-name namespace, and the universe-vs-selection split this reuses),
-[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (R1–R5,
+[`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) (R1–R5,
 which govern any new name-a-component-by-string field),
-[`pack-system.md`](pack-system.md) (the `contributes` vocabulary).
+[`pack-system.md`](../reference/pack-system.md) (the `contributes` vocabulary).
 
 ---
 
@@ -123,7 +123,7 @@ no manifest to put a selector in — keeps working unchanged.
 laxer tier for a name that exists somewhere but is not here — `agents: ["cloude"]` and
 `agents: ["codex"]` in a jail that did not select codex fail the same way, because from the
 jail's point of view they are the same mistake: the prose names an audience this jail does not
-have. That is [R2](stringly-typed-references-principle.md#6-the-rules) taken at its word —
+have. That is [R2](../reference/stringly-typed-references-principle.md#the-rules) taken at its word —
 *"explicit opt-in for permissive selection"* — and this field has no such opt-in, so the strict
 reading is the only one available.
 
@@ -215,7 +215,7 @@ at `assemble.go:677` means its mount is dropped as a duplicate of the `claude` p
 > jail *"reads briefing prose from a root `AGENTS.md` regardless of `from`"*. That divergence
 > was **fixed 2026-08-04** — both notches now resolve through
 > [`packload.BriefingProseFor`](../../internal/packload/briefingsource.go#L56) over
-> `BriefingCandidates()` ([`pack-system.md`](pack-system.md), [§6](pack-system.md#6-composed-file-posture-what-writable-means)a-4). It is also about `from`
+> `BriefingCandidates()` ([`pack-system.md`](../reference/pack-system.md), [§6](../reference/pack-system.md#composed-file-posture-what-writable-means)a-4). It is also about `from`
 > (the *source*) and not `into` (the *destination*), so it never bore on scoping at all. The
 > stale note is a separate small fix; do not cite it as evidence either way.
 
@@ -362,7 +362,7 @@ real name?" from "is it selected?" and skipping cleanly on the second. That spli
 > **Does every name in `agents` belong to a pack enabled in this jail? If not, refuse the
 > launch.** The candidate set is the enabled packs — nothing wider.
 
-The diagnostic still does the work [R3](stringly-typed-references-principle.md#6-the-rules) asks
+The diagnostic still does the work [R3](../reference/stringly-typed-references-principle.md#the-rules) asks
 of it: name the offending string, the declaring pack, **the enabled agents as the candidate
 list**, and a did-you-mean. What it must not do is print two different messages for `cloude` and
 for `codex`-in-a-jail-without-codex, because the remedy is the same either way — fix the name, or

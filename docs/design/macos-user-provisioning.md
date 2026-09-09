@@ -39,7 +39,7 @@ the ruling turns on whether that cost is worth paying.
 (what nix produces for each backend, and why the image is a floor),
 [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the single shared home,
 which [OQ-P3](#OQ-P3) depends on),
-[`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (the backend).
+[`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) (the backend).
 
 ---
 

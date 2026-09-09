@@ -30,9 +30,9 @@ naive split repairs the workspace tier by breaking the machine one** ([§3](#3-w
 > directories, and every notch has all three. The words name the separation, not
 > its implementation.
 
-**Reads with:** [`jail-home.md`](jail-home.md) (the container home layout this
+**Reads with:** [`jail-home.md`](../reference/jail-home.md) (the container home layout this
 should converge on), [`backend-parity.md`](backend-parity.md) (OQ-BP-2, the
-delivery gap this follows), [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)
+delivery gap this follows), [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
 (the backend), and [`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md).
 
 ---
@@ -52,7 +52,7 @@ are one directory here:
 The machine tier is the one that is *right*: a single account holding one set of
 agent credentials is the whole point of a dedicated sandbox user, and it is what
 makes `shared_credentials` work here with no broker at all
-([macos-user-nix-and-features.md](./macos-user-nix-and-features.md) [§3.5](./macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports)). The other two rows are the defect.
+([macos-user-nix-and-features.md](../reference/macos-user-nix-and-features.md) [§3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better)). The other two rows are the defect.
 
 ## 2. What the collapse actually costs
 

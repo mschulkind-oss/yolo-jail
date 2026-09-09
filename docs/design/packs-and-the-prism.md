@@ -27,7 +27,7 @@ proposal — this doc is the higher-level frame around it),
 
 **Two questions this doc raised and does not answer** — *how would pack-shipped logic be
 built and cached?* and *where does the config system end and the jail begin?* — are
-answered in [what-yolo-is.md](what-yolo-is.md). Its findings sharpen con 2 and the
+answered in [what-yolo-is.md](../reference/what-yolo-is.md). Its findings sharpen con 2 and the
 [§6](#6-the-shape-of-a-decision) ranking below; read it before deciding between bets A/B/C.
 
 ---
@@ -239,7 +239,7 @@ the image no longer describes the jail.
 
 The one thing that stays off-limits is **pack content as an image input** — a pack whose
 skills or config values are baked into the store path, so editing a prompt triggers a
-rebuild. That is the case [what-yolo-is.md](what-yolo-is.md) rejects, and it stays rejected:
+rebuild. That is the case [what-yolo-is.md](../reference/what-yolo-is.md) rejects, and it stays rejected:
 content and config values are read at compose time, and nothing about them needs to be in
 the derivation.
 
@@ -317,7 +317,7 @@ Three real questions, all tractable:
 
 ### What this leaves for the execution question
 
-With (1) adopted, the only remaining live question from [what-yolo-is.md](what-yolo-is.md)
+With (1) adopted, the only remaining live question from [what-yolo-is.md](../reference/what-yolo-is.md)
 is the **computation** row: where a pack's generator runs. That is now a much smaller
 question than it looked, because it no longer has to carry the image-input problem — and the
 argument there (run it where failures are pre-flight rather than fail-open, which the host
@@ -443,7 +443,7 @@ are better candidates than agent support is.
 - **Mount assembly, the OAuth broker.** These are the security model.
 
 **`AgentSpec.HostFiles` — RESOLVED 2026-07-27, and the two docs disagreed until now.**
-This section said it "must stay in Go"; [three-decisions.md §0.1](three-decisions.md)
+This section said it "must stay in Go"; `three-decisions.md` §0.1 (archived 2026-09-09; the ruling lives in [`pack-system.md`](../reference/pack-system.md#the-packs-key))
 said user-scope-only packs dissolve the tension. Both were half right, and the missing
 distinction is **which kind of pack**:
 
@@ -494,7 +494,7 @@ file?** If yes, the pack system is a credential-boundary change and needs that s
 first. If no — and no is the right answer — then packs are a layer mechanism, the
 boundary stays in Go, and every step above is safe to take one at a time.
 
-The second, from [what-yolo-is.md](what-yolo-is.md): **may pack logic run unsandboxed?**
+The second, from [what-yolo-is.md](../reference/what-yolo-is.md): **may pack logic run unsandboxed?**
 If yes, packs inherit MCP's trust model (fetch-time human approval), which the lockfile +
 approval step in the proposal already provides — consistent, but it means a pack can run
 arbitrary code. If no, pack logic is Lua-only and a Go remainder stays. Answering this

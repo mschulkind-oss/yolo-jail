@@ -238,7 +238,7 @@ leaning and an empty Answer in Stage E.
   collision **silently**, where `yolo host apply` refuses. Warn at launch, fail `yolo check`, or refuse
   the boot.
 - **E1 + E2 + [`pack-host-management-plan.md`](pack-host-management-plan.md) OQ-B are ONE decision** — the `0o444`-vs-`:ro`
-  asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` [§7.4](../reference/composed-file-permissions.md#74-what-this-means-for-host_files-four-modes) is the
+  asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` [§7.4](../reference/composed-file-permissions.md#what-this-means-for-host_files-modes) is the
   fourth, and it is cross-linked rather than given its own ID, because minting a fourth name for one
   question is how a decision becomes four decisions. Decide them together or none.
 - **OQ-CO and [OQ-S4](BACKLOG.md#-oq-s4--should-the-jail-narrow-its-skills-fan-out-to-match-the-host) are the same question asked of different kinds:** should the two notches agree?
@@ -898,7 +898,7 @@ them, and one merge decided 💬 20 in code — see that row.
   order.
 
 - 🔒 **Program delivery [§10](../design/program-delivery.md#10-what-i-would-build-in-order) — the two steps that are blocked, not merely unscheduled.** 📄
-  [`program-delivery.md` §10](../design/program-delivery.md#10-what-i-would-build-in-order). The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../reference/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
+  [`program-delivery.md` §10](../design/program-delivery.md#10-what-i-would-build-in-order). The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../reference/agent-cli-copies.md#oq-cp1)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**
   ✅ **EVERGREEN SHIPPED 2026-09-04** ([`evergreen-agent-updates.md`](evergreen-agent-updates.md)),
   A7's V-axis prune with it. **One piece of it did not:** the MCP/LSP transitive refresh (that
   plan's build-order step 7). A yolo-installed MCP or LSP server still moves only when the
@@ -1189,9 +1189,14 @@ asked to make and these are not blocking anything:
   what survives is four genuine but unpressing questions: two people attaching to one jail with
   different pack sets, opencode's skills gap, the prism as a standalone tool, and whether pruning
   needs telemetry.
-- **CFP-1 … CFP-3** (`composed-file-permissions.md`), **SS-6** (`jail-state-separation-design.md`)
+- **[CFP-1 … CFP-3](../design/composed-file-permissions.md)** and **[SS-6](../design/jail-state-separation-design.md#ss-6)**
   and `host-render-target.md`'s three [§9](../design/host-render-target.md#9-open-questions--the-discussion-part) questions — named 2026-08-23 so they are countable. All
   concern shipped mechanisms working as designed, not gaps.
+  ⚠ **Those first two links point at `docs/design/`, not `docs/reference/`, and that is deliberate.**
+  Both docs graduated on 2026-09-09 leaving a STUB at the original path holding only the live
+  questions, so the basename now exists in both trees: the built system is in `docs/reference/`, the
+  unanswered questions are here. A basename-driven link sweep has already got this wrong once and
+  pointed a reference doc at itself. **Check which tree you mean before repointing either.**
 - **nix [OQ-3](../design/noncontainer-nix-environment.md#9-open-questions) · 4 · 5 · 7 · 8 · 9** in
   [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) — what remains of
   the retired 💬 4 after [OQ-1](../design/noncontainer-nix-environment.md#9-open-questions) closed (2026-09-02). None blocks anything: [OQ-3](../design/noncontainer-nix-environment.md#9-open-questions) is the `nix profile`

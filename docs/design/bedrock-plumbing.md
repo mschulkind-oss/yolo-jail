@@ -36,7 +36,7 @@ one nor blocks it.
 
 **Reads with:** [`../reference/providers.md`](../reference/providers.md) (the provider
 system this extends — catalog, selection, derives, the canonical `wire_api` vocabulary),
-[`zai-plumbing.md`](zai-plumbing.md) (the same exercise for a plain HTTP provider; this doc
+[`zai-plumbing.md`](../reference/zai-plumbing.md) (the same exercise for a plain HTTP provider; this doc
 is its sequel and borrows its resolution vocabulary),
 [`../research/local-model-endpoints.md`](../research/local-model-endpoints.md) (the
 per-agent config surfaces, source-verified),
@@ -513,7 +513,7 @@ provider the catalog dropped. Never carry a region allowlist or a model catalog 
 | **One provider, `endpoint_family` as a profile OPTION** | **Rejected — it cannot work.** Options are a flat name→value map; `models` is a provider field the option layer never reaches. The option would move the endpoint and leave the ids, which is P1's failure with a knob attached ([§5](#5-two-families-two-providers--because-the-family-and-the-ids-are-one-entry)). |
 | **One `bedrock` provider for all four agents** | **Rejected.** Claude wants Anthropic ids and codex wants GPT ids through the same `default` alias. Separate entries is what the schema already calls the ordinary case. |
 | **Move `bedrock` out of packs/claude into the new pack** | **Rejected as unnecessary churn.** Sole ownership means the name can only live in one place, and it already lives somewhere that works. Moving it renames nothing a user types but risks a collision for no gain. |
-| **Match the provider by NAME in each derive** (`if name == "bedrock-openai"`) | **Rejected** — [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) exists for this, and it would silently break the moment a user declares their own Bedrock provider under another name. |
+| **Match the provider by NAME in each derive** (`if name == "bedrock-openai"`) | **Rejected** — [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) exists for this, and it would silently break the moment a user declares their own Bedrock provider under another name. |
 | **A `bedrock` key in the open `endpoints` map, with no URL** | **Rejected — unrepresentable.** `contributes.go:1670` refuses an endpoint with no `base_url`. |
 | **Coin `bedrock-converse` as a fourth canonical `wire_api`** | **Deferred ([OQ-BR5](#OQ-BR5)).** Only pi consumes it, and pi is reachable through the native marker without it. Coin it if a second Converse consumer appears. |
 

@@ -17,10 +17,10 @@ about is live rather than proposed. Q3 (the build sandbox) also stands, now moti
 alone.
 
 **Scope:** the `macos-user` backend only (native macOS user + Seatbelt, **no VM**).
-**Reads with:** [macos-no-vm-direction.md](macos-no-vm-direction.md) (why macos-user
-exists and how packages are materialized), [security-shim.md](security-shim.md)
+**Reads with:** [macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) (why macos-user
+exists and how packages are materialized), [security-shim.md](../reference/security-shim.md)
 (the privilege-separation model this backend is *not* fully aligned with),
-[config-safety.md](config-safety.md) (the config-diff prompt, one of the
+[config-safety.md](../reference/config-safety.md) (the config-diff prompt, one of the
 mitigations below).
 
 ## Summary
@@ -60,7 +60,7 @@ walk entirely — see Vector B), leaving Vector A as the live surface.
 `macos-user` has no OCI image. `packages:` is materialized as a **native
 aarch64-darwin `buildEnv`** and only the resulting `/nix/store/…/bin` is placed on
 the sandboxed agent's PATH (`flake.nix:845` `packages.yoloDarwinPackages`; see
-[macos-no-vm-direction.md](macos-no-vm-direction.md) axis 3).
+[macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) axis 3).
 
 The materialization runs **on the host, as the invoking user, before the sandbox
 is entered** (`internal/macosuser/orchestrator.go` materializes first, then puts
@@ -116,7 +116,7 @@ attacker-chosen `{"nixpkgs": "<commit>"}` and a `{"url": "mirror://…", "hash":
 off) and the output lands on the agent PATH.
 
 *Mitigation present:* a `packages:` edit is a config change, so it surfaces in the
-startup y/N config-diff prompt ([config-safety.md](config-safety.md)) — but only
+startup y/N config-diff prompt ([config-safety.md](../reference/config-safety.md)) — but only
 if the human reads the diff. Object-form version/url specs also bypass the
 `flake.lock` nixpkgs pin.
 
@@ -157,7 +157,7 @@ defend against a deliberately planted pair. Consequences of a poisoned flake:
 
 ## Existing mitigations
 
-- **Config-diff y/N prompt** at startup ([config-safety.md](config-safety.md)) —
+- **Config-diff y/N prompt** at startup ([config-safety.md](../reference/config-safety.md)) —
   covers Vector A, **not** Vector B.
 - **`--accept-flake-config` trust is daemon-gated** — substituter poisoning only
   works if the host user is a nix trusted-user.

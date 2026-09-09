@@ -39,7 +39,7 @@ backend.
 > `macos-user` was prototyped, briefly excised, then **revived** as a composed
 > product (native macos-user + Apple Container fallback) and is now verified on
 > hardware. See
-> [macos-no-vm-direction.md](../design/macos-no-vm-direction.md) for the standing
+> [macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) for the standing
 > decision and
 > [macos-revival-and-distribution-plan.md](../plans/macos-revival-and-distribution-plan.md)
 > for the current status.

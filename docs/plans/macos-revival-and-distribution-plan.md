@@ -702,7 +702,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 ## Track L — loophole framework on macos-user (future; use-case-gated)
 
 > **Status: NOT STARTED. Sequencing UNCHANGED** — recorded 2026-07-23 from the
-> `macos-user-nix-and-features.md` [§3.5](../reference/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports) discussion, still a forward-looking
+> `macos-user-nix-and-features.md` [§3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better) discussion, still a forward-looking
 > capability and not a revival blocker.
 >
 > **2026-09-03, and read this before reusing part 1 for anything:** a revision of
@@ -737,7 +737,7 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > "bundled" and the number "three" are stale. See `AGENTS.md`.
 
 The three *bundled* loopholes don't need porting to macos-user (see
-[macos-user-nix-and-features.md §3.5](../reference/macos-user-nix-and-features.md#35-loopholes--mostly-moot-here-the-framework-still-ports):
+[macos-user-nix-and-features.md §3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better):
 `audio`/`host-processes` are moot on a native process, and `claude-oauth-broker`
 is redundant with the shared `/Users/_yolojail` home). But the **loophole
 framework** — "a host-side daemon mediates the jail's access to a resource" — is
@@ -760,7 +760,7 @@ credential and never lets it cross into the jail.
 
 1. **Framework plumbing (unblocked, mechanical).** Generalize the loophole
    host-service start/stop so it runs on the macos-user launch path (today it lives
-   only in `runContainer`; see [§3.6](../reference/macos-user-nix-and-features.md#36-the-container-launch-preamble-config-diff-prompt-image-load-etc)), emitting a localhost socket/port + the
+   only in `runContainer`; see [§3.6](../reference/macos-user-nix-and-features.md#the-container-launch-preamble)), emitting a localhost socket/port + the
    launch-env var per active loophole instead of a mount + `--add-host`. Reuse the
    existing manifest/`Discover` machinery; the transport just changes.
 2. **The specific access-scoping proxy (BLOCKED — see [OQ-L1](#open-questions-blocking)).** The daemon that

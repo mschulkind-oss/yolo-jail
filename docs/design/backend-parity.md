@@ -35,7 +35,7 @@ support X" cannot express the case that made half this audit worth doing: *achie
 a different mechanism*. Get that wrong and the census either flags working code or hides
 broken code.
 
-**Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (that
+**Reads with:** [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) (that
 backend's own inert-feature inventory, which this generalises),
 [`host-render-target.md`](host-render-target.md) (`render.FieldSet` — the same idea one
 notch over, and the template [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) copies), [`../guides/macos.md`](../guides/macos.md) (the
@@ -311,7 +311,7 @@ an agent plans around it.
   absence.
 - **Not reimplementing volumes, cgroups, or mount namespaces** on backends that lack them.
   The goal is that a setting stops lying, not that every backend grows every feature.
-- **Not a doc.** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)'s matrix should eventually be *generated*
+- **Not a doc.** [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s matrix should eventually be *generated*
   from the census rather than maintained beside it — it has already drifted once.
 
 ---
@@ -368,7 +368,7 @@ an agent plans around it.
    > now says instead of the old text. Separately, `InstallHomeOverlay` warns rather than failing
    > the boot when the staged tree is missing — an agent is better off starting with no skills
    > than not starting. This is the narrow surviving warning
-   > [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)'s 2026-09-09 amendment
+   > [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s 2026-09-09 amendment
    > names.
 
    **Answer (2026-09-09):**

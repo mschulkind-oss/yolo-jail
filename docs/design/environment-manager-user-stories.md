@@ -722,7 +722,7 @@ agent that believes it is disposable when it is not will take a disposable agent
    >    (`internal/jailcontent/builtinskills/`). The startup-ritual skill (`n`) was **deleted**;
    >    the one-time handoff became a conditional **Handoff** section in the briefing consumed by
    >    the run pipeline (`internal/jailcontent/briefing.go:69`; see
-   >    [host-to-jail-handoff.md](host-to-jail-handoff.md)). The `jail-startup` a reader may have
+   >    [host-to-jail-handoff.md](../reference/host-to-jail-handoff.md)). The `jail-startup` a reader may have
    >    on their machine is a *user-level* skill, not a yolo built-in.
    >
    > **What survives, and it is the load-bearing half:** nothing stamps a rendered briefing with
@@ -1108,7 +1108,7 @@ saying what moved and what the question still decides. **IDs are cited from
    `jail-startup` built-in any more — yolo's suite is `configuring-the-jail`,
    `developing-yolo-jail`, `diagnosing-the-jail` (`internal/jailcontent/builtinskills/`), and the
    startup-ritual skill was deleted in favour of a Handoff section in the briefing
-   ([host-to-jail-handoff.md](host-to-jail-handoff.md)). Which also removes the *place* the
+   ([host-to-jail-handoff.md](../reference/host-to-jail-handoff.md)). Which also removes the *place* the
    leaning proposed to put the assertion — so Q4 now has to name a new home for the check.
 
    **Answer:**

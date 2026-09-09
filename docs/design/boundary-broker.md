@@ -32,8 +32,8 @@ and none of its blockers (this waits on nix [OQ-1](agent-auth-modes.md#12-decisi
 on nothing). [§6](#6-the-risks-worth-naming-before-any-code) keeps only the
 constraint the two share.
 
-**Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format this extends),
-[`agent-credentials.md`](agent-credentials.md) (what crosses the boundary today and why),
+**Reads with:** [`loophole-protocol.md`](../reference/loophole-protocol.md) (the wire format this extends),
+[`agent-credentials.md`](../reference/agent-credentials.md) (what crosses the boundary today and why),
 [`agent-auth-modes.md`](agent-auth-modes.md) (the split-out sibling),
 [`../guides/loopholes.md`](../guides/loopholes.md) (the five shipped loopholes, all pack-shipped
 since 2026-08-19), [`../plans/roadmap.md`](../plans/roadmap.md) — **💬 5** for the live questions
@@ -54,7 +54,7 @@ pieces are shipped.
 
 | Piece | Where | State |
 |---|---|---|
-| A framed request/response protocol across the boundary | `internal/frameproto`, [`loophole-protocol.md`](loophole-protocol.md) | **shipped**, versioned, documented for external authors |
+| A framed request/response protocol across the boundary | `internal/frameproto`, [`loophole-protocol.md`](../reference/loophole-protocol.md) | **shipped**, versioned, documented for external authors |
 | A host-side daemon framework with per-jail identity | `internal/hostservice`, `yolo internal daemon <name>` | **shipped** — 4 daemons ride it |
 | A host daemon holding CROSS-JAIL state behind a lock | `internal/oauthbroker` — `RefreshLockPath`, an flock every broker instance agrees on | **shipped**, and it is the closest precedent |
 | Argv safety for host-side execution | `Session.ExecAllowlisted` (`internal/hostservice/hostservice.go` — the Python-era spelling `exec_allowlisted` survives only in its doc comment) — argv positions validated against a server-owned allowlist | **shipped**, enforced by construction |
@@ -74,10 +74,10 @@ malicious jail occupant; it is a boundary against *accident and unaudited action
 decides several things below, and getting it wrong would oversell the feature.
 
 > **The quote is the OLD wording, 2026-08-13; the constraint it names is unchanged.**
-> [`loophole-protocol.md`](loophole-protocol.md) §Security posture now says the boundary is
+> [`loophole-protocol.md`](../reference/loophole-protocol.md) §Security posture now says the boundary is
 > *"whatever runs as your user"* and names the per-jail token as what enforces it on a port — because
 > there is no socket file on the jail-facing hop any more (see
-> [`loophole-transport.md`](loophole-transport.md)). Every conclusion in this document that rests on
+> [`loophole-transport.md`](../reference/loophole-transport.md)). Every conclusion in this document that rests on
 > the sentence survives verbatim: the same-user set is the specification, so this is still a boundary
 > against accident and unaudited action, not against a hostile occupant. Quoted here as history so
 > the argument's premise is traceable — do not re-derive the old wording from it.
@@ -91,7 +91,7 @@ decides several things below, and getting it wrong would oversell the feature.
 Every loophole today is synchronous: *"A client opens the Unix socket, sends one length-prefixed
 JSON request, and reads framed response data until the server closes the connection."* *(That
 quote is the pre-loopback-TLS wording, like [§1](#1-what-already-exists-stated-precisely)'s — the current
-[`loophole-protocol.md`](loophole-protocol.md) says the same thing transport-generically, since
+[`loophole-protocol.md`](../reference/loophole-protocol.md) says the same thing transport-generically, since
 the jail-facing hop is no longer a socket file. The constraint is unchanged.)* The request
 lives exactly as long as the connection.
 
@@ -313,7 +313,7 @@ Each step is independently useful, which is the property that makes this safe to
    `internal/svcendpoint` emits one record per jail↔host connection — accepted *or* rejected —
    and `internal/crossaudit` appends it to `GLOBAL_STORAGE/logs/crossings.log`, one bounded file
    per host. Fields and the argument for per-host are in
-   [`loophole-protocol.md`](loophole-protocol.md) §Access logging (tier 1).
+   [`loophole-protocol.md`](../reference/loophole-protocol.md) §Access logging (tier 1).
 
    **Two corrections this step made to the sketch above.** (a) "Every boundary REQUEST" was the
    wrong unit and is not available: for a fronted daemon the front splices a byte stream it does

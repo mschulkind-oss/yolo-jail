@@ -180,7 +180,7 @@ Proposed, following that policy:
 | `plans/host-file-staging.md` | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
 | `plans/agent-settings-composition.md` | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |
 | `plans/sequencing-2026-07.md` | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |
-| `../reference/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the [§3.2](../reference/config-migration-to-prism.md#32-the-rule-key-first-migration-on-the-absence-of-last_render)/[§3.3](../reference/config-migration-to-prism.md#33-defensive-handling-of-dangling-sidecars) sidecar state machine is not documented elsewhere |
+| `../reference/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the [§3.2](../reference/config-migration-to-prism.md#the-two-paths)/[§3.3](../reference/config-migration-to-prism.md#defensive-handling-of-inconsistent-sidecars) sidecar state machine is not documented elsewhere |
 | `../reference/agent-credentials.md`, `../reference/jail-home.md` | **keep (A)** — different questions (what crosses the boundary; how the home is built) |
 
 **Rule going forward, to stop the sprawl recurring:** a *posture or mechanism* goes in
@@ -193,9 +193,9 @@ ROADMAP. Nothing gets three homes.
 
 Found during the audit; small but they are the kind of thing that makes a doc untrustworthy.
 
-- `composed-file-permissions.md` [§9](../reference/composed-file-permissions.md#9-work-items) item 6 is **stale** — the `EnsureSymlink` home-root
+- `composed-file-permissions.md` [§9](../reference/composed-file-permissions.md#why-its-this-way) item 6 is **stale** — the `EnsureSymlink` home-root
   staging shipped 2026-07-25.
-- [§4.3](../reference/composed-file-permissions.md#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) **overstates** the `claude/config` defect: the `ls`/`diff`/`reset` half already
+- [§4.3](../reference/composed-file-permissions.md#state--never-composed-wholesale) **overstates** the `claude/config` defect: the `ls`/`diff`/`reset` half already
   skips it; only `render` renders it.
 - ~~ROADMAP + agent-settings-composition claiming `config render mise` → "no surfaces"~~ —
   **fixed 2026-07-26** (`22f7f2b`); mise is ported.

@@ -203,7 +203,7 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 | `docs/research/claude-token-logouts.md`, `claude-oauth-refresh-mechanics.md` (×3) | `plans/claude-oauth-mitm-proxy-plan.md` | `bundled_loopholes/claude-oauth-broker/README.md` (live broker architecture) |
 | `docs/guides/loopholes.md` | `plans/claude-oauth-mitm-proxy-plan.md` | same broker README |
 | `docs/guides/macos.md` | `plans/macos-backend-direction.md` | `../reference/macos-no-vm-direction.md` |
-| `docs/research/rocm-gpu-jail-findings.md`, `docs/reference/rocm-passthrough.md` | `rocm-memlock-handoff.md` | keep the *design* doc's own [§7.2](../reference/rocm-passthrough.md#72-locked-memory-limit-blocks-queue-creation-in-jail--resolved-by-rocm-72-userspace-2026-06-06) (the handoff's durable content); demote the handoff link to "(resolved; see git history)" |
+| `docs/research/rocm-gpu-jail-findings.md`, `docs/reference/rocm-passthrough.md` | `rocm-memlock-handoff.md` | keep the *design* doc's own [§7.2](../reference/rocm-passthrough.md#the-memlock-clamp) (the handoff's durable content); demote the handoff link to "(resolved; see git history)" |
 | `docs/qa/macos-user-review-findings.md` | `handoff-macos-user-revive-plan.md` | this doc is itself being archived, so no repoint needed |
 
 ## 5. Decisions (settled with the reviewer) + the executed reorg

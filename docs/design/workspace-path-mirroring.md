@@ -75,8 +75,8 @@ running), or **NOT MEASURED**.
 (where this question was first asked, as "option A", and answered no on 2026-07-03),
 [`jail-state-separation-design.md`](jail-state-separation-design.md) (the bundle that made
 that answer right, and the corollary that makes mirroring actively harmful),
-[`jail-home.md`](jail-home.md) (the mount stack this would edit),
-[`host-execution-from-the-workspace.md`](host-execution-from-the-workspace.md) (the outbound
+[`jail-home.md`](../reference/jail-home.md) (the mount stack this would edit),
+[`host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md) (the outbound
 threat model, which this changes less than I expected),
 [`../plans/install-capture.md`](../plans/install-capture.md) (relocation — the same family
 of problem, solved the opposite way).
@@ -97,7 +97,7 @@ argued below.
 spaces and the other two are not moving.** A jail path is drawn from `/workspace`,
 `/home/agent`, or `/mise`. Mirroring unifies the first. The second cannot be unified —
 `HOME` is set unconditionally to `/home/agent` (`internal/cli/run/assemble.go:745`) and the
-jail's home being *not* the host's home is the whole [`jail-home.md`](jail-home.md) design —
+jail's home being *not* the host's home is the whole [`jail-home.md`](../reference/jail-home.md) design —
 and the third was deliberately *de*-unified in 2026-07. The result is a jail whose workspace
 is `/home/matt/code/proj` and whose home is `/home/agent`: a mixed world, not a mirrored one.
 So the sales pitch, "absolute paths are identical on both sides", is true only of the subtree
@@ -216,7 +216,7 @@ purpose: `.venv` and `node_modules` appear at the same path in every jail and on
 each backed by a different directory (`internal/cli/run/mounts.go:78-109`;
 [`jail-state-separation-design.md`](jail-state-separation-design.md) calls it
 *"the same string-uniform/per-side-backing trick"*). `CARGO_HOME=/mise/cargo` is the same
-move: [`storage-and-config.md`](storage-and-config.md):367 says it exists so the recorded
+move: [`storage-and-config.md`](../reference/storage-and-config.md):367 says it exists so the recorded
 `installs/rust/<ver>` symlink *"resolve[s] identically in every jail"*.
 
 ### 2.3 The prior art, and why it is not the answer
@@ -317,7 +317,7 @@ the verdict on mirroring** — see [`OQ-WP2`](#open-questions).
 **READ FROM CODE:** `~/.cache` inside a jail is `paths.GlobalCache()`
 (`internal/cli/run/assemble_parts.go:120`), which is
 `~/.local/share/yolo-jail/cache` — **shared by every workspace on the machine**
-([`jail-home.md`](jail-home.md) [§2.1](./jail-home.md#21-the-mount-stack), layer 3).
+([`jail-home.md`](../reference/jail-home.md) [§2.1](../reference/jail-home.md#the-mount-stack), layer 3).
 
 **MEASURED:** of its 24 top-level entries, exactly one is keyed by a workspace path —
 `~/.cache/claude-cli-nodejs/-workspace/`, the cwd-derived mangling Claude Code uses. Every
@@ -353,7 +353,7 @@ Recording these so the next reader does not re-derive them.
 | Candidate | Finding |
 | :--- | :--- |
 | `~/.claude.json` records project dirs by absolute path | **True but harmless.** **MEASURED:** exactly one `projects` key, `/workspace`. The file lives in the *per-workspace* overlay (`<ws>/.yolo/home/claude/claude.json`, symlinked from the `:ro` base at `internal/storage/ensure.go:102`), so the collapsed name never collides. Same for `~/.claude/projects/-workspace`. |
-| mise records workspace-derived absolute paths into a shared store | **Historical, and already fixed the other way.** This was the 2026-07 incident. **MEASURED:** `/mise` holds **zero** symlinks pointing into `/workspace` today, because `CARGO_HOME=/mise/cargo` moved the target out of the workspace ([`storage-and-config.md`](storage-and-config.md):367). Mirroring would *re-open* it — [§4.2](#42-the-re-opened-class). |
+| mise records workspace-derived absolute paths into a shared store | **Historical, and already fixed the other way.** This was the 2026-07 incident. **MEASURED:** `/mise` holds **zero** symlinks pointing into `/workspace` today, because `CARGO_HOME=/mise/cargo` moved the target out of the workspace ([`storage-and-config.md`](../reference/storage-and-config.md):367). Mirroring would *re-open* it — [§4.2](#42-the-re-opened-class). |
 | `node_modules` / `.venv` cross the boundary badly | **Real, and not a path problem.** Both are per-side shadow-mounted (`internal/cli/run/mounts.go:78-109`). The stated reason for `node_modules` is native builds and userland skew, not path spelling (`mounts.go:60-66`), and mirroring does not touch it. `.venv`'s path half is genuine but partial — see [§5](#5-what-this-does-not-fix-and-what-it-does-not-license). |
 | Go build cache poisoned by two projects sharing the name | **No.** Content-addressed; a same-path different-source build misses rather than false-hits (**MEASURED**, [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths)). |
 | Prism sidecars and receipts under `<ws>/.yolo` | **No.** Per-workspace by construction, and already path-parameterized: sidecar root is `filepath.Join(t.Workspace, ".yolo", "prism")` (`internal/render/target.go:246`), receipts path is baked from `Env.WorkspaceDir()` at generation time (`internal/entrypoint/shims.go:448`). |
@@ -431,9 +431,9 @@ I expected to find a security control resting on the paths differing. There is n
   (`internal/config/hostwrappers.go:33-35`, `internal/config/hostapplyonlaunch.go:47-49`),
   not by classifying path strings. [`trust-paths.md`](trust-paths.md) treats *workspace
   scope*, never the literal `/workspace`, as the untrusted marker.
-- [`host-execution-from-the-workspace.md`](host-execution-from-the-workspace.md)'s outbound
+- [`host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md)'s outbound
   threat model nowhere relies on a jail-written path failing to resolve on the host; its
-  [§5.4](./host-execution-from-the-workspace.md#54-standing-execution-move-the-watcher-into-the-jail) mechanism (`per_side_paths`) is the *opposite* idea — one path, two backings.
+  [§5.4](../reference/host-execution-from-the-workspace.md#move-the-watcher-in-and-shadow-the-derived-directories) mechanism (`per_side_paths`) is the *opposite* idea — one path, two backings.
 - The in-jail sentinel is `YOLO_VERSION` (`internal/config/load.go:315-317`), not a path.
 
 **The one accidental mitigation.** `internal/config/validate.go:333-335` skips a `mounts`
@@ -470,7 +470,7 @@ unifies one:
 | Space | Host | Jail | Under mirroring |
 | :--- | :--- | :--- | :--- |
 | Workspace | `/home/matt/code/proj` | `/workspace` | **unified** |
-| Home | `/home/matt` | `/home/agent` (`assemble.go:745`) | still different — and deliberately so ([`jail-home.md`](jail-home.md)) |
+| Home | `/home/matt` | `/home/agent` (`assemble.go:745`) | still different — and deliberately so ([`jail-home.md`](../reference/jail-home.md)) |
 | Toolchain store | `~/.local/share/mise` | `/mise` | still different — and deliberately so ([`jail-state-separation-design.md`](jail-state-separation-design.md)) |
 
 **Concretely: it does not fix venv portability**, which is the case most often cited for it.
@@ -486,7 +486,7 @@ or a home-relative tool — which is most installed software.
 mirroring on parity grounds is arguing against the evidence.
 
 **It does not license a config knob.** Two spellings of the workspace path is a second way to
-do one thing, which [`happy-path-principle.md`](happy-path-principle.md) exists to refuse
+do one thing, which [`happy-path-principle.md`](../reference/happy-path-principle.md) exists to refuse
 (*"Fill the matrix. Support one path per cell"*). [§10](#10-alternatives-each-with-a-verdict), alternative C.
 
 **It does not change the outbound host-execution threat model** ([§4.4](#44-trust-one-undocumented-fail-safe-and-nothing-else)), and it must not be
@@ -654,7 +654,7 @@ behaves identically"*). So a deep destination changes nothing there.
 > parent to a **new top-level** dir, which is the case F8 did not cover and which nobody had
 > probed. The related EROFS caveat in the code
 > (`internal/cli/run/assemble_parts.go:144-151`) is scoped to a `:ro` **bind** parent, not to
-> the read-only rootfs, and [`jail-home.md`](jail-home.md):238-246 records that even that
+> the read-only rootfs, and [`jail-home.md`](../reference/jail-home.md):238-246 records that even that
 > narrower claim resisted reproduction.
 
 Two residual podman questions. **Collision with the jail's own fixed paths** — a host
@@ -693,8 +693,8 @@ Two conclusions follow, and they run in the same direction:
   one has no mount and therefore no name to choose. That is the mount existing or not, not a
   2-versus-1 anomaly — the same way macos-user has no `/home/agent` (one shared
   `/Users/_yolojail`), no image, and no `per_side_paths` (*"Seatbelt can deny a path, it
-  cannot fork one"*, [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md):363-366).
-  [`happy-path-principle.md`](happy-path-principle.md) expects backends to fill different
+  cannot fork one"*, [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md):363-366).
+  [`happy-path-principle.md`](../reference/happy-path-principle.md) expects backends to fill different
   cells; `${workspace}` is the machinery that lets them.
 - **macos-user is not a precedent for mirroring, because it forbids the mirrored path.**
   Adopting mirroring on the container backends would make podman-on-macOS and macos-user
@@ -704,7 +704,7 @@ Two conclusions follow, and they run in the same direction:
 and structurally cannot: its census vocabulary is `packdecl.KnownKinds()` ∪
 `config.knownTopLevelConfigKeys` (`:132-138`), and the workspace root is neither. The
 difference is documented in
-[`macos-user-nix-and-features.md`](macos-user-nix-and-features.md):286-292 and `:639` instead.
+[`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md):286-292 and `:639` instead.
 
 What macos-user *does* prove is worth something, and it is a cost argument, not a correctness
 one: the `${workspace}` seam works, and the host-path form is already exercised in production
@@ -800,7 +800,7 @@ canonicalization ambiguity [§8](#8-migration) describes, where `pwd -P`, watche
 symlinks silently disagree with every doc. Strictly worse than A.
 
 **C. Make it a config knob** (`workspace_mount: "fixed" | "mirror"`). — **Rejected.** A second
-way to do one thing, which [`happy-path-principle.md`](happy-path-principle.md) refuses on
+way to do one thing, which [`happy-path-principle.md`](../reference/happy-path-principle.md) refuses on
 principle (*"A second option only earns its place if it covers a matrix cell the first
 cannot"* — this covers no new cell). Worse than either pole in practice, because every doc,
 skill, briefing and pack would have to hedge on a value it cannot know.
@@ -919,13 +919,13 @@ inside the workspace. All three mounted on a `--read-only` rootfs; the workspace
 overlay were writable, the home base stayed read-only, and crun created `/home/matt/code`
 inside the `:ro` bind without complaint — so the EROFS caveat at
 `internal/cli/run/assemble_parts.go:144-151` did not bite, consistent with
-[`jail-home.md`](jail-home.md):238-246's finding that it resists reproduction.
+[`jail-home.md`](../reference/jail-home.md):238-246's finding that it resists reproduction.
 
 **P1 is therefore retracted: the mechanics are not the objection.** Two structural
 consequences are worth recording, because they are new and neither is fatal on its own:
 
 - **The workspace moves inside the home.** Today they are siblings; the whole
-  [`jail-home.md`](jail-home.md) overlay stack assumes a `:ro` home base with rw punches. A rw
+  [`jail-home.md`](../reference/jail-home.md) overlay stack assumes a `:ro` home base with rw punches. A rw
   workspace inside that base is a fourth kind of punch, and the deepest.
 - **The `<ws>/.yolo/home` alias moves inside `$HOME` too, and I measured the cycle.** A file
   written through `/home/matt/.config` appeared at
@@ -1122,11 +1122,11 @@ Both, and the two halves point opposite ways. This is where P5 splits.
 
 **The single shared home is a choice, and a weakly-founded one — I withdraw that half of P5.**
 It arrived as SandVault parity with no argument recorded, and it contradicts a stated
-must-keep in [`macos-no-vm-direction.md`](macos-no-vm-direction.md):127-128 (*"Per-workspace
+must-keep in [`macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md):127-128 (*"Per-workspace
 isolation … not one shared home"*). `SandboxHome()` is a one-line constant. The
 *"load-bearing"* framing in [`backend-parity.md`](backend-parity.md):295-298 is a later
 justification on credential grounds — one login per machine — and it carries a documented
-isolation leak ([`macos-user-nix-and-features.md`](macos-user-nix-and-features.md):341-346:
+isolation leak ([`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md):341-346:
 *"The denial and the leak are the same content reached two ways"*). A maximal proposal may
 legitimately reopen it.
 
@@ -1300,7 +1300,7 @@ and it already has a home in the tree.
    Fixing it means binding a per-workspace directory over one vendor-specific path — a
    mount added for one tool's cache layout, which is the shape yolo usually refuses.
 
-   _Leaning:_ Leave it, and note it in [`jail-home.md`](jail-home.md) [§2.1](./jail-home.md#21-the-mount-stack) so the next person
+   _Leaning:_ Leave it, and note it in [`jail-home.md`](../reference/jail-home.md) [§2.1](../reference/jail-home.md#the-mount-stack) so the next person
    who finds interleaved MCP logs does not spend an afternoon on it. Revisit if a
    second consumer appears ([§1.1](#11-what-would-change-my-mind)).
 
@@ -1340,7 +1340,7 @@ and it already has a home in the tree.
 6. 💬 **OQ-WP6: Is the interesting proposal actually "mirror all three path spaces"?**
    P1 says mirroring the workspace alone cannot make the two sides agree, because home and
    the toolchain store do not move. The coherent version of the idea moves all three — and
-   collides head-on with two shipped designs ([`jail-home.md`](jail-home.md),
+   collides head-on with two shipped designs ([`jail-home.md`](../reference/jail-home.md),
    [`jail-state-separation-design.md`](jail-state-separation-design.md)) that exist because
    *not* sharing those was worth paying for. Worth a paragraph of intent before anyone
    invests in it.
@@ -1446,9 +1446,9 @@ and it already has a home in the tree.
 12. 💬 🤷 **OQ-WP12: Reopen `macos-user`'s single shared home?** A side finding of [§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice),
     unrelated to mirroring's verdict. The single `/Users/_yolojail` home was inherited from
     SandVault with no argument recorded, contradicts a stated must-keep in
-    [`macos-no-vm-direction.md`](macos-no-vm-direction.md):127-128 (*"Per-workspace isolation
+    [`macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md):127-128 (*"Per-workspace isolation
     … not one shared home"*), and carries a documented cross-workspace transcript leak
-    ([`macos-user-nix-and-features.md`](macos-user-nix-and-features.md):341-346). Its
+    ([`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md):341-346). Its
     *"load-bearing"* framing ([`backend-parity.md`](backend-parity.md):295-298) is a later
     credential-tier justification, not the reason it exists.
 

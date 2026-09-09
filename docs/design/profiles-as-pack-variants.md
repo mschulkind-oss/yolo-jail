@@ -66,11 +66,11 @@ already shipped, which is most of the argument), [§5](#5-the-delivery-channel-r
 credential architecture is adopted as recommendation plus mechanism),
 [`../reference/pack-system.md`](../reference/pack-system.md) (core knows no agents, the kind registry, the
 footprint model, the `config-overlay` kind and the layer fold),
-[`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the
-extension point), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
-(unmatched references fail closed), [`host-agent-environment.md`](host-agent-environment.md)
-([§3.1](./host-agent-environment.md#31-approach-1-native-agent-config-file-injection-channel-1--configuration): native config-file injection is the preferred host delivery path), and
-[`zai-plumbing.md`](zai-plumbing.md) (the first real consumer — worked examples for both provider
+[`extension-point-principle.md`](../reference/extension-point-principle.md) (the framework author designs the
+extension point), [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
+(unmatched references fail closed), [`host-agent-environment.md`](../reference/host-agent-environment.md)
+([§3.1](../reference/host-agent-environment.md#the-vocabulary): native config-file injection is the preferred host delivery path), and
+[`zai-plumbing.md`](../reference/zai-plumbing.md) (the first real consumer — worked examples for both provider
 routes, and the endpoint-by-protocol resolution).
 
 **Terms**, defined once and used with one meaning throughout — coinages say so, borrowed terms
@@ -113,7 +113,7 @@ link their owner:
 3. **P3 — A provider is a fact about the user's machine, not a shipped artifact.** It stays a
    top-level config key (`providers`), because that is where a URL, a region and a credential
    pointer actually come from. It is already an extension point strangers write, so per
-   [`extension-point-principle.md`](extension-point-principle.md) the typed schema stays and gets
+   [`extension-point-principle.md`](../reference/extension-point-principle.md) the typed schema stays and gets
    *stricter* — the opposite of [`pack-profiles.md`](./pack-profiles.md) [§2.3](./pack-profiles.md#23-the-core-knows-providers-redundancy).
 4. **P4 — One representation per concept, with no escape hatch.** If an endpoint can be expressed
    two ways — once typed, once smuggled through an untyped dictionary — the typed one is
@@ -134,7 +134,7 @@ link their owner:
    — a limit of that COMMAND, not of the notch, since `host apply` never runs a process. Host env
    IS deliverable now that [`hostwrap`](../../internal/hostwrap/hostwrap.go) generates a
    per-program PATH wrapper — but behind the opt-in `host_wrappers` key
-   ([`host-agent-environment.md` §5.1](host-agent-environment.md#51-where-launch-wrappers-live--and-the-path-claim-they-cost)),
+   ([`host-agent-environment.md` §5.1](../reference/host-agent-environment.md#the-wrapper-directory)),
    so it needs yolo in the launch path *and* the opt-in, while a config-file patch works from any
    invocation (IDE, cron, absolute path) with neither. So **configuration** patches the agent's
    own config surface; **secrets and unsets** go through process env. Channels, not preferences.
@@ -266,7 +266,7 @@ more places, and a full removal has to take them:
 
 ### 2.5 The stringly-typed hole that is live today
 
-[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) originally
+[`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md) originally
 listed `pack_profiles.<pack_name>` as "Required / Validation error if pack is not in configured
 universe." **That census row was wrong when this doc measured it** — `validateAgentProfiles`
 ([`validate.go:947-967`](../../internal/config/validate.go#L947-L967)) checks only that the value
@@ -461,7 +461,7 @@ credential supplied by user config"`.
 The narrow thing a pack *does* legitimately want is to say **"I need a provider named X"** —
 `requires_provider` in [§3.1](#31-the-shape) — which is an assertion, not a definition (the three things the word
 "provider" can mean, separated and worked end-to-end:
-[`zai-plumbing.md`](zai-plumbing.md) [§1](./zai-plumbing.md#1-the-wiring-named--three-different-things-carry-the-word-zai)) — and behaves like
+[`zai-plumbing.md`](../reference/zai-plumbing.md) [§1](../reference/zai-plumbing.md#three-different-things-carry-the-word-zai)) — and behaves like
 `kind: "requires"` ([`kinds.go:40-58`](../../internal/packdecl/kinds.go#L40-L58)): many packs may
 assert one provider, nobody owns it, and a missing one is a named preflight failure.
 
@@ -493,7 +493,7 @@ Under this design the hatch is closed by construction: there is one place a prov
 Extend [`validate.go:885-944`](../../internal/config/validate.go#L885-L944) rather than replacing it:
 
 - **`wire_api` becomes a closed enum** (`openai-completions`, `openai-chat`, `anthropic`,
-  `responses`), which is [Rule 4](stringly-typed-references-principle.md) applied to a fixed
+  `responses`), which is [Rule 4](../reference/stringly-typed-references-principle.md) applied to a fixed
   syntactic slot. It is a free-form string today.
 
   > **SUPERSEDED 2026-09-01 by [`OQ-PT1`](../reference/providers.md#why-its-this-way)** ([`providers.md`](../reference/providers.md)
@@ -546,13 +546,13 @@ opened with: **process env is deliverable at both notches, but only through a ch
 its wrapper) in the launch path** — `host apply` alone, a bare invocation from a shell without the
 wrap dir on `PATH`, cron, and an IDE-configured absolute path all miss it.
 
-[`pack-profiles.md`](./pack-profiles.md) [§9](./pack-profiles.md#9-alignment-with-repo-principles) claims alignment with [`happy-path-principle.md`](happy-path-principle.md) —
+[`pack-profiles.md`](./pack-profiles.md) [§9](./pack-profiles.md#9-alignment-with-repo-principles) claims alignment with [`happy-path-principle.md`](../reference/happy-path-principle.md) —
 *"One unified merge pipeline across the entire matrix: Linux containers, macOS Apple Container,
 `macos-user`, and Host Render Target (`yolo host apply`)"*. Its worked example is **pure `config.env`**.
 So the flagship case does not reach the apply verb the doc claims parity for — and the host notch,
 where the design's stated downstream motivation lives, is served by the launch verb and wrapper
 they did not build
-([`host-agent-environment.md` §2.2](host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions):
+([`host-agent-environment.md` §2.2](../reference/host-agent-environment.md#why-every-program-gets-a-wrapper):
 obviating the `.bashrc` `claude()` wrapper).
 
 **The rule this implies — corrected 2026-08-30.** The first version of this section stated a
@@ -563,7 +563,7 @@ half it is wrong for is the half that carries credentials:
 > **A config file ROUTES a credential; it cannot DELIVER one.** `api_key_env_name` / `apiKeyEnv` /
 > `{env:VAR}` all write the **name** of a variable the agent then reads from **its own process
 > environment** — verified against the three shipped derives in
-> [`host-agent-environment.md` §4](host-agent-environment.md#4-per-agent-host-capabilities-matrix).
+> [`host-agent-environment.md` §4](../reference/host-agent-environment.md#the-vocabulary).
 > So there is no "fallback" here: any bring-your-own-key provider is unusable on the host without a process-env
 > channel, for every agent. A preference order cannot express that, because the two channels are not
 > ranked — they carry different things.
@@ -595,7 +595,7 @@ flowchart LR
 The **non-secret** half of the motivating example dissolves into a managed-layer patch on a surface
 `packs/claude` already owns — no fragment, no adapter pack, no new merge engine, and it works from
 any invocation at both notches. The **secret** half (AWS credentials, and
-[`host-agent-environment.md`](host-agent-environment.md) [§2.2](./host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions)'s `unset
+[`host-agent-environment.md`](../reference/host-agent-environment.md) [§2.2](../reference/host-agent-environment.md#why-every-program-gets-a-wrapper)'s `unset
 AWS_PROFILE`, which no config surface can express at all) goes through the process env and needs
 `yolo host` on the host side.
 
@@ -628,7 +628,7 @@ What adopting [§4](#4-providers-stay-a-config-key--and-the-schema-gets-stricter
 
 ### 6.1 `env_sources` fails open while the config layer fails closed
 
-The census in [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
+The census in [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
 records `env_sources` as *warn + skip* (its row has since absorbed this section's gate as the
 disposition), which
 [`envsources.go:172-176`](../../internal/config/envsources.go#L172-L176) confirms (a warn, then
@@ -752,7 +752,7 @@ one.
 [`pack-profiles.md`](./pack-profiles.md) [§8.1](./pack-profiles.md#81-target-pack-verification-fail-closed-rule) checks `frag.Target` against the **active packs**. Two consequences:
 
 1. `target: "cloude"` with `optional: true` is **silently skipped** — the precise typo the
-   [stringly-typed principle](stringly-typed-references-principle.md) exists to catch, waved through
+   [stringly-typed principle](../reference/stringly-typed-references-principle.md) exists to catch, waved through
    by the field that was supposed to make opportunism safe.
 2. A generic provider pack targeting four agents must mark all four `optional`, after which
    *nothing* about it is verified.
@@ -816,7 +816,7 @@ instinct — applied to a different set ([§8](./pack-profiles.md#8-resolution--
 | # | Risk | Mitigation |
 | :--- | :--- | :--- |
 | R1 | The `pack_profiles` rename breaks existing configs and `packs/claude/derive.lua`. | Refuse `agent_profiles` by name with a message that gives the replacement — the pattern `journal`/`host_processes` already set ([AGENTS.md](../../AGENTS.md)). The derive is a one-word edit. |
-| R2 | Refusing the cross-pack fragment means a third-party provider genuinely cannot adapt an agent pack it does not control. | [§7](#7-if-cross-pack-delivery-is-ever-needed-it-is-config-overlay-with-a-profile-field) is the designed answer, one field on a shipped kind. Ship it the moment a real second consumer appears; the namespace is settled now, which is what [`extension-point-principle.md`](extension-point-principle.md) Rule 6 asks for. |
+| R2 | Refusing the cross-pack fragment means a third-party provider genuinely cannot adapt an agent pack it does not control. | [§7](#7-if-cross-pack-delivery-is-ever-needed-it-is-config-overlay-with-a-profile-field) is the designed answer, one field on a shipped kind. Ship it the moment a real second consumer appears; the namespace is settled now, which is what [`extension-point-principle.md`](../reference/extension-point-principle.md) Rule 6 asks for. |
 | R3 | Moving Bedrock env into `claude/settings` depends on Claude Code honoring `settings.json`'s `env` block for these specific variables. | **Retired by measurement 2026-08-31 ([`OQ-4`](#14-decision-ledger))** — the settings `env` block IS honored, applied before the first API call; witness `ANTHROPIC_BASE_URL`. The Bedrock-mode var rides the same mechanism; a re-test with AWS creds is cheap insurance before deleting the Go path. |
 | R4 | `CombineExclusive` by `(pack, name)` forbids a pack splitting one profile across several contributions. | Deliberate — it is the same one-declaration rule `autonomy` has, and it keeps "what does profile X do" answerable by reading one object. |
 | R5 | The active-profile credential preflight ([§6.2](#62-an-activated-profile-with-no-credential-is-a-preflight-failure)) turns a working-but-degraded launch into a refusal. | Scoped to *active* profiles only, and the message names the variable, the provider and the `env_sources` files consulted. Same disposition as the reachability witness in [AGENTS.md](../../AGENTS.md). |
@@ -842,9 +842,9 @@ instinct — applied to a different set ([§8](./pack-profiles.md#8-resolution--
    ⚠ **`yolo host` is a prerequisite for the HOST half of this step, not a follow-on** (amended
    2026-08-30). The flags move to `claude/settings`, but the AWS credentials and the
    `unset AWS_PROFILE` cannot — so until the process-env channel exists on the host, a `bedrock`
-   profile is jail-only and [`host-agent-environment.md`](host-agent-environment.md) [§2.2](./host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions)'s
+   profile is jail-only and [`host-agent-environment.md`](../reference/host-agent-environment.md) [§2.2](../reference/host-agent-environment.md#why-every-program-gets-a-wrapper)'s
    `.bashrc` wrapper cannot actually be deleted. See
-   [`host-agent-environment.md` §5](host-agent-environment.md#5-the-recommended-host-environment-architecture).
+   [`host-agent-environment.md` §5](../reference/host-agent-environment.md#the-wrapper-directory).
 4. **Tighten the provider schema** ([§4.3](#43-what-to-add-to-the-schema)) and add `requires_provider`.
 5. **The credential preflight gate** ([§6.2](#62-an-activated-profile-with-no-credential-is-a-preflight-failure)).
 6. **`profile` on `config-overlay`** — SHIPPED 2026-09-01 (commits 568d5a3a + 980aed71), `packs/zai` the first consumer; the env/launch spellings stay unshipped (subsumed by the profile kind's own fields).
@@ -888,7 +888,7 @@ comments cite them.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-1 | **Keep `autonomy` and `profile` as two kinds.** Corpus-forced three ways: environment-manager [`OQ-11`](#14-decision-ledger) (resolved 2026-08-01, shipped) placed the confinement-conditional keys in the autonomy kind "and nowhere else" so unconditional config cannot contain a bypass; [`OQ-5`](#14-decision-ledger) made profile values free-form and derive-reaching, leaving no expressible way to reserve two names; and the selector asymmetry IS the shipped [§4.2](#42-the-escape-hatch-that-must-not-exist) fix — autonomy keys off the constructor-only, fail-closed notch (`Target.Profile()`), while profile names arrive through the workspace-over-user merge an agent can edit (gate-placement Test 1). | 2026-09-01 | [§3.1](#31-the-shape) |
-| OQ-2 | **`providers` stays flat.** A profile selects a provider by name (`requires_provider`); it never reshapes the map. Where one key must produce many endpoint shapes, the shape axis lives INSIDE the entry (`endpoints`, per the zai [`OQ-Z2`](./zai-plumbing.md#8-decision-ledger) ruling) — which supersedes this doc's earlier "two regions are two providers" whenever the variants share one credential. | 2026-09-01 | [§4.1](#41-the-contribution-kind--ruled-in-2026-09-01-reversing-this-sections-original-verdict) |
+| OQ-2 | **`providers` stays flat.** A profile selects a provider by name (`requires_provider`); it never reshapes the map. Where one key must produce many endpoint shapes, the shape axis lives INSIDE the entry (`endpoints`, per the zai [`OQ-Z2`](../reference/zai-plumbing.md#why-its-this-way) ruling) — which supersedes this doc's earlier "two regions are two providers" whenever the variants share one credential. | 2026-09-01 | [§4.1](#41-the-contribution-kind--ruled-in-2026-09-01-reversing-this-sections-original-verdict) |
 | OQ-3 | **Profile names are free-form and global; values are never name-checked.** Entailed by [`OQ-5`](#14-decision-ledger)'s ruling. Config KEYS stay checked against the CLI-name namespace ([§2.5](#25-the-stringly-typed-hole-that-is-live-today), [§8](#8-fail-closed-but-on-the-right-set)); typo defense is the launch line's DECLARED/RECEIVED print, not a gate. **SUPERSEDED 2026-09-01 by [`OQ-CS6`](../reference/providers.md#why-its-this-way)** ([`providers.md`](../reference/providers.md) §10, §5.2 property 3) — both halves went with it: names stop being free-form because **declaration is mandatory**, and an undeclared name is a **reportable error**, not a silent no-op for the launch print to excuse. | 2026-09-01 | [§3.3](#33-the-selector-and-where-it-comes-from) |
 | OQ-4 | **Claude Code honors `settings.json`'s `env` block before the first API call — YES, measured.** Controlled listener experiment, claude 2.1.252, scratch `CLAUDE_CONFIG_DIR`, inherited `ANTHROPIC_*` scrubbed: settings-only `ANTHROPIC_BASE_URL` produced traffic identical to the process-env control. Witness var is `ANTHROPIC_BASE_URL`; `CLAUDE_CODE_USE_BEDROCK` rides the same mechanism (a cheap AWS-creds re-test is the insurance before deleting the Go path). R3 retired. | 2026-08-31 | [§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example), §12.3 |
 | OQ-5 | **`-p <name>` is global, declared or not** — the active profile name reaches every selected pack; consistency is the point. *(Ruled by the maintainer; supersedes the declare-only leaning and withdrew [`OQ-3`](#14-decision-ledger)'s fatality.)* **SUPERSEDED 2026-09-01 by [`OQ-CS6`](../reference/providers.md#why-its-this-way)** ([`providers.md`](../reference/providers.md) §10, §5.2 property 3; the maintainer's words there: *"reversing old decisions is fine"*): the "declared or not" half is dead — an undeclared name is a reportable error. The global half survives: the name still reaches every selected pack, it is just a name that was declared. | 2026-08-31 | [§3.3](#33-the-selector-and-where-it-comes-from) |
