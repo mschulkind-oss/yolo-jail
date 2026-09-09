@@ -71,10 +71,12 @@ you run once rather than something a launch does for you.
 Some tools are intentionally shimmed (e.g. `grep -r` → use `rg`, `find` → use
 `fd`). If a command errors oddly or is "not found the way you expect":
 
-- List the active blockers: `ls ~/.yolo-shims/` (first on PATH — these are the
-  refusals). Lazy-install launchers are a different mechanism in a different
-  dir: `ls ~/.yolo-launchers/` (last on PATH, after `/bin`, so one is only
-  reached when nothing else provides the name).
+- List the active blockers: `ls ~/.yolo/bin/block/` (FIRST on PATH — these are
+  the refusals). Lazy-install launchers are a different mechanism in a different
+  dir: `ls ~/.yolo/bin/launch/` (SECOND on PATH, ahead of every install prefix,
+  so a launcher mediates every invocation of the name it carries — that is what
+  keeps an agent CLI up to date). Both live under one anchor at `~/.yolo/bin`,
+  which is deliberately NOT on PATH itself.
 - Run the real tool for a script/installer that needs it:
   `YOLO_BYPASS_SHIMS=1 <cmd>`
 - **The `rg -r` trap:** in `rg`, `-r` means `--replace` and silently corrupts
