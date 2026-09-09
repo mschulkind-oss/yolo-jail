@@ -1,12 +1,27 @@
+---
+status: current
+verified: 2026-09-09
+verified_commit: 356bcec8
+covers:
+  - internal/packsrc/lock.go
+  - internal/packload/hostaccessgates_test.go
+  - internal/cli/run/packhostgrants.go
+  - internal/config/userlayer.go
+  - internal/config/packs.go
+  - internal/image/autoload.go
+tags: [principle, gates, trust, scope, security]
+---
+
 # Principle: put the gate where the authority changes
 
-**Status:** PRINCIPLE — cited as a rule by sibling docs and by code comments, so it is amended
-rather than rewritten. Last amended **2026-08-23** (the declaration-vs-presence refinement in
-"What this principle does NOT say").
+**Status:** PRINCIPLE, current as of 2026-09-09, verified against `356bcec8`.
 
 **Audience:** anyone adding a confirmation prompt, an approval record, a scope restriction, a
 signature check, or any other gate — and anyone deciding that an existing one is missing. Read this
 before writing "and then we ask the user to confirm."
+
+A principle keeps its rationale on purpose: a rule stripped to its verdict reads as arbitrary and
+gets ignored, and this one is cited to *delete* things, which is the harder direction.
 
 **Sibling principles:** [`extension-point-principle.md`](extension-point-principle.md) (who designs
 an extension point), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix, don't
@@ -60,17 +75,17 @@ smaller, cheaper, structural one — usually falls straight out.
 
 ## Worked examples, all from this repo
 
-**A confirmation that was theatre, and the real gap behind it.**
-[`loophole-packaging.md`](loophole-packaging.md) [§4.3a](loophole-packaging.md#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) proposed digesting every file a loophole would
-execute and re-confirming when it changed. Test 1 kills it: installing a loophole means editing your
-own user config, which already requires host access as you. But the *finding* underneath was real —
-an **agent** can rewrite a daemon that lives in a live-mounted workspace, and an agent has none of
-that authority. Two actors, one of whom the gate was never about. The fix that survives is
-structural and costs a path comparison: installed content may not live where an agent writes. The
-theatre is gone and the hole is closed, which is the opposite of the usual trade.
+**A confirmation that was theatre, and the real gap behind it.** A proposal to digest every file a
+loophole would execute, and re-confirm when the digest changed, dies to Test 1: installing a loophole
+means editing your own user config, which already requires host access as you. But the *finding*
+underneath was real — an **agent** can rewrite a daemon that lives in a live-mounted workspace, and
+an agent has none of that authority. Two actors, one of whom the gate was never about. The rule that
+survives is structural and costs a path comparison: installed content may not live where an agent
+writes ([`loophole-system.md`](loophole-system.md#the-placement-rule)). The theatre is gone and the
+hole is closed, which is the opposite of the usual trade.
 
 **A "you can already read this" argument used to justify execution.** yolo trusts `file://` pack
-content because it is *"the user's own files, which they can already read."* Sound for a gate about
+content because it is the user's own files, which they can already read. Sound for a gate about
 **reading**. The same sentence was carrying a gate about **running**, where it does not hold — an
 agent that can write those files has escalated, not merely read something it already could. Test 1
 must be applied to the verb the gate actually guards.
@@ -79,7 +94,9 @@ must be applied to the verb the gate actually guards.
 `cache_relocations` are user-scope-only. That looks superficially similar to the case above — both
 are "only a trusted file may say this" — but here the actor genuinely changes: a workspace config
 travels with a repo and is agent-editable, so allowing the key would hand an agent something it could
-not otherwise get. Same shape, opposite verdict, and the difference is entirely Test 1.
+not otherwise get (`internal/config` — `userlayer.go`'s header comment states the test, and
+`packs.go` states the widening rule it produces). Same shape, opposite verdict, and the difference is
+entirely Test 1.
 
 **A gate placed one step too late.** Loopholes split into *install* (this code may run here at all)
 and *enable* (this jail uses it). The interesting result is that enable needs **no** gate, even
@@ -87,22 +104,22 @@ though enable is what starts the daemon: by then the content was already vetted 
 agent flipping it on gains nothing it was not already given. One gate, at the step where the
 authority changed — not one per scary-sounding verb.
 
-**A prompt any pipe defeats — and the stronger objection this page missed.** `yes | yolo pack
-install` answers the fetched-pack approval prompt. A gate that a shell pipeline dismisses is theatre
-against anything automated; if the answer must come from a person, it has to require a terminal and
-fail closed without one. A gate that cannot tell a human from a pipe is not asking a human.
+**A prompt any pipe defeats — and the stronger objection it hid.** `yes | yolo pack install` answered
+the fetched-pack approval prompt. A gate that a shell pipeline dismisses is theatre against anything
+automated; if the answer must come from a person, it has to require a terminal and fail closed
+without one. A gate that cannot tell a human from a pipe is not asking a human.
 
 > [!IMPORTANT]
-> **That criticism was true and too small, and this page is the reason it should have been caught.**
-> The prompt was **deleted outright on 2026-09-04** ([`trust-paths.md`](trust-paths.md) [OQ-TP9](trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04)),
-> because it fails **Test 1** at the top of this document: selecting a pack means writing `packs` in
-> the user config as the host user, which already exceeds everything the prompt withheld. This page
-> named the prompt as flawed on the *pipe* ground, defended its **neighbour** (`packs` being
-> user-scope-only, which genuinely passes Test 1) two paragraphs earlier, and never ran its own
-> headline test on the prompt itself. **The lesson is about reading, not about packs:** a gate can be
-> criticized on a narrow ground and thereby look *examined*, which stops the next reader from asking
-> the authority question at all. When a gate appears in a worked-example list, run Test 1 on it
-> explicitly, even if some other objection already applies.
+> **That criticism was true and too small, and the lesson is about reading rather than about packs.**
+> The prompt was deleted outright
+> ([`OQ-TP9`](../design/trust-paths.md#decision-ledger) in
+> [`../design/trust-paths.md`](../design/trust-paths.md)), because it fails **Test 1** at the top of this document: selecting a pack means writing
+> `packs` in the user config as the host user, which already exceeds everything the prompt withheld.
+> The *pipe* objection is a narrow ground, and a gate criticized on a narrow ground looks
+> **examined** — which stops the next reader from asking the authority question at all. When a gate
+> appears in a worked-example list, run Test 1 on it explicitly, even if some other objection already
+> applies. What replaced the prompt is disclosure, pinned by
+> `packload.TestTheDisclosureThatReplacedTheGateIsStillWired`.
 
 **Scope, rebinding one level in.** A nested jail's "user level" is the outer jail, because the outer
 jail is what an inner-jail loophole can damage. Its agent may legitimately own that scope — the same
@@ -115,20 +132,26 @@ A gate is not the only thing that can be theatre. **A persisted field, a file na
 can assert a property nothing enforces**, and it fails the same way — a reader sees it and stops
 looking.
 
-The worked example is `ApprovedAt` in the pack lockfile. It is written on every install and read by
-nothing; the approval check compares claim strings and never consults it. But it lives in a *trust*
-file and its name says the approval is anchored to a commit, so anyone reading that lockfile — or
-building the next gate against it — would reasonably conclude the anchoring exists.
+The worked example is the pack lockfile's approval record. `ApprovedAt` was written on every install
+and read by nothing; the approval check compared claim strings and never consulted it. But it lived
+in a *trust* file and its name said the approval was anchored to a commit, so anyone reading that
+lockfile — or building the next gate against it — would reasonably conclude the anchoring existed.
+`ApprovedAt` went first, for exactly that reason; `ApprovedHostAccess` and `HostAccessApproved` went
+with the prompt when Test 1 deleted it. The lockfile now carries **no** approval record at all, and
+that absence is a ruling: `packsrc.LockEntry`'s header says so, and
+`packsrc.TestTheLockfileHoldsNoApprovalRecord` goes red if any of it comes back.
 
 **The test is the same one, applied to the artifact instead of the code path:** does the name assert
 something the system enforces? If not, the honest options are to enforce it or to delete it. There is
 no third option where it stays as documentation, because a field is not read as documentation — it is
 read as a fact about the system.
 
-**Pin the gap with an assertion, not a placeholder.** Where a hole is known and deliberately not
-closed, a test that fails if the behaviour changes records it *and* stays true. A half-built field
-records it and lies. `TestHostAccessApprovedIgnoresApprovedAtToday` is the shape to copy: it names
-the gap, it is checkable, and nothing about it suggests the gap is handled.
+> [!WARNING]
+> **Pin the gap with an assertion, not a placeholder.** Where a hole is known and deliberately not
+> closed, write a test that fails if the behaviour changes: it records the gap *and* stays true. A
+> half-built field records it and lies. Do not reintroduce a persisted approval field to "document"
+> an approval nothing enforces — decoding tolerates the stray key from an old lockfile precisely so
+> that removal costs no compatibility.
 
 **This is where YAGNI and the extension-point principle divide cleanly.**
 [`extension-point-principle.md`](extension-point-principle.md) protects designed extension
@@ -148,28 +171,30 @@ get removed. The question is never "could *someone* do this" but "could **this a
 moment, without the gate." If the actor differs, the gate stands.
 
 **It is not licence to skip a gate because the mechanism looks similar to one that was theatre.**
-Both examples above look like "only a trusted file may declare this." One is theatre and one is
-load-bearing. Only Test 1, applied to the specific actor and the specific verb, tells them apart.
+Two of the examples above look identically like "only a trusted file may declare this." One is
+theatre and one is load-bearing. Only Test 1, applied to the specific actor and the specific verb,
+tells them apart.
 
 **Visibility is not a gate, and is not subject to this test at all.** Telling someone what is
 happening on their machine has value even when they already authorised it — the disclosure is not
 pretending to stop anything. Do not delete a message because the act behind it was permitted.
 
 **It does not say a gate must identify the human — sometimes the right actor test is a
-DECLARATION.** *(Added 2026-08-23, from a ruling that deliberately diverged from this doc.)* A
-sibling formulation gets quoted a lot — *"a gate that cannot tell a human from a pipe is not asking
-a human"* — and it is right about **prompts**. It is wrong wherever the thing that makes the act
-safe is not *who* is present but that somebody **SAID** the dangerous precondition holds.
+DECLARATION.** A sibling formulation gets quoted a lot — *"a gate that cannot tell a human from a
+pipe is not asking a human"* — and it is right about **prompts**. It is wrong wherever the thing that
+makes an act safe is not *who* is present but that somebody **SAID** the dangerous precondition
+holds.
 
 The worked case is the stale-image launch
-([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#a-failed-build-is-fatal) [OQ-2](../reference/image-staging-vs-baking.md#why-its-this-way), shipped `7830f65`). The design's
-own leaning was to prompt an interactive human and refuse a pipe; the shipped code refuses **both**
-and takes `YOLO_ALLOW_STALE_IMAGE=1` as the way past. The reason generalises: what makes running on
-a stale image safe is knowing the image *is* stale — **precisely the knowledge whose absence caused
-the bug** — and a TTY test proves presence, not knowledge. The asymmetry decides it: refusing costs
-a rerun with one env var; continuing costs an investigation two layers from the cause.
+([`image-staging-vs-baking.md`](image-staging-vs-baking.md#a-failed-build-is-fatal),
+[`OQ-2`](image-staging-vs-baking.md#why-its-this-way)). The design's own leaning was to prompt an
+interactive human and refuse a pipe; the shipped code refuses **both** and takes an env var as the
+way past. The reason generalises: what makes running on a stale image safe is knowing the image *is*
+stale — **precisely the knowledge whose absence caused the bug** — and a TTY test proves presence,
+not knowledge. The asymmetry decides it: refusing costs a rerun with one env var; continuing costs an
+investigation two layers from the cause.
 
 > [!WARNING]
-> **Do not "fix" `internal/image/autoload.go` to consult a TTY on the strength of this principle.**
-> The divergence is deliberate and argued at the `currentPath == ""` comment on that branch. The
-> test to apply is the one above: is the missing thing *presence* or *knowledge*?
+> **Do not "fix" `internal/image` to consult a TTY on the strength of this principle.** The
+> divergence is deliberate and argued at the `currentPath == ""` branch in `autoload.go`. The test to
+> apply is the one above: is the missing thing *presence* or *knowledge*?

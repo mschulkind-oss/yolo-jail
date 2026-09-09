@@ -22,7 +22,7 @@ describe a jail."*
 > `install`→`program`, `mounts`→`mount`, `hostFiles`→`reads-host`,
 > `writableDirs`/`sharedDirs`→`state`, plus new `env`. The vision and the confinement dial are
 > unaffected; nothing below is built beyond those two verbs. See
-> [pack-system.md](pack-system.md).
+> [../reference/pack-system.md](../reference/pack-system.md).
 
 > **Implementation postscript (2026-08-23).** [§1](#1-the-one-sentence-answer-to-how-is-this-different-from-sandvault)–[§9](#9-decision-ledger) keep their original tense: they describe the
 > destination as *proposed*, which is what makes them readable as a design. Most of the
@@ -60,11 +60,12 @@ change.
 **The name stays.** `jail` becomes the name of the strongest confinement level, so "yolo jail"
 reads as "yolo, at the jail level." The name gets *more* accurate under this framing, not less.
 
-**Reads with:** [what-yolo-is.md](what-yolo-is.md) (whose Part 1 answer this inverts),
+**Reads with:** [../reference/what-yolo-is.md](../reference/what-yolo-is.md) (whose separability answer this
+reframes),
 [host-render-target.md](host-render-target.md) (the render side of the same idea; its §9.1 is
-the question this doc answers), [happy-path-principle.md](happy-path-principle.md) (which
+the question this doc answers), [../reference/happy-path-principle.md](../reference/happy-path-principle.md) (which
 constrains how many knobs this may add),
-[macos-no-vm-direction.md §"What makes it yolo"](macos-no-vm-direction.md) (the prior, narrower
+[../reference/macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) (the prior, narrower
 version of this argument),
 [environment-manager-user-stories.md](environment-manager-user-stories.md) (this design walked
 through five users, which is where its output formats get pressure-tested and where [§8](#8-what-this-costs)'s costs
@@ -92,7 +93,7 @@ So:
 > workspace — and confinement is one attribute of the description. A jail is the strongest
 > setting of that attribute, and the default.**
 
-That inverts `what-yolo-is.md:93` ("a sandbox product with an unusually good
+That inverts the earlier framing ("a sandbox product with an unusually good
 config-composition engine inside it"), which had it backwards, and whose own next paragraph
 already flinched at the implication.
 
@@ -559,7 +560,7 @@ boundary) + Seatbelt (confinement)" and its Linux form is "bwrap namespaces, no 
 — those are already *different compositions wearing one notch name*, which is the evidence the
 primitive layer is real and needs a home.
 
-What [happy-path-principle.md](happy-path-principle.md) rules out is *exposing* that vector as
+What [../reference/happy-path-principle.md](../reference/happy-path-principle.md) rules out is *exposing* that vector as
 the everyday interface — "fill the matrix, support one path per cell." So the design is
 two-layer: a composable primitive model that the code assembles and `describe` can print
 (so a non-standard combination is legible and testable), with **three named, documented
@@ -591,8 +592,10 @@ carry over.
 This is also the sharpest risk in the whole design. The original rule here was "**`install` is
 never honored below `jail`**, refused by name, always." On reflection that is stricter than the
 trust model actually requires, and a reviewer pushed on it: **you already trust the pack** — you
-approved its host access at install (see [pack-system.md](pack-system.md) [§9](./pack-system.md#9-the-credential-boundary-the-pin-not-a-prompt), the fetched-pack
-approval model), and at the `host` notch it is running as you regardless. So the honest rule is
+approved its host access at install (see
+[../reference/pack-system.md](../reference/pack-system.md#the-credential-boundary-disclosure-not-consent)
+— note that the install-time approval prompt has since been deleted as theatre, so the boundary is
+now drawn at selection plus disclosure), and at the `host` notch it is running as you regardless. So the honest rule is
 not *refuse* but *confirm*:
 
 - **Below `jail`, an `install` is confirm-gated, never silent.** A pack's `program via installer`
@@ -764,7 +767,7 @@ Worth stating plainly, because a reframing this size invites scope creep:
   bearing.
 - **Reproducibility stays the differentiator, and gets teeth.** Locked nixpkgs, locked packs, and
   now a definition that *binds* — `apply --sealed` ([§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails)) refuses rather than reports. This is the
-  item [`macos-no-vm-direction.md`](./macos-no-vm-direction.md) calls "*the* yolo differentiator," and it was the weakest claim
+  item [`../reference/macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md) calls "*the* yolo differentiator," and it was the weakest claim
   in the product until sealing: "reproducible" meant "the same declaration produces the same jail,"
   while a user arriving from nix reads it as "the declaration is the only input." Three inputs said
   otherwise. Every part of this design is downstream of closing that gap.
