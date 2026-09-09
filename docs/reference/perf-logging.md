@@ -53,7 +53,7 @@ which this system reads and prints but does not own.
 
 **Reads with:** [`USER_GUIDE.md`](../guides/USER_GUIDE.md) (the flag as a user sees
 it), [`jail-home.md`](../design/jail-home.md) (the `<workspace>/.yolo/` state
-directory both log files live under), [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
+directory both log files live under), [`image-staging-vs-baking.md`](image-staging-vs-baking.md)
 (the load-cost model the `image.*` spans measure). `yolo config-ref` is the
 authority for the `perf_logging` key and the two environment variables; this doc
 does not restate it.
