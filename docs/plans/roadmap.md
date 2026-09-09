@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 13 needing you · 0 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
+**Status: 15 needing you · 0 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-06**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-08**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!IMPORTANT]
@@ -528,6 +528,54 @@ states its leaning.
 
 **Answer:**
 > _(empty — fill in when decided; the six OQs can be ruled separately)_
+
+### 💬 22 — The load sentinel is used as a liveness oracle, and it killed four jails
+
+📄 [`the-load-sentinel-is-not-a-liveness-oracle.md`](../design/the-load-sentinel-is-not-a-liveness-oracle.md) ·
+opened 2026-09-08 by the incident
+
+A ten-entry list of recently-LOADED nix store paths is the protection two reapers consult. Only a
+LAUNCH appends to it, so a jail that is running but not relaunching ages out of the window while
+still in use — and on 2026-09-08 the automatic image reap `rmi -f`'d the images of four jails that
+had been up 3–4 days, taking the containers with them. The image half is FIXED (`feddc5e0`: ask
+`podman ps`, and never force-remove). What needs you is how far the same correction travels:
+**[OQ-LS1](../design/the-load-sentinel-is-not-a-liveness-oracle.md#11-open-questions)** (does the
+nix GC-root reaper get the same veto, or is losing a root an acceptable rebuild?),
+**[OQ-LS2](../design/the-load-sentinel-is-not-a-liveness-oracle.md#11-open-questions)** (should a
+declined sweep say so, or is silence about not-acting how the 404 GiB accrued?), and
+**[OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#11-open-questions)** 🤷
+(`keep=2` is a pure undo buffer now that safety no longer rests on it — still the number you want?).
+
+The doc also records a contradiction worth fixing on sight: `imageroots.go` justifies a destructive
+guard with "the image a live container runs is always the most recent sentinel entry", which
+`autoload.go` refutes in the same repository.
+
+**Answer:**
+> _(empty — fill in when decided; the three OQs can be ruled separately)_
+
+### 💬 23 — Layer-aware image delivery: 3.4 GB re-shipped to deliver 27 MB
+
+📄 [`layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) · opened 2026-09-08
+off the first real `--timing` measurements
+
+`image.stream_load` is **81.0s of a 96.1s image load** on the maintainer's host (`image.nix_build`
+is 14.9s — the build is not the problem). Measured cause: the image is 99 layers / 3.47 GB, the
+customisation layer is 27.2 MB — **0.78%** — and a docker-archive tar is sequential, so podman
+re-ingests every unchanged base layer on every store-path change. Verdict in the doc is
+nix2container + a pinned layer plan + `skopeo copy`; `streamLayeredImage` has no `layers` argument,
+so the cheap "just reorder" alternative does not exist.
+
+The go/no-go is
+**[OQ-LI1](../design/layer-aware-image-delivery.md#9-open-questions)**: `nix2container` is NOT in the
+pinned nixpkgs and its `nix:` transport is a patched skopeo source build absent from
+`cache.nixos.org` — is a third-party flake input acceptable on the launch path? Four more
+(Apple Container's source, the extras tier, `created` becoming a constant, the rollback window) are
+downstream of that answer. One interaction to know: nix2container rejects `created = "now"`, which
+`flake.nix` passes, and pinning it to a constant collapses the `CreatedAt` sort key row 22's
+reaper uses.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 # 📦 Up next
 
