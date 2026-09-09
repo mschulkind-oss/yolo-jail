@@ -75,7 +75,10 @@ once, in a jail with an empty home, records the delta as a content-addressed ent
 
 The capture is machine-local and never distributed. <bin> must be a program some selected
 pack installs with ` + "`via: \"installer\"`" + ` — an npm-declared program has a registry
-version to name and needs no capture.`
+version to name and needs no capture.
+
+Examples:
+  yolo capture codex                  # record codex's installer once, for every jail`
 
 // runCapture is the `yolo capture` dispatch entry.
 //

@@ -91,6 +91,11 @@ Flags:
   --help, -h    Show this help. Answered before any store is walked, so asking
                 what this command does costs nothing.
 
+Examples:
+  yolo stores                         # what exists, how big, and what reclaims it
+  yolo stores --format json           # the same inventory, for a script or an agent
+  yolo stores --age --no-record       # add the age columns; leave the ledger alone
+
 The ledger: one dated line per store per run, under the state dir at
 <state>/stores/<store>.samples, bounded to the last 30 samples per store. This
 command is its only writer. Delete a file there and that store simply loses its

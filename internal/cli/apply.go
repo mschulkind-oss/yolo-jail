@@ -850,5 +850,11 @@ const applyUsage = `yolo apply — make this environment match its description, 
 apply splits "make it so" from "run something in it": ` + "`yolo -- <cmd>`" + ` is
 "apply, then exec." Every notch has both halves — the host's exec half is
 ` + "`yolo host -- <cmd>`" + `, which composes the environment a config file cannot carry.
+Examples:
+  yolo apply                          # provision the jail, launch nothing
+  yolo apply --at host                # what would change in your real home?
+  yolo apply --at host --assert       # write it
+  yolo apply --sealed                 # refuse if an undeclared input shaped this
+
 See ` + "`yolo describe`" + ` for what the current description resolves to, and
 ` + "`yolo host`" + ` for the host notch's own verbs.`

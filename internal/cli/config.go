@@ -83,6 +83,12 @@ Only a 'capture'-mode surface accumulates in-jail edits; 'readonly', 'once' and
 'copy' surfaces write no sidecar, so diff/reset do not apply to them. Use
 'user' as the agent for files declared via the host_files config key.
 
+Examples:
+  yolo config ls                      # every composed file, and what mode it is in
+  yolo config render claude           # what a launch would write for claude
+  yolo config diff claude             # what this jail has changed since
+  yolo config reset claude --force    # throw those changes away
+
 Config transforms live in yolo-jail.config.lua (repo root) and
 ~/.config/yolo-jail/config.lua (user); both are auto-loaded, user first.`
 

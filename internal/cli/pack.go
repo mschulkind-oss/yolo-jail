@@ -112,6 +112,12 @@ already be there and yolo installs
 nothing — which is what a pack needing a baked or user-provided tool wants, and the only
 way for a content-only pack to carry install_hints for the host notch.
 
+Examples:
+  yolo pack ls                        # what packs are selected, and what they ship
+  yolo pack footprint file://./packs/claude   # every claim a pack makes — READ THIS FIRST
+  yolo pack install                   # fetch what "packs" names into the local mirror
+  yolo pack update                    # move the pins your refs allow to move
+
 See ` + "`yolo config-ref`" + ` (the "packs" section) for the full per-kind field reference.
 
 The packs yolo ships are selected by NAME, and none is on by default:

@@ -272,4 +272,9 @@ environment resolves to. It is meant to be a thing you can hold and compare.
 
 The hash is printed MARKED as unsealed: until 'yolo apply --sealed' (which refuses any
 undeclared input), the environment can differ from its description in ways the hash
-cannot see, so it is a cache key, not yet a reproducibility guarantee.`
+cannot see, so it is a cache key, not yet a reproducibility guarantee.
+
+Examples:
+  yolo describe                       # what does this environment resolve to?
+  yolo describe --json                # the same, for a script or an agent
+  yolo describe --hash                # the pin, for a CI cache key`

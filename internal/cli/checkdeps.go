@@ -153,4 +153,8 @@ and kin) you can run in one step.
   yolo check-deps --no-manifest probe only, write nothing
 
 It never installs anything — it detects and hands off. Exit is non-zero when a declared
-dep is missing.`
+dep is missing.
+
+Examples:
+  yolo check-deps                     # what is missing, and write the bundle manifest
+  yolo check-deps --no-manifest       # just tell me, write nothing`

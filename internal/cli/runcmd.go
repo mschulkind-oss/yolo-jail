@@ -75,6 +75,13 @@ Flags:
   --help, -h         Show this help. Answered before any config is loaded, so it
                      still works when yolo-jail.jsonc does not parse.
 
+Examples:
+  yolo                                # an interactive shell in this workspace's jail
+  yolo -- claude                      # run claude in it
+  yolo -- bash -lc 'just test-fast'   # one command, then exit
+  yolo -p zai -- claude               # ... on the zai profile, this launch only
+  yolo --timing -- true               # what did this launch spend its time on?
+
 Global options are listed by 'yolo --help'; the full config reference is
 'yolo config-ref'.`
 

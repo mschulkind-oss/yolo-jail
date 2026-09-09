@@ -59,7 +59,12 @@ catalogs. It is off by default and it is not reversible — read an 'ls' first.
 
   ~/.local/bin is also where YOU may have put things. yolo cannot tell a tool you
   installed by hand from one a dropped pack left behind: both are "installed and
-  undeclared". That is what the dry run is for.`
+  undeclared". That is what the dry run is for.
+
+Examples:
+  yolo programs ls                    # what is installed here, and what declares it
+  yolo programs remove-undeclared     # the dry run: what WOULD go
+  yolo programs remove-undeclared --apply   # actually remove them`
 
 // runPrograms is the registry entry point. args INCLUDES the subcommand name, like every
 // other handler.

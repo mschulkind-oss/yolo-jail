@@ -42,7 +42,11 @@ Stopping IS the end of that jail's sessions; the next launch starts fresh.
 Idempotent: with nothing running it says so and succeeds.
 
 Flags:
-  --help, -h    Show this help.`
+  --help, -h    Show this help.
+
+Examples:
+  yolo stop                           # release this workspace's jail
+  yolo stop && yolo -- claude         # the replacement series, in full`
 
 // runStop runs `yolo stop`.
 func runStop(args []string) int {
