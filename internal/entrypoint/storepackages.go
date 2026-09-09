@@ -2,7 +2,8 @@ package entrypoint
 
 // storepackages.go is the JAIL half of C4/C5 — "deliver `packages:` (and, under C5, the
 // image's own bulk extras) from the MOUNTED nix store instead of baking them into the
-// image" (docs/design/image-staging-vs-baking.md §4 C4/C5, shape ruled by OQ-1).
+// image" (docs/reference/image-staging-vs-baking.md, "Store-delivered packages"; shape ruled
+// by its OQ-1).
 //
 // The HOST realized one or more `buildEnv` profiles and handed their store paths over on
 // YOLO_STORE_PROFILES. Everything below is symlinking: each profile's `bin` into one PATH

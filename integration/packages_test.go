@@ -153,7 +153,7 @@ func TestDevPackageLinksRuntimeLib(t *testing.T) {
 // is a THIRD test rather than an edit to them. C4 ships as an OPT-IN FAST PATH WITH THE
 // BAKED PATH RETAINED (OQ-1), so both paths are live and both are product surface: those
 // two tests are the baked path's, and this is the store path's
-// (docs/design/image-staging-vs-baking.md §4 C4).
+// (docs/reference/image-staging-vs-baking.md, "Store-delivered packages").
 //
 // The three probes are chosen so that together they prove EXACTLY ONE MECHANISM IS LIVE,
 // which is R2 and the whole reason the ruling is per launch and not per package:

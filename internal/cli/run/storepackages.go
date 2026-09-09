@@ -1,7 +1,8 @@
 package run
 
 // storepackages.go is the HOST half of C4/C5 — the launch's decision about WHERE this
-// jail's packages come from (docs/design/image-staging-vs-baking.md §4 C4/C5).
+// jail's packages come from (docs/reference/image-staging-vs-baking.md, "Store-delivered
+// packages").
 //
 // THE DEFAULT IS UNCHANGED AND THAT IS THE RULING, NOT A HEDGE. OQ-1 fixed the shape:
 // C4/C5 ship as an OPT-IN FAST PATH WITH THE BAKED PATH RETAINED, and "retained" is per

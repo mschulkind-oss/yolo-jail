@@ -48,7 +48,8 @@ func imageProbePath(e *Env) string {
 	// /bin does and NOT for the reason the install prefixes are excluded. Under C4/C5 an
 	// opt-in launch takes `packages:` (and the image's bulk extras) out of the image and
 	// delivers them from the mounted nix store instead
-	// (docs/design/image-staging-vs-baking.md §4). A name that was in /bin is then here,
+	// (docs/reference/image-staging-vs-baking.md, "Store-delivered packages"). A name that was
+	// in /bin is then here,
 	// so omitting this dir would let a pack-declared launcher shadow a tool the workspace
 	// asked for BY NAME — defect 11.1, arriving through the door C4 opens.
 	//

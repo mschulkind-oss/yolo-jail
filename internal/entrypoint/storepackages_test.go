@@ -12,7 +12,7 @@ import (
 
 // storepackages_test.go covers C4/C5's jail half: the /run/yolo/packages farm, the two env
 // vars it needs, and the two ORDERING facts the boot depends on
-// (docs/design/image-staging-vs-baking.md §4 C4/C5).
+// (docs/reference/image-staging-vs-baking.md, "Store-delivered packages").
 
 // fakeProfile lays down a buildEnv-shaped store path: bin/<bins>, lib/<libs> and, when
 // pcs is non-empty, lib/pkgconfig/<pcs>.

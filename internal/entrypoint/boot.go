@@ -375,7 +375,8 @@ func installClaudePlugins(e *Env) {
 // StorePackagesBin() sits IMMEDIATELY BEFORE /bin, and that position is chosen to be a
 // no-op rather than a new rule. Under C4/C5 an opt-in launch delivers `packages:` — and
 // the image's own bulk extras — from the mounted nix store instead of baking them
-// (docs/design/image-staging-vs-baking.md §4). Those binaries are in /bin today, so
+// (docs/reference/image-staging-vs-baking.md, "Store-delivered packages"). Those binaries are
+// in /bin today, so
 // putting the farm one step ahead of /bin leaves every precedence relation above it
 // exactly as it was: the blockers still outrank them, the launchers still outrank them,
 // and every per-project install prefix still outranks them. It is spelled

@@ -22,8 +22,8 @@ import (
 // many otherwise-unprotected, already-superseded images additionally survive
 // as a look-back/undo buffer, for the same "I applied, noticed, applied
 // again, then looked" reason hostArchiveKeep and PruneRetiredLoopholeState's
-// keep exist. The measured evidence (image-staging-vs-baking.md's re-
-// measurement: ~24 images / 38.68 GB, ~2.7 GB unique per Go-only rebuild)
+// keep exist. The measured evidence (docs/reference/image-staging-vs-baking.md,
+// "Cost model": ~24 images / 38.68 GB, ~2.7 GB unique per Go-only rebuild)
 // shows this number was never the defect — `keep=2` applied today already
 // reduces that to roughly 6 GB. What was missing was a trigger; see
 // AutoReapOldImages.

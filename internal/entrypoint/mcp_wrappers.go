@@ -35,7 +35,8 @@ NPM_BIN="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}/bin"
 MCP_WRAPPERS_BIN="$HOME/.local/bin/mcp-wrappers"
 
 # WHERE CHROMIUM IS DEPENDS ON HOW THIS LAUNCH GOT ITS PACKAGES (C5,
-# docs/design/image-staging-vs-baking.md §4). A baked image has /usr/bin/chromium, a
+# docs/reference/image-staging-vs-baking.md, "Store-delivered packages"). A baked image has
+# /usr/bin/chromium, a
 # symlink mkBinPathLinks lays down; a launch that delivers the image's bulk extras from
 # the mounted nix store has no /usr/bin/chromium and a chromium on PATH instead. The
 # baked path is tried FIRST so a jail that bakes behaves exactly as it always did, and

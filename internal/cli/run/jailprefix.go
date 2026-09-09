@@ -9,14 +9,15 @@ import (
 )
 
 // jailprefix.go decides WHERE the jail's own copy of yolo comes from, and emits
-// the two mounts that put it there.
+// the two mounts that put it there. Architecture and invariants:
+// docs/reference/image-staging-vs-baking.md ("The mounted prefix").
 //
 // The image used to bake it: `installPrefix` laid down /opt/yolo-jail/bin/<name>
 // (real files) plus the share/yolo-jail flake bundle, and /bin/<name> pointed at
 // the absolute store path. That made the ~3 % of the image that is our own Go
 // build responsible for ~100 % of its rebuilds — every commit under cmd/ or
 // internal/ minted a new image store path, re-stored ~2.7 GB of podman layers
-// and paid a `podman load` (docs/design/image-staging-vs-baking.md §1.9). The
+// and paid a `podman load` (docs/reference/image-staging-vs-baking.md, "Cost model"). The
 // image now carries only the NAMES (flake.nix: jailPrefixLinks, /bin/<name> →
 // /opt/yolo-jail/bin/<name>) and the launch supplies the content.
 //
@@ -226,8 +227,9 @@ func describeJailPrefix(p jailPrefix) string {
 //	Error: statfs /nix/store/…-yolo-jail-install-prefix/opt/yolo-jail/bin: no such file or directory
 //
 // with rc 125, taking ~30 tests down at ~30s each. The design doc had said this
-// arm was unverified on hardware (image-staging-vs-baking.md §9); this is what
-// the hardware said.
+// arm was unverified on hardware; this is what the hardware said, and the
+// reference (docs/reference/image-staging-vs-baking.md, "macOS and the runtime
+// VM") now records it.
 //
 // WHY A REFUSAL AND NOT A COPY. Mirroring the prefix under $HOME would work
 // without asking anyone, at ~66 MB per build plus a lifecycle to reap — a second

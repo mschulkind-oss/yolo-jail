@@ -14,7 +14,7 @@ package image
 //     from source instead. That is worst on macOS, where a from-source Linux
 //     build cannot run locally at all: "build failed" then means only that the
 //     cache was never asked, and the failure is debugged at the wrong layer
-//     (docs/design/image-staging-vs-baking.md §6 item 3). Trusting the
+//     (docs/reference/image-staging-vs-baking.md, "The binary cache"). Trusting the
 //     project's own flake config from the project's own build step is the
 //     happy path; it mutates no system nix.conf, and a trusted user still
 //     gates whether the substituter is actually used.
@@ -79,7 +79,8 @@ func ociBuildArgv(attr, outLink string, extraArgs []string) []string {
 // The flake attrs the CLI builds. Named so a rename in flake.nix breaks
 // compilation at one place rather than at a runtime "attribute missing".
 //
-// ImageAttrLean is C5's (docs/design/image-staging-vs-baking.md §4 C5): the same
+// ImageAttrLean is C5's (docs/reference/image-staging-vs-baking.md, "Store-delivered
+// packages"): the same
 // image with `fullPackages` and the chromium half of the /lib farm left OUT, for
 // a launch that delivers them from the mounted nix store instead. It is a SECOND
 // ATTR rather than a third `builtins.getEnv` switch because the whole point of

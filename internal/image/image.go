@@ -2,6 +2,8 @@
 // builders, the nix-stderr summarizer, the byte-progress formatter, the
 // per-runtime load sentinel (LRU of store paths), the sha256-keyed cache path,
 // and the /etc/nix/machines stream-command resolution.
+//
+// Architecture and invariants: docs/reference/image-staging-vs-baking.md
 package image
 
 import (
@@ -39,7 +41,7 @@ func ImageLoadCmd(runtime, tarPath string) []string {
 // Read from specified archive file (default: stdin)`, so dropping the flag turns
 // the loader into the read end of a pipe and the nix stream script into its
 // write end — no 3.28 GiB tar in between
-// (docs/design/image-staging-vs-baking.md §4 C3).
+// (docs/reference/image-staging-vs-baking.md, "Streaming into the runtime").
 //
 // APPLE CONTAINER IS UNREPRESENTABLE HERE RATHER THAN HANDLED, and the reason is
 // its CONVERTERS, not its CLI: loadImageForAppleContainer runs either `skopeo
@@ -116,8 +118,8 @@ func JailImageRepository(runtime string) string {
 // path's cache tar (cache/images/<key>.tar) and its durable GC root
 // (build/roots/<key>). One hash function for all three, so a reaper can
 // correlate a loaded image, its tar and its root without a reverse lookup, and
-// so the three can never drift apart (docs/design/image-staging-vs-baking.md §4
-// C2 says to reuse it by name).
+// so the three can never drift apart (docs/reference/image-staging-vs-baking.md,
+// "The content-addressed image ref").
 //
 // This is what makes "is the image for THIS config loaded?" answerable at all.
 // While one `:latest` tag named every image, the question could only be

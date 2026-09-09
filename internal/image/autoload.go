@@ -465,8 +465,8 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// resolve, and the reverted-config scenario stops being representable — the
 	// image for path A either is in the runtime under its own name or is not, no
 	// matter what has been loaded since. **Do not "simplify" this back into an LRU
-	// membership test on :latest** (docs/design/image-staging-vs-baking.md §4 C2,
-	// WARNING block).
+	// membership test on :latest** (docs/reference/image-staging-vs-baking.md, "The
+	// content-addressed image ref", WARNING block).
 	//
 	// The sentinel survives, demoted from authority to two jobs it is still the
 	// right instrument for: the human-readable diagnosis below (which path this

@@ -16,7 +16,7 @@ import (
 // storepackages_test.go covers C4/C5's host half: who may take the store-delivery fast
 // path, what happens to a launch that asks and cannot, and — the assertion the whole
 // feature rests on — that an opt-in launch builds an image WITHOUT its packages
-// (docs/design/image-staging-vs-baking.md §4 C4/C5, R2).
+// (docs/reference/image-staging-vs-baking.md, "Store-delivered packages").
 
 // storeOptions builds an Options with the deterministic seams these tests need.
 func storeOptions(t *testing.T, env map[string]string) (*Options, *bytes.Buffer, *bytes.Buffer) {

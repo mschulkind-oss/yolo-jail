@@ -39,7 +39,7 @@ const (
 	// image.JailImageRef), so anything that wants "the jail image" in general
 	// must filter by REPOSITORY, the way internal/prune already does. Nothing
 	// may depend on a particular tag: the container image tag is not a public
-	// surface (docs/design/image-staging-vs-baking.md §4 C2).
+	// surface (docs/reference/image-staging-vs-baking.md, "The content-addressed image ref").
 	JailImageRepo      = "localhost/yolo-jail"
 	JailImageRepoShort = "yolo-jail"
 
