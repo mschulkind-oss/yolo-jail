@@ -170,6 +170,12 @@ rather than a hidden precedence layer: a per-surface listing (path, codec, postu
 layers, overlay key count), a boot notice when a surface renders with a non-empty overlay, and
 commands to inspect and discard (`yolo config diff` / `yolo config reset`).
 
+> [!NOTE]
+> **Why a tool-version config is a composed surface at all.** The legitimate case for the
+> `mise_tools` knob is "mine, in every jail, but not on my host" — a user-scope preference with
+> nowhere else to live, which is why it stays a real knob even though yolo's own default list is
+> empty. Anything bakeable belongs in the image instead, not in a layer.
+
 ### State → never composed wholesale
 
 **If a file holds credentials or session state, yolo may inject keys but must never render it

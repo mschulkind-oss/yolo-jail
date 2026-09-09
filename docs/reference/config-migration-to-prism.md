@@ -67,6 +67,17 @@ Four corollaries, each load-bearing below:
 4. **A destructive rebuild is a real tool, but the last resort** — explicit, operator-triggered,
    and forbidden from touching anything yolo does not own.
 
+**The class this exists for, and its worked case.** The surfaces the prism replaced were written
+by **in-place editors that add and update but never remove** what they previously wrote, into a
+**persistent** home. So the file on disk already carried output the current generator could not
+self-heal, and the capture overlay would have mistaken it for an intentional edit and pinned it
+forever. The sharpest member was the mise config: a runtime pin left by an older yolo whose base
+tool list was non-empty, which no self-heal path could see and which **shadowed the baked
+runtime** — a live, actively harmful bug rather than untidiness. It needed no scrub and no
+catalogue of former defaults in the end: the first-migration seed renders from today's layers,
+the pin is in none of them, and it simply does not come back. That is corollary 3 in one
+sentence.
+
 ## Invariants
 
 - **Never seed the baseline from the pre-existing file.** Seed from the fresh render, always. A
