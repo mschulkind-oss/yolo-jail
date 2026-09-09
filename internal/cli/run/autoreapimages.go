@@ -19,19 +19,19 @@ const autoReapOptOutEnv = "YOLO_NO_AUTO_IMAGE_REAP"
 // autoReapOldImages is the launch path's trigger for reclaiming superseded
 // `localhost/yolo-jail` images (Ledger C, minimal-disk-footprint.md §3.3) —
 // the OQ-DF3 ruling's TRIGGER half wired in. `yolo prune --apply`'s "Old
-// yolo-jail images" section has always been SAFE (C2's dedup + the
-// ProtectedImageTags liveness veto, hardened fail-safe in `4064f720`); what
-// was missing was ever running it (minimal-disk-footprint.md §1: the same
+// yolo-jail images" section has always been SAFE (C2's dedup, the `podman ps`
+// veto, and since OQ-LS3 a retention set that is one pointer per workspace);
+// what was missing was ever running it (minimal-disk-footprint.md §1: the same
 // hint sat true for 24+ days and 404+ GiB accrued regardless). This calls the
 // exact same prune.PruneOldImages the manual command does, through
 // prune.AutoReapOldImages's day-long debounce (P7: a launch checks in, the
 // reap itself fires at most once per interval) — so this method only decides
 // WHETHER to fire it, never how, and the veto/dedup are untouched.
 //
-// Call it AFTER autoLoadImage succeeds (runContainer does): this launch's own
-// image is then already recorded in the load sentinel
-// image.AddLoadedPath just wrote, and therefore already protected before the
-// reap's own liveness read runs. Best-effort and silent on the common
+// Call it AFTER autoLoadImage succeeds AND after recordCurrentImage
+// (runContainer does both, in that order): this launch's own image is then this
+// workspace's recorded current image, and therefore protected before the reap
+// reads the retention set. Best-effort and silent on the common
 // (debounced, opted-out, or nothing-to-remove) path; only prints when it
 // actually freed something, so a launch that never triggers a reap looks
 // exactly as it did before this existed. A failure or a skip here must never
@@ -41,8 +41,12 @@ func (o *Options) autoReapOldImages(rt string) {
 		return
 	}
 	buildDir := paths.BuildDir()
+	// Upstream factored this into pruneRunFunc (brokenprefix.go), which keeps the
+	// same Timeout→Ran=false correction: a timed-out probe reports Ran=true with a
+	// zero RC, and prune's `res.Ran && res.RC == 0` checks would misread a killed
+	// process as a clean, empty success.
 	run := o.pruneRunFunc()
-	removed, ran, declined := prune.AutoReapOldImages(rt, buildDir, prune.DefaultKeepImages, o.Now(), run)
+	removed, ran, declined := prune.AutoReapOldImages(rt, buildDir, o.Now(), run)
 	switch {
 	case declined != "":
 		// TO THE LOG, NOT THE TERMINAL. This runs in the post-launch slot, where

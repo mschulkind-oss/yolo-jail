@@ -794,6 +794,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		return 1
 	}
 
+	// THIS WORKSPACE'S CURRENT IMAGE, recorded before anything can reap
+	// (OQ-LS3). It is the retention evidence that replaced `--keep-images`: the
+	// reaper keeps the union of these pointers and whatever `podman ps` says is
+	// running, so a launch that does not record one leaves its own image
+	// unprotected the moment the jail stops. currentimage.go carries the window
+	// that survives and what a failed write costs.
+	o.recordCurrentImage(loadedImage, cname)
+
 	// LEDGER C USED TO BE REAPED HERE, before the container started, and it
 	// MOVED into the post-launch housekeeping slot (OQ-BF5, housekeeping.go).
 	// The property that justified this placement — this launch's own image is

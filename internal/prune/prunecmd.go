@@ -472,6 +472,15 @@ func Run(opts Options) int {
 			p.line(fmt.Sprintf("  [bold red]FAILED — %s (%s), so nothing was swept.[/bold red]", declined, rt))
 			p.line("  [dim]Nothing was removed. This is not \"nothing to remove\": the sweep could not " +
 				"establish what is safe to touch, and an unproven set is never a licence to delete.[/dim]")
+			if declined == DeclineNoCurrentPointers {
+				// THE DAY OQ-LS3 SHIPS, and the only decline a healthy machine can
+				// produce. There is nothing wrong with such a host — it simply has
+				// not launched since retention stopped being a count — so the line
+				// says what supplies the evidence rather than describing a fault.
+				p.line("  [dim]Every launch records its own workspace's current image; a machine " +
+					"that has not launched since image retention became per-workspace has none " +
+					"yet. Launch each workspace whose image you want kept, then re-run.[/dim]")
+			}
 			declinedSweep = true
 		case len(removedImages) > 0:
 			p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedImages)))

@@ -407,8 +407,12 @@ func imageStores(o Options, rt string) []Store {
 	}
 	ours := mk("images.yolo", "yolo-jail images")
 	ours.Reclaimer = Reclaimer{
-		Func:   "PruneOldImages",
-		Detail: fmt.Sprintf("keep %d, liveness-vetoed", prune.DefaultKeepImages),
+		Func: "PruneOldImages",
+		// NOT A COUNT SINCE OQ-LS3: retention is one CURRENT-IMAGE POINTER per
+		// workspace (prune.CurrentImageTags), union'd with the `podman ps` veto.
+		// The pointer count is machine state rather than a constant, so this row
+		// names the RULE — `yolo prune` prints the number it found.
+		Detail: "each workspace's current image, liveness-vetoed",
 		// OQ-BF5 moved this out of the pre-attach launch path and into the
 		// post-launch housekeeping slot; the debounce is unchanged.
 		Trigger: "post-launch slot (24h) + yolo prune --apply",
