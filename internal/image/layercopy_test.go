@@ -80,8 +80,9 @@ func TestTheCopierArgvIsWhatSkopeoNeeds(t *testing.T) {
 		"printf '%s\\n' \"$@\" > "+argsFile)
 
 	var out bytes.Buffer
-	if !copyImage(copier, "/nix/store/abc-image.json",
-		"containers-storage:localhost/yolo-jail:deadbeef", &out) {
+	ok, _ := copyImage(copyArgv(nil, copier, "/nix/store/abc-image.json",
+		"containers-storage:localhost/yolo-jail:deadbeef"), &out)
+	if !ok {
 		t.Fatalf("a clean copy reported failure: %q", out.String())
 	}
 	got, err := os.ReadFile(argsFile)
@@ -109,7 +110,8 @@ func TestACopyFailurePrintsSkopeosOwnWordsAndSaysNoImageWasWritten(t *testing.T)
 		"echo 'time=... level=fatal msg=\"initializing destination: no space left\"' >&2; exit 1")
 
 	var out bytes.Buffer
-	if copyImage(copier, "/nix/store/abc-image.json", "containers-storage:x:y", &out) {
+	if ok, _ := copyImage(copyArgv(nil, copier, "/nix/store/abc-image.json",
+		"containers-storage:x:y"), &out); ok {
 		t.Fatal("a copier that exited 1 was reported as success")
 	}
 	s := out.String()
@@ -139,7 +141,8 @@ func TestACopyIsRetriedExactlyOnce(t *testing.T) {
 			"printf x >> "+counter+"; test -s "+counter+" && "+
 				"[ $(wc -c < "+counter+") -gt 1 ]")
 		var out bytes.Buffer
-		if !copyImageWithRetry(copier, "/nix/store/a.json", "containers-storage:x:y", &out) {
+		if !copyImageWithRetry(copyArgv(nil, copier, "/nix/store/a.json",
+			"containers-storage:x:y"), &out) {
 			t.Fatalf("the one retry did not happen: %q", out.String())
 		}
 		if n := fileSize(t, counter); n != 2 {
@@ -156,7 +159,8 @@ func TestACopyIsRetriedExactlyOnce(t *testing.T) {
 		copier := writeScript(t, filepath.Join(dir, "skopeo"),
 			"printf x >> "+counter+"; exit 1")
 		var out bytes.Buffer
-		if copyImageWithRetry(copier, "/nix/store/a.json", "containers-storage:x:y", &out) {
+		if copyImageWithRetry(copyArgv(nil, copier, "/nix/store/a.json",
+			"containers-storage:x:y"), &out) {
 			t.Fatal("a copier that always fails was reported as success")
 		}
 		if n := fileSize(t, counter); n != 2 {
@@ -395,7 +399,7 @@ func TestCopierBuildFailureRefusesTheLaunchAndNamesTheAttr(t *testing.T) {
 	opts.BuildCopier = func(string) (string, []string) {
 		return "", []string{"error: unable to download 'https://cache.nixos.org': Couldn't connect"}
 	}
-	opts.LayerCopy = func(string, string) (CopyReport, bool) {
+	opts.LayerCopy = func(string, string, []string) (CopyReport, bool) {
 		t.Error("the copy ran without a copier")
 		return CopyReport{}, false
 	}
@@ -636,7 +640,7 @@ func TestBuildFailureFallbackStillLoadsAnExistingTar(t *testing.T) {
 			}
 			return 1, true // inspect: nothing in the runtime
 		},
-		LayerCopy: func(string, string) (CopyReport, bool) {
+		LayerCopy: func(string, string, []string) (CopyReport, bool) {
 			t.Error("the fallback tried to COPY; it has no manifest to copy from " +
 				"— the build is what failed")
 			return CopyReport{}, false

@@ -44,6 +44,11 @@ type fakeRuntime struct {
 	// RETURNS is the ref it asked the copier to create.
 	copiedManifests []string
 	copiedDests     []string
+	// copiedPrefixes records the NAMESPACE PREFIX each copy was handed, joined by
+	// spaces ("" for none). It is what makes the store-write decision assertable
+	// from the outside: delete the pipeline's StoreWritePrefix call and this stays
+	// empty where a rootless podman requires `podman unshare --`.
+	copiedPrefixes []string
 	// copyFails makes every copy fail, for the no-fallback path.
 	copyFails bool
 	// ociFiles records the OCI archives the Apple Container path asked for, in
@@ -136,9 +141,10 @@ func (f *fakeRuntime) run(argv []string) (int, bool) {
 //     and create nothing. The image appears only when the loader reads that
 //     file, so the fake writes it and arms pendingRef for the
 //     `<runtime> load -i` it expects next.
-func (f *fakeRuntime) layerCopy(imageJSON, dest string) (CopyReport, bool) {
+func (f *fakeRuntime) layerCopy(imageJSON, dest string, prefix []string) (CopyReport, bool) {
 	f.copiedManifests = append(f.copiedManifests, imageJSON)
 	f.copiedDests = append(f.copiedDests, dest)
+	f.copiedPrefixes = append(f.copiedPrefixes, strings.Join(prefix, " "))
 	if f.copyFails {
 		return CopyReport{}, false
 	}
@@ -203,6 +209,12 @@ func c2Opts(rt string, storePath string, f *fakeRuntime, out *bytes.Buffer) Auto
 		LayerCopy:      f.layerCopy,
 		BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
 		PresentDigests: func() map[string]struct{} { return nil },
+		// Stubbed so no unit test shells out to a real `podman info`, and so the
+		// fixture's answer is the boring one: a rootful store needs no namespace, so
+		// every pre-existing assertion in this package keeps the argv it was written
+		// against. The rootless branch is asserted where it belongs, in
+		// storewrite_test.go.
+		Rootless: func() PodmanRootless { return RootlessNo },
 	}
 }
 

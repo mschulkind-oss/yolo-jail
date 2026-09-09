@@ -100,7 +100,7 @@ func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 			copierBuilt = true
 			return "/nix/store/fake-skopeo/bin/skopeo", nil
 		},
-		LayerCopy: func(string, string) (CopyReport, bool) {
+		LayerCopy: func(string, string, []string) (CopyReport, bool) {
 			copied = true
 			return CopyReport{}, true
 		},

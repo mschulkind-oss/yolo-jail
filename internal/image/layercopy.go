@@ -308,18 +308,29 @@ func DockerArchiveDest(file, ref string) string {
 	return "docker-archive:" + file + ":" + ref
 }
 
-// copyImage runs ONE `skopeo copy nix:<imageJSON> <dest>` and reports whether it
-// succeeded, printing the actionable reason itself when it did not — because
-// only here is skopeo's own stderr in hand, and "Error loading image into
+// copyImage runs ONE copy — argv as copyArgv built it, so a rootless
+// destination's `podman unshare` prefix is already on the front — and reports
+// whether it succeeded, printing the actionable reason itself when it did not,
+// because only here is skopeo's own stderr in hand and "Error loading image into
 // podman." with no cause is the C1 defect one layer down.
 //
-// `--insecure-policy` because the SOURCE is a local nix store path rather than a
-// registry: there is no signature to verify and no policy file to consult, and
-// requiring /etc/containers/policy.json to exist on every host would make
-// delivery depend on a file nothing else here needs. nix2container's own
+// It returns the retained stderr tail as well as the verdict, so the retry
+// decision can be made from what the copy SAID rather than only from the fact
+// that it failed (retryWouldHelp).
+//
+// `--insecure-policy` (in copyArgv) because the SOURCE is a local nix store path
+// rather than a registry: there is no signature to verify and no policy file to
+// consult, and requiring /etc/containers/policy.json to exist on every host would
+// make delivery depend on a file nothing else here needs. nix2container's own
 // copy-to-* wrappers pass it for the same reason.
-func copyImage(copier, imageJSON, dest string, out io.Writer) bool {
-	cmd := exec.Command(copier, "--insecure-policy", "copy", "nix:"+imageJSON, dest)
+//
+// THE CHILD'S STDERR STILL REACHES THE USER THROUGH A PREFIX. `podman unshare`
+// wires the command it runs to its own stdio, so skopeo's diagnosis arrives on
+// podman's stderr, which is this tailWriter — and podman's own refusals arrive
+// there too, which is the second thing retryWouldHelp recognises. Pinned by
+// TestACopyThroughAPrefixKeepsTheChildsOwnWords rather than assumed.
+func copyImage(argv []string, out io.Writer) (bool, []string) {
+	cmd := exec.Command(argv[0], argv[1:]...)
 	tail := &tailWriter{max: copyTailLines}
 	cmd.Stderr = tail
 	// skopeo's per-blob progress goes to stdout and duplicates the report the
@@ -328,19 +339,20 @@ func copyImage(copier, imageJSON, dest string, out io.Writer) bool {
 	cmd.Stdout = nil
 	err := cmd.Run()
 	if err == nil {
-		return true
+		return true, nil
 	}
+	lines := tail.tail()
 	code, known := exitCodeOf(cmd)
 	// NO IMAGE WAS WRITTEN, and saying so is a requirement rather than a
 	// courtesy (§3.8): skopeo commits the image record LAST, so a failed or
 	// interrupted copy leaves orphan blobs and no image under the ref. The reader
 	// must never be left guessing whether a partial image is now runnable.
 	reportPipeEnd(out, "the image copy failed; NO image was written to the destination",
-		code, known, tail.tail())
-	return false
+		code, known, lines)
+	return false, lines
 }
 
-// copyImageWithRetry is copyImage plus EXACTLY ONE immediate retry, no backoff.
+// copyImageWithRetry is copyImage plus AT MOST ONE immediate retry, no backoff.
 //
 // The bound is the point, and it is the same bound (and the same reasoning) the
 // Apple Container cache recovery has always used: one recovery from a transient
@@ -349,22 +361,39 @@ func copyImage(copier, imageJSON, dest string, out io.Writer) bool {
 // attempt already wrote are reused by the retry, so a retry is cheap in exactly
 // the case it is for.
 //
-// A digest mismatch is NOT distinguished here and deliberately is not retried
-// away: skopeo verifies on read and c/storage verifies the diffID, and a second
-// read of the same store path produces the same bytes, so a mismatch means a
-// corrupt nix store. The retry costs one wasted attempt in that case and the
+// "AT MOST" IS THE 2026-09-09 CHANGE, and it is a narrowing rather than a new
+// mechanism. The retry was unconditional, which made it wrong twice over against
+// a REFUSAL: a host that will not let the copier map layer ownership refuses the
+// second attempt identically, so the launch paid the whole failure path twice —
+// sixteen CI jobs did, in one push — and the duplicated report buried the one
+// fact worth reading. retryWouldHelp names only causes measured to be permanent
+// and defaults to retrying, so an unrecognised failure keeps the behaviour it has
+// always had.
+//
+// A digest mismatch is NOT one of those named causes and is therefore still
+// retried once: skopeo verifies on read and c/storage verifies the diffID, and a
+// second read of the same store path produces the same bytes, so a mismatch means
+// a corrupt nix store. The retry costs one wasted attempt in that case and the
 // second failure abandons the launch with skopeo's own words, which name the
-// digest — the honest diagnosis, with `nix store verify` as the remedy.
+// digest — the honest diagnosis, with `nix store verify` as the remedy. It stays
+// unnamed because it has never been measured here, and the denylist is for what
+// has.
 //
 // AND THERE IS NO FALLBACK BEYOND IT (§3.5, OQ-LI5). A second failure abandons
 // the launch. `streamLayeredImage` is deleted, there is no legacy knob, and a
-// copy that cannot complete leaves no image under the content ref — so there is
-// nothing to start from and no remedy to name. That is R8, accepted so that R3
-// (two delivery mechanisms indefinitely) never becomes a live cost.
-func copyImageWithRetry(copier, imageJSON, dest string, out io.Writer) bool {
-	if copyImage(copier, imageJSON, dest, out) {
+// copy that cannot complete leaves no image under the content ref. What the
+// launch CAN now do is name a cause instead of stopping at "it failed", which is
+// the part of R8 that was avoidable.
+func copyImageWithRetry(argv []string, out io.Writer) bool {
+	ok, tail := copyImage(argv, out)
+	if ok {
 		return true
 	}
+	if retry, why := retryWouldHelp(tail); !retry {
+		fmt.Fprintln(out, "Not retrying: "+why)
+		return false
+	}
 	fmt.Fprintln(out, "Retrying the image copy once.")
-	return copyImage(copier, imageJSON, dest, out)
+	ok, _ = copyImage(argv, out)
+	return ok
 }

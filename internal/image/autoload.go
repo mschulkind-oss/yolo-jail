@@ -99,7 +99,23 @@ type AutoLoadOptions struct {
 	// contract is "run an argv and give me its exit status": it captures no
 	// stderr, and a copy that fails without saying what skopeo said is the C1
 	// silent-fallback defect one layer down.
-	LayerCopy func(imageJSON, dest string) (CopyReport, bool)
+	//
+	// prefix is the namespace the copier must run in, decided by the CALLER before
+	// anything runs (StoreWritePrefix): nil for a destination that needs none, and
+	// `podman unshare --` for a rootless containers-storage, which cannot have its
+	// layer ownership mapped by the copier acting alone (storewrite.go measures
+	// why). It is a PARAMETER for the same reason dest is — two values that must
+	// agree with what the pipeline decided, and a seam that derived it for itself
+	// could be right while the pipeline's own decision rotted unread.
+	LayerCopy func(imageJSON, dest string, prefix []string) (CopyReport, bool)
+	// Rootless reports whether the runtime's containers-storage is a ROOTLESS
+	// store, which is the whole of the namespace decision above. nil => the real
+	// `podman info` probe.
+	//
+	// A seam rather than a direct call so the three-way decision is drivable from a
+	// table test: this jail's podman is rootful and no test host can be trusted to
+	// be otherwise, so an injected answer is the only way every branch is reachable.
+	Rootless func() PodmanRootless
 	// BuildCopier realizes `.#imageCopier` and returns (skopeoPath, stderrTail);
 	// "" means the build failed. nil => the real build.
 	//
@@ -197,8 +213,13 @@ func (o *AutoLoadOptions) fill() {
 		}
 	}
 	if o.LayerCopy == nil {
-		o.LayerCopy = func(imageJSON, dest string) (CopyReport, bool) {
-			return o.copyImageLayers(imageJSON, dest)
+		o.LayerCopy = func(imageJSON, dest string, prefix []string) (CopyReport, bool) {
+			return o.copyImageLayers(imageJSON, dest, prefix)
+		}
+	}
+	if o.Rootless == nil {
+		o.Rootless = func() PodmanRootless {
+			return PodmanRootlessness(o.Runtime, runCapture)
 		}
 	}
 	if o.BuildCopier == nil {
@@ -604,7 +625,16 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		if o.Runtime == "container" || o.IsMacOS {
 			delivered = o.deliverViaArchive(currentPath, contentRef)
 		} else {
-			_, delivered = o.LayerCopy(currentPath, ContainersStorageDest(contentRef))
+			// AND FROM WHICH NAMESPACE, the second half of the same decision and made
+			// on the same terms: asked before the copy starts, answered from what
+			// podman IS, never from a failed attempt (storewrite.go). A rootless store
+			// has to have its layer ownership mapped through /etc/subuid, which the
+			// copier cannot arrange for itself on a host that restricts unprivileged
+			// user namespaces — so the copy runs inside podman's own.
+			rootless := o.Rootless()
+			fmt.Fprintln(out, StoreWriteNote(rootless))
+			prefix := StoreWritePrefix(o.Runtime, rootless)
+			_, delivered = o.LayerCopy(currentPath, ContainersStorageDest(contentRef), prefix)
 		}
 		lcp.End()
 		if !delivered {
@@ -761,7 +791,12 @@ func (o *AutoLoadOptions) deliverViaArchive(imageJSON, contentRef string) bool {
 	// every later launch fail on a file nobody remembers writing.
 	_ = os.Remove(archivePath)
 	defer os.Remove(archivePath)
-	if _, ok := o.LayerCopy(imageJSON, dest); !ok {
+	// NO NAMESPACE PREFIX, and it is not an omission. An archive is an ordinary
+	// file: the ownership recorded inside it is data, not something the filesystem
+	// has to be able to represent, so nothing needs a subuid mapping and there is
+	// nothing to unshare for. (It is also unavailable here — `podman unshare` is
+	// meaningless on Apple Container and refuses on a podman that is not rootless.)
+	if _, ok := o.LayerCopy(imageJSON, dest, nil); !ok {
 		return false
 	}
 	return o.LoadArchive(archivePath)
@@ -827,12 +862,17 @@ func (o *AutoLoadOptions) resolveCopier() []string {
 // probe rather than here, because only the caller knows whether it wants the
 // figures printed — and because the copy must not depend on a reporting probe
 // having succeeded.
-func (o *AutoLoadOptions) copyImageLayers(imageJSON, dest string) (CopyReport, bool) {
+//
+// prefix arrives from the caller's namespace decision and is passed STRAIGHT
+// THROUGH to the argv. Nothing here re-derives it: a seam that decided for itself
+// what the pipeline also decided is two answers that can drift, and the one this
+// function ran would be the one no test could see.
+func (o *AutoLoadOptions) copyImageLayers(imageJSON, dest string, prefix []string) (CopyReport, bool) {
 	if tail := o.resolveCopier(); o.copier == "" {
 		printTail(o.Out, "the image copier's build said", tail)
 		return CopyReport{}, false
 	}
-	return CopyReport{}, copyImageWithRetry(o.copier, imageJSON, dest, o.Out)
+	return CopyReport{}, copyImageWithRetry(copyArgv(prefix, o.copier, imageJSON, dest), o.Out)
 }
 
 // runCapture runs an argv and returns its stdout, ok=false for anything that did

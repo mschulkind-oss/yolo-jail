@@ -33,7 +33,29 @@ func runContainerImageSection(t *testing.T, rt, storePath string,
 	o.Exec = exec
 	r := newReporter(&out, false)
 	o.sectionContainerImage(r, rt, "hint", storePath)
-	return out.String(), seen
+	return out.String(), withoutDeliveryProbes(seen)
+}
+
+// withoutDeliveryProbes drops the delivery-route preflight's own subprocesses
+// (`podman info`, and the `podman unshare` it may follow with) from a recorded
+// probe list, so the assertions below stay about the ONE thing this section is
+// asked here: which image question the checker puts to the runtime.
+//
+// A filter rather than a widened expectation because the two are independent
+// checks that happen to share a section. reportImageDelivery has its own tests
+// (internal/image's TestUnsharePreflightWarnsBeforeALaunchPaysForIt and this
+// package's TestImageDeliverySection…), and folding its argv into "exactly one
+// probe" assertions here would mean every future delivery probe silently
+// rewrites tests about image presence.
+func withoutDeliveryProbes(seen [][]string) [][]string {
+	var out [][]string
+	for _, argv := range seen {
+		if len(argv) >= 2 && (argv[1] == "info" || argv[1] == "unshare") {
+			continue
+		}
+		out = append(out, argv)
+	}
+	return out
 }
 
 // TestContainerImageSectionAsksForThisConfigsImage: with a store path in hand,

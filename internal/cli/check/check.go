@@ -572,6 +572,11 @@ func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedH
 		r.blank()
 		return
 	}
+	// HOW the image would be delivered, before asking whether it is here: the two
+	// questions are independent (an image can be loaded on a host that could not
+	// deliver the next one) and the delivery answer is the one a red CI run of
+	// 2026-09-09 had to be read out of a failed launch.
+	o.reportImageDelivery(r, detectedRuntime)
 	if builtStorePath != "" {
 		checkImage := image.JailImageRef(detectedRuntime, builtStorePath)
 		res := o.Exec(image.ImageInspectCmd(detectedRuntime, checkImage), "", nil, 10*time.Second)
