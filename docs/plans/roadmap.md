@@ -1235,6 +1235,62 @@ here so they stop being invisible:
   retitle — and `host_services` appears nowhere in `docs/reference/` any more either. Check before
   building it.
 
+### Found by building, 2026-09-09 — work with no decision attached
+
+The disk/image/CLI builds and the corpus restructure surfaced these. **None needs a ruling**; they
+are named here so they are owned rather than rediscovered. Two that DO need a ruling are marked.
+
+**Keys that validate something nothing consumes.** Both are the same shape and both are small:
+
+- **`provides` on an `mcp_servers` entry.** Its only reader was `FilterMCPServersByCapabilities`,
+  deleted 2026-09-09 as dead — so the key never suppressed a server. What survives is a
+  *collision* check in `internal/config/validate.go`: two servers declaring one capability is a
+  hard error. So a launch can be refused over an ambiguity in a value nothing resolves. Implement
+  the selection or drop the key; today it is neither.
+- **`required_capabilities`.** Accepted, validated, inherited by nested launches and forwarded as
+  `YOLO_REQUIRED_CAPABILITIES` — and its design's FATAL refusal ([`OQ-CAP2`](../design/agent-auth-modes.md#11-open-questions))
+  is **unbuilt**, so declaring a capability records a requirement and checks nothing. Now
+  documented in `config-ref` including that caveat, which is the honest interim.
+
+**Gaps a test would have caught, in the places tests do not reach:**
+
+- **`integration/` has no `yolo prune` coverage**, and [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s build made that matter: it added a
+  non-zero exit that fires on a *healthy* machine which has not launched since the upgrade. The
+  unit suite stubs the runtime, so it structurally cannot see that path.
+- **`run` and `init` still silently ignore an unknown flag.** That is
+  [`self-documenting-cli.md`](../design/self-documenting-cli.md)'s requirement 3, whose other half shipped 2026-09-09 (unknown
+  `--format` values now exit 2 with stdout empty). A typo'd flag on the one command everybody runs
+  is the worst place left for silence.
+- **The `--format json` refusal on *acting* verbs is a per-verb branch, not a mechanism.** A new
+  reporting verb gets the flag automatically; a new acting verb needs its guard added by hand.
+  Handled rather than unrepresentable — the honest cost, stated so nobody assumes otherwise.
+
+**One-line residuals the builds named rather than hid:**
+
+- The [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) pointer write sits just OUTSIDE `AutoLoadImage`'s existing
+  housekeeping-lock bracket, leaving a few-ms window where a sweep sees an image with no pointer.
+  Worst case is a failed `podman run`. The fix is to move the write inside that bracket; it was
+  deliberately not taken to keep the diff out of `internal/image/`.
+- **`yolo loopholes enable|disable` writes nothing** — the comment-preserving JSONC edit is
+  unbuilt and was tracked nowhere.
+- **`scripts/measure-macos-vm.sh` has no destination any more.** It exists to paste VM
+  measurements into `macos-no-vm-direction.md`, and that doc is now a reference, which by genre
+  carries no measurements. Wrong in kind, not just in path.
+- **A fetched pack shipping a host daemon has never been spawned end to end.** An embedded pack
+  carries yolo's own authority, so the fetched-and-executing path is unexercised. Fixture-shaped.
+
+**Two that DO need your word**, and are small enough not to deserve rows of their own:
+
+- 💬 **Does a pack's `supersedes` have a consumer, or is the capability namespace the wrong
+  shape?** The mechanism is complete and **no pack in the tree declares `supersedes`** — the
+  worked example its design used (a `claude-bedrock` pack) was never built, because Bedrock landed
+  as a *profile* inside `packs/claude` instead. [`OQ-LP6`](../reference/loophole-system.md#oq-lp6) is the standing question.
+- 💬 **How does an agent that needs an installed adapter extension get its MCP projection?**
+  One shipped agent pack has none for that reason. The options are auto-install the adapter,
+  detect-and-hint, or gate it behind a config key — plus a global-vs-project placement and a
+  version-pinning question. Stripped out of [`mcp-configuration.md`](../reference/mcp-configuration.md#unbuilt) on graduation and
+  named there.
+
 Plus **[OQ-GN1](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN2](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN4](handoff-guest-notch-macos.md#9-open-questions)** in the guest-notch handoff, which are Mac-gated rather than
 undecided, and are cited from 💬 7 above. *([OQ-GN3](handoff-guest-notch-macos.md#9-open-questions) left on 2026-09-02 — it asked whether the
 Cachix cache had ever been pushed to, and the Actions log answered it: yes, and CI reads from it
