@@ -38,7 +38,7 @@ which is what makes a loophole developable standalone and then droppable into an
 pack unchanged. See
 [Shipping a loophole inside a pack](#shipping-a-loophole-inside-a-pack).
 
-> **`~/.local/share/yolo-jail/loopholes/` is RETIRED and is no longer read** ([OQ-LP10](../reference/loophole-system.md)).
+> **`~/.local/share/yolo-jail/loopholes/` is RETIRED and is no longer read** ([`OQ-LP10`](../reference/loophole-system.md#oq-lp10)).
 > It was the one channel that started a host daemon with **no selection step at all** —
 > drop a directory in and every launch discovered it — which contradicts *"nothing is
 > active by default"*. Move each module into the conventional local pack shown above
@@ -272,7 +272,7 @@ injected env var. `yolo loopholes list` also surfaces the error.
 ## The `loopholes` config block
 
 **Install is user-scope; enable is either scope** — the ruled model
-([`loophole-packaging.md`](../design/loophole-packaging.md) §[4.3b](../design/loophole-packaging.md#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either)). The
+(the scope model: [`docs/reference/loophole-system.md`](../reference/loophole-system.md#settings), and [`docs/reference/pack-system.md`](../reference/pack-system.md#a-packs-own-config-keys) for a pack's own keys). The
 install-shaped keys — `command`, `env`, `doctor_cmd` (plus `description`) —
 declare host execution, so they are legal only in the USER config,
 `~/.config/yolo-jail/config.jsonc`. A workspace `yolo-jail.jsonc` (or
@@ -286,7 +286,7 @@ may *declare* host execution; it says nothing about the file that actually runs.
 So an install naming a program inside the workspace yolo is about to bind-mount
 `:rw` — or inside the jail-home tree (`~/.local/share/yolo-jail/home`, which *is*
 `/home/agent`) — is refused, at either scope, by `yolo check`, by `yolo loopholes
-list`/`status`, and at launch (§[4.3a](../design/loophole-packaging.md#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here)). The user who wrote the entry has host
+list`/`status`, and at launch ([`docs/reference/loophole-system.md`](../reference/loophole-system.md#trust-what-is-gated-and-what-is-not)). The user who wrote the entry has host
 access; the agent that can rewrite `tool.py` between launches does not. Keep
 loophole daemons somewhere the jail cannot reach, e.g. `~/.local/bin`. The rule
 covers the two trees yolo knows it hands over, not every directory some other jail
@@ -509,7 +509,7 @@ a reason, not a nervous restriction:
 | Rule | Why | What to use instead |
 |---|---|---|
 | `jail_env` **refused** | it emits `-e K=V` into the container, which is the `env` kind's target namespace, and collision detection keys on `{kind, target}` — so two *different* kinds claiming one variable could never be reported as a collision. (Not because namespaces are otherwise disjoint: `program` and `launch` already share the bin-name namespace by design. What is avoided is a fourth bespoke cross-kind collision pass) | the `env` kind: `{"kind": "env", "vars": {…}}`, which the footprint already reports and collides on — **and the honest cost is that it becomes UNCONDITIONAL.** A loophole's `jail_env` is set only while the loophole is *active*; an `env` contribution is set always. An audio-shaped pack would export `PULSE_SERVER` even on a machine where the sockets never crossed, pointing a client at a socket that is not there. That cost is tracked as **[OQ-LP5](../design/loophole-packaging.md#open-questions)** and the fix (the cross-kind pass) is purely additive |
-| `host_bind_mounts[].host` **must resolve stably** — no `..` segment, no `:`. An absolute path and a `$VAR` are **legal** | **the path rule here was WITHDRAWN** ([OQ-LP14](../reference/loophole-system.md), 2026-08-17). It permitted everything under `$HOME` and refused `${XDG_RUNTIME_DIR}/pulse/native` — it admitted `~/.ssh` and blocked a pulse socket, which is a gate with its two cases inverted. What does the work instead is **total claim enumeration plus the origin approval**: every bind emits an approvable string (socket binds in their own read-write-IPC class), and a *fetched* pack cannot cross without you having seen and approved that exact string. What a path is worth is a content question, and a rule keyed on the declaration's spelling cannot answer one. What survives is a **correctness** rule — "does what you approved equal what I mount" — which `..` (resolves against whatever the prefix is at launch) and `:` (the runtime parses it as the mount-option separator) both break | name the host path you actually need. `$VAR` stays *unexpanded* in the claim, so what the user approves is the declaration, and yolo mounts exactly that |
+| `host_bind_mounts[].host` **must resolve stably** — no `..` segment, no `:`. An absolute path and a `$VAR` are **legal** | **the path rule here was WITHDRAWN** ([`OQ-LP14`](../reference/loophole-system.md#oq-lp14), 2026-08-17). It permitted everything under `$HOME` and refused `${XDG_RUNTIME_DIR}/pulse/native` — it admitted `~/.ssh` and blocked a pulse socket, which is a gate with its two cases inverted. What does the work instead is **total claim enumeration plus the origin approval**: every bind emits an approvable string (socket binds in their own read-write-IPC class), and a *fetched* pack cannot cross without you having seen and approved that exact string. What a path is worth is a content question, and a rule keyed on the declaration's spelling cannot answer one. What survives is a **correctness** rule — "does what you approved equal what I mount" — which `..` (resolves against whatever the prefix is at launch) and `:` (the runtime parses it as the mount-option separator) both break | name the host path you actually need. `$VAR` stays *unexpanded* in the claim, so what the user approves is the declaration, and yolo mounts exactly that |
 | `readonly: false` **refused** | keeps a pack from asking for a writable host bind — **and note exactly what it does NOT cover: `:ro` is no boundary for a SOCKET.** Measured twice in this repo: a read-only bind of an AF_UNIX socket is fully connectable and bidirectional (the well-known `docker.sock:ro` result), because the kernel's read-only check exempts inodes that are not REG/DIR/LNK. So this rule only ever covers regular files and directories; binding a host socket `:ro` gives the jail unrestricted read-write access to whatever is behind it (a container socket, `ssh-agent`, `gpg-agent`, PipeWire) | omit the key, which defaults to `true`. If the bind IS a socket you lose nothing by the refusal — and gain nothing either; it is a no-op for sockets in *both* directions. Because of that measurement a socket bind is its own claim class, worded as host **IPC** rather than as a host read. If your pack genuinely has to WRITE a host file, declare a `host_daemon` that mediates it |
 | `host_daemon.publishes` **must be `"socket"`** — and the *default* is refused too | the transport is a property of the framework, not of the loophole. Under `"endpoint"` your daemon would implement the loopback-TLS server itself — endpoint file mode, key persistence, constant-time token compare, frame length cap — and **yolo cannot detect a violation of any of them.** Tolerable for something you hand-wrote on your own machine; a different proposition for an artifact distributed to strangers. Self-publishing stays available to loopholes yolo itself ships, which are yolo's own code minting yolo's own credential. An absent `publishes` decodes to `"endpoint"`, so saying nothing has declared the mode you may not have — and since the fix is identical either way, the message does not distinguish them | write `"publishes": "socket"`: bind a plain AF_UNIX socket at `{socket}` and yolo runs the audited front over it and publishes the endpoint file for you. Costs one splice hop and buys the inability to get the TLS properties wrong. Declare `request_end: "eof"` if your daemon reads its request to EOF, or it hangs behind the front |
 | **`platforms` declaration** (not a refusal — a field to use) | the front makes the *transport* portable; it does not make the *daemon* portable, and packs will ship native code. `requires` says *"the thing I need is present"* — a runtime probe — and cannot say *"I only exist for this platform."* Without the distinction, a compiled Linux daemon on macOS reads as an unmet requirement ("install the missing thing", advice that can never succeed) or fails five seconds later through a silent spawn path | declare the platforms (OS, and architecture where it matters) — see [`platforms`](#platforms--where-the-loophole-can-run-at-all) above. An unsupported loophole is reported **by name**, once, with the platforms it does support, through the *same one-line report* that names an inert backend: *"this loophole does nothing here, and here is why"* is one user-visible situation, not two |
@@ -550,7 +550,7 @@ socket in your session's runtime dir** — `${XDG_RUNTIME_DIR}/pulse/native` was
 as a `$VAR`, the literal `/run/user/<uid>/pulse/native` as absolute, and it is not
 under `$HOME`. The official `audio` pack shipped only the **ALSA half** while the
 bundled `audio` loophole did the sockets, which is what made the gap a measurement
-rather than an opinion. **[OQ-LP14](../reference/loophole-system.md) withdrew the rule** on exactly that evidence: it
+rather than an opinion. **[`OQ-LP14`](../reference/loophole-system.md#oq-lp14) withdrew the rule** on exactly that evidence: it
 admitted `~/.ssh` and refused a pulse socket, so its two cases were inverted. Both
 audio loopholes then merged into one pack-shipped `audio` (`packs/audio/README.md`
 has the whole story). What replaced the rule is not a narrower one — it is the claim
@@ -622,27 +622,33 @@ display text; and it is rendered with shell quoting for **injectivity**, not for
 shell — nothing execs the string, but `["sh","-c","a b"]` and `["sh","-c","a","b"]`
 must not collapse onto one approved claim.
 
-**A fetched pack needs approval where a local one does not.** Origin bounds the
-gate: an embedded pack or one at a path you control is permitted; a pack fetched
-from a git URL must have every claim its *staged tree currently makes* approved in
-the lockfile, and a missing or corrupt lockfile approves **nothing**. Approval
-requires a real terminal — `yes | yolo pack install` is refused *before* the prompt
-is shown, so a pipe is never invited to answer it.
+> [!IMPORTANT]
+> **There is no approval to give any more — this whole gate was deleted on 2026-09-04**, and the
+> paragraphs that described it are gone from this guide as of 2026-09-09. A fetched pack used to
+> need every claim its staged tree made approved in the lockfile, with a y/N prompt at
+> `yolo pack install`, and a loophole without one was listed as `unapproved` and crossed nothing.
+>
+> The ruling that removed it ([`OQ-TP9`](../design/trust-paths.md#decision-ledger)) found it to be
+> **theatre**: selecting a pack means writing user-scope config as the host user, and the `packs`
+> key is inexpressible at workspace scope by construction — so the gate refused an actor who had
+> already passed a strictly stronger check. That is exactly what
+> [the gate-placement principle](../design/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)'s Test 1 exists to delete. The prompt, its
+> lockfile record and the launch-time gate all went together.
+>
+> **What replaced it is nothing, and that is the point.** What keeps a hostile declaration out is
+> that adding one requires user-scope config access in the first place. What you get instead of a
+> gate is **disclosure**: the claim enumeration below, `yolo pack footprint`, and the per-launch
+> lines described next. Two things were deliberately KEPT — `packs` staying user-scope-only, and
+> the startup disclosure banner.
+>
+> **Following a mutable ref is therefore the trust decision** , which is why a pack
+> carrying host execution should be pinned to a **tag** ([`OQ-LP8`](../reference/loophole-system.md#oq-lp8)): see *Sharing a pack with other people* in
+> [the packs guide](migrating-to-packs-and-host-management.md).
 
-**What "unapproved" costs, precisely, and what it does not.** NOTHING of the
-loophole crosses: no host daemon, no bind mounts, no devices, no `--add-host`, no
-CA, no `jail_env`. Its `doctor_cmd` cannot run either — `yolo check` and
-`yolo loopholes status` refuse to execute a pack loophole's self-check without a
-recorded approval. The pack's OTHER contributions still work; the refusal is
-per-loophole, not per-pack. And you are **told**: the launch prints one line naming
-the loophole, saying it was refused, and pointing at `yolo pack install` — before
-that line existed, a pack whose whole purpose was a loophole silently did nothing,
-which looks exactly like a loophole that is broken.
-
-It is still **listed**. `yolo loopholes list` and `status` show it as `unapproved`
-rather than omitting it, because a missing entry is indistinguishable from a pack
-that failed to stage, and the route to approving it is not discoverable from an
-absence.
+**A refused contribution refuses the whole launch.** Under the old gate a rejected loophole was
+skipped while the pack's other contributions still worked. That is no longer the shape, and it was
+a separate ruling ([`OQ-TP6`](../design/trust-paths.md#decision-ledger)): there are no partial packs — fix it, remove it, or drop it from
+`packs`. A launch that cannot honor a declaration stops and names it.
 
 And the per-launch disclosure names the host access in effect *every* launch — the
 execution lines print **before** anything spawns, because after the spawn a line is
