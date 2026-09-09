@@ -239,6 +239,11 @@ func Run(opts Options) int {
 	rt := opts.DetectRuntime()
 	workspaces := FindYoloWorkspaces(rt, opts.Exec)
 
+	// OQ-LS2: a sweep that DECLINED — as opposed to one that found nothing —
+	// fails the command. `yolo prune` was told to reclaim; silence about not
+	// having done so is the shape of the defect this whole effort began with.
+	declinedSweep := false
+
 	mode := "DRY-RUN"
 	if apply {
 		mode = "APPLY"
@@ -398,19 +403,26 @@ func Run(opts Options) int {
 		// why the ledger's readability is a SECOND return rather than an empty
 		// map: unknown must decline, not sweep.
 		protectedTags, liveKnown := ProtectedImageTags(opts.BuildDir())
+		removed, declined := PruneOldImages(rt, opts.KeepImages, protectedTags, liveKnown, apply, opts.Exec)
+		removedImages = removed
 		switch {
-		case !liveKnown:
-			p.line("  [dim]skipped — could not read the image load ledger; declining to sweep[/dim]")
-		default:
-			removedImages = PruneOldImages(rt, opts.KeepImages, protectedTags, liveKnown, apply, opts.Exec)
-			if len(removedImages) > 0 {
-				p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedImages)))
-				for _, img := range removedImages {
-					p.line("    • " + img)
-				}
-			} else {
-				p.line("  [dim]none[/dim]")
+		case declined != "":
+			// OQ-LS2, the manual path: the user asked yolo to reclaim and it
+			// could not, so this is an ERROR and the command fails. It was a dim
+			// "skipped" line, which is the wrong volume in both directions —
+			// invisible in a scrollback, and indistinguishable from the ordinary
+			// "nothing to remove" below.
+			p.line(fmt.Sprintf("  [bold red]FAILED — %s (%s), so nothing was swept.[/bold red]", declined, rt))
+			p.line("  [dim]Nothing was removed. This is not \"nothing to remove\": the sweep could not " +
+				"establish what is safe to touch, and an unproven set is never a licence to delete.[/dim]")
+			declinedSweep = true
+		case len(removedImages) > 0:
+			p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedImages)))
+			for _, img := range removedImages {
+				p.line("    • " + img)
 			}
+		default:
+			p.line("  [dim]none[/dim]")
 		}
 	}
 
@@ -792,6 +804,12 @@ func Run(opts Options) int {
 			"Re-run with [cyan]--apply[/cyan] to execute.",
 			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
 			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(agentStagingDirs), fmtComma(shadowedItems), fmtComma(cacheFiles), fmtComma(agentLogFiles)))
+	}
+	// The summary above still prints, because what DID get reclaimed is real and
+	// the reader needs it. The exit code is what carries "and one pass could not
+	// run" to anything that is not a human reading a scrollback.
+	if declinedSweep {
+		return 1
 	}
 	return 0
 }

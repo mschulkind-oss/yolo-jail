@@ -175,7 +175,7 @@ func TestPruneOldImages(t *testing.T) {
 		// id3 — the second-newest IMAGE — is selected for removal.
 		var rmiCalls []string
 		run := imagesRunner(imgOut, &rmiCalls)
-		got := PruneOldImages("podman", 2, none, true, false, run)
+		got, _ := PruneOldImages("podman", 2, none, true, false, run)
 		want := []string{"id1", "id4"}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("dry-run = %v, want %v", got, want)
@@ -183,7 +183,7 @@ func TestPruneOldImages(t *testing.T) {
 		if len(rmiCalls) != 0 {
 			t.Errorf("dry-run made rmi calls: %v", rmiCalls)
 		}
-		if got = PruneOldImages("podman", 2, none, true, true, run); !reflect.DeepEqual(got, want) {
+		if got, _ = PruneOldImages("podman", 2, none, true, true, run); !reflect.DeepEqual(got, want) {
 			t.Errorf("apply = %v, want %v", got, want)
 		}
 		if !reflect.DeepEqual(rmiCalls, want) {
@@ -197,7 +197,7 @@ func TestPruneOldImages(t *testing.T) {
 		// selected it.
 		var rmiCalls []string
 		run := imagesRunner(imgOut, &rmiCalls)
-		got := PruneOldImages("podman", 2,
+		got, _ := PruneOldImages("podman", 2,
 			map[string]struct{}{"1111111111111111": {}}, true, true, run)
 		want := []string{"id4"}
 		if !reflect.DeepEqual(got, want) {
@@ -215,7 +215,7 @@ func TestPruneOldImages(t *testing.T) {
 		rows := imgOut + "id4 localhost/yolo-jail:latest 2026-06-15 09:00:00 +0000 UTC\n"
 		var rmiCalls []string
 		run := imagesRunner(rows, &rmiCalls)
-		got := PruneOldImages("podman", 2, map[string]struct{}{"latest": {}}, true, true, run)
+		got, _ := PruneOldImages("podman", 2, map[string]struct{}{"latest": {}}, true, true, run)
 		want := []string{"id1"}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("removed = %v, want %v (id4 still answers to :latest)", got, want)
@@ -406,7 +406,7 @@ func TestAnUnreadableLedgerDeclinesToSweep(t *testing.T) {
 		"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n"
 	var rmiCalls []string
 	run := imagesRunner(imgOut, &rmiCalls)
-	if got := PruneOldImages("podman", 2, tags, known, true, run); len(got) != 0 {
+	if got, _ := PruneOldImages("podman", 2, tags, known, true, run); len(got) != 0 {
 		t.Errorf("swept %v with an unreadable ledger; must decline entirely", got)
 	}
 	if len(rmiCalls) != 0 {
@@ -433,7 +433,7 @@ func TestPruneOldImagesSpareRunningContainersImageEvenWhenAgedOutOfTheLRU(t *tes
 	// protected is EMPTY: the running jail's image has aged out of the LRU, which
 	// is the whole premise. liveKnown=true, so the fail-safe is not what saves it.
 	run := imagesRunnerWithRunning(rows, "idRunning\n", &rmiCalls)
-	removed := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run)
+	removed, _ := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run)
 
 	for _, id := range removed {
 		if id == "idRunning" {
@@ -470,7 +470,7 @@ func TestPruneOldImagesDeclinesWhenRunningSetIsUnknown(t *testing.T) {
 		}
 		return ProbeResult{Ran: true}
 	}
-	if removed := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run); len(removed) != 0 {
+	if removed, _ := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run); len(removed) != 0 {
 		t.Errorf("removed %v with an unreadable running set; want nothing", removed)
 	}
 	if len(rmiCalls) != 0 {

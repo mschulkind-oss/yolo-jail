@@ -102,16 +102,23 @@ func RecordAutoImageReap(sentinel string, now time.Time) {
 // number and the automatic one can never silently diverge. ran reports
 // whether the pass actually executed (true even when removed is empty — the
 // debounce, not "nothing to remove", is what ran distinguishes).
-func AutoReapOldImages(rt, buildDir string, keep int, now time.Time, run RunFunc) (removed []string, ran bool) {
+func AutoReapOldImages(rt, buildDir string, keep int, now time.Time, run RunFunc) (removed []string, ran bool, declined ImageReapDecline) {
 	sentinel := filepath.Join(buildDir, autoReapSentinelName)
 	if !DueForAutoImageReap(sentinel, AutoReapInterval, now) {
-		return nil, false
+		// DEBOUNCED, not declined. Nothing is wrong and nothing is said: this is
+		// the overwhelmingly common case, once per day per machine at most, and a
+		// line here would be noise in front of every launch (OQ-LS2).
+		return nil, false, ""
 	}
 	protectedTags, liveKnown := ProtectedImageTags(buildDir)
-	if !liveKnown {
-		return nil, false
+	removed, declined = PruneOldImages(rt, keep, protectedTags, liveKnown, true, run)
+	if declined != "" {
+		// DECLINED. Deliberately NOT stamped: the debounce records that a pass
+		// ran, and a pass that could not establish its evidence did not run. The
+		// old code returned (nil, false) for an unreadable ledger, which read as
+		// "debounced" to the caller — indistinguishable from the quiet case.
+		return nil, false, declined
 	}
-	removed = PruneOldImages(rt, keep, protectedTags, liveKnown, true, run)
 	RecordAutoImageReap(sentinel, now)
-	return removed, true
+	return removed, true, ""
 }

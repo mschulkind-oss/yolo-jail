@@ -95,39 +95,70 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 }
 
 // TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness pins the fail-safe
-// polarity through the SAME adapter this package's launch path uses: a
-// timed-out `images` probe must degrade to "liveness unknown", never to an
-// empty (therefore all-removable) result.
+// polarity through the SAME adapter this package's launch path uses — and,
+// since OQ-LS2, the two cases that used to be one.
+//
+// REWRITTEN, not repaired. The old version asserted "decline before ever
+// probing images" and "a declined pass must print nothing", and LS2 reverses
+// the second: a decline on a launch that is about to start a container should
+// be impossible, so it warns loudly rather than passing in silence. The first
+// was reordered deliberately — listing candidates first is what distinguishes
+// a denied sweep from a machine where yolo has never loaded an image.
 func TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// No last-load-<runtime> sentinel anywhere under buildDir: the ledger is
-	// unreadable, so ProtectedImageTags reports known=false regardless of what
-	// the images probe below would return.
-	var rmiCalls []string
-	var buf bytes.Buffer
-	o := &Options{}
-	fillDefaults(o)
-	o.Stdout = &buf
-	o.Now = time.Now
-	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		if len(argv) >= 2 && argv[1] == "images" {
-			t.Error("an unreadable liveness ledger must decline before ever probing images")
+	// The ledger is unreadable in BOTH cases (no last-load-<runtime> sentinel
+	// under buildDir), so what separates them is only whether there was anything
+	// to reap.
+	newOpts := func(t *testing.T, imagesOut string, rmiCalls *[]string) (*Options, *bytes.Buffer, *bytes.Buffer) {
+		t.Setenv("HOME", t.TempDir())
+		var out, errBuf bytes.Buffer
+		o := &Options{}
+		fillDefaults(o)
+		o.Stdout = &out
+		o.Stderr = &errBuf
+		o.Now = time.Now
+		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			if len(argv) >= 2 && argv[1] == "rmi" {
+				*rmiCalls = append(*rmiCalls, argv[2])
+			}
+			if len(argv) >= 2 && argv[1] == "images" {
+				return ExecResult{Ran: true, RC: 0, Stdout: imagesOut}
+			}
+			return ExecResult{Ran: true, RC: 0}
 		}
-		if len(argv) >= 2 && argv[1] == "rmi" {
-			rmiCalls = append(rmiCalls, argv[2])
-		}
-		return ExecResult{Ran: true, RC: 0}
+		return o, &out, &errBuf
 	}
 
-	o.autoReapOldImages("podman")
+	t.Run("nothing of ours: silent, and not a decline", func(t *testing.T) {
+		var rmiCalls []string
+		o, out, errBuf := newOpts(t, "", &rmiCalls)
+		o.autoReapOldImages("podman")
+		if len(rmiCalls) != 0 {
+			t.Errorf("rmi called with no readable liveness ledger: %v", rmiCalls)
+		}
+		if out.Len() != 0 || errBuf.Len() != 0 {
+			t.Errorf("a machine with no yolo images must say nothing; stdout=%q stderr=%q",
+				out.String(), errBuf.String())
+		}
+	})
 
-	if len(rmiCalls) != 0 {
-		t.Errorf("rmi called with no readable liveness ledger: %v", rmiCalls)
-	}
-	if buf.Len() != 0 {
-		t.Errorf("a declined pass must print nothing, got: %q", buf.String())
-	}
+	t.Run("candidates exist but the ledger does not: loud, on stderr, and still no rmi", func(t *testing.T) {
+		var rmiCalls []string
+		o, out, errBuf := newOpts(t,
+			"id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n", &rmiCalls)
+		o.autoReapOldImages("podman")
+		if len(rmiCalls) != 0 {
+			t.Errorf("rmi called with no readable liveness ledger: %v", rmiCalls)
+		}
+		if !strings.Contains(errBuf.String(), "declined") {
+			t.Errorf("a decline must be reported LOUDLY (OQ-LS2): stderr=%q — silence about not "+
+				"acting is the defect this whole effort started from, and a dim line was refused "+
+				"as the wrong volume for something that should be impossible here", errBuf.String())
+		}
+		if out.Len() != 0 {
+			t.Errorf("the warning must not touch stdout — that belongs to the jailed command; got %q",
+				out.String())
+		}
+	})
 }
 
 // TestAutoReapOldImagesOptOut pins the escape hatch: with

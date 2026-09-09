@@ -51,8 +51,25 @@ func (o *Options) autoReapOldImages(rt string) {
 		// clean, empty success.
 		return prune.ProbeResult{Stdout: res.Stdout, RC: res.RC, Ran: res.Ran && !res.Timeout}
 	}
-	removed, ran := prune.AutoReapOldImages(rt, buildDir, prune.DefaultKeepImages, o.Now(), run)
-	if ran && len(removed) > 0 {
+	removed, ran, declined := prune.AutoReapOldImages(rt, buildDir, prune.DefaultKeepImages, o.Now(), run)
+	switch {
+	case declined != "":
+		// OQ-LS2, the automatic path. This is LOUD and on STDERR, and both are
+		// deliberate. Loud because a decline here should be impossible: the
+		// reap runs on a launch that is about to `podman run`, so a runtime
+		// that cannot answer `ps` cannot start a container either — reaching
+		// this branch means something is wrong, not that housekeeping was
+		// quietly skipped. Stderr because stdout belongs to the jailed command.
+		//
+		// NOT a dim line, which was the first proposal: dim is the volume for
+		// something routine, and the only routine case (debounced, or nothing
+		// to remove) says nothing at all.
+		o.pr(o.Stderr).printf("[yellow]Warning: the automatic image reap declined — %s. "+
+			"Nothing was reclaimed, and the launch continues.[/yellow]\n"+
+			"[dim]  This should not happen on a launch that is starting a container: the same "+
+			"runtime answered the image load a moment ago. `yolo prune` will report the same "+
+			"cause with a non-zero exit.[/dim]", declined)
+	case ran && len(removed) > 0:
 		o.pr(o.Stdout).printf("[dim]Reclaimed %d stale yolo-jail image(s) automatically "+
 			"(minimal-disk-footprint.md OQ-DF3; `yolo prune` shows the full picture).[/dim]",
 			len(removed))

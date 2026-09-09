@@ -81,7 +81,7 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 
 	// keep=0: retention is entirely keep-by-use here, so only id2 (the live
 	// path's own content tag) survives; id1 is a plain superseded image.
-	removed, ran := AutoReapOldImages("podman", buildDir, 0, now, run)
+	removed, ran, _ := AutoReapOldImages("podman", buildDir, 0, now, run)
 	if !ran {
 		t.Fatal("first call on a fresh machine must run (no debounce sentinel yet)")
 	}
@@ -98,7 +98,7 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	// A second call moments later, on the same machine clock, must be a
 	// no-op — the assertion that fails if the debounce (or its call site) is
 	// ever deleted.
-	removed, ran = AutoReapOldImages("podman", buildDir, 0, now.Add(time.Minute), run)
+	removed, ran, _ = AutoReapOldImages("podman", buildDir, 0, now.Add(time.Minute), run)
 	if ran {
 		t.Error("a call inside the interval must be debounced (ran=false)")
 	}
@@ -110,7 +110,7 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	}
 
 	// Past the interval, it fires again.
-	_, ran = AutoReapOldImages("podman", buildDir, 0, now.Add(AutoReapInterval+time.Second), run)
+	_, ran, _ = AutoReapOldImages("podman", buildDir, 0, now.Add(AutoReapInterval+time.Second), run)
 	if !ran {
 		t.Error("a call past the interval must run again")
 	}
@@ -128,17 +128,29 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 // away instead of waiting out a full day on a machine that was never
 // actually protected.
 func TestAutoReapOldImagesDeclinesOnUnreadableLedger(t *testing.T) {
+	// It DOES list images first, and that reordering is deliberate rather than a
+	// relaxation (OQ-LS2). This test used to assert "decline before ever probing
+	// podman's images", which saved one read-only subprocess and cost the ability
+	// to tell a denied sweep from a fresh machine: a host where yolo has never
+	// loaded an image has an unreadable ledger too, and failing `yolo prune`
+	// there would report a problem nobody has. Listing first is what lets
+	// "declined" mean "prevented work". Nothing is removed before the guards.
 	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n"
+	rmiCalls := []string{}
 	run := func(argv []string, _ time.Duration) ProbeResult {
-		if len(argv) >= 2 && argv[1] == "images" {
-			t.Error("an unreadable ledger must decline before ever probing podman's images")
+		if len(argv) >= 2 && argv[1] == "rmi" {
+			rmiCalls = append(rmiCalls, argv[2])
+		}
+		if len(argv) >= 2 && argv[1] == "ps" {
+			t.Error("an unreadable ledger must decline before asking the runtime what is running — " +
+				"the liveness guard is cheaper than the probe it gates")
 		}
 		return ProbeResult{Stdout: imgOut, Ran: true}
 	}
 	now := time.Now()
 	buildDir := t.TempDir() // no last-load-<runtime> file anywhere: liveKnown=false
 
-	removed, ran := AutoReapOldImages("podman", buildDir, 0, now, run)
+	removed, ran, _ := AutoReapOldImages("podman", buildDir, 0, now, run)
 	if ran {
 		t.Error("an unreadable liveness ledger must decline (ran=false), never sweep")
 	}
@@ -147,6 +159,10 @@ func TestAutoReapOldImagesDeclinesOnUnreadableLedger(t *testing.T) {
 	}
 	if !DueForAutoImageReap(filepath.Join(buildDir, autoReapSentinelName), AutoReapInterval, now.Add(time.Second)) {
 		t.Error("a declined pass must not stamp the debounce sentinel")
+	}
+	if len(rmiCalls) != 0 {
+		t.Errorf("a declined pass removed %v — listing candidates before the guards must never "+
+			"mean acting on them", rmiCalls)
 	}
 }
 
@@ -170,7 +186,7 @@ func TestAutoReapOldImagesNeverRemovesTheLiveImage(t *testing.T) {
 	var imagesCalls int
 	run := imagesRunnerCounting(imgOut, &rmiCalls, &imagesCalls)
 
-	removed, ran := AutoReapOldImages("podman", buildDir, 0, time.Now(), run)
+	removed, ran, _ := AutoReapOldImages("podman", buildDir, 0, time.Now(), run)
 	if !ran {
 		t.Fatal("a readable ledger must run")
 	}
@@ -186,5 +202,53 @@ func TestAutoReapOldImagesNeverRemovesTheLiveImage(t *testing.T) {
 	}
 	if len(removed) != 1 || removed[0] != "id-newer" {
 		t.Errorf("removed = %v, want [id-newer] only", removed)
+	}
+}
+
+// TestAutoReapDeclineIsDistinguishableFromDebounce is OQ-LS2's core: before it,
+// an unreadable ledger and a debounced interval both returned (nil, false), so
+// the caller could not tell "nothing is wrong, come back tomorrow" from "the
+// pass could not establish what is safe to touch". A pass that is not running
+// and does not say so is the shape of the defect the whole reclamation effort
+// began with, one level down.
+func TestAutoReapDeclineIsDistinguishableFromDebounce(t *testing.T) {
+	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n"
+	run := func(argv []string, _ time.Duration) ProbeResult {
+		return ProbeResult{Stdout: imgOut, Ran: true}
+	}
+	now := time.Now()
+
+	// Declined: no ledger, but candidates exist — so work WAS prevented.
+	_, ran, declined := AutoReapOldImages("podman", t.TempDir(), 0, now, run)
+	if ran || declined == "" {
+		t.Fatalf("unreadable ledger: ran=%v declined=%q, want ran=false and a stated reason", ran, declined)
+	}
+
+	// Debounced: the stamp is fresh. Also not ran — and it must NOT carry a
+	// reason, or every launch would warn about a healthy machine.
+	buildDir := t.TempDir()
+	sentinel := filepath.Join(buildDir, autoReapSentinelName)
+	RecordAutoImageReap(sentinel, now)
+	_, ran, declined = AutoReapOldImages("podman", buildDir, 0, now.Add(time.Minute), run)
+	if ran {
+		t.Error("a fresh stamp must debounce")
+	}
+	if declined != "" {
+		t.Errorf("a debounced pass reported %q — nothing is wrong when the interval has not "+
+			"elapsed, and a warning there would fire on every launch", declined)
+	}
+}
+
+// TestNothingOfOursIsNotADecline: a machine where yolo has never loaded an
+// image has an unreadable ledger AND no candidates. Failing there would report
+// a problem nobody has, which is why the candidate listing comes first.
+func TestNothingOfOursIsNotADecline(t *testing.T) {
+	run := func(argv []string, _ time.Duration) ProbeResult {
+		return ProbeResult{Stdout: "", Ran: true} // no yolo-jail images at all
+	}
+	removed, declined := PruneOldImages("podman", 2, map[string]struct{}{}, false /*liveKnown*/, true, run)
+	if len(removed) != 0 || declined != "" {
+		t.Fatalf("fresh machine: removed=%v declined=%q, want empty and NO decline — an empty "+
+			"ledger with nothing to reap denied the user nothing", removed, declined)
 	}
 }

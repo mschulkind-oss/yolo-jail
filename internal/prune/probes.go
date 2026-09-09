@@ -260,14 +260,51 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 // --apply` — see AutoReapOldImages (autoreap.go), the launch-path caller.
 // OQ-DF3's REACH question (dangling/untagged `<none>` rows) is untouched by
 // either ruling and stays open.
-func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnown bool, apply bool, run RunFunc) []string {
+// ImageReapDecline names WHY an old-image sweep did nothing, because "declined"
+// and "nothing to remove" were the same empty slice until OQ-LS2 and that is the
+// shape of the defect the whole reclamation effort started from: a pass that is
+// not running and does not say so. Empty means the pass ran.
+//
+// These strings are user-facing and name the missing EVIDENCE, not the internal
+// step, because the reader's next move differs per cause: an unreadable ledger
+// is a yolo-state problem, an unreachable runtime is a machine problem.
+type ImageReapDecline string
+
+const (
+	// DeclineLedgerUnreadable: the load sentinel could not be read, so the
+	// liveness veto has no evidence (guard #1).
+	DeclineLedgerUnreadable ImageReapDecline = "could not read the image load ledger"
+	// DeclineRuntimeUnreachable: `ps` could not be enumerated, so what is
+	// actually running is unknown (guard #0).
+	DeclineRuntimeUnreachable ImageReapDecline = "could not ask the runtime which images have containers on them"
+	// DeclineImagesUnreadable: the image listing itself failed, so there is no
+	// candidate set at all.
+	DeclineImagesUnreadable ImageReapDecline = "could not list this runtime's images"
+)
+
+func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnown bool, apply bool, run RunFunc) (removed []string, declined ImageReapDecline) {
+	// THE CANDIDATE LISTING COMES FIRST, and the order is load-bearing since
+	// OQ-LS2 made a decline an ERROR on the manual path. A machine where yolo
+	// has never loaded an image has an empty load ledger, so liveKnown is false
+	// — but nothing was denied there, because there was nothing to reap. Asking
+	// what exists before asking whether it is safe to touch is what lets
+	// "declined" mean "prevented work" rather than "fresh machine".
+	//
+	// Listing is read-only and removes nothing, so no guard below is weakened by
+	// running after it; the guards still gate every `rmi`.
+	res := run([]string{rt, "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"}, psTimeout)
+	if !res.Ran || res.RC != 0 {
+		return []string{}, DeclineImagesUnreadable
+	}
+	if strings.TrimSpace(res.Stdout) == "" {
+		return []string{}, "" // nothing of ours exists; nothing to decline about
+	}
 	if !liveKnown {
 		// Guard #1, the fail-safe: the veto's whole evidence is the load sentinel,
 		// and an unreadable one makes "nothing is live" and "I cannot tell" the
-		// same observation. `rmi -f` takes a live jail's containers with it, so an
-		// unproven set is not a licence to remove — decline entirely. Same polarity
-		// as PruneOrphanImageRoots' guard #1.
-		return []string{}
+		// same observation. An unproven set is not a licence to remove — decline
+		// entirely. Same polarity as every other tri-state in this package.
+		return []string{}, DeclineLedgerUnreadable
 	}
 	// GUARD #0, AND THE ONLY ONE THAT ASKS THE RUNTIME WHAT IS ACTUALLY RUNNING.
 	// The veto below reads a TEN-ENTRY LRU of recently-LOADED store paths, and a
@@ -275,20 +312,14 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 	// up for days while other launches load other images ages out of the window
 	// and stops being protected while it is still running. Measured 2026-09-08:
 	// a day of commits to internal/ moved goSrc on every launch, four jails up
-	// 3-4 days aged out, and one auto-reap `rmi -f`'d their images and took the
-	// containers with them mid-session (the exact outcome the comment above this
-	// function warns about, through the one path its evidence cannot see).
+	// 3-4 days aged out, and one auto-reap removed their images mid-session.
 	//
 	// `podman ps` is the direct question. Unreadable => decline entirely, the
 	// same polarity as guard #1: "nothing is running" and "I cannot tell" must
 	// not be the same answer when the action is destructive.
 	inUse, inUseKnown := imagesInUseByRunningContainers(rt, run)
 	if !inUseKnown {
-		return []string{}
-	}
-	res := run([]string{rt, "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"}, psTimeout)
-	if !res.Ran || res.RC != 0 {
-		return []string{}
+		return []string{}, DeclineRuntimeUnreachable
 	}
 	var images []ImageEntry
 	seen := map[string]bool{}
@@ -330,7 +361,7 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 			run([]string{rt, "rmi", id}, rmiTimeout)
 		}
 	}
-	return toRemove
+	return toRemove, ""
 }
 
 // relayShortHash is the 8-char hash keying a jail's broker-relay pid/lock/socket
