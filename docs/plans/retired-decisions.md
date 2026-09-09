@@ -1,20 +1,21 @@
 # Retired decisions
 
-**Status:** LIVING RECORD, three entries; re-read against the tree 2026-09-09 (the previous stamp's
-*"last touched 2026-08-17"* was already false — a link pass touched the file on 2026-09-06 — so the
-form is dropped rather than updated). Append-only in practice: an entry leaves only if the decision
-is *reversed*, and then it leaves with a note saying so. **One forward statement in Thread A has
-since been overtaken by its own shape:** what shipped is not a separate `claude-bedrock` pack but a
-`bedrock` provider + profile + `config-overlay` *inside* `packs/claude` (`packs/claude/pack.json`),
-which is the profiles-as-pack-variants answer to the same problem — the three retirements the thread
-records are unaffected.
+**Status:** LIVING RECORD. Append-only in practice: an entry leaves only if the decision is
+*reversed*, and then it leaves with a note saying so. There is deliberately no "last touched" stamp —
+a link pass or a typo fix moves the file without changing a single retirement, so the form was always
+going to be wrong, and a wrong date on a history file is worse than none. Each entry carries its own
+date instead.
+
+This file lives in `docs/plans/` because it is **history, not a system description**: it records
+decisions and their reasoning, which is the planning tree's job. [`roadmap.md`](roadmap.md) points
+here as Thread A's destination.
 
 > [!NOTE]
 > **Three entries in six weeks is suspiciously few**, given how many rulings the design docs record
 > as *"rejected"* or *"withdrawn"*. If a decision-not-to-build is only ever written into the doc that
 > proposed it, it is discoverable by whoever already knows where to look — which is the failure this
 > file exists to prevent. Two current examples worth moving here when someone passes through:
-> [`OQ-BP3`](./broker-as-a-pack.md#decision-ledger)'s coupling (withdrawn for the sprint, still correct outside it) and `publishes: "endpoint"`,
+> [`OQ-BP3`](../design/broker-as-a-pack.md#decision-ledger)'s coupling (withdrawn for the sprint, still correct outside it) and `publishes: "endpoint"`,
 > whose last user left in August.
 
 **What this is.** Things we decided **not** to build, and architectures we rejected — kept because
@@ -23,8 +24,8 @@ instead, and *why*, so a future reader (or a future agent) can tell "we never th
 "we thought of that and it does not work."
 
 **This is not a changelog.** Work that shipped is recorded in
-[`../plans/shipped-2026-08-12.md`](../plans/shipped-2026-08-12.md) and its siblings, or in the commit
-history. Open work is in [`../plans/roadmap.md`](../plans/roadmap.md). **Nothing in
+[`shipped-2026-08-12.md`](shipped-2026-08-12.md) and its siblings, or in the commit
+history. Open work is in [`roadmap.md`](roadmap.md). **Nothing in
 this file is pending.**
 
 **Adding an entry.** Move it here the moment the decision is made, not later — the reasoning is
@@ -38,8 +39,10 @@ The review question that dissolved most of this thread: *"say you don't use eith
 try to log in to a Teams account and Claude's going to let you."*
 
 Verified: the base `claude` pack already ships `hook shared_credentials` + machine-scope
-`.claude-shared-credentials` state, plus the `claude-oauth-broker` loophole gated on
-`command_on_path: claude`. So **`packs: ["claude"]` alone is already the complete Teams setup** —
+`.claude-shared-credentials` state, plus the `claude-oauth-broker` loophole — whose
+`requires.command_on_path: "claude"` gate has since been **deleted**, so selecting the pack is now
+the whole dependency, which only strengthens the point below. So **`packs: ["claude"]` alone is
+already the complete Teams setup** —
 Claude Code does its own `/login`, the credential is machine-shared, and the broker serializes
 refreshes.
 
@@ -52,11 +55,20 @@ floor.** Three things were retired on that basis:
 3. **`provides`/capability exclusivity is retired for this case.** A mechanism was built for a
    conflict between peers, then no peers were found.
 
-What remains is **one pack, `claude-bedrock`**: `config-overlay` carrying `CLAUDE_CODE_USE_BEDROCK`,
-`AWS_REGION` and the Bedrock-shaped model IDs, with AWS keys in `env_sources` so the pack stays
-secret-free and therefore shareable. Deselecting it withdraws the overlay, which fixes the bug that
-started the thread — a manual switch left a `us.anthropic.` model pin behind because it had been
-hand-edited into `settings.json`.
+What remained was one Bedrock-shaped thing carrying `CLAUDE_CODE_USE_BEDROCK`, the region and the
+Bedrock-shaped model IDs, with AWS keys in `env_sources` so it stays secret-free and therefore
+shareable. Withdrawing it fixes the bug that started the thread — a manual switch left a
+`us.anthropic.` model pin behind because it had been hand-edited into `settings.json`.
+
+⚠ **The forward statement here said that thing would be a separate `claude-bedrock` PACK. It is
+not.** What shipped is a `bedrock` **provider + profile inside `packs/claude`**, with a
+`profile: bedrock`-gated `env` contribution and a `profile: bedrock`-gated `config-overlay`
+(`packs/claude/pack.json`) — the profiles-as-pack-variants answer to the same problem, and a
+selection rather than a pack. The withdrawal that fixes the bug is now deselecting the *profile*,
+not deselecting a pack. **The three retirements this thread records are unaffected**, and the
+`requires_pack` retirement below is if anything stronger: a profile inside the pack cannot need a
+pack→pack edge at all. See [`../reference/providers.md`](../reference/providers.md) for the
+mechanism.
 
 **Also retired: `requires_pack` / pack→pack composition.** Its motivating case was two auth packs
 excluding each other; with one Bedrock pack there is nothing to exclude, and a personal pack selected
