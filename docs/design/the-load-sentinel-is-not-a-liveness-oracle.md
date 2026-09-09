@@ -304,7 +304,9 @@ should wait for the layer plan rather than move now.
    means 175 seconds here, not a shrug.
 
    **Answer (2026-09-08): NO veto. An age cutoff, and a size cap if one is wanted — and the
-   leaning was this doc's own defect committed in the opposite direction.**
+   leaning was this doc's own defect committed in the opposite direction. BUILT `93f21f07`**
+   (the size cap is not built: it needs a number, and [OQ-BF9](./disk-levers-and-backfill.md#OQ-BF9)'s
+   ledger is what would produce one).
    > The maintainer, in full, because the argument is the ruling:
    >
    > > *"I don't love this because we're still conflating things. What we're trying to guess is
@@ -368,7 +370,8 @@ should wait for the layer plan rather than move now.
    the original 404 GiB defect was made of.
 
    **Answer (2026-09-08): not a dim line. An ERROR where the user asked for the work, and
-   nothing at all where they did not — because on the launch path the case cannot arise.**
+   nothing at all where they did not — because on the launch path the case cannot arise.
+   BUILT `3c9e8de9`.**
    > *"What was broken? I don't quite get it. If something is wedged, fatal error and let's fix
    > it, no?"* Both halves are right, and the second one is a better answer than the leaning.
    >
@@ -413,7 +416,9 @@ should wait for the layer plan rather than move now.
    raise it now that safety no longer rests on it.
 
    **Answer (2026-09-08): PODMAN IMAGES only — nix roots are a separate policy — and "rollback"
-   was the wrong word for what `keep` buys, which is why the question read as uninteresting.**
+   was the wrong word for what `keep` buys, which is why the question read as uninteresting.
+   NOT BUILT — blocked on a config-identity key that does not exist yet; see the correction below
+   and [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3)'s label, which is where it has to come from.**
    > *"Are we talking about nix roots or podman images or both here? I'm not sure I care about
    > rollback."*
    >
