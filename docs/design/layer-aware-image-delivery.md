@@ -703,7 +703,16 @@ exists BECAUSE the fallback is gone.
 
    - **A measurement on your host, not this jail.** The cold patched-skopeo build is 2m27s here,
      against your own stated tripwire — *"if it is ten minutes rather than two this leaning is
-     wrong."* That is now the difference between comfortable and marginal rather than a formality.
+     wrong."* That is the difference between comfortable and marginal rather than a formality.
+
+     > [!NOTE]
+     > **TAKEN 2026-09-09, and this bullet's distinction turned out to be empty.** A nix build in
+     > this jail *is* a build on the host: `NIX_REMOTE=daemon`, the host daemon socket is mounted,
+     > `/nix/store` is bind-mounted `:ro`, and `nix store info` reports `Store URL: daemon` with
+     > `Trusted: 0` — an untrusted client builds nothing locally, which is why a jail without the
+     > socket fails as *"build users group has no members"*. The derivation is built by the host
+     > daemon on host CPU, so the 2m27s figure (34s without the flake's own nixpkgs `follows`) was
+     > already the host measurement this bullet was asking for. **Gate cleared.**
    - **A measured `nix:`-source copy that loads AND BOOTS on every backend that gets the new path** —
      podman/Linux and Apple Container ([OQ-LI2](#91-decision-ledger)). This is the safety property, not a
      nice-to-have: with no fallback, a delivery bug in a release is a machine that cannot start a

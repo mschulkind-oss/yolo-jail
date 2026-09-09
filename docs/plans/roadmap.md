@@ -738,10 +738,18 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   [`layer-aware-image-delivery.md` §8](../design/layer-aware-image-delivery.md#8-what-i-would-build-in-order) ·
   authorized by [OQ-LI6](../design/layer-aware-image-delivery.md#92-open-questions) (2026-09-09), every design question
   ruled (✅ 23 above). **81.0s of a 96.1s load, for a 27.2 MB payload in a 3.47 GB image.**
-  ⚠ **The first act is a measurement on YOUR host, not a commit:**
-  `nix build --no-link 'github:nlewo/nix2container#skopeo-nix2container'` — 2m27s cold in this jail,
-  against your own stated tripwire of ten minutes. If it comes back near ten, the mechanism needs
-  reconsidering before the code does. ⚠ **There is no fallback by ruling**
+  ✅ **THE MEASUREMENT GATE IS CLEARED, 2026-09-09 — and the gate's own premise was wrong.** It
+  asked for *"a measurement on your host, not this jail"*, on the assumption those differ. **They do
+  not for a nix build:** this jail runs `NIX_REMOTE=daemon` against the host's mounted daemon socket
+  with `/nix/store` bind-mounted `:ro`, and `nix store info` reports `Store URL: daemon`,
+  `Trusted: 0` — an untrusted client cannot build locally, and a jail-local build is exactly what
+  fails with *"build users group has no members"*. So the derivation is built by the host daemon on
+  host CPU, and an in-jail wall-clock IS a host wall-clock.
+  **`nix build --no-link 'github:nlewo/nix2container#skopeo-nix2container'` cold: 2m27s** with the
+  flake's own nixpkgs `follows` (34s without), against your stated tripwire of ten minutes — the
+  difference between comfortable and marginal, and comfortably on the right side. Warm re-run is 0s;
+  the copier is in the store at `/nix/store/…-skopeo-1.21.0`. **The build is authorized on your own
+  criterion.** ⚠ **There is no fallback by ruling**
   ([OQ-LI5](../design/layer-aware-image-delivery.md#91-decision-ledger)): `streamLayeredImage` and
   `YOLO_LEGACY_IMAGE_STREAM` are deleted in the same change, so *a measured `nix:`-source copy that
   loads AND BOOTS on podman/Linux and on Apple Container is the safety property*, not a nice-to-have.
