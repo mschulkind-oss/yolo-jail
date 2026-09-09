@@ -31,7 +31,12 @@ func renderText(rep Report, o Options) {
 		p.line(fmt.Sprintf("[dim]--age: also counting files older than %g days — a per-file walk, so each row prints its own elapsed time.[/dim]", o.AgeDays))
 	}
 
-	for _, section := range []string{SectionState, SectionCache, SectionImages, SectionNix} {
+	// SectionAlias sits right after the cache, because it is about the cache: it
+	// names the host trees whose bytes the cache section's rows are NOT counting
+	// (docs/design/disk-levers-and-backfill.md OQ-BF10). Nothing sums across
+	// sections, which is what keeps a host-owned 27 G store out of yolo's own
+	// footprint.
+	for _, section := range []string{SectionState, SectionCache, SectionAlias, SectionImages, SectionNix} {
 		rows := rowsIn(rep, section)
 		if len(rows) == 0 {
 			continue

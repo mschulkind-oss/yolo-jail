@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -83,6 +84,18 @@ type assembleInput struct {
 	// only emits the -v pairs, and must stay free of the fs access + the
 	// user-config read that producing them requires).
 	cacheRelocations []config.CacheRelocation
+	// hostCASAlias is L9's settled decision for this launch — which recognised
+	// content-addressed host caches this jail shares instead of pooling a second
+	// copy of (docs/design/disk-levers-and-backfill.md OQ-BF10). One entry per
+	// recognised store, aliased or not, so the disclosure can explain a decline;
+	// assembly emits a -v only for the aliased ones.
+	//
+	// Decided and PROVISIONED by the run pipeline before assembly, the same split
+	// cacheRelocations keeps: producing it needs a filesystem probe and a MkdirAll,
+	// and argv assembly must stay free of both. A nil slice is the status quo —
+	// what every hand-built assembleInput in a test gets for free, which is why no
+	// frozen argv in this package had to move for this feature.
+	hostCASAlias []hostcas.Disposition
 	// writableHomeDirs are extra home-relative paths (config writable_home_dirs)
 	// mounted read-write off <wsState>/writable-home, letting an agent extension
 	// that hardcodes a $HOME path (e.g. ~/.pi-lens) write through the :ro base.

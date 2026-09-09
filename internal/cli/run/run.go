@@ -899,6 +899,21 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		}
 	}
 
+	// L9's host-CAS alias (disk-levers-and-backfill.md OQ-BF10), decided and
+	// provisioned in the same window and for the same two reasons as the
+	// relocations above: a missing bind source kills the container, and a
+	// destination whose mountpoint does not exist gets a root-owned one invented
+	// for it.
+	//
+	// NO ERROR RETURN AND NO REFUSAL, which is the difference from the block
+	// above. A relocation that silently does not take sends the user's 185 GiB
+	// back onto the filesystem they moved it off, so it is fatal; an alias that
+	// does not take leaves the jail pooling its own copy — the behaviour of every
+	// yolo that shipped before this — so refusing a launch over it would trade a
+	// working jail for a preference about where bytes live. Every decline is
+	// disclosed instead (noteHostCASAlias, at the banner).
+	hostCAS := prepareHostCASAlias(o.planHostCASAlias(rt))
+
 	// User host_files (docs/plans/host-file-staging.md). Read with the same
 	// scope rule as cache_relocations — a SOURCE-BEARING entry comes only from the
 	// host user config, never the merged/workspace one, so a repo cannot decide
@@ -946,6 +961,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		storePruneOK:     storePruneOK,
 		storePackages:    storePkgs,
 		cacheRelocations: relocations,
+		hostCASAlias:     hostCAS,
 		writableHomeDirs: config.WritableHomeDirs(cfg),
 		hostFiles:        hostFiles,
 		userEnv:          userEnv,
@@ -1102,6 +1118,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// deliberately not repeated here: this point in the pipeline is after the spawn, where
 	// the same line would be a notification rather than a disclosure (§4.3 G4).
 	o.notePackHostAccess(loadedPacks)
+
+	// And beside it, for the same reason: a WRITABLE bind of the host user's own
+	// cache is host access, so L9's decision is disclosed at every launch that
+	// made one rather than recorded somewhere (hostcasalias.go). A launch on a
+	// machine with no recognised host store prints nothing — there was no happy
+	// path to degrade from.
+	o.noteHostCASAlias(hostCAS)
 
 	// Right behind that: where the launch's profile selections landed. Same stderr, same
 	// dim register, same reason — a selected profile is part of the effective

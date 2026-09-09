@@ -130,6 +130,21 @@ func podmanBaseMounts(rt string, runFlags []string, workspace string, in *assemb
 	for _, rel := range sortedCacheRelocations(in.cacheRelocations) {
 		runCmd = append(runCmd, "-v", rel.Target+":/home/agent/.cache/"+rel.Subdir)
 	}
+	// L9's host-CAS aliases (OQ-BF10): the same shape as the relocations above —
+	// a rw bind nested inside the .cache mount — with two differences that are the
+	// whole feature. The SOURCE is the host user's own cache rather than storage
+	// the user nominated, and the DESTINATION is the path the jail's copy of the
+	// tool already uses, so the mount lands on top of the private copy instead of
+	// beside it. Emitted here purely for readability, exactly as above: podman
+	// sorts mounts by destination depth.
+	//
+	// It is deliberately AFTER the relocations. A relocation names a single cache
+	// segment (`pants`) and an alias names a path inside one (`pants/lmdb_store`),
+	// so a user who relocated `pants` to another filesystem and a host store that
+	// exists are not in conflict — the deeper mount wins for its own subtree and
+	// the relocation keeps the rest. Neither is dropped, and neither has to know
+	// about the other.
+	runCmd = append(runCmd, hostCASAliasArgs(in.hostCASAlias)...)
 	runCmd = append(runCmd,
 		"-v", filepath.Join(ws, "yolo-bootstrap.sh")+":/home/agent/.yolo-bootstrap.sh",
 		"-v", filepath.Join(ws, "yolo-venv-precreate.sh")+":/home/agent/.yolo-venv-precreate.sh",

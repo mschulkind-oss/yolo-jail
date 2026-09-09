@@ -57,8 +57,23 @@ package hostcas
 
 import (
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 )
+
+// HostPlatform is "<goos>/<goarch>" of THIS process — what the host's own copy
+// of a tool builds for.
+func HostPlatform() string { return goruntime.GOOS + "/" + goruntime.GOARCH }
+
+// JailPlatform is what the JAIL's copy of a tool builds for.
+//
+// Derived, not probed, on the precedent internal/cli/run's containerJailPlatform
+// states for the capture manifest: "the jail is a Linux container on THIS
+// machine, so its architecture is a fact about the local one, known without
+// asking anything." Those are two spellings of one value with different
+// consumers, and TestJailPlatformMatchesTheCaptureManifestsPlatform pins them
+// together so neither can drift alone.
+func JailPlatform() string { return "linux/" + goruntime.GOARCH }
 
 // jailCacheDir is the container-side XDG cache root — the destination
 // `podmanBaseMounts` binds paths.GlobalCache() at, and therefore the prefix
@@ -70,6 +85,35 @@ import (
 // TestAliasDestinationNestsInsideTheCacheMount compares this against the argv
 // the assembler actually emits, so the two cannot drift.
 const jailCacheDir = "/home/agent/.cache"
+
+// CacheRoot resolves a user's XDG cache root — XDG_CACHE_HOME when it is
+// absolute, else $HOME/.cache — through a getenv seam.
+//
+// THE SEAM IS THE WHOLE REASON THIS IS HERE rather than at each call site. The
+// launcher must read the environment through Options.Getenv or a frozen argv
+// stops being a function of its inputs (goldenOptions returns "" for everything,
+// which is what keeps every golden argv in internal/cli/run free of an alias
+// mount); `yolo stores` has no such seam and passes os.Getenv. One
+// implementation, two seams, so "the launcher and the inventory look in the same
+// place" is true by construction instead of by a test comparing two copies.
+//
+// XDG_CACHE_HOME then $HOME/.cache is the convention the tools in [Stores]
+// follow — pants' documented default store is ~/.cache/pants/lmdb_store. A user
+// who has moved their cache somewhere this does not name simply has no store
+// found, and the launch degrades to the status quo. That is the right direction
+// for a guess: yolo never invents a path and never creates the source.
+func CacheRoot(getenv func(string) string) string {
+	if getenv == nil {
+		return ""
+	}
+	if xdg := getenv("XDG_CACHE_HOME"); filepath.IsAbs(xdg) {
+		return filepath.Clean(xdg)
+	}
+	if home := getenv("HOME"); filepath.IsAbs(home) {
+		return filepath.Join(home, ".cache")
+	}
+	return ""
+}
 
 // Store is one recognised content-addressed cache yolo may alias.
 //

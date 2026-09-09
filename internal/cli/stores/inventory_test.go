@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
@@ -30,6 +31,13 @@ func testOptions(t *testing.T) (Options, string) {
 		Exec: func([]string, time.Duration) prune.ProbeResult {
 			return prune.ProbeResult{Ran: false}
 		},
+		// L9's host-CAS alias (OQ-BF10) reads the DEVELOPER's real ~/.cache
+		// unless pinned, so a maintainer with a pants store would have every
+		// fixture in this package walk 27 G of somebody's build cache and report
+		// it as an inventory row — failing the absent-machine assertions on their
+		// machine and nowhere else. MEASURED: it did, before this line existed.
+		// Pinned for the same reason the runtime probe and the roots are.
+		HostCAS: func() []hostcas.Disposition { return nil },
 	}
 	// Filled here so a test may call one collector directly (they are the units
 	// worth testing) without every one of them having to defend against a nil seam.

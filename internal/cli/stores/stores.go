@@ -44,6 +44,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
@@ -69,6 +70,14 @@ the ones prune cannot show you.
 READ-ONLY. It never deletes, moves or mutates a store, never takes the nix GC
 lock, and never launches a container. The one thing it writes is its own sample
 ledger (see below), which no store reader depends on.
+
+One section is not yours: a content-addressed host cache yolo recognises (pants'
+lmdb_store today) is bind-mounted into a jail from the HOST user's own cache,
+writable, rather than pooled a second time -- so the jail's private copy is
+stranded and the host's bytes are what the tool reads. Those rows get their own
+section, are marked "not yolo's", and are never summed into yolo's own footprint
+or offered for reclaim. The section also explains every store yolo did NOT alias
+and why.
 
 Sizes are apparent sizes (the sum of file sizes), and each store's walk is
 bounded to 60s: a store that runs out of budget reports what it had summed so
@@ -159,6 +168,17 @@ type Options struct {
 	// Walk is the sizing seam. nil => walkTree. Injected by tests that need a
 	// store to be unreadable or partial without depending on the filesystem.
 	Walk WalkFunc
+	// HostCAS answers L9's question — which recognised content-addressed host
+	// caches a launch from this frame would ALIAS rather than pool a second copy
+	// of (docs/design/disk-levers-and-backfill.md OQ-BF10). nil => the same
+	// hostcas.Plan the launcher calls, over this frame's own facts.
+	//
+	// ONE PREDICATE, TWO READERS: the launch emits the mount and this command
+	// explains the decision, and both go through hostcas so a row here cannot
+	// describe an alias the launcher would not make. Nothing is recorded in
+	// between — the decision is a pure function of the host's filesystem and
+	// platform, so there is no stamp to go stale and no writer to name.
+	HostCAS func() []hostcas.Disposition
 }
 
 // ParseArgs turns `yolo stores`'s argv into Options. args is the dispatched
@@ -243,6 +263,23 @@ func fillDefaults(o *Options) {
 	}
 	if o.Walk == nil {
 		o.Walk = walkTree
+	}
+	if o.HostCAS == nil {
+		o.HostCAS = func() []hostcas.Disposition {
+			return hostcas.Plan(hostcas.Facts{
+				Runtime:       o.DetectRuntime(),
+				IsMacOS:       paths.IsMacOS,
+				HostPlatform:  hostcas.HostPlatform(),
+				JailPlatform:  hostcas.JailPlatform(),
+				HostCacheRoot: hostcas.CacheRoot(os.Getenv),
+				// THE FRAME AGAIN: paths.GlobalCache() is the host's tree for a host
+				// yolo and this jail's own for an in-jail one, so the "stranded"
+				// path this row names is the one a launch FROM THIS FRAME would
+				// strand. That is the same expression the launcher passes, which is
+				// what makes the two answers comparable at all.
+				JailCacheHost: o.GlobalCache(),
+			})
+		}
 	}
 }
 

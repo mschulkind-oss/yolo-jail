@@ -141,6 +141,7 @@ type Report struct {
 const (
 	SectionState  = "yolo's state dir"
 	SectionCache  = "shared cache"
+	SectionAlias  = "host caches this jail aliases"
 	SectionImages = "container image store"
 	SectionNix    = "yolo's own /nix/store outputs"
 )
@@ -166,9 +167,77 @@ func Inventory(o Options) Report {
 	cacheRows := cacheStores(o)
 	rep.Stores = append(rep.Stores, stateStores(o, cacheRows)...)
 	rep.Stores = append(rep.Stores, cacheRows...)
+	rep.Stores = append(rep.Stores, aliasStores(o)...)
 	rep.Stores = append(rep.Stores, imageStores(o, rt)...)
 	rep.Stores = append(rep.Stores, nixStores(o)...)
 	return rep
+}
+
+// aliasStores inventories L9's host-CAS aliases — one row per recognised
+// content-addressed host cache, aliased or not
+// (docs/design/disk-levers-and-backfill.md OQ-BF10).
+//
+// IT IS ITS OWN SECTION, AND THAT IS THE ANTI-DOUBLE-COUNT. These bytes belong
+// to the HOST USER, not to yolo, so they must never join the shared-cache
+// section: stateStores sums that section into the state dir's `cache/` row, and
+// a 27 G host store folded in there would inflate yolo's own footprint by a tree
+// yolo does not own and cannot reclaim. A separate section is summed by nothing.
+//
+// The verdict is NOT YOLO'S for the same reason, which also keeps the row out of
+// the "what nothing reclaims" list (renderText filters on VerdictHuman): the
+// whole point of the list is bytes the USER could decide about on yolo's behalf,
+// and offering to reclaim another owner's build cache is exactly what §5.5's
+// forbidden list rules out.
+//
+// The STRANDED private copy is not a row of its own. It is inside the
+// `cache/<tool>` row of the section above — the alias mounts over it in place —
+// so a second row would report the same bytes twice within one report. Each row's
+// note names the path and what reclaims it instead.
+func aliasStores(o Options) []Store {
+	var out []Store
+	for _, d := range o.HostCAS() {
+		s := Store{
+			Key:        "alias." + d.Store.Name,
+			Section:    SectionAlias,
+			Name:       d.Store.CacheRel,
+			Path:       d.Source,
+			Reclaimer:  Reclaimer{Detail: "the host user's own store; yolo never reclaims it"},
+			Verdict:    VerdictNotOurs,
+			CountLabel: "",
+		}
+		if d.Source == "" {
+			// No host cache root resolved, so there is no path this row could be
+			// about. Naming the store and the reason is still the useful answer.
+			s.Path = "(no host cache directory resolved)"
+			s.Sizing = SizingAbsent
+			s.Note = "not aliased: " + d.Reason
+			out = append(out, s)
+			continue
+		}
+		sizeStore(&s, d.Source, o)
+		if d.Aliased {
+			s.Note = "ALIASED (writable) at " + d.Dest + " — this jail shares these host bytes " +
+				"instead of pooling a second copy. Its former private copy is at " + d.Stranded +
+				", now stranded: nothing in the jail reads it, and PurgeCacheByAge reclaims it " +
+				"once its files age past the cache rule. Counted in the cache/" +
+				firstSegment(d.Store.CacheRel) + " row above, not in addition to it. " +
+				d.Store.Evidence
+		} else {
+			s.Note = "not aliased: " + d.Reason + ". This jail keeps its own copy at " +
+				d.Stranded + " (counted in the shared-cache section above)"
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// firstSegment is a store's top-level cache subdir — the row in the shared-cache
+// section its stranded bytes are counted in.
+func firstSegment(rel string) string {
+	if i := strings.IndexByte(rel, '/'); i >= 0 {
+		return rel[:i]
+	}
+	return rel
 }
 
 // stateReclaimers maps a direct child of the state dir to what reclaims it.
