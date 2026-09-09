@@ -13,8 +13,18 @@ summary: "Closing the gap between what stringly-typed-references-principle.md as
 validation (`86a56f6b`, then renamed with everything else to `use_profiles` in `43d24e9e`), the
 `wire_api` closed enum (`2ced4944`, `0f04632d`) plus the `base_url` userinfo refusal (`0bc29bd5`),
 and the credential preflight (`c77cfd05`, **with a scope deviation this doc must own** — see [§7](#7-sequencing-by-user-visible-payoff)
-step 6). **Step 1 — the warning channel — is still unbuilt and is still the highest-payoff item
-here**; steps 4 and 5 wait on [`OQ-RM2`](#OQ-RM2)/[`OQ-RM3`](#OQ-RM3), which remain unruled. Executes the amended
+step 6). ⚠ **RE-STAMPED 2026-09-09: the step-1 claim below was FALSE.** The
+**config-resolution half of step 1 SHIPPED 2026-09-02** — `d6d8edc2`, *"config-loader warnings are
+graded, so the summary counts them"* — which deleted `warningLine` (a test now forbids
+re-declaring it, `internal/cli/check/warningchannel_test.go:296-303`) and routes every loader
+finding through the counted `[WARN]` path (`internal/cli/check/reporter.go:78-96`, which cites
+this doc's [§7](#7-sequencing-by-user-visible-payoff) step 1 by name). **What is still unbuilt is the LOOPHOLE half only**: the
+supersession did-you-mean goes through `internal/loopholes`' package-level `warnf` straight to
+stderr and `check`'s loopholes section bypasses `Discover` entirely, so it is neither counted nor
+printed there — that is the remaining highest-payoff item, and it needs no ruling. **All four
+questions are unruled, not two**: steps 4 and 5 wait on [`OQ-RM2`](#OQ-RM2)/[`OQ-RM3`](#OQ-RM3), while
+[`OQ-RM1`](#OQ-RM1) and [`OQ-RM4`](#OQ-RM4) also still carry empty Answer blocks. ⚠ Every
+[§7](#7-sequencing-by-user-visible-payoff) file:line below has drifted — treat them as where to look, not as citations. Executes the amended
 [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) — its [§7](./stringly-typed-references-principle.md#7-census--what-the-code-does-today-and-what-r1r5-ask-for) census
 is the gap; this doc is how it closes, from the user's side.
 

@@ -1,15 +1,23 @@
 ---
 title: "What a fetched pack may execute, and what you are agreeing to"
 date: 2026-08-17
-status: in-review
+status: superseded
 tags: [packs, trust, approval, security]
 summary: "SUPERSEDED IN PART. The proposal — replace the mechanism list with one property, a fetched pack may execute only content it pins — rests on a premise that proved false. §5 is live; OQ-X1 was retired 2026-09-04, subsumed by trust-paths.md OQ-TP9, which deleted the gate it asked about; §6 is ruled, retargeted onto the startup banner, and built there; §3 and §4 are retired. The supersession map in the header says which is which."
 ---
 
 # What a fetched pack may execute, and what you are agreeing to
 
-**Status:** SUPERSEDED IN PART, 2026-08-17 — **supersession map and every code anchor re-verified
-2026-08-23.** [§5](#5-the-shallow-pin-problem) is live; **[OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) was RETIRED 2026-09-04 (subsumed by [`trust-paths.md`](./trust-paths.md) [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04))**; [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) is RULED, **retargeted by TP9 onto the startup banner, and BUILT there 2026-09-04**; [§3](#3-the-principle)'s premise is FALSE and [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation)'s
+**Status:** SUPERSEDED IN PART, 2026-08-17 — **re-stamped 2026-09-09: the map below is dated
+2026-08-23 and so predates [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) (2026-09-04), which invalidated its [§1](#1-what-the-gate-does-today) row. Frontmatter moved
+`in-review` → `superseded`: no question in this document is live.** ⚠ **[§1](#1-what-the-gate-does-today)'s ✅ is now
+FALSE** — the fetched-pack host-access gate it describes was DELETED, not merely narrowed.
+`NeedsHostAccess` and `NeedsHostAccessContributions` exist nowhere in production, and
+`internal/packload/hostaccessgates_test.go` now FAILS if any of fourteen named gate identifiers
+reappears. So [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation)'s "refused" column and [§7](#7-what-this-does-not-license)'s *"still governed by the origin gate and its
+approval"* bullet are both false as well; [`trust-paths.md`](./trust-paths.md) row 20 carries the
+replacement outcome. [§5](#5-the-shallow-pin-problem) and [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) still hold, and [§3](#3-the-principle)'s four-display-only-readers finding
+re-verified clean. [§5](#5-the-shallow-pin-problem) is live; **[OQ-X1](#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) was RETIRED 2026-09-04 (subsumed by [`trust-paths.md`](./trust-paths.md) [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04))**; [§6](#6-approval-must-be-readable--ruled-retargeted-and-built-on-the-banner-2026-09-04) is RULED, **retargeted by TP9 onto the startup banner, and BUILT there 2026-09-04**; [§3](#3-the-principle)'s premise is FALSE and [§4](#4-what-p1-permits-and-refuses--retired-kept-as-documentation)'s
 table is retired. **Read the map below before trusting any section of this document**, because
 "superseded in part" without saying which part is worse than no warning at all.
 

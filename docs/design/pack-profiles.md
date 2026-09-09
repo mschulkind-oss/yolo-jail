@@ -26,7 +26,18 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 > those answers, and still spells the key `api_key_env`, renamed `api_key_env_name`; of the
 > three, only [§5.1](#51-the-typed-provider-schema-kind-provider)'s `wire_api` row was already corrected in place (2026-09-02, `a01dbda5`).
 
-**Status:** DRAFT, 2026-08-29. Nothing built.
+**Status:** DRAFT, 2026-08-29 — **re-stamped 2026-09-09: "Nothing built" is true of this doc's
+SCHEMAS and false of the machinery it argued for.** `kind: "provider"` shipped
+(`internal/packdecl/kinds.go:157`, in the parent's per-protocol `endpoints` shape rather than
+[§5.1](#51-the-typed-provider-schema-kind-provider)'s flat `base_url`/`wire_api`), and [§4](#4-the-secrets-issue-decoupling-configuration-from-credentials)'s `api_key_env` shipped as
+`api_key_env_name` — with the secret-shaped-value refusal live in both the config and pack
+validators. `env_sources` was never this doc's to build: it predates it by six weeks.
+`kind: "pack-fragment"` is the one thing here that is genuinely absent, and its function is served
+by `config-overlay` plus the `profile` modifier. ⚠ **[§11](#11-open-questions)'s three questions are PHANTOM** — all
+three were answered by shipped code, in shapes neither option offered (OQ-1 → `use_profiles`, keyed
+by CLI name; OQ-2 → a name-only `-p` with two grammars; OQ-3 → bare slugs, `packs/zai` and
+`packs/cerebras`). They still carry the 💬 glyph and so inflate the corpus-wide live-question sweep
+by three. Read [`providers.md`](../reference/providers.md) for all of it in current spelling.
 
 **The short version.** `agent_profiles` is an architectural inversion: it leaks the concept of "agents" into core and forces Go-level runtime special-casing ([`internal/cli/run/assemble.go:722`](../../internal/cli/run/assemble.go#L722)). Conversely, making everything an opaque, untyped JSON dictionary creates **stringly-typed chaos** where field naming drifts (`baseURL` vs `base_url`) and typos fail silently. This design resolves the tension with a **Dual-Layer Architecture**:
 1. **The Prescribed Extension Point (`kind: "provider"`)**: A strictly-typed `ProviderSpec` defining standard LLM endpoints (`base_url`, `wire_api`, `api_key_env`, `models`) that all standard agents (Pi, Codex, OpenCode) consume automatically.

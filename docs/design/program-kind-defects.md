@@ -1,7 +1,20 @@
 # The `program` kind: three defects, and the questions they raise
 
 **Status:** analysis + open questions, 2026-08-02 — **and all three defects are FIXED since.**
-Re-checked 2026-08-23. 11.1 and 11.2 have dated UPDATE blocks below (the PATH split, and the
+Re-checked 2026-08-23; **re-stamped 2026-09-09, because [§5](#5-open-questions-collected--none-of-them-are-open-any-more)'s own warning came true.** ⚠ [§5](#5-open-questions-collected--none-of-them-are-open-any-more)
+rules Q1.1/Q1.2 moot on the grounds that launchers are ordered *last* on PATH, after `/bin`, and
+warns: *"reorder those two dirs and both questions come straight back."* **That reorder SHIPPED
+2026-09-04** (B2) — `BootPath` (`internal/entrypoint/boot.go:390-395`) now puts `~/.yolo/bin/launch`
+**second, ahead of `/bin`**. The defect is representable again; what prevents it is a different
+mechanism than the one recorded here — the generation-time check in
+`internal/entrypoint/launchercollision.go`, which declines to write a launcher for a name `/bin`,
+`/usr/bin` or a declared mise tool already provides, and which says in as many words that it
+*"converts a structural impossibility into a handled case."* **The three defects stay fixed and no
+work is owed**, but [§5](#5-open-questions-collected--none-of-them-are-open-any-more)'s *reason* is dead: read
+[`program-delivery.md` §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) for the standing account. Also stale throughout:
+`~/.yolo-shims`/`~/.yolo-launchers` became `~/.yolo/bin/block`/`~/.yolo/bin/launch` on 2026-08-30,
+and 11.3's `packstage.go:29,48,230` anchors are all wrong (the live ones are `:20-22`, `:56`,
+`:225`). 11.1 and 11.2 have dated UPDATE blocks below (the PATH split, and the
 `requires` kind); **11.3 closed too** — `packstage` now clears a dropped pack's staged tree
 **contents-only**, leaving the directory inode alone because a live jail's `/ctx/packs` bind
 captured it (`internal/packstage/packstage.go:29,48,230` — "rule 3"), and the host-side half

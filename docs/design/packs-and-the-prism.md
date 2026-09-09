@@ -3,9 +3,10 @@
 **Status:** conceptual sketch, 2026-07-26 — **and the bet it describes was TAKEN.** Re-checked
 2026-08-23: the pack system is the architecture, not a sharing feature. `AGENTS.md` now opens with
 *"AGENTS ARE PACKS. Core does not know what an agent is"*; there is no agent registry, `internal/agents`
-was renamed `internal/jailcontent` when the registry it named was deleted, and all twelve shipped packs
-(verified 2026-09-02) — including the six that install no CLI at all: five that ship a loophole
-(`audio` also contributes two env vars) and `zai`, which ships no CLI and no loophole — are pack
+was renamed `internal/jailcontent` when the registry it named was deleted, and all **fifteen**
+shipped packs — **re-counted 2026-09-09, when this line still said twelve; nine install no CLI now,
+not six** (five ship a loophole, `zai` and `cerebras` are declarative provider/profile facts,
+`guardrails` ships blocked-tool refusals, `wire-bridge` is a service) — are pack
 files rather than Go code. Read this as the
 argument that produced that, not as a shape still being argued. **Not a plan** — a shape to argue with
 before anyone commits. Written in response to: *"what would it be like if we built the pack

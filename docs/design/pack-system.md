@@ -1,13 +1,20 @@
 # The pack system
 
 **Status:** REFERENCE — the authority for authoring, debugging, or changing a
-pack. **Spot-verified 2026-08-23:**
+pack. **Spot-verified 2026-08-23; kind count and inventory re-stamped 2026-09-09
+because both had drifted below ([§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table is four kinds short and [§0](#0-three-principles)'s NOTE
+three packs short).**
 
-- **The kind set is right: 15 kinds, exactly the 15 in [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table**
-  (`internal/packdecl/kinds.go:283` `KnownKinds()`, pinned by
-  `internal/packdecl/kinds_test.go:30`). Nothing missing, nothing extra. One
-  nuance: `KnownKinds()` returns them **sorted alphabetically**, while [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table
-  is in declaration order (`kinds.go:39-135`) — the table is not the wire order.
+- ⚠ **The kind set is NO LONGER 15, and [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table is the stale half** (re-measured
+  2026-09-09). The code declares **19** — the `footprints` map at
+  `internal/packdecl/kinds.go:285-386`, from which `KnownKinds()` (`:414`)
+  derives, pinned at 19 by `internal/packdecl/kinds_test.go:31`. [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table
+  still has exactly 15 rows and **never mentions `profile`, `provider`,
+  `service` or `blocked-tool`** — the four that arrived with the provider arc,
+  the `wire-bridge` service pack and `guardrails`. Read the code for the set
+  until that table is extended. The old nuance still holds: `KnownKinds()`
+  returns them **sorted alphabetically** while [§3](#3-the-kinds-their-footprints-and-conflict-rules)'s table is in declaration
+  order — the table is not the wire order.
 - **The `hook` set is still exactly three** — `shared_credentials`,
   `per_jail_history`, `claude_plugins` (`internal/packdecl/packdecl.go:99`,
   drift-pinned by `internal/entrypoint/hookdrift_test.go:31`).

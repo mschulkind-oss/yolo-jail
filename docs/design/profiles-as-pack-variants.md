@@ -8,8 +8,17 @@ summary: "Counter-design to pack-profiles.md. Most of what that doc proposes is 
 
 # A profile is a pack's own variant, not a cross-pack fragment
 
-**Status:** DECIDED, 2026-09-01 — every open question settled (ledger, [§14](#14-decision-ledger)); implementation
-underway against [§12](#12-what-i-would-build-in-order)'s build order.
+**Status:** DECIDED, 2026-09-01 — every open question settled (ledger, [§14](#14-decision-ledger)). **Re-stamped
+2026-09-09: implementation is no longer "underway", it is COMPLETE — [§12](#12-what-i-would-build-in-order)'s build order has no
+unbuilt step**, all six verified against the tree (the `use_profiles` rename with the old key
+refused by name, the `kind: "profile"` contribution, Bedrock moved wholly into `packs/claude`'s
+manifest with both bespoke flags deleted, the tightened schema with `requires_provider` a by-name
+tombstone, the credential preflight and its `YOLO_ALLOW_MISSING_PROVIDERS` hatch, and the
+`config-overlay` `profile` gate). Zero live questions. Two residues, neither of them work:
+[§12](#12-what-i-would-build-in-order) step 3's anchor `agentenv.go:61-94` is stale (the hardcode it names was deleted, not
+moved), and that step's stated insurance — a cheap AWS-creds re-test of `CLAUDE_CODE_USE_BEDROCK`
+before deleting the Go path — has no record of having been run. The as-built system is
+[`providers.md`](../reference/providers.md).
 
 > [!NOTE]
 > **Follow-up, 2026-09-01:** the implementation shipped through `980aed71`, including [§12](#12-what-i-would-build-in-order) step 6's
