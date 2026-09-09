@@ -1,20 +1,36 @@
 # Plan: evergreen agent updates — the launcher does the work
 
 **Design:** [`../design/program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)
-([OQ-PD11](../design/program-delivery.md#decision-ledger)–PD14, PD12a) · **Status:** ✅ **BUILT 2026-09-04, except step 7** ·
+([OQ-PD11](../design/program-delivery.md#decision-ledger)–PD14, PD12a) · **Status:** ✅ **FULLY BUILT** — steps 1-6 and 8 on 2026-09-04, step 7 on 2026-09-09 ·
 Written against `a25e718b`, 2026-09-03.
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and
 is the first thing to be wrong. Never twist the code to match it.
 
 > [!IMPORTANT]
-> **WHAT SHIPPED, and the one thing that did not.** Build-order steps 1–6 and 8 are in the
-> tree, plus [A7](#a7--the-v-axis-prune-and-it-ships-inside-this-plan). **Step 7 — the MCP/LSP
-> transitive refresh — was NOT built**, and nothing stands in for it: a yolo-installed MCP or
-> LSP server still moves only when the bootstrap reinstalls it. The ruling behind it is
-> unchanged (a server inherits the trigger of the agent that connects to it, and only the
-> bootstrap-installed set is in scope); what is missing is the throttled step the launcher
-> calls before `exec`. The agent CLIs are evergreen without it, which is why it was separable.
+> **WHAT SHIPPED.** Build-order steps 1–6 and 8 landed 2026-09-04, plus
+> [A7](#a7--the-v-axis-prune-and-it-ships-inside-this-plan). **Step 7 — the MCP/LSP transitive
+> refresh — landed 2026-09-09** (`bb879e97` + `3def2bc6`), unchanged from the ruling. Four
+> things the plan left to the implementer, decided and worth knowing before touching it:
+>
+> - **It is `yolo internal refresh-servers`**, not a `yolo-jaild` subcommand. `yolo-jaild` is
+>   daemons and this is not one; `capture-materialize` is already the precedent for a
+>   generated launcher calling a hidden `yolo internal` verb.
+> - **The server set is BAKED into each launcher**, and this was the sharpest of the four:
+>   reading `YOLO_MCP_PRESETS` from the launcher's environment would be populated on the
+>   container backends and EMPTY under macos-user's `env -i`, so the whole feature would have
+>   been a silent no-op on the one backend with no image to hide it. Two whitespace-separated
+>   scalars, not bash arrays — an empty array under `set -u` is unbound on the bash 3.2
+>   macos-user runs against, which is what HAS_UPDATE_VERB exists to work around.
+> - **`agent_updates` gates the STALE half only.** That is the launchers' own split rather
+>   than a new rule: `_update_due` is the only consumer of UPDATES_ENABLED, and the
+>   cold-install arm above it runs whatever the policy says.
+> - **The lock is the launchers' own** `.yolo-update.lock` dir at each install prefix, taken
+>   after the caller has dropped its own, so a launcher cannot deadlock against itself.
+>
+> Trap the tests caught, in the shape trap 2 predicted: the call-site cells passed with the
+> refresh block deleted from the NATIVE template, because the pack fixture they inherited
+> declares `via: npm` and reaches one template. They are table-driven over `via` now.
 >
 > **Two deviations from this file, both deliberate and both recorded in the design:**
 >
@@ -59,7 +75,7 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
 | `internal/cli/check/entrypoint.go` | the same var into the preflight's fake env (45) |
 | `internal/macosuser/runplan.go` | the same var into `bootstrapEnv` (176) |
 | `internal/cli/packupdate.go` | drop the `inst.Kind != "npm"` skip (141); the npm-shaped identifiers get honest names |
-| `internal/entrypoint/serverrefresh.go` | **new** — the transitive MCP/LSP refresh the launcher calls before `exec` |
+| `internal/entrypoint/serverrefresh.go` | ✅ **new** — the transitive MCP/LSP refresh the launcher calls before `exec`; `internal/cli/refreshservers.go` is the `yolo internal refresh-servers` entry it is reached through |
 | `internal/cli/config_ref.txt` | the `agent_updates` entry (this file is what `yolo config-ref` prints, not `configref.go`) |
 | `packs/{claude,agy,copilot,codex,opencode,pi}/pack.json` | the `update` verb, per [§3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s per-agent table |
 | `AGENTS.md` | the PATH-order bullet and the "two generated script dirs" bullet |
@@ -137,7 +153,8 @@ hourly poll has not fired in 9 days, because the install prefixes precede the la
    `go test -count=1 -timeout 0 -run 'Launcher|GeneratedDirs' ./integration`
 6. **`agent_updates`:** key, validator, user-scope loader, three wiring sites, baked into each
    launcher. → `go test ./internal/config ./internal/cli/...`
-7. **MCP/LSP transitive refresh**, completing before the `exec`. → `go test ./internal/entrypoint`
+7. ✅ **MCP/LSP transitive refresh**, completing before the `exec` (2026-09-09).
+   → `go test ./internal/entrypoint`
 8. **Nested-jail verification** (mandatory, `cmd/`+`internal/`): `git add` the new files first, then
    `just build-go` and AGENTS.md's by-path launch from `/tmp/yolo-nested`. Not bare `yolo`.
 

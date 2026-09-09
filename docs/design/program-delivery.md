@@ -16,8 +16,9 @@ question is open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a
 reconcile (`43f28ce8`), the removal act and `yolo programs` (`3a4f1bbf`, `c127f4ad`, `3ac165e4`),
 evergreen agent updates with B2's PATH move and A7's version prune (merge `208a5e43`), and install
 capture slices one to seven (merge `18524ff9`). **Not built:** [§10](#10-what-i-would-build-in-order) steps three and five
-(held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)), the MCP/LSP transitive refresh, `macos-user`'s materialize, and
-copilot's installer flip. Every fact below is labelled **MEASURED** (observed in this development
+(held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)), `macos-user`'s materialize, and
+copilot's installer flip. The MCP/LSP transitive refresh SHIPPED 2026-09-09
+(`bb879e97` + `3def2bc6`), which closed the last gap in step six. Every fact below is labelled **MEASURED** (observed in this development
 jail, dated), **READ FROM CODE** (traced but not observed running) or **NOT MEASURED**. Every SHA
 was re-verified as an ancestor of `HEAD` on 2026-09-06 — a rebase had left earlier revisions of
 this doc, and the roadmap, citing SHAs that resolve as objects but are not ancestors.
@@ -232,9 +233,10 @@ covered (pi, copilot, codex, opencode) are all in that class.
 
 **RULED ([OQ-PD11](#decision-ledger)–[OQ-PD14](#decision-ledger), 2026-09-03) and SHIPPED
 2026-09-04** ([`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md)).
-Everything below is behaviour in the tree, with two exceptions stated where they arise: the
-MCP/LSP half of point 2 under *"The four things an implementer would otherwise have to guess"*
-is still ruled-and-unbuilt, and `copilot` remains on npm ([OQ-PD13](#decision-ledger)).
+Everything below is behaviour in the tree. Two dates rather than one: the agent CLIs on
+2026-09-04 and point 2's MCP/LSP half under *"The four things an implementer would otherwise have
+to guess"* on 2026-09-09. One exception remains, stated where it arises — `copilot` is still on npm
+([OQ-PD13](#decision-ledger)).
 
 - **Trigger: the AGENT'S OWN INVOCATION, not a jail launch.** Typing `claude` reaches a generated
   launcher, which decides whether to update, then `exec`s the real binary. A launch that starts no
@@ -340,8 +342,8 @@ check is `internal/entrypoint/launchercollision.go`.
 ##### The four things an implementer would otherwise have to guess
 
 *Added 2026-09-03 after reading [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) back as the implementer rather than the author. Each of these
-had a behaviour attached to it that the prose implied and did not state. Points 1, 3 and 4 are
-shipped behaviour (2026-09-04); point 2's MCP/LSP half is ruled and unbuilt.*
+had a behaviour attached to it that the prose implied and did not state. All four are shipped
+behaviour: points 1, 3 and 4 on 2026-09-04, and point 2's MCP/LSP half on 2026-09-09.*
 
 **1. The knob is `agent_updates`, and it is USER-SCOPE ONLY** (`internal/config/agentupdates.go` is
 the host half, `internal/entrypoint/agentupdates.go` the jail half). Either a bool or a per-pack
@@ -1576,7 +1578,7 @@ SHA an ancestor of `HEAD`:*
 | **three** | the ruled scope split — native locks at the declaration's home, gap receipts at user scope | ⏸ **not built — held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)** | — |
 | **four** | removal made real — catalog, act, option | ✅ shipped 2026-09-04 (`af46c9b4` the catalog, `3a4f1bbf` the act, `c127f4ad` the CLI, `3ac165e4` the option) | `yolo programs`, `programs.autoprune` |
 | **five** | the ruled enforcement — the receipt is the pin, and it reports before it gates | ⏸ **not built — held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)**; mise's half shipped with step one | — |
-| **six** (was seven) | agent dependencies evergreen | ✅ shipped 2026-09-04 (merge `208a5e43`), **except the MCP/LSP transitive refresh** | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **six** (was seven) | agent dependencies evergreen | ✅ shipped 2026-09-04 (merge `208a5e43`); the MCP/LSP transitive refresh followed 2026-09-09 (`bb879e97` + `3def2bc6`) | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **seven** (was six) | the installer capture | ✅ slices one to seven landed 2026-09-04 (merge `18524ff9`); `macos-user` recording half only | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) |
 | in parallel | the `via` enum tolerance | ✅ paid 2026-08-24 (`0a4d241c`) | [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) |
 
@@ -1666,7 +1668,7 @@ authorises deleting binaries out of the home, `~/.local/bin` included, where yol
 tool the human installed by hand from a dropped pack's leftovers. That last fact is the whole
 argument for the dry run being the default.
 
-**Sixth — make agent dependencies evergreen — SHIPPED 2026-09-04, except the MCP/LSP half**
+**Sixth — make agent dependencies evergreen — SHIPPED 2026-09-04, and the MCP/LSP half 2026-09-09**
 ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [OQ-PD12](#decision-ledger)–[OQ-PD14](#decision-ledger)). It was written as the
 seventh step and deliberately LAST; [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04) moved it ahead on 2026-09-04, because nothing
 above it was ever a technical dependency (evergreen needs only the receipt schema) and both halves of
@@ -1684,13 +1686,16 @@ installed the new one, which is where **1018.6 of 1223.4 measured MiB** were and
 of [OQ-PD18](#decision-ledger). **What the reversal ended:** the freeze this ordering had been
 carrying on purpose ([§4.1](#41-freeze-an-agent-cli-is-whatever-latest-meant-the-day-that-workspace-first-ran-it)).
 
-> [!IMPORTANT]
-> **Ruled and NOT built: the MCP/LSP transitive refresh.** A yolo-installed MCP or LSP server still
-> moves only when the bootstrap reinstalls it. The ruling — a server inherits the trigger of the
-> agent that connects to it, and only the bootstrap-installed set is in scope — is unchanged; what is
-> missing is the throttled step the launcher would call before `exec`
-> ([`../plans/evergreen-agent-updates.md`](../plans/evergreen-agent-updates.md), its step 7). The
-> agent CLIs are evergreen without it.
+> [!NOTE]
+> **The MCP/LSP transitive refresh SHIPPED 2026-09-09** (`bb879e97` + `3def2bc6`), five days behind
+> the agent CLIs and unchanged from the ruling: a server inherits the trigger of the agent that
+> connects to it, and only the bootstrap-installed set is in scope. The throttled step is
+> `internal/entrypoint/serverrefresh.go`, reached from BOTH generated launchers as
+> `yolo internal refresh-servers` before their `exec` — the shape `capture-materialize` already
+> had. The server set is BAKED into each launcher rather than read from the environment, because
+> macos-user execs launchers under `env -i`; the throttle stamps are per PACKAGE; and the policy
+> gates the stale half only, since a frozen `agent_updates` must not leave an agent unable to
+> connect to a server at all.
 
 **Seventh — the installer capture — slices one to seven LANDED 2026-09-04** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package),
 [OQ-PD10](#decision-ledger); merge `18524ff9`). Written as the sixth step and moved behind evergreen
@@ -1722,8 +1727,8 @@ needed it, which was the point.
 | OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | [§5.6](#56-a6--borrow-the-ecosystems-lockfiles), [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) |
 | OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. ⚠ **Resequenced twice.** 2026-09-03 by [`OQ-PD15`](#-oq-pd15--does-capture-gate-the-evergreen-rollout-or-trail-it--resolved-2026-09-03) (capture before evergreen), then **REVERSED 2026-09-04 by [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)** — capture trails again, because the disk claim that moved it was measured false. Its value is the manifest, offline materialize and drift reference, none of which is a disk property. ✅ **Slices one to seven LANDED 2026-09-04** (`c3133153`, `b869674d`, `2246e4ae`, `46874f2d`, merge `18524ff9`); `macos-user` recording half only. Three verbs changed in the building — [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) *As built*. | 2026-08-24 · built 2026-09-04 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [§10](#10-what-i-would-build-in-order) |
 | **OQ-PD11** | **A dependency serves either the AGENT or the PROJECT, and the class — not the delivery mechanism — decides its update policy.** Declared, never inferred from `via` or from the [§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control) tier. Stated as **P6**. | 2026-09-03 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
-| **OQ-PD12** | **Agent dependencies are EVERGREEN, updated LAZILY at the agent's own invocation** (revised the same day — see the row below). The launcher checks at most once per `UPDATE_INTERVAL` per program, then `exec`s; `agent_updates` (user-scope, per-pack or global) opts out; failure is scoped to the command, never to the jail. ✅ **SHIPPED 2026-09-04** for the agent CLIs, in both launcher templates; the MCP/LSP half of the same ruling is still unbuilt. | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [§5.4](#54-a4--regenerate-or-reconcile-every-launch) |
-| **[`OQ-PD12a`](#decision-ledger)** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted. **MCP/LSP servers inherit the trigger of the agent that connects to them** (transitive dependencies need no trigger of their own), so the design has **no boot step at all**; only yolo-INSTALLED servers are in scope, since an `npx -y pkg@latest` argv is already current every spawn. ✅ **SHIPPED 2026-09-04**: three PATH strings moved (`BootPath`, the `.bashrc` export, `macosuser.SandboxPath`) and the check is `internal/entrypoint/launchercollision.go`, scoped to the image dirs plus the DECLARED mise tools and never to the install prefixes; it also gates the `pnpm` package-manager launcher, so a `mise_tools` pnpm keeps its name. | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **OQ-PD12** | **Agent dependencies are EVERGREEN, updated LAZILY at the agent's own invocation** (revised the same day — see the row below). The launcher checks at most once per `UPDATE_INTERVAL` per program, then `exec`s; `agent_updates` (user-scope, per-pack or global) opts out; failure is scoped to the command, never to the jail. ✅ **SHIPPED 2026-09-04** for the agent CLIs, in both launcher templates; the MCP/LSP half of the same ruling followed 2026-09-09 as `internal/entrypoint/serverrefresh.go`, reached from both templates as `yolo internal refresh-servers` before their `exec`. | 2026-09-03 · shipped 2026-09-04 and 2026-09-09 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [§5.4](#54-a4--regenerate-or-reconcile-every-launch) |
+| **[`OQ-PD12a`](#decision-ledger)** | **B2 — the launch dir moves AHEAD of the install prefixes, and a launcher is generated only for a name the image does not provide.** The two halves are one decision: the position makes the launcher reachable past the cold start, the generation-time check keeps the position safe. ⚠ Converts "a pack cannot shadow `/bin/fzf`" from a structural impossibility into a handled case — it needs a test that fails when the check is deleted. Blockers stay first. **Supersedes the eager-at-boot shape ruled earlier the same day**, which cost a jail-level fatal, an escape hatch, three ordering constraints and an update of every agent on every launch — all deleted. **MCP/LSP servers inherit the trigger of the agent that connects to them** (transitive dependencies need no trigger of their own), so the design has **no boot step at all**; only yolo-INSTALLED servers are in scope, since an `npx -y pkg@latest` argv is already current every spawn. ✅ **SHIPPED 2026-09-04**: three PATH strings moved (`BootPath`, the `.bashrc` export, `macosuser.SandboxPath`) and the check is `internal/entrypoint/launchercollision.go`, scoped to the image dirs plus the DECLARED mise tools and never to the install prefixes; it also gates the `pnpm` package-manager launcher, so a `mise_tools` pnpm keeps its name. **The transitive half followed 2026-09-09**: `internal/entrypoint/serverrefresh.go`, called by both launcher templates as `yolo internal refresh-servers` before their `exec` — the set BAKED into each launcher (macos-user's `env -i` makes reading it from the environment a silent no-op on that backend), stamps per PACKAGE, and `agent_updates` gating the stale half only. | 2026-09-03 · shipped 2026-09-04 and 2026-09-09 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD13** | **Prefer the native installer over npm for an agent CLI wherever the vendor ships one.** An npm-installed CLI structurally cannot self-update — measured: copilot's updater refuses with *"Update not supported when running js directly"* — while the vendors' own installers both self-update and accept a version. **All four npm packs have one, verified 2026-09-03** ([§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s table). ✅ **Outcome 2026-09-04: only `codex` flipped** (`dc640752`). `copilot` did NOT — its installer's prefix is `/usr/local` under uid 0, which the `--read-only` rootfs cannot create, so the flip would make it uninstallable; it waits on an installer environment field the manifest does not have. `pi` stays npm because its installer is npm underneath; `opencode` was not flipped (its installer's prefix and self-update behaviour are the table's `not checked` cells). The general rule: *self-updates once native* is necessary, and *the installer's default prefix under the jail's uid and filesystem equals the launcher's `REAL_BIN`* is the sufficient condition. | 2026-09-03 · applied 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD14** | **The update verb is declared by the pack**, on the `program` contribution. Vendors disagree (`claude install`, `pi update --self`, `codex update`); core hardcoding one is how `yolo pack update` came to skip the installer class entirely. Absent a verb, re-run the declared installer or `npm install -g`. ✅ **SHIPPED 2026-09-04** as `Contribution.Update` → `Install.UpdateVerb`, projected for every `via`; the npm-only skip in `yolo pack update` is gone (`9f10b4ec`). Declared by claude/agy/codex; the three npm packs use the `via` fallback deliberately. | 2026-09-03 · shipped 2026-09-04 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **OQ-PD15** | ~~**Capture FIRST — build the complete version and sequence toward it.**~~ ⚠ **REVERSED 2026-09-04 by [OQ-CP1](agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04): EVERGREEN FIRST, with A7's V-axis prune inside it; capture trails and continues in parallel.** Both premises measured false: capture collapses **N** while evergreen multiplies **V**, and *"under capture there is nothing to prune"* is wrong because the self-updater keeps writing full-size version dirs into the workspace. **The disk justification is RETRACTED** — on ext4 capture ADDS a machine-wide copy and saves no disk at all. *"Sooner was never the goal"* still stands: this reverses which ruled subsystem goes first, not the scope of either. Both shipped the same day anyway. | 2026-09-03 · reversed 2026-09-04 | [§10](#10-what-i-would-build-in-order), [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package), [`agent-cli-copies.md`](agent-cli-copies.md) |
