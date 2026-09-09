@@ -23,14 +23,14 @@ first thing to be wrong. Never twist code to match it — correct it in the comm
 **Which text is authoritative.** All five Open Questions were ruled 2026-09-08: the
 `**Answer (…)**` blockquotes and
 [§3.5](layer-aware-image-delivery.md#35-one-mechanism-no-way-back) govern, and every `_Leaning:_`
-line is **history** — [OQ-LI1](layer-aware-image-delivery.md#OQ-LI1),
-[OQ-LI2](layer-aware-image-delivery.md#OQ-LI2) and
-[OQ-LI5](layer-aware-image-delivery.md#OQ-LI5) went against or past theirs. So: no cachix dependency
+line is **history** — [OQ-LI1](layer-aware-image-delivery.md#91-decision-ledger),
+[OQ-LI2](layer-aware-image-delivery.md#91-decision-ledger) and
+[OQ-LI5](layer-aware-image-delivery.md#91-decision-ledger) went against or past theirs. So: no cachix dependency
 and no fallback wired to a cache miss; Apple Container ships in the **same** pass;
 `streamLayeredImage`, `YOLO_LEGACY_IMAGE_STREAM` and the second mechanism are **deleted in the
 change that adds the new path**.
 [§8](layer-aware-image-delivery.md#8-what-i-would-build-in-order)'s third step ("wire the copy
-behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-delivery.md#OQ-LI5) and is void.
+behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-delivery.md#91-decision-ledger) and is void.
 
 ## Map
 
@@ -123,7 +123,7 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
   `imageIdentity` in a tier whose rewrite lands `etc/` at the root (its symlink target is an
   absolute store path, which the rewrite does not touch).
 - **`--accept-flake-config` is already on every flake-evaluating invocation** (`NixFlakeFlags`,
-  `nixflags.go:38-44`, pinned by `TestFlakeInvocationsCarryAcceptFlakeConfig`), so [OQ-LI1](layer-aware-image-delivery.md#OQ-LI1)'s "no path
+  `nixflags.go:38-44`, pinned by `TestFlakeInvocationsCarryAcceptFlakeConfig`), so [OQ-LI1](layer-aware-image-delivery.md#91-decision-ledger)'s "no path
   may require it" is a claim to **test**, not a flag to remove: the copier must build with the
   substituter absent.
 - Leave `initializeNixDatabase` false — in-jail nix talks to the host daemon (`NIX_REMOTE=daemon`),
@@ -147,7 +147,7 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
    evidence comes from here.
 4. **The collision test, before the switch**, so it has a real before-value ([§3.1](layer-aware-image-delivery.md#31-the-layer-plan)'s owed test).
    → `go test ./internal/image`
-5. **The switch, in ONE commit** ([OQ-LI5](layer-aware-image-delivery.md#OQ-LI5)): all three variants move, the jail's `streamLayeredImage`
+5. **The switch, in ONE commit** ([OQ-LI5](layer-aware-image-delivery.md#91-decision-ledger)): all three variants move, the jail's `streamLayeredImage`
    attrs are deleted, `LayerCopy` replaces `StreamLoad`, Apple Container's converters become one
    `skopeo copy nix:… oci-archive:<file>:<ref>`, the span is renamed, and the harness, the three
    workflows and `Justfile` follow in the same commit. → `just check-ci`, then
@@ -207,17 +207,17 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
   is the macOS offload's sshd+nix builder, pushed to GHCR by `publish.yml`, and is out of scope.
 - Don't keep a legacy knob, a retained attribute, or a fallback on copy failure
   ([§3.5](layer-aware-image-delivery.md#35-one-mechanism-no-way-back)), and don't build [§8](layer-aware-image-delivery.md#8-what-i-would-build-in-order)'s env-var
-  step, which [OQ-LI5](layer-aware-image-delivery.md#OQ-LI5) voided.
+  step, which [OQ-LI5](layer-aware-image-delivery.md#91-decision-ledger) voided.
 - Don't delete `newestTars` or the degraded branch's `podman load -i`: that branch has no store path
   (`SkipBuild`, or a build the operator opted past), so it is not a delivery mechanism for a new
   image and [§3.5](layer-aware-image-delivery.md#35-one-mechanism-no-way-back)'s "one mechanism" does not reach it.
 - Don't make the project cachix load-bearing or wire any behavior to a cache miss — a miss means the
-  copier is built, and that is the whole consequence ([OQ-LI1](layer-aware-image-delivery.md#OQ-LI1)'s three constraints). And don't
+  copier is built, and that is the whole consequence ([OQ-LI1](layer-aware-image-delivery.md#91-decision-ledger)'s three constraints). And don't
   materialize an OCI layout in the nix store
   ([§6](layer-aware-image-delivery.md#6-alternatives-considered) C):
   [OQ-5](../reference/image-staging-vs-baking.md#why-its-this-way) ruled that a bug after 404 GiB.
 - Don't fold this into the prune liveness defect, and don't re-decide
-  [OQ-LI4](layer-aware-image-delivery.md#OQ-LI4)'s ordering key — cite
+  [OQ-LI4](layer-aware-image-delivery.md#91-decision-ledger)'s ordering key — cite
   [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3), which makes the retention **unit**
   the configuration and subsumes the reorder.
 - Don't bless the numbers from a nested jail: it can see this class ([§3.10](layer-aware-image-delivery.md#310-what-done-looks-like)'s NOTE) but cannot speak
@@ -241,13 +241,13 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
    "open …: no such file", so it parsed). The absolute number is still this jail's, not his.
 3. **One measured `nix:`-source copy that loads AND boots a jail on EVERY backend that gets the new
    path** — podman/Linux, and Apple Container on the maintainer's Mac
-   ([OQ-LI2](layer-aware-image-delivery.md#OQ-LI2)). Load-bearing rather than nice-to-have because
-   [OQ-LI5](layer-aware-image-delivery.md#OQ-LI5) **deleted the fallback**: read R8 in [§7](layer-aware-image-delivery.md#7-risks). A
+   ([OQ-LI2](layer-aware-image-delivery.md#91-decision-ledger)). Load-bearing rather than nice-to-have because
+   [OQ-LI5](layer-aware-image-delivery.md#91-decision-ledger) **deleted the fallback**: read R8 in [§7](layer-aware-image-delivery.md#7-risks). A
    delivery bug that reaches a release is a machine that cannot start a jail until a fix ships.
 
 **And one prerequisite inside step 1.** [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3) rules the keep-window's unit to be the
 *configuration*, but no config identity exists in the tree — C2's tag is `sha256(storePath)[:16]`,
 per **image**, so every image is its own group of one. That is the first blocker of
 [`the-load-sentinel-is-not-a-liveness-oracle-plan.md`](the-load-sentinel-is-not-a-liveness-oracle-plan.md)
-and it blocks step 1 here for the same reason. Recency ordering alone ([OQ-LI4](layer-aware-image-delivery.md#OQ-LI4)) is buildable without
+and it blocks step 1 here for the same reason. Recency ordering alone ([OQ-LI4](layer-aware-image-delivery.md#91-decision-ledger)) is buildable without
 it and is enough to unblock a constant `created`; the grouping is not.

@@ -17,8 +17,8 @@ vantage:
 first thing to be wrong. Never twist code to match it — correct it in the commit.
 
 **Scope.** Consumer B shipped in `feddc5e0` (the `podman ps` veto, and no more `rmi -f`). This
-plan builds [OQ-LS1](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS1) (Consumer A becomes
-age-only) and [OQ-LS2](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS2) (a decline is an error
+plan builds [OQ-LS1](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) (Consumer A becomes
+age-only) and [OQ-LS2](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) (a decline is an error
 where the user asked, loud where it is impossible, silent where there is nothing to do).
 [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3)'s mechanism is step 6, gated — see
 Blockers. The `_Leaning:_` lines in the design are history; all three rulings went past them.
@@ -167,7 +167,7 @@ Blockers. The `_Leaning:_` lines in the design are history; all three rulings we
   then its own group of one and "current plus N superseded per config" degenerates to keep-everything.
   Nothing else records a config identity: `internal/cli/run` sets no `--label`, and the sentinel
   stores store paths.
-- **The store-GC interaction (trap 2) is behavior [OQ-LS1](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS1)
+- **The store-GC interaction (trap 2) is behavior [OQ-LS1](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)
   did not consider** — its "losing a root costs a rebuild" holds for podman's blobs but not for a
   running jail's `/bin` while `/nix/store` is mounted `:ro`. Step 3 keeps the ruling intact by moving
   the gate rather than restoring the veto; confirm that reading before shipping it.

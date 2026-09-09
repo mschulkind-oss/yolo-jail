@@ -10,7 +10,11 @@ vantage:
 
 # The image ships 3.47 GB to move 27 MB — layer-aware delivery
 
-**Status:** DESIGN SKETCH, 2026-09-08. Nothing built.
+**Status:** DESIGN SETTLED, NOTHING BUILT, 2026-09-09. Every design question is ruled and
+compacted into [§9.1](#91-decision-ledger). **One live item:** [OQ-LI6](#OQ-LI6) — the build
+authorization, which [`OQ-6`](../reference/image-staging-vs-baking.md#why-its-this-way) moved here rather than granting. It
+carries two measurements you have to take, and [OQ-LI5](#91-decision-ledger) deleted the way back,
+so one of them is a safety property rather than a formality.
 
 **The short version.** Every launch that sees a new nix store path re-ships the whole
 3.47 GB image into podman, and I measured why: the customisation layer — the only layer a
@@ -345,7 +349,7 @@ disturbs them. It does not:
 > shipping the copy without it leaves the reaper's keep-window ordering on a tie.
 > It is *not* the separate liveness defect being fixed in `internal/prune` — that one is about
 > the LRU meaning load-recency rather than liveness, and this design neither helps nor hinders
-> it. Do not fold them together. See [OQ-LI4](#OQ-LI4).
+> it. Do not fold them together. See [OQ-LI4](#91-decision-ledger).
 
 ### 3.4 Which backends get it
 
@@ -353,7 +357,7 @@ disturbs them. It does not:
 | :--- | :--- | :--- |
 | **podman, Linux** | layer-aware copy | The nix store and `containers-storage` are both local and both reachable by one process. |
 | **podman, macOS** | unchanged (stream into `podman load`) | The storage lives inside the Podman Machine VM, which shares the user's home and `/private` and **not** `/nix` — the same fact C8 measured on 2026-09-07 and now guards with `prefixUnreachableFromVM` (`internal/cli/run/jailprefix.go`). A local `skopeo copy` would write a `containers-storage` the VM never reads. |
-| **Apple Container** | undecided — see [OQ-LI2](#OQ-LI2) | It has no `podman load` and converts through `skopeo copy docker-archive:… oci:…` today (`internal/image/autoload.go:1032`), writing *two* full-size files. A `nix:` source would delete both, and nobody here has the hardware to measure it. |
+| **Apple Container** | undecided — see [OQ-LI2](#91-decision-ledger) | It has no `podman load` and converts through `skopeo copy docker-archive:… oci:…` today (`internal/image/autoload.go:1032`), writing *two* full-size files. A `nix:` source would delete both, and nobody here has the hardware to measure it. |
 | **macos-user** | not applicable | No container, no image. |
 
 **Two mechanisms, deliberately, and I own the cost.** This is the same shape
@@ -365,7 +369,7 @@ launch, and the launch says which one it took on stdout.
 ### 3.5 One mechanism, no way back
 
 **There is no legacy knob, and `streamLayeredImage` is deleted in the same change** — ruled
-2026-09-08, see [OQ-LI5](#OQ-LI5). The maintainer's rule for what an escape hatch is for:
+2026-09-08, see [OQ-LI5](#91-decision-ledger). The maintainer's rule for what an escape hatch is for:
 
 > Escape hatches are for broken configs or whatever so you can get back in and fix the config
 > with an old image, not for yolo bugs.
@@ -393,7 +397,7 @@ recover from.
 > fallback, a delivery bug that reaches a release is a machine that cannot start a jail until a fix
 > ships. The precondition is therefore not optional: one measured `nix:`-source copy that loads and
 > boots on **every** backend that gets the new path — podman/Linux, and Apple Container on the
-> maintainer's hardware per [OQ-LI2](#OQ-LI2) — before the default is on for anyone.
+> maintainer's hardware per [OQ-LI2](#91-decision-ledger) — before the default is on for anyone.
 
 ### 3.6 Failure paths
 
@@ -518,7 +522,7 @@ legacy number is no longer measurable on that host.
   `fetchpatch2` of a container-libs commit and a hand-built vendor tree). Every `flake.lock`
   nixpkgs bump rebuilds it — once per bump, not once per launch, because it is part of the
   image's closure and a launch whose image is already loaded builds nothing.
-  [OQ-LI1](#OQ-LI1) rules that this build is simply **paid**: the project's cachix may make it
+  [OQ-LI1](#91-decision-ledger) rules that this build is simply **paid**: the project's cachix may make it
   fast but may never be what makes it work, and no cache miss selects a degraded path.
 - **A prerequisite in another package.** The `created` constant forces prune's keep-window
   ordering to change before this ships ([§3.3](#33-what-does-not-change)).
@@ -610,13 +614,13 @@ developing this repo, is the common case — on every backend that cannot opt in
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1. A third-party flake input on the critical path of every launch.** nix2container is one maintainer's project; an abandoned input strands the image pipeline. | The input is pinned in `flake.lock` and nothing auto-updates it, so abandonment upstream changes nothing until someone bumps it — the failure is not "it disappears", it is "it stops evaluating against a newer nixpkgs". **The escape is no longer a retained legacy attribute** ([OQ-LI5](#OQ-LI5) deleted it): it is that the dependency is small and forkable — a `fetchpatch2` over nixpkgs' skopeo plus a nix library — and that [§6](#6-alternatives-considered)'s option C (an OCI layout in the store) remains a known, costed way to keep layer-aware delivery with a stock skopeo. Both are work; neither is a rewrite of this design. |
-| **R2. The patched skopeo is a source build not in `cache.nixos.org`.** A `flake.lock` bump now also rebuilds skopeo, on a machine that may be offline or slow. | Measure it once and decide the substituter question ([OQ-LI1](#OQ-LI1)). The failure mode is a slow build, and C1 already makes a failed build fatal-and-explained rather than silent. |
-| **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](./happy-path-principle.md) warns about. | **Retired 2026-09-08 — the risk is removed rather than accepted** ([OQ-LI5](#OQ-LI5)): `streamLayeredImage` is deleted in the same change and there is no legacy knob, so there is never more than one delivery mechanism to keep true. The residual risk moves to R8. |
-| **R8. No way back if a delivery bug ships**, the cost of retiring R3. A machine that cannot copy cannot start a jail until a fix ships. | Bounded by evidence rather than by a fallback: the default does not flip until a `nix:`-source copy has been measured loading and booting on every backend that gets it ([§3.5](#35-one-mechanism-no-way-back), [OQ-LI2](#OQ-LI2)). `YOLO_ALLOW_STALE_IMAGE=1` still launches an already-loaded image, which is the hatch for "get back in", and a failed build is already fatal with nix's own stderr. |
+| **R1. A third-party flake input on the critical path of every launch.** nix2container is one maintainer's project; an abandoned input strands the image pipeline. | The input is pinned in `flake.lock` and nothing auto-updates it, so abandonment upstream changes nothing until someone bumps it — the failure is not "it disappears", it is "it stops evaluating against a newer nixpkgs". **The escape is no longer a retained legacy attribute** ([OQ-LI5](#91-decision-ledger) deleted it): it is that the dependency is small and forkable — a `fetchpatch2` over nixpkgs' skopeo plus a nix library — and that [§6](#6-alternatives-considered)'s option C (an OCI layout in the store) remains a known, costed way to keep layer-aware delivery with a stock skopeo. Both are work; neither is a rewrite of this design. |
+| **R2. The patched skopeo is a source build not in `cache.nixos.org`.** A `flake.lock` bump now also rebuilds skopeo, on a machine that may be offline or slow. | Measure it once and decide the substituter question ([OQ-LI1](#91-decision-ledger)). The failure mode is a slow build, and C1 already makes a failed build fatal-and-explained rather than silent. |
+| **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](./happy-path-principle.md) warns about. | **Retired 2026-09-08 — the risk is removed rather than accepted** ([OQ-LI5](#91-decision-ledger)): `streamLayeredImage` is deleted in the same change and there is no legacy knob, so there is never more than one delivery mechanism to keep true. The residual risk moves to R8. |
+| **R8. No way back if a delivery bug ships**, the cost of retiring R3. A machine that cannot copy cannot start a jail until a fix ships. | Bounded by evidence rather than by a fallback: the default does not flip until a `nix:`-source copy has been measured loading and booting on every backend that gets it ([§3.5](#35-one-mechanism-no-way-back), [OQ-LI2](#91-decision-ledger)). `YOLO_ALLOW_STALE_IMAGE=1` still launches an already-loaded image, which is the hatch for "get back in", and a failed build is already fatal with nix's own stderr. |
 | **R4. The layer plan is a new thing to keep true.** A package added to `flake.nix` in the wrong tier silently costs a full copy per build, and nothing fails. | The done-condition ([§3.10](#310-what-done-looks-like)) is a measurement, so make it a test: assert that a `flake.nix`-only change copies under a byte budget. A budget test fails loudly when a tier assignment drifts; a comment does not. |
 | **R5. Only two machines are measured**, both of them mine, one of them nested. Absolute numbers are illustrative; the ratios are not. | Same standing caveat as the one [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model) states over its cost model. The two hosts agree on the ratio (84% and 86%) and disagree on the absolutes by 1.8×, which is exactly what that caveat predicts. |
-| **R6. Apple Container is unverified on hardware**, and a delivery change that assumes its converters behave is a guess. | [OQ-LI2](#OQ-LI2) keeps it explicitly undecided rather than silently included. Leaving it on the current path costs nothing it is not already paying. |
+| **R6. Apple Container is unverified on hardware**, and a delivery change that assumes its converters behave is a guess. | [OQ-LI2](#91-decision-ledger) keeps it explicitly undecided rather than silently included. Leaving it on the current path costs nothing it is not already paying. |
 | **R7. Rootless `containers-storage` writes can trip on ID mapping** when a copy runs outside the user namespace podman uses. | Our layers are entirely root-owned (`fakeRootCommands` writes `root:x:0:0`, `flake.nix:1120-1122`), which is the case that works. If a real host disagrees, the copy runs under `podman unshare` — a change to how the copier is invoked, not to the design. Verify on the first real host, not in a nested jail. |
 
 ---
@@ -634,13 +638,13 @@ attributes, with the layer plan written out. Nothing consumes it yet. The payoff
 here is that the layer plan is inspectable — the manifest names its layers and their sizes, so
 the tier assignment can be checked against [§2.2](#22-the-layer-sizes)'s numbers before any
 launch depends on it. Measure the patched-skopeo build here, once, and answer
-[OQ-LI1](#OQ-LI1) with a number.
+[OQ-LI1](#91-decision-ledger) with a number.
 
 **Third, wire the copy behind the env var, defaulting off.** The copy path exists, the legacy
 path is the default, and both are exercised. This is where the `image.layer_copy` span and the
 copied/skipped byte counts land, because the next step needs them to be believable.
 
-**Fourth — and this step now carries what the deleted fallback used to** ([OQ-LI5](#OQ-LI5)):
+**Fourth — and this step now carries what the deleted fallback used to** ([OQ-LI5](#91-decision-ledger)):
 **gather the evidence, THEN flip the default for podman on Linux.** Take the four measurements
 in [§3.10](#310-what-done-looks-like) on a real host — not a nested jail, which can prove the
 plumbing and not the number — and take the legacy baseline **before** step three lands, since
@@ -649,7 +653,7 @@ R7's neighbour, R4, in the same change; a performance property with no test is a
 regresses silently. **The default does not flip on a machine whose backend has not been measured
 booting from a `nix:` copy** — with no fallback, that measurement is the safety property (R8).
 
-**Fifth, Apple Container is part of this pass, not a later decision** ([OQ-LI2](#OQ-LI2)): the
+**Fifth, Apple Container is part of this pass, not a later decision** ([OQ-LI2](#91-decision-ledger)): the
 maintainer has the hardware, so its measurement is a precondition of the flip rather than a
 follow-up. A backend that cannot be measured does not get the default.
 
@@ -659,300 +663,65 @@ so R3 is never a live cost and this doc never has to say it is.
 
 ---
 
-## 9. Open Questions
+## 9. Decisions
 
-1. ✅ **[OQ-LI1](#OQ-LI1) — ANSWERED 2026-09-08, after correcting a premise the question got wrong:
-   is a third-party flake input acceptable on the launch path — and does its cachix come with it?** nix2container is not in nixpkgs (verified 2026-09-08 against the
-   pinned rev `c043004d…`: `pkgs ? nix2container` is false, while `pkgs.skopeo` is 1.24.0), so
-   this is a new input plus a patched-skopeo source build that `cache.nixos.org` will never
-   have. Adding the project's own cachix as a substituter fixes the build cost and adds a
-   third-party binary cache to every developer's trusted substituters. This is the go/no-go:
-   nothing else in the design matters if the answer is no.
+All five questions this doc opened are ruled and compacted below. **Nothing here is waiting on
+another ruling — it is waiting on an AUTHORIZATION and two measurements**, which is
+[OQ-LI6](#OQ-LI6) in [§9.2](#92-open-questions), the only live item left.
 
-   <!-- vantage: oq id=OQ-LI1 leaning="Take the input, refuse the cachix. Pin it, keep the legacy attribute as the escape, and pay the skopeo rebuild once per flake.lock bump — after measuring it." -->
+The arguments live in the sections they govern: [§3.1](#31-the-layer-plan) for the layer plan and
+its two verified collision rules, [§3.5](#35-one-mechanism-no-way-back) for the deleted fallback,
+[§6](#6-alternatives-considered) for the rejected mechanisms, [§7](#7-risks) for R8 — the risk that
+exists BECAUSE the fallback is gone.
 
-   _Leaning:_ Take the input; refuse the cachix. The input is pinned and has a working
-   fallback; a trusted binary cache is a supply-chain surface with no fallback. Pay the skopeo
-   rebuild once per `flake.lock` bump — but measure it first, because if it is ten minutes
-   rather than two this leaning is wrong.
+### 9.1 Decision Ledger
 
-   **Answer (2026-09-08):**
-   > **First, the premise correction the maintainer's question forced** — *"do we currently get
-   > caches from nixos.org? I thought it was just our cachix?"* **Both, and the framing above was
-   > wrong about which is new.** MEASURED in this jail 2026-09-08 (nix 2.34.8):
-   >
-   > ```console
-   > $ nix config show | grep '^substituters'
-   > substituters = https://cache.nixos.org/
-   > ```
-   >
-   > `cache.nixos.org` is nix's **built-in default** and is where everything in the closure that is
-   > plain nixpkgs already comes from. yolo's own cache is **added on top**, by the flake itself —
-   > `nixConfig.extra-substituters = [ "https://yolo-jail.cachix.org" ]` (`flake.nix:13-16`), with
-   > its public key beside it. `extra-` is the operative word: it appends, it does not replace. And
-   > nix ignores a flake's `nixConfig` unless the caller passes `--accept-flake-config` or is a
-   > trusted user, which is why `nightly-macos.yml` passes that flag explicitly and says in a comment
-   > what happens without it (*"nix discards it with a warning and this job builds the whole closure
-   > from source"*).
-   >
-   > **So the trade this question named does not exist.** "Adding a third-party binary cache to every
-   > developer's trusted substituters" is not a step this design would take — the project has shipped
-   > that substituter since 2026-07-20, opt-in per invocation. There is nothing to refuse.
-   >
-   > **The real trade, restated.** Today the cachix is an **optimization**: a miss costs download
-   > time, and every path has `cache.nixos.org` or a local build behind it. A patched skopeo that
-   > `cache.nixos.org` can never have would make the same cache **load-bearing for the launch path**
-   > — on a miss, a source build of skopeo lands in front of a jail start. That is the actual
-   > question, and it is a different and smaller one than a supply-chain ruling.
-   >
-   > **The ruling: take the input, build the copier when it is needed, and never let the cache be
-   > the difference between working and not.** The maintainer stated the invariant —
-   > *"our cachix should never be load bearing, only ever an optimization"* — and then the
-   > consequence I had got wrong: *"I don't want the legacy path taken, I want the same
-   > functionality."*
-   >
-   > **The correction, because the first version of this answer was a degrade dressed as a
-   > fallback.** It said a missing copier makes the launch take the legacy stream rather than
-   > compile. That is not a fallback, it is a silent loss of the feature on precisely the machines
-   > that need it most — a fresh machine with a cold cache — and it makes R3's two-mechanisms cost
-   > permanent, contradicting [OQ-LI5](#OQ-LI5)'s ruling that the legacy path ends on evidence.
-   >
-   > **Building it when it is needed is the answer, and four facts make it cheap enough:**
-   >
-   > 1. **It is a build-time dependency, not a per-launch one.** The copier is part of the image's
-   >    closure, so it is realized on the occasions the image is already being built — a `flake.lock`
-   >    nixpkgs bump — and not on the occasions a jail merely starts. A launch that finds its image
-   >    already loaded builds nothing, copier included.
-   > 2. **Only the Go link is local.** skopeo's C dependencies (gpgme, libassuan, btrfs-progs, lvm2,
-   >    glibc) are stock nixpkgs and come from `cache.nixos.org`; the patch is an `overrideAttrs`
-   >    over nixpkgs' skopeo, so the marginal cost is compiling one Go program, not bootstrapping a
-   >    toolchain.
-   > 3. **The failure mode already exists and is correct.** A build that runs and fails is FATAL
-   >    ([`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) [OQ-2](../reference/image-staging-vs-baking.md#why-its-this-way)):
-   >    nix's own stderr is printed and the launch refuses. "Build it when we need it" therefore
-   >    inherits an honest error rather than needing a new degrade path.
-   > 4. **It is GC-rooted with the image it belongs to.** Nothing collects it out from under a
-   >    machine that is using it, which is the same question [OQ-BF4](./disk-levers-and-backfill.md#OQ-BF4)
-   >    settles for the install prefix.
-   >
-   > **So the cachix's whole job is latency**, and the invariant is three testable constraints:
-   >
-   > - **No path may require `--accept-flake-config`.** The flake's `nixConfig` is discarded for any
-   >   caller who does not pass it (and for any non-trusted user), so a design that only works with
-   >   the substituter honoured is a design that fails the default invocation.
-   > - **Losing the cache entirely** — expired, renamed, unreachable, account gone — must cost
-   >   **time only, never function.** That is the test for "optimization": remove the substituter and
-   >   everything still builds from `cache.nixos.org` plus source.
-   > - **No functional fallback is wired to a cache miss** — and, since [OQ-LI5](#OQ-LI5),
-   >   no functional fallback exists at all. A miss means the copier is built; that is the whole
-   >   consequence.
-   >
-   > **MEASURED 2026-09-08, in this jail, and it is smaller than the argument around it: 34
-   > seconds, cold, with nothing in any yolo cache.**
-   >
-   > ```console
-   > $ time nix build --no-link 'github:nlewo/nix2container#skopeo-nix2container'
-   > building '…-21b053ac62f3137de42585611953e923577d0e10.patch.drv'...
-   > building '…-skopeo-1.21.0.drv'...
-   > ELAPSED_SECONDS=34
-   > ```
-   >
-   > The `--dry-run` before it is the part that generalises: of ~90 store paths in the closure,
-   > **exactly two are built** — the `fetchpatch2` derivation and skopeo itself. Everything else
-   > (gpgme, libassuan, glib, btrfs-progs, lvm2, systemd-minimal-libs, the whole stdenv) is
-   > *substituted from `cache.nixos.org`*, because the patch is an `overrideAttrs` over stock
-   > nixpkgs skopeo and changes nothing beneath it.
-   >
-   > So "build it when we need it" costs **one Go compile per `flake.lock` nixpkgs bump**, on the
-   > same occasion the image is already being rebuilt — against a load this design exists to cut by
-   > ~81 s. There is nothing here worth a cache dependency, and the earlier framing of this question
-   > (a *"go/no-go"* where *"nothing else in the design matters if the answer is no"*) was
-   > out of proportion to a 34-second build.
-   >
-   > > [!IMPORTANT]
-   > > **RE-MEASURED 2026-09-09 in the configuration this design actually uses, and the number is
-   > > 4.3× larger: 2m27s, not 34s.** The 34 s was nix2container's OWN pinned nixpkgs, which gives
-   > > skopeo **1.21.0**. Under `inputs.nixpkgs.follows` — which this design requires, or a second
-   > > nixpkgs closure is fetched on every eval — the version is **1.24.0** and the cold build is
-   > > **2m27s**, patch applying and the `nix:` transport live.
-   > >
-   > > The ruling stands and the reasoning is unchanged: still one Go compile, still once per
-   > > `flake.lock` nixpkgs bump, still on the occasion the image is already being rebuilt, still
-   > > against a load this design cuts by ~81 s. But the leaning's own stated tripwire was *"if it
-   > > is ten minutes rather than two this leaning is wrong"*, and 2m27s is at that boundary rather
-   > > than an order of magnitude inside it — so gate part 2 (re-measure on the maintainer's host)
-   > > is now the difference between comfortable and marginal, not a formality. Still not covered:
-   > > his CPU, and a cold nixpkgs closure, which pays much more.
-   > >
-   > > **A trap found in the same measurement:** `nix2container.packages.x86_64-darwin.*` under
-   > > `follows` **throws** — the Intel-Mac nixpkgs class this flake already carries a pin for.
-   > > `import <src> { inherit pkgs; }` from the store path works. Getting this wrong is a red CI
-   > > night on darwin only.
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-LI1 | **Take the flake input; BUILD the copier when it is needed; the project cachix may never be load-bearing.** The question's premise was wrong and is corrected in the body: `cache.nixos.org` is nix's built-in default and this flake ALREADY ships `extra-substituters` for its own cachix, so no third-party cache is being added. The invariant the maintainer stated — *"only ever an optimization"* — becomes three testable constraints: a cache miss may never put a source build in front of a jail start in a way that changes function, no path may require `--accept-flake-config`, and losing the cache must cost time only. **No functional fallback is wired to a cache miss** | 2026-09-08 | [§4](#4-what-it-costs), [§9.2](#92-open-questions) [OQ-LI6](#OQ-LI6)'s gate |
+| OQ-LI2 | **Apple Container ships in the SAME pass**, ruled against the leaning. The objection was never that the backend is risky but that nobody could measure it — a fact about the project, not the backend — and the maintainer has the hardware. So its measurement becomes a PRECONDITION of the default flip rather than a reason to defer, and the bytes justify the ordering: that backend writes two full-size files per load today | 2026-09-08 | [§3.4](#34-which-backends-get-it), [OQ-LI6](#OQ-LI6) |
+| OQ-LI3 | **Keep the extras tier — three tiers.** It is not scaffolding for a transition: C4/C5 store delivery is opt-in AND podman-on-Linux only, so every macOS launch, every Apple Container launch and every un-opted Linux launch still bakes `packages:`. The two mechanisms do not overlap — an opt-in launch simply has an empty extras tier — and the tier costs one layer slot of a hundred | 2026-09-08 | [§3.1](#31-the-layer-plan) |
+| OQ-LI4 | **Order prune's keep-window by the load sentinel's recency; refuse a per-build timestamp.** A per-build timestamp would give up content addressing (C2) to feed a sort, and the third option — keep `CreatedAt` with an arbitrary tie-break — is refused because "unpredictable" is worse than "wrong" for a destructive pass. The sibling doc makes recency the sentinel's PROPER use: it loses its authority over liveness and keeps its most-recently-used role. **Two constraints inherited:** retention may read the sentinel and liveness may not, and an image absent from the ten-entry ledger has NO opinion rather than being least-recent | 2026-09-08 | [§3.3](#33-what-does-not-change), and [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md) [§11.1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) |
+| OQ-LI5 | **DISSOLVED — there is no rollback window, because there is no fallback.** `streamLayeredImage`, `YOLO_LEGACY_IMAGE_STREAM` and the second mechanism are deleted in the change that adds the new path. The maintainer's criterion settles it: an escape hatch is for a config the USER broke, not for yolo's own mechanism being broken — and the earlier defence ("one variable versus waiting for a release") proves too much, since it would justify keeping every mechanism yolo ever shipped. A second path no launch exercises is broken by the time anyone reaches for it. Risk R3 stops being an accepted cost; R8 is what replaces it | 2026-09-08 | [§3.5](#35-one-mechanism-no-way-back), [§7](#7-risks) R8, [§8](#8-what-i-would-build-in-order) |
 
-2. ✅ **[OQ-LI2](#OQ-LI2) — RULED 2026-09-08, AGAINST the leaning, because the premise under it went away: does Apple Container move to the `nix:` source in the same pass?** Today it
-   writes two full-size files per load — `materializeImage` produces a docker-archive and
-   `convertViaSkopeo` (`internal/image/autoload.go:1032`) writes an OCI layout from it. A
-   `nix:` source deletes both and needs no new dependency it does not already have. Nobody
-   here has the hardware, and [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#backends)
-   records this path as not exercised on hardware. This decides whether the second-largest disk consumer
-   on macOS is fixed now or waits.
+> [!WARNING]
+> **Two claims this doc made about its own mechanism turned out false, and both are load-bearing
+> rather than history.** `maxLayers` does NOT give the base tier a popularity split — nix2container
+> emits `maxLayers - 1` single-path layers and dumps the remainder into one tail layer — and
+> cross-layer dedup compares `{Path, Options}` rather than the path, so each tier must be one
+> `buildEnv` or shared packages are tarred into the top layer as well. [§3.1](#31-the-layer-plan)
+> carries both with the measurement that found them. The cold copier build is **2m27s**, not the
+> 34 s first recorded: that measurement used nix2container's own nixpkgs, and under the required
+> `follows` the version differs.
 
-   <!-- vantage: oq id=OQ-LI2 leaning="Not in the same pass — build it Linux-first, and let Apple Container follow once someone can measure it on hardware." -->
+### 9.2 Open Questions
 
-   _Leaning:_ Not in the same pass. Linux-first, Apple Container follows on hardware evidence.
-   Shipping an unmeasured change to the one backend nobody can test is how the macOS
-   install-prefix regression happened.
+1. 💬 **OQ-LI6: Build it?** Every design question above is ruled; this is the authorization, and
+   [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#why-its-this-way)'s [`OQ-6`](../reference/image-staging-vs-baking.md#why-its-this-way) explicitly moved
+   it here rather than granting it. **What a yes commits to**, because [OQ-LI5](#91-decision-ledger) removed the
+   way back:
 
-   **Answer (2026-09-08): ship it in the same pass.**
-   > *"yes, ship it now. I have a mac to test this if needed."* — and that retires the leaning
-   > rather than overruling it. The objection was never "Apple Container is risky"; it was **"nobody
-   > can measure it"**, which is a fact about the project, not about the backend. With hardware
-   > available the fact is false and the objection has nothing left to stand on.
-   >
-   > What the leaning was right about, and what therefore becomes a **precondition rather than a
-   > reason to wait**: the macOS install-prefix regression happened because an unmeasured change to
-   > an untestable backend shipped and the only signal was a nightly nobody read. So the same pass
-   > includes Apple Container **and** one measured run on the maintainer's Mac before the default
-   > flips — a `nix:`-source copy that loads and boots a jail, reported with the `container`
-   > version. Not a review of the diff: a launch.
-   >
-   > The bytes justify the ordering. Apple Container today writes **two full-size files per load** —
-   > `materializeImage`'s docker-archive plus `convertViaSkopeo`'s OCI layout
-   > (`internal/image/autoload.go:1032`) — so it is the backend where the `nix:` source deletes the
-   > most, and it needs no dependency it does not already have. Deferring it would have left the
-   > largest win for the release after the one that built the mechanism.
+   - **A measurement on your host, not this jail.** The cold patched-skopeo build is 2m27s here,
+     against your own stated tripwire — *"if it is ten minutes rather than two this leaning is
+     wrong."* That is now the difference between comfortable and marginal rather than a formality.
+   - **A measured `nix:`-source copy that loads AND BOOTS on every backend that gets the new path** —
+     podman/Linux and Apple Container ([OQ-LI2](#91-decision-ledger)). This is the safety property, not a
+     nice-to-have: with no fallback, a delivery bug in a release is a machine that cannot start a
+     jail until a fix ships ([§7](#7-risks) R8).
+   - **One prerequisite in a sibling doc.** [OQ-LI4](#91-decision-ledger)'s keep-window reorder is subsumed by
+     [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3), which is itself blocked on a
+     config-identity key that does not exist. Step 1 of [§8](#8-what-i-would-build-in-order) waits
+     on that.
 
-3. ✅ **[OQ-LI3](#OQ-LI3) — RULED 2026-09-08: is the extras tier worth its complexity, given C4
-   already deletes that churn for opt-in launches?** The extras tier is the layer plan's only *variable* tier, and it
-   exists for launches that do not set `YOLO_STORE_PACKAGES=1`. If the intent is that every
-   Linux launch eventually opts in, the tier is scaffolding for a transition; if opting in
-   stays opt-in, it is the tier that pays for every second workspace on a machine. This decides
-   whether the layer plan has two tiers or three.
+   _Leaning:_ **Build it, and take the measurement first rather than alongside.** The diagnosis is
+   independently corroborated — 84 % of the load is layers podman already has, and a second
+   instrument (the timing spans) put a cold `launch.auto_load_image` at 85.9 s against 7.3 s warm —
+   so the win is not in doubt. What is in doubt is the 2m27s, on your hardware, with a cold nixpkgs
+   closure; if that number comes back near ten minutes the mechanism needs reconsidering before the
+   code does.
 
-   <!-- vantage: oq id=OQ-LI3 leaning="Keep it — three tiers. C4 is opt-in and podman-Linux-only, so the majority of launches today have no other answer for packages: churn." -->
-
-   _Leaning:_ Keep it, three tiers. C4 is opt-in *and* podman-on-Linux-only, so every macOS and
-   Apple Container launch has no other answer, and the tier costs one layer slot.
-
-   **Answer (2026-09-08): keep it — three tiers.**
-   > *"yes extras seems worth it."* Ruled as leaned.
-   >
-   > **And the confusion is the question's fault, so here is the answer to "what is store packages
-   > and do I need to know".** `YOLO_STORE_PACKAGES=1` is a launch-time opt-in from
-   > [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#store-delivered-packages) ("store-delivered packages"): instead of BAKING a
-   > workspace's `packages:` into its own image, the launch builds the stock image with `packages:`
-   > removed and delivers those tools from a symlink farm over the mounted nix store. One image per
-   > machine instead of one per distinct package list.
-   >
-   > **You do not need to know it to rule this, and here is why** — it was raised only as a possible
-   > reason to DROP the tier, and that reason does not hold. It would hold only if every launch got
-   > that treatment, and it cannot: C4 is **opt-in**, and it is **podman-on-Linux only** (macOS
-   > podman and Apple Container keep baking, deliberately). So every macOS launch, every Apple
-   > Container launch and every Linux launch that has not opted in still bakes `packages:` and still
-   > has this churn. The two mechanisms do not overlap — an opt-in launch simply has an empty extras
-   > tier — so the tier is not scaffolding for a transition, and it costs one layer slot out of a
-   > hundred.
-
-4. ✅ **[OQ-LI4](#OQ-LI4) — RULED 2026-09-08, and a sibling doc supplies the reason: `created`
-   becomes a constant — is reordering prune's keep-window the right answer, or should the image
-   carry a build timestamp anyway?** nix2container rejects `"now"`
-   ([§3.3](#33-what-does-not-change)), so either the keep-window stops sorting by `CreatedAt`
-   or the image derivation varies per build and content addressing dies. There is a third
-   option I like less: keep `CreatedAt` and accept an arbitrary tie-break, which makes the
-   reaper's choice unpredictable rather than wrong. This decides how much of `internal/prune`
-   is a prerequisite for this work.
-
-   <!-- vantage: oq id=OQ-LI4 leaning="Reorder the keep-window by the load sentinel's recency. It is the key the code already says it wants, and a per-build timestamp would destroy content addressing." -->
-
-   _Leaning:_ Reorder by the load sentinel's recency. `internal/prune/probes.go:240-243`
-   already argues CreatedAt is the wrong key; a per-build timestamp is not a trade, it is
-   giving up C2.
-
-   **Answer (2026-09-08): reorder the keep-window by the sentinel's recency — and the sibling doc
-   makes that the sentinel's PROPER use rather than a reuse of a discredited one.**
-   > The maintainer pointed at the newer work: *"I think we have thoughts on this in a recent doc.
-   > check there. LRU is changing."*
-   > [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)
-   > is that doc, and reading it settles this question in the leaning's favour for a reason the
-   > leaning did not have.
-   >
-   > **What is changing is the sentinel's AUTHORITY, not its existence.** That doc's P1 is
-   > *"recency is a cache policy, not a liveness proof"*: the ledger stops being cited as liveness
-   > anywhere (that moves to `podman ps`), and it **keeps** its most-recently-used role for nix
-   > GC-root retention and the load diagnosis — its
-   > [§7](./the-load-sentinel-is-not-a-liveness-oracle.md#7-what-this-does-not-propose) says so
-   > outright.
-   >
-   > **Which is exactly the key this question needs.** "Which images would I rather not have to
-   > pull again" is a **cache** question, and retention is a cache policy — so ordering the
-   > keep-window by sentinel recency uses the instrument for the thing it is good at. Ordering by
-   > `CreatedAt` never did: after C2 every distinct store path gets its own permanent tag, so
-   > "newest 2 by CreatedAt" already meant "every config but the most recently built one", and
-   > nix2container's constant `created` only removes a key that was wrong before it became
-   > useless.
-   >
-   > **A per-build timestamp is refused, for the reason leaned:** it makes the image derivation vary
-   > per build, which is giving up content addressing — C2 — to feed a sort. And the third option
-   > (keep `CreatedAt`, accept an arbitrary tie-break) is refused because "unpredictable" is worse
-   > than "wrong" for a destructive pass: a reaper whose choice cannot be predicted cannot be
-   > reviewed.
-   >
-   > **Two constraints this inherits, and they are what makes it a prerequisite rather than a
-   > cleanup.** (1) Retention must read the sentinel, and **liveness must not** — mixing them back
-   > together is the defect that doc exists to remove, and this change touches the same file. (2) The
-   > ledger is capped at ten entries, so a keep-window ordered by it can only rank what the cap
-   > holds; an image absent from the sentinel has no recency, and the pass must treat that as "no
-   > opinion", never as "least recent". [OQ-BF8](./disk-levers-and-backfill.md#OQ-BF8) records why
-   > the cap itself needs no derivation once safety is elsewhere.
-
-5. ✅ **[OQ-LI5](#OQ-LI5) — DISSOLVED 2026-09-08: there is no window, because there is no fallback.
-   How long does the rollback window last?** `YOLO_LEGACY_IMAGE_STREAM` and the
-   `streamLayeredImage` attributes are a real fallback while they exist and dead weight
-   afterwards, and R3's "two mechanisms" cost is live for exactly as long as the window is.
-   The technical answer is the same at one release or three; this is a judgement about how much
-   evidence is enough.
-
-   <!-- vantage: oq id=OQ-LI5 leaning="One release, ending at the first flake.lock bump after the default flips — by then every machine has taken a full copy through the new path at least once." -->
-
-   _Leaning:_ One release, closing at the first `flake.lock` bump after the default flips — by
-   then every machine has been through a full copy on the new path at least once, which is the
-   evidence the window exists to gather.
-
-   **Answer (2026-09-08): delete the legacy path in the same change. There is no window to size.**
-   > Two rounds got this wrong, and the maintainer's rule is what settles it:
-   >
-   > > *"The escape hatch for the legacy stream is just if we have bugs? I'd rather delete the path
-   > > and fix the bugs. I don't want to maintain legacy stuff for no reason. Escape hatches are for
-   > > broken configs or whatever so you can get back in and fix the config with an old image, not
-   > > for yolo bugs."*
-   >
-   > **That is a criterion, not a preference, and `YOLO_LEGACY_IMAGE_STREAM` fails it.** Sort the
-   > hatches this repo already has by what they let a user recover from:
-   >
-   > | Hatch | Recovers from | Fits the rule? |
-   > | :--- | :--- | :--- |
-   > | `YOLO_ALLOW_STALE_IMAGE=1` | a flake **you** broke — launch an old image and go fix it | **Yes** — user's own state |
-   > | `YOLO_BYPASS_SHIMS=1` | a config that blocks a tool your installer needs | **Yes** — user's own config |
-   > | `YOLO_ALLOW_LIVE_WORKSPACE=1` | a rule that is right by default and wrong for your case | **Yes** — user's own intent |
-   > | `YOLO_LEGACY_IMAGE_STREAM` | **yolo's delivery mechanism being broken** | **No** — that is a bug |
-   >
-   > My previous answer defended it as "the difference between export one variable and wait for a
-   > release". That argument proves too much: it would justify keeping every mechanism yolo has ever
-   > shipped, since any of them could have a bug. And it is self-defeating in this case — a second
-   > path that no launch exercises is a path that is broken by the time someone reaches for it, so
-   > the reassurance is worth less than the maintenance.
-   >
-   > **So: no knob, and `streamLayeredImage` is deleted in the same change** ([§3.5](#35-one-mechanism-no-way-back)).
-   > R3 — "two delivery mechanisms indefinitely" — stops being an accepted cost and becomes a risk
-   > that does not exist.
-   >
-   > **The honest cost, recorded as R8 rather than waved off.** With nothing to fall back to, a
-   > delivery bug that reaches a release is a machine that cannot start a jail until a fix ships. The
-   > answer is evidence instead of a fallback, and it makes [OQ-LI2](#OQ-LI2)'s hardware precondition
-   > load-bearing rather than nice-to-have: **the default does not flip until a `nix:`-source copy
-   > has been measured loading and booting on every backend that gets it.** If that evidence cannot
-   > be gathered, the design is not ready — which is the same standard the C8 macOS regression was
-   > judged by after the fact, applied before the fact this time.
+   <!-- vantage: oq id=OQ-LI6 leaning="Build it, and take the measurement FIRST rather than alongside. The diagnosis is independently corroborated - 84% of the load is layers podman already has, and the timing spans put a cold launch.auto_load_image at 85.9s against 7.3s warm - so the win is not in doubt. What is in doubt is the 2m27s cold copier build on the maintainer's own hardware with a cold nixpkgs closure; if that comes back near ten minutes the mechanism needs reconsidering before the code does. A yes also commits to a measured nix:-source copy that loads AND BOOTS on every backend, because OQ-LI5 deleted the fallback and that measurement is now the safety property." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
+
