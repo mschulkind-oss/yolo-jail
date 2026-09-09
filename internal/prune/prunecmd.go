@@ -651,6 +651,32 @@ func Run(opts Options) int {
 		}
 	}
 
+	// --- Prefix GC roots (the jail's own binaries) ---
+	//
+	// A SEPARATE SECTION from the image roots above, with the OPPOSITE policy,
+	// and the split is OQ-BF4's whole content: image roots reap on age because
+	// losing one costs a rebuild; a prefix root is what a RUNNING jail executes
+	// pid1 out of, so it is held by liveness and reaped only when no container is
+	// on it. See internal/prune/prefixroots.go.
+	if !opts.NoImageRoots {
+		p.line("")
+		p.line("[bold]Orphaned prefix GC roots[/bold]  [dim](the jail's own binaries)[/dim]")
+		sources, srcKnown := LivePrefixSources(rt, live, prefixBinMountDest, opts.Exec)
+		if !srcKnown {
+			p.line(fmt.Sprintf("  [dim]skipped — could not ask %s which prefix each running jail "+
+				"executes from; declining to sweep[/dim]", rt))
+		} else {
+			reaped := PruneOrphanPrefixRoots(joinPath(opts.BuildDir(), "prefix-roots"),
+				sources, srcKnown, apply, opts.Now())
+			if len(reaped) > 0 {
+				p.line(fmt.Sprintf("  %s: %s root(s)  [dim](no running jail is executing from these)[/dim]",
+					verb(apply, "would remove", "removed"), fmtComma(len(reaped))))
+			} else {
+				p.line("  [dim]none[/dim]")
+			}
+		}
+	}
+
 	// --- Dangling build out-links ---
 	// build/run-result-<pid> symlinks whose nix store target is already gone
 	// (storage §4). A dangling symlink protects nothing, so this needs NO liveness

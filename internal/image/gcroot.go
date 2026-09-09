@@ -56,18 +56,35 @@ func RegisterImageRoot(storePath string, out io.Writer) (string, error) {
 		out = io.Discard
 	}
 	rootsDir := ImageRootsDir()
+	link := filepath.Join(rootsDir, ImageStoreKey(storePath))
+	return registerGCRoot(rootsDir, link, storePath, out,
+		"could not register GC root for the running image (a nix-collect-garbage could reclaim it)")
+}
+
+// registerGCRoot is the shared mechanism behind RegisterImageRoot and
+// RegisterPrefixRoot: create the directory, add an indirect root, swallow
+// failure with a named warning.
+//
+// Factored out with the DIRECTORY as a parameter and the two callers as separate
+// exported functions on purpose. The two roots have OPPOSITE retention policies
+// — images reap on age (OQ-LS1), prefixes are held by liveness (OQ-BF4) — so the
+// directory is the only thing that keeps them apart, and a caller choosing it
+// from a variable is how they would silently merge.
+func registerGCRoot(rootsDir, link, storePath string, out io.Writer, failMsg string) (string, error) {
 	if err := os.MkdirAll(rootsDir, 0o755); err != nil {
 		fmt.Fprintln(out, "Warning: could not create GC-root dir: "+err.Error())
 		return "", err
 	}
-	link := filepath.Join(rootsDir, ImageStoreKey(storePath))
 	// --add-root creates an indirect GC root (a symlink under gcroots/auto/ back
 	// to <link>); --realise on an already-valid path returns it without building
 	// or substituting. Combined, this pins the closure without side effects.
+	//
+	// It also REFRESHES the link's own mtime even when the link already points at
+	// this exact store path — which is what makes an age policy meaningful for
+	// the image roots without any bookkeeping of its own (PruneOrphanImageRoots).
 	cmd := exec.Command("nix-store", "--add-root", link, "--realise", storePath)
 	if outbuf, err := cmd.CombinedOutput(); err != nil {
-		fmt.Fprintln(out, "Warning: could not register GC root for the running image "+
-			"(a nix-collect-garbage could reclaim it): "+err.Error())
+		fmt.Fprintln(out, "Warning: "+failMsg+": "+err.Error())
 		if len(outbuf) > 0 {
 			fmt.Fprintln(out, "  "+string(outbuf))
 		}

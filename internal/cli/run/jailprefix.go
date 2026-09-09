@@ -158,6 +158,24 @@ func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 		}
 		return jailPrefix{}, false
 	}
+	// ROOT IT (OQ-BF4). Until this existed, the ONLY thing pinning the prefix a
+	// jail executes from was one out-link per checkout, pointed at the NEWEST
+	// build — so a jail that had been running across a rebuild was executing pid1
+	// out of a store path nothing rooted. Nothing collects the store today, which
+	// is the only reason it never bit; the day anything does (this doc's own L3,
+	// a nix-collect-garbage, the daemon's min-free) that jail loses the binary
+	// under its own pid1.
+	//
+	// Its own directory, NOT build/roots: those reap on age now (OQ-LS1), which
+	// is exactly backwards here — the longer a jail runs, the more certainly its
+	// binaries would be reaped. See image.RegisterPrefixRoot.
+	//
+	// Host-only, gated exactly as the image root is (imageload.go's rootImageFn):
+	// in-jail the gcroots dir is unmounted and the host daemon prunes a
+	// jail-home root as stale.
+	if !o.inJail() {
+		_, _ = image.RegisterPrefixRoot(storePath, o.Stderr)
+	}
 	prefix := filepath.Join(storePath, image.JailPrefixSubdir)
 	return jailPrefix{
 		binDir:   filepath.Join(prefix, "bin"),
