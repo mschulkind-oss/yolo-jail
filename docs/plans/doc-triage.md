@@ -1,9 +1,33 @@
 # Documentation triage — proposed reorganization (for review)
 
 **Status:** ✅ EXECUTED 2026-07-03 (`5eb1643`, `9721660`) — kept as the record of what was archived
-and why, not as a pending proposal. **Not re-run since**, and the corpus has grown: as of
-2026-08-23 `docs/design/` holds 55 files and `docs/plans/` 34, at least eight of which announce
-their own completion in the first six lines. Whether a second sweep is worth running is argued in
+and why, not as a pending proposal.
+
+> [!NOTE]
+> **RE-RUN 2026-09-09, and this file's taxonomy is what it ran on.** Every doc in `docs/design/` was
+> bucketed A/B/C again, in five slices, each verdict checked against the code rather than against
+> the doc's own status line. **The sweep was not an archiving pass** — the 2026-07-03 run's job was
+> to delete; this one's was to ROUTE, because the failure mode had changed. What it found:
+>
+> - **Five B docs carried live open questions that no roadmap row reached.** They are now
+>   [`roadmap.md`](roadmap.md) 💬 24–💬 28, plus two questions folded into 💬 10.
+> - **Three roadmap rows still asked for decisions that had been made**, and were closed (💬 16, 22, 23).
+> - **~20 status lines were FALSE against the code, in both directions** — and the dominant
+>   direction was the opposite of 2026-07-03's. The 2026-07-03 sweep hunted docs that were *done and
+>   still filed as pending*. This one mostly found the inverse: **reference docs whose content rotted
+>   while their status line kept asserting a verification date.** `jail-home.md` is the type
+>   specimen — spot-verified 2026-08-23, with a mount table and a PATH section that two later
+>   changes had falsified.
+> - **Two live questions were invisible to the corpus count** because they carried no `💬` glyph in
+>   a countable position, and three dead ones were still counted. That is the bias the roadmap's own
+>   count NOTE warns about, observed.
+>
+> **The A/B/C verdicts still hold as a taxonomy; what does not hold is a bucket assignment made once.**
+> A doc moves B→C the day it ships, and nothing moves it. That is why this run routed instead of
+> archiving, and why the next one should start from the code, not from the status lines.
+
+**The corpus as of 2026-09-09:** `docs/design/` holds 83 files, `docs/plans/` 38. Whether a
+*third-party* archiving sweep is worth running is argued in
 [`further-roadmap-ideas.md` §5](further-roadmap-ideas.md#5-the-weakest-idea-in-the-file-kept-because-it-is-nearly-free) — where the verdict is *do the cheap half
 only, when passing through*, because a shipped plan is still the best account of why something is
 shaped the way it is.
