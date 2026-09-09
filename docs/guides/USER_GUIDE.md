@@ -1143,7 +1143,7 @@ On every jail start, the entrypoint regenerates:
 
 ### Relocating a Cache Subdir to Other Storage
 
-Every jail shares one cache directory, `~/.local/share/yolo-jail/cache`, bind-mounted read-write at `~/.cache` inside the container. It sits on whatever filesystem `$HOME` is on, and some of its subdirs get very large. `cache_relocations` lets one subdir come from a different disk instead:
+Every jail shares one cache directory, `~/.local/share/yolo-jail/cache`, bind-mounted read-write at `~/.cache` inside the container. One exception, and it needs no configuration: if this machine has a **content-addressed** cache yolo recognises — `~/.cache/pants/lmdb_store` today — a jail mounts *your own* copy of it, writable, in place of keeping a second one, so up to ~27 GB stops existing twice. The launch says so on stderr when it happens, `yolo stores` lists it in its own section as bytes yolo will never reclaim, and the jail's now-unused private copy is left for the ordinary 30-day cache purge. It is skipped entirely on macOS, on Apple Container, and whenever the host store is missing, unwritable, or empty while the jail's copy is warm — in every one of those cases the jail simply keeps its own copy, exactly as before. It sits on whatever filesystem `$HOME` is on, and some of its subdirs get very large. `cache_relocations` lets one subdir come from a different disk instead:
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — user scope ONLY, never yolo-jail.jsonc

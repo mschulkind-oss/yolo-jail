@@ -187,6 +187,23 @@ config reach — which is the whole of their scope story.
   missing *target* kills the container outright. Only the target's last path component is
   created — `MkdirAll` over the whole path would turn a typo into a silently-wrong empty
   directory back on the root filesystem, the exact failure relocation exists to prevent.
+- **The host-CAS alias** — a rw bind nested *inside* the `.cache` mount, exactly like a
+  relocation, and the only one of these that **no config key selects**: yolo picks both ends
+  from a table of recognised *content-addressed* host caches (`internal/hostcas`, `pants/lmdb_store`
+  today) so a jail shares the host user's own store instead of pooling a second copy of it
+  ([`../design/disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md) L9 /
+  [OQ-BF10](../design/disk-levers-and-backfill.md#111-decision-ledger)).
+  The source is the launching user's `$XDG_CACHE_HOME`/`$HOME/.cache`; the destination is the path
+  the jail's own copy of the tool already uses, so **the mount lands on top of the jail's private
+  copy**, which is what strands rather than moves it. It is **writable**, which is a strictly
+  bigger trust step than the `:ro` nix-store bind, and the CAS property is the whole of what makes
+  that acceptable: a jail can add a blob under a wrong name only for the reading tool to reject it,
+  so the worst case is wasted space. A **path-keyed** store is categorically excluded for the
+  opposite reason — the jail would choose both the key and the bytes, and the host tool would read
+  them *because of where they sit*. Gated on podman, a non-macOS host, matching host/jail platform,
+  and a host store that exists, is a directory, is writable and is not empty-over-a-warm-copy; every
+  failure degrades to the jail's own copy and none can refuse a launch. Disclosed on stderr at every
+  launch that makes one, and explained per store by `yolo stores`.
 - **`host_files`** — any file the user wants in the jail, composed by the same engine that
   composes agent settings. Three mount-relevant halves, all in
   `internal/cli/run/hostfiles.go`: a source-bearing entry's host path is bound `:ro` under
