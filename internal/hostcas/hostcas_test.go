@@ -27,13 +27,38 @@ func facts(t *testing.T) (Facts, string, string) {
 		t.Fatal(err)
 	}
 	return Facts{
-		Runtime:       "podman",
-		IsMacOS:       false,
-		HostPlatform:  "linux/amd64",
-		JailPlatform:  "linux/amd64",
+		Runtime:      "podman",
+		IsMacOS:      false,
+		HostPlatform: "linux/amd64",
+		JailPlatform: "linux/amd64",
+		// INJECTED, because DefaultProbe is deliberately a stub off Linux
+		// (probe_other.go returns the zero Presence — the feature is never-macOS).
+		// Plan's gate logic is pure and platform-independent, so it should be tested
+		// on every platform; leaving this nil made every store read "absent" on
+		// darwin and turned four gate tests into check-macos failures.
+		Probe:         linuxLikeProbe,
 		HostCacheRoot: hostCache,
 		JailCacheHost: jailCache,
 	}, hostCache, jailCache
+}
+
+// linuxLikeProbe is DefaultProbe's Linux behaviour expressed in portable Go, so a
+// gate test means the same thing on every platform. It is deliberately NOT a
+// hand-written fake: a probe that disagreed with the real one would let a gate
+// test pass against a Presence the real prober never produces.
+func linuxLikeProbe(path string) Presence {
+	st, err := os.Stat(path)
+	if err != nil {
+		return Presence{}
+	}
+	p := Presence{Exists: true, IsDir: st.IsDir()}
+	if !p.IsDir {
+		return p
+	}
+	p.Writable = st.Mode().Perm()&0o300 == 0o300
+	entries, err := os.ReadDir(path)
+	p.Empty = err == nil && len(entries) == 0
+	return p
 }
 
 func one(t *testing.T, f Facts) Disposition {

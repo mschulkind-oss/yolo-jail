@@ -20,6 +20,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -167,6 +168,14 @@ func TestNoAliasArgvMatchesGolden(t *testing.T) {
 // deliberately points at a home with NO store while the seam points at one WITH
 // a store, so switching the call to os.Getenv makes this red.
 func TestPlanHostCASAliasReadsTheGetenvSeam(t *testing.T) {
+	// LINUX ONLY, and not because the assertion is fragile: planHostCASAlias reads
+	// hostcas.HostPlatform() directly, so on darwin the host is darwin/<arch> and
+	// the jail linux/<arch> and the plan correctly refuses with "platform-mismatch"
+	// before any wiring runs. There is nothing to observe. The gate logic itself is
+	// tested on every platform in internal/hostcas over an injected probe; this test
+	// is about the WIRING (the getenv seam, the relocation pass-through), which only
+	// has an observable answer where the feature can fire.
+	requireLinuxHostCAS(t)
 	seamHome := t.TempDir()
 	processHome := t.TempDir()
 	t.Setenv("HOME", processHome)
@@ -207,6 +216,14 @@ func TestPlanHostCASAliasReadsTheGetenvSeam(t *testing.T) {
 // is silent and re-opens the whole failure: the alias would put a relocated
 // cache's biggest subtree back under the home directory the user moved it off.
 func TestPlanHostCASAliasPassesTheUsersRelocationsThrough(t *testing.T) {
+	// LINUX ONLY, and not because the assertion is fragile: planHostCASAlias reads
+	// hostcas.HostPlatform() directly, so on darwin the host is darwin/<arch> and
+	// the jail linux/<arch> and the plan correctly refuses with "platform-mismatch"
+	// before any wiring runs. There is nothing to observe. The gate logic itself is
+	// tested on every platform in internal/hostcas over an injected probe; this test
+	// is about the WIRING (the getenv seam, the relocation pass-through), which only
+	// has an observable answer where the feature can fire.
+	requireLinuxHostCAS(t)
 	seamHome := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	store := filepath.Join(seamHome, ".cache", hostcas.Stores[0].CacheRel)
@@ -265,12 +282,38 @@ func TestFillDefaultsWiresTheRealProbe(t *testing.T) {
 	}
 	dir := t.TempDir()
 	p := o.HostCASProbe(dir)
-	if !p.Exists || !p.IsDir {
-		t.Errorf("default probe on a real temp dir = %+v, want an existing directory", p)
+
+	// TWO PLATFORMS, ONE CONTRACT. This used to assert only the Linux answer and so
+	// failed check-macos: hostcas.DefaultProbe is deliberately a stub off Linux
+	// (probe_other.go returns the zero Presence) because the whole feature is
+	// never-macOS. Asserting BOTH halves is better than skipping — the darwin half
+	// pins the never-macOS guarantee at the one place it is implemented, so a probe
+	// that started answering there would be caught rather than silently enabling an
+	// alias on a backend that must not have one.
+	if runtime.GOOS == "linux" {
+		if !p.Exists || !p.IsDir {
+			t.Errorf("default probe on a real temp dir = %+v, want an existing directory", p)
+		}
+		if !p.Empty {
+			t.Error("default probe reports a fresh temp dir as non-empty — the cold-start gate " +
+				"reads this field")
+		}
+		return
 	}
-	if !p.Empty {
-		t.Error("default probe reports a fresh temp dir as non-empty — the cold-start gate " +
-			"reads this field")
+	if p != (hostcas.Presence{}) {
+		t.Errorf("off Linux the default probe must answer nothing (%+v) — the alias is "+
+			"never-macOS, and a probe that reports presence there would let the gate fire "+
+			"on a platform the design refuses", p)
+	}
+}
+
+// requireLinuxHostCAS skips a test whose subject cannot exist off Linux. Named
+// rather than inlined so `rg requireLinuxHostCAS` finds every such test at once.
+func requireLinuxHostCAS(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skipf("the host-CAS alias is never-macOS by design and planHostCASAlias reads the "+
+			"real host platform, so on %s it refuses before any wiring runs", runtime.GOOS)
 	}
 }
 
