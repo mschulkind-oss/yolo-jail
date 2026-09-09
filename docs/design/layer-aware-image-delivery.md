@@ -709,9 +709,11 @@ exists BECAUSE the fallback is gone.
      nice-to-have: with no fallback, a delivery bug in a release is a machine that cannot start a
      jail until a fix ships ([§7](#7-risks) R8).
    - **One prerequisite in a sibling doc.** [OQ-LI4](#91-decision-ledger)'s keep-window reorder is subsumed by
-     [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), which is itself blocked on a
-     config-identity key that does not exist. Step 1 of [§8](#8-what-i-would-build-in-order) waits
-     on that.
+     [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), and step 1 of
+     [§8](#8-what-i-would-build-in-order) waits on it. ⚠ **That prerequisite is no longer blocked**
+     (sharpened 2026-09-09): the config-identity key it appeared to need does not exist and is not
+     needed — a superseded-copy count of zero makes retention a set of per-workspace pointers, so
+     LS3 is buildable now.
 
    _Leaning:_ **Build it, and take the measurement first rather than alongside.** The diagnosis is
    independently corroborated — 84 % of the load is layers podman already has, and a second

@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 15 needing you · 0 ready · 0 in progress · 5 waiting · 0 broken · 3 icebox.**
+**Status: 16 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-08**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-09**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!IMPORTANT]
@@ -75,10 +75,11 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 > *following a mutable ref IS the trust decision*, and **tag pins are the documented shape** for a
 > pack carrying code, both written into
 > [the packs guide](../guides/migrating-to-packs-and-host-management.md)'s *Sharing a pack with other
-> people*. **G2b is MOOT** — TP9 deleted the approval it would have anchored. What is left in this
-> row is routing to **[OQ-X1](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)**, which lives in
-> [`pack-execution-trust.md`](../design/pack-execution-trust.md) (the doc this one partly
-> supersedes). Read it there; this row is the routing table.
+> people*. **G2b is MOOT** — TP9 deleted the approval it would have anchored.
+> ⚠ **Corrected 2026-09-09:** this row used to say its remainder was routing to **[`OQ-X1`](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)**, which was
+> itself RETIRED 2026-09-04 (subsumed by TP9, which deleted the gate it asked about). **The one live
+> item here is [OQ-TP10](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)**, and it lives in
+> [`trust-paths.md`](../design/trust-paths.md). Read it there; this row is the routing table.
 
 **Two rulings on 2026-08-18, both closing a finding by removing a mechanism rather than adding a
 gate** — and one of them obviated a question rather than answering it:
@@ -112,9 +113,12 @@ What is still open:
   computes a field the manifest can already state literally, and gating the computed path while the
   literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home
   at that notch. The disclosure stays the commit pin (**[OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)**), not a claim line.
-- **[OQ-X1](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)** — does a digest-pinned installer script count, given its own fetches are not pinned?
-  *(Sharpened: only embedded packs use installers today, and `packdecl` has no digest field at all —
-  the scenario is unexpressible until [OQ-BP5](../design/broker-as-a-pack.md#open-questions) lands one.)*
+- ⛔ **[OQ-X1](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) — RETIRED 2026-09-04**, subsumed by TP9, which deleted the gate it asked
+  about. It asked whether a digest-pinned installer script counts, given its own fetches are not
+  pinned. The finding survives as documentation in
+  [`pack-execution-trust.md` §5](../design/pack-execution-trust.md#5-the-shallow-pin-problem) — a
+  pinned script is not a pinned binary — and the scenario stays unexpressible either way:
+  `packdecl` has no digest field until [OQ-BP5](../design/broker-as-a-pack.md#open-questions) lands one.
 - ✅ **[OQ-TP9](../design/trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) — RULED 2026-09-04: the fetched-pack approval prompt is THEATRE, deleted.** Selecting a
   pack means writing user-scope config as the host user — `packs` is inexpressible at workspace scope
   *by construction*, so an agent cannot add one — and a gate that refuses an actor who already passed
@@ -251,9 +255,26 @@ leaning and an empty Answer in Stage E.
 row were still calling it open. And **E4 is not a question**; only its `stateful` residue is, which
 is why the list cites [OQ-E4](BACKLOG.md#-oq-e4--do-stateful-surfaces-get-comment-preservation-too) and not E4.)*
 
-### 💬 10 — `yolo check` tells you about the wrong machine, in three places and one vocabulary
+### 💬 10 — `yolo check` tells you about the wrong machine — plus the two questions the same doc has been carrying unrouted
 
-📄 [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) — **[OQ-3](../design/broker-ca-and-nested-hosts.md#7-open-questions)**
+📄 [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) — **[OQ-1](../design/broker-ca-and-nested-hosts.md#7-open-questions) · [OQ-2](../design/broker-ca-and-nested-hosts.md#7-open-questions) · [OQ-3](../design/broker-ca-and-nested-hosts.md#7-open-questions)**
+
+⚠ **This row carried only [OQ-3](../design/broker-ca-and-nested-hosts.md#7-open-questions) until 2026-09-09.** Its doc has three live questions and the other two
+had no home on this file. Both are about the same bake that closed their urgency and reopened their
+substance, and both are cheap to rule:
+
+- **[OQ-1](../design/broker-ca-and-nested-hosts.md#7-open-questions) — do we retire the `openssl` dependency, or just satisfy it?** The bake landed
+  2026-08-18 (`imagePkgs.openssl` is in `flake.nix`, with a comment naming that doc), so the question
+  is now purely about the **port**: `svcendpoint` mints certs with `crypto/x509`, while
+  `oauthbroker/cert.go` still shells out to `openssl` and writes `ca.key`/`server.key` to disk — what
+  issue #33 was about. *Leaning: bake now, port later, and write the port down as owed* — "deferred"
+  has already survived one incident, and deferral with no record is how that happened.
+- **[OQ-2](../design/broker-ca-and-nested-hosts.md#7-open-questions) — should a nested jail run its own broker singleton at all?** With `openssl`
+  baked it already does, so an unanswered question here means **a never-executed path runs
+  unattended** rather than staying dormant. *Leaning: let it run* — "a jail is a host for its
+  children" is the model everywhere else — *but exercise it on purpose before relying on it.*
+
+**The vocabulary question, [OQ-3](../design/broker-ca-and-nested-hosts.md#7-open-questions):**
 
 **These were three separate small questions until 2026-08-23; they are one.** `check` has no way for
 a section to say *whose* facts it is reporting — the host's, or the runtime it can see from in here —
@@ -348,7 +369,7 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` [§9](../design/broker
 
 ### 💬 15 — Backend parity: the census, and whether macos-user gets briefings at all
 
-📄 [`backend-parity.md`](../design/backend-parity.md) — **OQ-BP-1 · OQ-BP-2 · OQ-BP-3 · OQ-BP-4**
+📄 [`backend-parity.md`](../design/backend-parity.md) — **OQ-BP-1 · ~~OQ-BP-2~~ (answered by code) · OQ-BP-3 · OQ-BP-4**
 
 **Born from issue #39 and the sweep behind it.** Fourteen of the twenty-one defects are fixed or
 warned (that doc's [§5](../design/backend-parity.md#5-what-is-already-fixed-2026-08-24) is the table); what is left is a decision about the mechanism, not about any
@@ -368,10 +389,13 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../
   cells are the sweep's own reasoning. **The four-state vocabulary is the part to read**: eleven of
   forty-two candidates were refuted because the backend achieved the outcome *another way*, so a
   boolean census would cry wolf a quarter of the time and be switched off.
-- **OQ-BP-2 — do briefings and skills get DELIVERED to macos-user?** Today the agent starts there
-  with no AGENTS.md, no CLAUDE.md and no skills, including the built-in suite — while the
-  blocked-tool shims *are* generated, so `grep -r` exits 127 with nothing explaining it. Warned as
-  of today. My leaning is deliver it, and land it *with* a Mac session rather than blind.
+- ✅ **OQ-BP-2 — ANSWERED BY CODE 2026-09-03; noticed here 2026-09-09.** It asked whether briefings
+  and skills get DELIVERED to macos-user, and described an agent starting there with no AGENTS.md,
+  no CLAUDE.md and no skills. **That is no longer true, and the leaning was taken:** content
+  delivery landed on its own terms — `buildMacosHomeOverlay` composes them host-side
+  (`internal/cli/run/macoshomeoverlay.go`), `runplan.go` stages them as `YOLO_DARWIN_HOME_OVERLAY`,
+  `InstallHomeOverlay` copies them over the sandbox home (`internal/entrypoint/darwin.go`), and the
+  launch says so: *"briefings and skills are delivered by COPY on macos-user"*. Nothing to rule.
 - **OQ-BP-3 — do the fourteen new launch warnings need suppressing?** It was ten when the question
   was written and grew by four the same afternoon. A warning people learn to skip is worse than
   none. My leaning is still not yet, and per-key when it comes — and the cost is less uniform than
@@ -388,53 +412,32 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../
 
 ---
 
-### 💬 16 — Minimal disk footprint: you ruled the premise, not the mechanism
+### ✅ 16 — Minimal disk footprint: closed 2026-09-09, three of four ruled and built
 
-> [!NOTE]
-> **The 📦 companion row is gone as of 2026-09-03, and that is a filing correction rather than a
-> change of plan.** It sat in "ready to build" while its own text said *"this row is now entirely
-> gated on 💬 16"* — a row disagreeing with itself, in a section whose glyph means "no blockers".
-> Everything in it that needed no ruling has shipped (`cc53b591` closed the tar-eviction race; C3
-> made podman stream instead of writing tars). What is left is [`OQ-DF2`](../design/minimal-disk-footprint.md#112-open-questions)/[`OQ-DF3`](../design/minimal-disk-footprint.md#112-open-questions)/[`OQ-DF4`](../design/minimal-disk-footprint.md#112-open-questions) below, and
-> the standing warning survives with it: **do not start at delete-on-success** — that is [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)
-> option (i), and the component doing the deleting is [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)'s to name.
+📄 [`minimal-disk-footprint.md` §11.1](../design/minimal-disk-footprint.md#111-decision-ledger) —
+**~~[OQ-DF1](../design/minimal-disk-footprint.md#111-decision-ledger)~~ · ~~[OQ-DF2](../design/minimal-disk-footprint.md#111-decision-ledger)~~ · ~~[OQ-DF3](../design/minimal-disk-footprint.md#111-decision-ledger)~~** ·
+[OQ-DF4](../design/minimal-disk-footprint.md#112-open-questions) is 🔒 below
 
-📄 [`minimal-disk-footprint.md` §11.2](../design/minimal-disk-footprint.md#112-open-questions) —
-**~~[OQ-DF1](../design/minimal-disk-footprint.md#112-open-questions)~~ (ruled 2026-08-25) · [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions) · [OQ-DF3](../design/minimal-disk-footprint.md#112-open-questions) · [OQ-DF4](../design/minimal-disk-footprint.md#112-open-questions)**
-
-**This row is the other half of the 📦 disk item below, and it exists because of what [OQ-5](../reference/image-staging-vs-baking.md#why-its-this-way) did and
-did not settle.** You ruled that the cached tars are a **bug** and that yolo may delete them without
-`--apply`. That settles the *premise* and the *goal*; it does not say which component does the
-deleting, how far into podman's shared image store yolo may reach, or whether *"minimal"* is ever
-written down as a number. Each carries stakes, a leaning and an Answer block in the doc.
-
-**One of the four is now closed.** **[OQ-DF1](../design/minimal-disk-footprint.md#112-open-questions)** — the retention floor — you ruled the same day:
-***"stream, keep zero tars."*** That is what C3 implements (shipped 2026-08-25): on podman the load
-path writes no tar at all, `cache/images` stays empty on success, and there is no retention knob to
-default. It went past the doc's own leaning, which had asked for an opt-in for the disconnected case.
-**What it did not cover:** Apple Container, which must keep writing a file because its converters
-interpolate a path — and the pre-C3 backlog, which **as of 2026-09-02 is gone from this jail's
-nested cache** (3 tars / 10 GiB, the keep-3 fingerprint of a manual `yolo prune --apply`; the
-host-side 125 GiB cache is not observable from here). Two new facts from that re-measurement, both
-in [`minimal-disk-footprint.md` §2.4](../design/minimal-disk-footprint.md#24-re-measured-2026-09-02--the-backlog-is-gone-here-and-the-device-kept-filling-anyway): the manual recovery
-tool demonstrably works (field evidence for [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)'s leaning), and **the device lost another
-~92 GiB of free space in the same eight days anyway** (87 % full, 516 GiB free) with the nix store
-up only 6 GiB — the live growth driver is in **none of the three ledgers**, which is a new input to
-[OQ-DF4](../design/minimal-disk-footprint.md#112-open-questions)'s budget question.
-
-**Why the remaining three are not one more thing to get to eventually:** **[OQ-DF3](../design/minimal-disk-footprint.md#112-open-questions) blocks [§10](../design/minimal-disk-footprint.md#10-sequencing--what-i-would-build-in-order)'s first
-step**, which is the best bytes-per-effort in the whole doc and is otherwise unblocked — reclaiming
-the superseded podman images yolo's own filter structurally cannot see. It is also **the question
-that gates the rule replacing `--keep-images 2`**, which C2 made live for the first time: C2 shipped
-the *safety* half (dedup by image ID, plus a liveness veto so `prune --apply` cannot force-remove
-another workspace's running image), and `4064f720` then made that veto **fail safe** — an unreadable
-load ledger now declines the sweep instead of vetoing nothing. **So [OQ-DF3](../design/minimal-disk-footprint.md#112-open-questions) is no longer asking
-whether a veto is needed.** What is unruled is the RETENTION RULE and the REACH into a podman store
-shared with your non-yolo work — and the retention half now has a price attached: a coexisting
-content-tagged image measures **2.836 GB unique** unless it is a same-store-path re-stream, which is
-91.36 kB ([`image-staging-vs-baking.md` "Cost model"](../reference/image-staging-vs-baking.md#cost-model)). **[OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)** decides which
-component does the deleting, which is why the 📦 row below is still scoped to the mechanism rather
-than to any number.
+**Answer (assembled from four rulings, none of them made by this row):**
+> - **[OQ-DF1](../design/minimal-disk-footprint.md#111-decision-ledger) — *"stream, keep zero tars"*** (2026-08-25). Built as C3: on podman the load
+>   path writes no tar at all. Apple Container still writes one, deliberately — its converters
+>   interpolate a path.
+> - **[OQ-DF2](../design/minimal-disk-footprint.md#111-decision-ledger) — ANSWERED 2026-09-08 by composition rather than by a choice.** Which
+>   component deletes stopped being a question once the reclaimers were built: the launch path runs
+>   the same veto-protected sweep `yolo prune --apply` runs, debounced.
+> - **[OQ-DF3](../design/minimal-disk-footprint.md#111-decision-ledger) — all three halves ruled and shipped.** SAFETY retired in advance by C2 +
+>   `4064f720` (fail-safe veto); NUMBER ruled 2026-09-06 (`--keep-images` stays 2, now as an undo
+>   margin rather than the safety mechanism); TRIGGER shipped with it (`AutoReapOldImages`); REACH
+>   shipped 2026-09-08 — `mkOciImage` bakes `org.yolo-jail.owner` and the candidate list is a UNION
+>   of the repository-name probe and a `--filter label=` probe, two queries because podman refuses
+>   both in one (MEASURED). An image that lost its tag is still provably yolo's.
+> - ⚠ **The standing warning survives the closure:** do not start at delete-on-success. That was
+>   [OQ-DF2](../design/minimal-disk-footprint.md#111-decision-ledger) option (i) and it is not what shipped.
+>
+> **[OQ-DF3](../design/minimal-disk-footprint.md#111-decision-ledger)'s NUMBER ruling has since been superseded in shape, not in value**, by
+> [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger): the global
+> `keep=2` window is the wrong *mechanism*, and its replacement is the 📦 item below. Read that row
+> before touching `--keep-images`.
 
 ### 💬 17 — Mistyped names return `[PASS]`: mostly closed by the provider arc; the buried channel remains
 
@@ -451,11 +454,16 @@ same config now yields three `[FAIL]`s, and the docs' census flips three rows to
 
 **What is left is exactly two things:**
 
-- **The buried-warning channel ([§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) step 1) — unshipped, needs no ruling, and it is the
-  highest-payoff item in the doc.** `yolo check` still has two diagnostic channels and the summary
-  counts one: bare `Warning:` lines from config resolution and loophole discovery — including the
-  best mismatch diagnostic in the tree, the supersession did-you-mean — are invisible to the one
-  line a user reads (`reporter.go:84-89`, still non-counting). **Queued 📦 below.**
+- **The buried-warning channel ([§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) step 1) — HALF SHIPPED 2026-09-02, and the
+  remaining half is smaller than this row said.** ⚠ **Corrected 2026-09-09** (it claimed the whole
+  step unshipped and "queued 📦 below" while 📦 was empty): the **config-resolution** half landed in
+  `d6d8edc2`. `warningLine` is deleted, every config loader in the package hands findings to one
+  graded sink, and `internal/cli/check/warningchannel_test.go` fails if anyone re-declares the
+  second channel. What is left is the **loophole** half, in two separable pieces: grading
+  `internal/loopholes`' package-level `warnf` needs no ruling, but making `check` *see* the
+  supersession did-you-mean at all is step 4 below — the loopholes section calls `ValidateSet`,
+  which deliberately bypasses `Discover`, so the diagnostic never reaches an emission site there.
+  Grading alone does not fix that.
 - **The supersession relocation ([§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) step 4) and its skew message (step 5)**, gated on **[OQ-RM2](../design/reference-mismatch-diagnostics.md#9-open-questions)**
   (refuse the launch vs. refuse the pack — the widest-blast-radius change left: an unmatched
   `supersedes` currently warns and keeps running, after this it stops the launch) and **[OQ-RM3](../design/reference-mismatch-diagnostics.md#9-open-questions)**
@@ -544,58 +552,203 @@ ruling, and two were not questions at all.
 > span shows Y" is a work queue, and parking it in a question list buried the one entry that did
 > need a person.
 
-### 💬 22 — The load sentinel is used as a liveness oracle, and it killed four jails
+### ✅ 22 — The load sentinel is used as a liveness oracle, and it killed four jails
 
 📄 [`the-load-sentinel-is-not-a-liveness-oracle.md`](../design/the-load-sentinel-is-not-a-liveness-oracle.md) ·
-opened 2026-09-08 by the incident
+opened 2026-09-08 by the incident · **all three ruled 2026-09-08/09**
 
-A ten-entry list of recently-LOADED nix store paths is the protection two reapers consult. Only a
+A ten-entry list of recently-LOADED nix store paths was the protection two reapers consulted. Only a
 LAUNCH appends to it, so a jail that is running but not relaunching ages out of the window while
 still in use — and on 2026-09-08 the automatic image reap `rmi -f`'d the images of four jails that
-had been up 3–4 days, taking the containers with them. The image half is FIXED (`feddc5e0`: ask
-`podman ps`, and never force-remove). What needs you is how far the same correction travels:
-**[OQ-LS1](../design/the-load-sentinel-is-not-a-liveness-oracle.md#11-open-questions)** (does the
-nix GC-root reaper get the same veto, or is losing a root an acceptable rebuild?),
-**[OQ-LS2](../design/the-load-sentinel-is-not-a-liveness-oracle.md#11-open-questions)** (should a
-declined sweep say so, or is silence about not-acting how the 404 GiB accrued?), and
-**[OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#11-open-questions)** 🤷
-(`keep=2` is a pure undo buffer now that safety no longer rests on it — still the number you want?).
+had been up 3–4 days, taking the containers with them. The image half was fixed the same day
+(`feddc5e0`: ask `podman ps`, and never force-remove).
 
-The doc also records a contradiction worth fixing on sight: `imageroots.go` justifies a destructive
-guard with "the image a live container runs is always the most recent sentinel entry", which
-`autoload.go` refutes in the same repository.
+**Answer (2026-09-08, [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) sharpened 2026-09-09):**
+> - ✅ **[OQ-LS1](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) — NO liveness veto for the GC-root reaper; an age cutoff at ONE WEEK**, size cap
+>   only after age. Ruled AGAINST the leaning: liveness is a wrong predictor in both directions.
+>   `PruneOrphanImageRoots` lost its `protected` set and its `liveKnown` gate — **built** `93f21f07`.
+> - ✅ **[OQ-LS2](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) — a decline says so: an ERROR where the user asked, and nothing where they did
+>   not.** `yolo prune` exits non-zero naming the missing evidence; a debounced automatic pass stays
+>   silent. The candidate listing moved BEFORE the guards so "declined" means *prevented work* rather
+>   than *fresh machine* — **built** `3c9e8de9`.
+> - ✅ **[OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) — `keep` is the wrong MECHANISM, not the wrong number, and there is NO undo.**
+>   *"I don't know that I've ever rolled back, only evolved forward."* **Ruled, unbuilt — it is the
+>   📦 item below**, and it is what replaces `--keep-images 2`.
+>
+> The contradiction the doc recorded is gone with LS1: `imageroots.go` no longer justifies a
+> destructive guard with a liveness claim, because it makes no liveness claim.
 
-**Answer:**
-> _(empty — fill in when decided; the three OQs can be ruled separately)_
-
-### 💬 23 — Layer-aware image delivery: 3.4 GB re-shipped to deliver 27 MB
+### ✅ 23 — Layer-aware image delivery: 3.4 GB re-shipped to deliver 27 MB
 
 📄 [`layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) · opened 2026-09-08
-off the first real `--timing` measurements
+off the first real `--timing` measurements · **all six ruled 2026-09-08/09**
 
 `image.stream_load` is **81.0s of a 96.1s image load** on the maintainer's host (`image.nix_build`
 is 14.9s — the build is not the problem). Measured cause: the image is 99 layers / 3.47 GB, the
 customisation layer is 27.2 MB — **0.78%** — and a docker-archive tar is sequential, so podman
-re-ingests every unchanged base layer on every store-path change. Verdict in the doc is
-nix2container + a pinned layer plan + `skopeo copy`; `streamLayeredImage` has no `layers` argument,
-so the cheap "just reorder" alternative does not exist.
+re-ingests every unchanged base layer on every store-path change.
 
-The go/no-go is
-**[OQ-LI1](../design/layer-aware-image-delivery.md#9-open-questions)**: `nix2container` is NOT in the
-pinned nixpkgs and its `nix:` transport is a patched skopeo source build absent from
-`cache.nixos.org` — is a third-party flake input acceptable on the launch path? Four more
-(Apple Container's source, the extras tier, `created` becoming a constant, the rollback window) are
-downstream of that answer. One interaction to know: nix2container rejects `created = "now"`, which
-`flake.nix` passes, and pinning it to a constant collapses the `CreatedAt` sort key row 22's
-reaper uses.
+**Answer (2026-09-08, authorized 2026-09-09):**
+> - ✅ **[OQ-LI1](../design/layer-aware-image-delivery.md#91-decision-ledger) — take the flake input; BUILD the copier when it is needed.** The premise
+>   was wrong: `cache.nixos.org` is nix's built-in default and this flake already ships
+>   `extra-substituters` for its own cachix, so no third-party cache is being added. **The project
+>   cachix may never be load-bearing** — a miss costs time only, and no functional fallback is wired
+>   to one.
+> - ✅ **[OQ-LI2](../design/layer-aware-image-delivery.md#91-decision-ledger) — Apple Container ships in the SAME pass**, against the leaning. Its
+>   measurement becomes a precondition of the default flip rather than a reason to defer.
+> - ✅ **[OQ-LI3](../design/layer-aware-image-delivery.md#91-decision-ledger) — keep the extras tier; three tiers.** C4/C5 store delivery is opt-in and
+>   podman-on-Linux only, so the tier is not transition scaffolding.
+> - ✅ **[OQ-LI4](../design/layer-aware-image-delivery.md#91-decision-ledger) — order prune's keep-window by the sentinel's recency; refuse a per-build
+>   timestamp.** Subsumed by [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger).
+> - ✅ **[OQ-LI5](../design/layer-aware-image-delivery.md#91-decision-ledger) — DISSOLVED: no rollback window, because there is no fallback.**
+>   `streamLayeredImage` and `YOLO_LEGACY_IMAGE_STREAM` are deleted by the change that adds the new
+>   path. *An escape hatch is for a config the USER broke, not for yolo's own mechanism being broken.*
+> - ✅ **[OQ-LI6](../design/layer-aware-image-delivery.md#92-open-questions) — BUILD IT, and take the measurement FIRST.** Ruled 2026-09-09. The
+>   authorization is the 📦 row below; **the first act is a number on your host, not a commit.**
+
+### 💬 24 — Bedrock's native arm: one credential, three clients, seven unruled names
+
+📄 [`bedrock-plumbing.md`](../design/bedrock-plumbing.md) — **[`OQ-BR1`](../design/bedrock-plumbing.md#13-open-questions) · [`OQ-BR2`](../design/bedrock-plumbing.md#13-open-questions) ·
+[`OQ-BR3`](../design/bedrock-plumbing.md#13-open-questions) · [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) · [`OQ-BR5`](../design/bedrock-plumbing.md#13-open-questions) · [`OQ-BR6`](../design/bedrock-plumbing.md#13-open-questions) · [`OQ-BR7`](../design/bedrock-plumbing.md#13-open-questions)** · opened 2026-09-04, **routed here 2026-09-09** by the design-doc audit
+
+**Nothing is built** (verified 2026-09-09: no `bedrock-gpt*` profile in `packs/`, no
+`AWS_BEARER_TOKEN_BEDROCK` in the tree — `packs/claude`'s `bedrock` overlay is the only Bedrock
+thing that ships). The work is not an endpoint: codex, opencode and pi each already ship a native
+`amazon-bedrock` provider on the same credential, so what yolo owes is a region, a key and a model
+id — and the three clients default to *different* endpoint families with different model-id
+spellings, which is why the design ships the family twice (`-p bedrock-gpt`, `-p bedrock-gpt-mantle`).
+
+**What blocks it is naming, not mechanism.** [`OQ-BR1`](../design/bedrock-plumbing.md#13-open-questions) (profile/provider names), [`OQ-BR2`](../design/bedrock-plumbing.md#13-open-questions) (how a derive
+recognises an endpoint-less provider) and [`OQ-BR7`](../design/bedrock-plumbing.md#13-open-questions) (`endpoint_family` as its own field or a fallout)
+shape the schema; [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) is a live D2 leak decision; [`OQ-BR3`](../design/bedrock-plumbing.md#13-open-questions)/[`OQ-BR5`](../design/bedrock-plumbing.md#13-open-questions)/[`OQ-BR6`](../design/bedrock-plumbing.md#13-open-questions) are per-agent. **Ruling
+[`OQ-BR1`](../design/bedrock-plumbing.md#13-open-questions)/[`OQ-BR2`](../design/bedrock-plumbing.md#13-open-questions)/[`OQ-BR7`](../design/bedrock-plumbing.md#13-open-questions) unblocks the build**; the other four can wait for it.
 
 **Answer:**
 > _(empty — fill in when decided)_
 
+### 💬 25 — Who owns the config file, and the `promote` verb three messages already advise
+
+📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) —
+**[`OQ-CO1`](../design/config-ownership-and-promotion.md#12-open-questions) … [`OQ-CO7`](../design/config-ownership-and-promotion.md#12-open-questions)** · written 2026-09-09, **routed here the same day**
+
+yolo infers config-file ownership from the confinement notch rather than asking, and the inference
+is wrong for anyone who adopted `yolo host apply`. **Nothing is built** (verified 2026-09-09: no
+`host_management` key in `internal/config`, and `config promote` is absent from
+`internal/cli/config.go`'s verb list). This row takes over the *promote* half of 💬 7's user-stories
+Q1, which reports the same missing subcommand from the capture side — Q1 asks whether capture
+should become a staging area, this doc designs the drain.
+
+**[`OQ-CO1`](../design/config-ownership-and-promotion.md#12-open-questions)/[`OQ-CO2`](../design/config-ownership-and-promotion.md#12-open-questions) gate the other five**: two ownership values or three, and does the undeclared state
+prompt or warn. [`OQ-CO3`](../design/config-ownership-and-promotion.md#12-open-questions)–[`OQ-CO7`](../design/config-ownership-and-promotion.md#12-open-questions) are promotion mechanics (host-capture reversal, default destination,
+in-jail refusal, precedence loss, archiving).
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 26 — The same model has a different name in every provider, and switching leaves the old one behind
+
+📄 [`provider-switching.md`](../design/provider-switching.md) — **[`OQ-PS1`](../design/provider-switching.md#10-open-questions) · [`OQ-PS2`](../design/provider-switching.md#10-open-questions) ·
+[`OQ-PS3`](../design/provider-switching.md#10-open-questions) · [`OQ-PS4`](../design/provider-switching.md#10-open-questions)** · split out of [`bedrock-plumbing.md`](../design/bedrock-plumbing.md) (💬 24), which raised
+it and correctly refused to solve it · **routed here 2026-09-09**
+
+A model id is provider-local, so every provider switch is a rename and yolo does half of it. **One
+live defect, two conveniences.** The defect is the missing fourth row in the selection state
+machine: `agentcfg/selection.go`'s `!selected` branch keeps the id yolo itself wrote — its comment
+cites the recorded ruling by ID as the reason — so a deselected profile leaves the agent asking a new endpoint for the old provider's
+model.
+
+**[`OQ-PS2`](../design/provider-switching.md#10-open-questions) is the gate** — clearing on deselect *reverses a recorded ruling*, so it needs your word,
+not mine, and it can be ruled alone. [`OQ-PS1`](../design/provider-switching.md#10-open-questions) (do claude's vendor-name reads move to capability
+aliases) and [`OQ-PS3`](../design/provider-switching.md#10-open-questions) (does yolo ship model ids, or only the empty provider shape) are downstream;
+PS3 is additionally blocked on verifying Bedrock's geographic prefix set. Nothing built.
+
+**Answer:**
+> _(empty — fill in when decided; [`OQ-PS2`](../design/provider-switching.md#10-open-questions) alone unblocks the only defect)_
+
+### 💬 27 — Conditional env, and whether `guest` gets its own field census
+
+📄 [`loophole-packaging.md`](../design/loophole-packaging.md) — **[`OQ-LP5`](../design/loophole-packaging.md#open-questions) · [`OQ-LP7`](../design/loophole-packaging.md#open-questions)** · **routed here
+2026-09-09**; these two lived at line 2,443 of a 3,167-line doc and appeared nowhere in `docs/plans/`
+
+Everything else in that design is built. Both are cheap to rule and expensive to discover later.
+
+- **[`OQ-LP5`](../design/loophole-packaging.md#open-questions) — does `jail_env` stay refused for a pack-shipped loophole?** The refusal buys yolo out
+  of a cross-kind collision pass; the shipped `packs/audio` pays for it by setting
+  `PULSE_SERVER`/`PIPEWIRE_REMOTE` on every launch that selects the pack, socket or no socket
+  (verified: `loopholedecl/packshipped.go` refuses it, `packs/audio` declares them through the `env`
+  kind). *Leaning: keep the refusal, revisit at the first pack that cannot absorb it.*
+- **[`OQ-LP7`](../design/loophole-packaging.md#open-questions) — does `guest` get its own field census, or keep borrowing `HostFields()`?**
+  `Target.Fields()` funnels both into one set (`internal/render/fieldset.go`). It blocks nothing
+  shipped; it decides the shape of the first macos-user loophole. *Leaning: split when env-manager
+  Phase 7 lands and not before.* **Interaction: this is the same `guest` notch as 💬 7's Phase 7
+  work — rule them in one sitting.**
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 28 — Mirroring the host's paths into the jail: the narrow no, and the maximal no
+
+📄 [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) — **[`OQ-WP1`](../design/workspace-path-mirroring.md#open-questions) … [`OQ-WP12`](../design/workspace-path-mirroring.md#open-questions)** ·
+written 2026-09-04, **routed here 2026-09-09**; it had zero inbound links from any doc
+
+The recommendation is **no** for both the narrow question (mount the workspace at the host path) and
+the maximal one (mirror user, home, workspace and toolchain store), and the doc exists to make that
+*no* checkable: three confirmed absolute-path problems, seven candidates disproved, and a central
+objection — you can mirror a name but not its content, so a cross-boundary reference resolves to an
+ABI-incompatible artifact instead of failing loudly. **Nothing is built and nothing should be, but
+twelve questions are live with no home**, two of which stand whether or not mirroring ever happens:
+
+- **[`OQ-WP2`](../design/workspace-path-mirroring.md#open-questions)** — add `-trimpath` to `scripts/build-go.sh`. Verified missing today; `flake.nix` already
+  does it; 394 dead `/workspace` source paths in the shipped binary. **One line.**
+- **[`OQ-WP4`](../design/workspace-path-mirroring.md#open-questions)** — workspace-scope `mounts` are inert only by an undocumented fail-safe. That is a
+  [`trust-paths.md`](../design/trust-paths.md) scope-model question (💬 2's family), not a mirroring one.
+- **[`OQ-WP12`](../design/workspace-path-mirroring.md#open-questions)** is a maintainer tier call about macos-user's single shared home.
+
+**Answer:**
+> _(empty — fill in when decided; [`OQ-WP2`](../design/workspace-path-mirroring.md#open-questions) and [`OQ-WP4`](../design/workspace-path-mirroring.md#open-questions) can be ruled without touching the mirroring verdict)_
+
 # 📦 Up next
 
-**Empty.** The one item that was here shipped the same day it was filed. C4 and C5 are
-deliberately NOT here — their go/no-go is an explicit 🧊 row.
+**Three rows, all filed 2026-09-09 out of the disk/image sprint's rulings.** Ordered — LI6's
+measurement is the first act of the whole sequence, and LS3 is a prerequisite of the layer work's
+step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
+
+- 📦 **1. Layer-aware image delivery — nix2container + a pinned layer plan + `skopeo copy`.** 📄
+  [`layer-aware-image-delivery.md` §8](../design/layer-aware-image-delivery.md#8-what-i-would-build-in-order) ·
+  authorized by [OQ-LI6](../design/layer-aware-image-delivery.md#92-open-questions) (2026-09-09), every design question
+  ruled (✅ 23 above). **81.0s of a 96.1s load, for a 27.2 MB payload in a 3.47 GB image.**
+  ⚠ **The first act is a measurement on YOUR host, not a commit:**
+  `nix build --no-link 'github:nlewo/nix2container#skopeo-nix2container'` — 2m27s cold in this jail,
+  against your own stated tripwire of ten minutes. If it comes back near ten, the mechanism needs
+  reconsidering before the code does. ⚠ **There is no fallback by ruling**
+  ([OQ-LI5](../design/layer-aware-image-delivery.md#91-decision-ledger)): `streamLayeredImage` and
+  `YOLO_LEGACY_IMAGE_STREAM` are deleted in the same change, so *a measured `nix:`-source copy that
+  loads AND BOOTS on podman/Linux and on Apple Container is the safety property*, not a nice-to-have.
+
+- 📦 **2. Image retention by per-workspace current pointer — replacing the global `--keep-images 2`.**
+  📄 [`the-load-sentinel-is-not-a-liveness-oracle.md` §6.2](../design/the-load-sentinel-is-not-a-liveness-oracle.md#62-retention-after-the-two-rulings) ·
+  [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), ruled 2026-09-08 and
+  sharpened 2026-09-09. `OldImagesToRemove` sorts every row by `Created` and keeps the newest N with
+  no notion of a workspace or a config, so on four workspaces two images are evicted per pass however
+  recently each was used. **The unit becomes the CONFIGURATION, and there is no undo buffer** —
+  *"I don't know that I've ever rolled back, only evolved forward."* ⚠ **The blocker this row carried
+  for a day is gone:** a superseded-copy count of zero means one pointer per workspace in
+  `<workspace>/.yolo/`, union'd with the `podman ps` veto — **no config-identity grouping key is
+  needed**, and any doc still saying LS3 waits on one is stale. `keep` is podman IMAGES only; nix
+  roots are [OQ-LS1](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s
+  one-week age policy, already built.
+
+- 📦 **3. Alias a host CAS instead of pooling a second copy of it.** 📄
+  [`disk-levers-and-backfill.md` §3](../design/disk-levers-and-backfill.md#3-the-levers-ranked) ·
+  [OQ-BF10](../design/disk-levers-and-backfill.md#111-decision-ledger), ruled 2026-09-08 (L9); nine of
+  that doc's ten rulings shipped 2026-09-08/09 and this is the deferred slice. **Content-addressed
+  stores only, and the reason is injection, not size**: a path-keyed store like pants'
+  `named_caches` lets a jail write content the host tool later reads because of *where it sits*; a
+  CAS rejects a blob whose digest does not match. Gated on matching host OS+arch, writable, **never
+  on macOS**. Up to ~27 GB of pants' `lmdb_store` stops existing twice. Precedent for the trust step
+  is the `:ro` nix-store bind (`hostNixStore`, `internal/cli/run/hostprobes.go`); this one is
+  writable, which is the whole widening. **Sequencing step 7 rides with it:** re-measure against [§2](../design/disk-levers-and-backfill.md#2-measured-2026-09-06)'s
+  baseline, in-jail and on the host.
 
 **The slug-escaping mount bug is FIXED (2026-09-05)** and has left this section. A `reads-host`
 grant with no `into` is keyed on the pack's STAGED DIRECTORY on both sides now — one new accessor,
@@ -689,6 +842,17 @@ them, and one merge decided 💬 20 in code — see that row.
   `yolo-entrypoint` baked into the image this jail is running
   (`/opt/yolo-jail/bin/yolo-entrypoint`), so the loaded image already carries the fatal. The row
   described a gap that closed at some `just load` between 2026-08-18 and now.
+
+- 🔒 **[OQ-DF4](../design/minimal-disk-footprint.md#112-open-questions) — does yolo owe the machine a stated NUMBER, or only a policy?** 📄
+  [`minimal-disk-footprint.md` §11.2](../design/minimal-disk-footprint.md#112-open-questions). **Filed here 2026-09-09 when ✅ 16
+  closed** — it is the last of that doc's four and it is BLOCKED rather than undecided. *Leaning:
+  policy, not a number* — if the write path bounds itself, the budget is a property of the design
+  rather than a dial, and "minimal" is not a number a user should have to discover. **Held loosely,
+  and the instrument now exists:** `yolo stores` is the machine-wide inventory, so the measurement
+  that flips this is takeable. What it is waiting on is a post-reclaimer re-measurement showing
+  whether any residual is caught only by a ceiling. ⚠ **A byte-budget config key is downstream of
+  this, not a way to start it** — building the dial before the policy it parameterises is the wrong
+  order.
 
 - 🔒 **Program delivery [§10](../design/program-delivery.md#10-what-i-would-build-in-order) — the two steps that are blocked, not merely unscheduled.** 📄
   [`program-delivery.md` §10](../design/program-delivery.md#10-what-i-would-build-in-order). The unblocked step is in 📦. ⚠ **Order reversed 2026-09-04 ([OQ-CP1](../design/agent-cli-copies.md#-oq-cp1--is-the-disk-justification-retracted-and-is-oq-pd15-reversed--resolved-2026-09-04)): evergreen ships BEFORE capture, carrying A7's V-axis prune; the disk justification that put capture first is retracted.**

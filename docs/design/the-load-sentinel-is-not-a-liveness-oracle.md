@@ -267,7 +267,8 @@ like `--keep-images` is nothing — there is no depth for it to bound.
 > [§4](./layer-aware-image-delivery.md#4-what-it-costs).
 
 Until the pointers exist, the global `keep=2` stays as a crude proxy: it approximates "two configs'
-current images" and is wrong in both directions on a machine with four workspaces.
+current images" and is wrong in both directions on a machine with four workspaces. **It is replaced
+by them, not tuned:** the pointer set is the retention rule, and `--keep-images` goes away with it.
 
 ## 7. What this does NOT propose
 
@@ -275,8 +276,10 @@ current images" and is wrong in both directions on a machine with four workspace
   the load diagnosis.
 - **Not changing the ten-entry cap, the 24-hour debounce, or `keep=2`.** Those are
   disk-retention dials; once liveness is separate, they stop being safety mechanisms and can be
-  tuned on their merits — or left alone ([OQ-LS3](#111-decision-ledger) leaves `keep` at 2 until the layer
-  plan makes an extra image cheap).
+  tuned on their merits — or left alone. ⚠ **`keep` is the exception, and the ruling moved after
+  this list was written:** [OQ-LS3](#111-decision-ledger) replaces it with the per-workspace pointer
+  set of [§6.2](#62-retention-after-the-two-rulings) rather than tuning it, and that work waits on
+  nothing (see the roadmap's 📦 section).
   **The age floor DOES change**, and that is [OQ-LS1](#111-decision-ledger)'s ruling rather than an exception
   to this list: for Consumer A the floor stops being a race guard and becomes the whole policy,
   at a week instead of an hour.
@@ -318,10 +321,10 @@ the work** ([OQ-LS2](#111-decision-ledger)) — not the dim line this doc first 
 is simply nothing to reclaim.
 
 Only then, if disk is still a problem, revisit the retention dials — with the safety question
-answered somewhere else, they become ordinary tuning, and [OQ-LS3](#111-decision-ledger) says why `keep`
-should wait for the layer plan rather than move now.
+answered somewhere else, they become ordinary tuning — except `keep`, which
+[OQ-LS3](#111-decision-ledger) replaces outright with [§6.2](#62-retention-after-the-two-rulings)'s
+pointer set, and which the layer plan's own step 1 now waits on rather than the reverse.
 
-## 11. Open Questions
 ## 11. Decisions
 
 All three are ruled; two are built. LS3's mechanism is [§6.2](#62-retention-after-the-two-rulings).
