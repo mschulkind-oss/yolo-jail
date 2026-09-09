@@ -10,9 +10,19 @@ vantage:
 
 # The image ships 3.47 GB to move 27 MB — layer-aware delivery
 
-**Status:** ✅ **SHIPPED 2026-09-09**, in one commit, on podman/Linux. Every design question is
-ruled and compacted into [§9.1](#91-decision-ledger); the gate
+**Status:** ✅ **SHIPPED 2026-09-09**, in one commit, on podman/Linux, plus one same-day fix. Every
+design question is ruled and compacted into [§9.1](#91-decision-ledger); the gate
 ([OQ-LI6](#92-open-questions)) cleared, and the build is done.
+
+> [!CAUTION]
+> **The first shipped form worked only on a ROOTFUL podman, which is not how most hosts run it.**
+> Every container job in CI failed the same day — `Error during unshare(...): Operation not
+> permitted` — because a rootless `containers-storage` write needs a user namespace the copier
+> cannot create for itself on a kernel that restricts unprivileged ones. Fixed by running the
+> **same copy** as `podman unshare -- <copier> copy …` on a positively rootless podman:
+> [the namespace the copy writes from](#34b-the-namespace-the-copy-writes-from),
+> [OQ-LI7](#91-decision-ledger), and [§7](#7-risks) R7 — the design's own risk, firing with the
+> mitigation it had already written down.
 
 > [!IMPORTANT]
 > **What shipped, measured.** `.#ociImage` is a nix2container `image.json` over a three-tier layer
@@ -399,7 +409,8 @@ disturbs them. It does not:
 
 | Backend | Delivery | Why |
 | :--- | :--- | :--- |
-| **podman, Linux** | layer-aware copy | The nix store and `containers-storage` are both local and both reachable by one process. |
+| **podman, Linux, rootful** | layer-aware copy | The nix store and `containers-storage` are both local and both reachable by one process. |
+| **podman, Linux, rootless** | layer-aware copy, run as `podman unshare -- <copier> copy nix:… containers-storage:<ref>` | Same destination, same negotiation, same bytes — but a rootless store has to reproduce each layer's file ownership under the user's `/etc/subuid` mapping, and establishing that mapping is privileged. The copier cannot do it for itself on a kernel that restricts unprivileged user namespaces; podman can, and hands the finished namespace to any child. See [the namespace the copy writes from](#34b-the-namespace-the-copy-writes-from). |
 | **podman, macOS** | `skopeo copy nix:… docker-archive:<tmp>:<ref>`, then `podman load -i`, then the archive is removed | The storage lives inside the Podman Machine VM, which shares the user's home and `/private` and **not** `/nix` — the same fact C8 measured on 2026-09-07 and now guards with `prefixUnreachableFromVM` (`internal/cli/run/jailprefix.go`). A local `skopeo copy … containers-storage:…` would write a store the VM never reads, so `podman load -i` (which streams the archive over podman's own connection INTO the VM) is the only correct destination. **This row said "unchanged (stream into `podman load`)" until the build**, which named a mechanism [OQ-LI5](#91-decision-ledger) had deleted — see [the row that was wrong](#34a-the-row-that-was-wrong). |
 | **Apple Container** | `skopeo copy nix:… oci-archive:<tmp>:<ref>`, then `container image load -i`, then the archive is removed | It has no `containers-storage` at all, and converted through `skopeo copy docker-archive:… oci:…` plus a `tar cf` — *two* full-size files, and a skopeo or a podman on `PATH` to convert between them. The `nix:` source deletes both writes and the `PATH` lookup. ⚠ **Unverified on hardware** ([OQ-LI2](#91-decision-ledger)). |
 | **macos-user** | not applicable | No container, no image. |
@@ -430,6 +441,75 @@ tar again.
 and the same one [`happy-path-principle.md`](../reference/happy-path-principle.md) warns about. The
 mitigation is the same too: the unit is the **launch**, exactly one mechanism is live in any
 launch, and the launch says which one it took on stdout.
+
+### 3.4b The namespace the copy writes from
+
+**Every container job in CI went red three hours after [OQ-LI5](#91-decision-ledger) was ruled, and
+the row above is where the gap was.** "podman, Linux → layer-aware copy" was true about the
+destination and silent about the *namespace*, and on the commonest podman configuration there is
+nothing to be silent about: the copy cannot run.
+
+The symptom, identical on both arches, 2 integration jobs and 14 pack-install jobs:
+
+```text
+Error: the image copy failed; NO image was written to the destination (exit 1).
+    | Error during unshare(...): Operation not permitted
+```
+
+**The cause, established by a single-variable flip on a purpose-built Ubuntu 24.04 VM** (kernel
+6.8.0-138, rootless podman, subuid ranges delegated) rather than argued:
+
+| Step | Fact |
+| :--- | :--- |
+| 1 | A rootless `containers-storage` reproduces each layer's file **ownership**, not just its content: uid 0 inside an image becomes the user's mapped subuid (100000 and up, from `/etc/subuid`) on disk. Creating a file owned by 100000 means being inside a user namespace that holds that id. |
+| 2 | So containers/storage creates an unprivileged user namespace for itself. `Error during unshare(...)` and the `%s-in-a-user-namespace` argv are both `MaybeReexecUsingUserNamespace`'s strings, verified present in the copier binary (skopeo 1.24.0). |
+| 3 | **AppArmor 4 mediates unprivileged user-namespace creation**, and Ubuntu 24.04 ships that mediation on. This is the denied syscall: with `kernel.apparmor_restrict_unprivileged_userns=1` the copy fails as above; with the same binary, same command and the knob at `0` it prints `Writing manifest to image destination` and the ref is really in the store. skopeo is not talking to AppArmor — it needs a capability AppArmor now gates. |
+| 4 | **podman is not subject to it in practice**, because it establishes the mapping through the setuid helpers (`/usr/bin/newuidmap` is `-rwsr-xr-x root`) rather than by unsharing on its own account. |
+
+> [!WARNING]
+> **It is NOT "an unprofiled binary is denied while `/usr/bin/podman` is allowlisted".** That was
+> the first theory, and it is disproved in the same VM: `/usr/bin/unshare`, which ships an AppArmor
+> profile of its own, failed identically, and a copy of that binary at an unprofiled path failed
+> identically again. The executable's path made no difference to any outcome. The restriction is
+> blanket; do not write the allowlist story down.
+
+**The fix borrows podman's machinery and changes no destination.** `podman unshare` exists to run a
+non-podman tool inside the rootless namespace podman itself uses: it does the privileged setup, then
+execs the child inside the finished namespace with `_CONTAINERS_USERNS_CONFIGURED=done` — the marker
+containers/storage reads to know it must not unshare again, and which keeps the store it resolves
+the *rootless* one despite the euid of 0 inside. Measured on the same VM: `podman unshare` plus the
+**same** unconfined copier binary copies successfully and `podman images` really holds the ref.
+
+**This is not the fallback [OQ-LI5](#91-decision-ledger) deleted, and the distinction is the one
+[the row that was wrong](#34a-the-row-that-was-wrong) already draws for macOS.** There is still exactly one
+delivery mechanism per launch and one destination on Linux, with every byte of the layer
+negotiation it buys — a `flake.nix`-only edit stays 1 layer and 26 MB on a rootless host, which an
+archive would have cost. No failure selects between the two forms: the mode podman *is* in selects,
+from `podman info` read before the copy starts, and the launch prints which it took
+(`Store write: …`). A fallback would be "copy, and if it fails write an archive instead"; this is
+why that is not needed.
+
+**Why the wrapper cannot be unconditional, and what an unknown answer does.** `podman unshare`
+refuses on a rootful podman — *"please use unshare with rootless"*, measured — and the refusal is
+right, because a root store needs no mapping. So the branch is on rootlessness, and the third state
+matters: when `podman info` cannot be read, **nothing is added to the argv**. Neither branch is
+universally safe (the wrapper is refused by a rootful podman, the bare copy by a restricted rootless
+one), so the tie is broken by evidence — emitting nothing is today's behaviour and cannot newly
+break a host that works, and on every host where the copy *is* refused `podman info` demonstrably
+answers, which is how the failing CI jobs printed `rootless: True` in the step before the one that
+died. A launch that cannot read `podman info` is about to fail at `podman run` anyway.
+
+**Shipping our own AppArmor profile would also work and is refused.** A profile lives in
+`/etc/apparmor.d/`, needs root plus an `apparmor_parser` reload, is per-distro, and would have a
+launch mutate the host's security configuration to win a privilege the podman it already invokes
+has. `podman unshare` reaches the same result at the distro's secure default, touching nothing.
+
+**Two consequences worth knowing.** An archive destination is never wrapped — an archive is an
+ordinary file, whose recorded ownership is data rather than something the filesystem must represent
+— so macOS and Apple Container are untouched by all of this. And a nested jail is **structurally
+blind** to the wrapped path: podman-in-podman runs as root, so a nested launch takes the rootful
+branch by construction and can prove only that the direct copy still works. The rootless branch is
+settled by the VM measurement above and by CI, which is rootless on both arches.
 
 ### 3.5 One mechanism, no way back
 
@@ -474,7 +554,8 @@ Every step that can fail, what happens, and who finds out. The user-facing rule 
 | The copier cannot be built (nix build of the copier attr fails) | Same as any failed image build: fatal, nix's own stderr printed with the classification (`internal/image/autoload.go:355-366`). `YOLO_ALLOW_STALE_IMAGE=1` still lets an already-loaded image run. |
 | An unpatched `skopeo` on `PATH` | Cannot arise — the copier is a store path ([§3.2](#32-the-copy)). If the resolved binary rejects the `nix:` transport, that is a build/packaging bug and the copy fails as itself. |
 | Copy interrupted (SIGINT, crash, disk full mid-blob) | No image record is committed, so the ref stays absent and the next launch re-copies. Layers already written are reused by that retry. **Nothing is left half-named.** |
-| Copy fails and exits nonzero | Retried **exactly once**, immediately, no backoff — the same bound and the same reasoning as `loadAppleContainerFromCache`'s two passes (`internal/image/autoload.go:648-700`): one recovery from a transient loss, never a loop that re-copies gigabytes forever. A second failure abandons the launch with skopeo's stderr and **no remedy to name**, which is the honest consequence of [§3.5](#35-one-mechanism-no-way-back): a copy that cannot complete leaves no image under the content ref, so there is nothing to start from. Priced as R8. |
+| Copy fails and exits nonzero | Retried **at most once**, immediately, no backoff — the same bound and the same reasoning as the Apple Container cache recovery's two passes: one recovery from a transient loss, never a loop that re-copies gigabytes forever. A second failure abandons the launch with skopeo's stderr. Priced as R8. |
+| Copy fails for a cause MEASURED to be permanent | **Not retried at all**, and the report says why plus what to look at (2026-09-09). Two causes are named: the copier being unable to create its user namespace ([the namespace the copy writes from](#34b-the-namespace-the-copy-writes-from), step 2), and `podman unshare` refusing because podman is not rootless. Neither can be granted by an immediate second attempt, and the unconditional retry made both **wrong twice over** — it paid the whole failure path twice (16 CI jobs did, in one push) and buried the one fact worth reading under a duplicate report. It is a **denylist**: retrying stays the default, so a failure nobody has measured keeps the behaviour above. An allowlist of transient causes would silently drop the retry for every failure not yet seen, which is the direction that turns a recoverable launch into a dead one. |
 | A blob's bytes do not match its digest | skopeo verifies on read and c/storage verifies the diffID; a mismatch is a hard error, **not** retried — a second read of the same store path produces the same bytes. Abandon and report; the honest diagnosis is a corrupt nix store, and the remedy names `nix store verify`. |
 | `containers-storage` locked by a concurrent launch | The copy blocks on c/storage's own lock and proceeds. **No timeout of ours** — c/storage's locks are held per operation, and a timeout would convert a slow neighbour into a failed launch. |
 | Storage full | skopeo fails, the retry fails, the launch is abandoned naming the disk. No partial image is ever runnable. |
@@ -682,11 +763,11 @@ developing this repo, is the common case — on every backend that cannot opt in
 | **R1. A third-party flake input on the critical path of every launch.** nix2container is one maintainer's project; an abandoned input strands the image pipeline. | The input is pinned in `flake.lock` and nothing auto-updates it, so abandonment upstream changes nothing until someone bumps it — the failure is not "it disappears", it is "it stops evaluating against a newer nixpkgs". **The escape is no longer a retained legacy attribute** ([OQ-LI5](#91-decision-ledger) deleted it): it is that the dependency is small and forkable — a `fetchpatch2` over nixpkgs' skopeo plus a nix library — and that [§6](#6-alternatives-considered)'s option C (an OCI layout in the store) remains a known, costed way to keep layer-aware delivery with a stock skopeo. Both are work; neither is a rewrite of this design. |
 | **R2. The patched skopeo is a source build not in `cache.nixos.org`.** A `flake.lock` bump now also rebuilds skopeo, on a machine that may be offline or slow. | Measure it once and decide the substituter question ([OQ-LI1](#91-decision-ledger)). The failure mode is a slow build, and C1 already makes a failed build fatal-and-explained rather than silent. |
 | **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](../reference/happy-path-principle.md) warns about. | **Retired 2026-09-08 — the risk is removed rather than accepted** ([OQ-LI5](#91-decision-ledger)): `streamLayeredImage` is deleted in the same change and there is no legacy knob, so there is never more than one delivery mechanism to keep true. The residual risk moves to R8. |
-| **R8. No way back if a delivery bug ships**, the cost of retiring R3. A machine that cannot copy cannot start a jail until a fix ships. | Bounded by evidence rather than by a fallback: the default does not flip until a `nix:`-source copy has been measured loading and booting on every backend that gets it ([§3.5](#35-one-mechanism-no-way-back), [OQ-LI2](#91-decision-ledger)). `YOLO_ALLOW_STALE_IMAGE=1` still launches an already-loaded image, which is the hatch for "get back in", and a failed build is already fatal with nix's own stderr. |
+| **R8. No way back if a delivery bug ships**, the cost of retiring R3. A machine that cannot copy cannot start a jail until a fix ships. | Bounded by evidence rather than by a fallback: the default does not flip until a `nix:`-source copy has been measured loading and booting on every backend that gets it ([§3.5](#35-one-mechanism-no-way-back), [OQ-LI2](#91-decision-ledger)). `YOLO_ALLOW_STALE_IMAGE=1` still launches an already-loaded image, which is the hatch for "get back in", and a failed build is already fatal with nix's own stderr. **PRICED CORRECTLY, ONCE: R7 fired on the day this shipped and this is what it cost** — every rootless host, including all of CI, could not deliver an image until [OQ-LI7](#91-decision-ledger) landed, and the only thing standing between them and a dead jail was `YOLO_ALLOW_STALE_IMAGE=1` on a host that already had an image. What the incident says about the bound: the missing measurement was not a *backend* (podman/Linux was measured, in this jail) but a **mode** of one — rootful, where every measurement here is taken. A backend list is not the axis; a configuration list is. |
 | **R4. The layer plan is a new thing to keep true.** A package added to `flake.nix` in the wrong tier silently costs a full copy per build, and nothing fails. | The done-condition ([§3.10](#310-what-done-looks-like)) is a measurement, so make it a test: assert that a `flake.nix`-only change copies under a byte budget. A budget test fails loudly when a tier assignment drifts; a comment does not. |
 | **R5. Only two machines are measured**, both of them mine, one of them nested. Absolute numbers are illustrative; the ratios are not. | Same standing caveat as the one [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#cost-model) states over its cost model. The two hosts agree on the ratio (84% and 86%) and disagree on the absolutes by 1.8×, which is exactly what that caveat predicts. |
 | **R6. Apple Container is unverified on hardware**, and a delivery change that assumes its converters behave is a guess. | [OQ-LI2](#91-decision-ledger) keeps it explicitly undecided rather than silently included. Leaving it on the current path costs nothing it is not already paying. |
-| **R7. Rootless `containers-storage` writes can trip on ID mapping** when a copy runs outside the user namespace podman uses. | Our layers are entirely root-owned (`fakeRootCommands` writes `root:x:0:0`, `flake.nix:1120-1122`), which is the case that works. If a real host disagrees, the copy runs under `podman unshare` — a change to how the copier is invoked, not to the design. Verify on the first real host, not in a nested jail. |
+| **R7. Rootless `containers-storage` writes can trip on ID mapping** when a copy runs outside the user namespace podman uses. | **FIRED, on the day this shipped, and the mitigation as written is what shipped in response** ([OQ-LI7](#91-decision-ledger), [the namespace the copy writes from](#34b-the-namespace-the-copy-writes-from)). Two halves of the original entry deserve opposite verdicts. The mitigation was right and cost exactly what it predicted: *"the copy runs under `podman unshare` — a change to how the copier is invoked, not to the design"*, plus *"verify on the first real host, not in a nested jail"* — a nested jail is rootful and gave the change a free green. The **reassurance was wrong**: root-owned layers are not "the case that works", they are precisely the case that needs the subuid mapping a rootless store cannot produce without a namespace, which is why this failed on every rootless host rather than on an unusual one. Retired as a risk; it is behaviour now. |
 
 ---
 
@@ -730,14 +811,17 @@ so R3 is never a live cost and this doc never has to say it is.
 
 ## 9. Decisions
 
-All five questions this doc opened are ruled and compacted below. **Nothing here is waiting on
-another ruling — it is waiting on an AUTHORIZATION and two measurements**, which is
-[OQ-LI6](#OQ-LI6) in [§9.2](#92-open-questions), the only live item left.
+Every question this doc opened is ruled and compacted below, and it has shipped: the
+authorization ([OQ-LI6](#OQ-LI6)) was granted and taken on 2026-09-09. **The one ruling not opened
+by this doc is [OQ-LI7](#91-decision-ledger)**, opened by the shipped change going red on every
+rootless host the same day — the design's own R7, arriving with the mitigation it had already
+written down.
 
 The arguments live in the sections they govern: [§3.1](#31-the-layer-plan) for the layer plan and
-its two verified collision rules, [§3.5](#35-one-mechanism-no-way-back) for the deleted fallback,
-[§6](#6-alternatives-considered) for the rejected mechanisms, [§7](#7-risks) for R8 — the risk that
-exists BECAUSE the fallback is gone.
+its two verified collision rules, [the namespace the copy writes from](#34b-the-namespace-the-copy-writes-from) for the namespace
+a rootless store is written from, [§3.5](#35-one-mechanism-no-way-back) for the deleted fallback,
+[§6](#6-alternatives-considered) for the rejected mechanisms, [§7](#7-risks) for R7 and R8 — the risk
+that fired and the risk that exists BECAUSE the fallback is gone.
 
 ### 9.1 Decision Ledger
 
@@ -747,6 +831,7 @@ exists BECAUSE the fallback is gone.
 | OQ-LI2 | **Apple Container ships in the SAME pass**, ruled against the leaning. The objection was never that the backend is risky but that nobody could measure it — a fact about the project, not the backend — and the maintainer has the hardware. So its measurement becomes a PRECONDITION of the default flip rather than a reason to defer, and the bytes justify the ordering: that backend writes two full-size files per load today | 2026-09-08 | [§3.4](#34-which-backends-get-it), [OQ-LI6](#OQ-LI6) |
 | OQ-LI3 | **Keep the extras tier — three tiers.** It is not scaffolding for a transition: C4/C5 store delivery is opt-in AND podman-on-Linux only, so every macOS launch, every Apple Container launch and every un-opted Linux launch still bakes `packages:`. The two mechanisms do not overlap — an opt-in launch simply has an empty extras tier — and the tier costs one layer slot of a hundred | 2026-09-08 | [§3.1](#31-the-layer-plan) |
 | OQ-LI4 | **Order prune's keep-window by the load sentinel's recency; refuse a per-build timestamp.** A per-build timestamp would give up content addressing (C2) to feed a sort, and the third option — keep `CreatedAt` with an arbitrary tie-break — is refused because "unpredictable" is worse than "wrong" for a destructive pass. The sibling doc makes recency the sentinel's PROPER use: it loses its authority over liveness and keeps its most-recently-used role. **Two constraints inherited:** retention may read the sentinel and liveness may not, and an image absent from the ten-entry ledger has NO opinion rather than being least-recent | 2026-09-08 | [§3.3](#33-what-does-not-change), and [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md) [§11.1](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) |
+| OQ-LI7 | **A rootless podman gets the SAME copy, run inside `podman unshare`; the branch is on rootlessness and an unproven answer adds nothing.** Ruled against two alternatives the day layer-aware delivery shipped and took every container job red. **(a) Select the existing archive path when a direct store write is impossible** — the first plan, and it is legitimate under [OQ-LI5](#91-decision-ledger) (a capability decision made before anything runs is what macOS already does, not a fallback), but it pays the whole point of the change: a rootless host is the *common* configuration, so "correct but back to shipping 3.4 GB" would have been the shipped behaviour for most users, plus a full-size temp file they did not pay before. **(b) Ship an AppArmor profile for the copier** — would work, and is refused for what it is: a launch mutating the host's security configuration, per-distro, needing root, to win a privilege the podman it already invokes has. The ruling keeps one destination, one mechanism and the whole 2.2 s / 1-layer delta on every Linux host. Three constraints inherited: the wrapper is emitted ONLY on a positively rootless podman (it is refused outright by a rootful one); an archive destination is never wrapped; and a nested jail cannot verify any of it, being rootful by construction | 2026-09-09 | [§3.4](#34-which-backends-get-it), [the namespace the copy writes from](#34b-the-namespace-the-copy-writes-from), [§7](#7-risks) R7/R8 |
 | OQ-LI5 | **DISSOLVED — there is no rollback window, because there is no fallback.** `streamLayeredImage`, `YOLO_LEGACY_IMAGE_STREAM` and the second mechanism are deleted in the change that adds the new path. The maintainer's criterion settles it: an escape hatch is for a config the USER broke, not for yolo's own mechanism being broken — and the earlier defence ("one variable versus waiting for a release") proves too much, since it would justify keeping every mechanism yolo ever shipped. A second path no launch exercises is broken by the time anyone reaches for it. Risk R3 stops being an accepted cost; R8 is what replaces it | 2026-09-08 | [§3.5](#35-one-mechanism-no-way-back), [§7](#7-risks) R8, [§8](#8-what-i-would-build-in-order) |
 
 > [!WARNING]
