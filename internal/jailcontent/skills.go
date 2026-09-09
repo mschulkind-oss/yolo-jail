@@ -101,6 +101,14 @@ var packSkillTargets []SkillTarget
 // PrepareSkills call.
 func SetPackSkillTargets(targets []SkillTarget) { packSkillTargets = targets }
 
+// PackSkillTargets returns what SetPackSkillTargets last set.
+//
+// Exported for the reason PackSkillDirs is, plus one the run pipeline discovered the hard
+// way: one process can run more than one launch (auto-capture runs the ordinary pipeline
+// for its throwaway capture jail), so a launch has to put back whatever its caller had —
+// and it cannot put back a record it has no way to read.
+func PackSkillTargets() []SkillTarget { return packSkillTargets }
+
 // SkillStagingName is the staging subdir for one pack's skills.
 func SkillStagingName(pack string) string { return "skills-" + pack }
 

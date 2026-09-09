@@ -450,9 +450,45 @@ var (
 // It SUPERSEDES the lazy resolver for the rest of the process: staging is the authoritative
 // view (it is what the jail will actually mount), and a launch must not end up validating
 // against one set and mounting another.
+//
+// "FOR THE REST OF THE PROCESS" IS TOO LONG when the process runs more than one launch —
+// see SnapshotPackModules for the one caller that has to bound it, and what it cost before
+// it did.
 func SetPackModules(mods []PackModule) {
 	packModules = append([]PackModule(nil), mods...)
 	packModulesSet = true
+}
+
+// SnapshotPackModules captures the staged record exactly as it stands and returns the
+// function that puts it back.
+//
+// IT EXISTS BECAUSE ONE PROCESS CAN RUN MORE THAN ONE LAUNCH. Auto-capture runs the
+// ORDINARY run pipeline for a throwaway capture jail, in-process and deliberately (a
+// capture jail must be the same jail a launch produces, or the bytes it records are not
+// the bytes a launch would have installed) — so the sub-launch's staging overwrites this
+// record with ITS OWN staging root while the parent launch is still going, and the
+// capture's cleanup then deletes that root. Measured on a real host 2026-09-09: after
+// three capture sub-launches, the launch the user asked for resolved every pack loophole
+// against `agents/yolo-agy-<hash>/packs/…` — a jail nobody launched — and said so twenty
+// times, four missing module dirs once per discovery pass (see warnf, which is why it is
+// twenty lines and not four).
+//
+// A SNAPSHOT rather than a per-launch key on the record, because the record is read
+// through a package-level accessor by seven surfaces that know nothing about launches
+// (§5.1's convergence is the whole point of it being process-wide). Whoever sets it for
+// the duration of a launch is the only thing that can know when that duration ends.
+//
+// THE SET FLAG TRAVELS WITH THE VALUE, and that is the part a bare `SetPackModules(prev)`
+// would get wrong: "nothing recorded yet" is not an empty record. PackModules()
+// short-circuits on the flag, so restoring an unrecorded state as an empty recorded one
+// would permanently disable the lazy resolver — every later `yolo loopholes list` in the
+// process would report no pack loopholes at all.
+//
+// The resolver's MEMO is deliberately untouched: it answers "what does this machine's pack
+// store hold", which is a fact about the machine and not about one launch.
+func SnapshotPackModules() func() {
+	prev, prevSet := append([]PackModule(nil), packModules...), packModulesSet
+	return func() { packModules, packModulesSet = prev, prevSet }
 }
 
 // SetPackModuleResolver installs the lazy fallback. Registered once per process by the

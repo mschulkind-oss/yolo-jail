@@ -109,6 +109,15 @@ func SetPackSupersessions(claims []PackSupersession) {
 	packSupersessionsSet = true
 }
 
+// SnapshotPackSupersessions is SnapshotPackModules for the claims — same bound, same
+// reason, same reason for the flag riding along. It is a SECOND function rather than a
+// field of one snapshot because the two records are separate for the reason stated above
+// this var block, and a combined snapshot would put them back in one order forever.
+func SnapshotPackSupersessions() func() {
+	prev, prevSet := append([]PackSupersession(nil), packSupersessions...), packSupersessionsSet
+	return func() { packSupersessions, packSupersessionsSet = prev, prevSet }
+}
+
 // SetPackSupersessionResolver installs the LAZY FALLBACK for the surfaces that
 // reach discovery without having staged anything — `yolo loopholes list`/`status`,
 // `yolo check`, and the config validator on the launch path (which runs BEFORE

@@ -44,6 +44,22 @@ func Run(opts Options) int {
 		return 1
 	}
 
+	// THIS LAUNCH'S PACK RECORDS ARE ITS OWN. stagePacks records the pack-shipped
+	// loophole modules, the `supersedes` claims and the pack skills sources
+	// process-wide — the convergence point that stopped seven discovery surfaces
+	// assembling seven views of this machine — and a process runs more than one
+	// launch: auto-capture below runs this very pipeline for each throwaway capture
+	// jail, whose staging root its own cleanup then deletes. Releasing the scope on
+	// every return path is what keeps a sub-launch's record from becoming the parent's
+	// (packrecords.go has the measurement, and why restoring is not `Set…(nil)`).
+	//
+	// Here rather than beside stageRunPacks: the snapshot has to be taken before
+	// anything can write a record, and a defer at the top covers the refusals below
+	// too. It is pure memory, which is why it can sit above the timing collector and
+	// still leave the live-overlay guard as the launch's first act.
+	releasePackRecords := packRecordScope()
+	defer releasePackRecords()
+
 	// The timing collector starts here — after the live-overlay refusal has had
 	// its say (a refused launch writes no file), before Phase 1, so the probes
 	// are spanned too. cname derives from the workspace alone
