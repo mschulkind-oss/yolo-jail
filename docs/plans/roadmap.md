@@ -511,23 +511,38 @@ requirement on the jail's pack set — and therefore whether addressed content p
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 21 — Shutdown-delay fixes: six questions the new timing spans exist to name
+### ✅ 21 — Shutdown-delay fixes: the six candidates the timing spans exist to name
 
 📄 [`perf-logging.md`](perf-logging.md) (plan; design linked within) · opened 2026-09-06 by the
-perf-logging build
+perf-logging build · **triaged and closed 2026-09-08**
 
 The maintainer's symptom — a 30+s wait between the agent TUI exiting and the shell prompt
 returning, with nothing naming the culprit — is now instrumented (`--timing`/`--verbose`, host
-spans, podman-cleanup attribution). What it surfaced are six fix candidates the design records as
-**[OQ-T1](../design/perf-logging.md#-oq-t1--should-the-tty-proxys-final-drain-have-a-poll-guard)…
-[OQ-T6](../design/perf-logging.md#-oq-t6--what-does---verbose-grow-into)**: the tty proxy's unguarded post-exit drain read, the unbounded `podman ps` inside
-`stopLoopholes`, `hostservice`'s unbounded `inFlight.Wait()`, serial loophole teardown, the
-`YOLO_PROFILE` env-name skew, and what `--verbose` grows into. None should be fixed before a real
-`--timing` run says which one fires — that diagnosis is the feature's whole point, and each OQ
-states its leaning.
+spans, podman-cleanup attribution). It surfaced six fix candidates, and **none of them was an open
+question**, which is what the triage found: four are decided work waiting on a span rather than a
+ruling, and two were not questions at all.
 
-**Answer:**
-> _(empty — fill in when decided; the six OQs can be ruled separately)_
+**Answer (2026-09-08):**
+> **Nothing here is waiting on a person.**
+> - **The rename is RULED and BUILT** — `YOLO_PROFILE` → `YOLO_JAIL_TIMING`
+>   ([D13](../design/perf-logging.md#decision-ledger), `7a35852d`). The premise that had blocked it
+>   — "a host↔jail contract needing coordination across the deploy-skew boundary" — was false:
+>   the launcher emits the pair and also generates the bash it belongs to, so both halves move in
+>   one commit.
+> - **`--verbose`'s vocabulary was always a policy**, not a pending decision
+>   ([D14](../design/perf-logging.md#decision-ledger)): the first non-timing diagnostic that wants a
+>   gate decides it, and nobody can usefully answer that earlier.
+> - **The other four are deferred work with named triggers**
+>   ([§8.1](../design/perf-logging.md#81-deferred-work-each-with-the-trigger-that-fires-it)): the tty
+>   proxy's unguarded drain, the unbounded `podman ps` in `stopLoopholes`, `hostservice`'s
+>   unbounded `inFlight.Wait()`, and serial loophole teardown. Each fires on a span, not on a
+>   ruling — and **the fourth currently points AWAY from the work**: the first real runs measured
+>   the whole `shutdown.*` chain at **0.045 s**.
+>
+> The reusable lesson, recorded in the design's [§8](../design/perf-logging.md#8-open-questions): an
+> entry belongs in Open Questions only if a human's answer changes what gets built. "Do X once the
+> span shows Y" is a work queue, and parking it in a question list buried the one entry that did
+> need a person.
 
 ### 💬 22 — The load sentinel is used as a liveness oracle, and it killed four jails
 
