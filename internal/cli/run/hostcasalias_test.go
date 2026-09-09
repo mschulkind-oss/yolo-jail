@@ -332,6 +332,43 @@ func TestNoteHostCASAliasDisclosure(t *testing.T) {
 			d.Reason = "never on macOS"
 		},
 		notWant: []string{"pants"},
+	}, {
+		// The only silent decline the USER caused. Honoring cache_relocations is
+		// the expected outcome, not a loss to report, and a line on every launch
+		// forever would be noise about a decision they made on purpose.
+		name: "a relocated cache is silent",
+		mut: func(d *hostcas.Disposition) {
+			d.Aliased = false
+			d.Code = hostcas.CodeRelocated
+			d.Reason = "cache_relocations moves pants to storage you chose"
+		},
+		notWant: []string{"pants", "Not aliasing"},
+	}, {
+		// A mountpoint that could not be made IS actionable, and prepareHostCASAlias
+		// reports it with this Code.
+		name: "an unmakeable mountpoint is a stated degradation",
+		mut: func(d *hostcas.Disposition) {
+			d.Aliased = false
+			d.Code = hostcas.CodeUnwritable
+			d.Reason = "the mountpoint could not be created"
+		},
+		want: []string{"Not aliasing", "could not be created"},
+	}, {
+		name: "a host path that is not a directory is a stated degradation",
+		mut: func(d *hostcas.Disposition) {
+			d.Aliased = false
+			d.Code = hostcas.CodeNotDir
+			d.Reason = "exists but is not a directory"
+		},
+		want: []string{"Not aliasing", "not a directory"},
+	}, {
+		name: "no resolvable cache root is silent",
+		mut: func(d *hostcas.Disposition) {
+			d.Aliased = false
+			d.Code = hostcas.CodeNoCacheRoot
+			d.Reason = "no cache directory"
+		},
+		notWant: []string{"pants"},
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			ds := aliasFixture()

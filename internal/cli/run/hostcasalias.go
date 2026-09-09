@@ -131,26 +131,33 @@ func prepareHostCASAlias(ds []hostcas.Disposition) []hostcas.Disposition {
 //   - an ACTIVE alias, always. This is the disclosure, and it is not suppressible:
 //     the trust step is the writable direction, so the launch says what it granted
 //     and where.
-//   - a DECLINED alias whose host store EXISTS. That is a happy path that
-//     degraded, and §5.4's failure discipline is that a degradation is never
-//     silent.
+//   - a decline the user could ACT ON — the host store is there but unwritable,
+//     is not a directory, is empty over a warm private copy, or its mountpoint
+//     could not be made. That is a happy path that degraded, and §5.4's failure
+//     discipline is that a degradation is never silent.
 //
-// An absent host store prints NOTHING. There was no happy path to degrade from —
-// the machine does not run the tool — and §5.3's own degenerate rule ("an empty
-// store or a class with 0 B reclaimable is silent") is the precedent. Restating
-// the absence of a pants cache on every launch of every jail on every machine
-// would be noise, not disclosure, and §5.1's warning about the slot printing over
-// a running agent's TUI is what that noise costs. `yolo stores` is where the
-// full per-store decision is legible on demand.
+// EVERY OTHER DECLINE PRINTS NOTHING, and the line between the two is "is there
+// anything to fix?". A machine that does not run the tool, a backend or a host OS
+// that cannot do this at all, no resolvable cache root, or a `cache_relocations`
+// entry the user WROTE — none of those is a degradation, they are structural
+// facts about this machine, and none has an action behind it. §5.3's own
+// degenerate rule ("an empty store or a class with 0 B reclaimable is silent") is
+// the precedent, and §5.1's warning about the slot printing over a running
+// agent's TUI is what the noise would cost — restating the absence of a pants
+// cache on every launch of every jail on every machine is not disclosure.
+// `yolo stores` is where every decline is legible, on demand.
+//
+// The relocation case is the one worth naming explicitly, because it is the only
+// silent decline the USER caused: they moved that cache somewhere on purpose, so
+// honoring it is the expected outcome rather than a loss to report.
 func (o *Options) noteHostCASAlias(ds []hostcas.Disposition) {
 	var active, degraded []hostcas.Disposition
 	for _, d := range ds {
 		switch {
 		case d.Aliased:
 			active = append(active, d)
-		case d.Code != hostcas.CodeAbsent && d.Code != hostcas.CodeBackend &&
-			d.Code != hostcas.CodeMacOS && d.Code != hostcas.CodePlatform &&
-			d.Code != hostcas.CodeNoCacheRoot:
+		case d.Code == hostcas.CodeUnwritable || d.Code == hostcas.CodeNotDir ||
+			d.Code == hostcas.CodeWouldColdStart:
 			degraded = append(degraded, d)
 		}
 	}
