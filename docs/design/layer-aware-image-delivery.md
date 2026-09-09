@@ -474,9 +474,10 @@ because the answer is a storage-driver property as much as a transport one.
 - **A source build that is not in `cache.nixos.org`.** The `nix:` transport is a patch applied
   to nixpkgs' skopeo (`default.nix:22-65` in the nix2container source: `overrideAttrs` with a
   `fetchpatch2` of a container-libs commit and a hand-built vendor tree). Every `flake.lock`
-  nixpkgs bump rebuilds it. NOT MEASURED — a skopeo Go build, minutes not seconds, once per
-  bump. Whether to add the project's cachix as a substituter to avoid it is
-  [OQ-LI1](#OQ-LI1).
+  nixpkgs bump rebuilds it — once per bump, not once per launch, because it is part of the
+  image's closure and a launch whose image is already loaded builds nothing.
+  [OQ-LI1](#OQ-LI1) rules that this build is simply **paid**: the project's cachix may make it
+  fast but may never be what makes it work, and no cache miss selects a degraded path.
 - **A prerequisite in another package.** The `created` constant forces prune's keep-window
   ordering to change before this ships ([§3.3](#33-what-does-not-change)).
 - **Reaping frees less.** Today each image is ~2.7 GB of unique layers, so `rmi` of one
@@ -648,27 +649,76 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    > — on a miss, a source build of skopeo lands in front of a jail start. That is the actual
    > question, and it is a different and smaller one than a supply-chain ruling.
    >
-   > **The ruling, and the maintainer stated the invariant it has to satisfy:** *"our cachix should
-   > never be load bearing, only ever an optimization."*
+   > **The ruling: take the input, build the copier when it is needed, and never let the cache be
+   > the difference between working and not.** The maintainer stated the invariant —
+   > *"our cachix should never be load bearing, only ever an optimization"* — and then the
+   > consequence I had got wrong: *"I don't want the legacy path taken, I want the same
+   > functionality."*
    >
-   > Take the input, pinned, with the legacy attribute kept as the escape ([OQ-LI5](#OQ-LI5)) — and
-   > **no part of this design may make `yolo-jail.cachix.org` a precondition for anything.** That is
-   > now a constraint on the implementation, not a preference to weigh:
+   > **The correction, because the first version of this answer was a degrade dressed as a
+   > fallback.** It said a missing copier makes the launch take the legacy stream rather than
+   > compile. That is not a fallback, it is a silent loss of the feature on precisely the machines
+   > that need it most — a fresh machine with a cold cache — and it makes R3's two-mechanisms cost
+   > permanent, contradicting [OQ-LI5](#OQ-LI5)'s ruling that the legacy path ends on evidence.
    >
-   > - The patched skopeo is built by the release and published to the cache, but a **cache miss must
-   >   never put a source build in front of a jail start.** If the copy tool is absent, the launch
-   >   takes the legacy stream; it does not compile.
+   > **Building it when it is needed is the answer, and four facts make it cheap enough:**
+   >
+   > 1. **It is a build-time dependency, not a per-launch one.** The copier is part of the image's
+   >    closure, so it is realized on the occasions the image is already being built — a `flake.lock`
+   >    nixpkgs bump — and not on the occasions a jail merely starts. A launch that finds its image
+   >    already loaded builds nothing, copier included.
+   > 2. **Only the Go link is local.** skopeo's C dependencies (gpgme, libassuan, btrfs-progs, lvm2,
+   >    glibc) are stock nixpkgs and come from `cache.nixos.org`; the patch is an `overrideAttrs`
+   >    over nixpkgs' skopeo, so the marginal cost is compiling one Go program, not bootstrapping a
+   >    toolchain.
+   > 3. **The failure mode already exists and is correct.** A build that runs and fails is FATAL
+   >    ([`image-staging-vs-baking.md`](./image-staging-vs-baking.md) [OQ-2](./image-staging-vs-baking.md#101-decision-ledger)):
+   >    nix's own stderr is printed and the launch refuses. "Build it when we need it" therefore
+   >    inherits an honest error rather than needing a new degrade path.
+   > 4. **It is GC-rooted with the image it belongs to.** Nothing collects it out from under a
+   >    machine that is using it, which is the same question [OQ-BF4](./disk-levers-and-backfill.md#OQ-BF4)
+   >    settles for the install prefix.
+   >
+   > **So the cachix's whole job is latency**, and the invariant is three testable constraints:
+   >
    > - **No path may require `--accept-flake-config`.** The flake's `nixConfig` is discarded for any
    >   caller who does not pass it (and for any non-trusted user), so a design that only works with
-   >   the substituter honoured is a design that fails for the default invocation.
-   > - The cache going away — expired, renamed, unreachable, or the account gone — must cost
-   >   **time only**, never function. That is the test for "optimization": remove the substituter
-   >   and everything still builds from `cache.nixos.org` plus source.
+   >   the substituter honoured is a design that fails the default invocation.
+   > - **Losing the cache entirely** — expired, renamed, unreachable, account gone — must cost
+   >   **time only, never function.** That is the test for "optimization": remove the substituter and
+   >   everything still builds from `cache.nixos.org` plus source.
+   > - **No functional fallback is wired to a cache miss.** `YOLO_LEGACY_IMAGE_STREAM` survives as an
+   >   OPERATOR escape hatch for a machine where the new path is broken — a human choosing to degrade
+   >   — and is never selected automatically because a build would otherwise be needed.
    >
-   > The leaning's measurement condition stands and is now the gate on the default flip: **measure
-   > the cold skopeo build before it ships.** Under the invariant above, a ten-minute cold build does
-   > not merely weaken the leaning — it means the legacy stream is the real path on any machine with
-   > a miss, which is a reason to reconsider the mechanism rather than to lean on the cache.
+   > **MEASURED 2026-09-08, in this jail, and it is smaller than the argument around it: 34
+   > seconds, cold, with nothing in any yolo cache.**
+   >
+   > ```console
+   > $ time nix build --no-link 'github:nlewo/nix2container#skopeo-nix2container'
+   > building '…-21b053ac62f3137de42585611953e923577d0e10.patch.drv'...
+   > building '…-skopeo-1.21.0.drv'...
+   > ELAPSED_SECONDS=34
+   > ```
+   >
+   > The `--dry-run` before it is the part that generalises: of ~90 store paths in the closure,
+   > **exactly two are built** — the `fetchpatch2` derivation and skopeo itself. Everything else
+   > (gpgme, libassuan, glib, btrfs-progs, lvm2, systemd-minimal-libs, the whole stdenv) is
+   > *substituted from `cache.nixos.org`*, because the patch is an `overrideAttrs` over stock
+   > nixpkgs skopeo and changes nothing beneath it.
+   >
+   > So "build it when we need it" costs **one Go compile per `flake.lock` nixpkgs bump**, on the
+   > same occasion the image is already being rebuilt — against a load this design exists to cut by
+   > ~81 s. There is nothing here worth a cache dependency, and the earlier framing of this question
+   > (a *"go/no-go"* where *"nothing else in the design matters if the answer is no"*) was
+   > out of proportion to a 34-second build.
+   >
+   > > [!NOTE]
+   > > **What the number does not cover**, stated so it is not over-read: this machine's CPU, a warm
+   > > `cache.nixos.org`, and nix2container's own nixpkgs rather than the `follows`-ed one this
+   > > design would use. A slower machine pays more and a cold nixpkgs closure pays much more — but
+   > > the *marginal* item is one Go program either way, which is the fact the ruling rests on.
+   > > Re-measure on the maintainer's host with the real `follows` before the default flips.
 
 2. ✅ **[OQ-LI2](#OQ-LI2) — RULED 2026-09-08, AGAINST the leaning, because the premise under it went away: does Apple Container move to the `nix:` source in the same pass?** Today it
    writes two full-size files per load — `materializeImage` produces a docker-archive and
