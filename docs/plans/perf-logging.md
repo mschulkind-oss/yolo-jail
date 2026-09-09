@@ -38,7 +38,7 @@ untouched), the env constants landed in `internal/paths/paths.go` rather than th
 | `internal/ttyproxy/ttyproxy_test.go` | Stage-hook order on the plain path + a panicking hook that must not take the proxy down. |
 | `integration/timing_test.go` | New: end-to-end `--timing`, `YOLO_TIMING=1`, and the off-by-default contract. |
 | `integration/harness_test.go` | `withEnv` runOption (additive) so an env-gated feature is exercisable without leaking into every test's environment. |
-| `docs/plans/README.md`, `docs/plans/roadmap.md` | Rows; one 💬 entry citing [the OQ-T family](../design/perf-logging.md#7-open-questions). |
+| `docs/plans/README.md`, `docs/plans/roadmap.md` | Rows citing [the OQ-T family](../design/perf-logging.md#81-deferred-work-each-with-the-trigger-that-fires-it) — no longer a 💬 entry: the list was triaged empty on 2026-09-08. |
 
 ## Reuse
 

@@ -12,8 +12,11 @@ summary: "The launcher's only timing number was a single host-side Total. This d
 [D12](#decision-ledger)**, which split RECORDING from REPORTING so an always-on setting stops
 printing a table at every jail quit (two maintainer rulings up front: the flag
 surface is **both** `--timing` grown and a new `--verbose`; the persistent log lives in
-**`<workspace>/.yolo/`**). Six Open Questions remain — all of them *fix candidates this feature is
-supposed to name*, not gaps in this design; see [§7](#7-open-questions). **Built and measured on a real launch** the same day — what that changed is [§8](#8-what-the-first-real-runs-measured).
+**`<workspace>/.yolo/`**). No Open Questions remain: one was answered
+([D13](#decision-ledger)), one was a stated policy all along ([D14](#decision-ledger)), and the
+other four were never questions for a person — they are decided fix candidates *this feature
+exists to name*, each waiting on a span rather than a ruling
+([§8.1](#81-deferred-work-each-with-the-trigger-that-fires-it)). **Built and measured on a real launch** the same day — what that changed is [§7](#7-what-the-first-real-runs-measured).
 
 ## Decision Ledger
 
@@ -28,9 +31,11 @@ supposed to name*, not gaps in this design; see [§7](#7-open-questions). **Buil
 | D7 | A span slower than `perf.SlowSpanThreshold` (1s) names itself on stderr, dim, the moment it ends — the culprit announced live, which is the whole point when the terminal is sitting there hung. | 2026-09-06 | [§3](#3-the-collector--internalperf) | ✅ |
 | D8 | The collector's clock is `time.Now`, never the `Options.Now` seam — that seam exists so tests can freeze time, and a span system built on a frozen clock reports `0.000s` everywhere under test. | 2026-09-06 | [§3](#3-the-collector--internalperf) | ✅ |
 | D9 | Window A attribution runs `podman events` through the `o.Exec` seam, gated on the podman runtime, always with `--until` (the journald backend streams otherwise) and a 3s timeout; every failure is silence. | 2026-09-06 | [§6](#6-window-a-attribution-and-where-reports-print) | ✅ |
-| D10 | `launch.auto_capture` is spanned. Not in the original design — the first real `--timing` run put 109 of its 125 seconds between two spans, in `autoCaptureInstallerPrograms`. A span table's holes are only visible on a real launch. | 2026-09-06 | [§8](#8-what-the-first-real-runs-measured) | ✅ |
-| D11 | The report is emitted once per `Run`, guarded by a `*sync.Once` on Options. On the signal path BOTH teardown arms legitimately run — the terminate arm's `stopJail` makes the child exit, unblocking the normal-exit arm mid-teardown — so the guard is about not printing twice, not about a fault. Pointer, not embedded: `Options` is passed by value and vet's copylocks refuses a copied lock. | 2026-09-06 | [§8](#8-what-the-first-real-runs-measured) | ✅ |
-| D12 | **RECORDING and REPORTING are separate gates.** Every opt-in records to `<workspace>/.yolo/host-perf.log`; only an EXPLICIT per-invocation flag (`--timing`, `--verbose`/`-v`) prints the span table, the Window A line and the in-container block. A PERSISTENT setting — `perf_logging: true`, or `YOLO_TIMING`/`YOLO_VERBOSE` exported in a shell profile — records in silence, plus one dim line naming the file. The principle for classifying the next opt-in: *an explicit per-invocation flag prints; a persistent setting records silently.* | 2026-09-08 | [§4](#4-the-gates), [§8.1](#81-what-it-costs-to-leave-on) | ✅ |
+| D10 | `launch.auto_capture` is spanned. Not in the original design — the first real `--timing` run put 109 of its 125 seconds between two spans, in `autoCaptureInstallerPrograms`. A span table's holes are only visible on a real launch. | 2026-09-06 | [§7](#7-what-the-first-real-runs-measured) | ✅ |
+| D11 | The report is emitted once per `Run`, guarded by a `*sync.Once` on Options. On the signal path BOTH teardown arms legitimately run — the terminate arm's `stopJail` makes the child exit, unblocking the normal-exit arm mid-teardown — so the guard is about not printing twice, not about a fault. Pointer, not embedded: `Options` is passed by value and vet's copylocks refuses a copied lock. | 2026-09-06 | [§7](#7-what-the-first-real-runs-measured) | ✅ |
+| D12 | **RECORDING and REPORTING are separate gates.** Every opt-in records to `<workspace>/.yolo/host-perf.log`; only an EXPLICIT per-invocation flag (`--timing`, `--verbose`/`-v`) prints the span table, the Window A line and the in-container block. A PERSISTENT setting — `perf_logging: true`, or `YOLO_TIMING`/`YOLO_VERBOSE` exported in a shell profile — records in silence, plus one dim line naming the file. The principle for classifying the next opt-in: *an explicit per-invocation flag prints; a persistent setting records silently.* | 2026-09-08 | [§4](#4-the-gates), [§7.1](#71-what-it-costs-to-leave-on) | ✅ |
+| D13 | **`YOLO_PROFILE` is renamed — RULED 2026-09-08 (*"yes"*) — and the reason the question hesitated turns out to be false.** It called the var *"a host↔jail wire contract"* that must be *"coordinated across the deploy-skew boundary or not at all"*. **It is not a wire contract: both halves are host-side.** The launcher emits it (`internal/cli/run/assemble.go:738`, `-e YOLO_PROFILE=1`) and the consumer is bash the same launcher generates (`internal/cli/run/command.go:103`, the `=== YOLO Jail Profile ===` block) — one binary, one commit, nothing in the image or the entrypoint reads it. So the rename is local and skew-free. **A second, better reason to do it than matching `--timing`:** `YOLO_PROFILE` sits one character from `YOLO_PROFILES`, the resolved auth-profile table, which IS read in the jail (`internal/entrypoint/providers.go:59`) and is a completely unrelated mechanism. **Constraint on the new name: it must NOT be `YOLO_TIMING`** — [D5](#decision-ledger) makes that a host-process opt-in deliberately *not* forwarded into the jail, and reusing it here would make forwarding look intended. `YOLO_TIMING_INNER` or similar; the requirement is that it names the in-container block and cannot be mistaken for either neighbour. `integration/timing_test.go` asserts the block's text and pins the rename. | 2026-09-08 | [§4](#4-the-gates), [§8.1](#81-deferred-work-each-with-the-trigger-that-fires-it) | ⬜ |
+| D14 | **`--verbose` gets no vocabulary until something needs one** — the entry that used to be the sixth OQ-T, recorded as the policy it always was rather than a pending ruling. v1 aliases the timing surface ([D1](#decision-ledger)); the **first non-timing diagnostic that wants a gate** decides what `--verbose` means, and until then it must not sprout meaning by accident. Nothing to answer today, and a person cannot usefully answer it earlier than the first real case. | 2026-09-08 | [§4](#4-the-gates) | ✅ (by omission) |
 
 ## 1. The symptom, and why it had no answer
 
@@ -172,7 +177,7 @@ a launch that recorded without being asked to report prints one dim line naming 
 returns, so the attribution query above never runs on that path. The `*sync.Once` (D11) covers both
 outcomes, so the quiet line cannot double either.
 
-## 8. What the first real runs measured
+## 7. What the first real runs measured
 
 The spans exist to answer a question, so the first answers belong here — measured in a nested jail
 (`/tmp/yolo-nested`, `YOLO_REPO_ROOT=/workspace`, the binary by path), 2026-09-06.
@@ -199,7 +204,7 @@ distinguishes the two, which nothing could before.
 > is still hypotheses. The measurement that settles it is one `--timing` quit on the real host, whose
 > report names the arm and whose `host-perf.log` survives it.
 
-### 8.1 What it costs to leave on
+### 7.1 What it costs to leave on
 
 Measured on one complete nested launch, 2026-09-06 (podman 5.8.4):
 
@@ -242,38 +247,39 @@ spans reached the file *after* the arm's `os.Exit(128+n)`, and the report printe
 [D3](#decision-ledger) working — an end-of-run dump would have lost the whole record on the one path
 most worth seeing.
 
-## 7. Open Questions
+## 8. Open Questions
 
-### 💬 [OQ-T1](#-oq-t1--should-the-tty-proxys-final-drain-have-a-poll-guard) — should the tty proxy's final drain have a poll guard?
+**None.** This section held six entries and **only one of them was ever a question for the
+maintainer** — an audit prompted by the maintainer noticing exactly that: *"OQ section isn't
+complete and has questions that aren't for me?"* Both halves were right. The entries carried no
+`**Answer:**` scaffolding and no `vantage: oq` markers, so nothing could track them; and four of
+the six were engineering items already decided in all but name, each waiting on a measurement
+rather than on a ruling. They are [§8.1](#81-deferred-work-each-with-the-trigger-that-fires-it) now.
+[OQ-T5](#81-deferred-work-each-with-the-trigger-that-fires-it) was answered
+(ledger [D13](#decision-ledger)); [OQ-T6](#81-deferred-work-each-with-the-trigger-that-fires-it) was
+never a pending decision but a stated policy (ledger [D14](#decision-ledger)).
 
-The post-exit master drain blocks on `unix.Read` with no timeout; any process still holding the pty
-slave (a lingering conmon fd is the classic) pins it indefinitely. The span pair
-`child.exited`/`child.drain_done` will name it the first time it happens. *Leaning:* guard the
-read with poll-and-timeout once a diagnosis confirms it fires in practice, not before — an
-unbounded drain that never blocks in practice is not worth exit-semantics churn on spec.
+> [!NOTE]
+> **The reusable test, since this doc got it wrong six times in a row.** An entry belongs in Open
+> Questions only if a human's answer would change what gets built. *"Do X once the span shows Y"*
+> is not that — it is a decision with a trigger, and parking it here makes a work queue look like
+> an unanswered design and buries the one entry that did need a person.
 
-### 💬 [OQ-T2](#-oq-t2--should-the-podman-ps-inside-stoploopholes-be-bounded) — should the `podman ps` inside `stopLoopholes` be bounded?
+### 8.1 Deferred work, each with the trigger that fires it
 
-It runs with timeout 0 today and sits mid-shutdown-chain, so a hung runtime holds the prompt
-forever. *Leaning:* yes, a few seconds, once the spans show how long a healthy one takes.
+Not questions. Each is decided; the trigger is the evidence that says *now*, and every trigger is
+a span this design already emits — which is the point of having built the instrument first.
 
-### 💬 [OQ-T3](#-oq-t3--does-hostserviceservelisteners-unbounded-inflightwait-need-an-idle-connection-deadline) — does `hostservice.serveListener`'s unbounded `inFlight.Wait()` need an idle-connection deadline?
+| Was | Decision | Fires when |
+| :--- | :--- | :--- |
+| **T1** — the tty proxy's post-exit master drain blocks on `unix.Read` with no timeout, so any process still holding the pty slave (a lingering conmon fd is the classic) pins it | Guard the read with poll-and-timeout. **Not on spec** — an unbounded drain that never blocks in practice is not worth exit-semantics churn | `child.exited` → `child.drain_done` shows a real gap. The span pair names it the first time it happens |
+| **T2** — the `podman ps` inside `stopLoopholes` runs with timeout 0 mid-shutdown-chain, so a hung runtime holds the prompt forever | Bound it at a few seconds | the shutdown spans show what a healthy one costs, so the bound is derived rather than guessed |
+| **T3** — `hostservice.serveListener`'s `inFlight.Wait()` is unbounded, so an accepted-but-idle connection pins a daemon until the 5 s SIGKILL | Read deadline on the request header | a `shutdown.stop_front.*` span over ~2 s is diagnosed |
+| **T4** — `stopLoopholes` stops serially, so the worst case is the sum rather than the max | Parallelize **only** after measurement: the serial order may be load-bearing for shared fronts, and that has to be checked before it is broken | the shutdown chain is measured on a real host and the sum is the term that matters. [§7](#7-what-the-first-real-runs-measured) measured the whole chain at **0.045 s** in a nested jail, which is the opposite of a case for this work — and cannot speak for the real host |
 
-An accepted-but-idle connection pins a daemon until the 5s SIGKILL.
-*Leaning:* read deadline on the request header; decide after the first `shutdown.stop_front.*`
-span over ~2s is diagnosed.
-
-### 💬 [OQ-T4](#-oq-t4--parallelize-stoploopholes) — parallelize `stopLoopholes`?
-
-Stops are serial today; worst case is the sum, not the max. *Leaning:* only after measurement —
-the serial order may be load-bearing for shared fronts.
-
-### 💬 [OQ-T5](#-oq-t5--rename-yolo_profile-to-match---timing) — rename `YOLO_PROFILE` to match `--timing`?
-
-The flag was renamed, the env var was not. It is a host↔jail wire contract, so the rename is
-coordinated across the deploy-skew boundary or not at all.
-
-### 💬 [OQ-T6](#-oq-t6--what-does---verbose-grow-into) — what does `--verbose` grow into?
-
-v1 aliases the timing surface. The first non-timing diagnostic that wants a gate decides its
-vocabulary; until then it should not sprout meaning by accident.
+> [!IMPORTANT]
+> **T4's trigger has already half-fired, in the direction of NOT doing it.** The first real runs put
+> the entire `shutdown.*` chain at 45 milliseconds. That does not settle it — a nested jail cannot
+> speak for the maintainer's storage and network stack ([§7](#7-what-the-first-real-runs-measured)'s
+> warning) — but it does mean parallelising teardown is currently a solution to a 45 ms problem, and
+> whoever picks it up should re-read that number first.
