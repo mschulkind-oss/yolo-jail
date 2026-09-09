@@ -39,7 +39,7 @@ Container still writes one tar per store path, and the fallback READER (`newestT
 | `internal/cli/run/autoreapimages_test.go` | its stub answers one `images` argv shape; teach it both |
 | `integration/imagelabel_test.go` | new — the end-to-end pin (*Ships with*) |
 | `internal/cli/commands.go` | `--keep-images` help (`:132`) — "jail images" now includes labeled nameless ones |
-| `docs/design/minimal-disk-footprint.md` | status ¶1, the [§3](minimal-disk-footprint.md#3-the-three-ledgers) mermaid edge `CANNOT SEE untagged rows`, [§3.3](minimal-disk-footprint.md#33-ledger-c--podmans-own-image-store-the-one-with-no-reclaimer-for-a-nameless-row) title + tail, [§10](minimal-disk-footprint.md#10-sequencing--what-i-would-build-in-order) step 1's "does NOT do", [§11.1](minimal-disk-footprint.md#111-decision-ledger) Settled-in |
+| `docs/design/minimal-disk-footprint.md` | status ¶1, the [§3](minimal-disk-footprint.md#3-the-three-ledgers) mermaid edge `CANNOT SEE untagged rows`, [§3.3](minimal-disk-footprint.md#33-ledger-c--podmans-own-image-store-and-the-nameless-row) title + tail, [§10](minimal-disk-footprint.md#10-sequencing--what-i-would-build-in-order) step 1's "does NOT do", [§11.1](minimal-disk-footprint.md#111-decision-ledger) Settled-in |
 | `docs/design/disk-levers-and-backfill.md` | [§5.5](disk-levers-and-backfill.md#55-yolo-stores--the-inventory-including-what-nothing-reclaims)'s unreclaimable class is now **pre-label** rows only |
 | `docs/plans/roadmap.md` | the DF3 item (~`:428`) |
 
