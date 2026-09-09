@@ -554,7 +554,12 @@ rather than an opinion. **[OQ-LP14](../design/loophole-packaging-overview.md#oq-
 admitted `~/.ssh` and refused a pulse socket, so its two cases were inverted. Both
 audio loopholes then merged into one pack-shipped `audio` (`packs/audio/README.md`
 has the whole story). What replaced the rule is not a narrower one — it is the claim
-enumeration you already read in the approval prompt.
+enumeration itself. ⚠ **Where you read that enumeration changed on 2026-09-04:** it used to be
+a y/N approval prompt at `yolo pack install`, and `trust-paths.md`'s [`OQ-TP9`](../design/trust-paths.md#decision-ledger) deleted that prompt,
+its lockfile record and its launch gate as theatre — selecting a pack already means writing
+user-scope config as the host user, so the gate refused an actor who had passed a stronger one.
+The **enumeration rule survives the deletion unchanged and is still total**; what you read now is
+`yolo pack footprint` and the launch's disclosure lines.
 
 Two backends make the whole thing inert regardless of your manifest: Apple
 Container starts no loophole host services at all (a wider skip than the
@@ -584,8 +589,8 @@ What your manifest emits, exactly:
 | `host_bind_mounts[]` that looks like a **socket** | one per bind | `CONNECTS the jail to the host socket … — read-write host IPC`. Its own class because `:ro` is no boundary for a socket (measured — see the subset table) |
 | every other `host_bind_mounts[]` | one per bind | `MOUNTS <host> -> <container>`, carrying the socket caveat verbatim rather than claiming "read-only" and stopping |
 | `host_devices[]` | one per node | `PASSES THROUGH the host device <path> (reads and writes)`. Not weaker than a writable bind: `audio`'s own manifest describes `--device` as passing a node *so the cgroup device-allow rules permit reads/writes*, and the home-relative constraint does not reach a device node — which is precisely why it needs a claim |
-| a manifest yolo **cannot read** | one claim, fail-closed | `DECLARATION UNREADABLE at <from> — its claims cannot be enumerated`, treated as host execution, because a manifest this build cannot parse may well declare a daemon. An unreadable declaration is not "no claims" — that is the empty set the gate reads as consent |
-| `jail_daemon`, `state_files`, `requires` | **none, deliberately** | a `jail_daemon` is a process inside the container, the one place a pack's code was always allowed to run; `state_files` resolves inside yolo's own state tree, not a path you would recognise as yours; and `requires` crosses nothing at all — it is a `stat`, so a claim for it would put a line in the approval prompt for something that neither mounts nor runs. It is **path-scoped** instead (see the subset table), because the answer is readable even though nothing crosses |
+| a manifest yolo **cannot read** | one claim, fail-closed | `DECLARATION UNREADABLE at <from> — its claims cannot be enumerated`, treated as host execution, because a manifest this build cannot parse may well declare a daemon. An unreadable declaration is not "no claims" — that is the empty set that would otherwise be *disclosed as harmless*. (This class was written when the empty set was read as CONSENT by an approval gate; [`OQ-TP9`](../design/trust-paths.md#decision-ledger) deleted that gate on 2026-09-04, and fail-closed is still right for the same reason — silence about a crossing is the one thing the enumeration may never produce.) |
+| `jail_daemon`, `state_files`, `requires` | **none, deliberately** | a `jail_daemon` is a process inside the container, the one place a pack's code was always allowed to run; `state_files` resolves inside yolo's own state tree, not a path you would recognise as yours; and `requires` crosses nothing at all — it is a `stat`, so a claim for it would put a disclosure line (an approval-prompt line, when this was written — see above) in front of you for something that neither mounts nor runs. It is **path-scoped** instead (see the subset table), because the answer is readable even though nothing crosses |
 
 **The socket class's discriminator is coarser than the design specified, and that is
 worth knowing when you author.** The design says "a socket bind is its own claim

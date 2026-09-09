@@ -618,6 +618,17 @@ thing that ships). The work is not an endpoint: codex, opencode and pi each alre
 id — and the three clients default to *different* endpoint families with different model-id
 spellings, which is why the design ships the family twice (`-p bedrock-gpt`, `-p bedrock-gpt-mantle`).
 
+⚠ **One adjacent question from another doc belongs with [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions), and it is the only one here that
+is live in shipped code** (routed 2026-09-09): [`OQ-2`](../design/cerebras-pack-and-copilot-delivery.md#oq-2) in
+[`cerebras-pack-and-copilot-delivery.md`](../design/cerebras-pack-and-copilot-delivery.md) — `packs/claude/derive.lua` emits
+`ANTHROPIC_AUTH_TOKEN` from `api_key` alone, never consulting the `routed` flag it sets only when
+`endpoints.anthropic.base_url` exists. **No shipped pack reaches it** (`packs/zai` and
+`packs/cerebras` both declare `endpoints.anthropic`; `packs/claude`'s own `bedrock` provider
+declares no `api_key_env_name`), so the trigger is a **user-declared** provider whose
+single-protocol `base_url` shorthand names no protocol. It carried no `💬` until 2026-09-09, so the
+corpus count could not see it. Rule it with BR4 — both are the same D2 leak decision on the same
+derive machinery.
+
 **What blocks it is naming, not mechanism.** [`OQ-BR1`](../design/bedrock-plumbing.md#13-open-questions) (profile/provider names), [`OQ-BR2`](../design/bedrock-plumbing.md#13-open-questions) (how a derive
 recognises an endpoint-less provider) and [`OQ-BR7`](../design/bedrock-plumbing.md#13-open-questions) (`endpoint_family` as its own field or a fallout)
 shape the schema; [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) is a live D2 leak decision; [`OQ-BR3`](../design/bedrock-plumbing.md#13-open-questions)/[`OQ-BR5`](../design/bedrock-plumbing.md#13-open-questions)/[`OQ-BR6`](../design/bedrock-plumbing.md#13-open-questions) are per-agent. **Ruling

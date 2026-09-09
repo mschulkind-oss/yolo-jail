@@ -1,7 +1,7 @@
 ---
 title: "The cerebras pack, and closing the copilot delivery gap"
 date: 2026-09-04
-status: accepted
+status: in-review
 tags: [packs, providers, profiles, cerebras, copilot, delivery]
 summary: "A second purely-declarative provider pack (Cerebras, one key, qwen-3.8-27b as the agentic main), plus the per-agent delivery audit the maintainer's ask surfaced: copilot is the one agent that can receive a provider and doesn't, and its BYOK is env-var-only — a yolo.env derive closes it. agy is unwireable and recorded as such."
 ---
