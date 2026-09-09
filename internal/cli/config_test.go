@@ -223,9 +223,12 @@ func TestConfigRenderSkipsUnrenderedSurfaces(t *testing.T) {
 // table reported as host-provided, and a claude `model` key that exists in no boot
 // layer printed as though yolo composed it.
 //
-// Only two surfaces actually get host bytes at boot (surfaceHasHostLayer, bounded
-// by AgentSpec.HostFiles' two entries). Everything else must compose with NO host
-// layer, exactly as the jail does.
+// A surface gets host bytes at boot exactly when its HostSource is set
+// (Surface.HasHostLayer, the predicate entrypoint.hostSurfaceBytes reads); everything
+// else must compose with NO host layer, exactly as the jail does. This test is the CALL
+// SITE's pin: it fails if renderSurface stops asking, because mise/config would then be
+// re-read from its own previous output and every key yolo wrote would come back labelled
+// `host`.
 func TestConfigRenderExplainDoesNotAttributeOwnOutputToHost(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := configRender([]string{"mise", "--explain"}, &out, &errw, false); rc != 0 {

@@ -170,18 +170,30 @@ func hostFileRows() []surfaceRow {
 	return rows
 }
 
-// builtinLayers names the layers a builtin surface composes from. `computed` is
-// not derivable from the manifest (it is supplied per-surface by the boot caller),
-// so it is reported from the same hand-maintained knowledge as the mode.
+// builtinLayers names the layers a builtin surface composes from.
+//
+// EVERY COLUMN IS DERIVED FROM THE SURFACE, and none is enumerated here. Two of them used
+// to be: `surfaceHasHostLayer` and `surfaceHasComputedLayer` were `map[string]bool`s of
+// "agent/name" living directly below this function, restating what the render knows
+// structurally — the pair docs/design/host-render-target.md §3.4 promised would die with
+// the Target abstraction and that outlived it. A map keyed on identity cannot answer for a
+// surface it has never heard of, so adding a surface silently made this print a layer
+// stack the jail does not compose; measured, the computed map was three surfaces behind
+// the shipped packs (see surfaceHasComputedLayer, in surfaces.go, for what it got wrong).
+//
+// The two replacements read the real producers: Surface.HasHostLayer is the surface's own
+// HostSource, which is the SAME predicate the boot render's host-layer read consults
+// (entrypoint.hostSurfaceBytes), and surfaceHasComputedLayer runs the packs' derive
+// registrations.
 func builtinLayers(s manifest.Surface) []string {
 	var layers []string
 	if s.Defaults != nil {
 		layers = append(layers, "defaults")
 	}
-	if surfaceHasHostLayer[s.Agent+"/"+s.Name] {
+	if s.HasHostLayer() {
 		layers = append(layers, "host")
 	}
-	if surfaceHasComputedLayer[s.Agent+"/"+s.Name] {
+	if surfaceHasComputedLayer(s) {
 		layers = append(layers, "computed")
 	}
 	if s.Transform != "" {
@@ -191,26 +203,6 @@ func builtinLayers(s manifest.Surface) []string {
 		layers = append(layers, "managed")
 	}
 	return layers
-}
-
-// surfaceHasHostLayer marks the surfaces whose boot render is handed host bytes.
-// Only two exist, because agents.AgentSpec.HostFiles has exactly two entries —
-// which host files cross into the jail is a credential boundary fixed in code.
-var surfaceHasHostLayer = map[string]bool{
-	"claude/settings": true,
-	"pi/settings":     true,
-}
-
-// surfaceHasComputedLayer marks the surfaces whose boot render is handed a
-// per-boot dynamic layer (MCP tables, LSP toggles, mise tools).
-var surfaceHasComputedLayer = map[string]bool{
-	"claude/settings": true,
-	"codex/config":    true,
-	"opencode/config": true,
-	"mise/config":     true,
-	"copilot/mcp":     true,
-	"copilot/lsp":     true,
-	"agy/mcp":         true,
 }
 
 // hostFileLayers names the layers a host_files entry composes from.

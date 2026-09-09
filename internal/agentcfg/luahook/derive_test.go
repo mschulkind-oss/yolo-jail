@@ -310,3 +310,84 @@ func TestDeriveEnv_NonTableReturnFails(t *testing.T) {
 		t.Fatal("an env producer returning a non-table must be a loud error")
 	}
 }
+
+// TestDeriveRegistrationsAndDeriveAgreeOnWhatRegistered is the shared-setup contract, and
+// it is what lets a reporting caller ask "does this surface have a computed layer?"
+// without invoking anything.
+//
+// DeriveRegistrations lists the producers; Derive invokes one and reports (nil, nil) for a
+// surface with none. The two run the same registration session, so a surface must appear in
+// the listing exactly when Derive finds a producer for it. `yolo config ls`'s `computed`
+// column is derived through the listing while the boot render goes through Derive
+// (docs/design/host-render-target.md §3.4) — if these two could disagree, the column would
+// be a second opinion about the render instead of a reading of it.
+func TestDeriveRegistrationsAndDeriveAgreeOnWhatRegistered(t *testing.T) {
+	script := `
+yolo.derive("pi", "models", function(ctx) return { a = 1 } end)
+yolo.derive("claude", "settings", function(ctx) return { b = 2 } end)
+yolo.env("claude", function(ctx) return { c = "3" } end)`
+
+	regs, err := GopherLuaVM{}.DeriveRegistrations(script)
+	if err != nil {
+		t.Fatalf("DeriveRegistrations: %v", err)
+	}
+	// Sorted, and the env producer is NOT a surface registration (it renders no file).
+	want := []DeriveRegistration{{Agent: "claude", Surface: "settings"}, {Agent: "pi", Surface: "models"}}
+	if !reflect.DeepEqual(regs, want) {
+		t.Fatalf("DeriveRegistrations = %v, want %v", regs, want)
+	}
+
+	// The agreement, both directions.
+	listed := map[DeriveRegistration]bool{}
+	for _, r := range regs {
+		listed[r] = true
+	}
+	for _, probe := range []DeriveRegistration{
+		{Agent: "pi", Surface: "models"},
+		{Agent: "claude", Surface: "settings"},
+		{Agent: "claude", Surface: "config"}, // registered by neither
+		{Agent: "claude", Surface: "env"},    // the env producer is not this
+	} {
+		out, err := GopherLuaVM{}.Derive(script, &DeriveCtx{Agent: probe.Agent, Surface: probe.Surface})
+		if err != nil {
+			t.Fatalf("Derive(%v): %v", probe, err)
+		}
+		invoked := out != nil
+		if invoked != listed[probe] {
+			t.Errorf("%v: Derive invoked a producer = %v, but DeriveRegistrations listed it = %v",
+				probe, invoked, listed[probe])
+		}
+	}
+}
+
+// A script that registers nothing lists nothing — the identity, not an error. The reporting
+// caller reads this as "no surface of this pack has a computed layer", which is what a pack
+// shipping no derive.lua means (packload.DerivedSurfaces).
+func TestDeriveRegistrationsEmptyScript(t *testing.T) {
+	regs, err := GopherLuaVM{}.DeriveRegistrations("local x = 1")
+	if err != nil {
+		t.Fatalf("DeriveRegistrations: %v", err)
+	}
+	if len(regs) != 0 {
+		t.Errorf("DeriveRegistrations = %v, want none", regs)
+	}
+}
+
+// DeriveRegistrations TOLERATES an unknown `yolo.<name>`, and the reason is the one
+// DeriveCtx.UnknownAPI records: the whole script runs to register, so one unknown call at
+// the top level would otherwise take down every surface it serves — and a LISTING that
+// failed would report "no computed layer" for all of them, which is the silent-skip shape
+// host-render-target.md §6.2 exists to prevent.
+func TestDeriveRegistrationsToleratesAnUnknownAPI(t *testing.T) {
+	script := `
+yolo.derive("pi", "models", function(ctx) return { a = 1 } end)
+yolo.some_future_api("pi", function(ctx) return {} end)`
+
+	regs, err := GopherLuaVM{}.DeriveRegistrations(script)
+	if err != nil {
+		t.Fatalf("DeriveRegistrations refused a script using an API this build lacks: %v", err)
+	}
+	if len(regs) != 1 || regs[0] != (DeriveRegistration{Agent: "pi", Surface: "models"}) {
+		t.Errorf("DeriveRegistrations = %v, want just pi/models", regs)
+	}
+}

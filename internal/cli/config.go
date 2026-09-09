@@ -254,8 +254,9 @@ const containerWorkspace = "/workspace"
 // $HOME/.local/bin/mcp-wrappers, Env.GoBin() = $GOPATH/bin), so composing them
 // host-side would emit HOST paths into the preview and be wrong in a more
 // misleading way than omitting them. `yolo config ls` names which surfaces carry a
-// computed layer (surfaceHasComputedLayer), so the gap is visible rather than
-// silent. Nor does it supply the captured `overlay`: that is per-workspace state
+// computed layer (surfaceHasComputedLayer, derived from the packs' derive
+// registrations), so the gap is visible rather than silent. Nor does it supply the
+// captured `overlay`: that is per-workspace state
 // under <workspace>/.yolo/prism/, and `yolo config diff` is the command for it.
 func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain bool, out io.Writer, color bool) error {
 	// A11: resolve ${workspace} exactly as the boot path does, so what `render`
@@ -270,12 +271,13 @@ func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain 
 	// yolo-OWNED surface that destination is yolo's previous output, so every key
 	// yolo had written came back labelled `host` — mise's computed [tools] table
 	// reported as host-provided, and a claude `model` present in no boot layer
-	// printed as if composed. The jail hands host bytes to exactly two surfaces
-	// (surfaceHasHostLayer, bounded by AgentSpec.HostFiles' two entries), so
-	// matching that is what makes render a faithful preview (§6) rather than a
-	// re-read of its own output.
+	// printed as if composed. Which surfaces the jail hands host bytes to is
+	// Surface.HasHostLayer, the same predicate the boot render reads
+	// (entrypoint.hostSurfaceBytes), so matching it is what makes render a faithful
+	// preview (§6) rather than a re-read of its own output. It was a hand-maintained
+	// two-entry map here until docs/design/host-render-target.md §3.4's payoff landed.
 	var hostBytes []byte
-	if surfaceHasHostLayer[s.Agent+"/"+s.Name] {
+	if s.HasHostLayer() {
 		hostBytes, _ = os.ReadFile(expandHome(s.Path)) // absent host file => empty layer
 	}
 
@@ -296,7 +298,7 @@ func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain 
 		// A7: say what this preview leaves out, on the surfaces where it matters.
 		// Silently omitting the computed layer is how the old output managed to
 		// attribute mise's computed [tools] table to `host` without anyone noticing.
-		if surfaceHasComputedLayer[s.Agent+"/"+s.Name] {
+		if surfaceHasComputedLayer(s) {
 			pr.Printf("  [dim](this surface also has a `computed` layer, not shown: it is " +
 				"built per-boot from jail paths — see `yolo config ls`)[/dim]")
 		}

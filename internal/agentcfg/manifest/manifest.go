@@ -178,6 +178,23 @@ func (s Surface) ResolvedMode() string {
 	return s.Mode
 }
 
+// HasHostLayer reports whether this surface composes a `host` layer — the user's own
+// version of the file, carried in from outside. It is exactly "HostSource is set", and it
+// exists so that fact has ONE spelling rather than one per reader.
+//
+// THE READERS ARE ON BOTH SIDES OF THE CONTAINER WALL, which is the whole reason this is a
+// method. The boot render asks it to decide whether to read the /ctx mount
+// (entrypoint.hostSurfaceBytes); the host-side config verbs ask it to decide whether to
+// read the real file — `config ls`'s `host` column (cli.builtinLayers), `config render`'s
+// preview (cli.renderSurface) and `config reset`'s pure re-render
+// (cli.truncateSurfaceToPureRender). Those three used to consult a hand-maintained
+// `map[string]bool` of "agent/name" beside the CLI, whose comment justified itself by a
+// two-entry Go bound that no longer exists — the grants are pack DATA now
+// (docs/design/host-render-target.md §3.4). A surface's own HostSource is the declaration;
+// a map keyed on identity cannot answer for a surface it has never heard of, and answering
+// wrongly means `config ls` prints a layer stack the jail does not compose.
+func (s Surface) HasHostLayer() bool { return s.HostSource != "" }
+
 // Key returns the (Agent, Name) identity used to detect duplicates.
 func (s Surface) Key() SurfaceKey { return SurfaceKey{Agent: s.Agent, Name: s.Name} }
 

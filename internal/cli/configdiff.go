@@ -813,8 +813,13 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 		return err
 	}
 	sub := agentcfg.SubstituteWorkspace(s, containerWorkspace)
+	// Surface.HasHostLayer, not a table beside this file: the surfaces the boot render
+	// hands host bytes to are the ones whose HostSource is set, and re-rendering WITHOUT
+	// the host layer for a surface that has one would write yolo's defaults over the
+	// user's own keys. This was the fourth reader of the retired surfaceHasHostLayer map
+	// (docs/design/host-render-target.md §3.4).
 	var hostBytes []byte
-	if surfaceHasHostLayer[sub.Agent+"/"+sub.Name] {
+	if sub.HasHostLayer() {
 		hostBytes, _ = os.ReadFile(path)
 	}
 	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub, HostBytes: hostBytes})

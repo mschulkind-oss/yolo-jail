@@ -137,34 +137,74 @@ const (
 	emptyArrayName = "yolo_empty_array_sentinel"
 )
 
-// Derive implements DeriveVM on the same gopher-lua VM as Run. It builds the
-// sandbox identically (openSandboxLibs), exposes the live tables + tombstone as
-// ctx, runs the registration script, invokes the (agent, surface) derive, and
-// marshals the returned table back — converting the tombstone sentinel to Go nil.
-func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, error) {
+// deriveSession is ONE registration run of a derive script: the sandboxed VM, the ctx
+// table it exposes, and the producer tables the script's `yolo.derive` / `yolo.env` calls
+// filled — stopping short of invoking anything.
+//
+// It exists because two readers need that state and MUST NOT be able to disagree about
+// what a registration is. Derive invokes one producer and marshals its return;
+// DeriveRegistrations only lists what registered, which is how `yolo config ls` derives
+// its `computed` column (docs/design/host-render-target.md §3.4). Sharing the setup is
+// the whole point: the column and the boot render then answer "does this surface have a
+// computed layer?" from one execution of one script, so the column cannot drift from the
+// render the way the hand-maintained Go map it replaced had — that map was missing three
+// of the surfaces the shipped packs register.
+//
+// The caller closes it.
+type deriveSession struct {
+	L        *lua.LState
+	ctxTable *lua.LTable
+	derives  map[deriveKey]*lua.LFunction
+	envs     map[string]*lua.LFunction
+	sentinel *lua.LUserData
+	emptyArr *lua.LUserData
+	cancel   context.CancelFunc
+}
+
+// deriveKey identifies one registered surface producer. Was a function-local type inside
+// Derive; package-level now because the session carries the table across two readers.
+type deriveKey struct{ agent, surface string }
+
+// close releases the VM. cancel FIRST, then the state, which is the order the two
+// deferred statements this replaced ran in.
+func (s *deriveSession) close() {
+	s.cancel()
+	s.L.Close()
+}
+
+// newDeriveSession builds the sandbox identically to Run (openSandboxLibs), exposes the
+// live tables plus the two sentinels as ctx, and RUNS the script — which is what performs
+// the registrations. It invokes no producer.
+func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSession, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("luahook: nil derive ctx")
 	}
 
 	L := lua.NewState(lua.Options{SkipOpenLibs: true})
-	defer L.Close()
 
 	timeout := vm.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
 	goCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	L.SetContext(goCtx)
 
+	s := &deriveSession{
+		L:       L,
+		cancel:  cancel,
+		derives: map[deriveKey]*lua.LFunction{},
+		envs:    map[string]*lua.LFunction{},
+	}
+
 	if err := openSandboxLibs(L); err != nil {
+		s.close()
 		return nil, err
 	}
 
 	// The tombstone sentinel: a unique userdata, exposed as ctx.tombstone and
 	// recognized by identity when marshalling back to Go nil.
-	sentinel := L.NewUserData()
-	L.SetGlobal(tombstoneName, sentinel)
+	s.sentinel = L.NewUserData()
+	L.SetGlobal(tombstoneName, s.sentinel)
 
 	// The empty-array sentinel. Lua cannot distinguish {} the array from {} the
 	// object, and the marshaller decodes an empty table to an empty OBJECT
@@ -172,18 +212,16 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 	// `args = []`, which must render as JSON `[]`, not `{}`) needs a distinct
 	// marker. ctx.empty_array is that marker, decoded back to []any{}. A NON-empty
 	// array is unambiguous (1..n integer keys) and needs no sentinel.
-	emptyArr := L.NewUserData()
-	L.SetGlobal(emptyArrayName, emptyArr)
+	s.emptyArr = L.NewUserData()
+	L.SetGlobal(emptyArrayName, s.emptyArr)
 
 	// yolo.derive(agent, surface, fn) records fn keyed by (agent, surface).
-	type key struct{ agent, surface string }
-	derives := map[key]*lua.LFunction{}
 	yolo := L.NewTable()
 	L.SetField(yolo, "derive", L.NewFunction(func(L *lua.LState) int {
 		agent := L.CheckString(1)
 		surface := L.CheckString(2)
 		fn := L.CheckFunction(3)
-		derives[key{agent, surface}] = fn
+		s.derives[deriveKey{agent, surface}] = fn
 		return 0
 	}))
 	// yolo.env(agent, fn) records fn keyed by agent ALONE. A separate table, not a
@@ -191,30 +229,45 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 	// to a file), so keying it by (agent, "env") would let a pack's REAL surface named
 	// "env" collide with it. Distinct storage is what makes the collision
 	// unrepresentable — see DeriveCtx.Env.
-	envs := map[string]*lua.LFunction{}
 	L.SetField(yolo, "env", L.NewFunction(func(L *lua.LState) int {
 		agent := L.CheckString(1)
 		fn := L.CheckFunction(2)
-		envs[agent] = fn
+		s.envs[agent] = fn
 		return 0
 	}))
 	guardUnknownAPI(L, yolo, ctx.UnknownAPI)
 	L.SetGlobal("yolo", yolo)
 
-	ctxTable, err := buildDeriveCtxTable(L, ctx, sentinel, emptyArr)
+	ctxTable, err := buildDeriveCtxTable(L, ctx, s.sentinel, s.emptyArr)
 	if err != nil {
+		s.close()
 		return nil, err
 	}
+	s.ctxTable = ctxTable
 	L.SetGlobal("ctx", ctxTable)
 
 	if err := L.DoString(script); err != nil {
+		s.close()
 		return nil, wrapLuaErr(err)
 	}
+	return s, nil
+}
 
-	fn, ok := derives[key{ctx.Agent, ctx.Surface}]
+// Derive implements DeriveVM on the same gopher-lua VM as Run. It runs the registration
+// script (newDeriveSession), invokes the derive fn registered for (ctx.Agent,
+// ctx.Surface), and marshals the returned table back — converting the tombstone sentinel
+// to Go nil.
+func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, error) {
+	s, err := newDeriveSession(vm, script, ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer s.close()
+
+	fn, ok := s.derives[deriveKey{ctx.Agent, ctx.Surface}]
 	who := fmt.Sprintf("derive for %s/%s", ctx.Agent, ctx.Surface)
 	if ctx.Env {
-		fn, ok = envs[ctx.Agent]
+		fn, ok = s.envs[ctx.Agent]
 		who = "env producer for " + ctx.Agent
 	}
 	if !ok {
@@ -223,21 +276,68 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 		// yolo.env composes no environment.
 		return nil, nil
 	}
-	if err := L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, ctxTable); err != nil {
+	if err := s.L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, s.ctxTable); err != nil {
 		return nil, wrapLuaErr(err)
 	}
-	ret := L.Get(-1)
-	L.Pop(1)
+	ret := s.L.Get(-1)
+	s.L.Pop(1)
 
 	tbl, isTable := ret.(*lua.LTable)
 	if !isTable {
 		return nil, fmt.Errorf("luahook: %s returned %s, want a table (the computed layer)",
 			who, ret.Type())
 	}
-	out, err := deriveTableToGo(tbl, sentinel, emptyArr)
+	out, err := deriveTableToGo(tbl, s.sentinel, s.emptyArr)
 	if err != nil {
 		return nil, err
 	}
+	return out, nil
+}
+
+// DeriveRegistration is one `yolo.derive(agent, surface, fn)` a script performed: which
+// surface has a producer, without the producer itself.
+//
+// A luahook-local type rather than manifest.SurfaceKey on purpose: manifest and luahook
+// are siblings neither of which imports the other (a Surface carries the transform PATH,
+// never a VM), and a reporting type is not worth being the first edge between them.
+// packload maps it to a SurfaceKey, which is where the two vocabularies already meet.
+type DeriveRegistration struct {
+	// Agent is the first argument of the yolo.derive call.
+	Agent string
+	// Surface is the second — the per-agent surface name, not a path.
+	Surface string
+}
+
+// DeriveRegistrations reports which (agent, surface) pairs the script registers a
+// producer for, sorted. It is "which surfaces have a computed layer?", answered by
+// RUNNING the registrations rather than by a table maintained beside a reader.
+//
+// The producers are not invoked, so this is safe to call for a surface that does not
+// exist and cheap enough for a reporting command: it costs one DoString of the script,
+// which is the same work the registration half of Derive already does per surface.
+//
+// TOLERANT of an unknown `yolo.<name>`, for the reason DeriveCtx.UnknownAPI gives and
+// then some: a listing that refused a script written for a newer yolo would report "no
+// computed layer" for every surface that script serves — the silent-skip shape
+// host-render-target.md §6.2 exists to prevent — and the caller here is a read-mostly
+// reporting path with nothing to fail into.
+func (vm GopherLuaVM) DeriveRegistrations(script string) ([]DeriveRegistration, error) {
+	s, err := newDeriveSession(vm, script, &DeriveCtx{UnknownAPI: func(string) {}})
+	if err != nil {
+		return nil, err
+	}
+	defer s.close()
+
+	out := make([]DeriveRegistration, 0, len(s.derives))
+	for k := range s.derives {
+		out = append(out, DeriveRegistration{Agent: k.agent, Surface: k.surface})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Agent != out[j].Agent {
+			return out[i].Agent < out[j].Agent
+		}
+		return out[i].Surface < out[j].Surface
+	})
 	return out, nil
 }
 

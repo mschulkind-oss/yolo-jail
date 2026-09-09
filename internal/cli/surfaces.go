@@ -69,3 +69,56 @@ func surfaceManifest() *manifest.Manifest {
 	})
 	return allSurfacesMan
 }
+
+var (
+	computedOnce sync.Once
+	computedSet  map[manifest.SurfaceKey]bool
+)
+
+// surfaceHasComputedLayer reports whether the boot render hands this surface a per-boot
+// dynamic (`computed`) layer — the MCP/LSP/provider tables and the mise pins, as opposed
+// to the static layers a manifest carries.
+//
+// DERIVED, and that is the point of it. This was a hand-maintained
+// `map[string]bool{"claude/settings": true, …}` sitting beside `config ls` (with a `host`
+// twin next to it), restating what the render knows structurally — the payoff
+// docs/design/host-render-target.md §3.4 promised and step 3 shipped without. It had
+// drifted, and by three surfaces: `config ls` reported no computed layer for pi/settings,
+// pi/models or claude/config (pi/models composes from nothing else, so it listed with an
+// EMPTY layer stack), and `config render --explain` omitted its "this surface also has a
+// computed layer, not shown" note for the two of those it renders. A map keyed on identity
+// cannot answer for a surface nobody remembered to add, which is why the answer now comes
+// from the packs.
+//
+// Two sources, because there are two producers and no third:
+//
+//   - a PACK surface's dynamic layer comes from its pack's `yolo.derive(agent, surface,
+//     fn)` registration, read by packload.DerivedSurfaces;
+//   - a CORE surface's comes from core's own Go (mise/config, via
+//     entrypoint.ConfigureMisePrism), declared at agentcfg.CoreComputedSurfaces.
+//
+// Cached like surfaceManifest, for the same reason and beside it: `config ls` asks per
+// surface, and each answer costs one run of a pack's registration script.
+func surfaceHasComputedLayer(s manifest.Surface) bool {
+	computedOnce.Do(func() {
+		computedSet = map[manifest.SurfaceKey]bool{}
+		for _, k := range agentcfg.CoreComputedSurfaces() {
+			computedSet[k] = true
+		}
+		for _, p := range packload.Embedded() {
+			derived, err := packload.DerivedSurfaces(p)
+			if err != nil {
+				// A pack whose derive.lua will not even register is a yolo bug for an
+				// embedded pack, and the boot path fails loudly on the same input (A12).
+				// These are read-mostly reporting commands: show what the rest of the
+				// corpus says rather than refusing to list anything — the same
+				// disposition surfaceManifest takes for a broken embedded pack.
+				continue
+			}
+			for _, k := range derived {
+				computedSet[k] = true
+			}
+		}
+	})
+	return computedSet[s.Key()]
+}

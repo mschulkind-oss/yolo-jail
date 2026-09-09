@@ -457,7 +457,11 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 // layers. Treating that as an error would make a jail refuse to start because the user
 // had never configured the tool on the host.
 func hostSurfaceBytes(e *Env, surface manifest.Surface) []byte {
-	if surface.HostSource == "" {
+	// Through Surface.HasHostLayer rather than an inline HostSource test: the host-side
+	// `config` verbs decide the same thing about the same surfaces, and this is the call
+	// site that makes the predicate the boot path's own rather than a claim the CLI makes
+	// about it (docs/design/host-render-target.md §3.4).
+	if !surface.HasHostLayer() {
 		return nil
 	}
 	data, _ := os.ReadFile(remapCtx(surface.HostSource))

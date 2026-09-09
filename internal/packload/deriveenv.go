@@ -46,6 +46,41 @@ func DeriveScript(p *Pack) string {
 	return string(data)
 }
 
+// DerivedSurfaces reports which of a pack's surfaces its derive.lua registers a producer
+// for — the pack's own answer to "which of my surfaces get a computed layer", read by
+// running the script's registrations (luahook.DeriveRegistrations).
+//
+// A pack with no derive.lua registers nothing and gets (nil, nil): every one of its
+// surfaces composes from its static layers alone.
+//
+// This is the DECLARATION the host-side `computed` column is derived from
+// (docs/design/host-render-target.md §3.4). There is no field in pack.json to read
+// instead, and that is the finding rather than a gap: a computed layer is produced by a
+// `yolo.derive(agent, surface, fn)` call, so the registration IS the declaration, and any
+// manifest flag beside it would be a second statement of one fact — exactly the drift the
+// hand-maintained CLI map demonstrated: it was missing claude/config, pi/settings and
+// pi/models, three surfaces the shipped packs register a producer for.
+//
+// The identities are NOT checked against the pack's own surfaces. A registration naming a
+// surface the pack does not declare is inert at the boot render (nothing invokes it) and
+// is reported as such by the fold's own note mechanism; filtering here would make this
+// disagree with what the render does.
+func DerivedSurfaces(p *Pack) ([]manifest.SurfaceKey, error) {
+	script := DeriveScript(p)
+	if script == "" {
+		return nil, nil
+	}
+	regs, err := (luahook.GopherLuaVM{}).DeriveRegistrations(script)
+	if err != nil {
+		return nil, fmt.Errorf("pack %s: reading derive.lua registrations: %w", p.Name, err)
+	}
+	out := make([]manifest.SurfaceKey, 0, len(regs))
+	for _, r := range regs {
+		out = append(out, manifest.SurfaceKey{Agent: r.Agent, Name: r.Surface})
+	}
+	return out, nil
+}
+
 // AgentEnv composes one agent's provider environment: it runs the yolo.env producer the
 // agent's own pack registered, over the composed providers table, and returns what the
 // producer emitted as agentenv.Vars, sorted by key — a map has no order, and an

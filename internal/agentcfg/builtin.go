@@ -102,6 +102,26 @@ var miseConfig = manifest.Surface{
 	Codec: "toml",
 }
 
+// CoreComputedSurfaces names the surfaces CORE hands a per-boot dynamic (`computed`)
+// layer, and it is the ONE half of that question that cannot be read off a declaration.
+//
+// A pack surface's computed layer comes from a `yolo.derive(agent, surface, fn)`
+// registration in the pack's derive.lua, so the registration is the declaration and
+// packload.DerivedSurfaces reads it. Core's own surfaces have no pack and therefore no
+// derive.lua: mise/config's [tools] table is built in Go by entrypoint.ConfigureMisePrism
+// and handed straight to the engine (pinned by TestMisePrismInjectedPinLands). There is no
+// data to read, so this states it — beside the surface it describes rather than beside a
+// reader, which is the same argument Surface.Mode's doc comment records and the reason
+// `yolo config ls` no longer keeps a table of its own
+// (docs/design/host-render-target.md §3.4).
+//
+// It grows only when CORE grows a surface with a Go-supplied dynamic layer. Every name
+// must be a real core surface — TestCoreComputedSurfacesAreCoreSurfaces refuses a stale
+// entry, which is what a lookup table beside a CLI never had.
+func CoreComputedSurfaces() []manifest.SurfaceKey {
+	return []manifest.SurfaceKey{miseConfig.Key()}
+}
+
 // BuiltinManifest returns the yolo-shipped manifest of all surfaces yolo knows
 // how to compose. It carries pi, claude (settings + config), gemini, copilot
 // (config + mcp + lsp), opencode, codex, agy (settings + mcp), and mise

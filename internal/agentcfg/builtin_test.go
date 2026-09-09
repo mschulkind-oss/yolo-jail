@@ -497,3 +497,28 @@ func TestManifestWithOverridesBuiltin(t *testing.T) {
 		t.Errorf("expected exactly one codex/config, got %d", count)
 	}
 }
+
+// TestCoreComputedSurfacesAreCoreSurfaces is the guard CoreComputedSurfaces' doc comment
+// promises: every identity it names must be a surface core actually declares.
+//
+// It is the one statement about a computed layer that is not derived — core's own dynamic
+// layers are built in Go, so there is no declaration to read (see the doc comment) — and
+// the failure mode of a stale name is the same one the hand-maintained CLI maps had: a
+// `yolo config ls` column that claims a layer stack the render does not compose
+// (docs/design/host-render-target.md §3.4). One entry, and it cannot go stale silently.
+func TestCoreComputedSurfacesAreCoreSurfaces(t *testing.T) {
+	m := BuiltinManifest()
+	keys := CoreComputedSurfaces()
+	if len(keys) == 0 {
+		t.Fatal("CoreComputedSurfaces is empty — mise/config's [tools] table IS a " +
+			"computed layer (entrypoint.ConfigureMisePrism), so an empty list means " +
+			"`yolo config ls` has stopped reporting it")
+	}
+	for _, k := range keys {
+		if _, ok := m.Lookup(k.Agent, k.Name); !ok {
+			t.Errorf("CoreComputedSurfaces names %s, which is not a core surface — a core "+
+				"surface that moved into a pack declares its computed layer through that "+
+				"pack's derive.lua instead (packload.DerivedSurfaces)", k)
+		}
+	}
+}
