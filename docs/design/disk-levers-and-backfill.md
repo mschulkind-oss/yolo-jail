@@ -1248,12 +1248,18 @@ row cannot carry them.
     > 3. **The CAS claim is measured, not asserted.** `lmdb_store/immutable/files/<2-hex>/<64-hex>`
     >    — and the 64-hex name IS the sha256 of the file's contents, verified on a 232 MB blob
     >    2026-09-09; those files are mode `r-xr-xr-x`.
-    > 4. **One gate the ruling does not name: the cold-start refusal.** An EMPTY host store aliased
-    >    over a warm private copy hides a cache and buys nothing, forcing exactly the unbounded
-    >    re-fetch [§5.2](#52-two-tiers-one-mapping)'s offered tier exists to never impose without
-    >    asking (P4). Emptiness is one `ReadDir`, so it costs nothing. The partial case — a small
-    >    host store over a large private one — is allowed: it is a one-time partial re-fetch into a
-    >    store BOTH sides then reuse.
+    > 4. **Two gates the ruling does not name, both found by asking what the happy path costs.**
+    >    (a) **The cold-start refusal.** An EMPTY host store aliased over a warm private copy hides
+    >    a cache and buys nothing, forcing exactly the unbounded re-fetch
+    >    [§5.2](#52-two-tiers-one-mapping)'s offered tier exists to never impose without asking (P4).
+    >    Emptiness is one `ReadDir`, so it costs nothing. The partial case — a small host store over
+    >    a large private one — is allowed: it is a one-time partial re-fetch into a store BOTH sides
+    >    then reuse. (b) **`cache_relocations` wins.** A user who relocated `pants` moved 40 G off
+    >    the disk `$HOME` is on; the alias source IS under the home cache, and both mounts would
+    >    apply (podman orders by destination depth, so the deeper alias wins for its own subtree),
+    >    putting 27 G of it silently back — *the exact failure `cache_relocations` exists to
+    >    prevent, caused by the feature meant to save space*. An explicit config decision outranks
+    >    an automatic optimisation, so a store whose cache segment is relocated is never aliased.
     > 5. **Concurrency adds no new class, and yolo serialises nothing.** It cannot: it does not
     >    launch the host's tool. It does not need to either — yolo ALREADY pools one `lmdb_store`
     >    across every workspace's jail (that is how the 27 G got there), and each jail is its own

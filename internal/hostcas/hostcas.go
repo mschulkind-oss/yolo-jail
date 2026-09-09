@@ -229,6 +229,10 @@ const (
 	// CodeWouldColdStart — the host store is EMPTY while the jail's private copy
 	// is not, so aliasing would hide a warm cache behind an empty one.
 	CodeWouldColdStart Code = "would-cold-start"
+	// CodeRelocated — the user moved this cache subdir somewhere else with
+	// `cache_relocations`, which is an EXPLICIT decision about where these bytes
+	// live. An automatic optimisation does not overrule one.
+	CodeRelocated Code = "relocated-by-config"
 )
 
 // Disposition is what one launch — or one inventory run — decided about one
@@ -291,6 +295,10 @@ type Facts struct {
 	// JailCacheHost is paths.GlobalCache() — the HOST side of the directory bound
 	// at the jail's ~/.cache, and therefore where the stranded private copy lives.
 	JailCacheHost string
+	// RelocatedSegments are the top-level cache subdirs the user moved elsewhere
+	// with `cache_relocations`. A store under one of them is NOT aliased — see
+	// CodeRelocated.
+	RelocatedSegments []string
 	// Probe gathers a Presence. nil => DefaultProbe.
 	Probe func(string) Presence
 }
@@ -380,6 +388,23 @@ func decide(s Store, f Facts, probe func(string) Presence) Disposition {
 		return d
 	}
 
+	// AN EXPLICIT CONFIG DECISION OUTRANKS AN AUTOMATIC OPTIMISATION, and this one
+	// would otherwise be defeated silently in the direction its own feature exists
+	// to prevent: a user relocates `pants` to get 40 G off the disk $HOME is on,
+	// and the alias would put `pants/lmdb_store` — 27 G of it — straight back onto
+	// that disk, since the host store IS under the user's home cache. Both mounts
+	// would apply (podman orders by destination depth, so the deeper one wins for
+	// its own subtree), which is exactly what makes the loss silent.
+	for _, seg := range f.RelocatedSegments {
+		if seg == "" || seg != firstSegment(s.CacheRel) {
+			continue
+		}
+		d.Code, d.Reason = CodeRelocated, "cache_relocations moves "+seg+
+			" to storage you chose, and aliasing the host's copy of "+s.CacheRel+
+			" would put those bytes back under your home cache"
+		return d
+	}
+
 	src := probe(d.Source)
 	switch {
 	case !src.Exists:
@@ -416,6 +441,16 @@ func decide(s Store, f Facts, probe func(string) Presence) Disposition {
 
 	d.Aliased, d.Code = true, CodeAliased
 	return d
+}
+
+// firstSegment is a store's top-level cache subdir — the granularity
+// `cache_relocations` works at, which is why the relocation gate compares at
+// this level rather than on the whole relative path.
+func firstSegment(rel string) string {
+	if i := strings.IndexByte(rel, '/'); i >= 0 {
+		return rel[:i]
+	}
+	return rel
 }
 
 // under reports whether child is base or a descendant of base.

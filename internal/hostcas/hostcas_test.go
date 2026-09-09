@@ -120,6 +120,17 @@ func TestPlanGates(t *testing.T) {
 			}
 		},
 	}, {
+		// AN EXPLICIT CONFIG DECISION OUTRANKS AN AUTOMATIC OPTIMISATION. Without
+		// this gate both mounts apply and the deeper alias wins for its own
+		// subtree, so a user who relocated `pants` to get 40 G off their home disk
+		// silently gets 27 G of it back — the exact failure cache_relocations
+		// exists to prevent, caused by the feature meant to save space.
+		name: "the user relocated this cache subdir",
+		want: CodeRelocated,
+		mut: func(_ *testing.T, f *Facts, _, _ string) {
+			f.RelocatedSegments = []string{"other", firstSegment(Stores[0].CacheRel)}
+		},
+	}, {
 		name: "host store absent",
 		want: CodeAbsent,
 		mut: func(t *testing.T, f *Facts, hostCache, _ string) {
@@ -184,6 +195,29 @@ func TestPlanGates(t *testing.T) {
 				t.Error("no reason — a decline is disclosed, never silent (§5.4)")
 			}
 		})
+	}
+}
+
+// The relocation gate is keyed on the store's TOP-LEVEL segment, which is the
+// granularity cache_relocations works at — so an unrelated relocation must not
+// suppress the alias, or one moved cache would switch the feature off wholesale.
+func TestAnUnrelatedRelocationDoesNotBlockTheAlias(t *testing.T) {
+	f, _, _ := facts(t)
+	f.RelocatedSegments = []string{"huggingface", "uv", ""}
+	d := one(t, f)
+	if !d.Aliased {
+		t.Fatalf("declined with %q (%s) — only a relocation of THIS store's segment "+
+			"(%q) may block it", d.Code, d.Reason, firstSegment(Stores[0].CacheRel))
+	}
+}
+
+func TestFirstSegment(t *testing.T) {
+	for in, want := range map[string]string{
+		"pants/lmdb_store": "pants", "pants": "pants", "a/b/c": "a", "": "",
+	} {
+		if got := firstSegment(in); got != want {
+			t.Errorf("firstSegment(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

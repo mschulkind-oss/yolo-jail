@@ -44,6 +44,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -266,6 +267,17 @@ func fillDefaults(o *Options) {
 	}
 	if o.HostCAS == nil {
 		o.HostCAS = func() []hostcas.Disposition {
+			// The user's cache_relocations, for the gate that refuses to alias a
+			// store whose segment the user moved. Read with the loader's own scope
+			// rule (host user config only) and its own in-jail inertness, so this
+			// answer and the launcher's are the same answer.
+			var relocated []string
+			rels, err := config.LoadCacheRelocations(nil)
+			if err == nil {
+				for _, r := range rels {
+					relocated = append(relocated, r.Subdir)
+				}
+			}
 			return hostcas.Plan(hostcas.Facts{
 				Runtime:       o.DetectRuntime(),
 				IsMacOS:       paths.IsMacOS,
@@ -277,7 +289,8 @@ func fillDefaults(o *Options) {
 				// path this row names is the one a launch FROM THIS FRAME would
 				// strand. That is the same expression the launcher passes, which is
 				// what makes the two answers comparable at all.
-				JailCacheHost: o.GlobalCache(),
+				JailCacheHost:     o.GlobalCache(),
+				RelocatedSegments: relocated,
 			})
 		}
 	}

@@ -912,7 +912,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// yolo that shipped before this — so refusing a launch over it would trade a
 	// working jail for a preference about where bytes live. Every decline is
 	// disclosed instead (noteHostCASAlias, at the banner).
-	hostCAS := prepareHostCASAlias(o.planHostCASAlias(rt))
+	hostCAS := prepareHostCASAlias(o.planHostCASAlias(rt, relocations))
 
 	// User host_files (docs/plans/host-file-staging.md). Read with the same
 	// scope rule as cache_relocations — a SOURCE-BEARING entry comes only from the

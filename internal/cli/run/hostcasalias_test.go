@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 )
 
@@ -188,7 +189,7 @@ func TestPlanHostCASAliasReadsTheGetenvSeam(t *testing.T) {
 		},
 		HostCASProbe: hostcas.DefaultProbe,
 	}
-	ds := o.planHostCASAlias("podman")
+	ds := o.planHostCASAlias("podman", nil)
 	if len(ds) != len(hostcas.Stores) {
 		t.Fatalf("planHostCASAlias returned %d dispositions, want %d", len(ds), len(hostcas.Stores))
 	}
@@ -198,6 +199,50 @@ func TestPlanHostCASAliasReadsTheGetenvSeam(t *testing.T) {
 	}
 	if !strings.HasPrefix(ds[0].Source, seamHome) {
 		t.Errorf("Source = %q, want it under the seam's home %q", ds[0].Source, seamHome)
+	}
+}
+
+// THE CALL-SITE PIN for the relocation gate. hostcas holds the rule; nothing
+// there notices the launcher forgetting to HAND IT the user's relocations, which
+// is silent and re-opens the whole failure: the alias would put a relocated
+// cache's biggest subtree back under the home directory the user moved it off.
+func TestPlanHostCASAliasPassesTheUsersRelocationsThrough(t *testing.T) {
+	seamHome := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	store := filepath.Join(seamHome, ".cache", hostcas.Stores[0].CacheRel)
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "data.mdb"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := &Options{
+		Getenv: func(k string) string {
+			if k == "HOME" {
+				return seamHome
+			}
+			return ""
+		},
+		HostCASProbe: hostcas.DefaultProbe,
+	}
+	seg := hostcas.Stores[0].CacheRel
+	if i := strings.IndexByte(seg, '/'); i >= 0 {
+		seg = seg[:i]
+	}
+
+	if ds := o.planHostCASAlias("podman", nil); !ds[0].Aliased {
+		t.Fatalf("baseline is not aliased (%q: %s) — the relocation case below would "+
+			"pass for the wrong reason", ds[0].Code, ds[0].Reason)
+	}
+	ds := o.planHostCASAlias("podman", []config.CacheRelocation{
+		{Subdir: seg, Target: "/data/relocated/" + seg},
+	})
+	if ds[0].Aliased {
+		t.Error("aliased a store the user relocated — the launcher is not passing " +
+			"cache_relocations into the plan")
+	}
+	if ds[0].Code != hostcas.CodeRelocated {
+		t.Errorf("code = %q, want %q", ds[0].Code, hostcas.CodeRelocated)
 	}
 }
 
@@ -390,6 +435,7 @@ func TestRunContainerWiresTheHostCASAlias(t *testing.T) {
 
 	calls := map[string]token.Pos{}
 	fieldSet := false
+	planArgs := []string(nil)
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
 		if !ok || fd.Name.Name != "runContainer" {
@@ -407,6 +453,15 @@ func TestRunContainerWiresTheHostCASAlias(t *testing.T) {
 				}
 				if _, seen := calls[name]; !seen && name != "" {
 					calls[name] = node.Pos()
+					if name == "planHostCASAlias" {
+						for _, a := range node.Args {
+							if id, ok := a.(*ast.Ident); ok {
+								planArgs = append(planArgs, id.Name)
+							} else {
+								planArgs = append(planArgs, "<expr>")
+							}
+						}
+					}
 				}
 			case *ast.KeyValueExpr:
 				if k, ok := node.Key.(*ast.Ident); ok && k.Name == "hostCASAlias" {
@@ -430,6 +485,14 @@ func TestRunContainerWiresTheHostCASAlias(t *testing.T) {
 	if calls["planHostCASAlias"] > calls["assembleRunCmd"] {
 		t.Error("planHostCASAlias runs AFTER assembleRunCmd — the argv would be assembled from " +
 			"a plan that does not exist yet")
+	}
+	// THE ARGUMENTS, not just the call. Passing nil for the relocations compiles,
+	// leaves every other assertion here green, and silently re-opens the failure
+	// the relocation gate exists to close: the alias would put a relocated cache's
+	// biggest subtree back under the home directory the user moved it off.
+	if len(planArgs) != 2 || planArgs[0] != "rt" || planArgs[1] != "relocations" {
+		t.Errorf("runContainer calls planHostCASAlias%v, want (rt, relocations) — the "+
+			"user's cache_relocations must reach the gate that honors them", planArgs)
 	}
 	if calls["prepareHostCASAlias"] > calls["assembleRunCmd"] {
 		t.Error("prepareHostCASAlias runs AFTER assembleRunCmd — podman kills the container " +

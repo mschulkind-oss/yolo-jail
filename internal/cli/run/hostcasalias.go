@@ -20,6 +20,7 @@ package run
 import (
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -31,7 +32,15 @@ import (
 // here that a jail should not start through. Every negative outcome is the status
 // quo — the jail keeps pooling its own copy — which is exactly the behaviour of
 // every yolo that shipped before this.
-func (o *Options) planHostCASAlias(rt string) []hostcas.Disposition {
+// relocations are the user's `cache_relocations`, already loaded by the
+// pipeline. They are passed IN rather than read here because an explicit config
+// decision about where a cache lives outranks this optimisation, and the gate
+// that enforces that lives in hostcas with the rest of them.
+func (o *Options) planHostCASAlias(rt string, relocations []config.CacheRelocation) []hostcas.Disposition {
+	relocated := make([]string, 0, len(relocations))
+	for _, r := range relocations {
+		relocated = append(relocated, r.Subdir)
+	}
 	return hostcas.Plan(hostcas.Facts{
 		Runtime: rt,
 		IsMacOS: o.IsMacOS,
@@ -43,9 +52,10 @@ func (o *Options) planHostCASAlias(rt string) []hostcas.Disposition {
 		// of its inputs. goldenOptions returns "" for every variable, which is what
 		// keeps every golden argv in this package free of an alias mount without
 		// any fixture having to know this feature exists.
-		HostCacheRoot: hostcas.CacheRoot(o.Getenv),
-		JailCacheHost: paths.GlobalCache(),
-		Probe:         o.HostCASProbe,
+		HostCacheRoot:     hostcas.CacheRoot(o.Getenv),
+		JailCacheHost:     paths.GlobalCache(),
+		RelocatedSegments: relocated,
+		Probe:             o.HostCASProbe,
 	})
 }
 
