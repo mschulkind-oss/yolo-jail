@@ -37,7 +37,7 @@ copies of an agent CLI should exist on a machine, which mechanism collapses whic
 one costs across filesystems and workspace counts. It does **not** own the mechanisms themselves.
 The capture design is [`program-delivery.md`](program-delivery.md) [§6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s and stays there. The
 question *"who triggers a reclaimer"* is [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s
-([OQ-DF2](minimal-disk-footprint.md#11-open-questions)), and [§9](#9-what-i-would-build-in-order) below routes the answer there rather than re-deciding it. The home layout is
+([OQ-DF2](minimal-disk-footprint.md#112-open-questions)), and [§9](#9-what-i-would-build-in-order) below routes the answer there rather than re-deciding it. The home layout is
 [`jail-home.md`](jail-home.md)'s. Nothing in [§2](#2-the-number-decomposed)–[§4](#4-materialize-is-conditional-on-reflink-and-the-sign-inverts-without-it) restates a measurement those docs already carry;
 where a figure appears in both, I re-took it.
 
@@ -303,14 +303,14 @@ for.
 does not: the self-updater keeps writing new version dirs into a writable per-workspace home whether
 or not the first one arrived from a store, so under capture this prune has exactly the same work to
 do. The trigger placement is the interesting half, and it is
-[`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF2](minimal-disk-footprint.md#11-open-questions)'s option (i) — delete-on-success at
+[`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF2](minimal-disk-footprint.md#112-open-questions)'s option (i) — delete-on-success at
 the write path — which is that doc's own leaning, for its own reasons (thrash-free by construction,
 narrowest blast radius). Under evergreen the write path is `_update`, which is being built anyway.
 
 > **Verdict: adopt, and land it with evergreen rather than before or after it.** It is the only
 > option that touches 83 % of the measured cost, it has no filesystem dependence and no oracle
 > problem (P3), and it is ~30 lines in a code path evergreen is already opening. Its trigger is
-> [OQ-DF2](minimal-disk-footprint.md#11-open-questions)'s to rule, not this doc's.
+> [OQ-DF2](minimal-disk-footprint.md#112-open-questions)'s to rule, not this doc's.
 >
 > ✅ **SHIPPED 2026-09-04**, with evergreen, as `_prune_versions` in the native launcher template
 > (`internal/entrypoint/shims.go`): 39 lines of shell for the function itself, close to the ~30
@@ -425,7 +425,7 @@ copy first, so it saves steady-state disk but no bandwidth and no transient disk
 > **Verdict: adopt as the measurement, before adopting anything as the fix.** Whatever else happens,
 > somebody should type `yolo prune` on a multi-workspace machine and report what the dedup line says.
 > That number is the only honest input to *"how much is the N axis actually worth on a real
-> machine"*, and it is currently unknown to everyone (P4). Its trigger is again [OQ-DF2](minimal-disk-footprint.md#11-open-questions)'s.
+> machine"*, and it is currently unknown to everyone (P4). Its trigger is again [OQ-DF2](minimal-disk-footprint.md#112-open-questions)'s.
 
 ### 5.5 A11 — Capture as designed, disk claim intact
 
@@ -553,7 +553,7 @@ installed into. No enumeration, no store, no oracle. Reclaims 1018.6 of 1223.4 m
 workspace at `K = 1`, on every filesystem and every backend. Built as `_prune_versions` in
 `internal/entrypoint`'s native launcher template, called from both the update arm and the
 cold-install arm — "whoever installed the new one" is the trigger, so both qualify. Its trigger
-placement is [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **[OQ-DF2](minimal-disk-footprint.md#11-open-questions)'s option (i)** —
+placement is [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **[OQ-DF2](minimal-disk-footprint.md#112-open-questions)'s option (i)** —
 the write path — which is that doc's own leaning and is still that doc's to rule formally.
 
 > **Two guards, both found by writing the tests first** (`internal/entrypoint/versionprune_test.go`).
@@ -596,7 +596,7 @@ is actually for.
   *justification* and *sequencing*, never its shape, and proposes reverting none of the four landed
   slices.
 - **Where an automatic reclaimer lives.** [`minimal-disk-footprint.md`](minimal-disk-footprint.md)
-  [OQ-DF2](minimal-disk-footprint.md#11-open-questions) owns the trigger question for every reclaimer yolo has. [§9](#9-what-i-would-build-in-order)'s first step names its answer as
+  [OQ-DF2](minimal-disk-footprint.md#112-open-questions) owns the trigger question for every reclaimer yolo has. [§9](#9-what-i-would-build-in-order)'s first step names its answer as
   that OQ's option (i); it does not rule it.
 - **The image ledgers.** Cache tars, the nix store closure and podman's image store are that same
   doc's [§3](#3-which-axis-each-mechanism-collapses), and they remain the larger line item by a wide margin — the host image-tar cache alone

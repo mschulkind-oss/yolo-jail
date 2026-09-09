@@ -299,7 +299,7 @@ Against the 2026-07-22 baseline ([`../plans/storage-lifecycle.md`](../plans/stor
 Retention existed and was opt-in: `PruneImageCache` keeps the newest 3 by mtime (`internal/prune/imagecache.go:15`;
 defaults `internal/prune/prunecmd.go:151`), reachable only through `yolo prune --apply`. Nothing calls it
 automatically; the only disk-budget knob, `prune.warn_threshold_gb`, is read by `yolo check` alone
-([`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF4](./minimal-disk-footprint.md#11-open-questions)'s finding). A loaded image is stored
+([`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF4](./minimal-disk-footprint.md#112-open-questions)'s finding). A loaded image is stored
 **three times**: the store closure (~3.22 GiB, kept alive by a durable GC root, `internal/image/gcroot.go:54`),
 the cache tar (3.28 GiB, podman: none since C3), and podman's own image store
 (`internal/prune/prunecmd.go:321` records that the first two are separate ledgers).
@@ -718,7 +718,7 @@ full-size tar during conversion and removes it when the load returns — peak di
 
 **The verdict [OQ-5](#101-decision-ledger) handed it.** This section originally hedged for "keep N tars, stream the rest". The
 ruling reversed the burden of proof: tars are a **bug**, so the target is **zero retained tars**, and the
-floor — [`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF1](./minimal-disk-footprint.md#11-open-questions) — was ruled the same day, *"stream,
+floor — [`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF1](./minimal-disk-footprint.md#112-open-questions) — was ruled the same day, *"stream,
 keep zero tars"*. C3 is that ruling implemented. **Verified on disk** (`streamload_test.go:60` fails the
 `Materialize` seam outright and asserts `cache/images` empty; the four pipe-failure classes are driven
 through a real pipe and told apart) and live ([§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5)). Backends: podman for the pipe form.
@@ -852,7 +852,15 @@ despite being the lower-value candidate of the pair for any single launch.
    installs into it, so counting it can never make the launcher stop being written after its own first
    success.
 
-### C6 — Layer the image so the delta is the unit of transfer. **Rejected 2026-08-15; premise MEASURED 2026-09-06 — re-opened as [OQ-6](#102-open-questions).**
+### C6 — Layer the image so the delta is the unit of transfer. **Rejected 2026-08-15; premise MEASURED 2026-09-06 — re-opened as [OQ-6](#102-open-questions), and CLOSED 2026-09-08 by a successor doc.**
+
+> [!IMPORTANT]
+> **This candidate has an owner elsewhere now.** [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md)
+> is C6's successor: it keeps the diagnosis and the "never a `fromImage` base" prescription and
+> replaces the mechanism, because `streamLayeredImage` cannot express a written layer plan at all —
+> nixpkgs' popularity contest assigns store paths to layers, so "yolo's own content on top" is not
+> something this generator can be asked for. Everything below is the argument that got here; the
+> design, its costs and its go/no-go live there. See [OQ-6](#102-open-questions)'s Answer.
 
 The 2026-08-15 reasoning: `streamLayeredImage` with `maxLayers = 100` (`flake.nix:983`) already gives popular
 store paths their own layer and `podman load` skips layers it already has, so a thin top image over a
@@ -986,7 +994,7 @@ was exercised at C8 (a nested jail booted on the mounted prefix, resolved its fl
 | C3 | Stream into the runtime, no tar | ~half of commits | 3.28 GiB write per rebuild; 404 GiB accrued | low–medium | podman | ✅ `be7b8591` ([OQ-5](#101-decision-ledger)); AC race closed `cc53b591` |
 | C4 | `packages:` from the mounted store | every `packages:` user | the `--impure` axis; ~3 GB per distinct list | **high** | podman + Linux + nix daemon | ✅ authorized and built 2026-09-06; opt-in `YOLO_STORE_PACKAGES=1` ([OQ-1](#101-decision-ledger)) |
 | C5 | `fullPackages` from the mounted store | ~half of commits | **1.91 GiB per rebuild (MEASURED 2026-09-06)** | high | same as C4 | ✅ built 2026-09-06 on C4's mechanism, under C4's one dial |
-| C6 | A stable layer chain; stream only the moved layers | ~half of commits | ~2.7 GB of podman storage per Go-only rebuild (MEASURED); ~26 s of a ~34 s measured build-plus-load pipeline is stream+load, of which ~17.6 s is podman's write share (MEASURED, [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)) | medium | podman | re-opened as [OQ-6](#102-open-questions); time split measured, load dominates — go/no-go still the maintainer's |
+| C6 | A stable layer chain; stream only the moved layers | ~half of commits | ~2.7 GB of podman storage per Go-only rebuild (MEASURED); ~26 s of a ~34 s measured build-plus-load pipeline is stream+load, of which ~17.6 s is podman's write share (MEASURED, [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load)) | medium | podman | **succeeded by [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md)** ([OQ-6](#102-open-questions) answered 2026-09-08): diagnosis and prescription upheld, mechanism replaced, go/no-go moved there |
 | C8 | yolo's own binaries by mount | **~half of commits — the dominant trigger** | the whole rebuild+load for every Go-only commit (MEASURED: the image store path no longer moves) | medium — see the security delta | all three | ✅ 2026-09-06 |
 
 > [!IMPORTANT]
@@ -1176,6 +1184,7 @@ their reasoning lives in the body sections that govern them. Two more were ruled
 | OQ-4 | **`packages:` stays workspace-scope** — *"yes, has to be."* Per [`gate-placement-principle.md`](./gate-placement-principle.md) Test 1, scope gates exist for host access; `packages:` grants a tool. **Fix the cost, never the scope** | 2026-08-25 | [§1.5](#15-the-multiplication-factor-packages-and---impure) |
 | OQ-5 | **404 GiB of cached tars is a BUG, not a configuration.** *"No reason to keep any of this around … minimal disk space."* The shipped GC work is *"nowhere near enough."* `yolo` **may** delete cached tars without `--apply`. Executed in [`minimal-disk-footprint.md`](minimal-disk-footprint.md) | 2026-08-25 | [§1.6](#16-what-it-has-actually-cost-on-disk), [§4](#4-candidates-ranked) C3, [§8](#8-what-this-does-not-cover), [§9](#9-risks) R4 |
 | OQ-7 | **MOOT — do not implement.** The question was whether the bundle's binaries should stop carrying the `git describe` stamp, so a `just install` that moved no image input stops minting a new image. [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) took the binaries out of the image, so stamped bytes are no longer image content: MEASURED 2026-09-06, two bundles differing only in their binaries' bytes evaluate to the SAME `.#ociImage.outPath` (and to different `.#installPrefix` paths, as they must). The cost the question existed to remove is gone; removing the stamp would now buy only a `runCommand` that copies seven files, at the price of the fallback the in-jail version banner keeps for a launcher that set no `YOLO_VERSION`. [§11](#11-what-to-do-first--dependency-ordered) step 8 is struck | 2026-09-06 | [§1.1](#11-what-triggers-a-rebuild-and-how-often) item 3, [§4](#4-candidates-ranked) C8 |
+| OQ-6 | **A stable layer chain gets built, by a successor mechanism, not by C6.** The diagnosis (load dominates the build) is upheld and independently corroborated by [`perf-logging.md`](./perf-logging.md) [§8](./perf-logging.md#8-what-the-first-real-runs-measured)'s cold-store `launch.auto_load_image` of 85.9 s vs 7.3 s warm; the prescription (never a `fromImage` base) is upheld verbatim as that doc's rejected alternative B; the MECHANISM is superseded, because `streamLayeredImage` cannot express a written layer plan at all. The premise re-check fired: [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06) removed `installPrefix` from the image, so the subject is now the nixpkgs split and yolo's top layers. **No build authorization is granted here** — it moves to the successor doc | 2026-09-08 | [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md) [§1](./layer-aware-image-delivery.md#1-the-verdict), [§6](./layer-aware-image-delivery.md#6-alternatives-considered) |
 | OQ-8 | **yolo's own binaries are delivered by MOUNT, on all three backends, in one pass** — the lever [§8](#8-what-this-does-not-cover) refused. Authorized by the maintainer knowing the macOS arms cannot be hardware-verified from this jail. The traded property is named in [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06)'s security delta: what executes in the jail stops being content-addressed image content and becomes a host directory that changes with no rebuild | 2026-09-06 | [§4](#4-candidates-ranked) C8, [§5](#5-the-central-table-must-bake--could-move--already-delivered), [§8](#8-what-this-does-not-cover) |
 
 > [!WARNING]
@@ -1188,7 +1197,8 @@ their reasoning lives in the body sections that govern them. Two more were ruled
 
 ### 10.2 Open Questions
 
-1. 💬 **OQ-6: Now that both halves of C6's case are measured — ~2.7 GB of podman storage per Go-only
+1. ✅ **[OQ-6](#OQ-6) — ANSWERED 2026-09-08 by a successor doc; the go/no-go it withheld is now that
+   doc's. Now that both halves of C6's case are measured — ~2.7 GB of podman storage per Go-only
    rebuild, and a ~34 s build-plus-load pipeline that splits ~7.9 s build / ~26 s stream-and-load — does a
    stable layer chain (C6) get built?** [§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake) measured the storage half (first changed layer at chain
    position 78 of 99); [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load) measured the time half this question was blocked on, in this jail, on a Go-only
@@ -1213,6 +1223,40 @@ their reasoning lives in the body sections that govern them. Two more were ruled
    then targets `binPathLinks` and the customisation layer, not yolo's binaries. A measurement is not a
    build authorization; the go/no-go is still the maintainer's, same as C4/C5's [OQ-1](#101-decision-ledger).
 
+   **Answer (2026-09-08):**
+   > **Yes, a stable layer chain gets built — but not by C6's mechanism.**
+   > [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md) is the successor to C6 and says
+   > so in its own header; the ruling here is that this question closes there, and the three halves of
+   > the leaning resolve differently.
+   >
+   > **The diagnosis is upheld, and a second instrument now agrees.** The ~3.3× came from one
+   > differencing measurement in [§1.10](#110-re-measured-2026-09-06-continued--splitting-the-52-s-nix-build-vs-stream-vs-podman-load), which is why this question said "approximation". Independent
+   > confirmation arrived with the timing spans: [`perf-logging.md`](./perf-logging.md) [§8](./perf-logging.md#8-what-the-first-real-runs-measured)
+   > measured `launch.auto_load_image` at **85.9 s** on a cold store against **7.3 s** warm, in a nested
+   > jail on 2026-09-06 — the load term is the one that moves, from a different instrument on a
+   > different trigger. Read its warning with it: a nested jail cannot speak for the maintainer's own
+   > storage driver, so this corroborates the RANKING and still does not price the real host.
+   >
+   > **The prescription is upheld verbatim.** "Against the already-loaded base ref, not a `fromImage`
+   > base" is now the successor doc's rejected alternative B, for the reason given here: nixpkgs'
+   > generator re-emits the base image's layers into the archive, so a `fromImage` base makes the write
+   > side — the side that dominates — larger.
+   >
+   > **The mechanism is superseded.** C6 was `streamLayeredImage` with a hand-ordered chain, and the
+   > successor doc's finding is that this generator **cannot express a written layer plan at all**:
+   > nixpkgs' popularity contest assigns store paths to layers, so "yolo's own content on top" is not
+   > something the current generator can be asked for. The answer is nix2container (a manifest instead
+   > of a tar), a **pinned** layer plan, and a `skopeo copy` that negotiates blobs before sending them.
+   >
+   > **The premise re-check this question demanded has happened, and it fired.** [C8](#c8--deliver-yolos-own-binaries-by-mount-shipped-2026-09-06)
+   > did remove `installPrefix` from the image derivation, exactly as the caveat anticipated, so the
+   > remaining subject is the nixpkgs closure's split and yolo's own top layers — `binPathLinks` and the
+   > customisation layer — and **not** yolo's binaries, which are now a mount.
+   >
+   > **The withheld authorization stays withheld.** A measurement was never a build authorization, and
+   > this answer does not grant one; it moves the go/no-go to the doc that owns the mechanism, where it
+   > is that doc's own open question rather than a re-litigation of this one.
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -1230,7 +1274,7 @@ struck by the step that came after it.
    retention rule, as R3 demanded, showed per-config tags **arm** a pass that had never fired; the safety
    half landed with C2 and `4064f720`, the number is [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3)'s.
 4. ~~**C3 — stream to the runtime**~~. **SHIPPED `be7b8591`, 2026-08-25** ([OQ-5](#101-decision-ledger); floor ruled as
-   [OQ-DF1](./minimal-disk-footprint.md#11-open-questions), *"stream, keep zero tars"*). The Apple Container arm's tar-eviction race closed in
+   [OQ-DF1](./minimal-disk-footprint.md#112-open-questions), *"stream, keep zero tars"*). The Apple Container arm's tar-eviction race closed in
    `cc53b591`, 2026-09-02.
 5. ~~**Re-measure.**~~ **TAKEN 2026-08-25 ([§1.8](#18-re-measured-after-c2--c3--this-is-11-step-5)) and extended 2026-09-06 ([§1.9](#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)).** Cold 52 s / warm
    4 s; zero tars written; a Go-only rebuild changes 2 of 99 layer digests but re-stores ~2.7 GB because

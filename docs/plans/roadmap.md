@@ -395,12 +395,12 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** ([§5.2](../
 > change of plan.** It sat in "ready to build" while its own text said *"this row is now entirely
 > gated on 💬 16"* — a row disagreeing with itself, in a section whose glyph means "no blockers".
 > Everything in it that needed no ruling has shipped (`cc53b591` closed the tar-eviction race; C3
-> made podman stream instead of writing tars). What is left is [`OQ-DF2`](../design/minimal-disk-footprint.md#11-open-questions)/[`OQ-DF3`](../design/minimal-disk-footprint.md#11-open-questions)/[`OQ-DF4`](../design/minimal-disk-footprint.md#11-open-questions) below, and
-> the standing warning survives with it: **do not start at delete-on-success** — that is [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)
-> option (i), and the component doing the deleting is [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)'s to name.
+> made podman stream instead of writing tars). What is left is [`OQ-DF2`](../design/minimal-disk-footprint.md#112-open-questions)/[`OQ-DF3`](../design/minimal-disk-footprint.md#112-open-questions)/[`OQ-DF4`](../design/minimal-disk-footprint.md#112-open-questions) below, and
+> the standing warning survives with it: **do not start at delete-on-success** — that is [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)
+> option (i), and the component doing the deleting is [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)'s to name.
 
-📄 [`minimal-disk-footprint.md` §11](../design/minimal-disk-footprint.md#11-open-questions) —
-**~~[OQ-DF1](../design/minimal-disk-footprint.md#11-open-questions)~~ (ruled 2026-08-25) · [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions) · [OQ-DF3](../design/minimal-disk-footprint.md#11-open-questions) · [OQ-DF4](../design/minimal-disk-footprint.md#11-open-questions)**
+📄 [`minimal-disk-footprint.md` §11.2](../design/minimal-disk-footprint.md#112-open-questions) —
+**~~[OQ-DF1](../design/minimal-disk-footprint.md#112-open-questions)~~ (ruled 2026-08-25) · [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions) · [OQ-DF3](../design/minimal-disk-footprint.md#112-open-questions) · [OQ-DF4](../design/minimal-disk-footprint.md#112-open-questions)**
 
 **This row is the other half of the 📦 disk item below, and it exists because of what [OQ-5](../design/image-staging-vs-baking.md#101-decision-ledger) did and
 did not settle.** You ruled that the cached tars are a **bug** and that yolo may delete them without
@@ -408,7 +408,7 @@ did not settle.** You ruled that the cached tars are a **bug** and that yolo may
 deleting, how far into podman's shared image store yolo may reach, or whether *"minimal"* is ever
 written down as a number. Each carries stakes, a leaning and an Answer block in the doc.
 
-**One of the four is now closed.** **[OQ-DF1](../design/minimal-disk-footprint.md#11-open-questions)** — the retention floor — you ruled the same day:
+**One of the four is now closed.** **[OQ-DF1](../design/minimal-disk-footprint.md#112-open-questions)** — the retention floor — you ruled the same day:
 ***"stream, keep zero tars."*** That is what C3 implements (shipped 2026-08-25): on podman the load
 path writes no tar at all, `cache/images` stays empty on success, and there is no retention knob to
 default. It went past the doc's own leaning, which had asked for an opt-in for the disconnected case.
@@ -417,22 +417,22 @@ interpolate a path — and the pre-C3 backlog, which **as of 2026-09-02 is gone 
 nested cache** (3 tars / 10 GiB, the keep-3 fingerprint of a manual `yolo prune --apply`; the
 host-side 125 GiB cache is not observable from here). Two new facts from that re-measurement, both
 in [`minimal-disk-footprint.md` §2.4](../design/minimal-disk-footprint.md#24-re-measured-2026-09-02--the-backlog-is-gone-here-and-the-device-kept-filling-anyway): the manual recovery
-tool demonstrably works (field evidence for [OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)'s leaning), and **the device lost another
+tool demonstrably works (field evidence for [OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)'s leaning), and **the device lost another
 ~92 GiB of free space in the same eight days anyway** (87 % full, 516 GiB free) with the nix store
 up only 6 GiB — the live growth driver is in **none of the three ledgers**, which is a new input to
-[OQ-DF4](../design/minimal-disk-footprint.md#11-open-questions)'s budget question.
+[OQ-DF4](../design/minimal-disk-footprint.md#112-open-questions)'s budget question.
 
-**Why the remaining three are not one more thing to get to eventually:** **[OQ-DF3](../design/minimal-disk-footprint.md#11-open-questions) blocks [§10](../design/minimal-disk-footprint.md#10-sequencing--what-i-would-build-in-order)'s first
+**Why the remaining three are not one more thing to get to eventually:** **[OQ-DF3](../design/minimal-disk-footprint.md#112-open-questions) blocks [§10](../design/minimal-disk-footprint.md#10-sequencing--what-i-would-build-in-order)'s first
 step**, which is the best bytes-per-effort in the whole doc and is otherwise unblocked — reclaiming
 the superseded podman images yolo's own filter structurally cannot see. It is also **the question
 that gates the rule replacing `--keep-images 2`**, which C2 made live for the first time: C2 shipped
 the *safety* half (dedup by image ID, plus a liveness veto so `prune --apply` cannot force-remove
 another workspace's running image), and `4064f720` then made that veto **fail safe** — an unreadable
-load ledger now declines the sweep instead of vetoing nothing. **So [OQ-DF3](../design/minimal-disk-footprint.md#11-open-questions) is no longer asking
+load ledger now declines the sweep instead of vetoing nothing. **So [OQ-DF3](../design/minimal-disk-footprint.md#112-open-questions) is no longer asking
 whether a veto is needed.** What is unruled is the RETENTION RULE and the REACH into a podman store
 shared with your non-yolo work — and the retention half now has a price attached: a coexisting
 content-tagged image measures **2.836 GB unique** unless it is a same-store-path re-stream, which is
-91.36 kB ([`image-staging-vs-baking.md` §1.8](../design/image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5)). **[OQ-DF2](../design/minimal-disk-footprint.md#11-open-questions)** decides which
+91.36 kB ([`image-staging-vs-baking.md` §1.8](../design/image-staging-vs-baking.md#18-re-measured-after-c2--c3--this-is-11-step-5)). **[OQ-DF2](../design/minimal-disk-footprint.md#112-open-questions)** decides which
 component does the deleting, which is why the 📦 row below is still scoped to the mechanism rather
 than to any number.
 

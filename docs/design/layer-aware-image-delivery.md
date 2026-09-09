@@ -211,6 +211,36 @@ by one package. With the extras tier pinned, it pays that package's closure and 
 > launches get — every macOS launch, every Apple Container launch, and every Linux launch
 > that has not opted in — and those are the majority today.
 
+**Why extras is not the top tier, since by churn alone it should be.** The question is the right
+one: `packages:` varies **per workspace**, while the top tier moves only when `flake.nix` is
+edited — which for a user is "when yolo is upgraded". Podman's overlay store chains layers (a
+layer's stored identity depends on every layer beneath it, which is why
+[`image-staging-vs-baking.md` §1.9](./image-staging-vs-baking.md#19-re-measured-2026-09-06--what-a-go-only-rebuild-costs-podman-and-what-chooses-the-flake)
+measured a deep first-differing layer re-storing everything behind it), so the most volatile tier
+belongs **on top**. By that rule alone extras should be above the top tier.
+
+**It is below because of path precedence, which is a correctness constraint and outranks the churn
+one.** Both tiers put names in the FHS view: the top tier is `binPathLinks`, whose whole job is to
+provide `/bin/bash`, `/bin/sh`, `/bin/grep`, `/bin/sed`, `/usr/bin/env` and the `/lib` farm
+(`flake.nix:566-600`), and a `packages:` entry contributes its own `bin/` names to the image — which
+is exactly why a baked `fzf` is at `/bin/fzf` and beats a pack's declared copy
+([`AGENTS.md`](../../AGENTS.md)). When two layers claim one path, the **higher** layer wins. Put
+extras on top and a workspace can shadow `/bin/bash` — the shim the boot itself runs through — by
+naming a package. The curated set has to be last.
+
+The cost of choosing correctness here is exactly **one small layer re-stored per `packages:`
+change**: the top tier is symlinks and directories, not content, and the budget gives it one slot.
+
+> [!WARNING]
+> **NOT MEASURED, and it is a prerequisite rather than a detail:** how today's single customisation
+> layer resolves that same collision. `contents` lists `binPathLinks` **first** and `extraPackages`
+> last (`flake.nix:1086-1090`), and nixpkgs merges the lot into one layer — so whether the curated
+> `/bin/bash` currently wins by being first or loses by being last is a property of that merge, not
+> of this plan. Splitting the merge into two layers **changes that resolution either way**. The
+> recipe: bake an image with a `packages:` entry that ships a colliding `bin/` name, then read
+> `/bin/<name>`'s target before and after. The layer plan must pin the answer with a test, because
+> a silent flip here breaks the boot, not a convenience.
+
 ### 3.2 The copy
 
 The build produces a manifest; the launch copies it. `skopeo copy nix:<image.json>
@@ -554,8 +584,8 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
 
 ## 9. Open Questions
 
-1. 💬 **OQ-LI1: Is a third-party flake input acceptable on the launch path — and does its
-   cachix come with it?** nix2container is not in nixpkgs (verified 2026-09-08 against the
+1. ✅ **[OQ-LI1](#OQ-LI1) — ANSWERED 2026-09-08, after correcting a premise the question got wrong:
+   is a third-party flake input acceptable on the launch path — and does its cachix come with it?** nix2container is not in nixpkgs (verified 2026-09-08 against the
    pinned rev `c043004d…`: `pkgs ? nix2container` is false, while `pkgs.skopeo` is 1.24.0), so
    this is a new input plus a patched-skopeo source build that `cache.nixos.org` will never
    have. Adding the project's own cachix as a substituter fixes the build cost and adds a
@@ -569,10 +599,44 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    rebuild once per `flake.lock` bump — but measure it first, because if it is ten minutes
    rather than two this leaning is wrong.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-08):**
+   > **First, the premise correction the maintainer's question forced** — *"do we currently get
+   > caches from nixos.org? I thought it was just our cachix?"* **Both, and the framing above was
+   > wrong about which is new.** MEASURED in this jail 2026-09-08 (nix 2.34.8):
+   >
+   > ```console
+   > $ nix config show | grep '^substituters'
+   > substituters = https://cache.nixos.org/
+   > ```
+   >
+   > `cache.nixos.org` is nix's **built-in default** and is where everything in the closure that is
+   > plain nixpkgs already comes from. yolo's own cache is **added on top**, by the flake itself —
+   > `nixConfig.extra-substituters = [ "https://yolo-jail.cachix.org" ]` (`flake.nix:13-16`), with
+   > its public key beside it. `extra-` is the operative word: it appends, it does not replace. And
+   > nix ignores a flake's `nixConfig` unless the caller passes `--accept-flake-config` or is a
+   > trusted user, which is why `nightly-macos.yml` passes that flag explicitly and says in a comment
+   > what happens without it (*"nix discards it with a warning and this job builds the whole closure
+   > from source"*).
+   >
+   > **So the trade this question named does not exist.** "Adding a third-party binary cache to every
+   > developer's trusted substituters" is not a step this design would take — the project has shipped
+   > that substituter since 2026-07-20, opt-in per invocation. There is nothing to refuse.
+   >
+   > **The real trade, restated.** Today the cachix is an **optimization**: a miss costs download
+   > time, and every path has `cache.nixos.org` or a local build behind it. A patched skopeo that
+   > `cache.nixos.org` can never have would make the same cache **load-bearing for the launch path**
+   > — on a miss, a source build of skopeo lands in front of a jail start. That is the actual
+   > question, and it is a different and smaller one than a supply-chain ruling.
+   >
+   > **The ruling:** take the input, pinned, with the legacy attribute kept as the escape
+   > ([OQ-LI5](#OQ-LI5)); do **not** make the cachix a precondition for a launch. Concretely, the
+   > patched skopeo must be built by the release, published to the existing cache, and **the launch
+   > must not be the thing that discovers it is missing** — if the copy tool is absent, the launch
+   > falls back to the legacy stream rather than starting a Go/C build. The leaning's measurement
+   > condition stands and is now the gate on the default flip: **measure the cold skopeo build
+   > before it ships**, because a ten-minute one makes the fallback the primary path in practice.
 
-2. 💬 **OQ-LI2: Does Apple Container move to the `nix:` source in the same pass?** Today it
+2. ✅ **[OQ-LI2](#OQ-LI2) — RULED 2026-09-08, AGAINST the leaning, because the premise under it went away: does Apple Container move to the `nix:` source in the same pass?** Today it
    writes two full-size files per load — `materializeImage` produces a docker-archive and
    `convertViaSkopeo` (`internal/image/autoload.go:1032`) writes an OCI layout from it. A
    `nix:` source deletes both and needs no new dependency it does not already have. Nobody
@@ -586,11 +650,27 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    Shipping an unmeasured change to the one backend nobody can test is how the macOS
    install-prefix regression happened.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-08): ship it in the same pass.**
+   > *"yes, ship it now. I have a mac to test this if needed."* — and that retires the leaning
+   > rather than overruling it. The objection was never "Apple Container is risky"; it was **"nobody
+   > can measure it"**, which is a fact about the project, not about the backend. With hardware
+   > available the fact is false and the objection has nothing left to stand on.
+   >
+   > What the leaning was right about, and what therefore becomes a **precondition rather than a
+   > reason to wait**: the macOS install-prefix regression happened because an unmeasured change to
+   > an untestable backend shipped and the only signal was a nightly nobody read. So the same pass
+   > includes Apple Container **and** one measured run on the maintainer's Mac before the default
+   > flips — a `nix:`-source copy that loads and boots a jail, reported with the `container`
+   > version. Not a review of the diff: a launch.
+   >
+   > The bytes justify the ordering. Apple Container today writes **two full-size files per load** —
+   > `materializeImage`'s docker-archive plus `convertViaSkopeo`'s OCI layout
+   > (`internal/image/autoload.go:1032`) — so it is the backend where the `nix:` source deletes the
+   > most, and it needs no dependency it does not already have. Deferring it would have left the
+   > largest win for the release after the one that built the mechanism.
 
-3. 💬 **OQ-LI3: Is the extras tier worth its complexity, given C4 already deletes that churn
-   for opt-in launches?** The extras tier is the layer plan's only *variable* tier, and it
+3. ✅ **[OQ-LI3](#OQ-LI3) — RULED 2026-09-08: is the extras tier worth its complexity, given C4
+   already deletes that churn for opt-in launches?** The extras tier is the layer plan's only *variable* tier, and it
    exists for launches that do not set `YOLO_STORE_PACKAGES=1`. If the intent is that every
    Linux launch eventually opts in, the tier is scaffolding for a transition; if opting in
    stays opt-in, it is the tier that pays for every second workspace on a machine. This decides
@@ -601,11 +681,28 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    _Leaning:_ Keep it, three tiers. C4 is opt-in *and* podman-on-Linux-only, so every macOS and
    Apple Container launch has no other answer, and the tier costs one layer slot.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-08): keep it — three tiers.**
+   > *"yes extras seems worth it."* Ruled as leaned.
+   >
+   > **And the confusion is the question's fault, so here is the answer to "what is store packages
+   > and do I need to know".** `YOLO_STORE_PACKAGES=1` is a launch-time opt-in from
+   > [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) C4/C5: instead of BAKING a
+   > workspace's `packages:` into its own image, the launch builds the stock image with `packages:`
+   > removed and delivers those tools from a symlink farm over the mounted nix store. One image per
+   > machine instead of one per distinct package list.
+   >
+   > **You do not need to know it to rule this, and here is why** — it was raised only as a possible
+   > reason to DROP the tier, and that reason does not hold. It would hold only if every launch got
+   > that treatment, and it cannot: C4 is **opt-in**, and it is **podman-on-Linux only** (macOS
+   > podman and Apple Container keep baking, deliberately). So every macOS launch, every Apple
+   > Container launch and every Linux launch that has not opted in still bakes `packages:` and still
+   > has this churn. The two mechanisms do not overlap — an opt-in launch simply has an empty extras
+   > tier — so the tier is not scaffolding for a transition, and it costs one layer slot out of a
+   > hundred.
 
-4. 💬 **OQ-LI4: `created` becomes a constant — is reordering prune's keep-window the right
-   answer, or should the image carry a build timestamp anyway?** nix2container rejects `"now"`
+4. ✅ **[OQ-LI4](#OQ-LI4) — RULED 2026-09-08, and a sibling doc supplies the reason: `created`
+   becomes a constant — is reordering prune's keep-window the right answer, or should the image
+   carry a build timestamp anyway?** nix2container rejects `"now"`
    ([§3.3](#33-what-does-not-change)), so either the keep-window stops sorting by `CreatedAt`
    or the image derivation varies per build and content addressing dies. There is a third
    option I like less: keep `CreatedAt` and accept an arbitrary tie-break, which makes the
@@ -618,10 +715,45 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    already argues CreatedAt is the wrong key; a per-build timestamp is not a trade, it is
    giving up C2.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-08): reorder the keep-window by the sentinel's recency — and the sibling doc
+   makes that the sentinel's PROPER use rather than a reuse of a discredited one.**
+   > The maintainer pointed at the newer work: *"I think we have thoughts on this in a recent doc.
+   > check there. LRU is changing."*
+   > [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)
+   > is that doc, and reading it settles this question in the leaning's favour for a reason the
+   > leaning did not have.
+   >
+   > **What is changing is the sentinel's AUTHORITY, not its existence.** That doc's P1 is
+   > *"recency is a cache policy, not a liveness proof"*: the ledger stops being cited as liveness
+   > anywhere (that moves to `podman ps`), and it **keeps** its most-recently-used role for nix
+   > GC-root retention and the load diagnosis — its
+   > [§7](./the-load-sentinel-is-not-a-liveness-oracle.md#7-what-this-does-not-propose) says so
+   > outright.
+   >
+   > **Which is exactly the key this question needs.** "Which images would I rather not have to
+   > pull again" is a **cache** question, and retention is a cache policy — so ordering the
+   > keep-window by sentinel recency uses the instrument for the thing it is good at. Ordering by
+   > `CreatedAt` never did: after C2 every distinct store path gets its own permanent tag, so
+   > "newest 2 by CreatedAt" already meant "every config but the most recently built one", and
+   > nix2container's constant `created` only removes a key that was wrong before it became
+   > useless.
+   >
+   > **A per-build timestamp is refused, for the reason leaned:** it makes the image derivation vary
+   > per build, which is giving up content addressing — C2 — to feed a sort. And the third option
+   > (keep `CreatedAt`, accept an arbitrary tie-break) is refused because "unpredictable" is worse
+   > than "wrong" for a destructive pass: a reaper whose choice cannot be predicted cannot be
+   > reviewed.
+   >
+   > **Two constraints this inherits, and they are what makes it a prerequisite rather than a
+   > cleanup.** (1) Retention must read the sentinel, and **liveness must not** — mixing them back
+   > together is the defect that doc exists to remove, and this change touches the same file. (2) The
+   > ledger is capped at ten entries, so a keep-window ordered by it can only rank what the cap
+   > holds; an image absent from the sentinel has no recency, and the pass must treat that as "no
+   > opinion", never as "least recent". [OQ-BF8](./disk-levers-and-backfill.md#OQ-BF8) records why
+   > the cap itself needs no derivation once safety is elsewhere.
 
-5. 💬 🤷 **OQ-LI5: How long does the rollback window last?** `YOLO_LEGACY_IMAGE_STREAM` and the
+5. ✅ **[OQ-LI5](#OQ-LI5) — RULED 2026-09-08, and the question changed shape under the maintainer's
+   "why at all": how long does the rollback window last?** `YOLO_LEGACY_IMAGE_STREAM` and the
    `streamLayeredImage` attributes are a real fallback while they exist and dead weight
    afterwards, and R3's "two mechanisms" cost is live for exactly as long as the window is.
    The technical answer is the same at one release or three; this is a judgement about how much
@@ -632,6 +764,31 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    _Leaning:_ One release, closing at the first `flake.lock` bump after the default flips — by
    then every machine has been through a full copy on the new path at least once, which is the
    evidence the window exists to gather.
+
+   **Answer (2026-09-08): keep a fallback, but not a "window" — the deadline was the wrong shape.**
+   > *"why do we need a rollback window?"* Taking that as a question about the premise rather than
+   > the duration, and the premise half survives while the calendar half does not.
+   >
+   > **Why a fallback at all.** The failure it covers is not "the new path is slower" — it is **no
+   > jail at all**, on a machine nobody here can reproduce. The new path adds a patched skopeo that
+   > `cache.nixos.org` will never hold and a `containers-storage` write that negotiates blobs; if
+   > either fails on someone's setup, a failed build is FATAL by design
+   > ([`image-staging-vs-baking.md`](./image-staging-vs-baking.md) [OQ-2](./image-staging-vs-baking.md#101-decision-ledger) — no silent fallback to a
+   > stale image), so that user's jail does not start. `YOLO_LEGACY_IMAGE_STREAM` is the difference
+   > between "export one variable" and "wait for a release". That is worth carrying.
+   >
+   > **Why not a window.** A deadline expressed as "one release, closing at the first `flake.lock`
+   > bump" is a date nobody will notice passing, and it makes R3's two-mechanisms cost open-ended in
+   > practice while looking bounded on paper. Worse, it retires the fallback on a **schedule**
+   > rather than on **evidence** — the same defect as a 30-day rule that never runs.
+   >
+   > **So: the fallback is removed by a named commit when a stated condition is met**, and the
+   > condition is the evidence the window was a proxy for — one measured `nix:`-source copy that
+   > loads and boots on each backend that gets the new path (podman/Linux, and Apple Container per
+   > [OQ-LI2](#OQ-LI2)'s hardware precondition), plus no fallback-triggered report in the release
+   > that follows. Until then it stays; after that it goes in one commit that deletes the variable,
+   > the legacy attributes and this paragraph together. If the condition is not met, that is
+   > information about the design, not a reason to extend a calendar.
 
    **Answer:**
    > _(empty — fill in when decided)_
