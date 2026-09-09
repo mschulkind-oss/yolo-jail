@@ -151,6 +151,12 @@ type AutoLoadOptions struct {
 	// locking, which is the right default for a caller that has no host-side
 	// lock (tests, and the in-jail path where nothing else is reaping).
 	LockHousekeeping func() func()
+	// copier is the skopeo path BuildCopier resolved, cached for the duration of
+	// one AutoLoadImage call. It is not a seam: the seam is BuildCopier, and this
+	// is the one place its answer is remembered so the delivery does not build
+	// twice — once for the span and the attr-naming failure report, once inside
+	// the copy.
+	copier string
 	// LookupEnv resolves the StaleImageEnv escape hatch (see the fatality
 	// argument on the currentPath=="" branch). nil => os.LookupEnv.
 	//
@@ -561,9 +567,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// image is already loaded never reaches this branch, and must not pay a
 		// cold skopeo compile for an image it is not going to copy.
 		csp := o.Perf.Span("image.copier_build")
-		copier, copierTail := o.BuildCopier(o.RepoRoot)
+		copierTail := o.resolveCopier()
 		csp.End()
-		if copier == "" {
+		if o.copier == "" {
 			// Same treatment as any failed image build, because it IS one: the
 			// classification plus nix's own stderr, and no launch. The stale hatch
 			// still applies to the image already loaded, which is why this reports
@@ -798,20 +804,35 @@ func archiveTempPath(storePath, suffix string) (string, error) {
 	return filepath.Join(dir, keyFor(storePath)+suffix), nil
 }
 
-// copyImageLayers is the LayerCopy seam's real implementation: build nothing,
-// run one copier, and report the bytes against what the destination already had.
+// resolveCopier realizes `.#imageCopier` once per AutoLoadImage call and caches
+// the path, returning the nix stderr tail. A "" copier afterwards means the
+// build failed and the caller must refuse the launch.
+//
+// It is idempotent so that a caller which reaches the copy without having gone
+// through the delivery branch (a test wiring LayerCopy's real implementation
+// directly) still gets a copier rather than an empty argv.
+func (o *AutoLoadOptions) resolveCopier() []string {
+	if o.copier != "" {
+		return nil
+	}
+	path, tail := o.BuildCopier(o.RepoRoot)
+	o.copier = path
+	return tail
+}
+
+// copyImageLayers is the LayerCopy seam's real implementation: run the copier the
+// delivery branch already resolved, and leave the accounting to the caller.
 //
 // The report is assembled by the CALLER from the manifest and the present-digest
 // probe rather than here, because only the caller knows whether it wants the
 // figures printed — and because the copy must not depend on a reporting probe
 // having succeeded.
 func (o *AutoLoadOptions) copyImageLayers(imageJSON, dest string) (CopyReport, bool) {
-	copier, tail := o.BuildCopier(o.RepoRoot)
-	if copier == "" {
+	if tail := o.resolveCopier(); o.copier == "" {
 		printTail(o.Out, "the image copier's build said", tail)
 		return CopyReport{}, false
 	}
-	return CopyReport{}, copyImageWithRetry(copier, imageJSON, dest, o.Out)
+	return CopyReport{}, copyImageWithRetry(o.copier, imageJSON, dest, o.Out)
 }
 
 // runCapture runs an argv and returns its stdout, ok=false for anything that did
