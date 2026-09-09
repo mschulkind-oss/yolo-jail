@@ -5,7 +5,8 @@ package run
 // before the podman process exits (conmon's exit file, netavark teardown, the
 // unmount of every bind). No yolo code runs there, so no span can cover it;
 // what yolo CAN do is ask podman's own event log afterwards when the two
-// events bounded it, and print the gap (docs/design/perf-logging.md §6, D9).
+// events bounded it, and print the gap (docs/reference/perf-logging.md, "Window A
+// attribution"; D9).
 //
 // Best-effort by the package's standing rule, with three explicit bounds so
 // the diagnosis can never become the delay: only the podman runtime (Apple

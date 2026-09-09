@@ -7,7 +7,7 @@ import (
 )
 
 // perflogging.go is the config half of the timing-span logging
-// (docs/design/perf-logging.md): the persistent spelling of what `--timing`
+// (docs/reference/perf-logging.md): the persistent spelling of what `--timing`
 // turns on for one launch.
 
 // perfLoggingKey is the top-level opt-IN to timing-span logging on every launch.
@@ -59,9 +59,10 @@ func perfLoggingValue(cfg *jsonx.OrderedMap) bool {
 // perfLoggingProblem reports why a value is not a usable `perf_logging`, or ""
 // when its shape is fine. A plain boolean, deliberately: the feature has exactly
 // one dial today, and a vocabulary invented ahead of a second mode is a
-// vocabulary nobody has had to live with. If a quiet "record but do not print"
-// mode ever lands (perf-logging.md §8.1), this widens to bool-or-string the way
-// agent_updates widened to bool-or-map — a bool keeps meaning what it means.
+// vocabulary nobody has had to live with. `true` already means "record, print
+// nothing" (D12, docs/reference/perf-logging.md); if a second mode ever lands,
+// this widens to bool-or-string the way agent_updates widened to bool-or-map —
+// a bool keeps meaning what it means.
 func perfLoggingProblem(v any) string {
 	if _, ok := v.(bool); !ok {
 		return fmt.Sprintf("expected a boolean (got %s)", pyReprValue(v))

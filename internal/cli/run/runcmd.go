@@ -56,7 +56,7 @@ type Options struct {
 	NeverAttach bool
 	// Timing is --timing, AS TYPED ON THIS INVOCATION: an explicit, per-launch
 	// request for this launch's performance timings — the full span system
-	// (docs/design/perf-logging.md).
+	// (docs/reference/perf-logging.md).
 	//
 	// It is one of the two EXPLICIT signals (Verbose is the other), and that
 	// distinction is the whole of D12: an explicit flag records AND prints, while

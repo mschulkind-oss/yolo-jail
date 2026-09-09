@@ -1,6 +1,8 @@
 // Package perf is the host-side timing-span collector behind `--timing` and
 // `--verbose`.
 //
+// Architecture, invariants and the gates: docs/reference/perf-logging.md
+//
 // # Why a package of its own
 //
 // The launcher had exactly one timing number — a `Total (host-side)` printed

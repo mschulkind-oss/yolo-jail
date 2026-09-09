@@ -2,7 +2,7 @@ package cli
 
 // verbose.go is the front-door half of the global `--verbose` / `-v` flag: the
 // future gate for launcher diagnostics, wired in v1 to the same timing-span
-// surface `--timing` drives (docs/design/perf-logging.md D1).
+// surface `--timing` drives (docs/reference/perf-logging.md, D1).
 //
 // IT IS A GLOBAL FLAG, stripped before subcommand resolution, exactly the
 // `--user-layer` pattern (userlayer.go): a diagnostics gate belongs at the
@@ -42,7 +42,7 @@ var verboseFlags = []string{"--verbose", "-v"}
 // opposed to inheriting YOLO_VERBOSE from the environment. Process-scoped state,
 // written once by applyVerboseFlag before any subcommand runs and read by the
 // handlers that must distinguish the two (runRun, runStop — see D12 in
-// docs/design/perf-logging.md).
+// docs/reference/perf-logging.md).
 var verboseFlagTyped bool
 
 // explicitVerbose reports whether --verbose / -v was typed on this invocation.

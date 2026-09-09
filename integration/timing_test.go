@@ -8,7 +8,7 @@ package integration
 // run.go and the matching assertion here goes red (the callee pins live in
 // internal/cli/run/timingspans_test.go; this file holds the launch-path ones).
 //
-// It also pins D12 (docs/design/perf-logging.md), the split between RECORDING
+// It also pins D12 (docs/reference/perf-logging.md), the split between RECORDING
 // and REPORTING: every opt-in writes the file, but only an explicit --timing /
 // --verbose typed on THIS invocation prints — the table, and the in-container
 // `=== YOLO Jail Profile ===` block the YOLO_JAIL_TIMING=1 pair switches on. The

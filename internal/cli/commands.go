@@ -633,7 +633,7 @@ func runRun(args []string) int {
 	// it before subcommand resolution), so its EXPLICIT half is handed over here.
 	// The env var it publishes already turns recording on through the Getenv seam;
 	// this field is what additionally makes the report PRINT, which an inherited
-	// YOLO_VERBOSE=1 must not do (D12, docs/design/perf-logging.md).
+	// YOLO_VERBOSE=1 must not do (D12, docs/reference/perf-logging.md).
 	opts.Verbose = explicitVerbose()
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's

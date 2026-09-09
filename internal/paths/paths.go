@@ -238,7 +238,7 @@ const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 const AllowMissingProvidersEnv = "YOLO_ALLOW_MISSING_PROVIDERS"
 
 // TimingEnv is the host-process opt-in to `--timing`'s span logging
-// (docs/design/perf-logging.md): any non-empty value enables the same surface
+// (docs/reference/perf-logging.md): any non-empty value enables the same surface
 // the flag does, for wrappers and scripts that cannot add a flag.
 //
 // HOST-ONLY, deliberately (design D5): it is never forwarded into the jail.

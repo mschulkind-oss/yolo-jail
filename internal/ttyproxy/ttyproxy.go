@@ -20,7 +20,7 @@
 //
 // Stage observation (StageHook/RunWithProxyHooked): the proxy is where the
 // shutdown-delay question lives — the gap between the child exiting and the
-// drain finishing is a named hypothesis (docs/design/perf-logging.md H2) — so
+// drain finishing is a named gap (docs/reference/perf-logging.md, Known gaps) — so
 // the proxy reports its own transitions to whoever wants them, without this
 // package learning what a timing span is.
 package ttyproxy
