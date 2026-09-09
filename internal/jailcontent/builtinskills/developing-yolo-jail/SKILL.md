@@ -6,11 +6,17 @@ description: "Build, deploy, and verify changes to yolo-jail's own Go code (cmd/
 # Developing yolo-jail
 
 This jail is running against the yolo-jail source tree itself. `/workspace` is
-bind-mounted live. The image bakes the CLI as real-file copies at
-`/opt/yolo-jail/bin/` (with `/bin/<name>` symlinks and the flake bundle at
-`/opt/yolo-jail/share/yolo-jail`) — there is **no `/opt/yolo-jail` source bind
-and no dev-override wrapper any more**. A nested jail rebuilds the live checkout
-from source and runs THAT image — **but only when you pass
+bind-mounted live.
+
+**The image does not contain yolo** (since 2026-09-06). `/opt/yolo-jail` is two
+`:ro` bind mounts the LAUNCH supplies — the linux binaries at `bin/`, the flake
+bundle at `share/yolo-jail/` — and the image bakes only those mountpoints plus
+the `/bin/<name>` symlinks that point into them. Two things follow, and they pull
+in opposite directions so keep both: a commit touching only `cmd/` or `internal/`
+no longer moves the image at all (no rebuild, no `podman load` — the Go source
+left the image derivation), and there is still no dev-override wrapper, so you
+cannot live-patch the running jail's binaries either. A nested jail builds the
+live checkout's own `.#installPrefix` and mounts THAT — **but only when you pass
 `YOLO_REPO_ROOT=/workspace`, and only from a throwaway workspace** (see "The
 flake a launch builds from" and "Never launch a nested jail on `/workspace`"
 below). Then your edited Go code is what runs. These are
@@ -50,17 +56,28 @@ What is left needs a password and is four commands:
 
 ## What iterates in-jail vs. needs a host rebuild
 
-- **All four binaries iterate the same way now** (`yolo`, `yolo-entrypoint`,
-  `yolo-jaild`, `yolo-ps`): the dev-override fast loop is gone, so the outer
-  jail's binaries are **frozen at the host-loaded image** — you cannot
-  live-patch them in-jail. Verify any Go change by launching a **nested** jail.
+- **Every shipped binary iterates the same way** (`flake.nix`'s
+  `shippedBinaries` is the list): the dev-override fast loop is gone, and the
+  outer jail's binaries were chosen by the host launcher when this jail started,
+  so they are **frozen for the session** — you cannot live-patch them in-jail.
+  Verify any Go change by launching a **nested** jail.
 - Both Go and `flake.nix` changes are verifiable in a nested
   `YOLO_REPO_ROOT=/workspace yolo -- bash` (run from `/tmp/yolo-nested`, not
-  `/workspace`): its `AutoLoadImage` runs
-  `nix build .#ociImage --impure` on the live `/workspace` checkout (nix
-  delegates to the host daemon), notices the store path changed, and loads + runs
-  the **freshly built** image in the nested podman — carrying your edits for all
-  four binaries. Watch the build output.
+  `/workspace`) — but by two different mechanisms, and knowing which is which
+  saves a confusing green:
+  - a **Go** change reaches the nested jail through the MOUNTED prefix, built
+    from the named flake source. The image is not involved and does not move.
+  - a **`flake.nix`** change reaches it through `AutoLoadImage`, which builds the
+    flake (nix delegates to the host daemon), notices the store path changed, and
+    loads + runs the freshly built image in the nested podman. Watch that build
+    output: a failed nix build is fatal.
+- **The launch REFUSES when the two halves are skewed.** `version.SourceSkew`
+  compares the binary's own commit stamp against the tree it would build from,
+  and a `yolo` older than the tree is refused before the build with both SHAs
+  named. In-jail the fix is not `just install` (which refuses in here) — it is
+  `just build-go` again, which restamps `dist-go/`. `YOLO_ALLOW_SOURCE_SKEW=1`
+  overrules it. Expect to hit this whenever anything lands in `internal/` between
+  your build and your launch.
 - A host `just load` is only needed to **ship** the change to the maintainer's
   own day-to-day jails — not to validate it.
 
@@ -87,7 +104,7 @@ What is left needs a password and is four commands:
 the baked `/opt/yolo-jail` prefix), then `~/.local/share/yolo-jail/flake-bundle`.
 Standing in `/workspace` means nothing to it.
 
-So **in-jail, a bare `yolo` builds from the BAKED bundle** — the image you
+So **in-jail, a bare `yolo` builds from the MOUNTED bundle** — the jail you
 already have, not your edits. To verify anything you changed, name the live tree:
 
     mkdir -p /tmp/yolo-nested && cd /tmp/yolo-nested
@@ -99,7 +116,18 @@ Every launch prints the one it took, before the build starts:
     Flake source: /opt/yolo-jail/share/yolo-jail (flake bundle beside the binary)
 
 **Read that line before believing a nested green.** The second spelling means
-you verified the baked image against itself.
+you verified the jail you already have against itself.
+
+**And one class of change a nested jail cannot see AT ALL**: anything about how a
+jail REACHES A HOST DAEMON — the `--network` flag, `internal/svcendpoint`'s
+bind/advertise pair, the `host.containers.internal` hop, the in-jail reachability
+probe. Podman-in-podman forces `--net=host`, so the nested jail shares this one's
+network stack and the whole loopback-forwarding class of bug cannot reproduce: it
+gets a free green however broken it is. A total loopback-TLS outage shipped that
+way and went unnoticed for four days. What DOES work from in here is a bare
+`podman run` against this jail's own loopback — the jail is the "host" for that
+container, and the bug reproduces exactly. `/workspace/AGENTS.md`'s Testing
+section has the two commands.
 
 ## Never launch a nested jail on `/workspace`
 

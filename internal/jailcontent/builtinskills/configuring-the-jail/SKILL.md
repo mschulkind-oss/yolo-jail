@@ -33,7 +33,7 @@ first, and there are exactly two ways to change that set:
   which pulls `mesa` + `libva-utils` into the package set.
 
 Everything else — `mise_tools`, `resources`, `network`, `mounts`,
-`mcp_servers`, `lsp_servers`, `env_sources`, `loopholes`, `agents` — is
+`mcp_servers`, `lsp_servers`, `env_sources`, `loopholes`, `packs` — is
 restart-only, no rebuild. Prefer `mise_tools` over `packages` for CLIs and
 runtimes: it avoids the rebuild entirely. When you touch `packages` (or trigger
 vaapi), say so in your handoff — on the yolo-jail dev repo a rebuild also needs
@@ -51,13 +51,20 @@ Three layers merge, later wins:
 
 Merge edge cases that surprise people:
 
-- Objects deep-merge; lists **union and de-dupe** — **except `agents`, which
-  replaces wholesale** (list the full set you want, not just additions). A
-  workspace `agents` may not **add** an agent that reads host files (`claude`,
-  `pi`) unless `~/.config/yolo-jail/config.jsonc` already lists it — selecting one
-  mounts that agent's host `settings.json` into the jail, and this file is committed
-  and agent-editable. Agents that read no host files are freely selectable, and
-  narrowing the set is always allowed.
+- Objects deep-merge; lists **union and de-dupe**.
+- **`packs` is not in the merge at all — it is USER-SCOPE ONLY.** Which coding
+  agent a jail gets is decided by `packs`, and that key is read from
+  `~/.config/yolo-jail/config.jsonc` **directly**, never from the merged config. A
+  `packs` entry in `yolo-jail.jsonc` does nothing, and no amount of layering makes
+  it work: workspace scope is inexpressible by construction rather than
+  validated-against. The reason is the credential boundary — a pack can carry
+  skills and briefing prose an agent then follows, and a workspace config travels
+  with the repo and is agent-editable, so it must not be able to name content that
+  enters the jail. If a project needs its own agent configuration it already has a
+  git repo and can lay out whatever it likes in the workspace.
+- The `agents` key is **retired**, and an `agents` entry is a hard `yolo check`
+  error on the host rather than something ignored. An agent arrives as a pack:
+  `"packs": ["claude"]` is the spelling, and `yolo pack --help` is the tooling.
 - A scalar or `null` in a later layer **overrides**. Use this to disable an
   inherited entry: `"mcp_servers": { "foo": null }` removes an inherited server;
   the same trick disables an inherited preset.
@@ -93,14 +100,20 @@ yolo config diff <agent>            # your in-jail edits vs what yolo generated
 ```
 
 The `MODE` column in `yolo config ls` is the part that decides whether your edit
-survives:
+survives. There are four values and every one of them means something different
+for your edit:
 
 - **capture** — your edit is recorded in a sidecar under `<workspace>/.yolo/prism/`
   and re-applied on later boots. Editing works, but it is invisible to anyone
   reading the config, so prefer changing the real input.
 - **copy** — regenerated from scratch every boot. **Your edit is silently gone
   after a restart.** Never hand-edit these.
-- **unrendered** — yolo does not compose this file; the agent owns it.
+- **rmw** — the file is the AGENT'S, and yolo only asserts its own managed keys
+  into it at boot, filling defaults where they are absent and preserving
+  everything else. So your edit survives *unless* it touches a key yolo manages.
+  This is the mode `~/.claude.json` is in, which is why `yolo config render` has
+  nothing to show for it: there is no layer fold, so there is no preview.
+- **unrendered** — yolo does not compose this file at all; the agent owns it.
 
 To make a change that *persists and is legible*, change the input instead: an MCP
 server belongs in `mcp_servers`, an LSP in `lsp_servers`, and an arbitrary host
