@@ -1,8 +1,26 @@
 # macos-user: nix integration and the disabled-feature surface
 
-**Status:** DESCRIPTIVE (2026-07-23), **re-verified and amended 2026-08-24** — documents what the
-shipped code does, not a proposal. Records both the *by-design* differences and the current *gaps*
-(things a config key or message implies but the code does not yet wire).
+**Status:** DESCRIPTIVE (2026-07-23), **re-verified and amended 2026-08-24**, **re-stamped
+2026-09-09** — documents what the shipped code does, not a proposal. Records both the *by-design*
+differences and the current *gaps* (things a config key or message implies but the code does not yet
+wire).
+
+> [!IMPORTANT]
+> **Re-stamped 2026-09-09: one row in the table below has flipped from WARNED to FIXED, and the
+> table still says otherwise.** *Briefings + skills are never delivered* is **no longer true** —
+> content delivery landed 2026-09-03: the host composes the same skills trees and briefing bodies
+> the container path composes and lays them out by destination (`buildMacosHomeOverlay`,
+> `internal/cli/run/macoshomeoverlay.go`), the launch stages that tree and names it in
+> `YOLO_DARWIN_HOME_OVERLAY` (`internal/macosuser/runplan.go`), and the boot copies it over the
+> sandbox home (`InstallHomeOverlay`, `internal/entrypoint/darwin.go`). The surviving warning there
+> is the narrow one — an overlay that is *missing* at boot — not "never delivered". The row's
+> question, **OQ-BP-2 ([`backend-parity.md`](./backend-parity.md)), has therefore been answered by code**, and this doc's
+> [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) entry plus the [Open items](#open-items) list are stale where they say
+> the agent starts here with no AGENTS.md and no skills. The other WARNED rows were re-checked the
+> same day and hold: `resources`, `cache_relocations` and `per_side_paths` warn and do nothing
+> (`internal/macosuser/orchestrator.go`), `mcp_presets` warn (`darwin.go`), and `lsp_servers`
+> still install nothing because this backend has no provisioning stage at all
+> ([`macos-user-provisioning.md`](macos-user-provisioning.md)).
 
 **What moved on 2026-08-24.** A backend-parity sweep (48 agents, adversarially verified) found ten
 silent drops across the non-podman backends. **Seven entries in this doc changed state**, and this

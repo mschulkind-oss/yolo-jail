@@ -1,14 +1,23 @@
 # MCP configuration: the node/npx wrapper, per-agent formats, and the pi gap
 
 **Status:** REFERENCE for [§1](#1-the-nodenpx-wrapper) and [§2](#2-how-mcp-config-flows-and-how-agents-differ)'s *rules*; **[§2](#2-how-mcp-config-flows-and-how-agents-differ)'s mechanism and [§3](#3-pi-and-mcp) are
-STALE** — see the retraction below. **Spot-verified 2026-08-23:** the wrapper
-generator (`GenerateMCPWrappers`, `internal/entrypoint/mcp_wrappers.go:7`, called
-from `boot.go:472` / `darwin.go:59`); the shared loader (`LoadMCPServers`,
-`internal/entrypoint/mcp.go:84`); the `${VAR}` non-interpolation ruling
+STALE** — see the retraction below. **Spot-verified 2026-08-23, re-verified and CORRECTED
+2026-09-09:** the wrapper generator (`GenerateMCPWrappers`,
+`internal/entrypoint/mcp_wrappers.go`) is called from the container boot path
+(`boot.go`) and **no longer from `darwin.go` at all** — this line said
+`darwin.go:59` until 2026-09-09, and macos-user resolved that Open Decision on
+2026-09-03 the other way: it generates NO wrappers (their bodies are
+Linux-absolute) and warns that `mcp_presets` are not delivered
+(`internal/entrypoint/darwin.go`, the `NO MCP WRAPPERS HERE` block). The shared
+loader (`LoadMCPServers`, `internal/entrypoint/mcp.go`) still holds; the
+`${VAR}` non-interpolation ruling
 (`mcp.go:33-61`, and no `os.Expand`/`ExpandEnv` anywhere in `internal/entrypoint`
-or `internal/render`); and the two dead helpers in [§2](#2-how-mcp-config-flows-and-how-agents-differ)
-(`internal/config/derived.go:33,65` — still zero call sites, now not even in
-tests). **Not verified:** the per-agent config-file paths and schema shapes in
+or `internal/render`); and the dead helpers in [§2](#2-how-mcp-config-flows-and-how-agents-differ) —
+named by symbol since 2026-09-09, because this line's *two* line numbers had both
+drifted and there are more of them than it said: `FilterMCPServersByEnv`,
+`FilterMCPServersByCapabilities` and `EffectiveMCPServerNames`
+(`internal/config/derived.go`) have **zero call sites outside their own file**,
+tests included. **Not verified:** the per-agent config-file paths and schema shapes in
 [§2](#2-how-mcp-config-flows-and-how-agents-differ)'s table, the pi-adapter research in [§3](#3-pi-and-mcp) (2026-07-18, external and unrechecked),
 and the `LD_LIBRARY_PATH` root-cause narrative in [§1](#1-the-nodenpx-wrapper).
 

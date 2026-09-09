@@ -10,11 +10,16 @@ summary: "yolo's host daemons bind the host's loopback and tell the jail to dial
 
 **Status:** DECIDED and BUILT — 2026-08-18, reopened once and closed again 2026-09-04 (frontmatter
 `status: accepted`). Zero open questions; **eight rulings**, all shipped, counting the ledger rows
-below. **Three things in it are still unverified on hardware nobody here has**, and none is an open
-question: the slirp4netns fallback ([§3.2.1](#321-dial-the-name-not-the-gateway)) has never run on a real old-passt host, the
+below. **Re-stamped 2026-09-09: it no longer has three unverified items with two of them queued, and
+nothing here is a 🔒 row.** Still unverified on hardware nobody here has: the slirp4netns fallback
+([§3.2.1](#321-dial-the-name-not-the-gateway)) has never run on a real old-passt host, and the
 unnamed-backend rescue ([§6.2](#62-a-podman-too-old-to-name-its-stack), added 2026-09-04) has never
-run on a real podman below 5.1, and the fatal witness reaches your own jails only after a host
-`just load`. The first and last are 🔒 rows in [`../plans/roadmap.md`](../plans/roadmap.md).
+run on a real podman below 5.1. Neither waits on a plan: [`../plans/roadmap.md`](../plans/roadmap.md)
+**dropped the slirp4netns row on 2026-09-05** — the code is built and fires only when podman itself
+reports a slirp4netns binary, so a complaint is a cheaper trigger than a hunt. The third item, *the
+fatal witness reaches your own jails only after a host `just load`*, **is retired as stale**:
+`YOLO_ALLOW_UNREACHABLE_SERVICES` is present in the `yolo-entrypoint` this jail runs (measured again
+2026-09-09), so the loaded image already carries the fatal.
 
 > [!WARNING]
 > **A nested jail gives this entire document a free green.** Podman-in-podman forces `--net=host`,

@@ -2,7 +2,7 @@
 
 **Status:** DESIGN 2026-08-13; **the `loophole` kind LANDED 2026-08-14, and so did the rest of the
 plan** — every item in the landing order, [OQ-LP9](#oq-lp9--nested-jails-the-outer-jail-is-the-user-level-for-the-inner-one--built-2026-08-14) included. What is built: the kind itself
-(`packdecl.KnownKinds()` now returns **fifteen**), its total claim enumeration, the manifest schema as
+(`packdecl.KnownKinds()` carries it as a first-class kind), its total claim enumeration, the manifest schema as
 a leaf package (`internal/loopholedecl`, which resolves [OQ-LP1](#oq-lp13--what-stops-an-agent-swapping-the-file-a-loophole-runs--ruled--and-the-answer-is-not-hashing) by extraction), the `platforms`
 declaration, the one-value inert report on both axes, the fourth launch pre-flight for name
 exclusivity, the seven-surface convergence as one constructed value, retirement-on-deselect with a
@@ -15,6 +15,10 @@ per-consumer files, and the global `--user-layer` flag), and the earlier batch's
 the last residual, and it is now **MOOT**: [`trust-paths.md`](trust-paths.md) [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the
 approval it would have anchored, so there is nothing left to anchor
 ([OQ-LP8](#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)).
+
+**Re-stamped 2026-09-09.** Nothing about what is built changed; the Status line's own kind TALLY
+had — it asserted fifteen, and `packdecl.KnownKinds()` has grown past that since 2026-08-14 — so
+the claim is now `loophole`'s membership rather than a count that rots.
 
 > [!IMPORTANT]
 > **Both of the two DESIGN findings below are now spent, and both were spent by DELETION rather than
