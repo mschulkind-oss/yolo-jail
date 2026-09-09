@@ -20,12 +20,46 @@ name: Pack Installs
 # separate dials, and "advisory" welds them together: a yellow cell nobody is paged for
 # teaches the next reader only that this job is allowed to be yellow.
 on:
+  # PATH-FILTERED, and the filter has to name what this workflow actually depends
+  # on rather than only its subject. It builds `.#ociImageMinimal` + `.#imageCopier`
+  # and its install jobs run REAL `yolo` launches, so a change to how an image is
+  # built or delivered breaks it just as surely as a change to a pack manifest.
+  #
+  # ⚠ It used to filter on `packs/**` ALONE, and that cost the only run that
+  # mattered. Layer-aware image delivery (2026-09-09) broke all fourteen install
+  # jobs plus both coexistence jobs with
+  # `Error during unshare(...): Operation not permitted` — a change entirely inside
+  # `internal/image/` and `flake.nix`. This workflow caught it only by ACCIDENT: the
+  # same push happened to carry pack-manifest edits from an unrelated docs sweep. A
+  # push touching only the delivery code would have left sixteen red jobs
+  # undiscovered until the Monday schedule.
+  #
+  # Deliberately NOT dropping the filter to match ci.yml's unconditional trigger:
+  # that is fourteen real vendor installs, and ci.yml's integration suite already
+  # covers the launch path unconditionally. What this adds over ci.yml is fourteen
+  # AGENTS installed in real jails, and the axis that makes that fragile is which
+  # image the jail gets — so the filter names the inputs that decide the image, and
+  # nothing else.
+  # The two lists are duplicated rather than shared through a YAML anchor. An
+  # anchor parses correctly with yq, but GitHub's own workflow parser is not
+  # something this repo can test before pushing, and a workflow that fails to parse
+  # is a worse outcome than five duplicated lines. Keep them in step.
   push:
     branches: [main]
-    paths: ['packs/**']
+    paths:
+      - 'packs/**'
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'internal/image/**'
+      - '.github/workflows/packs.yml'
   pull_request:
     branches: [main]
-    paths: ['packs/**']
+    paths:
+      - 'packs/**'
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'internal/image/**'
+      - '.github/workflows/packs.yml'
   schedule:
     # Weekly, offset from the nightly macOS run (06:40) and the flake.lock bump.
     - cron: "0 9 * * 1"
