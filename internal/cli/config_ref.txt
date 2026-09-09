@@ -1246,6 +1246,20 @@
     the agent's own choice stands.
     Example: {"pi": "zai-fast", "codex": null}
 
+  [bold]required_capabilities[/bold] (array of strings): Named capabilities this
+    environment DECLARES it needs, e.g. ["web_search"].  Validated as a string list
+    at pre-flight, and passed through to a nested launch (it is one of the keys an
+    inner jail inherits).
+    It reaches the jail as YOLO_REQUIRED_CAPABILITIES, a JSON array — so a jail can
+    read what was asked for.  ⚠ NOTHING ENFORCES IT YET: the design's fatal refusal
+    for an unmet capability (docs/design/agent-auth-modes.md OQ-CAP2) is not built,
+    so declaring a capability today records the requirement and does not check that
+    anything satisfies it.  Written here rather than left undocumented because a key
+    yolo ACCEPTS and this reference never mentions is a key an agent cannot discover
+    at all.
+    Default: [] (declares nothing).
+    Example: {"required_capabilities": ["web_search"]}
+
   [bold]lsp_servers[/bold] (object): Additional language servers for Copilot (Claude uses its own tools).
     Default servers (always present): python (pyright), typescript, go (gopls).
     Workspace servers are merged with defaults — add new ones or override existing.

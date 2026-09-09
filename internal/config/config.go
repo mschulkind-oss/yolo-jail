@@ -18,6 +18,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -77,6 +78,53 @@ var knownTopLevelConfigKeys = set(
 	// Listed so the retirement message is the only error, per the convention above.
 	"agent_profiles",
 )
+
+// retiredTopLevelConfigKeys are the keys knownTopLevelConfigKeys keeps ONLY so
+// each earns its own targeted retirement message instead of a generic
+// unknown-key error (see that var's comment). They are not part of the schema
+// any more: writing one is an error, and `yolo config-ref` documents the
+// refusal where it documents anything at all — never the key.
+//
+// The set is named rather than left implicit because a doc-coverage check has to
+// be able to tell "accepted and undocumented" (a hole) from "refused and
+// undocumented" (correct). Without it such a check either demands that config-ref
+// document keys yolo refuses, or is silenced with an allowlist of its own that
+// drifts from this list.
+var retiredTopLevelConfigKeys = set(
+	"repo_path", "agents", "host_processes", "journal", "agent_profiles",
+)
+
+// TopLevelConfigKeys returns the LIVE top-level config keys — everything
+// knownTopLevelConfigKeys accepts, minus the retired spellings it only keeps for
+// their error messages — sorted.
+//
+// Exported for the config-ref coverage check
+// (docs/design/self-documenting-cli.md, enforcement item 3): config_ref.txt is
+// hand-maintained and lives in another package, so "is every accepted key
+// documented?" needs the schema's own list rather than a second copy of it in a
+// test. A copy is what the check exists to catch.
+func TopLevelConfigKeys() []string {
+	out := make([]string, 0, len(knownTopLevelConfigKeys))
+	for k := range knownTopLevelConfigKeys {
+		if _, retired := retiredTopLevelConfigKeys[k]; retired {
+			continue
+		}
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// RetiredConfigKeys returns the retired top-level spellings, sorted — the
+// complement of TopLevelConfigKeys within the accepted set.
+func RetiredConfigKeys() []string {
+	out := make([]string, 0, len(retiredTopLevelConfigKeys))
+	for k := range retiredTopLevelConfigKeys {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // `journalModes` — the off/user/full vocabulary — went with the key on 2026-08-18.
 // TYPE AND ENUM CHECKS GO WITH A RETIRED KEY, always: reporting
