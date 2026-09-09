@@ -33,11 +33,15 @@ SCHEMAS and false of the machinery it argued for.** `kind: "provider"` shipped
 `api_key_env_name` — with the secret-shaped-value refusal live in both the config and pack
 validators. `env_sources` was never this doc's to build: it predates it by six weeks.
 `kind: "pack-fragment"` is the one thing here that is genuinely absent, and its function is served
-by `config-overlay` plus the `profile` modifier. ⚠ **[§11](#11-open-questions)'s three questions are PHANTOM** — all
-three were answered by shipped code, in shapes neither option offered (OQ-1 → `use_profiles`, keyed
-by CLI name; OQ-2 → a name-only `-p` with two grammars; OQ-3 → bare slugs, `packs/zai` and
-`packs/cerebras`). They still carry the 💬 glyph and so inflate the corpus-wide live-question sweep
-by three. Read [`providers.md`](../reference/providers.md) for all of it in current spelling.
+by `config-overlay` plus the `profile` modifier. ⚠ **[§11](#11-open-questions)'s three questions were PHANTOM, and were
+compacted 2026-09-09** — all three had been answered by shipped code
+([§12](#12-decision-ledger) is the ledger): [OQ-1](#12-decision-ledger) → `use_profiles`, keyed by CLI name, beside a
+separate `profiles` declaration key; [OQ-2](#12-decision-ledger) → one `-p` with two value grammars, and this doc's
+leaning refused on the record; [OQ-3](#12-decision-ledger) → bare slugs, `packs/zai` and `packs/cerebras`. Two of the
+three matched NEITHER option offered; [OQ-3](#12-decision-ledger) matched its second option and is recorded for the example
+it named that never happened. They carried the 💬 glyph until 2026-09-09 and so inflated the
+corpus-wide live-question sweep by three; the file now counts zero. Read
+[`providers.md`](../reference/providers.md) for all of it in current spelling.
 
 **The short version.** `agent_profiles` is an architectural inversion: it leaks the concept of "agents" into core and forces Go-level runtime special-casing ([`internal/cli/run/assemble.go:722`](../../internal/cli/run/assemble.go#L722)). Conversely, making everything an opaque, untyped JSON dictionary creates **stringly-typed chaos** where field naming drifts (`baseURL` vs `base_url`) and typos fail silently. This design resolves the tension with a **Dual-Layer Architecture**:
 1. **The Prescribed Extension Point (`kind: "provider"`)**: A strictly-typed `ProviderSpec` defining standard LLM endpoints (`base_url`, `wire_api`, `api_key_env`, `models`) that all standard agents (Pi, Codex, OpenCode) consume automatically.
@@ -526,35 +530,91 @@ yolo --pack-profile pi=glm,claude=bedrock
 yolo host -p bedrock -- claude
 ```
 
+> [!WARNING]
+> **The block above is NOT the shipped grammar, and two of its lines are traps.** Verified against
+> [`runcmd.go`](../../internal/cli/runcmd.go) 2026-09-09.
+>
+> - **`--pack-profile` does not exist.** It was deleted 2026-09-03 without ever shipping in a
+>   release; `-p`/`--profile` carries both grammars instead, dispatching on the VALUE: a token
+>   containing `=` is a comma-separated, repeatable `<cli>=<name>` pair list, anything else is a
+>   bare profile name. The two cannot be ambiguous because profile names refuse `=` at
+>   declaration. So example 3 is spelled `yolo -p pi=glm,claude=bedrock`.
+> - **A bare `-p` never keys on the command after `--`.** Example 1 above reads as example 2:
+>   `yolo -p glm -- pi` selects `glm` for every pack the launch selects, not for `pi`. This is the
+>   ruling refusing this doc's own leaning under [OQ-2](#12-decision-ledger), in as many words —
+>   *a short option whose meaning depends on a token further down the argv is the confusion the
+>   ruling removed*. Name the CLI explicitly when the distinction matters.
+>
+> Neither flag makes any refusal: every value flag takes its value from the next token when there
+> is one and silently takes none when there is not, so `yolo -p` with nothing after it selects
+> nothing.
+
 ---
 
 ## 11. Open Questions
 
-1. 💬 **OQ-1: Profile Mapping Keying in User Config.** In `~/.config/yolo-jail/config.jsonc`, should user overrides be keyed by pack first or profile first?
-   * Option A (Pack-first): `"pack_profiles": { "pi": { "glm": { ... } } }`
-   * Option B (Profile-first): `"profiles": { "glm": { "pi": { ... } } }`
-   
-   _Leaning:_ Option B (`profiles.<name>.<pack>`). It groups multi-pack profile definitions (e.g. configuring both Pi and Claude for a `"dev"` environment) under a single named block.
+> [!NOTE]
+> **Nothing here is live.** All three were overtaken by shipped code and were flipped to ✅ on
+> **2026-09-09**, during a corpus sweep that found them still carrying the 💬 glyph and so still
+> counting toward the corpus-wide live-question total. They are compacted into
+> [§12](#12-decision-ledger); each entry below keeps only what shipped and how it relates to the
+> options the question offered, because that relation is the useful part.
 
-   <!-- vantage: oq id=OQ-1 leaning="Option B, profiles.NAME.PACK. It groups multi-pack profile definitions (e.g. configuring both Pi and Claude for a 'dev' environment) under a single named block." -->
+1. ✅ **[OQ-1](#12-decision-ledger): Profile Mapping Keying in User Config** — **ANSWERED BY EVENTS (2026-09-09).**
+   Neither option shipped. The question assumed ONE nested key holding both the profile's
+   definition and its activation, and asked only which order to nest it in: Option A pack-first
+   (`pack_profiles.<pack>.<profile>`), Option B profile-first (`profiles.<name>.<pack>`). What
+   shipped **splits the two jobs across two flat top-level keys** — `profiles` DECLARES a profile,
+   `use_profiles` ACTIVATES one, keyed by **CLI name**
+   ([`profiles.go`](../../internal/config/profiles.go), and `InstallBins` in
+   [`packload.go`](../../internal/packload/packload.go) is the one authority for what a CLI name
+   resolves to). Option B's own name survives as the declaration half, which is why this reads as a
+   partial match and is not one: the grouping argument the leaning rested on — one named block
+   configuring several packs at once — is served by the declaration key, while activation is a flat
+   CLI→name map with no nesting at all.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   > [!WARNING]
+   > **Both keys are user-scope ONLY, and a workspace spelling of either is a refusal, not an
+   > override.** `use_profiles` is the reason it has to be a refusal rather than a construction:
+   > the selection is read off the MERGED config, so a workspace entry would have taken effect and
+   > only that check stops it. Activating a profile steers which endpoint and model an agent talks
+   > to exactly as declaring one does, and the workspace file is the committed, agent-editable one.
+   > Also note `agent_profiles` — the schema [§2.1](#21-the-architectural-inversion-agent_profiles)
+   > diagnoses — is now a NAMED RENAME error pointing at `use_profiles`, not a silent ignore.
 
-2. 💬 **OQ-2: CLI Flag Shorthand.** Should `-p` default to `--profile` (global profile activation) or `--pack-profile` (target the command after `--`)?
-   
-   _Leaning:_ If `-- <command>` is present (e.g. `yolo -p bedrock -- claude`), `-p` applies to that command's pack. If no command is given (`yolo -p dev`), `-p` activates the profile globally across all selected packs.
+2. ✅ **[OQ-2](#12-decision-ledger): CLI Flag Shorthand** — **ANSWERED BY EVENTS (2026-09-09).**
+   Neither option shipped, and the leaning was refused on the record. The question offered a choice
+   between `-p` defaulting to `--profile` and `-p` defaulting to `--pack-profile`; what shipped is
+   **one flag with two VALUE grammars and no default to choose** — `--pack-profile` was deleted
+   2026-09-03 having never shipped in a release, and `-p`/`--profile` dispatches on whether the
+   value contains `=`. The leaning went further than either option, proposing that a bare `-p` key
+   on the command after `--`; that is exactly what the ruling rejected. The full correction, with
+   the shipped spellings, is the warning at the end of [§10](#10-cli-ergonomics--launch-time-swapping)
+   — read it there, because [§10](#10-cli-ergonomics--launch-time-swapping)'s example block is
+   still written in the pre-ruling grammar.
 
-   <!-- vantage: oq id=OQ-2 leaning="If a -- command is present (e.g. yolo -p bedrock -- claude), -p applies to that command's pack. If no command is given (yolo -p dev), -p activates the profile globally across all selected packs." -->
+3. ✅ **[OQ-3](#12-decision-ledger): Provider Pack Naming Convention** — **ANSWERED BY EVENTS (2026-09-09),
+   and this is the one that matched its option.** Bare slugs shipped, which was the second option
+   offered and the leaning: `packs/zai` and `packs/cerebras`, no `provider-` prefix. Recorded
+   anyway because the *example* the option named never happened and would mislead a reader who
+   takes the answer as a precedent — **`aws-bedrock` is not a pack.** Bedrock ships as a provider
+   CONTRIBUTION of `packs/claude` (named `bedrock`), which is the shape to expect whenever a
+   provider is inseparable from one agent.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   > [!WARNING]
+   > **Provider names are sole-owned per NAME, not per pack**
+   > ([`kinds.go`](../../internal/packdecl/kinds.go)). Two packs shipping one provider name is a
+   > collision — they would each be supplying "the" zai. One pack shipping two names is ordinary.
+   > So a `provider-` prefix would have bought nothing the name-keyed exclusivity does not already
+   > give, which is the durable reason bare slugs were right, rather than the "matches existing
+   > conventions" the leaning offered.
 
-3. 💬 🤷 **OQ-3: Provider Pack Naming Convention.** Should provider packs follow a namespace prefix (e.g. `provider-deepseek`, `provider-bedrock`) or bare slugs (`deepseek`, `aws-bedrock`)?
-   
-   _Leaning:_ Bare slugs (`deepseek`, `aws-bedrock`) match existing conventions (`claude`, `audio`, `journal`).
+---
 
-   <!-- vantage: oq id=OQ-3 leaning="Bare slugs (deepseek, aws-bedrock) match existing conventions (claude, audio, journal)." -->
+## 12. Decision Ledger
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-1 | **Neither option.** Two flat top-level keys, not one nested one: `profiles` declares, `use_profiles` activates keyed by CLI name — both user-scope only, and a workspace spelling of either is a refusal | 2026-09-09 (answered by events; keys landed 2026-08-31, renamed 2026-09-02) | [§11](#11-open-questions), `internal/config/profiles.go` |
+| OQ-2 | **Neither option, and the leaning refused.** One flag, two value grammars: `-p`/`--profile` reads `<cli>=<name>` when the value contains `=`, else a bare name applying to every selected pack. A bare `-p` never keys on the command after `--`. `--pack-profile` deleted, never released | 2026-09-09 (answered by events; ruled and built 2026-09-03) | [§10](#10-cli-ergonomics--launch-time-swapping)'s warning, `internal/cli/runcmd.go` |
+| OQ-3 | **Bare slugs — the option as offered** (`packs/zai`, `packs/cerebras`). Its `aws-bedrock` example did not happen: bedrock is a provider contribution of `packs/claude`, and provider names are sole-owned per name, so a `provider-` prefix buys nothing | 2026-09-09 (answered by events) | [§11](#11-open-questions), `internal/packdecl/kinds.go` |
