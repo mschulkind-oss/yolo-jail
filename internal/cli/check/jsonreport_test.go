@@ -124,7 +124,7 @@ func TestCheckJSONEmittedAtAnEarlyExit(t *testing.T) {
 		t.Fatalf("rc = %d, want 1 — this fixture must take an early failing exit", rc)
 	}
 	var rep Report
-	if err := json.Unmarshal([]byte(out.String()), &rep); err != nil {
+	if err := json.Unmarshal(out.Bytes(), &rep); err != nil {
 		t.Fatalf("early exit produced no parseable document: %v\n--- got ---\n%s",
 			err, out.String())
 	}
