@@ -23,6 +23,7 @@ func withBuildDir(t *testing.T) string {
 
 func TestAutoLoadImageFreshLoad(t *testing.T) {
 	withBuildDir(t)
+	manifest := storeManifest(t, "abc-image")
 	var out bytes.Buffer
 	f := newFakeRuntime()
 	opts := AutoLoadOptions{
@@ -30,24 +31,37 @@ func TestAutoLoadImageFreshLoad(t *testing.T) {
 		Out:     &out,
 		Getpid:  func() int { return 4242 },
 		BuildStorePath: func(repoRoot string, extra []any, outLink string) (string, []string) {
-			return "/nix/store/abc-image", nil
+			return manifest, nil
 		},
 		Run: f.run,
-		// C3: on podman the load is a PIPE, so there is no cache file to simulate.
-		// Materialize is left nil on purpose — see c2Opts.
-		StreamLoad: f.streamLoad,
+		// C9: on podman the delivery IS the copy — skopeo creates the image under
+		// the ref in its argv — so there is no loader argv and no file. The copier
+		// build is stubbed so no test compiles skopeo.
+		LayerCopy:      f.layerCopy,
+		BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
+		PresentDigests: func() map[string]struct{} { return nil },
 	}
 	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; out=%q", out.String())
 	}
-	if f.loads != 1 {
-		t.Errorf("expected exactly one load command, got %d", f.loads)
+	// ONE COPY AND NO LOADER. `f.loads` counts `load` argvs, which the podman
+	// path no longer has any of — the destination ref in the copy's argv is the
+	// whole delivery.
+	if len(f.copiedDests) != 1 {
+		t.Errorf("expected exactly one copy, got %d: %v", len(f.copiedDests), f.copiedDests)
+	}
+	if f.loads != 0 {
+		t.Errorf("the podman path must run no loader; got %d load argv(s): %v", f.loads, f.cmds())
 	}
 	if !strings.Contains(out.String(), "first run") {
 		t.Errorf("expected first-run message, got %q", out.String())
 	}
 	if !strings.Contains(out.String(), "Done: loaded image") {
 		t.Errorf("expected done message, got %q", out.String())
+	}
+	// §3.10: the copied-vs-skipped ratio IS the claim, so it must reach the human.
+	if !strings.Contains(out.String(), "Copied image:") {
+		t.Errorf("expected the copied/skipped report, got %q", out.String())
 	}
 	// A build that SUCCEEDED must say nothing about build failures. The
 	// loud-failure report is worthless if it also fires on the happy path.
@@ -65,7 +79,7 @@ func TestAutoLoadImageFreshLoad(t *testing.T) {
 // string nobody had ever loaded: the callee was pinned and the question was not.
 func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 	bd := withBuildDir(t)
-	storePath := "/nix/store/xyz-image"
+	storePath := storeManifest(t, "xyz-image")
 	// The sentinel still names the path — and is now IRRELEVANT to the decision.
 	// It stays in the fixture so that a regression which re-promotes it to
 	// authority is not accidentally satisfied by an empty file.
@@ -74,7 +88,7 @@ func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	materialized, streamed := false, false
+	copierBuilt, copied := false, false
 	opts := AutoLoadOptions{
 		Runtime: "podman",
 		Out:     &out,
@@ -82,23 +96,26 @@ func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 			return storePath, nil
 		},
 		Run: newFakeRuntime(JailImageRef("podman", storePath)).run,
-		Materialize: func(string, string) int64 {
-			materialized = true
-			return 1
+		BuildCopier: func(string) (string, []string) {
+			copierBuilt = true
+			return "/nix/store/fake-skopeo/bin/skopeo", nil
 		},
-		StreamLoad: func(string, string, []string) (int64, bool) {
-			streamed = true
-			return 1, true
+		LayerCopy: func(string, string) (CopyReport, bool) {
+			copied = true
+			return CopyReport{}, true
 		},
 	}
 	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; out=%q", out.String())
 	}
-	if materialized {
-		t.Error("should not materialize when already loaded + present")
+	if copied {
+		t.Error("should not copy when already loaded + present")
 	}
-	if streamed {
-		t.Error("should not stream when already loaded + present")
+	// AND MUST NOT BUILD THE COPIER EITHER. A launch whose image is present is
+	// the warm start this whole change exists to keep warm; building skopeo for
+	// it would put a potential 2m27s compile in front of every one.
+	if copierBuilt {
+		t.Error("should not build the image copier when the image is already present")
 	}
 	if strings.Contains(out.String(), "Image load needed") {
 		t.Errorf("unexpected load-needed message: %q", out.String())
@@ -133,8 +150,8 @@ func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 	bd := withBuildDir(t)
 	sentinel := filepath.Join(bd, "last-load-podman")
 
-	pathA := "/nix/store/path-A-image"
-	pathB := "/nix/store/path-B-image"
+	pathA := storeManifest(t, "path-A-image")
+	pathB := storeManifest(t, "path-B-image")
 	f := newFakeRuntime()
 
 	makeOpts := func(storePath string) AutoLoadOptions {
@@ -144,8 +161,10 @@ func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 			BuildStorePath: func(string, []any, string) (string, []string) {
 				return storePath, nil
 			},
-			Run:        f.run,
-			StreamLoad: f.streamLoad,
+			Run:            f.run,
+			LayerCopy:      f.layerCopy,
+			BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
+			PresentDigests: func() map[string]struct{} { return nil },
 		}
 	}
 
@@ -154,9 +173,6 @@ func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 	if !refA.OK {
 		t.Fatal("step 1: AutoLoadImage returned false")
 	}
-	if f.loads != 1 {
-		t.Fatalf("step 1: expected 1 load, got %d", f.loads)
-	}
 
 	// Step 2: config changes, path B builds and loads under ITS content ref. This
 	// is what used to move :latest away from A.
@@ -164,8 +180,8 @@ func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 	if !refB.OK {
 		t.Fatal("step 2: AutoLoadImage returned false")
 	}
-	if f.loads != 2 {
-		t.Fatalf("step 2: expected 2 loads total, got %d", f.loads)
+	if len(f.copiedDests) != 2 {
+		t.Fatalf("step 2: expected 2 copies total, got %d", len(f.copiedDests))
 	}
 
 	// The premise of the original bug still holds: A is in the sentinel history.
@@ -188,9 +204,10 @@ func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 	if !again.OK {
 		t.Fatal("step 3: AutoLoadImage returned false")
 	}
-	if f.loads != 2 {
-		t.Fatalf("step 3: reverting reloaded path A (%d loads total); its image was "+
-			"never displaced, so the reload the pre-C2 code needed is now waste", f.loads)
+	if len(f.copiedDests) != 2 {
+		t.Fatalf("step 3: reverting re-copied path A (%d copies total); its image was "+
+			"never displaced, so the reload the pre-C2 code needed is now waste",
+			len(f.copiedDests))
 	}
 	if again.Ref != refA.Ref {
 		t.Fatalf("step 3 ran %q, want A's own ref %q", again.Ref, refA.Ref)
@@ -209,21 +226,24 @@ func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 func TestAutoLoadImageRegistersRoot(t *testing.T) {
 	// (a) fresh load → root registered with the built store path.
 	withBuildDir(t)
+	freshManifest := storeManifest(t, "abc-image")
 	var rooted []string
 	fresh := newFakeRuntime()
 	optsFresh := AutoLoadOptions{
 		Runtime:        "podman",
 		Out:            &bytes.Buffer{},
-		BuildStorePath: func(string, []any, string) (string, []string) { return "/nix/store/abc-image", nil },
-		Run:            fresh.run, // nothing loaded → triggers a load
-		StreamLoad:     fresh.streamLoad,
+		BuildStorePath: func(string, []any, string) (string, []string) { return freshManifest, nil },
+		Run:            fresh.run, // nothing loaded → triggers a copy
+		LayerCopy:      fresh.layerCopy,
+		BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
+		PresentDigests: func() map[string]struct{} { return nil },
 		RegisterRoot:   func(p string) { rooted = append(rooted, p) },
 	}
 	if !AutoLoadImage(optsFresh).OK {
 		t.Fatal("fresh load = false")
 	}
-	if len(rooted) != 1 || rooted[0] != "/nix/store/abc-image" {
-		t.Errorf("fresh load rooted %v, want [/nix/store/abc-image]", rooted)
+	if len(rooted) != 1 || rooted[0] != freshManifest {
+		t.Errorf("fresh load rooted %v, want [%s]", rooted, freshManifest)
 	}
 
 	// (b) build fails but the operator opted into a stale launch, existing image
@@ -358,6 +378,7 @@ func TestAutoLoadImageBuildFailureEscapeHatchWithNothingCached(t *testing.T) {
 // path. On Linux the offload must NOT be consulted.
 func TestAutoLoadOffloadInvokedOnMacOS(t *testing.T) {
 	withBuildDir(t)
+	offloadedManifest := storeManifest(t, "offloaded")
 	var out bytes.Buffer
 	offloadCalled := false
 	offloaded := newFakeRuntime()
@@ -370,10 +391,12 @@ func TestAutoLoadOffloadInvokedOnMacOS(t *testing.T) {
 		},
 		BuildOffload: func(string, []any, string) (string, []string) {
 			offloadCalled = true
-			return "/nix/store/offloaded", nil // offload succeeds
+			return offloadedManifest, nil // offload succeeds
 		},
-		Run:        offloaded.run, // nothing loaded → the offload's image loads
-		StreamLoad: offloaded.streamLoad,
+		Run:            offloaded.run, // nothing loaded → the offload's image copies
+		LayerCopy:      offloaded.layerCopy,
+		BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
+		PresentDigests: func() map[string]struct{} { return nil },
 	}
 	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; want true (offload built the image)\n%s", out.String())

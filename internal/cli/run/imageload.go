@@ -65,7 +65,6 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		ExtraPackages: extra,
 		Attr:          attr,
 		Out:           o.Stdout,
-		ProgressTTY:   o.IsTTYStdout(),
 		IsMacOS:       o.IsMacOS,
 		Getpid:        o.Getpid,
 		DiagnoseFailure: func(tail []string) (string, string) {

@@ -253,9 +253,15 @@ func TestFlakeAndLauncherAgreeOnThePrefixLayout(t *testing.T) {
 			"`yolo` would be a dangling link", JailPrefixDir)
 	}
 	// The mountpoints, both levels, on a --read-only rootfs.
+	//
+	// `$out/` and not `./`: the mkdirs moved from `streamLayeredImage`'s
+	// fakeRootCommands (which ran in the tar's own cwd) into the top tier's
+	// symlinkJoin postBuild when C9 replaced the generator
+	// (docs/design/layer-aware-image-delivery.md). Same directories, same
+	// consequence for pid1, one prefix.
 	for _, dest := range []string{JailPrefixBinDir, JailPrefixShareDir} {
-		if !strings.Contains(flake, "./"+strings.TrimPrefix(dest, "/")) {
-			t.Errorf("flake.nix's fakeRootCommands does not pre-create %q; a --read-only "+
+		if !strings.Contains(flake, "$out"+dest) {
+			t.Errorf("flake.nix's image root tree does not pre-create %q; a --read-only "+
 				"rootfs cannot grow a mountpoint, and this is the mount whose absence "+
 				"means no pid1", dest)
 		}

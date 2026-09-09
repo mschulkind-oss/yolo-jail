@@ -93,10 +93,22 @@ func ociBuildArgv(attr, outLink string, extraArgs []string) []string {
 // AGENTS.md makes mandatory for verifying any Go change. C5 wants the package
 // set smaller, not the container plumbing gone.
 const (
-	// ImageAttrDefault is the jail image (streamLayeredImage).
+	// ImageAttrDefault is the jail image — since C9 a nix2container image.json
+	// naming its layer digests, not a script that streams a docker-archive
+	// (docs/design/layer-aware-image-delivery.md).
 	ImageAttrDefault = ".#ociImage"
 	// ImageAttrLean is ImageAttrDefault without the store-deliverable bulk.
 	ImageAttrLean = ".#ociImageLean"
+	// ImageCopierAttr is the skopeo carrying nix2container's `nix:` SOURCE
+	// TRANSPORT — the only program that can read an `image.json` and negotiate
+	// per blob with `containers-storage`. Stock skopeo does not have it, so the
+	// launch runs THIS store path and never a `PATH` lookup (§3.2's fourth
+	// property; layercopy.go's BuildImageCopier is the one caller).
+	//
+	// EXPORTED, unlike installPrefixAttr, because `yolo check`'s dry-run probe
+	// names it too: without it the preflight reports "nothing will build" while
+	// the next launch compiles skopeo from source for minutes.
+	ImageCopierAttr = ".#imageCopier"
 	// installPrefixAttr is the /opt/yolo-jail install prefix the launch
 	// BIND-MOUNTS into the jail — bin/<binary> plus the share/yolo-jail flake
 	// bundle. It is no longer part of the image (that is what keeps `goSrc` out

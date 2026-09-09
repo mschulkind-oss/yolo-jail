@@ -40,9 +40,32 @@
     # virt) or dropping the container-backend macOS tests to macos-user only.
     # Deliberately NOT used for aarch64-darwin — real Mac users stay on 26.11.
     nixpkgs-x86-darwin.url = "github:nixos/nixpkgs/nixpkgs-26.05-darwin";
+
+    # ── The layer-aware image pipeline (docs/design/layer-aware-image-delivery.md) ──
+    # `nix2container.buildImage` produces an image.json NAMING per-layer digests
+    # instead of a script that streams a docker-archive, and `skopeo-nix2container`
+    # is a skopeo carrying a `nix:` source transport that reads it.  Together they
+    # replace `streamLayeredImage` + `podman load`, whose sequential tar could not
+    # ask the destination which blobs it already held — 81 s of a 96 s image load
+    # was podman re-ingesting layers it had (§2.1).
+    #
+    # `follows` IS MANDATORY, not hygiene: without it a second nixpkgs closure is
+    # locked, evaluated and fetched on every eval of this flake.
+    #
+    # ⚠ NEVER reach for `nix2container.packages.<system>.*` or
+    # `nix2container.lib.<system>`.  Those attrs evaluate
+    # `nixpkgs.legacyPackages.x86_64-darwin`, which under this `follows` is
+    # nixpkgs 26.11 and THROWS on that system — the exact failure the
+    # nixpkgs-x86-darwin comment above says cost 29 red CI nights, re-entering
+    # through a new door.  The whole input is consumed as
+    # `import inputs.nix2container { inherit pkgs; }`, one call, below.
+    nix2container = {
+      url = "github:nlewo/nix2container";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, nixpkgs-x86-darwin, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-x86-darwin, flake-utils, nix2container }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         # See the nixpkgs-x86-darwin input comment: 26.11 throws on x86_64-darwin,
@@ -60,9 +83,34 @@
         # stays free of the 'docker' token. pkgs.dockerTools is a nixpkgs
         # naming convention for a general-purpose OCI image builder and has
         # nothing to do with Docker-the-runtime.
+        # ONLY `builderImage` still uses this.  The JAIL image moved to
+        # nix2container (see `n2c` below); `streamLayeredImage` survives here for
+        # the macOS offload's sshd+nix builder, which is pushed to GHCR by
+        # publish.yml as a docker-archive and has no local layer-reuse problem to
+        # solve.
         ociTools = pkgs.dockerTools;
         imageSystem = builtins.replaceStrings ["-darwin"] ["-linux"] system;
         imagePkgs = nixpkgs.legacyPackages.${imageSystem};
+
+        # ── The layer-aware image generator and its copier ────────────────────
+        # ONE `import` for the whole file, and it takes the HOST `pkgs` on
+        # purpose: both halves are programs that RUN on the host — the generator
+        # at nix build time, skopeo at launch time — exactly as `ociTools =
+        # pkgs.dockerTools` did, while image CONTENTS keep coming from
+        # `imagePkgs`.  Reaching for the input's own `packages.<system>` attrs
+        # instead is the trap the input comment names.
+        n2cAll = import nix2container { inherit pkgs; };
+        n2c = n2cAll.nix2container;
+
+        # The image's CPU architecture.  Passed explicitly rather than left to
+        # nix2container's `arch ? pkgs.go.GOARCH` default: that default reads the
+        # HOST's Go arch, which happens to agree with the image's today only
+        # because the darwin→linux mapping above preserves the architecture.  The
+        # image system is the authority on what the image is for, so say so.
+        imageArch =
+          if imageSystem == "x86_64-linux" then "amd64"
+          else if imageSystem == "aarch64-linux" then "arm64"
+          else throw "yolo-jail: no OCI arch mapping for image system ${imageSystem}";
 
         # Architecture-aware multilib path for LD_LIBRARY_PATH inside the image
         linuxMultilib =
@@ -1076,51 +1124,213 @@
         # same image with `fullPackages` and the chromium half of the /lib farm left out,
         # for a launch that delivers them from the mounted nix store instead. Orthogonal to
         # `minimal`, which is CI's variant and also drops the nested-podman config.
+        #
+        # ── THE LAYER PLAN (docs/design/layer-aware-image-delivery.md §3.1) ──────
+        # This used to be `ociTools.streamLayeredImage`, which produced a script
+        # whose stdout was a 3.47 GB docker-archive.  A docker-archive is a
+        # sequential tar with no protocol for asking the destination which blobs
+        # it already holds, so every launch that saw a new store path re-shipped
+        # the whole image to move a 27 MB customisation layer — 0.78% of the
+        # archive, and 81 s of a 96 s image load (§2.1, §2.2).  It also could not
+        # express the layer ORDER: `streamLayeredImage` has no `layers` argument,
+        # so nixpkgs' popularity contest decided which store path landed where and
+        # the first DIFFERING layer measured at position 78 or 79 of 99.
+        #
+        # nix2container fixes both halves, and neither half works without the
+        # other: `buildImage` writes an image.json naming per-layer digests, so
+        # `skopeo copy nix:… containers-storage:…` negotiates per blob
+        # (internal/image/layercopy.go), and `layers` makes the tier assignment a
+        # written plan rather than an emergent property.
+        #
+        # THERE IS NO SECOND DELIVERY MECHANISM AND NO WAY BACK (OQ-LI5, ruled
+        # 2026-09-08).  `streamLayeredImage` is gone from this attr, there is no
+        # legacy knob, and a failed copy does not fall back — an escape hatch is
+        # for a config the USER broke, not for yolo's own mechanism being broken,
+        # and a second path no launch exercises is broken by the time anyone
+        # reaches for it.  `YOLO_ALLOW_STALE_IMAGE=1` (launch on the image already
+        # loaded) is the hatch that remains, and it is orthogonal to delivery.
         mkOciImage = { minimal ? false, withExtras ? true }:
-          ociTools.streamLayeredImage {
+          let
+            variantBinPathLinks =
+              if minimal then binPathLinksMinimal
+              else if withExtras then binPathLinks
+              else binPathLinksLean;
+            variantFullPackages = if minimal || !withExtras then [] else fullPackages;
+
+            # TIER 1, THE BOTTOM: the nixpkgs closure.  ~94% of the bytes, and it
+            # moves only when `flake.lock` moves or a package is added to this
+            # file — never when anything of OURS changes.  That is the property
+            # the whole design is buying.
+            #
+            # `deps`, NOT `copyToRoot`, and the difference is load-bearing: a
+            # `copyToRoot` entry carries a REWRITE in its path options, and
+            # nix2container's cross-layer dedup is `reflect.DeepEqual` over
+            # `{Path, Options}` (`isPathInLayers`, nix/layers.go) rather than over
+            # the path.  A store path with a rewrite here and without one in the
+            # top tier's closure would therefore NOT dedup — it would be tarred
+            # into both, and the top layer would be hundreds of MB that every
+            # `flake.nix` edit re-copies.  With `deps` every path in this tier is
+            # bare, which is exactly the form the root tree's closure presents.
+            #
+            # `maxLayers = 90` is a budget, NOT a popularity split: `newLayers`
+            # emits `maxLayers - 1` SINGLE-PATH layers in closure-graph
+            # (alphabetical) order and dumps the remainder into one tail layer.
+            # A real sub-split needs nested `buildLayer`s and is a design question;
+            # nothing here depends on it, because §3.10 sets no target for a
+            # `flake.lock` bump — that case is SUPPOSED to move the base.
+            #
+            # `nixLd` and `stdenv.cc.cc.lib` are the two store paths the /lib farm
+            # links that NO package list carries (nixLd is an override;
+            # libstdc++ reaches the minimal variant without gcc).  Left to be
+            # discovered through the root tree's closure they would land in the
+            # TOP tier, where every `flake.nix` edit re-tars them.
+            baseTier = n2c.buildLayer {
+              deps = corePackagesFromNixpkgs ++ variantFullPackages
+                ++ [ nixLd imagePkgs.stdenv.cc.cc.lib ];
+              maxLayers = 90;
+            };
+
+            # TIER 2: the launch's `packages:` closure (YOLO_EXTRA_PACKAGES).
+            # ABOVE the base so a `packages:` change cannot move it — podman's
+            # overlay store keys a layer by its parent chain, so the more volatile
+            # tier belongs higher.  ONE layer regardless of list length, because
+            # the list changes as a unit.
+            #
+            # `extraLibPackages` rides along because the /lib farm links each
+            # package's conventional LIB output, which is a different store path
+            # from the default output `extraPackages` resolves to (zbar's .so is
+            # in its "-lib" output).  Without it those paths surface in the top
+            # tier instead.
+            #
+            # KEPT even though C4/C5 exists (OQ-LI3): store delivery is opt-in AND
+            # podman-on-Linux only, so every macOS launch, every Apple Container
+            # launch and every un-opted Linux launch still bakes `packages:`.  An
+            # opt-in launch simply has an empty extras tier — and an empty tier is
+            # OMITTED below rather than emitted as a zero-path layer, which would
+            # spend a layer slot and change every digest above it for no content.
+            extrasTier = n2c.buildLayer {
+              deps = extraPackages ++ extraLibPackages;
+              layers = [ baseTier ];
+              maxLayers = 1;
+            };
+            lowerTiers = [ baseTier ]
+              ++ pkgs.lib.optional (extraPackages != []) extrasTier;
+
+            # TIER 3, THE TOP: everything of ours, as ONE derivation.
+            #
+            # It is one `symlinkJoin` over the SAME list, in the SAME order, that
+            # `contents` carried — because that is what keeps collision resolution
+            # bit-identical across this change, and the polarity flips twice if it
+            # is done any other way (§3.1's VERIFIED note):
+            #
+            #   - ACROSS tiers a union filesystem gives the HIGHEST layer the
+            #     name, where `lndir` gave it to the FIRST entry.  So the curated
+            #     set has to be on top, and `binPathLinks` — whose whole job is
+            #     /bin/bash, /bin/sh, /bin/grep, /bin/sed and /usr/bin/env — is
+            #     what a `packages:` entry could otherwise shadow.  Shadowing
+            #     /bin/bash replaces the shell the boot itself runs through.
+            #   - WITHIN a tier, two tar entries for one name is LAST-wins where
+            #     `lndir` is FIRST-wins.  `gcc` and `binutils` both ship `bin/ld`
+            #     today and gcc wins by sitting earlier in `fullPackages`.
+            #
+            # Joining everything with `lndir` first, then handing nix2container a
+            # single path, sidesteps both: there is exactly one entry, so the
+            # union has nothing to arbitrate and the tar has no duplicate names.
+            # Precedence stays `binPathLinks` > core > full > extras, spelled by
+            # this list's order, exactly as `contents` spelled it.
+            #
+            # `lndir` also COPIES A SYMLINK BY VALUE (measured 2026-09-09: a
+            # source `bin/bash -> /nix/store/…-bash/bin/bash` is recreated with
+            # that same target, not pointed at the source link), which is what
+            # keeps two oracles reading as they always have: `readlink /bin/bash`
+            # names the bash store path, and `readlink
+            # /etc/yolo-jail-image-identity` names `imageIdentity`'s store path —
+            # the value integration/imageskew_test.go compares against `nix eval
+            # .#imageIdentity.outPath`.  A `buildEnv` per tier would have made
+            # both a symlink-to-a-symlink and reded the skew check forever.
+            #
+            # The packages appear here only as symlink TARGETS, so this tree is
+            # ~27 MB of links; their content is in the tiers below and dedups out
+            # of this layer.
+            rootTree = pkgs.symlinkJoin {
+              name = "yolo-jail-root";
+              paths =
+                [ variantBinPathLinks ]
+                ++ corePackages
+                ++ variantFullPackages
+                ++ extraPackages;
+              # `fakeRootCommands` lived here until nix2container replaced the
+              # generator; `buildImage` has no such hook, so the same directories
+              # and /etc files are written into the joined tree instead.  Nothing
+              # here needs fakeroot: every entry is a mkdir or an echo, and the
+              # tar is written root-owned by nix2container regardless
+              # (appendFileToTar forces uid/gid 0).
+              #
+              # Symptom of dropping one of these: pid1 dies on the read-only
+              # rootfs three genSteps in, AFTER a full copy — the a813b865 shape.
+              postBuild = ''
+                mkdir -p $out/var/tmp $out/var/cache $out/var/log $out/run $out/var/lib/containers
+
+                # Pre-create mountpoint directories for --read-only root filesystem.
+                # /opt/yolo-jail/{bin,share/yolo-jail} ARE here now: the install
+                # prefix stopped being baked content (installPrefix left
+                # corePackages) and became two bind mounts the launch supplies, so
+                # the image has to provide the mountpoints. Both levels are spelled
+                # out rather than relying on the runtime to create them on demand —
+                # podman does (the /ctx note below), Apple Container is not verified
+                # to, and this is the one mount whose absence costs pid1.
+                mkdir -p $out/home/agent $out/workspace $out/tmp $out/mise
+                mkdir -p $out/opt/yolo-jail/bin $out/opt/yolo-jail/share/yolo-jail
+                # F8: the ./ctx/* entries are NOT required. podman creates a nested
+                # mountpoint under /ctx on demand even with --read-only — verified live:
+                # /ctx/host-pi exists and carries a mount while appearing in no image
+                # layer and in no mkdir here. Kept only because they are harmless and
+                # removing them would be an unrelated image change; the point of
+                # recording it is that a NEW /ctx consumer (pack staging at
+                # /ctx/packs/<slug>) needs no flake edit, which drops a constraint the
+                # pack design had assumed.
+                mkdir -p $out/ctx/host-claude $out/ctx/host-nvim-config
+                mkdir -p $out/nix/var/nix/daemon-socket
+
+                # Podman needs /etc/passwd and /etc/group
+                mkdir -p $out/etc
+                echo 'root:x:0:0:root:/home/agent:/bin/bash' > $out/etc/passwd
+                echo 'root:x:0:' > $out/etc/group
+                echo 'nixbld:x:30000:' >> $out/etc/group
+              '';
+            };
+          in
+          n2c.buildImage {
+            # NOTHING READS THESE TWO.  nix2container's image.json carries no
+            # repo:tag at all (`types.Image` has no name field), so the only name
+            # an image gets is the destination ref the copy names on the command
+            # line — which is `image.JailImageRef`, the content-addressed
+            # `<repo>:<sha16-of-store-path>`.  C2 gets STRONGER by this change,
+            # not weaker: there is no baked name left for a post-load retag to
+            # race against.  They survive because `buildImage` requires `name` and
+            # because its unused passthru copiers interpolate both.
             name = "yolo-jail";
             tag = if minimal then "ci-minimal" else if withExtras then "latest" else "lean";
-            created = "now";
-            maxLayers = 100;
+            arch = imageArch;
 
-            contents =
-              [ (if minimal then binPathLinksMinimal
-                 else if withExtras then binPathLinks
-                 else binPathLinksLean) ]
-              ++ corePackages
-              ++ (if minimal || !withExtras then [] else fullPackages)
-              ++ extraPackages;
+            # `created` IS DELIBERATELY ABSENT.  nix2container takes an RFC3339
+            # timestamp and `time.Parse`s it, so the `created = "now"` this attr
+            # used to pass would fail the NIX BUILD (not the copy); and a
+            # build-time timestamp would make the derivation vary per build and
+            # destroy content addressing.  The default is the constant
+            # `0001-01-01T00:00:00Z`, so every yolo-jail image reports the same
+            # `CreatedAt` — which was the sort key prune's keep window ordered by
+            # until OQ-LS3 deleted that window outright (internal/prune/probes.go:
+            # `protected` is now the entire retention rule and the sort only
+            # orders the report). Do not pick a date to feed a sort.
 
-            # Create directories needed by nested podman and general operation
-            fakeRootCommands = ''
-              mkdir -p ./var/tmp ./var/cache ./var/log ./run ./var/lib/containers
+            layers = lowerTiers;
+            copyToRoot = [ rootTree ];
+            maxLayers = 1;
 
-              # Pre-create mountpoint directories for --read-only root filesystem.
-              # /opt/yolo-jail/{bin,share/yolo-jail} ARE here now: the install
-              # prefix stopped being baked content (installPrefix left
-              # corePackages) and became two bind mounts the launch supplies, so
-              # the image has to provide the mountpoints. Both levels are spelled
-              # out rather than relying on the runtime to create them on demand —
-              # podman does (the /ctx note below), Apple Container is not verified
-              # to, and this is the one mount whose absence costs pid1.
-              mkdir -p ./home/agent ./workspace ./tmp ./mise
-              mkdir -p ./opt/yolo-jail/bin ./opt/yolo-jail/share/yolo-jail
-              # F8: the ./ctx/* entries are NOT required. podman creates a nested
-              # mountpoint under /ctx on demand even with --read-only — verified live:
-              # /ctx/host-pi exists and carries a mount while appearing in no image
-              # layer and in no mkdir here. Kept only because they are harmless and
-              # removing them would be an unrelated image change; the point of
-              # recording it is that a NEW /ctx consumer (pack staging at
-              # /ctx/packs/<slug>) needs no flake edit, which drops a constraint the
-              # pack design had assumed.
-              mkdir -p ./ctx/host-claude ./ctx/host-nvim-config
-              mkdir -p ./nix/var/nix/daemon-socket
-
-              # Podman needs /etc/passwd and /etc/group
-              echo 'root:x:0:0:root:/home/agent:/bin/bash' > ./etc/passwd
-              echo 'root:x:0:' > ./etc/group
-              echo 'nixbld:x:30000:' >> ./etc/group
-            '';
+            # Leave `initializeNixDatabase` at its default false: in-jail nix
+            # talks to the HOST daemon (NIX_REMOTE=daemon, the socket is mounted),
+            # so an in-image nix DB buys nothing and costs a sqlite layer.
 
             config = {
               Cmd = [ "/bin/bash" ];
@@ -1169,7 +1379,7 @@
               # here. `owner` is a constant flag; the identity beside it is
               # `imageIdentity`, which is the FINEST identity spellable in this
               # config: nix cannot reference a derivation's own output path, and
-              # streamLayeredImage's script takes only `--repo_tag`, so nothing
+              # nix2container's image.json has no name field at all, so nothing
               # per-image or per-launch can be injected. imageIdentity is a
               # derivation over flake.nix + flake.lock alone, so the full/minimal/
               # lean trio and every `packages:` variant SHARE ONE VALUE. That is
@@ -1346,6 +1556,29 @@
         packages.ociImageLean = ociImageLean;
         # …and the profile that carries what it left out.
         packages.yoloImageExtras = yoloImageExtras;
+        # ── The copier the launch runs (image.ImageCopierAttr) ───────────────
+        # A skopeo carrying nix2container's `nix:` SOURCE TRANSPORT, which reads
+        # an image.json and streams only the blobs `containers-storage` says it
+        # lacks.  Stock skopeo does not have it, which is exactly why this is an
+        # ATTR rather than a `PATH` lookup: internal/image realizes this path and
+        # invokes `<storePath>/bin/skopeo`, so an unpatched skopeo on someone's
+        # PATH can never be what runs (§3.2's fourth property).
+        #
+        # A SEPARATE ATTR rather than the image's `passthru.copyTo`, which the
+        # design left to the implementer: `copyTo` is a shell wrapper bound to ONE
+        # image, so it is a second derivation to realize per image, while this one
+        # is realized once per nixpkgs and reused by every image and every
+        # variant.  The destination ref is still an argv either way.
+        #
+        # It is a SOURCE BUILD — the `nix:` transport is a `fetchpatch2` over
+        # nixpkgs' skopeo, so it is in no public cache and a `flake.lock` nixpkgs
+        # bump rebuilds it.  That cost is simply PAID (OQ-LI1): MEASURED
+        # 2026-09-09 at 2m27s cold against our nixpkgs (skopeo 1.24.0), 0s warm.
+        # Nothing is wired to a cache miss — a miss means the copier is built, and
+        # that is the whole consequence.  `yolo check`'s dry-run probe names this
+        # attr too, so a launch never compiles skopeo for minutes after a
+        # preflight said "nothing will build".
+        packages.imageCopier = n2cAll.skopeo-nix2container;
         packages.builderImage = builderImage;
         # go-port Stage 0 walking skeleton: static Linux Go binaries,
         # cross-compiled with no Linux builder. Buildable in-jail today to

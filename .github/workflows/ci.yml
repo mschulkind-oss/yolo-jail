@@ -166,9 +166,23 @@ jobs:
         # job (which has no cachix-action to add it to nix.conf) builds every
         # image path from source. Added 2026-09-02 after measuring the publish
         # job reading the cache only by the action's grace.
+        # Since layer-aware delivery landed the out-link is a nix2container
+        # image.json rather than a script whose stdout is a docker-archive
+        # (docs/design/layer-aware-image-delivery.md), so the tar this job
+        # UPLOADS is produced by a `skopeo copy` into the docker-archive
+        # transport. The copier is realized beside the image as `./result-1`; it
+        # is a source build over nixpkgs' skopeo that no public cache serves, so
+        # this step pays it once per nixpkgs (~2m cold).
+        #
+        # The archive still carries `localhost/yolo-jail:latest`, because the
+        # consuming jobs `podman load < tar` and then look for a name in the
+        # yolo-jail repository. That name is a CI convenience only — a real
+        # launch never streams a tar and names the image by its content ref.
         run: |
-          nix build --impure --accept-flake-config .#ociImageMinimal
-          ./result > /tmp/jail-image.tar
+          nix build --impure --accept-flake-config .#ociImageMinimal .#imageCopier
+          ./result-1/bin/skopeo --insecure-policy copy \
+            "nix:$(readlink -f ./result)" \
+            "docker-archive:/tmp/jail-image.tar:localhost/yolo-jail:latest"
           ls -lh /tmp/jail-image.tar
 
       - name: Upload jail image

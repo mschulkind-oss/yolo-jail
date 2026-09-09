@@ -1,7 +1,7 @@
-// Package image provides the container-image build/load pipeline — the command
-// builders, the nix-stderr summarizer, the byte-progress formatter, the
-// per-runtime load sentinel (LRU of store paths), the sha256-keyed cache path,
-// and the /etc/nix/machines stream-command resolution.
+// Package image provides the container-image build/delivery pipeline — the
+// command builders, the nix-stderr summarizer, the per-runtime load sentinel
+// (LRU of store paths), the sha256-keyed content ref and cache path, and the
+// layer-aware copy that delivers an image into a runtime (layercopy.go).
 //
 // Architecture and invariants: docs/reference/image-staging-vs-baking.md
 package image
@@ -11,9 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -22,43 +20,20 @@ import (
 // ImageLoadCmd returns the command to load a container image from a tar
 // archive — a FILE on disk.
 //
-// Since C3 this is no longer the podman happy path: it survives for the two
-// places that genuinely hold a file, namely the build-failure / SkipBuild
-// fallback that loads whatever `newestTars` found, and Apple Container's
-// conversion cluster. The normal podman load takes ImageLoadStdinCmd and writes
-// no tar at all.
+// SINCE C9 IT HAS ONE CALLER: the build-failure / SkipBuild fallback that loads
+// whatever LEGACY tar `newestTars` found. The normal path on every backend is a
+// `skopeo copy` from the nix store (internal/image/layercopy.go) and writes no
+// tar at all — the stdin form this file used to also carry (`podman load` with
+// no -i, C3's pipe) is gone with the stream that fed it.
+//
+// It still branches per runtime, and that is why the degraded loop can be one
+// arm instead of two: `container image load -i` and `podman load -i` differ only
+// here.
 func ImageLoadCmd(runtime, tarPath string) []string {
 	if runtime == "container" {
 		return []string{"container", "image", "load", "-i", tarPath}
 	}
 	return []string{runtime, "load", "-i", tarPath}
-}
-
-// ImageLoadStdinCmd returns the argv that loads an image from STDIN, and
-// ok=false for a runtime that cannot take one.
-//
-// This is C3's decision point: `podman load` documents `-i, --input string
-// Read from specified archive file (default: stdin)`, so dropping the flag turns
-// the loader into the read end of a pipe and the nix stream script into its
-// write end — no 3.28 GiB tar in between
-// (docs/reference/image-staging-vs-baking.md, "Streaming into the runtime").
-//
-// APPLE CONTAINER IS UNREPRESENTABLE HERE RATHER THAN HANDLED, and the reason is
-// its CONVERTERS, not its CLI: loadImageForAppleContainer runs either `skopeo
-// copy docker-archive:<tar> …` or `podman save --format oci-archive -o <tar>`,
-// and both interpolate a path into something that cannot consume a stream. Even
-// if `container image load` turned out to accept stdin, those two would still
-// need a file. Returning (nil, false) makes the caller branch on the ANSWER
-// instead of re-deriving the runtime name a third time.
-//
-// It is deliberately NOT spelled as ImageLoadCmd(runtime, "") meaning stdin: an
-// accidentally-empty path would silently become "read stdin", and `podman load`
-// on a terminal stdin blocks forever — a hang, not an error.
-func ImageLoadStdinCmd(runtime string) ([]string, bool) {
-	if runtime == "container" {
-		return nil, false
-	}
-	return []string{runtime, "load"}, true
 }
 
 // ImageInspectCmd returns the command to inspect a container image. Mirrors
@@ -73,13 +48,15 @@ func ImageInspectCmd(runtime, image string) []string {
 // costs a stale `podman images` listing and nothing else.
 //
 // The other direction (tag the content ref FROM :latest, after the load) is what
-// this used to do, and it is a defect: see StreamRepoTag for the race that made
-// a wrong binding permanent.
+// this used to do, and it is a defect: see ContainersStorageDest
+// (internal/image/layercopy.go) for the race that made a wrong binding
+// permanent, and for why C9 makes it unrepresentable rather than merely
+// avoided.
 //
-// Apple Container never reaches this: its converters (loadImageForAppleContainer)
-// choose the name they write into the OCI archive, so the content ref is applied
-// during conversion rather than after the load — which also avoids inventing an
-// argv for a `container image tag` subcommand nothing here can verify.
+// Apple Container never reaches this: the copy names the image inside the OCI
+// archive it writes, so the content ref is applied going in — which also avoids
+// inventing an argv for a `container image tag` subcommand nothing here can
+// verify.
 func ImageTagCmd(runtime, src, dst string) []string {
 	return []string{runtime, "tag", src, dst}
 }
@@ -129,39 +106,6 @@ func JailImageRef(runtime, storePath string) string {
 	return JailImageRepository(runtime) + ":" + keyFor(storePath)
 }
 
-// StreamRepoTag is the value C2 writes into the STREAMED ARCHIVE's RepoTags, so
-// the image arrives already carrying its content-addressed name and there is
-// nothing to retag afterwards.
-//
-// WHY THIS EXISTS RATHER THAN A `podman tag` AFTER THE LOAD. The flake bakes
-// `name = "yolo-jail"; tag = "latest"` (and `ci-minimal` on the minimal
-// variant), so an un-overridden stream names every image the same thing no
-// matter what it contains. Copying that name onto the content ref afterwards
-// reads `:latest` a second time, and between the load and that read a
-// concurrent launch of a DIFFERENT config can move it — nothing serializes image
-// loads across workspaces, the run lock is per-container-name. The loser then
-// binds its content ref to the winner's image, and because the binding is a
-// PERMANENT name the next launch finds it present, skips the load, and runs the
-// wrong image forever. Naming the image on the way in makes that unrepresentable
-// instead of unlikely: the archive says what it is, and `podman load` cannot
-// name it after anything else.
-//
-// The SHORT form is deliberate — it mirrors what the flake bakes, and podman
-// qualifies a bare repository to `localhost/…` on load, which is exactly
-// JailImageRef("podman", storePath). Verified end-to-end 2026-08-25 against the
-// live stream script: `--repo_tag yolo-jail:<key>` puts that in the archive's
-// manifest and `podman load` reports `Loaded image: localhost/yolo-jail:<key>`.
-func StreamRepoTag(storePath string) string {
-	return paths.JailImageRepoShort + ":" + keyFor(storePath)
-}
-
-// qualifyRef adds the `localhost/` registry prefix podman requires and Apple
-// Container's CLI omits — the same relationship paths.JailImage bears to
-// paths.JailImageShort.
-func qualifyRef(shortRef string) string {
-	return "localhost/" + shortRef
-}
-
 var (
 	reCopyingPath = regexp.MustCompile(`copying path '/nix/store/[a-z0-9]+-(.+?)'`)
 	reBuildingDrv = regexp.MustCompile(`building '/nix/store/[a-z0-9]+-(.+?)\.drv'`)
@@ -186,28 +130,6 @@ func SummarizeNixLine(line string) string {
 		return strings.TrimSpace(line)
 	}
 	return ""
-}
-
-// FormatProgress formats byte progress with an optional percentage. Mirrors
-// _format_progress: MB shown as "%.0f MB" below 1024, else "%.1f GB"; the
-// percentage is capped at 99 until done. Go's %.0f/%.1f use round-half-to-even,
-// matching Python's format spec.
-func FormatProgress(current, estimate int64) string {
-	mb := float64(current) / (1024 * 1024)
-	var curStr string
-	if mb >= 1024 {
-		curStr = fmt.Sprintf("%.1f GB", mb/1024)
-	} else {
-		curStr = fmt.Sprintf("%.0f MB", mb)
-	}
-	if estimate > 0 {
-		pct := int(current * 100 / estimate)
-		if pct > 99 {
-			pct = 99 // cap at 99% until done
-		}
-		return fmt.Sprintf("%s (%d%%)", curStr, pct)
-	}
-	return curStr
 }
 
 // FormatImageSize formats a materialized-image byte count the way auto_load_image
@@ -292,52 +214,4 @@ func AddLoadedPath(sentinel, storePath string) error {
 func keyFor(storePath string) string {
 	sum := sha256.Sum256([]byte(storePath))
 	return hex.EncodeToString(sum[:])[:16]
-}
-
-// ImageCachePath returns the cached tar file path for a nix store path, keyed by
-// the first 16 hex chars of sha256(storePath), under GLOBAL_CACHE/images/.
-func ImageCachePath(storePath string) (string, error) {
-	cacheDir := filepath.Join(paths.GlobalCache(), "images")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return "", err
-	}
-	return filepath.Join(cacheDir, keyFor(storePath)+".tar"), nil
-}
-
-// SizeFileForSentinel derives the size-estimate file path from a sentinel path
-// the way _estimate_image_size does: sentinel.parent / f"{sentinel.name}-size".
-//
-// PRESERVED QUIRK: _materialize_image calls this with sentinel =
-// BUILD_DIR/"last-load-size", so the READ path is BUILD_DIR/"last-load-size-size"
-// — but the WRITER at the end of _materialize_image writes to
-// BUILD_DIR/"last-load-size" (no doubled suffix). The two never meet: the size
-// estimate reads a file the pipeline never writes, so it always falls through to
-// the nix closure-size probe. This is faithfully reproduced, not fixed (see the
-// go-port divergence policy — surprising Python behavior is preserved).
-func SizeFileForSentinel(sentinel string) string {
-	return filepath.Join(filepath.Dir(sentinel), filepath.Base(sentinel)+"-size")
-}
-
-// ReadEstimatedSizeFile reads the cached size estimate from the given size file
-// (see SizeFileForSentinel), returning (0, false) when absent or unparseable —
-// the callsite then falls back to the nix closure-size probe.
-// size_file branch of _estimate_image_size.
-func ReadEstimatedSizeFile(sizeFile string) (int64, bool) {
-	data, err := os.ReadFile(sizeFile)
-	if err != nil {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return n, true
-}
-
-// SizeSentinelPath is the sentinel _materialize_image passes to
-// _estimate_image_size (BUILD_DIR/last-load-size). The WRITER also targets this
-// path; the reader targets SizeFileForSentinel(SizeSentinelPath) — the quirk
-// documented on SizeFileForSentinel.
-func SizeSentinelPath() string {
-	return filepath.Join(paths.BuildDir(), "last-load-size")
 }

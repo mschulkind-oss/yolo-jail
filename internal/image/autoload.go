@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
@@ -63,14 +62,6 @@ type AutoLoadOptions struct {
 	// stripped by the caller's printer; here we write plain text). nil =>
 	// io.Discard.
 	Out io.Writer
-	// ProgressTTY reports whether Out is a real terminal. When true, the byte
-	// progress redraws IN PLACE (carriage return, like Python's rich status
-	// spinner) instead of one line per chunk — otherwise a multi-GB image spams
-	// hundreds of "… 98%" lines. When false (piped/redirected), progress is
-	// suppressed to a single start line. It governs both forms: "Streaming
-	// image… " on the podman pipe and "Caching image… " on the Apple Container
-	// file.
-	ProgressTTY bool
 	// IsMacOS overrides the platform for the build-offload branch.
 	IsMacOS bool
 	// Getpid names the PID-unique out-link. nil => os.Getpid.
@@ -87,52 +78,62 @@ type AutoLoadOptions struct {
 	// Run runs a subprocess (image inspect / load), returning (rc, ran). nil =>
 	// real exec. Used for the runtime-side probes only.
 	Run func(argv []string) (rc int, ran bool)
-	// Materialize streams the nix image to cacheFile, returning byte count (0 on
-	// failure). nil => real streaming.
+	// LayerCopy is C9's delivery seam: `skopeo copy nix:<image.json> <dest>`,
+	// one process, no pipe and no archive on either side. imageJSON is the store
+	// path the nix build resolved to (a nix2container manifest, not a stream
+	// script); dest is the transport-qualified destination the runtime needs —
+	// ContainersStorageDest for podman, OCIArchiveDest for Apple Container.
+	// Returns (report, ok); ok=false means the image is NOT delivered and the
+	// reason was already printed, by this seam, because only it holds skopeo's
+	// stderr. nil => the real copy.
 	//
-	// Since C3 this is the APPLE CONTAINER path only. Podman's happy path takes
-	// StreamLoad and writes no tar; the one remaining caller here is the branch
-	// whose converters require a real file (ImageLoadStdinCmd says which). The
-	// build-failure fallback still READS tars (newestTars) — C3 removed the
-	// creation of tars on the podman happy path, not the ability to consume one.
-	Materialize func(storePath, cacheFile string) int64
-	// StreamLoad is C3's happy path: pipe the nix image stream straight into the
-	// runtime's `load`, writing NO tar. loadArgv is what ImageLoadStdinCmd
-	// returned (e.g. `podman load`, no -i). Returns (bytesStreamed, ok); ok=false
-	// means the image is NOT loaded and the reason was already printed — by this
-	// seam, because only it knows WHICH END of the pipe failed. nil => real
-	// streaming.
+	// dest is a PARAMETER rather than something the seam derives from imageJSON
+	// so a test can assert that the ref the pipeline RETURNS is the ref it asked
+	// the copier to create — two values that must agree and previously could not
+	// be compared. It is also the whole of C2 now: nix2container's image.json
+	// carries no repo:tag, so this argv is the only name the image can get and
+	// there is nothing left to retag afterwards (ContainersStorageDest says so
+	// at length).
 	//
-	// repoTag is C2's half: the name the archive's RepoTags must carry, so the
-	// image is created under its content ref rather than renamed onto it
-	// afterwards (StreamRepoTag says why that distinction is the whole point). It
-	// is a PARAMETER rather than something the seam derives from storePath so a
-	// test can assert that the ref the pipeline returns is the ref it asked the
-	// loader to create — two values that must agree and previously could not be
-	// compared.
+	// It is a seam of its own rather than a widening of Run because Run's
+	// contract is "run an argv and give me its exit status": it captures no
+	// stderr, and a copy that fails without saying what skopeo said is the C1
+	// silent-fallback defect one layer down.
+	LayerCopy func(imageJSON, dest string) (CopyReport, bool)
+	// BuildCopier realizes `.#imageCopier` and returns (skopeoPath, stderrTail);
+	// "" means the build failed. nil => the real build.
 	//
-	// It is a seam of its own rather than a widening of Run because Run's contract
-	// is "run an argv and give me its exit status" — it wires no stdin and cannot
-	// express an upstream process, and a pipe has two processes, two exit statuses
-	// and two stderrs to reconcile. Keeping them apart also lets a test pin the
-	// DECISION (podman streams, Apple Container does not) separately from the copy
-	// mechanics.
-	StreamLoad func(storePath, repoTag string, loadArgv []string) (int64, bool)
+	// A SEPARATE SEAM FROM BuildStorePath, and not folded into it, because the
+	// two builds have different LIFETIMES and different triggers: the image is
+	// built on every launch (it is how the content ref is computed), while the
+	// copier is built only on a launch that is about to copy — a launch whose
+	// image is already loaded must build nothing. Folding them would put a
+	// potential 2m27s skopeo compile in front of every warm start.
+	BuildCopier func(repoRoot string) (string, []string)
+	// PresentDigests reports the layer digests the runtime's store already holds,
+	// for the copied/skipped line the launch prints. nil => the real probe.
+	//
+	// REPORTING ONLY. The copy negotiates per blob with containers-storage on its
+	// own and never consults this; a wrong answer changes a printed number and no
+	// behavior (PresentLayerDigests says why that licenses the approximation).
+	PresentDigests func() map[string]struct{}
 	// DiagnoseFailure maps a nix stderr tail to (title, remedy). nil => a plain
 	// join (the caller normally passes nixdiag.DiagnoseNixBuildFailure bound
 	// with the resolved remedy).
 	DiagnoseFailure func(stderrTail []string) (title, remedy string)
-	// LoadAppleContainer converts+loads a tar into Apple Container under `ref`
-	// (an UNQUALIFIED ref — Apple Container's CLI does not carry the localhost/
-	// prefix). nil => real.
+	// LoadArchive loads an archive that ALREADY EXISTS at path into the runtime —
+	// the second half of delivery on the two backends that cannot be copied into
+	// directly (deliverViaArchive says which and why). nil => real.
 	//
-	// The ref is a parameter rather than a constant because Apple Container is
-	// the one backend that cannot be retagged after the fact here: its
-	// converters choose the name they write into the OCI archive, so C2's
-	// content-addressed name has to be handed to them going in. Callers pass
-	// JailImageRef(runtime, storePath) on the normal path and JailImage(runtime)
-	// on the degraded fallback, where no store path is known.
-	LoadAppleContainer func(tarPath, ref string) bool
+	// IT NO LONGER CONVERTS ANYTHING, and that is the C9 change on Apple
+	// Container. It used to take a docker-archive the stream script had written
+	// and run one of two converters over it — `skopeo copy docker-archive:…
+	// oci:…` plus a `tar cf`, or `podman load` + `podman tag` + `podman save
+	// --format oci-archive` — each of which wrote a SECOND full-size file and
+	// needed a skopeo or a podman on PATH. The copy writes the loader's own
+	// format directly now, so both converters and the PATH lookup are gone, and
+	// the name is still chosen going in because the copy names it.
+	LoadArchive func(path string) bool
 	// RegisterRoot registers a durable nix GC root for the loaded image's store
 	// path so a `nix-collect-garbage` at any moment cannot delete the running
 	// jail's closure (the storage-lifecycle §1 invariant). Called on every
@@ -189,14 +190,19 @@ func (o *AutoLoadOptions) fill() {
 			return 0, true
 		}
 	}
-	if o.Materialize == nil {
-		o.Materialize = func(storePath, cacheFile string) int64 {
-			return materializeImage(storePath, cacheFile, o.IsMacOS, o.Out, o.ProgressTTY)
+	if o.LayerCopy == nil {
+		o.LayerCopy = func(imageJSON, dest string) (CopyReport, bool) {
+			return o.copyImageLayers(imageJSON, dest)
 		}
 	}
-	if o.StreamLoad == nil {
-		o.StreamLoad = func(storePath, repoTag string, loadArgv []string) (int64, bool) {
-			return streamImageToRuntime(storePath, repoTag, loadArgv, o.IsMacOS, o.Out, o.ProgressTTY)
+	if o.BuildCopier == nil {
+		o.BuildCopier = func(repoRoot string) (string, []string) {
+			return BuildImageCopier(repoRoot, o.Out)
+		}
+	}
+	if o.PresentDigests == nil {
+		o.PresentDigests = func() map[string]struct{} {
+			return PresentLayerDigests(o.Runtime, runCapture)
 		}
 	}
 	if o.DiagnoseFailure == nil {
@@ -211,9 +217,14 @@ func (o *AutoLoadOptions) fill() {
 			return "nix build failed", strings.Join(t, "\n")
 		}
 	}
-	if o.LoadAppleContainer == nil {
-		o.LoadAppleContainer = func(tarPath, ref string) bool {
-			return loadImageForAppleContainer(tarPath, ref, o.Out)
+	if o.LoadArchive == nil {
+		o.LoadArchive = func(path string) bool {
+			rc, ran := o.Run(ImageLoadCmd(o.Runtime, path))
+			if ran && rc == 0 {
+				return true
+			}
+			fmt.Fprintln(o.Out, "Failed to load the image archive into "+o.Runtime+".")
+			return false
 		}
 	}
 	if o.RegisterRoot == nil {
@@ -377,8 +388,8 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// branch has always asked: is *an* image present under the name the flake
 		// bakes? This branch is why the normal path still bothers to point :latest
 		// at what it loaded (pointLatestAt) instead of leaving the legacy name to
-		// rot — it is the only fuel this branch has, now that C3 no longer writes
-		// tars for it to fall back on either.
+		// rot — it is the only fuel this branch has, and since C9 no backend writes
+		// a tar it could find, so what it loads is always a legacy one.
 		//
 		// Either SkipBuild (nothing was attempted) or a failed build the operator
 		// explicitly opted to ignore. If the image already exists in the runtime,
@@ -404,24 +415,24 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			// It does not make the window empty — the file can go one instruction
 			// later — but that residual is already survivable here: the loop tries
 			// the next candidate, which is exactly what a vanished tar deserves. The
-			// place where the same race was FATAL is the converter path, and that is
-			// where recovery rather than re-verification is the guard.
+			// converter path that made the same race FATAL is GONE since C9 (nothing
+			// holds a tar between two steps any more; deliverToAppleContainer writes
+			// a temp file it removes itself), so this re-check is the whole guard.
 			if !fileExists(tarFile) {
 				fmt.Fprintln(out, "Skipping cached image "+filepath.Base(tarFile)+
 					": it was removed after the cache was listed (a concurrent reclaim?).")
 				continue
 			}
 			fmt.Fprintln(out, "Loading image from cache: "+filepath.Base(tarFile))
-			if o.Runtime == "container" {
-				if o.LoadAppleContainer(tarFile, imageName) {
-					fmt.Fprintln(out, "Done: loaded image from cache")
-					return LoadResult{OK: true, Ref: imageName}
-				}
-			} else {
-				if rc, ran := o.Run(ImageLoadCmd(o.Runtime, tarFile)); ran && rc == 0 {
-					fmt.Fprintln(out, "Done: loaded image from cache")
-					return LoadResult{OK: true, Ref: imageName}
-				}
+			// ONE ARM, WHERE C9 FOUND TWO. Apple Container used to come through a
+			// converter here because the cached file was a docker-archive its loader
+			// could not read; the tars this branch can now find are LEGACY ones, and
+			// `ImageLoadCmd` already spells the per-runtime argv (`container image
+			// load -i` vs `podman load -i`), so there is nothing left to convert and
+			// no reason for this loop to know which backend it is on.
+			if rc, ran := o.Run(ImageLoadCmd(o.Runtime, tarFile)); ran && rc == 0 {
+				fmt.Fprintln(out, "Done: loaded image from cache")
+				return LoadResult{OK: true, Ref: imageName}
 			}
 		}
 		// Genuinely no image available. On a degraded (SkipBuild) launch no build
@@ -520,69 +531,90 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 				fmt.Fprintln(out, "  packages: "+pkgJSON)
 			}
 		}
-		// C3: ON PODMAN THE HAPPY PATH WRITES NO TAR.
+		// C9: THE DELIVERY IS A COPY THAT NEGOTIATES, AND IT IS THE ONLY ONE.
 		//
-		// This used to materialize the whole image into cache/images/<key>.tar and
-		// then hand `podman load -i` the file it had just written. The tar was a
-		// redundant third copy — the nix store already holds the closure and podman's
-		// own store holds the loaded layers — and it was RETAINED, which is how one
-		// developer machine accumulated 485 GiB of them (OQ-DF1, ruled 2026-08-25:
-		// "stream, keep zero tars"). `podman load` reads a tar on stdin, so the two
-		// halves join with a pipe and the file stops existing.
+		// The history is worth carrying because two earlier shapes are still the
+		// obvious things to reach for. This branch used to materialize the whole
+		// image into cache/images/<key>.tar and hand `podman load -i` the file
+		// (485 GiB of retained tars on one machine — OQ-DF1, "stream, keep zero
+		// tars"); C3 then joined the nix stream script to `podman load`'s stdin
+		// and wrote no tar of ours, which still shipped 3.47 GB per load because
+		// a docker-archive cannot ask the destination what it already has, and
+		// still cost podman a 3.55 GB spool to /var/tmp on the way in.
 		//
-		// THE CACHED-TAR SHORTCUT IS GONE FROM THIS BRANCH, deliberately. It used to
-		// skip materialization when <key>.tar was already there, and its premise was
-		// "this code wrote that tar, so don't pay twice" — a premise C3 deletes: on
-		// podman nothing writes a tar any more, so a file at that name is now a
-		// LEGACY artifact of a code path that no longer runs. Three reasons not to
-		// prefer it over a fresh stream: it almost never fires (a new store path is a
-		// new key, so the tar exists only when podman's image store was reset while
-		// the cache survived); preferring an unverified file to a verified stream
-		// would let one truncated leftover brick a workspace until a human deleted it
-		// by hand; and keeping it would make the podman path bimodal, so "no tar is
-		// written" would be a claim about the cache's contents rather than about this
-		// code. Apple Container keeps the shortcut below, where the premise still
-		// holds because materializeImage is still what puts the file there.
+		// Now `.#ociImage` IS a manifest, so `skopeo copy nix:… <dest>` asks
+		// containers-storage for each blob before sending it and there is no
+		// archive on either side. MEASURED 2026-09-09: a flake.nix-only edit
+		// moves ONE layer of 26.2 MiB out of 91, in 1.4 s, where the stream
+		// re-shipped every byte in 39.5 s (and 12.8 s even when nothing had
+		// changed at all).
 		//
-		// Existing tars are NOT orphaned by this: the degraded fallback above still
-		// loads whatever newestTars finds. C3 stops CREATING them; sweeping the ones
-		// already on disk is minimal-disk-footprint.md's work, not this branch's.
-		if loadArgv, canStream := ImageLoadStdinCmd(o.Runtime); canStream {
-			// C2: THE IMAGE IS NAMED ON THE WAY IN. StreamRepoTag is written into the
-			// archive's RepoTags, so a green load has already created the image under
-			// contentRef — there is no second call whose answer could disagree, and
-			// therefore no window in which a concurrent load of a different config
-			// could bind this ref to someone else's image. StreamRepoTag carries the
-			// argument in full.
-			ssp := o.Perf.Span("image.stream_load")
-			total, streamed := o.StreamLoad(currentPath, StreamRepoTag(currentPath), loadArgv)
-			ssp.End()
-			if !streamed {
-				// The seam already printed WHICH END failed and what it said; this
-				// line is the headline it hangs under, and is the same sentence a
-				// failed `podman load -i` printed before C3.
-				fmt.Fprintln(out, "Error loading image into "+o.Runtime+".")
-				_ = os.Remove(outLink)
-				return LoadResult{}
-			}
-			fmt.Fprintln(out, "  Streamed image: "+FormatImageSize(total))
-			o.pointLatestAt(contentRef)
+		// THERE IS NO SECOND MECHANISM AND NO FALLBACK (§3.5, OQ-LI5). A failed
+		// copy abandons the launch — it does not stream, because there is nothing
+		// left to stream with, and a fallback that hid a broken new mechanism
+		// would produce confident wrong results, which is the C1 defect that made
+		// a failed nix build fatal in the first place. `YOLO_ALLOW_STALE_IMAGE=1`
+		// remains the hatch for "get back in on the image I already have", and it
+		// is orthogonal to how the next image is delivered.
+		//
+		// The COPIER is built here rather than beside the image: a launch whose
+		// image is already loaded never reaches this branch, and must not pay a
+		// cold skopeo compile for an image it is not going to copy.
+		csp := o.Perf.Span("image.copier_build")
+		copier, copierTail := o.BuildCopier(o.RepoRoot)
+		csp.End()
+		if copier == "" {
+			// Same treatment as any failed image build, because it IS one: the
+			// classification plus nix's own stderr, and no launch. The stale hatch
+			// still applies to the image already loaded, which is why this reports
+			// through the same path rather than inventing a second failure shape.
+			title, remedy := o.DiagnoseFailure(copierTail)
+			fmt.Fprint(out, buildFailureReport(title, remedy, copierTail, false))
+			fmt.Fprintln(out, "Cannot start jail: the image copier ("+ImageCopierAttr+
+				") could not be built, so the image cannot be delivered.")
+			_ = os.Remove(outLink)
+			return LoadResult{}
+		}
+
+		// The already-present probe runs BEFORE the copy or it measures nothing.
+		// It is reporting only — see the seam doc.
+		present := o.PresentDigests()
+		layers, invErr := ReadLayerInventory(currentPath)
+		if invErr != nil {
+			// A manifest we cannot parse is not a reason to refuse: skopeo reads it
+			// itself and is the authority. Losing the report costs a printed line.
+			fmt.Fprintln(out, "Note: could not read the image manifest's layer list ("+
+				invErr.Error()+"); the copied/skipped figures below are omitted.")
+		}
+
+		// WHICH DESTINATION, decided from facts the launcher already has and never
+		// from a failure. `containers-storage` is the only one that negotiates, and
+		// it is reachable exactly when the store it writes is the store the runtime
+		// reads: podman on Linux. deliverViaArchive carries the two cases where it
+		// is not, and says why each is a property of the backend rather than a
+		// preference.
+		lcp := o.Perf.Span("image.layer_copy")
+		delivered := false
+		if o.Runtime == "container" || o.IsMacOS {
+			delivered = o.deliverViaArchive(currentPath, contentRef)
 		} else {
-			// Apple Container's converters interpolate a PATH (skopeo's
-			// docker-archive: source, `podman save -o`), so this backend still
-			// materializes a real file — C3 is podman-only for the pipe form and the
-			// doc says so. The image is named GOING IN: the converters write the ref
-			// into the OCI archive, so there is nothing to retag afterwards.
-			cacheFile, err := ImageCachePath(currentPath)
-			if err != nil {
-				fmt.Fprintln(out, "Error preparing image cache: "+err.Error())
-				_ = os.Remove(outLink)
-				return LoadResult{}
-			}
-			if !o.loadAppleContainerFromCache(cacheFile, currentPath, contentRef) {
-				_ = os.Remove(outLink)
-				return LoadResult{}
-			}
+			_, delivered = o.LayerCopy(currentPath, ContainersStorageDest(contentRef))
+		}
+		lcp.End()
+		if !delivered {
+			// The seam already printed skopeo's own words and said that no image
+			// was written; this line is the headline it hangs under.
+			fmt.Fprintln(out, "Error delivering image to "+o.Runtime+".")
+			_ = os.Remove(outLink)
+			return LoadResult{}
+		}
+		if invErr == nil {
+			// §3.10: the copied-vs-skipped ratio IS the claim, so it is printed
+			// rather than left to a timing span someone has to enable.
+			fmt.Fprintln(out, "  Copied image: "+ReportFor(layers, present).String())
+		}
+		if o.Runtime != "container" {
+			o.pointLatestAt(contentRef)
 		}
 		fmt.Fprintln(out, "Done: loaded image")
 	}
@@ -653,89 +685,151 @@ func (o *AutoLoadOptions) pointLatestAt(contentRef string) {
 		"launch may not find an image under the legacy name.")
 }
 
-// loadAppleContainerFromCache materializes cacheFile when it is absent and hands
-// it to the converters — and CLOSES P4, the tar-eviction race
-// (minimal-disk-footprint.md §5 P4, sequenced as §10 step 2).
+// deliverViaArchive is the copy-then-load pair the backends that CANNOT be
+// copied into directly need: the copy writes an archive and the runtime's own
+// loader reads it back.
 //
-// THE RACE, exactly. The Apple Container arm is the only launch-side code left
-// that holds a tar between two steps: it asks `fileExists(cacheFile)` and then
-// hands that same path to a converter that interpolates it (`skopeo copy
-// docker-archive:<path>`, `podman save -o <path>`). Nothing locks the cache and
-// nothing liveness-gates it, so a concurrent `yolo prune --apply` evicting a
-// REUSED tar inside that window used to make the launch exit 1 —
-// PruneImageCache's keep-N tail-drop deletes by mtime and knows nothing about
-// which tar a launch is mid-flight on. Since C3 the podman arm streams and has no
-// file between the two steps, so this is where the whole remaining exposure lives.
+// TWO BACKENDS TAKE IT, for unrelated reasons, and the reasons are worth keeping
+// apart because only one of them is about a CLI:
 //
-// THE GUARD IS RECOVERY, NOT MUTUAL EXCLUSION, and that is a deliberate choice
-// between three shapes:
+//   - **Apple Container** has no `containers-storage` at all. `container image
+//     load` takes a file, so a file is what it gets.
+//   - **podman on macOS** has one, but it is INSIDE THE PODMAN MACHINE VM, which
+//     shares the user's home and `/private` and NOT `/nix` (the same fact C8
+//     measured on 2026-09-07 and guards with `prefixUnreachableFromVM`). A local
+//     `skopeo copy … containers-storage:…` would write a store the VM never
+//     reads — an image that exists on the Mac and cannot be run. `podman load
+//     -i` streams the archive over podman's own connection INTO the VM, which is
+//     what makes it the only correct destination there.
 //
-//   - A LOCK over cache/images. Rejected: it is a new cross-process protocol
-//     between the launch path and a reclaimer that lives in another package, and
-//     the doc has not ruled who reclaims (OQ-DF2) — a lock would prejudge that by
-//     requiring every future deleter to take it. It also cannot help the case that
-//     actually matters, an eviction that already happened before this launch
-//     reached the branch.
-//   - RE-CHECKING fileExists immediately before the converter call. Rejected as
-//     insufficient rather than wrong: it narrows the window without closing it (the
-//     file can vanish one instruction later, and the converter is a subprocess that
-//     opens the path later still), which is precisely the shape AGENTS.md warns
-//     about — a guard that makes the race rarer reads as closed while staying open.
-//   - THIS: treat a missing tar at USE time as a recoverable condition. The tar is
-//     regenerable from the store path by construction — materializeImage is right
-//     here, and P3 says a cache tar is never load-bearing for anything else — so a
-//     lost race costs a re-materialization, never a failed launch. It needs no
-//     agreement from the deleter, which is what makes it safe to land before
-//     OQ-DF2 rules who the deleter is.
+// ⚠ THE SECOND CASE IS THE ONE THE DESIGN LEFT UNSERVED. §3.4 said podman/macOS
+// stays "unchanged (stream into `podman load`)" — but OQ-LI5 deleted the stream,
+// so "unchanged" named a mechanism that no longer exists. Without this arm that
+// backend writes into the wrong store and every macOS podman launch fails on an
+// image it just created. Note what it is NOT: a fallback. No failure switches
+// between these paths; the BACKEND decides, before anything runs, and the launch
+// says which it took.
 //
-// So this returns false ONLY for a genuine failure: a materialization that could
-// not produce the file, or a converter that ran against a file that WAS there and
-// broke on its own terms. One retry, not a loop: a second miss is no longer a
-// race with a reclaimer, it is a cache directory that cannot hold a file, and
-// looping would turn that into a hang.
+// Neither backend gets the layer REUSE — an archive is a sequential tar again —
+// but both get the layer plan and the deleted intermediate write. Apple
+// Container wrote TWO full-size files per load before this (a docker-archive
+// from the stream script, then an OCI tar converted from it) and needed a skopeo
+// or a podman on `PATH` to convert between them; podman/macOS wrote none of ours
+// but paid the pipe.
 //
-// Deliberately NOT delete-on-success (OQ-DF2 option (i), unruled) and NOT a
-// sweep: this adds no deletion of any kind, which is why closing P4 does not
-// front-run the ruling that will make reclamation automatic. §10 step 2's whole
-// point is that the guard lands BEFORE the trigger, not after.
-func (o *AutoLoadOptions) loadAppleContainerFromCache(cacheFile, storePath, contentRef string) bool {
-	out := o.Out
-	// TWO PASSES, AND THE BOUND IS THE POINT: the one the launch planned, plus one
-	// recovery after a concurrent reclaim. An unbounded loop would turn a cache
-	// directory that cannot keep a file (a full disk, a reclaimer in a tight loop)
-	// into a hang that re-materializes a multi-GB tar forever — worse than the
-	// failure it is trying to avoid.
-	for pass := 0; pass < 2; pass++ {
-		if !fileExists(cacheFile) {
-			msp := o.Perf.Span("image.materialize_tar")
-			totalBytes := o.Materialize(storePath, cacheFile)
-			msp.End()
-			if totalBytes == 0 {
-				fmt.Fprintln(out, "Error streaming image to cache.")
-				return false
-			}
-			fmt.Fprintln(out, "  Cached image: "+FormatImageSize(totalBytes))
-		}
-		if o.LoadAppleContainer(cacheFile, contentRef) {
-			return true
-		}
-		// The converters print their own diagnosis (which of skopeo/podman ran, and
-		// which step of it broke) — but a tar that is GONE now is a different event
-		// from a tar that is broken, and only the launch can tell them apart, because
-		// only it knows the file was there when it looked. A tar that is still on disk
-		// means the conversion itself failed, and re-caching a healthy file would
-		// duplicate a multi-GB write to hide the real fault.
-		if fileExists(cacheFile) {
-			return false
-		}
-		if pass == 0 {
-			fmt.Fprintln(out, "The cached image "+filepath.Base(cacheFile)+" was removed "+
-				"mid-launch (a concurrent reclaim?); re-caching it and retrying.")
-		}
+// THE FILE IS TEMPORARY, AND THAT IS A DELIBERATE NARROWING OF WHAT USED TO BE
+// HERE. Before C9 the Apple Container arm materialized `cache/images/<key>.tar`
+// and KEPT it, so three things followed: `newestTars` could find it and the
+// degraded fallback could load it; a concurrent `yolo prune --apply` could evict
+// it mid-launch, which is the P4 race the two-pass recovery loop existed for;
+// and the bytes stayed on disk (OQ-DF1's 485 GiB, one machine).
+//
+// A temp file removes all three. The degraded branch is UNCHANGED by C9 because
+// nothing it can see changed: it scans `*.tar`, these names never match, and the
+// only tars left in that directory are legacy docker-archives whose baked
+// `tag = "latest"` is exactly what that branch assumes. Had this written its
+// archive into the cache instead, the degraded branch would have loaded it and
+// then claimed `:latest` for an image named by its content ref — a launch that
+// fails at `podman run`, on the path that exists to rescue a launch.
+//
+// The cost is that a storage reset re-copies rather than re-loading a kept file,
+// which is the same trade C3 already made for podman-on-Linux: preferring an
+// unverified leftover file to a verified copy is how one truncated tar bricks a
+// workspace until a human deletes it by hand.
+//
+// ⚠ NEITHER ARM IS VERIFIED ON HARDWARE. Nobody here has a Mac, so neither
+// `container image load -i` against a skopeo-written `oci-archive` (where it
+// previously got a `tar cf` of a skopeo-written `oci:` DIRECTORY) nor `podman
+// load -i` against a skopeo-written `docker-archive` has been run. Those are the
+// same bytes by construction in both cases, but that is an argument, not a
+// measurement, and OQ-LI2 makes the measurement a precondition of trusting
+// these backends rather than a follow-up.
+func (o *AutoLoadOptions) deliverViaArchive(imageJSON, contentRef string) bool {
+	dest, archivePath, err := o.archiveDestination(imageJSON, contentRef)
+	if err != nil {
+		fmt.Fprintln(o.Out, "Error preparing the image archive: "+err.Error())
+		return false
 	}
-	fmt.Fprintln(out, "Error: the cached image "+filepath.Base(cacheFile)+
-		" keeps disappearing mid-launch; declining to re-cache it again.")
-	return false
+	// skopeo's archive destinations will not write over an existing file, and a
+	// leftover from a killed launch is exactly the state that would otherwise make
+	// every later launch fail on a file nobody remembers writing.
+	_ = os.Remove(archivePath)
+	defer os.Remove(archivePath)
+	if _, ok := o.LayerCopy(imageJSON, dest); !ok {
+		return false
+	}
+	return o.LoadArchive(archivePath)
+}
+
+// archiveDestination returns the transport-qualified destination and the file
+// path behind it for the runtime this launch is delivering to.
+func (o *AutoLoadOptions) archiveDestination(imageJSON, contentRef string) (dest, path string, err error) {
+	if o.Runtime == "container" {
+		path, err = archiveTempPath(imageJSON, ociArchiveSuffix)
+		if err != nil {
+			return "", "", err
+		}
+		return OCIArchiveDest(path, contentRef), path, nil
+	}
+	path, err = archiveTempPath(imageJSON, dockerArchiveSuffix)
+	if err != nil {
+		return "", "", err
+	}
+	return DockerArchiveDest(path, contentRef), path, nil
+}
+
+// The two transient-archive suffixes. ⚠ NEITHER MAY END IN `.tar`: `newestTars`
+// filters on that glob, so a crashed launch would leave the degraded fallback a
+// candidate it loads and then mis-names `:latest`.
+const (
+	ociArchiveSuffix    = ".oci-archive.tmp"
+	dockerArchiveSuffix = ".docker-archive.tmp"
+)
+
+// archiveTempPath is where an archive-delivering backend writes its transient
+// file: beside the image cache, because that directory is already sized for a
+// multi-GB image and lives on the same filesystem. Keyed by store path so two
+// concurrent launches of different configs cannot collide on one file.
+func archiveTempPath(storePath, suffix string) (string, error) {
+	dir := filepath.Join(paths.GlobalCache(), "images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, keyFor(storePath)+suffix), nil
+}
+
+// copyImageLayers is the LayerCopy seam's real implementation: build nothing,
+// run one copier, and report the bytes against what the destination already had.
+//
+// The report is assembled by the CALLER from the manifest and the present-digest
+// probe rather than here, because only the caller knows whether it wants the
+// figures printed — and because the copy must not depend on a reporting probe
+// having succeeded.
+func (o *AutoLoadOptions) copyImageLayers(imageJSON, dest string) (CopyReport, bool) {
+	copier, tail := o.BuildCopier(o.RepoRoot)
+	if copier == "" {
+		printTail(o.Out, "the image copier's build said", tail)
+		return CopyReport{}, false
+	}
+	return CopyReport{}, copyImageWithRetry(copier, imageJSON, dest, o.Out)
+}
+
+// runCapture runs an argv and returns its stdout, ok=false for anything that did
+// not exit 0. It backs the PresentDigests probe, which needs OUTPUT where
+// AutoLoadOptions.Run only reports an exit status.
+//
+// Not a seam on AutoLoadOptions and deliberately package-level: PresentDigests
+// is the seam, and it is the level a test wants — a stub there pins the reported
+// figures without anyone having to model two `podman` argvs and their stdout.
+func runCapture(argv []string) (string, bool) {
+	if len(argv) == 0 {
+		return "", false
+	}
+	out, err := exec.Command(argv[0], argv[1:]...).Output()
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
 }
 
 // buildImageStorePath ports _build_image_store_path for the run path: run
@@ -840,268 +934,6 @@ func buildImageWithContainerBuilder(runtime, attr, repoRoot string, extra []any,
 	extraArgs := []string{"--builders", buildersLine, "--max-jobs", "0"}
 	extraEnv := []string{"NIX_SSHOPTS=" + containerbuilder.NixSSHOpts()}
 	return buildImageStorePathArgs(attr, repoRoot, extra, outLink, out, extraArgs, extraEnv)
-}
-
-// materializeImage streams the nix image to cacheFile (via a temp + rename),
-// returning the byte count (0 on failure).
-//
-// SINCE C3 THIS IS THE APPLE CONTAINER PATH. Podman streams straight into `load`
-// and writes nothing (see streamload.go); this file form survives because
-// skopeo's `docker-archive:<path>` source and `podman save -o <path>` both
-// interpolate a real path and cannot consume a stream. The tar it writes is
-// therefore a constraint of that backend, not an exemption from OQ-DF1 —
-// minimal-disk-footprint.md has to price it.
-func materializeImage(storePath, cacheFile string, isMacOS bool, out io.Writer, progressTTY bool) int64 {
-	streamCmd := streamImageCommand(storePath, isMacOS)
-	cmd := exec.Command(streamCmd[0], streamCmd[1:]...)
-	cmd.Stderr = nil
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return 0
-	}
-	if err := cmd.Start(); err != nil {
-		return 0
-	}
-	tmpFile := strings.TrimSuffix(cacheFile, ".tar") + ".tmp"
-	f, err := os.Create(tmpFile)
-	if err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return 0
-	}
-	var total int64
-	buf := make([]byte, 1024*1024)
-	sentinel := SizeSentinelPath()
-	estimated := estimateImageSize(storePath, sentinel)
-	// Progress rendering (rich status.update — a SINGLE line
-	// that redraws): on a TTY, redraw in place with \r (throttled to whole-
-	// percent changes so a multi-GB stream doesn't emit hundreds of near-
-	// identical updates); off a TTY, emit nothing per-chunk (a redirected log
-	// must not accumulate 500 "98% 98% 99%" lines). A final newline closes the
-	// redrawn line so the next message starts cleanly.
-	prog := newProgressLine(out, progressTTY, "Caching image... ")
-	for {
-		n, rerr := stdout.Read(buf)
-		if n > 0 {
-			if _, werr := f.Write(buf[:n]); werr != nil {
-				prog.done()
-				f.Close()
-				_ = os.Remove(tmpFile)
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
-				return 0
-			}
-			total += int64(n)
-			prog.update(total, estimated)
-		}
-		if rerr != nil {
-			break
-		}
-	}
-	prog.done()
-	f.Close()
-	_ = cmd.Wait()
-	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0 {
-		_ = os.Remove(tmpFile)
-		return 0
-	}
-	if err := os.Rename(tmpFile, cacheFile); err != nil {
-		_ = os.Remove(tmpFile)
-		return 0
-	}
-	// Save size for future estimates (the writer path — see the doubled-suffix
-	// quirk on SizeFileForSentinel).
-	_ = os.WriteFile(sentinel, []byte(strconv.FormatInt(total, 10)), 0o644)
-	return total
-}
-
-// progressLine renders byte progress as a single, in-place updating line on a
-// TTY (carriage return, like Python's rich status spinner), and as nothing
-// per-chunk when piped (so a redirected log doesn't accumulate hundreds of
-// near-identical "… 98%" lines). Updates are throttled to when the RENDERED
-// string changes (whole-percent or MB/GB rollover), so a multi-GB stream
-// produces ~100 redraws, not one per 1 MB chunk.
-//
-// The prefix is a parameter since C3 because there are now two callers and they
-// are doing different things: materializeImage really is caching a file
-// ("Caching image... "), while the podman path streams straight into the runtime
-// and caches nothing ("Streaming image... "). Same line, same cadence, same
-// information — one accurate word.
-type progressLine struct {
-	out    io.Writer
-	tty    bool
-	last   string
-	shown  bool
-	prefix string
-}
-
-func newProgressLine(out io.Writer, tty bool, prefix string) *progressLine {
-	return &progressLine{out: out, tty: tty, prefix: prefix}
-}
-
-func (p *progressLine) update(current, estimate int64) {
-	if !p.tty {
-		return // no per-chunk spam on a pipe/redirect
-	}
-	msg := p.prefix + FormatProgress(current, estimate)
-	if msg == p.last {
-		return // throttle: nothing visibly changed
-	}
-	p.last = msg
-	p.shown = true
-	// \r returns to column 0; trailing spaces clear any shorter previous line.
-	fmt.Fprintf(p.out, "\r%s   ", msg)
-}
-
-// done closes the in-place line with a newline so the next message starts on a
-// fresh line (only when something was drawn).
-func (p *progressLine) done() {
-	if p.tty && p.shown {
-		fmt.Fprintln(p.out)
-	}
-}
-
-// estimateImageSize ports _estimate_image_size: the cached size file (read via
-// the doubled-suffix quirk path, which never exists), else the nix closure-size
-// probe.
-func estimateImageSize(storePath, sentinel string) int64 {
-	if n, ok := ReadEstimatedSizeFile(SizeFileForSentinel(sentinel)); ok {
-		return n
-	}
-	cmd := exec.Command("nix", "--extra-experimental-features", "nix-command flakes",
-		"path-info", "--closure-size", storePath)
-	data, err := cmd.Output()
-	if err != nil {
-		return 0
-	}
-	fields := strings.Fields(strings.TrimSpace(string(data)))
-	for i := len(fields) - 1; i >= 0; i-- {
-		if n, err := strconv.ParseInt(fields[i], 10, 64); err == nil {
-			return n
-		}
-	}
-	return 0
-}
-
-// streamImageArgv is streamImageCommand plus C2's naming: `--repo_tag <tag>`
-// tells nixpkgs' streamLayeredImage script to "Override the RepoTags from the
-// configuration" (its own `--help`), so the archive on stdout already carries
-// the content-addressed name and `podman load` creates the image under it.
-//
-// repoTag == "" streams the flake's baked name unchanged, which is what the
-// Apple Container file form wants: its converters name the image during
-// conversion, and materializeImage's tar is read back by a `podman load -i`
-// whose retag reads paths.JailImage.
-//
-// Appending is safe on BOTH forms streamImageCommand returns: locally the argv
-// is the store path itself, and over ssh it is `ssh <host> <storePath>`, where
-// the extra words join the remote command line (the tag has no shell
-// metacharacters — it is `<repo>:<16 hex>`).
-func streamImageArgv(storePath, repoTag string, isMacOS bool) []string {
-	argv := streamImageCommand(storePath, isMacOS)
-	if repoTag == "" {
-		return argv
-	}
-	return append(argv, "--repo_tag", repoTag)
-}
-
-// streamImageCommand ports _stream_image_command: on Linux the store path IS
-// the executable (its shebang streams the tar); the macOS remote-builder ssh
-// path is a documented narrowing (falls back to local execution).
-func streamImageCommand(storePath string, isMacOS bool) []string {
-	if !isMacOS {
-		return []string{storePath}
-	}
-	machines := "/etc/nix/machines"
-	data, err := os.ReadFile(machines)
-	if err != nil {
-		return []string{storePath}
-	}
-	if _, sshHost, ok := LinuxBuilderFromMachines(string(data)); ok {
-		// nix copy the closure to the builder, then run the script over ssh.
-		copyCmd := exec.Command("nix", "copy", "--to", "ssh-ng://"+sshHost, storePath)
-		if err := copyCmd.Run(); err != nil {
-			return []string{storePath}
-		}
-		return []string{"ssh", sshHost, storePath}
-	}
-	return []string{storePath}
-}
-
-// loadImageForAppleContainer ports _load_image_for_apple_container: convert the
-// nix V2 tar to OCI via skopeo (preferred) or podman, then load into Apple
-// Container under `ref` (unqualified — Apple Container's CLI does not carry a
-// localhost/ prefix).
-//
-// C2 names the image HERE rather than retagging after the load, because both
-// converters already choose the name they write into the OCI archive: skopeo
-// takes it as the destination reference, and the podman route takes it as the
-// ref `podman save` exports. That is strictly better than a post-load `container
-// image tag` would be — it removes a step, and it does not depend on an Apple
-// Container subcommand this repo has no way to verify.
-func loadImageForAppleContainer(tarPath, ref string, out io.Writer) bool {
-	if _, err := exec.LookPath("skopeo"); err == nil {
-		return convertViaSkopeo(tarPath, ref, out)
-	}
-	if _, err := exec.LookPath("podman"); err == nil {
-		return convertViaDaemon("podman", tarPath, ref, out)
-	}
-	fmt.Fprintln(out, "Cannot convert Nix image to OCI format for Apple Container.")
-	fmt.Fprintln(out, "Install one of: skopeo (recommended, no daemon needed) or podman.")
-	return false
-}
-
-func convertViaSkopeo(tarPath, ref string, out io.Writer) bool {
-	ociDir, err := os.MkdirTemp("", "yolo-oci-")
-	if err != nil {
-		return false
-	}
-	defer os.RemoveAll(ociDir)
-	if err := exec.Command("skopeo", "copy",
-		"docker-archive:"+tarPath, "oci:"+ociDir+":"+ref).Run(); err != nil {
-		fmt.Fprintln(out, "skopeo conversion to OCI failed.")
-		return false
-	}
-	ociTar := tarPath + ".oci.tar"
-	if err := exec.Command("tar", "cf", ociTar, "-C", ociDir, ".").Run(); err != nil {
-		fmt.Fprintln(out, "Failed to create OCI tar.")
-		return false
-	}
-	loadErr := exec.Command("container", "image", "load", "-i", ociTar).Run()
-	_ = os.Remove(ociTar)
-	if loadErr != nil {
-		fmt.Fprintln(out, "Failed to load OCI image into Apple Container.")
-		return false
-	}
-	return true
-}
-
-func convertViaDaemon(daemon, tarPath, ref string, out io.Writer) bool {
-	if err := exec.Command(daemon, "load", "-i", tarPath).Run(); err != nil {
-		fmt.Fprintln(out, "Failed to load image into "+daemon+" for conversion.")
-		return false
-	}
-	// The tar's baked RepoTags land the image under paths.JailImage in the
-	// CONVERSION daemon; name it as the Apple Container store must see it before
-	// exporting, so the OCI archive's ref is the one C2 asked for. The daemon
-	// here is podman, which requires the localhost/ prefix Apple Container omits.
-	qualified := qualifyRef(ref)
-	if err := exec.Command(daemon, "tag", paths.JailImage, qualified).Run(); err != nil {
-		fmt.Fprintln(out, "Failed to tag the converted image as "+qualified+" in "+daemon+".")
-		return false
-	}
-	ociTar := tarPath + ".oci.tar"
-	if err := exec.Command(daemon, "save", "--format", "oci-archive", "-o", ociTar, qualified).Run(); err != nil {
-		fmt.Fprintln(out, "Failed to export OCI image from "+daemon+".")
-		return false
-	}
-	loadErr := exec.Command("container", "image", "load", "-i", ociTar).Run()
-	_ = os.Remove(ociTar)
-	if loadErr != nil {
-		fmt.Fprintln(out, "Failed to load OCI image into Apple Container.")
-		return false
-	}
-	return true
 }
 
 // newestTars returns *.tar files in dir sorted newest-first by mtime. Empty when

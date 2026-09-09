@@ -10,11 +10,34 @@ vantage:
 
 # The image ships 3.47 GB to move 27 MB — layer-aware delivery
 
-**Status:** AUTHORIZED, NOTHING BUILT, 2026-09-09. Every design question is ruled and compacted
-into [§9.1](#91-decision-ledger), and the build is authorized — **gated on one measurement the
-maintainer takes first**, which needs nothing landed: `nix build --no-link
-'github:nlewo/nix2container#skopeo-nix2container'` on his host, read against his own two-versus-ten
-minute tripwire. See [OQ-LI6](#92-open-questions).
+**Status:** ✅ **SHIPPED 2026-09-09**, in one commit, on podman/Linux. Every design question is
+ruled and compacted into [§9.1](#91-decision-ledger); the gate
+([OQ-LI6](#92-open-questions)) cleared, and the build is done.
+
+> [!IMPORTANT]
+> **What shipped, measured.** `.#ociImage` is a nix2container `image.json` over a three-tier layer
+> plan; `.#imageCopier` is the patched skopeo; `internal/image/layercopy.go` is the delivery.
+> `streamLayeredImage`, `StreamRepoTag`, `ImageLoadStdinCmd`, the stream pipe, the Apple Container
+> converter pair and the retained tar are all DELETED — there is no second mechanism and no knob
+> ([OQ-LI5](#91-decision-ledger)).
+>
+> Measured in this jail, 2026-09-09, `podman --root` on a virgin overlay store, and through the
+> real launcher for the delta case:
+>
+> | Case | Before (stream → `podman load`) | After (`skopeo copy`) |
+> | :--- | :--- | :--- |
+> | Cold, empty store | **39.5 s**, 3.47 GB, 99 layers | **24.0 s** / 26.4 s, 3.45 GB, 91–92 layers |
+> | A `flake.nix`-only edit, previous image present | **12.8 s floor** — that is the IDENTICAL image; it re-spools 3.47 GB regardless | **2.2 s, 1 layer, 26 MB** (91 layers / 3.2 GB skipped) |
+> | One package added to `packages:` | the whole image | 2 layers, 26.6 MB (that package's closure + the top tier) |
+>
+> [§3.10](#310-what-done-looks-like) item 1's targets were ≤15 s and ≤250 MB.
+>
+> ⚠ **Apple Container shipped BLIND and is the one thing this doc still owes**
+> ([OQ-LI2](#91-decision-ledger) put it in the same pass; nobody here has the hardware). Its code
+> path is written, unit-tested through the seams, and unverified on a Mac — see
+> [§3.4](#34-which-backends-get-it) and the note in `internal/image/autoload.go`'s
+> `deliverToAppleContainer`. So is podman-on-macOS, whose Podman Machine VM does not share
+> `/nix`.
 
 **The short version.** Every launch that sees a new nix store path re-ships the whole
 3.47 GB image into podman, and I measured why: the customisation layer — the only layer a
@@ -208,15 +231,20 @@ the top tier**, a ceiling of 100 total to stay where the current image already s
 > is not a popularity contest at all.
 >
 > This costs nothing against [§3.10](#310-what-done-looks-like)'s targets, which set none for a
-> `flake.lock` bump — that case is *supposed* to move the base. It matters for two other reasons: a
-> real sub-split needs nested `buildLayer`s rather than a number, and **the tiers must each be one
-> `buildEnv`** rather than a raw `copyToRoot` list. Cross-layer dedup is `reflect.DeepEqual` over
-> `{Path, Options}`, not over the path (`isPathInLayers`), and only top-level entries carry a
-> `rewrite` — so a package that is `copyToRoot` in the base tier and a bare closure dependency of
-> `binPathLinks` in the top tier is **not** deduped, and bash, coreutils and chromium's graphics
-> stack would be tarred into the top layer as well. One `buildEnv` per tier (mirroring
-> `yoloImageExtras`) also preserves today's FIRST-wins collision resolution *inside* a tier; a raw
-> list is last-wins in the tar, which would silently flip `gcc` vs `binutils` for `bin/ld`.
+> `flake.lock` bump — that case is *supposed* to move the base. It matters because a real
+> sub-split needs nested `buildLayer`s rather than a number.
+>
+> **What it also forced, and this is the shape that shipped.** Cross-layer dedup is
+> `reflect.DeepEqual` over `{Path, Options}`, not over the path (`isPathInLayers`), and only
+> top-level `copyToRoot` entries carry a `rewrite` — so a store path that is `copyToRoot` in one
+> tier and a bare closure dependency in another is **not** deduped, and bash, coreutils and
+> chromium's graphics stack would be tarred into the top layer as well. The answer is that the
+> lower tiers carry **`deps`, never `copyToRoot`**: every path in them is then bare, which is
+> exactly the form the top tier's closure presents them in, and the top layer ends up holding
+> nothing but its own three root paths (MEASURED: 27,508,736 B over 3 paths, against 3,143,105,536 B
+> in the base tail). The plan's "one `buildEnv` per tier" was the wrong answer to the right
+> problem — see the WARNING in [§9.1](#91-decision-ledger) for why a `buildEnv` anywhere in this
+> would have broken two oracles.
 
 **Why the extras tier is separate, and why it is the tier that pays today.** After C8
 ([`image-staging-vs-baking.md` "The mounted prefix"](../reference/image-staging-vs-baking.md#the-mounted-prefix)) the
@@ -356,9 +384,30 @@ disturbs them. It does not:
 | Backend | Delivery | Why |
 | :--- | :--- | :--- |
 | **podman, Linux** | layer-aware copy | The nix store and `containers-storage` are both local and both reachable by one process. |
-| **podman, macOS** | unchanged (stream into `podman load`) | The storage lives inside the Podman Machine VM, which shares the user's home and `/private` and **not** `/nix` — the same fact C8 measured on 2026-09-07 and now guards with `prefixUnreachableFromVM` (`internal/cli/run/jailprefix.go`). A local `skopeo copy` would write a `containers-storage` the VM never reads. |
-| **Apple Container** | undecided — see [OQ-LI2](#91-decision-ledger) | It has no `podman load` and converts through `skopeo copy docker-archive:… oci:…` today (`internal/image/autoload.go:1032`), writing *two* full-size files. A `nix:` source would delete both, and nobody here has the hardware to measure it. |
+| **podman, macOS** | `skopeo copy nix:… docker-archive:<tmp>:<ref>`, then `podman load -i`, then the archive is removed | The storage lives inside the Podman Machine VM, which shares the user's home and `/private` and **not** `/nix` — the same fact C8 measured on 2026-09-07 and now guards with `prefixUnreachableFromVM` (`internal/cli/run/jailprefix.go`). A local `skopeo copy … containers-storage:…` would write a store the VM never reads, so `podman load -i` (which streams the archive over podman's own connection INTO the VM) is the only correct destination. **This row said "unchanged (stream into `podman load`)" until the build**, which named a mechanism [OQ-LI5](#91-decision-ledger) had deleted — see [the row that was wrong](#34a-the-row-that-was-wrong). |
+| **Apple Container** | `skopeo copy nix:… oci-archive:<tmp>:<ref>`, then `container image load -i`, then the archive is removed | It has no `containers-storage` at all, and converted through `skopeo copy docker-archive:… oci:…` plus a `tar cf` — *two* full-size files, and a skopeo or a podman on `PATH` to convert between them. The `nix:` source deletes both writes and the `PATH` lookup. ⚠ **Unverified on hardware** ([OQ-LI2](#91-decision-ledger)). |
 | **macos-user** | not applicable | No container, no image. |
+
+#### 3.4a The row that was wrong
+
+**The podman/macOS row above said "unchanged", and there was nothing left for it to be unchanged
+from.** [OQ-LI5](#91-decision-ledger) deletes `streamLayeredImage` and the pipe; that row named
+the pipe. Left as written, every macOS podman launch would have copied into the Mac's own
+`containers-storage` and produced an image that exists and cannot be run — a backend broken by a
+performance change, on the platform with no CI coverage.
+
+The fix is the same shape Apple Container already takes and costs nothing new: an archive the
+runtime's own loader reads. What matters is what it is NOT — **it is not a fallback.** No failure
+selects between the destinations; the BACKEND selects, from facts the launcher has before anything
+runs, and the launch says which it took. That is the same rule [§3.5](#35-one-mechanism-no-way-back)
+states for the copy itself: one mechanism per launch, chosen from evidence rather than from a
+failed attempt.
+
+**Three destinations, one decision, and only one of them negotiates.** `containers-storage` is
+reachable exactly when the store it writes is the store the runtime reads — podman on Linux. The
+other two get the layer PLAN (so the base tier is stable and a `flake.lock` bump is the only thing
+that moves it) and the deleted intermediate write, and not the reuse. An archive is a sequential
+tar again.
 
 **Two mechanisms, deliberately, and I own the cost.** This is the same shape
 [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#store-delivered-packages) accepted for store-delivered packages
@@ -685,14 +734,65 @@ exists BECAUSE the fallback is gone.
 | OQ-LI5 | **DISSOLVED — there is no rollback window, because there is no fallback.** `streamLayeredImage`, `YOLO_LEGACY_IMAGE_STREAM` and the second mechanism are deleted in the change that adds the new path. The maintainer's criterion settles it: an escape hatch is for a config the USER broke, not for yolo's own mechanism being broken — and the earlier defence ("one variable versus waiting for a release") proves too much, since it would justify keeping every mechanism yolo ever shipped. A second path no launch exercises is broken by the time anyone reaches for it. Risk R3 stops being an accepted cost; R8 is what replaces it | 2026-09-08 | [§3.5](#35-one-mechanism-no-way-back), [§7](#7-risks) R8, [§8](#8-what-i-would-build-in-order) |
 
 > [!WARNING]
-> **Two claims this doc made about its own mechanism turned out false, and both are load-bearing
-> rather than history.** `maxLayers` does NOT give the base tier a popularity split — nix2container
-> emits `maxLayers - 1` single-path layers and dumps the remainder into one tail layer — and
-> cross-layer dedup compares `{Path, Options}` rather than the path, so each tier must be one
-> `buildEnv` or shared packages are tarred into the top layer as well. [§3.1](#31-the-layer-plan)
-> carries both with the measurement that found them. The cold copier build is **2m27s**, not the
-> 34 s first recorded: that measurement used nix2container's own nixpkgs, and under the required
-> `follows` the version differs.
+> **Six claims this design and its plan made about the mechanism turned out false, and the build
+> found all six.** The plan doc is deleted (it asked to be); this is what it got wrong, so nobody
+> re-derives it:
+>
+> 1. **`maxLayers` is not a popularity contest.** `newLayers` emits `maxLayers - 1` SINGLE-PATH
+>    layers in closure-graph (alphabetical) order and dumps the remainder into one tail layer. The
+>    base tier is therefore 89 tiny layers plus a ~3.14 GB tail. Costs nothing against
+>    [§3.10](#310-what-done-looks-like), which sets no target for a `flake.lock` bump.
+> 2. **"One `buildEnv` per tier" is the WRONG SHAPE and would have red-ed the integration suite
+>    forever.** `buildEnv` points a link at the source LINK (`$out/etc/x -> <pkg>/etc/x`), while
+>    `lndir` — which `symlinkJoin` and therefore `streamLayeredImage`'s customisation layer use —
+>    COPIES A SYMLINK BY VALUE (measured 2026-09-09: a source `bin/bash -> /nix/store/…-bash/bin/
+>    bash` is recreated with that same target). Two oracles depend on the by-value form:
+>    `readlink /etc/yolo-jail-image-identity` must equal `nix eval .#imageIdentity.outPath`
+>    (`integration/imageskew_test.go`), and `readlink /bin/bash` must name the bash store path.
+>    What shipped instead is **ONE `symlinkJoin` over the same `contents` list in the same order**
+>    as the single top-tier `copyToRoot`, with the package closures carried by the lower tiers'
+>    `deps`. That also makes the collision question moot: one entry, so the union has nothing to
+>    arbitrate and the tar has no duplicate names, and precedence stays `binPathLinks` > core >
+>    full > extras exactly as `contents` spelled it.
+> 3. **A cross-entry collision is a BUILD FAILURE, not "last-wins".** `addFileToGraph`
+>    (`nix/graph.go`) errors when one tar path is added twice with a different mode or size; it is
+>    last-wins only when both match. So the plan's "`contents` → `copyToRoot` inverts collision
+>    resolution twice" over-stated the risk in one direction and under-stated it in the other.
+>    MEASURED by mutation, 2026-09-09 — appending `corePackagesFromNixpkgs` to the top tier's
+>    `copyToRoot` beside `rootTree` fails the nix build outright:
+>
+>    ```text
+>    the file '/nix-support/setup-hook' already exists in the graph with size '1149'
+>    from '…-python3-3.14.7/nix-support/setup-hook' while it is added again with
+>    size '666' by '…-nss-cacert-3.126/nix-support/setup-hook'
+>    ```
+> 4. **`copyTo` is the wrong copier.** It is a passthru of the IMAGE derivation, so it is a second
+>    thing to realize per image; a standalone `packages.imageCopier` is realized once per nixpkgs
+>    and reused by every image and every variant. [§3.2](#32-the-copy) left the choice open and
+>    this is the answer.
+> 5. **skopeo does not tell you what it skipped.** Its per-blob progress goes to STDOUT and says
+>    `Copying blob …` whether or not the blob was present (measured: a warm re-copy printed the
+>    same six lines in 39 ms). So the copied/skipped split cannot be parsed out of it; it is
+>    computed from the manifest's layer sizes against the digests `podman image inspect` reports in
+>    `.RootFS.Layers` for the jail images already present — which works because nix2container's
+>    layers are uncompressed, making digest and diffID the same value.
+> 6. **nix names extra out-links `<outLink>-1` and `<outLink>-1-man`**, not `-2`. Each is its own
+>    GC root, so `BuildOCIImage` and the integration harness remove the whole glob.
+>
+> **And one difference nothing predicted, measured rather than argued.** A full filesystem diff of
+> the two images (26,012 entries each, `find / -xdev` minus `/nix`) shows the ONLY structural
+> change is `imageIdentity`'s store path. Everything else is identical except **mode**: 2,423
+> directories go 0755 → 0555 and two regular files (`/etc/passwd`, `/etc/group`) go 0644 → 0444,
+> because nix2container tars the FINISHED store path where nix has already made it read-only,
+> while nixpkgs tarred the pre-hardening build tree. It is inert for a jail — the rootfs is
+> `--read-only` and every writable location is a `--tmpfs` or a bind (`/tmp`, `/var/tmp`, `/run`,
+> `/var/lib/containers`, `/var/cache/containers`, `/dev/shm`, `/workspace`, `/home/agent`,
+> `/mise`, `/opt/yolo-jail/*`, `/ctx/*`) — and `buildImage`'s `perms` is the lever if it ever is
+> not. A bare `podman run` of the image with no `--read-only` is where it would show.
+>
+> **The cold copier build is 2m27s**, not the 34 s first recorded: that measurement used
+> nix2container's own nixpkgs, and under the required `follows` the version differs (skopeo
+> 1.24.0).
 
 ### 9.2 Open Questions
 

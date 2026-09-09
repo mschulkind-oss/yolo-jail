@@ -13,7 +13,7 @@ bind-mounted live.
 bundle at `share/yolo-jail/` — and the image bakes only those mountpoints plus
 the `/bin/<name>` symlinks that point into them. Two things follow, and they pull
 in opposite directions so keep both: a commit touching only `cmd/` or `internal/`
-no longer moves the image at all (no rebuild, no `podman load` — the Go source
+no longer moves the image at all (no rebuild, no image delivery — the Go source
 left the image derivation), and there is still no dev-override wrapper, so you
 cannot live-patch the running jail's binaries either. A nested jail builds the
 live checkout's own `.#installPrefix` and mounts THAT — **but only when you pass
@@ -88,6 +88,17 @@ What is left needs a password and is four commands:
   A Go package outside that set vanishes from the image while `go build ./...`
   stays green. Add new top-level packages to the fileset by hand. (Content under
   `internal/` and `cmd/` is already covered.)
+- **The image is DELIVERED by a `skopeo copy`, not by `podman load`** (since
+  2026-09-09, docs/design/layer-aware-image-delivery.md). `nix build .#ociImage`
+  yields a nix2container `image.json` NAMING its layer digests — not a script
+  whose stdout is a docker-archive — and the launch copies it with the patched
+  skopeo that `.#imageCopier` builds, so `containers-storage` is asked for each
+  blob before it is sent. Consequences when you are debugging one:
+  `./result` is a JSON file (`jq .layers result` shows the layer plan), a
+  `flake.nix`-only edit moves ONE ~26 MB layer instead of 3.4 GB (MEASURED
+  2026-09-09: 2.2s, against 39.5s for the old stream), `just load` runs the
+  copier rather than a pipe, and there is **no legacy streamer and no env var to
+  bring one back** — a failed copy abandons the launch.
 - **A failed nix build STOPS the jail** (fatal since 2026-08-15): it prints
   nix's own stderr plus a classification and exits, rather than falling back to
   the loaded image or the newest cached tar. It used to fall back, and a broken

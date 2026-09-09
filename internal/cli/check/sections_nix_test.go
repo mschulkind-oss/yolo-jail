@@ -50,4 +50,13 @@ func TestNixDryRunArgvCarriesAcceptFlakeConfig(t *testing.T) {
 	if !slices.Contains(got, ".#ociImage") {
 		t.Errorf("dry-run probe no longer evaluates .#ociImage: %v", got)
 	}
+	// AND THE COPIER (C9). It is a source build no public cache serves — 2m27s
+	// cold, MEASURED 2026-09-09 — so a probe that omits it reports "nothing will
+	// build" and the very next launch compiles skopeo for minutes. That is the
+	// preflight telling the user the opposite of what happens, which is worse
+	// than having no preflight.
+	if !slices.Contains(got, image.ImageCopierAttr) {
+		t.Errorf("dry-run probe no longer evaluates %s, so a cold copier build is "+
+			"invisible to the preflight: %v", image.ImageCopierAttr, got)
+	}
 }

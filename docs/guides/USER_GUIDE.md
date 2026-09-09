@@ -75,7 +75,7 @@ brew install container skopeo
 container system start
 ```
 
-Native per-container CPU/memory limits, native Unix socket port forwarding, smallest footprint (no separate VM daemon). Has a ~22 bind mount limit — YOLO Jail works around this by consolidating workspace state into one mount. `skopeo` is used to convert Nix's streamed image tarballs to OCI for Apple Container.
+Native per-container CPU/memory limits, native Unix socket port forwarding, smallest footprint (no separate VM daemon). Has a ~22 bind mount limit — YOLO Jail works around this by consolidating workspace state into one mount. The image is delivered as a temporary OCI archive (yolo builds the `skopeo` that writes it; nothing on your `PATH` is used).
 
 **Option B — Podman Machine:**
 
@@ -160,9 +160,10 @@ On first run, YOLO Jail will:
 1. **Build the Linux container image** via `nix build`:
    - **Linux:** Nix downloads prebuilt packages from the binary cache (~2–5 minutes).
    - **macOS:** Nix downloads the same Linux packages from the binary cache (~2–5 minutes the first time, instant on subsequent runs thanks to caching). If you've added a non-cached package, the from-source build is offloaded automatically to an ephemeral container on the running runtime — no builder to configure (the runtime just needs to be up).
-2. **Load the image** into your container runtime:
-   - Podman: `podman load` from the cached tarball
-   - Apple Container: the tarball is converted to OCI via `skopeo` (or `podman` as fallback) and then `container image load`ed
+2. **Deliver the image** into your container runtime with `skopeo copy`, which asks the runtime for each layer before sending it — so a yolo upgrade moves the ~26 MB that actually changed instead of the whole 3.4 GB image:
+   - Podman: copied straight into podman's own storage; no tarball is written anywhere.
+   - Apple Container: copied to a temporary OCI archive, `container image load`ed, and the archive removed.
+   The copier is a `skopeo` build the flake produces itself (`nix build .#imageCopier`) — it carries a Nix-store source transport that a `brew install skopeo` does not have, so nothing on your `PATH` is used or needed. The first launch after a nixpkgs bump builds it (~2 minutes); after that it is a store lookup.
 3. **Install tools** — MCP servers, LSP servers, and utilities are installed into persistent storage (`~/.local/share/yolo-jail/home/`).
 4. **Start your command** — by default, an interactive shell.
 
@@ -1219,7 +1220,7 @@ It is tempting to skip all of the above and just `ln -s /data/… ~/.local/share
 
 The whole cache directory is bind-mounted into the container as one unit, and podman resolves the **source path** of that mount — not the symlinks inside it. The container therefore gets a symlink pointing at `/data/…`, a path that does not exist in the container's mount namespace. Every in-jail download then fails on a dangling path, while the same symlink resolves perfectly when you `ls` it on the host.
 
-The one exception is `cache/images`, which holds jail image tarballs. Those are only ever read host-side, before any container exists, so symlinking that subdir is safe. Nothing else in the cache is.
+The one exception is `cache/images`, which holds jail image tarballs. Those are only ever read host-side, before any container exists, so symlinking that subdir is safe. Nothing else in the cache is. (Nothing WRITES a tarball there any more — the image is copied layer by layer since layer-aware delivery landed — so what is left is a backlog `yolo prune` reclaims.)
 
 ---
 

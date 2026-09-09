@@ -37,10 +37,20 @@ func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixd
 // reports "will build from source" for a closure the real build (which does
 // pass it) would have substituted, and on macOS that mispredicts a working
 // build as a doomed one needing a Linux builder.
+//
+// TWO ATTRS, because a launch realizes two things. Since C9 the image is
+// DELIVERED by a `skopeo copy`, and the copier is a source build over nixpkgs'
+// skopeo that no public cache serves (image.ImageCopierAttr) — MEASURED 2m27s
+// cold, 2026-09-09. Probing only the image reports "nothing will build" while
+// the very next launch compiles skopeo for minutes, which is the preflight
+// telling the user the opposite of what happens. One `nix build` naming both
+// attrs is one subprocess and one verdict, so the classification below needs no
+// per-attr merge.
 func nixDryRunArgv() []string {
 	argv := []string{"nix"}
 	argv = append(argv, image.NixFlakeFlags()...)
-	return append(argv, "build", ".#ociImage", "--impure", "--dry-run")
+	return append(argv, "build", ".#ociImage", image.ImageCopierAttr,
+		"--impure", "--dry-run")
 }
 
 // hasLinuxBuilder reports whether a usable builder for THIS host's Linux system is

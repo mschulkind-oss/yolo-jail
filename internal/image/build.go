@@ -4,17 +4,26 @@ import (
 	"bufio"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // BuildOCIImage runs the side-effecting core of _build_image_store_path for the
-// `yolo check` preflight: run `nix build .#ociImage --impure` and return the
-// resulting store path on success, plus the retained stderr tail (last 30
-// lines) for failure diagnosis via DiagnoseNixBuildFailure. storePath is "" on
-// any failure (non-zero exit, missing nix). extraPackages, when non-empty, is
+// `yolo check` preflight: run `nix build .#ociImage .#imageCopier --impure` and
+// return the IMAGE's store path on success, plus the retained stderr tail (last
+// 30 lines) for failure diagnosis via DiagnoseNixBuildFailure. storePath is ""
+// on any failure (non-zero exit, missing nix). extraPackages, when non-empty, is
 // JSON-encoded into YOLO_EXTRA_PACKAGES the way the Python does.
+//
+// The out-link resolves to the FIRST attr — nix names the extras `<outLink>-1`,
+// and one per extra OUTPUT (`<outLink>-1-man`), verified 2026-09-09 — so the
+// returned path is the image manifest and the copier is proven-buildable without
+// being named back to the caller. That is exactly what check wants: it reports
+// "the image can be built", and since C9 that sentence is only true if the thing
+// that delivers it can be built too. ⚠ Every one of those links is a GC ROOT, so
+// they are all removed on the way out (see the removal below).
 //
 // The rich live-status spinner and the --builders offload path stay in the run
 // slice; check's callsite passes no builders and consumes only (storePath,
@@ -33,7 +42,19 @@ func BuildOCIImage(repoRoot string, extraPackages []any) (string, []string) {
 	// unrooted result is correct. Do NOT copy this pattern into a load path: the
 	// run path (autoload.go) MUST retain a durable root for the image it runs
 	// against (storage-lifecycle §1; see image.RegisterImageRoot).
-	defer os.Remove(outPath)
+	//
+	// The GLOB is not decoration: building a second attr makes nix write
+	// `<outPath>-1` and `<outPath>-1-man` beside the first link, and each is its
+	// own GC root. Removing only `outPath` would leave a preflight pinning a
+	// skopeo closure in /tmp forever, per `yolo check`.
+	defer func() {
+		_ = os.Remove(outPath)
+		if extra, err := filepath.Glob(outPath + "-*"); err == nil {
+			for _, link := range extra {
+				_ = os.Remove(link)
+			}
+		}
+	}()
 
 	buildEnv := os.Environ()
 	if len(extraPackages) > 0 {
@@ -42,7 +63,11 @@ func BuildOCIImage(repoRoot string, extraPackages []any) (string, []string) {
 		}
 	}
 
-	argv := ociBuildArgv(ImageAttrDefault, outPath, nil)
+	// BOTH ATTRS, because a launch realizes both (C9): the image manifest and the
+	// `skopeo` that delivers it. The copier is a source build no public cache
+	// serves, so a preflight that proved only the image can be built would go
+	// green on a machine whose next launch cannot deliver one.
+	argv := ociBuildArgv(ImageAttrDefault, outPath, []string{ImageCopierAttr})
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = buildEnv

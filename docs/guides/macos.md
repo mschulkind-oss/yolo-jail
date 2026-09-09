@@ -149,9 +149,12 @@ container system kernel set --recommended
   for the full list, including the one that affects Claude logins
 
 **Image conversion:** Apple Container requires OCI-format images. YOLO Jail
-auto-converts from Nix's streamed image tar using (in priority order):
-1. **skopeo** (recommended — no daemon needed): `brew install skopeo`
-2. **podman** (needs running daemon as fallback)
+copies the Nix image straight into a temporary OCI archive, loads it, and removes
+the archive — one full-size write instead of the two the old converter chain
+needed. **Nothing has to be installed for this**: the `skopeo` that does it is
+built by the flake (`nix build .#imageCopier`), because it carries a Nix-store
+source transport that no released skopeo has. A `brew install skopeo` is neither
+used nor needed, and the `podman`-as-fallback route is gone.
 
 ### The macos-user backend
 
@@ -203,8 +206,8 @@ full verification procedure.
 The OCI image is a **Linux** image (`aarch64-linux`). Most of its content
 (chromium, bash, python, node, …) is standard nixpkgs, fetched from
 `cache.nixos.org` — but a few derivations are built from **this repo's own
-source** (`yolo-jail-conf`, the entrypoint pkg, the image stream script) and
-are therefore **never** on the public cache. macOS can't build a Linux
+source** (`yolo-jail-conf`, the entrypoint pkg, and the patched `skopeo` that
+delivers the image) and are therefore **never** on the public cache. macOS can't build a Linux
 derivation locally, so those few must be built on Linux somehow.
 
 Two things make that a non-event:

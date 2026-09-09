@@ -103,6 +103,21 @@ const (
 // ever built and would report "matches" always.
 const identityLinkPath = "/etc/yolo-jail-image-identity"
 
+// skewFixDest is the `skopeo copy` DESTINATION for the runtime the suite
+// detected — the half of the manual fix that is not the same on both backends.
+//
+// podman's containers-storage IS the load; Apple Container has no equivalent, so
+// it gets an OCI archive plus the `container image load` that reads it, which is
+// exactly what internal/image's deliverToAppleContainer does. Naming the wrong
+// one would hand a Mac user a command that writes into a store nothing reads.
+func skewFixDest(rt string) string {
+	if rt == "container" {
+		return "oci-archive:/tmp/jail-image.oci:" + jailImage +
+			" && container image load -i /tmp/jail-image.oci"
+	}
+	return "containers-storage:localhost/" + jailImage
+}
+
 // degraded reports a harness precondition that could not be met. Every early
 // return on the image path goes through this: a degraded run may still be worth
 // attempting, but it must never be SILENT — a suite that quietly gave up on
@@ -332,7 +347,9 @@ func skewMessage(image, rt, want, got string) string {
 	fmt.Fprintf(&b, "    rebuild + reload, then run the suite:\n")
 	fmt.Fprintf(&b, "        %s=1 go test -count=1 -timeout 0 ./integration\n", rebuildEnv)
 	fmt.Fprintf(&b, "    rebuild + reload by hand:\n")
-	fmt.Fprintf(&b, "        cd %s && nix build --impure .#ociImage && ./result | %s load\n", repoRoot, rt)
+	fmt.Fprintf(&b, "        cd %s && nix build --impure .#ociImage .#imageCopier && \\\n", repoRoot)
+	fmt.Fprintf(&b, "            ./result-1/bin/skopeo --insecure-policy copy \\\n")
+	fmt.Fprintf(&b, "            \"nix:$(readlink -f ./result)\" %s\n", skewFixDest(rt))
 	fmt.Fprintf(&b, "    accept the skew for this run (a host-CLI-only change, a bisect, ...):\n")
 	fmt.Fprintf(&b, "        %s=warn go test -count=1 -timeout 0 ./integration\n\n", skewEnv)
 	fmt.Fprintf(&b, "  Note: nix only sees git-TRACKED files, so `git add` a newly created file\n")

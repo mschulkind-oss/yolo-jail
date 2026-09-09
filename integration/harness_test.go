@@ -378,55 +378,59 @@ func ensureJailImage() {
 		log.Printf("[integration] %s set — rebuilding and reloading %s", rebuildEnv, jailImage)
 	}
 
-	log.Printf("[integration] loading %s into inner %s (this may take a minute)...", jailImage, rt)
+	log.Printf("[integration] delivering %s into inner %s (this may take a minute)...", jailImage, rt)
 	outLink := filepath.Join(repoRoot, ".run-result")
+	// TWO ATTRS IN ONE BUILD (C9): the image is a nix2container manifest now, and
+	// the thing that reads it is a skopeo carrying the `nix:` transport, which no
+	// public cache serves. The harness IS a delivery path — it used to execute the
+	// out-link as a program, because `streamLayeredImage`'s output was a script
+	// whose stdout was a docker-archive — so it has to be migrated with the
+	// production one or every container test dies in TestMain.
+	//
+	// nix names the extra out-links `<outLink>-1` and `<outLink>-1-man`, each its
+	// own GC root, so all of them are removed on the way out.
 	build := exec.Command("nix", "--extra-experimental-features", "nix-command flakes",
-		"build", ".#ociImage", "--impure", "--out-link", outLink)
+		"build", ".#ociImage", ".#imageCopier", "--impure", "--out-link", outLink)
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("integration: nix build failed inside jail — cannot load %s: %v\n%s\n"+
+		log.Fatalf("integration: nix build failed inside jail — cannot deliver %s: %v\n%s\n"+
 			"Ensure the host nix daemon socket is mounted (/nix/var/nix/daemon-socket) "+
 			"and NIX_REMOTE=daemon is set.", jailImage, err, out)
 	}
-	defer os.Remove(outLink)
+	defer func() {
+		os.Remove(outLink)
+		if extra, err := filepath.Glob(outLink + "-*"); err == nil {
+			for _, link := range extra {
+				os.Remove(link)
+			}
+		}
+	}()
 
-	resolved, err := filepath.EvalSymlinks(outLink)
+	manifest, err := filepath.EvalSymlinks(outLink)
 	if err != nil {
-		degraded("cannot resolve %s: %v — image not loaded", outLink, err)
+		degraded("cannot resolve %s: %v — image not delivered", outLink, err)
+		return
+	}
+	copier, err := filepath.EvalSymlinks(outLink + "-1")
+	if err != nil {
+		degraded("cannot resolve the image copier out-link %s-1: %v — image not delivered",
+			outLink, err)
 		return
 	}
 
-	// The out-link is a script that streams a docker-archive to stdout; pipe it
-	// into `<runtime> load` (mirrors conftest's Popen pipe, no shell needed).
-	stream := exec.Command(resolved)
-	load := exec.Command(rt, "load")
-	pipe, err := stream.StdoutPipe()
-	if err != nil {
-		degraded("wiring image stream pipe failed: %v", err)
+	// `containers-storage:` IS the load: skopeo creates the image under the ref in
+	// this argv, so there is no `<runtime> load` and no archive anywhere. The ref
+	// is the LEGACY :latest name rather than a content ref on purpose — this is
+	// the harness's own load, and imageExists()/checkImageSkew look for a name in
+	// the jail repository, not for the store path this build happened to produce.
+	copy := exec.Command(filepath.Join(copier, "bin", "skopeo"), "--insecure-policy",
+		"copy", "nix:"+manifest, "containers-storage:localhost/"+jailImage)
+	if out, err := copy.CombinedOutput(); err != nil {
+		degraded("%s image copy failed (integration tests may be skipped): %v\n%s",
+			rt, err, strings.TrimSpace(string(out)))
 		return
 	}
-	load.Stdin = pipe
-	var loadOut bytes.Buffer
-	load.Stdout = &loadOut
-	load.Stderr = &loadOut
-	if err := stream.Start(); err != nil {
-		degraded("starting image stream failed: %v", err)
-		return
-	}
-	if err := load.Start(); err != nil {
-		degraded("starting %s load failed: %v", rt, err)
-		_ = stream.Process.Kill()
-		_ = stream.Wait()
-		return
-	}
-	loadErr := load.Wait()
-	streamErr := stream.Wait()
-	if streamErr != nil || loadErr != nil {
-		degraded("%s load failed (integration tests may be skipped): stream=%v load=%v\n%s",
-			rt, streamErr, loadErr, strings.TrimSpace(loadOut.String()))
-		return
-	}
-	log.Printf("[integration] %s", strings.TrimSpace(loadOut.String()))
+	log.Printf("[integration] delivered localhost/%s into %s", jailImage, rt)
 
 	// Verify what we just loaded. A build+load that succeeded can still leave a
 	// mismatched image — most commonly because nix only sees git-TRACKED files, so

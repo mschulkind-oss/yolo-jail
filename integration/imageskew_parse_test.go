@@ -107,11 +107,24 @@ func TestSkewMessageIsActionable(t *testing.T) {
 		rebuildEnv + "=1",                         // the one-command fix
 		skewEnv + "=warn",                         // the documented escape hatch
 		"nix build --impure .#ociImage",           // the manual fix
-		"podman load",                             // ...for the detected runtime
+		"containers-storage:",                     // ...delivered, not streamed
+		".#imageCopier",                           // ...with the copier that reads it
 		"git add",                                 // the tracked-files trap
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("skew message is missing %q:\n%s", want, msg)
+		}
+	}
+	// THE DESTINATION IS PER RUNTIME, and getting it wrong hands a Mac user a
+	// command that writes into a store nothing reads. Apple Container has no
+	// containers-storage; it takes a file and a loader.
+	ac := skewMessage("yolo-jail:latest", "container", "/nix/store/aaa", "/nix/store/bbb")
+	if strings.Contains(ac, "containers-storage:") {
+		t.Errorf("the Apple Container fix names podman's store:\n%s", ac)
+	}
+	for _, want := range []string{"oci-archive:", "container image load -i"} {
+		if !strings.Contains(ac, want) {
+			t.Errorf("the Apple Container fix is missing %q:\n%s", want, ac)
 		}
 	}
 }

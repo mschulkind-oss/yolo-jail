@@ -24,6 +24,10 @@ import (
 // ref to whatever a concurrent launch loaded last, permanently. A set of names
 // cannot tell those two apart; a map to identities can.
 type fakeRuntime struct {
+	// runtime is which CLI this fake is standing in for, so `loadArchive` can
+	// build the argv the real backend would (`container image load -i` vs
+	// `podman load -i` — ImageLoadCmd is the one place that difference lives).
+	runtime string
 	// present maps a ref to the identity of the image it names ("" = absent).
 	present map[string]string
 	// loads counts `load` invocations — the number C2 exists to drive to zero on
@@ -34,21 +38,48 @@ type fakeRuntime struct {
 	// argv records every command in order, so ORDERING (load before tag) is
 	// assertable and not merely assumed.
 	argv [][]string
-	// streamedPaths records the store paths handed to the C3 StreamLoad seam,
-	// streamedTags the RepoTags name each was told to write into the archive, and
-	// streamedArgv the loader argv each was piped into.
-	streamedPaths []string
-	streamedTags  []string
-	streamedArgv  [][]string
-	// pendingRepoTag is the name the NEXT `load` will create, set by streamLoad
-	// from the repoTag it was handed — the fake's stand-in for the archive's
-	// manifest. Empty means the archive carries the flake's baked name.
-	pendingRepoTag string
+	// copiedManifests records the image.json paths handed to the C9 LayerCopy
+	// seam and copiedDests the transport-qualified destinations each was told to
+	// write. Together they are how a test asserts that the ref the pipeline
+	// RETURNS is the ref it asked the copier to create.
+	copiedManifests []string
+	copiedDests     []string
+	// copyFails makes every copy fail, for the no-fallback path.
+	copyFails bool
+	// ociFiles records the OCI archives the Apple Container path asked for, in
+	// order — and whether each still existed when the loader ran, which is what
+	// "the copy writes the file the loader takes" means as an assertion.
+	ociFiles []string
+	// pendingRef is the name the NEXT `load` will create, set by layerCopy from
+	// the ref it wrote into the OCI archive — the fake's stand-in for the
+	// archive's manifest. Empty means the archive carries the flake's baked name.
+	pendingRef string
+}
+
+// storeManifest writes a minimal nix2container image.json under a temp dir and
+// returns its path.
+//
+// IT EXISTS BECAUSE THE STORE PATH IS NOW A FILE. Since C9 `nix build .#ociImage`
+// resolves to an image.json rather than to a stream script, and the delivery path
+// READS it (ReadLayerInventory, for the copied/skipped report §3.10 requires). A
+// fixture that hands AutoLoadImage a `/nix/store/…` string with nothing behind it
+// is not modelling the input any more — it models a machine whose manifest is
+// missing, which is a different test.
+func storeManifest(t *testing.T, name string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name+".json")
+	body := `{"version":1,"arch":"amd64","created":"0001-01-01T00:00:00Z","layers":[` +
+		`{"digest":"sha256:` + name + `-base","size":3000000000,"diff_ids":"sha256:` + name + `-base"},` +
+		`{"digest":"sha256:` + name + `-top","size":27000000,"diff_ids":"sha256:` + name + `-top"}]}`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 // newFakeRuntime seeds the store with refs, each naming an image of its own.
 func newFakeRuntime(loaded ...string) *fakeRuntime {
-	f := &fakeRuntime{present: map[string]string{}}
+	f := &fakeRuntime{runtime: "podman", present: map[string]string{}}
 	for _, ref := range loaded {
 		f.present[ref] = "img-" + ref
 	}
@@ -66,14 +97,13 @@ func (f *fakeRuntime) run(argv []string) (int, bool) {
 		return 1, true
 	case len(argv) >= 2 && (argv[1] == "load" || (argv[1] == "image" && len(argv) >= 3 && argv[2] == "load")):
 		f.loads++
-		// The archive decides the name. Since C2 the stream is invoked with
-		// `--repo_tag <content ref>`, so that is what lands — verified end-to-end
-		// against a real podman on 2026-08-25. A `load -i <tar>` of an archive
-		// nobody overrode (the build-failure fallback) still lands on the flake's
-		// baked :latest.
+		// The archive decides the name. Since C9 the copy writes the content ref
+		// into the OCI archive it hands this loader, so that is what lands. A
+		// `load -i <tar>` of a LEGACY archive nobody overrode (the build-failure
+		// fallback) still lands on the flake's baked :latest.
 		ref := JailImage(argv[0])
-		if f.pendingRepoTag != "" {
-			ref = qualifyRef(f.pendingRepoTag)
+		if f.pendingRef != "" {
+			ref = f.pendingRef
 		}
 		f.present[ref] = "img-from-" + ref
 		return 0, true
@@ -90,19 +120,65 @@ func (f *fakeRuntime) run(argv []string) (int, bool) {
 	return 1, true
 }
 
-// streamLoad is the AutoLoadOptions.StreamLoad seam (C3): the podman happy path
-// pipes the nix image stream straight into `<runtime> load` and writes NO tar.
-// It records what it was handed and then mutates the store exactly as a real
-// `podman load` of that archive would, so every C2 assertion about loads, tags
-// and refs keeps its meaning.
-func (f *fakeRuntime) streamLoad(storePath, repoTag string, loadArgv []string) (int64, bool) {
-	f.streamedPaths = append(f.streamedPaths, storePath)
-	f.streamedTags = append(f.streamedTags, repoTag)
-	f.streamedArgv = append(f.streamedArgv, append([]string(nil), loadArgv...))
-	f.pendingRepoTag = repoTag
-	rc, ran := f.run(loadArgv)
-	f.pendingRepoTag = ""
-	return 4096, ran && rc == 0
+// layerCopy is the AutoLoadOptions.LayerCopy seam (C9): one `skopeo copy` from
+// the nix store to a transport-qualified destination. It records what it was
+// handed and then mutates the store exactly as a real copy of that destination
+// would, so every C2 assertion about loads, tags and refs keeps its meaning.
+//
+// The two destinations do DIFFERENT things, and modelling that difference is the
+// point of the fake:
+//
+//   - `containers-storage:<ref>` IS the load. skopeo creates the image under the
+//     ref in the argv, so no `load` argv is ever run and `f.loads` stays 0 —
+//     which is what makes "the podman path runs no loader" assertable rather
+//     than assumed.
+//   - `oci-archive:<file>:<ref>` and `docker-archive:<file>:<ref>` write a FILE
+//     and create nothing. The image appears only when the loader reads that
+//     file, so the fake writes it and arms pendingRef for the
+//     `<runtime> load -i` it expects next.
+func (f *fakeRuntime) layerCopy(imageJSON, dest string) (CopyReport, bool) {
+	f.copiedManifests = append(f.copiedManifests, imageJSON)
+	f.copiedDests = append(f.copiedDests, dest)
+	if f.copyFails {
+		return CopyReport{}, false
+	}
+	switch {
+	case strings.HasPrefix(dest, "containers-storage:"):
+		ref := strings.TrimPrefix(dest, "containers-storage:")
+		f.present[ref] = "img-from-" + ref
+	case strings.HasPrefix(dest, "oci-archive:"), strings.HasPrefix(dest, "docker-archive:"):
+		// `<file>:<reference>`, split at the FIRST colon: skopeo's archive
+		// transports cannot express a path containing one, and the REFERENCE very
+		// much can (`yolo-jail:<key>`) — splitting at the last colon silently
+		// moves half the ref into the filename.
+		_, rest, _ := strings.Cut(dest, ":")
+		parts := strings.SplitN(rest, ":", 2)
+		if len(parts) != 2 {
+			return CopyReport{}, false
+		}
+		file, ref := parts[0], parts[1]
+		f.ociFiles = append(f.ociFiles, file)
+		if err := os.WriteFile(file, []byte("oci-archive"), 0o644); err != nil {
+			return CopyReport{}, false
+		}
+		f.pendingRef = ref
+	default:
+		return CopyReport{}, false
+	}
+	return CopyReport{Layers: 3, Total: 3000, CopiedLayers: 1, Copied: 1000}, true
+}
+
+// loadArchive is the AutoLoadOptions.LoadArchive seam: read back the archive the
+// copy wrote. It ASSERTS THE FILE IS THERE rather than assuming it, because "the
+// copy wrote the file the loader takes" is the only property an archive backend
+// has instead of negotiation.
+func (f *fakeRuntime) loadArchive(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	rc, ran := f.run(ImageLoadCmd(f.runtime, path))
+	f.pendingRef = ""
+	return ran && rc == 0
 }
 
 // cmds renders the recorded argv as "verb ..." strings for order assertions.
@@ -114,25 +190,40 @@ func (f *fakeRuntime) cmds() []string {
 	return out
 }
 
-// writeTar is the Materialize seam: produce the cache file AutoLoadImage expects.
-// Since C3 only the Apple Container path reaches it.
-func writeTar(_, cacheFile string) int64 {
-	_ = os.WriteFile(cacheFile, []byte("tar"), 0o644)
-	return 1024
-}
-
-// c2Opts is the podman fixture. Materialize is deliberately left NIL: on podman
-// nothing may materialize a tar since C3, so a regression that reinstates it
-// falls through to the real seam, execs a store path that does not exist, and
-// fails loudly instead of quietly writing a file.
+// c2Opts is the podman fixture. The copier build is stubbed to a fixed path so
+// no test compiles skopeo; PresentDigests answers "nothing present" so the
+// copied/skipped line reports the whole image, which is what a first load is.
 func c2Opts(rt string, storePath string, f *fakeRuntime, out *bytes.Buffer) AutoLoadOptions {
+	f.runtime = rt
 	return AutoLoadOptions{
 		Runtime:        rt,
 		Out:            out,
 		BuildStorePath: func(string, []any, string) (string, []string) { return storePath, nil },
 		Run:            f.run,
-		StreamLoad:     f.streamLoad,
+		LayerCopy:      f.layerCopy,
+		BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
+		PresentDigests: func() map[string]struct{} { return nil },
 	}
+}
+
+// acOpts is c2Opts for Apple Container: the same seams plus the archive loader.
+// The caller must have set a temp HOME (withBuildDir) so archiveTempPath
+// resolves under it.
+func acOpts(storePath string, f *fakeRuntime, out *bytes.Buffer) AutoLoadOptions {
+	o := c2Opts("container", storePath, f, out)
+	o.LoadArchive = f.loadArchive
+	return o
+}
+
+// macPodmanOpts is c2Opts for podman ON macOS — the backend whose
+// containers-storage lives inside the Podman Machine VM, so a local copy into it
+// writes a store nothing reads. It takes the same archive pair as Apple
+// Container, with podman's own loader and format.
+func macPodmanOpts(storePath string, f *fakeRuntime, out *bytes.Buffer) AutoLoadOptions {
+	o := c2Opts("podman", storePath, f, out)
+	o.IsMacOS = true
+	o.LoadArchive = f.loadArchive
+	return o
 }
 
 // TestJailImageRefIsContentAddressedPerRuntime pins the SHAPE of the ref, not
@@ -152,14 +243,19 @@ func TestJailImageRefIsContentAddressedPerRuntime(t *testing.T) {
 	if got, want := JailImageRef("container", pathA), "yolo-jail:"+key; got != want {
 		t.Errorf("container ref = %q, want %q", got, want)
 	}
-	// The ref reuses the SAME key as the cache tar and the GC root. A second hash
-	// function would let the three drift, which is why the doc says to reuse it.
-	tar, err := ImageCachePath(pathA)
+	// The ref reuses the SAME key as the GC root and the Apple Container path's
+	// transient archive. A second hash function would let them drift, which is
+	// why gcroot.go says to reuse ImageStoreKey.
+	t.Setenv("HOME", t.TempDir())
+	if got, want := filepath.Base(ImageRootLink(pathA)), key; got != want {
+		t.Errorf("GC root %q does not share the ref's key %q", got, want)
+	}
+	arch, err := archiveTempPath(pathA, ociArchiveSuffix)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(tar) != key+".tar" {
-		t.Errorf("cache tar %q does not share the ref's key %q", filepath.Base(tar), key)
+	if !strings.HasPrefix(filepath.Base(arch), key) {
+		t.Errorf("OCI archive %q does not share the ref's key %q", filepath.Base(arch), key)
 	}
 	// Distinct store paths must be distinct refs, or C2 buys nothing.
 	if JailImageRef("podman", pathA) == JailImageRef("podman", "/nix/store/bbbb-image") {
@@ -180,7 +276,7 @@ func TestJailImageRefIsContentAddressedPerRuntime(t *testing.T) {
 // legacy tag, because the fake runtime's store answers for the content ref only.
 func TestSecondLaunchOnUnchangedStorePathLoadsNothing(t *testing.T) {
 	withBuildDir(t)
-	const storePath = "/nix/store/steady-image"
+	storePath := storeManifest(t, "steady-image")
 	f := newFakeRuntime()
 	var out bytes.Buffer
 
@@ -188,8 +284,8 @@ func TestSecondLaunchOnUnchangedStorePathLoadsNothing(t *testing.T) {
 	if !first.OK {
 		t.Fatalf("first launch failed: %s", out.String())
 	}
-	if f.loads != 1 {
-		t.Fatalf("first launch performed %d loads, want 1", f.loads)
+	if len(f.copiedDests) != 1 {
+		t.Fatalf("first launch performed %d copies, want 1", len(f.copiedDests))
 	}
 	if first.Ref != JailImageRef("podman", storePath) {
 		t.Errorf("first launch ref = %q, want the content ref %q",
@@ -201,9 +297,10 @@ func TestSecondLaunchOnUnchangedStorePathLoadsNothing(t *testing.T) {
 	if !second.OK {
 		t.Fatalf("second launch failed: %s", out.String())
 	}
-	if f.loads != 1 {
-		t.Errorf("second launch performed a load (%d total) — the image was already "+
-			"present under its content ref, so nothing needed loading", f.loads)
+	if len(f.copiedDests) != 1 {
+		t.Errorf("second launch performed a copy (%d total) — the image was already "+
+			"present under its content ref, so nothing needed delivering",
+			len(f.copiedDests))
 	}
 	if strings.Contains(out.String(), "Image load needed") {
 		t.Errorf("second launch announced a load: %q", out.String())
@@ -220,8 +317,8 @@ func TestSecondLaunchOnUnchangedStorePathLoadsNothing(t *testing.T) {
 // it could only ever recognise the single most recent image.
 func TestAlternatingStorePathsEachStayLoaded(t *testing.T) {
 	withBuildDir(t)
-	const pathA = "/nix/store/path-A-image"
-	const pathB = "/nix/store/path-B-image"
+	pathA := storeManifest(t, "path-A-image")
+	pathB := storeManifest(t, "path-B-image")
 	f := newFakeRuntime()
 	var out bytes.Buffer
 
@@ -230,8 +327,8 @@ func TestAlternatingStorePathsEachStayLoaded(t *testing.T) {
 	if !a1.OK || !b1.OK {
 		t.Fatalf("initial launches failed: %s", out.String())
 	}
-	if f.loads != 2 {
-		t.Fatalf("expected 2 loads for 2 distinct store paths, got %d", f.loads)
+	if len(f.copiedDests) != 2 {
+		t.Fatalf("expected 2 copies for 2 distinct store paths, got %d", len(f.copiedDests))
 	}
 	if a1.Ref == b1.Ref {
 		t.Fatalf("both configs got the same ref %q", a1.Ref)
@@ -250,9 +347,9 @@ func TestAlternatingStorePathsEachStayLoaded(t *testing.T) {
 	if !a2.OK || !b2.OK {
 		t.Fatalf("alternating launches failed: %s", out.String())
 	}
-	if f.loads != 2 {
-		t.Errorf("alternating between two workspaces reloaded (%d loads total) — "+
-			"this is the §1.5 thrash C2 removes", f.loads)
+	if len(f.copiedDests) != 2 {
+		t.Errorf("alternating between two workspaces re-copied (%d copies total) — "+
+			"this is the §1.5 thrash C2 removes", len(f.copiedDests))
 	}
 	if a2.Ref != a1.Ref || b2.Ref != b1.Ref {
 		t.Errorf("refs are not stable per store path: A %q→%q, B %q→%q",
@@ -260,14 +357,15 @@ func TestAlternatingStorePathsEachStayLoaded(t *testing.T) {
 	}
 }
 
-// TestTheImageIsNamedOnTheWayIn pins WHERE the content ref comes from. The flake
-// bakes tag="latest", so an un-overridden stream cannot produce a
-// content-addressed name — C2 overrides it, handing the stream the RepoTags the
-// archive must carry, and `podman load` then creates the image under exactly
-// that. Nothing binds the ref afterwards, which is what removes the race.
+// TestTheImageIsNamedOnTheWayIn pins WHERE the content ref comes from — and C9
+// makes the answer STRUCTURAL rather than won. nix2container's image.json
+// carries no repo:tag at all, so the copy's DESTINATION ARGV is the only name an
+// image can get; before C9 the flake baked `tag = "latest"` and C2 had to
+// override it with `--repo_tag`. Nothing binds the ref afterwards either way,
+// which is what removes the race.
 func TestTheImageIsNamedOnTheWayIn(t *testing.T) {
 	withBuildDir(t)
-	const storePath = "/nix/store/tagme-image"
+	storePath := storeManifest(t, "tagme-image")
 	f := newFakeRuntime()
 	var out bytes.Buffer
 
@@ -277,18 +375,20 @@ func TestTheImageIsNamedOnTheWayIn(t *testing.T) {
 	}
 	contentRef := JailImageRef("podman", storePath)
 
-	// The stream was told the name, and the name it was told is the one podman
-	// qualifies into the ref the caller is handed. These are two values that MUST
-	// agree; before C2 named the image going in, they could not even be compared.
-	if len(f.streamedTags) != 1 || f.streamedTags[0] != StreamRepoTag(storePath) {
-		t.Fatalf("stream got RepoTags %v, want [%s]", f.streamedTags, StreamRepoTag(storePath))
+	// The copier was told the name, and the name it was told is the ref the
+	// caller is handed. These are two values that MUST agree; before the image
+	// was named going in, they could not even be compared.
+	if len(f.copiedDests) != 1 || f.copiedDests[0] != ContainersStorageDest(contentRef) {
+		t.Fatalf("copy destinations = %v, want [%s]",
+			f.copiedDests, ContainersStorageDest(contentRef))
 	}
-	if qualifyRef(f.streamedTags[0]) != contentRef {
-		t.Errorf("the streamed name %q does not qualify to the returned ref %q",
-			f.streamedTags[0], contentRef)
+	// The MANIFEST it read is the store path the build produced — the copy reads
+	// the nix store directly, so this is also what pins "no archive in between".
+	if len(f.copiedManifests) != 1 || f.copiedManifests[0] != storePath {
+		t.Errorf("copy read %v, want [%s]", f.copiedManifests, storePath)
 	}
 	if f.present[contentRef] == "" {
-		t.Errorf("the load did not create %q: %v", contentRef, f.present)
+		t.Errorf("the copy did not create %q: %v", contentRef, f.present)
 	}
 	if res.Ref != contentRef {
 		t.Errorf("ref = %q, want %q", res.Ref, contentRef)
@@ -305,29 +405,21 @@ func TestTheImageIsNamedOnTheWayIn(t *testing.T) {
 			t.Errorf("%q sources the content ref from the shared :latest name", c)
 		}
 	}
-	// The legacy tag is still MOVED (downstream), after the load, so the degraded
+	// The legacy tag is still MOVED (downstream), after the copy, so the degraded
 	// fallback branch — which has no store path and can only ask about :latest —
 	// still finds an image.
 	wantTag := "podman tag " + contentRef + " " + JailImage("podman")
-	loadAt, tagAt := -1, -1
-	for i, c := range f.cmds() {
-		// "podman load" exactly since C3 (stdin), "podman load -i <tar>" before it.
-		if strings.HasPrefix(c, "podman load") && loadAt < 0 {
-			loadAt = i
-		}
+	tagged := false
+	for _, c := range f.cmds() {
 		if c == wantTag {
-			tagAt = i
+			tagged = true
 		}
 	}
-	if tagAt < 0 {
+	if !tagged {
 		t.Fatalf("no %q in %v — :latest stopped tracking the newest load", wantTag, f.cmds())
 	}
-	if loadAt < 0 || tagAt < loadAt {
-		t.Errorf("tag ran at %d, load at %d — the source ref does not exist until the "+
-			"load has run", tagAt, loadAt)
-	}
 	if f.present[JailImage("podman")] != f.present[contentRef] {
-		t.Error("the legacy :latest ref does not name the image just loaded; the " +
+		t.Error("the legacy :latest ref does not name the image just copied; the " +
 			"fallback branch depends on it")
 	}
 }
@@ -346,7 +438,7 @@ func TestTheImageIsNamedOnTheWayIn(t *testing.T) {
 // could not see.
 func TestAConcurrentLoadCannotStealTheContentRef(t *testing.T) {
 	withBuildDir(t)
-	const storePath = "/nix/store/mine-image"
+	storePath := storeManifest(t, "mine-image")
 	f := newFakeRuntime()
 	// A foreign image holds the shared name before we start.
 	f.present[JailImage("podman")] = "foreign-workspace-image"
@@ -370,8 +462,9 @@ func TestAConcurrentLoadCannotStealTheContentRef(t *testing.T) {
 	// from a cosmetic race into a correctness one.
 	out.Reset()
 	again := AutoLoadImage(c2Opts("podman", storePath, f, &out))
-	if !again.OK || f.loads != 1 {
-		t.Fatalf("relaunch: OK=%v loads=%d, want true/1: %s", again.OK, f.loads, out.String())
+	if !again.OK || len(f.copiedDests) != 1 {
+		t.Fatalf("relaunch: OK=%v copies=%d, want true/1: %s",
+			again.OK, len(f.copiedDests), out.String())
 	}
 	if f.present[again.Ref] != f.present[res.Ref] {
 		t.Errorf("the ref moved to a different image between launches")
@@ -386,7 +479,7 @@ func TestAConcurrentLoadCannotStealTheContentRef(t *testing.T) {
 // degrading in silence is the defect C1 exists to prevent.
 func TestLatestTagFailureStillRunsTheContentRef(t *testing.T) {
 	withBuildDir(t)
-	const storePath = "/nix/store/untaggable-image"
+	storePath := storeManifest(t, "untaggable-image")
 	f := newFakeRuntime()
 	f.tagFails = true
 	var out bytes.Buffer
@@ -461,53 +554,61 @@ func TestFallbackBranchUsesTheLegacyRef(t *testing.T) {
 
 // TestAppleContainerIsNamedGoingIn closes the gap this work's survey measured:
 // before it, ZERO tests drove Runtime "container" through AutoLoadImage, so the
-// LoadAppleContainer seam's two production call sites were both unpinned and a
-// change to either could break the backend with the whole unit gate green.
+// LoadArchive seam's production call site was unpinned and a change to it
+// could break the backend with the whole unit gate green.
 //
-// Apple Container cannot be retagged after the fact here — its converters write
-// the name into the OCI archive — so the ref has to arrive WITH the tar. Delete
-// the `Runtime == "container"` arm and this fails either because the seam is
-// never called or because the ref it receives is the podman spelling.
+// Apple Container cannot be retagged after the fact here — `container image
+// load` takes a file and the name comes from inside it — so the ref has to
+// arrive WITH the archive. Under C9 that is the COPY's destination: `oci-archive
+// :<file>:<ref>`. Delete the `Runtime == "container"` arm and this fails either
+// because the copy went to containers-storage or because the ref it carries is
+// the podman spelling.
 func TestAppleContainerIsNamedGoingIn(t *testing.T) {
 	withBuildDir(t)
-	const storePath = "/nix/store/ac-image"
-	var gotTar, gotRef string
+	storePath := storeManifest(t, "ac-image")
 	var out bytes.Buffer
 	f := newFakeRuntime()
 
-	res := AutoLoadImage(AutoLoadOptions{
-		Runtime:        "container",
-		Out:            &out,
-		BuildStorePath: func(string, []any, string) (string, []string) { return storePath, nil },
-		Run:            f.run,
-		Materialize:    writeTar,
-		LoadAppleContainer: func(tarPath, ref string) bool {
-			gotTar, gotRef = tarPath, ref
-			return true
-		},
-	})
+	res := AutoLoadImage(acOpts(storePath, f, &out))
 	if !res.OK {
 		t.Fatalf("apple container load failed: %s", out.String())
 	}
 	wantRef := JailImageRef("container", storePath)
-	if gotRef != wantRef {
-		t.Errorf("converter ref = %q, want the UNQUALIFIED content ref %q", gotRef, wantRef)
-	}
 	if res.Ref != wantRef {
-		t.Errorf("result ref = %q, want %q", res.Ref, wantRef)
+		t.Errorf("result ref = %q, want the UNQUALIFIED content ref %q", res.Ref, wantRef)
 	}
-	// The converters interpolate a real file path (skopeo's docker-archive:
-	// source, podman's -i), so the tar must exist by the time the seam is called.
-	if gotTar == "" {
-		t.Fatal("LoadAppleContainer was never called")
+	if len(f.copiedDests) != 1 {
+		t.Fatalf("expected exactly one copy, got %v", f.copiedDests)
 	}
-	if _, err := os.Stat(gotTar); err != nil {
-		t.Errorf("LoadAppleContainer got %q, which does not exist: %v", gotTar, err)
+	// The DESTINATION carries both halves: the file the loader will read and the
+	// name the image gets. Neither is derivable from the other, which is why the
+	// assertion is on the whole string.
+	if len(f.ociFiles) != 1 {
+		t.Fatalf("the copy did not write an OCI archive: dests=%v", f.copiedDests)
+	}
+	if want := OCIArchiveDest(f.ociFiles[0], wantRef); f.copiedDests[0] != want {
+		t.Errorf("copy destination = %q, want %q", f.copiedDests[0], want)
+	}
+	// AND IT MUST NOT GO TO containers-storage. That destination is podman's; on
+	// this backend it would write into a store nothing reads.
+	if strings.HasPrefix(f.copiedDests[0], "containers-storage:") {
+		t.Errorf("apple container copied into containers-storage: %q", f.copiedDests[0])
+	}
+	// THE ARCHIVE IS TEMPORARY (§ deliverToAppleContainer): the loader saw it —
+	// f.loadArchive stats it and fails otherwise, so a green result already proves
+	// that — and nothing may be left behind for `newestTars` to find later.
+	if _, err := os.Stat(f.ociFiles[0]); err == nil {
+		t.Errorf("%q survived the launch; the OCI archive must be removed, or the "+
+			"degraded fallback will load it and then claim :latest", f.ociFiles[0])
+	}
+	if strings.HasSuffix(f.ociFiles[0], ".tar") {
+		t.Errorf("%q ends in .tar, which newestTars matches — a crashed launch would "+
+			"leave a candidate the degraded branch mis-names", f.ociFiles[0])
 	}
 	// The podman-only retag must NOT have run on this backend.
 	for _, c := range f.cmds() {
 		if strings.Contains(c, " tag ") {
-			t.Errorf("apple container path issued %q; it is named during conversion", c)
+			t.Errorf("apple container path issued %q; it is named by the copy", c)
 		}
 	}
 }
@@ -527,8 +628,8 @@ func TestAppleContainerIsNamedGoingIn(t *testing.T) {
 func TestSentinelIsRecordedOnEveryLaunchNotOnlyOnLoad(t *testing.T) {
 	bd := withBuildDir(t)
 	sentinel := filepath.Join(bd, "last-load-podman")
-	const pathA = "/nix/store/live-A-image"
-	const pathB = "/nix/store/live-B-image"
+	pathA := storeManifest(t, "live-A-image")
+	pathB := storeManifest(t, "live-B-image")
 	f := newFakeRuntime()
 	var out bytes.Buffer
 
@@ -543,9 +644,9 @@ func TestSentinelIsRecordedOnEveryLaunchNotOnlyOnLoad(t *testing.T) {
 	if !AutoLoadImage(c2Opts("podman", pathA, f, &out)).OK {
 		t.Fatalf("A again: %s", out.String())
 	}
-	if f.loads != 2 {
-		t.Fatalf("the third launch loaded something (%d loads); the premise of this "+
-			"test is that it does not", f.loads)
+	if len(f.copiedDests) != 2 {
+		t.Fatalf("the third launch copied something (%d copies); the premise of this "+
+			"test is that it does not", len(f.copiedDests))
 	}
 	last, ok := CurrentLoadedPath(sentinel)
 	if !ok || last != pathA {

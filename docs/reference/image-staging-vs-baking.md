@@ -16,7 +16,7 @@ covers:
   - scripts/build-go.sh
   - scripts/stage-source-bundle.sh
 tags: [image, nix, podman, mounts, packages, disk]
-summary: "How a jail gets its image and its own binaries: the image bakes nixpkgs and names, a launch bind-mounts yolo's binaries and can deliver packages from the mounted nix store, a failed build is fatal, the loaded image is addressed by content and streamed into podman with no tar. The invariants, the pipeline, the traps, and the cost model that shaped them."
+summary: "How a jail gets its image and its own binaries: the image bakes nixpkgs and names, a launch bind-mounts yolo's binaries and can deliver packages from the mounted nix store, a failed build is fatal, the loaded image is addressed by content and delivered by a layer-negotiating `skopeo copy` with no tar anywhere. The invariants, the pipeline, the traps, and the cost model that shaped them."
 ---
 
 # Image delivery — what the image bakes, and what a launch mounts in
@@ -29,15 +29,15 @@ but *names*. yolo's binaries and the flake bundle beside them are the **install 
 directory the launch bind-mounts read-only at `/opt/yolo-jail`, and the container argv names
 `/opt/yolo-jail/bin/yolo-entrypoint` absolutely. Every launch evaluates the flake; the image is
 rebuilt and reloaded only when the store path it evaluates to has moved, is addressed in the
-runtime by the hash of that store path, and on podman is streamed into `podman load` without
-ever being written to disk. A build that ran and failed refuses the launch. Optionally a launch
+runtime by the hash of that store path, and is delivered by a `skopeo copy` that asks the
+destination for each layer before sending it — no archive on either side. A build that ran and failed refuses the launch. Optionally a launch
 delivers `packages:` from the mounted nix store instead of baking them, in which case the image
 it builds contains none of them.
 
 | Component | Lives in |
 | :--- | :--- |
 | Image derivations, the install prefix, the name-only links, the image identity | `flake.nix` (`mkOciImage`, `installPrefix`, `jailPrefixLinks`, `imageIdentity`, `goSrc`, `shippedBinaries`) |
-| Build, failure report, content ref, stream-load, GC roots | `internal/image` (`AutoLoadImage`, `buildFailureReport`, `JailImageRef`, `StreamRepoTag`, `BuildJailPrefix`, `RegisterImageRoot`, `RegisterPrefixRoot`) |
+| Build, failure report, content ref, layer copy, GC roots | `internal/image` (`AutoLoadImage`, `buildFailureReport`, `JailImageRef`, `ContainersStorageDest`, `BuildImageCopier`, `BuildJailPrefix`, `RegisterImageRoot`, `RegisterPrefixRoot`) |
 | Which flake is built, and from where | `internal/reporoot` (`Resolve`, `BundledSourceDirFrom`) |
 | The two-cadence skew gate | `internal/version` (`SourceSkew`, `ImageSourcePaths`); `internal/cli/run` (`refuseOnSourceSkew`) |
 | Prefix resolution and the two mounts | `internal/cli/run` (`resolveJailPrefix`, `jailPrefixMountArgs`, `prefixUnreachableFromVM`, `JailEntrypointPath`) |
@@ -62,7 +62,7 @@ reclaims the images, tars and store outputs this pipeline leaves behind),
 mounts the launch supplies — the Linux binaries at `bin/`, the flake bundle at
 `share/yolo-jail/` — and the image bakes only the two mountpoint directories and one
 `/bin/<name>` symlink per shipped binary, pointing into the mount. A commit touching only
-`cmd/` or `internal/` moves no image input, so it costs no image rebuild and no `podman load`.
+`cmd/` or `internal/` moves no image input, so it costs no image rebuild and no delivery.
 
 **The image moves only when an image input moves.** Those inputs are `flake.nix`,
 `flake.lock`, and the `packages:` list a launch bakes. `imageIdentity` is a derivation over
@@ -80,8 +80,12 @@ of the store path it was built from, and that name is written into the archive o
 `:latest` survives only as a best-effort alias for humans and for the degraded fallback that
 has no store path in hand; nothing may depend on it by name.
 
-**On podman, nothing writes a tar.** The image stream is piped straight into `podman load`.
-The one backend that still needs a file is Apple Container, whose converters take a path.
+**Nothing writes a tar, and the copy negotiates per layer.** `nix build .#ociImage` yields a
+nix2container `image.json` naming its layer digests, and `skopeo copy nix:… containers-storage:…`
+asks the destination for each blob before sending it. The one backend that still needs a file is
+Apple Container, whose `container image load` takes a path — it gets a TEMPORARY OCI archive the
+launch removes itself. There is exactly one delivery mechanism and no way back to the old one;
+see ["Delivering into the runtime"](#delivering-into-the-runtime).
 
 **Exactly one package-delivery mechanism is live in any jail, decided per launch.** Either
 every declared package is baked into the image, or the image is built with none of them and
@@ -345,10 +349,12 @@ flowchart TD
     failed -->|"empty: IMAGE BUILD FAILED"| fatal["refuse — YOLO_ALLOW_STALE_IMAGE=1 continues on :latest"]
     failed -->|"path"| inspect{"image inspect localhost/yolo-jail:sha16"}
     inspect -->|"present"| record["AddLoadedPath to the sentinel; RegisterImageRoot"]
-    inspect -->|"absent, podman"| stream["stream script --repo_tag yolo-jail:sha16 | podman load"]
-    inspect -->|"absent, Apple Container"| tar["materialize tar, convert via skopeo or podman, container image load"]
-    stream --> alias["point :latest at the new image, best-effort"] --> record
-    tar --> record
+    inspect -->|"absent"| copier["nix build .#imageCopier (the nix: skopeo)"]
+    copier -->|"empty: refuse, naming the attr"| fatal
+    copier -->|"podman"| copy["skopeo copy nix:image.json containers-storage:yolo-jail:sha16"]
+    copier -->|"Apple Container"| copyoci["skopeo copy nix:image.json oci-archive:tmp:yolo-jail:sha16, then container image load -i, then rm"]
+    copy --> alias["point :latest at the new image, best-effort"] --> record
+    copyoci --> record
     record --> argv["podman run … -v bin:/opt/yolo-jail/bin:ro -v bundle:/opt/yolo-jail/share/yolo-jail:ro … ref /opt/yolo-jail/bin/yolo-entrypoint"]
 ```
 
@@ -458,27 +464,57 @@ image, so the same change deduplicated by image ID and added a liveness veto rea
 sentinel, later hardened to decline when the ledger cannot be read. The retention *number* and
 its trigger belong to [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md).
 
-### Streaming into the runtime
+### Delivering into the runtime
 
-`ImageLoadStdinCmd` is the decision point: `podman load` reads its archive from stdin when no
-`-i` is given, so the nix stream script becomes the write end of a pipe and the loader the read
-end. `StreamLoad` runs that pipe, counts the bytes in transit, tells the two ends' failures
-apart, and prints the streamed size. No tar is written on podman, and `cache/images` stays
-unchanged across a load — asserted on disk by a test that fails the materialise seam outright.
-The cached-tar shortcut is gone from the podman branch on purpose: nothing writes a tar there any
-more, so a file at that name is a legacy artifact, and preferring an unverified file to a
-verified stream would let one truncated leftover brick a workspace until a human deleted it.
+**The image is a manifest and the delivery is a copy that negotiates.**
+`nix build .#ociImage` realizes a nix2container `image.json` naming each layer's digest, size
+and store paths; nothing is archived at build time. `BuildImageCopier` realizes `.#imageCopier`
+— a skopeo carrying nix2container's `nix:` source transport, which stock skopeo does not have —
+and the launch runs `skopeo --insecure-policy copy nix:<image.json> <destination>`.
+`containers-storage` is asked for each blob before it is sent, so a layer already present costs
+a digest lookup instead of its bytes.
 
-Apple Container is unrepresentable in the pipe form rather than handled, because of its
-**converters**, not its CLI: the load goes through `skopeo copy docker-archive:<tar> …` or
-`podman save -o <tar>`, and both interpolate a path. That backend still materialises a file into
-the image cache (via a temp file and rename), converts it, and survives a concurrent `yolo prune`
-evicting the tar mid-launch by re-materialising once. It retains one tar per store path; what
-happens to those is [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md)'s.
+Four properties, each a requirement rather than an observation:
 
-Because the flake bakes `created = "now"`, re-streaming the *same* store path mints a new image
-ID; it shares every layer but the metadata, so the duplicate costs kilobytes, but it is a new row
-and the previous one loses the content tag. That is one of the classes the image reaper prices.
+- **The destination ref is an argument**, so the image is still named on the way in — and now
+  structurally: `image.json` carries no repo:tag at all, so the argv is the only name an image
+  can get and there is nothing left for a post-load retag to race.
+- **No archive exists at any point** on the podman path. This is strictly stronger than the
+  streamed load it replaced, which wrote no tar of *yolo's* but still cost `podman load` a
+  full-size spool to `/var/tmp` before it parsed anything.
+- **The copier is resolved by store path, never by `PATH`.** An unpatched skopeo rejects the
+  `nix:` transport in a way that reads as a broken image rather than as a wrong binary. It is
+  built lazily, only on a launch that is about to copy, and is a SOURCE build no public cache
+  serves (measured 2026-09-09: 2m27s cold against this flake's nixpkgs, 0s warm).
+- **A failed copy is retried exactly once and then abandons the launch.** There is no legacy
+  streamer, no env var, and no fallback — an escape hatch is for a config the user broke, not
+  for yolo's own mechanism being broken, and a second path no launch exercises is broken by the
+  time anyone reaches for it. `YOLO_ALLOW_STALE_IMAGE=1` still launches the image already
+  loaded, which is orthogonal to how the next one is delivered.
+
+The launch prints the split, because the ratio is the whole claim:
+`Copied image: 1 layer(s), 26 MB copied; 91 layer(s), 3.2 GB already present`. The figures come
+from the manifest's layer sizes minus the digests `podman image inspect` reports for the jail
+images already present; the copy itself consults neither, so a wrong figure changes a printed
+number and no behaviour.
+
+**Apple Container gets the layer plan and the deleted intermediate write, not the reuse.** It
+has no `containers-storage`, so the copy writes an `oci-archive` and `container image load -i`
+reads it back. Before this it wrote TWO full-size files per load — a docker-archive from the
+stream script, then an OCI tar converted from it — and needed a skopeo or a podman on `PATH` to
+convert between them. The archive is now temporary, under a name `newestTars` cannot match, and
+removed by the launch: keeping it in the image cache would let the degraded fallback load it and
+then claim `:latest` for an image named by its content ref. ⚠ **Unverified on hardware** — see
+[`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md).
+
+`created` is a **constant** (`0001-01-01T00:00:00Z`): nix2container `time.Parse`s the value, so
+the `created = "now"` the flake used to pass would fail the nix build, and a build-time timestamp
+would make the derivation vary per build and destroy content addressing. Two consequences.
+Re-delivering the *same* store path no longer mints a new image ID, so the duplicate-row class
+the reaper used to price is gone. And every yolo-jail image now reports the same `CreatedAt` —
+which was the sort key prune's keep window ordered by, until
+[`OQ-LS3`](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) deleted
+that window outright and made `protected` the entire retention rule.
 
 On success the launch records the store path in the sentinel and, host-side only, registers a
 durable GC root for the image closure (`RegisterImageRoot`) so a `nix-collect-garbage` cannot
@@ -584,7 +620,13 @@ is about 97 % of it; everything yolo builds itself was about 3 % and is now not 
 all. A rebuild's nix phase is a handful of metadata derivations plus, before the mounted prefix, a
 Go build — seconds. What costs is moving the result into the runtime.
 
-**Why a rebuild costs what it does — the layer chain.** `streamLayeredImage` assigns store paths
+**Why a rebuild USED TO cost what it did — the layer chain.** Everything in this paragraph is the
+diagnosis that
+[`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) acted on, and
+the numbers below are the BEFORE column: the layer plan and the negotiating copy shipped
+2026-09-09, and a `flake.nix`-only edit now moves ONE layer of 26 MB out of 92 in about two
+seconds (measured, one host, overlay driver). Read on for why that was 3.5 GB and tens of seconds.
+`streamLayeredImage` assigned store paths
 to layers by a popularity ordering, capped at a hundred layers, and the overlay storage podman
 uses keys a layer by its **parent chain**, not by its own digest. So a change to one store path
 re-partitions the layer assignment somewhere in the middle of the chain, and every layer behind
@@ -600,9 +642,13 @@ warm launch of a few.
 
 > [!WARNING]
 > **Do not re-derive "layers dedup, so a rebuild is cheap" from the digest count.** `podman load`
-> skips only the layers *before* the first moved one. Ninety-seven of ninety-nine digests being
-> identical is compatible with re-storing most of the image. The lever is the layer *order*, and it
-> is owned by [`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md).
+> skipped only the layers *before* the first moved one. Ninety-seven of ninety-nine digests being
+> identical is compatible with re-storing most of the image. The lever is the layer *order*; it is
+> owned by [`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md),
+> and as of 2026-09-09 it is PULLED — yolo's own content is pinned to one top layer by
+> construction rather than by the popularity contest's accident. **The parent-chain fact itself is
+> unchanged**, which is exactly why the plan puts the volatile tier on top: reuse still covers the
+> chain prefix and nothing above it.
 
 Taking the binaries out of the image removed the trigger behind roughly half of all commits;
 what still moves the image is `flake.nix` and `flake.lock` — measured at one commit in several
@@ -669,9 +715,9 @@ no image and nothing to substitute.
 
 | Backend | Image | yolo's binaries | `packages:` |
 | :--- | :--- | :--- | :--- |
-| podman on Linux | streamed into `podman load`, no tar | two `:ro` mounts; prebuilt or `nix build .#installPrefix` | baked, or store-delivered on opt-in |
-| podman on macOS | streamed; the nix build may offload to a builder container | same mounts; a built (store-path) prefix is refused unless the VM shares `/nix` and `YOLO_NIX_HOST_DAEMON` says so | baked (no shared store) |
-| Apple Container | materialised to a tar, converted via skopeo or podman, one tar retained per store path | same mounts, `:ro` ignored; not exercised on hardware | baked (cannot bind-mount the store) |
+| podman on Linux | `skopeo copy nix:… containers-storage:…`, layer-negotiated, no archive | two `:ro` mounts; prebuilt or `nix build .#installPrefix` | baked, or store-delivered on opt-in |
+| podman on macOS | the same copy; ⚠ the storage lives inside the Podman Machine VM, which does not share `/nix`, so this backend is the one open question the copy inherits ([`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md)). The nix build may offload to a builder container | same mounts; a built (store-path) prefix is refused unless the VM shares `/nix` and `YOLO_NIX_HOST_DAEMON` says so | baked (no shared store) |
+| Apple Container | `skopeo copy nix:… oci-archive:…`, then `container image load -i`, then the archive is removed — one write instead of two, and nothing retained; ⚠ unverified on hardware | same mounts, `:ro` ignored; not exercised on hardware | baked (cannot bind-mount the store) |
 | `macos-user` | none | the host's own binary | a `buildEnv` profile on PATH — [`nix-across-backends.md`](nix-across-backends.md) |
 
 ## Non-goals
@@ -704,7 +750,7 @@ ones cited from sibling docs and code comments and are never renumbered.
 | OQ-3 | **Content-addressed image tags**; the LRU-membership variant on `:latest` is refused. `localhost/yolo-jail:latest` is not a public surface. The "making cachix useful" caveat concerns the nix binary cache, a different surface. | 2026-08-25 |
 | OQ-4 | **`packages:` stays workspace-scope** — "yes, has to be". Fix the cost, never the scope. | 2026-08-25 |
 | OQ-5 | Retained image tars are a **bug**, not a configuration; the goal is minimal disk; yolo may delete cached tars without `--apply`. Executed in [`../design/minimal-disk-footprint.md`](../design/minimal-disk-footprint.md). | 2026-08-25 |
-| OQ-6 | A stable layer chain gets built by a **successor mechanism**, not by reordering `streamLayeredImage`, which cannot express a written layer plan; never a `fromImage` base, which re-emits the base layers into the stream. The go/no-go moved to [`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md). | 2026-09-08 |
+| OQ-6 | A stable layer chain gets built by a **successor mechanism**, not by reordering `streamLayeredImage`, which cannot express a written layer plan; never a `fromImage` base, which re-emits the base layers into the stream. The go/no-go moved to [`../design/layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) — and was GRANTED and BUILT there on 2026-09-09: nix2container plus a three-tier layer plan plus a negotiating `skopeo copy`, with `streamLayeredImage` deleted from the jail image in the same change. | 2026-09-08 |
 | OQ-7 | **Do not strip the `git describe` stamp from the bundle's binaries.** The stamp no longer moves the image (stamped bytes are prefix content), so removing it would buy a cheaper `runCommand` at the price of the fallback the in-jail version banner keeps. | 2026-09-06 |
 | OQ-8 | yolo's own binaries are delivered by **mount**, on all three backends in one pass, and the [security delta](#the-security-delta) is the accepted price. | 2026-09-06 |
 

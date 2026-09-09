@@ -72,8 +72,11 @@ places, but the guarantee is the same.
 `packages:` reaches the flake through the `YOLO_EXTRA_PACKAGES` environment
 variable, read with `builtins.getEnv` — which is why every image build is
 `--impure`. The flake appends them to its core package set and produces an OCI
-image; `AutoLoadImage` builds it and loads it into the runtime — streaming it on
-podman, and materializing a tar first only for the backends that need one.
+image; `AutoLoadImage` builds it and DELIVERS it into the runtime with a
+`skopeo copy` that negotiates per layer — straight into `containers-storage` on
+podman, and through a temporary OCI archive on the one backend whose loader takes
+a file
+([`image-staging-vs-baking.md`](image-staging-vs-baking.md#delivering-into-the-runtime)).
 
 **Rebuilds are keyed on the nix store path, not on the config.** If the store path
 the flake evaluates to is unchanged, the loaded image is reused and the launch

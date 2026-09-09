@@ -204,16 +204,25 @@ deploy: install
 
 # Build the container image using Nix
 build-image:
-    nix --extra-experimental-features 'nix-command flakes' build .#ociImage
+    nix --extra-experimental-features 'nix-command flakes' build .#ociImage .#imageCopier
 
 # Build the minimal image variant used by CI integration (no chromium,
 # gcc toolchain, nested-podman, or debug tools — ~1.6–2 GB smaller).
 build-image-minimal:
     nix --extra-experimental-features 'nix-command flakes' build .#ociImageMinimal
 
-# Build and load the image into the container runtime
+# Build and DELIVER the image into the container runtime.
+#
+# Since layer-aware delivery landed (docs/design/layer-aware-image-delivery.md)
+# `./result` is a nix2container image.json, not a script whose stdout is a
+# docker-archive, and the thing that reads it is the patched skopeo `build-image`
+# realizes beside it at ./result-1. `skopeo copy` negotiates per blob with
+# containers-storage, so a re-load after a flake.nix-only edit moves ~26 MB
+# instead of 3.4 GB.
 load: build-image
-    ./result | {{runtime}} load
+    ./result-1/bin/skopeo --insecure-policy copy \
+        "nix:$(readlink -f ./result)" \
+        containers-storage:localhost/yolo-jail:latest
 
 # Build BOTH image variants on a Linux host and push their closures to the
 # Cachix cache, so macOS users download the prebuilt image (no Linux builder
@@ -222,7 +231,12 @@ cachix-push CACHE="yolo-jail":
     @command -v cachix >/dev/null || {{ '{ echo "cachix not found: nix profile install nixpkgs#cachix"; exit 1; }' }}
     nix --extra-experimental-features 'nix-command flakes' build .#ociImage --print-out-paths --no-link | cachix push {{CACHE}}
     nix --extra-experimental-features 'nix-command flakes' build .#ociImageMinimal --print-out-paths --no-link | cachix push {{CACHE}}
-    @echo "Pushed both image variants to https://{{CACHE}}.cachix.org"
+    # The copier is the one attr here that no PUBLIC cache serves: nix2container's
+    # `nix:` transport is a patch over nixpkgs' skopeo. Pushing it is an
+    # OPTIMIZATION and may never become load-bearing (OQ-LI1) — a miss means the
+    # consumer builds it, and that is all it means.
+    nix --extra-experimental-features 'nix-command flakes' build .#imageCopier --print-out-paths --no-link | cachix push {{CACHE}}
+    @echo "Pushed both image variants and the copier to https://{{CACHE}}.cachix.org"
 
 # Run all tests (Go unit + Go container integration suite)
 test:

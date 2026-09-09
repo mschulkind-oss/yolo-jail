@@ -149,11 +149,22 @@ jobs:
       # would vanish silently if this step were reordered or the action swapped.
       # Every other nix invocation this project makes passes the flag
       # (internal/image/nixflags.go, internal/darwinpkg/darwinpkg.go).
-      - name: Build + push both image variants
+      # THE COPIER IS PUSHED TOO, and it is the one attr here that is a SOURCE
+      # BUILD: nix2container's `nix:` transport is a fetchpatch2 over nixpkgs'
+      # skopeo, so cache.nixos.org has never seen it and every consumer would
+      # otherwise compile it (~2m against our nixpkgs, measured 2026-09-09).
+      #
+      # ⚠ THIS MAY NEVER BECOME LOAD-BEARING (layer-aware-image-delivery.md
+      # OQ-LI1). The cache makes the copier FAST to obtain; a miss means the
+      # consumer builds it, and that is the whole consequence — no path may
+      # degrade, no path may require --accept-flake-config to FUNCTION, and
+      # losing this cache must cost time only.
+      - name: Build + push both image variants and the copier
         if: steps.gate.outputs.enabled == 'true'
         run: |
           nix build --impure --accept-flake-config .#ociImage
           nix build --impure --accept-flake-config .#ociImageMinimal
+          nix build --impure --accept-flake-config .#imageCopier
           echo "Pushed image closures to ${{ steps.gate.outputs.cache }}.cachix.org"
 
   # Build the macOS container-Linux-builder image and push it to GHCR, so

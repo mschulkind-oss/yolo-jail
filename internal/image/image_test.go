@@ -32,7 +32,10 @@ func TestImageCommands(t *testing.T) {
 	// that keeps :latest on the newest load, plus the only name the
 	// no-store-path fallback can ask about.
 	// They are pinned as literals because the flake's `tag = "latest"` is what
-	// makes them true, and a Go-side drift from it would be silent.
+	// makes them true, and a Go-side drift from it would be silent. ⚠ Since C9
+	// nix2container's image.json carries NO name, so that flake `tag` reaches no
+	// image any more — these constants are now purely the legacy alias plus the
+	// legacy tars' baked name.
 	if JailImage("container") != "yolo-jail:latest" {
 		t.Errorf("container image = %q", JailImage("container"))
 	}
@@ -59,24 +62,6 @@ func TestSummarizeNixLine(t *testing.T) {
 		if got := SummarizeNixLine(in); got != want {
 			t.Errorf("SummarizeNixLine(%q) = %q, want %q", in, got, want)
 		}
-	}
-}
-
-func TestFormatProgress(t *testing.T) {
-	// No estimate -> just the MB/GB string.
-	if got := FormatProgress(50*1024*1024, 0); got != "50 MB" {
-		t.Errorf("50MB no-est = %q", got)
-	}
-	// With estimate -> percentage, capped at 99.
-	if got := FormatProgress(50*1024*1024, 100*1024*1024); got != "50 MB (50%)" {
-		t.Errorf("50%% = %q", got)
-	}
-	if got := FormatProgress(100*1024*1024, 100*1024*1024); got != "100 MB (99%)" {
-		t.Errorf("cap-at-99 = %q", got)
-	}
-	// GB threshold.
-	if got := FormatProgress(2*1024*1024*1024, 0); got != "2.0 GB" {
-		t.Errorf("2GB = %q", got)
 	}
 }
 
@@ -112,44 +97,43 @@ func pathN(i int) string {
 	return "/nix/store/path" + string(rune('a'+i))
 }
 
-func TestImageCachePathDeterministic(t *testing.T) {
+// TestArchiveTempPathIsPerStorePathAndNeverATar covers the three properties the
+// archive-delivering backends depend on and that nothing else can enforce.
+//
+// It replaced TestImageCachePathDeterministic, which pinned ImageCachePath after
+// C9 deleted its last production caller — the callee-pinned-with-no-call-site
+// shape AGENTS.md warns about, and one this repo has shipped five times.
+func TestArchiveTempPathIsPerStorePathAndNeverATar(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	a, err := ImageCachePath("/nix/store/abc-jail")
+	a, err := archiveTempPath("/nix/store/abc-jail", ociArchiveSuffix)
 	must(t, err)
-	b, err := ImageCachePath("/nix/store/abc-jail")
+	b, err := archiveTempPath("/nix/store/abc-jail", ociArchiveSuffix)
 	must(t, err)
 	if a != b {
 		t.Errorf("non-deterministic: %q vs %q", a, b)
 	}
-	if filepath.Ext(a) != ".tar" {
-		t.Errorf("cache path should end .tar: %q", a)
-	}
-	c, _ := ImageCachePath("/nix/store/different")
+	// PER STORE PATH, or two concurrent launches of different configs collide on
+	// one file and each removes the other's mid-copy.
+	c, err := archiveTempPath("/nix/store/different", ociArchiveSuffix)
+	must(t, err)
 	if c == a {
-		t.Error("different store paths should hash differently")
+		t.Error("different store paths must not share one archive path")
 	}
-}
-
-func TestSizeFileQuirk(t *testing.T) {
-	// The preserved quirk: reader path has the doubled "-size" suffix.
-	sentinel := SizeSentinelPath()
-	sizeFile := SizeFileForSentinel(sentinel)
-	if filepath.Base(sizeFile) != "last-load-size-size" {
-		t.Errorf("reader path = %q, want .../last-load-size-size (preserved quirk)", sizeFile)
+	// PER FORMAT, so a machine that somehow delivered both does not hand a
+	// docker-archive to `container image load`.
+	d, err := archiveTempPath("/nix/store/abc-jail", dockerArchiveSuffix)
+	must(t, err)
+	if d == a {
+		t.Error("the OCI and docker archives share one path")
 	}
-}
-
-func TestLinuxBuilderFromMachines(t *testing.T) {
-	txt := "# a comment\n\nssh-ng://nix-builder aarch64-linux,x86_64-linux /root/.ssh/key 4\n"
-	uri, host, ok := LinuxBuilderFromMachines(txt)
-	if !ok || uri != "ssh-ng://nix-builder" || host != "nix-builder" {
-		t.Errorf("= %q,%q,%v", uri, host, ok)
-	}
-	// No linux builder -> not found.
-	if _, _, ok := LinuxBuilderFromMachines("ssh://mac aarch64-darwin key 2\n"); ok {
-		t.Error("darwin-only should not match")
-	}
-	if _, _, ok := LinuxBuilderFromMachines(""); ok {
-		t.Error("empty should not match")
+	// AND NEITHER SUFFIX IS `.tar`: newestTars matches that glob, so a crashed
+	// launch would leave the degraded branch a candidate it loads and then
+	// mis-names :latest.
+	for _, suffix := range []string{ociArchiveSuffix, dockerArchiveSuffix} {
+		p, err := archiveTempPath("/nix/store/abc-jail", suffix)
+		must(t, err)
+		if filepath.Ext(p) == ".tar" {
+			t.Errorf("%q ends in .tar, which the degraded fallback's newestTars matches", p)
+		}
 	}
 }
