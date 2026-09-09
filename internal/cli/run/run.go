@@ -794,13 +794,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		return 1
 	}
 
-	// Ledger C: reclaim superseded yolo-jail images, debounced (minimal-disk-
-	// footprint.md OQ-DF3; see autoReapOldImages for the reasoning). Placed
-	// HERE, right after the load above succeeds, so this launch's own image is
-	// already in the load sentinel autoLoadImage's AddLoadedPath call just
-	// wrote — and therefore already protected — before this reap's own
-	// liveness read runs.
-	o.autoReapOldImages(rt)
+	// LEDGER C USED TO BE REAPED HERE, before the container started, and it
+	// MOVED into the post-launch housekeeping slot (OQ-BF5, housekeeping.go).
+	// The property that justified this placement — this launch's own image is
+	// already in the load sentinel AddLoadedPath just wrote — holds in the slot
+	// too, and holds MORE strongly there: by then the container exists, so the
+	// reap's own `podman ps` guard sees it directly. What changes is that a
+	// first pass over a backlog stops holding the launch: fourteen multi-GB
+	// `rmi` in front of a jail start, on the one machine that had never run it.
 
 	// ws_state overlay prep.
 	sp = o.Perf.Span("launch.prepare_ws_state")
@@ -1039,6 +1040,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			time.Sleep(time.Duration(lockReleasePollIntervalSeconds * float64(time.Second)))
 		}
 		lock.Close()
+		// THE HOUSEKEEPING SLOT (OQ-BF5). After the workspace lock is released
+		// and the container is visible — so a reap can never be looking at this
+		// launch's image before its container exists — and on the proxy's
+		// goroutine, so nothing here delays the jail.
+		o.runHousekeeping(rt)
 	}
 	onTerminate := func() {
 		sp := o.Perf.Span("terminate.stop_jail")

@@ -47,9 +47,10 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 		"id-old localhost/yolo-jail:1111111111111111 2026-06-01 09:00:00 +0000 UTC\n"
 
 	var rmiCalls []string
-	var buf bytes.Buffer
+	var buf, stdout bytes.Buffer
 	o := &Options{
-		Stdout: &buf,
+		Stdout: &bytes.Buffer{},
+		Stderr: &buf, // the notice moved to STDERR when OQ-BF5 put the reap in the post-launch slot: stdout is the container's by then
 		Now:    func() time.Time { return time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC) },
 		Exec: func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 			if len(argv) >= 2 && argv[1] == "images" {
@@ -77,7 +78,11 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 		t.Fatalf("rmi calls = %v, want [id-old] (id-live is protected by the load sentinel)", rmiCalls)
 	}
 	if !strings.Contains(buf.String(), "Reclaimed 1 stale yolo-jail image") {
-		t.Errorf("expected a notice naming the reclaim, got: %q", buf.String())
+		t.Errorf("expected a notice naming the reclaim on STDERR, got: %q", buf.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("the reap wrote %q to STDOUT — in the housekeeping slot that is the jailed "+
+			"command's stream (OQ-BF5)", stdout.String())
 	}
 
 	// A second call on the same clock must be debounced: no further rmi and no

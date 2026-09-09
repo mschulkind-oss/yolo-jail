@@ -144,6 +144,12 @@ type AutoLoadOptions struct {
 	// the real image.RegisterImageRoot ONLY when !inJail and a no-op otherwise.
 	// nil => a no-op (tests, and any caller that cannot root host-side).
 	RegisterRoot func(storePath string)
+	// LockHousekeeping takes the machine-wide housekeeping lock and returns the
+	// release. It brackets the inspect-and-record step only — see the call site
+	// for the window it closes and why it must not span the stream. nil => no
+	// locking, which is the right default for a caller that has no host-side
+	// lock (tests, and the in-jail path where nothing else is reaping).
+	LockHousekeeping func() func()
 	// LookupEnv resolves the StaleImageEnv escape hatch (see the fatality
 	// argument on the currentPath=="" branch). nil => os.LookupEnv.
 	//
@@ -468,8 +474,30 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// internal/prune/imageroots_probe.go reads it to protect a live jail's closure
 	// from a store GC, and it is guard #2 of PruneOrphanImageRoots' three.
 	contentRef := JailImageRef(o.Runtime, currentPath)
+	// SERIALISED AGAINST THE REAPER (disk-levers-and-backfill.md OQ-BF5). The
+	// window this closes is narrow and real: this launch inspects, decides the
+	// image is present, and only records it in the sentinel much further down —
+	// and in between, another launch's housekeeping pass can see an image with
+	// no container on it and no sentinel entry, remove it, and leave this
+	// launch's `podman run` failing on an image that existed a moment ago.
+	//
+	// The lock brackets the INSPECT and the RECORD, and deliberately not the
+	// stream between them: holding it across a multi-gigabyte load would
+	// serialise every image load on the machine to buy nothing, since a load in
+	// progress is not what the reaper can misread. nil => unlocked (tests, and
+	// any caller with no host-side lock to take).
+	unlock := func() {}
+	if o.LockHousekeeping != nil {
+		unlock = o.LockHousekeeping()
+	}
 	rc, ran := o.Run(ImageInspectCmd(o.Runtime, contentRef))
 	imagePresent := ran && rc == 0
+	if imagePresent {
+		// Already present: record it now, under the lock, and the window is
+		// closed outright. The append further down is idempotent.
+		_ = AddLoadedPath(sentinel, currentPath)
+	}
+	unlock()
 	lastLoaded, hasLastLoaded := CurrentLoadedPath(sentinel)
 
 	// THE REF IS NO LONGER CONDITIONAL. It used to be a variable a failed retag

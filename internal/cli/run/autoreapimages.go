@@ -70,7 +70,11 @@ func (o *Options) autoReapOldImages(rt string) {
 			"runtime answered the image load a moment ago. `yolo prune` will report the same "+
 			"cause with a non-zero exit.[/dim]", declined)
 	case ran && len(removed) > 0:
-		o.pr(o.Stdout).printf("[dim]Reclaimed %d stale yolo-jail image(s) automatically "+
+		// STDERR, not stdout, since OQ-BF5 moved this into the post-launch
+		// housekeeping slot: by then the pty is attached and stdout belongs to
+		// the jailed command, so a line there lands inside the user's session
+		// output — and would corrupt anything they piped.
+		o.pr(o.Stderr).printf("[dim]Reclaimed %d stale yolo-jail image(s) automatically "+
 			"(minimal-disk-footprint.md OQ-DF3; `yolo prune` shows the full picture).[/dim]",
 			len(removed))
 	}

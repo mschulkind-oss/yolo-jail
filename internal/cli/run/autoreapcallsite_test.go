@@ -51,7 +51,7 @@ func TestRunContainerReapsImagesAfterTheLoad(t *testing.T) {
 				if loadPos == token.NoPos {
 					loadPos = call.Pos()
 				}
-			case "autoReapOldImages":
+			case "runHousekeeping":
 				if reapPos == token.NoPos {
 					reapPos = call.Pos()
 				}
@@ -61,17 +61,19 @@ func TestRunContainerReapsImagesAfterTheLoad(t *testing.T) {
 	}
 
 	if reapPos == token.NoPos {
-		t.Fatal("runContainer no longer calls autoReapOldImages — superseded images " +
+		t.Fatal("runContainer no longer runs the housekeeping slot — superseded images " +
 			"stop being reclaimed and nothing else reports it (the store this " +
-			"landed for held 24 images / 38.68 GB, 23 minted in three days). If the " +
-			"call moved, move this pin with it rather than deleting it.")
+			"landed for held 24 images / 38.68 GB, 23 minted in three days). The reap " +
+			"MOVED here from a direct pre-container call (OQ-BF5), and this pin moved " +
+			"with it rather than being deleted, as its own message asked. The slot's " +
+			"contents are pinned separately by TestReapRunsInTheSlotNotBeforeTheContainer.")
 	}
 	if loadPos == token.NoPos {
 		t.Fatal("runContainer no longer calls autoLoadImage — this pin cannot check " +
 			"the ordering the reap's safety depends on")
 	}
 	if reapPos < loadPos {
-		t.Fatal("autoReapOldImages runs BEFORE autoLoadImage — this launch's own image " +
+		t.Fatal("the housekeeping slot is wired BEFORE autoLoadImage — this launch's own image " +
 			"is not in the load sentinel yet, so ProtectedImageTags cannot veto its " +
 			"removal and the reap can delete the image the launch is about to use")
 	}

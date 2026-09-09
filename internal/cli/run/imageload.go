@@ -76,7 +76,8 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// this is futile — the gcroots dir is unmounted and the host daemon prunes
 		// a jail-home root as stale (verified) — so register only host-side; the
 		// AutoLoadImage seam defaults to a no-op when left nil.
-		RegisterRoot: o.rootImageFn(),
+		RegisterRoot:     o.rootImageFn(),
+		LockHousekeeping: o.lockHousekeepingFn(),
 	})
 }
 
