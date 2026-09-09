@@ -3,7 +3,9 @@
 **Status:** GUIDE — **spot-checked 2026-08-23**: the kind count (fifteen) and the loophole section
 match the tree. **The UNRELEASED warning below is now WRONG and is corrected in place** — every verb
 it lists shipped in **v0.8.0** (tagged 2026-08-13; `git show v0.8.0:internal/cli/dispatch.go` has
-`describe`, `apply`, `check-deps` and `pack`).
+`describe`, `apply`, `check-deps` and `pack`). **Corrected again 2026-09-09**: two passages
+claimed your host `~/.claude/settings.json` no longer composes into a jail. It does — see the
+`host`-layer bullet under "Before you start" and the note opening Part 2.
 
 > **⚠ Verify your version first.** The verbs this guide leans on — `describe`, `apply` (incl.
 > `--at host`/`--sealed`), `check-deps`, the newer `pack` subcommands (`lint`'s manifest validation,
@@ -66,13 +68,23 @@ nothing.
   `copilot`, `codex`, `opencode`, `pi`, `agy`); you add your own.
 - **Nothing is active by default.** An empty config gives you a jail with a shell and no
   agent. You opt in with the `packs` key.
-- **Your personal `~/.claude/settings.json` is no longer a composed config *layer*.** yolo
-  used to merge it *into* the jail's settings as a magic layer; that layer is gone. (The
-  shipped `claude` pack still mounts it read-only into the jail via a `reads-host` entry so
-  the agent can *see* it — but it no longer silently composes into what yolo writes.) The
-  durable way to carry your settings is to put them in a **local pack** — declared, locked,
-  and portable to every confinement level (see Part 2 for why this matters for host
-  management).
+- **Your personal `~/.claude/settings.json` is still a composed config layer — but it is no
+  longer the *durable* place to keep settings.** The shipped `claude` pack grants the file
+  with a `reads-host` entry; `packload.hostSourceFor` matches that grant to the
+  `claude/settings` surface by basename, and the boot render reads it every launch as the
+  surface's `host` layer. So a key you put there does reach every jail, and
+  `yolo config ls` names `host` among the surface's layers. What that layer cannot do is
+  travel: it is one file on one machine, it sits below every other layer, and — now that
+  [`yolo host apply`](#part-2--manage-your-host) *writes* the same file — part of it is a
+  render output rather than something you authored. The durable way to carry your settings
+  is a **local pack** — declared, locked, and portable to every confinement level (see
+  Part 2 for why this matters for host management).
+
+  *(Corrected 2026-09-09. This bullet said the layer "is gone" and that the file "no longer
+  silently composes into what yolo writes". Both were wrong, and had been since they were
+  written: `TestConfigureClaudePrismComposesTheHostLayer` and
+  `TestConfigureClaudePrismStripsHostMCPServers` in `internal/entrypoint` both fail if
+  either half of the wiring is removed.)*
 
 Check where you are today:
 
@@ -288,13 +300,19 @@ Once your config is a pack, you can render it onto your **real machine**, not ju
 jail. This is the "invert the flow" the pack migration unlocks: the same declaration, two
 places it can be realized.
 
-> **Why express host settings as a pack (and retire the old inheritance).** yolo no longer
-> *composes* your live `~/.claude/settings.json` into the jail's settings as a magic layer —
-> because reading settings *in* and asserting config *out* over the same file is a
-> contradiction. (The shipped `claude` pack still mounts that file read-only into the jail
-> so the agent can see it; what's gone is the silent merge-into-what-yolo-writes.) A pack is
-> the single *authored* source: declared, locked, and rendered *to* wherever you need it.
+> **Why express host settings as a pack.** Your live `~/.claude/settings.json` *does* still
+> compose into a jail — it is the `claude/settings` surface's `host` layer
+> ([above](#before-you-start-what-changed)). The reason to author a pack instead is that
+> `yolo host apply` also **writes** that file, so it is an input to every jail and an output
+> of a host render at once, and the half yolo owns is not yours to version. That is a mixed
+> authorship rather than the contradiction this note used to claim, and `rmw` is what makes
+> the two directions coexist: an apply rewrites only the keys a pack declares, warns before
+> overwriting a value you set, and leaves every other key byte-identical. A pack is the
+> single *authored* source: declared, locked, and rendered *to* wherever you need it.
 > Credentials are unaffected — those still cross as mounts, not as a config layer.
+>
+> *(Corrected 2026-09-09, with the bullet in "Before you start" — this said yolo "no longer
+> composes" the file and called read-in-and-assert-out a contradiction.)*
 
 ### Step 1: describe what you'd apply
 

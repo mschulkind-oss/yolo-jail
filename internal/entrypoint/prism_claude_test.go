@@ -153,6 +153,46 @@ func TestConfigureClaudePrismStripsHostMCPServers(t *testing.T) {
 	}
 }
 
+// TestConfigureClaudePrismComposesTheHostLayer pins the invariant the migration
+// guide got wrong: the user's OWN ~/.claude/settings.json on the host is a
+// composed layer of the jail's settings, not merely a file the agent can look at.
+// The claude pack grants it with `reads-host`, packload.hostSourceFor matches the
+// grant to the surface by BASENAME to fill Surface.HostSource, and
+// hostSurfaceBytes reads it every boot as the `host` layer.
+//
+// StripsHostMCPServers already asserts a host key merges, but as a side-note
+// inside a test named for the opposite outcome — so a reader asking "does my host
+// settings.json still reach my jails?" finds nothing, and the guide asserted "no"
+// for months against a green suite. This is that question, asked by name.
+//
+// It uses a key NO layer of yolo's declares, so a pass cannot come from defaults,
+// computed or managed: only the host layer can produce it.
+func TestConfigureClaudePrismComposesTheHostLayer(t *testing.T) {
+	e, ctx := newClaudePrismEnv(t, map[string]string{})
+	hostJSON := `{"verbose":true,"attribution":{"commit":"","pr":""}}`
+	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(hostJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ConfigurePackByName(e, "claude"); err != nil {
+		t.Fatalf("ConfigureClaudePrism: %v", err)
+	}
+
+	got := decodeJSONFile(t, filepath.Join(e.ClaudeDir(), "settings.json"))
+	if got["verbose"] != true {
+		t.Errorf("verbose = %v, want true — a scalar the user set on the HOST must reach "+
+			"the jail's settings.json via the host layer", got["verbose"])
+	}
+	// A nested object too: the host layer deep-merges, it does not only carry scalars.
+	attr, ok := got["attribution"].(map[string]any)
+	if !ok {
+		t.Fatalf("attribution missing/!object: %v — the host layer must deep-merge", got["attribution"])
+	}
+	if attr["commit"] != "" || attr["pr"] != "" {
+		t.Errorf("attribution = %v, want both keys empty strings from the host layer", attr)
+	}
+}
+
 // TestConfigureClaudePrismNoLSP proves the DYNAMIC toggles collapse when no LSP
 // server is configured: no yolo plugin key is set true and env.ENABLE_LSP_TOOL
 // is absent. NOTE the documented byte-shape gap: the computed tombstone on the
