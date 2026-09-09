@@ -1,9 +1,11 @@
 # Managing host agent configs from yolo — the host as a reduced render target
 
 **Status:** LARGELY IMPLEMENTED — steps 1, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) shipped; step 3 shipped
-**half** (the `Target` abstraction exists; the two render paths were never collapsed).
+**half** (the `Target` abstraction exists and [§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s payoff has now landed, but the two render paths were
+never collapsed).
 Written as design 2026-07-27, fact-checked 2026-07-30, **re-verified against the tree
-2026-08-23** (see the shipped-status postscript below).
+2026-08-23**, **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s two tables retired 2026-09-09** (see the shipped-status postscript
+below).
 
 > **Postscript, 2026-08-23 — this stopped being a proposal. Read [§1](#1-the-measurement-the-render-core-has-no-jail-dependencies)–[§7](#7-three-walkthroughs) in their
 > original tense as the argument that produced the code, and read this block for what
@@ -15,18 +17,27 @@ Written as design 2026-07-27, fact-checked 2026-07-30, **re-verified against the
 > |---|---|---|
 > | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go:84-90`) aborts unless `surfacesAreLocal() \|\| force`; wired into `configReset` (`:640`) and `configCapture` (`:843,848`). Probes 1–3 are no longer reachable without `--force`. |
 > | 2. Decide the capture-privacy question ([§9.3](#9-open-questions--the-discussion-part)) | ✅ **answered by step 1** | The refusal *is* the answer; no key-level redaction was invented. See the OQ ledger. |
-> | 3. `internal/render` with `Target` | ⚠ **half** | `Target` ships (`internal/render/target.go:39`) with `Jail`/`Preview`/`Host` constructors at `:168,175,181` — plus two things this doc did not predict: a `Kind` notch enum (`:78`, `SelectableNotches` at `:144`) and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go:73`), and `Env.renderTarget()` (`:180-188`) dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. |
+> | 3. `internal/render` with `Target` | ⚠ **half** | `Target` ships (`internal/render/target.go:39`) with `Jail`/`Preview`/`Host` constructors at `:168,175,181` — plus two things this doc did not predict: a `Kind` notch enum (`:78`, `SelectableNotches` at `:144`) and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go:73`), and `Env.renderTarget()` (`:180-188`) dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s stated payoff landed separately on 2026-09-09** — the two hand-maintained layer tables are retired without the renderer collapse, which is worth knowing about the argument: the tables were duplication of a DECLARATION, and only the writers were duplication of a RENDERER. |
 > | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`internal/macosuser/runplan.go:200-210`, asserted at `:314`); it is the `guest` notch (`render.GuestProfileMacOS`, `confinement.go:130`). [§9.7](#9-open-questions--the-discussion-part)'s "zero surfaces, silently" is over. |
 > | 5. `FieldSet` | ✅ **shipped, and went further** | `internal/render/fieldset.go:13` with `Honors`/`Refuse`; plus a third state this doc never named — `HostUnimplemented` (`:116`), *honored-but-unbuilt*, so a kind is never silently absent. |
 > | 6. `yolo config apply --host` | ✅ **shipped** | `applyHost` with `--assert`; end-to-end tests at `internal/cli/applyhostlocalpack_test.go` and `applyhostidempotent_test.go`. |
 >
 > **Three claims in the body are now false and would send a reader wrong:**
 >
-> 1. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s "two hand-maintained tables die" did NOT happen.** `surfaceHasHostLayer`
->    and `surfaceHasComputedLayer` are still Go-side maps at
->    `internal/cli/configls.go:199,206`, still read at `configls.go:181,184` and
->    `config.go:272,293`. They were the *stated payoff* of step 3, and step 3 shipped
->    without them.
+> 1. ~~**[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s "two hand-maintained tables die" did NOT happen.**~~ **DONE 2026-09-09 —
+>    and what they had already drifted into is the finding.** `surfaceHasHostLayer` and
+>    `surfaceHasComputedLayer` are gone; both columns are derived. Two corrections to what
+>    the 2026-08-23 audit recorded, both in the direction of the problem being worse:
+>    there were **five** readers in **three** files, not four in two (`configdiff.go`'s
+>    `truncateSurfaceToPureRender` was the uncounted one, and it is a WRITER — it
+>    re-renders a real file), and the computed map **was already wrong**. It was missing
+>    `pi/settings`, `pi/models` and `claude/config`, so `yolo config ls` reported no
+>    `computed` layer for any of the three — and `pi/models`, whose entire content is its
+>    dynamic layer, listed with an EMPTY layer stack. `config render --explain` omitted its
+>    "this surface also has a computed layer, not shown" note for the two of those it
+>    renders, which is A7's `host`-layer bug reproduced one column over. The host map was
+>    accurate, and that is luck rather than maintenance: it happened to still equal the
+>    grants the packs declare. See [§3.4](#34-what-this-buys-immediately-before-any-host-target-exists) for what replaced them.
 > 2. **[§3.3](#33-what-each-target-supplies)'s `Posture` field does not exist under that name.** It became two things:
 >    `ModeSet` (`internal/render/modes.go:42`, with `JailModes`/`HostModes`/
 >    `UndecidedModes`) answering *which surface modes this notch runs and records*, and
@@ -409,8 +420,8 @@ changes.
 
 **Every [§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) defect is a drift between these two paths**, not an isolated bug. `reset`
 truncates `~/.config/mise/config.toml` because the host path composes with no computed layer
-while the boot path always has one. `surfaceHasHostLayer` is a hand-maintained 2-entry map in
-`cli` restating what the entrypoint knows structurally. The host path resolves `~` against
+while the boot path always has one. `surfaceHasHostLayer` was a hand-maintained 2-entry map in
+`cli` restating what the entrypoint knows structurally (retired 2026-09-09, [§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)). The host path resolves `~` against
 the process `$HOME`; the boot path deliberately does not.
 
 So the host capability is not a new feature bolted on. **It is what falls out of collapsing
@@ -475,13 +486,30 @@ Worth separating, because these land at step 3 with no new user-facing feature a
 - **The [§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) data-loss bugs stop being possible by construction.** `reset` cannot compose
   without a computed layer, because `Tables` is a field a target must fill in — and
   `Host()` declares it empty, which makes `mise/config` *refused* rather than truncated.
-- **Two hand-maintained tables die.** `surfaceHasHostLayer` and `surfaceHasComputedLayer`
-  (`cli/configls.go:199,206`) are Go-side maps restating what the boot path knows
-  structurally, and they become derived from `Target`. This is the same pattern the project
-  has already retired twice: `prismSurfaceMode` moved into the manifest as `Surface.Mode`
-  ("declaring it HERE rather than in a lookup table beside the CLI is the point",
-  `manifest/manifest.go:123-128`), and `builtinSurfacePaths` now reads the real declarations
-  through `packload`. These two are the ones still standing.
+- ✅ **Two hand-maintained tables die — SHIPPED 2026-09-09**, and not from `Target`.
+  `surfaceHasHostLayer` and `surfaceHasComputedLayer` were Go-side maps restating what the
+  boot path knows structurally; both are gone, and each column now reads the surface's own
+  producer:
+
+  | Column | Was | Is |
+  |---|---|---|
+  | `host` | a two-entry `map[string]bool` beside `builtinLayers`, justified in its own comment by "`AgentSpec.HostFiles` has exactly two entries" — a Go bound that had ALREADY been replaced by pack data | `manifest.Surface.HasHostLayer()`, i.e. the surface's own `HostSource`, which `packload` fills from the owning pack's `reads-host` grant. **The boot render's host-layer read consults the same method** (`entrypoint.hostSurfaceBytes`), so the column is a reading of the render rather than a second opinion about it |
+  | `computed` | a seven-entry `map[string]bool`, three surfaces behind the corpus | `packload.DerivedSurfaces` — the pack's `yolo.derive(agent, surface, fn)` registrations, listed by a new `luahook.DeriveRegistrations` that shares its registration run with the `Derive` the boot path invokes — unioned with `agentcfg.CoreComputedSurfaces` |
+
+  This is the same pattern the project has already retired twice: `prismSurfaceMode` moved
+  into the manifest as `Surface.Mode` ("declaring it HERE rather than in a lookup table
+  beside the CLI is the point"), and `builtinSurfacePaths` now reads the real declarations
+  through `packload`.
+
+  **What this cost, stated because it is the one thing the design got wrong about its own
+  payoff:** the doc assumed both columns were facts a `Target` supplies (`Tables`,
+  `HostLayer`). They are not — they are per-SURFACE facts, and a target has no opinion about
+  them. So retiring the tables needed no `Target` at all, which is why it could land while
+  the renderer collapse stays undone. And one statement survives as a declaration:
+  `agentcfg.CoreComputedSurfaces` names `mise/config`, because CORE's dynamic layer is built
+  in Go (`entrypoint.ConfigureMisePrism`) with no data to read. It is one entry, it sits
+  beside the surface it describes rather than beside a printer, and a test refuses a name
+  that is not a real core surface.
 - **`yolo config render` becomes a faithful preview.** Today it is documented as approximating
   the boot render; with one renderer it *is* the boot render against a temp home.
 - **macos-user gets a row instead of a silent no-op** ([§9.7](#9-open-questions--the-discussion-part)).
@@ -969,12 +997,14 @@ honor it says so by name.
 **Ordered so that each step is independently valuable and the destructive path is fixed
 first.** Nothing here needs a new module or a decision about one.
 
-> **Status 2026-08-23: steps 1, 4, 5 and 6 shipped; step 2 was answered by step 1;
-> step 3 shipped as a vocabulary (`Target`/`FieldSet`/`ModeSet`/`Profile`) without the
-> renderer collapse it was proposed for.** The "if only one of these ever happens" bet
-> at the end of this section was right about #1 and wrong about #3: #1 landed first and
-> #3's *stated payoff* — retiring `surfaceHasHostLayer` and `surfaceHasComputedLayer` —
-> is still outstanding (`internal/cli/configls.go:199,206`). See the postscript at the
+> **Status: steps 1, 4, 5 and 6 shipped; step 2 was answered by step 1; step 3 shipped as a
+> vocabulary (`Target`/`FieldSet`/`ModeSet`/`Profile`) without the renderer collapse it was
+> proposed for, and its stated payoff has since landed on its own.** The "if only one of
+> these ever happens" bet at the end of this section was right about #1 and wrong about #3
+> in an instructive way: #3's payoff — retiring `surfaceHasHostLayer` and
+> `surfaceHasComputedLayer` — turned out **not to need #3**, and was done separately on
+> 2026-09-09 ([§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)). The tables were duplication of a DECLARATION; only the writers are
+> duplication of a RENDERER, and that half is still outstanding. See the postscript at the
 > top of this doc for the full table.
 
 1. **Fix probes 1–3, now, ahead of any refactor.** Host-side `reset` (`configReset`,
