@@ -429,6 +429,30 @@ func LiveYoloContainers(rt string, run RunFunc) runtime.LiveSet {
 	return runtime.LiveSet{Known: true, Names: runtime.ParsePodmanLive(res.Stdout)}
 }
 
+// RunningImageRefs lists the image REFERENCES of running containers, deduped —
+// the sibling of imagesInUseByRunningContainers, which reads IDs.
+//
+// Refs rather than IDs because the ref carries the content tag, and that tag is
+// image.ImageStoreKey of the store path the image was loaded from — the one
+// string that maps a running container back to its nix closure and therefore to
+// its roots/<sha16> link. An ID maps to nothing yolo has recorded.
+//
+// Returns (refs, known); known=false when the runtime could not be enumerated,
+// and every caller must treat that as "decline", never as "nothing running".
+func RunningImageRefs(rt string, run RunFunc) ([]string, bool) {
+	res := run([]string{rt, "ps", "--format", "{{.Image}}"}, psTimeout)
+	if !res.Ran || res.RC != 0 {
+		return nil, false
+	}
+	refs := []string{}
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if ref := strings.TrimSpace(line); ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	return refs, true
+}
+
 // imagesInUseByRunningContainers asks the runtime which image IDs currently have
 // a container on them. known=false when the question could not be answered, and
 // the caller then declines to remove anything.

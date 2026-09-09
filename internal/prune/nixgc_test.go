@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +154,79 @@ func TestParseHumanBytes(t *testing.T) {
 		got, ok := parseHumanBytes(c.num, c.unit)
 		if ok != c.ok || (ok && got != c.want) {
 			t.Errorf("parseHumanBytes(%q,%q) = (%d,%v), want (%d,%v)", c.num, c.unit, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestUnrootedRunningImagesSeesWhatTheSentinelCannot is the hole OQ-LS1 opens
+// and this gate closes, stated as the scenario rather than as a unit shape: a
+// jail that has been up for days is not in the load sentinel's LRU-10, and
+// since LS1 its GC root is reaped on age like any other — so before this gate,
+// `--nix-gc --apply` would delete the closure its /bin/* resolve through.
+func TestUnrootedRunningImagesSeesWhatTheSentinelCannot(t *testing.T) {
+	roots := t.TempDir()
+	// One root exists (a recently-used image); the long-running jail's does not.
+	if err := os.Symlink("/nix/store/still-rooted", filepath.Join(roots, "aaaaaaaaaaaaaaaa")); err != nil {
+		t.Fatal(err)
+	}
+
+	// The sentinel-based check is blind to the running jail: its path is not in
+	// the LRU, so `protected` is empty and it reports nothing wrong.
+	if got := UnrootedProtectedPaths(roots, map[string]struct{}{}); len(got) != 0 {
+		t.Fatalf("sentinel check reported %v for an empty LRU — the premise of this test is that it says nothing", got)
+	}
+
+	// The runtime-based check sees it, because the container is there to be asked.
+	refs := []string{"localhost/yolo-jail:bbbbbbbbbbbbbbbb"}
+	got := UnrootedRunningImages(roots, refs)
+	if len(got) != 1 || got[0] != refs[0] {
+		t.Fatalf("UnrootedRunningImages(%v) = %v, want exactly that ref — a running container "+
+			"whose closure has no root MUST refuse the store GC (LS1 removed the root reaper's "+
+			"liveness veto on the grounds that unrooting costs only a rebuild; DELETING the "+
+			"closure does not)", refs, got)
+	}
+
+	// A running image that IS rooted raises nothing.
+	if got := UnrootedRunningImages(roots, []string{"localhost/yolo-jail:aaaaaaaaaaaaaaaa"}); len(got) != 0 {
+		t.Errorf("a rooted running image reported %v, want none", got)
+	}
+}
+
+// TestUnrootedRunningImagesRefusesWhatItCannotMap: unknown is not permission.
+// A ref with no content tag — a bare ID, the legacy `latest`, an image loaded
+// outside yolo — maps to no closure, so it cannot be confirmed rooted and must
+// read as a reason to decline rather than as a pass.
+func TestUnrootedRunningImagesRefusesWhatItCannotMap(t *testing.T) {
+	roots := t.TempDir()
+	for _, ref := range []string{"localhost/yolo-jail:latest", "somerandomimage", "abc123def456"} {
+		if got := UnrootedRunningImages(roots, []string{ref}); len(got) != 1 {
+			t.Errorf("ref %q reported %v, want one unmappable entry — treating an unmappable "+
+				"running container as rooted is the fail-open this gate exists to avoid", ref, got)
+		}
+	}
+}
+
+// TestStoreGCConsultsTheRuntime is the CALL-SITE pin. The two tests above prove
+// UnrootedRunningImages works; neither would notice it vanishing from the store
+// GC section, and the regression that follows is silent — a `--nix-gc --apply`
+// that deletes a long-running jail's closure, which is the incident this whole
+// design exists to prevent, reintroduced from the other end.
+//
+// Source-reading is this repo's answer for a call site a unit test cannot reach
+// (the methodDecl pattern in configapproval_test.go). It pins the CALL, not the
+// wording around it.
+func TestStoreGCConsultsTheRuntime(t *testing.T) {
+	src, err := os.ReadFile("prunecmd.go")
+	if err != nil {
+		t.Fatalf("read prunecmd.go: %v", err)
+	}
+	for _, want := range []string{"RunningImageRefs(", "UnrootedRunningImages("} {
+		if !strings.Contains(string(src), want) {
+			t.Fatalf("prunecmd.go no longer calls %s — the store GC is back to confirming rooting "+
+				"from the load sentinel alone, which cannot see a jail that has aged out of the "+
+				"LRU-10. Since OQ-LS1 that jail's root is also reaped on age, so the two gaps "+
+				"compose into deleting a live jail's closure. If the call moved, move this pin "+
+				"with it rather than deleting it.", want)
 		}
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
 
@@ -144,4 +146,57 @@ func parseHumanBytes(num, unit string) (int64, bool) {
 		return 0, false
 	}
 	return int64(f * mult), true
+}
+
+// UnrootedRunningImages is the store GC's LIVENESS gate, and it exists because
+// OQ-LS1 took liveness out of the ROOT reaper.
+//
+// The two passes ask genuinely different questions, which is why one lost its
+// liveness evidence and the other gains it. Unrooting a closure costs a rebuild
+// (PruneOrphanImageRoots' doc says why age is the whole policy there). DELETING
+// the closure costs a running jail its tools: `assemble.go` bind-mounts
+// /nix/store:ro into the jail, so a live jail's /bin/* resolve through the HOST
+// store — measured as 235 of 467 dead /bin symlinks under a live jail on
+// 2026-07-22 (../plans/storage-lifecycle.md). So the store GC must confirm
+// rooting for every image a container is actually on, and refuse while any is
+// unrooted.
+//
+// WHY THE SENTINEL CANNOT ANSWER THIS. UnrootedProtectedPaths above reads the
+// load sentinel, an LRU of the last ten loads. A jail that has been up for days
+// while other launches loaded other images has aged out of that list, so its
+// closure is not in `protected` and the check never looks at it — the exact
+// premise this doc set out to remove. Asking the runtime has no window and no
+// cap.
+//
+// refs are container image references as the runtime prints them
+// (`repo:<sha16>`); the sha16 after the colon is image.ImageStoreKey of the
+// store path, which is also the roots/<sha16> basename, so a ref maps to its
+// root by a string split. A ref with no tag (a bare ID, or an image loaded
+// outside yolo) cannot be mapped and is reported as unmappable rather than
+// silently treated as rooted — unknown is not permission.
+func UnrootedRunningImages(rootsDir string, refs []string) []string {
+	unrooted := []string{}
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		key := tagOf(ref)
+		if key == "" || key == tagOf(paths.JailImage) {
+			// No content key to map: either an untagged ref or the legacy
+			// `latest` tag, which names no store path. Report it — a running
+			// container yolo cannot map is a reason to decline, not to proceed.
+			key = ""
+		}
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		if key == "" {
+			unrooted = append(unrooted, ref+" (no content tag; cannot confirm its closure is rooted)")
+			continue
+		}
+		if _, err := os.Readlink(filepath.Join(rootsDir, key)); err != nil {
+			unrooted = append(unrooted, ref)
+		}
+	}
+	sort.Strings(unrooted)
+	return unrooted
 }

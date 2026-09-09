@@ -11,7 +11,7 @@ import (
 
 // mkRoot creates roots/<name> as a symlink to target (target need not exist —
 // a dangling root is the reap-me case) and back-dates the SYMLINK's own mtime by
-// `age`, so it clears the reaper's grace floor by default. The reaper reads
+// `age`, so it clears the reaper's retention horizon by default. The reaper reads
 // os.Lstat().ModTime() (the link's own time), so aging must be no-follow:
 // os.Chtimes follows the link, hence unix.Lutimes here. Returns the link path.
 func mkRoot(t *testing.T, rootsDir, name, target string, age time.Duration) string {
@@ -31,54 +31,69 @@ func mkRoot(t *testing.T, rootsDir, name, target string, age time.Duration) stri
 	return link
 }
 
-func TestPruneOrphanImageRootsTriState(t *testing.T) {
+// TestPruneOrphanImageRootsIsAgeOnly is the REWRITE of what was
+// TestPruneOrphanImageRootsTriState. That test asserted the two guards OQ-LS1
+// removed — a fail-safe liveness gate and a protected set read from the load
+// sentinel — so it is rewritten to the ruled behavior rather than repaired
+// until green: age is now the whole policy, and a pass with no authority to
+// consult cannot have a tri-state.
+//
+// Kept from the old test: the dangling-root, non-symlink and dry-run cases,
+// which are about the reaper's mechanics and are untouched by the ruling.
+func TestPruneOrphanImageRootsIsAgeOnly(t *testing.T) {
 	now := time.Now()
-	old := 48 * time.Hour
 
-	// (1) Liveness UNKNOWN -> decline; dangling root survives.
+	// (1) Older than the horizon -> reaped, with no liveness input of any kind.
 	rd := t.TempDir()
-	link := mkRoot(t, rd, "aaaa", "/nix/store/gone-1", old)
-	reaped := PruneOrphanImageRoots(rd, map[string]struct{}{}, false, time.Hour, true, now)
-	if len(reaped) != 0 {
-		t.Errorf("unknown-liveness reaped %d roots, want 0 (fail-safe)", len(reaped))
-	}
-	if _, err := os.Lstat(link); err != nil {
-		t.Error("root deleted under unknown liveness — tri-state violated")
-	}
-
-	// (2) Known + protected -> spared (target is a loaded image path).
-	rd = t.TempDir()
-	target := "/nix/store/live-image-2"
-	link = mkRoot(t, rd, "bbbb", target, old)
-	protected := map[string]struct{}{target: {}}
-	reaped = PruneOrphanImageRoots(rd, protected, true, time.Hour, true, now)
-	if len(reaped) != 0 {
-		t.Errorf("protected root reaped %d, want 0", len(reaped))
-	}
-	if _, err := os.Lstat(link); err != nil {
-		t.Error("protected root (loaded image) must be spared")
-	}
-
-	// (3) Known + unreferenced + dangling + old -> reaped.
-	rd = t.TempDir()
-	link = mkRoot(t, rd, "cccc", "/nix/store/orphan-3", old)
-	reaped = PruneOrphanImageRoots(rd, map[string]struct{}{}, true, time.Hour, true, now)
+	link := mkRoot(t, rd, "aaaa", "/nix/store/orphan-1", 8*24*time.Hour)
+	reaped := PruneOrphanImageRoots(rd, ImageRootRetention, true, now)
 	if len(reaped) != 1 {
-		t.Fatalf("orphan root reaped %d, want 1", len(reaped))
+		t.Fatalf("root unused for 8 days reaped %d, want 1", len(reaped))
 	}
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
-		t.Error("orphan root should be reclaimed when known + unreferenced + old")
+		t.Error("a root past the retention horizon must be reclaimed")
 	}
 
-	// (4) Too-recent (within grace) -> spared even when unreferenced.
+	// (2) Inside the horizon -> spared. This is the whole of the policy: the
+	// mtime is the last launch that USED the image, because nix-store --add-root
+	// refreshes the link's own mtime even when the target is unchanged.
 	rd = t.TempDir()
-	link = mkRoot(t, rd, "dddd", "/nix/store/orphan-4", 0)
-	reaped = PruneOrphanImageRoots(rd, map[string]struct{}{}, true, time.Hour, true, now)
+	link = mkRoot(t, rd, "bbbb", "/nix/store/orphan-2", 6*24*time.Hour)
+	reaped = PruneOrphanImageRoots(rd, ImageRootRetention, true, now)
 	if len(reaped) != 0 {
-		t.Errorf("recent root reaped %d, want 0 (grace floor)", len(reaped))
+		t.Errorf("root used 6 days ago reaped %d, want 0", len(reaped))
 	}
 	if _, err := os.Lstat(link); err != nil {
-		t.Error("recent root must be spared by the grace floor")
+		t.Error("a root inside the retention horizon must be spared")
+	}
+
+	// (3) A LIVE image's root is NOT special-cased, and that is the ruling
+	// rather than an oversight. Losing it costs a rebuild, never a running jail
+	// — which is exactly what does not hold for the install prefix (OQ-BF4), so
+	// this assertion is what stops someone "fixing" this by reading liveness
+	// back in. A jail up for eight days no longer pins its image's closure.
+	rd = t.TempDir()
+	link = mkRoot(t, rd, "cccc", "/nix/store/an-image-a-live-jail-runs", 8*24*time.Hour)
+	reaped = PruneOrphanImageRoots(rd, ImageRootRetention, true, now)
+	if len(reaped) != 1 {
+		t.Fatalf("a long-running jail's image root reaped %d, want 1 — age is the whole "+
+			"policy (OQ-LS1); if you are re-adding a liveness veto here, read that ruling "+
+			"first: liveness is a wrong predictor of future want in both directions", len(reaped))
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Error("no root is exempt from age")
+	}
+}
+
+// TestImageRootRetentionIsAPolicyNotAGraceWindow pins the number against the
+// value it replaced. 3600 s was a race guard for a root a launch had just
+// created; a week is a horizon over which "will I want this closure again" is
+// decided. A change back to hours silently turns the pass into the old guard
+// while every other test stays green.
+func TestImageRootRetentionIsAPolicyNotAGraceWindow(t *testing.T) {
+	if ImageRootRetention < 24*time.Hour {
+		t.Fatalf("ImageRootRetention = %s — under a day is a startup grace window, not the "+
+			"retention policy OQ-LS1 ruled", ImageRootRetention)
 	}
 }
 
@@ -87,7 +102,7 @@ func TestPruneOrphanImageRootsDryRun(t *testing.T) {
 	now := time.Now()
 	rd := t.TempDir()
 	link := mkRoot(t, rd, "eeee", "/nix/store/orphan-5", 48*time.Hour)
-	reaped := PruneOrphanImageRoots(rd, map[string]struct{}{}, true, time.Hour, false /*apply*/, now)
+	reaped := PruneOrphanImageRoots(rd, time.Hour, false /*apply*/, now)
 	if len(reaped) != 1 {
 		t.Fatalf("dry-run reaped list = %d, want 1", len(reaped))
 	}
@@ -98,7 +113,7 @@ func TestPruneOrphanImageRootsDryRun(t *testing.T) {
 
 // (6) Missing roots dir (nothing ever rooted) -> empty, no error.
 func TestPruneOrphanImageRootsNoDir(t *testing.T) {
-	reaped := PruneOrphanImageRoots(filepath.Join(t.TempDir(), "roots"), map[string]struct{}{}, true, time.Hour, true, time.Now())
+	reaped := PruneOrphanImageRoots(filepath.Join(t.TempDir(), "roots"), time.Hour, true, time.Now())
 	if len(reaped) != 0 {
 		t.Errorf("missing roots dir reaped %d, want 0", len(reaped))
 	}
@@ -116,7 +131,7 @@ func TestPruneOrphanImageRootsSkipsNonSymlink(t *testing.T) {
 	}
 	old := time.Now().Add(-48 * time.Hour)
 	_ = os.Chtimes(stray, old, old)
-	reaped := PruneOrphanImageRoots(rd, map[string]struct{}{}, true, time.Hour, true, time.Now())
+	reaped := PruneOrphanImageRoots(rd, time.Hour, true, time.Now())
 	if len(reaped) != 0 {
 		t.Errorf("reaped %d, want 0 (stray non-symlink must be left alone)", len(reaped))
 	}

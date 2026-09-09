@@ -583,17 +583,18 @@ func Run(opts Options) int {
 	if !opts.NoImageRoots {
 		p.line("")
 		p.line("[bold]Orphaned image GC roots[/bold]")
-		if !live.Known {
-			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to sweep[/dim]", rt))
+		// NO LIVENESS GATE HERE, deliberately (OQ-LS1). This pass is an age
+		// policy over a cache, so it consults no authority and cannot be
+		// declined by one being unreachable — see PruneOrphanImageRoots. The
+		// `live` set above is still read by the passes that DO ask a liveness
+		// question; this one asking it was the defect.
+		reaped := PruneOrphanImageRoots(joinPath(opts.BuildDir(), "roots"),
+			ImageRootRetention, apply, opts.Now())
+		if len(reaped) > 0 {
+			p.line(fmt.Sprintf("  %s: %s root(s) unused for %s  [dim](nix store paths reclaimed by a later nix GC)[/dim]",
+				verb(apply, "would remove", "removed"), fmtComma(len(reaped)), ImageRootRetention))
 		} else {
-			reaped := PruneOrphanImageRoots(joinPath(opts.BuildDir(), "roots"), ProtectedImagePaths(opts.BuildDir()),
-				live.Known, time.Duration(imageRootOlderThanSeconds*float64(time.Second)), apply, opts.Now())
-			if len(reaped) > 0 {
-				p.line(fmt.Sprintf("  %s: %s root(s)  [dim](nix store paths reclaimed by a later nix GC)[/dim]",
-					verb(apply, "would remove", "removed"), fmtComma(len(reaped))))
-			} else {
-				p.line("  [dim]none[/dim]")
-			}
+			p.line("  [dim]none[/dim]")
 		}
 	}
 
@@ -730,10 +731,27 @@ func Run(opts Options) int {
 		case !live.Known:
 			p.line(fmt.Sprintf("  [dim]skipped — could not enumerate running jails (%s); declining to GC the store[/dim]", rt))
 		default:
-			unrooted := UnrootedProtectedPaths(joinPath(opts.BuildDir(), "roots"), ProtectedImagePaths(opts.BuildDir()))
+			// TWO rooting confirmations, and the second is the authority.
+			//
+			// The sentinel-based one (below) covers the last ten loads. It cannot
+			// see a jail that has been up while other launches loaded other
+			// images — and since OQ-LS1 the ROOT reaper no longer spares that
+			// jail's root either, because unrooting costs a rebuild. DELETING the
+			// closure does not: a live jail's /bin/* resolve through the host
+			// store it has mounted :ro. So the runtime is asked directly which
+			// images have containers on them, and any of those whose closure is
+			// unrooted refuses the GC.
+			runningRefs, refsKnown := RunningImageRefs(rt, opts.Exec)
+			if !refsKnown {
+				p.line(fmt.Sprintf("  [dim]skipped — could not list running container images (%s); "+
+					"declining to GC the store[/dim]", rt))
+				break
+			}
+			unrooted := UnrootedRunningImages(joinPath(opts.BuildDir(), "roots"), runningRefs)
+			unrooted = append(unrooted, UnrootedProtectedPaths(joinPath(opts.BuildDir(), "roots"), ProtectedImagePaths(opts.BuildDir()))...)
 			if len(unrooted) > 0 {
-				p.line(fmt.Sprintf("  [yellow]skipped — %s loaded image closure(s) lack a durable GC root (storage §1); "+
-					"a store GC could delete a running jail's image[/yellow]", fmtComma(len(unrooted))))
+				p.line(fmt.Sprintf("  [yellow]skipped — %s image closure(s) in use or recently loaded lack a durable GC root "+
+					"(storage §1); a store GC could delete a running jail's image[/yellow]", fmtComma(len(unrooted))))
 				for _, sp := range unrooted {
 					p.line("    • " + sp)
 				}
