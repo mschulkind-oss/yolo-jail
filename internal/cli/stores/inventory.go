@@ -219,8 +219,9 @@ func aliasStores(o Options) []Store {
 			s.Note = "ALIASED (writable) at " + d.Dest + " — this jail shares these host bytes " +
 				"instead of pooling a second copy. Its former private copy is at " + d.Stranded +
 				", now stranded: nothing in the jail reads it, and PurgeCacheByAge reclaims it " +
-				"once its files age past the cache rule. Counted in the cache/" +
-				firstSegment(d.Store.CacheRel) + " row above, not in addition to it. " +
+				"once its files age past the cache rule. THIS row's bytes are the host's and are " +
+				"counted only here; the stranded copy's are in the cache/" +
+				firstSegment(d.Store.CacheRel) + " row above, when this frame has one. " +
 				d.Store.Evidence
 		} else {
 			s.Note = "not aliased: " + d.Reason + ". This jail keeps its own copy at " +
