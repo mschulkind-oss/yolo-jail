@@ -344,20 +344,38 @@ and the same one [`happy-path-principle.md`](./happy-path-principle.md) warns ab
 mitigation is the same too: the unit is the **launch**, exactly one mechanism is live in any
 launch, and the launch says which one it took on stdout.
 
-### 3.5 The knob, and the way back
+### 3.5 One mechanism, no way back
 
-- **Default: on**, for podman on Linux, with no config key. A config key would be a fourth
-  thing to keep true about a decision the launcher can make correctly from facts it already
-  reads.
-- **`YOLO_LEGACY_IMAGE_STREAM`** — any non-empty value restores `streamLayeredImage` +
-  `podman load`, matching the `YOLO_ALLOW_STALE_IMAGE` / `YOLO_BYPASS_SHIMS` idiom where
-  consent is about intent, not about the token. The launch prints that it took the legacy
-  path, so a run can never be quietly on the old mechanism.
-- **Both flake attributes stay** for the rollback window, so the escape hatch is a real path
-  and not a promise. How long the window is, is [OQ-LI5](#OQ-LI5).
-- **A failed copy never silently falls back to streaming.** That is C1's silent-fallback
-  defect one layer down: a fallback that hides a broken new mechanism produces confident wrong
-  results, which is exactly what made a nix build failure fatal in the first place.
+**There is no legacy knob, and `streamLayeredImage` is deleted in the same change** — ruled
+2026-09-08, see [OQ-LI5](#OQ-LI5). The maintainer's rule for what an escape hatch is for:
+
+> Escape hatches are for broken configs or whatever so you can get back in and fix the config
+> with an old image, not for yolo bugs.
+
+`YOLO_LEGACY_IMAGE_STREAM` would have been the second kind. It measures nothing, and its only
+use is "the new delivery mechanism is broken" — which is a bug to fix, not a configuration to
+recover from.
+
+- **Default: on**, for podman on Linux, with no config key and no env var. A config key would be
+  a fourth thing to keep true about a decision the launcher can make correctly from facts it
+  already reads.
+- **The `streamLayeredImage` attributes are removed, not retained.** Keeping them is R3's
+  "two delivery mechanisms indefinitely" with no end condition — and a second path that nothing
+  exercises is a path that is broken by the time anyone needs it.
+- **A failed copy never falls back to streaming.** It never could, now that there is nothing to
+  fall back to; it was already forbidden, because that is C1's silent-fallback defect one layer
+  down — a fallback that hides a broken new mechanism produces confident wrong results, which is
+  exactly what made a nix build failure fatal in the first place.
+- **What remains for a genuinely broken machine** is the hatch that already exists and does match
+  the rule: `YOLO_ALLOW_STALE_IMAGE=1`, which launches from the image already loaded. That is
+  "get back in with an old image", and it is orthogonal to how the next image is delivered.
+
+> [!IMPORTANT]
+> **This puts the whole weight on the pre-flip evidence, which is the trade being made.** With no
+> fallback, a delivery bug that reaches a release is a machine that cannot start a jail until a fix
+> ships. The precondition is therefore not optional: one measured `nix:`-source copy that loads and
+> boots on **every** backend that gets the new path — podman/Linux, and Apple Container on the
+> maintainer's hardware per [OQ-LI2](#OQ-LI2) — before the default is on for anyone.
 
 ### 3.6 Failure paths
 
@@ -369,7 +387,7 @@ Every step that can fail, what happens, and who finds out. The user-facing rule 
 | The copier cannot be built (nix build of the copier attr fails) | Same as any failed image build: fatal, nix's own stderr printed with the classification (`internal/image/autoload.go:355-366`). `YOLO_ALLOW_STALE_IMAGE=1` still lets an already-loaded image run. |
 | An unpatched `skopeo` on `PATH` | Cannot arise — the copier is a store path ([§3.2](#32-the-copy)). If the resolved binary rejects the `nix:` transport, that is a build/packaging bug and the copy fails as itself. |
 | Copy interrupted (SIGINT, crash, disk full mid-blob) | No image record is committed, so the ref stays absent and the next launch re-copies. Layers already written are reused by that retry. **Nothing is left half-named.** |
-| Copy fails and exits nonzero | Retried **exactly once**, immediately, no backoff — the same bound and the same reasoning as `loadAppleContainerFromCache`'s two passes (`internal/image/autoload.go:648-700`): one recovery from a transient loss, never a loop that re-copies gigabytes forever. A second failure abandons the launch with skopeo's stderr and the `YOLO_LEGACY_IMAGE_STREAM` remedy. |
+| Copy fails and exits nonzero | Retried **exactly once**, immediately, no backoff — the same bound and the same reasoning as `loadAppleContainerFromCache`'s two passes (`internal/image/autoload.go:648-700`): one recovery from a transient loss, never a loop that re-copies gigabytes forever. A second failure abandons the launch with skopeo's stderr and **no remedy to name**, which is the honest consequence of [§3.5](#35-one-mechanism-no-way-back): a copy that cannot complete leaves no image under the content ref, so there is nothing to start from. Priced as R8. |
 | A blob's bytes do not match its digest | skopeo verifies on read and c/storage verifies the diffID; a mismatch is a hard error, **not** retried — a second read of the same store path produces the same bytes. Abandon and report; the honest diagnosis is a corrupt nix store, and the remedy names `nix store verify`. |
 | `containers-storage` locked by a concurrent launch | The copy blocks on c/storage's own lock and proceeds. **No timeout of ours** — c/storage's locks are held per operation, and a timeout would convert a slow neighbour into a failed launch. |
 | Storage full | skopeo fails, the retry fails, the launch is abandoned naming the disk. No partial image is ever runnable. |
@@ -409,8 +427,11 @@ Every step that can fail, what happens, and who finds out. The user-facing rule 
 - **Defaults, with units:** base layer budget **90 layers**; extras **1 layer**; top tier
   **1 layer**; total ceiling **100 layers**. Copy retries: **1**. Copy timeout: **none**.
   `created`: a **constant** RFC3339 timestamp ([§3.3](#33-what-does-not-change)).
-- **Error text is the implementer's to word**, subject to one requirement: it names
-  `YOLO_LEGACY_IMAGE_STREAM` on every abandoned copy.
+- **Error text is the implementer's to word**, subject to one requirement: an abandoned copy
+  prints skopeo's own stderr and says that no image was written, so the reader is never left
+  guessing whether a partial image is now runnable. It names **no fallback**, because there is
+  none ([§3.5](#35-one-mechanism-no-way-back)) — and an error that suggests a knob that does not
+  exist is worse than one that admits the launch is over.
 
 ### 3.9 The day it ships
 
@@ -450,10 +471,13 @@ A human checks four things, in order:
 argument that it should be *faster*, not slower, is that today's cold path moves the bytes
 four times — read 3.47 GB from the store, write a 3.55 GB spool, read it back, write ~3 GB of
 layers — while the copy moves them twice, read and write, with the digest pass already paid at
-build time and cached. The recipe, on a scratch machine: `podman rmi -a`, launch, record
-`image.layer_copy`; then `YOLO_LEGACY_IMAGE_STREAM=1`, `podman rmi -a`, launch again, record
-`image.stream_load`. Report both with `podman info --format '{{.Store.GraphDriverName}}'`,
-because the answer is a storage-driver property as much as a transport one.
+build time and cached. The recipe, on a scratch machine, and it has to be an A/B across **commits** rather than across
+an env var, since [§3.5](#35-one-mechanism-no-way-back) leaves no knob to flip: check out the
+commit **before** this change, `podman rmi -a`, launch, record `image.stream_load`; then check out
+the commit **after**, `podman rmi -a`, launch, record `image.layer_copy`. Report both with
+`podman info --format '{{.Store.GraphDriverName}}'`, because the answer is a storage-driver
+property as much as a transport one. **Take the baseline before the change lands** — after it, the
+legacy number is no longer measurable on that host.
 
 > [!NOTE]
 > **A nested jail CAN see this class**, unlike the reachability class that gets a structural
@@ -561,9 +585,10 @@ developing this repo, is the common case — on every backend that cannot opt in
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **R1. A third-party flake input on the critical path of every launch.** nix2container is one maintainer's project; an abandoned input strands the image pipeline. | The input is pinned in `flake.lock` and nothing auto-updates it. The escape is the retained `streamLayeredImage` attribute plus `YOLO_LEGACY_IMAGE_STREAM` ([§3.5](#35-the-knob-and-the-way-back)) — a working fallback, not a rewrite. |
+| **R1. A third-party flake input on the critical path of every launch.** nix2container is one maintainer's project; an abandoned input strands the image pipeline. | The input is pinned in `flake.lock` and nothing auto-updates it, so abandonment upstream changes nothing until someone bumps it — the failure is not "it disappears", it is "it stops evaluating against a newer nixpkgs". **The escape is no longer a retained legacy attribute** ([OQ-LI5](#OQ-LI5) deleted it): it is that the dependency is small and forkable — a `fetchpatch2` over nixpkgs' skopeo plus a nix library — and that [§6](#6-alternatives-considered)'s option C (an OCI layout in the store) remains a known, costed way to keep layer-aware delivery with a stock skopeo. Both are work; neither is a rewrite of this design. |
 | **R2. The patched skopeo is a source build not in `cache.nixos.org`.** A `flake.lock` bump now also rebuilds skopeo, on a machine that may be offline or slow. | Measure it once and decide the substituter question ([OQ-LI1](#OQ-LI1)). The failure mode is a slow build, and C1 already makes a failed build fatal-and-explained rather than silent. |
-| **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](./happy-path-principle.md) warns about. | The same accepted cost as C4/C5's R1: the unit is the launch, exactly one mechanism is live in any launch, and the launch says which. |
+| **R3. Two delivery mechanisms indefinitely**, which is the "fill the matrix" failure [`happy-path-principle.md`](./happy-path-principle.md) warns about. | **Retired 2026-09-08 — the risk is removed rather than accepted** ([OQ-LI5](#OQ-LI5)): `streamLayeredImage` is deleted in the same change and there is no legacy knob, so there is never more than one delivery mechanism to keep true. The residual risk moves to R8. |
+| **R8. No way back if a delivery bug ships**, the cost of retiring R3. A machine that cannot copy cannot start a jail until a fix ships. | Bounded by evidence rather than by a fallback: the default does not flip until a `nix:`-source copy has been measured loading and booting on every backend that gets it ([§3.5](#35-one-mechanism-no-way-back), [OQ-LI2](#OQ-LI2)). `YOLO_ALLOW_STALE_IMAGE=1` still launches an already-loaded image, which is the hatch for "get back in", and a failed build is already fatal with nix's own stderr. |
 | **R4. The layer plan is a new thing to keep true.** A package added to `flake.nix` in the wrong tier silently costs a full copy per build, and nothing fails. | The done-condition ([§3.10](#310-what-done-looks-like)) is a measurement, so make it a test: assert that a `flake.nix`-only change copies under a byte budget. A budget test fails loudly when a tier assignment drifts; a comment does not. |
 | **R5. Only two machines are measured**, both of them mine, one of them nested. Absolute numbers are illustrative; the ratios are not. | Same standing caveat as [`image-staging-vs-baking.md` §9](./image-staging-vs-baking.md#9-risks) R7. The two hosts agree on the ratio (84% and 86%) and disagree on the absolutes by 1.8×, which is exactly what that caveat predicts. |
 | **R6. Apple Container is unverified on hardware**, and a delivery change that assumes its converters behave is a guess. | [OQ-LI2](#OQ-LI2) keeps it explicitly undecided rather than silently included. Leaving it on the current path costs nothing it is not already paying. |
@@ -590,16 +615,22 @@ launch depends on it. Measure the patched-skopeo build here, once, and answer
 path is the default, and both are exercised. This is where the `image.layer_copy` span and the
 copied/skipped byte counts land, because the next step needs them to be believable.
 
-**Fourth, flip the default for podman on Linux** and take the four measurements in
-[§3.10](#310-what-done-looks-like) on a real host — not a nested jail, which can prove the
-plumbing and not the number. Land the byte-budget test from R7's neighbour, R4, in the same
-change; a performance property with no test is a property that regresses silently.
+**Fourth — and this step now carries what the deleted fallback used to** ([OQ-LI5](#OQ-LI5)):
+**gather the evidence, THEN flip the default for podman on Linux.** Take the four measurements
+in [§3.10](#310-what-done-looks-like) on a real host — not a nested jail, which can prove the
+plumbing and not the number — and take the legacy baseline **before** step three lands, since
+after it there is no way to produce that number on the same host. Land the byte-budget test from
+R7's neighbour, R4, in the same change; a performance property with no test is a property that
+regresses silently. **The default does not flip on a machine whose backend has not been measured
+booting from a `nix:` copy** — with no fallback, that measurement is the safety property (R8).
 
-**Fifth, decide Apple Container** on the evidence, or leave it where it is. Nothing above
-depends on that answer.
+**Fifth, Apple Container is part of this pass, not a later decision** ([OQ-LI2](#OQ-LI2)): the
+maintainer has the hardware, so its measurement is a precondition of the flip rather than a
+follow-up. A backend that cannot be measured does not get the default.
 
-**Last, close the rollback window**: delete `streamLayeredImage`, the env var, and the second
-mechanism. Until that step lands, R3 is a live cost and the doc should say so.
+**There is no "close the window" step.** `streamLayeredImage`, the env var and the second
+mechanism are deleted in the change that adds the new path ([§3.5](#35-one-mechanism-no-way-back)),
+so R3 is never a live cost and this doc never has to say it is.
 
 ---
 
@@ -687,9 +718,9 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    > - **Losing the cache entirely** — expired, renamed, unreachable, account gone — must cost
    >   **time only, never function.** That is the test for "optimization": remove the substituter and
    >   everything still builds from `cache.nixos.org` plus source.
-   > - **No functional fallback is wired to a cache miss.** `YOLO_LEGACY_IMAGE_STREAM` survives as an
-   >   OPERATOR escape hatch for a machine where the new path is broken — a human choosing to degrade
-   >   — and is never selected automatically because a build would otherwise be needed.
+   > - **No functional fallback is wired to a cache miss** — and, since [OQ-LI5](#OQ-LI5),
+   >   no functional fallback exists at all. A miss means the copier is built; that is the whole
+   >   consequence.
    >
    > **MEASURED 2026-09-08, in this jail, and it is smaller than the argument around it: 34
    > seconds, cold, with nothing in any yolo cache.**
@@ -836,8 +867,8 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    > opinion", never as "least recent". [OQ-BF8](./disk-levers-and-backfill.md#OQ-BF8) records why
    > the cap itself needs no derivation once safety is elsewhere.
 
-5. ✅ **[OQ-LI5](#OQ-LI5) — RULED 2026-09-08, and the question changed shape under the maintainer's
-   "why at all": how long does the rollback window last?** `YOLO_LEGACY_IMAGE_STREAM` and the
+5. ✅ **[OQ-LI5](#OQ-LI5) — DISSOLVED 2026-09-08: there is no window, because there is no fallback.
+   How long does the rollback window last?** `YOLO_LEGACY_IMAGE_STREAM` and the
    `streamLayeredImage` attributes are a real fallback while they exist and dead weight
    afterwards, and R3's "two mechanisms" cost is live for exactly as long as the window is.
    The technical answer is the same at one release or three; this is a judgement about how much
@@ -849,30 +880,41 @@ mechanism. Until that step lands, R3 is a live cost and the doc should say so.
    then every machine has been through a full copy on the new path at least once, which is the
    evidence the window exists to gather.
 
-   **Answer (2026-09-08): keep a fallback, but not a "window" — the deadline was the wrong shape.**
-   > *"why do we need a rollback window?"* Taking that as a question about the premise rather than
-   > the duration, and the premise half survives while the calendar half does not.
+   **Answer (2026-09-08): delete the legacy path in the same change. There is no window to size.**
+   > Two rounds got this wrong, and the maintainer's rule is what settles it:
    >
-   > **Why a fallback at all.** The failure it covers is not "the new path is slower" — it is **no
-   > jail at all**, on a machine nobody here can reproduce. The new path adds a patched skopeo that
-   > `cache.nixos.org` will never hold and a `containers-storage` write that negotiates blobs; if
-   > either fails on someone's setup, a failed build is FATAL by design
-   > ([`image-staging-vs-baking.md`](./image-staging-vs-baking.md) [OQ-2](./image-staging-vs-baking.md#101-decision-ledger) — no silent fallback to a
-   > stale image), so that user's jail does not start. `YOLO_LEGACY_IMAGE_STREAM` is the difference
-   > between "export one variable" and "wait for a release". That is worth carrying.
+   > > *"The escape hatch for the legacy stream is just if we have bugs? I'd rather delete the path
+   > > and fix the bugs. I don't want to maintain legacy stuff for no reason. Escape hatches are for
+   > > broken configs or whatever so you can get back in and fix the config with an old image, not
+   > > for yolo bugs."*
    >
-   > **Why not a window.** A deadline expressed as "one release, closing at the first `flake.lock`
-   > bump" is a date nobody will notice passing, and it makes R3's two-mechanisms cost open-ended in
-   > practice while looking bounded on paper. Worse, it retires the fallback on a **schedule**
-   > rather than on **evidence** — the same defect as a 30-day rule that never runs.
+   > **That is a criterion, not a preference, and `YOLO_LEGACY_IMAGE_STREAM` fails it.** Sort the
+   > hatches this repo already has by what they let a user recover from:
    >
-   > **So: the fallback is removed by a named commit when a stated condition is met**, and the
-   > condition is the evidence the window was a proxy for — one measured `nix:`-source copy that
-   > loads and boots on each backend that gets the new path (podman/Linux, and Apple Container per
-   > [OQ-LI2](#OQ-LI2)'s hardware precondition), plus no fallback-triggered report in the release
-   > that follows. Until then it stays; after that it goes in one commit that deletes the variable,
-   > the legacy attributes and this paragraph together. If the condition is not met, that is
-   > information about the design, not a reason to extend a calendar.
+   > | Hatch | Recovers from | Fits the rule? |
+   > | :--- | :--- | :--- |
+   > | `YOLO_ALLOW_STALE_IMAGE=1` | a flake **you** broke — launch an old image and go fix it | **Yes** — user's own state |
+   > | `YOLO_BYPASS_SHIMS=1` | a config that blocks a tool your installer needs | **Yes** — user's own config |
+   > | `YOLO_ALLOW_LIVE_WORKSPACE=1` | a rule that is right by default and wrong for your case | **Yes** — user's own intent |
+   > | `YOLO_LEGACY_IMAGE_STREAM` | **yolo's delivery mechanism being broken** | **No** — that is a bug |
+   >
+   > My previous answer defended it as "the difference between export one variable and wait for a
+   > release". That argument proves too much: it would justify keeping every mechanism yolo has ever
+   > shipped, since any of them could have a bug. And it is self-defeating in this case — a second
+   > path that no launch exercises is a path that is broken by the time someone reaches for it, so
+   > the reassurance is worth less than the maintenance.
+   >
+   > **So: no knob, and `streamLayeredImage` is deleted in the same change** ([§3.5](#35-one-mechanism-no-way-back)).
+   > R3 — "two delivery mechanisms indefinitely" — stops being an accepted cost and becomes a risk
+   > that does not exist.
+   >
+   > **The honest cost, recorded as R8 rather than waved off.** With nothing to fall back to, a
+   > delivery bug that reaches a release is a machine that cannot start a jail until a fix ships. The
+   > answer is evidence instead of a fallback, and it makes [OQ-LI2](#OQ-LI2)'s hardware precondition
+   > load-bearing rather than nice-to-have: **the default does not flip until a `nix:`-source copy
+   > has been measured loading and booting on every backend that gets it.** If that evidence cannot
+   > be gathered, the design is not ready — which is the same standard the C8 macOS regression was
+   > judged by after the fact, applied before the fact this time.
 
    **Answer:**
    > _(empty — fill in when decided)_

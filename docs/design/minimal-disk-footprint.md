@@ -464,13 +464,15 @@ The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal dis
 | [OQ-DF1](#112-open-questions) | **Stream, keep ZERO tars** — the maintainer's own words, ruling expressly for the C3 implementation, and past the leaning: no keep-N and **no opt-in retention knob**. On podman the nix stream is piped straight into `podman load` and `cache/images` stays empty on success. Three boundaries the ruling deliberately left standing: pre-existing tars are not swept, Apple Container still writes and retains one per store path (a backend constraint, not an exemption), and the fallback's READER is untouched — the ruling removed the writer, not the reader | 2026-08-25 | [§6](#6-the-offline-safety-net-honestly), C3 in [`image-staging-vs-baking.md`](./image-staging-vs-baking.md) |
 | [OQ-DF2](#OQ-DF2) | **All three components, split by ledger — and the leaning's objection to the launch path is upheld by PAYING it off, not by refusing it.** (i) the write path shipped for Ledger B in its strongest form (C3 stopped writing the tar at all, so there is nothing to delete on success); (ii) the launch path shipped for Ledger C under [OQ-DF3](#OQ-DF3)'s TRIGGER, which the entry below explains is a Ledger-C-scoped exception rather than a reversal; (iii) `yolo prune` remains the recovery tool for backlog and crash residue. A **fourth** placement now exists that this question could not have named: the post-launch **housekeeping slot** of [`disk-levers-and-backfill.md`](./disk-levers-and-backfill.md) [§5.1](./disk-levers-and-backfill.md#51-the-housekeeping-slot), which keeps (ii)'s reach without the P7 exposure that was this leaning's whole objection to it | 2026-09-08 | [§11.2](#112-open-questions) [OQ-DF2](#OQ-DF2), [`disk-levers-and-backfill.md`](./disk-levers-and-backfill.md) [§5.1](./disk-levers-and-backfill.md#51-the-housekeeping-slot), [OQ-BF5](./disk-levers-and-backfill.md#OQ-BF5) |
 | [OQ-DF3](#OQ-DF3) (NUMBER) | **`--keep-images` stays 2 — the count was never the defect.** The liveness veto, not the count, is what protects a live workspace's image | 2026-09-06 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3) |
+| [OQ-DF3](#OQ-DF3) (REACH) | **NARROW — yolo never removes an image it cannot prove is its own.** The evidence gap is closed by a **label in the image config**, not by a ledger: MEASURED 2026-09-08, a label survives untagging and `podman images -a --filter label=…` still finds the `<none>` row, so provenance becomes intrinsic to the image and needs no cap, no side-file and no record of who loaded it. Carry the identity as the value so a nameless row is fully attributable. Rows that predate the label are **left alone permanently** and surfaced by `yolo stores` as a class nothing reclaims — never on the launch path, which has no action to offer | 2026-09-08 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3), [`disk-levers-and-backfill.md`](./disk-levers-and-backfill.md) [§5.5](./disk-levers-and-backfill.md#55-yolo-stores--the-inventory-including-what-nothing-reclaims) |
 | [OQ-DF3](#OQ-DF3) (TRIGGER) | **The launch path, debounced 24 h** — `prune.AutoReapOldImages`, called from `runContainer` immediately after the image load succeeds so this launch's own image is already sentinel-protected (`internal/cli/run/run.go:803`). Opt out with `YOLO_NO_AUTO_IMAGE_REAP=1`. **Its placement is now under revision**, not its existence: [OQ-BF5](./disk-levers-and-backfill.md#OQ-BF5) would move it into the housekeeping slot | 2026-09-06 | [§11.2](#112-open-questions) [OQ-DF3](#OQ-DF3) |
 
 ### 11.2 Open Questions
 
-**[OQ-DF3](#OQ-DF3)'s REACH half and [OQ-DF4](#OQ-DF4) are what is left**, and neither was settled by the
-2026-09-08 wave of sibling docs — the entries below say what each still needs, because the near
-misses are close enough to be mistaken for answers.
+**[OQ-DF4](#OQ-DF4) is what is left**, and it is BLOCKED rather than undecided — the entry below
+names the instrument it waits on. [OQ-DF3](#OQ-DF3)'s REACH half was ruled on 2026-09-08 after the
+maintainer's *"record better"* turned out to have an answer the question had not considered; its
+entry keeps the argument because the label-versus-ledger distinction is reusable.
 
 1. ✅ **[OQ-DF1](#112-open-questions) — RULED 2026-08-25, and COMPACTED: does the offline tar fallback
    survive at all?** The ruling and the three boundaries it left standing are [§11.1](#111-decision-ledger)'s
@@ -526,7 +528,7 @@ misses are close enough to be mistaken for answers.
    > [OQ-BF6](./disk-levers-and-backfill.md#OQ-BF6)'s subject, and it is why the ledger row says
    > "split by ledger" rather than "settled everywhere".
 
-3. 🟡 **[OQ-DF3](#OQ-DF3) — NUMBER and TRIGGER halves shipped 2026-09-06; REACH half still open. How much of podman's image store may yolo reclaim — only images it can prove are its own, or dangling images generally?**
+3. ✅ **[OQ-DF3](#OQ-DF3) — NUMBER and TRIGGER shipped 2026-09-06; REACH RULED 2026-09-08. How much of podman's image store may yolo reclaim — only images it can prove are its own, or dangling images generally?**
 
    Blocked [§10](#10-sequencing--what-i-would-build-in-order)'s first step (the NUMBER/TRIGGER half is now unblocked and shipped — see the Answer below); the REACH half below is otherwise unblocked and is the best bytes-per-effort left in the doc. It was also **the question that gated the rule alongside `--keep-images 2`** (`internal/prune/prunecmd.go:50`, the flag's own doc comment). Note the seam: DF3 settles the *reach* — which rows yolo may reclaim at all — while `--keep-images` acts on the repo-name-filtered **tagged** rows (`internal/prune/probes.go:272`), which is the class [`image-staging-vs-baking.md`](image-staging-vs-baking.md) R3 complains about once C2 makes tags per-config. Neither option below touches a tagged row, so **the tagged-row number was written down together with this answer rather than falling out of it** ([§10](#10-sequencing--what-i-would-build-in-order) step 4) — see the Answer. The REACH problem below is that the leak is precisely the class yolo can no longer identify: an orphaned `<none>` row has lost the repository name that was the only evidence it was yolo's ([§3.3](#33-ledger-c--podmans-own-image-store-the-one-with-no-reclaimer-for-a-nameless-row)). **Narrow:** reclaim only untagged images whose ID appears in yolo's own load history — safe, but the sentinel is capped at 10 entries and records store paths, not image IDs, so it may not be sufficient evidence. *(C2 supplied that evidence for **tagged** rows and only for them: a store path now maps to a tag, `image.ImageStoreKey`, which is what `ProtectedImageTags` compares — see `internal/prune/imageroots_probe.go`. An untagged row has no tag left to match, so DF3's evidence problem is untouched.)* **Broad:** `podman image prune` for dangling images — reclaims everything, but on a podman shared with the user's non-yolo work that is someone else's images.
 
@@ -561,6 +563,57 @@ misses are close enough to be mistaken for answers.
    > four nameless rows on this machine at 91.3 kB unique each **today** and as the last holders of
    > a 3.565 GB chain **once their tagged twins go** — so the REACH half is worth ~3.5 GB, and worth
    > it only after the tagged pass, which is the opposite of how it looks before one.
+
+   **Answer (REACH, 2026-09-08): NARROW — never remove an image yolo cannot prove is its own. And
+   the "record better" instruction has a better answer than the one this question proposed.**
+   > *"yes, I don't want to delete podman images we don't own. if our recording is insufficient,
+   > record better. is there no other way to identify our images? name? metadata?"*
+   >
+   > **There is: a LABEL, and it is intrinsic to the image rather than to a side-file.** MEASURED in
+   > this jail 2026-09-08 with podman 5.8.4 — build an image carrying
+   > `LABEL org.yolo-jail.owner="yolo"`, then untag it so it becomes exactly the `<none>` row this
+   > question is about:
+   >
+   > ```console
+   > $ podman untag labeltest:probe
+   > $ podman images -a --filter label=org.yolo-jail.owner=yolo --format '{{.ID}} {{.Repository}}:{{.Tag}}'
+   > 6c8421f2a1d6 <none>:<none>
+   > ```
+   >
+   > **The label survives the loss of the tag and stays filterable.** That is strictly better than
+   > this question's own suggestion of recording image IDs at load time, on three counts: it needs no
+   > ledger (so no ten-entry cap and no dependence on which yolo did the loading), it identifies
+   > images this machine never loaded through yolo at all, and it cannot drift out of sync with the
+   > thing it describes because it *is* part of the thing. `streamLayeredImage` takes it as one entry
+   > in the image `config` (`flake.nix:1125`, where `Cmd`/`Env` already live).
+   >
+   > **Carry the provenance, not just the flag.** A label whose value is the image's identity — the
+   > store path or `imageIdentity`'s hash — makes a nameless row *fully attributable*, which is what
+   > lets the reap treat it exactly like a tagged row instead of as a special case. Cost: adding the
+   > label edits `flake.nix`, so it mints one new image on every machine, once.
+   >
+   > **What it cannot fix, and this is where the maintainer's fallback is the right answer.** A label
+   > identifies images built *after* it ships. Every `<none>` row already on a machine — the four
+   > measured here, holding a 3.565 GB chain once their tagged twins go — has no such marker and
+   > never will. Those are **left alone, permanently**: *"we'll have to live with this and just let
+   > the user prune the old images if they care."* Ruled. `yolo` never removes them.
+   >
+   > **Where the warning goes** — the open half of *"not sure where we'd even warn them"*:
+   > [`disk-levers-and-backfill.md`](./disk-levers-and-backfill.md)
+   > [§5.5](./disk-levers-and-backfill.md#55-yolo-stores--the-inventory-including-what-nothing-reclaims)'s
+   > `yolo stores`, whose stated subject is *"the inventory, including what nothing reclaims"*. This
+   > is that category's first real inhabitant: one row naming the count and the bytes, why yolo
+   > declines (no ownership evidence), and that `podman image prune` is the user's to run. **Not the
+   > launch path** — an unactionable line in front of every jail start is the thing
+   > [`disk-levers-and-backfill.md`](./disk-levers-and-backfill.md) [OQ-BF1](./disk-levers-and-backfill.md#OQ-BF1)
+   > ruled against, and this class has no action yolo may take on the user's behalf.
+   >
+   > **Unchanged by all of this:** the label is evidence of PROVENANCE, never of liveness. The
+   > `podman ps` veto ([`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md))
+   > still gates every removal, because "ours" and "not in use" are different questions.
+   >
+   > **NOT MEASURED:** the same probe on Apple Container. `--filter label=` is podman's spelling;
+   > that backend's reaper does not exist yet ([OQ-BF6](./disk-levers-and-backfill.md#OQ-BF6)).
 
    <!-- vantage: oq id=OQ-DF3 leaning="Narrow, and if the evidence turns out to be insufficient, record the image ID at load time so that it becomes sufficient. Broad pruning of a shared runtime is exactly the kind of 'reaches beyond its own artifacts' move cache-relocation.md's threat model exists to refuse (P6, by analogy). Adding the evidence yolo needs is a smaller price than widening the blast radius." -->
 
