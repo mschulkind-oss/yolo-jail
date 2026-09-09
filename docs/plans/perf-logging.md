@@ -1,6 +1,6 @@
 # Plan: performance logging behind `--timing` / `--verbose`
 
-**Design:** [`../design/perf-logging.md`](../design/perf-logging.md) · **Status:** BUILT 2026-09-06 ·
+**Reference (the design, distilled as built):** [`../reference/perf-logging.md`](../reference/perf-logging.md) · **Status:** BUILT 2026-09-06 ·
 Written against `6580186c`, landed through `03b18afb`.
 
 **Precedence:** the design wins on behavior; the tree wins on fact; this file is advice and is
@@ -38,7 +38,7 @@ untouched), the env constants landed in `internal/paths/paths.go` rather than th
 | `internal/ttyproxy/ttyproxy_test.go` | Stage-hook order on the plain path + a panicking hook that must not take the proxy down. |
 | `integration/timing_test.go` | New: end-to-end `--timing`, `YOLO_TIMING=1`, and the off-by-default contract. |
 | `integration/harness_test.go` | `withEnv` runOption (additive) so an env-gated feature is exercisable without leaking into every test's environment. |
-| `docs/plans/README.md`, `docs/plans/roadmap.md` | Rows citing [the OQ-T family](../design/perf-logging.md#81-deferred-work-each-with-the-trigger-that-fires-it) — no longer a 💬 entry: the list was triaged empty on 2026-09-08. |
+| `docs/plans/README.md`, `docs/plans/roadmap.md` | Rows citing [the deferred fixes](../reference/perf-logging.md#deferred-fixes-each-with-the-trigger-that-fires-it) — no longer a 💬 entry: the list was triaged empty on 2026-09-08. |
 
 ## Reuse
 

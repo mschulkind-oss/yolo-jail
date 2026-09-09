@@ -547,6 +547,7 @@ there is no sync step.
 | MCP/LSP config, node wrappers, `LD_LIBRARY_PATH` story | `docs/design/mcp-configuration.md` |
 | Loopholes (`audio`, `host-processes`, `journal`, `cgroup-delegate` in packs of their own; `claude-oauth-broker` contributed by `packs/claude`) | `docs/guides/loopholes.md`, `docs/design/loophole-protocol.md` |
 | Config-change confirmation flow | `docs/design/config-safety.md` |
+| Timing spans: `--timing`, `--verbose`, `perf_logging`, the host perf log, Window A attribution | `docs/reference/perf-logging.md` |
 | Storage paths and state separation | `docs/design/storage-and-config.md` |
 | What the image must bake vs. what a launch delivers; the rebuild/reload cost model | `docs/design/image-staging-vs-baking.md` |
 | Cgroup delegate security model | `docs/design/security-shim.md` |

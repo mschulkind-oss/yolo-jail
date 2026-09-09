@@ -525,21 +525,21 @@ ruling, and two were not questions at all.
 **Answer (2026-09-08):**
 > **Nothing here is waiting on a person.**
 > - **The rename is RULED and BUILT** — `YOLO_PROFILE` → `YOLO_JAIL_TIMING`
->   ([D13](../design/perf-logging.md#decision-ledger), `7a35852d`). The premise that had blocked it
+>   ([D13](../reference/perf-logging.md#why-its-this-way), `7a35852d`). The premise that had blocked it
 >   — "a host↔jail contract needing coordination across the deploy-skew boundary" — was false:
 >   the launcher emits the pair and also generates the bash it belongs to, so both halves move in
 >   one commit.
 > - **`--verbose`'s vocabulary was always a policy**, not a pending decision
->   ([D14](../design/perf-logging.md#decision-ledger)): the first non-timing diagnostic that wants a
+>   ([D14](../reference/perf-logging.md#why-its-this-way)): the first non-timing diagnostic that wants a
 >   gate decides it, and nobody can usefully answer that earlier.
 > - **The other four are deferred work with named triggers**
->   ([§8.1](../design/perf-logging.md#81-deferred-work-each-with-the-trigger-that-fires-it)): the tty
+>   ([the deferred fixes](../reference/perf-logging.md#deferred-fixes-each-with-the-trigger-that-fires-it)): the tty
 >   proxy's unguarded drain, the unbounded `podman ps` in `stopLoopholes`, `hostservice`'s
 >   unbounded `inFlight.Wait()`, and serial loophole teardown. Each fires on a span, not on a
 >   ruling — and **the fourth currently points AWAY from the work**: the first real runs measured
 >   the whole `shutdown.*` chain at **0.045 s**.
 >
-> The reusable lesson, recorded in the design's [§8](../design/perf-logging.md#8-open-questions): an
+> The reusable lesson the triage left behind (the design has since been distilled into [its as-built reference](../reference/perf-logging.md), which does not carry it): an
 > entry belongs in Open Questions only if a human's answer changes what gets built. "Do X once the
 > span shows Y" is a work queue, and parking it in a question list buried the one entry that did
 > need a person.
