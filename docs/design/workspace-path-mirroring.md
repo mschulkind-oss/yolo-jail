@@ -265,10 +265,29 @@ will re-derive them otherwise.
 
 ### 3.1 CONFIRMED: jail-built Go binaries carry `/workspace` source paths
 
-**MEASURED.** `dist-go/linux-amd64/yolo` contains **394** strings beginning `/workspace/`;
-`dist-go/linux-amd64/yolo-entrypoint` contains **122**. The only `-trimpath` in the tree is
-`flake.nix:149`, in the hermetic image build; `scripts/build-go.sh` — the cross-compile step
+**MEASURED 2026-09-04.** `dist-go/linux-amd64/yolo` contained **394** strings beginning
+`/workspace/`; `dist-go/linux-amd64/yolo-entrypoint` contained **122**. The only `-trimpath` in
+the tree is in `flake.nix`'s hermetic image build; `scripts/build-go.sh` — the cross-compile step
 `just build-go` runs — passes none.
+
+> [!WARNING]
+> **⚠ Re-measured 2026-09-09 and the counts did NOT reproduce — the finding is CONDITIONAL on the
+> build, not a property of every binary.** Today's `dist-go/linux-amd64/yolo` and
+> `dist-go/linux-amd64/yolo-entrypoint` contain **zero** source-shaped
+> `/workspace/{internal,cmd,vendor}/…` paths. What remains is 77 and 13 raw `/workspace` hits
+> respectively, and those are the runtime mount-path constant — a string `-trimpath` neither
+> touches nor should. `go version -m` on that binary still records **no** `-trimpath` build
+> setting, so the flag really is absent; the paths simply were not embedded this time.
+>
+> **This is consistent with the mechanism paragraph directly below, and that paragraph is why the
+> section survives the retraction:** the *compile* action is already path-independent, and it is
+> the LINK output that carries the build directory — so the absolute paths appear when the cached
+> link actions were produced somewhere else, and vanish when they were not. **The recommendation is
+> unchanged and does not rest on the number**: two build paths in one repo disagree about
+> `-trimpath` for no reason, and the fix is one line. What this retraction removes is the right to
+> quote 394 as a standing payoff. Do not re-measure by counting `strings | grep` lines — that
+> merges adjacent literals and inflates badly; match the byte pattern
+> `/workspace/(internal|cmd|vendor)/` against the binary instead.
 
 **MEASURED**, on the mechanism: Go's *compile* action is already path-independent (it runs
 with `-trimpath "$WORK/b001=>"`), but the link output is not. Identical source built at two

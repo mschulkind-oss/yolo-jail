@@ -698,8 +698,18 @@ objection — you can mirror a name but not its content, so a cross-boundary ref
 ABI-incompatible artifact instead of failing loudly. **Nothing is built and nothing should be, but
 twelve questions are live with no home**, two of which stand whether or not mirroring ever happens:
 
-- **[`OQ-WP2`](../design/workspace-path-mirroring.md#open-questions)** — add `-trimpath` to `scripts/build-go.sh`. Verified missing today; `flake.nix` already
-  does it; 394 dead `/workspace` source paths in the shipped binary. **One line.**
+- **[`OQ-WP2`](../design/workspace-path-mirroring.md#open-questions)** — add `-trimpath` to `scripts/build-go.sh`. **One line**, and the argument holds
+  on its own: the flag is missing (confirmed via `go version -m` on `dist-go/linux-amd64/yolo`,
+  which records no `-trimpath` build setting) while `flake.nix` already passes it in the hermetic
+  build, so the two build paths disagree for no reason. ⚠ **The doc's payoff NUMBER did not
+  reproduce, 2026-09-09.** [§3.1](../design/workspace-path-mirroring.md#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths) measured 394 `/workspace/`-prefixed strings in that
+  binary and 122 in `yolo-entrypoint`; today's builds of both contain **zero source-shaped**
+  `/workspace/{internal,cmd,vendor}/…` paths — the 77 and 13 raw `/workspace` hits that remain are
+  the runtime mount-path constant, which `-trimpath` neither touches nor should. That is consistent
+  with [§3.1](../design/workspace-path-mirroring.md#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths)'s own mechanism note (the *compile* action is already path-independent; it is the LINK
+  output that carries the build directory, and only when the cached actions were produced
+  elsewhere) — so the finding is conditional on the build, not a property of every binary. Flagged
+  for that doc.
 - **[`OQ-WP4`](../design/workspace-path-mirroring.md#open-questions)** — workspace-scope `mounts` are inert only by an undocumented fail-safe. That is a
   [`trust-paths.md`](../design/trust-paths.md) scope-model question (💬 2's family), not a mirroring one.
 - **[`OQ-WP12`](../design/workspace-path-mirroring.md#open-questions)** is a maintainer tier call about macos-user's single shared home.
