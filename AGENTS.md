@@ -275,7 +275,13 @@ there is no sync step.
 - **`integration/` rules**: all files are package `integration`, gated by
   `requireJail(t)` (skipped under `testing.Short()`). Do **not** add
   `t.Parallel()` — the package runs serially by design (real containers; the
-  session image load must not run per worker). Each `run*` helper honors
+  session image load must not run per worker). **That rule is about workers
+  inside one job, and the macOS nightly shards the suite across four JOBS** —
+  each a separate runner with its own machine and its own load, so serial-within-
+  a-job is untouched. Its shards are computed from `go test -list` rather than
+  written down, because a hand-maintained `-run` regex drops a newly added test
+  silently and every shard stays green; a shard that selects zero tests fails on
+  purpose for the same reason. Each `run*` helper honors
   `YOLO_TEST_JAIL_TIMEOUT` (integer seconds, default 300) as its per-command
   deadline; the suite runs under `-timeout 0` so only those deadlines and CI's
   `timeout-minutes` bound it.

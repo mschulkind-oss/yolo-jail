@@ -53,6 +53,38 @@ jobs:
     # Note: x86_64 not ARM — tests the macOS code paths, not native ARM performance.
     runs-on: macos-26-intel
     needs: build-image
+    # SHARDED, because one job running the whole suite is not a measurement.
+    # History: 2026-09-07 died at 1h12m on a real failure, 2026-09-08 lost the
+    # runner at 1h54m with NO uploaded log, 2026-09-09 died at 1h35m the same
+    # way. Two real causes and two runner deaths in three runs — at that
+    # duration infrastructure noise dominates whatever the suite is trying to
+    # say, and a lost runner takes the diagnosis with it.
+    #
+    # FOUR shards: the full suite is ~90 min of tests, so a shard is ~22 min
+    # plus ~5 min of setup and ~3 min of TestMain warm-up, which is comfortably
+    # under the cap below and well clear of where the runner has been dying.
+    # The warm-up is paid PER SHARD — ~12 min of duplicated work total, which is
+    # the price of not losing the whole run to one wedged test.
+    #
+    # THIS IS NOT `t.Parallel()`, which AGENTS.md forbids in this package and
+    # still forbids. That rule is about WORKERS INSIDE one job — real containers
+    # sharing one runner, and one session image load that must not run per
+    # worker. Each shard here is a separate runner with its own machine, its own
+    # podman and its own load, so the serial-within-a-job contract is untouched.
+    #
+    # NOT time-balanced: shards are round-robin over the test-name list, so a
+    # shard that happens to collect several slow tests runs longer. Unmeasured
+    # and deliberately so — balancing needs per-test costs this job has never
+    # produced, and it does not have to be balanced to stop dying.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    # A CAP, so a wedged shard fails with its log instead of losing the runner.
+    # The suite itself still runs with `-timeout 0` — its own per-command
+    # deadlines (YOLO_TEST_JAIL_TIMEOUT) are the inner bound; this is the outer
+    # one, and its only job is to make a hang reportable.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
         with:
@@ -104,8 +136,35 @@ jobs:
           podman load < /tmp/jail-image.tar
           podman tag yolo-jail:latest localhost/yolo-jail:latest
 
+      # THE PARTITION IS COMPUTED, NOT WRITTEN DOWN. A hand-maintained regex per
+      # shard rots the first time somebody adds a test, and it rots SILENTLY —
+      # the unassigned test simply never runs and every shard stays green. So
+      # each shard derives its own bucket from `go test -list`, which is the
+      # same deterministic list for all four, making the union exhaustive by
+      # construction.
+      - name: Select this shard's tests
+        id: shard
+        run: |
+          set -euo pipefail
+          go test -list '.*' ./integration | grep -E '^Test' | sort > /tmp/all-tests
+          total=${{ strategy.job-total }}
+          idx=${{ matrix.shard }}
+          awk -v t="$total" -v i="$idx" 'NR % t == (i - 1) % t' /tmp/all-tests > /tmp/my-tests
+          count=$(wc -l < /tmp/my-tests | tr -d ' ')
+          echo "shard $idx/$total selected $count of $(wc -l < /tmp/all-tests | tr -d ' ') tests"
+          # A SHARD THAT RUNS NOTHING MUST NOT BE GREEN. This is the failure the
+          # computed partition can still have — a listing that failed, or a
+          # matrix whose length disagrees with job-total — and without this
+          # check it reports success having tested nothing, which is worse than
+          # a red job because nobody looks at it.
+          if [ "$count" -eq 0 ]; then
+            echo "::error::shard $idx selected 0 tests — the partition is broken, refusing to pass vacuously"
+            exit 1
+          fi
+          echo "pattern=^($(paste -sd'|' /tmp/my-tests))$" >> "$GITHUB_OUTPUT"
+
       - name: Integration tests (macOS + Podman)
-        run: go test -count=1 -timeout 0 -v ./integration
+        run: go test -count=1 -timeout 0 -v -run '${{ steps.shard.outputs.pattern }}' ./integration
         env:
           YOLO_RUNTIME: podman
           # The other half of the -v /nix:/nix above: this is yolo's ONE spelling
