@@ -59,8 +59,27 @@ var yoloStoreOutputSuffixes = []string{
 // build/roots and build/prefix-roots. Passing them in rather than reading them
 // here keeps this function testable against a temp tree and makes the caller
 // state which roots it believes in.
-func SupersededStoreOutputs(storeDir string, rootDirs []string, grace time.Duration, now time.Time) []string {
+func SupersededStoreOutputs(storeDir string, rootDirs []string, inUse map[string]bool, grace time.Duration, now time.Time) []string {
 	rooted := map[string]bool{}
+	// IN USE BY A RUNNING CONTAINER — the guard that closes the UPGRADE WINDOW,
+	// and it is not redundant with the roots.
+	//
+	// OQ-BF3's ruling is gated on OQ-BF4 having rooted "every RUNNING jail's
+	// prefix", and on the first launch after that ships the precondition is FALSE
+	// for every jail that was already up: BF4 roots a prefix when a launch
+	// registers it, and a jail launched before BF4 existed never did. So on that
+	// first pass, 232 unrooted prefixes look reclaimable and one or more of them
+	// is what a live jail is executing pid1 out of. `nix store delete` does not
+	// save us — a bind mount is not a nix GC root, so nix does not consider the
+	// path live.
+	//
+	// MEASURED 2026-09-09 on this machine: 233 install prefixes in the store,
+	// build/prefix-roots absent, two jails running. Reading the gate as "BF4 has
+	// landed" rather than "every running jail is actually rooted" was the letter
+	// of the ruling and not its substance.
+	for p := range inUse {
+		rooted[p] = true
+	}
 	for _, dir := range rootDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {

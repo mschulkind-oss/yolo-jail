@@ -96,9 +96,10 @@ func (o *Options) runHousekeeping(rt string, reclaimConsent bool) {
 	defer sp.End()
 	o.withHousekeepingLock(func() {
 		o.autoReapOldImages(rt)
-		o.reapSupersededStoreOutputs()
+		o.reapSupersededStoreOutputs(rt)
 		o.measureAndPurgeCache(reclaimConsent)
 		o.reapSmallAutomaticClasses(rt)
+		o.reapImageTars(rt)
 	})
 }
 
@@ -238,7 +239,7 @@ func (o *Options) classDebounce(class string) (due bool, done func()) {
 // Host-only. In-jail /nix/store is a read-only bind of the host's and the
 // gcroots dir is unmounted, so a jail cannot tell rooted from unrooted and must
 // not guess; the same refusal RunNixStoreGC already has.
-func (o *Options) reapSupersededStoreOutputs() {
+func (o *Options) reapSupersededStoreOutputs(rt string) {
 	if o.inJail() {
 		return
 	}
@@ -258,7 +259,23 @@ func (o *Options) reapSupersededStoreOutputs() {
 		res := o.Exec(argv, "", nil, timeout)
 		return prune.ProbeResult{Stdout: res.Stdout, RC: res.RC, Ran: res.Ran && !res.Timeout}
 	}
-	candidates := prune.SupersededStoreOutputs("/nix/store", rootDirs, prune.StoreOutputGrace, o.Now())
+	// ASK THE RUNTIME FIRST, and decline entirely if it cannot answer. A prefix a
+	// live jail is executing from is not superseded, whether or not anything
+	// rooted it — see SupersededStoreOutputs' inUse guard for the upgrade window
+	// this closes. "No running jails" and "I cannot tell" must not be the same
+	// answer when the action is deleting a store path.
+	live := prune.LiveYoloContainers(rt, run)
+	inUseSources, srcKnown := prune.LivePrefixSources(rt, live, prune.PrefixBinMountDest, run)
+	if !srcKnown {
+		return // not stamped: the next launch retries
+	}
+	inUse := map[string]bool{}
+	for src := range inUseSources {
+		if sp := prune.PrefixStorePathOf(src); sp != "" {
+			inUse[sp] = true
+		}
+	}
+	candidates := prune.SupersededStoreOutputs("/nix/store", rootDirs, inUse, prune.StoreOutputGrace, o.Now())
 	if len(candidates) == 0 {
 		done()
 		return
@@ -328,3 +345,33 @@ func (o *Options) reapSmallAutomaticClasses(rt string) {
 // rather than exported from prune because it is that command's flag default, and
 // the slot must not silently change what a manual prune keeps.
 const hostArchiveKeepInSlot = 3
+
+// reapImageTars is §5.2's second automatic row, and the one I first left out of
+// the slot: image tars on a streaming runtime.
+//
+// It is automatic on the same footing as the rest — evidence complete (the
+// runtime streams, so a tar is one-shot), regeneration is a build — and the
+// number comes from the runtime, not from here: prune.ResolveImageCacheKeep is
+// 0 on podman since OQ-BF6 and 3 on Apple Container, which cannot stream.
+//
+// ZERO RETAINED IS NOT ZERO READABLE. This bounds what is KEPT; the offline
+// fallback still loads whatever tar exists (image.newestTars). A change that
+// "finished" this by removing the reader would break the safety net OQ-DF1
+// deliberately kept.
+func (o *Options) reapImageTars(rt string) {
+	if o.Getenv(autoReapOptOutEnv) != "" {
+		return
+	}
+	due, done := o.classDebounce("image-tars")
+	if !due {
+		return
+	}
+	keep := prune.ResolveImageCacheKeep(prune.ImageCacheKeepUnset, rt)
+	bytes, files := prune.PruneImageCache(filepath.Join(paths.GlobalStorage(), "cache", "images"), keep, true)
+	done()
+	if files > 0 {
+		o.pr(o.Stderr).printf("[dim]Reclaimed %s of cached image tar(s) — this runtime streams, "+
+			"so it keeps %d (minimal-disk-footprint.md OQ-DF1, disk-levers OQ-BF6).[/dim]",
+			prune.FmtBytes(bytes), keep)
+	}
+}

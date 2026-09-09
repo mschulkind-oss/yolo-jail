@@ -330,7 +330,7 @@ func TestNixClassCoverageMatchesTheReclaimer(t *testing.T) {
 	}
 
 	selected := map[string]bool{}
-	for _, p := range prune.SupersededStoreOutputs(store, []string{roots}, prune.StoreOutputGrace, time.Now()) {
+	for _, p := range prune.SupersededStoreOutputs(store, []string{roots}, nil /* nothing running in this fixture */, prune.StoreOutputGrace, time.Now()) {
 		for suffix, path := range bySuffix {
 			if p == path {
 				selected[suffix] = true

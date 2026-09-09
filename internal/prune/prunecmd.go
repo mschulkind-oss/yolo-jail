@@ -664,9 +664,25 @@ func Run(opts Options) int {
 			joinPath(opts.BuildDir(), "roots"),
 			joinPath(opts.BuildDir(), "prefix-roots"),
 		}
-		candidates := SupersededStoreOutputs(hostNixStoreDir, rootDirs, StoreOutputGrace, opts.Now())
-		removed := DeleteSupersededStoreOutputs(candidates, apply, opts.Exec)
+		// Same in-use guard as the launch path's pass: a prefix a live jail is
+		// executing from is not superseded, whether or not anything rooted it.
+		// An unenumerable runtime declines the section rather than proceeding.
+		inUseSources, srcKnown := LivePrefixSources(rt, live, PrefixBinMountDest, opts.Exec)
+		inUse := map[string]bool{}
+		for src := range inUseSources {
+			if sp := PrefixStorePathOf(src); sp != "" {
+				inUse[sp] = true
+			}
+		}
+		var candidates, removed []string
+		if srcKnown {
+			candidates = SupersededStoreOutputs(hostNixStoreDir, rootDirs, inUse, StoreOutputGrace, opts.Now())
+			removed = DeleteSupersededStoreOutputs(candidates, apply, opts.Exec)
+		}
 		switch {
+		case !srcKnown:
+			p.line(fmt.Sprintf("  [dim]skipped — could not ask %s which prefix each running jail "+
+				"executes from; declining to delete store paths[/dim]", rt))
 		case len(candidates) == 0:
 			p.line("  [dim]none[/dim]")
 		default:

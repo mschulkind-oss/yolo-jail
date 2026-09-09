@@ -42,6 +42,10 @@ const PrefixRootGrace = time.Hour
 // by TestPrefixBinMountDestMatchesTheLauncher.
 const prefixBinMountDest = "/opt/yolo-jail/bin"
 
+// PrefixBinMountDest is prefixBinMountDest for callers outside this package
+// (the launch path's store-output pass needs the same question answered).
+const PrefixBinMountDest = prefixBinMountDest
+
 // LivePrefixSources returns the host directories that running jails are
 // executing their yolo binaries from, and whether that could be determined.
 //

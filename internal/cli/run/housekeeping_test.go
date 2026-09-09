@@ -93,7 +93,7 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 		t.Fatal("run.go no longer makes the offer before the container attaches — the offered " +
 			"tier stops existing and OQ-BF1's whole disposition is inert")
 	}
-	if !strings.Contains(string(hkSrc), "o.reapSupersededStoreOutputs()") {
+	if !strings.Contains(string(hkSrc), "o.reapSupersededStoreOutputs(rt)") {
 		t.Fatal("the slot no longer reclaims yolo's own superseded store outputs (OQ-BF3) — " +
 			"that class has no other collector at all, and was measured accruing 0.43 GB/day")
 	}
@@ -112,7 +112,7 @@ func TestStoreOutputReapIsHostOnly(t *testing.T) {
 		called = true
 		return ExecResult{Ran: true}
 	}
-	o.reapSupersededStoreOutputs()
+	o.reapSupersededStoreOutputs("podman")
 	if called {
 		t.Fatal("the store-output reap ran inside a jail — it cannot distinguish rooted from " +
 			"unrooted there, so it must refuse rather than guess (the same refusal RunNixStoreGC has)")
@@ -196,13 +196,32 @@ func TestSlotRunsEveryAutomaticClass(t *testing.T) {
 	}
 	for _, call := range []string{
 		"o.autoReapOldImages(rt)",
-		"o.reapSupersededStoreOutputs()",
+		"o.reapSupersededStoreOutputs(rt)",
 		"o.measureAndPurgeCache(reclaimConsent)",
 		"o.reapSmallAutomaticClasses(rt)",
+		"o.reapImageTars(rt)",
 	} {
 		if !strings.Contains(string(src), call) {
 			t.Errorf("the housekeeping slot no longer calls %s — that is a §5.2 automatic-tier "+
 				"row with no other collector", call)
+		}
+	}
+}
+
+// TestStoreOutputReapAsksWhatIsRunning is the call-site pin for the upgrade
+// window. The unit test in internal/prune proves the guard works; nothing there
+// would notice the launch path stopping passing it, and the regression deletes
+// a running jail's binaries on the first pass after an upgrade.
+func TestStoreOutputReapAsksWhatIsRunning(t *testing.T) {
+	src, err := os.ReadFile("housekeeping.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"LivePrefixSources(", "PrefixStorePathOf(", "if !srcKnown {"} {
+		if !strings.Contains(string(src), want) {
+			t.Fatalf("the store-output pass no longer calls %s — it would then select a prefix a "+
+				"live jail is executing from, whenever that jail launched before OQ-BF4 shipped. "+
+				"That is every already-running jail on the first pass after an upgrade.", want)
 		}
 	}
 }

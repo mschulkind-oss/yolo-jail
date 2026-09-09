@@ -47,7 +47,7 @@ func TestSupersededStoreOutputsIsScopedByNameAndRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := SupersededStoreOutputs(store, []string{rootsDir}, StoreOutputGrace, time.Now())
+	got := SupersededStoreOutputs(store, []string{rootsDir}, nil, StoreOutputGrace, time.Now())
 
 	want := map[string]bool{orphanPrefix: true, orphanGo: true}
 	if len(got) != len(want) {
@@ -74,7 +74,7 @@ func TestSupersededStoreOutputsIsScopedByNameAndRoots(t *testing.T) {
 func TestStoreOutputGraceCoversAnUnrootedNewBuild(t *testing.T) {
 	store := t.TempDir()
 	fresh := mkStorePath(t, store, "ffff-yolo-jail-install-prefix", time.Minute)
-	if got := SupersededStoreOutputs(store, nil, StoreOutputGrace, time.Now()); len(got) != 0 {
+	if got := SupersededStoreOutputs(store, nil, nil, StoreOutputGrace, time.Now()); len(got) != 0 {
 		t.Fatalf("selected %v — a path built a minute ago has not reached its rooting step", got)
 	}
 	_ = fresh
@@ -111,5 +111,37 @@ func TestDeleteSkipsWhatNixRefuses(t *testing.T) {
 	got := DeleteSupersededStoreOutputs([]string{refused, ok}, true, run)
 	if len(got) != 1 || got[0] != ok {
 		t.Fatalf("removed %v, want only %q — a path nix refuses is the liveness veto working", got, ok)
+	}
+}
+
+// TestARunningJailsPrefixIsNeverSuperseded is the UPGRADE WINDOW, and it is the
+// test that would have caught the hazard this guard exists for.
+//
+// The scenario is not hypothetical — it is this machine on 2026-09-09. OQ-BF3 is
+// gated on OQ-BF4 having rooted "every RUNNING jail's prefix", and on the first
+// launch after BF4 ships that is FALSE for every jail already up: BF4 roots a
+// prefix when a launch registers it, and a jail launched before BF4 existed
+// never did. Measured: 233 install prefixes in the store, build/prefix-roots
+// absent, two jails running. Reading the gate as "BF4 has landed" rather than
+// "every running jail is actually rooted" is the letter of the ruling without
+// its substance, and `nix store delete` does not save you — a bind mount is not
+// a nix GC root, so nix does not consider the path live.
+func TestARunningJailsPrefixIsNeverSuperseded(t *testing.T) {
+	store := t.TempDir()
+	old := 48 * time.Hour
+
+	// A jail that has been up since before prefix roots existed: OLD, UNROOTED,
+	// and in use. Every property that makes it look reclaimable is true.
+	liveButUnrooted := mkStorePath(t, store, "aaaa-yolo-jail-install-prefix", old)
+	genuinelyDead := mkStorePath(t, store, "bbbb-yolo-jail-install-prefix", old)
+
+	inUse := map[string]bool{liveButUnrooted: true}
+	got := SupersededStoreOutputs(store, nil /* no roots at all */, inUse, StoreOutputGrace, time.Now())
+
+	if len(got) != 1 || got[0] != genuinelyDead {
+		t.Fatalf("selected %v, want only %q. The other path is what a LIVE jail is executing pid1 "+
+			"out of — unrooted only because it launched before OQ-BF4 shipped. Deleting it is the "+
+			"exact failure BF4 exists to prevent, reintroduced through the upgrade window.",
+			got, genuinelyDead)
 	}
 }
