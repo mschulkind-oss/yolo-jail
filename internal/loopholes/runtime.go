@@ -12,9 +12,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// warnf/infof are the package's log sinks.
+// warnSink/infof are the package's log sinks.
 //
-// warnf writes to STDERR by default. It used to be a no-op "for callers that
+// warnSink writes to STDERR by default. It used to be a no-op "for callers that
 // install a sink", and in the whole tree no caller ever did — so every warning
 // this package emitted went nowhere. That is tolerable for "skipped a bind mount"
 // and NOT tolerable for "this loophole failed to load and is therefore absent",
@@ -24,11 +24,50 @@ import (
 // infof stays a no-op: its one use is a routine in-jail device skip that happens
 // on every launch and says nothing actionable.
 var (
-	warnf = func(format string, args ...any) {
-		fmt.Fprintf(os.Stderr, "warning: "+format+"\n", args...)
+	warnSink = func(msg string) {
+		fmt.Fprintln(os.Stderr, "warning: "+msg)
 	}
 	infof = func(format string, args ...any) {}
+
+	// saidWarnings is the set of lines already said, and it is why warnf below is a
+	// function rather than the swappable var it used to be: the dedup has to sit ABOVE
+	// the sink, or a test that installs its own sink would measure a different rule than
+	// the one that ships.
+	saidWarnings = map[string]bool{}
 )
+
+// warnf reports a diagnostic, SAYING EACH DISTINCT LINE ONCE.
+//
+// The rule is here because A LAUNCH DISCOVERS ONCE PER CONSUMER, not once. Each host-side
+// consumer builds its OWN Set through NewHostSet — the briefing, the broker gate, the
+// argv's broker gate, the runtime args and the daemon spawn each do — and every
+// construction re-walks the module dirs and re-warns about them. The convergence
+// (docs/design/loophole-packaging.md §5.1) collapsed seven independent ASSEMBLIES into one
+// constructor; it did not collapse them into one RESOLUTION, and was never meant to. So a
+// launch said each of its diagnostics once per pass: measured on a real host 2026-09-09,
+// four missing module dirs printed twenty lines, which buries four facts in a count.
+//
+// NOT SUPPRESSION: the first occurrence of every distinct line is always said, so a
+// genuinely absent module dir is still reported exactly as loudly as OQ-A9 requires. What
+// is dropped is a repetition of a line already on screen, which carried no new fact.
+//
+// PER PROCESS, which is per launch for every way the host runs this (one `yolo`, one
+// launch). The one exception is the in-process capture sub-launch, and it costs nothing:
+// each launch's messages name its OWN staging root, so two launches collide on a line only
+// when they are reporting the same missing directory — the same fact, said once.
+func warnf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if saidWarnings[msg] {
+		return
+	}
+	saidWarnings[msg] = true
+	warnSink(msg)
+}
+
+// resetSaidWarnings forgets what has been said. For tests, which must each measure the
+// rule from a clean slate — a line another test already said would otherwise be silent
+// here, which is a false green in the direction that matters.
+func resetSaidWarnings() { saidWarnings = map[string]bool{} }
 
 // (podman) path; pass "container" for Apple Container (which skips any loophole
 // declaring `intercepts`). It is side-effect free and idempotent.

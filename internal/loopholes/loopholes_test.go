@@ -3,7 +3,6 @@ package loopholes
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -515,12 +514,17 @@ func containsStr(list []string, s string) bool {
 
 // captureWarnings swaps the package's warn sink for the duration of a test and
 // returns the accumulated lines.
+//
+// It also clears the SAID set, because warnf says each distinct line once per process: a
+// line an earlier test already said would otherwise never reach this sink, and a test that
+// silently measures nothing is worse than one that fails.
 func captureWarnings(t *testing.T) *[]string {
 	t.Helper()
 	var got []string
-	prev := warnf
-	warnf = func(format string, args ...any) { got = append(got, fmt.Sprintf(format, args...)) }
-	t.Cleanup(func() { warnf = prev })
+	prev := warnSink
+	resetSaidWarnings()
+	warnSink = func(msg string) { got = append(got, msg) }
+	t.Cleanup(func() { warnSink = prev; resetSaidWarnings() })
 	return &got
 }
 
@@ -626,6 +630,10 @@ func TestUnknownManifestKeyDegradesRatherThanVanishes(t *testing.T) {
 // install a sink" and nothing in the tree ever installed one, so every warning
 // this package emitted was discarded.
 func TestWarnSinkIsNotSilentByDefault(t *testing.T) {
+	// warnf says each distinct line once per process, so this measures the DEFAULT sink
+	// only from a clean slate (and only once under -count=2 otherwise).
+	resetSaidWarnings()
+	t.Cleanup(resetSaidWarnings)
 	var buf bytes.Buffer
 	prevStderr := os.Stderr
 	r, w, err := os.Pipe()
