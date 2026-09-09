@@ -84,7 +84,11 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		"Stopped yolo-* containers",
 		"Orphaned broker relays",
 		"Old yolo-jail images  (keep=2)",
-		"Cached image tarballs  (keep=3)",
+		// keep=0, not 3: OQ-BF6 made the tar default per-RUNTIME, and this fixture
+		// runs on podman, which streams into `podman load` and writes no tar at
+		// all since C3. The Apple Container arm keeps 3 and is pinned separately
+		// (TestImageCacheKeepDefaultsPerRuntime).
+		"Cached image tarballs  (keep=0)",
 		"Legacy build-root staging dirs",
 		"Dangling build out-links",
 		"Orphaned agent staging",
@@ -163,9 +167,13 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 	if !hasLine(&buf, "    • id1") {
 		t.Errorf("old-image dry-run should list id1 (oldest, keep=2):\n%s", buf.String())
 	}
-	// Image cache: keep=3, 1 tar + 1 orphan tmp → only the tmp (512 B) removed.
-	if !hasLine(&buf, "  would remove: 512 B across 1 file(s)") {
-		t.Errorf("image-cache dry-run wrong:\n%s", buf.String())
+	// Image cache on PODMAN: keep=0 since OQ-BF6, so the 1024 B tar goes too, not
+	// just the 512 B orphan tmp. This assertion used to read "512 B across 1
+	// file(s)" under the old flat keep=3 and is REWRITTEN rather than repaired —
+	// the retained tar is exactly what that ruling reclaims, since C3 stopped
+	// writing one on this runtime at all.
+	if !hasLine(&buf, "  would remove: 1.5 KiB across 2 file(s)") {
+		t.Errorf("image-cache dry-run wrong (podman keeps zero tars since OQ-BF6):\n%s", buf.String())
 	}
 	// Cache purge: the 2048 B wheel.
 	if !hasLine(&buf, "  would remove: 2.0 KiB across 1 files") {
@@ -801,4 +809,48 @@ func containsCall(calls []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestImageCacheKeepDefaultsPerRuntime pins OQ-BF6's whole content: the number
+// follows the runtime, and the Apple Container arm is deliberately unchanged.
+//
+// The second case is the one worth having. Podman keeping zero is the headline,
+// but it is the AC arm that a "simplification" would break — that backend still
+// writes a tar per store path because `skopeo copy docker-archive:<path>` and
+// `podman save -o <path>` both interpolate a real path and cannot consume a
+// stream, so zero there deletes the only copy of an image it cannot re-stream.
+func TestImageCacheKeepDefaultsPerRuntime(t *testing.T) {
+	cases := []struct {
+		rt   string
+		flag int
+		want int
+		why  string
+	}{
+		{"podman", ImageCacheKeepUnset, 0,
+			"podman streams into `load` and writes no tar (C3), so a retained tar is dead weight"},
+		{"container", ImageCacheKeepUnset, ImageCacheKeepAppleContainer,
+			"Apple Container cannot consume a stream, so its tar is the only copy — unchanged until OQ-DF2"},
+		{"podman", 5, 5, "an explicit flag always wins over the per-runtime default"},
+		{"container", 0, 0, "including an explicit zero, which the sentinel exists to distinguish from unset"},
+	}
+	for _, c := range cases {
+		if got := ResolveImageCacheKeep(c.flag, c.rt); got != c.want {
+			t.Errorf("ResolveImageCacheKeep(%d, %q) = %d, want %d — %s", c.flag, c.rt, got, c.want, c.why)
+		}
+	}
+}
+
+// TestImageCacheKeepUnsetIsNotZero: the sentinel is the whole reason this is not
+// a one-line default change. Zero became a MEANINGFUL value for this flag, so
+// "unset" could no longer be spelled as the zero value, and a future refactor
+// that drops the sentinel silently pins podman's default to Apple Container's.
+func TestImageCacheKeepUnsetIsNotZero(t *testing.T) {
+	if ImageCacheKeepUnset == 0 {
+		t.Fatal("ImageCacheKeepUnset == 0 — then `--image-cache-keep 0` is indistinguishable from " +
+			"not passing the flag, and OQ-BF6's per-runtime default cannot be expressed")
+	}
+	if got := NewDefaultOptions().ImageCacheKeep; got != ImageCacheKeepUnset {
+		t.Fatalf("NewDefaultOptions().ImageCacheKeep = %d, want the unset sentinel — the front door "+
+			"builds Options before any runtime is detected, so it must not bake a number", got)
+	}
 }

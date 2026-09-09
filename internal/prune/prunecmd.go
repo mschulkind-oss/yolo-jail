@@ -52,7 +52,7 @@ type Options struct {
 	NoBuildRoots     bool // --no-build-roots
 	NoImageRoots     bool // --no-image-roots
 	NoShadowedHome   bool // --no-shadowed-home
-	ImageCacheKeep   int  // --image-cache-keep (default 3)
+	ImageCacheKeep   int  // --image-cache-keep (default: per-runtime, see ResolveImageCacheKeep)
 	CacheAge         int  // --cache-age        (default 30; 0 skips the pass)
 	PurgeHeavyCaches bool // --purge-heavy-caches
 	// NixGC enables the bounded, rooting-aware host nix store GC (--nix-gc,
@@ -143,12 +143,52 @@ type Options struct {
 	NixStoreGC func(maxBytes int64, apply bool) StoreGCOutcome
 }
 
+// ImageCacheKeepUnset marks "--image-cache-keep was not given", so Run can
+// choose the default from the RUNTIME — which it cannot do here, because the
+// front door constructs Options before any runtime is detected.
+//
+// A sentinel rather than a pointer because 0 is now a MEANINGFUL value for this
+// flag (OQ-BF6: keep zero tars on podman), so "unset" and "zero" stopped being
+// the same thing the moment the default became per-runtime.
+const ImageCacheKeepUnset = -1
+
+// ImageCacheKeepAppleContainer is the retained default for the backend that
+// still writes a tar per store path, because `skopeo copy docker-archive:<path>`
+// and `podman save -o <path>` both interpolate a real path and cannot consume a
+// stream. Unchanged until minimal-disk-footprint.md OQ-DF2 names the component
+// that deletes on success (OQ-BF6).
+const ImageCacheKeepAppleContainer = 3
+
+// ResolveImageCacheKeep picks the tar-retention default for a runtime, or
+// returns an explicit flag value unchanged.
+//
+// ZERO ON PODMAN (OQ-BF6, and it is minimal-disk-footprint.md OQ-DF1's ruling
+// applied to the reaper rather than a new decision): since C3 the podman happy
+// path streams the image straight into `podman load` and writes no tar at all,
+// so a `3` there retains nothing but pre-C3 leftovers — measured at 10.7 GB on
+// the host and 9.9 GiB nested, all of it dead.
+//
+// Zero retained is NOT zero readable, and conflating the two would break the
+// offline start: `newestTars` still loads any tar that exists
+// (internal/image/autoload.go). This changes what the REAPER keeps, not what
+// the fallback can read.
+func ResolveImageCacheKeep(flagValue int, rt string) int {
+	if flagValue != ImageCacheKeepUnset {
+		return flagValue
+	}
+	if rt == "podman" {
+		return 0
+	}
+	return ImageCacheKeepAppleContainer
+}
+
 // NewDefaultOptions returns Options with the flag defaults (keep-images
-// DefaultKeepImages, image-cache-keep 3, cache-age 30) and every seam left
-// nil (filled at Run). The front door constructs this, sets Color, overrides
-// flags from argv, then calls Run.
+// DefaultKeepImages, cache-age 30, and image-cache-keep left UNSET so the
+// runtime decides — see ResolveImageCacheKeep) and every seam left nil (filled
+// at Run). The front door constructs this, sets Color, overrides flags from
+// argv, then calls Run.
 func NewDefaultOptions() Options {
-	return Options{KeepImages: DefaultKeepImages, ImageCacheKeep: 3, CacheAge: 30}
+	return Options{KeepImages: DefaultKeepImages, ImageCacheKeep: ImageCacheKeepUnset, CacheAge: 30}
 }
 
 func fillDefaults(o *Options) {
@@ -429,8 +469,9 @@ func Run(opts Options) int {
 	// --- Cached image tarballs ---
 	if !opts.NoImageCache {
 		p.line("")
-		p.line(fmt.Sprintf("[bold]Cached image tarballs[/bold]  (keep=%d)", opts.ImageCacheKeep))
-		imageCacheBytes, imageCacheFiles = PruneImageCache(joinPath(opts.GlobalCache(), "images"), opts.ImageCacheKeep, apply)
+		keepTars := ResolveImageCacheKeep(opts.ImageCacheKeep, rt)
+		p.line(fmt.Sprintf("[bold]Cached image tarballs[/bold]  (keep=%d)", keepTars))
+		imageCacheBytes, imageCacheFiles = PruneImageCache(joinPath(opts.GlobalCache(), "images"), keepTars, apply)
 		if imageCacheFiles > 0 {
 			p.line(fmt.Sprintf("  %s: %s across %s file(s)", verb(apply, "would remove", "removed"), FmtBytes(imageCacheBytes), fmtComma(imageCacheFiles)))
 		} else {

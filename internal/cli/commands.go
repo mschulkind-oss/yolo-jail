@@ -131,7 +131,11 @@ Flags:
   --no-images              Skip the old-jail-image sweep.
   --keep-images <n>        Keep the newest <n> jail images (default 2).
   --no-image-cache         Skip the image-tarball cache sweep.
-  --image-cache-keep <n>   Keep the newest <n> cached image tarballs (default 3).
+  --image-cache-keep <n>   Keep the newest <n> cached image tarballs.
+                           Default: 0 on podman (it streams into `load` and writes
+                           no tar), 3 on Apple Container (which cannot stream, so
+                           its tar is the only copy). An offline start still reads
+                           whatever tars exist — this bounds what is KEPT.
   --no-build-roots         Skip the nix build GC roots.
   --no-image-roots         Skip the nix image GC roots.
   --no-shadowed-home       Skip the shadowed jail-home sweep.
@@ -209,6 +213,9 @@ func pruneOptions(args []string) prune.Options {
 		case a == "--no-shadowed-home":
 			opts.NoShadowedHome = true
 		case a == "--image-cache-keep":
+			// The fallback is the CURRENT value, which is prune.ImageCacheKeepUnset
+			// unless the flag already appeared — so a malformed value leaves the
+			// per-runtime default in place rather than pinning it to a number.
 			opts.ImageCacheKeep = nextInt(opts.ImageCacheKeep)
 		case a == "--cache-age":
 			opts.CacheAge = nextInt(opts.CacheAge)
