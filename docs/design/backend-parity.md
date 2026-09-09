@@ -12,6 +12,16 @@ summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and co
 in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is proposed and unbuilt. Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
+> [!NOTE]
+> **2026-09-09: [OQ-BP-2](#decision-ledger) was answered by CODE, not by a ruling** — skills and briefings have been
+> delivered to macos-user since 2026-09-03 (`ef0282ab`), on the leaning's own terms, and the
+> question sat open for six days describing a gap that no longer existed. Recorded in the
+> [Decision Ledger](#decision-ledger); [Open Questions](#open-questions) item 2 has the chain and the smaller warning that
+> survives. **Three questions remain live** — [OQ-BP-1](#open-questions) (the census), [OQ-BP-3](#open-questions) (suppressible
+> warnings) and [OQ-BP-4](#open-questions) (the Apple Container loophole skip). The census in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is
+> untouched by this: the fix moved one cell from `Warned` to `HonoredBy`, which is the
+> [§3](#3-the-four-dispositions--the-most-important-section) vocabulary doing exactly what [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) argues it is for.
+
 **The short version.** yolo has three backends. `podman` and `container` (Apple Container)
 share `runContainer`; `macos-user` returns from `Run()` before it and re-implements a
 subset. **Every difference between them is an `if rt == …` branch, and nothing enumerates
@@ -322,20 +332,52 @@ an agent plans around it.
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-BP-2: Do briefings and skills get DELIVERED to macos-user, or stay a documented absence?**
-   Today the agent starts there with no AGENTS.md, no CLAUDE.md and no skills — including the
-   built-in suite — while the blocked-tool shims *are* generated, so `grep -r` exits 127 with
-   nothing explaining it. Warned as of `6a53a2a3`. A fix means composing above the dispatch
-   and delivering by copy into the sandbox home, which is a real delivery mechanism.
+2. ✅ **[OQ-BP-2](#decision-ledger): Do briefings and skills get DELIVERED to macos-user, or stay a documented absence?
+   — ANSWERED BY CODE 2026-09-03 (noticed 2026-09-09).** Delivered, on the leaning's own terms.
+   The question described an agent starting there with no AGENTS.md, no CLAUDE.md and no skills —
+   including the built-in suite — while the blocked-tool shims *were* generated, so `grep -r`
+   exited 127 with nothing explaining it (warned as of `6a53a2a3`). **That description is no
+   longer true of any part of the code.**
 
-   _Leaning:_ **Deliver it.** This is the largest capability gap on that backend and the
-   recipe is known (`StagePackCommands` already has the right replace-by-rename semantics).
-   The reason it is not already done is that it writes into a shared root as another user and
-   nobody here can test it on hardware — which argues for landing it *with* a Mac session,
-   not for leaving it.
+   What shipped, verified 2026-09-09 (`ef0282ab`, 2026-09-03; a call-site guard test followed in
+   `ef5945e3`): the host composes the same skills trees and briefing bodies the container path
+   composes and lays them out **by destination** — `buildMacosHomeOverlay`
+   ([`macoshomeoverlay.go`](../../internal/cli/run/macoshomeoverlay.go)), reading the same two
+   declaration lists the mount assembler reads, so a pack's destination is honored on both
+   backends or on neither. The launch stages that tree and names it in `YOLO_DARWIN_HOME_OVERLAY`
+   ([`runplan.go`](../../internal/macosuser/runplan.go)), and the boot copies it over the sandbox
+   home — `InstallHomeOverlay` ([`darwin.go`](../../internal/entrypoint/darwin.go)), overwrite per
+   destination subtree so a dropped pack's skills DISAPPEAR rather than being served forever.
+   The tree carries no schema on purpose: the paths ARE the manifest, which is what keeps this
+   from being a second implementation of the mount assembler's mapping.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **The fourteen in [§5](#5-what-is-already-fixed-2026-08-24) does not move.** This defect was
+   already in the fixed-or-warned half as a WARNING (`6a53a2a3`); what changed is its
+   disposition, from `Warned` to `Honored` by a different mechanism — [§3](#3-the-four-dispositions--the-most-important-section)'s `HonoredBy`, which is the
+   state this doc exists to argue for, arriving as its own worked example.
+
+   > [!WARNING]
+   > **A smaller statement survives, and it is not "never delivered" — do not read the launch
+   > note as the old gap.** Two things are still true and still warned about. (1) The copy is
+   > WRITABLE where every other backend's bind is `:ro`, so an agent here can edit its own skills
+   > and briefing and the next launch overwrites them. (2) The destination home is machine-wide,
+   > so a second workspace launching while this one runs replaces them mid-session. Both are
+   > consequences of the single sandbox home, which
+   > [`macos-user-home-tiers.md`](macos-user-home-tiers.md) exists to fix, and both are what
+   > `noteMacosUserContentGaps` ([`loopholeinert.go`](../../internal/cli/run/loopholeinert.go))
+   > now says instead of the old text. Separately, `InstallHomeOverlay` warns rather than failing
+   > the boot when the staged tree is missing — an agent is better off starting with no skills
+   > than not starting. This is the narrow surviving warning
+   > [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md)'s 2026-09-09 amendment
+   > names.
+
+   **Answer (2026-09-09):**
+   > **Deliver it — and it is delivered.** The leaning was taken and its stated blocker did not
+   > hold up: *"nobody here can test it on hardware, which argues for landing it with a Mac
+   > session"*. It landed without one, unit-tested and mutation-checked like the rest of [§5](#5-what-is-already-fixed-2026-08-24)'s
+   > fixes, and [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about)'s note still applies with full force — **none of it has run on a
+   > Mac.** So the ruling is answered and the hardware verification is not; they were separate
+   > questions all along.
 
 3. 💬 **OQ-BP-4: Is the Apple Container loophole skip still justified, or is its reason stale?**
    This is the maintainer's own question — *"shouldn't the broker be in use here?"* — generalised,
@@ -387,3 +429,11 @@ Fourteen new launch lines exist as of today — the number was ten when this que
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+---
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-BP-2 | **Deliver them, and they are delivered** — ANSWERED BY CODE. The host composes skills + briefings by destination (`buildMacosHomeOverlay`), the launch stages the tree as `YOLO_DARWIN_HOME_OVERLAY`, the boot copies it over the sandbox home (`InstallHomeOverlay`). Disposition moves `Warned` → `HonoredBy`; [§5](#5-what-is-already-fixed-2026-08-24)'s fourteen is unchanged. What survives is smaller: the copy is writable where a bind is `:ro`, and the home is machine-wide | shipped 2026-09-03 (`ef0282ab`), noticed here 2026-09-09 | [Open Questions](#open-questions) item 2 |
