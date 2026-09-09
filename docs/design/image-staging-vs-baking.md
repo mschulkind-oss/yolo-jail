@@ -375,8 +375,10 @@ Apple Container and `macos-user`; the host's own podman and `cache/images`.
 
 #### The finding, for the [OQ-1](#the-finding-for-the-oq-1-gate) gate
 
-**C4 and C5 remain NOT BUILT and gated.** [OQ-1](#101-decision-ledger) ruled their *shape* and left the go/no-go to this measurement;
-nothing here rules on it. **(1)** C4's disk case has largely collapsed, and C3 collapsed it: on podman —
+**C4 and C5 were NOT BUILT and gated when this measurement was taken.** [OQ-1](#101-decision-ledger)
+ruled their *shape* and left the go/no-go to this measurement; nothing here rules on it. **Both
+shipped later the same day** — the go/no-go was given as [OQ-9](#101-decision-ledger), so read this
+section as the evidence that discharged the gate rather than as current status. **(1)** C4's disk case has largely collapsed, and C3 collapsed it: on podman —
 the only backend C4 runs on ([§3.2](#32-the-mounted-nix-store--the-key-lever-and-its-hard-limit)) — there is no tar. What survives is bounded and sits in podman's
 ledger: one coexisting image per distinct config, whose retention rule is
 [`minimal-disk-footprint.md`](minimal-disk-footprint.md) [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3)'s. **(2)** What remains is time, and
