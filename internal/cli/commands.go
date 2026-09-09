@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
@@ -36,6 +38,9 @@ password. macOS only: on any other platform it refuses.
 
   --help, -h  Show this help. Answered before anything is created.
 
+Examples:
+  yolo macos-setup                    # create the sandbox account (idempotent)
+
 See ` + "`yolo config-ref`" + ` for the ` + "`backend`" + ` key, and ` + "`yolo macos-teardown`" + ` to remove
 the account again.`
 
@@ -47,7 +52,10 @@ Remove the ` + "`_yolojail`" + ` sandbox user and its group — the undo of
 sudo is invoked for the deletion, so macOS may prompt for your admin password.
 macOS only: on any other platform it refuses.
 
-  --help, -h  Show this help. Answered before anything is deleted.`
+  --help, -h  Show this help. Answered before anything is deleted.
+
+Examples:
+  yolo macos-teardown                 # remove the account and its group`
 
 const macosUnshareUsage = `Usage: yolo macos-unshare <workspace>
 
@@ -59,6 +67,9 @@ without tearing down the account.
 macOS only: on any other platform it refuses.
 
   --help, -h  Show this help. Answered before any ACL is touched.
+
+Examples:
+  yolo macos-unshare ~/code/myproject # take that workspace out of the jail's reach
 
 The inverse — putting the ACLs BACK on files that predate sharing — is
 ` + "`yolo macos-fix-permissions`" + `.`
@@ -72,7 +83,11 @@ walks that directory instead.
 It refuses a path inside a user home: the macos-user backend only manages ACLs on
 neutral ground. macOS only: on any other platform it refuses.
 
-  --help, -h  Show this help. Answered before any ACL is applied.`
+  --help, -h  Show this help. Answered before any ACL is applied.
+
+Examples:
+  yolo macos-fix-permissions          # retrofit the ACL across the whole shared root
+  yolo macos-fix-permissions /Users/Shared/yolo-jail/myproject   # just this one`
 
 // runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*
 // commands (macOS-only; refuse/no-op on Linux). Each answers its own `--help`
@@ -130,7 +145,11 @@ Flags:
   --apply                  Actually reclaim. Without it nothing is deleted.
   --no-containers          Skip the stale-container sweep.
   --no-images              Skip the old-jail-image sweep.
-  --keep-images <n>        Keep the newest <n> jail images (default 2).
+  --keep-images <n>        REMOVED, and passing it is an error. Image retention
+                           is each workspace's CURRENT image (one pointer per
+                           workspace, union'd with what containers are running),
+                           so there is no global count to set: a superseded copy
+                           is not kept at all. See the error the flag prints.
   --no-image-cache         Skip the image-tarball cache sweep.
   --image-cache-keep <n>   Keep the newest <n> cached image tarballs.
                            Default: 0 on podman (it streams the image straight
@@ -151,8 +170,20 @@ Flags:
                            durable GC root; it refuses inside a jail.
   --nix-gc-max <bytes>     Ceiling for that GC (default 50 GiB). A ceiling, not a
                            target: nix stops once it has freed this many bytes.
+` + outputFormatUsage + `
   --help, -h               Show this help. Answered before the disk is scanned,
-                           so asking what prune does costs nothing.`
+                           so asking what prune does costs nothing.
+
+The JSON document carries the usage accounting, the per-category bytes and counts
+that make up the total, what would disappear by name, and a ` + "`declined`" + ` flag for a
+sweep that could not run. It is the SUMMARY, not the whole report: the teaching
+prose (why a cached tarball is reclaimable, why the nix GC declined) stays in the
+text form, which is where it was written for a reader.
+
+Examples:
+  yolo prune                          # what would this reclaim? (deletes nothing)
+  yolo prune --format json            # the same plan, for a script or an agent
+  yolo prune --apply                  # actually reclaim it`
 
 // runPrune runs `yolo prune` (disk reclaim). Default dry-run; --apply reclaims.
 func runPrune(args []string) int {
@@ -161,7 +192,50 @@ func runPrune(args []string) int {
 	if answerHelp("prune", args, os.Stdout) {
 		return 0
 	}
+	// A REMOVED FLAG REFUSES AND NAMES ITS REPLACEMENT, the way the retired
+	// config keys do (internal/config/validate.go's `agents`, `docker`,
+	// `journal`, `host_processes`). pruneOptions has no default case, so a
+	// dropped flag would otherwise be SILENTLY IGNORED -- and for this one that
+	// is the worst possible reading: someone passing `--keep-images 8` to hold
+	// more images back would get a pass that removes every image no workspace
+	// points at, and no indication that the number they typed did nothing.
+	if refused := refuseRemovedPruneFlags(args, os.Stderr); refused != 0 {
+		return refused
+	}
+	// Before the scan, for the same reason help is: a rejected --format is misuse,
+	// and walking the whole disk only to refuse afterwards spends minutes on an
+	// answer nobody gets. See outputformat.go.
+	if _, ok := parseOutputFormat("prune", args, os.Stderr); !ok {
+		return 2
+	}
 	return prune.Run(pruneOptions(args))
+}
+
+// refuseRemovedPruneFlags fails the command when argv carries a flag `yolo
+// prune` no longer has, naming what replaced it. Returns 0 when there is
+// nothing to refuse.
+//
+// Only `--keep-images` is listed, and the entry stays for one release for the
+// same reason removeRetiredGeneratedDirs and the retired config keys do: the
+// people who need the message are the ones with the old flag in a script or in
+// muscle memory, and they find out either here or by wondering why their number
+// stopped mattering.
+func refuseRemovedPruneFlags(args []string, out io.Writer) int {
+	for _, a := range args {
+		if a != "--keep-images" && !strings.HasPrefix(a, "--keep-images=") {
+			continue
+		}
+		fmt.Fprintln(out, "Error: --keep-images was removed (OQ-LS3).")
+		fmt.Fprintln(out, "Image retention is no longer a count: yolo keeps each workspace's "+
+			"CURRENT image (one pointer per workspace, plus every image a container is "+
+			"running on) and removes the superseded ones, because a superseded copy is an "+
+			"undo buffer nobody used.")
+		fmt.Fprintln(out, "Fix: drop the flag. To keep an image, launch its workspace -- that "+
+			"is what records the pointer. `yolo prune` (dry-run) reports how many pointers "+
+			"it found and exactly which images it would remove.")
+		return 2
+	}
+	return 0
 }
 
 // pruneOptions turns `yolo prune`'s argv into the engine's Options — the flags plus the three
@@ -181,6 +255,16 @@ func pruneOptions(args []string) prune.Options {
 	// so the resolver and the reaper cannot disagree about which lines are records. Without
 	// it the section declines and says so; see prune.Options.CaptureRecords.
 	opts.CaptureRecords = captureRecords
+	// The output format. Assigned HERE rather than in runPrune so it sits on the
+	// same TESTED seam as CaptureRecords and the runtime resolver below — a line
+	// that can be deleted with prune's own suite still green is exactly what this
+	// function was split out to make catchable (TestPruneOptionsWiring).
+	//
+	// The ok is discarded because runPrune already REFUSED an unknown value before
+	// the disk was touched, so this call cannot see one the front door let through.
+	// Two calls to a pure scan is the price of having the refusal early and the
+	// wiring testable, and it is cheaper than either alternative.
+	opts.Format, _ = parseOutputFormat("prune", args, io.Discard)
 	// args: ["prune", <flags>...]
 	for i := 1; i < len(args); i++ {
 		a := args[i]
@@ -204,8 +288,6 @@ func pruneOptions(args []string) prune.Options {
 			opts.NoContainers = true
 		case a == "--no-images":
 			opts.NoImages = true
-		case a == "--keep-images":
-			opts.KeepImages = nextInt(opts.KeepImages)
 		case a == "--no-image-cache":
 			opts.NoImageCache = true
 		case a == "--no-build-roots":
@@ -322,7 +404,20 @@ logs flags:
                       --lines=<n>).
   -f, --follow        Follow the log as it grows.
 
+status flags:
+` + outputFormatUsage + `
+
   --help, -h          Show this help.
+
+` + "`status --format json`" + ` carries the pid, the socket, whether the socket is
+ACCEPTING (an accept probe, not a protocol round trip) and a ` + "`healthy`" + ` verdict —
+the same conjunction the exit code uses, so you need not re-derive it.
+
+Examples:
+  yolo broker status                  # is the broker up and accepting?
+  yolo broker status --format json    # the same, for a script or an agent
+  yolo broker restart                 # cycle a wedged daemon
+  yolo broker logs -n 100             # the last 100 log lines
 
 The broker is a loophole: ` + "`yolo loopholes list`" + ` shows whether it is wired into
 this jail, and ` + "`yolo config-ref`" + ` documents the ` + "`loopholes`" + ` key that enables it.`
@@ -343,44 +438,76 @@ func runBroker(args []string) int {
 		sub = args[1]
 		rest = args[2:]
 	}
+	format, ok := parseOutputFormat("broker", args, os.Stderr)
+	if !ok {
+		return 2
+	}
 	deps := broker.CLIRealDeps()
+	deps.Format = format
 	switch sub {
 	case "status":
 		return broker.PrintStatus(deps)
-	case "stop":
-		return broker.Stop(deps)
-	case "restart":
-		return broker.Restart(deps)
-	case "logs":
-		// -n/--lines (default 50) and -f/--follow.
-		lines, follow := 50, false
-		for i := 0; i < len(rest); i++ {
-			a := rest[i]
-			switch {
-			case a == "-f" || a == "--follow":
-				follow = true
-			case a == "-n" || a == "--lines":
-				if i+1 < len(rest) {
-					i++
-					if n, err := strconv.Atoi(rest[i]); err == nil {
-						lines = n
-					}
-				}
-			case strings.HasPrefix(a, "-n"):
-				if n, err := strconv.Atoi(a[2:]); err == nil {
-					lines = n
-				}
-			case strings.HasPrefix(a, "--lines="):
-				if n, err := strconv.Atoi(a[len("--lines="):]); err == nil {
-					lines = n
-				}
-			}
+	case "stop", "restart", "logs":
+		// REFUSED, not ignored, on the three verbs that ACT. `status` is the only
+		// one that reports state; the others stop, cycle or tail, and answering a
+		// request for machine-readable output with prose is the failure the flag
+		// exists to prevent (outputformat.go).
+		if outfmt.IsJSON(format) {
+			// NO PIECE OF THIS MESSAGE MAY BEGIN WITH `--`:
+			// TestUsageListsEveryParsedFlag reads every string literal in a handler
+			// that starts with two dashes as a flag the handler PARSES, so a
+			// continuation line beginning "--format json` does." becomes a demand
+			// that the help document a flag spelled with a sentence in it.
+			fmt.Fprintf(os.Stderr, "yolo broker %s: --format json is not available here "+
+				"— this verb acts, it does not report state. Only `yolo broker "+
+				"status` reports, and it takes the flag.\n", sub)
+			return 2
 		}
-		return broker.Logs(deps, lines, follow)
+		return runBrokerAction(deps, sub, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Usage: yolo broker {status|stop|restart|logs}\n")
 		return 1
 	}
+}
+
+// runBrokerAction runs the three broker verbs that ACT rather than report:
+// stop, restart, and logs (with logs' own -n/--lines and -f/--follow parse).
+//
+// Split out of runBroker so the `--format json` refusal above is ONE branch
+// covering all three, instead of the same three-line guard copy-pasted into each
+// case — the shape where the fourth verb added later quietly gets no guard.
+func runBrokerAction(deps broker.CLIDeps, sub string, rest []string) int {
+	switch sub {
+	case "stop":
+		return broker.Stop(deps)
+	case "restart":
+		return broker.Restart(deps)
+	}
+	// logs: -n/--lines (default 50) and -f/--follow.
+	lines, follow := 50, false
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		switch {
+		case a == "-f" || a == "--follow":
+			follow = true
+		case a == "-n" || a == "--lines":
+			if i+1 < len(rest) {
+				i++
+				if n, err := strconv.Atoi(rest[i]); err == nil {
+					lines = n
+				}
+			}
+		case strings.HasPrefix(a, "-n"):
+			if n, err := strconv.Atoi(a[2:]); err == nil {
+				lines = n
+			}
+		case strings.HasPrefix(a, "--lines="):
+			if n, err := strconv.Atoi(a[len("--lines="):]); err == nil {
+				lines = n
+			}
+		}
+	}
+	return broker.Logs(deps, lines, follow)
 }
 
 const initUsage = `Usage: yolo init [--mount <path>]...
@@ -396,6 +523,11 @@ Flags:
                       Repeatable; also --mount=<path>.
   --help, -h          Show this help. Answered BEFORE anything is written:
                       asking what init does must not scaffold your project.
+
+Examples:
+  yolo init                           # scaffold this workspace
+  yolo init -m ~/datasets             # ... with ~/datasets mounted at /ctx/datasets
+  yolo init -m ~/notes:/ctx/kb        # ... at an explicit target
 
 Every key the generated file can carry is documented by ` + "`yolo config-ref`" + `; the
 user-level defaults every workspace inherits are ` + "`yolo init-user-config`" + `.`
@@ -440,6 +572,9 @@ untouched.
 
   --help, -h  Show this help. Answered before the file is written.
 
+Examples:
+  yolo init-user-config               # write this machine's defaults, once
+
 ` + "`yolo config-ref`" + ` documents every key; ` + "`yolo init`" + ` does the per-workspace half.`
 
 // runInitUserConfig runs `yolo init-user-config`.
@@ -465,6 +600,10 @@ and meaning. This is the schema document, and it is long — pipe it, or search 
 
   --help, -h  Show this help. The reference ITSELF is what a bare
               ` + "`yolo config-ref`" + ` prints; this only describes the command.
+
+Examples:
+  yolo config-ref                     # the whole schema (long — pipe it)
+  yolo config-ref | grep -n loopholes # find the section you need
 
 Scaffold the files it documents with ` + "`yolo init`" + ` and ` + "`yolo init-user-config`" + `.`
 
@@ -499,7 +638,21 @@ Subcommands:
                     exit non-zero, rather than silently reformatting a config file
                     you hand-wrote.
 
+Flags for ` + "`list`" + ` and ` + "`status`" + ` (the two that report state):
+` + outputFormatUsage + `
+
   --help, -h        Show this help.
+
+` + "`list --format json`" + ` gives one object per loophole with ` + "`state`" + ` ("active",
+"disabled", "inactive") and ` + "`reason`" + ` as SEPARATE fields, so you branch on the
+state instead of parsing "inactive (superseded)". ` + "`status --format json`" + ` gives
+each loophole's ` + "`state`" + ` and its doctor exit code, with ` + "`rc: null`" + ` for one that
+declares no self-check — which is not the same answer as ` + "`rc: 0`" + `.
+
+Examples:
+  yolo loopholes list                   # what is wired into this jail?
+  yolo loopholes list --format json     # the same, for an agent
+  yolo loopholes status                 # host-side: is each one healthy?
 
 The ` + "`loopholes`" + ` config key is documented in ` + "`yolo config-ref`" + `; a pack can ship one
 (` + "`yolo pack --help`" + `, the ` + "`loophole`" + ` kind).`
@@ -521,13 +674,29 @@ func runLoopholes(args []string) int {
 		sub = args[1]
 		rest = args[2:]
 	}
+	format, ok := parseOutputFormat("loopholes", args, os.Stderr)
+	if !ok {
+		return 2
+	}
 	deps := loopholes.RealDeps()
+	deps.Format = format
 	switch sub {
 	case "", "list":
 		return loopholes.List(deps)
 	case "status":
 		return loopholes.Status(deps)
 	case "enable", "disable":
+		// REFUSED, not ignored, on the verbs that ACT. enable/disable print a
+		// config block for a human to paste and exit non-zero; there is no state
+		// report to serialize, and accepting `--format json` here would answer a
+		// request for machine-readable output with prose — the exact failure the
+		// flag exists to prevent (outputformat.go).
+		if outfmt.IsJSON(format) {
+			fmt.Fprintf(os.Stderr, "yolo loopholes %s: --format json is not available "+
+				"here — this verb prints a config block to paste, it does not report "+
+				"state. `yolo loopholes list --format json` and `… status --format json` do.\n", sub)
+			return 2
+		}
 		if len(rest) < 1 {
 			fmt.Fprintf(os.Stderr, "Usage: yolo loopholes %s <name>\n", sub)
 			return 1
@@ -539,17 +708,28 @@ func runLoopholes(args []string) int {
 	}
 }
 
-const psUsage = `Usage: yolo ps
+const psUsage = `Usage: yolo ps [--format json]
 
 List the running yolo-* jails and the workspace each one is attached to, so you
 can tell whether ` + "`yolo`" + ` in this directory would ATTACH to a live jail or start a
-fresh one. Takes no flags beyond help.
+fresh one.
 
 The container runtime is resolved the same way a launch resolves it (YOLO_RUNTIME,
 then the ` + "`runtime`" + ` config key, then a platform probe), so on a Mac running Apple
 Container this lists that runtime's jails rather than an empty podman.
 
-  --help, -h  Show this help.
+Flags:
+` + outputFormatUsage + `
+  --help, -h               Show this help.
+
+The JSON carries one object per jail (name, status, workspace, and a problem
+string when it has one) plus an ` + "`enumerated`" + ` boolean. CHECK THAT BOOLEAN FIRST:
+false means the runtime could not be reached, which is a different state from an
+idle machine and must not be read as "no jails".
+
+Examples:
+  yolo ps                       # is a jail already up for this workspace?
+  yolo ps --format json         # the same, for a script or an agent
 
 ` + "`yolo prune`" + ` reclaims what the jails listed here have left behind.`
 
@@ -561,12 +741,55 @@ func runPs(args []string) int {
 	if answerHelp("ps", args, os.Stdout) {
 		return 0
 	}
+	// Parsed before the probes for the same reason help is: a rejected --format is
+	// misuse, and running the runtime queries first only to refuse afterwards
+	// spends the machine on an answer nobody gets. See outputformat.go.
+	format, ok := parseOutputFormat("ps", args, os.Stderr)
+	if !ok {
+		return 2
+	}
 	ws, err := os.Getwd()
 	if err != nil {
 		ws = "."
 	}
 	detect := func() string { return detectListingRuntime(ws) }
-	return psRun(psRealDeps(psRunCmd, detect))
+	return psRun(psRealDeps(psRunCmd, detect, format))
+}
+
+// checkOptions turns `yolo check`/`yolo doctor`'s argv into check's Options.
+// ok=false means the caller must return 2: a flag value was refused and the
+// reason is already on errw.
+//
+// SPLIT OUT OF runCheck SO THE WIRING IS TESTABLE, the same reason pruneOptions
+// and storesOptions exist. `check` cannot be driven end-to-end in a unit suite —
+// it probes the runtime, the nix daemon and, by default, runs a full image build
+// — so a line here that hands an option to the engine is a line no test would
+// miss the deletion of unless the assembly itself is inspectable. Format was
+// exactly that line. See TestCheckOptionsWiring.
+func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
+	opts := check.NewDefaultOptions()
+	opts.Color = true
+	// Before the sections, one of which is a nix image build: a rejected --format
+	// must not cost minutes. See outputformat.go.
+	format, ok := parseOutputFormat("check", args, errw)
+	if !ok {
+		return opts, false
+	}
+	opts.Format = format
+	// Parse flags. Only --build/--no-build are defined for check/doctor; any
+	// stray flag is ignored (typer would error, but the front door has already
+	// classified this as the check subcommand — the flag surface is tiny).
+	for _, a := range args {
+		switch a {
+		case "--no-build":
+			opts.Build = false
+		case "--build":
+			opts.Build = true
+		case "--accept-config-changes":
+			opts.AcceptConfigChanges = true
+		}
+	}
+	return opts, true
 }
 
 // detectListingRuntime resolves the runtime for the tolerant listing commands
@@ -772,8 +995,21 @@ Flags:
   --no-build               Skip the image build entirely. This is the fast preflight to run
                            after editing yolo-jail.jsonc, and the one to use inside a jail.
   --accept-config-changes  Pre-approve workspace config changes and record the host snapshot.
+` + outputFormatUsage + `
   --help, -h               Show this help. Answered before any section runs, so asking what
                            check does never triggers a nix build.
+
+The JSON document carries every GRADED finding — its section, its pass/warn/fail
+status, its message and its remediation note — plus the three counts. The dim
+informational lines and the section prose are not in it: they carry no grade to
+act on, and they stay in the text form, which is where they were written for a
+reader. ` + "`--format json`" + ` changes the rendering only: every section still runs,
+including the image build.
+
+Examples:
+  yolo check --no-build               # the fast preflight, and the one to use in a jail
+  yolo check --no-build --format json # the same findings, for a script or an agent
+  yolo doctor                         # the same command under its alias
 
 ` + "`yolo config-ref`" + ` is the schema the config sections validate against.`
 
@@ -788,20 +1024,9 @@ func runCheck(args []string) int {
 	if answerHelp("check", args, os.Stdout) {
 		return 0
 	}
-	opts := check.NewDefaultOptions()
-	opts.Color = true
-	// Parse flags. Only --build/--no-build are defined for check/doctor; any
-	// stray flag is ignored (typer would error, but the front door has already
-	// classified this as the check subcommand — the flag surface is tiny).
-	for _, a := range args {
-		switch a {
-		case "--no-build":
-			opts.Build = false
-		case "--build":
-			opts.Build = true
-		case "--accept-config-changes":
-			opts.AcceptConfigChanges = true
-		}
+	opts, ok := checkOptions(args, os.Stderr)
+	if !ok {
+		return 2
 	}
 	return check.Check(opts)
 }
