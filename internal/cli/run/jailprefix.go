@@ -138,7 +138,17 @@ func (o *Options) resolveJailPrefix(root string) (jailPrefix, bool) {
 // built checkout — with no policy on top of them.
 func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 	if prebuilt := prebuiltBinDir(root); o.PathExists(filepath.Join(prebuilt, "yolo-entrypoint")) {
-		return jailPrefix{binDir: prebuilt, shareDir: root}, true
+		// RESOLVED, not the path as spelled. paths.FlakeBundleDir is a SYMLINK to
+		// the generation `just install` last staged (internal/flakebundle), so the
+		// literal path names "whatever the newest install is" while the mount has
+		// to name one immutable directory. Two things follow from resolving here.
+		// The reap that decides which generations are still in use compares mount
+		// sources to generation directories, and a mount recorded through the
+		// symlink would read as "not in use" the moment the next install swapped
+		// it — the generation a jail is running from, selected for deletion. And
+		// the launch's own `Jail binaries:` line then names the generation, which
+		// is the thing that will still be true tomorrow.
+		return jailPrefix{binDir: resolveSymlinks(prebuilt), shareDir: resolveSymlinks(root)}, true
 	}
 	// STDERR, like every other launch notice and like the refusal just below
 	// (warnIfNoPacks states the rule): stdout belongs to the jailed command, so
@@ -183,6 +193,16 @@ func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 		shareDir: filepath.Join(prefix, "share", "yolo-jail"),
 		built:    true,
 	}, true
+}
+
+// resolveSymlinks is filepath.EvalSymlinks with the path itself as the fallback:
+// a path that cannot be resolved is reported as given, because this is a naming
+// improvement and must never turn into a way for a launch to fail.
+func resolveSymlinks(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // jailPrefixMountArgs emits the two `-v` pairs. Read-only on purpose: nothing in

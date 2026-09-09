@@ -37,6 +37,15 @@
 # Pass YOLO_BUNDLE_ARCHES to narrow it; `just install` sets the native arch, so
 # the build reuses the warm cache from the `go install` that just ran.
 #
+# NEVER HAND THIS THE LIVE BUNDLE PATH. It `rm -rf`s DEST (see the safety guard
+# below), and a launch bind-mounts <bundle>/bin/linux-<arch> into the jail as its
+# yolo binaries. A bind mount pins an INODE, not a path, so emptying that
+# directory deletes pid1 out from under every RUNNING jail — permanently, since a
+# live container's mounts cannot be repaired. `just install` therefore stages into
+# a fresh generation (`yolo internal bundle-dir --stage`) and swaps the stable
+# path afterwards; see internal/flakebundle. A release/Homebrew bundle has no such
+# constraint: nothing is mounting it.
+#
 # Usage: scripts/stage-source-bundle.sh <dest-dir>
 #   e.g. scripts/stage-source-bundle.sh bundle/share/yolo-jail
 #   YOLO_BUNDLE_ARCHES=amd64 scripts/stage-source-bundle.sh <dest-dir>

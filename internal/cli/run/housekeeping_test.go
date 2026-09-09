@@ -200,12 +200,47 @@ func TestSlotRunsEveryAutomaticClass(t *testing.T) {
 		"o.measureAndPurgeCache(reclaimConsent)",
 		"o.reapSmallAutomaticClasses(rt)",
 		"o.reapImageTars(rt)",
+		"o.reapFlakeBundleGenerations(rt)",
 	} {
 		if !strings.Contains(string(src), call) {
 			t.Errorf("the housekeeping slot no longer calls %s — that is a §5.2 automatic-tier "+
 				"row with no other collector", call)
 		}
 	}
+}
+
+// TestBundleGenerationReapAsksWhatIsRunning is the same call-site pin for the
+// bundle generations. internal/flakebundle proves Reap declines when liveness is
+// unknown; nothing there notices the launch path deciding it knows anyway, and
+// the regression deletes the directory some jail's pid1 is executing out of.
+func TestBundleGenerationReapAsksWhatIsRunning(t *testing.T) {
+	src, err := os.ReadFile("housekeeping.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := afterFunc(string(src), "func (o *Options) reapFlakeBundleGenerations(")
+	for _, want := range []string{"LivePrefixSources(", "if !known {", "flakebundle.Reap("} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("the bundle-generation pass no longer calls %s. Generations exist so a "+
+				"`just install` cannot delete a running jail's binaries; a reap that does not "+
+				"ask the runtime what is mounted puts that failure straight back.", want)
+		}
+	}
+}
+
+// afterFunc returns the source from a function's declaration to the next
+// top-level declaration, so a pin reads the function it names rather than the
+// whole file (where another pass's LivePrefixSources call would satisfy it).
+func afterFunc(src, decl string) string {
+	i := strings.Index(src, decl)
+	if i < 0 {
+		return ""
+	}
+	rest := src[i+len(decl):]
+	if j := strings.Index(rest, "\nfunc "); j >= 0 {
+		return rest[:j]
+	}
+	return rest
 }
 
 // TestStoreOutputReapAsksWhatIsRunning is the call-site pin for the upgrade

@@ -116,7 +116,21 @@ the layout those two halves have to agree on is pinned across the two languages
 by `run.TestFlakeAndLauncherAgreeOnThePrefixLayout`.
 
 **Host ship set is just `{yolo}`** — `just install` runs `go install ./cmd/yolo`
-and nothing else. The other four are image-side only.
+and nothing else. The other four are image-side only. What it also does is
+**publish a flake-bundle GENERATION**: it stages into a fresh
+`~/.local/share/yolo-jail/flake-bundles/<stamp>/` and swaps the stable
+`flake-bundle` symlink at it (`yolo internal bundle-dir --stage` / `--activate`,
+`internal/flakebundle`). It used to `rm -rf` the stable path and restage in
+place, which **deleted pid1 out from under every RUNNING jail** — a launch binds
+`<bundle>/bin/linux-<arch>` at `/opt/yolo-jail/bin` and a bind mount pins an
+inode, not a path, so the container was left mounted on an emptied directory and
+every later entry died as
+`stat /opt/yolo-jail/bin/yolo-entrypoint: no such file or directory`, forever
+(measured 2026-09-09: a jail up since +1114, bricked by the install that took the
+host to +1160). Generations are collected in the housekeeping slot by LIVENESS,
+never by age — the tri-state rule every reaper here follows, because
+"unreferenced" and "I could not ask the runtime" are the same empty answer. Never
+hand `scripts/stage-source-bundle.sh` the stable path.
 
 **Daemons are subcommands, not separate binaries.** Host daemons are hidden
 self-exec subcommands of `yolo`:

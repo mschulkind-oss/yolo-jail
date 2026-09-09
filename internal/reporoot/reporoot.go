@@ -89,9 +89,11 @@ type Resolution struct {
 //     release-archive installs and the in-jail baked /opt/yolo-jail prefix — with
 //     one method and one set of paths.
 //  3. State-dir bundle: paths.FlakeBundleDir (GlobalStorage/flake-bundle), what a
-//     from-source `just install` stages so the install is SELF-CONTAINED —
+//     from-source `just install` publishes so the install is SELF-CONTAINED —
 //     resolvable from any cwd. Last because a real distribution bundle (step 2)
-//     ships with the binary that is running.
+//     ships with the binary that is running. Read through as an ordinary
+//     directory: it is a symlink to the generation the last install staged
+//     (internal/flakebundle), and nothing here needs to care which.
 func Resolve(getenv func(string) string) (Resolution, bool) {
 	// 1. Env override, validated for source.
 	if env := getenv("YOLO_REPO_ROOT"); env != "" {

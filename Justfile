@@ -105,10 +105,21 @@ install:
     # builds both amd64+arm64, but a LOCAL install runs on one host — building the
     # foreign arch is a cold cross-compile of the whole module graph. Narrow to
     # this host's arch, reusing the warm cache from the `go install` just above.
+    #
+    # STAGE INTO A FRESH GENERATION, THEN SWAP — never over the live path. A
+    # launch mounts <bundle>/bin/linux-<arch> into the jail as its yolo binaries,
+    # and a bind mount pins an inode rather than a path, so the staging script's
+    # `rm -rf $DEST` used to delete pid1 out from under every RUNNING jail:
+    # measured 2026-09-09, a jail up since +1114 was bricked by the install that
+    # took the host to +1160, and stayed bricked. `--stage` prints a new
+    # generation dir, `--activate` points the stable path at it atomically, and
+    # jails still mounting an older generation keep working until they exit
+    # (internal/flakebundle; the housekeeping slot collects the rest).
     YOLO_BIN="$GOBIN_DIR/yolo"
-    BUNDLE_DIR="$("$YOLO_BIN" internal bundle-dir)"
-    echo "Staging flake bundle (linux/$(go env GOARCH)) → $BUNDLE_DIR"
-    YOLO_BUNDLE_ARCHES="$(go env GOARCH)" ./scripts/stage-source-bundle.sh "$BUNDLE_DIR"
+    BUNDLE_GEN="$("$YOLO_BIN" internal bundle-dir --stage)"
+    echo "Staging flake bundle (linux/$(go env GOARCH)) → $BUNDLE_GEN"
+    YOLO_BUNDLE_ARCHES="$(go env GOARCH)" ./scripts/stage-source-bundle.sh "$BUNDLE_GEN"
+    "$YOLO_BIN" internal bundle-dir --activate "$BUNDLE_GEN"
 
     # Warn if PATH resolves `yolo` to some other install (a Homebrew copy, say)
     # — go install would have succeeded while the old binary still wins.

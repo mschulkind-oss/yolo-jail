@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostmigrate"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
@@ -49,14 +51,60 @@ func runInternal(args []string) int {
 	case "migrate-host":
 		return runMigrateHost(args[1:])
 	case "bundle-dir":
-		// The self-contained flake-bundle staging dir, printed so `just install`
-		// stages into the ONE path reporoot.Resolve consults (paths.FlakeBundleDir)
-		// rather than recomputing it — the drift that once aimed `rm -rf` at the
-		// state dir. Prints the path and nothing else.
-		fmt.Println(paths.FlakeBundleDir())
-		return 0
+		// The flake-bundle paths `just install` stages through, printed so the
+		// recipe never recomputes them — the drift that once aimed `rm -rf` at the
+		// state dir. See runBundleDir for the three forms.
+		return runBundleDir(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
+		return 2
+	}
+}
+
+// runBundleDir is the `yolo internal bundle-dir` family: the three paths a
+// from-source `just install` needs, each printed by the binary that resolves it
+// rather than recomputed by the recipe.
+//
+//	(no args)         the STABLE path reporoot.Resolve consults, and what a
+//	                  launch mounts through. Unchanged, and still the answer for
+//	                  anything that just wants to find the bundle.
+//	--stage           a fresh, empty GENERATION directory to stage into.
+//	--activate <dir>  point the stable path at that generation, atomically.
+//
+// Why an install is three steps rather than one `rm -rf` + restage: a launch
+// mounts <bundle>/bin/linux-<arch> into the jail, a bind mount pins an inode,
+// and rewriting that directory in place therefore deletes the binaries out from
+// under every RUNNING jail. See internal/flakebundle.
+func runBundleDir(args []string) int {
+	stable := paths.FlakeBundleDir()
+	switch {
+	case len(args) == 0:
+		fmt.Println(stable)
+		return 0
+	case args[0] == "--stage":
+		dir, err := flakebundle.StageDir(stable, time.Now(), os.Getpid())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "yolo internal bundle-dir:", err)
+			return 1
+		}
+		fmt.Println(dir)
+		return 0
+	case args[0] == "--activate" && len(args) == 2:
+		migrated, err := flakebundle.Activate(stable, args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "yolo internal bundle-dir:", err)
+			return 1
+		}
+		// The migration is announced because it is a one-time, invisible move of
+		// a directory that running jails are mounting, and a human who sees an
+		// unexplained flake-bundles/legacy-* later deserves to have been told.
+		if migrated != "" {
+			fmt.Fprintf(os.Stderr, "Preserved the previous bundle as %s "+
+				"(jails running right now are still mounting it).\n", migrated)
+		}
+		return 0
+	default:
+		fmt.Fprintln(os.Stderr, "usage: yolo internal bundle-dir [--stage | --activate <dir>]")
 		return 2
 	}
 }

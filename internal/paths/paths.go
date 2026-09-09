@@ -563,10 +563,18 @@ func PackageRootsDir() string { return filepath.Join(BuildDir(), "package-roots"
 // path, and nothing in internal/prune, reads or writes here.
 func StoreSamplesDir() string { return filepath.Join(GlobalStorage(), "stores") }
 
-// FlakeBundleDir is where a from-source `just install` stages the self-contained
-// flake bundle (flake.nix + flake.lock + prebuilt bin/linux-<arch>/) so an
-// installed `yolo` builds the jail image with no source checkout — the
-// "installs are self-contained" guarantee. reporoot.Resolve consults it.
+// FlakeBundleDir is the STABLE path at which a from-source `just install`
+// publishes the self-contained flake bundle (flake.nix + flake.lock + prebuilt
+// bin/linux-<arch>/) so an installed `yolo` builds the jail image with no source
+// checkout — the "installs are self-contained" guarantee. reporoot.Resolve
+// consults it.
+//
+// It is a SYMLINK into flake-bundles/<stamp>, not a directory an install
+// rewrites: a launch mounts <bundle>/bin/linux-<arch> into the jail as its yolo
+// binaries, and a bind mount pins an inode, so staging over this path deleted
+// pid1 out from under every running jail. internal/flakebundle owns the
+// generations and the swap; nothing that merely READS the bundle needs to know,
+// which is why this stayed one path.
 //
 // It is a DEDICATED LEAF under GlobalStorage, deliberately NOT derived from the
 // binary's install dir. The first cut computed it as $(dirname $GOBIN)/share/

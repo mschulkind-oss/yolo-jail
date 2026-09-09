@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
@@ -132,6 +133,7 @@ func (o *Options) runHousekeeping(rt string, reclaimConsent bool) {
 		o.measureAndPurgeCache(reclaimConsent)
 		o.reapSmallAutomaticClasses(rt)
 		o.reapImageTars(rt)
+		o.reapFlakeBundleGenerations(rt)
 	})
 }
 
@@ -362,6 +364,46 @@ func (o *Options) reapSmallAutomaticClasses(rt string) {
 	if dirs+gens > 0 {
 		o.housekeepingNote("small classes: reclaimed %d agent staging dir(s), %d loophole state generation(s)",
 			dirs, gens)
+	}
+}
+
+// reapFlakeBundleGenerations collects the staged flake-bundle generations no
+// running jail is mounting.
+//
+// It is the collector the generations design owes: `just install` no longer
+// rewrites the bundle in place (which deleted a running jail's binaries — see
+// internal/flakebundle), it stages a new generation and swaps a symlink, so the
+// old ones accumulate instead. One generation is ~200 MB of binaries.
+//
+// SAME TRI-STATE AS EVERY OTHER REAP HERE, and for the sharpest version of the
+// reason: the thing being deleted is the directory some jail's pid1 is executing
+// out of. LivePrefixSources asks the runtime which directory each live container
+// mounts at /opt/yolo-jail/bin; if it cannot answer, this declines and does not
+// stamp, so the next launch retries.
+//
+// Host-only. In-jail, the state dir is the jail's own and holds no generations a
+// host install staged.
+func (o *Options) reapFlakeBundleGenerations(rt string) {
+	if o.inJail() {
+		return
+	}
+	if o.Getenv(autoReapOptOutEnv) != "" {
+		return
+	}
+	due, done := o.classDebounce("bundle-generations")
+	if !due {
+		return
+	}
+	run := o.pruneRunFunc()
+	live := prune.LiveYoloContainers(rt, run)
+	sources, known := prune.LivePrefixSources(rt, live, prune.PrefixBinMountDest, run)
+	if !known {
+		return // not stamped: the next launch retries
+	}
+	removed := flakebundle.Reap(paths.FlakeBundleDir(), sources, known, true, o.Now())
+	done()
+	if len(removed) > 0 {
+		o.housekeepingNote("flake bundle: reclaimed %d superseded generation(s)", len(removed))
 	}
 }
 
