@@ -8,10 +8,11 @@ summary: "A ten-entry list of recently-loaded nix store paths protects two diffe
 
 # The load sentinel is not a liveness oracle
 
-**Status:** ACCEPTED, 2026-09-09. **No open questions.** LS1 and LS2 are ruled and built
-(`93f21f07`, `3c9e8de9`); LS3 is ruled and unbuilt — its mechanism is [§6.2](#62-retention-after-the-two-rulings),
-and it was blocked for a day on a grouping key that turned out not to be needed. All three are
-compacted into [§11.1](#111-decision-ledger).
+**Status:** ACCEPTED, 2026-09-09 — **all three rulings are now BUILT** (`93f21f07`, `3c9e8de9`,
+`ae190ac4`). **No open questions.** LS3's mechanism shipped as
+[§6.2](#62-retention-after-the-two-rulings) describes it, after being blocked for a day on a
+grouping key that turned out not to be needed. All three are compacted into
+[§11.1](#111-decision-ledger).
 
 **The short version.** `build/last-load-<runtime>` is a ten-entry, most-recent-last list
 of nix store paths, appended to on every successful launch. Two reapers treat membership
@@ -266,9 +267,38 @@ like `--keep-images` is nothing — there is no depth for it to bound.
 > beat. See [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md)
 > [§4](./layer-aware-image-delivery.md#4-what-it-costs).
 
-Until the pointers exist, the global `keep=2` stays as a crude proxy: it approximates "two configs'
-current images" and is wrong in both directions on a machine with four workspaces. **It is replaced
-by them, not tuned:** the pointer set is the retention rule, and `--keep-images` goes away with it.
+**BUILT, `ae190ac4`.** `internal/prune/currentimages.go` is the pointer — one file per workspace
+under `BuildDir()/current-images/`, holding the store path and the workspace that recorded it —
+and `internal/cli/run/currentimage.go` is the launch-side write, under the same machine-wide
+housekeeping lock [OQ-BF5](disk-levers-and-backfill.md#111-decision-ledger) gave the load path.
+`PruneOldImages` lost its `keep` parameter, `OldImagesToRemove` and `DefaultKeepImages` were
+deleted, and `--keep-images` REFUSES rather than being silently ignored (`pruneOptions` has no
+default case, so an ignored `--keep-images 8` would reclaim on the new rule with no sign the number
+did nothing). **It was replaced by them, not tuned.**
+
+Four things the build settled that this section did not say:
+
+- **The pointers live under `BuildDir()`, not in `<workspace>/.yolo`.** A single pointer read by its
+  own workspace would sit there happily; the REAPER needs the union, and it has no way to enumerate
+  workspaces that is not itself a registry — the runtime's container list loses a row to `yolo
+  prune`'s own stale-container sweep minutes earlier in the same run, and the per-container tracking
+  files are deleted for every container that is not RUNNING. So they are host state keyed by the
+  deterministic container name, the shape `paths.ApprovalsDir` already argues for, and a sibling of the sentinel and the GC roots.
+- **The tri-state is the migration.** No honoured pointer ⇒ `known=false` ⇒ the pass DECLINES
+  ([OQ-LS2](#111-decision-ledger)), which is exactly the state an upgraded machine is in before its
+  first launch: nothing is reaped on the strength of an absence, and `yolo prune` exits non-zero
+  naming the missing evidence plus what supplies it.
+- **A pointer whose workspace is gone protects nothing, and its file is kept anyway.** A deleted
+  workspace has no configuration, so there is nothing to retain for it; the ~100-byte file stays
+  because a workspace can be temporarily absent and deleting it would cost the same re-stream it
+  would save.
+- **Measured, on the maintainer's jail-local podman store (2026-09-09).** With 8 distinct
+  `yolo-jail` images across 12 rows, the old rule (`keep=2` plus the sentinel's LRU-10 veto) evicted
+  **3**; the pointer rule with the two pointers real launches had written evicts **6**. Earlier the
+  same day, at 14 images, the same comparison was **4** against **13** (one pointer) and **10**
+  (four). So the pointer rule reclaims MORE, not less — the LRU, not `keep`, was doing the retaining
+  ([`disk-levers-and-backfill.md` §2.2](disk-levers-and-backfill.md) said so), and this is the ⚠
+  above in numbers: one-per-config is the FLOOR.
 
 ## 7. What this does NOT propose
 
@@ -276,10 +306,10 @@ by them, not tuned:** the pointer set is the retention rule, and `--keep-images`
   the load diagnosis.
 - **Not changing the ten-entry cap, the 24-hour debounce, or `keep=2`.** Those are
   disk-retention dials; once liveness is separate, they stop being safety mechanisms and can be
-  tuned on their merits — or left alone. ⚠ **`keep` is the exception, and the ruling moved after
-  this list was written:** [OQ-LS3](#111-decision-ledger) replaces it with the per-workspace pointer
-  set of [§6.2](#62-retention-after-the-two-rulings) rather than tuning it, and that work waits on
-  nothing (see the roadmap's 📦 section).
+  tuned on their merits — or left alone. ⚠ **`keep` was the exception, and the ruling moved after
+  this list was written:** [OQ-LS3](#111-decision-ledger) REPLACED it with the per-workspace pointer
+  set of [§6.2](#62-retention-after-the-two-rulings) rather than tuning it — built `ae190ac4`, so
+  there is no `--keep-images` and no `DefaultKeepImages` left to tune.
   **The age floor DOES change**, and that is [OQ-LS1](#111-decision-ledger)'s ruling rather than an exception
   to this list: for Consumer A the floor stops being a race guard and becomes the whole policy,
   at a week instead of an hour.
@@ -322,12 +352,13 @@ is simply nothing to reclaim.
 
 Only then, if disk is still a problem, revisit the retention dials — with the safety question
 answered somewhere else, they become ordinary tuning — except `keep`, which
-[OQ-LS3](#111-decision-ledger) replaces outright with [§6.2](#62-retention-after-the-two-rulings)'s
-pointer set, and which the layer plan's own step 1 now waits on rather than the reverse.
+[OQ-LS3](#111-decision-ledger) replaced outright with [§6.2](#62-retention-after-the-two-rulings)'s
+pointer set (built `ae190ac4`), and which the layer plan's own step 1 was waiting on rather than the
+reverse.
 
 ## 11. Decisions
 
-All three are ruled; two are built. LS3's mechanism is [§6.2](#62-retention-after-the-two-rulings).
+All three are ruled and built. LS3's mechanism is [§6.2](#62-retention-after-the-two-rulings).
 The rulings' arguments live in the body sections they govern — [§5.3](#53-why-the-age-floor-does-not-cover-it--as-written)
 and [§6](#6-the-proposal) for LS1, [§6.1](#61-the-holes-answered) for LS2 — and the refuted
 positions are kept there as warnings rather than as history.
@@ -338,7 +369,7 @@ positions are kept there as warnings rather than as history.
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-LS1 | **NO liveness veto for the GC-root reaper — an age cutoff at ONE WEEK, and a size cap only after age.** Ruled AGAINST the leaning: the question is a prediction about future want, and liveness is a wrong predictor in both directions (a jail stopped five seconds ago is not live; a jail up three weeks pins a closure nobody will build again). `PruneOrphanImageRoots` loses its `protected` set and its `liveKnown` gate; P3 stops applying to that consumer rather than being weakened, because an age policy reads mtime off the link and has no authority it could fail to reach | 2026-09-08 | [§5.3](#53-why-the-age-floor-does-not-cover-it--as-written), [§6](#6-the-proposal) | ✅ `93f21f07` |
 | OQ-LS2 | **A decline says so: an ERROR where the user asked, and nothing where they did not.** `yolo prune` exits non-zero naming the missing evidence; the automatic path records it; a debounced pass stays silent and carries no reason. The proposed "one dim line" was refused as the wrong volume — the only routine case says nothing at all. The candidate listing moved BEFORE the guards so that "declined" means "prevented work" rather than "fresh machine" | 2026-09-08 | [§6.1](#61-the-holes-answered) | ✅ `3c9e8de9` |
-| OQ-LS3 | **`keep` is the wrong MECHANISM, not the wrong number — and there is NO undo.** The window is global (`OldImagesToRemove` sorts every row by `Created` and keeps the newest N, with no notion of a workspace or a config), so on four workspaces two images are evicted per pass however recently each was used. The unit becomes the CONFIGURATION, and the superseded-per-config count is **zero**: *"I don't know that I've ever rolled back, only evolved forward."* `keep` is podman IMAGES only; nix roots are [OQ-LS1](#111-decision-ledger)'s duration policy | 2026-09-08, sharpened 2026-09-09 | [§6](#6-the-proposal) |
+| OQ-LS3 | **`keep` is the wrong MECHANISM, not the wrong number — and there is NO undo.** The window was global (`OldImagesToRemove` sorted every row by `Created` and kept the newest N, with no notion of a workspace or a config), so on four workspaces two images were evicted per pass however recently each was used. The unit is the CONFIGURATION, and the superseded-per-config count is **zero**: *"I don't know that I've ever rolled back, only evolved forward."* `keep` is podman IMAGES only; nix roots are [OQ-LS1](#111-decision-ledger)'s duration policy | 2026-09-08, sharpened 2026-09-09 | [§6.2](#62-retention-after-the-two-rulings) | ✅ `ae190ac4` |
 
 > [!WARNING]
 > **LS2's "loud" does NOT mean the terminal.** The automatic path's notices went to stdout, then to

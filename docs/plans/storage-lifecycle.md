@@ -168,7 +168,11 @@ and the host.
 1. Hardlink dedup across workspace overlays (`prune.go`, atomic link-to-tmp-rename).
 2. Stopped `yolo-*` containers.
 3. Orphaned broker relays (tri-state live-gated).
-4. Old `yolo-jail` images in the runtime (`--keep-images 2`).
+4. Old `yolo-jail` images in the runtime — **each workspace's CURRENT image is kept and nothing
+   else** (`currentimages.go`, one pointer per workspace, union'd with the `podman ps` veto).
+   `--keep-images` was removed by
+   [OQ-LS3](../design/the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) and now
+   refuses.
 5. **Cached image tarballs** (`imagecache.go` `PruneImageCache`, `--image-cache-keep 3`;
    always sweeps `.tmp`).
 6. Orphaned build-root generations (`sweep.go`, live-gated + 1h floor, fail-safe).
