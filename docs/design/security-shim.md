@@ -1,11 +1,12 @@
 # Security Shim Architecture
 
-**Status:** REFERENCE — describes the shipped trust model. **Spot-verified
-2026-08-23:** the four components still exist and the three-operation cgroup
-protocol holds (`internal/cgd/cgd.go:170-205`, 212 lines of **Go**); the
-port-forward bridge is still `socat UNIX-LISTEN → TCP:127.0.0.1:<port>`
-(`internal/cli/run/network.go:14`); the approval snapshot still lives outside the
-workspace (`internal/paths/paths.go:334-353`, `ApprovalsDir`). **What was wrong
+**Status:** REFERENCE — describes the shipped trust model. **Re-verified
+2026-09-09** (previously 2026-08-23; `ApprovalsDir` had moved, so it is named by
+symbol now rather than by line): the four components still exist and the
+three-operation cgroup protocol holds (`internal/cgd/cgd.go:170-205`, 212 lines
+of **Go**); the port-forward bridge is still `socat UNIX-LISTEN →
+TCP:127.0.0.1:<port>` (`internal/cli/run/network.go:14`); the approval snapshot
+still lives outside the workspace (`ApprovalsDir`, `internal/paths/paths.go`). **What was wrong
 and is fixed below (2026-08-23):** every filename in this doc was Python
 (`cli.py`, `entrypoint.py`) — *the codebase has been Go since the port and there
 is not one `.py` file left*; the TCB was sized in "lines of Python"; and Future

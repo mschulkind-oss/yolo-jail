@@ -8,8 +8,12 @@ summary: "Claude Code speaks exactly one wire protocol, and Cerebras serves exac
 
 # The wire bridge — claude on chat-completions providers, without leaving the jail
 
-**Status:** IMPLEMENTED, 2026-09-05 (`b30ed971` — the bridge, the needs vocabulary, the
-service kind; verified in a real jail against the real upstream). Every open question was
+**Status:** IMPLEMENTED, 2026-09-05 — verified in a real jail against the real upstream.
+**Re-stamped 2026-09-09: the single commit this line used to cite (`b30ed971`) resolves in no
+repo; the work shipped as four** — `35f149e3` (the `needs` vocabulary), `ab583ec6` (the
+translation half), `7bedef70` (the `service` kind + the daemon) and `434189dd` (`packs/wire-bridge`
++ cerebras). Live in the tree at `internal/wirebridge`, `internal/wirebridged` and
+`packs/wire-bridge/pack.json`. Every open question was
 ruled by the maintainer (Decision Ledger, below) and two build-time corrections are
 recorded as warnings ([§5](#5-lifecycle-key-channel-and-failure-behavior) witness, [§6](#6-consequences-for-packscerebras-and-one-reversed-ruling) copilot). Graduation to a `system-doc` reference is
 the natural next pass. Answers [`OQ-1`](./cerebras-pack-and-copilot-delivery.md#open-questions) of

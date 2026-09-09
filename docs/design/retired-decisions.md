@@ -1,7 +1,13 @@
 # Retired decisions
 
-**Status:** LIVING RECORD, three entries, last touched 2026-08-17. Append-only in practice: an entry
-leaves only if the decision is *reversed*, and then it leaves with a note saying so.
+**Status:** LIVING RECORD, three entries; re-read against the tree 2026-09-09 (the previous stamp's
+*"last touched 2026-08-17"* was already false — a link pass touched the file on 2026-09-06 — so the
+form is dropped rather than updated). Append-only in practice: an entry leaves only if the decision
+is *reversed*, and then it leaves with a note saying so. **One forward statement in Thread A has
+since been overtaken by its own shape:** what shipped is not a separate `claude-bedrock` pack but a
+`bedrock` provider + profile + `config-overlay` *inside* `packs/claude` (`packs/claude/pack.json`),
+which is the profiles-as-pack-variants answer to the same problem — the three retirements the thread
+records are unaffected.
 
 > [!NOTE]
 > **Three entries in six weeks is suspiciously few**, given how many rulings the design docs record

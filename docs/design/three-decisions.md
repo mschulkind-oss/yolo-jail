@@ -4,7 +4,14 @@
 > For how the pack system works today read [pack-system.md](pack-system.md); this doc is
 > kept only as the argument that produced those answers.
 
-**Status:** design, 2026-07-26. Answers *"tell me more about these 3 decisions"* under the
+**Status:** design, 2026-07-26 — **ARGUMENT RECORD, nothing here is pending (re-checked
+2026-09-09).** All three decisions shipped ([pack-system.md](pack-system.md) is the design of
+record), and the [*"Still needs a human ruling"*](#still-needs-a-human-ruling) list at the end is
+spent: its first item was answered in-place on 2026-07-26, and the other three were answered the
+same day as rulings 2, 4 and 1 of
+[`../plans/open-rulings.md`](../plans/open-rulings.md) (*"ALL FOUR ANSWERED"*) — read that section as
+history, not as a queue.
+Answers *"tell me more about these 3 decisions"* under the
 now-fixed target: **no Go-owned agents at all; agent support exists only as official packs
 shipped with yolo; a default jail has no agent.**
 

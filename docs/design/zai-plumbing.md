@@ -8,8 +8,14 @@ summary: "The first real consumer of profiles-as-pack-variants: what it takes to
 
 # Z.ai plumbing: one provider, every agent
 
-**Status:** DECIDED, 2026-09-01 — every question this doc asked is settled (ledger, [§8](#8-decision-ledger));
-implementation rides the parent doc's build order.
+**Status:** DECIDED, 2026-09-01 — every question this doc asked is settled (ledger, [§8](#8-decision-ledger)) — **and
+BUILT, verified against the tree 2026-09-09** (the previous stamp still read *"implementation rides
+the parent doc's build order"*, which had been true for a day). `packs/zai/pack.json` ships the
+`provider` + `profile` pair, the missing-credential refusal is `internal/cli/run/providerpreflight.go`,
+and per-agent selection landed for pi and opencode (`6d1d7c54`, pinned by
+`internal/entrypoint/pioencodeselection_test.go`), which retires [§6](#6-shipped-vs-proposed)'s last *"still proposed"*
+cell. The one residue is the explicit-disable option [`providers.md`](../reference/providers.md)'s own
+build order still lists as unbuilt, and it belongs to that doc rather than this one.
 
 > [!NOTE]
 > **Follow-up, 2026-09-01:** a review of the shipped implementation found three defects at the

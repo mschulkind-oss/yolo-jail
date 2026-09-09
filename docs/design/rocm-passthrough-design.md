@@ -1,13 +1,15 @@
 # Design: AMD ROCm GPU Passthrough for yolo-jail
 
-**Status:** ✅ **SHIPPED** — re-checked against the tree 2026-08-23. Written as a draft on
-2026-06-05; the body's future tense is the design as proposed and has not been rewritten.
+**Status:** ✅ **SHIPPED** — re-checked against the tree 2026-09-09 (previously 2026-08-23; the
+three anchors below had all drifted and are now named by symbol, which does not rot). Written as
+a draft on 2026-06-05; the body's future tense is the design as proposed and has not been
+rewritten.
 **What exists today:** `gpu.vendor` accepts `nvidia` or `amd` and refuses anything else
-(`internal/config/validate.go:882-903`, including the `mode`/`capabilities` rules that apply to
+(`internal/config/validate.go`, including the `mode`/`capabilities` rules that apply to
 only one vendor), the host probe is `rocmHostAvailable` — amdgpu module + `/dev/kfd` + a render
-node, with a functional `rocminfo` when present (`internal/cli/run/hostprobes.go:59-61`) — and
+node, with a functional `rocminfo` when present (`internal/cli/run/hostprobes.go`) — and
 `yolo check` has its own AMD section walking `/dev/kfd` and `/dev/dri/renderD*`
-(`internal/cli/check/sections_devices.go:139-205`).
+(`sectionGPUAmd`, `internal/cli/check/sections_devices.go`).
 
 > [!NOTE]
 > **The AMD section guards both of its checks for in-jail use; its NVIDIA twin does not.** That

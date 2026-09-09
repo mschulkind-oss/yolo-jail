@@ -1,6 +1,14 @@
 # Third-party agent packs: how logic actually ships
 
-**Status:** design, 2026-07-26. Answers: *"I definitely want third party agent packs. How
+**Status:** design, 2026-07-26 — **half shipped, half parked, re-checked against the tree
+2026-09-09.** Tier 1 (declarative projection) is live as the pack `derive` slot
+([`pack-system.md` §7](pack-system.md#7-the-derive-slot)); **tier 2, the subprocess projector, was
+ruled NOT NEEDED and stays designed-and-unbuilt** — `BACKLOG.md` C7 (`grep -c projector internal/`
+is 0), which also parks D7. Two premises below have expired: [§0](#0-first-cant-be-go-was-too-fast-and-the-reason-matters)'s `goSrc` fileset no longer
+includes `bundled_loopholes/` (deleted 2026-08-19), and [§2.3](#23-trust)'s *"one new gate"* rests on the
+fetched-pack approval prompt that [`trust-paths.md`](trust-paths.md)'s
+[`OQ-TP9`](trust-paths.md#decision-ledger) deleted as theatre on 2026-09-04.
+Answers: *"I definitely want third party agent packs. How
 would we design this exactly? Why so immediately 'can't be Go'? Can't we design some
 protocol? Give some build system allowance? Require a nix package? Require something from
 mise?"*
