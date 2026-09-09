@@ -201,7 +201,7 @@ func TestSlotRunsEveryAutomaticClass(t *testing.T) {
 		"o.autoReapOldImages(rt)",
 		"o.reapSupersededStoreOutputs(rt)",
 		"o.measureAndPurgeCache(reclaimConsent)",
-		"o.reapSmallAutomaticClasses(rt)",
+		"o.reapSmallAutomaticClasses(rt, cname)",
 		"o.reapImageTars(rt)",
 		"o.reapFlakeBundleGenerations(rt)",
 	} {
