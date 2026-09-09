@@ -30,7 +30,7 @@ doc was materially incomplete about every one of them:
 | :--- | :--- | :--- |
 | **FIXED** | pack `launch` contributions never applied (`dc1349a6`) | [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
 | **WARNED** | pack `state` at `scope: workspace` is machine-wide here (`8ab03d2e`) | [§3.1](#31-bind-mounts--none-exist) |
-| **WARNED** | briefings + skills, including the built-in suite, are never delivered (`6a53a2a3`) | [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
+| **WARNED**, then **FIXED 2026-09-03** | briefings + skills, including the built-in suite, were never delivered (`6a53a2a3`) — content delivery landed as a host-composed home overlay copied over the sandbox home; the surviving warning is the narrow one, an overlay *missing* at boot | [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
 | **WARNED** | `lsp_servers` binaries never install (`6a53a2a3`) | Part 2 retraction, [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
 | **WARNED** | `resources` are not enforced (`8ab03d2e`) | [§3.2](#32-resource-limits--no-cgroups) |
 | **WARNED** | `cache_relocations` are not implemented — and the symlink workaround is **false** (`8ab03d2e`) | [§3.1](#31-bind-mounts--none-exist) |
@@ -230,7 +230,7 @@ pure functions of `*Env`. So the per-workspace config surface is preserved:
 | git identity | ✅ | host git config → `YOLO_GIT_*` → `configureGit` (host creds never cross) |
 | `macos_log` | ✅ | the `yolo-log` helper (Apple unified-logging bridge): `off`/`user`/`full` |
 | pack `launch` flags | ✅ | **FIXED 2026-08-24** (`dc1349a6`) — hoisted above the dispatch, see [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
-| briefings + skills (incl. built-ins) | ❌ | **never delivered** — WARNED 2026-08-24, see [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
+| briefings + skills (incl. built-ins) | ✅ | **DELIVERED since 2026-09-03**, by COPY rather than by mount (`buildMacosHomeOverlay` → `YOLO_DARWIN_HOME_OVERLAY` → `InstallHomeOverlay`). Was ❌ *never delivered*, WARNED 2026-08-24. Two residual differences, not gaps: the copy is WRITABLE where the container's bind is `:ro`, and the home is machine-wide. See [§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc) |
 | pack `state`, scope `workspace` | ⚠️ | one shared home, so **machine-wide** here — WARNED 2026-08-24, see [§3.1](#31-bind-mounts--none-exist) |
 
 > **The `packs` row was a ✅ that had never been true, and the correction is worth keeping
@@ -557,8 +557,19 @@ three of them — this section is where the `runContainer`-only class collects.
   flags: both in-jail launcher templates end `exec "$REAL_BIN" "$@"` and never read the
   contributions. All verified 2026-08-24.
 
-- **Briefings and skills** → **never delivered; WARNED since 2026-08-24** (`6a53a2a3`). This is
-  the largest capability gap on this backend. `PrepareSkills` and the briefing composition both
+- **Briefings and skills** → ✅ **DELIVERED since 2026-09-03, by COPY.** This *was* the largest
+  capability gap on this backend, and the paragraph below describes the gap as it stood on
+  2026-08-24 — kept because it is why the fix had to be a delivery mechanism rather than the
+  one-line hoist the `launch` flags got. What closed it: the host composes the same skills trees and
+  briefing bodies the container path composes and lays them out by destination
+  (`buildMacosHomeOverlay`), the launch stages that tree and names it in
+  `YOLO_DARWIN_HOME_OVERLAY`, and the boot copies it over the sandbox home (`InstallHomeOverlay`).
+  ⚠ **A copy is not a mount, and the two differences are permanent rather than pending:** the
+  delivered files are WRITABLE where the container's bind is `:ro`, and the sandbox home is
+  machine-wide. The one surviving warning is an overlay *missing* at boot.
+  ⚠ **Nothing here has run on a Mac** — [`backend-parity.md`](./backend-parity.md) [OQ-BP-2](./backend-parity.md#decision-ledger)'s leaning asked
+  for a Mac session and it landed without one, so the ruling is answered and the hardware
+  verification is not. Those were always separate questions. `PrepareSkills` and the briefing composition both
   hang off `refreshJailBriefings` (`internal/cli/run/prepare.go:29`, `:89`), **whose only caller
   is inside `runContainer`** (`internal/cli/run/run.go:402`) — and the container path *delivers*
   them by **mounting** the staged tree (`:ro` from the per-jail staging dir:
@@ -665,7 +676,7 @@ implement it against — warning is terminal). Unstamped rows predate 2026-08-24
 | `writable_home_dirs` | yes | n/a | native home is writable |
 | pack `state`, scope `workspace` | per-workspace dir per pack | **machine-wide** — WARNED since 2026-08-24 (`8ab03d2e`); mirror image of #39 | `SandboxHome()` is a constant with no workspace component; splitting it would break the machine tier |
 | pack `launch` flags | yes | ✅ **FIXED 2026-08-24** (`dc1349a6`) — was a 100% drop for copilot, a silent autonomy downgrade for claude | injection hoisted above the backend dispatch |
-| briefings + skills (incl. built-in suite) | `:ro` mount of the staged tree | ❌ **never delivered** — WARNED since 2026-08-24 (`6a53a2a3`); shims still generated, so `grep -r` exits 127 unexplained | delivery is a mount; needs a real native mechanism (OQ-BP-2) |
+| briefings + skills (incl. built-in suite) | `:ro` mount of the staged tree | ✅ **delivered by COPY since 2026-09-03** — a host-composed overlay tree staged and copied over the sandbox home. Was ❌ *never delivered* (WARNED 2026-08-24, `6a53a2a3`), which is what made the generated shims a trap: `grep -r` exited 127 with nothing explaining it | the native mechanism arrived, and it is a copy, not a mount — so the delivered files are WRITABLE and the home is machine-wide. [OQ-BP-2](./backend-parity.md#decision-ledger) answered by code |
 | `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | ✅ **ENFORCED since 2026-08-23** (`d0961f2c`) via the Seatbelt profile — was a silent no-op | the wiring gap this doc predicted; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) [§5.5](./host-execution-from-the-workspace.md#55-backend-portability--the-mounts-are-not-the-policy) |
 | `per_side_paths` | yes | **WARNS since 2026-08-23** (`d0961f2c`) — no equivalent exists, and it no longer pretends otherwise | needs a mount namespace; Seatbelt filters permissions, it cannot give one path two contents |
 | `resources` (cpu/mem/pids) | podman-machine / AC native | **off** — IMPOSSIBLE, **WARNS since 2026-08-24** (`8ab03d2e`); a fix is refused, not pending | no cgroups/VM; `RLIMIT_AS` ≠ `--memory` and `RLIMIT_NPROC` is per-USER on a shared account ([§3.2](#32-resource-limits--no-cgroups)) |
@@ -722,17 +733,27 @@ backend-parity sweep and are owned by that doc, not this one — they follow the
 These are **not** owned by this doc — they live in [backend-parity.md](backend-parity.md), which
 is the sweep's home. Listed here because their answers change this backend's surface:
 
-- 💬 **OQ-BP-2 (theirs): do briefings and skills get DELIVERED to macos-user, or stay a
-  documented absence?** ([§3.6](#36-the-container-launch-preamble-config-diff-prompt-image-load-etc), Part 2 table.) Today the agent starts with no `AGENTS.md`, no
-  `CLAUDE.md` and no skills — including the built-in suite — while the blocked-tool shims *are*
-  generated. Warned as of `6a53a2a3`. A fix means composing above the dispatch and delivering by
-  copy into the sandbox home: a real delivery mechanism, not a moved call. Their leaning is
-  **deliver it**, landed with a Mac session, because it writes into a shared root as another
-  user and nobody can test that from Linux. **This is the largest capability gap on this
-  backend.**
-- 💬 **OQ-BP-3 (theirs): does a `Warned` disposition need to be suppressible?** Ten new launch
-  lines exist as of 2026-08-24, six of them on this backend. A warning people learn to
-  skip is worse than none. Their leaning is **not yet**, and per-key when it comes.
+> [!NOTE]
+> **These two mirrors no longer carry the `💬` glyph, and that is deliberate** (2026-09-09). The
+> glyph marks a question a reader can answer *where they find it*; these have their stakes, their
+> leaning and their one empty Answer block in [`backend-parity.md`](backend-parity.md). Carrying it
+> here made the corpus-wide question count read them a third time — the roadmap row and the owning
+> doc were already two — and a mirror that drifts from its owner is worse than no mirror, which is
+> exactly what happened to BP-2 below.
+
+- ✅ **[OQ-BP-2](./backend-parity.md#decision-ledger) (theirs) — ANSWERED BY CODE 2026-09-03.** It asked whether briefings and skills
+  get DELIVERED to macos-user or stay a documented absence, and this mirror described an agent
+  starting here with no `AGENTS.md`, no `CLAUDE.md` and no skills while the blocked-tool shims
+  *were* generated. **Their leaning was taken and it is built** — composed above the dispatch,
+  delivered by copy into the sandbox home, which is the real delivery mechanism the question asked
+  for rather than a moved call. ⚠ **The one part of the leaning that did NOT hold:** it asked to
+  land this *with* a Mac session, because delivery writes into a shared root as another user and
+  nobody can test that from Linux. It landed without one. So the ruling is answered and the
+  hardware verification is still owed — see the ⚠ in [Open items](#open-items).
+- **[OQ-BP-3](./backend-parity.md#decision-ledger) (theirs) — still live, and owned there.** Does a `Warned` disposition need to be
+  suppressible? Fourteen launch lines exist now (ten as of 2026-08-24), six of them on this
+  backend. A warning people learn to skip is worse than none. Their leaning is **not yet**, and
+  per-key when it comes.
 
 **Settled by the sweep and NOT reopened here** (both recorded in
 [backend-parity.md](backend-parity.md) [§7](./backend-parity.md#7-what-this-does-not-propose), both reflected above): per-workspace homes on
