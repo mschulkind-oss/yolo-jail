@@ -32,12 +32,28 @@ ruled and compacted into [§9.1](#91-decision-ledger); the gate
 >
 > [§3.10](#310-what-done-looks-like) item 1's targets were ≤15 s and ≤250 MB.
 >
-> ⚠ **Apple Container shipped BLIND and is the one thing this doc still owes**
-> ([OQ-LI2](#91-decision-ledger) put it in the same pass; nobody here has the hardware). Its code
-> path is written, unit-tested through the seams, and unverified on a Mac — see
-> [§3.4](#34-which-backends-get-it) and the note in `internal/image/autoload.go`'s
-> `deliverToAppleContainer`. So is podman-on-macOS, whose Podman Machine VM does not share
-> `/nix`.
+> ⚠ **Both macOS backends shipped BLIND, and they are what this doc still owes**
+> ([OQ-LI2](#91-decision-ledger) put Apple Container in the same pass; nobody here has the
+> hardware). Their code path is written, unit-tested through the seams, and unverified on a Mac —
+> see [§3.4](#34-which-backends-get-it) and `internal/image/autoload.go`'s `deliverViaArchive`.
+> **Three things a Mac session should check, in this order:**
+>
+> 1. **`nix build .#imageCopier` on x86_64-darwin**, because that is the one place the copier is a
+>    DIFFERENT skopeo. `pkgs` there is nixpkgs 26.05 (the `nixpkgs-x86-darwin` input), which
+>    resolves to **skopeo 1.22.2** against unstable's 1.24.0 — verified by eval 2026-09-09. The
+>    `nix:` patch does `cd vendor/go.podman.io/image/v5` before `patch -p2`, and that path exists
+>    in both (skopeo 1.22.2 requires `go.podman.io/image/v5 v5.39.2`, 1.24.0 requires v5.41.0 —
+>    checked against upstream's `go.mod`), so the directory is not the risk. Whether every HUNK
+>    applies across that two-minor gap is unverified and only a darwin build settles it. It is a
+>    NEW way `nightly-macos.yml` (which runs on `macos-26-intel`) can go red, and it fails at
+>    build time with the patch's own error rather than silently.
+> 2. **Apple Container**: `container image load -i` against a skopeo-written `oci-archive`, where
+>    it previously got a `tar cf` of a skopeo-written `oci:` DIRECTORY. Same bytes by
+>    construction; that is an argument, not a measurement.
+> 3. **podman on macOS**: `podman load -i` against a skopeo-written `docker-archive`. This is the
+>    row [§3.4](#34-which-backends-get-it) got wrong — it said "unchanged (stream into `podman
+>    load`)" while [OQ-LI5](#91-decision-ledger) was deleting the stream — so it is new code, not
+>    a preserved path.
 
 **The short version.** Every launch that sees a new nix store path re-ships the whole
 3.47 GB image into podman, and I measured why: the customisation layer — the only layer a
