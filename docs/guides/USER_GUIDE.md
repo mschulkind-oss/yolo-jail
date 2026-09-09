@@ -1076,6 +1076,29 @@ The reason **used to be** the transport: Apple Container doesn't bind-mount Unix
 
 ## Storage & Persistence
 
+### Seeing what is on disk — `yolo stores`
+
+```bash
+yolo stores            # the inventory: every store, its size, who reclaims it, and what nothing does
+yolo stores --no-record  # ...without appending a dated sample
+```
+
+It **deletes, moves and mutates nothing** — the one exception is a bounded sample ledger (one dated
+line per store per run, last 30 kept) so that a second run can report a growth RATE rather than just
+a size. `--no-record` opts out of that.
+
+The column worth reading is the last one. `yolo` means yolo has a reclaimer and a trigger for that
+store; `human` means it does not and you decide; `not yolo's` means it is somebody else's bytes.
+Untagged container images are the standing `human` row: once an image loses its repository name,
+yolo has no evidence it was ever yolo's, so it never removes one — `podman image prune` is yours to
+run if you want them gone.
+
+Reclaiming is `yolo prune` (dry-run by default, `--apply` to act). Most classes are also reclaimed
+automatically after a jail starts, at most once a day each; `YOLO_NO_AUTO_IMAGE_REAP=1` turns that
+off. The one class yolo will not reclaim without asking is the shared build-tool cache, because
+re-fetching it is unbounded — you will be offered it on a TTY launch when there is at least a
+gigabyte of it older than 30 days, and answering "never" stops the asking for good.
+
 All paths below use the same layout on Linux and macOS (`~/.local/share/yolo-jail/` resolves to `/home/$USER/.local/share/yolo-jail/` on Linux and `/Users/$USER/.local/share/yolo-jail/` on macOS). On macOS with Podman Machine, make sure `$HOME` is in the VM's shared folders list.
 
 ### Timezone

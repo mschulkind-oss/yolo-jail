@@ -10,7 +10,11 @@ vantage:
 
 # Disk levers and backfill — the bytes the fixes left behind, and whether yolo deletes them or offers to
 
-**Status:** DESIGN SKETCH, 2026-09-06. Nothing built. Every number below was measured in this
+**Status:** RULED 2026-09-08, and MOSTLY BUILT 2026-09-09 — see [§11.1](#111-decision-ledger)'s
+Built column for which rulings shipped and which did not ([OQ-BF10](#OQ-BF10) is a later slice by
+its own ruling; [OQ-BF9](#OQ-BF9)'s sibling [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3)
+is blocked on a key that does not exist yet). Written as a design sketch on 2026-09-06, when nothing
+was built. Every number below was measured in this
 development jail on 2026-09-06 (times given where the store moved during the day) and is
 labelled **MEASURED** / **NOT MEASURED** in the manner of
 [`image-staging-vs-baking.md`](image-staging-vs-baking.md) [§1.6](./image-staging-vs-baking.md#16-what-it-has-actually-cost-on-disk).
