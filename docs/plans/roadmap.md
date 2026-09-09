@@ -1167,6 +1167,31 @@ asked to make and these are not blocking anything:
   documented nowhere else — a per-side path that is a symlink or a regular file cannot be shadowed,
   so the launcher warns and the jail silently sees the host's copy.)*
 
+**And one body of work was unowned rather than undecided, found 2026-09-09.**
+[`self-documenting-cli.md`](../design/self-documenting-cli.md)'s P1 tail routes every generic CLI item
+to *"generic CLI backlog (proposed: `docs/plans/self-documenting-cli.md`, not yet created)"* — and
+that file was never created, so four items have had no owner for weeks. None needs a ruling. Named
+here so they stop being invisible:
+
+- ⚠ **The bar's own [§4](../design/self-documenting-cli.md#4-top-level-help-lists-every-registered-command) is violated, and by more than the doc says.** *"Top-level help lists every
+  registered command"* is a MUST, and **four registry commands are absent from `commandHelp`** —
+  measured 2026-09-09 by diffing the two maps: `macos-teardown`, `macos-unshare`, `doctor` and
+  **`host`**. The doc says "the three unlisted macos commands"; there are two of those, plus `doctor`
+  and `host`. `host` is the one that matters — `yolo host -- <cmd>` / `yolo host apply` is the whole
+  host-execution surface, shipped 2026-08-30, and it is unreachable from `yolo --help`.
+- **The reverse-sync test exists in one direction only.** `TestUsageListedCommandsAreRegistered`
+  catches a help line naming a command that does not exist; nothing catches a command that exists and
+  is not in help — which is why the four above went unnoticed. That test is the fix, and it is what
+  the doc's enforcement item 2 asks for.
+- **≥1 copyable example per command** — only `run` and `pack` have one.
+- **`--format json`** on `ps`, `check`, `loopholes list`, `prune`, `broker status` (`internal/cli/ps.go`
+  has none today). This is the item an in-jail agent feels, and it is the doc's enforcement item 4.
+- **The `config-ref` coverage test** (enforcement item 3). ⚠ **Its companion, action item 8, is
+  partly MOOT**: `host_processes` and `prune` are documented, and `repo_path` is a RETIRED key
+  (`internal/config/inherit.go`), so what is left of item 8 is the `host_services`→`loopholes`
+  retitle — and `host_services` appears nowhere in `docs/reference/` any more either. Check before
+  building it.
+
 Plus **[OQ-GN1](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN2](handoff-guest-notch-macos.md#9-open-questions) · [OQ-GN4](handoff-guest-notch-macos.md#9-open-questions)** in the guest-notch handoff, which are Mac-gated rather than
 undecided, and are cited from 💬 7 above. *([OQ-GN3](handoff-guest-notch-macos.md#9-open-questions) left on 2026-09-02 — it asked whether the
 Cachix cache had ever been pushed to, and the Actions log answered it: yes, and CI reads from it
