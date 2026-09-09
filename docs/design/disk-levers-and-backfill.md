@@ -732,7 +732,7 @@ verdict.
 | [OQ-BF1](#OQ-BF1) | **Two tiers — and the offered tier is offered whenever a class has ≥ 1 GiB reclaimable, not once.** `y` promotes the class to automatic; `never` is the only sticky stop. Three of the five backfill classes recur by normal use, so a retired offer would be the trigger defect one level up; for the two that do not, the offer's return **is** the bug report | 2026-09-08 | [§5.2](#52-two-tiers-one-mapping), [§5.3](#53-triggers-defaults-and-the-post-launch-slot) |
 | [OQ-BF2](#OQ-BF2) | **Yes — offered while non-zero, then automatic in the slot**, 30 d unchanged, `nce` added, `staticcheck` left out. MEASURED: `go-build` and `staticcheck` self-trim (Go's 5-day/1-day trimmer, `trim.txt` present); pants, uv, pip, npm, pex and `nce` do not — so the ones the purge cannot help are exactly the ones that manage themselves, and the 49.34 GiB is almost all pants | 2026-09-08 | [§5.2](#52-two-tiers-one-mapping), [§2.1](#21-every-store-one-table) |
 | [OQ-BF3](#OQ-BF3) | **Yes, once [OQ-BF4](#OQ-BF4) roots every running jail's prefix:** delete unrooted `*-yolo-jail-install-prefix` / `*-yolo-jail-go-0-dev` by name in the slot, host-only, never a blanket gc, never `--ignore-liveness`. Offer the same set until BF4 lands. Go-build outputs are garbage the moment the prefix exists | 2026-09-08 | [§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding), [§3](#3-the-levers-ranked) L3 |
-| [OQ-BF4](#OQ-BF4) | **Yes — a durable root per prefix store path, registered at launch, gated on `!inJail`, reaped on the age floor.** A bug fix, not a disposition: today a long-running jail's pid1 binary is rooted by nothing. **Not** protected by the load sentinel's LRU — that list cannot answer liveness | 2026-09-08 | [§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding), [§8](#8-risks) R7 |
+| [OQ-BF4](#OQ-BF4) | **Yes — a durable root per prefix store path, registered at launch, gated on `!inJail`, held while a container is running from it.** A bug fix, not a disposition: today a long-running jail's pid1 binary is rooted by nothing. **Neither** the load sentinel's LRU (it cannot answer liveness) **nor** an age cutoff (the policy [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS1) ruled for image closures, which would reap a long-running jail's own binaries). One test separates them: can losing it cost only a rebuild? | 2026-09-08 | [§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding), [§8](#8-risks) R7 |
 | [OQ-BF5](#OQ-BF5) | **Move the image reap into the housekeeping slot, and take the machine-wide housekeeping lock in the same change** — in both the load-and-record step and the pass. The lock is not a follow-up: the slot widens the window the race already has | 2026-09-08 | [§5.1](#51-the-housekeeping-slot), [§5.4](#54-one-writer-concurrency-failure) |
 | [OQ-BF6](#OQ-BF6) | **`ImageCacheKeep` 0 on podman, unchanged at 3 on Apple Container** until [OQ-DF2](./minimal-disk-footprint.md#OQ-DF2) names the component that deletes on success. Zero retained tars is not zero tars readable — the fallback READER survives | 2026-09-08 | [§3](#3-the-levers-ranked) L4, [§5.3](#53-triggers-defaults-and-the-post-launch-slot) |
 | [OQ-BF7](#OQ-BF7) | **Retired from the question list — an outage with one measured cause needs a fix, not a disposition.** Shipped as a **refusal** (`prefixUnreachableFromVM`), not as staging or baking. Its claimed coupling to BF3/BF4 is discharged: under the refusal there is no third place for the prefix to live | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF7](#OQ-BF7) |
@@ -900,12 +900,26 @@ row cannot carry them.
    > option on the other side to weigh: the alternative is to never collect yolo's own store outputs
    > at all, which is the state [§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding) measures at ≥ 28.8 GB and ≈ 0.43 GB/day.
    >
-   > **One correction to the leaning as written**, since the sibling doc landed in between: the
-   > prefix root must **not** be protected by the load sentinel's LRU. That list is a
-   > most-recently-used cache and cannot answer "is this in use" — the argument is
+   > **Two corrections to the leaning as written**, both forced by the sibling doc, and they pull in
+   > opposite directions — which is the point.
+   >
+   > **(1) Not the load sentinel's LRU.** That list is a most-recently-used cache and cannot answer
+   > "is this in use" —
    > [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)'s
-   > P1, and this is the same class of mistake in a new place. A prefix root is protected because a
-   > **launch registered it**, and it is reaped on the age floor.
+   > P1 — and protecting a prefix with it is the same class of mistake in a new place.
+   >
+   > **(2) Not an age floor either, which is what this answer first said.**
+   > [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS1) ruled image-closure roots to
+   > be **purely age-based**, on the grounds that losing one costs a rebuild and nothing more. **A
+   > prefix fails that test.** A running jail is *executing* from its prefix — pid1 included — so
+   > losing it is not a rebuild, it is a jail with no binaries; and an age cutoff is precisely
+   > wrong for it, because the longer a jail runs the more certainly its prefix would be reaped.
+   >
+   > So the two roots take **opposite policies, from one test** — *can losing it cost only a
+   > rebuild?* Image closure: yes, so age. Prefix of a running jail: no, so a **liveness
+   > guarantee** — the root exists while a container is running from it, and is reaped once none
+   > is. That is what "registered at launch, gated on `!inJail`" has to mean, and why prefix roots
+   > must not live in `build/roots`, whose reaper deletes any root that is not a loaded image.
 
 5. ✅ **[OQ-BF5](#OQ-BF5) — RULED 2026-09-08 (the maintainer's words, verbatim): does the shipped
    image reap move from before the container starts to the housekeeping slot?** It is the difference between a first pass that holds the launch for

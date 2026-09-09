@@ -165,20 +165,37 @@ Three things had to line up, and all three are ordinary:
    *streamed*, so a jail running for four days carries a four-day-old timestamp and sorts
    **oldest** — first in line (`probes.go:240-246`).
 
-### 5.3 Why the age floor does not cover it
+### 5.3 Why the age floor does not cover it — as written
 
 Consumer A has a third guard: keep any root younger than **3600 seconds**
 (`prunecmd.go:215`). That covers an in-flight launch whose path has not reached the
-sentinel yet. It does nothing for a jail that has been up for days, which is precisely the
-population at risk. Consumer A therefore has the same latent hole as B, unfixed.
+sentinel yet, and nothing else — an hour is far too short to be a cache policy and far too
+long to be a race guard.
+
+> [!IMPORTANT]
+> **This section originally concluded "Consumer A therefore has the same latent hole as B",
+> and that conclusion is REFUTED** — see [OQ-LS1](#OQ-LS1). B's hole is that it can delete
+> something in use; A cannot, because losing a root costs a rebuild and nothing else. A's
+> defect is not a missing veto but a **wrong duration**: an hour is not the horizon over which
+> "will I want this closure again" is decided. The ruling raises it to a week and removes the
+> protected set, rather than importing B's liveness evidence into a cache decision. Kept here
+> because the refuted version is the more tempting one.
 
 ## 6. The proposal
 
 **Separate the two questions and give each its own evidence.**
 
-- **Liveness comes from the runtime.** `podman ps` yields the image IDs with containers on
-  them; nothing in that set is ever selected for removal. Already built for Consumer B in
-  `feddc5e0`; Consumer A should read the same set.
+- **Liveness comes from the runtime — for Consumer B, and only for it.** `podman ps` yields the
+  image IDs with containers on them; nothing in that set is ever selected for removal. Already
+  built for Consumer B in `feddc5e0`.
+- **Consumer A gets no liveness evidence at all, by ruling** ([OQ-LS1](#OQ-LS1)). Its question is
+  a prediction about future want, and liveness is a wrong predictor in both directions — a jail
+  stopped five seconds ago is not live, and a jail up for three weeks pins a closure nobody will
+  build again. It becomes a pure **age** policy: reap a root unrooted longer than a week
+  (`PruneOrphanImageRoots`' `olderThan`, raised from 3600 s), with an optional size cap applied
+  after age and never instead of it. Because `mtime` is on the link, that policy has no authority
+  it could fail to reach — which is why [P3](#1-verdict) stops applying to A rather than being
+  weakened for it.
 - **Recency stays a cache policy, and says so.** The sentinel keeps its MRU role for GC
   roots and for the human-readable "why did this load?" diagnosis. It stops being cited as
   liveness anywhere.
@@ -195,8 +212,9 @@ in use.
 
 ### 6.1 The holes, answered
 
-- **Degenerate inputs.** No sentinel / empty sentinel: reaps nothing (fail-safe, already
-  `liveKnown==false`). No running containers: the veto is empty and only the keep window
+- **Degenerate inputs.** No sentinel / empty sentinel: Consumer B reaps nothing (fail-safe,
+  already `liveKnown==false`); Consumer A no longer consults it at all, so an absent sentinel is
+  not a condition for it ([OQ-LS1](#OQ-LS1)). No running containers: the veto is empty and only the keep window
   and age floor apply. More than ten live jails: irrelevant under the proposal, which is
   the point — the cap stops bounding safety.
 - **Failure paths.** `podman ps` unreadable, non-zero, or timed out → decline the entire
@@ -223,9 +241,13 @@ in use.
 
 - **Not deleting the sentinel.** It is the right instrument for GC-root retention and for
   the load diagnosis.
-- **Not changing the ten-entry cap, the 24-hour debounce, `keep=2`, or the age floor.**
-  Those are disk-retention dials; once liveness is separate, they stop being safety
-  mechanisms and can be tuned on their merits — or left alone.
+- **Not changing the ten-entry cap, the 24-hour debounce, or `keep=2`.** Those are
+  disk-retention dials; once liveness is separate, they stop being safety mechanisms and can be
+  tuned on their merits — or left alone ([OQ-LS3](#OQ-LS3) leaves `keep` at 2 until the layer
+  plan makes an extra image cheap).
+  **The age floor DOES change**, and that is [OQ-LS1](#OQ-LS1)'s ruling rather than an exception
+  to this list: for Consumer A the floor stops being a race guard and becomes the whole policy,
+  at a week instead of an hour.
 - **Not re-opening C2's content-addressed tags.** They are what makes a direct runtime
   query unambiguous in the first place.
 - **Not a new persistence format, database, or daemon.**
@@ -252,17 +274,25 @@ in use.
 
 ## 10. What I would build, in order
 
-First, correct `imageroots.go`'s comment — it is actively misleading and costs nothing to
-fix. Second, give Consumer A the same running-container veto Consumer B now has, so the
-two reapers share one liveness source. Third, make the declined sweep visible on the
-automatic path, so "we stopped reclaiming" cannot be silent. Only then, if disk is still a
-problem, revisit the retention dials — with the safety question already answered somewhere
-else, they become ordinary tuning.
+First, correct `imageroots.go`'s comment — it is actively misleading and costs nothing to fix.
+
+Second — **and this step inverted under [OQ-LS1](#OQ-LS1)** — do **not** give Consumer A the
+running-container veto. Take the opposite step: drop the `protected`/`liveKnown` inputs from
+`PruneOrphanImageRoots` and raise its `olderThan` from 3600 s to a week, so the GC-root reaper
+becomes a pure age policy with no authority to consult.
+
+Third, make a declined sweep **loud where it is a defect and an error where the user asked for
+the work** ([OQ-LS2](#OQ-LS2)) — not the dim line this doc first proposed, and silent when there
+is simply nothing to reclaim.
+
+Only then, if disk is still a problem, revisit the retention dials — with the safety question
+answered somewhere else, they become ordinary tuning, and [OQ-LS3](#OQ-LS3) says why `keep`
+should wait for the layer plan rather than move now.
 
 ## 11. Open Questions
 
-1. 💬 **OQ-LS1: Does the GC-root reaper get the same liveness veto, or is losing a root
-   acceptable?** Unrooting a live jail's closure does not kill it — it costs a rebuild the
+1. ✅ **[OQ-LS1](#OQ-LS1) — RULED 2026-09-08, AGAINST the leaning: does the GC-root reaper get the
+   same liveness veto, or is losing a root acceptable?** Unrooting a live jail's closure does not kill it — it costs a rebuild the
    next time that path is wanted. If that is an acceptable cost, Consumer A can keep the
    MRU policy and only its comment needs fixing. This decides whether [§10](#10-what-i-would-build-in-order)'s
    second step exists at all.
@@ -273,10 +303,60 @@ else, they become ordinary tuning.
    image reaper in the same command, so sharing it is nearly free — and "costs a rebuild"
    means 175 seconds here, not a shrug.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-08): NO veto. An age cutoff, and a size cap if one is wanted — and the
+   leaning was this doc's own defect committed in the opposite direction.**
+   > The maintainer, in full, because the argument is the ruling:
+   >
+   > > *"I don't love this because we're still conflating things. What we're trying to guess is
+   > > whether in the future we will need to rebuild a jail image that uses these parts of the nix
+   > > cache, and you're using liveness as a proxy there, which is reasonable — but you could have
+   > > shut down a jail five seconds ago and you're going to spin it up in 30 seconds, and that
+   > > seems bad. So an aging-based cutoff here is probably the right thing, aging and maybe cache
+   > > size. In general: if you haven't built an image in a week you probably don't need the cache,
+   > > you can wait again next build."*
+   >
+   > **This doc's [P1](#1-verdict) says recency is a cache policy, not a liveness proof. The
+   > leaning did the mirror-image thing: it used a liveness proof to answer a cache question.**
+   > Consumer A's question is *"would I rather not rebuild this closure?"* — a prediction about
+   > future want. `podman ps` answers *"is a container on it right now?"*, and as a predictor that is
+   > wrong in **both** directions:
+   >
+   > - **False negative** — the maintainer's case. A jail stopped five seconds ago is not live, so
+   >   the veto permits unrooting the closure it will need thirty seconds from now. Liveness has no
+   >   memory, and a cache needs exactly that.
+   > - **False positive.** A jail that has been up for three weeks vetoes its closure forever, even
+   >   though the image it came from has been superseded a dozen times and nobody will ever build
+   >   that derivation again. The veto keeps the *most* stale thing on the machine.
+   >
+   > **So the policy is time, and it needs no authority at all.** *"If you haven't built an image in
+   > a week you probably don't need the cache"* — an unrooted-for-a-week closure goes, and the cost
+   > when the guess is wrong is one rebuild, which is the price a cache is allowed to charge. The
+   > mechanism already exists: `PruneOrphanImageRoots` takes an `olderThan`, today **3600 s**
+   > (`internal/prune/prunecmd.go:215`). The change is to raise that to the week and to **stop
+   > passing it a `protected` set** at all.
+   >
+   > **A consequence worth naming, because it looks like a weakening and is not.** [P3](#1-verdict)
+   > — *"unknown is not permission"* — becomes inapplicable to this consumer, and the `liveKnown`
+   > fail-safe gate disappears from it. Not because the gate was wrong, but because an age policy
+   > **has no authority it could fail to reach**: `mtime` is on the link itself. The gate is removed
+   > along with the question it guarded, which is the only honest way to remove a safety check.
+   >
+   > **Size cap: yes as a second bound, no as the primary one.** Age answers "is this wanted"; a cap
+   > answers "how much am I willing to spend on being right about that". Ordered the safe way —
+   > reap by age first, then, if still over the cap, oldest-first until under it — a cap can only
+   > ever remove things age has already deprioritised. It needs a number, and there is none yet:
+   > [OQ-BF9](./disk-levers-and-backfill.md#OQ-BF9)'s sample ledger is what would produce one.
+   >
+   > > [!WARNING]
+   > > **This ruling is about IMAGE CLOSURES and must not be applied to the install prefix.** A
+   > > running jail *executes* from its prefix — pid1 included — so that root is not a cache and an
+   > > age cutoff is exactly the wrong policy for it: a jail up for two weeks would have its own
+   > > binaries unrooted. Prefix roots keep a liveness guarantee, which is
+   > > [OQ-BF4](./disk-levers-and-backfill.md#OQ-BF4)'s subject, and that entry is corrected to say
+   > > so. The test for which policy applies is the one this ruling turns on: **can losing it cost
+   > > only a rebuild?** Image closure — yes. Prefix of a running jail — no.
 
-2. 💬 **OQ-LS2: Should a declined sweep be visible?** P3 makes an unreachable runtime
+2. ✅ **[OQ-LS2](#OQ-LS2) — RULED 2026-09-08, and the question was posed at the wrong volume: should a declined sweep be visible?** P3 makes an unreachable runtime
    decline everything, which is right, and silent, which may not be: a machine whose podman
    is wedged reclaims nothing and says nothing, which is how [OQ-DF3](minimal-disk-footprint.md#OQ-DF3)'s 404 GiB accrued in the
    first place. Decides whether the automatic path is allowed to be silent about *not*
@@ -287,10 +367,42 @@ else, they become ordinary tuning.
    _Leaning:_ One dim line when a sweep declines. Silence about not acting is exactly what
    the original 404 GiB defect was made of.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-08): not a dim line. An ERROR where the user asked for the work, and
+   nothing at all where they did not — because on the launch path the case cannot arise.**
+   > *"What was broken? I don't quite get it. If something is wedged, fatal error and let's fix
+   > it, no?"* Both halves are right, and the second one is a better answer than the leaning.
+   >
+   > **What was broken — plainly.** The 404 GiB was not a wedged runtime. `yolo prune` could
+   > reclaim the tars and **nothing ever ran it**, so they accrued for 24+ days
+   > ([`minimal-disk-footprint.md`](minimal-disk-footprint.md) [§1](minimal-disk-footprint.md#1-the-ruling-and-what-the-bug-actually-is)).
+   > The shape of that defect was silence about *not acting*, which is why this question asked
+   > about visibility. But the fix for it was a **trigger** ([OQ-DF3](minimal-disk-footprint.md#OQ-DF3)),
+   > and a trigger that fires is not silent about anything. This question was solving the old
+   > defect with the wrong instrument.
+   >
+   > **Why "wedged podman" is nearly unreachable on the launch path.** The automatic reap runs
+   > after `autoLoadImage` succeeds and before the container starts, on a launch that is about to
+   > run `podman run`. A podman that cannot answer `podman ps` cannot start a container either, so
+   > the launch fails on its own terms and the reap's opinion never matters. There is no realistic
+   > world in which a jail starts fine and the housekeeping quietly declines because the runtime
+   > was unreachable.
+   >
+   > **So, split by who asked:**
+   >
+   > | Path | A decline means | Behaviour |
+   > | :--- | :--- | :--- |
+   > | `yolo prune` (the user asked to reclaim) | yolo could not do the thing it was told to do | **Error, non-zero exit**, naming what it could not read. Fatal, as the maintainer says |
+   > | Automatic, in the launch's housekeeping | something that should be impossible just happened | **Loud** — a real warning, not a dim line: the runtime answered `run` and refused `ps`, or the ledger is unreadable. Both are bugs and should read as bugs |
+   > | Automatic, nothing to reclaim | the steady state is working | **Silent.** No line, no stamp beyond the debounce |
+   >
+   > **What this drops from the leaning: the dim line, and the aesthetic it came from.** "Dim" was
+   > hedging — loud enough to notice, quiet enough to ignore — for a condition that is either
+   > normal (nothing to do; say nothing) or a defect (say so properly). The only case that wanted
+   > a middle volume was the one where a decline might be routine, and the table above shows it is
+   > not.
 
-3. 💬 🤷 **OQ-LS3: Is `keep=2` still the retention you want?** Once liveness is separate,
+3. ✅ **[OQ-LS3](#OQ-LS3) — ANSWERED 2026-09-08 by naming the mechanism, which is what the question
+   failed to do: is `keep=2` still the retention you want?** Once liveness is separate,
    `keep` stops being a safety margin and becomes a pure undo buffer — how many superseded
    images you want to be able to fall back to without a rebuild. Two is small for a machine
    that rebuilds on every `flake.lock` bump.
@@ -300,5 +412,35 @@ else, they become ordinary tuning.
    _Leaning:_ Your call — it is a disk-versus-rebuild trade, not a correctness one. I would
    raise it now that safety no longer rests on it.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-08): PODMAN IMAGES only — nix roots are a separate policy — and "rollback"
+   was the wrong word for what `keep` buys, which is why the question read as uninteresting.**
+   > *"Are we talking about nix roots or podman images or both here? I'm not sure I care about
+   > rollback."*
+   >
+   > **Podman images, only.** `keep=2` is `--keep-images` / `prune.DefaultKeepImages`
+   > (`internal/prune/autoreap.go:30`), a retention **count** over rows in podman's image store.
+   > Nix GC roots are governed by a different mechanism with a different shape —
+   > `PruneOrphanImageRoots`' `olderThan`, a **duration** — and [OQ-LS1](#OQ-LS1) just ruled that
+   > one to be age-based at a week. Two policies, two units; the question conflated them and that
+   > is corrected here.
+   >
+   > **And "undo buffer" was my framing, not a real use.** Nobody rolls back to a superseded jail
+   > image on purpose. What `keep > 1` actually buys is **alternation**: a machine with several
+   > workspaces has several distinct images (each `packages:` list is its own image), and after
+   > C2 each store path has its own permanent tag. Keep too few and switching between two
+   > workspaces evicts the other's image on every launch, so each switch pays a full re-copy. So
+   > the number to reason about is **how many distinct configurations you actually alternate
+   > between**, and it has nothing to do with rollback — which is why not caring about rollback is
+   > the right instinct and still leaves the number mattering.
+   >
+   > **Ruling: leave it at 2, and revisit after the layer plan, not before.** Today an extra image
+   > costs ~2.7 GB of unique layers, so 2 is a defensible floor for a machine that alternates
+   > between a couple of workspaces. Once
+   > [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md) lands, images **share their
+   > base** and an extra one costs only its delta — at which point raising `keep` is nearly free
+   > and the alternation cost disappears. Raising it now would spend 2.7 GB per slot to buy
+   > something that is about to become cheap.
+   >
+   > **What is settled regardless:** `keep` is no longer load-bearing for safety in either
+   > direction. The `podman ps` veto protects what is in use, and this doc's whole point is that
+   > the number stopped being a safety margin the moment liveness got its own evidence.
