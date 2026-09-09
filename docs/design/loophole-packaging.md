@@ -14,7 +14,7 @@ so there is no approval left for a commit to anchor
 pinned by two tests in `packload/loopholesource_test.go`. The pack-shipped subset is now **wired at
 three seams** ([§3.1](#31-validation)), `audio` ships as an **official pack** ([§7](#7-migration--the-three-bundled-loopholes)), and **[OQ-LP9](#decision-ledger) is built** ([§9](#9-risks-and-open-questions)).
 
-**Live questions as of 2026-09-04: two** — **[OQ-LP5](#decision-ledger)** (conditional `jail_env`) and **[OQ-LP7](#decision-ledger)** (the
+**Live questions as of 2026-09-04: two** — **[OQ-LP5](#oq-lp5)** (conditional `jail_env`) and **[OQ-LP7](#oq-lp7)** (the
 `guest` notch). **[OQ-LP8](#decision-ledger)** closed 2026-09-04: its ruling (*following a mutable ref IS the trust
 decision*) was already made, and its two undelivered documentation requirements
 [are now delivered](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04).
@@ -2387,9 +2387,9 @@ traps that are load-bearing rationale rather than history.
 | OQ-LP2 | Install-shaped `loopholes` keys (`command`, `doctor_cmd`, `env`) are user-scope-only; migration is a **FATAL** error + a TTY-gated install offer, not warn-then-error | 2026-08-14 | §[4.3b](#43b-the-scope-model-ruled-install-is-user-scope-enable-is-either), [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G1 |
 | OQ-LP3 | Folded into [OQ-LP13](#decision-ledger) — install confirms every origin, so there is no trusted-`file://` bypass to special-case | 2026-08-14 | §[4.3a](#43a-every-gate-governs-a-declaration-none-governs-the-file--review-and-it-is-the-worst-gap-here) |
 | OQ-LP4 | The front is declared by `publishes` on `host_daemon`, never by a manifest naming `yolo internal front` in its own argv (workaround-becomes-API) | 2026-08-14 | [§2.1](#21-the-manifest-vocabulary-publishes) |
-| **OQ-LP5** | **LIVE** — does `jail_env` stay refused for pack-shipped loopholes? | — | below |
+| **OQ-LP5** | **LIVE** — does `jail_env` stay refused for pack-shipped loopholes? | — | [below](#oq-lp5) |
 | OQ-LP6 | Build the capability system (A6) — a loophole manifest is a public surface regardless | 2026-08-14 | [§6](#6-what-this-does-to-pack-capabilitiesmd) |
-| **OQ-LP7** | **LIVE** — does `guest` get its own field census, or keep borrowing `HostFields()`? | — | below |
+| **OQ-LP7** | **LIVE** — does `guest` get its own field census, or keep borrowing `HostFields()`? | — | [below](#oq-lp7) |
 | OQ-LP8 | Following a mutable ref IS the trust decision — accepted, not re-prompted; **tag pins are the documented shape** for a pack carrying code, delivered in the packs guide. G2b is **MOOT**: [OQ-TP9](./trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) deleted the approval it would have anchored | 2026-09-04 | [overview](loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04), [§4.3](#43-four-gates-all-of-them-shipped-machinery--plus-one-new-invariant) G2b |
 | OQ-LP9 | Nested jails RECURSE the scope model: inner-scope census + two generated per-consumer files + a global `--user-layer` flag. Built | 2026-08-14 | [§9](#9-risks-and-open-questions) |
 | OQ-LP10 | Retire the user loopholes dir — a `file://` pack subsumes it. Carried out; `SourceUser` deleted, migration notice left behind | 2026-08-14 | [§1](#1-the-gap-and-why-it-got-acute-this-week), [§5.1](#51-selection-gates-discovery--and-the-census-is-seven-surfaces-not-four) |
@@ -2401,7 +2401,7 @@ traps that are load-bearing rationale rather than history.
 
 ### Open questions
 
-Two are live: **[OQ-LP5](#decision-ledger)** and **[OQ-LP7](#decision-ledger)**. The rest are kept in place, stamped, because
+Two are live: **[OQ-LP5](#oq-lp5)** and **[OQ-LP7](#oq-lp7)**. The rest are kept in place, stamped, because
 their refuted objections and measured traps are documentation.
 
 **[OQ-LP1](#decision-ledger) — where does the loophole manifest schema live? ✅ RESOLVED BY EXTRACTION, 2026-08-14.**
@@ -2440,7 +2440,9 @@ subcommand named in the manifest's own argv?** I recommend `publishes` ([§2.1](
 **Not really open** — recorded because the subcommand is the tempting shortcut and it is a one-way
 door.
 
-💬 **[OQ-LP5](#decision-ledger) — does `jail_env` stay refused for pack-shipped loopholes?** [§3.1](#31-validation) refuses it to avoid a
+#### <a id="oq-lp5"></a>💬 **[OQ-LP5](#oq-lp5)** — does `jail_env` stay refused for pack-shipped loopholes?
+
+[§3.1](#31-validation) refuses it to avoid a
 cross-kind collision pass, at the cost of conditional env. **The cost is no longer hypothetical: the
 shipped `audio` pack pays it** — `PULSE_SERVER`/`PIPEWIRE_REMOTE` are declared through the `env` kind
 and are therefore set on every launch that selects the pack, including on a machine where no socket
@@ -2453,9 +2455,21 @@ and this is what is left. The alternative is the collision pass, which is purely
 actually activating*, or whether "the pack is selected" stays the only granularity yolo offers. Every
 future pack whose loophole is predicate-gated inherits this.
 
+**Re-verified 2026-09-09.** The refusal is
+[`packJailEnvProblems`](../../internal/loopholedecl/packshipped.go) and its own doc comment names this
+question and this resolution path: *"resolved by the first real pack that wants conditional env: the
+fix is the cross-kind pass, which is purely additive."* It also disposes of a tempting justification —
+the namespaces are **not** disjoint by luck (`program` and `launch` already share the bin-name
+namespace by design), so nothing is being *preserved*; what is being avoided is a fourth bespoke
+collision pass. And `packs/audio/pack.json` does declare `PULSE_SERVER` and `PIPEWIRE_REMOTE` through
+the `env` kind, so the cost is paid in the shipped tree, not hypothetically.
+
 _Leaning:_ **keep the refusal.** `audio` wants conditional env and tolerates the unconditional form,
 which is the whole evidence base — a cost one consumer absorbs is not yet a reason for a
 cross-kind collision pass. Revisit at the first pack that CANNOT absorb it.
+
+Routed onto the roadmap 2026-09-09 as [💬 27](../plans/roadmap.md#-27--conditional-env-and-whether-guest-gets-its-own-field-census),
+with [OQ-LP7](#oq-lp7).
 
 **Answer:**
 > _(empty — fill in when decided)_
@@ -2502,7 +2516,9 @@ extension-point argument carries it — a loophole manifest is a public surface 
 is a field third parties will write, and designing it once now beats retrofitting it later. With selection as the mechanism,
 [`pack-capabilities.md`](./pack-capabilities.md) applies only to the bundled set ([§6](#6-what-this-does-to-pack-capabilitiesmd)). **Resolved by:** a maintainer ruling.
 
-💬 **[OQ-LP7](#decision-ledger) — the `guest` notch.** A loophole is coherent at `guest` and incoherent at `host`, but
+#### <a id="oq-lp7"></a>💬 **[OQ-LP7](#oq-lp7)** — does `guest` get its own field census, or keep borrowing `HostFields()`?
+
+A loophole is coherent at `guest` and incoherent at `host`, but
 `Target.Fields()` funnels both into `HostFields()`. This kind is the first case where that funnel is
 wrong for a *reason* — and note [§8](#8-interception-survives--and-here-is-the-corrected-proof)'s finding that macos-user is inert **today**, which makes the
 question less hypothetical than draft 1 treated it.
@@ -2511,8 +2527,22 @@ question less hypothetical than draft 1 treated it.
 It blocks nothing shipped (macos-user starts no host services at all), but it determines the shape of
 the first macos-user loophole rather than being discovered by it.
 
+**Re-verified 2026-09-09, and the shape has improved without the question closing.**
+[`Target.Fields()`](../../internal/render/fieldset.go) is no longer the `if jail else host` the
+paragraph above was written against — it is a switch that NAMES `KindGuest` in its `default` branch,
+deliberately, so the over-permission is on the record rather than a fallthrough. Its own comment
+states the half that is settled and the half that is not: *"`guest` must not fall into the jail set,
+which would honor `mount`/`reads-host`/`state` at a notch with no mount namespace to honor them
+with; its real census is Phase 7's to state."* So the fail-closed direction is chosen and built;
+what is still open is only whether `guest` ever gets a census of its own.
+
 _Leaning:_ split the census when Phase 7 lands and not before — the funnel is wrong for a reason, but
 inventing a third field set with zero consumers is how the vocabulary grows faster than the system.
+
+Routed onto the roadmap 2026-09-09 as [💬 27](../plans/roadmap.md#-27--conditional-env-and-whether-guest-gets-its-own-field-census),
+with [OQ-LP5](#oq-lp5). **Interaction to respect: this is the same `guest` notch as the
+environment-manager's Phase 7 work ([💬 7](../plans/roadmap.md#-7--macos-and-the-environment-manager-stories)),
+so the two are meant to be ruled in one sitting.**
 
 **Answer:**
 > _(empty — fill in when decided)_
