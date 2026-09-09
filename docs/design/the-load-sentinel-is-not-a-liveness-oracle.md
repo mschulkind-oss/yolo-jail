@@ -450,10 +450,26 @@ should wait for the layer plan rather than move now.
    >
    > 1. **The unit becomes the CONFIGURATION, not the machine.** Keep each distinct config's
    >    current image, plus at most N superseded per config — which is what "how many things do I
-   >    alternate between" actually asks. C2 already supplies the key: every distinct store path has
-   >    its own permanent tag, so the grouping exists and is only being ignored. This subsumes
+   >    alternate between" actually asks. This subsumes
    >    [OQ-LI4](./layer-aware-image-delivery.md#OQ-LI4)'s reorder rather than competing with it —
    >    recency orders *within* a group once there is a group.
+   >
+   >    > [!WARNING]
+   >    > **CORRECTION 2026-09-09: this ruling first said "C2 already supplies the key" and that is
+   >    > FALSE.** `ImageStoreKey` is `sha256(storePath)[:16]` (`internal/image/gcroot.go:22-27`) —
+   >    > per **image**, not per configuration, and it moves on every `flake.lock` bump. Grouping by
+   >    > it makes every image its own group, so "current plus N superseded per config" degenerates
+   >    > to keep-everything. Nothing else in the tree records a config identity either: no
+   >    > `--label` is set anywhere in `internal/cli/run`.
+   >    >
+   >    > **The key has to be built, and the mechanism already has an owner:**
+   >    > [`minimal-disk-footprint.md`](./minimal-disk-footprint.md) [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3)'s
+   >    > REACH ruling adds an image **label** carrying the image's identity, so that an untagged row
+   >    > is attributable. Give that label a config-identity component — the thing that is equal for
+   >    > two images of the same workspace configuration and differs across configurations — and it
+   >    > serves both rulings from one mechanism. **Sequence: DF3's label first, then this.** Until
+   >    > it exists, step 2 (raise N) is the only half of this ruling that can land, and it should
+   >    > land with the layer plan as stated.
    > 2. **Then N goes up, because the layer plan makes it nearly free.** *"Now that we're doing that,
    >    these additional images should actually be very tiny, so we can keep a bunch of them."* The
    >    headline number in [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md) is the

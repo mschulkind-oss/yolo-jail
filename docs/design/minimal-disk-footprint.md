@@ -592,6 +592,22 @@ entry keeps the argument because the label-versus-ledger distinction is reusable
    > lets the reap treat it exactly like a tagged row instead of as a special case. Cost: adding the
    > label edits `flake.nix`, so it mints one new image on every machine, once.
    >
+   > **Carry a CONFIG identity beside it, because a sibling ruling needs exactly that and has no
+   > other source for it** (added 2026-09-09).
+   > [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)
+   > [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3) rules that image retention be
+   > keyed by CONFIGURATION rather than by a global count, and its first draft assumed C2's tag was
+   > that key. It is not: `ImageStoreKey` is `sha256(storePath)[:16]`
+   > (`internal/image/gcroot.go:22-27`), per image and moving on every `flake.lock` bump, so
+   > grouping by it keeps everything. Nothing else in the tree records a config identity — no
+   > `--label` is set anywhere in `internal/cli/run`.
+   >
+   > So this label carries **two** values, and the distinction is the point: one that is unique per
+   > image (provenance — "which build was this") and one that is equal across images of the same
+   > workspace configuration and differs across configurations (grouping — "which of my configs is
+   > this"). One label, one image rebuild, two rulings served. **This ruling ships first**; LS3's
+   > regrouping is downstream of it.
+   >
    > **What it cannot fix, and this is where the maintainer's fallback is the right answer.** A label
    > identifies images built *after* it ships. Every `<none>` row already on a machine — the four
    > measured here, holding a 3.565 GB chain once their tagged twins go — has no such marker and
