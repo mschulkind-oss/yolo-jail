@@ -72,9 +72,12 @@ func TestReapRunsInTheSlotNotBeforeTheContainer(t *testing.T) {
 		t.Error("run.go calls autoReapOldImages on the pre-container path again — OQ-BF5 moved it " +
 			"into the housekeeping slot so a first pass over a backlog stops holding the launch")
 	}
-	if !strings.Contains(string(runSrc), "o.runHousekeeping(rt, reclaimConsent)") {
-		t.Fatal("run.go no longer runs the housekeeping slot from onStarted — every automatic " +
-			"class then silently stops running")
+	if !strings.Contains(string(runSrc), "o.runHousekeeping(rt, reclaimConsent, cname)") {
+		t.Fatal("run.go no longer runs the housekeeping slot from onStarted with THIS LAUNCH'S " +
+			"cname — every automatic class then silently stops running, and without the cname " +
+			"the agent-staging sweep reaps the directory this launch just staged into (it is " +
+			"neither live nor tracked yet at that point). See " +
+			"TestALaunchNeverReapsItsOwnStagingDir.")
 	}
 	hkSrc, err := os.ReadFile("housekeeping.go")
 	if err != nil {
@@ -178,7 +181,7 @@ func TestSmallClassesKeepTheirTriState(t *testing.T) {
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		return ExecResult{Ran: false} // the runtime cannot be enumerated
 	}
-	o.reapSmallAutomaticClasses("podman")
+	o.reapSmallAutomaticClasses("podman", "yolo-test-launching")
 
 	if due, _ := o.classDebounce("small-classes"); !due {
 		t.Fatal("a declined pass stamped its debounce — one unreachable runtime would then cost " +

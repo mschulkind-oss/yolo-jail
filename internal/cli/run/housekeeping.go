@@ -124,14 +124,14 @@ func (o *Options) withHousekeepingLock(fn func()) {
 // debounced on its own stamp. What IS load-bearing is that this runs AFTER the
 // container is visible (so a reap can never race this launch's own image) and
 // that nothing here can fail the launch.
-func (o *Options) runHousekeeping(rt string, reclaimConsent bool) {
+func (o *Options) runHousekeeping(rt string, reclaimConsent bool, cname string) {
 	sp := o.Perf.Span("housekeeping.slot")
 	defer sp.End()
 	o.withHousekeepingLock(func() {
 		o.autoReapOldImages(rt)
 		o.reapSupersededStoreOutputs(rt)
 		o.measureAndPurgeCache(reclaimConsent)
-		o.reapSmallAutomaticClasses(rt)
+		o.reapSmallAutomaticClasses(rt, cname)
 		o.reapImageTars(rt)
 		o.reapFlakeBundleGenerations(rt)
 	})
@@ -334,7 +334,7 @@ func (o *Options) reapSupersededStoreOutputs(rt string) {
 // copy of that into the launch path would be a second definition of what a
 // superseded capture is. It stays a `yolo prune` class until that reader has one
 // home.
-func (o *Options) reapSmallAutomaticClasses(rt string) {
+func (o *Options) reapSmallAutomaticClasses(rt, launchingCname string) {
 	if o.inJail() {
 		return
 	}
@@ -352,9 +352,39 @@ func (o *Options) reapSmallAutomaticClasses(rt string) {
 		// is not an orphan. Not stamped — the next launch retries.
 		return
 	}
-	known := map[string]struct{}{}
+	// THE KNOWN SET IS live ∪ tracked ∪ THIS LAUNCH, and each of the three earned
+	// its place by something breaking without it.
+	//
+	// TRACKED was in PruneOrphanAgentStaging's contract from the start — "a name is
+	// an orphan only when it is neither live nor tracked" — and `yolo prune`'s call
+	// site honored it while THIS one did not, so the automatic sweep was strictly
+	// more destructive than the manual one. A stopped-but-tracked jail lost the
+	// briefing its next start would have reused.
+	//
+	// ⚠ THIS LAUNCH'S OWN NAME, because the sweep ran inside the launch that had
+	// just staged into that directory. stagePacks writes AGENTS_DIR/<cname>/packs
+	// early (run.go), the container is not created until the very end, and this slot
+	// sits between them — so the jail was neither live nor tracked at exactly the
+	// moment its own staging was judged an orphan. Measured 2026-09-09 on a real
+	// host: `Error: statfs …/agents/yolo-yolo-jail-887995ca/packs: no such file or
+	// directory`, after auto-capture held the slot open long enough for the window
+	// to matter.
+	//
+	// The age floor did not save it and could not: it reads AGENTS_DIR/<cname>'s
+	// mtime, and staging creates the `packs` CHILD, which leaves the parent's mtime
+	// at whatever a previous session left. Directories on that host carried mtimes
+	// weeks old with a freshly staged `packs` inside.
+	//
+	// ⚠ The slot's own header comment claims it "runs late enough that this launch's
+	// own container is visible". That is true of the IMAGE and false of the
+	// container, which is created after every housekeeping class has run. Do not
+	// restore a version of this that relies on it.
+	known := prune.TrackedContainerNames(paths.ContainerDir())
 	for name := range live.Names {
 		known[name] = struct{}{}
+	}
+	if launchingCname != "" {
+		known[launchingCname] = struct{}{}
 	}
 	_, dirs, _ := prune.PruneOrphanAgentStaging(paths.AgentsDir(), known, live.Known,
 		time.Hour, true, o.Now())

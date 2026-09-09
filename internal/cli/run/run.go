@@ -1074,7 +1074,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// and the container is visible — so a reap can never be looking at this
 		// launch's image before its container exists — and on the proxy's
 		// goroutine, so nothing here delays the jail.
-		o.runHousekeeping(rt, reclaimConsent)
+		o.runHousekeeping(rt, reclaimConsent, cname)
 	}
 	onTerminate := func() {
 		sp := o.Perf.Span("terminate.stop_jail")
