@@ -281,7 +281,7 @@ func TestVersionPruneRunsOnTheColdInstallPathToo(t *testing.T) {
 	}, "\n")+"\n")
 	body := nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
-		p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"), "", true)
+		p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"), "", true, launcherServers{})
 	if err := os.WriteFile(p.script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}

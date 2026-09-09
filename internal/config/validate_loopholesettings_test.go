@@ -9,7 +9,7 @@ import (
 )
 
 // validate_loopholesettings_test.go pins core's half of
-// docs/design/pack-config-keys.md: what a config may supply under
+// docs/reference/pack-system.md: what a config may supply under
 // `loopholes.<name>.settings`, checked against the loophole's manifest
 // declarations rather than passed through opaquely.
 

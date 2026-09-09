@@ -3,7 +3,7 @@ package manifest
 // sources.go names the LIVE CONFIG TABLES a surface's derive function may read
 // (exposed to derive Lua as ctx.<name>). These are DOMAIN nouns core owns — an
 // MCP server and an LSP server are yolo config concepts, not agent concepts
-// (docs/design/pack-system.md §0 principle 2, §7). The boot path
+// (docs/reference/pack-system.md §0 principle 2, §7). The boot path
 // (entrypoint.liveTables) builds the table map keyed by exactly these, and hands
 // it to the derive VM.
 //

@@ -249,7 +249,7 @@ func TestEmbeddedPacksPassCheckWithoutAnAddress(t *testing.T) {
 }
 
 // `yolo check` must catch a config surface with two owners, because the LAUNCH refuses it
-// (docs/design/pack-config-collaboration.md Option 1 / R1) — a check that passed here would
+// (docs/reference/pack-system.md Option 1 / R1) — a check that passed here would
 // pass on a config that cannot start a jail, which is exactly the "erroring is normal and the
 // message is actionable" job this section exists for.
 //

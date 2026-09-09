@@ -1,8 +1,8 @@
 package manifest
 
 // overlay.go decodes a `config-overlay` contribution's BODY — the keys one pack
-// asserts onto a surface another pack owns (docs/design/pack-system.md §3,
-// docs/design/pack-config-collaboration.md §1 Layout C).
+// asserts onto a surface another pack owns (docs/reference/pack-system.md §3,
+// docs/reference/pack-system.md §1 Layout C).
 //
 // It lives beside load.go's SurfaceDTO because it is the same wire vocabulary minus
 // everything an overlay is not allowed to say. That subtraction is the whole point of

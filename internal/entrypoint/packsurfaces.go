@@ -146,7 +146,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	// config-overlay contributions are collected BEFORE the per-pack loop and across the
 	// whole set, because an overlay in pack B targets a surface pack A owns — the only
 	// case the kind exists for. Collecting per-pack would find, for that case, exactly
-	// none (docs/design/pack-config-collaboration.md §6). Since OQ-PT8 the gated overlay
+	// none (docs/reference/pack-system.md §6). Since OQ-PT8 the gated overlay
 	// IS the profile's config channel — there is no separate variant fold beside it — so
 	// this table is that gate's whole input, and the same instance reaches
 	// surfaceSelectionFor below, so the gate and the derive cannot disagree.
@@ -173,7 +173,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 			e.warnOnce(n.String())
 		}
 		// A pack's derive.lua (if any) produces every dynamic layer for its surfaces
-		// — the projection Lua (docs/design/pack-system.md §7). Read once per pack;
+		// — the projection Lua (docs/reference/pack-system.md §7). Read once per pack;
 		// absent means no surface has a dynamic layer. packload owns the reader —
 		// the host notch's env derive reads the same file through it.
 		deriveScript := packload.DeriveScript(p)
@@ -395,7 +395,7 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 	}
 
 	// The dynamic (computed) layer: produced by the surface's derive function over the
-	// live tables (docs/design/pack-system.md §7). One map serves both the compose
+	// live tables (docs/reference/pack-system.md §7). One map serves both the compose
 	// path (as Inputs.Computed) and the RMW path (as the managed dynamic table).
 	computed, err := deriveComputedLayer(e, surface, deriveScript, sel, tables)
 	if err != nil {

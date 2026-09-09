@@ -50,7 +50,7 @@ const certSkewSlack = time.Hour
 // BasicConstraintsValid=false and no KeyUsageCertSign — the chain is one
 // certificate long, so there is no signing step for Go to authorize. So dropping
 // IsCA would NOT break the Go client, and TestMintedCertIsItsOwnTrustAnchor is
-// what keeps it from being dropped anyway: docs/design/loophole-protocol.md invites
+// what keeps it from being dropped anyway: docs/reference/loophole-protocol.md invites
 // third-party clients, and OpenSSL-family verifiers (and older Go) do require a
 // trust anchor to carry CA:TRUE unless partial-chain verification is enabled. A
 // certificate that only works with Go's verifier would be a silent interop trap.

@@ -1,11 +1,12 @@
 // Package prune reclaims disk from yolo-jail storage. The byte/behavior-critical
 // pieces are the
 // hardlink-dedup atomicity, the tri-state orphan-agent-staging sweep (liveness
-// unknown → DECLINE to delete), and the lexical CreatedAt image sort.
+// unknown → DECLINE to delete), and the per-workspace current-image pointers
+// image retention is derived from (currentimages.go).
 //
 // The runtime-probe layer (podman/container ps+inspect) execs the real runtime
 // (output format is the contract) and is injectable for tests via the Runtime
-// interface. The pure logic (dedup, sweep decision, image sort) is
+// interface. The pure logic (dedup, sweep decision, retention set) is
 // runtime-independent and parity-tested.
 package prune
 
@@ -15,7 +16,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -197,25 +197,14 @@ func HardlinkDuplicateFiles(entries []Entry, apply bool) (bytesSaved int64, link
 }
 
 // ImageEntry is (id, createdAt) for the old-image prune.
+//
+// OldImagesToRemove — the "keep the newest N by CreatedAt" selector this type
+// existed to feed — was DELETED by OQ-LS3
+// (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2): retention is
+// the per-workspace current pointers, so nothing is selected by its position in
+// a sort any more. Created survives because PruneOldImages still orders its
+// report by it, and because it is the only timestamp that pass has.
 type ImageEntry struct {
 	ID      string
 	Created string
-}
-
-// OldImagesToRemove sorts images newest-first by the CreatedAt string
-// (ISO-ish sorts LEXICALLY — never parsed) and returns the IDs beyond the
-// newest `keep`.
-func OldImagesToRemove(images []ImageEntry, keep int) []string {
-	sorted := append([]ImageEntry(nil), images...)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		return sorted[i].Created > sorted[j].Created // reverse (newest first)
-	})
-	if keep >= len(sorted) {
-		return []string{}
-	}
-	out := []string{}
-	for _, e := range sorted[keep:] {
-		out = append(out, e.ID)
-	}
-	return out
 }

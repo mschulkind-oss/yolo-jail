@@ -4,7 +4,7 @@ package cli
 // at the host notch reports a MEASURED winner, from the record `yolo host apply --assert`
 // writes, instead of one inferred from what the packs declare.
 //
-// The defect being pinned against (docs/design/pack-config-collaboration.md §8, final
+// The defect being pinned against (docs/reference/pack-system.md §8, final
 // bullet) was a confident wrong answer, not a missing one. With no host record to read, the
 // command annotated each contributed key from the declarations and printed
 //

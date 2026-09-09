@@ -55,6 +55,17 @@ func baseOpts(t *testing.T) (Options, string) {
 	return o, gs
 }
 
+// mustPointAt records one workspace's current-image pointer — the retention
+// evidence the old-image section reads (OQ-LS3). The workspace is a fresh temp
+// dir because CurrentImageTags only honours a pointer whose workspace still
+// EXISTS, so a fixture that skipped that would be pinning the wrong thing.
+func mustPointAt(t *testing.T, buildDir, container, storePath string) {
+	t.Helper()
+	if err := RecordCurrentImage(buildDir, container, t.TempDir(), storePath); err != nil {
+		t.Fatalf("record current image for %s: %v", container, err)
+	}
+}
+
 func lines(buf *bytes.Buffer) []string {
 	return strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 }
@@ -83,7 +94,11 @@ func TestDryRunEmptyEnv(t *testing.T) {
 		"No yolo-* containers found — nothing to dedupe across.",
 		"Stopped yolo-* containers",
 		"Orphaned broker relays",
-		"Old yolo-jail images  (keep=2)",
+		// The header reports the EVIDENCE, not a dial: `--keep-images` was removed
+		// by OQ-LS3 and retention is one current-image pointer per workspace, so
+		// what a reader needs in order to predict this section is how many
+		// pointers it found. Zero on an empty storage root.
+		"Old yolo-jail images  (keeping each workspace's current image: 0 pointer(s))",
 		// keep=0, not 3: OQ-BF6 made the tar default per-RUNTIME, and this fixture
 		// runs on podman, which streams into `podman load` and writes no tar at
 		// all since C3. The Apple Container arm keeps 3 and is pinned separately
@@ -137,16 +152,15 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 	mustMkdir(t, shadowed)
 	mustWrite(t, filepath.Join(shadowed, "blob"), bytes.Repeat([]byte("z"), 4096))
 
-	// A load ledger. Not decoration: since the fail-safe landed, an UNREADABLE
-	// ledger makes the old-image pass decline entirely (unknown ≠ nothing live),
-	// so a fixture with images and no ledger asserts against a state a real
-	// machine cannot reach — podman cannot hold a yolo-jail image that no load
-	// ever put there. The path is deliberately unrelated to the fixture's tags:
-	// it makes liveness KNOWN without protecting any of them, so the keep window
-	// is what decides, which is what this test is about.
-	mustMkdir(t, o.BuildDir())
-	mustWrite(t, filepath.Join(o.BuildDir(), "last-load-podman"),
-		[]byte("/nix/store/aaaaaaaaaaaaaaaa-stream-yolo-jail\n"))
+	// CURRENT-IMAGE POINTERS. Not decoration: with no honourable pointer the
+	// old-image pass fails safe and declines entirely (unknown ≠ "no workspace
+	// wants anything"), so a fixture with images and no pointer asserts against a
+	// state a real machine cannot reach — podman cannot hold a yolo-jail image
+	// that no launch ever put there. Two workspaces point at id2 and id3, which
+	// leaves id1 as the superseded copy this test expects to see selected.
+	pathTwo, pathThree := "/nix/store/2222-ws-two", "/nix/store/3333-ws-three"
+	mustPointAt(t, o.BuildDir(), "yolo-two-22222222", pathTwo)
+	mustPointAt(t, o.BuildDir(), "yolo-three-33333333", pathThree)
 
 	// Stopped + running containers, plus an old image.
 	rmCalls := []string{}
@@ -154,9 +168,9 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 		k("podman", "ps", "-a", "--format", "{{.Names}}"):            "",
 		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "yolo-dead-1 Exited\nyolo-live-2 Running\n",
 		k("podman", "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"): "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
-			"id2 localhost/yolo-jail:2222222222222222 2026-07-18 09:00:00 +0000 UTC\n" +
+			"id2 localhost/yolo-jail:" + image.ImageStoreKey(pathTwo) + " 2026-07-18 09:00:00 +0000 UTC\n" +
 			"id2 localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
-			"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n",
+			"id3 localhost/yolo-jail:" + image.ImageStoreKey(pathThree) + " 2026-07-10 09:00:00 +0000 UTC\n",
 	}
 	o.Exec = stubExec(mapping, &rmCalls)
 	var buf bytes.Buffer
@@ -168,7 +182,8 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 		t.Errorf("stopped-container dry-run wrong:\n%s", buf.String())
 	}
 	if !hasLine(&buf, "    • id1") {
-		t.Errorf("old-image dry-run should list id1 (oldest, keep=2):\n%s", buf.String())
+		t.Errorf("old-image dry-run should list id1 (the only image no workspace "+
+			"points at):\n%s", buf.String())
 	}
 	// Image cache on PODMAN: keep=0 since OQ-BF6, so the 1024 B tar goes too, not
 	// just the 512 B orphan tmp. This assertion used to read "512 B across 1
@@ -224,21 +239,21 @@ func TestApplyOnTempRoot(t *testing.T) {
 	mustMkdir(t, shadowedChild)
 	mustWrite(t, filepath.Join(shadowedChild, "blob"), bytes.Repeat([]byte("z"), 4096))
 
-	// See the note in TestDryRunReportsButDoesNotMutate: without a readable load
-	// ledger the old-image pass fails safe and removes nothing, so a fixture that
-	// expects `rmi -f` has to supply one. Unrelated path → liveness known, nothing
-	// protected.
-	mustMkdir(t, o.BuildDir())
-	mustWrite(t, filepath.Join(o.BuildDir(), "last-load-podman"),
-		[]byte("/nix/store/aaaaaaaaaaaaaaaa-stream-yolo-jail\n"))
+	// See the note in TestDryRunReportsButDoesNotMutate: with no honourable
+	// current-image pointer the old-image pass fails safe and removes nothing, so
+	// a fixture that expects an `rmi` has to supply one. id2 and id3 are pointed
+	// at; id1 is the superseded copy.
+	pathTwo, pathThree := "/nix/store/2222-ws-two", "/nix/store/3333-ws-three"
+	mustPointAt(t, o.BuildDir(), "yolo-two-22222222", pathTwo)
+	mustPointAt(t, o.BuildDir(), "yolo-three-33333333", pathThree)
 
 	rmCalls := []string{}
 	mapping := map[string]string{
 		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "yolo-dead-1 Exited\n",
 		k("podman", "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"): "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
-			"id2 localhost/yolo-jail:2222222222222222 2026-07-18 09:00:00 +0000 UTC\n" +
+			"id2 localhost/yolo-jail:" + image.ImageStoreKey(pathTwo) + " 2026-07-18 09:00:00 +0000 UTC\n" +
 			"id2 localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
-			"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n",
+			"id3 localhost/yolo-jail:" + image.ImageStoreKey(pathThree) + " 2026-07-10 09:00:00 +0000 UTC\n",
 	}
 	o.Exec = stubExec(mapping, &rmCalls)
 	var buf bytes.Buffer
@@ -277,37 +292,42 @@ func TestApplyOnTempRoot(t *testing.T) {
 	}
 }
 
-// TestApplyNeverRemovesAnInUseImage pins the CALL SITE of the liveness veto, not
-// the veto itself: probes_test.go drives PruneOldImages directly and would stay
-// green if prunecmd stopped passing ProtectedImageTags. This one goes through
-// Run, so an empty set at the call site fails it.
+// TestApplyNeverRemovesAWorkspacesCurrentImage pins the CALL SITE of the
+// retention read, not the read itself: probes_test.go drives PruneOldImages
+// directly and would stay green if prunecmd stopped passing CurrentImageTags.
+// This one goes through Run, so an empty set at the call site fails it.
 //
 // The scenario is the one C2 created and measured on the maintainer's host the
-// day it landed: two workspaces with different `packages:`, each with its own
-// permanently tagged image. `yolo prune --apply` — which `yolo check` actively
-// recommends — would `rmi -f` the older one, and `-f` takes the running
-// container with it, killing another workspace's session mid-flight.
-func TestApplyNeverRemovesAnInUseImage(t *testing.T) {
-	o, gs := baseOpts(t)
+// day it landed: several workspaces with different `packages:`, each with its
+// own permanently tagged image. `yolo prune --apply` — which `yolo check`
+// actively recommends — would remove the older ones, and while `rmi` still
+// forced that took the running container with it, killing another workspace's
+// session mid-flight.
+//
+// IT IS A STRONGER PIN THAN THE VERSION IT REPLACES. With `keep=2`, two of the
+// three workspaces' images survived on age even with the protected set emptied,
+// so only the third assertion could ever fire. Retention is now the pointers and
+// nothing else: delete the CurrentImageTags call at the call site and ALL THREE
+// live images are removed.
+func TestApplyNeverRemovesAWorkspacesCurrentImage(t *testing.T) {
+	o, _ := baseOpts(t)
 	o.Apply = true
 
-	// THREE workspaces' store paths are in the load sentinel — AutoLoadImage
-	// records one on EVERY launch since C2, not only when a load happened — and
-	// keep is 2, so the third is inside the removal window by construction. That
-	// is what makes this a call-site pin: with an empty protected set at the call
-	// site, idB is force-removed and the assertions below fire.
+	// THREE workspaces, each with its own current-image pointer — one per
+	// workspace is exactly what the launch path writes (OQ-LS3) — plus a cold
+	// image nothing points at.
 	const pathA = "/nix/store/aaaa-workspace-a"
 	const pathC = "/nix/store/cccc-workspace-c"
 	const pathB = "/nix/store/bbbb-workspace-b"
 	const pathCold = "/nix/store/dddd-long-gone"
-	buildDir := filepath.Join(gs, "build")
-	mustMkdir(t, buildDir)
-	mustWrite(t, filepath.Join(buildDir, "last-load-podman"),
-		[]byte(pathB+"\n"+pathC+"\n"+pathA+"\n"))
+	mustPointAt(t, o.BuildDir(), "yolo-a-aaaaaaaa", pathA)
+	mustPointAt(t, o.BuildDir(), "yolo-b-bbbbbbbb", pathB)
+	mustPointAt(t, o.BuildDir(), "yolo-c-cccccccc", pathC)
 
-	// Newest-first by CreatedAt: A (which also wears :latest), C, B, then a cold
-	// image nothing has run since. keep=2 selects B and cold; the veto must save B
-	// and only B.
+	// Newest-first by CreatedAt: A (which also wears :latest), C, B, then the cold
+	// image. B is the OLDEST live one, which is where the rule this replaced went
+	// wrong — CreatedAt is when the archive was streamed, so the workspace that
+	// has been on one image longest sorted first.
 	rows := "idA localhost/yolo-jail:" + image.ImageStoreKey(pathA) + " 2026-07-18 09:00:00 +0000 UTC\n" +
 		"idA localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
 		"idC localhost/yolo-jail:" + image.ImageStoreKey(pathC) + " 2026-07-15 09:00:00 +0000 UTC\n" +
@@ -324,12 +344,12 @@ func TestApplyNeverRemovesAnInUseImage(t *testing.T) {
 
 	for _, live := range []string{"podman rmi idA", "podman rmi idB", "podman rmi idC"} {
 		if containsCall(rmCalls, live) {
-			t.Errorf("prune force-removed an image a live jail runs (%q) — `rmi -f` "+
-				"takes its container with it:\n%v", live, rmCalls)
+			t.Errorf("prune removed an image a workspace still points at (%q):\n%v",
+				live, rmCalls)
 		}
 	}
-	// And the veto is not "remove nothing": an image outside the sentinel and
-	// outside the keep window is still reclaimed.
+	// And retention is not "remove nothing": an image no workspace points at is
+	// still reclaimed.
 	if !containsCall(rmCalls, "podman rmi idCold") {
 		t.Errorf("expected 'podman rmi idCold' in %v — the gate must still let "+
 			"genuinely unused images go", rmCalls)

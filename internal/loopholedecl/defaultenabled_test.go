@@ -9,7 +9,7 @@ import (
 
 // defaultenabled_test.go pins the OQ-A9 rename: `enabled` off the loophole MANIFEST,
 // `default_enabled` on it, and the default flipped from ON to OFF
-// (docs/design/loophole-activation.md R2).
+// (docs/reference/loophole-system.md R2).
 //
 // The property this file is really defending is that the two `enabled`s can no longer
 // be confused. There are two switches with one old spelling — the manifest's, which is

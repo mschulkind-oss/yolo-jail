@@ -1,7 +1,7 @@
 package loopholedecl
 
 // capabilities.go is the `serves` half of capability supersession
-// (docs/design/pack-capabilities.md §2).
+// (docs/reference/pack-system.md §2).
 //
 // A CAPABILITY IS A NAMED JOB, not a name for the thing that does the job:
 // `claude-oauth-refresh` is "serializing OAuth token refreshes so concurrent

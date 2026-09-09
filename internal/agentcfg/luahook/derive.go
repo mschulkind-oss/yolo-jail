@@ -10,7 +10,7 @@ package luahook
 // (mcp_servers, lsp_servers) and RETURNS a fresh object — the computed layer that
 // feeds Inputs.Computed (packsurfaces.go). It is the one place a pack runs Lua:
 // a sandboxed producer of a config value, never an effect
-// (docs/design/pack-system.md §7).
+// (docs/reference/pack-system.md §7).
 //
 // Two facilities a derive needs that a transform does not, both added here:
 //

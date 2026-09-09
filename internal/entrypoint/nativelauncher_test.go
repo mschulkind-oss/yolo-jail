@@ -70,7 +70,7 @@ func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map
 		filepath.Join(home, "stamps"),
 		receipts,
 		"", // no capture store: these cells are about the DOWNLOAD path
-		true,
+		true, launcherServers{},
 	)
 	script := filepath.Join(home, "probetool")
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {

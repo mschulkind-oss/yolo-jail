@@ -1,7 +1,7 @@
 package cli
 
 // configoverlay_test.go covers the two USER-FACING halves of wiring `config-overlay`
-// (docs/design/pack-config-collaboration.md §7):
+// (docs/reference/pack-system.md §7):
 //
 //   - R2 — an overlay whose target has no owner is inert AND reported by name in
 //     `yolo host apply`. Not an error (a pack the user did not select is not a mistake), and

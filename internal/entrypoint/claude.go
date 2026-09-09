@@ -29,7 +29,7 @@ var claudeLSPPluginOrder = []struct{ lsp, plugin string }{
 // dict into the shared one — which made the generically-named `shared_credentials` hook work
 // properly for exactly one tool: agy's differently-shaped token fell straight through it, so the
 // case the merge existed to save was already unsaved for the second consumer. The ruling
-// (docs/design/pack-code-separation.md §5, OQ-3) was to delete the merge rather than generalize
+// (docs/reference/pack-system.md §5, OQ-3) was to delete the merge rather than generalize
 // it, because losing one valid login in a migration is an acceptable cost and any generic
 // stand-in (mtime-newest-wins) can pick the wrong credential anyway: the broker rewrites the
 // shared file on every background refresh, so its mtime is fresh even when its ACCOUNT is stale.

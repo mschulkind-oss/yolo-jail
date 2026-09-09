@@ -233,9 +233,15 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 type ImageReapDecline string
 
 const (
-	// DeclineLedgerUnreadable: the load sentinel could not be read, so the
-	// liveness veto has no evidence (guard #1).
-	DeclineLedgerUnreadable ImageReapDecline = "could not read the image load ledger"
+	// DeclineNoCurrentPointers: not one workspace's current-image pointer could
+	// be honoured, so retention has no evidence (guard #1).
+	//
+	// IT NAMES THE POINTERS, not "the ledger", because OQ-LS3 moved the evidence:
+	// the retention set was the load sentinel's LRU-10 of recently-loaded store
+	// paths and is now the per-workspace current pointers
+	// (CurrentImageTags). A reader who sees this needs to know which file to look
+	// at, and the two are different files with different writers.
+	DeclineNoCurrentPointers ImageReapDecline = "could not read any workspace's current-image pointer"
 	// DeclineRuntimeUnreachable: `ps` could not be enumerated, so what is
 	// actually running is unknown (guard #0).
 	DeclineRuntimeUnreachable ImageReapDecline = "could not ask the runtime which images have containers on them"
@@ -256,8 +262,9 @@ const (
 // and pins the pair; integration/imagelabel_test.go pins it against a real image.
 //
 // OWNERSHIP, NEVER LIVENESS. The label says "yolo built this", full stop. Which
-// image is in USE is answered by `podman ps` (guard #0) and by the load
-// sentinel's content tags (ProtectedImageTags) — and the flake CANNOT carry more
+// image is in USE is answered by `podman ps` (guard #0), and which one a
+// workspace still WANTS by that workspace's current pointer (CurrentImageTags,
+// OQ-LS3 — it was the load sentinel's LRU until then) — and the flake CANNOT carry more
 // than ownership here even if a caller wanted it to: nix cannot reference a
 // derivation's own output path and streamLayeredImage's script takes only
 // `--repo_tag`, so the finest identity spellable is `imageIdentity`, which is one
@@ -316,14 +323,31 @@ func listImagesByOwnerLabel(rt string, run RunFunc) string {
 	return res.Stdout
 }
 
-// PruneOldImages lists the images yolo can PROVE are its own, keeps the newest
-// `keep` plus every image the `protected` tag set vouches for, and returns the
-// image IDs removed (or slated for removal in dry-run).
+// PruneOldImages lists the images yolo can PROVE are its own, keeps every image
+// the `protected` tag set vouches for and every image a container is running on,
+// and returns the image IDs removed (or slated for removal in dry-run).
 // TWO `images` probes (repository name, owner label) → merge their rows →
 // parse (id, repo:tag, createdAt) lines (>=3 fields, split maxsplit=2) → ONE
-// ENTRY PER IMAGE ID → the EXISTING OldImagesToRemove lexical CreatedAt sort →
-// drop the protected and the in-use → `rmi <id>` each when apply. A
-// missing/failed runtime yields an empty list.
+// ENTRY PER IMAGE ID → drop the protected and the in-use → `rmi <id>` each when
+// apply. A missing/failed runtime yields an empty list.
+//
+// # THERE IS NO KEEP WINDOW ANY MORE (OQ-LS3, ruled 2026-09-08)
+//
+// This function took a `keep int` and removed everything past the newest N by
+// CreatedAt. The count is gone, not retuned, and `protected` now carries the
+// whole retention rule: it is the union of every workspace's CURRENT-IMAGE
+// POINTER (CurrentImageTags, currentimages.go) rather than the load sentinel's
+// LRU-10 of recently-loaded paths. The window was never a safety mechanism —
+// liveness is, and it has its own evidence in guard #0 — it was an UNDO BUFFER,
+// and the ruling deletes it: *"I don't know that I've ever rolled back, only
+// evolved forward."*
+//
+// So what survives a pass is exactly one image per configuration plus whatever
+// is running, and ⚠ **that is the FLOOR, not a target to beat**: a config whose
+// current image is in use is protected regardless of any count, and under a
+// shared-base layer plan every kept image also holds the base layer in place.
+// currentimages.go carries the argument in full; the numbers this changed on a
+// real store are in the design doc's §6.2.
 //
 // # THE UNION IS OQ-DF3's REACH RULING (2026-09-08), and both halves are load-bearing
 //
@@ -358,55 +382,48 @@ func listImagesByOwnerLabel(rt string, run RunFunc) string {
 //
 //  1. ONE ROW PER TAG, NOT PER IMAGE. `podman images` prints a row for every
 //     name, so the newest image appears TWICE — once under its content tag and
-//     once under :latest — and a per-row keep window silently spends two of its
+//     once under :latest — and a per-row keep window silently spent two of its
 //     slots on one image. Measured on the maintainer's host the moment C2
 //     landed: three rows, two images, and `keep=2` selected the second image for
-//     removal. Entries are therefore deduped by ID, which is what `keep` always
-//     meant to count.
+//     removal. Entries are therefore deduped by ID. The window that made that
+//     miscount destructive is gone (OQ-LS3), and the dedup is NOT: removal is by
+//     ID, so two rows for one image are two verdicts about one deletion, and
+//     they have to be reconciled before any of them acts.
 //  2. NO LIVENESS GATE AT ALL. While one :latest tag named every image the list
 //     was one row long and `keep` never fired, so the absence never showed;
 //     under per-config tags "everything past the newest 2" is "every config
 //     except the most recently LOADED one". CreatedAt is the moment the archive
 //     was streamed, not a build time (`created = "now"` in flake.nix), and C2's
 //     whole point is that a revisited workspace does NOT reload — so a live jail
-//     that has been running for a week carries a week-old timestamp and sorts
-//     last. `rmi -f` then removes the containers using the image, killing a live
-//     jail in another workspace mid-session. `protected`
-//     (prune.ProtectedImageTags) vetoes those, reading the same sentinel ledger
-//     as PruneOrphanImageRoots' guard #2, and `liveKnown` is its fail-safe.
+//     that has been running for a week carried a week-old timestamp and sorted
+//     last. `rmi -f` then removed the containers using the image, killing a live
+//     jail in another workspace mid-session. Guard #0 below answers that
+//     directly now, and `rmi` no longer forces.
 //
-// THE RETENTION RULE ITSELF IS STILL NOT C2's TO SET. `--keep-images`
-// (DefaultKeepImages, autoreap.go) is minimal-disk-footprint.md OQ-DF3's
-// NUMBER, RULED 2026-09-06: the count stays a small undo-buffer margin ON TOP
-// of the sentinel-derived veto below, not the sole safety mechanism — the
-// veto already keeps every recently-USED image (image.ReadLoadedPaths' LRU-10,
-// which AutoLoadImage updates on every launch, not only on a load) regardless
-// of `keep`, which is exactly the keep-by-USE evidence this comment used to
-// say OQ-DF3 "will eventually pick". The veto is deliberately applied AFTER
-// OldImagesToRemove so `keep` keeps meaning exactly what it means today. What
-// was still missing, and is what OQ-DF3's TRIGGER half rules, is that nothing
-// ever called this with apply=true outside a human typing `yolo prune
-// --apply` — see AutoReapOldImages (autoreap.go), the launch-path caller.
-// REACH is the union above, and it does NOT move the retention rule: a labeled
-// nameless row is treated exactly like a tagged one, so `keep` counts the union
-// and DefaultKeepImages is unchanged.
+// THE RETENTION RULE IS NOT C2's TO SET, and since OQ-LS3 it is not a NUMBER at
+// all: `protected` is the union of the per-workspace current pointers
+// (CurrentImageTags), and `known` is its fail-safe. REACH — the two-probe union
+// above — does not move it: a labeled nameless row is treated exactly like a
+// tagged one. What OQ-DF3's TRIGGER half added, and what still holds, is that
+// something other than a human typing `yolo prune --apply` calls this with
+// apply=true: see AutoReapOldImages (autoreap.go), the launch-path caller.
 //
 // # A NAMELESS ROW'S ONLY VETO IS GUARD #0, and that is not an oversight
 //
-// `protected` (ProtectedImageTags) matches TAGS, and `<none>` has none — so the
-// sentinel-derived veto is structurally silent for the class this union just
+// `protected` matches TAGS, and `<none>` has none — so the pointer-derived
+// retention set is structurally silent for the class this union just
 // added. What catches a LIVE nameless row is `podman ps`: a re-stream takes the
 // tag off the image a jail is running on, and `ps --format {{.ImageID}}` prints
 // the same 12-hex short ID as `images --format {{.ID}}` (MEASURED 2026-09-08),
 // so the in-use veto matches it exactly. That equality was a convenience for
 // tagged rows; it is the whole safety story for nameless ones — with the plain
 // (never `-f`) `rmi` below as the backstop that fails rather than kills.
-func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnown bool, apply bool, run RunFunc) (removed []string, declined ImageReapDecline) {
+func PruneOldImages(rt string, protected map[string]struct{}, protectedKnown bool, apply bool, run RunFunc) (removed []string, declined ImageReapDecline) {
 	// THE CANDIDATE LISTING COMES FIRST, and the order is load-bearing since
 	// OQ-LS2 made a decline an ERROR on the manual path. A machine where yolo
-	// has never loaded an image has an empty load ledger, so liveKnown is false
-	// — but nothing was denied there, because there was nothing to reap. Asking
-	// what exists before asking whether it is safe to touch is what lets
+	// has never launched has no current-image pointers, so protectedKnown is
+	// false — but nothing was denied there, because there was nothing to reap.
+	// Asking what exists before asking whether it is safe to touch is what lets
 	// "declined" mean "prevented work" rather than "fresh machine".
 	//
 	// Listing is read-only and removes nothing, so no guard below is weakened by
@@ -430,20 +447,28 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 	if strings.TrimSpace(rows) == "" {
 		return []string{}, "" // nothing of ours exists; nothing to decline about
 	}
-	if !liveKnown {
-		// Guard #1, the fail-safe: the veto's whole evidence is the load sentinel,
-		// and an unreadable one makes "nothing is live" and "I cannot tell" the
-		// same observation. An unproven set is not a licence to remove — decline
-		// entirely. Same polarity as every other tri-state in this package.
-		return []string{}, DeclineLedgerUnreadable
+	if !protectedKnown {
+		// GUARD #1, THE FAIL-SAFE, AND IT IS DOING MORE WORK SINCE OQ-LS3. With no
+		// keep window left, `protected` is the ENTIRE retention rule — so an empty
+		// set no longer means "keep the newest two anyway", it means "remove every
+		// image of ours that nothing is running". "No workspace wants anything" and
+		// "I cannot tell what any workspace wants" are the same observation from
+		// here, and an unproven set is not a licence to remove: decline entirely.
+		// Same polarity as every other tri-state in this package.
+		//
+		// This is also what makes the day OQ-LS3 ships safe by construction: the
+		// pointer directory does not exist yet, so the first pass declines and says
+		// so rather than reaping a machine's whole image store.
+		return []string{}, DeclineNoCurrentPointers
 	}
 	// GUARD #0, AND THE ONLY ONE THAT ASKS THE RUNTIME WHAT IS ACTUALLY RUNNING.
-	// The veto below reads a TEN-ENTRY LRU of recently-LOADED store paths, and a
-	// running jail only appends to it when it LAUNCHES — so a jail that has been
-	// up for days while other launches load other images ages out of the window
-	// and stops being protected while it is still running. Measured 2026-09-08:
-	// a day of commits to internal/ moved goSrc on every launch, four jails up
-	// 3-4 days aged out, and one auto-reap removed their images mid-session.
+	// Retention answers "which image does each workspace still want", which is
+	// not the same question: a jail that is UP but not relaunching does not
+	// re-record anything, and before OQ-LS1/LS3 the only evidence was a
+	// ten-entry LRU of recently-LOADED store paths that such a jail ages out of.
+	// Measured 2026-09-08: a day of commits to internal/ moved goSrc on every
+	// launch, four jails up 3-4 days aged out, and one auto-reap removed their
+	// images mid-session.
 	//
 	// `podman ps` is the direct question. Unreadable => decline entirely, the
 	// same polarity as guard #1: "nothing is running" and "I cannot tell" must
@@ -453,11 +478,11 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 		return []string{}, DeclineRuntimeUnreachable
 	}
 	// ONE loop over the MERGED rows, deliberately — not one pass per probe. Both
-	// the dedup and the protected-tag scan have to see every row before the keep
-	// decision: an image built after the label ships answers to BOTH probes, and
-	// a per-probe verdict would let its unprotected duplicate row delete the
-	// image its protected row saves (the same defect the `:latest` row already
-	// taught us, one entrance over).
+	// the dedup and the protected-tag scan have to see every row before the
+	// removal decision: an image built after the label ships answers to BOTH
+	// probes, and a per-probe verdict would let its unprotected duplicate row
+	// delete the image its protected row saves (the same defect the `:latest`
+	// row already taught us, one entrance over).
 	var images []ImageEntry
 	seen := map[string]bool{}
 	keepIDs := map[string]bool{}
@@ -479,12 +504,23 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 		seen[id] = true
 		images = append(images, ImageEntry{ID: id, Created: parts[2]})
 	}
+	// NEWEST FIRST, and the sort is now only about the ORDER OF THE REPORT. It
+	// used to feed OldImagesToRemove's keep window, so an image's POSITION
+	// decided whether it lived; OQ-LS3 deleted that window and the function with
+	// it. Kept because both entrances print the IDs they are removing and a
+	// newest-first list of hashes is readable where an arbitrary one is not —
+	// and because CreatedAt is still the only time this pass has, which is what
+	// the design's deferred "sort by last-used" would replace.
+	//
+	// LEXICAL, never parsed: podman's CreatedAt is ISO-ish and sorts correctly as
+	// a string, which is the property the deleted function documented.
+	sort.SliceStable(images, func(i, j int) bool { return images[i].Created > images[j].Created })
 	toRemove := []string{}
-	for _, id := range OldImagesToRemove(images, keep) {
-		if keepIDs[id] || inUse[id] {
+	for _, e := range images {
+		if keepIDs[e.ID] || inUse[e.ID] {
 			continue
 		}
-		toRemove = append(toRemove, id)
+		toRemove = append(toRemove, e.ID)
 	}
 	if apply {
 		for _, id := range toRemove {

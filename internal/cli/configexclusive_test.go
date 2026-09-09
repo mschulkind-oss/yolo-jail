@@ -1,7 +1,7 @@
 package cli
 
 // configexclusive_test.go is the HOST half of Option 1
-// (docs/design/pack-config-collaboration.md): `yolo host apply` refuses two `config`
+// (docs/reference/pack-system.md): `yolo host apply` refuses two `config`
 // declarations of one surface identity, and that refusal is what settles ruling R4.
 //
 // R4 is subtler than "a duplicated line": `apply --host` printed one `rendered` line PER

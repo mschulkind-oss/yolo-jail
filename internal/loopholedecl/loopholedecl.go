@@ -194,7 +194,7 @@ type Manifest struct {
 	VersionSet bool
 	// DefaultEnabled is the PACK AUTHOR's opinion about whether this loophole
 	// should be on when nobody has said otherwise — `default_enabled`, and ABSENT
-	// MEANS FALSE (docs/design/loophole-activation.md R2). It is not the user's
+	// MEANS FALSE (docs/reference/loophole-system.md R2). It is not the user's
 	// switch and must never be read as one: the user's switch is the CONFIG key
 	// `loopholes.<name>.enabled`, which internal/loopholes lays over this value at
 	// discovery (discover.go's applyWorkspaceOverrides) and which this rename
@@ -259,7 +259,7 @@ type Manifest struct {
 	// "supports everything" must not share a representation.
 	PlatformsSet bool
 	// Serves is the list of CAPABILITIES this loophole implements — named jobs, not
-	// names for the thing doing the job (docs/design/pack-capabilities.md §1). A pack
+	// names for the thing doing the job (docs/reference/pack-system.md §1). A pack
 	// that supersedes every capability a loophole serves retires it; see
 	// internal/loopholes' supersede.go for the rule and capabilities.go here for the
 	// schema.
@@ -276,7 +276,7 @@ type Manifest struct {
 	Serves []string
 	// Settings are the CONFIG KEYS this loophole owns — the mechanism that lets a
 	// pack declare a key instead of core naming it by hand
-	// (docs/design/pack-config-keys.md). A user supplies values under
+	// (docs/reference/pack-system.md). A user supplies values under
 	// `loopholes.<name>.settings.<key>`; core validates them against these
 	// declarations and writes the resolved result to the file {settings} names.
 	//

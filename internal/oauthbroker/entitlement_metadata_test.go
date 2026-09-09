@@ -22,7 +22,7 @@ import (
 // harvest copied oauthMetadataKeys unconditionally out of the local file, and the host broker's
 // NormalizeOAuth preserved every previous key across a refresh. The harvest is now DELETED — the
 // shared file always wins and nothing in the boot path rewrites those keys any more
-// (docs/design/pack-code-separation.md §5/§8, internal/entrypoint/claude.go). That collapses the
+// (docs/reference/pack-system.md §5/§8, internal/entrypoint/claude.go). That collapses the
 // whole property onto ONE guard: the broker must not drop them when it rewrites the shared file.
 //
 // So this is the test that stands in for the deleted code. It is a REGRESSION TEST in the

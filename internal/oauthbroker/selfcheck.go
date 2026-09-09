@@ -33,7 +33,7 @@ type selfCheckLine struct {
 // extension point for exactly this (the manifest has named
 // `["yolo","internal","daemon","claude-oauth-broker","--self-check"]` all along),
 // so the grading moved behind it rather than the loophole growing a second,
-// core-side check. See docs/design/pack-code-separation.md §4.
+// core-side check. See docs/reference/pack-system.md §4.
 func SelfCheck(credsPath string) int {
 	dir := BrokerDir()
 	var lines []selfCheckLine

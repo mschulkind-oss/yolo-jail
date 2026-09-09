@@ -11,7 +11,7 @@ package cli
 // # Why this file exists when the code did not change
 //
 // `supersedes` is a MANIFEST TOP-LEVEL key (packdecl.Manifest.Supersedes), not a
-// contribution — docs/design/pack-capabilities.md §10 settled that on 2026-09-02 — and the
+// contribution — docs/reference/pack-system.md §10 settled that on 2026-09-02 — and the
 // accepted leaning's second half was "top-level, WITH footprint taught to print it
 // explicitly". That half was recorded as unbuilt on the strength of a TEXTUAL negative:
 // internal/cli/pack.go mentions supersession nowhere. It does not need to. The claim is
@@ -35,7 +35,7 @@ import (
 	"testing"
 )
 
-// supersedesManifest is the design's own example (docs/design/pack-capabilities.md §2, and
+// supersedesManifest is the design's own example (docs/reference/pack-system.md §2, and
 // packload's bedrockDecl): a pack that declares the OAuth-refresh job unnecessary, with the
 // mandatory `because` that has to travel with it. The `env` contribution is there only so
 // `pack lint` has something to call a contribution — a supersedes-only pack is a separate

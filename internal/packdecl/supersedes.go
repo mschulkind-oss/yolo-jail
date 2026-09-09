@@ -1,7 +1,7 @@
 package packdecl
 
 // supersedes.go is the `supersedes` half of capability supersession
-// (docs/design/pack-capabilities.md §2): a pack's claim that some capability's job
+// (docs/reference/pack-system.md §2): a pack's claim that some capability's job
 // no longer needs doing, so whichever loophole serves it can stop.
 //
 // # Why it is a TOP-LEVEL key and not a 16th contribution kind

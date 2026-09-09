@@ -7,7 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// settings.go is this daemon's half of docs/design/pack-config-keys.md: the
+// settings.go is this daemon's half of docs/reference/pack-system.md: the
 // `journal` loophole's manifest declares the keys, yolo validates the user's values
 // and writes them to a flat JSON file, and this reads that file ONCE at startup.
 //
@@ -18,7 +18,7 @@ import (
 // `"journal": "full"` — read the whole host journal, every unit, every user — was
 // settable from a workspace `yolo-jail.jsonc`, which is a file the agent inside the
 // jail can rewrite. Making it a declared setting is what gives it a scope
-// (docs/design/pack-config-keys.md §5.2, OQ-K4), and `full` is declared
+// (docs/reference/pack-system.md §5.2, OQ-K4), and `full` is declared
 // `scope: "user"`: a workspace may switch the bridge ON, but only the user config may
 // widen what it can read.
 //

@@ -93,7 +93,7 @@ func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 	}
 	for _, tc := range cases {
 		body := npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "foo", Package: tc.pkg},
-			"/stamps", filepath.Join(t.TempDir(), "receipts.jsonl"), true)
+			"/stamps", filepath.Join(t.TempDir(), "receipts.jsonl"), true, launcherServers{})
 		for _, want := range []string{
 			"\nPKG=" + shquote.Quote(tc.wantPKG) + "\n",
 			"\nSPEC=" + shquote.Quote(tc.wantSPEC) + "\n",
@@ -321,7 +321,7 @@ func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]st
 		// of this file. It is pointed at the probe's temp home instead, which is also
 		// what makes the receipt assertions below readable.
 		p.receiptsPath,
-		p.updates,
+		p.updates, launcherServers{},
 	)
 	script := filepath.Join(p.home, bin)
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {

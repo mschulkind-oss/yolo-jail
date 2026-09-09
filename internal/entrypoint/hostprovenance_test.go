@@ -5,7 +5,7 @@ package entrypoint
 // inferred from pack declarations.
 //
 // The bug this closes was not a missing feature but a confident wrong answer
-// (docs/design/pack-config-collaboration.md §8, final bullet). The host render wrote no
+// (docs/reference/pack-system.md §8, final bullet). The host render wrote no
 // provenance record at all, whatever the surface's mode, so `config diff` had nothing to
 // annotate from and guessed from what the packs declare — printing
 //

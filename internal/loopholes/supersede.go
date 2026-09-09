@@ -1,7 +1,7 @@
 package loopholes
 
 // supersede.go is the RUNTIME half of capability supersession
-// (docs/design/pack-capabilities.md): the schema says what a manifest may DECLARE
+// (docs/reference/pack-system.md): the schema says what a manifest may DECLARE
 // — `serves` on a loophole (internal/loopholedecl), `supersedes` on a pack
 // (internal/packdecl) — and this file is where the two meet a real machine and a
 // real set of selected packs.

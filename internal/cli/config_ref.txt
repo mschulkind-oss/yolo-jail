@@ -221,7 +221,7 @@
       which is a key on a loophole's manifest.jsonc and is not valid here: that
       one is the PACK AUTHOR's default — what happens when nobody has spoken —
       and an ABSENT "default_enabled" means the loophole is OFF (presence never
-      activates; docs/design/loophole-activation.md R1/R2).  So a loophole whose
+      activates; docs/reference/loophole-system.md R1/R2).  So a loophole whose
       author shipped it off, "audio" among them, runs only because this key says
       so.  Honored from the user config and from a workspace yolo-jail.jsonc
       alike; the workspace is the agent-editable scope, so a switch written there

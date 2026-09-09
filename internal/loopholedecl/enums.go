@@ -162,7 +162,7 @@ func retiredTransportHint(transport string) string {
 			" not a transport. Write 'loopback-tls' and keep 'intercepts'/'broker_ip'/" +
 			"'ca_cert' exactly as they are; those are what wire the interception."
 	case RetiredTransportUnixSocket:
-		return " — 'unix-socket' was retired (docs/design/loophole-transport.md §7.4):" +
+		return " — 'unix-socket' was retired (docs/reference/loophole-transport.md):" +
 			" it cannot cross virtiofs on macOS + podman. Write 'loopback-tls' and add" +
 			" 'publishes': 'socket' to 'host_daemon': the daemon keeps binding its" +
 			" AF_UNIX socket at the path yolo substitutes into '{socket}', and yolo" +

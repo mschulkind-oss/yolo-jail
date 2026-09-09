@@ -15,7 +15,7 @@
 //     config schema named by hand (`host_processes` was the other, retired the same
 //     day), and deleting the second is what makes "convert the loophole" mean
 //     something rather than move a file: core's schema now names NO loophole at all
-//     (docs/design/loophole-activation.md §1.4, OQ-A6; pack-config-keys.md OQ-K4).
+//     (docs/reference/loophole-system.md §1.4, OQ-A6; pack-config-keys.md OQ-K4).
 //     A config that still writes the key is REFUSED, naming this block.
 //
 //  2. THE MODE GETS A SCOPE, WHICH IS THE SECURITY HALF.  `"journal": "full"` was an
@@ -57,7 +57,7 @@
   // daemon answering "journalctl not found on host" (exit 127, which it already does,
   // per request) rather than a loophole that vanishes from `yolo loopholes list` with
   // no explanation — R3's argument, and the same reason the probe is being deleted
-  // from the schema (docs/design/loophole-activation.md R3).
+  // from the schema (docs/reference/loophole-system.md R3).
   "platforms": [
     "linux"
   ],
@@ -65,7 +65,7 @@
   "transport": "loopback-tls",
   "lifecycle": "spawned",
 
-  // THE LOOPHOLE OWNS ITS CONFIG KEY NOW (docs/design/pack-config-keys.md §5.2).
+  // THE LOOPHOLE OWNS ITS CONFIG KEY NOW (docs/reference/pack-system.md §5.2).
   //
   // ONE BOOLEAN, WHERE THERE USED TO BE THREE STRINGS.  The old vocabulary was
   // `off | user | full` (plus the bool `true` meaning "user").  Two of those three are

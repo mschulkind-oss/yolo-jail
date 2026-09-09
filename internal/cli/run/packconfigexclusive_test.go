@@ -1,7 +1,7 @@
 package run
 
 // packconfigexclusive_test.go is the LAUNCH half of Option 1
-// (docs/design/pack-config-collaboration.md): two `config` declarations of one surface
+// (docs/reference/pack-system.md): two `config` declarations of one surface
 // identity fail the launch, before the container exists, naming both packs.
 //
 // Why it belongs at this call site rather than only in packload: this is the one collision in

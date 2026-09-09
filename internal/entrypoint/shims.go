@@ -349,6 +349,13 @@ func GenerateAgentLaunchers(e *Env) error {
 	// path and the declared mise set are the same for every pack. See launchercollision.go
 	// for why the scope is what it is — a wider one turns evergreen off silently.
 	probePath, miseBins := imageProbePath(e), declaredMiseBins(e)
+	// The yolo-INSTALLED MCP/LSP server set, computed ONCE for the same reason the probe
+	// path is: it is jail-global, not per-pack. §3.5 phrases the scope per agent ("an agent
+	// whose config names that server"), and in this tree that narrowing is the identity —
+	// YOLO_MCP_PRESETS and lsp_servers are jail-global keys and every agent's surface
+	// renders from one table. See serverrefresh.go's header for where a per-pack set would
+	// enter if that ever changes.
+	servers := ServerRefreshSpecs(e)
 
 	packs, err := LoadJailPacks(e)
 	if err != nil {
@@ -394,10 +401,10 @@ func GenerateAgentLaunchers(e *Env) error {
 			switch inst.Kind {
 			case "npm":
 				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e),
-					agentUpdatesAllows(e, p.Name))
+					agentUpdatesAllows(e, p.Name), servers)
 			case "native":
 				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e),
-					agentUpdatesAllows(e, p.Name))
+					agentUpdatesAllows(e, p.Name), servers)
 			default:
 				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
 				// and DecodeTolerant drops a `program` whose `via` this build does not know
@@ -441,7 +448,7 @@ func GenerateAgentLaunchers(e *Env) error {
 // the contract has no exemptions for a reader to memorize; a mutation run will report it as
 // a survivor, and that report is correct.
 func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
-	updates bool) string {
+	updates bool, servers launcherServers) string {
 	binName := inst.Bin
 	pkgName, pkgVersion := splitNpmSpec(inst.Package)
 	pinned := "0"
@@ -466,6 +473,11 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 		"__YOLO_UPDATE_VERB__", shquote.Join(inst.UpdateVerb),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("npm", binName, inst.Package)),
+		// The BAKED server set (§3.5's transitive half). ENABLED is the "is there any
+		// yolo-installed server at all" bit, so a jail with none carries no refresh call.
+		"__YOLO_SERVERS_ENABLED__", shquote.Quote(boolFlag(!servers.empty())),
+		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
+		"__YOLO_SERVERS_GO__", shquote.Quote(servers.gomods),
 	)
 	return r.Replace(npmLauncherTemplate)
 }
@@ -507,7 +519,7 @@ func capturesDir(e *Env) string {
 }
 
 func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capturesPath string,
-	updates bool) string {
+	updates bool, servers launcherServers) string {
 	binName := inst.Bin
 	installerURL := inst.InstallerURL
 	r := strings.NewReplacer(
@@ -525,6 +537,11 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capture
 		// which is a bare position: nothing here is inside quotes.
 		"__YOLO_UPDATE_VERB__", shquote.Join(inst.UpdateVerb),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("installer", binName, installerURL)),
+		// The BAKED server set (§3.5's transitive half). ENABLED is the "is there any
+		// yolo-installed server at all" bit, so a jail with none carries no refresh call.
+		"__YOLO_SERVERS_ENABLED__", shquote.Quote(boolFlag(!servers.empty())),
+		"__YOLO_SERVERS_NPM__", shquote.Quote(servers.npm),
+		"__YOLO_SERVERS_GO__", shquote.Quote(servers.gomods),
 	)
 	return r.Replace(nativeLauncherTemplate)
 }
@@ -898,6 +915,11 @@ UPDATE_VERB=(__YOLO_UPDATE_VERB__)
 LOCK_DIR="$NPM_CONFIG_PREFIX/.yolo-update.lock"
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
+# The yolo-INSTALLED MCP/LSP server set, baked (see ServerRefreshSpecs). SERVERS_ENABLED is
+# 0 when this jail has none, which bakes the whole refresh out of the hot path.
+SERVERS_ENABLED=__YOLO_SERVERS_ENABLED__
+SERVERS_NPM=__YOLO_SERVERS_NPM__
+SERVERS_GO=__YOLO_SERVERS_GO__
 
 # --- re-entry ----------------------------------------------------------------------
 # B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
@@ -1159,6 +1181,35 @@ elif _update_due; then
     _locked_update || true
 fi
 
+# --- transitive MCP/LSP refresh (§3.5, OQ-PD12a) ------------------------------------
+# The servers this agent connects to inherit ITS trigger: a server exists only to serve an
+# agent, so there is no boot step and no timer — the refresh happens here, at the moment
+# somebody typed the agent's name, and it must COMPLETE BEFORE THE EXEC because the agent
+# spawns its servers itself and a half-updated set at connect time is worse than a stale one.
+#
+# SERVERS_* are BAKED, never read from the environment: macos-user execs these launchers under
+# "env -i", so a ${YOLO_MCP_PRESETS:-} here would be populated on the container backends and
+# empty on the one backend with no image to hide it. Same reason CAPTURES_DIR and
+# _YOLO_RECEIPTS are baked; see ServerRefreshSpecs.
+#
+# The lists are QUOTED into one argument each and split in Go. UPDATES_ENABLED rides along
+# because the policy gates the STALE half only — an absent server is installed whatever the
+# policy says, for the same reason the cold-install arm above ignores it.
+#
+# "|| true": a server that could not be installed is REPORTED (the subcommand says so, and
+# exits non-zero), and the agent still runs. Its own binary is present and runnable, and
+# refusing to start it because one server failed to fetch would be the worse outcome.
+_refresh_servers() {
+    command -v yolo >/dev/null 2>&1 || return 0
+    YOLO_BYPASS_SHIMS=1 yolo internal refresh-servers \
+        --home="$HOME" --npm="$SERVERS_NPM" --go="$SERVERS_GO" \
+        --updates="$UPDATES_ENABLED" >&2 || true
+}
+
+if [ "$SERVERS_ENABLED" = "1" ]; then
+    _refresh_servers
+fi
+
 if [ -x "$REAL_BIN" ]; then
     exec "$REAL_BIN" "$@"
 else
@@ -1248,6 +1299,11 @@ _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 # The machine's install-capture store, as this jail sees it. Empty when there is none —
 # baked at generation time for the same reason as the line above; see capturesDir.
 CAPTURES_DIR=__YOLO_CAPTURES_DIR__
+# The yolo-INSTALLED MCP/LSP server set, baked (see ServerRefreshSpecs). SERVERS_ENABLED is
+# 0 when this jail has none, which bakes the whole refresh out of the hot path.
+SERVERS_ENABLED=__YOLO_SERVERS_ENABLED__
+SERVERS_NPM=__YOLO_SERVERS_NPM__
+SERVERS_GO=__YOLO_SERVERS_GO__
 # ONE lock per INSTALL PREFIX, not per program: §3.5's contention rule is about who may
 # write into $HOME/.local, and two vendor updaters running there at once is what it
 # forbids. On the container backends the prefix is a per-workspace bind and nothing can
@@ -1559,7 +1615,6 @@ if [ ! -x "$REAL_BIN" ]; then
 elif _update_due; then
     _locked_update || true
 fi
-
 # INSTALL AND STOP. See InstallOnlyEnv: yolo capture needs the install this launcher
 # performs and must not have the program RUN afterwards, because a first run writes the
 # tool own state into the very directories the capture is about to record.
@@ -1570,6 +1625,36 @@ if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
     echo "  ⚠ $BIN not available" >&2
     exit 1
 fi
+
+# --- transitive MCP/LSP refresh (§3.5, OQ-PD12a) ------------------------------------
+# The servers this agent connects to inherit ITS trigger: a server exists only to serve an
+# agent, so there is no boot step and no timer — the refresh happens here, at the moment
+# somebody typed the agent's name, and it must COMPLETE BEFORE THE EXEC because the agent
+# spawns its servers itself and a half-updated set at connect time is worse than a stale one.
+#
+# SERVERS_* are BAKED, never read from the environment: macos-user execs these launchers under
+# "env -i", so a ${YOLO_MCP_PRESETS:-} here would be populated on the container backends and
+# empty on the one backend with no image to hide it. Same reason CAPTURES_DIR and
+# _YOLO_RECEIPTS are baked; see ServerRefreshSpecs.
+#
+# The lists are QUOTED into one argument each and split in Go. UPDATES_ENABLED rides along
+# because the policy gates the STALE half only — an absent server is installed whatever the
+# policy says, for the same reason the cold-install arm above ignores it.
+#
+# "|| true": a server that could not be installed is REPORTED (the subcommand says so, and
+# exits non-zero), and the agent still runs. Its own binary is present and runnable, and
+# refusing to start it because one server failed to fetch would be the worse outcome.
+_refresh_servers() {
+    command -v yolo >/dev/null 2>&1 || return 0
+    YOLO_BYPASS_SHIMS=1 yolo internal refresh-servers \
+        --home="$HOME" --npm="$SERVERS_NPM" --go="$SERVERS_GO" \
+        --updates="$UPDATES_ENABLED" >&2 || true
+}
+
+if [ "$SERVERS_ENABLED" = "1" ]; then
+    _refresh_servers
+fi
+
 
 if [ -x "$REAL_BIN" ]; then
     exec "$REAL_BIN" "$@"

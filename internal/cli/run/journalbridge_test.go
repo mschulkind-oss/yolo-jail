@@ -61,7 +61,7 @@ func TestMain(m *testing.M) {
 // Those three tested a BUILTIN SERVICE: a top-level `journal` config key normalized
 // to a `--mode` argv by resolveJournalMode, handed to a bespoke startJournal step
 // that stood beside the cgroup delegate in startLoopholes. All of that is gone
-// (docs/design/loophole-activation.md OQ-A6, pack-config-keys.md OQ-K4). There is no
+// (docs/reference/loophole-system.md OQ-A6, pack-config-keys.md OQ-K4). There is no
 // journal step, no journal key and no journal mode resolver to test, because the
 // bridge is now an ordinary manifest loophole discovered from the official `journal`
 // pack and spawned by the same loop as every other host daemon. What is left to pin

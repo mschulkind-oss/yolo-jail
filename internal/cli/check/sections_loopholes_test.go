@@ -736,7 +736,7 @@ func runCheckLoopholes(t *testing.T, workspace string) (*reporter, string) {
 }
 
 // TestCheckLoopholesReportsAPackShippedSelfCheck is OQ-A12
-// (docs/design/loophole-activation.md §4), and the reason it is not academic is that the
+// (docs/reference/loophole-system.md §4), and the reason it is not academic is that the
 // activation sprint moves the ONLY two loopholes that declare a doctor_cmd — the broker
 // and host-processes — out of bundled_loopholes/ and into packs. The health section used
 // the package-level RunDoctorChecks, which refuses every SourcePack record by
@@ -808,7 +808,7 @@ func TestCheckLoopholesDoesNotInventAPackSelfCheck(t *testing.T) {
 }
 
 // TestCheckLoopholesWarnsOnWorkspaceEnable is OQ-A13's mirror
-// (docs/design/loophole-activation.md §2, under R5): the OFF direction has had a
+// (docs/reference/loophole-system.md §2, under R5): the OFF direction has had a
 // disclosure since §4.3b, and the ON direction — the one R2 turned into the
 // ACTIVATION VERB — had none.
 //

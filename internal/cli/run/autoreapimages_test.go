@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // TestAutoReapOldImagesWiring is the run-package half of the call-site
@@ -29,21 +31,28 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 	if err := os.MkdirAll(buildDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	const live = "/nix/store/aaaa-live-image"
-	if err := os.WriteFile(filepath.Join(buildDir, "last-load-podman"),
-		[]byte(live+"\n"), 0o644); err != nil {
-		t.Fatal(err)
+	// THREE WORKSPACES' CURRENT IMAGES, and one superseded copy. Under
+	// `--keep-images 2` this fixture's two newest rows survived on count alone
+	// and only the veto's own image needed protecting; OQ-LS3 removed the count,
+	// so every survivor here has to be somebody's current image — which is why
+	// there are three pointers. id-current is deliberately the OLDEST (a
+	// week-old still-running jail, the exact minimal-disk-footprint.md §3.3
+	// scenario the CreatedAt sort got wrong).
+	const (
+		newest  = "/nix/store/4444-ws-newest"
+		mid     = "/nix/store/3333-ws-mid"
+		current = "/nix/store/aaaa-ws-current"
+	)
+	for i, p := range []string{newest, mid, current} {
+		ws := t.TempDir() // CurrentImageTags only honours a pointer whose workspace exists
+		if err := prune.RecordCurrentImage(buildDir, "yolo-ws"+strconv.Itoa(i)+"-0000000"+strconv.Itoa(i),
+			ws, p); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// Production keep is prune.DefaultKeepImages (2), so this fixture needs FOUR
-	// images for the veto to matter: with only two, both would already survive
-	// on count alone and the test would prove nothing about the veto. Newest 2
-	// (id-newest, id-mid) survive by count; of the remaining two, id-live is
-	// the load sentinel's own (oldest — a week-old still-running jail, the
-	// exact minimal-disk-footprint.md §3.3 scenario) and must survive only via
-	// ProtectedImageTags, while id-old has no protection and must go.
-	imgOut := "id-newest localhost/yolo-jail:4444444444444444 2026-09-01 09:00:00 +0000 UTC\n" +
-		"id-mid localhost/yolo-jail:3333333333333333 2026-08-01 09:00:00 +0000 UTC\n" +
-		"id-live localhost/yolo-jail:" + image.ImageStoreKey(live) + " 2026-07-01 09:00:00 +0000 UTC\n" +
+	imgOut := "id-newest localhost/yolo-jail:" + image.ImageStoreKey(newest) + " 2026-09-01 09:00:00 +0000 UTC\n" +
+		"id-mid localhost/yolo-jail:" + image.ImageStoreKey(mid) + " 2026-08-01 09:00:00 +0000 UTC\n" +
+		"id-current localhost/yolo-jail:" + image.ImageStoreKey(current) + " 2026-07-01 09:00:00 +0000 UTC\n" +
 		"id-old localhost/yolo-jail:1111111111111111 2026-06-01 09:00:00 +0000 UTC\n"
 
 	var rmiCalls []string
@@ -80,7 +89,8 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 	o.autoReapOldImages("podman")
 
 	if len(rmiCalls) != 1 || rmiCalls[0] != "id-old" {
-		t.Fatalf("rmi calls = %v, want [id-old] (id-live is protected by the load sentinel)", rmiCalls)
+		t.Fatalf("rmi calls = %v, want [id-old] — the other three are workspaces' current "+
+			"images, including the oldest by CreatedAt", rmiCalls)
 	}
 	// TO THE LOG, NOT THE TERMINAL — rewritten, not repaired. This asserted
 	// stderr, which was wrong for a reason a terminal shows and a test does not:
@@ -120,8 +130,8 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 // be impossible, so it warns loudly rather than passing in silence. The first
 // was reordered deliberately — listing candidates first is what distinguishes
 // a denied sweep from a machine where yolo has never loaded an image.
-func TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness(t *testing.T) {
-	// The ledger is unreadable in BOTH cases (no last-load-<runtime> sentinel
+func TestAutoReapOldImagesWiringDeclinesOnUnknownRetention(t *testing.T) {
+	// There is no current-image pointer in EITHER case (no current-images/ dir
 	// under buildDir), so what separates them is only whether there was anything
 	// to reap.
 	newOpts := func(t *testing.T, imagesOut string, rmiCalls *[]string) (*Options, *bytes.Buffer, *bytes.Buffer) {
@@ -149,7 +159,7 @@ func TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness(t *testing.T) {
 		o, out, errBuf := newOpts(t, "", &rmiCalls)
 		o.autoReapOldImages("podman")
 		if len(rmiCalls) != 0 {
-			t.Errorf("rmi called with no readable liveness ledger: %v", rmiCalls)
+			t.Errorf("rmi called with no retention evidence: %v", rmiCalls)
 		}
 		if out.Len() != 0 || errBuf.Len() != 0 {
 			t.Errorf("a machine with no yolo images must say nothing; stdout=%q stderr=%q",
@@ -157,13 +167,13 @@ func TestAutoReapOldImagesWiringDeclinesOnUnknownLiveness(t *testing.T) {
 		}
 	})
 
-	t.Run("candidates exist but the ledger does not: loud, on stderr, and still no rmi", func(t *testing.T) {
+	t.Run("candidates exist but no pointer does: recorded, and still no rmi", func(t *testing.T) {
 		var rmiCalls []string
 		o, out, errBuf := newOpts(t,
 			"id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n", &rmiCalls)
 		o.autoReapOldImages("podman")
 		if len(rmiCalls) != 0 {
-			t.Errorf("rmi called with no readable liveness ledger: %v", rmiCalls)
+			t.Errorf("rmi called with no retention evidence: %v", rmiCalls)
 		}
 		// RECORDED IN FULL, and not on the terminal. OQ-LS2's "loud" is about not
 		// being silent, and a log line the user can grep is not silence — where a

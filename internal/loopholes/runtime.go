@@ -155,7 +155,7 @@ func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set, extraJailD
 		// happened to imply the other; `intercepts` is what actually produces the
 		// --add-host flags twenty lines below, so keying on it makes the skip and
 		// the thing skipped the same fact. That is also what let "tls-intercept"
-		// retire (docs/design/loophole-transport.md §7.4): it was the field's only
+		// retire (docs/reference/loophole-transport.md §7.4): it was the field's only
 		// behavioural reader.
 		if runtime == "container" && len(m.Intercepts) > 0 {
 			continue

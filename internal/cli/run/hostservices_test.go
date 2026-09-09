@@ -537,7 +537,7 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 
 	// THE ALLOWLIST ARRIVES THROUGH THE SETTINGS FILE, written by the same launch-path
 	// function the run pipeline calls — not through $YOLO_HOST_PROCESSES_CONFIG, which
-	// the daemon no longer reads at all (docs/design/pack-config-keys.md OQ-K3). Going
+	// the daemon no longer reads at all (docs/reference/pack-system.md OQ-K3). Going
 	// through writeLoopholeSettings rather than hand-writing the JSON is deliberate:
 	// the manifest declaration, the resolver, the writer and the daemon's reader are
 	// four pieces that have to agree on one file, and only an end-to-end path proves

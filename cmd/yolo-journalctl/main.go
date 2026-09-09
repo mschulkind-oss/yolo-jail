@@ -4,7 +4,7 @@
 //
 // It replaces the stdlib-only Python script internal/entrypoint/scripts.go used
 // to generate into ~/.local/bin, for the reason recorded in
-// docs/design/loophole-transport.md §8.4: the bridge is one of the last two
+// docs/reference/loophole-transport.md §8.4: the bridge is one of the last two
 // consumers still on a plain AF_UNIX socket, and only a Go client can dial the
 // framework's transport — a second TLS+token implementation in generated Python
 // would be exactly the drift the unification exists to prevent.

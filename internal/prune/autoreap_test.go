@@ -60,28 +60,39 @@ func imagesRunnerCounting(rows string, rmiCalls *[]string, imagesCalls *int) Run
 	}
 }
 
+// pointAt records a current-image pointer for a workspace that EXISTS, which is
+// what CurrentImageTags requires before it will honour one, and returns the
+// content tag that pointer protects. Every reap test here needs a live pointer
+// or the pass declines, so the fixture is written once.
+func pointAt(t *testing.T, buildDir, storePath string) string {
+	t.Helper()
+	ws := t.TempDir()
+	if err := RecordCurrentImage(buildDir, "yolo-ws-deadbeef", ws, storePath); err != nil {
+		t.Fatal(err)
+	}
+	return image.ImageStoreKey(storePath)
+}
+
 // TestAutoReapOldImagesDebounces is the "WHEN it runs" test the task asks
 // for: it fails if the debounce is deleted from AutoReapOldImages, because a
 // second call inside the same interval would then re-probe podman (and,
 // harmlessly here, re-attempt the same removal) instead of skipping.
 func TestAutoReapOldImagesDebounces(t *testing.T) {
 	buildDir := t.TempDir()
-	const live = "/nix/store/aaaa-live-image"
-	if err := os.WriteFile(filepath.Join(buildDir, "last-load-podman"),
-		[]byte(live+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	const current = "/nix/store/aaaa-current-image"
+	tag := pointAt(t, buildDir, current)
 	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
-		"id2 localhost/yolo-jail:" + image.ImageStoreKey(live) + " 2026-08-01 09:00:00 +0000 UTC\n"
+		"id2 localhost/yolo-jail:" + tag + " 2026-08-01 09:00:00 +0000 UTC\n"
 
 	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	var imagesCalls int
 	var rmiCalls []string
 	run := imagesRunnerCounting(imgOut, &rmiCalls, &imagesCalls)
 
-	// keep=0: retention is entirely keep-by-use here, so only id2 (the live
-	// path's own content tag) survives; id1 is a plain superseded image.
-	removed, ran, _ := AutoReapOldImages("podman", buildDir, 0, now, run)
+	// One workspace, one pointer (OQ-LS3): id2 is that workspace's current image
+	// and survives; id1 is a superseded copy and there is no undo buffer for it
+	// to sit in.
+	removed, ran, _ := AutoReapOldImages("podman", buildDir, now, run)
 	if !ran {
 		t.Fatal("first call on a fresh machine must run (no debounce sentinel yet)")
 	}
@@ -104,7 +115,7 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	// A second call moments later, on the same machine clock, must be a
 	// no-op — the assertion that fails if the debounce (or its call site) is
 	// ever deleted.
-	removed, ran, _ = AutoReapOldImages("podman", buildDir, 0, now.Add(time.Minute), run)
+	removed, ran, _ = AutoReapOldImages("podman", buildDir, now.Add(time.Minute), run)
 	if ran {
 		t.Error("a call inside the interval must be debounced (ran=false)")
 	}
@@ -117,7 +128,7 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	}
 
 	// Past the interval, it fires again.
-	_, ran, _ = AutoReapOldImages("podman", buildDir, 0, now.Add(AutoReapInterval+time.Second), run)
+	_, ran, _ = AutoReapOldImages("podman", buildDir, now.Add(AutoReapInterval+time.Second), run)
 	if !ran {
 		t.Error("a call past the interval must run again")
 	}
@@ -127,22 +138,26 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	}
 }
 
-// TestAutoReapOldImagesDeclinesOnUnreadableLedger is the other half of the
-// task's mandate: an unreadable load-sentinel ledger must decline the WHOLE
-// pass, exactly like the manual `yolo prune --apply` section already does —
-// and, because the pass never ran, it must not stamp the debounce sentinel
-// either, so the very next launch (which may be the one whose own
-// image.AddLoadedPath call finally makes the ledger readable) retries right
-// away instead of waiting out a full day on a machine that was never
-// actually protected.
-func TestAutoReapOldImagesDeclinesOnUnreadableLedger(t *testing.T) {
+// TestAutoReapOldImagesDeclinesWithNoCurrentPointers is the other half of the
+// task's mandate: with no retention evidence the WHOLE pass declines, exactly
+// like the manual `yolo prune --apply` section already does — and, because the
+// pass never ran, it must not stamp the debounce sentinel either, so the very
+// next launch (which may be the one whose own RecordCurrentImage call finally
+// gives the pass its evidence) retries right away instead of waiting out a full
+// day on a machine that was never actually protected.
+//
+// THIS IS ALSO THE DAY OQ-LS3 SHIPS, which is why it is worth a test of its own:
+// on an upgraded machine the pointer directory does not exist yet and every
+// image on disk is unpointed, so a pass that did NOT decline here would reap the
+// whole store on the strength of an absence.
+func TestAutoReapOldImagesDeclinesWithNoCurrentPointers(t *testing.T) {
 	// It DOES list images first, and that reordering is deliberate rather than a
 	// relaxation (OQ-LS2). This test used to assert "decline before ever probing
 	// podman's images", which saved one read-only subprocess and cost the ability
 	// to tell a denied sweep from a fresh machine: a host where yolo has never
-	// loaded an image has an unreadable ledger too, and failing `yolo prune`
-	// there would report a problem nobody has. Listing first is what lets
-	// "declined" mean "prevented work". Nothing is removed before the guards.
+	// launched has no pointers either, and failing `yolo prune` there would
+	// report a problem nobody has. Listing first is what lets "declined" mean
+	// "prevented work". Nothing is removed before the guards.
 	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n"
 	rmiCalls := []string{}
 	run := func(argv []string, _ time.Duration) ProbeResult {
@@ -150,17 +165,17 @@ func TestAutoReapOldImagesDeclinesOnUnreadableLedger(t *testing.T) {
 			rmiCalls = append(rmiCalls, argv[2])
 		}
 		if len(argv) >= 2 && argv[1] == "ps" {
-			t.Error("an unreadable ledger must decline before asking the runtime what is running — " +
-				"the liveness guard is cheaper than the probe it gates")
+			t.Error("a missing retention set must decline before asking the runtime what is " +
+				"running — the cheaper guard gates the probe, not the other way round")
 		}
 		return ProbeResult{Stdout: imgOut, Ran: true}
 	}
 	now := time.Now()
-	buildDir := t.TempDir() // no last-load-<runtime> file anywhere: liveKnown=false
+	buildDir := t.TempDir() // no current-images/ dir at all: known=false
 
-	removed, ran, _ := AutoReapOldImages("podman", buildDir, 0, now, run)
+	removed, ran, _ := AutoReapOldImages("podman", buildDir, now, run)
 	if ran {
-		t.Error("an unreadable liveness ledger must decline (ran=false), never sweep")
+		t.Error("no honourable current-image pointer must decline (ran=false), never sweep")
 	}
 	if removed != nil {
 		t.Errorf("removed = %v, want nil", removed)
@@ -174,40 +189,41 @@ func TestAutoReapOldImagesDeclinesOnUnreadableLedger(t *testing.T) {
 	}
 }
 
-// TestAutoReapOldImagesNeverRemovesTheLiveImage is the liveness-veto test:
-// even on the reap's very first (undebounced) call, the image the load
-// sentinel vouches for must never appear in what was removed, regardless of
-// where it sorts by CreatedAt.
-func TestAutoReapOldImagesNeverRemovesTheLiveImage(t *testing.T) {
+// TestAutoReapOldImagesNeverRemovesAPointedImage is the retention test: even on
+// the reap's very first (undebounced) call, a workspace's CURRENT image must
+// never appear in what was removed — and this fixture makes it the OLDEST row
+// by CreatedAt, which is where the rule this replaced went wrong. CreatedAt is
+// when the archive was streamed, so a workspace that has been on the same image
+// for a week sorts first, and "keep the newest N" selected it first
+// (minimal-disk-footprint.md §3.3's exact scenario). Under OQ-LS3 position
+// decides nothing.
+func TestAutoReapOldImagesNeverRemovesAPointedImage(t *testing.T) {
 	buildDir := t.TempDir()
-	const live = "/nix/store/cccc-live-image"
-	if err := os.WriteFile(filepath.Join(buildDir, "last-load-podman"),
-		[]byte(live+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The live image is the OLDEST by CreatedAt (a week-old jail still
-	// running, minimal-disk-footprint.md §3.3's exact scenario) — a
-	// count-only rule would select it first were the veto not applied.
-	imgOut := "id-live localhost/yolo-jail:" + image.ImageStoreKey(live) + " 2026-06-01 09:00:00 +0000 UTC\n" +
+	const current = "/nix/store/cccc-current-image"
+	tag := pointAt(t, buildDir, current)
+	imgOut := "id-current localhost/yolo-jail:" + tag + " 2026-06-01 09:00:00 +0000 UTC\n" +
 		"id-newer localhost/yolo-jail:2222222222222222 2026-08-01 09:00:00 +0000 UTC\n"
 	var rmiCalls []string
 	var imagesCalls int
 	run := imagesRunnerCounting(imgOut, &rmiCalls, &imagesCalls)
 
-	removed, ran, _ := AutoReapOldImages("podman", buildDir, 0, time.Now(), run)
+	removed, ran, _ := AutoReapOldImages("podman", buildDir, time.Now(), run)
 	if !ran {
-		t.Fatal("a readable ledger must run")
+		t.Fatal("a readable pointer must let the pass run")
 	}
 	for _, id := range removed {
-		if id == "id-live" {
-			t.Fatalf("the live jail's image was removed: %v", removed)
+		if id == "id-current" {
+			t.Fatalf("a workspace's current image was removed: %v", removed)
 		}
 	}
 	for _, id := range rmiCalls {
-		if id == "id-live" {
-			t.Fatalf("rmi was called against the live jail's image: %v", rmiCalls)
+		if id == "id-current" {
+			t.Fatalf("rmi was called against a workspace's current image: %v", rmiCalls)
 		}
 	}
+	// AND THE NEWEST GOES, which is the half a keep window could never do: under
+	// `keep=2` both rows survived, so this assertion is what fails if the count
+	// comes back.
 	if len(removed) != 1 || removed[0] != "id-newer" {
 		t.Errorf("removed = %v, want [id-newer] only", removed)
 	}
@@ -226,10 +242,10 @@ func TestAutoReapDeclineIsDistinguishableFromDebounce(t *testing.T) {
 	}
 	now := time.Now()
 
-	// Declined: no ledger, but candidates exist — so work WAS prevented.
-	_, ran, declined := AutoReapOldImages("podman", t.TempDir(), 0, now, run)
+	// Declined: no pointers, but candidates exist — so work WAS prevented.
+	_, ran, declined := AutoReapOldImages("podman", t.TempDir(), now, run)
 	if ran || declined == "" {
-		t.Fatalf("unreadable ledger: ran=%v declined=%q, want ran=false and a stated reason", ran, declined)
+		t.Fatalf("no pointers: ran=%v declined=%q, want ran=false and a stated reason", ran, declined)
 	}
 
 	// Debounced: the stamp is fresh. Also not ran — and it must NOT carry a
@@ -237,7 +253,7 @@ func TestAutoReapDeclineIsDistinguishableFromDebounce(t *testing.T) {
 	buildDir := t.TempDir()
 	sentinel := filepath.Join(buildDir, autoReapSentinelName)
 	RecordAutoImageReap(sentinel, now)
-	_, ran, declined = AutoReapOldImages("podman", buildDir, 0, now.Add(time.Minute), run)
+	_, ran, declined = AutoReapOldImages("podman", buildDir, now.Add(time.Minute), run)
 	if ran {
 		t.Error("a fresh stamp must debounce")
 	}
@@ -247,16 +263,16 @@ func TestAutoReapDeclineIsDistinguishableFromDebounce(t *testing.T) {
 	}
 }
 
-// TestNothingOfOursIsNotADecline: a machine where yolo has never loaded an
-// image has an unreadable ledger AND no candidates. Failing there would report
-// a problem nobody has, which is why the candidate listing comes first.
+// TestNothingOfOursIsNotADecline: a machine where yolo has never launched has
+// no current-image pointers AND no candidates. Failing there would report a
+// problem nobody has, which is why the candidate listing comes first.
 func TestNothingOfOursIsNotADecline(t *testing.T) {
 	run := func(argv []string, _ time.Duration) ProbeResult {
 		return ProbeResult{Stdout: "", Ran: true} // no yolo-jail images at all
 	}
-	removed, declined := PruneOldImages("podman", 2, map[string]struct{}{}, false /*liveKnown*/, true, run)
+	removed, declined := PruneOldImages("podman", map[string]struct{}{}, false /*known*/, true, run)
 	if len(removed) != 0 || declined != "" {
 		t.Fatalf("fresh machine: removed=%v declined=%q, want empty and NO decline — an empty "+
-			"ledger with nothing to reap denied the user nothing", removed, declined)
+			"retention set with nothing to reap denied the user nothing", removed, declined)
 	}
 }

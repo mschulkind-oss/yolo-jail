@@ -1,7 +1,7 @@
 package packdecl
 
 // kinds.go is the CLOSED, core-owned vocabulary of contribution kinds — the
-// registry the manifest is built on (docs/design/pack-system.md §3).
+// registry the manifest is built on (docs/reference/pack-system.md §3).
 //
 // A pack does not DEFINE a kind; it SELECTS one, exactly as a surface selects a
 // mode from knownModes or a codec from knownCodecs. The set is closed because

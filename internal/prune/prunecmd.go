@@ -30,6 +30,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -47,7 +48,6 @@ type Options struct {
 	DedupGlobal      bool // --dedup-global
 	NoContainers     bool // --no-containers
 	NoImages         bool // --no-images
-	KeepImages       int  // --keep-images     (default 2)
 	NoImageCache     bool // --no-image-cache
 	NoBuildRoots     bool // --no-build-roots
 	NoImageRoots     bool // --no-image-roots
@@ -62,6 +62,10 @@ type Options struct {
 	// NixGCMaxBytes caps an --apply store GC (0 => nixGCDefaultMaxBytes). A
 	// ceiling, not a target: nix stops once it has freed this many bytes.
 	NixGCMaxBytes int64 // --nix-gc-max (bytes)
+	// Format is the output format: "" / "text" (the human report, unchanged) or
+	// outfmt.JSON. The CLI front door resolves the flag family; see jsonreport.go
+	// for what the document carries and what it deliberately leaves to the text.
+	Format string // --format json
 	// --- seams ---
 	// Color requests ANSI styling. It is honored ONLY when stdout is a real
 	// terminal (Color && IsTTYStdout()): piped/redirected output stays byte-
@@ -182,13 +186,16 @@ func ResolveImageCacheKeep(flagValue int, rt string) int {
 	return ImageCacheKeepAppleContainer
 }
 
-// NewDefaultOptions returns Options with the flag defaults (keep-images
-// DefaultKeepImages, cache-age 30, and image-cache-keep left UNSET so the
-// runtime decides — see ResolveImageCacheKeep) and every seam left nil (filled
-// at Run). The front door constructs this, sets Color, overrides flags from
-// argv, then calls Run.
+// NewDefaultOptions returns Options with the flag defaults (cache-age 30, and
+// image-cache-keep left UNSET so the runtime decides — see
+// ResolveImageCacheKeep) and every seam left nil (filled at Run). The front door
+// constructs this, sets Color, overrides flags from argv, then calls Run.
+//
+// THE IMAGE RETENTION COUNT IS NOT HERE, and there is nothing to default: OQ-LS3
+// replaced `--keep-images` with the per-workspace current pointers
+// (currentimages.go), which are evidence rather than a dial.
 func NewDefaultOptions() Options {
-	return Options{KeepImages: DefaultKeepImages, ImageCacheKeep: ImageCacheKeepUnset, CacheAge: 30}
+	return Options{ImageCacheKeep: ImageCacheKeepUnset, CacheAge: 30}
 }
 
 func fillDefaults(o *Options) {
@@ -273,7 +280,12 @@ func Run(opts Options) int {
 	fillDefaults(&opts)
 	// Honest color gate: ANSI only when requested AND stdout is a real terminal,
 	// so piped output stays plain stripped text (the output contract).
-	p := &printer{richtext.Printer{W: opts.Out, Color: opts.Color && opts.IsTTYStdout()}}
+	// In JSON mode the human report is DISCARDED, not reshaped (jsonSink): the
+	// text form is the contract existing readers have, and the same single pass
+	// fills the report struct on the side. Color goes with it — there is no
+	// terminal to decorate.
+	p := &printer{richtext.Printer{W: outfmt.Sink(opts.Out, opts.Format),
+		Color: opts.Color && !outfmt.IsJSON(opts.Format) && opts.IsTTYStdout()}}
 	apply := opts.Apply
 
 	rt := opts.DetectRuntime()
@@ -435,15 +447,20 @@ func Run(opts Options) int {
 	// --- Old yolo-jail images ---
 	if !opts.NoImages {
 		p.line("")
-		p.line(fmt.Sprintf("[bold]Old yolo-jail images[/bold]  (keep=%d)", opts.KeepImages))
-		// ProtectedImageTags is NOT optional decoration: since C2 every config's
-		// image carries its own permanent tag, so "everything past the newest 2"
-		// selects images other workspaces are running, and `rmi -f` takes their
-		// containers with it. Passing an empty set here re-arms that — which is
-		// why the ledger's readability is a SECOND return rather than an empty
-		// map: unknown must decline, not sweep.
-		protectedTags, liveKnown := ProtectedImageTags(opts.BuildDir())
-		removed, declined := PruneOldImages(rt, opts.KeepImages, protectedTags, liveKnown, apply, opts.Exec)
+		// CurrentImageTags is NOT optional decoration, and since OQ-LS3 it is the
+		// WHOLE retention rule rather than a veto on top of one: with no keep
+		// window left, passing an empty set here means "remove every image of ours
+		// that nothing is running". That is why its readability is a SECOND return
+		// rather than an empty map — unknown must decline, not sweep.
+		//
+		// The count in the header is the EVIDENCE, not a dial: it says how many
+		// workspaces this machine will keep an image for, which is the one number
+		// a reader of this section needs in order to predict what it will do.
+		protectedTags, pointersKnown := CurrentImageTags(opts.BuildDir())
+		pointers, _ := ReadCurrentImagePointers(opts.BuildDir())
+		p.line(fmt.Sprintf("[bold]Old yolo-jail images[/bold]  "+
+			"(keeping each workspace's current image: %d pointer(s))", len(pointers)))
+		removed, declined := PruneOldImages(rt, protectedTags, pointersKnown, apply, opts.Exec)
 		removedImages = removed
 		switch {
 		case declined != "":
@@ -589,6 +606,9 @@ func Run(opts Options) int {
 	// per-workspace storage, whose captures/ boot creates and leaves empty, while the machine
 	// store arrives as a read-only /ctx/captures bind that is not under gs at all.
 	var captureBytes int64
+	// Function-scope so the JSON report can name the COUNT as well as the bytes;
+	// the human form reads it off reap.Entries inside the block below.
+	var captureEntries int
 	{
 		p.line("")
 		p.line("[bold]Superseded install captures[/bold]")
@@ -607,6 +627,7 @@ func Run(opts Options) int {
 					fmtComma(reap.Kept)))
 			default:
 				captureBytes = reap.Bytes
+				captureEntries = len(reap.Entries)
 				p.line(fmt.Sprintf("  %s: %s across %s entry(ies)  [dim](%s kept — the newest per program)[/dim]",
 					verb(apply, "would remove", "removed"), FmtBytes(reap.Bytes),
 					fmtComma(len(reap.Entries)), fmtComma(reap.Kept)))
@@ -914,6 +935,39 @@ func Run(opts Options) int {
 			"Re-run with [cyan]--apply[/cyan] to execute.",
 			FmtBytes(totalSaved), fmtComma(totalLinks), len(removedContainers), len(removedImages),
 			fmtComma(imageCacheFiles), fmtComma(buildRootDirs), fmtComma(agentStagingDirs), fmtComma(shadowedItems), fmtComma(cacheFiles), fmtComma(agentLogFiles)))
+	}
+	// The JSON document, when one was asked for. It is emitted HERE — after every
+	// sweep, before the exit code — for the same reason the summary line is: it
+	// reports what the run did, so there is exactly one place in this function
+	// that can produce it and no early exit to leave it unwritten (Run has none).
+	//
+	// The exit code below is unchanged and still authoritative. A consumer that
+	// only reads the document gets `declined` for the same fact.
+	if outfmt.IsJSON(opts.Format) {
+		emitJSONReport(opts, Report{
+			Mode:       mode,
+			Runtime:    rt,
+			Workspaces: workspaces,
+			Usage:      usageOf(before),
+			TotalBytes: totalSaved,
+			Hardlinks:  totalLinks,
+			// In the order the human summary names them, so the two forms can be
+			// read side by side.
+			Categories: []ReportCategory{
+				{Name: "image_cache", Bytes: imageCacheBytes, Count: imageCacheFiles, Unit: "tarballs"},
+				{Name: "legacy_build_roots", Bytes: buildRootBytes, Count: buildRootDirs, Unit: "dirs"},
+				{Name: "host_render_archive", Bytes: hostArchiveBytes, Count: hostArchiveGens, Unit: "generations"},
+				{Name: "retired_loophole_state", Bytes: loopholeStateBytes, Count: loopholeStateGens, Unit: "generations"},
+				{Name: "superseded_captures", Bytes: captureBytes, Count: captureEntries, Unit: "entries"},
+				{Name: "agent_staging", Bytes: agentStagingBytes, Count: agentStagingDirs, Unit: "dirs"},
+				{Name: "shadowed_home", Bytes: shadowedBytes, Count: shadowedItems, Unit: "paths"},
+				{Name: "caches", Bytes: cacheBytes, Count: cacheFiles, Unit: "files"},
+				{Name: "agent_logs", Bytes: agentLogBytes, Count: agentLogFiles, Unit: "files"},
+			},
+			RemovedContainers: nonNil(removedContainers),
+			RemovedImages:     nonNil(removedImages),
+			Declined:          declinedSweep,
+		})
 	}
 	// The summary above still prints, because what DID get reclaimed is real and
 	// the reader needs it. The exit code is what carries "and one pass could not

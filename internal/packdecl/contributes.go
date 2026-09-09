@@ -4,7 +4,7 @@ package packdecl
 
 // contributes.go is the manifest shape: one `contributes` list of typed
 // contributions, each with an explicit `kind` from the closed core-owned set
-// (kinds.go). See docs/design/pack-system.md §2-§3.
+// (kinds.go). See docs/reference/pack-system.md §2-§3.
 //
 // The accessors below (Contributions and the per-kind projections) are the one
 // way core reads a pack's effects; nothing outside this package looks at the
@@ -302,7 +302,7 @@ type Contribution struct {
 	// exists to prevent. Whoever builds the consumer imports the same list.
 	Platforms []string `json:"platforms,omitempty"`
 	// Serves is the CAPABILITIES — named jobs — this service implements
-	// (docs/design/pack-capabilities.md), the same open vocabulary the loophole
+	// (docs/reference/pack-system.md), the same open vocabulary the loophole
 	// half declares. Carried verbatim; `supersedes` against a served capability is
 	// the consumer that will read it.
 	Serves []string `json:"serves,omitempty"`

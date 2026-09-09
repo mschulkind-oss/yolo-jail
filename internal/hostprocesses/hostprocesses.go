@@ -16,7 +16,7 @@
 //
 // It now reads ONE file, ONCE, at startup: the settings file yolo writes after
 // validating the values against the loophole manifest's `settings` declarations
-// (docs/design/pack-config-keys.md OQ-K3). Changing what yolo-ps may show requires a
+// (docs/reference/pack-system.md OQ-K3). Changing what yolo-ps may show requires a
 // jail restart, which is exactly where the approval gate lives.
 //
 // The daemon therefore never parses a config file, never knows where the workspace

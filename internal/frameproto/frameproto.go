@@ -3,11 +3,11 @@
 //
 // It is transport-agnostic and always was: every function here takes an
 // io.Reader or io.Writer, never a net.Conn. That is why the unification onto
-// loopback-TLS (internal/svcendpoint, docs/design/loophole-transport.md) changed
+// loopback-TLS (internal/svcendpoint, docs/reference/loophole-transport.md) changed
 // nothing in this package — the transport sits BENEATH this layer, and a daemon
 // never learns which one carried its bytes.
 //
-// Wire format (docs/design/loophole-protocol.md):
+// Wire format (docs/reference/loophole-protocol.md):
 //
 //	request:  <4-byte BE length><length bytes of UTF-8 JSON>   (client-first)
 //	response: repeated frames, each <1-byte stream_id><4-byte BE length><payload>

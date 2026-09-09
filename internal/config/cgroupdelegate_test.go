@@ -11,7 +11,7 @@ import (
 //
 // `config.loopholes.cgroup-delegate` used to be a hard error — *"'cgroup-delegate' is
 // reserved for the built-in cgroup delegate service"* — because the name could not be a
-// loophole. It is one now (docs/design/loophole-activation.md OQ-A4/OQ-A6), shipped by
+// loophole. It is one now (docs/reference/loophole-system.md OQ-A4/OQ-A6), shipped by
 // the official pack of the same name, and the refusal would make the delegate's own
 // switch UNWRITABLE: `enabled: true` under that key is the only way to turn `yolo-cglimit`
 // back on after the default flipped.

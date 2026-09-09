@@ -1,6 +1,6 @@
 // Package packoverlay collects `config-overlay` contributions ACROSS packs and resolves
 // each onto the surface identity it targets — the piece that was missing while the kind
-// sat inert (docs/design/pack-config-collaboration.md §6 Option 2).
+// sat inert (docs/reference/pack-system.md §6 Option 2).
 //
 // CROSS-PACK BY CONSTRUCTION, and that is the one structural fact worth stating: an
 // overlay in pack B targets a surface pack A owns, so collection cannot be per-pack.

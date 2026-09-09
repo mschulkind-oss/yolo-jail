@@ -1,6 +1,6 @@
 package packload
 
-// configexclusive_test.go covers Option 1 of docs/design/pack-config-collaboration.md:
+// configexclusive_test.go covers Option 1 of docs/reference/pack-system.md:
 // `config` is CombineExclusive by surface IDENTITY, which the footprint model documented and
 // nothing enforced.
 //

@@ -53,7 +53,7 @@ var knownTopLevelConfigKeys = set(
 	// `host_processes` and `journal` are the two newest, they retired within a day of
 	// each other, and their retirement is a MOVE rather than a deletion: each key's
 	// values are now declared by its own loophole's manifest, shipped in the official
-	// pack of the same name (docs/design/pack-config-keys.md, loophole-activation.md
+	// pack of the same name (docs/reference/pack-system.md, loophole-activation.md
 	// §1.4). THEY WERE ALSO THE ONLY TWO LOOPHOLES THIS SCHEMA NAMED, which is what
 	// makes the pair worth reading together: with both gone, core's config schema names
 	// no loophole at all, and "convert the loophole to a pack" stops being a separation
@@ -144,7 +144,7 @@ var (
 	knownHostServiceKeys = set("command", "env", "jail_socket", "jail_endpoint",
 		"doctor_cmd", "description", "preamble", "enabled")
 	// `settings` is the pack-declared config-key block
-	// (docs/design/pack-config-keys.md): a NESTED map whose inner keys are checked
+	// (docs/reference/pack-system.md): a NESTED map whose inner keys are checked
 	// against the loophole's manifest declarations, which is what keeps THIS census
 	// closed while still letting a pack own a key. It is deliberately NOT in
 	// knownHostServiceKeys: an INLINE config loophole has no manifest, hence no

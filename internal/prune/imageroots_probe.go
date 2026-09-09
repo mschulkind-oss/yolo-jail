@@ -25,64 +25,28 @@ func ProtectedImagePaths(buildDir string) map[string]struct{} {
 	return protected
 }
 
-// ProtectedImageTags is the SAME liveness ledger as ProtectedImagePaths, read as
-// image TAGS instead of as store paths: the content tag of every recently-used
-// store path (image.ImageStoreKey — the identical 16 hex chars JailImageRef puts
-// after the colon), plus the legacy `latest` tag.
+// THERE IS NO ProtectedImageTags ANY MORE, and this is where it was.
 //
-// It exists because C2 armed a pass that had never fired. `PruneOldImages`
-// filters by REPOSITORY and removes with `rmi -f`, which also destroys any
-// container using the image. While one :latest tag named every image the
-// repository filter returned a single row, so `keep=2` could not select
-// anything; now every load leaves a permanent per-config tag, the list is as
-// long as the number of configs this machine runs, and "keep the newest 2"
-// would force-remove the image another workspace's live jail is running —
-// killing that session mid-flight. This is the gate PruneOldImages vetoes with.
+// It read the SAME sentinel ledger as ProtectedImagePaths above, as image TAGS
+// instead of store paths, and it was what `PruneOldImages` vetoed with: the
+// content tag of every recently-USED store path, plus the legacy `latest` tag.
+// It shipped with C2, which armed a pass that had never fired, and `4064f720`
+// gave it the tri-state that kept it from failing open.
 //
-// It is a VETO, not a retention rule. `--keep-images` (DefaultKeepImages,
-// autoreap.go) is minimal-disk-footprint.md OQ-DF3's NUMBER, ruled
-// 2026-09-06 (see the PruneOldImages doc comment for the reasoning); nothing
-// here retunes it. The pass still computes "everything past the newest N"
-// exactly as before and then declines to remove the ones that are in use —
-// the same polarity as PruneOrphanImageRoots' guard #2, reading the same
-// sentinel, so the two can never disagree about which images are live.
+// OQ-LS3 (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2, ruled
+// 2026-09-08) replaced it with prune.CurrentImageTags — one CURRENT-IMAGE
+// POINTER per workspace, written by the launch path — for the reason the whole
+// doc is about: a bounded most-recently-used list answers "what would I like to
+// still have", and image retention is asking "which image does each
+// configuration still want". Ten machine-wide entries answer that only by
+// accident, and the accident stops holding on the fourth workspace.
 //
-// The legacy tag is protected for the branch that still runs it: AutoLoadImage's
-// degraded fallback (SkipBuild, or a failed build the operator opted past) has
-// no store path to hash, so `<repo>:latest` is the only name it can ask about,
-// and it records nothing in the sentinel. Before C2 that image was unreachable
-// by this pass in practice; keeping it so preserves an offline launch that
-// worked yesterday.
-//
-// Tags are compared rather than full refs because the runtimes spell the
-// repository differently (podman's rows carry the localhost/ prefix, Apple
-// Container's do not) while the query has already narrowed every row to the jail
-// repository. Comparing the half that is stable is what keeps a prefix mismatch
-// from silently reading as "not protected".
-//
-// THE SECOND RETURN IS THE FAIL-SAFE, and it is why this returns a tri-state
-// rather than a set. The veto's only evidence is the sentinel; a missing, empty
-// or truncated one yields "no store paths", which is indistinguishable from
-// "nothing is live" unless the caller is told which it was. Without the flag the
-// gate fails OPEN — measured 2026-08-25: with $HOME pointed at an empty dir,
-// PruneOldImages selected an image the real ledger vouched for. That is not a
-// remote hazard: AddLoadedPath's error is discarded (autoload.go) and
-// os.WriteFile truncates before it writes, so an ENOSPC — precisely the
-// condition that makes someone run `yolo prune` — can empty the ledger.
-//
-// known=false means NO runtime's sentinel yielded anything, and the caller must
-// then reap nothing: the same tri-state polarity as PruneOrphanImageRoots'
-// guard #1, PruneOrphanAgentStaging and ReapRelayOrphans. Unknown ≠ "nothing
-// live". A genuinely fresh machine also reports unknown, which costs nothing —
-// it has no images to sweep either.
-func ProtectedImageTags(buildDir string) (tags map[string]struct{}, known bool) {
-	tags = map[string]struct{}{tagOf(paths.JailImage): {}}
-	for p := range ProtectedImagePaths(buildDir) {
-		tags[image.ImageStoreKey(p)] = struct{}{}
-		known = true
-	}
-	return tags, known
-}
+// Everything that outlived it moved WITH it and lives in currentimages.go: the
+// unconditional `latest` tag for the degraded offline launch, the compare-tags-
+// not-refs rule, and the tri-state whose known=false declines the pass.
+// ProtectedImagePaths stays, because the store-GC rooting confirmation
+// (UnrootedProtectedPaths) is a cache question and recency is a fair answer to
+// one — that is OQ-LS1's ruling, not an oversight.
 
 // tagOf returns the part of a `repo:tag` ref after the LAST colon, or "" when
 // there is none. Last-colon rather than first because a registry ref may carry a

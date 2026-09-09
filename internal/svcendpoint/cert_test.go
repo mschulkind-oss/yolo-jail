@@ -17,7 +17,7 @@ import (
 // therefore leave every test in this package green while producing a certificate
 // that OpenSSL-family verifiers (and older Go) reject as a trust anchor, because
 // they require CA:TRUE unless partial-chain verification is enabled.
-// docs/design/loophole-protocol.md invites third-party clients, so that would be a
+// docs/reference/loophole-protocol.md invites third-party clients, so that would be a
 // silent interop trap. Hence a property assertion rather than a behavioural one.
 func TestMintedCertIsItsOwnTrustAnchor(t *testing.T) {
 	_, der, err := mintCert()

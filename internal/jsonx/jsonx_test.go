@@ -89,8 +89,10 @@ func TestDecodeNumberNormalizations(t *testing.T) {
 }
 
 // TestLedgeredDivergences documents (and guards the current behavior of) the
-// accepted divergences in docs/design/go-port-divergences.md. If any of these
-// starts matching Python, revisit the ledger entry.
+// accepted divergences from pyjson5. It IS the ledger now: the prose one lived at
+// docs/design/go-port-divergences.md and was archived with the go-port scaffolding
+// in 2c229fbc, so each D-number below is only resolvable here and in git history.
+// If any of these starts matching Python, the entry is what needs revisiting.
 func TestLedgeredDivergences(t *testing.T) {
 	// D1: bare non-finite literals are not decoded (encoding/json rejects them).
 	for _, lit := range []string{"Infinity", "-Infinity", "NaN", "[NaN, Infinity]"} {

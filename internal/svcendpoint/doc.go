@@ -1,7 +1,7 @@
 // Package svcendpoint is the loophole framework's transport: a TCP connection to
 // 127.0.0.1 that behaves like a 0600 Unix socket. It is the ONLY real transport a
 // loophole daemon uses ("loopback-tls"); `none` means "no daemon", not a second
-// transport. See docs/design/loophole-transport.md §3.0.
+// transport. See docs/reference/loophole-transport.md §3.0.
 //
 // Five steps, each replacing something the filesystem used to give away free:
 //
@@ -15,7 +15,7 @@
 //     mounted directory;
 //  4. the client re-reads that file FRESH ON EVERY DIAL and demands the server
 //     present EXACTLY that certificate — via a dedicated root pool, never a CA
-//     (docs/design/loophole-transport.md §5: the broker CA's private key was
+//     (docs/reference/loophole-transport.md §5: the broker CA's private key was
 //     readable in-jail, and pinning must not depend on a CA at all);
 //  5. the client sends the token as the first bytes on the connection; the
 //     server compares it in constant time, acks one byte, and hangs up on a

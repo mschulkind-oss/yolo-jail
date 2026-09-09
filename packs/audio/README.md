@@ -80,7 +80,7 @@ OQ-LP5's trigger; the fix is the cross-kind collision pass, which is purely addi
 
 ## Off by default
 
-`default_enabled: false` ([`loophole-activation.md`](../../docs/design/loophole-activation.md)
+`default_enabled: false` ([`loophole-activation.md`](../../docs/reference/loophole-system.md)
 R1/R4 — *"we don't give host access by default"*). Audio used to be on for everyone whose
 host had a Pulse socket, which is host presence deciding activation.
 

@@ -208,11 +208,19 @@ type disclosureLine struct{ pack, claim string }
 // land in the right block each: the daemon argv before the spawn, its CA and binds with the
 // rest of the environment.
 //
-// ONE KIND NEEDS THE GATE APPLIED HERE, and it is the reason claimWillHappen exists: a
-// LOOPHOLE claim is deliberately NOT gated on MayAccessHost in the footprint (footprint.go
-// says why — `pack footprint` answers what a pack WANTS before you trust it, and hiding a
-// fetched pack's daemon argv from that report would hide the line the reader came for). The
-// launch answers a different question, so it has to subtract the refused ones itself.
+// THERE IS NOTHING LEFT TO SUBTRACT HERE, and this comment said otherwise until 2026-09-09.
+// One kind used to need the gate applied at this point, via a predicate called
+// claimWillHappen: a LOOPHOLE claim was deliberately NOT gated on the declaring pack's
+// MayAccessHost in the footprint (footprint.go still says why — `pack footprint` answers what
+// a pack WANTS before you trust it, and hiding a fetched pack's daemon argv from that report
+// would hide the line the reader came for), so the launch, answering a different question,
+// subtracted the refused ones itself.
+//
+// OQ-TP9 deleted MayAccessHost and the whole fetched-pack origin gate on 2026-09-04, and
+// claimWillHappen went with it — it survives only in the name of the test that pins its
+// absence (packhostdisclosure_test.go). Nothing is refused, so the launch disclosure and the
+// footprint now answer the same question about the same set, and the footprint's asymmetry is
+// vestigial rather than load-bearing.
 func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosureLine {
 	var lines []disclosureLine
 	for _, p := range packs {

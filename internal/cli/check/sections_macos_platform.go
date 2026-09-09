@@ -12,7 +12,7 @@ import (
 // config is loaded lazily for the podman-machine-resources sub-check via
 // load_config(strict=False) inside _check_podman_machine_resources.
 func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {
-	r.section("macOS Platform")
+	r.sectionHeader("macOS Platform")
 	r.ok("Architecture: " + o.Machine)
 
 	if _, ok := o.LookPath("podman"); ok {

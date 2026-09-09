@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// settings.go is the DELIVERY half of docs/design/pack-config-keys.md: the
+// settings.go is the DELIVERY half of docs/reference/pack-system.md: the
 // manifest declared the keys (internal/loopholedecl/settings.go), the user
 // supplied values under `loopholes.<name>.settings`, internal/config validated
 // them — and this is where the two become a file yolo owns.

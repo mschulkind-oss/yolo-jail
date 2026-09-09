@@ -12,7 +12,7 @@ import (
 )
 
 // loopholesettings_test.go pins the LAUNCH half of
-// docs/design/pack-config-keys.md — where the merged config's values become the
+// docs/reference/pack-system.md — where the merged config's values become the
 // file the daemon's argv names — plus, since 2026-08-18, the fact that the retired
 // top-level `host_processes` key no longer reaches it. The three tests that pinned
 // the temporary bridge were replaced by the one that pins its absence: a bridge left

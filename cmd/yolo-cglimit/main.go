@@ -4,7 +4,7 @@
 //
 // It replaces the stdlib-only Python script internal/entrypoint/scripts.go used
 // to generate into ~/.local/bin. Two implementations of one client is the drift
-// the transport unification exists to end (docs/design/loophole-transport.md
+// the transport unification exists to end (docs/reference/loophole-transport.md
 // §7.4 / §8.4), and a Go client is the only kind that can dial the framework's
 // transport at all — a second TLS+token implementation in generated Python is
 // explicitly not an option.

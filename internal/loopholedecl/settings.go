@@ -9,7 +9,7 @@ import (
 )
 
 // settings.go is the manifest's SETTINGS DECLARATION — the half of
-// docs/design/pack-config-keys.md that lets a loophole own a config key instead
+// docs/reference/pack-system.md that lets a loophole own a config key instead
 // of core naming it by hand.
 //
 // # Why the keys are declared and typed rather than an opaque map
@@ -48,7 +48,7 @@ var validSettingTypes = []string{
 //
 // SettingScopeUser means the user config only (~/.config/yolo-jail/config.jsonc):
 // a workspace file contributing to the key is refused, exactly as `env` is. That is
-// the declaration a capability-WIDENING key wants, and docs/design/pack-config-keys.md
+// the declaration a capability-WIDENING key wants, and docs/reference/pack-system.md
 // §3 is why it has to be sayable at all: MergeConfig union-merges every list at every
 // depth, so a user-scope ceiling that a workspace NARROWS is inexpressible — a
 // workspace can only ever add. For an allowlist that inverts the intended safety
@@ -204,7 +204,7 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 					" validates config values against this declaration and then writes them"+
 					" into a file a host daemon reads, so honoring the half it understood"+
 					" would admit a value the other half was meant to reject"+
-					" (docs/design/pack-config-keys.md OQ-K1). Known here: %s",
+					" (docs/reference/pack-system.md OQ-K1). Known here: %s",
 				manifestPath, path, k, strings.Join(sortedCopy(settingDeclKeys), ", "))
 		}
 

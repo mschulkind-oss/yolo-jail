@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -162,30 +161,37 @@ func imagesRunnerWithRunning(rows, psRows string, rmiCalls *[]string) RunFunc {
 // one row PER NAME, so the newest image appears twice (content tag + :latest),
 // and every config keeps a permanent tag of its own. The fixture is the exact
 // output measured from `podman images --format … yolo-jail` on 2026-08-25.
+//
+// EVERY SUB-TEST HERE CHANGED WITH OQ-LS3, and the reason is worth stating once:
+// the pass took a `keep` count, so a fixture could keep an image by being NEW.
+// Retention is now the protected set and nothing else — an image no workspace
+// points at goes however recently it was built — which is why each case below
+// names what protects the survivor instead of relying on its position.
 func TestPruneOldImages(t *testing.T) {
-	// CreatedAt sorts lexically; keep=2 removes all but the 2 newest IMAGES.
+	// CreatedAt sorts lexically, and the sort now only orders the report.
 	// id2 is the newest and therefore wears BOTH names.
 	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
 		"id2 localhost/yolo-jail:2222222222222222 2026-07-18 09:00:00 +0000 UTC\n" +
 		"id2 localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
 		"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n" +
 		"id4 localhost/yolo-jail:4444444444444444 2026-06-15 09:00:00 +0000 UTC\n"
-	none := map[string]struct{}{}
 
-	t.Run("keep counts images, not tag rows", func(t *testing.T) {
-		// Without the dedup id2's two rows spend two of the two keep slots, and
-		// id3 — the second-newest IMAGE — is selected for removal.
+	t.Run("one verdict per image, not one per row", func(t *testing.T) {
+		// id2 wears two names and only one of them is protected. Removal is by ID,
+		// so without the merged dedup+scan its unprotected :latest row would
+		// delete the image its content-tag row saves.
 		var rmiCalls []string
 		run := imagesRunner(imgOut, &rmiCalls)
-		got, _ := PruneOldImages("podman", 2, none, true, false, run)
-		want := []string{"id1", "id4"}
+		protected := map[string]struct{}{"2222222222222222": {}}
+		want := []string{"id3", "id1", "id4"}
+		got, _ := PruneOldImages("podman", protected, true, false, run)
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("dry-run = %v, want %v", got, want)
 		}
 		if len(rmiCalls) != 0 {
 			t.Errorf("dry-run made rmi calls: %v", rmiCalls)
 		}
-		if got, _ = PruneOldImages("podman", 2, none, true, true, run); !reflect.DeepEqual(got, want) {
+		if got, _ = PruneOldImages("podman", protected, true, true, run); !reflect.DeepEqual(got, want) {
 			t.Errorf("apply = %v, want %v", got, want)
 		}
 		if !reflect.DeepEqual(rmiCalls, want) {
@@ -193,17 +199,19 @@ func TestPruneOldImages(t *testing.T) {
 		}
 	})
 
-	t.Run("a protected content tag is never removed", func(t *testing.T) {
-		// id1 is the image another workspace's live jail runs. `rmi -f` would take
-		// its container with it, so the veto must fire even though the keep window
-		// selected it.
+	t.Run("an unprotected image goes however new it is", func(t *testing.T) {
+		// THE OQ-LS3 REPLACEMENT, stated as the thing that used to be false: id1
+		// is the OLDEST row and the only one a workspace points at, and id2 is the
+		// NEWEST. Under `keep=2` id2 and id3 survived on age alone and only id4
+		// went. Now age buys nothing: an image nothing points at and nothing runs
+		// is a superseded copy, and there is no undo buffer for it to sit in.
 		var rmiCalls []string
 		run := imagesRunner(imgOut, &rmiCalls)
-		got, _ := PruneOldImages("podman", 2,
+		got, _ := PruneOldImages("podman",
 			map[string]struct{}{"1111111111111111": {}}, true, true, run)
-		want := []string{"id4"}
+		want := []string{"id2", "id3", "id4"}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("removed = %v, want %v (id1 is in use)", got, want)
+			t.Errorf("removed = %v, want %v (only id1 is any workspace's current image)", got, want)
 		}
 		if !reflect.DeepEqual(rmiCalls, want) {
 			t.Errorf("rmi calls = %v, want %v", rmiCalls, want)
@@ -211,49 +219,25 @@ func TestPruneOldImages(t *testing.T) {
 	})
 
 	t.Run("any protected name saves the whole image", func(t *testing.T) {
-		// :latest on an OLD image — the degraded fallback's only handle. Removal is
-		// by ID, so a per-ROW verdict would let id4's content-tag row delete the
-		// image its :latest row protects.
+		// :latest on an OLD image — the degraded fallback's only handle, which
+		// CurrentImageTags protects unconditionally. Removal is by ID, so a
+		// per-ROW verdict would let id4's content-tag row delete the image its
+		// :latest row protects.
 		rows := imgOut + "id4 localhost/yolo-jail:latest 2026-06-15 09:00:00 +0000 UTC\n"
 		var rmiCalls []string
 		run := imagesRunner(rows, &rmiCalls)
-		got, _ := PruneOldImages("podman", 2, map[string]struct{}{"latest": {}}, true, true, run)
-		want := []string{"id1"}
+		got, _ := PruneOldImages("podman", map[string]struct{}{"latest": {}}, true, true, run)
+		want := []string{"id3", "id1"}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("removed = %v, want %v (id4 still answers to :latest)", got, want)
+			t.Errorf("removed = %v, want %v (id2 and id4 both answer to :latest)", got, want)
 		}
 	})
 }
 
-// TestProtectedImageTagsReadsTheLoadSentinel pins the SOURCE of the veto set:
-// the same LRU ledger PruneOrphanImageRoots' guard #2 reads, keyed the same way
-// image.JailImageRef keys a tag. A second hash here would let the two disagree
-// about which images are live.
-func TestProtectedImageTagsReadsTheLoadSentinel(t *testing.T) {
-	buildDir := t.TempDir()
-	const live = "/nix/store/aaaa-live-image"
-	if err := os.WriteFile(filepath.Join(buildDir, "last-load-podman"),
-		[]byte(live+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tags, known := ProtectedImageTags(buildDir)
-	if !known {
-		t.Fatal("a readable sentinel with one path must report known=true")
-	}
-	if _, ok := tags[image.ImageStoreKey(live)]; !ok {
-		t.Errorf("the loaded path's content tag %q is not protected: %v",
-			image.ImageStoreKey(live), tags)
-	}
-	// The degraded fallback's only handle.
-	if _, ok := tags["latest"]; !ok {
-		t.Errorf("the legacy tag is not protected: %v", tags)
-	}
-	// A path nobody loaded must NOT be protected, or the veto degrades into
-	// "never remove anything".
-	if _, ok := tags[image.ImageStoreKey("/nix/store/bbbb-cold-image")]; ok {
-		t.Error("an unloaded store path's tag was protected")
-	}
-}
+// The retention SET (which tags protect an image, and where they come from) is
+// pinned in currentimages_test.go — it moved there with the mechanism when
+// OQ-LS3 replaced the load sentinel's LRU with the per-workspace pointers, and
+// TestProtectedImageTagsReadsTheLoadSentinel went with it.
 
 func TestReapRelayOrphans(t *testing.T) {
 	base := t.TempDir()
@@ -376,31 +360,32 @@ func TestReapRelayOrphansRemovesHostOnlySocket(t *testing.T) {
 	}
 }
 
-// TestAnUnreadableLedgerDeclinesToSweep pins the FAIL-SAFE, which is the half of
-// the veto that a set-shaped return could not express. The veto's only evidence
-// is the load sentinel, so "no store paths" has two causes with opposite correct
-// responses: nothing is live (sweep freely) and the ledger is gone (sweep
-// nothing). Before the tri-state, both produced an empty protected set and
-// PruneOldImages went on to `rmi -f` — measured 2026-08-25 against a real podman
-// with $HOME pointed at an empty dir, where it selected an image the real
-// sentinel vouched for.
+// TestNoRetentionEvidenceDeclinesToSweep pins the FAIL-SAFE, which is the half of
+// the guard that a set-shaped return could not express. Retention's only evidence
+// is the per-workspace pointer set, so "no tags" has two causes with opposite
+// correct responses: no workspace wants anything (sweep freely) and the evidence
+// is missing (sweep nothing). Before the tri-state, both produced an empty
+// protected set and PruneOldImages went on to `rmi -f` — measured 2026-08-25
+// against a real podman with $HOME pointed at an empty dir, where it selected an
+// image the real ledger vouched for.
 //
-// Reachability is not hypothetical: AddLoadedPath's error is discarded and
-// os.WriteFile truncates before writing, so an ENOSPC — the very condition that
-// makes someone run `yolo prune` — can leave the ledger empty.
+// IT MATTERS MORE SINCE OQ-LS3, not less: with the keep window gone, an empty
+// protected set no longer means "keep the newest two anyway", it means "remove
+// every image of ours that nothing is running". The unreadable case is also the
+// first-launch-after-upgrade case, where the pointer directory does not exist.
 //
-// DELETE THE GUARD IN PruneOldImages AND THIS FAILS: with liveKnown=false the
-// pass must return nothing and must not shell out at all.
-func TestAnUnreadableLedgerDeclinesToSweep(t *testing.T) {
-	// An empty build dir IS the missing-sentinel case.
-	tags, known := ProtectedImageTags(t.TempDir())
+// DELETE THE GUARD IN PruneOldImages AND THIS FAILS: with known=false the pass
+// must return nothing and must not shell out at all.
+func TestNoRetentionEvidenceDeclinesToSweep(t *testing.T) {
+	// An empty build dir IS the no-pointers case.
+	tags, known := CurrentImageTags(t.TempDir())
 	if known {
-		t.Fatal("an absent sentinel must report known=false, or the veto fails open")
+		t.Fatal("an absent pointer dir must report known=false, or retention fails open")
 	}
 	// It still reports the legacy tag, so a caller that ignores `known` gets a
 	// non-empty map — which is exactly why the boolean has to carry the signal.
 	if len(tags) == 0 {
-		t.Fatal("expected the legacy tag even when the ledger is unreadable")
+		t.Fatal("expected the legacy tag even when there is no pointer to read")
 	}
 
 	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
@@ -408,11 +393,11 @@ func TestAnUnreadableLedgerDeclinesToSweep(t *testing.T) {
 		"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n"
 	var rmiCalls []string
 	run := imagesRunner(imgOut, &rmiCalls)
-	if got, _ := PruneOldImages("podman", 2, tags, known, true, run); len(got) != 0 {
-		t.Errorf("swept %v with an unreadable ledger; must decline entirely", got)
+	if got, _ := PruneOldImages("podman", tags, known, true, run); len(got) != 0 {
+		t.Errorf("swept %v with no retention evidence; must decline entirely", got)
 	}
 	if len(rmiCalls) != 0 {
-		t.Errorf("made rmi calls with an unreadable ledger: %v", rmiCalls)
+		t.Errorf("made rmi calls with no retention evidence: %v", rmiCalls)
 	}
 }
 
@@ -424,18 +409,21 @@ func TestAnUnreadableLedgerDeclinesToSweep(t *testing.T) {
 // moving goSrc, each loading a new image). Once outside the window the image was
 // unprotected, `rmi -f` removed it, and podman took the running container too.
 //
-// The fix is to ask the runtime what is RUNNING rather than to infer it from
-// load recency. This test fails if that probe is removed: the image is
-// deliberately absent from the sentinel, exactly as an aged-out one is.
-func TestPruneOldImagesSpareRunningContainersImageEvenWhenAgedOutOfTheLRU(t *testing.T) {
+// The fix is to ask the runtime what is RUNNING rather than to infer it from a
+// history file. This test fails if that probe is removed: the running image is
+// deliberately absent from the protected set, exactly as an aged-out one was —
+// and OQ-LS3 did not make that case go away, it only changed which file the
+// absence is in. A jail whose workspace directory has been deleted, or whose
+// pointer write failed, is running an image nothing points at.
+func TestPruneOldImagesSpareRunningContainersImageEvenWhenNothingPointsAtIt(t *testing.T) {
 	rows := "idRunning localhost/yolo-jail:aaaaaaaaaaaaaaaa 2026-07-01 09:00:00 +0000 UTC\n" +
 		"idCold localhost/yolo-jail:bbbbbbbbbbbbbbbb 2026-07-02 09:00:00 +0000 UTC\n"
 
 	var rmiCalls []string
-	// protected is EMPTY: the running jail's image has aged out of the LRU, which
-	// is the whole premise. liveKnown=true, so the fail-safe is not what saves it.
+	// protected is EMPTY: nothing vouches for the running jail's image, which is
+	// the whole premise. known=true, so the fail-safe is not what saves it.
 	run := imagesRunnerWithRunning(rows, "idRunning\n", &rmiCalls)
-	removed, _ := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run)
+	removed, _ := PruneOldImages("podman", map[string]struct{}{}, true, true, run)
 
 	for _, id := range removed {
 		if id == "idRunning" {
@@ -456,7 +444,7 @@ func TestPruneOldImagesSpareRunningContainersImageEvenWhenAgedOutOfTheLRU(t *tes
 
 // An unanswerable `podman ps` must DECLINE, not proceed: "nothing is running"
 // and "I cannot tell" are the same observation, and the action is destructive.
-// Same polarity as the liveKnown fail-safe.
+// Same polarity as the retention-evidence fail-safe.
 func TestPruneOldImagesDeclinesWhenRunningSetIsUnknown(t *testing.T) {
 	rows := "idCold localhost/yolo-jail:bbbbbbbbbbbbbbbb 2026-07-02 09:00:00 +0000 UTC\n"
 	var rmiCalls []string
@@ -472,7 +460,7 @@ func TestPruneOldImagesDeclinesWhenRunningSetIsUnknown(t *testing.T) {
 		}
 		return ProbeResult{Ran: true}
 	}
-	if removed, _ := PruneOldImages("podman", 0, map[string]struct{}{}, true, true, run); len(removed) != 0 {
+	if removed, _ := PruneOldImages("podman", map[string]struct{}{}, true, true, run); len(removed) != 0 {
 		t.Errorf("removed %v with an unreadable running set; want nothing", removed)
 	}
 	if len(rmiCalls) != 0 {
@@ -587,18 +575,22 @@ func TestPruneOldImagesUnion(t *testing.T) {
 		oldest = "2026-06-01 09:00:00 +0000 UTC"
 	)
 	none := map[string]struct{}{}
+	// The one workspace's current image in most cases below. Naming it once keeps
+	// each sub-test's survivor explicit, which is what OQ-LS3 requires of a
+	// fixture: nothing is kept by being new any more.
+	pointed := map[string]struct{}{"aaaaaaaaaaaaaaaa": {}}
 
 	t.Run("a labeled nameless row is selected", func(t *testing.T) {
 		// The measured leak: a re-stream took the content tag and left the
 		// previous image `<none>:<none>`. The repo-name probe cannot see it; the
-		// label probe can, and `keep` counts it like any other image.
+		// label probe can, and the pass treats it like any other image.
 		store := []fakeImage{
 			{ID: "id-tagged", Ref: "localhost/yolo-jail:aaaaaaaaaaaaaaaa", Created: newest, Labeled: true},
 			{ID: "id-nameless", Ref: "<none>:<none>", Created: middle, Labeled: true},
 		}
 		var rmiCalls []string
 		run := machineImagesRunner(t, store, "", &rmiCalls)
-		got, declined := PruneOldImages("podman", 1, none, true, true, run)
+		got, declined := PruneOldImages("podman", pointed, true, true, run)
 		if declined != "" {
 			t.Fatalf("declined %q on a healthy machine", declined)
 		}
@@ -612,8 +604,8 @@ func TestPruneOldImagesUnion(t *testing.T) {
 	})
 
 	t.Run("a labeled nameless row a container is using is never removed", func(t *testing.T) {
-		// Guard #0 is this row's ONLY veto: ProtectedImageTags matches TAGS and
-		// `<none>` has none, so the load sentinel is structurally silent here.
+		// Guard #0 is this row's ONLY veto: the retention set matches TAGS and
+		// `<none>` has none, so a pointer is structurally silent here.
 		// `ps --format {{.ImageID}}` prints the same 12-hex short ID as
 		// `images --format {{.ID}}` (MEASURED 2026-09-08), which is what makes
 		// the match possible at all.
@@ -623,7 +615,7 @@ func TestPruneOldImagesUnion(t *testing.T) {
 		}
 		var rmiCalls []string
 		run := machineImagesRunner(t, store, "id-nameless\n", &rmiCalls)
-		got, _ := PruneOldImages("podman", 1, none, true, true, run)
+		got, _ := PruneOldImages("podman", pointed, true, true, run)
 		if len(got) != 0 || len(rmiCalls) != 0 {
 			t.Errorf("removed = %v (rmi %v), want none: a nameless row can be LIVE — the "+
 				"re-stream took the tag off the image a running jail is on", got, rmiCalls)
@@ -631,9 +623,12 @@ func TestPruneOldImagesUnion(t *testing.T) {
 	})
 
 	t.Run("a row both probes return is counted once", func(t *testing.T) {
-		// Every image built after the label ships answers to BOTH probes. Without
-		// one merged dedup, keep=2 spends its slots twice over and selects an
-		// image it was meant to keep.
+		// Every image built after the label ships answers to BOTH probes, so the
+		// union returns each labeled image TWICE. Without one merged dedup the
+		// removal list — and the `rmi` calls behind it — name each image twice
+		// over. That mattered to `keep` because duplicates spent its slots; it
+		// still matters without one, because a caller counting removals and a
+		// human reading them both see one deletion reported as two.
 		store := []fakeImage{
 			{ID: "id-new", Ref: "localhost/yolo-jail:3333333333333333", Created: newest, Labeled: true},
 			{ID: "id-mid", Ref: "localhost/yolo-jail:2222222222222222", Created: middle, Labeled: true},
@@ -641,16 +636,19 @@ func TestPruneOldImagesUnion(t *testing.T) {
 		}
 		var rmiCalls []string
 		run := machineImagesRunner(t, store, "", &rmiCalls)
-		got, _ := PruneOldImages("podman", 2, none, true, false, run)
-		if !reflect.DeepEqual(got, []string{"id-old"}) {
-			t.Errorf("removed = %v, want [id-old] — `keep` counts IMAGES, and the union "+
-				"returns each labeled image twice", got)
+		got, _ := PruneOldImages("podman", map[string]struct{}{"3333333333333333": {}}, true, true, run)
+		if !reflect.DeepEqual(got, []string{"id-mid", "id-old"}) {
+			t.Errorf("removed = %v, want [id-mid id-old] exactly once each — the union "+
+				"returns every labeled image twice and ONE dedup collapses it", got)
+		}
+		if !reflect.DeepEqual(rmiCalls, []string{"id-mid", "id-old"}) {
+			t.Errorf("rmi calls = %v, want one per image", rmiCalls)
 		}
 	})
 
 	t.Run("a protected tag saves an image its other probe's row would delete", func(t *testing.T) {
 		// The `:latest` defect, one entrance over: the protected-tag scan has to
-		// run over BOTH probes' rows before the keep decision, or the label
+		// run over BOTH probes' rows before the removal decision, or the label
 		// probe's duplicate row deletes the image the repo probe's row protects.
 		store := []fakeImage{
 			{ID: "id-new", Ref: "localhost/yolo-jail:3333333333333333", Created: newest, Labeled: true},
@@ -658,10 +656,14 @@ func TestPruneOldImagesUnion(t *testing.T) {
 		}
 		var rmiCalls []string
 		run := machineImagesRunner(t, store, "", &rmiCalls)
-		got, _ := PruneOldImages("podman", 1,
+		got, _ := PruneOldImages("podman",
 			map[string]struct{}{"1111111111111111": {}}, true, true, run)
-		if len(got) != 0 || len(rmiCalls) != 0 {
-			t.Errorf("removed = %v (rmi %v), want none — id-old's tag is protected", got, rmiCalls)
+		if !reflect.DeepEqual(got, []string{"id-new"}) {
+			t.Errorf("removed = %v, want [id-new] — id-old's tag is protected and "+
+				"id-new's is not, whichever is newer", got)
+		}
+		if !reflect.DeepEqual(rmiCalls, []string{"id-new"}) {
+			t.Errorf("rmi calls = %v, want [id-new]", rmiCalls)
 		}
 	})
 
@@ -679,7 +681,7 @@ func TestPruneOldImagesUnion(t *testing.T) {
 		}
 		var rmiCalls []string
 		run := machineImagesRunner(t, store, "", &rmiCalls)
-		got, _ := PruneOldImages("podman", 0, none, true, true, run)
+		got, _ := PruneOldImages("podman", none, true, true, run)
 		for _, id := range append(append([]string{}, got...), rmiCalls...) {
 			if id == "id-prelabel" {
 				t.Fatalf("a pre-label nameless row was selected (removed=%v rmi=%v): yolo "+
@@ -712,13 +714,15 @@ func TestPruneOldImagesUnion(t *testing.T) {
 			}
 			return ProbeResult{Ran: true}
 		}
-		got, declined := PruneOldImages("podman", 1, none, true, true, run)
+		got, declined := PruneOldImages("podman",
+			map[string]struct{}{"2222222222222222": {}}, true, true, run)
 		if declined != "" {
 			t.Errorf("declined %q — a label probe that cannot run is not a reason to "+
 				"refuse the tagged pass", declined)
 		}
 		if !reflect.DeepEqual(got, []string{"id1"}) {
-			t.Errorf("removed = %v, want [id1] — exactly today's tagged behaviour", got)
+			t.Errorf("removed = %v, want [id1] — exactly the tagged behaviour, with id2 "+
+				"kept by the pointer rather than by a count", got)
 		}
 	})
 
@@ -736,7 +740,7 @@ func TestPruneOldImagesUnion(t *testing.T) {
 			}
 			return ProbeResult{Ran: true}
 		}
-		got, declined := PruneOldImages("podman", 1, none, true, true, run)
+		got, declined := PruneOldImages("podman", none, true, true, run)
 		if declined != DeclineImagesUnreadable || len(got) != 0 {
 			t.Errorf("removed=%v declined=%q, want empty + %q", got, declined, DeclineImagesUnreadable)
 		}
@@ -744,8 +748,8 @@ func TestPruneOldImagesUnion(t *testing.T) {
 
 	t.Run("candidates are listed before the guards", func(t *testing.T) {
 		// OQ-LS2's ordering property, re-pinned across the union: BOTH probes run
-		// before the liveness guard, so an unreadable ledger on a machine that
-		// has candidates reports "prevented work" rather than "fresh machine".
+		// before the retention guard, so missing evidence on a machine that HAS
+		// candidates reports "prevented work" rather than "fresh machine".
 		var order []string
 		run := func(argv []string, _ time.Duration) ProbeResult {
 			if len(argv) >= 2 {
@@ -756,9 +760,9 @@ func TestPruneOldImagesUnion(t *testing.T) {
 			}
 			return ProbeResult{Ran: true}
 		}
-		_, declined := PruneOldImages("podman", 1, none, false /*liveKnown*/, true, run)
-		if declined != DeclineLedgerUnreadable {
-			t.Errorf("declined %q, want %q", declined, DeclineLedgerUnreadable)
+		_, declined := PruneOldImages("podman", none, false /*known*/, true, run)
+		if declined != DeclineNoCurrentPointers {
+			t.Errorf("declined %q, want %q", declined, DeclineNoCurrentPointers)
 		}
 		if !reflect.DeepEqual(order, []string{"images", "images"}) {
 			t.Errorf("probe order = %v, want both image listings before any guard ran", order)

@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
-// settings_test.go pins the DELIVERY half of docs/design/pack-config-keys.md: the
+// settings_test.go pins the DELIVERY half of docs/reference/pack-system.md: the
 // declarations meeting the config, the file yolo writes, and the {settings} token
 // resolving to it.
 

@@ -15,7 +15,7 @@ import (
 // # Tier 1 cannot be made to cover tier 2, and this is the honest ceiling
 //
 // TIER 2 is internal/hostservice's per-REQUEST access line
-// (`jail=… keys=… rc=… elapsed_ms=… bytes_out=…`, docs/design/loophole-protocol.md
+// (`jail=… keys=… rc=… elapsed_ms=… bytes_out=…`, docs/reference/loophole-protocol.md
 // §Access logging). It exists only for daemons that speak yolo's FRAMED protocol
 // through that helper, because only there is there a parsed request to describe.
 //

@@ -5,7 +5,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
-// loopholesettings.go is the LAUNCH half of docs/design/pack-config-keys.md:
+// loopholesettings.go is the LAUNCH half of docs/reference/pack-system.md:
 // internal/loopholedecl declared the keys, internal/config validated the values,
 // and here core resolves them once and writes the file the daemon is handed.
 //

@@ -224,7 +224,7 @@ func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, supp
 	// `cgroup-delegate` USED TO BE REFUSED HERE BY NAME, and the refusal was deleted on
 	// 2026-08-18 rather than relaxed. It said the name was "reserved for the built-in
 	// cgroup delegate service" — and that service is a pack-shipped loophole now
-	// (docs/design/loophole-activation.md OQ-A4/OQ-A6), so the sentence is false and the
+	// (docs/reference/loophole-system.md OQ-A4/OQ-A6), so the sentence is false and the
 	// refusal would make the delegate's own switch UNWRITABLE: `"loopholes":
 	// {"cgroup-delegate": {"enabled": true}}` is the only way to turn it back on.
 	//
@@ -320,7 +320,7 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 //     — that needs a comment-preserving JSONC writer, which does not exist, so
 //     today the human pastes the snippet themselves.
 //   - enabled:true on an INSTALLED loophole is legal and DISCLOSED, mirroring
-//     the OFF line (docs/design/loophole-activation.md OQ-A13). R5 was written
+//     the OFF line (docs/reference/loophole-system.md OQ-A13). R5 was written
 //     when `enabled: true` was INERT — the manifest default was already true, so
 //     the only meaningful thing a workspace could do was turn a loophole OFF, and
 //     only that direction got a line. R2 flipped the manifest default and made
@@ -489,7 +489,7 @@ type WorkspaceLoopholeSwitch struct {
 // workspace was inert: the manifest default was already on, so the only power the
 // weak scope had was to turn things OFF. R2 flipped that default and made the key
 // the ACTIVATION VERB while R5 kept it at workspace scope, so the direction with
-// no disclosure became the dangerous one (docs/design/loophole-activation.md
+// no disclosure became the dangerous one (docs/reference/loophole-system.md
 // OQ-A13). Widening the existing seam rather than adding a second one is what
 // keeps the two surfaces reading the same answer — and one vocabulary for a
 // question that was always symmetric.

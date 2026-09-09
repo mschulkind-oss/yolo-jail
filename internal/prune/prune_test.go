@@ -3,7 +3,6 @@ package prune
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -56,26 +55,17 @@ func TestHardlinkDedupRealFS(t *testing.T) {
 	}
 }
 
-func TestOldImagesLexicalSort(t *testing.T) {
-	imgs := []ImageEntry{
-		{"id1", "2026-07-10 09:00:00 +0000 UTC"},
-		{"id2", "2026-07-18 09:00:00 +0000 UTC"}, // newest
-		{"id3", "2026-07-01 09:00:00 +0000 UTC"}, // oldest
-	}
-	// keep=1 -> remove all but the newest (id2). Newest-first: id2, id1, id3.
-	got := OldImagesToRemove(imgs, 1)
-	if !reflect.DeepEqual(got, []string{"id1", "id3"}) {
-		t.Errorf("keep=1 remove = %v, want [id1 id3]", got)
-	}
-	// keep >= len -> remove nothing.
-	if got := OldImagesToRemove(imgs, 5); len(got) != 0 {
-		t.Errorf("keep=5 remove = %v, want []", got)
-	}
-	// keep=0 -> remove all.
-	if got := OldImagesToRemove(imgs, 0); len(got) != 3 {
-		t.Errorf("keep=0 remove = %v, want 3", got)
-	}
-}
+// TestOldImagesLexicalSort covered OldImagesToRemove's keep window, which OQ-LS3
+// DELETED along with the function: nothing is selected by its position in a sort
+// any more (currentimages.go). The lexical CreatedAt ordering survives inside
+// PruneOldImages, where it only orders the report, and
+// TestPruneOldImages/"one verdict per image, not one per row" is what pins it —
+// its expected list is newest-first, so a broken sort fails there.
+//
+// The regression this test existed for is kept rather than deleted: the case it
+// guarded (keep=2 spending two slots on one image's two rows) now lives in that
+// same sub-test as a dedup assertion, which is the half of it that still has a
+// subject.
 
 // TestPruneLegacyBuildRoots: the legacy nix-build-root* staging mechanism is
 // gone (the image now bakes the flake bundle; nothing binds these dirs), so the

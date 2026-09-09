@@ -10,7 +10,7 @@ import (
 )
 
 // settings_test.go pins the manifest's `settings` block — the declaration half of
-// docs/design/pack-config-keys.md. The config half (what a user may supply against a
+// docs/reference/pack-system.md. The config half (what a user may supply against a
 // declaration) is internal/config/validate_loopholesettings_test.go; the delivery
 // half is internal/loopholes/settings_test.go.
 

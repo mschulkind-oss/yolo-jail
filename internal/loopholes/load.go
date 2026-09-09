@@ -268,7 +268,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		// discovery then overwrites from the config key `loopholes.<name>.enabled` if
 		// the user set it (discover.go's applyWorkspaceOverrides). Seeding the switch
 		// with the default is what lets config stay an OVERRIDE rather than a third
-		// value to reconcile (docs/design/loophole-activation.md OQ-A9).
+		// value to reconcile (docs/reference/loophole-system.md OQ-A9).
 		Enabled:       m.DefaultEnabled,
 		Transport:     m.Transport,
 		Lifecycle:     m.Lifecycle,

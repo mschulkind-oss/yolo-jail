@@ -76,7 +76,7 @@ const (
 // BACKWARDS for a key that was REMOVED. A newer build will never read `enabled`; it
 // deleted it. Telling a reader to wait for one is telling them to wait forever, and
 // meanwhile the loophole quietly takes the new default
-// (docs/design/loophole-activation.md §4).
+// (docs/reference/loophole-system.md §4).
 const (
 	// RetiredKeyEnabled is the manifest's old enablement key. It was renamed to
 	// `default_enabled` AND its default flipped (OQ-A9/R2), which is why a tolerance
@@ -140,7 +140,7 @@ func retiredTopKeyRefusal(key string) string {
 		return "'enabled' was retired from the loophole MANIFEST: write 'default_enabled'" +
 			" instead, and note that THE DEFAULT FLIPPED — an absent 'default_enabled' means" +
 			" the loophole is OFF, where an absent 'enabled' meant ON" +
-			" (docs/design/loophole-activation.md R2: \"presence never activates\"). So" +
+			" (docs/reference/loophole-system.md R2: \"presence never activates\"). So" +
 			" \"enabled\": true becomes \"default_enabled\": true, and \"enabled\": false is" +
 			" now what saying nothing means — delete the key." +
 			" THIS IS NOT THE CONFIG KEY: 'loopholes.<name>.enabled' in config.jsonc or" +

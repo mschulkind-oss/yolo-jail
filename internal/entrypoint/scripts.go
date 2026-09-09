@@ -24,8 +24,8 @@ import (
 var staleGeneratedClients = []string{
 	"yolo",            // was a shell wrapper
 	"yolo-ps",         // was a Python client
-	"yolo-cglimit",    // was a Python client (docs/design/loophole-transport.md §8.4)
-	"yolo-journalctl", // was a Python client (docs/design/loophole-transport.md §8.4)
+	"yolo-cglimit",    // was a Python client (docs/reference/loophole-transport.md §8.4)
+	"yolo-journalctl", // was a Python client (docs/reference/loophole-transport.md §8.4)
 }
 
 // staleShimFiles are leftovers from the pre-Go bootstrap, in the shim dir.

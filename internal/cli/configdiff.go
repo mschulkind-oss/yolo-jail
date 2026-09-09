@@ -10,7 +10,7 @@ package cli
 //
 // `diff` carries a SECOND kind of divergence for the same reason: a pack's
 // `config-overlay` contributions to a surface another pack owns (ruling R3,
-// docs/design/pack-config-collaboration.md §7). Same shape of question — a key in the
+// docs/reference/pack-system.md §7). Same shape of question — a key in the
 // file that the file itself cannot account for — so it reads out of the same command.
 
 import (
@@ -158,7 +158,7 @@ func userSidecarSurfaces(surface string) []manifest.Surface {
 //
 // It also reports config-overlay PROVENANCE — which pack contributed which key to a
 // surface another pack owns, and whether that key won (ruling R3,
-// docs/design/pack-config-collaboration.md §7). That belongs here rather than in a new
+// docs/reference/pack-system.md §7). That belongs here rather than in a new
 // command because it answers the same question the capture diff does — "why does this
 // file say that, and who is responsible?" — and because an overlay folds in BELOW the
 // owner's managed layer, so it leaves no trace in the surface file at all. Provenance

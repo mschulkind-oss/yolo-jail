@@ -31,7 +31,7 @@
   "version": 1,
 
   // OFF, and this one has a STATED, ACCEPTED COST rather than a migration: yolo-cglimit
-  // stops working out of the box (docs/design/loophole-activation.md OQ-A4, said in the
+  // stops working out of the box (docs/reference/loophole-system.md OQ-A4, said in the
   // ruling itself rather than discovered afterwards).  Nothing in the jail restores it
   // except asking:
   //

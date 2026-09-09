@@ -112,7 +112,7 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 //
 // THE USER'S SWITCH, and the one place its rule is stated. `loopholes.<name>.enabled`
 // is a different key from the manifest's `default_enabled` — the pack author's default
-// versus the user's answer (docs/design/loophole-activation.md OQ-A9) — and it outranks
+// versus the user's answer (docs/reference/loophole-system.md OQ-A9) — and it outranks
 // the default in BOTH directions, from either scope, because the merged block this reads
 // is already user-config-plus-workspace with the workspace winning.
 //
@@ -337,7 +337,7 @@ type DiscoverOptions struct {
 	PackModules []PackModule
 	// PackSupersessions are the selected packs' `supersedes` claims — a capability
 	// name, the pack that claimed it, and the mandatory reason
-	// (docs/design/pack-capabilities.md). STRINGS, not packs, for the same cycle
+	// (docs/reference/pack-system.md). STRINGS, not packs, for the same cycle
 	// reason PackModules is paths-and-a-bool.
 	//
 	// It is a SEPARATE list from PackModules, not a field on it, because the two sets
@@ -565,7 +565,7 @@ func NewSet(opts DiscoverOptions) Set {
 }
 
 // SupersessionProblems reports every `supersedes` claim in this Set that matched no
-// served capability — the typo case (docs/design/pack-capabilities.md §5).
+// served capability — the typo case (docs/reference/pack-system.md §5).
 //
 // PURE: it recomputes from the records and the claims rather than caching what
 // Discover warned about, so a caller may ask more than once without a duplicate

@@ -16,7 +16,7 @@
   "name": "host-processes",
   "description": "Allowlisted view of host processes (yolo-ps). Visibility is controlled by this loophole's own `visible` setting.",
   "version": 1,
-  // THE LOOPHOLE OWNS ITS CONFIG KEYS NOW (docs/design/pack-config-keys.md).
+  // THE LOOPHOLE OWNS ITS CONFIG KEYS NOW (docs/reference/pack-system.md).
   // These used to be the top-level `host_processes` block in core's own config
   // schema — one of the two loophole names core hardcoded, and the thing that made
   // "convert the loophole to a pack" separation in appearance only.  The old key is
@@ -58,7 +58,7 @@
     }
   },
   // OFF, and this is the commit §1.3's table was waiting for
-  // (docs/design/loophole-activation.md R1/R4, the `host-processes` row: "own pack,
+  // (docs/reference/loophole-system.md R1/R4, the `host-processes` row: "own pack,
   // `default_enabled: false`").  The rename commit kept it TRUE deliberately —
   // flipping it before the pack existed would have taken the capability away with
   // nothing but a config key to restore it.  Now the restore is the thing that turns

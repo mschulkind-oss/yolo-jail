@@ -44,14 +44,14 @@ func (o *Options) checkLoopholes(r *reporter) {
 	//
 	// IT COST NOTHING WHEN IT LANDED AND IT DOES NOW: `host-processes` moved into a pack
 	// on 2026-08-18 and it DOES declare a doctor_cmd, which is the case OQ-A12 was built
-	// ahead of (docs/design/loophole-activation.md). Landing the conversion without this
+	// ahead of (docs/reference/loophole-system.md). Landing the conversion without this
 	// fix would have printed a cheerful all-green while a pack-shipped loophole's
 	// self-check went unreported — on exactly the command a user reaches for when a
 	// loophole has silently stopped. The broker is the other one that declares a
 	// doctor_cmd, and as of 2026-08-19 it is a pack's too — so both of yolo's own
 	// doctor_cmds now reach the screen only through this fix.
 	//
-	// It is also the honest completion of docs/design/pack-code-separation.md's doctor
+	// It is also the honest completion of docs/reference/pack-system.md's doctor
 	// ruling: `check` reads loophole health through the manifest surface rather than
 	// hand-rolled Go. Nothing about WHAT a doctor_cmd does or WHEN it runs moves — the
 	// origin and placement gates still live in the callee, where a slice cannot forget
@@ -69,7 +69,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// green line. Only a disable from the loophole's own manifest is an ok.
 	//
 	// The ON direction is disclosed the same way, for the newer reason
-	// (docs/design/loophole-activation.md OQ-A13). R5 dates from when a workspace
+	// (docs/reference/loophole-system.md OQ-A13). R5 dates from when a workspace
 	// `enabled: true` was INERT — manifests defaulted to on, so the weak scope could
 	// only subtract. R2 flipped that default and made this key the ACTIVATION VERB,
 	// and what a workspace enable rendered as here was the greenest line in the

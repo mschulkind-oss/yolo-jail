@@ -92,7 +92,7 @@ type Manifest struct {
 	SkillsTier string `json:"skills_tier,omitempty"`
 
 	// Supersedes is the pack's claim that some capability's job no longer needs doing,
-	// so whichever loophole SERVES it can stop (docs/design/pack-capabilities.md §2).
+	// so whichever loophole SERVES it can stop (docs/reference/pack-system.md §2).
 	// Each entry carries a MANDATORY `because` — see supersedes.go for why it is a
 	// top-level key rather than a 16th contribution kind, and why the asymmetry with
 	// `serves` is enforced rather than merely recommended.
@@ -108,7 +108,7 @@ type Manifest struct {
 	// Contributes is the pack's effects: one list of typed contributions, each with
 	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
 	// each with an explicit kind from the closed core-owned set
-	// (docs/design/pack-system.md §2-§3). Read it through Contributions().
+	// (docs/reference/pack-system.md §2-§3). Read it through Contributions().
 	Contributes []Contribution `json:"contributes,omitempty"`
 }
 

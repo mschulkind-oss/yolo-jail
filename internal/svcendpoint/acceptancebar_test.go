@@ -191,7 +191,7 @@ func TestDialDoesNotFallBackToLoopback(t *testing.T) {
 // killed by four tests across three packages — so the layer ATTRIBUTION was pinned
 // while the wire value it is read from was not.
 //
-// It matters because the ack is new wire (docs/design/loophole-transport.md §8.3)
+// It matters because the ack is new wire (docs/reference/loophole-transport.md §8.3)
 // and loophole-protocol.md invites third-party daemons: one writing the wrong first
 // byte would otherwise be silently accepted, and the client would then read that
 // byte as the head of the first response frame — a desync reported as whatever the

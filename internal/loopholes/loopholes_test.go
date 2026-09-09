@@ -20,7 +20,7 @@ import (
 //
 // It SUPPLIES `default_enabled: true` when the caller did not state one, and that
 // default is the opposite of the schema's on purpose. After OQ-A9 flipped the
-// manifest's default to OFF (docs/design/loophole-activation.md R2), a fixture that
+// manifest's default to OFF (docs/reference/loophole-system.md R2), a fixture that
 // says nothing about enablement produces a loophole that is not discovered, not
 // active, and absent from every report — so every test in this package about
 // something ELSE (platforms, requires, doctor_cmd, workspace overrides, the origin

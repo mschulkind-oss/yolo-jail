@@ -232,7 +232,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// Resolve the packs FIRST, before rendering any of them, because config-overlay is
 	// cross-pack: an overlay in pack B targets a surface pack A owns, so the per-pack loop
 	// below cannot discover it. Two passes over `entries` is the price of the one thing the
-	// kind exists to do (docs/design/pack-config-collaboration.md §6).
+	// kind exists to do (docs/reference/pack-system.md §6).
 	for _, e := range entries {
 		configured[e.Name] = true
 		p := packForCheckDeps(e) // same loader: embedded or local; git needs `pack install`
@@ -309,7 +309,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		}
 	}
 	// REFUSE a doubly-declared config surface before writing anything into a real home
-	// (docs/design/pack-config-collaboration.md Option 1 / R1). This is also R4: the double
+	// (docs/reference/pack-system.md Option 1 / R1). This is also R4: the double
 	// `rendered` line was one line per DECLARING pack for one file — the collision made
 	// visible while nothing called it one. Refusing the apply is what removes the second
 	// line, rather than deduping the output and leaving the ambiguity in place.

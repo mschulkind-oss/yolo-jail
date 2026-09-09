@@ -290,7 +290,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// podman refusal naming the wrong thing; two `config` declarations resolve in Go
 	// (manifest.Merge, last-writer-wins) and the jail comes up looking fine, having flipped
 	// one pack's surface `mode` and silently dropped its capture sidecars
-	// (docs/design/pack-config-collaboration.md R1). Refused here for the same reason the
+	// (docs/reference/pack-system.md R1). Refused here for the same reason the
 	// checks above are: this is where the pack set becomes complete, and it covers attach too.
 	//
 	// Only the CONFIG collision, not packload.Collisions wholesale: a `launch` clash between

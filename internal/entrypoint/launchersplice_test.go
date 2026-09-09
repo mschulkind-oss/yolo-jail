@@ -127,13 +127,19 @@ func assertParses(t *testing.T, body, what string) {
 // arrives intact.
 func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 	v := hostileValue("-parse")
+	// The server lists go through the SAME sentinel set as everything else, so they carry
+	// the hostile value too. They are the newest splice (§3.5's transitive refresh) and the
+	// only one whose value is a whitespace-separated LIST landing in a scalar, which is the
+	// shape most likely to be spliced raw by someone reading the template rather than the
+	// contract.
+	srv := launcherServers{npm: v + " second-pkg", gomods: v + "/mod@latest"}
 	assertParses(t, npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: v, Package: v, Flags: []string{v, "--plain"},
 			UpdateVerb: []string{v, "--self"}},
-		v, v, true), "npm launcher")
+		v, v, true, srv), "npm launcher")
 	assertParses(t, nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v, UpdateVerb: []string{v, "--self"}},
-		v, v, v, true), "native launcher")
+		v, v, v, true, srv), "native launcher")
 
 	// The package-manager launcher takes no per-pack input at all: its bin and package are
 	// a hardcoded list, so the only value that can be hostile is the stamp dir, which is
@@ -257,7 +263,7 @@ fi`)
 	receipts := hostileReceiptsPath(home, "-nativereceipts")
 	body := nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
-		filepath.Join(home, "stamps"), receipts, "", true)
+		filepath.Join(home, "stamps"), receipts, "", true, launcherServers{})
 
 	out, rc := runLauncher(t, home, "probetool", body, fakeBin)
 	if rc != 0 {
@@ -308,7 +314,7 @@ if [ "${1:-}" = view ]; then echo 9.9.9; fi`)
 	receipts := hostileReceiptsPath(home, "-npmreceipts")
 	body := npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: "tool", Package: spec, Flags: []string{flag, "--plain"}},
-		filepath.Join(home, "stamps"), receipts, true)
+		filepath.Join(home, "stamps"), receipts, true, launcherServers{})
 
 	out, rc := runLauncher(t, home, "tool", body, fakeBin)
 	if rc != 0 {
@@ -366,7 +372,7 @@ func TestNpmLauncherQuotesThePackageName(t *testing.T) {
 	body := npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: "tool", Package: pkg},
 		filepath.Join(home, "stamps"),
-		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true)
+		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true, launcherServers{})
 	out, rc := runLauncher(t, home, "tool", body, fakeBin)
 	if rc != 0 {
 		t.Errorf("launcher failed (rc=%d) — a hostile package name must be data:\n%s", rc, out)
@@ -461,7 +467,7 @@ func TestLaunchersQuoteTheBinNameAndStampDir(t *testing.T) {
 
 		body := npmAgentLauncher(
 			&packdecl.Install{Kind: "npm", Bin: bin, Package: "pkg@1.0.0"},
-			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true)
+			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true, launcherServers{})
 		out, rc := runLauncher(t, home, "launcher", body, filepath.Join(home, "nonexistent-bin"))
 		if rc != 0 || !strings.Contains(out, "LAUNCHED") {
 			t.Errorf("npm launcher did not exec $NPM_CONFIG_PREFIX/bin/<bin> for a hostile "+
@@ -479,7 +485,7 @@ func TestLaunchersQuoteTheBinNameAndStampDir(t *testing.T) {
 
 		body := nativeAgentLauncher(
 			&packdecl.Install{Kind: "native", Bin: bin, InstallerURL: "https://example.invalid/i.sh"},
-			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "", true)
+			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "", true, launcherServers{})
 		out, rc := runLauncher(t, home, "launcher", body, filepath.Join(home, "nonexistent-bin"))
 		if rc != 0 || !strings.Contains(out, "LAUNCHED") {
 			t.Errorf("native launcher did not exec $HOME/.local/bin/<bin> for a hostile bin "+

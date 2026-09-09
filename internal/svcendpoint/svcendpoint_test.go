@@ -519,7 +519,7 @@ func TestWrongCertRejected(t *testing.T) {
 // installs the fixture CA as this binary's system pool and warms the cache first so
 // this test cannot be silently downgraded to a skip.
 //
-// docs/design/loophole-transport.md §5 is why: a CA we own had its private key
+// docs/reference/loophole-transport.md §5 is why: a CA we own had its private key
 // readable inside every jail, so pinning must not depend on any CA.
 func TestSystemRootsNotTrusted(t *testing.T) {
 	if !pkgSystemPoolTrustsTestCA {

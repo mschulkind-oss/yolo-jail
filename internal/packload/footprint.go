@@ -2,14 +2,14 @@ package packload
 
 // footprint.go computes a pack's FOOTPRINT — the list of concrete claims it makes
 // on the environment — and detects collisions across packs. It is the "good
-// citizen" mechanism (docs/design/pack-system.md §3): the one
+// citizen" mechanism (docs/reference/pack-system.md §3): the one
 // place that computes the union of what packs claim and applies the one-writer
 // rule (pack-system.md §4).
 //
 // FootprintOf reads a pack's contributes[] and maps each contribution to a kind +
 // claim; Collisions unions the claims across packs and reports a cross-pack
 // duplicate on any Exclusive/Scoped target, per the combine rule
-// (docs/design/pack-system.md §3), rather than silently merging it.
+// (docs/reference/pack-system.md §3), rather than silently merging it.
 
 import (
 	"fmt"
@@ -79,7 +79,7 @@ type Footprint struct {
 // run.disclosedClaims) is now the ONLY place a user sees what a pack reaches, so §6 applies
 // to it and matters more than it did.
 //
-// [`pack-execution-trust.md`]: ../../docs/design/pack-execution-trust.md
+// [`pack-execution-trust.md`]: ../../docs/reference/pack-system.md
 // [`trust-paths.md`]: ../../docs/design/trust-paths.md
 //
 // # The `loophole` kind is passed through on purpose
@@ -982,7 +982,7 @@ func agentNameCollisionReason(name string, claims []agentNameClaim) string {
 }
 
 // configSurfaceCollisions finds a config surface IDENTITY declared more than once — the
-// hazard docs/design/pack-config-collaboration.md R1 rules harmful, enforced.
+// hazard docs/reference/pack-system.md R1 rules harmful, enforced.
 //
 // WHY IT IS ITS OWN PASS rather than a row in the generic exclusive loop, in two parts:
 //

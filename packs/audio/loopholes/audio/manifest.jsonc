@@ -47,7 +47,7 @@
   "description": "PipeWire/PulseAudio socket pass-through + ALSA→PipeWire routing — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients).",
   "version": 1,
 
-  // OFF unless somebody asks for it (docs/design/loophole-activation.md R4: "host
+  // OFF unless somebody asks for it (docs/reference/loophole-system.md R4: "host
   // access is never on by default"). Audio used to be on for everyone whose host had
   // a pulse socket — presence deciding activation, which is precisely what R1 deletes
   // — and "being useful is not a reason to be automatic".

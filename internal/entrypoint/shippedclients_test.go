@@ -159,7 +159,7 @@ func TestShipSetsAgreeAcrossFlakeAndBundle(t *testing.T) {
 
 // TestLoopholeClientsAreBaked names the two in-jail loophole clients
 // explicitly. They were generated Python in ~/.local/bin until the transport
-// retirement (docs/design/loophole-transport.md §8.4), and the whole point of
+// retirement (docs/reference/loophole-transport.md §8.4), and the whole point of
 // the port is that the image provides them — a regression that dropped either
 // from the ship set would leave the jail with NO client at all, since the
 // generator that used to write one is gone.

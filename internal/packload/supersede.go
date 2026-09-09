@@ -1,7 +1,7 @@
 package packload
 
 // supersede.go is the pack side of capability supersession
-// (docs/design/pack-capabilities.md): reading a pack's `supersedes` claims, and the
+// (docs/reference/pack-system.md): reading a pack's `supersedes` claims, and the
 // one deliberate decision about where they do and do not belong.
 //
 // # A supersession is a FOOTPRINT claim and NOT a host-access claim

@@ -500,7 +500,7 @@ func TestBlackboxPidModeNotAllowlisted(t *testing.T) {
 }
 
 // TestBlackboxAllowlistIsFrozenAtStart is the INVERSION of what this suite used to
-// assert, and the inversion is the ruling (docs/design/pack-config-keys.md OQ-K3).
+// assert, and the inversion is the ruling (docs/reference/pack-system.md OQ-K3).
 //
 // The old test was TestBlackboxConfigReReadBetweenRequests: it wrote an empty
 // allowlist, got exit 3, rewrote the config file, and demanded that the very next

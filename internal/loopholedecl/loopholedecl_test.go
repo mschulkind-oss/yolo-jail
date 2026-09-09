@@ -95,7 +95,7 @@ func TestDecodeMinimalAppliesDefaults(t *testing.T) {
 	}
 	if m.DefaultEnabled {
 		t.Error("DefaultEnabled = true, want false — absent means OFF after OQ-A9/R2 " +
-			"(docs/design/loophole-activation.md). This assertion read the other way " +
+			"(docs/reference/loophole-system.md). This assertion read the other way " +
 			"until the rename, which is the point of the ruling.")
 	}
 	if m.BrokerIP != loopholedecl.DefaultBrokerIP {

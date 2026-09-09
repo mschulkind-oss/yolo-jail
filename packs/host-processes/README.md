@@ -38,7 +38,7 @@ the move made were `default_enabled` and the file header.
 ```
 
 `OQ-A5` keeps all three deliberately
-([`loophole-activation.md`](../../docs/design/loophole-activation.md) §1.2a). They answer
+([`loophole-activation.md`](../../docs/reference/loophole-system.md) §1.2a). They answer
 different questions — **is it installed**, **is it running**, **what may it show** — and
 collapsing the first two would mean a non-empty `visible` list *silently starting a host
 daemon*, which is the presence-activation that design deletes, wearing a different hat.

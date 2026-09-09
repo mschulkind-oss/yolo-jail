@@ -61,7 +61,7 @@ const (
 	// THE DIRECTORY IS SECRET-BEARING. Every file in it carries that service's
 	// per-jail bearer token alongside its address and public cert, so the
 	// directory is per-jail and never shared, and each file is 0600. See
-	// internal/svcendpoint and docs/design/loophole-transport.md §3.2.
+	// internal/svcendpoint and docs/reference/loophole-transport.md §3.2.
 	JailHostServicesDir = "/run/yolo-services"
 
 	// BuiltinCgroupLoopholeName is the cgroup-delegate service name.

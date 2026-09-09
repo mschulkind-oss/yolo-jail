@@ -1,7 +1,7 @@
 package entrypoint
 
 // packoverlayrender_test.go is the BEHAVIORAL proof that `config-overlay` is wired at both
-// render paths (docs/design/pack-config-collaboration.md §6 Option 2).
+// render paths (docs/reference/pack-system.md §6 Option 2).
 //
 // The kind was inert for a specific reason worth pinning against: every piece existed —
 // the schema, the footprint, the combine rule, and full compose-engine support

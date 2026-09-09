@@ -10,7 +10,10 @@
 // hex integers, leading +, leading/trailing-dot floats, Infinity/-Infinity/NaN,
 // and string line continuations — so any config that uses them stays parity-
 // correct rather than ledger-accepted. Divergences (if any surface via the
-// oracle) are recorded in docs/design/go-port-divergences.md.
+// oracle) used to be recorded in docs/design/go-port-divergences.md, which was
+// ARCHIVED with the rest of the go-port scaffolding in 2c229fbc — git has it.
+// The live record is TestLedgeredDivergences in internal/jsonx, which guards each
+// accepted divergence by behavior instead of describing it in prose.
 //
 // Dependency-free (hand-written lexer/parser) — keeps the module's zero-dep
 // property (no vendor/ churn).

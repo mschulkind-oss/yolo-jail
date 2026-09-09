@@ -106,13 +106,13 @@ type Loophole struct {
 	Platforms    []string
 	PlatformsSet bool
 	// Serves carries the manifest's `serves` declaration verbatim: the CAPABILITIES —
-	// named jobs — this loophole implements (docs/design/pack-capabilities.md). Nil or
+	// named jobs — this loophole implements (docs/reference/pack-system.md). Nil or
 	// empty means "not participating", which is what makes this mechanism unable to
 	// change the behaviour of any manifest that does not opt in.
 	Serves []string
 	// Settings carries the manifest's `settings` declarations verbatim: the config
 	// keys THIS loophole owns, under `loopholes.<name>.settings`
-	// (docs/design/pack-config-keys.md). Nil or empty means it owns none, which is
+	// (docs/reference/pack-system.md). Nil or empty means it owns none, which is
 	// every manifest written before the block existed.
 	//
 	// Verbatim rather than resolved, because a declaration is a fact about the

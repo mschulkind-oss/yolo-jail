@@ -51,7 +51,7 @@ func TestServesIsAKnownKey(t *testing.T) {
 }
 
 // TestServesSilenceIsNotAClaim is the invariant the whole mechanism rests on
-// (docs/design/pack-capabilities.md §4): absent and empty both mean "not
+// (docs/reference/pack-system.md §4): absent and empty both mean "not
 // participating", and neither may become a default claim. Pinned at the SCHEMA
 // level; internal/loopholes pins the behavioural half.
 func TestServesSilenceIsNotAClaim(t *testing.T) {

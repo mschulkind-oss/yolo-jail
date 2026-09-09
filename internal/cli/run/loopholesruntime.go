@@ -385,7 +385,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 //
 // # THE LAST AF_UNIX SERVICE, and it is not waiting on a client
 //
-// Every other host service is on loopback-tls (docs/design/loophole-transport.md
+// Every other host service is on loopback-tls (docs/reference/loophole-transport.md
 // §8.4). The obvious reading of why this one is not — "its in-image client is
 // still generated Python" — was true for the journal bridge and is FALSE here:
 // cmd/yolo-cglimit is a baked Go binary. What does not survive the hop is
@@ -435,7 +435,7 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 // hand-built a spec and called startExternalService with it, in a numbered step of
 // its own beside the cgroup delegate. So the bridge was on because a key in CORE'S
 // OWN CONFIG SCHEMA said so — one of exactly two loopholes core named by hand
-// (docs/design/loophole-activation.md §1.4) — with no manifest, no `default_enabled`,
+// (docs/reference/loophole-system.md §1.4) — with no manifest, no `default_enabled`,
 // no scope rule over the mode, and a reserved name enforced nowhere.
 //
 // It is now the official `journal` pack's manifest loophole, discovered and spawned

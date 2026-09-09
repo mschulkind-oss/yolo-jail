@@ -40,7 +40,7 @@ func (o *Options) sectionGPUNvidia(r *reporter, merged *jsonx.OrderedMap) {
 	if !enabled || vendor == "amd" {
 		return
 	}
-	r.section("GPU (NVIDIA)")
+	r.sectionHeader("GPU (NVIDIA)")
 	if o.IsMacOS {
 		r.warn("GPU passthrough is not supported on macOS",
 			"NVIDIA GPU passthrough requires Linux with NVIDIA drivers")
@@ -113,7 +113,7 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 	if !enabled || vendor != "amd" {
 		return
 	}
-	r.section("GPU (AMD/ROCm)")
+	r.sectionHeader("GPU (AMD/ROCm)")
 	if o.IsMacOS {
 		r.warn("ROCm passthrough is not supported on macOS",
 			"AMD ROCm GPU passthrough requires Linux with the amdgpu driver")
@@ -213,7 +213,7 @@ func (o *Options) sectionKVM(r *reporter, merged *jsonx.OrderedMap) {
 	if b, ok := kvmV.(bool); !ok || !b {
 		return
 	}
-	r.section("KVM Virtualization")
+	r.sectionHeader("KVM Virtualization")
 	if o.inJail() {
 		r.ok("Inside jail — kvm checks skipped (managed by host)")
 		r.blank()

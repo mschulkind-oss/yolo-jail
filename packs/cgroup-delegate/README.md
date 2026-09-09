@@ -14,7 +14,7 @@ delegate should be running.
 ## ⚠️ `yolo-cglimit` does not work until you ask for it
 
 This is the sprint's one **accepted cost**, stated in the ruling rather than discovered
-afterwards ([`loophole-activation.md`](../../docs/design/loophole-activation.md) OQ-A4).
+afterwards ([`loophole-activation.md`](../../docs/reference/loophole-system.md) OQ-A4).
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc

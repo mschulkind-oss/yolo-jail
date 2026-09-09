@@ -8,26 +8,21 @@ import (
 	"time"
 )
 
-// DefaultKeepImages is `--keep-images`'s default (NewDefaultOptions in
-// prunecmd.go references this constant rather than a second literal, so the
-// manual command's number and the automatic launch-path reap's number
-// (AutoReapOldImages below) can never silently diverge).
+// THERE IS NO DefaultKeepImages ANY MORE, and this is where it was.
 //
-// minimal-disk-footprint.md OQ-DF3, ruled 2026-09-06: this stays a SMALL
-// undo-buffer margin ON TOP OF the sentinel-derived liveness veto
-// (ProtectedImageTags), not the sole retention mechanism. The veto already
-// keeps every recently-USED image (the load sentinel's LRU-10, across all
-// runtimes) regardless of this count — that is the "keep-by-use" rule the
-// PruneOldImages doc comment already anticipated. `keep` only decides how
-// many otherwise-unprotected, already-superseded images additionally survive
-// as a look-back/undo buffer, for the same "I applied, noticed, applied
-// again, then looked" reason hostArchiveKeep and PruneRetiredLoopholeState's
-// keep exist. The measured evidence (docs/reference/image-staging-vs-baking.md,
-// "Cost model": ~24 images / 38.68 GB, ~2.7 GB unique per Go-only rebuild)
-// shows this number was never the defect — `keep=2` applied today already
-// reduces that to roughly 6 GB. What was missing was a trigger; see
-// AutoReapOldImages.
-const DefaultKeepImages = 2
+// It was `--keep-images`'s default (2), and minimal-disk-footprint.md OQ-DF3
+// ruled the NUMBER unchanged on 2026-09-06 — as a small undo buffer sitting on
+// top of the sentinel-derived veto rather than the safety mechanism itself.
+// OQ-LS3 (docs/design/the-load-sentinel-is-not-a-liveness-oracle.md §6.2, ruled
+// 2026-09-08) then ruled the MECHANISM out rather than the number: the unit is
+// the CONFIGURATION and the superseded-per-config count is zero, so a global
+// count has no depth left to bound and there is no undo buffer to size. What
+// replaced it is CurrentImageTags — one pointer per workspace, union'd with the
+// `podman ps` veto (currentimages.go).
+//
+// Do not reintroduce a count here to "soften" a reap. The floor is one image per
+// configuration and it is a FLOOR: everything in use is protected regardless,
+// and a kept image also holds its base layer in place.
 
 // AutoReapInterval bounds how often the LAUNCH PATH's automatic old-image
 // reap actually does anything beyond a cheap timestamp read.
@@ -82,27 +77,26 @@ func RecordAutoImageReap(sentinel string, now time.Time) {
 
 // AutoReapOldImages is the launch path's counterpart to `yolo prune`'s manual
 // "Old yolo-jail images" section — minimal-disk-footprint.md OQ-DF3's
-// TRIGGER half. The mechanism it drives (PruneOldImages: the CreatedAt-sorted
-// keep window, deduped by image ID, vetoed by ProtectedImageTags) is
-// UNCHANGED, so this call is exactly as safe as a human typing
-// `yolo prune --apply` — this function only decides WHETHER AND WHEN to make
-// that same call on its own, never how.
+// TRIGGER half. The mechanism it drives (PruneOldImages: rows deduped by image
+// ID, retained by the per-workspace current pointers, vetoed by `podman ps`) is
+// exactly the one the manual command drives, so this call is as safe as a human
+// typing `yolo prune --apply` — this function only decides WHETHER AND WHEN to
+// make that same call on its own, never how. It reads the evidence from the same
+// function (CurrentImageTags) rather than assembling its own, so the two
+// entrances cannot come to different verdicts about one image.
 //
 // Debounced by DueForAutoImageReap so a busy machine does not re-probe podman
-// on every launch (P7). Fails CLOSED exactly like the manual section: an
-// unreadable load-sentinel ledger (liveKnown==false) declines the whole
-// pass — and, deliberately, does NOT stamp the debounce sentinel in that
-// case, so the very next launch (which may be the one whose own
-// image.AddLoadedPath call finally makes the ledger readable) retries
-// immediately rather than waiting out a full interval on a machine that was
-// never actually protected in the first place.
+// on every launch (P7). Fails CLOSED exactly like the manual section: no
+// honourable current-image pointer (known==false) declines the whole pass — and,
+// deliberately, does NOT stamp the debounce sentinel in that case, so the very
+// next launch (which may be the one whose own RecordCurrentImage call finally
+// gives the pass its evidence) retries immediately rather than waiting out a
+// full interval on a machine that was never actually protected in the first
+// place.
 //
-// keep is the retention count (DefaultKeepImages in production); callers pass
-// it rather than this function inventing its own, so the manual command's
-// number and the automatic one can never silently diverge. ran reports
-// whether the pass actually executed (true even when removed is empty — the
-// debounce, not "nothing to remove", is what ran distinguishes).
-func AutoReapOldImages(rt, buildDir string, keep int, now time.Time, run RunFunc) (removed []string, ran bool, declined ImageReapDecline) {
+// ran reports whether the pass actually executed (true even when removed is
+// empty — the debounce, not "nothing to remove", is what ran distinguishes).
+func AutoReapOldImages(rt, buildDir string, now time.Time, run RunFunc) (removed []string, ran bool, declined ImageReapDecline) {
 	sentinel := filepath.Join(buildDir, autoReapSentinelName)
 	if !DueForAutoImageReap(sentinel, AutoReapInterval, now) {
 		// DEBOUNCED, not declined. Nothing is wrong and nothing is said: this is
@@ -110,8 +104,8 @@ func AutoReapOldImages(rt, buildDir string, keep int, now time.Time, run RunFunc
 		// line here would be noise in front of every launch (OQ-LS2).
 		return nil, false, ""
 	}
-	protectedTags, liveKnown := ProtectedImageTags(buildDir)
-	removed, declined = PruneOldImages(rt, keep, protectedTags, liveKnown, true, run)
+	protectedTags, known := CurrentImageTags(buildDir)
+	removed, declined = PruneOldImages(rt, protectedTags, known, true, run)
 	if declined != "" {
 		// DECLINED. Deliberately NOT stamped: the debounce records that a pass
 		// ran, and a pass that could not establish its evidence did not run. The

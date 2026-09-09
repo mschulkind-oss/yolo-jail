@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// validate_loopholesettings.go is core's half of docs/design/pack-config-keys.md:
+// validate_loopholesettings.go is core's half of docs/reference/pack-system.md:
 // a loophole's MANIFEST declares which config keys it owns and what type each
 // takes, and this is where `loopholes.<name>.settings` is checked against that
 // declaration.
@@ -101,7 +101,7 @@ func validateLoopholeSettings(spec *jsonx.OrderedMap, path string, info *Loophol
 //
 // # Why a user-scope key cannot simply be "bounded" by the workspace
 //
-// docs/design/pack-config-keys.md §3 corrects loophole-activation.md R5 on exactly
+// docs/reference/pack-system.md §3 corrects loophole-activation.md R5 on exactly
 // this point, and the correction is load-bearing here: MergeConfig union-merges
 // EVERY list at every depth, and the replace-wholesale exception was deleted on
 // purpose. So a user-scope ceiling list that a workspace NARROWS is inexpressible —
