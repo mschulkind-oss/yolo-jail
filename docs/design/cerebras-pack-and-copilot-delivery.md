@@ -16,7 +16,7 @@ shipped as `8631caeb` and `04b3f039`; `packs/cerebras` landed as `29aa0925` and 
 
 > [!WARNING]
 > **Two rulings below were overtaken on 2026-09-05, before this status was corrected.** [OQ-1](#open-questions)
-> was answered by [`wire-bridge.md`](wire-bridge.md) and the bridge SHIPPED (`434189dd`,
+> was answered by [`wire-bridge.md`](../reference/wire-bridge.md) and the bridge SHIPPED (`434189dd`,
 > `0dfc3481`), so the pack as built contradicts this doc twice: `packs/cerebras/pack.json`
 > declares an `endpoints.anthropic` (the in-jail bridge at `127.0.0.1:8214`) where [§1](#1-packscerebras--the-second-purely-declarative-pack) says
 > declaring one "would be a lie about the service", and it carries
@@ -140,8 +140,8 @@ paragraph splits (copilot now does; agy still doesn't and never can).
 
 | OQ | Question | Status |
 | :--- | :--- | :--- |
-| [OQ-1](#open-questions) | Should yolo ever ship a claude-wire translation proxy so claude can ride chat-completions-only providers? | **In design** — answered by [`wire-bridge.md`](wire-bridge.md) (2026-09-04): a `wire-bridge` pack included through new real pack-dependency vocabulary (`needs` + `when_bins`, ruled by the maintainer that day), and revisits D-4 below (the `context_window` option becomes live the day claude can ride the bridge) |
-| [OQ-2](#oq-2) | The claude derive emits `ANTHROPIC_AUTH_TOKEN` even when the provider has no anthropic endpoint (recorded in zai-plumbing [§3](zai-plumbing.md#3-route-a--name-the-protocol-fill-the-values-pure-config)) — selected-for-claude + openai-only provider sends a wrong-token credential to api.anthropic.com. Gate the token on the URL? | **💬 LIVE**, [in full below](#oq-2) — pre-existing recorded behavior, not this doc's change. Its cerebras trigger is GONE (the bridge gave cerebras an anthropic endpoint, so it routes); the live trigger is now a user-declared provider, verified 2026-09-09 |
+| [OQ-1](#open-questions) | Should yolo ever ship a claude-wire translation proxy so claude can ride chat-completions-only providers? | **In design** — answered by [`wire-bridge.md`](../reference/wire-bridge.md) (2026-09-04): a `wire-bridge` pack included through new real pack-dependency vocabulary (`needs` + `when_bins`, ruled by the maintainer that day), and revisits D-4 below (the `context_window` option becomes live the day claude can ride the bridge) |
+| [OQ-2](#oq-2) | The claude derive emits `ANTHROPIC_AUTH_TOKEN` even when the provider has no anthropic endpoint — selected-for-claude + openai-only provider sends a wrong-token credential to api.anthropic.com. Gate the token on the URL? | **💬 LIVE**, [in full below](#oq-2) — pre-existing recorded behavior, not this doc's change. Its cerebras trigger is GONE (the bridge gave cerebras an anthropic endpoint, so it routes); the live trigger is now a user-declared provider, verified 2026-09-09 |
 | [OQ-3](#open-questions) | Cerebras's free tier is 5 req/min — thin for an agent loop. Does the pack README say so? | Resolved in the README: yes, with the Developer-tier numbers beside it |
 
 ### <a id="oq-2"></a>💬 **[OQ-2](#oq-2)** — does the claude derive gate `ANTHROPIC_AUTH_TOKEN` on an anthropic endpoint existing?
@@ -164,9 +164,12 @@ end
 So a selected provider carrying a hydrated key but no anthropic endpoint leaves claude with a
 third-party token and claude's own default base URL — the credential goes to `api.anthropic.com`.
 No preflight refuses that pairing; `ANTHROPIC_AUTH_TOKEN` appears nowhere in `internal/` at all.
-[`zai-plumbing.md` §3](zai-plumbing.md#3-route-a--name-the-protocol-fill-the-values-pure-config)
-records the same behaviour from the other side, in as many words: *"claude's derive drops the URL and
-composes the token alone."*
+The same behaviour used to be recorded from the other side in `zai-plumbing.md` — *"claude's derive
+drops the URL and composes the token alone"* — but that doc graduated to
+[`../reference/zai-plumbing.md`](../reference/zai-plumbing.md) on 2026-09-09 and the sentence was
+cut with it, as an unresolved gap rather than an as-built fact. This section is now its only
+record; for what the derive emits when the endpoint *is* present, see
+[`../reference/providers.md`](../reference/providers.md#per-agent-delivery).
 
 > [!WARNING]
 > **The trigger this doc named is gone; the question is not.** No shipped pack reaches the leak any
