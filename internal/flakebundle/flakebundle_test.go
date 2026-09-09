@@ -12,7 +12,18 @@ import (
 // paths.FlakeBundleDir's shape (<state>/flake-bundle) without depending on it.
 func stableIn(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(t.TempDir(), "flake-bundle")
+	// RESOLVED, because Current() resolves symlinks and callers compare its output
+	// to paths derived from here. On macOS t.TempDir() hands back /var/folders/...,
+	// which IS a symlink to /private/var/folders/..., so the unresolved form fails
+	// every comparison there while passing on Linux.
+	//
+	// Reproducible on Linux, which is how this was verified rather than guessed:
+	//   ln -s /tmp/real /tmp/link && TMPDIR=/tmp/link go test ./internal/flakebundle/
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "flake-bundle")
 }
 
 // stageBundle stages a minimally-real generation — the two flake files and the

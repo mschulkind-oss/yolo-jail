@@ -347,6 +347,18 @@ there is no sync step.
   When adding a test, ask: **does it fail if I delete the call site?** If not, add the
   one that does. Adversarial mutation runs in this repo find this class more often
   than they find wrong logic.
+- **The darwin PATH-RESOLUTION class is reproducible on Linux, and `check-macos` is where it
+  otherwise surfaces.** On macOS `t.TempDir()` returns `/var/folders/…`, which **is a symlink** to
+  `/private/var/folders/…`. Any test comparing a fixture path against code that resolves symlinks
+  (`filepath.EvalSymlinks`, and anything built on it) passes on Linux and fails on darwin. It cost
+  three tests across two packages on 2026-09-09. Reproduce it here in one line:
+  ```console
+  $ mkdir -p /tmp/real && ln -sfn /tmp/real /tmp/link
+  $ TMPDIR=/tmp/link go test -short ./...
+  ```
+  A fixture that hands out `EvalSymlinks(t.TempDir())` is the fix — resolve where the path is
+  MINTED, not at each comparison, or the next comparison added forgets.
+
 - **No agent tests.** Automated tests must never start `claude`/`copilot`/
   `codex`/etc. interactively or make API calls. `--version` probes only.
 - **Nested-jail verification is mandatory** for `cmd/` and `internal/` changes:

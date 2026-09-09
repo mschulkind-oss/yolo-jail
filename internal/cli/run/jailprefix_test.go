@@ -19,7 +19,12 @@ import (
 // prebuilt branch below a test of the real layout rather than of a stub.
 func stageBundle(t *testing.T, withBinaries bool) string {
 	t.Helper()
-	root := t.TempDir()
+	// RESOLVED, because resolveJailPrefix resolves symlinks (resolveSymlinks in
+	// jailprefix.go) and the caller compares its output to this path. On macOS
+	// t.TempDir() hands back /var/folders/..., which IS a symlink to
+	// /private/var/folders/..., so the unresolved form fails every comparison here
+	// while passing on Linux — a darwin-only break the in-jail gate cannot see.
+	root := resolveSymlinks(t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "flake.nix"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
