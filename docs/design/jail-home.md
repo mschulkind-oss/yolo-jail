@@ -1,7 +1,13 @@
 # How `/home/agent` works — construction, mounts, and sharing
 
 **Status:** REFERENCE — describes shipped behaviour. **Spot-verified
-2026-08-23.** This doc's own invitation ("line numbers drift — trust the named
+2026-08-23; STALE IN PART, re-stamped 2026-09-09** — the two generated-script
+dirs were renamed to `~/.yolo/bin/{block,launch}` on 2026-08-30 (`a813b865`) and
+the launcher dir moved from LAST on PATH to SECOND on 2026-09-04, so [§2.1](#21-the-mount-stack),
+[§2.2](#22-base-mounts-podman-branch-podmanbasemounts-assemble_partsgo37-66), [§3](#3-what-the-entrypoint-generates-at-boot-vs-what-persists), [§4](#4-sharing-semantics-one-truth-per-host-per-workspace-or-per-boot) and [§7](#7-gotchas) still name `~/.yolo-shims` /
+`~/.yolo-launchers` and the retired PATH order (`BootPath`,
+`internal/entrypoint/boot.go:390-395`, is the authority; [§2.1](#21-the-mount-stack)'s `/opt/yolo-jail`
+mounts were updated 2026-09-06 and are current). This doc's own invitation ("line numbers drift — trust the named
 function") was finally taken up, and the answer is: **the named functions are
 almost all still right; nearly every line number is wrong.** What was checked,
 and the verdicts:
