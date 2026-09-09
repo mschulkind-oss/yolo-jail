@@ -8,9 +8,24 @@ summary: "A second purely-declarative provider pack (Cerebras, one key, qwen-3.8
 
 # The cerebras pack, and closing the copilot delivery gap
 
-**Status:** ACCEPTED, 2026-09-04. The zai-side fix this workstream also produced (the
-recommended-env alignment and the wire-true alias correction) shipped as `8631caeb` and
-`04b3f039`; this doc designs what remains: the pack itself and the copilot derive.
+**Status:** ACCEPTED, 2026-09-04; **BUILT — re-stamped 2026-09-09, because "this doc designs
+what remains" was false: both halves shipped within a day of acceptance.** The zai-side fix this
+workstream also produced (the recommended-env alignment and the wire-true alias correction)
+shipped as `8631caeb` and `04b3f039`; `packs/cerebras` landed as `29aa0925` and the copilot
+`yolo.env` derive as `033eccc5`, both 2026-09-04.
+
+> [!WARNING]
+> **Two rulings below were overtaken on 2026-09-05, before this status was corrected.** [OQ-1](#open-questions)
+> was answered by [`wire-bridge.md`](wire-bridge.md) and the bridge SHIPPED (`434189dd`,
+> `0dfc3481`), so the pack as built contradicts this doc twice: `packs/cerebras/pack.json`
+> declares an `endpoints.anthropic` (the in-jail bridge at `127.0.0.1:8214`) where [§1](#1-packscerebras--the-second-purely-declarative-pack) says
+> declaring one "would be a lie about the service", and it carries
+> `options.context_window` where **D-4** says it should not — claude can ride cerebras now, which
+> is exactly the condition [OQ-1](#open-questions)'s row predicted would revive D-4. Read [§1](#1-packscerebras--the-second-purely-declarative-pack) and D-4 as the
+> pre-bridge design, not as the shipped pack. [OQ-2](#open-questions) is still live in code
+> (`packs/claude/derive.lua:60-62` emits `ANTHROPIC_AUTH_TOKEN` from `api_key` alone, ungated by
+> whether an anthropic endpoint exists) and carries no `💬`, so the corpus question count cannot
+> see it.
 
 **The want** *(the maintainer's words, 2026-09-04, lightly compressed)*: "a pack for
 cerebras for using it as the main agentic model… qwen3.8-27b is now available for real

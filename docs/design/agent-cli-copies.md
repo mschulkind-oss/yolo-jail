@@ -8,7 +8,14 @@ summary: "The 1.2 GB that justified building a content-addressed store decompose
 
 # How many copies of an agent CLI does a machine need — and who deletes the rest
 
-**Status:** DESIGN, 2026-09-04. **Nothing built here.** Re-examines a premise
+**Status:** DESIGN, 2026-09-04; **re-stamped 2026-09-09 — "nothing built here" is no longer
+true and [§9](#9-what-i-would-build-in-order) already says so.** Its first two build-order steps
+SHIPPED on 2026-09-04: A7's V-axis prune as `_prune_versions` in the native launcher template
+(`5fe5ba5c`, `internal/entrypoint/shims.go`, whose comment names A7 and this doc), and evergreen
+alongside it. All four open questions are RESOLVED. What is left is step 3 (one `yolo prune`
+measurement on a real multi-workspace machine), step 4 (capture, owned by
+[`../plans/install-capture.md`](../plans/install-capture.md)), and the deliberately unsequenced
+shared prefix. Re-examines a premise
 [`program-delivery.md`](program-delivery.md) already ruled on
 ([OQ-PD15](program-delivery.md#decision-ledger)) and holds one of its live questions
 ([OQ-PD17](program-delivery.md#decision-ledger))
