@@ -7,8 +7,26 @@ import "strings"
 // in the dispatch registry, and TestUsageListedCommandsAreRegistered enforces
 // that so a rename can't leave a stale help line. The hidden `internal`
 // namespace is deliberately absent.
+//
+// THE LIST IS EXHAUSTIVE OVER THE REGISTRY, minus hiddenFromCommandHelp — that
+// is the standard's item 4 ("top-level help lists every registered command",
+// docs/design/self-documenting-cli.md) and it is now enforced in BOTH
+// directions: TestEveryRegisteredCommandIsListedInHelp walks the registry and
+// requires each key to be RENDERED here or explicitly hidden with a reason.
+// Until 2026-09-09 only help→registry was checked, and four registered commands
+// had drifted out of sight underneath it: `macos-teardown`, `macos-unshare`,
+// `doctor` and — the one that mattered — `host`, the whole host-execution
+// surface, unreachable from `yolo --help` since it shipped.
 var commandHelp = []struct{ name, blurb string }{
 	{"run", "Run a command (or an interactive shell) inside the jail"},
+	// Directly under `run`, because the two are the same act at different notches
+	// of the confinement dial and the contrast is what makes this one findable: a
+	// reader looking for "how do I run my agent" reads both lines at once and
+	// learns that the host notch exists. It was absent from this list for the
+	// nine days between shipping and 2026-09-09, so the entire surface —
+	// `yolo host -- <cmd>`, `yolo host apply`, `yolo host env` — could only be
+	// found by reading dispatch.go.
+	{"host", "Run agents on the HOST notch instead: 'host -- <cmd>', 'host apply'"},
 	{"stop", "Stop this workspace's running jail (idempotent; the next launch is fresh)"},
 	{"check", "Validate runtime, nix, config, image, and running jails (alias: doctor)"},
 	{"ps", "List running yolo-* jails and their workspaces"},
@@ -39,11 +57,39 @@ var commandHelp = []struct{ name, blurb string }{
 	{"programs", "In a jail: what is installed, what nothing declares, and remove the orphans"},
 	{"config-ref", "Print the full configuration reference"},
 	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
+	// The four macos-* commands are listed as TWO INVERSE PAIRS, in that order:
+	// setup/teardown own the sandbox ACCOUNT, fix-permissions/unshare own a
+	// WORKSPACE's ACLs. Ordering them by pair is what makes each one's undo
+	// discoverable from the line above or below it, which is the only reason the
+	// destructive halves need to be in this list at all.
+	{"macos-teardown", "Remove that sandbox user and group again — the undo of macos-setup"},
 	// Listed because it is the REMEDY a launch names: a workspace created before
 	// macos-setup never inherited the sandbox group's ACL (macOS applies one at
 	// creation time only), and the launch now refuses with this command. A remedy
 	// a user cannot find in `yolo --help` is a dead end with extra steps.
 	{"macos-fix-permissions", "Retrofit the sandbox-group ACL onto an existing workspace"},
+	{"macos-unshare", "Strip those ACLs off a workspace — the inverse of macos-fix-permissions"},
+}
+
+// hiddenFromCommandHelp names the registry keys deliberately absent from
+// commandHelp, each mapped to the reason it is absent. It is the ONLY sanctioned
+// exception to item 4, and it lives here rather than in the test on purpose:
+// "why is this command not in `yolo --help`?" is a question about the CLI
+// surface, so the answer belongs beside the surface, where the next person to
+// add a command reads it. A test-local list would let the code look complete
+// while the exception hid in a file nobody opens.
+//
+// It is not a mute button. TestEveryRegisteredCommandIsListedInHelp requires
+// every entry here to (a) still be a registry key, (b) carry a non-empty reason,
+// and (c) have its NAME appear somewhere in the rendered `yolo --help` text
+// anyway — so hiding a command from the LIST can never cost it discoverability,
+// and silencing a genuine omission by adding a line here fails the test instead.
+var hiddenFromCommandHelp = map[string]string{
+	// Same handler, same body, same flags as `check`. A second line for one
+	// command is a duplicate rather than a discovery, so the alias is carried by
+	// check's own blurb ("alias: doctor") and by checkUsage's second Usage line —
+	// which is what clause (c) above checks for.
+	"doctor": "alias for `check`; named in check's blurb and in `yolo check --help`, so a second list line would be a duplicate",
 }
 
 // usageText renders the top-level `yolo` usage string. Pure (no I/O) so it is

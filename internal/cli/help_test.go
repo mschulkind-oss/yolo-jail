@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,6 +49,113 @@ func TestUsageListedCommandsAreRegistered(t *testing.T) {
 	for _, c := range commandHelp {
 		if _, ok := registry[c.name]; !ok {
 			t.Errorf("commandHelp advertises %q, which is not in the dispatch registry", c.name)
+		}
+	}
+}
+
+// listedCommandNames returns the command names `yolo --help` actually RENDERS,
+// parsed out of usageText()'s own output.
+//
+// Parsing the render rather than reading commandHelp is the whole point. The
+// slice is data; the rendered text is the surface an operator sees, and the loop
+// in usageText that turns one into the other is a CALL SITE that can be deleted
+// or narrowed with a slice-reading test still green. Asserting on the output
+// pins both halves at once.
+func listedCommandNames(t *testing.T) map[string]bool {
+	t.Helper()
+	names := map[string]bool{}
+	inCommands := false
+	for _, ln := range strings.Split(richtext.Strip(usageText()), "\n") {
+		trimmed := strings.TrimSpace(ln)
+		if trimmed == "Commands:" {
+			inCommands = true
+			continue
+		}
+		if !inCommands {
+			continue
+		}
+		// The block is a run of two-space-indented "name  blurb" lines and ends
+		// at the first blank line (the one before "Global options:").
+		if trimmed == "" {
+			break
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) == 0 {
+			continue
+		}
+		names[fields[0]] = true
+	}
+	// Without this, every assertion built on the returned set passes vacuously
+	// the moment the render or this parse stops agreeing about the block's shape.
+	if len(names) == 0 {
+		t.Fatalf("parsed no command lines out of the rendered usage — the "+
+			"`Commands:` block moved or this scan is wrong:\n%s", richtext.Strip(usageText()))
+	}
+	return names
+}
+
+// TestEveryRegisteredCommandIsListedInHelp is the REVERSE direction of
+// TestUsageListedCommandsAreRegistered, and the standard's enforcement item 2
+// (docs/design/self-documenting-cli.md): registry → help, so a command that
+// exists and is not advertised fails the build.
+//
+// This direction is the one that was missing, and its absence is why four
+// registered commands sat unlisted — `macos-teardown`, `macos-unshare`,
+// `doctor`, `host` — for as long as they did. The forward test could not see
+// them: it only ever asked whether each help line named something real, which is
+// true of a list that names nothing at all.
+//
+// The hidden-set escape is deliberately expensive to use. hiddenFromCommandHelp
+// lives in help.go (production, beside the surface it describes) rather than
+// here, and three clauses below make an entry cost something: it must still be
+// registered, it must carry a reason, and the command's name must appear
+// SOMEWHERE in the rendered help anyway. So adding a name here to quiet the test
+// does not quiet it — the third clause then demands the discoverability the
+// list line would have provided.
+func TestEveryRegisteredCommandIsListedInHelp(t *testing.T) {
+	listed := listedCommandNames(t)
+	rendered := richtext.Strip(usageText())
+
+	for _, sub := range slices.Sorted(maps.Keys(registry)) {
+		if listed[sub] {
+			continue
+		}
+		reason, hidden := hiddenFromCommandHelp[sub]
+		if !hidden {
+			t.Errorf("`yolo %s` is a dispatch registry key but `yolo --help` never lists "+
+				"it — add it to commandHelp, or to hiddenFromCommandHelp with the reason "+
+				"it is deliberately unlisted", sub)
+			continue
+		}
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("hiddenFromCommandHelp[%q] has no reason; an unlisted command needs "+
+				"one on the record", sub)
+		}
+		// Hiding a command from the LIST must never hide it from the PAGE.
+		if !strings.Contains(rendered, sub) {
+			t.Errorf("%q is hidden from the command list, but its name appears nowhere in "+
+				"`yolo --help` at all — hiding may not cost discoverability (reason on "+
+				"file: %s)", sub, reason)
+		}
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(hiddenFromCommandHelp)) {
+		if _, ok := registry[name]; !ok {
+			t.Errorf("hiddenFromCommandHelp names %q, which is not a dispatch registry "+
+				"key — a rename left the exception behind", name)
+		}
+		if listed[name] {
+			t.Errorf("%q is BOTH listed in `yolo --help` and marked hidden; one of the two "+
+				"is stale", name)
+		}
+	}
+
+	// The forward direction again, but asserted on the RENDER rather than on the
+	// slice — so a hand-written line smuggled into usageText's own body (not via
+	// commandHelp) is caught too.
+	for _, name := range slices.Sorted(maps.Keys(listed)) {
+		if _, ok := registry[name]; !ok {
+			t.Errorf("`yolo --help` lists %q, which is not a dispatch registry key", name)
 		}
 	}
 }
