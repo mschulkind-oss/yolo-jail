@@ -1,18 +1,17 @@
 ---
 title: "The load sentinel is not a liveness oracle"
 date: 2026-09-08
-status: in-review
+status: accepted
 tags: [prune, images, storage, incident]
 summary: "A ten-entry list of recently-loaded nix store paths protects two different reapers. For one of them it is the right instrument; for the other it answers a question it cannot answer, and on 2026-09-08 that killed four jails that had been running for days. The fix is the codebase's own principle, already applied once and not the second time: ask the runtime, do not infer from a history file."
 ---
 
 # The load sentinel is not a liveness oracle
 
-**Status:** PARTLY BUILT, 2026-09-09. Two of three rulings shipped — LS1 as `93f21f07` (GC roots
-reap on age, no liveness veto) and LS2 as `3c9e8de9` (a declined sweep says so). Both are compacted
-into [§11.1](#111-decision-ledger). **What is left is one question and it is BLOCKED:**
-[OQ-LS3](#OQ-LS3) ruled that image retention be keyed by CONFIGURATION, and the key does not exist
-— see its correction for why, and what has to be built first.
+**Status:** ACCEPTED, 2026-09-09. **No open questions.** LS1 and LS2 are ruled and built
+(`93f21f07`, `3c9e8de9`); LS3 is ruled and unbuilt — its mechanism is [§6.2](#62-retention-after-the-two-rulings),
+and it was blocked for a day on a grouping key that turned out not to be needed. All three are
+compacted into [§11.1](#111-decision-ledger).
 
 **The short version.** `build/last-load-<runtime>` is a ten-entry, most-recent-last list
 of nix store paths, appended to on every successful launch. Two reapers treat membership
@@ -239,13 +238,44 @@ in use.
 - **Forbidden.** No reaper may force-remove an image or unroot a closure on the strength
   of the sentinel alone; no reaper may treat an unreadable runtime as an empty one.
 
+### 6.2 Retention, after the two rulings
+
+`keep` stops being a safety margin the moment liveness has its own evidence, and the two rulings
+above leave it with almost nothing to do.
+
+**The unit is the CONFIGURATION, and there are no superseded copies.** Keep each configuration's
+current image; evolve forward, never hold a copy to go back to. What that leaves for a global count
+like `--keep-images` is nothing — there is no depth for it to bound.
+
+> [!IMPORTANT]
+> **This needs a per-workspace CURRENT POINTER, not a config identity — and mistaking the one for
+> the other cost a day.** Grouping by configuration looks like it needs a value that is equal
+> across images of one config, and nothing in the tree records one: `ImageStoreKey` is per image,
+> and `imageIdentity` is deliberately invariant across `packages:` lists, so neither can group. That
+> is a real dead end, and it is the wrong problem. **A grouping key is only needed when a group has
+> more than one member.** With zero superseded copies, "each config's current image" is a set of
+> pointers, one per workspace — and a workspace already has a home for that kind of state at
+> `<workspace>/.yolo/`, while the launcher already knows the store path it just used, because it
+> writes that path to the load sentinel. Retention becomes the union of those pointers plus the
+> `podman ps` veto. No identity, no hashing, no label extension.
+
+> [!WARNING]
+> **Zero superseded copies is not zero images.** A config whose current image is in use is
+> protected by liveness regardless of any count, and under a shared-base layer plan every kept
+> image also holds the base in place — so reaping to one-per-config is the FLOOR, not a target to
+> beat. See [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md)
+> [§4](./layer-aware-image-delivery.md#4-what-it-costs).
+
+Until the pointers exist, the global `keep=2` stays as a crude proxy: it approximates "two configs'
+current images" and is wrong in both directions on a machine with four workspaces.
+
 ## 7. What this does NOT propose
 
 - **Not deleting the sentinel.** It is the right instrument for GC-root retention and for
   the load diagnosis.
 - **Not changing the ten-entry cap, the 24-hour debounce, or `keep=2`.** Those are
   disk-retention dials; once liveness is separate, they stop being safety mechanisms and can be
-  tuned on their merits — or left alone ([OQ-LS3](#OQ-LS3) leaves `keep` at 2 until the layer
+  tuned on their merits — or left alone ([OQ-LS3](#111-decision-ledger) leaves `keep` at 2 until the layer
   plan makes an extra image cheap).
   **The age floor DOES change**, and that is [OQ-LS1](#111-decision-ledger)'s ruling rather than an exception
   to this list: for Consumer A the floor stops being a race guard and becomes the whole policy,
@@ -288,13 +318,13 @@ the work** ([OQ-LS2](#111-decision-ledger)) — not the dim line this doc first 
 is simply nothing to reclaim.
 
 Only then, if disk is still a problem, revisit the retention dials — with the safety question
-answered somewhere else, they become ordinary tuning, and [OQ-LS3](#OQ-LS3) says why `keep`
+answered somewhere else, they become ordinary tuning, and [OQ-LS3](#111-decision-ledger) says why `keep`
 should wait for the layer plan rather than move now.
 
 ## 11. Open Questions
 ## 11. Decisions
 
-Two of the three are ruled AND BUILT; [§11.2](#112-open-questions) holds the one that is not.
+All three are ruled; two are built. LS3's mechanism is [§6.2](#62-retention-after-the-two-rulings).
 The rulings' arguments live in the body sections they govern — [§5.3](#53-why-the-age-floor-does-not-cover-it--as-written)
 and [§6](#6-the-proposal) for LS1, [§6.1](#61-the-holes-answered) for LS2 — and the refuted
 positions are kept there as warnings rather than as history.
@@ -305,6 +335,7 @@ positions are kept there as warnings rather than as history.
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-LS1 | **NO liveness veto for the GC-root reaper — an age cutoff at ONE WEEK, and a size cap only after age.** Ruled AGAINST the leaning: the question is a prediction about future want, and liveness is a wrong predictor in both directions (a jail stopped five seconds ago is not live; a jail up three weeks pins a closure nobody will build again). `PruneOrphanImageRoots` loses its `protected` set and its `liveKnown` gate; P3 stops applying to that consumer rather than being weakened, because an age policy reads mtime off the link and has no authority it could fail to reach | 2026-09-08 | [§5.3](#53-why-the-age-floor-does-not-cover-it--as-written), [§6](#6-the-proposal) | ✅ `93f21f07` |
 | OQ-LS2 | **A decline says so: an ERROR where the user asked, and nothing where they did not.** `yolo prune` exits non-zero naming the missing evidence; the automatic path records it; a debounced pass stays silent and carries no reason. The proposed "one dim line" was refused as the wrong volume — the only routine case says nothing at all. The candidate listing moved BEFORE the guards so that "declined" means "prevented work" rather than "fresh machine" | 2026-09-08 | [§6.1](#61-the-holes-answered) | ✅ `3c9e8de9` |
+| OQ-LS3 | **`keep` is the wrong MECHANISM, not the wrong number — and there is NO undo.** The window is global (`OldImagesToRemove` sorts every row by `Created` and keeps the newest N, with no notion of a workspace or a config), so on four workspaces two images are evicted per pass however recently each was used. The unit becomes the CONFIGURATION, and the superseded-per-config count is **zero**: *"I don't know that I've ever rolled back, only evolved forward."* `keep` is podman IMAGES only; nix roots are [OQ-LS1](#111-decision-ledger)'s duration policy | 2026-09-08, sharpened 2026-09-09 | [§6](#6-the-proposal) |
 
 > [!WARNING]
 > **LS2's "loud" does NOT mean the terminal.** The automatic path's notices went to stdout, then to
@@ -312,116 +343,3 @@ positions are kept there as warnings rather than as history.
 > (reported 2026-09-09, one launch after it shipped). Loud means NOT SILENT: the record goes to
 > `<workspace>/.yolo/housekeeping.log`, and the non-zero exit lands where a human actually asked.
 > See [`disk-levers-and-backfill.md`](./disk-levers-and-backfill.md) [§5.1](./disk-levers-and-backfill.md#51-the-housekeeping-slot).
-
-### 11.2 Open Questions
-
-
-3. 🔒 **[OQ-LS3](#OQ-LS3) — ANSWERED 2026-09-08 and BLOCKED ON A DECISION SINCE: the ruling needs a
-   config-identity key that does not exist, and where it comes from is a design call, not a coding
-   one. See the CORRECTION inside for what I got wrong. Originally: ANSWERED by naming the mechanism, which is what the question
-   failed to do: is `keep=2` still the retention you want?** Once liveness is separate,
-   `keep` stops being a safety margin and becomes a pure undo buffer — how many superseded
-   images you want to be able to fall back to without a rebuild. Two is small for a machine
-   that rebuilds on every `flake.lock` bump.
-
-   <!-- vantage: oq id=OQ-LS3 leaning="Preference, not a technical call — though I would raise it once safety no longer depends on it." -->
-
-   _Leaning:_ Your call — it is a disk-versus-rebuild trade, not a correctness one. I would
-   raise it now that safety no longer rests on it.
-
-   **Answer (2026-09-08): PODMAN IMAGES only — nix roots are a separate policy — and "rollback"
-   was the wrong word for what `keep` buys, which is why the question read as uninteresting.
-   NOT BUILT — blocked on a config-identity key that does not exist yet; see the correction below
-   and [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3)'s label, which is where it has to come from.**
-   > *"Are we talking about nix roots or podman images or both here? I'm not sure I care about
-   > rollback."*
-   >
-   > **Podman images, only.** `keep=2` is `--keep-images` / `prune.DefaultKeepImages`
-   > (`internal/prune/autoreap.go:30`), a retention **count** over rows in podman's image store.
-   > Nix GC roots are governed by a different mechanism with a different shape —
-   > `PruneOrphanImageRoots`' `olderThan`, a **duration** — and [OQ-LS1](#111-decision-ledger) just ruled that
-   > one to be age-based at a week. Two policies, two units; the question conflated them and that
-   > is corrected here.
-   >
-   > **And "undo buffer" was my framing, not a real use.** Nobody rolls back to a superseded jail
-   > image on purpose. What `keep > 1` actually buys is **alternation**: a machine with several
-   > workspaces has several distinct images (each `packages:` list is its own image), and after
-   > C2 each store path has its own permanent tag. Keep too few and switching between two
-   > workspaces evicts the other's image on every launch, so each switch pays a full re-copy. So
-   > the number to reason about is **how many distinct configurations you actually alternate
-   > between**, and it has nothing to do with rollback — which is why not caring about rollback is
-   > the right instinct and still leaves the number mattering.
-   >
-   > **REVISED 2026-09-08 after the maintainer read it again, and the revision is a bigger change
-   > than the number:** *"So you're saying this keep 2 is not per workspace. This is one of the old
-   > \[dials\] it seems, just the wrong mechanism."*
-   >
-   > **Correct, and MEASURED in the code: the window is GLOBAL.** `OldImagesToRemove`
-   > (`internal/prune/prune.go:208-221`) sorts **every** `yolo-jail` row by `Created`, keeps the
-   > newest `keep`, and returns the rest. There is no notion of a workspace, a `packages:` list or a
-   > configuration anywhere in it. So on a machine with four workspaces, four distinct images and
-   > `keep=2`, **two are evicted on every pass no matter how recently each was used** — and the two
-   > that survive are simply the two most recently BUILT. That is not a retention policy for
-   > alternation; it is a retention policy for one workspace that happens to be applied to all of
-   > them.
-   >
-   > **So the ruling is not a number. Two changes, in this order:**
-   >
-   > 1. **The unit becomes the CONFIGURATION, not the machine.** Keep each distinct config's
-   >    current image, plus at most N superseded per config — which is what "how many things do I
-   >    alternate between" actually asks. This subsumes
-   >    [OQ-LI4](./layer-aware-image-delivery.md#91-decision-ledger)'s reorder rather than competing with it —
-   >    recency orders *within* a group once there is a group.
-   >
-   >    > [!WARNING]
-   >    > **CORRECTION 2026-09-09: this ruling first said "C2 already supplies the key" and that is
-   >    > FALSE.** `ImageStoreKey` is `sha256(storePath)[:16]` (`internal/image/gcroot.go:22-27`) —
-   >    > per **image**, not per configuration, and it moves on every `flake.lock` bump. Grouping by
-   >    > it makes every image its own group, so "current plus N superseded per config" degenerates
-   >    > to keep-everything. Nothing else in the tree records a config identity either: no
-   >    > `--label` is set anywhere in `internal/cli/run`.
-   >    >
-   >    > **The key has to be built, and the mechanism already has an owner:**
-   >    > [`minimal-disk-footprint.md`](./minimal-disk-footprint.md) [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3)'s
-   >    > REACH ruling adds an image **label** carrying the image's identity, so that an untagged row
-   >    > is attributable. Give that label a config-identity component — the thing that is equal for
-   >    > two images of the same workspace configuration and differs across configurations — and it
-   >    > serves both rulings from one mechanism. **Sequence: DF3's label first, then this.** Until
-   >    > it exists, step 2 (raise N) is the only half of this ruling that can land, and it should
-   >    > land with the layer plan as stated.
-   > 2. **Then N goes up, because the layer plan makes it nearly free.** *"Now that we're doing that,
-   >    these additional images should actually be very tiny, so we can keep a bunch of them."* The
-   >    headline number in [`layer-aware-image-delivery.md`](./layer-aware-image-delivery.md) is the
-   >    argument: **3.47 GB shipped to move 27 MB.** Once the base is a pinned shared tier, a
-   >    superseded image costs its delta, and a keep-window measured in tens is the same order of
-   >    disk that `keep=2` costs today.
-   >
-   > **And the maintainer's warning is the load-bearing part** — *"we need those base layers to not
-   > disappear."* Two sides, and they are not symmetric:
-   >
-   > - **Podman side: keeping MORE images protects the base, which inverts the usual intuition
-   >   about retention.** `rmi` removes only layers no remaining image references, so every kept
-   >   image is a reference that holds the shared base in place. A too-small keep-window is now a
-   >   way to *lose* the base and force a full re-copy — the opposite of what a small number was
-   >   supposed to buy.
-   > - **Nix side: there is no second copy to lose, which is better than the doc assumed.**
-   >   VERIFIED in nix2container's source: `newLayers` with an empty `tarDirectory` calls
-   >   **`TarPathsSum`** (`nix/layers.go:67-105`), which computes a digest and size and **writes no
-   >   tar**. A layer is `{Digest, DiffIDs, Size, Paths}` — metadata plus the list of store paths it
-   >   covers. So "the base layer" in the store *is* the ordinary nixpkgs closure, rooted by the
-   >   image derivation like everything else; nothing new needs protecting, and this is exactly why
-   >   [§6](./layer-aware-image-delivery.md#6-alternatives-considered)'s option C (a real OCI layout
-   >   in the store) was rejected — that one *would* be a second copy.
-   >
-   > **The coupling to read alongside this, because the two rulings interact:** [OQ-LS1](#111-decision-ledger)
-   > makes GC roots age-based, so an image root can age out and let its closure become collectable.
-   > If podman still holds the blobs, nothing is lost. If both go, the re-copy needs the closure
-   > back — and most of it is stock nixpkgs, so that is a **download** from `cache.nixos.org` rather
-   > than a compile. The part that is not substitutable is the fraction that is ours: the `nix-ld`
-   > override, `binPathLinks`, and the patched skopeo (measured at 34 s,
-   > [OQ-LI1](./layer-aware-image-delivery.md#91-decision-ledger)). Bounded, but it is the honest floor on "you
-   > can wait again next build".
-   >
-   > **What is settled regardless:** `keep` is no longer load-bearing for safety in either
-   > direction. The `podman ps` veto protects what is in use, and this doc's whole point is that
-   > the number stopped being a safety margin the moment liveness got its own evidence.

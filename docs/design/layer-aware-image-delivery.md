@@ -1,7 +1,7 @@
 ---
 title: "The image ships 3.47 GB to move 27 MB — layer-aware delivery"
 date: 2026-09-08
-status: in-review
+status: accepted
 tags: [design, image, nix, podman, skopeo, performance]
 summary: "84% of a jail launch's image load is podman ingesting layers it already has, because a docker-archive is a sequential stream with no way to ask the destination what it holds. Replace streamLayeredImage + `podman load` with nix2container + a skopeo copy into containers-storage, and pin the layer order so the moving bytes sit on top."
 vantage:
@@ -10,11 +10,11 @@ vantage:
 
 # The image ships 3.47 GB to move 27 MB — layer-aware delivery
 
-**Status:** DESIGN SETTLED, NOTHING BUILT, 2026-09-09. Every design question is ruled and
-compacted into [§9.1](#91-decision-ledger). **One live item:** [OQ-LI6](#OQ-LI6) — the build
-authorization, which [`OQ-6`](../reference/image-staging-vs-baking.md#why-its-this-way) moved here rather than granting. It
-carries two measurements you have to take, and [OQ-LI5](#91-decision-ledger) deleted the way back,
-so one of them is a safety property rather than a formality.
+**Status:** AUTHORIZED, NOTHING BUILT, 2026-09-09. Every design question is ruled and compacted
+into [§9.1](#91-decision-ledger), and the build is authorized — **gated on one measurement the
+maintainer takes first**, which needs nothing landed: `nix build --no-link
+'github:nlewo/nix2container#skopeo-nix2container'` on his host, read against his own two-versus-ten
+minute tripwire. See [OQ-LI6](#92-open-questions).
 
 **The short version.** Every launch that sees a new nix store path re-ships the whole
 3.47 GB image into podman, and I measured why: the customisation layer — the only layer a
@@ -534,7 +534,7 @@ legacy number is no longer measurable on that host.
   removes only layers no remaining image references. A too-small keep-window becomes a way to
   *lose* the base and pay a full re-copy, which is why
   [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)
-  [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3) rules that the count rises with
+  [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) rules that the count rises with
   this change and its unit becomes the configuration rather than the machine. But
   anyone reading `yolo prune`'s reclaim figure will see it drop, and should not read that as
   the reaper breaking.
@@ -696,7 +696,7 @@ exists BECAUSE the fallback is gone.
 
 ### 9.2 Open Questions
 
-1. 💬 **OQ-LI6: Build it?** Every design question above is ruled; this is the authorization, and
+1. ✅ **[OQ-LI6](#OQ-LI6) — AUTHORIZED 2026-09-09, measurement first: build it?** Every design question above is ruled; this is the authorization, and
    [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#why-its-this-way)'s [`OQ-6`](../reference/image-staging-vs-baking.md#why-its-this-way) explicitly moved
    it here rather than granting it. **What a yes commits to**, because [OQ-LI5](#91-decision-ledger) removed the
    way back:
@@ -709,7 +709,7 @@ exists BECAUSE the fallback is gone.
      nice-to-have: with no fallback, a delivery bug in a release is a machine that cannot start a
      jail until a fix ships ([§7](#7-risks) R8).
    - **One prerequisite in a sibling doc.** [OQ-LI4](#91-decision-ledger)'s keep-window reorder is subsumed by
-     [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3), which is itself blocked on a
+     [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), which is itself blocked on a
      config-identity key that does not exist. Step 1 of [§8](#8-what-i-would-build-in-order) waits
      on that.
 
@@ -722,6 +722,39 @@ exists BECAUSE the fallback is gone.
 
    <!-- vantage: oq id=OQ-LI6 leaning="Build it, and take the measurement FIRST rather than alongside. The diagnosis is independently corroborated - 84% of the load is layers podman already has, and the timing spans put a cold launch.auto_load_image at 85.9s against 7.3s warm - so the win is not in doubt. What is in doubt is the 2m27s cold copier build on the maintainer's own hardware with a cold nixpkgs closure; if that comes back near ten minutes the mechanism needs reconsidering before the code does. A yes also commits to a measured nix:-source copy that loads AND BOOTS on every backend, because OQ-LI5 deleted the fallback and that measurement is now the safety property." -->
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-09): BUILD IT — and take the measurement FIRST, not alongside.**
+   > The maintainer's ruling, in his words: *"Build it, and take the measurement FIRST rather than
+   > alongside… What is in doubt is the 2m27s cold copier build on the maintainer's own hardware
+   > with a cold nixpkgs closure; if that comes back near ten minutes the mechanism needs
+   > reconsidering before the code does."*
+   >
+   > **The measurement needs NOTHING landed, which is what makes "first" cheap.** It is one command
+   > on the host, exactly as it was taken here:
+   >
+   > ```console
+   > $ time nix build --no-link 'github:nlewo/nix2container#skopeo-nix2container'
+   > ```
+   >
+   > Read it against the tripwire: near two minutes, proceed; near ten, the mechanism is
+   > reconsidered before any code. Note this measures nix2container's OWN nixpkgs (skopeo 1.21.0);
+   > the design needs `inputs.nixpkgs.follows`, which measured 1.24.0 at 2m27s here — so the number
+   > to trust is the follows-ed one, and a cold nixpkgs closure pays more again.
+   >
+   > **Why the input is NOT added yet, even though it is step 2 of the plan.** Adding a flake input
+   > moves `flake.lock`, and `imageIdentity` is a derivation over `flake.nix` + `flake.lock` — so
+   > the very act of making the copier available forces a full image rebuild and reload on every
+   > machine. That is a real cost to spend on a mechanism whose gate has not been read yet, and it
+   > is avoidable: the measurement above needs no input at all. First the number, then the input,
+   > then the switch.
+   >
+   > **What the yes commits to, unchanged:** a measured `nix:`-source copy that loads AND BOOTS on
+   > every backend that gets the new path — podman/Linux and Apple Container ([OQ-LI2](#91-decision-ledger))
+   > — because [OQ-LI5](#91-decision-ledger) deleted the fallback, which makes that measurement the
+   > safety property rather than diligence ([§7](#7-risks) R8).
+   >
+   > **And one prerequisite just cleared.** Step 1 of [§8](#8-what-i-would-build-in-order) waited on
+   > [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), which was blocked
+   > on a config-identity key. The maintainer's *"no undo"* ruling set the superseded count to zero,
+   > and a grouping key is only needed when a group has more than one member — so that step is
+   > unblocked, and its mechanism is that doc's [§6.2](./the-load-sentinel-is-not-a-liveness-oracle.md#62-retention-after-the-two-rulings).
 

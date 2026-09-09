@@ -611,7 +611,7 @@ entry keeps the argument because the label-versus-ledger distinction is reusable
    > **Carry a CONFIG identity beside it, because a sibling ruling needs exactly that and has no
    > other source for it** (added 2026-09-09).
    > [`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)
-   > [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3) rules that image retention be
+   > [OQ-LS3](./the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) rules that image retention be
    > keyed by CONFIGURATION rather than by a global count, and its first draft assumed C2's tag was
    > that key. It is not: `ImageStoreKey` is `sha256(storePath)[:16]`
    > (`internal/image/gcroot.go:22-27`), per image and moving on every `flake.lock` bump, so

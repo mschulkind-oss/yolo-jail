@@ -218,7 +218,7 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
   [OQ-5](../reference/image-staging-vs-baking.md#why-its-this-way) ruled that a bug after 404 GiB.
 - Don't fold this into the prune liveness defect, and don't re-decide
   [OQ-LI4](layer-aware-image-delivery.md#91-decision-ledger)'s ordering key — cite
-  [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3), which makes the retention **unit**
+  [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger), which makes the retention **unit**
   the configuration and subsumes the reorder.
 - Don't bless the numbers from a nested jail: it can see this class ([§3.10](layer-aware-image-delivery.md#310-what-done-looks-like)'s NOTE) but cannot speak
   for the host's absolutes or its storage driver.
@@ -245,7 +245,7 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
    [OQ-LI5](layer-aware-image-delivery.md#91-decision-ledger) **deleted the fallback**: read R8 in [§7](layer-aware-image-delivery.md#7-risks). A
    delivery bug that reaches a release is a machine that cannot start a jail until a fix ships.
 
-**And one prerequisite inside step 1.** [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3) rules the keep-window's unit to be the
+**And one prerequisite inside step 1.** [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) rules the keep-window's unit to be the
 *configuration*, but no config identity exists in the tree — C2's tag is `sha256(storePath)[:16]`,
 per **image**, so every image is its own group of one. That is the first blocker of
 [`the-load-sentinel-is-not-a-liveness-oracle-plan.md`](the-load-sentinel-is-not-a-liveness-oracle-plan.md)

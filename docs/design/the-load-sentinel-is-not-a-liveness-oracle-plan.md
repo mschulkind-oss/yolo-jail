@@ -20,7 +20,7 @@ first thing to be wrong. Never twist code to match it — correct it in the comm
 plan builds [OQ-LS1](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) (Consumer A becomes
 age-only) and [OQ-LS2](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) (a decline is an error
 where the user asked, loud where it is impossible, silent where there is nothing to do).
-[OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3)'s mechanism is step 6, gated — see
+[OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger)'s mechanism is step 6, gated — see
 Blockers. The `_Leaning:_` lines in the design are history; all three rulings went past them.
 
 ## Map
@@ -161,7 +161,7 @@ Blockers. The `_Leaning:_` lines in the design are history; all three rulings we
 
 ## Blockers
 
-- **[OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS3) step 1 has no key. Stop and ask.**
+- **[OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) step 1 has no key. Stop and ask.**
   The ruling groups the keep window by configuration using C2's permanent tags, but that tag is
   `sha256(storePath)[:16]` — per **image**, and it moves on every `flake.lock` bump. Every image is
   then its own group of one and "current plus N superseded per config" degenerates to keep-everything.
