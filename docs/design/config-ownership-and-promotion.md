@@ -185,62 +185,73 @@ the scope is exactly what the user leaves when they adopt host apply.
 
 The two look interchangeable, and in **steady state on the happy path they produce
 the same bytes** — which is why the quote above can describe capture as merely
-making composition "non-destructive", as though preserving the user's keys were
-the whole job. It is worth being precise, because the rest of this section leans
-on the difference and [§5](#5-promotion--the-way-out-of-capture) is unbuildable without it.
+making composition "non-destructive". Being precise matters, because the rest of
+this section leans on the difference and [§5](#5-promotion--the-way-out-of-capture) is unbuildable without it.
 
-**They differ on the key nobody claims, and therefore on whether the file can be
-regenerated at all.**
+**Capture is not a fixed set of keys.** It is `mergeDiff(previous render, current
+on-disk)` ([`engine.go`](../../internal/agentcfg/engine.go)) — the minimal RFC-7386 patch that turns the
+render yolo last produced into the file as it now stands, accumulated into the
+overlay sidecar. Open-ended by construction: a key the jail adds is recorded as
+its new subtree, a leaf that changed as its new value, and **a key the jail
+deleted as an explicit null tombstone** so the next render does not resurrect it.
+
+**So "a key no layer declares" needs saying precisely**, because the captured
+overlay *is* one of the layers. A surface's render is composed from `defaults`,
+each pack's contributions, `managed`, the computed layer, the host layer where
+there is one, and the captured overlay. A key is deleted on the next render only
+when it is in the real file and in **none of those** — which is a narrower and
+more interesting set than "anything the user typed":
+
+- the write happened **after** the last capture. Capture is deferred to the next
+  entrypoint run, so there is a real window;
+- the surface's mode does not capture at all;
+- the overlay was reset (`yolo config reset` truncates the surface to its pure
+  render, deliberately);
+- the key was written directly into a composed file **on the host**, where capture
+  reads the jail's copy.
 
 | | `rmw` | compose + capture |
 | :--- | :--- | :--- |
-| A key no layer declares | survives, untouched, **forever** | **deleted** on the next render |
+| A key in the real file that no layer supplies | survives, untouched, **forever** | **deleted** on the next render |
 | The file is | a *history* — every write anyone ever made | a *function* of (declarations + captured overlay) |
 | Delete the file | it is gone; nothing can rebuild it | the next boot reproduces it exactly |
-| An edit made in the jail | bytes in one file on one machine | a discrete object in a sidecar yolo owns |
-| Removing a key | **inexpressible** | a tombstone |
+| An edit made in the jail | bytes in one file on one machine | a recorded patch in a sidecar yolo owns |
 
-So the distinguishing act is **deletion, not preservation.** Capture does not
-"keep" an edit the way `rmw` does; it **promotes an observed edit into an input**,
-so that the *next regeneration* reproduces it. That is a different thing wearing
-the same result.
+**There is one structural difference, and it is regenerability.** Under
+compose+capture the file is a pure function of its inputs; under `rmw` the file
+*is* the state, because `rmw`'s defining property — never touch what you do not
+own — means the file holds bytes that exist nowhere else. That is not a missing
+feature: making `rmw` regenerable would require recording everything it preserves,
+which is compose.
 
-Three consequences follow, and each is something this document wants:
+Two consequences follow, and both are things this document wants:
 
-1. **Regenerability is what makes the tooling possible.** `yolo config render`,
-   `config diff`, drift detection and `config reset` all compare a real file
-   against a definition. Under `rmw` there **is** no definition — the file is the
-   definition — so "drift" has nothing to be drift *from*, and reset has nothing
-   to reset *to*.
-2. **Promotion needs the edit to exist as an object.** `rmw` leaves it as bytes in
-   one file, so there is nothing to lift into a pack and carry to every other jail
-   and to the host. This is precisely why [§5](#5-promotion--the-way-out-of-capture) is *"the way out of capture"* rather
-   than "the way out of editing".
-3. **`rmw` cannot express removal, and that is not a gap — it is the shape.** A
-   mode that only ever rewrites the keys it declares has no vocabulary for "this
-   key should stop existing". That is defect **(1)** below arriving as a
-   prediction rather than a surprise: `retired:<layer>` had to be invented because
-   `rmw` cannot tell yolo's leftovers from the user's keys.
+1. **The tooling needs a definition to compare against.** `yolo config render`,
+   `config diff`, drift detection and `config reset` all measure a real file
+   against what it *should* be. Under `rmw` there is no such thing, so drift has
+   nothing to be drift *from* and reset has nothing to reset *to*.
+2. **Promotion needs the edit to exist as an object.** Because compose must record
+   an edit to reproduce it, the edit is already a patch yolo owns — liftable into a
+   pack and carryable to every other jail and to the host. `rmw` has no reason to
+   record anything, so there is nothing to lift. This is exactly why
+   [§5](#5-promotion--the-way-out-of-capture) is *"the way out of capture"* rather than "the way out of editing".
+
+> [!NOTE]
+> **`rmw`'s inability to express removal is a fixable limitation, not a
+> distinction** — corrected in review, and worth recording because the first draft
+> of this section had it backwards. `rmw` cannot say "this key should stop
+> existing", which is defect **(1)** below; but nothing about the mode forbids
+> giving it a tombstone list, and `retired:<layer>` is already the beginning of
+> one. So it belongs in the evidence that the *current* asymmetry is incoherent —
+> not in the argument that the two mechanisms are different in kind.
 
 > [!IMPORTANT]
-> **The convergence is real but it is one-directional, and that is the trap.** Any
-> file compose+capture can produce, `rmw` can also hold — so an observer comparing
-> two machines in steady state sees no difference and concludes the mechanisms are
-> redundant. The operations they *permit* are what differ, and they only differ
-> when something changes: a pack is dropped, a key is removed, a file is deleted,
-> an edit is promoted. Judging these two by the file they leave behind is judging
-> them by the one case that cannot distinguish them.
-
-**The ruling is about a shared file.** "Preserving undeclared keys" is a benefit
-only if you want undeclared keys to exist. A user who has adopted `yolo host
-apply` as their source of truth wants the opposite: no undeclared keys, full
-composition, reproducibility, and a revert. [§6.3](host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output) also *explicitly rejects* the
-ownership framing — "The reason is **not** 'the editor and yolo are the same
-person' (a loose framing)" — so the ruling does not rest on ownership at all. Its
-actual load-bearing sentence is the one before: "**(3) is the answer, and it is
-already the shipped design for exactly this problem**", i.e. reuse `claude/config`'s
-existing `rmw` mode. That is implementation economy. It is a good reason to ship
-`rmw` first and not a reason the host cannot have capture.
+> **The convergence is real but one-directional, and that is the trap.** Any file
+> compose+capture can produce, `rmw` can also hold — so two machines in steady
+> state look identical and the mechanisms look redundant. What differs is the
+> operations they *permit*, and that only shows when something changes: a pack is
+> dropped, a file is deleted, an edit is promoted. Judging these two by the file
+> they leave behind judges them by the one case that cannot tell them apart.
 
 Four pieces of evidence that the resulting ambiguity is structural, not felt:
 
