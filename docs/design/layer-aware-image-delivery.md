@@ -196,6 +196,24 @@ The base tier keeps a popularity split *within itself* so one nixpkgs bump does 
 invalidate a single 3 GB blob; the budget is **90 layers for the base, 1 for extras, 1 for
 the top tier**, a ceiling of 100 total to stay where the current image already sits.
 
+> [!WARNING]
+> **That split is NOT what `maxLayers` buys, verified in nix2container's source 2026-09-09, and a
+> comment asserting it would be false.** `newLayers` emits `maxLayers - 1` **single-path** layers in
+> closure-graph (alphabetical) order and dumps the entire remainder into one tail layer — so the
+> knob gives 89 tiny layers plus a ~3 GB tail that moves whenever any of its ~500 paths moves. It
+> is not a popularity contest at all.
+>
+> This costs nothing against [§3.10](#310-what-done-looks-like)'s targets, which set none for a
+> `flake.lock` bump — that case is *supposed* to move the base. It matters for two other reasons: a
+> real sub-split needs nested `buildLayer`s rather than a number, and **the tiers must each be one
+> `buildEnv`** rather than a raw `copyToRoot` list. Cross-layer dedup is `reflect.DeepEqual` over
+> `{Path, Options}`, not over the path (`isPathInLayers`), and only top-level entries carry a
+> `rewrite` — so a package that is `copyToRoot` in the base tier and a bare closure dependency of
+> `binPathLinks` in the top tier is **not** deduped, and bash, coreutils and chromium's graphics
+> stack would be tarred into the top layer as well. One `buildEnv` per tier (mirroring
+> `yoloImageExtras`) also preserves today's FIRST-wins collision resolution *inside* a tier; a raw
+> list is last-wins in the tar, which would silently flip `gcc` vs `binutils` for `bin/ld`.
+
 **Why the extras tier is separate, and why it is the tier that pays today.** After C8
 ([`image-staging-vs-baking.md` §4](./image-staging-vs-baking.md#4-candidates-ranked)) the
 image no longer moves for a Go change at all — it moves for `flake.nix`, `flake.lock` and
@@ -751,12 +769,25 @@ so R3 is never a live cost and this doc never has to say it is.
    > (a *"go/no-go"* where *"nothing else in the design matters if the answer is no"*) was
    > out of proportion to a 34-second build.
    >
-   > > [!NOTE]
-   > > **What the number does not cover**, stated so it is not over-read: this machine's CPU, a warm
-   > > `cache.nixos.org`, and nix2container's own nixpkgs rather than the `follows`-ed one this
-   > > design would use. A slower machine pays more and a cold nixpkgs closure pays much more — but
-   > > the *marginal* item is one Go program either way, which is the fact the ruling rests on.
-   > > Re-measure on the maintainer's host with the real `follows` before the default flips.
+   > > [!IMPORTANT]
+   > > **RE-MEASURED 2026-09-09 in the configuration this design actually uses, and the number is
+   > > 4.3× larger: 2m27s, not 34s.** The 34 s was nix2container's OWN pinned nixpkgs, which gives
+   > > skopeo **1.21.0**. Under `inputs.nixpkgs.follows` — which this design requires, or a second
+   > > nixpkgs closure is fetched on every eval — the version is **1.24.0** and the cold build is
+   > > **2m27s**, patch applying and the `nix:` transport live.
+   > >
+   > > The ruling stands and the reasoning is unchanged: still one Go compile, still once per
+   > > `flake.lock` nixpkgs bump, still on the occasion the image is already being rebuilt, still
+   > > against a load this design cuts by ~81 s. But the leaning's own stated tripwire was *"if it
+   > > is ten minutes rather than two this leaning is wrong"*, and 2m27s is at that boundary rather
+   > > than an order of magnitude inside it — so gate part 2 (re-measure on the maintainer's host)
+   > > is now the difference between comfortable and marginal, not a formality. Still not covered:
+   > > his CPU, and a cold nixpkgs closure, which pays much more.
+   > >
+   > > **A trap found in the same measurement:** `nix2container.packages.x86_64-darwin.*` under
+   > > `follows` **throws** — the Intel-Mac nixpkgs class this flake already carries a pin for.
+   > > `import <src> { inherit pkgs; }` from the store path works. Getting this wrong is a red CI
+   > > night on darwin only.
 
 2. ✅ **[OQ-LI2](#OQ-LI2) — RULED 2026-09-08, AGAINST the leaning, because the premise under it went away: does Apple Container move to the `nix:` source in the same pass?** Today it
    writes two full-size files per load — `materializeImage` produces a docker-archive and
