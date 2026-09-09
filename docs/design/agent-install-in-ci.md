@@ -12,9 +12,15 @@ summary: "The integration suite installs agent CLIs from the live npm registry n
 21st (`0890a80`, `6e536c5`, `e09f039`); `packs.yml` ran for real on the 22nd (run 32589066448, 12
 install cells green across both arches, triggered by a `packs/**` edit exactly as designed), and run
 32597479510 supplied the numbers step six was waiting on ([§11](#11-build-order--what-shipped-and-what-is-left)). All six questions are settled and compacted into the
-[Decision Ledger](#decision-ledger); [§11](#11-build-order--what-shipped-and-what-is-left) marks what shipped and what remains. **One claim was retracted along the
+[Decision Ledger](#decision-ledger); [§11](#11-build-order--what-shipped-and-what-is-left) marks what
+shipped and what remains — and as of **2026-09-09 nothing remains that is actionable**: steps 4 and
+5's BUMP half are **DEAD-BLOCKED, not pending**, because the `LockEntry` field they both waited on
+was retired rather than delivered ([§5.1](#51-mode-a-is-already-ruled-and-the-field-it-waited-for-is-not-coming),
+[§11](#11-build-order--what-shipped-and-what-is-left)). This doc stays in the planning tree
+regardless: ten comments in `integration/` and one in `.github/workflows/packs.yml` cite it by
+section, several for the *reasoning* behind a test's shape. **One claim was retracted along the
 way:** the argument that a lockfile pin could not serve CI was wrong, and the manifest-pin shape it
-motivated is withdrawn ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)) — the trap that
+motivated is withdrawn ([§5.1](#51-mode-a-is-already-ruled-and-the-field-it-waited-for-is-not-coming)) — the trap that
 made it plausible is preserved there, because it is easy to re-derive. Every claim about current
 behaviour is traced to code and dated; the cost figures are read off two real CI runs.
 
@@ -285,7 +291,20 @@ The publish-ordering lag per stable release, from the registry's own `time` map:
 runner variance — but two-thirds of what filled that budget was suite warmup the test happens to run
 first and therefore pays for.
 
-### 5.1 Mode A is already ruled, and waiting on a field
+### 5.1 Mode A is already ruled, and the field it waited for is NOT COMING
+
+> [!IMPORTANT]
+> **Corrected 2026-09-09.** This section was written while [OQ-TP4](trust-paths.md#decision-ledger)
+> was live. It has since been **RETIRED as posed** (2026-09-03): the answer to *"where does an
+> embedded pack's npm version get pinned?"* is *"nowhere, because it is not pinned at all"* — the
+> evergreen ruling deleted the need, and all three of its candidate venues recorded something no
+> longer wanted. `internal/packsrc`'s `LockEntry` has **no** package-version field and its doc
+> comment forbids growing one without a design ruling. So the sentences below about a field that
+> *"did not ship"* describe a gap that was **closed by deletion, not by delivery**, and there is
+> no pending work behind them. What still stands is everything about the harness already owning the
+> lockfile's directory, and [§5.1.1](#511-and-the-blocking-gate-may-not-need-to-wait-for-it-at-all)'s ruling —
+> which is what the blocking gate actually took.
+
 
 [`trust-paths.md`](trust-paths.md) [OQ-TP5](trust-paths.md#decision-ledger) (2026-08-18) ruled: *"I don't want magical evergreen npm packages. If
 there's a committed lockfile, install installs from that version, update is how you get new
@@ -549,12 +568,12 @@ lockfile-everywhere convention exists precisely so that CI installs bytes chosen
 into the test path, where freshness has no value and determinism has all of it.
 
 So the accurate framing is not "CI is slow, that's life" but: **the product wants floating versions
-and the gate wants frozen ones, and today they share one mechanism.** [§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field) splits them.
+and the gate wants frozen ones, and today they share one mechanism.** [§5.1](#51-mode-a-is-already-ruled-and-the-field-it-waited-for-is-not-coming) splits them.
 
 ## 8. What this does not propose
 
 - **Not** baking agent CLIs into the image ([§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution)).
-- **Not** pinning what *users* get. [§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)'s shape exists so `yolo pack update` still moves a user
+- **Not** pinning what *users* get. [§5.1](#51-mode-a-is-already-ruled-and-the-field-it-waited-for-is-not-coming)'s shape exists so `yolo pack update` still moves a user
   forward without a yolo release.
 - **Not** dropping the install assertion. P3 keeps one cold install per mechanism, and [§6.1](#61-the-blocking-gate-pinned-and-one-cell-per-mechanism) adds a
   cell for `installer` coverage that today rests on one pack.
@@ -573,9 +592,9 @@ and the gate wants frozen ones, and today they share one mechanism.** [§5.1](#5
 | Retry the install on failure | **Rejected.** The window was 37 minutes and a retry re-resolves the same absent tarball. |
 | Gate codex out of the arm matrix, per the existing policy note (`agents_test.go:17`, `ci.yml:149`) | **Rejected for this case.** That policy is written for an agent with *no* linux-arm64 build; codex ships one. Applying it here surrenders real coverage to a transient. |
 | Vendor/bake the CLIs into the image | **Rejected**, [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution) — reverses a deliberate design and is pinning-by-staleness. |
-| Lockfile pin ([OQ-TP4](trust-paths.md#decision-ledger) option (b), as written) | **Adopted for the SHIPPED packs.** The harness already owns the directory the lockfile lives in, so CI can author rows at the same path with no new concept ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)) — but it needs the `LockEntry` field first. |
+| Lockfile pin ([OQ-TP4](trust-paths.md#decision-ledger) option (b), as written) | **Adopted for the SHIPPED packs.** The harness already owns the directory the lockfile lives in, so CI can author rows at the same path with no new concept ([§5.1](#51-mode-a-is-already-ruled-and-the-field-it-waited-for-is-not-coming)) — but it needs the `LockEntry` field first. |
 | Fixture pack pinned via its `package` string | **Leading candidate for the blocking gate** ([OQ-CI6](#decision-ledger)). Uses only shipped mechanisms — the `file://` pack fixture and `npmspec`'s selector parsing — so it is unblocked today, and it lets the specimen be a small fast package instead of a 100 MB CLI ([§5.1.1](#511-and-the-blocking-gate-may-not-need-to-wait-for-it-at-all)). Costs coverage of the shipped manifests, which [§6](#6-what-advisory-gets-wrong) moves to the weekly job. |
-| Manifest pin, or manifest-pin-plus-lockfile-override | **Withdrawn**, [§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field) — proposed in an earlier revision on reasoning that turned out to be wrong. Not needed for CI; any remaining argument for it is about a *user's* first run and belongs to [OQ-TP4](trust-paths.md#decision-ledger). |
+| Manifest pin, or manifest-pin-plus-lockfile-override | **Withdrawn**, [§5.1](#51-mode-a-is-already-ruled-and-the-field-it-waited-for-is-not-coming) — proposed in an earlier revision on reasoning that turned out to be wrong. Not needed for CI; any remaining argument for it is about a *user's* first run and belongs to [OQ-TP4](trust-paths.md#decision-ledger). |
 | Have CI resolve a version once per run and reuse it across tests | **Rejected as insufficient**, [OQ-CI1](#decision-ledger). Deterministic within a run, but a green main can still go red tomorrow with no commit — which is the P1 property being bought. |
 | Raise the macOS cap and change nothing else | **Rejected**, [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution). It does not fix Mode B, it *hides* it: [§4.1](#41-the-first-test-is-the-suites-warmup-sink) shows two-thirds of the blown budget was suite warmup, so a wider cap preserves the misattribution and must be re-widened whenever warmup grows. Available as a labelled stopgap, not as the answer. |
 | Drop the macOS nightly's agent tests entirely | **Rejected.** macOS is the only place the podman-VM install path runs at all; deleting it trades a slow signal for none. |
@@ -617,17 +636,24 @@ the trigger that keeps a manifest typo from reaching main once the every-push ga
 real packs. Land it in the same change as step two, not after: between the two, the shipped manifests
 have no install coverage at all. Read the required-check warning in [§6.1.1](#611-three-triggers-matched-to-three-causes) before marking it required.
 
-**Fourth (not started)**, and independently of all the above, `LockEntry` grows [OQ-TP4](trust-paths.md#decision-ledger)'s npm-version field so the
-**shipped** packs can be pinned for users. That belongs to [`trust-paths.md`](trust-paths.md) and is no longer a blocker
-here — it is what makes "no evergreen npm" true of the product rather than only of CI, and it is also
-what finally removes Mode A from the `packs/**` trigger.
+**Fourth — DEAD, not pending (2026-09-09).** This step was *"`LockEntry` grows
+[OQ-TP4](trust-paths.md#decision-ledger)'s npm-version field so the shipped packs can be pinned for
+users."* [OQ-TP4](trust-paths.md#decision-ledger) was **RETIRED as posed on 2026-09-03** — the answer
+is *"nowhere, because it is not pinned at all"*, the evergreen ruling having deleted the need — and
+`internal/packsrc`'s `LockEntry` has no such field, with a doc comment forbidding one without a
+design ruling. **Nobody should pick this up.** What must not be re-derived is the reason: pinning in
+the manifest makes yolo's own release cadence the ceiling on agent-CLI freshness, which is now an
+argument *for* the retirement rather than against it. See
+[`program-delivery.md`](program-delivery.md)'s [`OQ-PD12`](program-delivery.md#decision-ledger).
 
-**Fifth (half shipped)**, the weekly maintenance workflow ([§6](#6-what-advisory-gets-wrong), [§6.0](#60-the-shape-bump-what-passed-forces)). The VERIFY half is in
-`packs.yml`: separate vendor × arch jobs, `fail-fast: false`, hard-failing, on a weekly cron as well as
-the `packs/**` trigger. The BUMP half is not, and cannot be until step four — `yolo pack update`
-resolves a version but has nowhere to record it, so a collector would have nothing to write. When it
-is built, build the collector's partial-failure path FIRST, or the "bump what passed" ruling is
-unobservable until the week something breaks.
+**Fifth — the VERIFY half shipped; the BUMP half is DEAD-BLOCKED by step four.** The VERIFY half is
+in `packs.yml`: separate vendor × arch jobs, `fail-fast: false`, hard-failing, on a weekly cron as
+well as the `packs/**` trigger. The BUMP half needed a place to record a resolved version, and step
+four is where that place was going to come from — so with the field retired there is nothing for a
+collector to write, and this is not a queued item either. If a bump collector is ever wanted, it
+needs a **new** design ruling on where a version lives, not this step. (Had it been built, the
+partial-failure path would have had to come FIRST, or the "bump what passed" ruling stays
+unobservable until the week something breaks.)
 
 **✅ Sixth — MEASURED 2026-08-22** (CI run 32597479510, x64, the first green run to reach
 integration since the restructuring). Against [§4](#4-the-cost-measured)'s baseline: `TestAgentToolsAvailable`
@@ -660,7 +686,7 @@ let the **shipped** packs be pinned for users. Per [OQ-CI6](#decision-ledger) th
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-CI1 | The pin is a **committed fixture, bumped weekly** — not harness-generated. Determinism within a run is not P1; and once the weekly workflow moves the pin, committing it makes that movement a reviewable diff rather than an invisible resolve. Supersedes a retracted manifest-pin proposal ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)) | 2026-08-21 | [§5.1.1](#511-and-the-blocking-gate-may-not-need-to-wait-for-it-at-all) |
+| OQ-CI1 | The pin is a **committed fixture, bumped weekly** — not harness-generated. Determinism within a run is not P1; and once the weekly workflow moves the pin, committing it makes that movement a reviewable diff rather than an invisible resolve. Supersedes a retracted manifest-pin proposal ([§5.1](#51-mode-a-is-already-ruled-and-the-field-it-waited-for-is-not-coming)) | 2026-08-21 | [§5.1.1](#511-and-the-blocking-gate-may-not-need-to-wait-for-it-at-all) |
 | OQ-CI2 | **Two** install cells in the required matrix (one npm, one `installer`) — not three. The third-npm-cell idea is withdrawn: scoped-vs-bare parsing is already a unit-test table. The saving goes to the thin mechanism, where `agy` has no cell at all | 2026-08-21 | [§6.1](#61-the-blocking-gate-pinned-and-one-cell-per-mechanism), [§2.3](#23-two-mechanisms-six-packs-nine-installs) |
 | OQ-CI3 | Weekly maintenance workflow: **separate jobs per vendor**, hard-failing, and **bump what passed** — a broken vendor does not hold the other five back. Forces fan-out-then-collect, a collector that survives partial failure, and verify-then-pin on every arch served | 2026-08-21 | [§6](#6-what-advisory-gets-wrong), [§6.0](#60-the-shape-bump-what-passed-forces) |
 | OQ-CI4 | Suite warmup is paid in `TestMain`'s existing seam, before any timed assertion. The macOS cap raise (1200→2400s) is **withdrawn**: it padded a misattribution rather than fixing it | 2026-08-21 | [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution), [§4.1](#41-the-first-test-is-the-suites-warmup-sink) |
