@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -476,4 +478,349 @@ func TestPruneOldImagesDeclinesWhenRunningSetIsUnknown(t *testing.T) {
 	if len(rmiCalls) != 0 {
 		t.Errorf("removed images with an unreadable running set: %v", rmiCalls)
 	}
+}
+
+// ─── OQ-DF3 REACH: the two-probe union ───────────────────────────────────────
+
+// fakeImage is one row of a pretend runtime image store: what `podman images`
+// would print for it, plus whether it carries the owner label flake.nix bakes.
+// The label is a property of the IMAGE here, exactly as it is on a real machine
+// — which is what lets machineImagesRunner answer a query rather than replay a
+// fixture.
+type fakeImage struct {
+	ID      string
+	Ref     string // "localhost/yolo-jail:<tag>", or "<none>:<none>" once untagged
+	Created string
+	Labeled bool // built after the owner label shipped
+}
+
+// machineImagesRunner is a MEASURED model of `podman images`, not a canned
+// answer: it filters a pretend store by the argv it is handed. That distinction
+// is the whole point of these tests — a stub that returns the same rows to every
+// `images` argv (imagesRunner, above) cannot tell a real union from a doubled
+// single probe, and cannot notice a query that reaches further than the ruling
+// allows.
+//
+// The three behaviours it models were all measured in this jail on 2026-09-08,
+// podman 5.8.4:
+//
+//   - a positional repository argument AND `--filter` together are a HARD ERROR
+//     ("cannot specify an image and a filter(s)"), which is why REACH is two
+//     probes and can never be folded into one;
+//   - the positional repository matches the name component EXACTLY, so
+//     `yolo-jail` does not match `yolo-jail-builder`;
+//   - a label filter returns the untagged row too, printing `<none>:<none>`.
+//
+// A query carrying NEITHER a repo nor a label filter returns EVERYTHING — the
+// unlabeled, pre-label rows included. That is deliberate: it is how a widened
+// query (a dropped filter value, an added `-a`, a `dangling=true`) shows up as a
+// test failure instead of as bytes nobody authorized removing.
+func machineImagesRunner(t *testing.T, store []fakeImage, psRows string, rmiCalls *[]string) RunFunc {
+	t.Helper()
+	return func(argv []string, _ time.Duration) ProbeResult {
+		switch {
+		case len(argv) >= 2 && argv[1] == "images":
+			var repo, filter string
+			// From argv[2]: argv[0] is the runtime and argv[1] the subcommand.
+			for i := 2; i < len(argv); i++ {
+				switch {
+				case argv[i] == "--filter" && i+1 < len(argv):
+					filter = argv[i+1]
+					i++
+				case argv[i] == "--format" && i+1 < len(argv):
+					i++
+				case argv[i] == "-a" || argv[i] == "--all":
+					t.Errorf("the label probe must not pass %q: a plain listing already "+
+						"returns the untagged row, while -a additionally surfaces build "+
+						"intermediates the ruling does not authorize removing", argv[i])
+				case !strings.HasPrefix(argv[i], "-"):
+					repo = argv[i]
+				}
+			}
+			if repo != "" && filter != "" {
+				// podman's own refusal, reproduced.
+				return ProbeResult{Ran: true, RC: 125,
+					Stdout: "Error: cannot specify an image and a filter(s)"}
+			}
+			var b strings.Builder
+			for _, img := range store {
+				switch {
+				case repo != "":
+					if img.Ref != repo+":"+tagOf(img.Ref) && img.Ref != "localhost/"+repo+":"+tagOf(img.Ref) {
+						continue
+					}
+				case filter != "":
+					if filter != "label="+JailImageOwnerLabel &&
+						filter != "label="+JailImageOwnerLabel+"="+JailImageOwnerValue {
+						t.Errorf("unexpected image filter %q — REACH is NARROW: only the owner "+
+							"label proves an image is ours, and dangling=true would reach the "+
+							"user's own images on a shared podman", filter)
+						continue
+					}
+					if !img.Labeled {
+						continue
+					}
+				}
+				b.WriteString(img.ID + " " + img.Ref + " " + img.Created + "\n")
+			}
+			return ProbeResult{Ran: true, Stdout: b.String()}
+		case len(argv) >= 2 && argv[1] == "ps":
+			return ProbeResult{Ran: true, Stdout: psRows}
+		case len(argv) >= 2 && argv[1] == "rmi":
+			if len(argv) > 2 && argv[2] == "-f" {
+				panic("prune must never force-remove an image: it takes running containers with it")
+			}
+			*rmiCalls = append(*rmiCalls, argv[2])
+			return ProbeResult{Ran: true}
+		}
+		return ProbeResult{Ran: true}
+	}
+}
+
+// TestPruneOldImagesUnion is OQ-DF3's REACH ruling: an image yolo BUILT is
+// reapable even after it loses its repository name, because the owner label
+// flake.nix bakes survives untagging — and nothing else is.
+func TestPruneOldImagesUnion(t *testing.T) {
+	const (
+		newest = "2026-08-01 09:00:00 +0000 UTC"
+		middle = "2026-07-01 09:00:00 +0000 UTC"
+		oldest = "2026-06-01 09:00:00 +0000 UTC"
+	)
+	none := map[string]struct{}{}
+
+	t.Run("a labeled nameless row is selected", func(t *testing.T) {
+		// The measured leak: a re-stream took the content tag and left the
+		// previous image `<none>:<none>`. The repo-name probe cannot see it; the
+		// label probe can, and `keep` counts it like any other image.
+		store := []fakeImage{
+			{ID: "id-tagged", Ref: "localhost/yolo-jail:aaaaaaaaaaaaaaaa", Created: newest, Labeled: true},
+			{ID: "id-nameless", Ref: "<none>:<none>", Created: middle, Labeled: true},
+		}
+		var rmiCalls []string
+		run := machineImagesRunner(t, store, "", &rmiCalls)
+		got, declined := PruneOldImages("podman", 1, none, true, true, run)
+		if declined != "" {
+			t.Fatalf("declined %q on a healthy machine", declined)
+		}
+		if !reflect.DeepEqual(got, []string{"id-nameless"}) {
+			t.Errorf("removed = %v, want [id-nameless] — the label is what makes a row "+
+				"without a repository name provably ours", got)
+		}
+		if !reflect.DeepEqual(rmiCalls, []string{"id-nameless"}) {
+			t.Errorf("rmi calls = %v, want [id-nameless]", rmiCalls)
+		}
+	})
+
+	t.Run("a labeled nameless row a container is using is never removed", func(t *testing.T) {
+		// Guard #0 is this row's ONLY veto: ProtectedImageTags matches TAGS and
+		// `<none>` has none, so the load sentinel is structurally silent here.
+		// `ps --format {{.ImageID}}` prints the same 12-hex short ID as
+		// `images --format {{.ID}}` (MEASURED 2026-09-08), which is what makes
+		// the match possible at all.
+		store := []fakeImage{
+			{ID: "id-tagged", Ref: "localhost/yolo-jail:aaaaaaaaaaaaaaaa", Created: newest, Labeled: true},
+			{ID: "id-nameless", Ref: "<none>:<none>", Created: middle, Labeled: true},
+		}
+		var rmiCalls []string
+		run := machineImagesRunner(t, store, "id-nameless\n", &rmiCalls)
+		got, _ := PruneOldImages("podman", 1, none, true, true, run)
+		if len(got) != 0 || len(rmiCalls) != 0 {
+			t.Errorf("removed = %v (rmi %v), want none: a nameless row can be LIVE — the "+
+				"re-stream took the tag off the image a running jail is on", got, rmiCalls)
+		}
+	})
+
+	t.Run("a row both probes return is counted once", func(t *testing.T) {
+		// Every image built after the label ships answers to BOTH probes. Without
+		// one merged dedup, keep=2 spends its slots twice over and selects an
+		// image it was meant to keep.
+		store := []fakeImage{
+			{ID: "id-new", Ref: "localhost/yolo-jail:3333333333333333", Created: newest, Labeled: true},
+			{ID: "id-mid", Ref: "localhost/yolo-jail:2222222222222222", Created: middle, Labeled: true},
+			{ID: "id-old", Ref: "localhost/yolo-jail:1111111111111111", Created: oldest, Labeled: true},
+		}
+		var rmiCalls []string
+		run := machineImagesRunner(t, store, "", &rmiCalls)
+		got, _ := PruneOldImages("podman", 2, none, true, false, run)
+		if !reflect.DeepEqual(got, []string{"id-old"}) {
+			t.Errorf("removed = %v, want [id-old] — `keep` counts IMAGES, and the union "+
+				"returns each labeled image twice", got)
+		}
+	})
+
+	t.Run("a protected tag saves an image its other probe's row would delete", func(t *testing.T) {
+		// The `:latest` defect, one entrance over: the protected-tag scan has to
+		// run over BOTH probes' rows before the keep decision, or the label
+		// probe's duplicate row deletes the image the repo probe's row protects.
+		store := []fakeImage{
+			{ID: "id-new", Ref: "localhost/yolo-jail:3333333333333333", Created: newest, Labeled: true},
+			{ID: "id-old", Ref: "localhost/yolo-jail:1111111111111111", Created: oldest, Labeled: true},
+		}
+		var rmiCalls []string
+		run := machineImagesRunner(t, store, "", &rmiCalls)
+		got, _ := PruneOldImages("podman", 1,
+			map[string]struct{}{"1111111111111111": {}}, true, true, run)
+		if len(got) != 0 || len(rmiCalls) != 0 {
+			t.Errorf("removed = %v (rmi %v), want none — id-old's tag is protected", got, rmiCalls)
+		}
+	})
+
+	t.Run("an unlabeled nameless row is never selected", func(t *testing.T) {
+		// THE RULING'S PERMANENCE, and nothing else asserts it. A `<none>` row
+		// that predates the label has no ownership evidence and never will:
+		// yolo leaves it alone forever, and `yolo stores` is where the user
+		// hears about it (disk-levers-and-backfill.md §5.5). This fails if the
+		// query is ever widened — a dropped filter value, `-a`, `dangling=true`
+		// — because machineImagesRunner answers an unfiltered query with the
+		// whole store.
+		store := []fakeImage{
+			{ID: "id-tagged", Ref: "localhost/yolo-jail:aaaaaaaaaaaaaaaa", Created: newest, Labeled: true},
+			{ID: "id-prelabel", Ref: "<none>:<none>", Created: oldest, Labeled: false},
+		}
+		var rmiCalls []string
+		run := machineImagesRunner(t, store, "", &rmiCalls)
+		got, _ := PruneOldImages("podman", 0, none, true, true, run)
+		for _, id := range append(append([]string{}, got...), rmiCalls...) {
+			if id == "id-prelabel" {
+				t.Fatalf("a pre-label nameless row was selected (removed=%v rmi=%v): yolo "+
+					"never removes an image it cannot prove is its own", got, rmiCalls)
+			}
+		}
+		if !reflect.DeepEqual(got, []string{"id-tagged"}) {
+			t.Errorf("removed = %v, want [id-tagged] only", got)
+		}
+	})
+
+	t.Run("a failed label probe widens nothing and declines nothing", func(t *testing.T) {
+		// Apple Container is NOT MEASURED for `--filter label=`. A runtime that
+		// cannot answer the second probe must still get the tagged pass that has
+		// shipped for a year — the set shrinks, which is the safe direction.
+		imgOut := "id1 localhost/yolo-jail:1111111111111111 " + oldest + "\n" +
+			"id2 localhost/yolo-jail:2222222222222222 " + newest + "\n"
+		var rmiCalls []string
+		run := func(argv []string, _ time.Duration) ProbeResult {
+			if len(argv) >= 2 && argv[1] == "images" {
+				for _, a := range argv {
+					if strings.HasPrefix(a, "label=") {
+						return ProbeResult{Ran: false} // the runtime refused it
+					}
+				}
+				return ProbeResult{Ran: true, Stdout: imgOut}
+			}
+			if len(argv) >= 2 && argv[1] == "rmi" {
+				rmiCalls = append(rmiCalls, argv[2])
+			}
+			return ProbeResult{Ran: true}
+		}
+		got, declined := PruneOldImages("podman", 1, none, true, true, run)
+		if declined != "" {
+			t.Errorf("declined %q — a label probe that cannot run is not a reason to "+
+				"refuse the tagged pass", declined)
+		}
+		if !reflect.DeepEqual(got, []string{"id1"}) {
+			t.Errorf("removed = %v, want [id1] — exactly today's tagged behaviour", got)
+		}
+	})
+
+	t.Run("an unreadable repo probe still declines the whole pass", func(t *testing.T) {
+		// The polarity that must NOT have moved: the repo-name probe is the one
+		// whose failure means "there is no candidate set at all".
+		run := func(argv []string, _ time.Duration) ProbeResult {
+			if len(argv) >= 2 && argv[1] == "images" {
+				for _, a := range argv {
+					if strings.HasPrefix(a, "label=") {
+						return ProbeResult{Ran: true, Stdout: "id-x <none>:<none> " + newest + "\n"}
+					}
+				}
+				return ProbeResult{Ran: true, RC: 1}
+			}
+			return ProbeResult{Ran: true}
+		}
+		got, declined := PruneOldImages("podman", 1, none, true, true, run)
+		if declined != DeclineImagesUnreadable || len(got) != 0 {
+			t.Errorf("removed=%v declined=%q, want empty + %q", got, declined, DeclineImagesUnreadable)
+		}
+	})
+
+	t.Run("candidates are listed before the guards", func(t *testing.T) {
+		// OQ-LS2's ordering property, re-pinned across the union: BOTH probes run
+		// before the liveness guard, so an unreadable ledger on a machine that
+		// has candidates reports "prevented work" rather than "fresh machine".
+		var order []string
+		run := func(argv []string, _ time.Duration) ProbeResult {
+			if len(argv) >= 2 {
+				order = append(order, argv[1])
+			}
+			if len(argv) >= 2 && argv[1] == "images" {
+				return ProbeResult{Ran: true, Stdout: "id-x <none>:<none> " + newest + "\n"}
+			}
+			return ProbeResult{Ran: true}
+		}
+		_, declined := PruneOldImages("podman", 1, none, false /*liveKnown*/, true, run)
+		if declined != DeclineLedgerUnreadable {
+			t.Errorf("declined %q, want %q", declined, DeclineLedgerUnreadable)
+		}
+		if !reflect.DeepEqual(order, []string{"images", "images"}) {
+			t.Errorf("probe order = %v, want both image listings before any guard ran", order)
+		}
+	})
+}
+
+// TestOwnerLabelSpellingMatchesTheFlake is the two-language pin: the label is
+// baked by Nix and filtered for by Go, and the two spellings are only equal
+// because someone typed them that way. It is the same class as
+// internal/entrypoint/shippedclients_test.go (Go ↔ flake.nix ↔ shell), and the
+// consequence of drift is worse than a missing feature: every image already
+// built keeps the old key, nothing filters for it, and they become precisely the
+// unattributable rows OQ-DF3 created the label to stop making.
+func TestOwnerLabelSpellingMatchesTheFlake(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(pruneRepoRoot(t), "flake.nix"))
+	if err != nil {
+		t.Fatalf("read flake.nix: %v", err)
+	}
+	flake := string(body)
+
+	labelsBlock := regexp.MustCompile(`(?s)Labels\s*=\s*\{(.*?)\}`).FindStringSubmatch(flake)
+	if labelsBlock == nil {
+		t.Fatalf("flake.nix has no `Labels = { … }` in the image config — the owner label "+
+			"is how PruneOldImages proves an untagged image is ours (%s=%s)",
+			JailImageOwnerLabel, JailImageOwnerValue)
+	}
+	pair := regexp.MustCompile(`"` + regexp.QuoteMeta(JailImageOwnerLabel) + `"\s*=\s*"` +
+		regexp.QuoteMeta(JailImageOwnerValue) + `"`)
+	if !pair.MatchString(labelsBlock[1]) {
+		t.Errorf("flake.nix's Labels block does not bake %s=%q; it has:%s",
+			JailImageOwnerLabel, JailImageOwnerValue, labelsBlock[1])
+	}
+
+	// The builder image must stay OUT of the reap's reach. podman's positional
+	// repo filter matches the name component exactly, so `yolo-jail-builder` has
+	// never been visible to listImagesByRepo — but the owner label is a second
+	// entrance, and labelling it would enrol a whole class the ruling never
+	// authorized. Nothing else would go red.
+	if i := strings.Index(flake, `name = "yolo-jail-builder"`); i >= 0 {
+		if strings.Contains(flake[i:], `"`+JailImageOwnerLabel+`"`) {
+			t.Errorf("the yolo-jail-builder image carries %s — that puts it in "+
+				"PruneOldImages' reach, which it has never been in", JailImageOwnerLabel)
+		}
+	}
+}
+
+// pruneRepoRoot locates the checkout from this test file's compile-time path.
+// It FAILS rather than skips when the tree is unreadable: a skip would turn the
+// cross-language drift this pins into silent non-coverage, which is the same
+// shape of bug one level up. (The fifth copy of this eight-line helper in the
+// repo — house style, not duplication: a shared one would be a package whose
+// only purpose is to be imported by tests in five unrelated packages.)
+func pruneRepoRoot(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, ok := goruntime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller gave no source path — cannot locate the repo root")
+	}
+	root := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	if _, err := os.Stat(filepath.Join(root, "flake.nix")); err != nil {
+		t.Fatalf("no flake.nix at the resolved repo root %s: %v", root, err)
+	}
+	return root
 }

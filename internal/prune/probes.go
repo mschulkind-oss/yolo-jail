@@ -208,22 +208,137 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 	return targets
 }
 
-// PruneOldImages lists yolo-jail images, keeps the newest `keep` plus every
-// image the `protected` tag set vouches for, and returns the image IDs removed
-// (or slated for removal in dry-run).
-// `images --format {{.ID}} {{.Repository}}:{{.Tag}}
-// {{.CreatedAt}} yolo-jail` → parse (id, repo:tag, createdAt) lines (>=3 fields,
-// split maxsplit=2) → ONE ENTRY PER IMAGE ID → the EXISTING OldImagesToRemove
-// lexical CreatedAt sort → drop the protected → `rmi -f <id>` each when apply. A
+// ImageReapDecline names WHY an old-image sweep did nothing, because "declined"
+// and "nothing to remove" were the same empty slice until OQ-LS2 and that is the
+// shape of the defect the whole reclamation effort started from: a pass that is
+// not running and does not say so. Empty means the pass ran.
+//
+// These strings are user-facing and name the missing EVIDENCE, not the internal
+// step, because the reader's next move differs per cause: an unreadable ledger
+// is a yolo-state problem, an unreachable runtime is a machine problem.
+type ImageReapDecline string
+
+const (
+	// DeclineLedgerUnreadable: the load sentinel could not be read, so the
+	// liveness veto has no evidence (guard #1).
+	DeclineLedgerUnreadable ImageReapDecline = "could not read the image load ledger"
+	// DeclineRuntimeUnreachable: `ps` could not be enumerated, so what is
+	// actually running is unknown (guard #0).
+	DeclineRuntimeUnreachable ImageReapDecline = "could not ask the runtime which images have containers on them"
+	// DeclineImagesUnreadable: the image listing itself failed, so there is no
+	// candidate set at all.
+	DeclineImagesUnreadable ImageReapDecline = "could not list this runtime's images"
+)
+
+// The OWNER LABEL: the Go half of a two-language spelling whose other half is
+// `config.Labels` in flake.nix's `mkOciImage`. It is what makes an image yolo
+// built attributable after it loses its repository name, and it is the second of
+// PruneOldImages' two entrances (minimal-disk-footprint.md OQ-DF3, REACH).
+//
+// ONCE ON DISK THIS IS A DE FACTO PUBLIC NAME. Renaming either half silently
+// un-owns every image already built — they keep the old key, nothing filters for
+// it any more, and they become exactly the unreclaimable rows this ruling
+// created the label to end. TestOwnerLabelSpellingMatchesTheFlake reads flake.nix
+// and pins the pair; integration/imagelabel_test.go pins it against a real image.
+//
+// OWNERSHIP, NEVER LIVENESS. The label says "yolo built this", full stop. Which
+// image is in USE is answered by `podman ps` (guard #0) and by the load
+// sentinel's content tags (ProtectedImageTags) — and the flake CANNOT carry more
+// than ownership here even if a caller wanted it to: nix cannot reference a
+// derivation's own output path and streamLayeredImage's script takes only
+// `--repo_tag`, so the finest identity spellable is `imageIdentity`, which is one
+// value per flake.nix+flake.lock and is therefore SHARED by the full/minimal/lean
+// variants and every `packages:` list. Do not read the provenance label as an
+// image key.
+const (
+	// JailImageOwnerLabel is the label key `mkOciImage` bakes.
+	JailImageOwnerLabel = "org.yolo-jail.owner"
+	// JailImageOwnerValue is its value — matched exactly, so the filter cannot
+	// be widened by another project picking a similar key.
+	JailImageOwnerValue = "yolo"
+)
+
+// imageListFormat is the row shape BOTH image probes ask for, so their rows can
+// be merged and parsed by one loop: `<id> <repo>:<tag> <createdAt>`, with the
+// timestamp's internal spaces recovered by pySplitMax's maxsplit=2. An untagged
+// row prints `<none>:<none>` in the middle field (MEASURED 2026-09-08), which
+// tagOf reduces to `<none>` — a string no protected tag can equal, which is why
+// the doc comment above says guard #0 is that row's only veto.
+const imageListFormat = "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}"
+
+// listImagesByRepo is the probe that has always shipped: every image under the
+// `yolo-jail` REPOSITORY, whatever its tag. Returns (stdout, ok); ok=false when
+// the runtime could not answer, which is the one image-listing failure that
+// declines the whole pass.
+//
+// The repository is spelled through paths so it cannot drift from
+// image.JailImageRef's, and the argument is POSITIONAL because that is podman's
+// repo filter — it matches the name component EXACTLY, so `yolo-jail-builder` is
+// not in this probe's reach and must never be given the owner label either
+// (flake.nix says so where the builder image is defined).
+func listImagesByRepo(rt string, run RunFunc) (string, bool) {
+	res := run([]string{rt, "images", "--format", imageListFormat, paths.JailImageRepoShort}, psTimeout)
+	if !res.Ran || res.RC != 0 {
+		return "", false
+	}
+	return res.Stdout, true
+}
+
+// listImagesByOwnerLabel is REACH's new entrance: every image carrying the owner
+// label, including the untagged rows the repo-name probe structurally cannot see.
+// It returns rows only — a failure is an empty string, never a decline, because
+// widening is optional and shrinking is safe.
+//
+// No `-a`. The plain listing already returns the untagged row (MEASURED
+// 2026-09-08); `-a` ADDITIONALLY surfaces build intermediates carrying the same
+// label, and the ruling does not authorize removing those.
+func listImagesByOwnerLabel(rt string, run RunFunc) string {
+	res := run([]string{rt, "images", "--filter",
+		"label=" + JailImageOwnerLabel + "=" + JailImageOwnerValue,
+		"--format", imageListFormat}, psTimeout)
+	if !res.Ran || res.RC != 0 {
+		return ""
+	}
+	return res.Stdout
+}
+
+// PruneOldImages lists the images yolo can PROVE are its own, keeps the newest
+// `keep` plus every image the `protected` tag set vouches for, and returns the
+// image IDs removed (or slated for removal in dry-run).
+// TWO `images` probes (repository name, owner label) → merge their rows →
+// parse (id, repo:tag, createdAt) lines (>=3 fields, split maxsplit=2) → ONE
+// ENTRY PER IMAGE ID → the EXISTING OldImagesToRemove lexical CreatedAt sort →
+// drop the protected and the in-use → `rmi <id>` each when apply. A
 // missing/failed runtime yields an empty list.
+//
+// # THE UNION IS OQ-DF3's REACH RULING (2026-09-08), and both halves are load-bearing
+//
+// The repository name was the ONLY evidence an image was yolo's, and it is
+// exactly what a superseded image loses: a re-stream takes the content tag and
+// leaves the previous image `<none>:<none>`, invisible to a repo-name filter
+// forever (minimal-disk-footprint.md §3.3). The ruling closes that evidence gap
+// with a LABEL baked into the image config (flake.nix `mkOciImage`), which
+// survives untagging and stays filterable — so a nameless row is attributable
+// and is then treated exactly like a tagged one. Ruled NARROW: yolo never
+// removes an image it cannot prove is its own, so `dangling=true` and
+// `podman image prune` stay refused (they are the user's images on a shared
+// podman), and rows that predate the label are LEFT ALONE PERMANENTLY.
+//
+// TWO probes rather than one filtered query, because podman refuses the
+// combination: `podman images yolo-jail --filter label=…` is
+// `Error: cannot specify an image and a filter(s)` (MEASURED, podman 5.8.4,
+// 2026-09-08). And the repo-name probe MUST SURVIVE, because a label marks only
+// images built after it ships — every tagged row already on a machine is
+// reapable today through the repo name alone, and a label-only "simplification"
+// would silently strand them with no test going red.
 //
 // # C2 ARMED THIS PASS, so C2 had to make it safe
 //
-// The query is unchanged and did not need to change: the positional argument is
-// a REPOSITORY filter ("yolo-jail"), not a tag, and content-addressed tags live
-// under the same repository. What changed is the SHAPE of what comes back, and
-// that is not cosmetic — it is the difference between a pass that could never
-// select anything and one that force-removes another workspace's running image.
+// The positional argument is a REPOSITORY filter ("yolo-jail"), not a tag, and
+// content-addressed tags live under the same repository. What C2 changed is the
+// SHAPE of what comes back, and that is not cosmetic — it is the difference
+// between a pass that could never select anything and one that force-removes
+// another workspace's running image.
 //
 // Two consequences, both handled here:
 //
@@ -258,30 +373,20 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 // was still missing, and is what OQ-DF3's TRIGGER half rules, is that nothing
 // ever called this with apply=true outside a human typing `yolo prune
 // --apply` — see AutoReapOldImages (autoreap.go), the launch-path caller.
-// OQ-DF3's REACH question (dangling/untagged `<none>` rows) is untouched by
-// either ruling and stays open.
-// ImageReapDecline names WHY an old-image sweep did nothing, because "declined"
-// and "nothing to remove" were the same empty slice until OQ-LS2 and that is the
-// shape of the defect the whole reclamation effort started from: a pass that is
-// not running and does not say so. Empty means the pass ran.
+// REACH is the union above, and it does NOT move the retention rule: a labeled
+// nameless row is treated exactly like a tagged one, so `keep` counts the union
+// and DefaultKeepImages is unchanged.
 //
-// These strings are user-facing and name the missing EVIDENCE, not the internal
-// step, because the reader's next move differs per cause: an unreadable ledger
-// is a yolo-state problem, an unreachable runtime is a machine problem.
-type ImageReapDecline string
-
-const (
-	// DeclineLedgerUnreadable: the load sentinel could not be read, so the
-	// liveness veto has no evidence (guard #1).
-	DeclineLedgerUnreadable ImageReapDecline = "could not read the image load ledger"
-	// DeclineRuntimeUnreachable: `ps` could not be enumerated, so what is
-	// actually running is unknown (guard #0).
-	DeclineRuntimeUnreachable ImageReapDecline = "could not ask the runtime which images have containers on them"
-	// DeclineImagesUnreadable: the image listing itself failed, so there is no
-	// candidate set at all.
-	DeclineImagesUnreadable ImageReapDecline = "could not list this runtime's images"
-)
-
+// # A NAMELESS ROW'S ONLY VETO IS GUARD #0, and that is not an oversight
+//
+// `protected` (ProtectedImageTags) matches TAGS, and `<none>` has none — so the
+// sentinel-derived veto is structurally silent for the class this union just
+// added. What catches a LIVE nameless row is `podman ps`: a re-stream takes the
+// tag off the image a jail is running on, and `ps --format {{.ImageID}}` prints
+// the same 12-hex short ID as `images --format {{.ID}}` (MEASURED 2026-09-08),
+// so the in-use veto matches it exactly. That equality was a convenience for
+// tagged rows; it is the whole safety story for nameless ones — with the plain
+// (never `-f`) `rmi` below as the backstop that fails rather than kills.
 func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnown bool, apply bool, run RunFunc) (removed []string, declined ImageReapDecline) {
 	// THE CANDIDATE LISTING COMES FIRST, and the order is load-bearing since
 	// OQ-LS2 made a decline an ERROR on the manual path. A machine where yolo
@@ -292,11 +397,23 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 	//
 	// Listing is read-only and removes nothing, so no guard below is weakened by
 	// running after it; the guards still gate every `rmi`.
-	res := run([]string{rt, "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"}, psTimeout)
-	if !res.Ran || res.RC != 0 {
+	//
+	// BOTH probes run here, before any guard, for that same reason — and the
+	// repo-name one runs FIRST so its failure keeps meaning what it has always
+	// meant. The label probe cannot decline anything (see below), so a runtime
+	// that answers neither still reports DeclineImagesUnreadable.
+	repoRows, ok := listImagesByRepo(rt, run)
+	if !ok {
 		return []string{}, DeclineImagesUnreadable
 	}
-	if strings.TrimSpace(res.Stdout) == "" {
+	// A FAILED LABEL PROBE WIDENS NOTHING AND DECLINES NOTHING: it contributes
+	// zero rows, which shrinks the candidate set — the safe direction. Declining
+	// the whole pass on it would regress the shipped tagged reap on any runtime
+	// that spells (or refuses) `--filter label=` differently; Apple Container is
+	// NOT MEASURED here, and its own reaper does not exist yet (OQ-BF6).
+	labelRows := listImagesByOwnerLabel(rt, run)
+	rows := repoRows + "\n" + labelRows
+	if strings.TrimSpace(rows) == "" {
 		return []string{}, "" // nothing of ours exists; nothing to decline about
 	}
 	if !liveKnown {
@@ -321,10 +438,16 @@ func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnow
 	if !inUseKnown {
 		return []string{}, DeclineRuntimeUnreachable
 	}
+	// ONE loop over the MERGED rows, deliberately — not one pass per probe. Both
+	// the dedup and the protected-tag scan have to see every row before the keep
+	// decision: an image built after the label ships answers to BOTH probes, and
+	// a per-probe verdict would let its unprotected duplicate row delete the
+	// image its protected row saves (the same defect the `:latest` row already
+	// taught us, one entrance over).
 	var images []ImageEntry
 	seen := map[string]bool{}
 	keepIDs := map[string]bool{}
-	for _, line := range strings.Split(res.Stdout, "\n") {
+	for _, line := range strings.Split(rows, "\n") {
 		parts := pySplitMax(strings.TrimSpace(line), 2)
 		if len(parts) < 3 {
 			continue

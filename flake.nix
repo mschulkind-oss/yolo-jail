@@ -1147,6 +1147,40 @@
                 "TZDIR=${imagePkgs.tzdata}/share/zoneinfo"
               ];
               WorkingDir = "/workspace";
+
+              # ── OWNERSHIP, so a nameless row is still attributable ───────────
+              # minimal-disk-footprint.md OQ-DF3's REACH half, ruled 2026-09-08.
+              # An image that loses its tag — a re-stream takes the content tag
+              # and leaves the previous image `<none>:<none>` — loses the ONLY
+              # evidence it was yolo's, because the repository name is what
+              # `podman images yolo-jail` filters on. A label survives untagging
+              # and stays filterable (`podman images --filter label=…`), so
+              # provenance becomes intrinsic to the image: no side-file, no cap,
+              # no dependence on which yolo did the loading.
+              #
+              # `internal/prune/probes.go` reads these; `JailImageOwnerLabel` /
+              # `JailImageOwnerValue` there are the Go half of a TWO-LANGUAGE
+              # SPELLING, pinned together by TestOwnerLabelSpellingMatchesTheFlake
+              # (internal/prune) and end-to-end by integration/imagelabel_test.go.
+              # Once on disk the key is a de facto public name: RENAMING IT
+              # SILENTLY UN-OWNS every image already built, so it never changes.
+              #
+              # WHAT THE VALUES CAN AND CANNOT BE — do not assume more than is
+              # here. `owner` is a constant flag; the identity beside it is
+              # `imageIdentity`, which is the FINEST identity spellable in this
+              # config: nix cannot reference a derivation's own output path, and
+              # streamLayeredImage's script takes only `--repo_tag`, so nothing
+              # per-image or per-launch can be injected. imageIdentity is a
+              # derivation over flake.nix + flake.lock alone, so the full/minimal/
+              # lean trio and every `packages:` variant SHARE ONE VALUE. That is
+              # enough for "this is ours" and is not a per-image key — the
+              # content tag (image.ImageStoreKey) and the load sentinel remain the
+              # liveness/identity keys, and the `podman ps` veto still gates every
+              # removal. Ownership is not liveness.
+              Labels = {
+                "org.yolo-jail.owner" = "yolo";
+                "org.yolo-jail.image-identity" = "${imageIdentity}";
+              };
             };
           };
 
@@ -1245,6 +1279,13 @@
           ociTools.streamLayeredImage {
             name = "yolo-jail-builder";
             tag = "latest";
+            # DELIBERATELY UNLABELLED — do not copy mkOciImage's `config.Labels`
+            # here. Podman's positional repository filter matches the name
+            # component EXACTLY (`yolo-jail` does not match `yolo-jail-builder`,
+            # measured 2026-09-08), so this image has never been inside
+            # PruneOldImages' reach. The owner label is that reach's second
+            # entrance: labelling this would enrol a whole class the reap was
+            # never allowed to touch, and no test would go red.
             # Contents: nix (the builder), sshd, a shell + coreutils for build
             # steps, and CA certs for substituter fetches.  This closure IS the
             # size floor — a nix builder must contain nix; no base distro

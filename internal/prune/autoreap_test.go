@@ -85,8 +85,14 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	if !ran {
 		t.Fatal("first call on a fresh machine must run (no debounce sentinel yet)")
 	}
-	if imagesCalls != 1 {
-		t.Fatalf("images probed %d times, want 1", imagesCalls)
+	// TWO probes, not one: OQ-DF3's REACH ruling made the candidate listing a
+	// UNION of the repo-name query and a label query, because podman refuses
+	// `images <repo> --filter ...` outright ("cannot specify an image and a
+	// filter(s)"). Both arms are load-bearing — the label finds untagged rows,
+	// and the repo name is the only thing that finds tagged rows built before
+	// the label shipped — so this count is 2 by construction, not by accident.
+	if imagesCalls != 2 {
+		t.Fatalf("images probed %d times, want 2 (repo query + label query, unioned)", imagesCalls)
 	}
 	if len(removed) != 1 || removed[0] != "id1" {
 		t.Errorf("removed = %v, want [id1] (id2 is the live image)", removed)
@@ -105,8 +111,9 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	if removed != nil {
 		t.Errorf("a debounced call must not report removals, got %v", removed)
 	}
-	if imagesCalls != 1 {
-		t.Errorf("a debounced call re-probed podman: imagesCalls=%d, want 1", imagesCalls)
+	if imagesCalls != 2 {
+		t.Errorf("a debounced call re-probed podman: imagesCalls=%d, want 2 (the union from the "+
+			"first call, unchanged — a debounce must add none)", imagesCalls)
 	}
 
 	// Past the interval, it fires again.
@@ -114,8 +121,9 @@ func TestAutoReapOldImagesDebounces(t *testing.T) {
 	if !ran {
 		t.Error("a call past the interval must run again")
 	}
-	if imagesCalls != 2 {
-		t.Errorf("imagesCalls = %d after the interval elapsed, want 2", imagesCalls)
+	if imagesCalls != 4 {
+		t.Errorf("imagesCalls = %d after the interval elapsed, want 4 (two unioned probes per pass, "+
+			"two passes)", imagesCalls)
 	}
 }
 
