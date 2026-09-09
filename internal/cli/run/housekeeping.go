@@ -287,10 +287,7 @@ func (o *Options) reapSupersededStoreOutputs(rt string) {
 		filepath.Join(buildDir, "roots"),
 		filepath.Join(buildDir, "prefix-roots"),
 	}
-	run := func(argv []string, timeout time.Duration) prune.ProbeResult {
-		res := o.Exec(argv, "", nil, timeout)
-		return prune.ProbeResult{Stdout: res.Stdout, RC: res.RC, Ran: res.Ran && !res.Timeout}
-	}
+	run := o.pruneRunFunc()
 	// ASK THE RUNTIME FIRST, and decline entirely if it cannot answer. A prefix a
 	// live jail is executing from is not superseded, whether or not anything
 	// rooted it — see SupersededStoreOutputs' inUse guard for the upgrade window
@@ -346,10 +343,7 @@ func (o *Options) reapSmallAutomaticClasses(rt string) {
 	if !due {
 		return
 	}
-	run := func(argv []string, timeout time.Duration) prune.ProbeResult {
-		res := o.Exec(argv, "", nil, timeout)
-		return prune.ProbeResult{Stdout: res.Stdout, RC: res.RC, Ran: res.Ran && !res.Timeout}
-	}
+	run := o.pruneRunFunc()
 	live := prune.LiveYoloContainers(rt, run)
 	if !live.Known {
 		// Tri-state, unchanged: a staging dir belonging to a jail we cannot see

@@ -105,8 +105,9 @@ func pySplitMax(s string, maxsplit int) []string {
 // `name`, or ("", false) on any inspect failure / absence. It runs
 // `inspect --format {{json .Mounts}}` and decodes the mounts array via a
 // type-guarded walk (a non-array top-level or a non-object element is skipped,
-// never crashes), returning the first matching non-empty Source. The sole caller
-// passes dest=/workspace (InspectWorkspaceMount).
+// never crashes), returning the first matching non-empty Source. Its callers pass
+// dest=/workspace (InspectWorkspaceMount) and dest=/opt/yolo-jail/bin
+// (InspectPrefixBinMount).
 func inspectMountSource(rt, name, dest string, run RunFunc) (string, bool) {
 	res := run([]string{rt, "inspect", "--format", "{{json .Mounts}}", name}, inspectTimeout)
 	if !res.Ran || res.RC != 0 {
@@ -138,6 +139,19 @@ func inspectMountSource(rt, name, dest string, run RunFunc) (string, bool) {
 // ("", false).
 func InspectWorkspaceMount(rt, name string, run RunFunc) (string, bool) {
 	return inspectMountSource(rt, name, "/workspace", run)
+}
+
+// InspectPrefixBinMount returns the host directory bound at the jail's install
+// prefix bin/ for `name`, or ("", false).
+//
+// It answers "where is this running container's pid1 actually coming from" for
+// the two callers that ask it about ONE container rather than about all of them:
+// the attach path's post-mortem, when an exec died because that binary was not
+// there, and (through LivePrefixSources) the reapers. The dest is the launcher's
+// own constant, so a container whose mount predates the mounted prefix answers
+// ("", false) — which is not an error, just an older jail.
+func InspectPrefixBinMount(rt, name string, run RunFunc) (string, bool) {
+	return inspectMountSource(rt, name, prefixBinMountDest, run)
 }
 
 // FindYoloWorkspaces returns the deduplicated, resolved host workspace paths for

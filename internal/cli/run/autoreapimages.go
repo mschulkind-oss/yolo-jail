@@ -1,8 +1,6 @@
 package run
 
 import (
-	"time"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
@@ -43,14 +41,7 @@ func (o *Options) autoReapOldImages(rt string) {
 		return
 	}
 	buildDir := paths.BuildDir()
-	run := func(argv []string, timeout time.Duration) prune.ProbeResult {
-		res := o.Exec(argv, "", nil, timeout)
-		// A timed-out probe still reports Ran=true with a zero-value RC
-		// (runcmd.go's realExec) — treat it as "did not run" so prune's
-		// `res.Ran && res.RC == 0` checks can't misread a killed process as a
-		// clean, empty success.
-		return prune.ProbeResult{Stdout: res.Stdout, RC: res.RC, Ran: res.Ran && !res.Timeout}
-	}
+	run := o.pruneRunFunc()
 	removed, ran, declined := prune.AutoReapOldImages(rt, buildDir, prune.DefaultKeepImages, o.Now(), run)
 	switch {
 	case declined != "":

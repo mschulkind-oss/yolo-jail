@@ -1374,6 +1374,14 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
 		return 1
 	}
+	// THE POST-MORTEM, on stderr and only when the exec itself failed. The
+	// runtime has already printed which path it could not stat; this says what
+	// that means and what to do, for the one cause that produces it — the jail's
+	// mounted binaries deleted out from under a running container. Silent for
+	// every other rc, and silent when it cannot prove the shape (brokenprefix.go).
+	if msg := o.diagnoseBrokenPrefix(rt, cname, rc); msg != "" {
+		o.pr(o.Stderr).print(msg)
+	}
 	sp = o.Perf.Span("shutdown.oom_check")
 	o.maybeWarnAboutOOMKiller(rc, rt)
 	sp.End()
