@@ -11,10 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -27,6 +27,14 @@ type Deps struct {
 	InJail              bool
 	LoadUserConfig      func() *jsonx.OrderedMap
 	LoadWorkspaceConfig func(cwd string) *jsonx.OrderedMap
+	// Format is the output format: "" / outfmt.Text (the human report,
+	// unchanged) or outfmt.JSON. The CLI front door resolves the flag family;
+	// see jsonreport.go for the documents.
+	//
+	// The VALIDATION warnings loopholesWithConfig writes to Err are unaffected by
+	// it, deliberately: a rejected config entry is a diagnostic about the config,
+	// not part of the report, and it belongs on stderr in both forms.
+	Format string
 }
 
 // RealDeps returns Deps backed by the real filesystem/config loaders.
@@ -160,6 +168,13 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 // List runs `yolo loopholes list`.
 func List(deps Deps) int {
 	all := loopholesWithConfig(deps, true).All()
+	// Before the empty-set branch, because the two forms answer that case
+	// differently on purpose: the human form explains where a loophole could come
+	// from, the document says "nothing is installed" and nothing else. See
+	// jsonreport.go.
+	if outfmt.IsJSON(deps.Format) {
+		return listJSON(deps, all)
+	}
 	if len(all) == 0 {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
 		// TWO SOURCES, not three. There used to be a `bundled:` line naming
@@ -177,24 +192,16 @@ func List(deps Deps) int {
 		return 0
 	}
 	for _, lh := range all {
-		var label string
-		switch {
-		case !lh.Enabled:
-			label = "disabled"
-		case lh.Superseded():
-			// The SHORT label, with the who and the why on their own continuation lines
-			// below. The full sentence names a pack, a capability and a free-text reason,
-			// which would blow the %-36s column and push every other line's name out of
-			// alignment — and the reason is the part a reader most needs to be able to
-			// read, so it gets a line of its own rather than a truncated column.
-			label = "inactive (superseded)"
-		default:
-			if reason, ok := lh.InactiveReason(); ok {
-				label = "inactive (" + reason + ")"
-			} else {
-				label = "active"
-			}
-		}
+		// The SHORT label. A superseded loophole's full sentence names a pack, a
+		// capability and a free-text reason, which would blow the %-36s column and
+		// push every other line's name out of alignment — and the reason is the part
+		// a reader most needs to be able to read, so it gets a continuation line of
+		// its own below rather than a truncated column.
+		//
+		// The state and its reason are computed by listState (jsonreport.go), which
+		// `--format json` reads too. One computation, two renderings: the states this
+		// column shows and the states the document reports cannot drift apart.
+		label := listLabel(listState(lh))
 		// Interception is a property of the intercept list, not of the transport
 		// string — see RuntimeArgsFor. The `transport=` fallback still prints for
 		// every non-intercepting loophole, which is what makes the active transport
@@ -252,6 +259,11 @@ func List(deps Deps) int {
 // Status runs `yolo loopholes status` (each loophole's doctor_cmd), including
 // the in-jail short-circuit.
 func Status(deps Deps) int {
+	// Before the in-jail short-circuit: the document reports that fact in a field
+	// rather than as a sentence (see statusJSON).
+	if outfmt.IsJSON(deps.Format) {
+		return statusJSON(deps)
+	}
 	if deps.InJail {
 		fmt.Fprintln(deps.Out, "Inside jail — doctor checks are host-side.  From the host: yolo loopholes status")
 		return 0
@@ -268,29 +280,8 @@ func Status(deps Deps) int {
 	// (docs/design/loophole-packaging.md §5.1). A withheld one is REPORTED, with the
 	// reason, rather than skipped: a skip is indistinguishable from `no-check`, which
 	// would read as "this loophole declares no self-check" — the wrong story entirely.
-	for _, r := range set.RunDoctorChecks(all, 10*time.Second) {
-		var prefix string
-		switch {
-		case !r.Loophole.Enabled:
-			prefix = "disabled"
-		// Between `disabled` and `unapproved`, mirroring Active()/InactiveReason(): a
-		// superseded loophole is off for a reason the user's own pack selection chose,
-		// which outranks every machine fact below it. Reporting it as `inactive` would
-		// send the reader after an unmet requirement that is not why it is off.
-		case r.Loophole.Superseded():
-			prefix = "superseded"
-		case !set.MayRunHostCode(r.Loophole):
-			prefix = "unapproved"
-		case !r.Loophole.RequirementsMet():
-			prefix = "inactive"
-		case r.RC != nil && *r.RC == 0:
-			prefix = "ok"
-		case r.RC == nil:
-			prefix = "no-check"
-		default:
-			prefix = "fail"
-		}
-		fmt.Fprintf(deps.Out, "  [%s] %s  rc=%s\n", prefix, r.Loophole.Name, rcStr(r.RC))
+	for _, r := range set.RunDoctorChecks(all, doctorCheckTimeout) {
+		fmt.Fprintf(deps.Out, "  [%s] %s  rc=%s\n", doctorState(set, r), r.Loophole.Name, rcStr(r.RC))
 		// The who and the why, for the same reason `loopholes list` carries them: a
 		// loophole a pack turned off must never be an unexplained absence, and `status` is
 		// the other command a user reaches for when one is not working.
@@ -384,4 +375,38 @@ func descriptionSuffix(description string) string {
 		return ""
 	}
 	return " — " + description
+}
+
+// doctorState is the bracketed prefix `yolo loopholes status` reports for one
+// doctor result, and the `state` its JSON form carries — one computation, two
+// renderings, for the reason jsonreport.go's header gives.
+//
+// THE ORDER OF THE CASES IS THE BEHAVIOUR. `superseded` sits between `disabled`
+// and `unapproved`, mirroring Active()/InactiveReason(): a superseded loophole is
+// off for a reason the user's own pack selection chose, which outranks every
+// machine fact below it, so reporting it as `inactive` would send the reader
+// after an unmet requirement that is not why it is off. And `no-check` (the
+// loophole declares no self-check) must stay distinct from `unapproved` (a check
+// that was withheld by the origin gate) — collapsing them tells the reader the
+// opposite of what happened.
+//
+// It takes the Set because `unapproved` is the SET's decision, not the
+// loophole's: the origin gate lives on the resolved set.
+func doctorState(set Set, r DoctorResult) string {
+	switch {
+	case !r.Loophole.Enabled:
+		return "disabled"
+	case r.Loophole.Superseded():
+		return "superseded"
+	case !set.MayRunHostCode(r.Loophole):
+		return "unapproved"
+	case !r.Loophole.RequirementsMet():
+		return "inactive"
+	case r.RC != nil && *r.RC == 0:
+		return "ok"
+	case r.RC == nil:
+		return "no-check"
+	default:
+		return "fail"
+	}
 }
