@@ -24,7 +24,7 @@ report — five gaps, each verified by running the binary) into buildable phases
 >    that shadowed it — and cross-pack, so neither author could see it (Phase 7).
 > 4. **Two packs at one `briefing` path** failed with podman's duplicate-mount-destination,
 >    though `briefing` is `CombineConcat` and the prose was already merged (Phase 7).
-> 5. **Same bug for `skills`** — `pack-system.md` [§14](../design/pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling)'s "known sharp edge", whose documented
+> 5. **Same bug for `skills`** — `pack-system.md` [§14](../reference/pack-system.md#config-surfaces-and-the-compose-engine)'s "known sharp edge", whose documented
 >    workaround was unfollowable in the configuration it most matters for. Fixed rather than
 >    documented, closing OQ-C (Phase 7).
 >
@@ -57,7 +57,7 @@ their own skills to the same agent by hand.** When that works, this plan is done
 
 **Reads with:** the handoff (the evidence);
 [`environment-manager-plan.md`](environment-manager-plan.md) (Phases 4/9 built the host
-notch this extends); [`../design/pack-system.md` §14](../design/pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling) (the
+notch this extends); [`../reference/pack-system.md` §14](../reference/pack-system.md#config-surfaces-and-the-compose-engine) (the
 schema-vs-shipped gap list this plan shortens);
 [`../design/host-render-target.md` (§2.1](../design/host-render-target.md#21-but-measure-how-much-of-a-pack-the-host-actually-wants)'s census, which
 G1 shows the renderer does not implement).
@@ -93,7 +93,7 @@ directly, never on `KindFiles`. So a `files` contribution today:
 
 That last state is the exact failure mode the codebase elsewhere treats as unacceptable
 (`fieldset.go`'s own doc comment: *"the silent skip is the failure mode G3 shipped"*).
-`pack-system.md` [§14](../design/pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling) lists `config-overlay` as "the one contribution kind that is inert."
+`pack-system.md` [§14](../reference/pack-system.md#config-surfaces-and-the-compose-engine) lists `config-overlay` as "the one contribution kind that is inert."
 **That is now wrong: `files` is inert too, and unlike `config-overlay` it is inert while
 `pack lint` and `pack footprint` both report it as working.** Fix the doc as part of this
 plan.
@@ -441,7 +441,7 @@ executable" stays false:
   code is how the next reader reintroduces the bug. State the new contract: `allow_exec`
   grants the exec bit **through** to the destination, which is what a consumer setting it
   means.
-- **3.4** Document in `config_ref.txt`'s `allow_exec` entry and in `pack-system.md` [§5](../design/pack-system.md#5-config-surfaces-and-the-compose-engine) that
+- **3.4** Document in `config_ref.txt`'s `allow_exec` entry and in `pack-system.md` [§5](../reference/pack-system.md#config-surfaces-and-the-compose-engine) that
   the exec bit is source-derived and consumer-gated.
 
 **Done when:** a `host_files` entry for `file-suggestion.sh` lands executable and survives a
@@ -571,7 +571,7 @@ and the jail is where the existing delivery machinery lives.
   `KindBriefing` cases already in `assemble.go:351`/`:423`. A pack's `files` tree is
   bind-mounted `:ro` at `into` — that is what the footprint (`read-only tree`) and the
   refusal string ("binds a pack tree into a jail") already claim happens.
-- **6.2** Mind the **known sharp edge** (`pack-system.md` [§14](../design/pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling)): the assembler emits one bind
+- **6.2** Mind the **known sharp edge** (`pack-system.md` [§14](../reference/pack-system.md#config-surfaces-and-the-compose-engine)): the assembler emits one bind
   per contribution with **no dedup by destination**, so two packs sharing an `into` fail the
   jail at boot with podman's "duplicate mount destination". `files` is `CombineExclusive`,
   so a second claimant is *already* a footprint collision — surface it as a **pre-flight
@@ -582,8 +582,8 @@ and the jail is where the existing delivery machinery lives.
   single file, which is why briefings go through `acMaterialize` (`assemble.go:427`). Route
   the same way, or a `files` contribution naming one file silently vanishes on that backend
   — the same class of bug as this whole plan.
-- **6.4** Remove `files` from `pack-system.md` [§14](../design/pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling)'s inert list and from Phase 0.2's doc
-  marking; add it to the honored set. Update the [§14](../design/pack-system.md#14-gaps-between-the-schema-and-the-shipped-tooling) claim that `config-overlay` is "the one
+- **6.4** Remove `files` from `pack-system.md` [§14](../reference/pack-system.md#config-surfaces-and-the-compose-engine)'s inert list and from Phase 0.2's doc
+  marking; add it to the honored set. Update the [§14](../reference/pack-system.md#config-surfaces-and-the-compose-engine) claim that `config-overlay` is "the one
   contribution kind that is inert" — it is accurate again only after this phase.
 - **6.5** Tests: a `files` pack's tree appears at `into` in a jail; two packs claiming one
   `into` fail pre-flight with both names.

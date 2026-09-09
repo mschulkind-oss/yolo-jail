@@ -62,7 +62,7 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 ### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
-[`pack-execution-trust.md`](../design/pack-execution-trust.md)
+[`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate)
 
 > [!NOTE]
 > **This row aggregates three docs while naming one** (reconciled 2026-09-03, recounted 2026-09-04).
@@ -70,13 +70,13 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 > ruling, **TP8 and TP9 ruled 2026-09-04**, and **TP7 RETIRED the same day because TP9 deleted its
 > subject**. ⚠ **[OQ-TP10](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
 > was OPENED 2026-09-04 by the TP9 build** — a wrapped plugin's hooks reach the agent's lifecycle
-> and appear in no launch banner, which falsifies a sentence TP9's own answer wrote. It needs you. ✅ **[OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04) closed 2026-09-04** — its two overdue documentation requirements are
-> delivered ([overview](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)):
+> and appear in no launch banner, which falsifies a sentence TP9's own answer wrote. It needs you. ✅ **[OQ-LP8](../reference/loophole-system.md#oq-lp8) closed 2026-09-04** — its two overdue documentation requirements are
+> delivered ([the loophole system reference](../reference/loophole-system.md#oq-lp8)):
 > *following a mutable ref IS the trust decision*, and **tag pins are the documented shape** for a
 > pack carrying code, both written into
 > [the packs guide](../guides/migrating-to-packs-and-host-management.md)'s *Sharing a pack with other
 > people*. **G2b is MOOT** — TP9 deleted the approval it would have anchored.
-> ⚠ **Corrected 2026-09-09:** this row used to say its remainder was routing to **[`OQ-X1`](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04)**, which was
+> ⚠ **Corrected 2026-09-09:** this row used to say its remainder was routing to **[`OQ-X1`](../reference/pack-system.md#why-there-is-no-approval-gate)**, which was
 > itself RETIRED 2026-09-04 (subsumed by TP9, which deleted the gate it asked about). **The one live
 > item here is [OQ-TP10](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)**, and it lives in
 > [`trust-paths.md`](../design/trust-paths.md). Read it there; this row is the routing table.
@@ -93,7 +93,7 @@ gate** — and one of them obviated a question rather than answering it:
 - ✅ **[OQ-TP6](../design/trust-paths.md#decision-ledger) — a refused contribution refuses the launch.** No partial packs: fix it, remove it, or
   approve it. **Built 2026-08-18** (`6385dfbb`). Both carry release-note entries.
 - ✅ **[OQ-TP2](../design/trust-paths.md#decision-ledger) — nothing explicit.** Agent context needs no gate and no separate disclosure: the
-  lockfile's commit pin closes over the whole tree, prose included. *Inherits [OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)/G2b — the pin is
+  lockfile's commit pin closes over the whole tree, prose included. *Inherits [OQ-LP8](../reference/loophole-system.md#oq-lp8)/G2b — the pin is
   recorded and never consulted at launch, so it covers this on paper until enforcement lands.*
 - ✅ **[OQ-TP1](../design/trust-paths.md#decision-ledger) obviated by TP6.** There is nothing to carry into a jail if no jail starts, so the
   origin-gate finding stops being a broken guarantee. **The fatal has since shipped** (`6385dfbb`),
@@ -112,11 +112,11 @@ What is still open:
   `kind: "env"` keys into the same process's environment one step EARLIER, ungated — so the derive
   computes a field the manifest can already state literally, and gating the computed path while the
   literal one is open is theatre. A pack also renders `config`/`skills`/`briefing` into the real home
-  at that notch. The disclosure stays the commit pin (**[OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)**), not a claim line.
-- ⛔ **[OQ-X1](../design/pack-execution-trust.md#-oq-x1--does-a-digest-pinned-installer-script-satisfy-p1-given-its-own-fetches-are-not-pinned--retired-2026-09-04) — RETIRED 2026-09-04**, subsumed by TP9, which deleted the gate it asked
+  at that notch. The disclosure stays the commit pin (**[OQ-LP8](../reference/loophole-system.md#oq-lp8)**), not a claim line.
+- ⛔ **[OQ-X1](../reference/pack-system.md#why-there-is-no-approval-gate) — RETIRED 2026-09-04**, subsumed by TP9, which deleted the gate it asked
   about. It asked whether a digest-pinned installer script counts, given its own fetches are not
   pinned. The finding survives as documentation in
-  [`pack-execution-trust.md` §5](../design/pack-execution-trust.md#5-the-shallow-pin-problem) — a
+  [`pack-execution-trust.md` §5](../reference/pack-system.md#why-there-is-no-approval-gate) — a
   pinned script is not a pinned binary — and the scenario stays unexpressible either way:
   `packdecl` has no digest field until [OQ-BP5](../design/broker-as-a-pack.md#open-questions) lands one.
 - ✅ **[OQ-TP9](../design/trust-paths.md#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) — RULED 2026-09-04: the fetched-pack approval prompt is THEATRE, deleted.** Selecting a
@@ -125,11 +125,11 @@ What is still open:
   a stronger one is what `gate-placement-principle.md` **Test 1** exists to delete. `userlayer.go`
   had already applied that test the same way to the sibling route. **Keep** `packs` user-scope-only
   (that half passes Test 1) and the startup disclosure banner. ⚠ **Corrected the same day:** the
-  follow-on is [OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04)'s two undelivered DOC requirements, not pin *enforcement* — a launch resolves
+  follow-on is [OQ-LP8](../reference/loophole-system.md#oq-lp8)'s two undelivered DOC requirements, not pin *enforcement* — a launch resolves
   from the local mirror, which only moves at `pack install`, so content is already frozen between
   installs; what deleting the gate does is make the lockfile **write-only at launch**. G2b is moot.
   **Both DOC requirements delivered 2026-09-04** (packs guide, *Sharing a pack with other people*),
-  which closes [OQ-LP8](../design/loophole-packaging-overview.md#oq-lp8--how-does-an-execution-approval-survive-a-moving-pin--ruled-and-delivered-2026-09-04).
+  which closes [OQ-LP8](../reference/loophole-system.md#oq-lp8).
 - ⛔ **[OQ-TP7](../design/trust-paths.md#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) — RETIRED 2026-09-04, subject deleted by TP9.** All six refusal sources gate on
   `p.MayAccessHost` alone, so with no approval there is no refusal for `yolo check` to fail to
   predict and no approve path to be unreachable from CI or offline. Its one durable finding: a future
@@ -357,7 +357,7 @@ broken. What is owed is the capability itself, and it is owed to the *next* pack
   decided at install time by whatever toolchain the machine has.
 - **[OQ-BP6](../design/broker-as-a-pack.md#open-questions)** — may a **fetched** pack ship a *host-side* daemon binary? Refusing it while permitting
   a fetched pack's arbitrary `host_daemon.cmd` would block the declarative form of a capability and
-  permit the imperative one — the shape [OQ-LP14](../design/loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn) already suffers from. *(The premise is now verified
+  permit the imperative one — the shape [OQ-LP14](../reference/loophole-system.md#oq-lp14) already suffers from. *(The premise is now verified
   with a file:line: a fetched `host_daemon.cmd` really is approvable today,
   `loopholesource.go:258-310`.)*
 
@@ -814,7 +814,7 @@ at, which the jail re-derives from the STAGED DIRECTORY because that is all it h
 those is fixed from the config line alone, before a git source is fetched or any manifest is read.
 `packload.LoadDir`'s manifest rung is real but unreachable: config lowering fills the name in
 first, at every production call site. Corrected in `packload.Pack`, `packdecl.Manifest`,
-`config.PackEntry`, `pack-system.md` [§2](../design/pack-system.md#2-the-manifest-contributes) and `config-ref`; pinned by
+`config.PackEntry`, `pack-system.md` [§2](../reference/pack-system.md#the-manifest) and `config-ref`; pinned by
 `run.TestConfiguredPackNameComesFromTheAddressNotTheManifest` (the reproduction, on the real
 staging path), `run.TestStagedPackNameIsWhatTheJailWillDerive`,
 `config.TestEveryLoweredPackEntryCarriesAName` and
@@ -1148,7 +1148,7 @@ deleted. All **five** loopholes are pack contributions now, `loopholes.ReservedL
 `paths.BuiltinLoopholeNames` are deleted whole, and **core's config schema names no loophole at
 all** — which was the point of the exercise rather than a side effect.
 
-**[OQ-LP14](../design/loophole-packaging-overview.md#oq-lp14--the-subset-cannot-say-a-socket-in-this-sessions-runtime-dir--resolved-2026-08-17--the-rule-is-withdrawn) is settled too, and by the better of its two answers.** It became a hard dependency the
+**[OQ-LP14](../reference/loophole-system.md#oq-lp14) is settled too, and by the better of its two answers.** It became a hard dependency the
 moment the goal grew from one loophole to the whole channel, and it closed on 2026-08-18 by
 **withdrawing the bind-host path rule rather than adding vocabulary for a runtime-dir socket** — a
 rule that admitted `~/.ssh` while refusing `${XDG_RUNTIME_DIR}/pulse/native` in every spelling. The

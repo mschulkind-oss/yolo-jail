@@ -1048,7 +1048,7 @@ echo '{"key": "OPENAI_API_KEY"}' | nc -U "$YOLO_SERVICE_AUTH_BROKER_SOCKET"
 # {"value": "sk-..."}
 ```
 
-That one-liner works **because a config-declared service is still a socket**. It does not generalize: against a manifest loophole's `_ENDPOINT` there is nothing for `nc` to do — a client there must read the endpoint file, pin the certificate named in it, and present the token in it, which needs a TLS library. See [`loophole-protocol.md`](../design/loophole-protocol.md) §"Writing a client from scratch".
+That one-liner works **because a config-declared service is still a socket**. It does not generalize: against a manifest loophole's `_ENDPOINT` there is nothing for `nc` to do — a client there must read the endpoint file, pin the certificate named in it, and present the token in it, which needs a TLS library. See [`loophole-protocol.md`](../reference/loophole-protocol.md) §"Writing a client from scratch".
 
 The secret never enters the jail filesystem, env vars, or any bind mount.
 

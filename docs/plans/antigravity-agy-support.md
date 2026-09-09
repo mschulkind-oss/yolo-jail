@@ -11,7 +11,7 @@ boot wiring, preflight, docs, tests).
 > `internal/agents/agents.go` reference below is therefore an unresolvable path, kept as written
 > because the plan is a record of how agy was added, not a map of where it lives. **For the current
 > shape, read [`../../AGENTS.md`](../../AGENTS.md) and
-> [`../design/pack-system.md`](../design/pack-system.md).**
+> [`../reference/pack-system.md`](../reference/pack-system.md).**
 
 **Purpose:** Define the design, requirements, touchpoints, and execution plan for adding support for Google Antigravity CLI (`agy`) as an agent in `yolo-jail`.
 

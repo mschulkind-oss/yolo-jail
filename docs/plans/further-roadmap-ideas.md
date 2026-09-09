@@ -254,7 +254,7 @@ say.
 ## 4. Two rows already on the roadmap that I would drop
 
 *(§[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass) generalises them into a class, found on the second pass. **Executed 2026-09-02:** (b) is
-done — OQ-CAP retired into `pack-capabilities.md` [§10](../design/pack-capabilities.md#10-open-question-design-detail)'s settled record, the one-line residue queued
+done — OQ-CAP retired into `pack-capabilities.md` [§10](../reference/pack-system.md#capabilities-and-supersession)'s settled record, the one-line residue queued
 under the roadmap's Small repairs; and 💬 12 with it, its OQ-B folded into 💬 8. (a) was already a
 bullet inside 💬 10 rather than a row, which is where it stays as evidence for the vocabulary
 ruling.)*

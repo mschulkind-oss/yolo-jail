@@ -45,7 +45,7 @@ accident.
 
 **If the goal is the full pack rip-out**, tranches 0–2 are its prerequisites, not a detour.
 The rip-out and the pack-declaration reform are both complete; the current design of record
-is [pack-system.md](../design/pack-system.md).
+is [pack-system.md](../reference/pack-system.md).
 
 **One item in tranche 3 is not like the others.** 3.9 ("where does composition run?") is a
 *fork in the architecture*, not a task — it reprices 3.1, 3.2, 3.3 and the entire

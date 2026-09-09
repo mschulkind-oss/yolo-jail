@@ -37,10 +37,10 @@ select it). All three are recorded at the item with the evidence.
 architectural but names no reachable user. It accretes exactly the junk the review was
 guarding against.
 
-**Reads with:** [`../design/program-kind-defects.md`](../design/program-kind-defects.md)
+**Reads with:** [`../reference/pack-system.md#program`](../reference/pack-system.md#program)
 (Q1.1–Q3.1), [`pack-host-management-plan.md`](pack-host-management-plan.md) Phase 11 and
-items 8.3/8.4, [`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md)
-[§8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not), and [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger).
+items 8.3/8.4, [`../reference/pack-system.md#config-surfaces-and-the-compose-engine`](../reference/pack-system.md#config-surfaces-and-the-compose-engine)
+[§8](../reference/pack-system.md#config-surfaces-and-the-compose-engine), and [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger).
 
 ---
 
@@ -571,7 +571,7 @@ self-updates; the jail's own launcher checks npm hourly).
 So nixpkgs is *not* uniformly stale — but it is badly stale for at least one, and nothing about
 the packaging tells a user which. A remedy line that says `nix profile install
 nixpkgs#github-copilot-cli` hands them a version 16 releases old **without saying so**, which is
-the same class of quiet wrongness as the provenance misreport in [§8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not) of the collaboration doc.
+the same class of quiet wrongness as the provenance misreport in [§8](../reference/pack-system.md#config-surfaces-and-the-compose-engine) of the collaboration doc.
 
 ### There is no "pin-the-closure" case — I invented it. **Drop the nix hints for agent CLIs.**
 
@@ -699,7 +699,7 @@ promises. Worth fixing whether or not any host-nix work happens.
 
 ---
 
-## 8. `rmwProvenance` as a second "which layer won" ([§8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not) caveat)
+## 8. `rmwProvenance` as a second "which layer won" ([§8](../reference/pack-system.md#config-surfaces-and-the-compose-engine) caveat)
 
 Host provenance derives the winner by **replaying write order**; `Compose` derives it by
 **folding layers**. Two implementations of one concept.

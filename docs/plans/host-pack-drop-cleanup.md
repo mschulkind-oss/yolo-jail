@@ -159,7 +159,7 @@ nothing the user asked for was skipped, and a permanent non-zero exit would make
 
 **R2 — Archive, never delete.** Retirement moves content under the archive root with the
 apply's stamp (`hostskills.Archive`), reclaimed by `yolo prune`. Already promised by
-`docs/design/pack-system.md:797`. **SHIPPED** — verified reclaimable through
+`../reference/pack-system.md:797`. **SHIPPED** — verified reclaimable through
 `yolo prune`'s existing "Host-render archive" sweep, which needed no change.
 
 **R3 — Overlay keys are a pure assertion; drop them with the same confirm.** An overlay key

@@ -27,7 +27,7 @@ switched by a top-level `journal` config key, the other by nothing at all. `audi
 `host-processes` came out of `bundled_loopholes/`. `claude-oauth-broker` was the last
 inhabitant of that directory and is now a **contribution of `packs/claude`**, not a pack
 of its own: the dependency is structural, so selecting the claude pack is the dependency
-(loophole-activation.md OQ-A10). `bundled_loopholes/` and its embed are DELETED.
+(`docs/reference/loophole-system.md` OQ-A10). `bundled_loopholes/` and its embed are DELETED.
 Three consequences worth knowing before touching any of this: `paths.BuiltinLoopholeNames`
 and `loopholes.ReservedLoopholeNames` are both GONE (a reserved name and a pack-shipped
 name cannot be the same name — the pre-flight is fatal, so it refuses every launch that
@@ -92,7 +92,7 @@ wrong within weeks. Everything is Go; the
 only bash/Python left is generated *content* (shims, `.bashrc`) emitted by
 `internal/entrypoint` — **no generated in-jail CLIENT survives**, because two
 implementations of one client is the drift the transport unification exists to
-end (`docs/design/loophole-transport.md` §8.4).
+end (`docs/reference/loophole-transport.md`, *the one service that cannot move*).
 
 | Binary | Runs where | Role |
 |---|---|---|
@@ -561,13 +561,13 @@ there is no sync step.
 |---|---|
 | Config keys, all of them | `yolo config-ref` |
 | Pack manifest schema | `internal/packdecl/packdecl.go` (the doc comments ARE the reference) |
-| Pack authoring + the `packs` key | `yolo pack --help`, `docs/design/pack-system.md` |
+| Pack authoring + the `packs` key | `yolo pack --help`, `docs/reference/pack-system.md` |
 | CLI surface | `yolo --help` |
 | End-user usage, devices/GPU, mise tools, `yolo-cglimit` | `docs/guides/USER_GUIDE.md` |
 | Mounts, overlays, home layout | `docs/design/jail-home.md` |
 | Per-agent briefing generation | `docs/design/agent-briefings.md` |
 | MCP/LSP config, node wrappers, `LD_LIBRARY_PATH` story | `docs/design/mcp-configuration.md` |
-| Loopholes (`audio`, `host-processes`, `journal`, `cgroup-delegate` in packs of their own; `claude-oauth-broker` contributed by `packs/claude`) | `docs/guides/loopholes.md`, `docs/design/loophole-protocol.md` |
+| Loopholes (`audio`, `host-processes`, `journal`, `cgroup-delegate` in packs of their own; `claude-oauth-broker` contributed by `packs/claude`) | `docs/guides/loopholes.md`, `docs/reference/loophole-protocol.md` |
 | Config-change confirmation flow | `docs/design/config-safety.md` |
 | Timing spans: `--timing`, `--verbose`, `perf_logging`, the host perf log, Window A attribution | `docs/reference/perf-logging.md` |
 | Storage paths and state separation | `docs/design/storage-and-config.md` |

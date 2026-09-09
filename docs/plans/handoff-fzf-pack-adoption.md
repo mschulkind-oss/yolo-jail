@@ -120,7 +120,7 @@ updater (and nixpkgs was 16 releases behind on `github-copilot-cli`).
 
 `apply --host` used to print `claude/settings rendered` **twice** for this pack — once per
 declaring pack. That was ruling **R4** in
-[`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md), and Option 1
+[`../reference/pack-system.md#config-surfaces-and-the-compose-engine`](../reference/pack-system.md#config-surfaces-and-the-compose-engine), and Option 1
 settled it by **refusing** the clash rather than deduping the line: two `config` declarations of
 one identity are now a collision, so the state that produced the second line cannot arise. An
 overlay-based pack (which this one now is) prints exactly one line — and always did.
@@ -201,7 +201,7 @@ reading only the pack would miss these.
 ## 5. Three product defects this pack surfaced
 
 All three are why [§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03) exists. Full context and the decisions needed are in
-[`../design/program-kind-defects.md`](../design/program-kind-defects.md); Phase 11 of the plan
+[`../reference/pack-system.md#program`](../reference/pack-system.md#program); Phase 11 of the plan
 lists them as work items. Summarized so a successor does not rediscover them:
 
 1. **A `program` contribution shadows a baked binary and breaks it** — the launcher execs a

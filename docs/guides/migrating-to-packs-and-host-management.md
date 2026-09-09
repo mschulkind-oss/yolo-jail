@@ -181,7 +181,7 @@ static env var:
 of the file alone — the key property that makes host management safe (Part 2).
 
 The manifest schema is documented in full by `yolo config-ref` (the `packs` section) and
-[../design/pack-system.md](../design/pack-system.md).
+[../reference/pack-system.md](../reference/pack-system.md).
 
 ### Step 3: lint it — before you ever launch a jail
 
@@ -535,4 +535,4 @@ Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environm
 | In-jail: is a restart owed? | `yolo config drift` |
 
 Full schema: `yolo config-ref`. The pack system in depth:
-[../design/pack-system.md](../design/pack-system.md).
+[../reference/pack-system.md](../reference/pack-system.md).

@@ -16,7 +16,7 @@ it. Where a question has no design doc of its own, **Stage E below is that doc.*
 
 **Current state (2026-08-23).** Stages A–F are complete, and the pack-declaration reform
 that produced today's `contributes[]` design is shipped (see
-[../design/pack-system.md](../design/pack-system.md)).
+[../reference/pack-system.md](../reference/pack-system.md)).
 
 **Stage G is no longer this file's problem, and its headline bug is fixed.** The old header
 here said *"Stage G — host-side composition — is the one substantive open pack-adjacent
@@ -52,7 +52,7 @@ restated in [roadmap.md](roadmap.md) instead of linked from it.
 | Doc | Answers | Read it when |
 |---|---|---|
 | [../design/composed-file-permissions.md](../design/composed-file-permissions.md) | ro/rw postures, the Derived/Shared/State taxonomy, the defect audit, writer classes | touching any composed file's permissions or the capture overlay |
-| [../design/pack-system.md](../design/pack-system.md) | **the pack system, whole**: the `contributes[]` manifest, the **fifteen** kinds + footprints + conflict rules (ten when this row was written; the count is pinned by `packdecl/kinds_test.go`), the one-writer rule, the compose engine, `derive`, and selection/fetch/origin-gate | authoring, debugging, or changing a pack; changing the schema or a kind |
+| [../reference/pack-system.md](../reference/pack-system.md) | **the pack system, whole**: the `contributes[]` manifest, the **fifteen** kinds + footprints + conflict rules (ten when this row was written; the count is pinned by `packdecl/kinds_test.go`), the one-writer rule, the compose engine, `derive`, and selection/fetch/origin-gate | authoring, debugging, or changing a pack; changing the schema or a kind |
 | [../design/yolo-as-environment-manager.md](../design/yolo-as-environment-manager.md) | **what yolo is**: confinement as a `jail`/`sandbox`/`host` dial rather than a `runtime` backend choice, the description as the product, the verbs (`apply`/`describe`/`diff`/`check --at`), what a pack means per notch, and what the wider identity costs | deciding whether a feature is jail-shaped, adding a config key, or writing user-facing copy |
 | [../design/environment-manager-user-stories.md](../design/environment-manager-user-stories.md) | the same design **from the outside**: five worked stories (drift across two machines, a Mac fleet rollout that hits G3 then G1, the minimal-ladder user, the agent reading its own briefing at `host`, a security questionnaire) — plus **11** open questions the stories surfaced (Q1 · Q1a · Q1b · Q2–Q9; the row said 8) | pressure-testing a verb's output, or deciding what `apply`/`describe` must print |
 | [../design/host-render-target.md](../design/host-render-target.md) | **the host as a reduced render target**: the two duplicated render paths and the one `Target`-parameterized renderer that replaces them, which manifest fields even apply off-container, the confinement axis (jail / macos-user / host), `FieldSet` | adding a backend, touching host-side `config reset`/`capture`, or changing the boot render |
@@ -448,12 +448,12 @@ with different values is undetected, and the loser is never told.
 layer is labelled `config-overlay:<pack>` (`internal/agentcfg/compose.go:170-176`) and
 `yolo config diff` prints it. That is **after-the-fact reporting, not a refusal**, and at the
 HOST notch the annotation is *inferred rather than measured*:
-[pack-config-collaboration.md §8](../design/pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not) *"Still open after
+[pack-config-collaboration.md §8](../reference/pack-system.md#config-surfaces-and-the-compose-engine) *"Still open after
 Option 2"* measures it printing `fileSuggestion contributed by fzf-overlay but managed won`
 when the overlay's value is the one that actually landed and no `managed` value existed.
 
 **Stakes.** Nothing is blocked. No shipped pack collides — all declare disjoint identities
-([§9](../design/pack-config-collaboration.md#9-what-building-option-1-settled-that-this-doc-did-not) *"What it did NOT change"*). *(Freshness note 2026-09-02: the kind stopped being hypothetical —
+([§9](../reference/pack-system.md#config-surfaces-and-the-compose-engine) *"What it did NOT change"*). *(Freshness note 2026-09-02: the kind stopped being hypothetical —
 `packs/zai` is the first shipped `config-overlay` contributor (`980aed71`, targeting
 `claude/settings`, gated on its profile), and it is that surface's sole contributor, so the
 no-collision fact still holds. `568d5a3a`'s `profile` gate changes *whether* an overlay
@@ -461,7 +461,7 @@ participates, not what happens when two active overlays share a key — last-one
 re-verified in `internal/packoverlay` which has no collision logic.)* It is worth deciding anyway
 because the **neighbouring kind answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
 declaration is a LOUD collision, named in `yolo pack footprint` and refused at launch and by
-`yolo host apply` ([§9](../design/pack-config-collaboration.md#9-what-building-option-1-settled-that-this-doc-did-not)). Two adjacent kinds with opposite silence policies is the drift.
+`yolo host apply` ([§9](../reference/pack-system.md#config-surfaces-and-the-compose-engine)). Two adjacent kinds with opposite silence policies is the drift.
 Provenance: born 2026-08-13 (`58ae8227`) as the generic residue of the retired auth-pack
 `provides` mechanism — *"not auth-specific, and nothing is blocked on it."*
 

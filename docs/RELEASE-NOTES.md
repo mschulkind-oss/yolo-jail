@@ -660,7 +660,7 @@ directory over — and the file's `0600` mode protects nothing there, because a 
 as UID 0 by design. Requiring the manifest to say what crosses is the least-privilege spelling
 `state_files` was introduced for; the alternative — quietly subtracting one file from a mount
 the author declared — would be a carve-out the author cannot see.
-📄 [`pack-config-keys.md` §2.3](design/pack-config-keys.md#23-delivery-a-file-yolo-owns-named-by-a-token).
+📄 [`pack-config-keys.md` §2.3](reference/pack-system.md#a-packs-own-config-keys).
 
 ### ⚠️ `yolo-cglimit` stops working out of the box
 
@@ -692,7 +692,7 @@ host-side service in the tree, and *"the moment one builtin stays presence-activ
 The counter-argument was heard and overruled: the delegate hands a jail control of **its
 own** cgroup rather than reading host state, so the severity is genuinely lower — but the
 rule is about the mechanism, not the severity, and a rule with one exception is two rules.
-📄 [`loophole-activation.md`](design/loophole-activation.md) [OQ-A4](design/loophole-activation.md#decision-ledger), R1.
+📄 [`loophole-activation.md`](reference/loophole-system.md#activation) [OQ-A4](reference/loophole-system.md#activation), R1.
 
 > [!NOTE]
 > **`loopholes.cgroup-delegate` used to be a config ERROR** — the name was reserved for the
@@ -750,8 +750,8 @@ as **full**.
 **Why.** Core's config schema named exactly two loopholes by hand, and `host_processes`
 (above) was the first to go. With this one gone, **yolo's config schema names no loophole
 at all** — which is what makes converting a loophole to a pack mean something rather than
-moving a file. 📄 [`loophole-activation.md` §1.4](design/loophole-activation.md#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name), [OQ-A6](design/loophole-activation.md#decision-ledger) ·
-[`pack-config-keys.md`](design/pack-config-keys.md) [OQ-K4](design/pack-config-keys.md#decision-ledger).
+moving a file. 📄 [`loophole-activation.md` §1.4](reference/loophole-system.md#activation), [OQ-A6](reference/loophole-system.md#activation) ·
+[`pack-config-keys.md`](reference/pack-system.md#a-packs-own-config-keys) [OQ-K4](reference/pack-system.md#a-packs-own-config-keys).
 
 > [!NOTE]
 > **Nothing jail-facing moved.** `yolo-journalctl` is unchanged, the env var is still
@@ -785,7 +785,7 @@ loophole's own:
 Note the remaining gate this does **not** remove: the loophole still requires `claude` on the
 host's PATH, so a jail-only Claude user is still unprotected. That is a live defect with its
 own fix pending — the loophole moving inside `packs/claude`, where selecting the pack is the
-dependency. 📄 [`loophole-activation.md` §1.1](design/loophole-activation.md#11-the-sniff-and-the-bug-it-is-causing-right-now), [OQ-A11](design/loophole-activation.md#decision-ledger).
+dependency. 📄 [`loophole-activation.md` §1.1](reference/loophole-system.md#activation), [OQ-A11](reference/loophole-system.md#activation).
 
 ### ⚠️ The top-level `host_processes` key is gone, and `yolo-ps` needs a pack now
 
@@ -831,8 +831,8 @@ leave core while core went on naming it. The keys now belong to the loophole's o
 manifest. The refusal exists rather than silence because this block decided what a host
 daemon would reveal about your machine: a config that still writes it and gets nothing
 has been denied a capability it asked for, in the one direction where silence reads as
-success. 📄 [`loophole-activation.md` §1.4](design/loophole-activation.md#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) ·
-[`pack-config-keys.md`](design/pack-config-keys.md).
+success. 📄 [`loophole-activation.md` §1.4](reference/loophole-system.md#activation) ·
+[`pack-config-keys.md`](reference/pack-system.md#a-packs-own-config-keys).
 
 ### ⚠️ `host_processes.visible` moved, and it no longer applies without a restart
 
@@ -871,7 +871,7 @@ property that let *you* widen an allowlist without restarting let the **agent in
 jail** widen its own — mid-session, with no launch, and therefore with no
 config-approval prompt anywhere in the causal path. Freezing the value at launch puts
 the change back behind the gate that already exists. 📄
-[`pack-config-keys.md`](design/pack-config-keys.md) [OQ-K3](design/pack-config-keys.md#decision-ledger).
+[`pack-config-keys.md`](reference/pack-system.md#a-packs-own-config-keys) [OQ-K3](reference/pack-system.md#a-packs-own-config-keys).
 
 > [!NOTE]
 > **This was the first half of a two-step move, and the second half has now shipped** —
@@ -900,7 +900,7 @@ ignored — yolo will not hand a host daemon a value it could not validate.
 One default worth knowing: **an undeclared `scope` means user-config-only.** A setting
 can reach a host daemon, so silence is the strict answer; a key a workspace
 `yolo-jail.jsonc` may set has to say `"scope": "workspace"` out loud. 📄
-[`pack-config-keys.md`](design/pack-config-keys.md).
+[`pack-config-keys.md`](reference/pack-system.md#a-packs-own-config-keys).
 
 ### ⚠️ npm-installed agent CLIs no longer update themselves
 
@@ -1017,7 +1017,7 @@ ALSA→PipeWire routing. Two details differ and neither changes what works:
   for someone who just asked for audio.
 
 **Why.** *"We don't give host access by default."* Being useful is not a reason to be automatic —
-[`loophole-activation.md`](design/loophole-activation.md) R1 and R4. The move out of the binary is
+[`loophole-activation.md`](reference/loophole-system.md#activation) R1 and R4. The move out of the binary is
 the same rule one level up: shipped-in-the-binary is not installed.
 
 > [!WARNING]

@@ -69,11 +69,11 @@ are `yolo config dump` (the canonical computed-config dump `describe` absorbed a
 `describe --json`) and `yolo config drift` (the in-jail cousin of the drift/sealing story). The pack system —
 `contributes[]`, the twelve kinds, the compose engine, fetched-pack install-time
 approval — is shipped and is the substrate every phase renders through
-([`../design/pack-system.md`](../design/pack-system.md)).
+([`../reference/pack-system.md`](../reference/pack-system.md#selection-and-the-load-path)).
 
 **Reads with:** the design doc (the spec); [`BACKLOG.md`](BACKLOG.md) Stage G +
 [`../design/host-render-target.md`](../design/host-render-target.md) (Phase 1's
-detailed design); [`../design/pack-system.md`](../design/pack-system.md) (the pack
+detailed design); [`../reference/pack-system.md`](../reference/pack-system.md#selection-and-the-load-path) (the pack
 substrate); [`happy-path-principle.md`](../design/happy-path-principle.md) (the
 constraint on how many knobs each phase may expose).
 
@@ -689,7 +689,7 @@ implementing any phase.
 - **[OQ-2](#open-questions-to-resolve-before-their-phase) — Is host management user-scoped, with the workspace contributing nothing? →
   RESOLVED: YES (2026-08-01).** What `yolo host apply` asserts is a function of your *user*
   config + the packs *you* installed, never of the repo you ran it from — the same
-  user-scope rule packs already enforce (`pack-system.md` [§8](../design/pack-system.md#8-selection-and-the-load-path)), written up as
+  user-scope rule packs already enforce (`pack-system.md` [§8](../reference/pack-system.md#selection-and-the-load-path)), written up as
   `host-render-target.md` [§6.6](../design/host-render-target.md#66-a-host-target-is-user-scoped-not-workspace-scoped). *Consequence:* the "two workspaces collide" question is
   void (one description, one owner); `${workspace}` surfaces are refused on host; any host
   capture overlay is user/machine-scoped, keyed by target file, never by workspace.
