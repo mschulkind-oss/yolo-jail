@@ -557,6 +557,16 @@ attempt was refused for liveness.
 
 ### 5.5 `yolo stores` — the inventory, including what nothing reclaims
 
+> [!NOTE]
+> **BUILT 2026-09-08 — `internal/cli/stores`.** `yolo stores [--json] [--age] [--no-record]`,
+> registered in the CLI dispatch table, with [OQ-BF9](#OQ-BF9)'s bounded sample ledger at
+> `<state>/stores/<store>.samples` and the [OQ-DF3](./minimal-disk-footprint.md#OQ-DF3) REACH
+> warning row (untagged podman rows: count, bytes, why yolo declines, and that `podman image
+> prune` is the user's to run). Two deviations from the plan's file map, both forced: the engine
+> lives in the command's own package rather than `internal/prune/stores.go` (that package was
+> being edited by a concurrent slice), and the 60 s budget is enforced by a walker in that
+> package rather than by a deadline seam on `purgeOldFilesUnder`, for the same reason.
+
 **Decided by the maintainer, 2026-09-07:** before any of the dispositions above are built, yolo gets
 a command that lists every store and its size — *"even if we need some time to chip away at their
 control."* This section is that command's design. It is the executable form of
@@ -737,7 +747,7 @@ verdict.
 | [OQ-BF6](#OQ-BF6) | **`ImageCacheKeep` 0 on podman, unchanged at 3 on Apple Container** until [OQ-DF2](./minimal-disk-footprint.md#OQ-DF2) names the component that deletes on success. Zero retained tars is not zero tars readable — the fallback READER survives | 2026-09-08 | [§3](#3-the-levers-ranked) L4, [§5.3](#53-triggers-defaults-and-the-post-launch-slot) | ✅ `a9a7dbb0` |
 | [OQ-BF7](#OQ-BF7) | **Retired from the question list — an outage with one measured cause needs a fix, not a disposition.** Shipped as a **refusal** (`prefixUnreachableFromVM`), not as staging or baking. Its claimed coupling to BF3/BF4 is discharged: under the refusal there is no third place for the prefix to live | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF7](#OQ-BF7) | ✅ `6a855b6d` |
 | [OQ-BF8](#OQ-BF8) | **Dissolved — the premise is being removed.** Liveness moves to `podman ps` ([`the-load-sentinel-is-not-a-liveness-oracle.md`](./the-load-sentinel-is-not-a-liveness-oracle.md)), so the LRU stops being retention and the cap needs no derivation. It is **not** deleted: it keeps its MRU role for GC roots and the load diagnosis, and whether that half survives is [OQ-LS1](./the-load-sentinel-is-not-a-liveness-oracle.md#OQ-LS1) | 2026-09-08 | [§2.2](#22-the-image-reap-priced-against-this-store) | n/a — dissolved |
-| [OQ-BF9](#OQ-BF9) | **Yes — one dated line per store per run, default on, `--no-record` to opt out, `yolo stores` the single writer, bounded to 30 samples per store.** Unblocks [OQ-DF4](./minimal-disk-footprint.md#OQ-DF4), which has been waiting for a first sample; rule this first | 2026-09-08 | [§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims) | ⬜ |
+| [OQ-BF9](#OQ-BF9) | **Yes — one dated line per store per run, default on, `--no-record` to opt out, `yolo stores` the single writer, bounded to 30 samples per store.** Unblocks [OQ-DF4](./minimal-disk-footprint.md#OQ-DF4), which has been waiting for a first sample; rule this first | 2026-09-08 | [§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims) | ✅ `e85e0690` |
 | [OQ-BF10](#OQ-BF10) | **Content-addressed stores only — and the reason is injection, not size.** A path-keyed store like `named_caches` lets a jail write content the host tool reads because of where it sits; a CAS rejects a blob that does not match its digest. Gated on matching OS and arch, writable, never on macOS. Scope stops here pending a post-implementation storage analysis | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF10](#OQ-BF10) | ⬜ later slice |
 
 ### 11.2 The questions as argued
@@ -1109,7 +1119,7 @@ row cannot carry them.
    > [OQ-BF4](#OQ-BF4)'s prefix roots must not be protected by the sentinel — see that entry's
    > correction, which is this same mistake in a new place.
 
-9. ✅ **[OQ-BF9](#OQ-BF9) — RULED 2026-09-08 (the maintainer's words, verbatim): may `yolo stores` write a sample ledger, so growth is measurable at all?** A
+9. ✅ **[OQ-BF9](#OQ-BF9) — RULED 2026-09-08, BUILT 2026-09-08 (`internal/cli/stores`; the maintainer's words, verbatim): may `yolo stores` write a sample ledger, so growth is measurable at all?** A
    growth rate needs two dated samples, and a read-only command cannot produce the first one.
    Almost every "growth" cell in [§2.1](#21-every-store-one-table) reads NOT MEASURED for exactly this reason — there
    was no second sample — so the inventory would ship able to say how big a store is and unable to
