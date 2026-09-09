@@ -87,6 +87,15 @@ type Options struct {
 	// Color=false output (verified by test), so goldens pin Color=false. It is
 	// only honored when IsTTYStdout() is also true (never leak ANSI to a pipe).
 	Color bool
+	// Format is the output format: "" / outfmt.Text (the human report,
+	// unchanged) or outfmt.JSON. The CLI front door resolves the flag family.
+	//
+	// It changes only the RENDERING. Every section still runs, in the same order,
+	// with the same side effects — including the nix image build under --build —
+	// because `check --format json` is asked the same question as `check`, and a
+	// JSON run that quietly probed less would be a different command wearing the
+	// same name. See jsonreport.go.
+	Format string
 	// IsTTYStdout reports whether Stdout is a real terminal — the color gate, so
 	// ANSI reaches only a terminal. nil => the shared internal/tty ioctl probe on
 	// os.Stdout. Tests inject a constant to force color on/off over a buffer.

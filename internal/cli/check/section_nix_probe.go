@@ -12,7 +12,7 @@ import (
 // connectivity check, the extra-platforms footgun warning, and the positive
 // "Linux builder configured" line.
 func (o *Options) sectionNix(r *reporter) {
-	r.section("Nix")
+	r.sectionHeader("Nix")
 	nixPath, hasNix := o.LookPath("nix")
 	if hasNix {
 		res := o.Exec([]string{"nix", "--version"}, "", nil, 5*time.Second)

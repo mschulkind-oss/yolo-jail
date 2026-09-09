@@ -22,12 +22,24 @@ const (
 )
 
 // reporter accumulates the pass/warn/fail counts and writes the report.
+//
+// It also RECORDS every graded finding, because it is the one sink they all pass
+// through: ok/fail/warn are the only three functions that can produce a [PASS],
+// [FAIL] or [WARN] line, and configWarn routes the config loaders' findings onto
+// warn rather than to a channel of its own. That single-sink property — the same
+// one that lets the summary count honestly — is what makes `--format json` a
+// recording rather than a second traversal of the sections (see jsonreport.go).
 type reporter struct {
 	w      io.Writer
 	color  bool
 	passed int
 	warned int
 	failed int
+	// section is the header most recently printed, stamped onto each finding so
+	// a consumer can attribute one without re-deriving the section order.
+	section  string
+	version  string
+	findings []Finding
 }
 
 func newReporter(w io.Writer, color bool) *reporter {
@@ -38,8 +50,13 @@ func (r *reporter) line(s string) { fmt.Fprintln(r.w, s) }
 
 func (r *reporter) blank() { fmt.Fprintln(r.w) }
 
-// section prints a bold section header.
-func (r *reporter) section(name string) {
+// sectionHeader prints a bold section header and remembers it as the section
+// subsequent findings belong to.
+//
+// It was named `section` until the reporter grew a field of that name. The
+// rename is mechanical; the recording is the point.
+func (r *reporter) sectionHeader(name string) {
+	r.section = name
 	r.line(r.style(name, ansiBold))
 }
 
@@ -64,12 +81,14 @@ func (r *reporter) note(text string) {
 // ok increments the pass count and prints " [PASS] msg".
 func (r *reporter) ok(msg string) {
 	r.passed++
+	r.record("pass", msg, "")
 	r.line("  " + r.style("[PASS]", ansiBoldGreen) + " " + msg)
 }
 
 // fail increments the fail count and prints " [FAIL] msg" + optional note.
 func (r *reporter) fail(msg, note string) {
 	r.failed++
+	r.record("fail", msg, note)
 	r.line("  " + r.style("[FAIL]", ansiWhiteOnRed) + " " + msg)
 	r.note(note)
 }
@@ -77,6 +96,7 @@ func (r *reporter) fail(msg, note string) {
 // warn increments the warn count and prints " [WARN] msg" + optional note.
 func (r *reporter) warn(msg, note string) {
 	r.warned++
+	r.record("warn", msg, note)
 	r.line("  " + r.style("[WARN]", ansiBlackOnYel) + " " + msg)
 	r.note(note)
 }
@@ -130,7 +150,7 @@ func (r *reporter) styledCount(n int, label, sgr string) string {
 // summaryFailOnly renders the Config-Files early-exit summary: just the fail
 // count (warnings are NOT shown here even if present).
 func (r *reporter) summaryFailOnly() {
-	r.section("Summary")
+	r.sectionHeader("Summary")
 	r.line("  " + r.styledCount(r.failed, "failed", ansiRed))
 	r.blank()
 }
@@ -138,7 +158,7 @@ func (r *reporter) summaryFailOnly() {
 // summaryFailWarn renders the merged-validation early-exit summary: fail count
 // plus warnings when any.
 func (r *reporter) summaryFailWarn() {
-	r.section("Summary")
+	r.sectionHeader("Summary")
 	parts := []string{r.styledCount(r.failed, "failed", ansiRed)}
 	if r.warned > 0 {
 		parts = append(parts, r.styledCount(r.warned, "warnings", ansiYellow))
@@ -150,7 +170,7 @@ func (r *reporter) summaryFailWarn() {
 // summaryFinal renders the end-of-run summary: passed + optional failed +
 // optional warnings.
 func (r *reporter) summaryFinal() {
-	r.section("Summary")
+	r.sectionHeader("Summary")
 	parts := []string{r.styledCount(r.passed, "passed", ansiGreen)}
 	if r.failed > 0 {
 		parts = append(parts, r.styledCount(r.failed, "failed", ansiRed))

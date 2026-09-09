@@ -43,7 +43,7 @@ func (o *Options) sectionPacks(r *reporter) {
 	// The header and the trailing blank are now UNCONDITIONAL — every branch below
 	// prints something, and the separator used to be missing because the section only
 	// existed for pack users (it ran straight into "Entrypoint Dry-Run").
-	r.section("Packs")
+	r.sectionHeader("Packs")
 	defer r.blank()
 
 	// Per-entry problems land on r.configWarn as GRADED [WARN] rows the summary counts.

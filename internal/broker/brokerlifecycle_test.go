@@ -129,6 +129,10 @@ func TestBrokerStatusShape(t *testing.T) {
 		PID: 99, PIDPresent: true, PIDLive: true,
 		SocketExists: true, Reachable: true,
 		Socket: deps.SocketPath, PIDFile: deps.PIDFilePath,
+		// The verdict PrintStatus's last line and its exit code both read, now a
+		// field so the human report, the JSON document and the exit code cannot
+		// each decide "healthy" for themselves. This fixture is the healthy one.
+		Healthy: true,
 	}
 	if got != want {
 		t.Errorf("status = %+v, want %+v", got, want)
@@ -138,7 +142,7 @@ func TestBrokerStatusShape(t *testing.T) {
 	st2 := &fakeState{}
 	deps2 := newFakeDeps(t, st2)
 	got2 := BrokerStatus(deps2)
-	if got2.PIDPresent || got2.PIDLive || got2.SocketExists || got2.Reachable {
+	if got2.PIDPresent || got2.PIDLive || got2.SocketExists || got2.Reachable || got2.Healthy {
 		t.Errorf("empty status wrong: %+v", got2)
 	}
 	if got2.Socket != deps2.SocketPath || got2.PIDFile != deps2.PIDFilePath {

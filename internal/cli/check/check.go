@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -29,7 +30,10 @@ func Check(opts Options) int {
 	// os.Stdout; a test buffer or a redirect reports false, so goldens stay
 	// Color=false. Mirrors run's `Color && IsTTYStdout()`.
 	color := o.Color && o.IsTTYStdout()
-	r := newReporter(o.Stdout, color)
+	// In JSON mode the human report is DISCARDED, not reshaped (outfmt.Sink), and
+	// color goes with it — there is no terminal to decorate. The sections are
+	// unchanged and still run; only where their prose lands changes.
+	r := newReporter(outfmt.Sink(o.Stdout, o.Format), color && !outfmt.IsJSON(o.Format))
 
 	// Ensure global storage — best-effort; check should still run the probes
 	// even on a hard fs error, so the error is ignored (it never fails in normal
@@ -49,7 +53,7 @@ func Check(opts Options) int {
 	workspace := o.Workspace
 
 	r.blank()
-	r.section("YOLO Jail Check")
+	r.sectionHeader("YOLO Jail Check")
 	r.blank()
 
 	// Version line (dim).
@@ -64,6 +68,7 @@ func Check(opts Options) int {
 			ver = "unknown"
 		}
 	}
+	r.version = ver
 	r.line(r.style("Version: "+ver, ansiDim))
 	r.blank()
 
@@ -85,7 +90,7 @@ func Check(opts Options) int {
 	userConfig, workspaceConfig, parseFailed := o.sectionConfigFiles(r, workspace)
 	if parseFailed {
 		r.summaryFailOnly()
-		return 1
+		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
 
 	// Merge + flake.nix resolution.
@@ -112,7 +117,7 @@ func Check(opts Options) int {
 	// --- Merged Configuration ---
 	if exit := o.sectionMergedConfig(r, merged, workspace, userConfig, workspaceConfig); exit {
 		r.summaryFailWarn()
-		return 1
+		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
 
 	// Accumulated-fail gate: short-circuit here on ANY failure so far — not just
@@ -123,7 +128,7 @@ func Check(opts Options) int {
 	// (re-audit §C).
 	if r.failed > 0 {
 		r.summaryFailWarn()
-		return 1
+		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
 
 	// D1: validate pack contributions on the HOST, where erroring is normal and the
@@ -132,7 +137,7 @@ func Check(opts Options) int {
 	o.sectionPacks(r)
 	if r.failed > 0 {
 		r.summaryFailWarn()
-		return 1
+		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
 
 	runtimeSel, _ := o.runtimeForCheck(merged)
@@ -201,19 +206,19 @@ func Check(opts Options) int {
 	}
 
 	// --- Host-side loopholes ---
-	r.section("Loopholes")
+	r.sectionHeader("Loopholes")
 	o.checkLoopholes(r)
 	r.blank()
 
 	// --- Per-jail host-service liveness ---
 	if !isNativeRuntime {
-		r.section("Per-jail host-service liveness")
+		r.sectionHeader("Per-jail host-service liveness")
 		o.checkHostServiceLiveness(r)
 	}
 	r.blank()
 
 	// --- Disk usage ---
-	r.section("Disk usage")
+	r.sectionHeader("Disk usage")
 	o.checkDiskUsage(r, merged)
 	r.blank()
 
@@ -232,16 +237,17 @@ func Check(opts Options) int {
 	// --- Summary ---
 	r.summaryFinal()
 
+	rc := 0
 	if r.failed > 0 {
-		return 1
+		rc = 1
 	}
-	return 0
+	return finish(o.Stdout, os.Stderr, o.Format, r, rc)
 }
 
 // sectionContainerRuntime runs the Container Runtime block. Returns the
 // detected (live) container runtime, or "".
 func (o *Options) sectionContainerRuntime(r *reporter) string {
-	r.section("Container Runtime")
+	r.sectionHeader("Container Runtime")
 	detectedRuntime := ""
 
 	// Cheap early read of the effective runtime (env wins; else config runtime).
@@ -353,7 +359,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 
 // sectionGlobalStorage runs the Global Storage block.
 func (o *Options) sectionGlobalStorage(r *reporter) {
-	r.section("Global Storage")
+	r.sectionHeader("Global Storage")
 	entries := []struct {
 		name string
 		path string
@@ -378,7 +384,7 @@ func (o *Options) sectionGlobalStorage(r *reporter) {
 // workspaceConfig, parseFailed). A parse failure sets parseFailed so the caller
 // early-exits with the fail-only summary.
 func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.OrderedMap, *jsonx.OrderedMap, bool) {
-	r.section("Config Files")
+	r.sectionHeader("Config Files")
 	userPath := paths.UserConfigPath()
 	failed := false
 
@@ -436,7 +442,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 // sectionMergedConfig runs the Merged Configuration block. Returns true when
 // there were validation errors (the caller early-exits with fail+warn summary).
 func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, workspace string, userConfig, workspaceConfig *jsonx.OrderedMap) bool {
-	r.section("Merged Configuration")
+	r.sectionHeader("Merged Configuration")
 	resolver := loopholes.NewResolver()
 	errors, warnings := config.ValidateConfig(merged, workspace, resolver)
 	runtimeSel, runtimeErr := o.runtimeForCheck(merged)
@@ -484,7 +490,7 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 // sectionEntrypointDryRun runs the Go entrypoint generators in a temp home and
 // reports success/failure.
 func (o *Options) sectionEntrypointDryRun(r *reporter, repoRoot string, repoRootOK bool, workspace string, merged *jsonx.OrderedMap) {
-	r.section("Entrypoint Dry-Run")
+	r.sectionHeader("Entrypoint Dry-Run")
 	if !repoRootOK {
 		r.fail("Entrypoint preflight failed", "repo root resolution failed")
 		r.blank()
@@ -508,7 +514,7 @@ func (o *Options) sectionEntrypointDryRun(r *reporter, repoRoot string, repoRoot
 // hash of that path, so without it the checker can only ask "is any jail image
 // loaded", which is a strictly weaker question.
 func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoRoot string, repoRootOK, isNativeRuntime bool) (string, bool) {
-	r.section("Image Build")
+	r.sectionHeader("Image Build")
 	imageBuildSkipped := false
 	builtStorePath := ""
 	if isNativeRuntime {
@@ -560,7 +566,7 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 //     whose images are all content-addressed — a false alarm manufactured purely
 //     by the tag changing shape.
 func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedHint, builtStorePath string) {
-	r.section("Container Image")
+	r.sectionHeader("Container Image")
 	if o.inJail() {
 		r.ok("Inside jail — image check skipped (managed by host)")
 		r.blank()
@@ -614,7 +620,7 @@ func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedH
 // sectionRunningJails runs the Running Jails block (with stuck detection and
 // the orphan-cleanup prompt).
 func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
-	r.section("Running Jails")
+	r.sectionHeader("Running Jails")
 	type row struct{ name, runningFor string }
 	var containers []row
 
@@ -704,7 +710,7 @@ func (o *Options) sectionInlineLoopholes(r *reporter, merged *jsonx.OrderedMap) 
 	if !ok || loopholesCfg.Len() == 0 {
 		return
 	}
-	r.section("Loopholes — inline daemons")
+	r.sectionHeader("Loopholes — inline daemons")
 	if o.inJail() {
 		r.ok("Inside jail — exec checks skipped (host paths aren't reachable here)")
 		r.blank()

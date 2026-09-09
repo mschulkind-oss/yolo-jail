@@ -79,19 +79,30 @@ var subcommandUsage = map[string]subUsage{
 	"describe":   {text: describeUsage},
 	"check-deps": {text: checkDepsUsage},
 	// Answered via answerHelp, at the top of each handler.
-	"check": {text: checkUsage},
+	// --format's value is consumed for every command that takes it, so
+	// `yolo check --format --help` asks for a format called "--help" (and is
+	// refused as one) rather than reading as a help request — the rule init's -m
+	// follows.
+	"check": {text: checkUsage, valueFlags: []string{"--format"}},
 	// doctor is an alias for check (same handler, same body), so it registers the
 	// same text — which names the alias — rather than a near-duplicate that would
 	// drift.
-	"doctor": {text: checkUsage},
+	"doctor": {text: checkUsage, valueFlags: []string{"--format"}},
 	"stop":   {text: stopUsage},
-	"ps":     {text: psUsage},
-	"prune":  {text: pruneUsage, valueFlags: []string{"--keep-images", "--image-cache-keep", "--cache-age", "--nix-gc-max"}},
+	// --format's value is consumed, so `yolo ps --format --help` asks for a format
+	// called "--help" (and is refused as one) rather than reading as a help
+	// request — the same rule init's -m follows.
+	"ps": {text: psUsage, valueFlags: []string{"--format"}},
+	// `--keep-images` was here until OQ-LS3 removed the flag: it is refused now
+	// rather than parsed, so it consumes no value and `yolo prune --keep-images
+	// --help` must reach the help (which explains the removal) instead of
+	// reading `--help` as its number.
+	"prune": {text: pruneUsage, valueFlags: []string{"--image-cache-keep", "--cache-age", "--nix-gc-max", "--format"}},
 	// The text lives with the command, in internal/cli/stores, because that package
 	// owns the flags it documents; this table stays the one complete inventory.
 	"stores":                {text: stores.Usage},
-	"loopholes":             {text: loopholesUsage},
-	"broker":                {text: brokerUsage, valueFlags: []string{"-n", "--lines"}},
+	"loopholes":             {text: loopholesUsage, valueFlags: []string{"--format"}},
+	"broker":                {text: brokerUsage, valueFlags: []string{"-n", "--lines", "--format"}},
 	"init":                  {text: initUsage, valueFlags: []string{"--mount", "-m"}},
 	"init-user-config":      {text: initUserConfigUsage},
 	"config-ref":            {text: configRefUsage},

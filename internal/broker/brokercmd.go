@@ -13,12 +13,15 @@
 package broker
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -42,6 +45,11 @@ type CLIDeps struct {
 	LogPath     string
 	LogIsFile   func(path string) bool
 	RunTail     func(argv []string) error
+	// Format is the output format for the reporting verbs: "" / outfmt.Text (the
+	// human report, unchanged) or outfmt.JSON. Only `status` reports state; the
+	// CLI front door refuses the flag on the three verbs that ACT (stop, restart,
+	// logs) rather than accepting it and ignoring it.
+	Format string
 }
 
 // CLIRealDeps returns CLIDeps backed by the real lifecycle engine, stdout/stderr,
@@ -74,6 +82,23 @@ func CLIRealDeps() CLIDeps {
 // and exit 1. The snapshot line CONTENT is info-parity; the exit code is exact.
 func PrintStatus(deps CLIDeps) int {
 	st := BrokerStatus(deps.Life)
+	// The document is the Status struct itself (see its json tags), and the exit
+	// code below is unchanged: 0 healthy, 1 not. A consumer gets the same verdict
+	// from st.Healthy without having to read the process's exit status.
+	if outfmt.IsJSON(deps.Format) {
+		enc, err := json.MarshalIndent(st, "", "  ")
+		if err != nil {
+			// Loud, never a silent empty stdout — the one outcome a machine
+			// consumer cannot diagnose.
+			fmt.Fprintf(deps.Err, "yolo broker status: encoding the report failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(deps.Out, string(enc))
+		if st.Healthy {
+			return 0
+		}
+		return 1
+	}
 	out := newPrinter(deps)
 
 	out.print("[bold]Claude OAuth broker (singleton)[/bold]")
@@ -102,7 +127,7 @@ func PrintStatus(deps CLIDeps) int {
 	out.printf("  pid file:     %s", st.PIDFile)
 	out.print("")
 
-	if st.PIDLive && st.Reachable {
+	if st.Healthy {
 		out.print("[green]Broker healthy.[/green]")
 		return 0
 	}

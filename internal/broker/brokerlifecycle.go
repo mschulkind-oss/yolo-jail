@@ -89,17 +89,27 @@ const (
 // Status is the snapshot _broker_status returns: pid (present?), pid liveness,
 // socket presence, reachability, and the display path strings. Python models
 // absent pid as None; here PIDPresent=false plays that role.
+// The json tags make this type `yolo broker status --format json` directly:
+// every field the human report prints is already here, so the document is the
+// struct rather than a second assembly of the same facts that could disagree
+// with it (docs/design/self-documenting-cli.md item 7).
 type Status struct {
-	PID          int
-	PIDPresent   bool // pid is not None
-	PIDLive      bool
-	SocketExists bool
+	PID          int  `json:"pid"`
+	PIDPresent   bool `json:"pid_present"` // pid is not None
+	PIDLive      bool `json:"pid_live"`
+	SocketExists bool `json:"socket_exists"`
 	// Reachable is the socket's ACCEPT answer, not a protocol round trip — see
 	// SingletonReachable for why the frame-protocol ping this replaced can no
-	// longer be spoken from the host side.
-	Reachable bool
-	Socket    string // display path (== Deps.SocketPath)
-	PIDFile   string // display path (== Deps.PIDFilePath)
+	// longer be spoken from the host side. The json name says which: a consumer
+	// reading `reachable` would assume a round trip that never happened.
+	Reachable bool   `json:"socket_accepting"`
+	Socket    string `json:"socket"`   // display path (== Deps.SocketPath)
+	PIDFile   string `json:"pid_file"` // display path (== Deps.PIDFilePath)
+	// Healthy is the verdict the human report ends on and the exit code carries:
+	// PIDLive && Reachable. It is a field rather than something a consumer
+	// re-derives, because the rule for "healthy" is yolo's to change and a
+	// consumer that re-implemented it would not notice when it did.
+	Healthy bool `json:"healthy"`
 }
 
 // Deps are the injectable seams. RealDeps wires them to the real singleton
@@ -245,6 +255,9 @@ func BrokerStatus(deps Deps) Status {
 		Reachable:    reachable,
 		Socket:       deps.SocketPath,
 		PIDFile:      deps.PIDFilePath,
+		// The SAME conjunction PrintStatus's verdict and exit code use — set
+		// here so there is one rule, not two that agree today.
+		Healthy: pidLive && reachable,
 	}
 }
 

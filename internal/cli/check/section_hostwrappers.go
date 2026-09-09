@@ -46,7 +46,7 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	dir := paths.WrapDir()
 	names, dirErr := wrapperNames(dir)
 
-	r.section("Host launch wrappers")
+	r.sectionHeader("Host launch wrappers")
 	hostApplyOnLaunchRow(r)
 
 	if dirErr != nil && os.IsNotExist(dirErr) {

@@ -44,6 +44,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -54,7 +55,7 @@ import (
 //
 // NO BACKTICKS: this is a raw string literal, and a backtick inside one ends it
 // (the bug commit 2c4a10b3 fixed in prune's help two commits before this one).
-const Usage = `Usage: yolo stores [--json] [--age] [--no-record]
+const Usage = `Usage: yolo stores [--format json] [--age] [--no-record]
 
 Inventory every store yolo can see on this machine: where it is, how big it is
 and HOW that size was obtained, how fast it is growing, what reclaims it (or
@@ -74,7 +75,12 @@ bounded to 60s: a store that runs out of budget reports what it had summed so
 far as a lower bound, marked "partial".
 
 Flags:
-  --json        Machine-readable inventory on stdout, for agents.
+  --format <fmt>  Output format: text (default) or json. JSON is stable,
+                  ANSI-free and on stdout -- the form to parse. Also
+                  --format=json.
+  --json        Shorthand for --format json. This is the spelling stores
+                shipped first; both work here and on ps, prune, check,
+                loopholes list and broker status.
   --age         Also report how much of each store is older than the cache
                 purge's age rule. This is a per-file walk over the whole tree
                 and costs minutes on a large cache, so each store prints its own
@@ -160,12 +166,27 @@ type Options struct {
 func ParseArgs(args []string) Options {
 	var o Options
 	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
+		switch a := args[i]; {
+		case a == "--json":
 			o.JSON = true
-		case "--age":
+		// `--format json` is the CANONICAL spelling across yolo's
+		// state-reporting commands (docs/design/self-documenting-cli.md item 7),
+		// and it is accepted here so the family is uniform. `stores` shipped the
+		// bare `--json` first and keeps it: an agent that learned one spelling
+		// must not have to remember which command wants which, because a flag
+		// whose name depends on the subcommand fails the standard it implements.
+		//
+		// An unknown --format VALUE is refused by the CLI front door before this
+		// runs (internal/cli's parseOutputFormat), so nothing here can be reached
+		// with one — which is why this only has to recognize the json case.
+		case a == "--format="+outfmt.JSON:
+			o.JSON = true
+		case a == "--format" && i+1 < len(args) && args[i+1] == outfmt.JSON:
+			o.JSON = true
+			i++
+		case a == "--age":
 			o.Age = true
-		case "--no-record":
+		case a == "--no-record":
 			o.NoRecord = true
 		}
 	}

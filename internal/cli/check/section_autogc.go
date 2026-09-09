@@ -35,7 +35,7 @@ func (o *Options) sectionAutoGC(r *reporter) {
 	if !ok {
 		return // key absent/unparseable — don't invent a warning
 	}
-	r.section("Nix auto-GC (store growth net)")
+	r.sectionHeader("Nix auto-GC (store growth net)")
 	if minFree > 0 {
 		r.ok("nix min-free is set (" + humanBytes(minFree) + ") — the daemon auto-frees " +
 			"unrooted store paths under space pressure")

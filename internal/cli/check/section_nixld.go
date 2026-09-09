@@ -26,7 +26,7 @@ func (o *Options) sectionNixLD(r *reporter) {
 	if node == "" {
 		return // no mise node installed — nothing this tripwire covers
 	}
-	r.section("FHS loader (nix-ld)")
+	r.sectionHeader("FHS loader (nix-ld)")
 	// `env -i` in the argv (NOT via the Exec env slice, which appends to
 	// os.Environ and so cannot scrub): an empty environment is the exact case
 	// the MCP wrappers used to guard with LD_LIBRARY_PATH and that nix-ld now
