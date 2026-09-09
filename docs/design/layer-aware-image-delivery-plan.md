@@ -245,9 +245,17 @@ behind the env var, defaulting off") predates [OQ-LI5](layer-aware-image-deliver
    [OQ-LI5](layer-aware-image-delivery.md#91-decision-ledger) **deleted the fallback**: read R8 in [§7](layer-aware-image-delivery.md#7-risks). A
    delivery bug that reaches a release is a machine that cannot start a jail until a fix ships.
 
-**And one prerequisite inside step 1.** [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) rules the keep-window's unit to be the
-*configuration*, but no config identity exists in the tree — C2's tag is `sha256(storePath)[:16]`,
-per **image**, so every image is its own group of one. That is the first blocker of
-[`the-load-sentinel-is-not-a-liveness-oracle-plan.md`](the-load-sentinel-is-not-a-liveness-oracle-plan.md)
-and it blocks step 1 here for the same reason. Recency ordering alone ([OQ-LI4](layer-aware-image-delivery.md#91-decision-ledger)) is buildable without
-it and is enough to unblock a constant `created`; the grouping is not.
+**And one prerequisite inside step 1 — DISCHARGED 2026-09-09, so step 1 is not blocked.** This
+paragraph read: [OQ-LS3](the-load-sentinel-is-not-a-liveness-oracle.md#111-decision-ledger) rules the
+keep-window's unit to be the *configuration*, but no config identity exists in the tree — C2's tag is
+`sha256(storePath)[:16]`, per **image**, so every image is its own group of one. That was also the
+first blocker of the sentinel plan (now deleted; the work landed).
+
+**It was resolved by deleting the need for a config identity, not by inventing one** (`ae190ac4`).
+There is no keep *window* any more: `--keep-images` REFUSES and names its replacement, because
+sorting every image row by creation time and keeping the newest N had no notion of a workspace or a
+configuration at all. Retention is now the union of the **per-workspace current-image pointers**
+(`prune.CurrentImageTags`, written by each launch right after its image load, under the same
+machine-wide housekeeping lock) and the running-container veto. So nothing here waits on a grouping
+key: recency ordering ([OQ-LI4](layer-aware-image-delivery.md#91-decision-ledger)) was never the
+constraint, and the grouping is not coming.
