@@ -41,7 +41,7 @@ here too.
 **Reads with:** [`pack-system.md`](pack-system.md) (the `briefing` and `skills` kinds, and
 `agent` / `agents` on a contribution), [`jail-home.md`](jail-home.md#staged-read-only-content)
 (how staged content is mounted), [`../design/briefing-audiences.md`](../design/briefing-audiences.md)
-(the audience model), [`../design/host-to-jail-handoff.md`](../design/host-to-jail-handoff.md)
+(the audience model), [`host-to-jail-handoff.md`](host-to-jail-handoff.md)
 (the Handoff section).
 
 ---
@@ -310,7 +310,7 @@ the split is load-bearing: consuming a handoff that was never written anywhere b
 good. A jail with no briefing destination writes zero briefings, and an unconditional consume
 ate the pointer on exactly the launch that could not deliver it. Consumption is therefore
 gated on at least one briefing having actually been written. See
-[`../design/host-to-jail-handoff.md`](../design/host-to-jail-handoff.md).
+[`host-to-jail-handoff.md`](host-to-jail-handoff.md).
 
 ## Customizing, in practice
 

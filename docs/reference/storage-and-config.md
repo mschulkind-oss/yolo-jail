@@ -45,7 +45,7 @@ that decide who may write what. How those paths become `/home/agent` is
 
 **Reads with:** [`jail-home.md`](jail-home.md) (how these paths are mounted into a jail),
 [`pack-system.md`](pack-system.md) (a pack's own config surfaces, and `packs` selection),
-[`../design/config-safety.md`](../design/config-safety.md) (the approval flow),
+[`config-safety.md`](config-safety.md) (the approval flow),
 [`image-staging-vs-baking.md`](image-staging-vs-baking.md) (the image and package caches
 under `build/`). **`yolo config-ref` is the authority for config keys** — this document
 describes scopes and ownership, never the key list.
@@ -374,5 +374,5 @@ doc was deleted this table is where they resolve.
 | <a id="oq-sc1"></a>[`OQ-SC1`](#oq-sc1) | The staged-tree fallback lives **inside `packsrc.Store.Resolve`**, not copied into the launch path | One writer, every caller correct by construction rather than by remembering. The alternative had already shipped once as its own defect: the rule existed and was tested in `yolo check` alone, so a nested launch refused while the preflight passed. Supersedes an earlier *inheritance* framing entirely — the generated config was never the defect, because a local pack's host address is its true provenance. |
 | <a id="oq-sc2"></a>[`OQ-SC2`](#oq-sc2) | **Withdrawn**: "should the preflight predict this refusal" was the wrong question | `yolo check` is *ahead* of the launcher here, not behind it — it had already resolved the staged tree and was reporting `[PASS]`. The general concern that a preflight does not predict a launch refusal stands on its own for the fetched-pack case; this was not an instance of it. |
 | <a id="oq-sc3"></a>[`OQ-SC3`](#oq-sc3) | Container integration tests **isolate `HOME` by default**, and an ambient-config test must opt in and name its reason | It finishes a rule the harness already half-enforced by refusing a workspace `packs` key. An ambient config can *satisfy* an assertion, and CI — with no user config — structurally cannot see either direction, so the exposure is invisible exactly where it would be caught. |
-| `OQ-D1` | The approval snapshot is host-side and never mounted | The record of what a human approved must not be rewritable by whatever edited the config. Settled in [`../design/config-safety.md`](../design/config-safety.md). |
+| `OQ-D1` | The approval snapshot is host-side and never mounted | The record of what a human approved must not be rewritable by whatever edited the config. Settled in [`config-safety.md`](config-safety.md). |
 | `A5` | The composed git config includes a **writable sibling**, placed first | Without it `~/.gitconfig` was a decoy: the write failed on a path that looks writable with an error explaining nothing. Include-first keeps yolo's keys authoritative while everything else persists. |
