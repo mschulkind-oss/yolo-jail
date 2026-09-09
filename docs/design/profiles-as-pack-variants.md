@@ -63,13 +63,13 @@ already shipped, which is most of the argument), [§5](#5-the-delivery-channel-r
 [§9](#9-where-this-differs-from-pack-profilesmd-and-why) (the diff against [`pack-profiles.md`](./pack-profiles.md)).**
 
 **Reads with:** [`pack-profiles.md`](pack-profiles.md) (the design this answers — its [§4](./pack-profiles.md#4-the-secrets-issue-decoupling-configuration-from-credentials)
-credential architecture is adopted as recommendation plus mechanism), [`pack-code-separation.md`](pack-code-separation.md) (core knows no agents),
+credential architecture is adopted as recommendation plus mechanism),
+[`../reference/pack-system.md`](../reference/pack-system.md) (core knows no agents, the kind registry, the
+footprint model, the `config-overlay` kind and the layer fold),
 [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the
 extension point), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
-(unmatched references fail closed), [`pack-config-collaboration.md`](pack-config-collaboration.md)
-(the shipped `config-overlay` kind and the layer fold), [`host-agent-environment.md`](host-agent-environment.md)
+(unmatched references fail closed), [`host-agent-environment.md`](host-agent-environment.md)
 ([§3.1](./host-agent-environment.md#31-approach-1-native-agent-config-file-injection-channel-1--configuration): native config-file injection is the preferred host delivery path), and
-[`pack-system.md`](pack-system.md) (the kind registry and the footprint model),
 [`zai-plumbing.md`](zai-plumbing.md) (the first real consumer — worked examples for both provider
 routes, and the endpoint-by-protocol resolution).
 
@@ -95,7 +95,7 @@ link their owner:
   running each pack's `derive.lua` (its per-pack Lua script) against live config
   ([`packs-and-the-prism.md`](packs-and-the-prism.md)).
 - **surface** — one generated config file a pack composes, with its codec and layer stack
-  ([`pack-system.md`](pack-system.md); the agent is not the surface — `claude/settings` is).
+  ([`../reference/pack-system.md`](../reference/pack-system.md); the agent is not the surface — `claude/settings` is).
 - **pack universe** — every pack this machine can resolve, selected or not; contrasted with
   the **active** list, which is what one launch selected.
 
@@ -119,7 +119,7 @@ link their owner:
    two ways — once typed, once smuggled through an untyped dictionary — the typed one is
    decorative. The untyped path must be unrepresentable, not discouraged.
 5. **P5 — Every new kind states its combine rule and its claim before it exists.** "Claim" is a
-   term of the footprint model ([`pack-system.md` §3](pack-system.md)), not prose: the one-line
+   term of the footprint model ([`../reference/pack-system.md`](../reference/pack-system.md)), not prose: the one-line
    statement of what a contribution of that kind **takes on the environment** — a name on `PATH`,
    an owned path, a host-home read — carried as the `Claims` field of
    [`Footprint`](../../internal/packdecl/kinds.go#L170-L191) and printed as the Claims column of
@@ -664,7 +664,7 @@ surface OWNED by another pack"*, `CombineOverlay`, folded after the owner in the
 [`compose.go:355-380`](../../internal/agentcfg/compose.go#L355-L380)) with a **required per-key
 provenance label**, `config-overlay:<pack>` ([`compose.go:176`](../../internal/agentcfg/compose.go#L176)),
 so an override is legible in `yolo config diff` rather than silent
-([`pack-config-collaboration.md`](pack-config-collaboration.md) [§8](./pack-config-collaboration.md#8-what-building-option-2-settled-that-this-doc-did-not)).
+([`../reference/pack-system.md`](../reference/pack-system.md), *Provenance, and what `config diff` can say*).
 
 **Is `config-overlay` already what `pack-fragment` wanted? Yes — with one field missing, and the
 env half answered elsewhere.** Decompose what a fragment was *for* — a provider pack adapting an
@@ -732,7 +732,7 @@ Both names were on the table and neither is loved: `config-overlay` (shipped) an
 **Recommendation: keep `config-overlay`.** "Overlay" does consistent, load-bearing work in a
 family — the compose stack carries `config-overlay` (contributions from other packs) beside
 `capture-overlay` (in-jail edits) ([`compose.go:48-62`](../../internal/agentcfg/compose.go#L48-L62),
-[`pack-config-collaboration.md`](pack-config-collaboration.md)) — and the provenance label
+[`../reference/pack-system.md`](../reference/pack-system.md)) — and the provenance label
 `config-overlay:<pack>` is shipped and user-visible in every `yolo config diff`. The name states
 exactly what the mechanism guarantees: *where* the contribution lands, as a layer over the
 owner's config. `pack-fragment` was the genuinely bad name — a fragment *of what*; it names

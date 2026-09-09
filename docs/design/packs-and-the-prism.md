@@ -16,7 +16,8 @@ system and then pulled all agent support out into 'official' packs?"*
 architecture. Those are different bets.
 
 **It was built.** For the system as it actually shipped — manifest schema, the origin gate,
-the host→jail load path, worked examples — read [pack-system.md](pack-system.md). This doc
+the host→jail load path, worked examples — read
+[`../reference/pack-system.md`](../reference/pack-system.md). This doc
 is kept as the argument that produced that shape, not as a description of it.
 
 **Reads with:** [agent-config-packs.md](../plans/agent-config-packs.md) (the concrete pack
