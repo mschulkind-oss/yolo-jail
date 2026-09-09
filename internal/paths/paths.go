@@ -242,9 +242,16 @@ const AllowMissingProvidersEnv = "YOLO_ALLOW_MISSING_PROVIDERS"
 // the flag does, for wrappers and scripts that cannot add a flag.
 //
 // HOST-ONLY, deliberately (design D5): it is never forwarded into the jail.
-// The in-jail half of timing is keyed on the YOLO_PROFILE=1 argv pair the
-// launcher emits, and the two halves redeploy on different cadences — a second
-// spelling crossing that boundary is a skew bug, not a convenience.
+// The in-container half of timing is keyed on a SEPARATE argv pair the launcher
+// emits, YOLO_JAIL_TIMING=1 (renamed from YOLO_PROFILE by D13). The two names
+// are deliberately unrelated: one variable serving both would make forwarding
+// look intended, and D5's whole point is that it is not.
+//
+// The reason this comment used to give — that the halves redeploy on different
+// cadences, so a second spelling crossing the boundary is a skew bug — was
+// FALSE and is why the rename went unmade for so long. Nothing in the image or
+// the entrypoint reads the jail-side pair; the launcher emits it and also
+// generates the bash it belongs to, so both halves move in one commit.
 const TimingEnv = "YOLO_TIMING"
 
 // VerboseEnv is the published form of the global `--verbose`/`-v` flag

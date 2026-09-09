@@ -11,7 +11,7 @@ package integration
 // It also pins D12 (docs/design/perf-logging.md), the split between RECORDING
 // and REPORTING: every opt-in writes the file, but only an explicit --timing /
 // --verbose typed on THIS invocation prints — the table, and the in-container
-// `=== YOLO Jail Profile ===` block the YOLO_PROFILE=1 pair switches on. The
+// `=== YOLO Jail Profile ===` block the YOLO_JAIL_TIMING=1 pair switches on. The
 // persistent opt-ins (an exported YOLO_TIMING/YOLO_VERBOSE, `perf_logging: true`)
 // record in silence, which is why the two tests below assert an ABSENCE.
 
@@ -92,7 +92,7 @@ func assertRecordedQuietly(t *testing.T, dir, stderr string) {
 	t.Helper()
 	for _, unwanted := range []string{
 		"--- Host-side timing",      // the host table
-		"=== YOLO Jail Profile ===", // the in-container half YOLO_PROFILE=1 switches on
+		"=== YOLO Jail Profile ===", // the in-container half YOLO_JAIL_TIMING=1 switches on
 		"shutdown.stop_loopholes",   // any span row at all
 	} {
 		if strings.Contains(stderr, unwanted) {

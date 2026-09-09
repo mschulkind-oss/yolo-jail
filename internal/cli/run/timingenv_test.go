@@ -58,12 +58,20 @@ func assembleTimed(t *testing.T, tweak func(*Options)) []string {
 	return o.assembleRunCmd(in)
 }
 
-// timingEnvName is the env var the timing launch sets. It still spells "PROFILE": it
-// was named for the flag that used to own this meaning (--profile, before
-// docs/reference/providers.md OQ-PT5 renamed it --timing), nothing in the image reads
-// it, and a rename is a host→jail contract change no step here owns. If it ever moves,
-// this constant and the assemble.go site are the two places to change together.
-const timingEnvName = "YOLO_PROFILE"
+// timingEnvName is the env var the timing launch sets, renamed from YOLO_PROFILE by
+// design D13. It is spelled out here rather than shared with the emit site on purpose:
+// NOTHING in the tree reads this variable — the in-container block is selected at
+// generation time by the same Go bool — so a shared constant would make the assertion
+// below tautological, and this literal is the only thing that would notice a silent
+// re-spelling.
+//
+// YOLO_JAIL_TIMING, not YOLO_TIMING_INNER: the defect D13 fixed was that YOLO_PROFILE
+// is a strict prefix of YOLO_PROFILES (an unrelated mechanism that IS read in the jail),
+// and YOLO_TIMING is a strict prefix of YOLO_TIMING_INNER — the same collision one
+// mechanism over. This name contains neither neighbour, so both greps stay exact. It
+// also joins the launcher->container argv family already on that command line
+// (YOLO_JAIL_DAEMONS, YOLO_JAIL_ID), which is what it is.
+const timingEnvName = "YOLO_JAIL_TIMING"
 
 // TestAssembleCarriesTheTimingEnvOnlyForATimingLaunch: `--timing` puts exactly one
 // extra variable on the argv and an ordinary launch puts none — a timing launch that

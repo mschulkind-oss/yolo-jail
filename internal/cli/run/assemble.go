@@ -726,16 +726,24 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = append(runCmd, "-e", "TERM="+term)
 	}
 	if o.timingReporting() {
-		// Named for the flag that used to own this meaning (--profile, before
-		// docs/reference/providers.md OQ-PT5 renamed it --timing). Nothing in the image
-		// reads it, so it stays put rather than gaining a rename this step does not own.
+		// Renamed from YOLO_PROFILE (design D13). It was named for the flag that used
+		// to own this meaning (--profile, before docs/reference/providers.md OQ-PT5
+		// renamed it --timing), and it stayed put on the belief that a rename was a
+		// host->jail contract change no step here owned. That premise was false: the
+		// launcher emits this pair AND generates the bash that the block belongs to
+		// (command.go's buildFinalInternalCmd), so both halves are host-side and move
+		// in one commit. The old spelling was also a strict prefix of YOLO_PROFILES —
+		// the resolved auth-profile table, which IS read in the jail — so one grep
+		// conflated two unrelated mechanisms. NOT named YOLO_TIMING: that is paths.
+		// TimingEnv, a host-process opt-in deliberately never forwarded (D5), and
+		// reusing it here would make forwarding look intended.
 		//
 		// The REPORTING gate (D12), not the recording one: this pair is what makes the
 		// in-container half PRINT its `=== YOLO Jail Profile ===` block, and the jail
 		// records into ~/.yolo-perf.log either way. So a persistent opt-in
 		// (`perf_logging: true`, an exported YOLO_TIMING/YOLO_VERBOSE) leaves it off and
 		// only an explicit --timing/--verbose puts it on the argv.
-		runCmd = append(runCmd, "-e", "YOLO_PROFILE=1")
+		runCmd = append(runCmd, "-e", "YOLO_JAIL_TIMING=1")
 	}
 
 	// --- host-side loopholes runtime args (--add-host, CA mounts, env) ---

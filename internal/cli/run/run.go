@@ -1149,7 +1149,7 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 // user was reading, which is the noise this split removes. A launch whose user
 // typed --timing or --verbose gets the full report — they asked for it, now.
 //
-// The full report's other halves: the YOLO_PROFILE=1 env pair assemble.go puts
+// The full report's other halves: the YOLO_JAIL_TIMING=1 env pair assemble.go puts
 // on the container argv (pinned by timingenv_test.go) and the entrypoint's own
 // perf log, which the in-container branch prints. Called from the normal-exit
 // tail and from INSIDE onTerminate — never later, because the signal arm

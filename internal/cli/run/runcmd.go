@@ -325,7 +325,7 @@ func (o *Options) timingRecording() bool {
 
 // timingReporting is the REPORTING gate: does this launch PRINT — the span table
 // at exit, the Window A attribution line below it, and the in-container half
-// (the YOLO_PROFILE=1 argv pair and the bash timers it switches on, which are
+// (the YOLO_JAIL_TIMING=1 argv pair and the bash timers it switches on, which are
 // print-only; the jail appends to its own ~/.yolo-perf.log either way)?
 //
 // Only the two EXPLICIT per-invocation flags say yes (D12). A persistent setting
