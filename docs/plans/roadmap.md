@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 16 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 17 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-09**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-10**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!IMPORTANT]
@@ -745,6 +745,50 @@ twelve questions are live with no home**, two of which stand whether or not mirr
 
 **Answer:**
 > _(empty — fill in when decided; [`OQ-WP2`](../design/workspace-path-mirroring.md#open-questions) and [`OQ-WP4`](../design/workspace-path-mirroring.md#open-questions) can be ruled without touching the mirroring verdict)_
+
+### 💬 29 — One report, three readers: what `yolo host apply` and the launch banner say by default
+
+📄 [`report-tiers.md`](../design/report-tiers.md) — **[`OQ-RO1`](../design/report-tiers.md#10-open-questions) … [`OQ-RO5`](../design/report-tiers.md#10-open-questions)** ·
+written 2026-09-10, **routed here the same day**
+
+The maintainer's complaint — *"hard to read, not intuitive, and not so actionable"* — measured: an
+observe-posture `yolo apply --at host` over this development jail's home prints **277 lines, about
+sixteen of them actionable**. Nineteen are verbatim kind-refusal paragraphs (`state` ×6, `hook` ×4,
+`loophole` ×4), printed once per *contribution* because the loop is per contribution while the text
+is per kind; **210 lines state one fact** (fourteen skills in five agent dirs are yours and would
+move to the local pack) at three granularities; and the roll-up that already exists (`8 in sync, 76
+would change`, since `015527be`) counts destinations rather than files and carries no loss count —
+seven of the user's values replaced and three MCP servers dropped appear nowhere as numbers. The
+doc's answer is a **report tier** per fact (notch facts said once, run facts counted, losses itemized
+and grouped by remedy, disclosures never compressible) and a **verdict block** that counts what the
+reader cares about. Nothing built.
+
+**Two findings worth knowing before ruling.** `--verbose` has **only timing consumers** today
+(`stop.go:72`, `commands.go:860`, `runcmd.go:354/373/451`), so this is the *"first non-timing
+diagnostic"* that [`reference/perf-logging.md`](../reference/perf-logging.md) D14 said would decide the flag's
+meaning. And **there is no quiet mode anywhere** — `YOLO_NO_BANNER` covers exactly one line, the
+launcher's half of the startup stream is persisted nowhere (the entrypoint's half is, in `boot.log`),
+and `NO_COLOR` is honored by nothing while the polish plan claims it as an invariant.
+
+- **[`OQ-RO1`](../design/report-tiers.md#10-open-questions) — is the compressed view the default, or a flag?**
+  *Leaning: the default; the operator is the common reader and the one who stops reading.*
+- **[`OQ-RO2`](../design/report-tiers.md#10-open-questions) — does the detail ride the global `--verbose` (spending D14) or an
+  apply-local flag?** *Leaning: `--verbose`, honoring typed and inherited alike.*
+- **[`OQ-RO3`](../design/report-tiers.md#10-open-questions) — any density control for the launch at all, and may the eight
+  `boot catalog:` lines compress to one?** *Leaning: no quiet flag ever; compress; write "disclosures
+  are never suppressible" down as the rule so the next author does not re-decide it in a docstring.*
+- **[`OQ-RO4`](../design/report-tiers.md#10-open-questions) — does the observe posture emit `--format json`?** Extends
+  [`self-documenting-cli.md`](../reference/self-documenting-cli.md) item 7 from *verb* to *posture*.
+  *Leaning: yes for observe, refused with `--assert`.*
+- **[`OQ-RO5`](../design/report-tiers.md#10-open-questions) — may observe's exit code carry its finding** (the `config drift`
+  0/3/4 shape)? *Leaning: keep 0; JSON carries the verdict.*
+
+**RO1 and RO2 gate the visible change.** Steps 1–4 of the build order — grow the survey, say notch
+facts once, group losses by remedy, the verdict block — need no ruling and already take the measured
+report from 277 lines to roughly 90.
+
+**Answer:**
+> _(empty — fill in when decided; [`OQ-RO1`](../design/report-tiers.md#10-open-questions) and [`OQ-RO2`](../design/report-tiers.md#10-open-questions) together unblock the default view)_
 
 # 📦 Up next
 
