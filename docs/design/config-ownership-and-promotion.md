@@ -350,11 +350,23 @@ Consequences worth stating because users act on them:
 - **Unreadable or unparseable user config yields `none`.** Fail closed: a config
   nobody could read has granted no write claim.
 
-### 4.3 The undeclared state, and what happens to everyone already running
+### 4.3 The unset state, and what happens to everyone already running
 
-An **absent** key is not a fourth value; it is the *undeclared* state, and it
+An **absent** key is not a fourth value; it is the *unset* state, and it
 needs no ceremony of its own — **the default carries the whole migration**
 ([OQ-CO2](#OQ-CO2), ruled in review):
+
+> [!NOTE]
+> **"Unset", deliberately, and not "undeclared"** (renamed in review 2026-09-10).
+> *Undeclared* already has a formal meaning three sections of this corpus rely
+> on: the [Undeclared tier of the input closure](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)
+> — an input that shapes an environment while nothing names it, which is a
+> statement about **a value inside an agent's config file**. This section is
+> about **a yolo config key that has no value at all**, which is the ordinary
+> word *unset*. The two appear four paragraphs apart and have opposite remedies:
+> an undeclared key is promoted into a pack or discarded; an unset key is
+> written. [§11](#11-success-criteria)'s "undeclared key" is the closure sense
+> and is left as it is.
 
 1. Behavior is `assert` — today's behavior, so nothing breaks on upgrade day,
    and nobody is interrupted in order to be told that.
@@ -365,11 +377,11 @@ needs no ceremony of its own — **the default carries the whole migration**
    moment the user has least to go on — before they have seen any of the three
    values behave — and buys nothing, because every path it guards is either
    today's behavior or a value the user typed on purpose.
-3. `yolo apply --sealed` **refuses** while the key is undeclared, listing it
-   beside the two undeclared inputs it already refuses for
+3. `yolo apply --sealed` **refuses** while the key is unset, listing it beside
+   the two *undeclared inputs* (closure sense) it already refuses for
    ([`apply.go:795-825`](../../internal/cli/apply.go#L795-L825)). An environment
    whose host-ownership contract is unstated is not sealed. **This is the one
-   place undeclaredness bites**, and it bites where the user asked a question
+   place an unset key bites**, and it bites where the user asked a question
    about declaredness rather than where they asked for an apply.
 
 That is the whole migration: a default, and one refusal in the command whose
@@ -762,7 +774,7 @@ already has.
 | A user picks `own`, and yolo deletes settings they cared about | Adoption is capture-then-regenerate, so the first owned render is byte-identical ([§6.3.1](#631-why-the-adoption-diff-is-empty)); the classes it does not cover are the ones `confirmHostLosses` already prompts for ([§6.3.2](#632-the-three-classes-adoption-does-not-cover)), plus the one-time archive |
 | Promotion silently demotes a key that then reverts | Precedence check is a **refusal**, not a warning ([§5.4](#54-promotion-moves-a-key-down-the-stack)) |
 | A credential is promoted into a pack, and the pack is pushed | Sensitive keys refused by default; `--force` is per-key and named in output |
-| ~~The undeclared-state prompt trains people to hit enter~~ | **Risk retired** — there is no prompt ([OQ-CO2](#OQ-CO2)). The `--sealed` refusal is the whole backstop, and it does not depend on attention |
+| ~~The unset-state prompt trains people to hit enter~~ | **Risk retired** — there is no prompt ([OQ-CO2](#OQ-CO2)). The `--sealed` refusal is the whole backstop, and it does not depend on attention |
 | The local pack becomes an unreviewable pile of promoted keys | Every promotion is an ordinary edit to a readable `pack.json`; `yolo pack lint` and `footprint` already report its claims |
 | Three-value enum confuses users who wanted a switch | ⚠ **Mitigation weakened by [OQ-CO2](#OQ-CO2)** — with no prompt, the three values are explained in `yolo config-ref` and at the point of the act (`none` names the key that made it write nothing). Accepted: the value a confused user lands on is `assert`, which is what they already have |
 | A jail-side agent cannot promote, so the workflow stalls where the work happens | [OQ-CO5](#OQ-CO5)'s request channel; the refusal names the host command regardless |
@@ -773,8 +785,8 @@ already has.
 
 1. **`host_management`, parsing and validation only** — the key, its user-scope
    read, its fail-closed direction, its `inherit.go` entry, and the `--sealed`
-   refusal while undeclared. Nothing changes behavior yet; the contract becomes
-   expressible. **No prompt to build** ([OQ-CO2](#OQ-CO2)), which is most of
+   refusal while the key is unset. Nothing changes behavior yet; the contract
+   becomes expressible. **No prompt to build** ([OQ-CO2](#OQ-CO2)), which is most of
    what this step used to be.
 2. **Wire `none` and `assert`.** `none` makes `yolo host apply` refuse; `assert`
    is today's path. This is the whole key for everyone who does not want `own`,
@@ -833,7 +845,7 @@ Observable outcomes that mean this was built as designed:
    collapses "asserts my declared keys into a file that is mine" into either
    "off" (losing today's shipped, working behavior) or "own" (taking deletion
    authority nobody asked for). This decides the shape of
-   [§4.1](#41-the-key), the migration in [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running),
+   [§4.1](#41-the-key), the migration in [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running),
    and how alternative C in [§8](#8-alternatives-considered) resolves.
 
    <!-- vantage: oq id=OQ-CO1 leaning="Three values. `assert` is the shipped behavior and has real users — including this maintainer today — so collapsing it means either a regression or a forced escalation to `own`." -->
@@ -845,10 +857,10 @@ Observable outcomes that mean this was built as designed:
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. ✅ **OQ-CO2: Should the undeclared state prompt, or just warn?** — **RULED 2026-09-10: neither.** [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running)
+2. ✅ **OQ-CO2: Should the unset state prompt, or just warn?** — **RULED 2026-09-10: neither.** [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)
    proposes that the first `host apply --assert` under an absent key stops and
    asks. The alternative is to print a notice and carry on as `assert`, leaving
-   `--sealed` as the only place the undeclared state bites. This decides whether
+   `--sealed` as the only place the unset state bites. This decides whether
    "no question anymore" is achieved for people who never read a config
    reference, at the cost of one interruption in an established workflow.
 
@@ -866,9 +878,9 @@ Observable outcomes that mean this was built as designed:
    > `none` reports that it wrote nothing and why, `assert` and `own` do what
    > they are configured to do — and that is feedback where the user is looking,
    > rather than at upgrade time when they have seen none of the three behave.
-   > `apply --sealed` remains the one place undeclaredness bites, which is the
+   > `apply --sealed` remains the one place an unset key bites, which is the
    > command whose whole job is auditing declaredness. Settled in
-   > [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running).
+   > [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running).
    >
    > The leaning's argument — *"a notice that proceeds anyway is the mechanism
    > that let this ambiguity survive"* — does not carry, because the ambiguity it
@@ -1036,7 +1048,8 @@ round.**
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| [OQ-CO2](#OQ-CO2) | **Neither prompt nor notice** — the undeclared state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place undeclaredness bites. *Against the leaning.* | 2026-09-10 | [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running) |
+| [OQ-CO2](#OQ-CO2) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning.* | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
+| — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
 | [OQ-CO3](#OQ-CO3) | **Yes, under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render byte-identical. The refusal stays for `none` and `assert`. | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-why-the-adoption-diff-is-empty) |
 
 **One consequence worth recording where a reader will hit it, because it moved
