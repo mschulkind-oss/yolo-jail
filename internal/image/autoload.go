@@ -992,7 +992,26 @@ func buildImageWithContainerBuilder(runtime, attr, repoRoot string, extra []any,
 	defer sess.Stop()
 
 	buildersLine := sess.BuildersLine(host, port, 4)
-	extraArgs := []string{"--builders", buildersLine, "--max-jobs", "0"}
+	// ⚠ NO `--max-jobs 0`, and that is the fix for a broken macOS nightly rather
+	// than tuning. It was here to force every derivation onto the Linux builder,
+	// which was harmless while the image was Linux derivations end to end. Layer-
+	// aware delivery introduced two that must be built NATIVELY on darwin — the
+	// nix2container tooling and the copier, which read the Mac's own /nix/store —
+	// and `--max-jobs 0` forbids exactly that:
+	//
+	//	Failed to find a machine for remote build!
+	//	derivation: …-nix2container-1.0.0.drv
+	//	required (system, features): (x86_64-darwin, [])
+	//	1 available machines: ([x86_64-linux], 4, [], [])
+	//	error: Cannot build … Reason: local builds are disabled (max-jobs = 0)
+	//
+	// It also bought nothing it claimed to: a darwin nix cannot build an
+	// x86_64-linux derivation locally anyway, so `--builders` alone already routes
+	// every Linux derivation to the container. Dropping the flag lets nix route by
+	// SYSTEM — Linux out to the builder, darwin here — which is what the offload
+	// always meant. Measured 2026-09-10: the nightly's shards 1 and 4 failed with
+	// the error above and took 2 and 3 with them on fail-fast.
+	extraArgs := []string{"--builders", buildersLine}
 	extraEnv := []string{"NIX_SSHOPTS=" + containerbuilder.NixSSHOpts()}
 	return buildImageStorePathArgs(attr, repoRoot, extra, outLink, out, extraArgs, extraEnv)
 }
