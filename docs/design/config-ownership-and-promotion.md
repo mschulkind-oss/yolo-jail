@@ -460,8 +460,43 @@ $ yolo config promote <agent> [--surface <name>] [--keys a,b] [--to <dest>]
 |---|---|---|
 | `local` (default) | a `config-overlay` on the surface, in `~/.config/yolo-jail/local/pack.json` | reaches every jail and the host |
 | `pack:<name>` | the same, in that pack's `pack.json` | **refused for a fetched pack** — not the user's file to edit |
-| `host` | the keys themselves, into the host file | only under `host_management: assert`; refused under `own` (the file is derived — promote to a pack) and under `none` |
-| `workspace` | the workspace config | **blocked**: the `workspace` layer is "DECIDED BUT UNWIRED" — see [OQ-CO8](#OQ-CO8) |
+| `host` | the keys themselves, into the surface's own real-home file | only under `host_management: assert`; refused under `own` (the file is derived — promote to a pack) and under `none`. **Reaches a jail for only two shipped surfaces** — see below |
+| `workspace` | *(nothing to write to)* | **blocked, and more deeply than "unwired"** — see [OQ-CO8](#OQ-CO8) |
+
+> [!IMPORTANT]
+> **`local` and `host` both "reach every jail", and they are not remotely
+> equivalent** (clarified in review 2026-09-10, and the table used to imply they
+> were). Three facts decide it, all measured against the tree on that date.
+>
+> **1. Which file.** `--to host` writes the surface's *own* real-home path — for
+> `claude/settings` that is `~/.claude/settings.json`. It edits that file
+> directly, with no pack anywhere in the loop. That is not a workaround; it is
+> what `assert` *means* — shared ownership of a hand-editable file, which
+> [§7](#7-what-this-does-not-propose) keeps as fully supported and the right answer for a single machine.
+>
+> **2. It comes back into a jail only through `reads-host`, which is per-pack
+> and rare.** The host file is not read into a jail because it is the host file;
+> it is read because a pack asked for it. Exactly **two** shipped grants exist:
+> `packs/claude` (`.claude/settings.json` → `host-claude/settings.json`) and
+> `packs/pi` (`.pi/agent/settings.json` → `host-pi/settings.json`). So for
+> `codex/config`, `opencode/config`, `agy/*`, `claude/config`, `pi/models` and
+> `mise/config`, a `--to host` promotion is a **host-only edit that no jail will
+> ever read**. The row must say so, because a user reading it beside `local`'s
+> *"reaches every jail and the host"* will assume symmetry that does not exist.
+>
+> **3. Even where it is read, it lands at the second-weakest precedence.** The
+> `host` layer is second in the stack
+> ([§2.1](#21-the-layer-stack)) — under `workspace`, every
+> `config-overlay`, capture, `computed` and `managed`. A `local` promotion lands
+> as a `config-overlay`, three slots higher, at *every* notch. So the two
+> destinations differ in reach, in precedence, and in whether any pack has to
+> opt in.
+>
+> **What follows for the design:** `--to host` is not a general destination. It
+> is a narrow convenience for the two surfaces that have a host layer, under the
+> one ownership value that keeps the file the user's. It is never the answer to
+> "get this key to all my jails" — that is `local`, and the promote UI should
+> not offer `host` as though it were the same kind of thing.
 
 ### 5.2 What it does, in order
 
@@ -1000,10 +1035,48 @@ Observable outcomes that mean this was built as designed:
    slot every caller passes nil for. This cannot be answered until that layer is
    either wired or retired.
 
+   > [!NOTE]
+   > **"Workspaces have no packs, so there is nowhere to put it" — correct about
+   > packs, and the layer was never going to be one** (asked in review
+   > 2026-09-10; all four checks below run against the tree that day).
+   >
+   > `packs` is **user-scope-only by construction**, so a workspace genuinely
+   > cannot select a pack — that is [OQ-TP9](trust-paths.md#decision-ledger)'s
+   > ruling and it is load-bearing: `/workspace` is bind-mounted read-write, so
+   > an agent can edit `yolo-jail.jsonc`, and a workspace that could add a pack
+   > could promote itself into the user's home.
+   >
+   > The `workspace` layer is a different thing: a **slot in the compose stack**
+   > (`Inputs.Workspace`, third in [§2.1](#21-the-layer-stack)), fed by a config
+   > key in `yolo-jail.jsonc` rather than by any pack. Three measurements say how
+   > unwired it is:
+   >
+   > - **No key.** `agent_config` appears nowhere in `internal/config`.
+   > - **No producer.** No call site sets `Inputs.Workspace` at all — not
+   >   `prism.go`, not `packsurfaces.go`, not `config.go`. The slot is nil
+   >   everywhere, so it is not merely unreachable by users; nothing fills it.
+   > - **It could never reach the host anyway.** `render.Host` leaves `Workspace`
+   >   empty *by definition* (stated in `prism.go`'s `targetTransformScript`), so
+   >   a `--to workspace` promotion would be jail-and-guest-only by construction —
+   >   which is a real limit on how useful the destination could ever be.
+   >
+   > So the answer to "where would it even go" is: a config key that does not
+   > exist, feeding an engine slot nothing fills, in a layer that cannot cross to
+   > the host. That is three separate pieces of work before the question is even
+   > askable — which is why this stays 🔒 rather than becoming a leaning.
+   >
+   > ⚠ **And there is a reason to be slow about wiring it**, which belongs here
+   > rather than in whatever doc wires it: the workspace config is
+   > **jail-writable**. A layer an agent can edit sitting *above* the host layer
+   > is fine while it stays inside the jail, and is exactly the shape that must
+   > never be given a path to a real home. Whoever wires it owns that argument.
+
    <!-- vantage: oq id=OQ-CO8 leaning="Blocked, not leaning: the workspace layer is decided-but-unwired, so a promote destination pointing at it would write a key nothing reads. Wire or retire that layer first, then ask this." -->
 
    **Answer:**
-   > _(blocked — wiring the `workspace` layer decides it)_
+   > _(blocked — wiring the `workspace` layer decides it; and per the note above,
+   > that is three pieces of work — a config key, a producer, and an argument
+   > about a jail-writable layer's reach — not one)_
 
 9. 💬 **<a id="OQ-CO9"></a>OQ-CO9: What does a KEYLESS host surface do under
    `own`?** Opened in review 2026-09-10 by the [§6.3.2](#632-the-three-classes-adoption-does-not-cover)
