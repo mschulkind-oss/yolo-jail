@@ -7,10 +7,12 @@
 //
 // Frozen behavior (from docs/reference/ctrl-z-and-the-tty-proxy.md):
 //   - non-TTY stdin -> transparent plain spawn (no pty).
-//   - ^Z (0x1A) suspends the PROXY via TARGETED SIGTSTP to self (NEVER a
-//     pgroup-wide signal — that would stop podman, a jail-visible change); the
-//     byte never reaches the child; bytes after ^Z in the same read are queued
-//     and flushed on resume.
+//   - ^Z suspends the PROXY via TARGETED SIGTSTP to self (NEVER a pgroup-wide
+//     signal — that would stop podman, a jail-visible change); the keypress
+//     never reaches the child; bytes after it in the same read are queued and
+//     flushed on resume. WHICH BYTES ARE A ^Z is suspendkey.go's job and is no
+//     longer just 0x1A — a terminal running the kitty keyboard protocol sends
+//     an escape sequence instead, and missing it is a live wedge.
 //   - NO Setsid (setsid broke `podman -it`); NEVER signal.Notify(SIGTSTP)
 //     (default disposition required to actually stop).
 //   - SIGCONT -> re-raw the host TTY, and resync the window size (a resize while
@@ -322,15 +324,19 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHo
 				data = append(pending, data...)
 				pending = nil
 			}
-			idx := indexByte(data, suspByte)
-			if idx < 0 {
+			// NOT a byte scan: a terminal asked for the kitty keyboard
+			// protocol sends Ctrl-Z as an escape sequence holding no 0x1A at
+			// all, and forwarding that is the wedge this package exists to
+			// prevent (suspendkey.go, THE WEDGE OF 2026-09-10).
+			start, stop, found := findSuspendKey(data)
+			if !found {
 				_, _ = unix.Write(master, data)
 				continue
 			}
-			if idx > 0 {
-				_, _ = unix.Write(master, data[:idx])
+			if start > 0 {
+				_, _ = unix.Write(master, data[:start])
 			}
-			pending = append([]byte(nil), data[idx+1:]...)
+			pending = append([]byte(nil), data[stop:]...)
 			selfSuspend(inFd, cooked)
 			if len(pending) > 0 {
 				_, _ = unix.Write(master, pending)
@@ -386,15 +392,6 @@ func exitCode(err error) int {
 		return ee.ExitCode()
 	}
 	return 1
-}
-
-func indexByte(b []byte, c byte) int {
-	for i, x := range b {
-		if x == c {
-			return i
-		}
-	}
-	return -1
 }
 
 // openPty opens a new pty master/slave pair (no setsid — setsid broke

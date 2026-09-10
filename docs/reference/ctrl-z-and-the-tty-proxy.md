@@ -1,6 +1,6 @@
 ---
 status: current
-verified: 2026-09-09
+verified: 2026-09-10
 verified_commit: 41dde711
 covers:
   - internal/ttyproxy/
@@ -12,7 +12,7 @@ tags: [tty, pty, signals, ctrl-z, proxy, teardown]
 
 # Ctrl-Z and the TTY proxy — why a launch runs under a pty of its own
 
-**Status:** CURRENT as of 2026-09-09, verified against `41dde711`.
+**Status:** CURRENT as of 2026-09-10, verified against `41dde711`.
 
 Every `yolo -- <cmd>` launch on Linux runs under an **in-process TTY proxy**: a pty pair the CLI
 owns, with the container runtime's stdio on the slave side and the host terminal on the master
@@ -59,6 +59,69 @@ raw mode, and the only way out is a `kill -CONT` from a second terminal, or the 
 keys — which lose the session that was inside. It is easy to hit by accident and has no in-band
 recovery. That is the bug.
 
+## Encodings — what counts as a `^Z`
+
+**The wedge came back on 2026-09-10, through the filter built to stop it.** The proxy matched the
+suspend key with a single byte scan for `0x1A` for its whole life. That is only the LEGACY
+encoding. A terminal that has been asked for the **kitty keyboard protocol** stops sending control
+bytes and sends escape sequences instead, so `Ctrl-Z` arrives as `ESC [ 122 ; 5 u` — which holds no
+`0x1A` anywhere. The scan forwarded it verbatim; the agent decoded it and called
+`kill(0, SIGTSTP)`.
+
+Measured on the maintainer's host (kitty, `TERM=xterm-kitty`, Claude Code 2.1.267), the result was
+the [wedge](#the-wedge-this-exists-to-prevent) in its textbook form — five processes in state `T`,
+the agent and every MCP child, one process group:
+
+```console
+$ ps -eo pid,ppid,stat,args | awk '$3 ~ /^T/'
+1363658 1363644 Tl+  /home/agent/.local/bin/claude --dangerously-skip-permissions
+1366498 1363658 Tl+  /bin/node .../mcp-server-sequential-thinking
+1366499 1363658 Tl+  chrome-devtools-mcp
+1366500 1363658 Tl+  npm exec tavily-mcp@latest
+1366597 1366500 Tl+  .../tavily-mcp
+```
+
+Recovery, for the record, is a group-wide continue — `kill -CONT -<pgid>`, negative. A single-pid
+`-CONT` resumes one member and leaves the rest stopped, which looks like it did nothing.
+
+`yolo -- bash` in the same terminal suspended correctly throughout, which is what isolated the
+cause: the proxy was in the path and working, and the only difference was that plain bash never
+asks for the protocol, so its `Ctrl-Z` was still a `0x1A`.
+
+### What is matched now
+
+| Encoding | Shape | Sent when |
+| :--- | :--- | :--- |
+| Legacy control byte | `0x1A` | the default; any terminal not asked for more |
+| kitty keyboard protocol | `CSI 122 ; <mods>[:<event>] u` | the application pushed a keyboard-protocol flag |
+| xterm modifyOtherKeys | `CSI 27 ; <mods> ; 122 ~` | the application enabled `modifyOtherKeys` |
+
+Three rules the matcher applies, each of which is a bug in one direction or the other if dropped:
+
+- **Ctrl and nothing else.** Modifiers are reported as `1 + bitmask`, so Ctrl alone is `5`.
+  `Ctrl-Shift-Z` and `Ctrl-Alt-Z` are different keys and must reach the application.
+- **Lock bits are not modifiers.** Caps Lock and Num Lock ride along in the same field — `Ctrl-Z`
+  with Num Lock on is `133`, not `5`. Demanding exactly `5` breaks for anyone with a lock key on,
+  and does it invisibly.
+- **Press and repeat suspend; release must not.** A terminal in "report all keys" mode sends a
+  press *and* a release for one keypress. Suspending on both would re-stop the proxy the instant
+  the user resumed it.
+
+> [!WARNING]
+> **A sequence split across two reads is not matched, deliberately.** A keypress reaches the proxy
+> as one write from the terminal and one read from the pty, so this does not happen in practice.
+> Covering it would mean holding back a partial tail — withholding real input on a timer, which is
+> a worse failure than the one it prevents. Add it when a split is actually observed, not before.
+
+> [!WARNING]
+> **This is an arms race the proxy does not control.** The encoding is chosen by the application
+> and the terminal between them; the proxy only watches the bytes go past. A future protocol, or a
+> keyboard-protocol flag combination nobody has shipped yet, reopens the same hole. The structural
+> answer — a job-control shell inside the jail, so an application that suspends itself lands
+> somewhere recoverable regardless of encoding — is the two-stage variant refused under
+> [Why the cheaper fixes do not work](#why-the-cheaper-fixes-do-not-work). That refusal was priced
+> before any agent grabbed `^Z`, and this section is the evidence for repricing it.
+
 ## Frozen behavior
 
 These are the proxy's invariants. The package header states the same list, deliberately, because
@@ -67,8 +130,11 @@ each one is a place a plausible "cleanup" reintroduces the wedge.
 - **Non-TTY stdin ⇒ a transparent plain spawn, no pty.** Pipes, test harnesses and automation keep
   working unchanged.
 - **`^Z` suspends the PROXY**, via a **targeted `SIGTSTP` to self** — never a pgroup-wide signal,
-  which would stop the container runtime and so be a jail-visible change. The byte **never reaches
-  the child**, and bytes after `^Z` in the same read are queued and flushed on resume.
+  which would stop the container runtime and so be a jail-visible change. The keypress **never
+  reaches the child**, and bytes after it in the same read are queued and flushed on resume.
+- **What counts as `^Z` is not one byte**, and assuming it was cost a shipped wedge — see
+  [Encodings](#encodings--what-counts-as-a-z). The match must cover every encoding a terminal may
+  use, and must cover the WHOLE sequence: a range one byte short leaks a stray `u` into the agent.
 - **No `Setsid`.** `setsid()` would put the runtime in its own session with no controlling
   terminal, breaking its pty allocation. The runtime inherits the proxy's session and simply has
   the pty slave as its stdio; the host shell's job control still tracks the proxy, because the
@@ -110,15 +176,16 @@ each one is a place a plausible "cleanup" reintroduces the wedge.
 ```
 host TTY ──> proxy (raw mode) ──> master pty ──> runtime ──> container pty ──> the app
                   │                                                              │
-                  │   intercepts 0x1A  ────────────────► self-suspend             │
+                  │   intercepts ^Z    ────────────────► self-suspend             │
                   │   raises SIGTSTP   ◄─── host shell ───  fg                    │
 host TTY <── proxy ──── master pty <── runtime <── container pty <── the app      │
 ```
 
 1. Open a pty pair, and give the child the **slave** as all three of its stdio streams — so the
    runtime believes it is on a terminal, with no host-terminal raw-mode dance of its own.
-2. Put the **host** terminal in raw mode, so `0x1A` arrives as a byte rather than being translated
-   to a signal by the kernel's terminal driver.
+2. Put the **host** terminal in raw mode, so the keypress arrives as input rather than being
+   translated to a signal by the kernel's terminal driver. What it arrives *as* depends on the
+   terminal — see [Encodings](#encodings--what-counts-as-a-z).
 3. Pump: host stdin → master, master → host stdout. On seeing the suspend byte, write everything
    *before* it, queue everything *after* it, then self-suspend.
 4. Self-suspend restores cooked termios — so the shell prompt works — and sends the targeted
@@ -195,7 +262,11 @@ place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Suspend byte | `0x1A` | `ttyproxy` (`suspByte`) |
+| Suspend key, legacy encoding | `0x1A` | `ttyproxy` (`suspByte`) |
+| Suspend key, kitty keyboard protocol | `CSI 122 ; <mods>[:<event>] u` | `ttyproxy` (`matchEscapedSuspend`) |
+| Suspend key, xterm modifyOtherKeys | `CSI 27 ; <mods> ; 122 ~` | `ttyproxy` (`matchEscapedSuspend`) |
+| Modifiers that must be set, and only these | Ctrl (reported as `1 + 4`; Caps/Num lock bits ignored) | `ttyproxy` (`isCtrlOnly`, `realMods`) |
+| Key events that suspend | press, repeat — **never release** | `ttyproxy` (`isSuspendEvent`) |
 | Pump read size | 64 KiB | `ttyproxy` (`readChunk`) |
 | Exit code on a killed proxy | `128 + signal` | `ttyproxy` |
 | Reported stages | `spawned`, `exited`, `drain_done`, `termios_restored` | `ttyproxy` (`Stage*`), consumed as `child.*` marks — see [`perf-logging.md`](perf-logging.md) |
