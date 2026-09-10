@@ -88,6 +88,15 @@ Recovery, for the record, is a group-wide continue — `kill -CONT -<pgid>`, neg
 cause: the proxy was in the path and working, and the only difference was that plain bash never
 asks for the protocol, so its `Ctrl-Z` was still a `0x1A`.
 
+**Fixed and verified on the reporting host, 2026-09-10:** `Ctrl-Z` in a jailed agent session
+stops the proxy, and `fg` resumes the agent live.
+
+That same difference explains an observation that looked contradictory while the bug was open.
+`Ctrl-Z` during a *shutdown* hang always worked — it was the diagnostic that located
+[Window A](perf-logging.md#window-a-attribution) — while `Ctrl-Z` in a *live* session wedged. By
+shutdown the agent has exited and popped the keyboard protocol off the terminal's stack, so the
+keypress is a `0x1A` again and the old byte scan caught it. One model, both observations.
+
 ### What is matched now
 
 | Encoding | Shape | Sent when |
