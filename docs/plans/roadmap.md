@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 17 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 18 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-10**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -789,6 +789,37 @@ report from 277 lines to roughly 90.
 
 **Answer:**
 > _(empty — fill in when decided; [`OQ-RO1`](../design/report-tiers.md#10-open-questions) and [`OQ-RO2`](../design/report-tiers.md#10-open-questions) together unblock the default view)_
+
+### 💬 30 — The Lua config transform: remove it, and leave the derive VM standing
+
+📄 [`lua-transform-removal.md`](../design/lua-transform-removal.md) — **[`OQ-LT1`](../design/lua-transform-removal.md#OQ-LT1) · [`OQ-LT2`](../design/lua-transform-removal.md#OQ-LT2)** ·
+written 2026-09-10, **routed here the same day**
+
+The maintainer's instinct — *"I'm not sure it's fully thought through"* — checked against the tree: the
+`config.lua` hook between the merge and the managed-enforce step has **no user** (the workspace file
+does not exist, the user file is 0 bytes, no pack declares it), its one worked example is served by the
+declarative `autonomy` kind, and four of its parts are disconnected **today** — `ctx.stage.exclude`
+records globs nothing prunes, `ValidateSandbox` has no caller, the `config_transform` key was never
+built, and the "converged" loader still has a second hand-copy. The determinism the design requires is
+unenforced: `math.random` is reachable in the sandbox (measured). The verdict is remove — but the VM is
+shared with six packs' `derive.lua`, so the doc's load-bearing section is the per-symbol seam through
+`luahook`, and the managed floor (`Enforce`) has to be lifted into `internal/agentcfg` before the
+transform half goes. Two real capability gaps are named rather than waved away. Nothing removed.
+
+- **[`OQ-LT1`](../design/lua-transform-removal.md#OQ-LT1) — what does a user who still has a
+  `config.lua` or a `transform` key see on ship day: a refusal that names the removal, a warning, or
+  silence?** *Leaning: refuse by name for the keys (the `journal` precedent); refuse at launch for a
+  non-empty file; silence only for a 0-byte one, which was already the identity.*
+- **[`OQ-LT2`](../design/lua-transform-removal.md#OQ-LT2) — does principle 4 of the design of record
+  ("transform with Lua, not a data vocabulary") retire with it, accepting the two gaps?** *Leaning:
+  yes; a declarative op is designed only against a concrete case, and the pack-side `yolo.transform`
+  is the shape to revisit first.*
+
+**Steps 1–2 of the build order need no ruling** — pin the shared sandbox proofs on the derive path and
+lift `Enforce` — and make the rest checkable.
+
+**Answer:**
+> _(empty — fill in when decided; [`OQ-LT1`](../design/lua-transform-removal.md#OQ-LT1) alone unblocks the removal commits)_
 
 # 📦 Up next
 
