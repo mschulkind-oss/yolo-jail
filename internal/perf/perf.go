@@ -132,6 +132,27 @@ func (l *Log) Mark(name string) {
 	l.emit(Event{Kind: KindMark, Name: name, At: l.now()})
 }
 
+// Record enters a COMPLETED interval whose duration was measured somewhere
+// else. It is the one shape Span cannot express: a Span times work this
+// process is doing, and this is the opposite — an interval no yolo code was
+// present for, priced afterwards from another system's record.
+//
+// Window A is the only caller (run/perfevents.go): the stretch inside the
+// podman child, whose length comes from podman's own event log once the child
+// is already gone.
+//
+// It emits a KindEnd with NO KindStart, deliberately. A synthetic start would
+// have to carry a timestamp from the past, putting the file's lines out of
+// time order, and it would claim yolo was present when the interval began. The
+// package's one structural reading of a lone start — "this is where it hung" —
+// has to keep meaning exactly that, so a lone END is the honest asymmetry.
+func (l *Log) Record(name string, dur time.Duration) {
+	if !l.enabled() {
+		return
+	}
+	l.emit(Event{Kind: KindEnd, Name: name, At: l.now(), Dur: dur})
+}
+
 // emit appends to the in-memory record and fans out to the sinks, in order,
 // outside the lock (sinks take their own; holding ours across a file write
 // would serialize the report against every span end for no gain).

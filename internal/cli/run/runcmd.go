@@ -139,6 +139,20 @@ type Options struct {
 	// reaching emitTimingReport is the ORDINARY interleaving on that path, and
 	// the terminal should see one report and one Window A query, not two.
 	perfReportOnce *sync.Once
+	// perfWindowAOnce makes the Window A query run once per Run invocation, for
+	// the same interleaving reason perfReportOnce exists — and as a SEPARATE
+	// Once, because the two now sit on different gates. The query records, so
+	// it runs behind every opt-in; the table prints, so it runs behind the typed
+	// flags only. One Once could not serve both without putting the query back
+	// on the reporting gate, which is the bug being fixed.
+	//
+	// Pointer, and nil for a timing-off launch, for the reasons above it.
+	perfWindowAOnce *sync.Once
+	// windowA is what that one query found — stashed so the report renders the
+	// recorded answer rather than asking podman a second time. Written inside
+	// perfWindowAOnce.Do and read only after a Do returns, which is what makes
+	// it safe across the two arms' goroutines.
+	windowA windowAResult
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
 	// ServiceReadyTimeout bounds each spawned host service's readiness wait
@@ -378,6 +392,7 @@ func (o *Options) initPerf(cname string) {
 	})
 	if o.Perf != nil {
 		o.perfReportOnce = &sync.Once{}
+		o.perfWindowAOnce = &sync.Once{}
 	}
 	// Publish it to the CALLER, which cannot otherwise see it: Options is passed
 	// BY VALUE (launchRunPipeline's seam), so a collector constructed here is

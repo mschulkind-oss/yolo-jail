@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,7 +301,8 @@ func TestAttributeWindowA(t *testing.T) {
 				}
 				return tc.res
 			}
-			line, ok, _ := o.attributeWindowA("yolo-ws-test0000", tc.rt, podmanExit.Add(-time.Minute), podmanExit)
+			res := o.attributeWindowA("yolo-ws-test0000", tc.rt, podmanExit.Add(-time.Minute), podmanExit)
+			line, ok := res.line, res.ok
 			if ok != tc.want {
 				t.Fatalf("ok = %v, want %v (line %q)", ok, tc.want, line)
 			}
@@ -457,7 +459,8 @@ func TestWindowAExplainsWhyItHasNothing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			o.Exec = func([]string, string, []string, time.Duration) ExecResult { return tc.res }
-			line, ok, why := o.attributeWindowA("yolo-ws-test0000", tc.rt, exited.Add(-time.Minute), exited)
+			res := o.attributeWindowA("yolo-ws-test0000", tc.rt, exited.Add(-time.Minute), exited)
+			line, ok, why := res.line, res.ok, res.reason
 			if ok || line != "" {
 				t.Fatalf("expected no attribution, got %q", line)
 			}
@@ -547,4 +550,172 @@ func TestInitPerfWithNoRefIsFine(t *testing.T) {
 	o := &Options{Workspace: t.TempDir()}
 	fillDefaults(o)
 	o.initPerf("yolo-ws-test0000") // must not panic
+}
+
+// windowAFixture renders a `podman events --format '{{.Time}} {{.Status}}'`
+// log for a container that died `ago` before now and was cleaned up 300ms
+// later. Relative to now, not a frozen unix stamp, because the gap Window A
+// measures is (child.exited mark) - (die event) and the mark is real-clock.
+func windowAFixture(ago time.Duration) string {
+	die := time.Now().Add(-ago)
+	unix := func(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
+	return fmt.Sprintf("%.3f start\n%.3f die\n%.3f cleanup\n",
+		unix(die.Add(-time.Second)), unix(die), unix(die.Add(300*time.Millisecond)))
+}
+
+// quietRecordingOptions is a launch with the PERSISTENT opt-in on and neither
+// explicit flag: it records everything and prints nothing. Every test below
+// that pins the gate move needs exactly this shape, because a --timing launch
+// cannot tell the old wiring from the new one.
+func quietRecordingOptions(t *testing.T, ws, home string) *Options {
+	t.Helper()
+	o := goldenOptions(ws, home)
+	// The field fillDefaults would set from `perf_logging: true`. Set directly
+	// so the test does not depend on the developer's own config file — the same
+	// reason PerfLoggingConfig is a seam at all.
+	o.perfLoggingOn = true
+	o.initPerf("yolo-ws-test0000")
+	if !o.timingRecording() {
+		t.Fatal("fixture wrong: this launch must RECORD")
+	}
+	if o.timingReporting() {
+		t.Fatal("fixture wrong: this launch must NOT print")
+	}
+	return o
+}
+
+// THE CALL-SITE PIN for Window A, and it is deliberately a QUIET launch.
+//
+// Window A attribution used to run inside emitTimingReportLocked, so it fired
+// only for a launch that typed --timing — and Window A is the one span a user
+// cannot predict wanting, because the way you find out it was slow is by
+// waiting through it. Every --timing test in this file passes with
+// recordWindowA deleted from teardownAfterExit, because the report would run
+// the query itself. This test does not: a quietly-recording launch never
+// reaches the report at all, so it fails the moment that call site goes.
+func TestQuietTeardownRecordsWindowA(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := quietRecordingOptions(t, ws, home)
+	o.Perf.Mark("child.exited") // the arm's precondition, as the proxy leaves it
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult {
+		return ExecResult{Ran: true, RC: 0, Stdout: windowAFixture(1500 * time.Millisecond)}
+	}
+
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+
+	ev, ok := o.Perf.LastEvent("shutdown.window_a")
+	if !ok {
+		t.Fatal("shutdown.window_a was not recorded — a quiet launch still cannot price Window A")
+	}
+	if ev.Dur < 1300*time.Millisecond || ev.Dur > 1900*time.Millisecond {
+		t.Errorf("Window A recorded as %v, want ~1.5s from the fixture", ev.Dur)
+	}
+	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(fileBytes), "end    shutdown.window_a  dur=1.") {
+		t.Errorf("the number did not reach the file; got:\n%s", fileBytes)
+	}
+}
+
+// The blank is recorded too. A quiet launch prints no reason line, so without
+// this the file would say nothing at all about a query that ran and found
+// nothing — the "an observability feature that cannot explain its own blank"
+// rule, applied to the half of it that does not print.
+func TestQuietTeardownRecordsWindowAFailureClass(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := quietRecordingOptions(t, ws, home)
+	o.Perf.Mark("child.exited")
+	// Ran, exited 0, and holds no die — the ordinary rootless file-backend case.
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult {
+		return ExecResult{Ran: true, RC: 0, Stdout: "1757152800.5 start\n"}
+	}
+
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+
+	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(fileBytes), "mark   shutdown.window_a_unattributed.no_die") {
+		t.Errorf("the failure class did not reach the file; got:\n%s", fileBytes)
+	}
+	if _, ok := o.Perf.LastEvent("shutdown.window_a"); ok {
+		t.Error("recorded a duration for a query that found no die event")
+	}
+}
+
+// One query per launch, even though the arm records and the report renders.
+// The report reads what the arm recorded; if it ever asks podman again, a
+// signal-path shutdown pays the exec twice and the two answers can disagree.
+func TestWindowAQueriedOncePerLaunch(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions(ws, home)
+	o.Timing = true // the printing launch: arm records, report renders
+	o.initPerf("yolo-ws-test0000")
+	o.Perf.Mark("child.exited")
+	queries := 0
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		// The chain also runs the liveness `podman ps`; count only the events query.
+		if len(argv) > 1 && argv[1] == "events" {
+			queries++
+			return ExecResult{Ran: true, RC: 0, Stdout: windowAFixture(2 * time.Second)}
+		}
+		return ExecResult{Ran: true, RC: 0}
+	}
+	var errbuf bytes.Buffer
+	o.Stderr = &errbuf
+
+	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", 0)
+	o.emitTimingReport(0, "yolo-ws-test0000", "podman")
+	o.emitTimingReport(0, "yolo-ws-test0000", "podman") // the interleaving arm
+
+	if queries != 1 {
+		t.Errorf("podman events ran %d times, want exactly 1", queries)
+	}
+	got := errbuf.String()
+	if !strings.Contains(got, "Window A (container died → podman exit)") {
+		t.Errorf("report lost the Window A line; got:\n%s", got)
+	}
+	// The recorded event is inside the TABLE too, which is the second half of
+	// what the gate move buys: a row, not only a footnote.
+	if !strings.Contains(got, "shutdown.window_a") {
+		t.Errorf("report table missing the shutdown.window_a row; got:\n%s", got)
+	}
+}
+
+// The attach arm has no container death to attribute — `podman exec` into a
+// jail that keeps running — so it must not query at all. It used to, and got
+// back "no die event", which is a blank explaining a question nobody asked.
+func TestWindowASilentWithoutAChildExit(t *testing.T) {
+	ws := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	o := quietRecordingOptions(t, ws, home)
+	queries := 0
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if len(argv) > 1 && argv[1] == "events" {
+			queries++
+		}
+		return ExecResult{Ran: true}
+	}
+
+	o.recordWindowA("yolo-ws-test0000", "podman") // no child.exited mark exists
+
+	if queries != 0 {
+		t.Errorf("queried podman events %d times with no child.exited mark", queries)
+	}
+	if _, ok := o.Perf.LastEvent("shutdown.window_a"); ok {
+		t.Error("recorded a Window A that never happened")
+	}
 }

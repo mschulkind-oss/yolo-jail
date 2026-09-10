@@ -1107,6 +1107,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		sp = o.Perf.Span("terminate.capture_config")
 		o.captureConfigOnTerminate(rt)
 		sp.End()
+		// Same position and same reason as the normal arm's: after this arm's
+		// whole chain, so --until now is later than every event, and before the
+		// report, which renders what this recorded. The Once makes the two arms
+		// one query on the interleaving path.
+		o.recordWindowA(cname, rt)
 		// The report prints HERE, inside the closure, because the proxy
 		// os.Exit(128+n)s the moment this returns — no statement after it
 		// will ever run, and defers do not fire on this path. The file sink
@@ -1196,6 +1201,12 @@ func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string
 	sp = o.Perf.Span("shutdown.oom_check")
 	o.maybeWarnAboutOOMKiller(rc, rt)
 	sp.End()
+	// LAST in the chain, and that position is load-bearing: the query passes
+	// --until now, which has to be later than any cleanup event conmon wrote
+	// (D9). It records on the RECORDING gate, so a quiet `perf_logging: true`
+	// launch gets Window A's cost in its file — the number is unpredictable
+	// enough that "type --timing next time" was never a real answer.
+	o.recordWindowA(cname, rt)
 }
 
 // emitTimingReport ends the launch's timing surface — in one of two ways, and
@@ -1245,20 +1256,18 @@ func (o *Options) noteTimingLogLocation() {
 }
 
 func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
-	// ATTRIBUTION RUNS BEFORE THE TABLE IS RENDERED, and the ordering is the
-	// whole point: attributeWindowA spans its own `podman events` call, so
-	// running it after Report() left that span in the FILE and missing from the
-	// printed table on every launch — the one number the reader is looking at is
-	// the one that could not appear in it. Measured on a real host 2026-09-08.
-	// The line it produces still prints BELOW the table, where it belongs.
-	var attribution, why string
-	if child, ok := o.Perf.LastEvent("child.exited"); ok {
-		line, ok, reason := o.attributeWindowA(cname, rt, o.Perf.StartTime(), child.At)
-		attribution, why = line, reason
-		if !ok {
-			attribution = ""
-		}
-	}
+	// ATTRIBUTION ALREADY RAN, in whichever teardown arm reached this — and that
+	// is what keeps its own `podman events` span, and the shutdown.window_a it
+	// records, INSIDE the table about to be rendered. Querying from HERE left
+	// both in the FILE and missing from the print on every launch: the one
+	// number the reader is looking at was the one that could not appear in it
+	// (measured on a real host 2026-09-08, first fixed by ordering the two calls,
+	// then fixed properly by moving the query onto the recording gate, where it
+	// runs for launches that never print at all).
+	//
+	// The line still prints BELOW the table, where it belongs: it says more than
+	// the row does — the cleanup event's own offset, or why there is no row.
+	attribution, why := o.windowA.line, o.windowA.reason
 	o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing (rc %d) ---[/bold cyan]", rc)
 	o.Perf.Report(o.Stderr, time.Now())
 	switch {
