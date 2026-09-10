@@ -1,12 +1,21 @@
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Status:** IN PROGRESS — restamped **2026-09-03** (written 2026-07-21; body
+**Status:** IN PROGRESS — restamped **2026-09-10** (written 2026-07-21; body
 below is the original plan except where a dated annotation says otherwise).
 Tracks J and M are done. Track D's engineering is done, but **two of its four
 steps were later reverted or superseded** and the header this line replaces did
-not say so. **A2 and Track L part 1 are still open**, so that header's closing
-claim — *"nothing engineering-side fully open"* — was **false**; it is retracted
-in §*Retracted claims* below.
+not say so. **Track L part 1 is the one open engineering item**, so the original
+header's closing claim — *"nothing engineering-side fully open"* — was **false**;
+it is retracted in §*Retracted claims* below.
+
+> [!NOTE]
+> **A2 was still named as open in this header until 2026-09-10, six days after it
+> shipped.** The status table has said **DONE 2026-09-04** since the day it landed,
+> and the two disagreed in three places (this line, §*Active work*, and the NOW/LATER
+> block). The table was right — `platforms` filters in `EffectivePackages` and the
+> aggregated hard error is in `internal/macosuser/orchestrator.go`. A status line
+> outliving the work it describes is the drift this corpus's fifth sweep exists to
+> catch; it is recorded here rather than silently deleted.
 
 > [!IMPORTANT]
 > **2026-09-03: the Mac is back on the product, and this changes what "Mac-gated"
@@ -32,6 +41,38 @@ in §*Retracted claims* below.
 >
 > **Two defects were found by that measurement and fixed the same day** — see the
 > two `2026-09-03` rows in the table below.
+
+> [!IMPORTANT]
+> **2026-09-10: the launch happened, and both blockers above are closed.** This note
+> supersedes the two paragraphs it follows; they are kept because the corpus records
+> what a claim was before it was retired, not only what replaced it.
+>
+> **The pack-path blocker was fixed in yolo, the same day it was written down.**
+> `c55b6571` — *"a local pack may be named by a plain path, `~/` included"* — makes
+> `localPackAddress` (`internal/config/packs.go`) expand `~` and `~/…` into a
+> `file://` URL while lowering the config, so one dotfiles tree can name a pack on
+> both machines. ⚠ It deliberately **refuses** `file://~/…` rather than expanding it:
+> that is a malformed URL (RFC 8089 reads the `~` as the authority), and accepting it
+> would make yolo's reading of a string disagree with every other URL parser's. The
+> refusal names the one-word fix — drop the scheme. The maintainer's config has since
+> moved to the plain-path spelling, and both pack directories resolve.
+>
+> **What actually blocked the launch afterwards was a stale host install**, which is
+> a different failure wearing the same clothes: the host `yolo` was 354 commits
+> behind the tree (`0.8.0+939.gc8bf9ca0` vs `520e848d`), so `yolo check` FAILED on
+> `config.perf_logging: unknown key` — a key this tree knows
+> (`internal/config/perflogging.go`) and that binary predated. `just install` cleared
+> it: **41 passed, 4 warnings, 0 failed**. The lesson is the one the two-halves rule
+> already states — the config moves with the tree, the host binary moves only when a
+> human installs — so a Mac left alone for a week reports a config error that is
+> really a deploy error.
+>
+> **Runbook items 1 and 2 both PASS** ([`runbooks/macos-user-manual-checks.md`](./runbooks/macos-user-manual-checks.md)),
+> measured on the maintainer's Mac: the privilege transition returns `_yolojail` and
+> the workspace path, and the sandbox is refused both `/Users/<host user>/.ssh` and
+> `/Library/Keychains`. This is the first live `macos-user` session, and it closes the
+> question of whether the kernel actually loads the profile. **Items 3 and 4 remain
+> unrun.** See the runbook for the one wording correction the measurement forced.
 
 **The short version.** The revival landed: macos-user is a real, real-HW-proven
 backend and the distribution regression is closed by a baked prebuilt bundle
@@ -67,7 +108,7 @@ reading code or `git log`; nothing here is carried over on trust.
 | A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go:144` |
 | A2 (hard error + `linux-only`) | **DONE 2026-09-04** | both pieces shipped: `platforms: ["linux"]` on the package object form filters in `EffectivePackages(cfg, platform)` BEFORE materialize, and a declared package still missing from the build aborts the launch naming every one at once (`internal/macosuser/orchestrator.go`). The plan's `linux-only` spelling became `platforms`, a list — see A2 below |
 | A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go:286` |
-| Track L part 1 (framework plumbing) | **NOT STARTED** | `startLoopholesDisclosed` is called once, at `internal/cli/run/run.go:569`, inside `runContainer` (`run.go:308`); `macosuser.EndpointGrantCommands` (`macosuser.go:430`) has **zero call sites** |
+| Track L part 1 (framework plumbing) | **NOT STARTED** | re-checked 2026-09-10: `startLoopholesDisclosed` is called once, at `internal/cli/run/run.go:1049`, inside `runContainer` (`run.go:668`); `macosuser.EndpointGrantCommands` (`macosuser.go:597`) still has **zero call sites** outside its own tests |
 | Track L part 2 (scoping proxy) | **BLOCKED on [OQ-L1](#open-questions-blocking)** | unchanged |
 | check's python3 probe | **DELETED 2026-09-03** | it hard-FAILed a python-less Mac for a requirement J2 dropped on 2026-07-21 (`544a8069`); `internal/cli/check/sections_macos.go` |
 | macos-user repo-root gate for `packages:` | **FIXED 2026-09-03** | an unresolved root reached `darwinpkg.Materialize("")` → empty `cmd.Dir` → nix evaluated the user's cwd; `internal/cli/run/run.go`, `internal/darwinpkg/materialize.go` |
@@ -104,7 +145,7 @@ the 07-21 build and not of today's. See [`roadmap.md`](roadmap.md)'s 🔒 macOS 
   landed" a month after the revert.
 
 **Inputs:** `docs/research/repo-root-and-distribution.md` (the source-access
-work), `../reference/macos-no-vm-direction.md` (the settled "compose both
+work), [`../reference/macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md) (the settled "compose both
 backends" direction), `docs/research/macos-support-matrix.md` (the status
 tracker). The real-hardware audit findings and the earlier nix-shell/direction
 docs that seeded this plan were archived once their conclusions landed here —
@@ -125,7 +166,7 @@ macos-user backend, at which point SandVault retires.
 
 ## 0. Standing decisions — do not relitigate
 
-- **Composed product** (2026-07-16, `../reference/macos-no-vm-direction.md`):
+- **Composed product** (2026-07-16, [`../reference/macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md)):
   macos-user (native user + Seatbelt, no VM) is the fast default; Apple
   Container is the fallback cell for Linux-only packages or VM-grade isolation.
 - **Acceptance bar:** macos-user must honor `packages:` via native
@@ -987,24 +1028,23 @@ DONE:  J1.1 J1.2 J1.3† J1.4  D1‡ ─►  J2.1 J2.2 J2.3 J2.4 + D2✗ ──�
                                │                     │                       │
 mac:                           └─ M0 (SandVault)     └─ M1 (e2e verify) ──► M2 (dogfood, docs)
 
-DONE (A-track):  A1 ✅ 2026-08-18      A3 ✅ 2026-07-23
-NOW:             A2 ⚠ HALF — the aggregated hard error + `platforms` override are still unbuilt
-LATER:           Track L part 1 (framework plumbing on the macos-user launch path) — NOT STARTED
-                 Track L part 2 (the scoping proxy) — gated on OQ-L1
+DONE (A-track):  A1 ✅ 2026-08-18   A2 ✅ 2026-09-04   A3 ✅ 2026-07-23
+NOW:             Track L part 1 (framework plumbing on the macos-user launch path) — NOT STARTED
+LATER:           Track L part 2 (the scoping proxy) — gated on OQ-L1
 
 † J1.3's fix landed and was then deleted with `internal/builder` (Open Decision #3).
 ‡ D1's `repo_path` key was RETIRED 2026-07-23; D3's source bundle was SUPERSEDED by the prebuilt bundle.
 ✗ D2 was REVERTED 2026-07-29 — a missing repo root is fatal again.
 ```
 
-**The one live engineering item is A2's second half** — independent, pure-Go /
-flake-only, Linux-jail-developable + testable. *(Amended 2026-09-03: still true of
-the items this plan had ALREADY scoped, but Track L part 1 is now a live candidate
-too — see §Self-hosting. And two smaller defects were found and fixed on
-2026-09-03; they were never in this list because nobody had measured them.)* It carries a Track M checklist
-line (confirm the hard error fires live on a genuinely darwin-less package —
-never exercised on M1). *The DONE row is "landed at some point", not "in the
-tree today": read the daggers.* Verified 2026-08-23.
+**The one live engineering item is Track L part 1** — the loophole framework on the
+macos-user launch path; see §Self-hosting. *(This line named A2's second half until
+2026-09-10, which A2 shipping on 2026-09-04 made wrong — see the note under the
+status header.)* A2 still carries a Track M checklist line: confirm the hard error
+fires live on a genuinely darwin-less package, never exercised on M1 and not covered
+by the 2026-09-10 session, which ran the two privilege-gated checks only. *The DONE
+row is "landed at some point", not "in the tree today": read the daggers.*
+Verified 2026-09-10.
 
 ## Open decisions (maintainer input wanted, none blocking J1/D1)
 

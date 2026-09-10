@@ -1046,19 +1046,30 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
 
 - 💬 **The macos-user home has one tier where it needs two, and content delivery just made it
   bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **OQ-HT-1 ·
-  OQ-HT-2 · OQ-HT-3**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine tier
+  OQ-HT-2 · OQ-HT-3 · OQ-HT-4**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine
+  tier
   (credentials — correct, and the point of a dedicated account), the workspace tier (pack
   `state`, agent history) and the session tier are one directory. Two symptoms were static
   information leakage between workspaces and were warned about. The third is new and is a
   write-write RACE: since 2026-09-03 skills and briefings are composed and copied over that home
   on every entry, so a second workspace launching while the first runs replaces its briefing —
   per-project prose an agent is mid-session reading. The proposal is the two-tier structure the
-  container backends already have, in the one account this backend has: a per-workspace home
-  under `/Users/_yolojail/workspaces/<cname>`, with credentials reached by the symlinks
-  `shared_credentials` already uses. **The trap is that a naive split repairs the workspace tier
-  by breaking the machine one** — the single home IS the credential-sharing mechanism here — so
-  the fix must restore both explicitly, and OQ-HT-2 asks what happens to the credentials already
-  sitting in the old layout.
+  container backends already have, in the one account this backend has. **The trap is that a naive
+  split repairs the workspace tier by breaking the machine one** — the single home IS the
+  credential-sharing mechanism here — so the fix must restore both explicitly, and OQ-HT-2 asks
+  what happens to the credentials already sitting in the old layout.
+
+  ⚠ **WHERE the per-workspace half lives is now itself open, and this row named the losing
+  answer until 2026-09-10.** It said "a per-workspace home under
+  `/Users/_yolojail/workspaces/<cname>`" as though settled; review asked whether that displaces
+  `<workspace>/.yolo/`, and the answer exposed a design error. **The container backends do not
+  move their home per workspace** — `HOME` is `/home/agent` always, and specific subdirectories
+  are mounted in from the workspace sidecar — so the original proposal was diverging from the
+  model it claimed to adopt. That fork is **OQ-HT-4**, and its leaning is the alternative review
+  found: keep `HOME` at `/Users/_yolojail` and symlink `~/.claude` and kin into
+  `<workspace>/.yolo/home/`, which is where every other backend already puts that state. **Rule
+  OQ-HT-4 before OQ-HT-2**, not after: under the leaning credentials never move, which shrinks
+  the blocking migration question to nearly nothing.
 
 - 🔒 **Four manual checks are all that is left on a Mac, and they are written down.** 📄
   [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md). Everything that
@@ -1069,21 +1080,41 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   transition, Seatbelt actually loading, the `packages:` acceptance bar, and content reaching the
   agent — and it is four commands, not a project.
 
+  **TWO OF THE FOUR ARE NOW RUN, and they PASSED** (2026-09-10, the maintainer's Apple Silicon
+  Mac, host `yolo` `0.8.0+1293.g520e848d`) — **the first live `macos-user` session there.** The
+  privilege transition returns `_yolojail` and the workspace path; the sandbox is refused both
+  `/Users/<host user>/.ssh` and `/Library/Keychains`, which settles the one fact no unit test in
+  this repo can reach: **the kernel really loads the profile.** Items 3 (the `packages:`
+  acceptance bar) and 4 (content reaching the agent) are still unrun. The runbook gained one
+  correction the measurement forced — the two refusals do NOT print the same message (`EACCES`
+  for the home path, `EPERM` for the keychain), and the old wording said they did, which reads
+  as a half-failure to anyone running it. ⚠ **These four are a human's to run:** `sudo -n true`
+  reports `a password is required`, and every macos-user argv leads with `sudo --user=_yolojail`,
+  so an agent attempting the launch hangs on the prompt rather than failing.
+
 - 🔒 **On a Mac — three things need the hardware, and the first is a config rename.** *(The
   headline used to announce what had LEFT this row, which tells a reader nothing about what is in
   it. For the record: the two lib-farm assertions were never darwin assertions — they failed
   because the image build did, and both went green the moment `x86_64-darwin` could evaluate again.
   Nothing about the lib farm was wrong.)*
 
-  Three items remain, all genuinely host-gated — and **before any of them, that Mac's config names
-  its packs by Linux paths, so no `yolo` launches there at all** (see the sandbox row above; the
-  `agents`-key blocker this line used to name was closed on 2026-09-03).
+  Three items remain, all genuinely host-gated. **The pre-blocker this row used to name is GONE**
+  — it said that Mac's config names its packs by Linux paths so no `yolo` launches there at all,
+  and both halves closed: `c55b6571` taught `localPackAddress` to expand a plain `~/` pack path
+  (`internal/config/packs.go`), the maintainer's config moved to that spelling, and a jail
+  launched there on 2026-09-10. (The `agents`-key blocker the line named before that was closed
+  on 2026-09-03.) What briefly replaced it was not a config fault at all but a **354-commit-stale
+  host `yolo`**, which failed `yolo check` on `config.perf_logging: unknown key` — a key the tree
+  knows and that binary predated; `just install` cleared it to 41 passed, 0 failed. Expect that
+  shape on any Mac left alone for a week: the config moves with the tree, the host binary only
+  when a human installs.
   The three: the `macos-user` acceptance matrix, Track D4's download proof, and the guest-notch
   handoff (whose [§2](handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) item 1.4 — do packs reach a macos-user sandbox? — is still the first thing to
   run there). 📄
-  [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md). **Item 1.4 is now half-answered:**
-  the sandbox can read the staged pack root and run the toolchain, so what is untested is the
-  `sudo -u _yolojail` staging step above it, not the confinement.
+  [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md). **Item 1.4's remaining half is
+  now answered too:** the sandbox could already read the staged pack root and run the toolchain,
+  and the `sudo -u _yolojail` staging step above it executed on 2026-09-10 — the launch reached
+  `yolo-jail macos-user bootstrap ok` and ran a command as that user.
 
   **What a Mac session on 2026-08-19 did settle, beyond the nightly:** `go test -short ./...` had
   **two** failures no Linux run could see, both now fixed — the GNU-`stat` throttle above

@@ -30,13 +30,32 @@ This is the whole irreducible remainder: `sudo` running at all, the `-u _yolojai
 switch landing, and the staged binary self-exec'ing as that user. Everything before
 and after it is covered by the harnesses above.
 
+**PASSED 2026-09-10**, on the maintainer's Apple Silicon Mac (macOS 26.5, arm64),
+host `yolo` `0.8.0+1293.g520e848d`. It printed `_yolojail` and the workspace path
+after one password prompt. ⚠ **An agent cannot run this one**: `sudo -n true` reports
+`a password is required`, and both argvs the plan emits lead with
+`sudo --user=_yolojail` (`internal/macosuser/runplan.go`), so a launch attempted from
+a coding agent hangs on the prompt rather than failing. Items 1-4 are a human's to
+run, which is what "needs either root or a kernel" above means in practice.
+
 ## 2. Seatbelt is actually applied
 
 ```console
 $ YOLO_RUNTIME=macos-user yolo -- bash -lc 'ls /Users/$(logname)/.ssh; ls /Library/Keychains'
 ```
 
-**Expect:** `Operation not permitted` for both.
+**Expect:** both refused — but **not with the same message**, and this line claimed
+they were until it was first run on 2026-09-10. Measured:
+
+```
+ls: /Users/<host user>/.ssh: Permission denied
+ls: /Library/Keychains: Operation not permitted
+```
+
+The home path denies with `EACCES` and the keychain path with `EPERM`. Either message
+is a pass; what fails is `No such file or directory` (see the warning below) or a
+listing. Do not read the mismatch as a half-failure — the original wording invited
+exactly that.
 
 > [!WARNING]
 > **Not `~/.ssh`.** Inside the jail `~` is the SANDBOX's home, which has no `.ssh`,
@@ -48,6 +67,9 @@ $ YOLO_RUNTIME=macos-user yolo -- bash -lc 'ls /Users/$(logname)/.ssh; ls /Libra
 The profile is generated as a pure string and pinned by unit tests; what no test can
 check is that the kernel loaded it. A jail that looks right and confines nothing is
 the failure this catches, and it is silent otherwise.
+
+**PASSED 2026-09-10**, same session as item 1 — both paths refused, so the kernel
+does load the profile. That is the fact no unit test in this repo can reach.
 
 ## 3. The acceptance bar — `packages:` reaches the agent
 
