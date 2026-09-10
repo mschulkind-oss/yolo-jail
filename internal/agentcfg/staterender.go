@@ -197,15 +197,12 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 				curMap, _ := current.(map[string]any)
 				residue := dropNullLeaves(mergeDiff(pm, curMap))
 				residue = dropYoloOwnedSubtrees(residue, pm)
-				// Also drop anything the surface MANAGES. Managed is re-asserted after
-				// the fold, so an adopted managed key can never affect the output — it
-				// would only sit in the sidecar as permanent noise, and `yolo config
-				// diff` would report a phantom "edit" the user cannot act on. (A stale
-				// managed VALUE on disk, e.g. codex's approval_policy=on-request from
-				// an old boot, is exactly this case.)
-				if mg, ok := in.Base.Surface.Managed.(map[string]any); ok {
-					residue = dropKeys(residue, mg)
-				}
+				// Anything the surface MANAGES is dropped too — but that is not done
+				// here any more. It is the SHARED narrowing below, which both branches
+				// run (see narrowOverlay). Adoption's behaviour is unchanged by the
+				// move: dropYoloOwnedSubtrees has already removed every top-level key
+				// the pure render holds as an object, and a managed object key is
+				// always one of those because Enforce puts it there.
 				if len(residue) > 0 {
 					overlay = residue
 				}
@@ -251,6 +248,19 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// toward under-capture rather than freezing a spurious delta into the
 		// never-aging overlay.
 	}
+
+	// ONE RULE, BOTH BRANCHES (§3.1 Enforce is the reason): strip from the decided
+	// overlay everything the managed layer will overwrite anyway. Adoption has
+	// narrowed its residue since B1; steady-state capture did NOT, so every boot
+	// that saw a managed key edited on disk folded it into the sidecar as
+	// permanent, un-actionable noise.
+	//
+	// It runs on the ACCUMULATED overlay rather than on the incoming delta, and
+	// that is the whole point: narrowing the delta would only stop NEW
+	// contamination and leave every sidecar already carrying dead keys dirty
+	// forever. Narrowing after the accumulate makes the store SELF-HEALING — a
+	// sidecar an older yolo wrote is canonicalized on the next boot.
+	overlay = narrowOverlay(kind, overlay, in.Base.Surface.Managed)
 
 	// Render with the decided overlay. Compose owns decode/merge/transform/
 	// enforce/encode and is the exact engine `yolo config render` uses (§6).
@@ -335,14 +345,93 @@ func dropYoloOwnedSubtrees(residue, pure map[string]any) map[string]any {
 	return out
 }
 
-// dropKeys returns m without any key present in drop.
-func dropKeys(m, drop map[string]any) map[string]any {
+// narrowOverlay removes from a decided overlay every entry the managed layer
+// will overwrite at Enforce time (compose.go §3.1), so the sidecar holds only
+// captured edits that can actually reach the written file.
+//
+// WHY a managed key must never be captured: managed is re-asserted AFTER the
+// fold and after the Lua transform, so it wins the file unconditionally. A
+// captured managed key therefore changes nothing — it only sits in the sidecar
+// as permanent noise, and `yolo config diff` reports a phantom "edit" the user
+// cannot act on. (A stale managed VALUE on disk, e.g. codex's
+// approval_policy=on-request from an old boot, is exactly this case.)
+//
+// THE COMPETING SEMANTIC, deliberately abandoned: retaining the captured edit
+// would mean that if a pack later STOPS managing the key, the old edit silently
+// activates. That was rejected because the pending edit is invisible — nothing
+// tells you it is queued — it can sit for months, and for claude/settings the
+// key in question is `permissions`, so activation would restore a stale
+// permission grant nobody remembers making.
+//
+// KEYLESS surfaces (raw/lines) are covered by the same rule rather than being
+// exempt. They have one "key" — the whole file — and Ctx.Enforce replaces the
+// whole value when managed is non-nil, so a captured whole-file edit is dead the
+// same way a managed object key is. No pack yolo ships declares managed on a
+// keyless surface today, but manifest.Surface.Managed is `any` precisely so a
+// surface CAN pin a whole file, so the case is representable and is handled here
+// rather than argued away.
+func narrowOverlay(kind codec.Kind, overlay, managed any) any {
+	if managed == nil {
+		return overlay
+	}
+	mm, mIsObj := managed.(map[string]any)
+	om, oIsObj := overlay.(map[string]any)
+	if mIsObj && oIsObj {
+		return dropOverriddenKeys(om, mm)
+	}
+	// Whole-value enforcement: managed replaces the entire rendered value, so
+	// nothing the overlay holds can survive it.
+	return emptyOverlay(kind)
+}
+
+// dropOverriddenKeys returns m without the entries an OWNING layer will override
+// anyway. It is the exact dual of the merge that layer gets — and has to be,
+// because an OBJECT-valued owner merges key-by-key, so a captured SIBLING inside
+// it really does reach the file and is a real edit. claude/settings is the live
+// case: managed asserts `permissions.defaultMode` and friends, while Claude's own
+// `permissions.ask` is untouched by it and must survive. A blanket top-level key
+// drop would be simpler and wrong — it would discard the agent's permission list
+// on every boot.
+//
+// THE LINE THIS DRAWS: drop only what is PROVABLY dead from the (overlay, owner)
+// pair ALONE. The lower layers — host, workspace, another pack's config-overlay —
+// are not visible here, so anything whose deadness depends on them is KEPT. That
+// is why a null tombstone under an object-valued owner survives (see below):
+// keeping a redundant tombstone is noise, dropping a live one is data loss, and
+// this repo has already paid for that class once (B1, the copilot OAuth wipe).
+//
+// A nested object emptied by the recursion is itself dropped, so a fully-owned
+// subtree does not survive as a meaningless {}.
+func dropOverriddenKeys(m, owner map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
-		if _, skip := drop[k]; skip {
+		ov, owned := owner[k]
+		if !owned {
+			out[k] = v
 			continue
 		}
-		out[k] = v
+		oSub, oIsObj := ov.(map[string]any)
+		if !oIsObj {
+			// The owner replaces the whole value at k (or, for a null, deletes it),
+			// so nothing the overlay holds at k — a value or a tombstone — survives.
+			continue
+		}
+		if v == nil {
+			// A TOMBSTONE under an object-valued owner is still LIVE: it erases what
+			// the lower layers put at k, leaving only the owner's own keys. Whether
+			// any lower layer contributes is not knowable here, so it is kept.
+			out[k] = v
+			continue
+		}
+		vSub, vIsObj := v.(map[string]any)
+		if !vIsObj {
+			// A non-object under an object owner is discarded by the merge (RFC 7386:
+			// a non-object target under an object patch is treated as empty).
+			continue
+		}
+		if inner := dropOverriddenKeys(vSub, oSub); len(inner) > 0 {
+			out[k] = inner
+		}
 	}
 	return out
 }

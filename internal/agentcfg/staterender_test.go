@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
 // jsonObj decodes a JSON object literal into the generic map model — a tiny
@@ -438,5 +440,321 @@ func TestFirstMigrationWithNoFileStaysClean(t *testing.T) {
 	}
 	if strings.TrimSpace(string(out.OverlayJSON)) != "{}" {
 		t.Errorf("overlay = %s, want {} with no file on disk", out.OverlayJSON)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Managed keys are never captured — in EITHER branch.
+//
+// Managed is re-asserted after the fold (compose.go's Enforce step), so a
+// captured managed key can never reach the written file. The first-migration
+// branch has always narrowed its adopted residue against Managed; steady-state
+// capture did not, so every boot that saw a managed key edited on disk folded
+// that key into the overlay sidecar as permanent, un-actionable noise. The
+// tests below pin the rule in the steady-state branch and pin that it is
+// SELF-HEALING: a sidecar that already carries the dead key comes back clean.
+// ---------------------------------------------------------------------------
+
+// nestedManagedSurface mirrors packs/claude's claude/settings under the
+// `autonomous` autonomy variant: managed carries a NESTED object (`permissions`)
+// alongside a scalar. The nesting is what makes the rule non-trivial — Enforce
+// merges a managed object key-by-key, so a captured SIBLING inside it (Claude's
+// own `permissions.ask`) really does survive to the file and must be kept, while
+// the leaves managed asserts are dead.
+func nestedManagedSurface() manifest.Surface {
+	return manifest.Surface{
+		Agent: "claude",
+		Name:  "settings",
+		Path:  "~/.claude/settings.json",
+		Codec: "json",
+		Managed: map[string]any{
+			"permissions": map[string]any{
+				"defaultMode": "acceptEdits",
+				"allow":       []any{},
+			},
+			"skipDangerousModePermissionPrompt": true,
+		},
+	}
+}
+
+// rawManagedSurface is the KEYLESS-with-managed shape: a raw surface whose
+// managed layer is a whole-file string. No pack yolo ships declares this today,
+// but manifest.Surface.Managed is `any` precisely so a surface can pin a whole
+// file, so it is representable and must not capture either.
+func rawManagedSurface() manifest.Surface {
+	s := rawSurface()
+	s.Managed = "MANAGED CONTENT\n"
+	return s
+}
+
+// TestComposeStatefulSteadyStateDropsManagedFromOverlay: an in-jail edit to a
+// MANAGED key is not captured. Managed wins the written file regardless, so
+// storing it would only make `yolo config diff` report a phantom edit the user
+// cannot act on.
+func TestComposeStatefulSteadyStateDropsManagedFromOverlay(t *testing.T) {
+	lastRender := `{"defaultProjectTrust":"always","theme":"system"}`
+	// The agent rewrote BOTH a managed key and an ordinary one.
+	current := `{"defaultProjectTrust":"never","theme":"solarized"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface()},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["defaultProjectTrust"]; bad {
+		t.Errorf("overlay captured a MANAGED key: %v", got)
+	}
+	// The ordinary edit is untouched — this rule narrows, it does not disable capture.
+	if got["theme"] != "solarized" {
+		t.Errorf("overlay = %v, want the non-managed edit theme=solarized preserved", got)
+	}
+	if out.Result.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("managed key = %v, want always (Enforce wins)", out.Result.ConfigMap()["defaultProjectTrust"])
+	}
+}
+
+// TestComposeStatefulSteadyStateSelfHealsManagedOverlay is the SELF-HEALING
+// half, and the one a naive fix misses: the sidecar ALREADY carries a dead
+// managed key (written by an older yolo) and there is NO new edit this boot —
+// current == last_render, so the delta is empty. The narrowing runs on the
+// ACCUMULATED overlay rather than the incoming delta, so the existing dead key
+// is canonicalized away on the next boot instead of sitting there forever.
+func TestComposeStatefulSteadyStateSelfHealsManagedOverlay(t *testing.T) {
+	same := `{"defaultProjectTrust":"always","theme":"system"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface()},
+		CurrentBytes:      []byte(same),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(same),
+		// A sidecar an older yolo wrote: one dead managed key, one real edit.
+		OverlayJSON: []byte(`{"defaultProjectTrust":"never","theme":"solarized"}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["defaultProjectTrust"]; bad {
+		t.Errorf("overlay still carries a dead MANAGED key after a clean boot: %v", got)
+	}
+	if got["theme"] != "solarized" {
+		t.Errorf("overlay = %v, want the pre-existing non-managed edit to survive", got)
+	}
+}
+
+// TestComposeStatefulSteadyStatePreservesNonManagedEdits pins the other side of
+// the narrowing: everything that is NOT managed survives, including a null
+// tombstone (a captured deletion, §3.4). This is the live claude/settings shape —
+// model / enabledPlugins / preferences / autoMemoryEnabled / an `env` tombstone
+// are all real captures that must not be collateral damage.
+func TestComposeStatefulSteadyStatePreservesNonManagedEdits(t *testing.T) {
+	lastRender := `{"skipDangerousModePermissionPrompt":true,"env":{"A":"1"},"model":"old"}`
+	current := `{"skipDangerousModePermissionPrompt":false,"model":"new","autoMemoryEnabled":true}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: nestedManagedSurface()},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["skipDangerousModePermissionPrompt"]; bad {
+		t.Errorf("overlay captured a MANAGED key: %v", got)
+	}
+	if got["model"] != "new" {
+		t.Errorf("overlay = %v, want model=new captured", got)
+	}
+	if got["autoMemoryEnabled"] != true {
+		t.Errorf("overlay = %v, want autoMemoryEnabled captured", got)
+	}
+	// The tombstone is the sharp one: an explicit null must survive the narrowing,
+	// or the next boot resurrects the deleted key.
+	v, present := got["env"]
+	if !present || v != nil {
+		t.Errorf("overlay = %v, want an explicit env:null tombstone preserved", got)
+	}
+}
+
+// TestComposeStatefulSteadyStateKeepsManagedObjectSibling: managed `permissions`
+// is an OBJECT, and Enforce merges an object key-by-key — so a captured sibling
+// inside it (`permissions.ask`) reaches the file and is a REAL edit, while the
+// leaves managed asserts (`permissions.defaultMode`) are dead. The narrowing must
+// be the dual of Enforce, not a blanket top-level key drop: a blanket drop would
+// silently discard the agent's own permission list on every boot.
+func TestComposeStatefulSteadyStateKeepsManagedObjectSibling(t *testing.T) {
+	lastRender := `{"permissions":{"defaultMode":"acceptEdits","allow":[]}}`
+	// The agent added an `ask` list AND tried to change the managed defaultMode.
+	current := `{"permissions":{"defaultMode":"plan","allow":[],"ask":["Bash(rm:*)"]}}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: nestedManagedSurface()},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	perms, _ := got["permissions"].(map[string]any)
+	if perms == nil {
+		t.Fatalf("overlay dropped the whole managed object, losing a live sibling: %v", got)
+	}
+	if _, bad := perms["defaultMode"]; bad {
+		t.Errorf("overlay captured a MANAGED leaf: %v", perms)
+	}
+	ask, _ := perms["ask"].([]any)
+	if len(ask) != 1 || ask[0] != "Bash(rm:*)" {
+		t.Errorf("overlay permissions = %v, want the non-managed ask sibling preserved", perms)
+	}
+	// And the render proves the sibling is live rather than noise: Enforce merges
+	// managed over it, so `ask` survives while `defaultMode` is yolo's.
+	rendered, _ := out.Result.ConfigMap()["permissions"].(map[string]any)
+	if rendered["defaultMode"] != "acceptEdits" {
+		t.Errorf("rendered defaultMode = %v, want acceptEdits (managed wins)", rendered["defaultMode"])
+	}
+	if ra, _ := rendered["ask"].([]any); len(ra) != 1 {
+		t.Errorf("rendered permissions = %v, want the captured ask sibling to reach the file", rendered)
+	}
+}
+
+// TestComposeStatefulSteadyStateKeylessManagedDoesNotCapture is the keyless twin.
+// A keyless surface has ONE "key" — the whole file — and Ctx.Enforce replaces the
+// whole value when managed is non-nil, so a captured whole-file edit can never
+// reach the file. Capturing it would store a dead copy of the file forever.
+func TestComposeStatefulSteadyStateKeylessManagedDoesNotCapture(t *testing.T) {
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: rawManagedSurface()},
+		CurrentBytes:      []byte("AGENT EDITED THIS\n"),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte("MANAGED CONTENT\n"),
+		OverlayJSON:       []byte(`null`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	if s := strings.TrimSpace(string(out.OverlayJSON)); s != "null" {
+		t.Errorf("overlay = %s, want null — a managed keyless surface cannot hold a live overlay", out.OverlayJSON)
+	}
+	if out.Result.Config != "MANAGED CONTENT\n" {
+		t.Errorf("Config = %q, want the managed whole-file value", out.Result.Config)
+	}
+}
+
+// TestComposeStatefulSteadyStateKeylessSelfHealsManagedOverlay is the keyless
+// self-heal: a sidecar an older yolo wrote already pins a dead whole-file value,
+// and a clean boot must clear it.
+func TestComposeStatefulSteadyStateKeylessSelfHealsManagedOverlay(t *testing.T) {
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: rawManagedSurface()},
+		CurrentBytes:      []byte("MANAGED CONTENT\n"),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte("MANAGED CONTENT\n"),
+		OverlayJSON:       []byte(`"STALE DEAD CAPTURE\n"`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	if s := strings.TrimSpace(string(out.OverlayJSON)); s != "null" {
+		t.Errorf("overlay = %s, want null — the dead keyless capture must be canonicalized away", out.OverlayJSON)
+	}
+}
+
+// TestComposeStatefulKeylessWithoutManagedStillCaptures is the guard on the
+// keyless rule: it keys off MANAGED, not off keyless-ness. Every keyless surface
+// yolo ships today (host_files' raw/lines) declares no managed layer, and their
+// edit-survives-regeneration behaviour must be untouched.
+func TestComposeStatefulKeylessWithoutManagedStillCaptures(t *testing.T) {
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: rawSurface()},
+		CurrentBytes:      []byte("AGENT EDITED THIS\n"),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte("original\n"),
+		OverlayJSON:       []byte(`null`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	if out.Result.Config != "AGENT EDITED THIS\n" {
+		t.Errorf("Config = %q, want the captured edit to survive on an unmanaged keyless surface", out.Result.Config)
+	}
+}
+
+// TestComposeStatefulFirstMigrationDropsManagedObjectSubtree pins that the
+// first-migration branch is UNCHANGED by the shared narrowing. Adoption runs
+// dropYoloOwnedSubtrees first, which already removes every top-level key the
+// pure render holds as an object — and a managed object key is always one of
+// those, because Enforce puts it there. So adoption never reaches the deep half
+// of the rule, and its behaviour is the same before and after.
+func TestComposeStatefulFirstMigrationDropsManagedObjectSubtree(t *testing.T) {
+	current := `{"permissions":{"defaultMode":"plan","ask":["Bash(rm:*)"]},"model":"agent-picked"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: nestedManagedSurface()},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: false,
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["permissions"]; bad {
+		t.Errorf("adoption must not adopt a yolo-owned/managed subtree: %v", got)
+	}
+	if got["model"] != "agent-picked" {
+		t.Errorf("overlay = %v, want the unasserted key adopted", got)
+	}
+}
+
+// TestComposeStatefulSteadyStateKeepsTombstoneUnderManagedObject guards the one
+// asymmetry in the narrowing: the rule drops only what is PROVABLY dead from the
+// (overlay, owner) pair alone, and a null tombstone under an OBJECT-valued owner
+// is not.
+//
+// The agent deleted the whole `permissions` object. Managed re-adds its own keys
+// afterwards, so the tombstone looks redundant — but it is not: what it actually
+// erases is whatever the LOWER layers (host, workspace, a pack's config-overlay)
+// put under `permissions`, and those are invisible from here. Dropping it would
+// silently resurrect them. Keeping a redundant tombstone is noise; dropping a
+// live one is data loss, and this repo has paid for that class already (B1).
+func TestComposeStatefulSteadyStateKeepsTombstoneUnderManagedObject(t *testing.T) {
+	host := `{"permissions":{"ask":["Bash(rm:*)"]}}`
+	lastRender := `{"permissions":{"defaultMode":"acceptEdits","allow":[],"ask":["Bash(rm:*)"]}}`
+	current := `{}` // agent deleted the whole permissions object
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: nestedManagedSurface(), HostBytes: []byte(host)},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	v, present := got["permissions"]
+	if !present || v != nil {
+		t.Fatalf("overlay = %v, want the permissions:null tombstone preserved", got)
+	}
+	// And it is live: the host's `ask` really is gone from the render, while
+	// managed's own keys come back.
+	rendered, _ := out.Result.ConfigMap()["permissions"].(map[string]any)
+	if _, resurrected := rendered["ask"]; resurrected {
+		t.Errorf("rendered permissions = %v, want the host `ask` to stay deleted", rendered)
+	}
+	if rendered["defaultMode"] != "acceptEdits" {
+		t.Errorf("rendered permissions = %v, want managed re-asserted", rendered)
 	}
 }
