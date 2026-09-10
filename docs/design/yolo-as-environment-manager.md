@@ -62,7 +62,7 @@ reads as "yolo, at the jail level." The name gets *more* accurate under this fra
 
 **Reads with:** [../reference/what-yolo-is.md](../reference/what-yolo-is.md) (whose separability answer this
 reframes),
-[host-render-target.md](host-render-target.md) (the render side of the same idea; its §9.1 is
+[host-render-target.md](host-render-target.md) (the render side of the same idea; its [§9.1](host-render-target.md#9-open-questions--the-discussion-part) is
 the question this doc answers), [../reference/happy-path-principle.md](../reference/happy-path-principle.md) (which
 constrains how many knobs this may add),
 [../reference/macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) (the prior, narrower
@@ -244,7 +244,7 @@ classified by whether it is part of the definition:
 | Tier | Inputs | nix analogue |
 |---|---|---|
 | **Locked** (reproducible, pinned) | nixpkgs + the image (`flake.lock`); the pack set with per-pack commit pins and host-access approvals (`packs.lock.json`) | `flake.lock` revs |
-| **Declared** (in a tracked file) | `yolo-jail.jsonc`; pack `contributes[]` — surfaces, `defaults`/`managed`, `derive`; the workspace transform `yolo-jail.config.lua`; inline `env_sources` entries | `flake.nix` |
+| **Declared** (named by the definition) | `yolo-jail.jsonc`; pack `contributes[]` — surfaces, `defaults`/`managed`, `derive`; the workspace transform `yolo-jail.config.lua`; inline `env_sources` entries | `flake.nix` |
 | **Declared-impure** (named, but the *content* is external machine state) | the user config `~/.config/yolo-jail/config.jsonc`; `include_if_found` targets; `env_sources` dotenv *files* (secret values); the user `config.lua`; `mise_tools` (versions declared, toolchains fetched); the **`host` layer** (§below) | a fixed-output derivation — impure, but *named* |
 | **Undeclared** (participates, nothing names it) | `yolo-jail.local.jsonc` (auto-merged, gitignored); the **capture overlay** (outranks every declared layer, nothing declares *it*) | `--impure`, silently |
 
@@ -252,6 +252,28 @@ Sealing's rule is one line against this table: **`--sealed` refuses the Undeclar
 reports the Declared-impure tier; the Locked and Declared tiers are the definition.** It does
 *not* mean "no host reads" — a named-but-impure input is nix's fixed-output derivation, and
 banning it would break the point of packs. It means **no *un*declared input.**
+
+> [!IMPORTANT]
+> **The criterion is NAMEABILITY, and it is never version control** (corrected
+> 2026-09-10; the Declared row said *"in a tracked file"* until then). An input is
+> declared when something in the definition **names** it — the config file itself, an
+> `include_if_found` target, a pack's `contributes[]`. It is undeclared when it
+> participates while nothing names it. Whether any of those files happens to be
+> committed is not yolo's question and must not become one.
+>
+> **`--sealed` does not, and must not, ask git anything.** `applySealed`
+> ([`apply.go:800`](../../internal/cli/apply.go#L800)) `os.Stat`s one path and counts
+> overlay keys; it runs no VCS command and reads no ignore file (verified 2026-09-10).
+> yolo does exec `git` elsewhere — fetching a pack from a git remote, `git describe` for
+> the version stamp, source-skew detection, composing your git identity into a jail —
+> but every one of those is a feature *about* git, requested by name. Deciding what
+> counts as declared is not, and a sealing check that consulted an ignore file would
+> make yolo's reproducibility story depend on a tool that is not a dependency of it.
+>
+> ⚠ **One user-facing string still leaks the old criterion**: the refusal for
+> `yolo-jail.local.jsonc` calls it *"gitignored, machine-local"*
+> ([`apply.go:810`](../../internal/cli/apply.go#L810)). It should say what is true of it
+> without the VCS claim — nothing includes it. Owed, not done.
 
 ```
 $ yolo apply --sealed
@@ -379,7 +401,7 @@ clean: `check --at host` tells you the host has drifted; `yolo host apply` is th
 that fixes it.
 
 Today none of this information exists, and its absence has a live cost: on `macos-user`, packs
-render **zero surfaces every launch, silently** ([`host-render-target.md`](./host-render-target.md) §9.7). A description that
+render **zero surfaces every launch, silently** ([`host-render-target.md`](./host-render-target.md) [§9.7](./host-render-target.md#9-open-questions--the-discussion-part)). A description that
 cannot be honored must say which part, in the output, at the moment you ask.
 
 ### 3.5 Dependency provisioning: declare once, check once, hand off with a manifest
@@ -508,7 +530,7 @@ question has one answer:
 `runtime` demotes to a mechanism hint inside `jail`, normally `auto`. A Linux middle row needs no
 new concept — it is the same notch with a different enforcement primitive, which is the evidence
 the dial is real rather than a story told about two backends
-([host-render-target.md](host-render-target.md) §9.8).
+([host-render-target.md](host-render-target.md) [§9.8](host-render-target.md#9-open-questions--the-discussion-part)).
 
 ### 4.0 Why the middle notch is not called `sandbox`
 
