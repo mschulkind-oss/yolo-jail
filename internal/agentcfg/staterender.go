@@ -249,10 +249,11 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// never-aging overlay.
 	}
 
-	// ONE RULE, BOTH BRANCHES (§3.1 Enforce is the reason): strip from the decided
-	// overlay everything the managed layer will overwrite anyway. Adoption has
-	// narrowed its residue since B1; steady-state capture did NOT, so every boot
-	// that saw a managed key edited on disk folded it into the sidecar as
+	// ONE RULE, BOTH BRANCHES: strip from the decided overlay everything a
+	// higher-ranking layer — computed, then managed — will override anyway.
+	// Adoption has narrowed its residue against managed since B1; steady-state
+	// capture did NOT, and neither branch narrowed against computed at all, so
+	// every boot that saw such a key edited on disk folded it into the sidecar as
 	// permanent, un-actionable noise.
 	//
 	// It runs on the ACCUMULATED overlay rather than on the incoming delta, and
@@ -260,7 +261,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// contamination and leave every sidecar already carrying dead keys dirty
 	// forever. Narrowing after the accumulate makes the store SELF-HEALING — a
 	// sidecar an older yolo wrote is canonicalized on the next boot.
-	overlay = narrowOverlay(kind, overlay, in.Base.Surface.Managed)
+	overlay = narrowOverlay(kind, overlay, in.Base.Computed, in.Base.Surface.Managed)
 
 	// Render with the decided overlay. Compose owns decode/merge/transform/
 	// enforce/encode and is the exact engine `yolo config render` uses (§6).
@@ -345,41 +346,62 @@ func dropYoloOwnedSubtrees(residue, pure map[string]any) map[string]any {
 	return out
 }
 
-// narrowOverlay removes from a decided overlay every entry the managed layer
-// will overwrite at Enforce time (compose.go §3.1), so the sidecar holds only
-// captured edits that can actually reach the written file.
+// narrowOverlay removes from a decided overlay every entry a HIGHER-RANKING
+// layer will override anyway, so the sidecar holds only captured edits that can
+// actually reach the written file.
 //
-// WHY a managed key must never be captured: managed is re-asserted AFTER the
-// fold and after the Lua transform, so it wins the file unconditionally. A
-// captured managed key therefore changes nothing — it only sits in the sidecar
+// TWO layers outrank the capture overlay, and both disqualify a capture for the
+// same reason:
+//
+//   - COMPUTED folds directly above the overlay (compose.go). It is yolo's
+//     per-boot regenerated data — the reconciled MCP-server table, claude's
+//     LSP-driven enabledPlugins toggles and env.ENABLE_LSP_TOOL, mise's injected
+//     [tools] pins — and the §4 slot exists precisely "so it wins over a stale
+//     in-jail edit to the same key (§2 principle 1, regenerate-don't-reconcile)".
+//   - MANAGED is re-asserted AFTER the fold and after the Lua transform
+//     (Ctx.Enforce), so it wins the file unconditionally.
+//
+// A capture either layer overrides changes nothing. It only sits in the sidecar
 // as permanent noise, and `yolo config diff` reports a phantom "edit" the user
 // cannot act on. (A stale managed VALUE on disk, e.g. codex's
-// approval_policy=on-request from an old boot, is exactly this case.)
+// approval_policy=on-request from an old boot, is exactly this case.) Measured on
+// a live jail, this was most of what the store held: mise/config's entire `tools`
+// capture, codex/config's entire `mcp_servers`, opencode/config's entire `mcp`.
 //
 // THE COMPETING SEMANTIC, deliberately abandoned: retaining the captured edit
-// would mean that if a pack later STOPS managing the key, the old edit silently
-// activates. That was rejected because the pending edit is invisible — nothing
-// tells you it is queued — it can sit for months, and for claude/settings the
-// key in question is `permissions`, so activation would restore a stale
-// permission grant nobody remembers making.
+// would mean that if the owning layer later STOPS supplying the key, the old edit
+// silently activates. That was rejected because the pending edit is invisible —
+// nothing tells you it is queued — and it can sit for months. Both live examples
+// are hazards rather than conveniences: for claude/settings the managed key is
+// `permissions`, so activation would restore a stale permission grant nobody
+// remembers making; and for computed, deleting an MCP server from your config
+// would silently resurrect it from a capture taken while it still existed.
 //
 // KEYLESS surfaces (raw/lines) are covered by the same rule rather than being
-// exempt. They have one "key" — the whole file — and Ctx.Enforce replaces the
-// whole value when managed is non-nil, so a captured whole-file edit is dead the
-// same way a managed object key is. No pack yolo ships declares managed on a
-// keyless surface today, but manifest.Surface.Managed is `any` precisely so a
-// surface CAN pin a whole file, so the case is representable and is handled here
-// rather than argued away.
-func narrowOverlay(kind codec.Kind, overlay, managed any) any {
-	if managed == nil {
+// exempt. They have one "key" — the whole file — so a non-nil computed layer
+// replaces the rendered value and Ctx.Enforce replaces it again for managed;
+// either way a captured whole-file edit is dead. No pack yolo ships declares
+// managed or computed on a keyless surface today, but Surface.Managed and
+// Inputs.Computed are both `any` precisely so a surface CAN pin a whole file, so
+// the case is representable and is handled here rather than argued away.
+func narrowOverlay(kind codec.Kind, overlay, computed, managed any) any {
+	// Applied in fold order. Order does not change the result — each pass only
+	// removes entries — but it reads the way the layers stack.
+	overlay = narrowAgainst(kind, overlay, computed)
+	return narrowAgainst(kind, overlay, managed)
+}
+
+// narrowAgainst is one pass of narrowOverlay against a single owning layer.
+func narrowAgainst(kind codec.Kind, overlay, owner any) any {
+	if owner == nil {
 		return overlay
 	}
-	mm, mIsObj := managed.(map[string]any)
-	om, oIsObj := overlay.(map[string]any)
-	if mIsObj && oIsObj {
-		return dropOverriddenKeys(om, mm)
+	ownerMap, ownerIsObj := owner.(map[string]any)
+	overlayMap, overlayIsObj := overlay.(map[string]any)
+	if ownerIsObj && overlayIsObj {
+		return dropOverriddenKeys(overlayMap, ownerMap)
 	}
-	// Whole-value enforcement: managed replaces the entire rendered value, so
+	// Whole-value override: the owner replaces the entire rendered value, so
 	// nothing the overlay holds can survive it.
 	return emptyOverlay(kind)
 }

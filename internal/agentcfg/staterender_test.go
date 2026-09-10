@@ -368,12 +368,19 @@ func TestComposeStatefulComputedBeatsCapturedEdit(t *testing.T) {
 	if out.Result.ConfigMap()["theme"] != "solarized" {
 		t.Errorf("theme = %v, want solarized (non-computed edit survives)", out.Result.ConfigMap()["theme"])
 	}
-	// Both edits are still CAPTURED in the overlay (capture is layer-agnostic; the
-	// overlay records what changed on disk — precedence is decided at render, so
-	// the dynamicKey delta is stored yet out-ranked by computed on the next fold).
+	// Only the PLAIN edit is captured. Capture used to be layer-agnostic — the
+	// overlay recorded whatever changed on disk and let precedence sort it out at
+	// render — but storing a delta this very test proves can never win made the
+	// sidecar accumulate permanent noise, and `yolo config diff` report a phantom
+	// edit the user could not act on. The overlay is now narrowed against the
+	// layers that outrank it, so it holds only edits that can actually reach the
+	// file.
 	got := jsonObj(t, string(out.OverlayJSON))
-	if got["dynamicKey"] != "off" || got["theme"] != "solarized" {
-		t.Errorf("overlay = %v, want both edits captured {dynamicKey:off,theme:solarized}", got)
+	if _, bad := got["dynamicKey"]; bad {
+		t.Errorf("overlay = %v, want the out-ranked computed key NOT captured", got)
+	}
+	if got["theme"] != "solarized" {
+		t.Errorf("overlay = %v, want the plain edit captured {theme:solarized}", got)
 	}
 }
 
@@ -756,5 +763,186 @@ func TestComposeStatefulSteadyStateKeepsTombstoneUnderManagedObject(t *testing.T
 	}
 	if rendered["defaultMode"] != "acceptEdits" {
 		t.Errorf("rendered permissions = %v, want managed re-asserted", rendered)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Computed keys are never captured either — the same rule, the larger half.
+//
+// Computed folds ABOVE the capture overlay (compose.go), so a captured edit to a
+// computed-owned key can no more win than a managed one: "yolo's freshly
+// regenerated data wins over a stale in-jail edit — §2 principle 1 regenerate,
+// don't reconcile". Capture was recording keys the design has already ruled must
+// lose. Measured in a live jail, this is most of the noise: mise/config's whole
+// `tools` capture, codex/config's whole `mcp_servers`, opencode/config's whole
+// `mcp`.
+//
+// The hazard is the sharper one, too. Remove an MCP server from your config and
+// computed stops emitting it — at which point a previously-captured copy would
+// WIN and silently resurrect the server you deleted. Same invisible-pending-edit
+// shape as the `permissions` case.
+// ---------------------------------------------------------------------------
+
+// TestComposeStatefulSteadyStateDropsComputedFromOverlay: an in-jail edit to a
+// key the computed layer supplies is not captured.
+func TestComposeStatefulSteadyStateDropsComputedFromOverlay(t *testing.T) {
+	computed := map[string]any{"mcpServer": "yolo-reconciled"}
+	lastRender := `{"defaultProjectTrust":"always","theme":"system","mcpServer":"yolo-reconciled"}`
+	current := `{"defaultProjectTrust":"always","theme":"solarized","mcpServer":"agent-hacked"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["mcpServer"]; bad {
+		t.Errorf("overlay captured a COMPUTED key: %v", got)
+	}
+	if got["theme"] != "solarized" {
+		t.Errorf("overlay = %v, want the non-computed edit preserved", got)
+	}
+	if out.Result.ConfigMap()["mcpServer"] != "yolo-reconciled" {
+		t.Errorf("mcpServer = %v, want yolo's regenerated value to win",
+			out.Result.ConfigMap()["mcpServer"])
+	}
+}
+
+// TestComposeStatefulSteadyStateSelfHealsComputedOverlay: the sidecar already
+// carries a dead computed key and there is no new edit this boot. It must come
+// back clean — this is the live mise/config, codex/config and opencode/config
+// shape, where the ENTIRE captured object is computed-owned.
+func TestComposeStatefulSteadyStateSelfHealsComputedOverlay(t *testing.T) {
+	// mise: the computed [tools] table is exactly the injected YOLO_MISE_TOOLS pins.
+	computed := map[string]any{"tools": map[string]any{
+		"neovim":     "nightly",
+		"pipx:swarf": "latest",
+	}}
+	same := `{"defaultProjectTrust":"always","theme":"system"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		CurrentBytes:      []byte(same),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(same),
+		OverlayJSON:       []byte(`{"tools":{"neovim":"nightly","pipx:swarf":"latest"}}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["tools"]; bad {
+		t.Errorf("overlay still carries a fully-computed capture after a clean boot: %v", got)
+	}
+	if len(got) != 0 {
+		t.Errorf("overlay = %v, want {} — every captured key was computed-owned", got)
+	}
+}
+
+// TestComposeStatefulSteadyStateKeepsComputedObjectSibling is the GRANULARITY
+// test, and the one a top-level drop gets wrong. Computed deep-merges, so it
+// owns only the leaves it actually supplies:
+//
+//   - mise's computed [tools] holds the injected YOLO_MISE_TOOLS pins, and
+//     prism_mise.go is explicit that "a user-added global tool is captured into
+//     the overlay and survives";
+//   - claude's computed enabledPlugins holds the LSP-driven toggles, so a plugin
+//     the user enabled themselves is theirs.
+//
+// Dropping `tools` or `enabledPlugins` wholesale would delete real user state.
+func TestComposeStatefulSteadyStateKeepsComputedObjectSibling(t *testing.T) {
+	computed := map[string]any{"enabledPlugins": map[string]any{
+		"gopls-lsp@claude-plugins-official": true,
+	}}
+	lastRender := `{"defaultProjectTrust":"always","theme":"system",` +
+		`"enabledPlugins":{"gopls-lsp@claude-plugins-official":true}}`
+	// The agent turned the computed plugin off AND enabled one of its own.
+	current := `{"defaultProjectTrust":"always","theme":"system",` +
+		`"enabledPlugins":{"gopls-lsp@claude-plugins-official":false,"my-own-plugin":true}}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	plugins, _ := got["enabledPlugins"].(map[string]any)
+	if plugins == nil {
+		t.Fatalf("overlay dropped the whole computed-owned object, losing user state: %v", got)
+	}
+	if _, bad := plugins["gopls-lsp@claude-plugins-official"]; bad {
+		t.Errorf("overlay captured a COMPUTED leaf: %v", plugins)
+	}
+	if plugins["my-own-plugin"] != true {
+		t.Errorf("overlay enabledPlugins = %v, want the user's own plugin preserved", plugins)
+	}
+	// And the render proves both halves: yolo's toggle wins, the user's survives.
+	rendered, _ := out.Result.ConfigMap()["enabledPlugins"].(map[string]any)
+	if rendered["gopls-lsp@claude-plugins-official"] != true {
+		t.Errorf("rendered = %v, want yolo's regenerated toggle to win", rendered)
+	}
+	if rendered["my-own-plugin"] != true {
+		t.Errorf("rendered = %v, want the user's own plugin to reach the file", rendered)
+	}
+}
+
+// TestComposeStatefulSteadyStateDropsKeyDeletedByComputedTombstone: a null in the
+// computed layer DELETES the key from the render (claude's mcpServers tombstone,
+// which strips a host block), so anything the overlay holds there is dead.
+func TestComposeStatefulSteadyStateDropsKeyDeletedByComputedTombstone(t *testing.T) {
+	computed := map[string]any{"mcpServers": nil}
+	lastRender := `{"defaultProjectTrust":"always","theme":"system"}`
+	current := `{"defaultProjectTrust":"always","theme":"system","mcpServers":{"x":{"command":"y"}}}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["mcpServers"]; bad {
+		t.Errorf("overlay captured a key the computed tombstone deletes: %v", got)
+	}
+	if _, present := out.Result.ConfigMap()["mcpServers"]; present {
+		t.Errorf("render = %v, want mcpServers deleted by the computed tombstone",
+			out.Result.ConfigMap())
+	}
+}
+
+// TestComposeStatefulSteadyStateKeylessComputedDoesNotCapture: the keyless twin
+// for the computed layer. Computed is a whole-value layer above the overlay on a
+// keyless surface, so a captured whole-file edit can never reach the file.
+func TestComposeStatefulSteadyStateKeylessComputedDoesNotCapture(t *testing.T) {
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: rawSurface(), Computed: "COMPUTED CONTENT\n"},
+		CurrentBytes:      []byte("AGENT EDITED THIS\n"),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte("COMPUTED CONTENT\n"),
+		OverlayJSON:       []byte(`null`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	if s := strings.TrimSpace(string(out.OverlayJSON)); s != "null" {
+		t.Errorf("overlay = %s, want null — a computed keyless surface cannot hold a live overlay",
+			out.OverlayJSON)
+	}
+	if out.Result.Config != "COMPUTED CONTENT\n" {
+		t.Errorf("Config = %q, want the computed whole-file value", out.Result.Config)
 	}
 }
