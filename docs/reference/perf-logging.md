@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: ca47c608
+verified: 2026-09-10
+verified_commit: 38d330ec
 covers:
   - internal/perf/
   - internal/cli/run/runcmd.go
@@ -21,7 +21,7 @@ covers:
   - internal/ttyproxy/ttyproxy.go
   - internal/image/autoload.go
 tags: [observability, timing, run, shutdown, perf]
-summary: "The host-side timing-span system behind `--timing`, `--verbose`, `perf_logging` and `YOLO_TIMING`: a nil-safe collector in `internal/perf` that spans the launch, the child window and both shutdown arms, writes every event to `<workspace>/.yolo/host-perf.log` the moment it happens, attributes the stretch inside podman's own `--rm` cleanup from its event log, and prints a table only when a flag typed on that invocation asks for one."
+summary: "The host-side timing-span system behind `--timing`, `--verbose`, `perf_logging` and `YOLO_TIMING`: a nil-safe collector in `internal/perf` that spans the launch, the child window and both shutdown arms, writes every event to `<workspace>/.yolo/host-perf.log` the moment it happens, prices the stretch inside podman's own `--rm` cleanup from its event log and records that too, and prints a table only when a flag typed on that invocation asks for one."
 ---
 
 # Timing spans — `--timing`, `perf_logging`, and the host perf log
@@ -104,12 +104,21 @@ intended.
   the same way. Not a span: a mark can never dangle, which is why the one step in
   the shutdown chain that cannot be bounded is recorded as a mark
   (see [The shutdown path](#the-shutdown-path)).
+- **Record** — a completed interval entered with a duration measured somewhere
+  else, by something other than this collector (`perf.Log.Record`). Ours. It is
+  the shape a Span cannot express: a Span times work this process is doing, and a
+  Record is the opposite — an interval no yolo code was present for. It emits an
+  `end` with no `start`, deliberately: a synthetic start would carry a past
+  timestamp out of the file's time order and would claim yolo was there when the
+  interval began, and a lone `start` has to keep meaning "this is where it hung".
+  Window A is the only one.
 - **Window A** — the stretch of a shutdown that happens entirely inside the
   `podman run --rm` child, after the container's PID 1 dies and before the podman
   process exits: conmon writes the exit file, podman removes the container,
   tears down the network and unmounts the overlay root and every bind. No yolo
   code runs there, so no span can cover it; it can only be *attributed* after the
-  fact. Coined in the design this reference replaces (2026-09-06).
+  fact, and is entered as a Record. Coined in the design this reference replaces
+  (2026-09-06).
 - **The host half / the jail half** — the two timing records one launch produces.
   The host half is this system's file and table. The jail half is the
   entrypoint's own boot checkpoints, always on, appended to a file in the jail
@@ -265,8 +274,9 @@ flowchart TD
     fronts --> check["shutdown.container_check (mark)<br/>then the UNBOUNDED podman ps"]
     check --> capture["shutdown.capture_config"]
     capture --> oom["shutdown.oom_check"]
-    oom --> report["the report, or the quiet line"]
-    report --> title["deferred terminal-title restore<br/>(unmeasured — see Known gaps)"]
+    oom --> wa["shutdown.window_a<br/>recorded from podman events<br/>(last: --until is now)"]
+    wa --> report["the report, or the quiet line"]
+    report --> title["deferred terminal-title restore<br/>process.title_restore"]
 ```
 
 **The normal arm.** The proxy loop sees the child exit, drains whatever the pty
@@ -315,28 +325,62 @@ down and reports nothing.
 
 ## Window A attribution
 
-After the child exits, a printing launch asks podman's own event log for the
-container's `die` and `cleanup` events and renders the `die → podman exit` gap
-beneath the table — the only way to see inside a stretch where yolo has no code
-running. The query is bounded three ways so the diagnosis can never become the
-delay: it runs only on the podman runtime (Apple Container has no events
-command), it carries a short exec timeout, and it always passes `--until`,
-because `podman events --since` alone *streams* on the journald backend and never
-returns. The first `die` wins (a stop-timeout escalation can produce several) and
-the last `cleanup` wins (it is the terminal one).
+After the child exits, each teardown arm asks podman's own event log for the
+container's `die` and `cleanup` events and measures the `die → podman exit` gap —
+the only way to see inside a stretch where yolo has no code running. The query is
+bounded three ways so the diagnosis can never become the delay: it runs only on
+the podman runtime (Apple Container has no events command), it carries a short
+exec timeout, and it always passes `--until`, because `podman events --since`
+alone *streams* on the journald backend and never returns. The first `die` wins
+(a stop-timeout escalation can produce several) and the last `cleanup` wins (it
+is the terminal one).
+
+**Attribution rides the RECORDING gate, not the reporting one** (2026-09-10). The
+measured gap is entered in the log as `shutdown.window_a` — a `Record`, the one
+event kind that is an `end` with no `start`, because the interval is priced from
+another system's record rather than timed here (see
+[Vocabulary](#vocabulary)). So every opt-in gets the number, `perf_logging: true`
+included, and a launch that never prints anything still has Window A's cost on
+disk afterwards.
+
+That reverses where the query sat for its first four days, and the reason is
+D12's own logic rather than an exception to it: **D12 governs what PRINTS.** It
+never said the file should be missing a number yolo can go and get. Window A is
+also the single worst span to gate behind foresight — the way a user discovers it
+was slow is by waiting through it, by which time the launch that could have
+measured it is over. The cost is one bounded exec (3 s cap; 19 ms measured) on
+every quiet quit.
+
+Two consequences worth knowing. A Window A over
+[`SlowSpanThreshold`](#current-values) now **names itself on stderr** at a quiet
+quit — `yolo: shutdown.window_a took 8.400s` — which is the culprit announced
+without anyone having predicted they would want it. And the recorded event lands
+inside the printed table as a row, where the attribution line beneath the table
+used to be the only place it appeared.
 
 Every failure mode is a dim one-line **reason** beneath the table — timed out,
 could not run, non-zero exit, no `die` event in the log — rather than silence:
 two real-host launches produced no attribution and no way to tell why, and an
 observability feature that cannot explain its own blank is the failure it exists
 to remove. "No `die` event" is the ordinary case on a host whose rootless
-file-backed event log keeps nothing, and is worded as such.
+file-backed event log keeps nothing, and is worded as such. A quiet launch prints
+no reason at all, so the same rule puts the failure CLASS in the file instead, as
+a `shutdown.window_a_unattributed.<token>` mark — `timeout`, `not_run`, `rc`,
+`no_die`. The token is short and stable on purpose: the prose is for a human
+reading a table, and the file needs something that survives rewording and greps.
 
-The attribution's own query is itself spanned, and **it runs before the table is
-rendered** — its span appeared in the file and was missing from the printed table
-until the order was fixed. The line it produces still prints below the table.
-Attribution is part of the *report*: a quietly recording launch never runs the
-query at all.
+The attribution's own query is itself spanned, and **the arm runs it after its
+whole chain and before the report** — the ordering is load-bearing twice over.
+`--until` is now, so it has to be later than any event conmon wrote (below); and
+running it from inside the report left its span, and now the recorded gap, in the
+FILE and missing from the printed TABLE. The line it produces still prints below
+the table, because it says more than the row does: the cleanup event's own
+offset, or why there is no row.
+
+An arm with no `child.exited` mark records nothing and asks nothing. That is the
+attach arm — `podman exec` into a jail that keeps running has no container death
+to attribute — which used to query anyway and get back "no `die` event", a blank
+explaining a question nobody had asked.
 
 > [!WARNING]
 > **`--until` must be now, never a moment in the future.** `podman events` treats a
@@ -422,7 +466,9 @@ stderr report still work, and a jail is never refused over its timing log.
 | `podman events` times out, fails, or holds no `die` | one dim reason line beneath the table; the table is unaffected |
 | SIGHUP / SIGTERM to the launcher | `terminate.*` spans reach the file before the process exits; the report prints from inside the signal arm at rc `128 + signal` |
 | Both teardown arms run (the ordinary signal-path interleaving) | one report, one Window A query — the once-guard |
-| A persistent opt-in with no flag | the file is written; one dim line names it; no table, no in-container block, no events query |
+| A persistent opt-in with no flag | the file is written — Window A included; one dim line names it; no table and no in-container block |
+| The events query fails on a launch that prints nothing | the failure class reaches the file as a `shutdown.window_a_unattributed.<token>` mark; the prose reason has no reader and is dropped |
+| An arm with no `child.exited` mark (attach) | no query, no event, no line |
 | Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; no signal arm |
 | `macos-user` backend | the collector records the host-side spans up to the backend dispatch and nothing after; no report and no quiet line — see [Known gaps](#known-gaps) |
 | A refused launch (the live-overlay guard) | no collector, no file, no directory |
@@ -467,16 +513,19 @@ already emits — which is the point of having built the instrument first.
 > it does mean parallelising teardown is currently a solution to a 45 ms problem,
 > and whoever picks it up should re-read that number first.
 
-### The title-restore span cannot fire
+### The title-restore span is the last step, and it is now measured
 
 `internal/cli` spans the deferred terminal-title restore as `process.title_restore`
-on the `Options` value it passes to `run.Run` — but `Run` takes `Options` by value
-and constructs the collector on its own copy, so the caller's collector is always
-nil and the span is a permanent no-op. The restore runs subprocesses with no
-timeout of their own and is the last unmeasured step between the report and the
-shell prompt. Nothing pins the span, which is how it shipped dead. The fix is a
-collector the caller can see (construct it before `Run`, or have `Run` return it);
-until then the step is unmeasured, and the report's `Total` ends before it.
+— the last step between the report printing and the shell prompt returning. It
+was a permanent no-op for its whole first life: `Run` takes `Options` by value
+and built the collector on its own copy, so the caller's `Perf` was nil forever
+and `Span` on a nil `*Log` is a silent no-op. Nothing pinned it, which is how it
+shipped dead. `PerfRef` (`09826c0e`) is the fix — a one-field holder the caller
+passes in to be handed the collector `initPerf` builds. Real-host launches record
+it at 25–27 ms.
+
+The step still runs subprocesses with no timeout of their own, and the report's
+`Total` still ends before it.
 
 ### `macos-user` native runs have no collector past dispatch
 
@@ -486,16 +535,45 @@ returns the native arm's result directly: nothing after it is spanned, no report
 prints, and the quiet line does not either. The proxy seam that arm uses carries a
 bare `Options` with no collector, deliberately, until the arm grows one.
 
-### The motivating symptom is unconfirmed
+### The motivating symptom is narrowed to one arm, not yet attributed
 
-The 30-second post-exit wait that motivated this system has not been attributed,
-because every measurement so far was taken in a **nested jail**, which is
-structurally blind to it: podman-in-podman forces `--net=host`, and the nested
-store, image and mount set are not the maintainer's. Window A is exactly the
-stretch whose cost is a property of the real host's storage driver and network
-stack — the same blindness [AGENTS.md](../../AGENTS.md) records for
-reachability. The measurement that settles it is one `--timing` quit on the real
-host, whose report names the arm and whose `host-perf.log` survives it.
+The post-exit wait that motivated this system is now **located** on the real
+host, and still **unpriced**. What the first real-host shutdown settled
+(2026-09-10, rootless podman on Linux, a jail up 17.5 h, quiet
+`perf_logging: true`):
+
+- Everything from `child.exited` to the last recorded event took **58 ms** — the
+  whole `shutdown.*` chain plus the title restore. No dangling start, so nothing
+  hung. **Teardown is not the delay**, and the T4 note above holds.
+- So the wait is upstream of `child.exited`: the agent's own exit, PID 1 dying,
+  and Window A — the three things inside `launch.run_with_proxy` that no span
+  separates.
+- An independent anchor bounds that whole stretch at **9.27 s**: the agent's last
+  write into the bind-mounted jail home (its LSP pid-refcount teardown) landed
+  9.267 s before `child.exited`, and nothing wrote there afterwards. That is a
+  bound on what followed that write, not on the wait a human perceives, which
+  starts at the keystroke.
+
+The arm is pinned by an unexpected instrument: **`^Z` reaches the user's shell
+during the wait**, and `kill -9 %1` from that shell frees it. The proxy
+intercepts `^Z` (0x1A) in its own stdin loop and self-suspends
+(`ttyproxy.go`, `selfSuspend`), and that loop runs only until `cmd.Wait()`
+returns. So a `^Z` that works is proof the launcher is still inside
+`launch.run_with_proxy` with the podman child unreaped — which is exactly where
+Window A lives, and rules out every step the 58 ms already covered.
+
+Why it was unpriced on that shutdown, and what changed: attribution was on the
+reporting gate, so the one launch that hit the symptom never ran the query. It
+is on the recording gate now ([Window A attribution](#window-a-attribution)), and
+a slow one names itself on stderr. The measurement that finishes this is the next
+real-host quit that is slow — no flag to remember, and the number will be in
+`host-perf.log` as `shutdown.window_a` whether or not anyone was watching.
+
+The standing caveat is unchanged: a **nested jail** cannot produce this number.
+Podman-in-podman forces `--net=host`, and the nested store, image and mount set
+are not the maintainer's — Window A's cost is a property of the real host's
+storage driver and network stack, the same blindness
+[AGENTS.md](../../AGENTS.md) records for reachability.
 
 ### What has been measured
 
@@ -512,6 +590,18 @@ numbers on one day and do not price the real host.
 | `shutdown.window_a_podman_events` | 0.019 s (3.002 s before the `--until` fix) |
 | the log file, one launch | 2,194 bytes / 35 lines |
 | wall clock added after the child exit, whole chain including attribution | 39 ms |
+
+And the first **real-host** set, 2026-09-10 — rootless podman on Linux, one quiet
+`perf_logging: true` shutdown of a jail that had been up 17.5 hours. These are
+the numbers the nested set could not speak for.
+
+| Span | Measured |
+| :--- | ---: |
+| `shutdown.stop_loopholes` (one front, incl. the unbounded liveness `ps`) | 0.030 s |
+| the entire `shutdown.*` chain | 0.032 s |
+| `process.title_restore` | 0.025 s |
+| `child.exited` → the last recorded event | 0.058 s |
+| Window A | unpriced — the query was on the reporting gate; ≤ 9.27 s by the anchor above |
 
 The seconds live in the image load and the installer capture, which are launch
 costs; on that host, in that mode, teardown was not the delay. The instrument now
@@ -539,6 +629,8 @@ is the only place the exact values and spellings are stated.
 | In-container block header | `=== YOLO Jail Profile ===` | `run.buildFinalInternalCmd` |
 | Window A query | `podman events --since <collector start> --until <now> --filter container=<name>` | `run.attributeWindowA` |
 | Window A query timeout | 3 s | `run.windowAEventsTimeout` |
+| Window A recorded event | `shutdown.window_a` (an `end` with no `start`) | `run.recordWindowA`, `perf.Log.Record` |
+| Window A unattributed marks | `shutdown.window_a_unattributed.{timeout,not_run,rc,no_die}` | `run.recordWindowA`, `run.windowAResult.token` |
 | Signal-arm jail stop | runtime `stop -t 5`, exec bounded at 10 s | `run.teardownStopTimeoutSeconds` |
 | Signal-arm exit code | `128 + signal` | `internal/ttyproxy` |
 | Loophole front close grace | 2 s | `run.frontStopGrace` |
@@ -567,3 +659,4 @@ defence.
 | D12 — recording and reporting are separate gates | Folding the config key into `Options.Timing` is the one-line "fix" that reunites them and brings back a table at every jail quit. The classification rule is P1 |
 | D13 — the jail-half variable is `YOLO_JAIL_TIMING` | "Match the flag" argues for `YOLO_TIMING`, which D5 forbids; `YOLO_TIMING_INNER` recreates the prefix collision the rename fixed. The rename itself was long blocked by a false premise — that the variable was a host↔jail wire contract — when both halves are host-side |
 | D14 — `--verbose` gets no vocabulary until something needs one | Giving it meaning ahead of a consumer is a vocabulary nobody has lived with; the first non-timing diagnostic decides |
+| D15 — Window A attribution RECORDS (every opt-in) while the table PRINTS (the typed flags) | D12 reads as "attribution is part of the report", and it shipped that way. But D12 governs what prints, and Window A is the one measurement a user cannot ask for in advance — they learn it was slow by waiting through it, after the launch that could have measured it is over. The cost is one bounded exec per quiet quit; the alternative was a number yolo could go and get, and chose not to write down |
