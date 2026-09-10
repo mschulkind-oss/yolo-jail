@@ -498,6 +498,49 @@ $ yolo config promote <agent> [--surface <name>] [--keys a,b] [--to <dest>]
 > "get this key to all my jails" — that is `local`, and the promote UI should
 > not offer `host` as though it were the same kind of thing.
 
+#### 5.1.1 Why only two — and why that is a question, not a fact to design around
+
+**Asked in review 2026-09-10.** *"Why do only those two have it? This is pack
+declared? Not generic? Is that smart?"* Three separate answers, and they do not
+all point the same way.
+
+**Yes, pack-declared, and that half is right.** `reads-host` is a **privilege
+claim**, not a convenience: it carries a real file out of the user's home into a
+container. It is `ReviewWorthy` in the footprint and is honored-and-disclosed for
+every pack (`internal/packload/footprint_test.go:74-98`), which is what puts it
+on the startup disclosure banner. A generic rule — *"every surface imports its
+own host file"* — would make every jail read host state with nothing declaring
+it and nothing to disclose, which is the shape
+[`gate-placement-principle.md`](../reference/gate-placement-principle.md) exists to refuse.
+Keep the declaration.
+
+**But the declaration carries no information.** Measured across all six shipped
+agent packs on 2026-09-10:
+
+| Pack | Surface path | `reads-host` source |
+| :--- | :--- | :--- |
+| `claude` | `~/.claude/settings.json` | `.claude/settings.json` |
+| `pi` | `~/.pi/agent/settings.json` | `.pi/agent/settings.json` |
+
+Both grants name **exactly the surface's own path** with `~/` stripped. The field
+is shaped like "which host file?" and is used as "does this surface have a host
+layer at all?" — a boolean wearing a path. That is worth noticing before anyone
+builds on the path being freely chosen, because nothing shipped chooses it.
+
+**And the coverage looks like incompleteness rather than a decision.** Eleven
+pack surfaces ship; two have the grant. The nine without it all have a real host
+counterpart a user plausibly has: `claude/config` (`~/.claude.json`),
+`codex/config`, `opencode/config`, `agy/settings`, `agy/mcp`,
+`copilot/{config,lsp,mcp}`, `pi/models`. Both grants that do exist are *"the
+settings surface of an agent that has one"* — a pattern, not a chosen subset, and
+**no doc records a reason any of the nine declined**.
+
+This is [OQ-CO10](#OQ-CO10). It is really a
+[`pack-system`](../reference/pack-system.md) question rather than an ownership
+one, and it is routed here because `--to host`'s usefulness is a direct function
+of its answer: today the destination works for whichever surfaces happen to carry
+a grant, and a user cannot tell which without reading pack manifests.
+
 ### 5.2 What it does, in order
 
 1. Read the capture overlay for the surface from `<workspace>/.yolo/prism/`.
@@ -1045,6 +1088,41 @@ Observable outcomes that mean this was built as designed:
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+10. 💬 **<a id="OQ-CO10"></a>OQ-CO10: Is `reads-host` coverage a decision, and
+    should the grant name a path at all?** Opened in review 2026-09-10 from
+    [§5.1.1](#511-why-only-two--and-why-that-is-a-question-not-a-fact-to-design-around).
+    Two shipped grants, eleven pack surfaces, no recorded reason for the nine
+    without one — and both grants name their own surface's path, so the field is
+    a boolean in a path's clothing. **What it decides:** whether `--to host` is a
+    destination users can reason about, and whether the other nine surfaces are
+    deliberately host-blind or merely unfinished.
+
+    Three sub-questions, and they separate cleanly:
+
+    - **Coverage.** Do the nine get grants, or is host-blindness correct for
+      them? `mise/config` is the interesting case *against* a blanket yes —
+      importing the host's mise config into a jail would fight the pinned
+      toolchain rather than help it.
+    - **Shape.** If a grant's source is always its own surface path, should the
+      field become a flag (`reads_host: true`) so the two cannot drift apart? A
+      path that must equal another path is a bug waiting for its first typo.
+    - **Discoverability.** Whatever the answer, `--to host` should say *"this
+      surface has no host layer, so nothing will read this"* rather than writing
+      a file no jail consults.
+
+    <!-- vantage: oq id=OQ-CO10 leaning="Keep the per-pack declaration (it is a disclosed privilege claim), narrow the FIELD to a boolean since both shipped grants name their own surface path, and treat the nine missing grants as unfinished rather than deliberate — but per-surface, since mise/config is a genuine no. Regardless of coverage, promote must refuse --to host on a surface with no host layer instead of writing a file nothing reads." -->
+
+    _Leaning:_ **Keep the declaration, narrow the field, treat coverage as
+    unfinished — but decide it per surface, not in bulk.** The privilege claim is
+    right and the disclosure depends on it. The path is redundant and should be a
+    boolean. The nine are probably unfinished rather than deliberate, but
+    `mise/config` shows the answer is not a blanket yes, so each needs its own
+    line. The third sub-question needs no ruling either way: promote must refuse
+    `--to host` on a surface with no host layer regardless of who has one.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
 
 8. 🔒 **OQ-CO8: Is `--to workspace` in scope?** Promoting a key to the workspace
    config would be the natural home for a genuinely project-specific value.
