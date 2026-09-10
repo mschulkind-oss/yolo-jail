@@ -282,20 +282,65 @@ boot:
 
 ```
 delta   = mergeDiff(last_render, current_file)   # current = last_render + ANY in-jail edit
-overlay = deepMerge(overlay, delta)              # accumulate; deletions are null tombstones
-render  = pipeline(defaults, host, workspace, overlay, transform, managed)   # §3.1
+overlay = mergeAccumulate(overlay, delta)        # accumulate; deletions are null tombstones
+overlay = narrowOverlay(overlay, computed, managed)   # drop what a higher layer overrides anyway
+render  = pipeline(defaults, host, workspace, overlay, computed, transform, managed)   # §3.1
 write(render); last_render = render
 ```
 
 The diff is against *the bytes on disk*, so it captures the edit however it was
-made — that is what makes the overlay agent- and mechanism-agnostic. Three
+made — that is what makes the overlay agent- and mechanism-agnostic. Four
 details: **precedence** (overlay outranks host/workspace so your edit wins; an
 entry auto-retires when the host value converges to it; `yolo config overlay
 --reset <agent>` is the escape hatch); **deletions** (null tombstones, so a
 removed key isn't resurrected — the exact bug in today's merge); **managed**
 (applied after both the overlay and the Lua hook, so a yolo-managed key changed
-in-jail is captured but visibly reverts on render — correct; note this governs
-the generated file only, not the security boundary, which is the container — [§9](#9-decisions-all-settled)).
+in-jail visibly reverts on render — correct; note this governs the generated file
+only, not the security boundary, which is the container — [§9](#9-decisions-all-settled));
+and **the narrowing**, below.
+
+### 5.1 The store holds only edits that can win
+
+Capture used to be layer-agnostic: the overlay recorded whatever changed on disk
+and let precedence sort it out at render. That stored deltas which *cannot* reach
+the file, because two layers fold above the overlay and both re-assert
+unconditionally — `computed` (yolo's per-boot regenerated data: the reconciled
+MCP-server table, claude's LSP-driven `enabledPlugins` toggles, mise's injected
+`[tools]` pins) and `managed`. A capture either one overrides changes nothing. It
+only accumulates as permanent noise, and `yolo config diff` reports it as a
+phantom "edit" the user cannot act on.
+
+So the accumulated overlay is narrowed against both layers before it is written.
+Three things about the rule are load-bearing:
+
+- **It runs on the ACCUMULATED overlay, not the incoming delta.** Narrowing the
+  delta would only stop new contamination and leave every already-dirty sidecar
+  dirty forever. Narrowing after the accumulate makes the store **self-healing**:
+  a sidecar an older yolo wrote is canonicalized on the next boot. Measured on a
+  development jail whose four capture surfaces refused `yolo apply --sealed` with
+  ten captured keys between them — one boot took that to four, and three of the
+  four surfaces cleaned out entirely.
+- **It is LEAF-level, per layer, not a top-level key drop.** Both layers
+  deep-merge, so each owns only the leaves it actually supplies, and the objects
+  they contribute to are shared with the user: mise's computed `[tools]` holds the
+  injected pins while a user-added global tool is the user's, claude's computed
+  `enabledPlugins` holds the LSP toggles while a plugin the user enabled is
+  theirs, and managed `permissions` asserts `defaultMode` while Claude's own
+  `permissions.ask` is untouched by it. Dropping any of those wholesale would
+  delete real user state.
+- **It drops only what is provably dead from the (overlay, owner) pair alone.**
+  The lower layers are not visible at that point, so a null tombstone under an
+  object-valued owner is KEPT — what it erases is whatever host or workspace put
+  there. Keeping a redundant tombstone is noise; dropping a live one is data loss.
+
+**Why not retain the capture so it activates if the owning layer later stops
+supplying the key?** That was the competing semantic, and it was abandoned
+deliberately. The pending edit is invisible — nothing tells you it is queued — and
+it can sit for months. Both live cases are hazards rather than conveniences: for
+`claude/settings` the managed key is `permissions`, so activation would restore a
+stale permission grant nobody remembers making; and for computed, removing an MCP
+server from your config would silently resurrect it from a copy captured while it
+still existed.
 
 ## 6. `yolo config render` — run the pipeline on demand
 

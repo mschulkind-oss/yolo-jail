@@ -702,9 +702,28 @@ deliberate line in the engine rather than an oversight:
 
 | Class | What happens | Why |
 | :--- | :--- | :--- |
-| A key nested inside a container yolo computes wholesale (a hand-added `mcpServers` entry) | **not adopted** | `dropYoloOwnedSubtrees` ([`staterender.go:327`](../../internal/agentcfg/staterender.go#L327)) — adopting it would resurrect a dropped entry and break *regenerate, don't reconcile* |
-| A key the surface `managed` asserts | **not adopted** | `dropKeys` against `Surface.Managed` — managed is re-asserted after the fold, so an adopted copy could only sit in the sidecar as noise `yolo config diff` would report as a phantom edit |
-| A **keyless** surface (`raw`, `lines`) | **not adopted at all** | one "key" is the whole file, so adoption would mean "the file wins outright", freezing a host-mirrored file at stale content forever ([`staterender.go:213`](../../internal/agentcfg/staterender.go#L213)) |
+| A key nested inside a container yolo computes wholesale (a hand-added `mcpServers` entry) | **not adopted** | `dropYoloOwnedSubtrees` ([`staterender.go`](../../internal/agentcfg/staterender.go)) — adopting it would resurrect a dropped entry and break *regenerate, don't reconcile* |
+| A key a higher layer re-asserts — `managed`, or the per-boot `computed` layer | **never captured, in either branch** | `narrowOverlay` — both fold above the capture overlay and win unconditionally, so a captured copy could only sit in the sidecar as noise `yolo config diff` would report as a phantom edit |
+| A **keyless** surface (`raw`, `lines`) | **not adopted at all** | one "key" is the whole file, so adoption would mean "the file wins outright", freezing a host-mirrored file at stale content forever ([`staterender.go`](../../internal/agentcfg/staterender.go)) |
+
+> [!NOTE]
+> **Row 2 stopped being adoption-scoped on 2026-09-10.** It described
+> `dropKeys` against `Surface.Managed`, a narrowing only the first-migration
+> branch ran. Steady-state capture ran no such narrowing, so it recorded both
+> managed AND computed keys into the sidecar every boot — where they could never
+> affect output. The rule now runs once, on the ACCUMULATED overlay, for both
+> branches and both layers, which also makes the store **self-healing**: a
+> sidecar an older yolo dirtied is canonicalized on the next boot rather than
+> staying dirty forever. It is LEAF-level per layer, because both layers
+> deep-merge and share their objects with the user (mise's computed `[tools]` vs.
+> a user-added global tool; managed `permissions.defaultMode` vs. Claude's own
+> `permissions.ask`), and it keeps a null tombstone under an object-valued owner
+> because what that erases is a lower layer this rule cannot see. The competing
+> semantic — retain the capture so it activates if the layer later stops
+> supplying the key — was rejected: the pending edit is invisible and can sit for
+> months, so it would silently restore a stale `permissions` grant, or resurrect
+> an MCP server the user had deleted. See
+> [§5.1 of the composition plan](../plans/agent-settings-composition.md#51-the-store-holds-only-edits-that-can-win).
 
 The first two are the loss set `confirmHostLosses` **already** gates on
 (`FirstApply && EntryLosses`, [§4.4](#44-what-the-key-does-not-do)) — so the
