@@ -151,7 +151,10 @@ each one is a place a plausible "cleanup" reintroduces the wedge.
 - **Never install a handler for `SIGTSTP`.** The **default disposition is required** to actually
   stop the process. A handler is the one change that makes the suspend silently do nothing.
 - **`SIGCONT` re-raws the host terminal**, and resyncs the size — a resize while stopped may leave
-  no signal to see.
+  no signal to see. Verified end to end on 2026-09-10: a window resized *while suspended* comes
+  back correctly sized after `fg`, in an agent session. That is the first exercise this arm has
+  had where a wrong size would actually show, because the suspend wedge above had made the path
+  unreachable for exactly the sessions whose TUI depends on it.
 - **A resize is TWO acts, and the write alone is not enough.** `SIGWINCH` sets the new size on the
   pty with `TIOCSWINSZ` **and then sends a targeted `SIGWINCH` to the runtime child's pid**.
   Because the child is deliberately not given its own session (see the `setsid` prohibition
