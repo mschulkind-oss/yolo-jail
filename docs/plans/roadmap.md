@@ -650,9 +650,28 @@ is wrong for anyone who adopted `yolo host apply`. **Nothing is built** (verifie
 Q1, which reports the same missing subcommand from the capture side — Q1 asks whether capture
 should become a staging area, this doc designs the drain.
 
-**[`OQ-CO1`](../design/config-ownership-and-promotion.md#12-open-questions)/[`OQ-CO2`](../design/config-ownership-and-promotion.md#12-open-questions) gate the other five**: two ownership values or three, and does the undeclared state
-prompt or warn. [`OQ-CO3`](../design/config-ownership-and-promotion.md#12-open-questions)–[`OQ-CO7`](../design/config-ownership-and-promotion.md#12-open-questions) are promotion mechanics (host-capture reversal, default destination,
-in-jail refusal, precedence loss, archiving).
+⚠ **Review round 0 landed 2026-09-10 and this row is smaller than it was.** Two of the seven are
+ruled and one is new, so the gating sentence this row used to carry is retired:
+
+- ✅ **[`OQ-CO2`](../design/config-ownership-and-promotion.md#12-open-questions) — RULED: neither prompt nor warn.** The undeclared state is
+  `assert`, silently; each value explains itself at the point of the act and `apply --sealed` is the
+  one place undeclaredness bites. **Against the leaning**, and it deleted the migration prompt from
+  the build order's step 1.
+- ✅ **[`OQ-CO3`](../design/config-ownership-and-promotion.md#12-open-questions) — RULED: yes, host capture under `own` only** — and it is a
+  *precondition* of adoption rather than an added capability, so it lands in the same commit as `own`.
+- 🆕 **[`OQ-CO9`](../design/config-ownership-and-promotion.md#12-open-questions) — opened by the same round**: a KEYLESS host surface (`raw`,
+  `lines`) is never adopted by `ComposeStateful`, which is safe in a disposable jail home and not on
+  a real one. Empty class today, which is why it is worth ruling before someone adds one.
+
+**[`OQ-CO1`](../design/config-ownership-and-promotion.md#12-open-questions) is now the only gate** — two ownership values or three. The
+remainder are promotion mechanics ([`OQ-CO4`](../design/config-ownership-and-promotion.md#12-open-questions)–[`OQ-CO7`](../design/config-ownership-and-promotion.md#12-open-questions):
+default destination, in-jail refusal, precedence loss, archiving) plus CO9's carve-out.
+
+**What the round changed about the WORK, which is the useful part:** both rulings removed a mechanism
+the design had proposed, and in both cases the replacement was already shipped — the `assert` default,
+and `ComposeStateful`'s first-migration adoption (`staterender.go:174`, the `B1 (⚠ DATA LOSS FIX)`
+branch). So the first owned render is byte-identical to the file on disk *by construction*, and the
+adoption-diff confirmation the design wanted is not built at all.
 
 **Answer:**
 > _(empty — fill in when decided)_

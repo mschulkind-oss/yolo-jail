@@ -10,9 +10,20 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** DESIGN SKETCH, 2026-09-09. Nothing built. Every claim about current
-behavior was verified against the tree or measured in this development jail on
-2026-09-09; each carries its evidence inline.
+**Status:** DESIGN SKETCH, 2026-09-09; **review round 0 folded in 2026-09-10**
+([OQ-CO2](#OQ-CO2) and [OQ-CO3](#OQ-CO3) ruled, [OQ-CO9](#OQ-CO9) opened).
+Nothing built. Every claim about current behavior was verified against the tree
+or measured in this development jail on 2026-09-09, and the round-0 claims about
+`ComposeStateful` on 2026-09-10; each carries its evidence inline.
+
+> [!NOTE]
+> **Review round 0 made this design smaller in two places, both by finding the
+> mechanism already shipped.** The migration prompt is gone — the `assert`
+> default is the whole migration — and the adoption confirmation is gone,
+> because `stateful` adoption already seeds the overlay from the file it finds
+> ([§6.3.1](#631-why-the-adoption-diff-is-empty)). What that surfaced instead is
+> a real gap the confirmation had been hiding: keyless surfaces are never
+> adopted, which is safe in a jail and not on a host ([OQ-CO9](#OQ-CO9)).
 
 **The short version.** yolo never asks who owns `~/.claude/settings.json` — it
 infers the answer from the confinement notch, giving the jail whole-file
@@ -342,30 +353,69 @@ Consequences worth stating because users act on them:
 ### 4.3 The undeclared state, and what happens to everyone already running
 
 An **absent** key is not a fourth value; it is the *undeclared* state, and it
-exists only to make the transition honest:
+needs no ceremony of its own — **the default carries the whole migration**
+([OQ-CO2](#OQ-CO2), ruled in review):
 
-1. Behavior is `assert` — today's behavior, so nothing breaks on upgrade day.
-2. The first `yolo host apply --assert` under an undeclared key **prompts once**
-   to write the key into the user config, showing the three values and their
-   consequences. On a non-TTY it proceeds as `assert` and prints the
-   one-line notice. It never writes the key without an answer.
+1. Behavior is `assert` — today's behavior, so nothing breaks on upgrade day,
+   and nobody is interrupted in order to be told that.
+2. **No migration prompt and no notice.** Each value explains itself at the
+   point of the act instead. `yolo host apply` under `none` reports that it is
+   writing nothing and names the key that decided it; `assert` and `own` do what
+   they are configured to do. A prompt at upgrade asks the question at the one
+   moment the user has least to go on — before they have seen any of the three
+   values behave — and buys nothing, because every path it guards is either
+   today's behavior or a value the user typed on purpose.
 3. `yolo apply --sealed` **refuses** while the key is undeclared, listing it
    beside the two undeclared inputs it already refuses for
    ([`apply.go:795-825`](../../internal/cli/apply.go#L795-L825)). An environment
-   whose host-ownership contract is unstated is not sealed.
+   whose host-ownership contract is unstated is not sealed. **This is the one
+   place undeclaredness bites**, and it bites where the user asked a question
+   about declaredness rather than where they asked for an apply.
 
-That is the whole migration. There is no rewrite of anyone's files at upgrade,
-and no host apply behaves differently until its user answers the prompt.
+That is the whole migration: a default, and one refusal in the command whose
+whole job is to audit what is declared. There is no rewrite of anyone's files at
+upgrade, and no host apply behaves differently until its user writes the key.
+
+**Adopting `own` later needs no ceremony either, and that is a property of the
+render engine rather than a promise made here** —
+[§6.3](#63-the-one-asymmetry-that-survives-deletion) has the mechanism and the
+three classes it does not cover.
 
 ### 4.4 What the key does not do
 
 It does **not** grant approval for any individual write. That distinction is
 `host_apply_on_launch`'s hard-won ruling — "THE KEY ENABLES THE MECHANISM. IT
-DOES NOT GRANT THE APPROVAL" — and it holds here identically: `host_management:
-own` selects the mode, and a launch or an apply that would change the file still
-prompts on a TTY and still refuses off one. The two keys are orthogonal and both
-are read: `host_management` says *how* the host renders, `host_apply_on_launch`
-says *when* a re-render is checked.
+DOES NOT GRANT THE APPROVAL"
+([`hostapplyonlaunch.go:24`](../../internal/config/hostapplyonlaunch.go#L24)) —
+and it holds here identically: `host_management: own` selects the mode, it does
+not pre-authorize the writes that mode performs. The two keys are orthogonal and
+both are read: `host_management` says *how* the host renders,
+`host_apply_on_launch` says *when* a re-render is checked.
+
+> [!IMPORTANT]
+> **"Does not grant approval" is not "prompts because it is owned", and this
+> paragraph used to read as the second** (corrected in review). The shipped rule
+> is driven by **what the write would do**, never by which key is set, and it
+> already has two teeth that answer the question directly:
+>
+> - **Nothing would change ⇒ silent.** The four dispositions
+>   ([`host-apply-staleness.md`](../reference/host-apply-staleness.md#the-four-dispositions))
+>   put it as an invariant, not a default: *"A freshly-applied home must prompt
+>   **not at all, ever**, until something actually changes."*
+> - **A change that changes nothing the user has ⇒ still silent.** The host
+>   apply gate is `confirmHostLosses`
+>   ([`apply.go:577`](../../internal/cli/apply.go#L577), wired on the writing
+>   path at [`apply.go:369`](../../internal/cli/apply.go#L369)), and its first
+>   stated property is *ONLY WHEN SOMETHING IS ACTUALLY LOST* — gated on
+>   `FirstApply && EntryLosses`, so a home yolo has asserted before "prompts not
+>   at all". A scalar whose value merely changes is reported as an ordinary `⚠`
+>   and does not prompt.
+>
+> So an owned host in steady state is silent, and the prompt that remains is the
+> one that was already there for the case that was already dangerous. `own`
+> adds no interruption of its own — which is the point, because a confirmation
+> that fires on every apply is the mechanism `confirmHostLosses`' own docstring
+> refuses to build.
 
 ---
 
@@ -551,8 +601,17 @@ host capture store sits beside the existing host provenance record, at
 boundary. The key that *exports* anything — promote — refuses sensitive keys
 independently ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)).
 
-This reverses a shipped ruling and so it is opened rather than assumed:
-[OQ-CO3](#OQ-CO3).
+This reverses a shipped ruling and so it was opened rather than assumed:
+[OQ-CO3](#OQ-CO3), **ruled yes-under-`own` in review**.
+
+> [!IMPORTANT]
+> **Host capture under `own` is not a convenience — it is what makes adoption
+> non-destructive**, so this ruling is a precondition of
+> [§6.3](#63-the-one-asymmetry-that-survives-deletion) rather than an addition to
+> it. Refusing host capture under `own` would leave the first owned render
+> composing from declared layers alone, which is the empty-overlay seed that
+> [§6.3.1](#631-why-the-adoption-diff-is-empty) records as a shipped data-loss
+> bug. The two must land together.
 
 ### 6.3 The one asymmetry that survives: deletion
 
@@ -561,17 +620,74 @@ That is correct under `own` — a derived file contains what the definition says
 and nothing else — and it is the single place where "the host is a real home"
 genuinely changes the answer.
 
-Two guards, and they are the price of `own`:
+**Adoption, however, is not that case.** The first owned render is
+byte-identical to the file already on disk, and it is so *by construction*
+rather than by a guard this design adds: `capture-then-regenerate` is what
+`stateful` adoption already does.
 
-1. **Adoption is a diff, not a flag flip.** The first apply after switching to
-   `own` prints the full key-level diff — every key that would be added, changed
-   and *removed*, with its provenance — and requires confirmation. Off a TTY it
-   refuses.
-2. **One archive at adoption.** The pre-existing file is copied once to the state
-   dir before the first owned render. Not per-apply snapshots: those are a
-   different feature with a retention policy, and the risk being covered is
-   "adopting `own` ate settings I had," which one archive covers exactly. See
-   [OQ-CO7](#OQ-CO7).
+### 6.3.1 Why the adoption diff is empty
+
+`ComposeStateful` treats "no trusted `last_render` for this surface" as a
+**first migration** and, on that branch, seeds the overlay from the file it
+finds: `residue = mergeDiff(pureRender, current)`
+([`staterender.go:174`](../../internal/agentcfg/staterender.go#L174)). The next
+line of the render is then `declared layers + that residue`, which reproduces
+the file exactly. Switching a host surface to `own` is precisely that branch —
+there is no host `last_render` yet — so **capture happens before the first owned
+write, and the write puts back what capture just took**.
+
+This is not a hopeful reading of the mechanism. That branch exists *because*
+seeding an empty overlay was a shipped data-loss bug (`copilot/config` collapsed
+to `{"yolo": true}` and logged the user out); the comment above it is labelled
+`B1 (⚠ DATA LOSS FIX)`. The engine's answer to "adopt a file I did not write"
+is already the one this section wanted a confirmation prompt to protect.
+
+**For a home already on `assert`, the diff is empty for a second and stronger
+reason:** every key `own` would drop, `assert` has already dropped. `rmw`
+re-asserts the declared keys on every apply, so a key that collides with yolo's
+declarations does not survive under `assert` either — the two modes differ only
+about keys *nothing* declares, and those are exactly what adoption captures.
+
+### 6.3.2 The three classes adoption does not cover
+
+Stated because "empty by construction" is a claim with edges, and each edge is a
+deliberate line in the engine rather than an oversight:
+
+| Class | What happens | Why |
+| :--- | :--- | :--- |
+| A key nested inside a container yolo computes wholesale (a hand-added `mcpServers` entry) | **not adopted** | `dropYoloOwnedSubtrees` ([`staterender.go:327`](../../internal/agentcfg/staterender.go#L327)) — adopting it would resurrect a dropped entry and break *regenerate, don't reconcile* |
+| A key the surface `managed` asserts | **not adopted** | `dropKeys` against `Surface.Managed` — managed is re-asserted after the fold, so an adopted copy could only sit in the sidecar as noise `yolo config diff` would report as a phantom edit |
+| A **keyless** surface (`raw`, `lines`) | **not adopted at all** | one "key" is the whole file, so adoption would mean "the file wins outright", freezing a host-mirrored file at stale content forever ([`staterender.go:213`](../../internal/agentcfg/staterender.go#L213)) |
+
+The first two are the loss set `confirmHostLosses` **already** gates on
+(`FirstApply && EntryLosses`, [§4.4](#44-what-the-key-does-not-do)) — so the
+case that can still lose something is the case that already prompts, and it
+prompts for the same reason on `assert` today. No new guard is needed for it.
+
+The third has no answer yet and is the honest gap in this section: no shipped
+host surface is keyless, so nothing regresses on the day `own` lands, but a
+keyless host surface would adopt nothing and render over the file. It is
+[OQ-CO9](#OQ-CO9).
+
+### 6.3.3 What survives as a guard
+
+**One archive at adoption.** The pre-existing file is copied once to the state
+dir before the first owned render. Not per-apply snapshots: those are a
+different feature with a retention policy. What changed in review is the *risk
+it covers* — no longer "adopting `own` ate settings I had", which
+[§6.3.1](#631-why-the-adoption-diff-is-empty) makes structurally hard, but
+"adoption's classification was wrong about one of the three rows above". Cheap
+insurance against a mechanism, rather than the mechanism's only safety net. See
+[OQ-CO7](#OQ-CO7).
+
+**One load-bearing dependency, named because it is easy to drop.** Adoption is
+safe against `yolo config reset` *only* because reset also truncates the surface
+to its pure render — without that, reset → no baseline → adopt would resurrect
+the very edits the user asked to discard, making reset a no-op. The engine
+comment says the two halves are one change. Host-side `reset` currently refuses
+([§2.4](#24-the-verbs-that-exist-and-the-ones-that-do-not)), so **`own` must
+make host-side `reset` work, not merely permit it** — [§6.1](#61-mode-parity)
+lists it as parity, and it is a correctness requirement.
 
 After adoption, a removal is ordinary and reported, exactly as it is in a jail.
 
@@ -643,12 +759,12 @@ already has.
 
 | Risk | Mitigation |
 |---|---|
-| A user picks `own`, and yolo deletes settings they cared about | Adoption diff + confirmation + one-time archive ([§6.3](#63-the-one-asymmetry-that-survives-deletion)) |
+| A user picks `own`, and yolo deletes settings they cared about | Adoption is capture-then-regenerate, so the first owned render is byte-identical ([§6.3.1](#631-why-the-adoption-diff-is-empty)); the classes it does not cover are the ones `confirmHostLosses` already prompts for ([§6.3.2](#632-the-three-classes-adoption-does-not-cover)), plus the one-time archive |
 | Promotion silently demotes a key that then reverts | Precedence check is a **refusal**, not a warning ([§5.4](#54-promotion-moves-a-key-down-the-stack)) |
 | A credential is promoted into a pack, and the pack is pushed | Sensitive keys refused by default; `--force` is per-key and named in output |
-| The undeclared-state prompt trains people to hit enter | The prompt has no default; `--sealed` refusal is the backstop that does not depend on attention |
+| ~~The undeclared-state prompt trains people to hit enter~~ | **Risk retired** — there is no prompt ([OQ-CO2](#OQ-CO2)). The `--sealed` refusal is the whole backstop, and it does not depend on attention |
 | The local pack becomes an unreviewable pile of promoted keys | Every promotion is an ordinary edit to a readable `pack.json`; `yolo pack lint` and `footprint` already report its claims |
-| Three-value enum confuses users who wanted a switch | The undeclared-state prompt explains all three at the one moment the choice is being made, rather than in a config reference |
+| Three-value enum confuses users who wanted a switch | ⚠ **Mitigation weakened by [OQ-CO2](#OQ-CO2)** — with no prompt, the three values are explained in `yolo config-ref` and at the point of the act (`none` names the key that made it write nothing). Accepted: the value a confused user lands on is `assert`, which is what they already have |
 | A jail-side agent cannot promote, so the workflow stalls where the work happens | [OQ-CO5](#OQ-CO5)'s request channel; the refusal names the host command regardless |
 
 ---
@@ -658,7 +774,8 @@ already has.
 1. **`host_management`, parsing and validation only** — the key, its user-scope
    read, its fail-closed direction, its `inherit.go` entry, and the `--sealed`
    refusal while undeclared. Nothing changes behavior yet; the contract becomes
-   expressible.
+   expressible. **No prompt to build** ([OQ-CO2](#OQ-CO2)), which is most of
+   what this step used to be.
 2. **Wire `none` and `assert`.** `none` makes `yolo host apply` refuse; `assert`
    is today's path. This is the whole key for everyone who does not want `own`,
    and it lands the ownership answer without touching the render engine.
@@ -670,10 +787,13 @@ already has.
    the valuable half is the analysis, and it can ship first.
 5. **Promote's write path** to `local` and `pack:<name>`, with the atomic
    write-and-reset.
-6. **`own`:** the host notch renders `stateful`, with the adoption diff and
-   archive. Last because it is the only step that can lose data, and by then
-   promotion exists — which is what makes `own` attractive rather than merely
-   strict.
+6. **`own`:** the host notch renders `stateful`, **with the host capture store
+   ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)) and
+   host-side `reset` in the same commit** — adoption is unsafe without either
+   ([§6.3.3](#633-what-survives-as-a-guard)) — plus the one-time archive and the
+   keyless carve-out [OQ-CO9](#OQ-CO9) rules. Last because it is the only step
+   that can lose data, and by then promotion exists, which is what makes `own`
+   attractive rather than merely strict.
 
 Steps 1–3 are worth doing even if [§5](#5-promotion--the-way-out-of-capture) is
 never built; step 4 is worth doing even if step 5 is not.
@@ -693,8 +813,12 @@ Observable outcomes that mean this was built as designed:
 - Promoting a key that would lose precedence at its destination fails, with the
   losing layer named — verified by promoting a `managed` key and observing the
   refusal.
-- Switching to `own` on a home with hand-written settings shows every removal
-  before making one, and the pre-existing file is recoverable afterwards.
+- Switching to `own` on a home already applying under `assert` changes **zero
+  bytes** — the measurable form of [§6.3.1](#631-why-the-adoption-diff-is-empty),
+  and the criterion to write the test for first. Switching on a home that never
+  applied loses only what a first `assert` apply would have lost, prompts for it
+  through the gate that already exists, and leaves the pre-existing file
+  recoverable from the archive.
 - A `yolo host apply --assert` under `assert` still leaves an undeclared key
   byte-identical — the property measured on 2026-09-09 and the one thing this
   design must not regress.
@@ -721,7 +845,7 @@ Observable outcomes that mean this was built as designed:
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-CO2: Should the undeclared state prompt, or just warn?** [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running)
+2. ✅ **OQ-CO2: Should the undeclared state prompt, or just warn?** — **RULED 2026-09-10: neither.** [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running)
    proposes that the first `host apply --assert` under an absent key stops and
    asks. The alternative is to print a notice and carry on as `assert`, leaving
    `--sealed` as the only place the undeclared state bites. This decides whether
@@ -734,10 +858,26 @@ Observable outcomes that mean this was built as designed:
    same mechanism that let this ambiguity survive this long — and the prompt fires
    at most once per machine.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-10, review round 0 — NEITHER, against the leaning):**
+   > **Keep the default as `assert` and say nothing.** No prompt, no notice. The
+   > question was posed as prompt-or-warn and the ruling is that both are
+   > ceremony: *"can't we just keep the default as assert? then there's nothing
+   > needed here?"* Each value already explains itself at the point of the act —
+   > `none` reports that it wrote nothing and why, `assert` and `own` do what
+   > they are configured to do — and that is feedback where the user is looking,
+   > rather than at upgrade time when they have seen none of the three behave.
+   > `apply --sealed` remains the one place undeclaredness bites, which is the
+   > command whose whole job is auditing declaredness. Settled in
+   > [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running).
+   >
+   > The leaning's argument — *"a notice that proceeds anyway is the mechanism
+   > that let this ambiguity survive"* — does not carry, because the ambiguity it
+   > names was **inference** (the notch silently deciding ownership), not
+   > silence. A default that equals today's behavior and is documented in
+   > `yolo config-ref` is declared in the only sense that matters here; nothing
+   > is being inferred from where a file lives.
 
-3. 💬 **OQ-CO3: Does `own` re-permit host-side capture, reversing the
+3. ✅ **<a id="OQ-CO3"></a>[`OQ-CO3`](#OQ-CO3) — RULED 2026-09-10: yes, under `own` only.** Does `own` re-permit host-side capture, reversing the
    [§9.3](host-render-target.md#9-open-questions--the-discussion-part) refusal?** [`host-render-target.md`](host-render-target.md) [§9.3](host-render-target.md#9-open-questions--the-discussion-part)
    ruled that host-side `capture`/`reset` refuse rather than redact, because capture would
    copy a credential into a workspace sidecar. [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)
@@ -751,8 +891,19 @@ Observable outcomes that mean this was built as designed:
    `assert`. The hazard [§9.3](host-render-target.md#9-open-questions--the-discussion-part) names is the *workspace* sidecar, and an owned
    host's capture never goes there.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-10, review round 0 — YES, under `own` only, and it is a
+   precondition rather than a permission):**
+   > Ruled with the leaning, and promoted in force: *"we should capture, then
+   > regen the exact same thing with the host capture layer."* Host capture under
+   > `own` is the mechanism that makes adoption byte-identical, so it is not an
+   > additional capability `own` may have — it is what `own` is built on. The
+   > `0600` store beside the host provenance record never crosses a boundary, and
+   > promote refuses sensitive keys independently, so the
+   > [§9.3](host-render-target.md#9-open-questions--the-discussion-part) hazard
+   > (a credential reaching a *workspace* sidecar) does not arise in this shape.
+   > The refusal stays for `none` and `assert`. Settled in
+   > [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to) and
+   > [§6.3.1](#631-why-the-adoption-diff-is-empty).
 
 4. 💬 **OQ-CO4: Is the conventional local pack too blunt a default destination?**
    It is implicitly selected in every jail and renders at every notch, so
@@ -805,11 +956,20 @@ Observable outcomes that mean this was built as designed:
    > _(empty — fill in when decided)_
 
 7. 💬 **OQ-CO7: One archive at adoption, per-apply snapshots, or nothing?**
-   [§6.3](#63-the-one-asymmetry-that-survives-deletion) proposes a single copy
+   [§6.3.3](#633-what-survives-as-a-guard) proposes a single copy
    of the pre-existing file taken once, when a home first becomes `own`. Per-apply
    snapshots would cover more (a bad pack update deleting a key months later) at
    the cost of a retention policy and a new disk surface — in a project actively
    reducing both.
+
+   ⚠ **Re-grounded in review 2026-09-10, and *nothing* got stronger.** This was
+   written when adoption was a confirmed diff; adoption is now byte-identical by
+   construction ([§6.3.1](#631-why-the-adoption-diff-is-empty)), so the risk the
+   archive covers is no longer "adopting `own` ate my settings" but the narrower
+   "adoption misclassified one of [§6.3.2](#632-the-three-classes-adoption-does-not-cover)'s
+   three rows". That is a smaller and more speculative risk, which is an argument
+   for `nothing` that did not exist before — weighed against an archive being one
+   `copyFile` with no retention policy at all.
 
    <!-- vantage: oq id=OQ-CO7 leaning="One archive at adoption. It covers the risk being taken (adopting `own` ate my settings); the later-regression case is what git on the pack is for." -->
 
@@ -833,15 +993,57 @@ Observable outcomes that mean this was built as designed:
    **Answer:**
    > _(blocked — wiring the `workspace` layer decides it)_
 
+9. 💬 **<a id="OQ-CO9"></a>OQ-CO9: What does a KEYLESS host surface do under
+   `own`?** Opened in review 2026-09-10 by the [§6.3.2](#632-the-three-classes-adoption-does-not-cover)
+   table. `stateful` adoption is object-only by deliberate design — a `raw` or
+   `lines` surface has one "key", the whole file, so adopting it would mean "the
+   existing file wins outright" and a host-mirrored file would freeze at stale
+   content forever ([`staterender.go:213`](../../internal/agentcfg/staterender.go#L213)).
+   That reasoning is sound in a jail, where the file is disposable. On a real
+   host it means the first owned render of a keyless surface **overwrites**
+   without the capture step that makes every object surface non-destructive.
+   Options: refuse `own` for keyless surfaces (they stay `rmw` regardless of the
+   key); adopt them after all, accepting the frozen-content failure mode on the
+   host only; or archive-and-overwrite, leaning on
+   [OQ-CO7](#OQ-CO7)'s copy as the whole safety net for this one class.
+
+   **Stakes are currently theoretical and that is the reason to rule it now:**
+   no shipped host surface is keyless, so nothing regresses on the day `own`
+   lands — which is exactly the condition under which an unruled case gets
+   built wrong by the first person who adds one.
+
+   <!-- vantage: oq id=OQ-CO9 leaning="Refuse `own` for keyless surfaces — they stay `rmw` whatever the key says, reported at apply. It is the only option that cannot lose a real host file, and the class is empty today so the carve-out costs nobody anything. Revisit if a keyless host surface ever has a reason to be derived." -->
+
+   _Leaning:_ **Refuse `own` for keyless surfaces** — they stay `rmw` whatever
+   the key says, and the apply reports that it did so. It is the only option
+   that cannot lose a real host file, the class is empty today so the carve-out
+   costs nobody anything, and a per-surface exception is honest in a way that a
+   silently different adoption path is not.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ---
 
 ## 13. Decision Ledger
 
-Nothing settled yet — this doc is at Phase 1. Rulings on
-[§12](#12-open-questions)'s questions get folded into the normative body text and
-compacted into this table, keeping the exact `OQ-CO` ids so citations from
-sibling docs and code comments continue to resolve.
+Rulings on [§12](#12-open-questions)'s questions get folded into the normative
+body text and compacted into this table, keeping the exact `OQ-CO` ids so
+citations from sibling docs and code comments continue to resolve.
+
+**Two settled in review round 0; five still open, plus one opened by the same
+round.**
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| — | — | — | — |
+| [OQ-CO2](#OQ-CO2) | **Neither prompt nor notice** — the undeclared state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place undeclaredness bites. *Against the leaning.* | 2026-09-10 | [§4.3](#43-the-undeclared-state-and-what-happens-to-everyone-already-running) |
+| [OQ-CO3](#OQ-CO3) | **Yes, under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render byte-identical. The refusal stays for `none` and `assert`. | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-why-the-adoption-diff-is-empty) |
+
+**One consequence worth recording where a reader will hit it, because it moved
+work out of this design rather than into it.** Both rulings removed a mechanism
+this doc had proposed — a migration prompt and an adoption confirmation — and in
+each case the replacement was already shipped: the `assert` default, and
+`ComposeStateful`'s first-migration adoption. [§10](#10-what-i-would-build-in-order)'s
+step 1 shrinks accordingly (the key, its read, its fail-closed direction, and
+the `--sealed` refusal — no prompt to build), and step 6 gains the host capture
+store it now depends on.
