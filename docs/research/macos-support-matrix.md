@@ -1,10 +1,12 @@
 # macOS support matrix — every runtime × builder × config
 
-**Status:** LIVE TRACKER — reconciled against the tree **2026-08-23**. Cells
+**Status:** LIVE TRACKER — reconciled against the tree **2026-08-23**, with the `macos-user` cells
+updated **2026-09-11** from a session on real hardware. Cells
 carry the date they were last checked; an undated cell is from the 2026-07 era
-and has not been re-measured. Written from a Linux jail: **no cell here was
-verified on a Mac by this pass** — [M] cells restate what a Mac session
-recorded, with its date.
+and has not been re-measured. The 2026-08-23 pass was written from a Linux jail and verified no cell
+on a Mac; [M] cells restate what a Mac session recorded, with its date. **Two Mac sessions have
+landed since** — 2026-09-10 (the four manual checks) and 2026-09-11 (five provisioner measurements
+plus one new defect) — and both moved cells here rather than only their own docs.
 
 > **NOTE:** The Go port is complete. This matrix remains the authoritative
 > state-of-the-macOS-backend; keep it updated as the source of truth for
@@ -91,7 +93,7 @@ nightly.
 | **podman** | container in one shared podman-machine VM | ✅ [L/CI] | first-class; the reference macOS container path |
 | **Apple Container (AC)** | one lightweight VM per container | 🟡 [M] | default macOS runtime; early-stage — hit limits this session (bind-mount cap, `:ro` ignored, no `--net=host`, OCI convert) |
 | **macos-user** | native macOS user + Seatbelt, NO VM | ✅ [M] *(2026-07-21 build)* + ⚠ | **PROVEN on real HW 2026-07-21** (macOS 26.5 arm64): Seatbelt launch runs the agent as `_yolojail`, `packages:` via native darwin nix (buildEnv) with `which just` → `/nix/store/…` ([OQ-1](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) path_helper fix holds), finding-6 password set, fresh-inode re-exec (no SIGKILL), host creds invisible, teardown idempotent. **Runbook → docs/plans/runbooks/mac-macos-user-e2e.md; results → mac-sandvault-session.md §[6b](../plans/runbooks/mac-sandvault-session.md#6b-m1-results--macos-user-e2e-observed-on-hardware-2026-07-21).** **⚠ The backend has changed underneath that proof (see the row below).** |
-| ↳ *macos-user, since 2026-07-21* | — | ⚠ [M] | **What moved, and what it means for the ✅ above.** (a) **Pack staging was wired 2026-08-12** and has never run on a Mac — before that, this backend rendered ZERO pack surfaces silently, so the 07-21 proof was of a backend that configured nothing from packs. (b) **The confinement half was re-measured 2026-08-19** by running the work under the profile a real `--dry-run` emits: `go build ./...`, full `go test -short ./...` (58 pkgs) and `just test-fast` pass; SSH keys/`~/.claude`/`~/.aws`/keychains all `Operation not permitted`. (c) **The `sudo -u _yolojail` launch itself is still unproven end-to-end** — that is the open half. (d) **`workspace_readonly` was a silent no-op here until 2026-08-23** (see [§3](#3-feature--runtime-coverage-does-each-yolo-capability-work-per-runtime)). 📄 [../plans/handoff-guest-notch-macos.md §2](../plans/handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) |
+| ↳ *macos-user, since 2026-07-21* | — | ✅ [M] *(2026-09-11)* | **What moved, and what it means for the ✅ above.** (a) ~~Pack staging has never run on a Mac~~ — **RAN 2026-09-11**: `StagePackCommands` staged the session's two local packs (44 + 3 files) and the surfaces rendered from them, including a `config-overlay` key reaching `claude/settings` and two `shared_credentials` symlinks. (b) **The confinement half was re-measured 2026-08-19** by running the work under the profile a real `--dry-run` emits: `go build ./...`, full `go test -short ./...` (58 pkgs) and `just test-fast` pass; SSH keys/`~/.claude`/`~/.aws`/keychains all `Operation not permitted`. (c) ~~The `sudo -u _yolojail` launch itself is still unproven end-to-end~~ — **PROVEN 2026-09-10** (runbook item 1) and exercised four more times 2026-09-11. (d) **`workspace_readonly` was a silent no-op here until 2026-08-23** (see [§3](#3-feature--runtime-coverage-does-each-yolo-capability-work-per-runtime)). (e) **NEW 2026-09-11: the launch does not forward a command faithfully** — `sudo --login` joins multi-line commands and lets an intermediate shell expand `$VAR` first, silently and with exit 0 ([`../design/macos-user-provisioning.md` §1.1](../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully)). 📄 [../plans/handoff-guest-notch-macos.md §2](../plans/handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) |
 
 ## 2. Builder (how the Linux image / packages get built) — CONTAINER RUNTIMES ONLY
 
@@ -176,15 +178,13 @@ are from the 2026-07 era and were not re-measured.
 replaces named only the AC "run agent in jail" row. The actual list, in the
 order a Mac session should attack it:
 
-1. **The Mac's config still uses the removed `agents` key** (measured
-   2026-08-19), so *no* current `yolo` launches on that machine, on any backend
-   — `yolo check` included. Its installed `yolo` was also **531 commits stale**,
-   which is why the refusal never surfaced in daily use. Renaming the key to
-   `packs` is the whole fix; all four names it selects exist as packs. **Nothing
-   else on this list can be measured until that is done.**
-2. **The `sudo -u _yolojail` pack-staging step** — the surviving half of item
-   1.4. The Seatbelt confinement around it was measured 2026-08-19 and passes;
-   the user-switch above it never has.
+1. ~~**The Mac's config still uses the removed `agents` key**~~ — **CLOSED.** The key is `packs`
+   on that machine and `yolo check` is green there (41 passed, 4 warnings, 2026-09-11); the
+   installed binary is current, `just install` having run in that session. What the staleness cost
+   is recorded above.
+2. ~~**The `sudo -u _yolojail` pack-staging step**~~ — **CLOSED 2026-09-11.** The user switch and
+   the staging above it both ran; see row (a) and (c) of the macos-user delta row in
+   [§1](#1-the-three-macos-runtimes-where-the-agent-runs).
 3. **D4's one download proof** ([§2](#2-builder-how-the-linux-image--packages-get-built--container-runtimes-only) Cachix row).
 4. **The AC "run agent in jail" row** — the original entry, still open.
 5. **A2's hard error on a genuinely darwin-less package** — never exercised,
