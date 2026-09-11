@@ -1480,6 +1480,10 @@ here is used here, and publishing one is a provenance question for
   question for [`trust-paths.md`](trust-paths.md).
 - **`macos-user` package delivery.** It has no image and already resolves `packages:` as a store
   `buildEnv`.
+- **Which provisioners an ENVIRONMENT has, across the three notches** — and whether a pack
+  declares a provisioner or a need. [`provisioner-sets.md`](provisioner-sets.md) owns that axis
+  (opened 2026-09-11); the classes and resolvers here are the jail's, and it cites them without
+  re-deriving them.
 - **A task list.** Sequencing is [§10](#10-what-i-would-build-in-order); ticket granularity lives in
   [`../plans/roadmap.md`](../plans/roadmap.md).
 
