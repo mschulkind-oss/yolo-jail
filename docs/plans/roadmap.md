@@ -673,8 +673,44 @@ and `ComposeStateful`'s first-migration adoption (`staterender.go:174`, the `B1 
 branch). So the first owned render is byte-identical to the file on disk *by construction*, and the
 adoption-diff confirmation the design wanted is not built at all.
 
+⚠ **AUDITED 2026-09-11, and the headline is that three of these were already ruled — by you,
+on 2026-08-01, in a ledger this doc never read.** [`environment-manager-plan.md`](environment-manager-plan.md)'s
+Decision Ledger carries **[`OQ-1`](environment-manager-plan.md#resolved) — `--revert` on the host target? RESOLVED: NO**, **[`OQ-3`](environment-manager-plan.md#resolved) — retire
+the `reads-host` read-in layer? RESOLVED: YES** (express personal settings as a local pack
+instead), and **[`OQ-4`](environment-manager-plan.md#resolved)/[`OQ-5`](environment-manager-plan.md#resolved) — pure `rmw`; whole-file `stateful` + capture REJECTED, "capture buys
+nothing"**. This design proposes `--revert` (build step 3), asks whether the host layer survives
+([`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)), and renders `own` as `stateful` with a host capture store. **Four
+review rounds argued that ground fresh because the rulings live in a plan doc's ledger rather
+than in the design's own.**
+
+Two consequences, and the first needs you before anything else here moves:
+
+- **[`OQ-CO3`](../design/config-ownership-and-promotion.md#OQ-CO3), which you settled in review round 0, reverses [`OQ-4`](environment-manager-plan.md#resolved)/[`OQ-5`](environment-manager-plan.md#resolved).** Either
+  the 2026-08-01 ruling stands and `own` needs rethinking, or it is superseded and that ledger
+  needs a dated reversal row. The audit flagged rather than flipped it, correctly.
+- **[`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) may already be answered "retire it".** The irony worth noting:
+  [`OQ-3`](environment-manager-plan.md#resolved)'s stated migration — *"express personal settings as a local pack"* — is exactly what this
+  doc's `promote --to local` builds, so [§5](../design/config-ownership-and-promotion.md#5-promotion--the-way-out-of-capture) is the migration story for a ruling it did not know
+  existed. **If [`OQ-3`](environment-manager-plan.md#resolved) stands, CO11 and [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) both dissolve and this doc gets
+  materially smaller.**
+
+Live questions are now **[`OQ-CO5`](../design/config-ownership-and-promotion.md#OQ-CO5) · [`OQ-CO6`](../design/config-ownership-and-promotion.md#OQ-CO6) ·
+[`OQ-CO7`](../design/config-ownership-and-promotion.md#OQ-CO7) · [`OQ-CO9`](../design/config-ownership-and-promotion.md#OQ-CO9) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) ·
+[`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)**, with CO1–CO4 settled and CO8 blocked. The audit ruled none — all six
+were sharpened, not answered — so **nothing here is compacted yet, deliberately**: compacting
+would bury the [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) / [`OQ-3`](environment-manager-plan.md#resolved) contradiction while it is live.
+
+⚠ **Two code defects the audit surfaced, neither of which needs a ruling:**
+`dropYoloOwnedSubtrees` drops every object-valued key while `dropOverriddenKeys` — three
+functions later — calls that same blanket approach *"simpler and wrong"*, so `permissions.ask`-
+shaped leaves are **silently lost at `assert→own`** and in any jail that loses its `last_render`.
+And the `host` layer **silently drops on `macos-user`** (no `/ctx`, pack grants neither mounted
+nor filtered while `host_files` are, and the read is fail-open) — a user feature-detecting the
+backend, which is the parity defect stated in
+[`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend).
+
 **Answer:**
-> _(empty — fill in when decided)_
+> _(empty — fill in when decided; the first move is reconciling the 2026-08-01 ledger in [`environment-manager-plan.md`](environment-manager-plan.md#resolved))_
 
 ### 💬 26 — The same model has a different name in every provider, and switching leaves the old one behind
 
@@ -1032,32 +1068,61 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
 
 - 💬 **macos-user has no package floor and no provisioning stage, so four config keys render and
   install nothing.** 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
-  **[OQ-P1](../design/macos-user-provisioning.md#open-questions) · [OQ-P2](../design/macos-user-provisioning.md#open-questions) · [OQ-P3](../design/macos-user-provisioning.md#open-questions) · [OQ-P4](../design/macos-user-provisioning.md#open-questions)**. A container jail gets tools two ways: an image floor of ~19
-  baked packages (git, node, mise, ripgrep, fd…) and an imperative stage the launch runs inside it
+  **[`OQ-P1`](../design/macos-user-provisioning.md#OQ-P1) · [`OQ-P2`](../design/macos-user-provisioning.md#OQ-P2)** — [`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger) and
+  [`OQ-P4`](../design/macos-user-provisioning.md#decision-ledger) were **answered and compacted 2026-09-11**. A container jail
+  gets tools two ways: an image floor of **36** baked packages (git, node, mise, ripgrep, fd…) and
+  an imperative stage the launch runs inside it
   (`mise install`, the generated `~/.yolo-bootstrap.sh` that npm-installs LSP servers and MCP
   presets). This backend has NEITHER — only `packages:`, containing exactly what the user
   declared. So `mise_tools`, `lsp_servers`, `mcp_presets` and the lazy agent-CLI installers are all
   inert; four now warn and the agent-CLI case is still silent, which is the one that fails on a
   user's first real command rather than at launch. **The two halves are strictly ordered** — the
   stage cannot run without the floor, since `mise install` needs mise and the bootstrap script
-  needs npm — so there is no partial credit. Four rulings needed: how much floor, GNU or BSD
-  userland, where the stage's state lives given one shared home (which blocks on the home split),
-  and whether the stage runs eagerly.
+  needs npm — so there is no partial credit.
+
+  ⚠ **Two of the four are now ruled, and the "~19" above was wrong** (audited 2026-09-11 against
+  `corePackagesFromNixpkgs`, which has **36** entries — every line citation in the doc was stale,
+  and [`OQ-P1`](../design/macos-user-provisioning.md#OQ-P1)'s maximum doubles). **[`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger)** — the state partition
+  follows the container's: mise *data* machine-wide (its premise that sharing it is a collision
+  was backwards — the container shares it by design), config/npm/`~/.local` per-workspace.
+  **[`OQ-P4`](../design/macos-user-provisioning.md#decision-ledger)** — eager, because the lazy launchers cover agent CLIs only,
+  never `mise_tools` or LSP servers. **What still needs you: how much floor
+  ([`OQ-P1`](../design/macos-user-provisioning.md#OQ-P1)) and GNU or BSD userland ([`OQ-P2`](../design/macos-user-provisioning.md#OQ-P2))** — rule P2 first,
+  since nine of the 36 are its GNU set.
+
+  ⚠ **And the second half is a NEW confined step, not a port.** The doc implied the bootstrap was
+  already sandboxed; it is not — the argv is `sudo --user=… env -i … darwin-bootstrap` with no
+  `sandbox-exec` (`internal/macosuser/runplan.go:103-110`, verified 2026-09-11).
 
 - 💬 **The macos-user home has one tier where it needs two, and content delivery just made it
-  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **[`OQ-HT1`](../design/macos-user-home-tiers.md#OQ-HT1) ·
-  [`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2) · [`OQ-HT3`](../design/macos-user-home-tiers.md#OQ-HT3) · [`OQ-HT4`](../design/macos-user-home-tiers.md#OQ-HT4)**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine
-  tier
+  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **[`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2) is the only one left**;
+  [`OQ-HT1`](../design/macos-user-home-tiers.md#decision-ledger), [`OQ-HT3`](../design/macos-user-home-tiers.md#decision-ledger) and
+  [`OQ-HT4`](../design/macos-user-home-tiers.md#decision-ledger) were **answered and compacted 2026-09-11**.
+  `SandboxHome()` is the constant `/Users/_yolojail`, so the machine tier
   (credentials — correct, and the point of a dedicated account), the workspace tier (pack
   `state`, agent history) and the session tier are one directory. Two symptoms were static
   information leakage between workspaces and were warned about. The third is new and is a
   write-write RACE: since 2026-09-03 skills and briefings are composed and copied over that home
   on every entry, so a second workspace launching while the first runs replaces its briefing —
-  per-project prose an agent is mid-session reading. The proposal is the two-tier structure the
-  container backends already have, in the one account this backend has. **The trap is that a naive
-  split repairs the workspace tier by breaking the machine one** — the single home IS the
-  credential-sharing mechanism here — so the fix must restore both explicitly, and [`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2) asks
-  what happens to the credentials already sitting in the old layout.
+  per-project prose an agent is mid-session reading.
+
+  ⚠ **The shape changed, and so did the trap** (audited and compacted 2026-09-11). The proposal is
+  **A′** — `HOME` stays `/Users/_yolojail` and `~/.claude` and kin become symlinks into
+  `<workspace>/.yolo/home/`, which is the location every other backend already uses — **not** the
+  per-workspace `/Users/_yolojail/workspaces/<cname>` home this row used to describe.
+  [`OQ-HT4`](../design/macos-user-home-tiers.md#decision-ledger) ruled it on the parity constraint: one mechanism on every
+  backend, or packs have to feature-detect.
+
+  ⚠ **"The single home IS the credential-sharing mechanism" is RETRACTED.** The mechanism is the
+  `shared_credentials` hook — `Env.linkSharedCredential` writing a *relative* symlink into a
+  pack-declared `scope: machine` dir — and colocation only supplies that dir's backing. **The real
+  trap is narrower and worse:** the link is relative *so it resolves through whichever mount backs
+  the state dir*, so a bare `~/.claude → <ws>/.yolo/home/claude` symlink reproduces the host's
+  **dangling** view. Every `SharedDirs` entry must be mirrored into the sidecar.
+
+  **[`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2) is re-scoped and is now the single ruling between here and
+  buildable**: credentials never move under A′, so it asks only what happens to the
+  workspace-scope state already sitting in `/Users/_yolojail`.
 
   ⚠ **WHERE the per-workspace half lives is now itself open, and this row named the losing
   answer until 2026-09-10.** It said "a per-workspace home under
