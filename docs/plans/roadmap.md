@@ -790,7 +790,7 @@ twelve questions are live with no home**, two of which stand whether or not mirr
 
 ### 💬 29 — One report, three readers: what `yolo host apply` and the launch banner say by default
 
-📄 [`report-tiers.md`](../design/report-tiers.md) — **[`OQ-RO1`](../design/report-tiers.md#10-open-questions) … [`OQ-RO5`](../design/report-tiers.md#10-open-questions)** ·
+📄 [`report-tiers.md`](../design/report-tiers.md) — **[`OQ-RO7`](../design/report-tiers.md#10-open-questions)** is the only one left; RO1–RO6 were ruled 2026-09-11 and compacted into the [Decision Ledger](../design/report-tiers.md#11-decision-ledger).
 written 2026-09-10, **routed here the same day**
 
 The maintainer's complaint — *"hard to read, not intuitive, and not so actionable"* — measured: an
@@ -812,25 +812,32 @@ meaning. And **there is no quiet mode anywhere** — `YOLO_NO_BANNER` covers exa
 launcher's half of the startup stream is persisted nowhere (the entrypoint's half is, in `boot.log`),
 and `NO_COLOR` is honored by nothing while the polish plan claims it as an invariant.
 
-- **[`OQ-RO1`](../design/report-tiers.md#10-open-questions) — is the compressed view the default, or a flag?**
-  *Leaning: the default; the operator is the common reader and the one who stops reading.*
-- **[`OQ-RO2`](../design/report-tiers.md#10-open-questions) — does the detail ride the global `--verbose` (spending D14) or an
-  apply-local flag?** *Leaning: `--verbose`, honoring typed and inherited alike.*
-- **[`OQ-RO3`](../design/report-tiers.md#10-open-questions) — any density control for the launch at all, and may the eight
-  `boot catalog:` lines compress to one?** *Leaning: no quiet flag ever; compress; write "disclosures
-  are never suppressible" down as the rule so the next author does not re-decide it in a docstring.*
-- **[`OQ-RO4`](../design/report-tiers.md#10-open-questions) — does the observe posture emit `--format json`?** Extends
-  [`self-documenting-cli.md`](../reference/self-documenting-cli.md) item 7 from *verb* to *posture*.
-  *Leaning: yes for observe, refused with `--assert`.*
-- **[`OQ-RO5`](../design/report-tiers.md#10-open-questions) — may observe's exit code carry its finding** (the `config drift`
-  0/3/4 shape)? *Leaning: keep 0; JSON carries the verdict.*
+⚠ **The review did more than rule: it moved the thesis.** It was *"the report has no author; give
+every line a tier."* It is now **the command states its own result — the reader never computes it**,
+and the tiers serve that rather than being the point. Two new principles carry it: **P7** (the
+result) and **P8** — *facts, not rationale*, which is the ruling that collapses the measured defect,
+since the repeated 40-word kind-refusal paragraphs are explanation and move to the manual.
 
-**RO1 and RO2 gate the visible change.** Steps 1–4 of the build order — grow the survey, say notch
-facts once, group losses by remedy, the verdict block — need no ruling and already take the measured
-report from 277 lines to roughly 90.
+⚠ **A missing host dependency became a BLOCKER, and the design for it already exists.** Today a
+missing dep prints a line with its remedy and touches neither the exit code nor the roll-up. It is
+now fatal to `--assert`, behind an offer-to-install with a confirm; **declining is fatal at the
+prompt**, because later stages may rely on the tool. That is not new policy in two separate ways —
+`yolo check-deps` already runs the same probe and exits non-zero, and
+[`environment-manager-plan.md`](environment-manager-plan.md#blocks-phase-4-host-render)'s Phase 6.4 defers the offer-to-run **by name in the
+code**, with its confirm UX resolved as [`OQ-9`](environment-manager-plan.md#open-questions-to-resolve-before-their-phase): **batched by elevation class** — one approval for
+all no-elevation remedies, one for all `sudo` ones, sudo first so the OS password prompt comes up
+once at the front. So this authorizes Phase 6.4 + 4.3 rather than designing them.
+
+- 💬 **[`OQ-RO7`](../design/report-tiers.md#10-open-questions) — does the fatal cover `program` as well as `requires`?**
+  The two kinds share one reporting path at the host notch but make different claims: `program` is
+  *"yolo installs this into a jail and owns a launcher path"*, `requires` is *"this must already
+  exist"*. Shipped populations are 6 `program` (the agent CLIs) and 2 `requires` (`guardrails`' `rg`
+  and `fd`). **Stakes:** whether an `--assert` on a host with no `claude` binary refuses, and
+  whether yolo may offer to install a binary its own code says it never installs. *Leaning: both
+  fatal, only `program` gets the offer.*
 
 **Answer:**
-> _(empty — fill in when decided; [`OQ-RO1`](../design/report-tiers.md#10-open-questions) and [`OQ-RO2`](../design/report-tiers.md#10-open-questions) together unblock the default view)_
+> _(empty — fill in when decided; [`OQ-RO7`](../design/report-tiers.md#10-open-questions) gates the fatal's predicate, and nothing else here waits on a person)_
 
 ### 💬 30 — The Lua config transform: remove it, and leave the derive VM standing
 
