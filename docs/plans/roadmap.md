@@ -2,8 +2,15 @@
 
 **Status: 18 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-10**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-11**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
+
+> [!NOTE]
+> **"6 waiting" is true again as of 2026-09-11, and was one high for a day.** `36bee3e8` graduated a
+> 🔒 bullet to ✅ without decrementing, leaving six asserted against five bullets; the
+> `macos-user`-forwarded-command row added below brings the count back to what the file contains.
+> Worth recording rather than silently fixing — the number moved for two independent reasons at
+> once, which is precisely how this tally goes wrong.
 
 > [!IMPORTANT]
 > **If a row disagrees with the doc it points at, trust the doc and fix the row.** This file groups
@@ -1211,6 +1218,70 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
   cannot tell a working re-prepend from a lucky PATH. ⚠ **These four are a human's to run:**
   `sudo -n true` reports `a password is required` and every macos-user argv leads with
   `sudo --user=_yolojail`, so an agent attempting the launch hangs on the prompt.
+
+- ✅ **The FIVE provisioner measurements are RUN too, and one of them found a defect nothing else
+  could see.** 📄 [`../design/provisioner-sets.md` §15](../design/provisioner-sets.md#15-what-a-mac-session-should-measure),
+  the list `9b9da960` added the same morning. One session on the same Mac, **2026-09-11**, host
+  `yolo` `0.8.0+1336.gecb17e8c` — `just install` first, because two of the 43 pending commits were
+  capture/`agentcfg` fixes M4 exercises. **Four of the five corrected the item that asked them**,
+  which is the reason to read the results and not the verdicts:
+
+  **What the guest can provision (M1).** The installer row works and the npm row does not:
+  `claude`, `codex` and `agy` install and run (two from scratch), `opencode` and `pi` print
+  `npm: command not found` and exit 1. So
+  [`macos-user-provisioning.md` §2](../design/macos-user-provisioning.md#2-what-this-costs-today)'s
+  single "launcher generated, but no node and no npm — silent" row **splits per `via`**, and its
+  npm half is loud rather than silent. What is still unproven there is EVERGREEN, not install:
+  `claude`'s update failed `124`, unbounded, because `timeout(1)` does not exist on macOS and
+  `shims.go:1020-1029` rules that explicitly.
+
+  **What the two hint mechanisms do on hardware (M2, M3).** The generated Brewfile parses, casks
+  included — [`OQ-PS2`](../design/provisioner-sets.md#OQ-PS2)'s precondition, met. The unfree
+  refusal is real on darwin, **and `NIXPKGS_ALLOW_UNFREE=1` does not lift it**: flake evaluation is
+  pure, so the variable is never read and `--impure` is required. That one had been asserted from a
+  Linux jail and is wrong on both platforms; it matters because a flag is something yolo would be
+  choosing for the user, unlike a variable the user exported.
+
+  **What capture does (M4).** The recording half works end to end on hardware — first kernel load
+  of capture's *own* Seatbelt profile, which is the last thing
+  `internal/macosuser/capture.go`'s "no Seatbelt profile has been loaded by a kernel" was still
+  right about (`0f14a2f5` fixes the comment). The staging path is transient; the store entry is the
+  artifact.
+
+  **What needed no Mac at all (M5).** darwin resolves `..` physically, same as Linux, so
+  [`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2)'s A′ mirror stands — and the fixture fails
+  *unsandboxed*, because resolution happens in the VFS before the policy is consulted. An item is
+  only worth a password when the sandbox could change the answer.
+
+  **[`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) is new, opened by a measurement rather than a
+  review:** codex's installer prompted `Start Codex now? [y/N]` on `/dev/tty` mid-`--version`-probe
+  and a human answered `N` — which also closes a *"could not verify"* in
+  [`native-installer-migration.md`](native-installer-migration.md). It honors
+  `CODEX_NON_INTERACTIVE=1` and `packdecl.Install` has no field that can carry it. Leaning: detach
+  the tty in core rather than add manifest vocabulary. Second-order and unfiled: `agy`'s installer
+  appends a PATH export to four rc files, inverting the block/launch precedence B2 fixed on Linux
+  until the next launch rewrites them.
+
+- 🔒 **A `macos-user` launch does not forward the command it was given — a live defect, and 🔒
+  rather than 🛑 only because every instrument for a fix is on that Mac.** 📄
+  [`macos-user-provisioning.md` §1.1](../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully).
+  Found while running the list above, and it invalidated that run's first attempt: `sudo --login`
+  concatenates the command *"separated by spaces, after escaping each character (including white
+  space) with a backslash — except for alphanumerics, underscores, hyphens, and dollar signs"*
+  (sudo(8) `-i`). Measured, both halves: `bash -lc $'echo A\necho B'` → **`Aecho B`** (the newline
+  became a `\`-continuation), and `bash -lc 'X=inner; echo got=$X'` → **`got=`** (the intermediate
+  login shell expanded `$X` first). **Nothing errors** — the wrong command runs and exits 0, which
+  is exactly why nine collapsed probes reported five successes.
+
+  **Backend parity:** every container backend passes argv through `podman exec` untouched, so the
+  same `yolo -- …` means different things per backend and only this one rewrites it. **The obvious
+  fix is wrong** — `--login` is what makes the login-rc PATH re-prepend work, i.e.
+  [`OQ-1`](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)'s
+  acceptance bar. The candidate recorded instead: the outer login shell's rc work is **already
+  discarded** by the `env -i` that follows it, so `sudo` without `--login` plus an inner `zsh -l -c`
+  may buy a faithful argv for nothing. Unverified, needs a plan-level test that fails on the
+  current shape first, and needs the same one-password launch — **so it is a decision, not a
+  ready-to-build.**
 
 - 🔒 **On a Mac — three things need the hardware, and the first is a config rename.** *(The
   headline used to announce what had LEFT this row, which tells a reader nothing about what is in
