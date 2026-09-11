@@ -432,11 +432,17 @@ func (p *Pack) HostFileConflicts() []string {
 //
 // THE `refused` RETURN IS RETAINED AND IS ALWAYS NIL, across the whole Honored* family
 // (HonoredHostFiles, HonoredMounts, HonoredInstalls, HonoredLoopholes, HonoredPlugins).
-// Twelve call sites read `granted, _ :=`, one of them in internal/entrypoint, so collapsing
-// the shape is a mechanical follow-up rather than part of the ruling. Nothing reads the
-// second value any more: run/packrefusal.go, the only consumer, was deleted with the gate.
-// A future refusal source must not quietly refill these — it needs its own design ruling,
-// and TestNoPackHostAccessGate (below) goes red if one appears.
+// Most callers discard it (`granted, _ :=`), so collapsing the shape is a mechanical
+// follow-up rather than part of the ruling. The one caller that still READS it —
+// cli/capturehost.go's checkDeps target lookup, which folds `refused` into its "no selected
+// pack installs %q" error — therefore folds a slice that is always empty; run/packrefusal.go,
+// the consumer the gate had, was deleted with it.
+//
+// A future refusal source must not quietly refill these: it needs its own design ruling.
+// Two tests go red if one appears without it — TestNoFetchedPackHostAccessGateExists (this
+// package, hostaccessgates_test.go) scans production code for the retired gate identifiers,
+// and TestFetchedPackHostClaimsAreHonoredWithNoApproval (internal/cli/run) pins the
+// behaviour end to end.
 func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string) {
 	return p.Decl.HostFileContributions(), nil
 }
