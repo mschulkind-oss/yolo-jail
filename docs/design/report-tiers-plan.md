@@ -39,17 +39,26 @@ Every anchor below was read on 2026-09-10 at `48f47e56`.
   `countLines(report, "would move to your local pack") == 1`. A grouped line still contains the
   phrase once. Add a two-skill fixture asserting **one** grouped line carrying **both** names, or
   the grouping is untested.
-- **Observe exits 0** (`applyhostmcp_test.go:218-236`). Blocked on
-  [OQ-RO5](report-tiers.md#OQ-RO5).
+- **The dry run exits 0** (`applyhostmcp_test.go:218-236`, and `applyhostdeps_test.go:251` asserts
+  the same for a home with a missing dep). Both pins stay true under
+  [`OQ-RO5`](report-tiers.md#11-decision-ledger). What is UNPINNED is the other half: nothing
+  asserts an `--assert`'s exit code over a missing dependency — `applyhostdeps_test.go` only ever
+  calls `applyHost(..., write=false, ...)` (checked 2026-09-11). The new refusal needs its own test
+  or it is a call site nobody exercises.
 - Nothing pins the refusal text (three phrases, zero hits across `*_test.go`, 2026-09-10) — free to
   move behind a flag.
 
 ## Pointers that move with the default view
 
 - `hostapplygate.go:236` — *"(`yolo host apply --dry-run` shows exactly what changes in each.)"*
-  names the detail view. Blocked on [OQ-RO2](report-tiers.md#OQ-RO2).
-- `apply.go:545` — the footer names `--assert` and should also name the detail flag. Blocked on
-  [OQ-RO2](report-tiers.md#OQ-RO2).
+  names the detail view, which is now `--verbose` ([`OQ-RO2`](report-tiers.md#11-decision-ledger)).
+- `apply.go:545` — the footer names `--assert` and must also name `--verbose`.
+- ⚠ **Do not gate the report on `explicitVerbose()`** (`verbose.go:51`). That accessor is
+  typed-only by design — D12's distinction, so an inherited `YOLO_VERBOSE=1` records timings
+  without printing them — and its docstring calls itself *"the one reader of verboseFlagTyped"*.
+  [`OQ-RO2`](report-tiers.md#11-decision-ledger) rules that the report honors BOTH spellings, so it
+  reads `paths.VerboseEnv` like the run pipeline does. Copying the timing consumers here silently
+  breaks the inherited case and makes that docstring false.
 - `applyUsage` (`apply.go:837-860`) and `hostUsage` (`host.go:22`) gain the flag and, if ruled,
   the JSON line; `TestUsageListsEveryParsedFlag` (self-documenting-cli enforcement item 2) will
   refuse a parsed flag the help does not name.
@@ -77,17 +86,44 @@ Every anchor below was read on 2026-09-10 at `48f47e56`.
   touches none of them but is a golden update in spirit — sign-off.
 - **Boot catalog compression**: `catalog.go:149-158` prints through `e.warn`; the one-liner goes to
   `e.Stderr` and the list to `e.LogOnly` (`env.go:60-70`), which already exists for exactly this
-  split. Blocked on [OQ-RO3](report-tiers.md#OQ-RO3).
+  split. Ruled in by [`OQ-RO3`](report-tiers.md#11-decision-ledger); no launch quiet flag, ever.
 
 ## JSON
 
 - `parseOutputFormat("apply", args, errw)` (`internal/cli/outputformat.go:59`) gives both
   spellings and the exit-2 refusal of a bad value. Refuse when `--assert` is also present: exit 2,
   stdout empty (self-documenting-cli item 3). The survey struct is the document; `internal/outfmt`
-  holds the format vocabulary. Zero packs must still emit a document. Blocked on
-  [OQ-RO4](report-tiers.md#OQ-RO4).
+  holds the format vocabulary. Zero packs must still emit a document. Ruled in for the dry run by
+  [`OQ-RO4`](report-tiers.md#11-decision-ledger); `--assert --format json` refuses.
 - The version banner is already stderr (`internal/banner/banner.go:24-34`), so a JSON stdout is
   clean without touching it.
+
+## The dependency pre-flight
+
+- The probe is per pack inside the render loop today: `resolveHostDeps(p)` at `apply.go:382`, with
+  `isDepKind` folding `program` and `requires` onto one path (`applyhostdeps.go:60-62`). The design
+  needs it hoisted ahead of every render so a declined install can refuse with nothing written
+  ([§4.9](report-tiers.md#49-a-missing-dependency-is-a-result-not-a-line)). `resolveHostDeps` is
+  already per-pack and cheap to call in a first pass; the report lines it produces
+  (`hostDeps.lines`, which places the trailing note off `remaining`/`sawMissing`,
+  `applyhostdeps.go:108-118`) assume they are emitted inside that loop and will need the counter
+  re-seeded for a whole-run pass.
+- The prompt reuses `promptYesNo` (`pack.go:1268`) through the same `stdin` `applyHost` already
+  threads for `confirmHostLosses`. Note the contract in its docstring: no terminal check, nil/EOF
+  is NO.
+- `depcheck` already computes the remedy and the package-manager fallback
+  (`applyhostdeps.go:143-158`); running it is what does not exist. Whatever runs it is Phase 4.3's
+  shape, and this design only requires that a NO aborts.
+- Scope of the fatal is blocked on [OQ-RO7](report-tiers.md#OQ-RO7) — a predicate over
+  `packdecl.Kind`, not a structural difference.
+
+## The manual, and the gate that has to grow with it
+
+- `TestEveryKindIsDocumented` / `TestKindDocGateIsNotVacuous` (`packkinddocs_test.go`) pin the two
+  kind listings — `config_ref.txt` and `packUsage` (`pack.go:56`+) — as LIST ENTRIES, not
+  occurrences. Extending them to cover the host notch's refusal reasons is the same shape: read
+  `render.HostFields()`, assert a list entry per refused kind, and extend the non-vacuity control
+  in the same commit. The design makes this a precondition of moving the prose, not a follow-up.
 
 ## Zero packs
 
