@@ -9,9 +9,9 @@ summary: "Every imperative provisioning step the container path runs — mise in
 # macos-user has no floor and no provisioning stage
 
 **Status:** DESIGN, 2026-09-11 (DESIGN SKETCH 2026-09-04). Nothing built. Audited
-against the tree at `61c26c18` on 2026-09-11: two of four questions are settled by a
-measured fact and await compaction; **[`OQ-P1`](#OQ-P1) and [`OQ-P2`](#OQ-P2) need a
-ruling**, and both are the maintainer's.
+against the tree at `61c26c18` on 2026-09-11; two of its four questions are settled and
+compacted into the [Decision Ledger](#decision-ledger). **[`OQ-P1`](#OQ-P1) and
+[`OQ-P2`](#OQ-P2) need a ruling**, and both are the maintainer's.
 
 > **In short.** A container jail gets its tools from an image **floor** and an
 > imperative **stage**; macos-user has neither, so four config keys render and install
@@ -30,7 +30,7 @@ the bootstrap and the agent ([§4](#4-the-proposed-shape)).
 
 **Cost.** A native darwin closure for the floor, built once per machine; and the
 stage cannot ship before the home split lands the per-workspace surfaces it writes
-into ([`OQ-P3`](#OQ-P3)).
+into ([`OQ-P3`](#decision-ledger)).
 
 **Start at [§6](#6-alternatives)** — "the same as everywhere else" has a cost on this
 backend it does not have in an image, and the ruling turns on whether it is worth
@@ -52,7 +52,7 @@ paying.
 **Reads with:** [`../reference/nix-across-backends.md`](../reference/nix-across-backends.md)
 (what nix produces for each backend, and why the image is a floor),
 [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the home split, whose
-[§5](macos-user-home-tiers.md#5-the-proposal) supplies [`OQ-P3`](#OQ-P3)'s answer and
+[§5](macos-user-home-tiers.md#5-the-proposal) supplies [`OQ-P3`](#decision-ledger)'s answer and
 whose [`OQ-HT2`](macos-user-home-tiers.md#OQ-HT2) is the one ruling still between
 this doc's half two and buildable), and
 [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) (the backend).
@@ -186,25 +186,32 @@ nothing new has to exist for the stage to be confined, and a separately-launched
 Ordering is not a preference: `mise install` needs `mise`, and the bootstrap script
 needs `npm`. Half two without half one is a script that fails on its first line.
 
-**Trigger:** every launch, like the container's, and idempotent for the same
-reason — the config can change between launches and the jail must reflect it
-([`OQ-P4`](#OQ-P4)). **Failure:** a failing stage must not abort the launch. The
-container path tees to `<workspace>/.yolo/startup.log` and marks `PROVISIONING
-FAILED`, which the briefing then reports — and **the reader half is already wired on
-this arm**: `refreshJailBriefings` runs on the macos-user branch (`run.go:397`) and
-fills `ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace)`
-(`internal/cli/run/prepare.go:147`). Only the emitter is missing, and it needs one
-seam: the `startupLog` constant is rooted at the container's fixed `/workspace` bind
-(`command.go:32`) and must be rebound to the real workspace's `.yolo/` sidecar here, the way
-`YOLO_DARWIN_WORKSPACE` already rebinds the workspace for the generators
-(`darwin.go:59-61`). **Degenerate input:** no `mise_tools`, no `lsp_servers`, no
-`mcp_presets` and no agent packs → the stage is skipped entirely, so a bare
-`yolo -- bash` pays nothing. **Concurrency:** two launches on one workspace run two
-stages against one sidecar; the container serializes that with a courtesy flock
-(`internal/cli/run/flock.go:41-57`) whose one production caller is inside
-`runContainer` — taking it on this arm is a moved call, sequenced with the stage.
+- **Trigger: every launch, unconditionally, before the agent** — like the container's,
+  and idempotent for the same reason: the config can change between launches and the
+  jail must reflect it ([`OQ-P4`](#decision-ledger)). **Not on demand**, and not as a
+  matter of taste: the lazy launchers exist for agent CLIs and cover neither
+  `mise_tools` nor LSP servers, so triggering off them would leave one config with
+  tools absent on this backend and present on podman — the second dialect P3 in
+  [§3](#3-principles) forbids. The container already splits the two the right way,
+  staging eagerly and installing agent CLIs lazily; this backend takes the same split.
+- **Failure: a failing stage must not abort the launch.** The container path tees to
+  `<workspace>/.yolo/startup.log` and marks `PROVISIONING FAILED`, which the briefing
+  then reports — and **the reader half is already wired on this arm**:
+  `refreshJailBriefings` runs on the macos-user branch (`run.go:397`) and fills
+  `ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace)`
+  (`internal/cli/run/prepare.go:147`). Only the emitter is missing, and it needs one
+  seam: the `startupLog` constant is rooted at the container's fixed `/workspace` bind
+  (`command.go:32`) and must be rebound to the real workspace's `.yolo/` sidecar here,
+  the way `YOLO_DARWIN_WORKSPACE` already rebinds the workspace for the generators
+  (`darwin.go:59-61`).
+- **Degenerate input:** no `mise_tools`, no `lsp_servers`, no `mcp_presets` and no agent
+  packs → the stage is skipped entirely, so a bare `yolo -- bash` pays nothing.
+- **Concurrency:** two launches on one workspace run two stages against one sidecar; the
+  container serializes that with a courtesy flock (`internal/cli/run/flock.go:41-57`)
+  whose one production caller is inside `runContainer` — taking it on this arm is a
+  moved call, sequenced with the stage.
 
-**Where the stage's state lands** is settled by [`OQ-P3`](#OQ-P3) and is the
+**Where the stage's state lands** is settled by [`OQ-P3`](#decision-ledger) and is the
 container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_parts.go`:
 
 | State | Container | macos-user, after the home split |
@@ -213,6 +220,16 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 | mise config (`~/.config/mise/config.toml`) | per-workspace: `config` bind (`assemble_parts.go:119`) | per-workspace: the `config` sidecar symlink |
 | npm prefix (`~/.npm-global`) | per-workspace: `npm-global` bind (`:108`) | per-workspace: sidecar symlink |
 | agent CLI installs (`~/.local`) | per-workspace: `local` bind (`:109`) | per-workspace: sidecar symlink |
+
+> [!WARNING]
+> **Sharing mise's DATA dir between workspaces is not a collision, and the fear that it
+> was is refuted** (checked 2026-09-11). `installs/<tool>/<version>` is keyed by tool and
+> version (`internal/cli/run/command.go:21`), so two workspaces asking for different
+> tools *add* to the store rather than reshape it — which is why every container backend
+> shares it machine-wide to begin with. The collision that is real is mise's **config**,
+> and it is already live today with no stage at all ([§1](#1-the-two-missing-halves)).
+> Do not "fix" the data dir by making it per-workspace: that is the inverse of every
+> other backend ([§5](#5-what-this-does-not-propose)).
 
 ## 5. What this does NOT propose
 
@@ -225,7 +242,7 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
   (`internal/config/derived.go`, `EffectivePackages`; the refusal message at
   `orchestrator.go:379-396` names the spelling).
 - **Not fixing the shared home.** The stage will write into it, which is what makes
-  [`OQ-P3`](#OQ-P3) depend on the split, but the split itself is
+  [`OQ-P3`](#decision-ledger) depend on the split, but the split itself is
   [`macos-user-home-tiers.md`](./macos-user-home-tiers.md).
 - **Not a per-workspace `MISE_DATA_DIR`.** The first draft named it as the
   alternative to blocking on the split. It is doubly wrong: a mechanism no other
@@ -241,7 +258,7 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 | **B. Declarative only** — delete the imperative surfaces on this backend, refuse `mise_tools`/`lsp_servers`/`mcp_presets` loudly, tell users to write `packages:` | **Rejected, but it is the honest runner-up.** It satisfies P1 and P2 fully and costs nothing to build — today's warnings are already 80% of it, and the `mise_tools` warning already tells users to do exactly this. It fails P3: a user with one config across a Mac and a Linux host would need two spellings of the same intent. Revisit if the core closure in A proves painful. |
 | **C. Status quo + warnings** (what ships today) | **Rejected as an end state**, accepted as the interim. It is honest and it is not a backend anyone can use for real work. |
 | **D. Floor only** — core packages, no stage | **Rejected.** Puts `mise` on PATH and never runs `mise install`, which is a worse lie than the current absence: the tool exists and reports nothing to do. |
-| **E. Stage on demand** — let the lazy launchers trigger it | **Rejected**, settled by [`OQ-P4`](#OQ-P4): its only benefit is already delivered by the skip rule in [§4](#4-the-proposed-shape), and it would make `yolo -- bash` behave differently per backend. |
+| **E. Stage on demand** — let the lazy launchers trigger it | **Rejected**, settled by [`OQ-P4`](#decision-ledger): its only benefit is already delivered by the skip rule in [§4](#4-the-proposed-shape), and it would make `yolo -- bash` behave differently per backend. |
 
 ## 7. Risks
 
@@ -249,7 +266,7 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 | :--- | :--- |
 | A core package has no native darwin build | It is the same `yoloUnavailablePackages` mechanism `packages:` uses — but for a CORE package a skip must be **fatal**, not warned: a floor with a hole in it is not a floor. ⚠ At least two of the image's 36 are Linux-only by nature (`iptables`, `procps`), so "the whole image core" is not even an option here without a native eval per entry — see [`OQ-P1`](#OQ-P1). |
 | First launch builds a large closure natively | One-off per machine; nix caches. Cachix already applies (`--accept-flake-config`). Measure before assuming it is a problem. |
-| The stage's state lands in the shared home | Settled: the container's partition ([§4](#4-the-proposed-shape), [`OQ-P3`](#OQ-P3)). The residual risk is the **inverted default** — `MISE_DATA_DIR` unset once `~/.local` is a sidecar symlink — and it is closed by setting the variable explicitly. |
+| The stage's state lands in the shared home | Settled: the container's partition ([§4](#4-the-proposed-shape), [`OQ-P3`](#decision-ledger)). The residual risk is the **inverted default** — `MISE_DATA_DIR` unset once `~/.local` is a sidecar symlink — and it is closed by setting the variable explicitly. |
 | The mise *config* collision ships today, without any stage | Real and already live ([§1](#1-the-two-missing-halves)); fixed by the same `config` sidecar symlink, which is why half two waits for the split rather than the other way round. |
 | GNU-vs-BSD userland surprise | [`OQ-P2`](#OQ-P2). |
 | The stage runs vendor postinstall scripts | Confined under the same profile as the agent (P4). |
@@ -260,7 +277,7 @@ Ship the unwarned agent-launcher case first — it is independent of every quest
 below and it is the one failure that lands on a user's first real command. Then
 half one, gated on [`OQ-P1`](#OQ-P1) and [`OQ-P2`](#OQ-P2). Then half two, gated on
 the home split's one open ruling ([`OQ-HT2`](macos-user-home-tiers.md#OQ-HT2)) — its
-own [`OQ-P3`](#OQ-P3) is settled. Half two is worth nothing before half one, so there
+own [`OQ-P3`](#decision-ledger) is settled. Half two is worth nothing before half one, so there
 is no partial-credit ordering to be clever about.
 
 **Does the stated dependency hold?** Checked 2026-09-11: **yes, narrowed.** Half two
@@ -318,62 +335,11 @@ split at all — it depends on setting `MISE_DATA_DIR`, which the split makes
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. ✅ **OQ-P3: Where does the stage's state live, given one shared home? — RESOLVED
-   (2026-09-11, by measured fact in audit).** `mise install` writes to
-   `MISE_DATA_DIR` and npm to a prefix, both under the sandbox home — which is
-   machine-wide here. The first draft feared two workspaces with different
-   `mise_tools` would fight over the data dir.
-
-   <!-- vantage: oq id=OQ-P3 leaning="Answered: the container's own partition — mise data machine-wide (MISE_DATA_DIR set explicitly, since the default would land in the per-workspace ~/.local symlink), mise config + npm prefix + ~/.local per-workspace via the home split's sidecar symlinks. Blocking half two on the split was right; a per-workspace MISE_DATA_DIR was doubly wrong." -->
-
-   _Leaning (confirmed in outcome, corrected in premise):_ Block half two on the home
-   split rather than shipping a known collision.
-
-   **Answer:**
-   > **The container's own partition, verified 2026-09-11** ([§4](#4-the-proposed-shape)
-   > table). Mise's **data** dir is machine-wide on every container backend
-   > (`MISE_DATA_DIR=/mise`, backed by a global store dir or a named volume —
-   > `assemble.go:814`, `assemble_parts.go:172-176`), so sharing it across workspaces is
-   > not the collision the first draft feared: `installs/<tool>/<version>` is keyed by
-   > tool and version (`command.go:21`), and two workspaces asking for different tools
-   > add to it rather than reshape it. The **per-workspace** half is mise's *config*, the
-   > npm prefix and `~/.local`, and the container keeps all three in the sidecar
-   > (`config`, `npm-global`, `local` binds, `assemble_parts.go:108-119`). So: **mise data
-   > machine-wide, set `MISE_DATA_DIR` explicitly** — the unset default
-   > `$HOME/.local/share/mise` (`env.go:161-165`) would land inside the per-workspace
-   > `~/.local` symlink once the split lands, the inverse of every other backend;
-   > **everything else per-workspace**, through the sidecar symlinks
-   > [`macos-user-home-tiers.md` §5](macos-user-home-tiers.md#5-the-proposal) lays.
-   > Blocking half two on the split was the right call for the per-workspace half; the
-   > first draft's alternative — "a per-workspace `MISE_DATA_DIR` under the shared home"
-   > — is rejected twice over, as a mechanism no backend has and as the inverse of the
-   > container's layout. ⚠ The collision the draft predicted for the *future* stage is
-   > already live for the *config*: `~/.config/mise/config.toml` is written into the
-   > shared home on every launch today ([§1](#1-the-two-missing-halves)).
-
-4. ✅ **OQ-P4: Does the stage run before the agent, or on demand? — RESOLVED
-   (2026-09-11, by principle in audit).** The container runs it unconditionally
-   before the command. macos-user could instead let the lazy launchers trigger it,
-   which pays nothing on a `yolo -- bash`.
-
-   <!-- vantage: oq id=OQ-P4 leaning="Answered: unconditional, matching the container. On-demand's only benefit — a free `yolo -- bash` — is already delivered by §4's skip rule, and it would make the same config leave tools absent on one backend and present on another." -->
-
-   _Leaning (confirmed):_ Unconditional, matching the container.
-
-   **Answer:**
-   > **Unconditional, matching the container**, and it is not a taste call once P3 is
-   > applied. Two facts settle it. (1) The benefit on-demand was meant to buy — a
-   > `yolo -- bash` that pays nothing — is **already delivered by this doc's own
-   > degenerate-input rule** in [§4](#4-the-proposed-shape): with no `mise_tools`, no
-   > `lsp_servers`, no `mcp_presets` and no agent packs, the stage is skipped entirely.
-   > (2) On-demand would be observable: the same config would leave `mise_tools`
-   > absent from a `yolo -- bash` on macos-user and present on podman until something
-   > triggered the install — a second dialect of "when are my tools there", which P3
-   > forbids and which the lazy launchers do not even cover (they exist for agent CLIs,
-   > not for mise tools or LSP servers). The container already splits the two the right
-   > way — stage eagerly, agent CLIs lazily — and this backend takes the same split.
-
 ## Decision Ledger
 
-_(empty — [`OQ-P3`](#OQ-P3) and [`OQ-P4`](#OQ-P4) are answered above and await
-compaction.)_
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-P1 | **Still open** — how much floor. Rule [`OQ-P2`](#OQ-P2) first; it decides nine of the 36. | — | [Open Questions](#open-questions) |
+| OQ-P2 | **Still open** — GNU userland or the Mac's own. | — | [Open Questions](#open-questions) |
+| OQ-P3 | The container's own partition: mise **data** machine-wide with `MISE_DATA_DIR` set **explicitly**, because the unset default would land inside the per-workspace `~/.local` symlink; mise config, the npm prefix and `~/.local` per-workspace through the home split's sidecar symlinks. A per-workspace `MISE_DATA_DIR` is rejected twice over. | 2026-09-11 | [§4](#4-the-proposed-shape), [§5](#5-what-this-does-not-propose) |
+| OQ-P4 | Unconditional, before the agent, matching the container. [§4](#4-the-proposed-shape)'s own skip rule already delivers on-demand's only benefit, and on-demand would be a second dialect of "when are my tools there". | 2026-09-11 | [§4](#4-the-proposed-shape), [§6 row E](#6-alternatives) |
