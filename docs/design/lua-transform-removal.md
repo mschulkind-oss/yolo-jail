@@ -1,7 +1,7 @@
 ---
 title: "The config transform is an escape hatch nobody uses, on a VM everybody does"
 date: 2026-09-10
-status: in-review
+status: accepted
 tags: [design, config, lua, agentcfg, removal, packs]
 summary: "The Lua config transform — the config.lua hook between the merge and the managed-enforce step — has no user, its one worked example is now served by the declarative autonomy kind, and half of its parts shipped inert at least once. Remove it. But the Lua VM it runs on is the derive path's too, so the removal is a split of one package, not a deletion of Lua — and the managed floor has to be lifted out of that package before the transform half goes."
 vantage:
@@ -12,8 +12,8 @@ vantage:
 
 **Status:** DESIGN, 2026-09-10. **Nothing removed.** Every claim about the tree was verified on
 2026-09-10 at `4975df07`; each carries its evidence inline. Two questions need the maintainer:
-[OQ-LT1](#OQ-LT1) (what a user who still has a `config.lua` sees on the day this ships) and
-[OQ-LT2](#OQ-LT2) (whether the design principle the transform embodied retires with it).
+[OQ-LT1](#13-decision-ledger) (what a user who still has a `config.lua` sees on the day this ships) and
+[OQ-LT2](#13-decision-ledger) (whether the design principle the transform embodied retires with it).
 
 > **In short.** The transform slot in the config-composition pipeline should be deleted: it has no
 > user, its motivating case is met by a declarative mechanism that works where the transform's
@@ -46,7 +46,7 @@ that is half false.
 Getting that wrong is the main way this removal goes bad in either direction; everything else falls
 out of it.
 
-**Needs your ruling:** [OQ-LT1](#OQ-LT1), [OQ-LT2](#OQ-LT2).
+**Needs your ruling:** **None** — both closed 2026-09-11 ([§13](#13-decision-ledger)). Ready to build, in [§10](#10-what-i-would-do-in-order)'s order.
 
 **Reads with:** [`agent-settings-composition.md`](../plans/agent-settings-composition.md) (the
 design of record; this retires its [§3](../plans/agent-settings-composition.md#3-the-lua-transform--the-abstraction)),
@@ -56,7 +56,7 @@ design of record; this retires its [§3](../plans/agent-settings-composition.md#
 `transform` key's own documentation and the raw-surface example), [`pack-system.md`](../reference/pack-system.md)
 (the derive half, which stays), [`BACKLOG.md`](../plans/BACKLOG.md) (A9 and A13, the inert episodes).
 No companion sketch: the removal surface is the design's own subject and lives in
-[§5](#5-the-removal-surface-enumerated); an implementation plan follows [OQ-LT1](#OQ-LT1).
+[§5](#5-the-removal-surface-enumerated); an implementation plan follows [OQ-LT1](#13-decision-ledger).
 
 ---
 
@@ -74,7 +74,7 @@ Three principles carry the rest of the doc; later sections cite them by number.
 - **P2. Nothing may go quiet.** A user with a `config.lua` today gets a loud, named outcome on the
   day this ships — never a plausible-looking config with the hook silently gone. That is the exact
   failure class the A9 fix ([§3.4](#34-shipped-inert-repeatedly)) was written against, and the
-  removal must not reintroduce it. The disposition is [OQ-LT1](#OQ-LT1); "silently ignore" is not
+  removal must not reintroduce it. The disposition is [OQ-LT1](#13-decision-ledger); "silently ignore" is not
   one of its options.
 - **P3. The managed floor is the pipeline's, not the VM's.** `Enforce` — the step that re-asserts
   `managed` keys over everything below — runs today as a method on the transform's `Ctx`. It has
@@ -375,10 +375,10 @@ sections a removal must touch are what matter, and the linked anchors are what t
 
 | What | Where | Disposition |
 | :--- | :--- | :--- |
-| `host_files[].transform` — the known-key list, the field, the validation, and the stale dependency comment | [`hostfiles.go:74`](../../internal/config/hostfiles.go#L74), [`:113-115`](../../internal/config/hostfiles.go#L113-L115), [`:541-550`](../../internal/config/hostfiles.go#L541-L550), [`:697-701`](../../internal/config/hostfiles.go#L697-L701) | goes → a **named refusal** replaces it ([OQ-LT1](#OQ-LT1)); the comment is rewritten either way, since it is wrong today ([§3.7](#37-what-removal-does-not-buy-the-dependency)) |
+| `host_files[].transform` — the known-key list, the field, the validation, and the stale dependency comment | [`hostfiles.go:74`](../../internal/config/hostfiles.go#L74), [`:113-115`](../../internal/config/hostfiles.go#L113-L115), [`:541-550`](../../internal/config/hostfiles.go#L541-L550), [`:697-701`](../../internal/config/hostfiles.go#L697-L701) | goes → a **named refusal** replaces it ([OQ-LT1](#13-decision-ledger)); the comment is rewritten either way, since it is wrong today ([§3.7](#37-what-removal-does-not-buy-the-dependency)) |
 | `yolo config-ref` row | [`config_ref.txt:536`](../../internal/cli/config_ref.txt#L536) | goes |
 | `manifest.Surface.Transform` and its comments | [`manifest.go:29`](../../internal/agentcfg/manifest/manifest.go#L29), [`:65-66`](../../internal/agentcfg/manifest/manifest.go#L65-L66), [`:107-110`](../../internal/agentcfg/manifest/manifest.go#L107-L110) | goes |
-| `SurfaceDTO.Transform` | [`load.go:34`](../../internal/agentcfg/manifest/load.go#L34), [`:68`](../../internal/agentcfg/manifest/load.go#L68) | goes — `DecodeSurfaces` already refuses unknown fields ([`load.go:99`](../../internal/agentcfg/manifest/load.go#L99)), so a pack declaring `transform` fails loudly by construction; whether it fails **by name** is [OQ-LT1](#OQ-LT1) |
+| `SurfaceDTO.Transform` | [`load.go:34`](../../internal/agentcfg/manifest/load.go#L34), [`:68`](../../internal/agentcfg/manifest/load.go#L68) | goes — `DecodeSurfaces` already refuses unknown fields ([`load.go:99`](../../internal/agentcfg/manifest/load.go#L99)), so a pack declaring `transform` fails loudly by construction; whether it fails **by name** is [OQ-LT1](#13-decision-ledger) |
 | the `config-overlay` refused-field row for `transform` | [`overlay.go:46`](../../internal/agentcfg/manifest/overlay.go#L46), [`:71-72`](../../internal/agentcfg/manifest/overlay.go#L71-L72) | goes — redundant once the field is unknown everywhere; keeping it as a named refusal is the implementer's call |
 | `hostFileSurface`'s copy, and the A12 comment naming the hook | [`entrypoint/hostfiles.go:57`](../../internal/entrypoint/hostfiles.go#L57), [`:193`](../../internal/entrypoint/hostfiles.go#L193) | goes / shrink |
 
@@ -451,19 +451,19 @@ days. And the way to close either gap declaratively — a per-key `filter`, `rep
 is the "data-filter vocabulary" that principle 4 of the design of record explicitly rejected in
 favour of Lua. Removing the transform therefore also decides, silently unless said, that if this
 need ever arrives it will be met by exactly the kind of op that principle rejected — or not at all.
-That is [OQ-LT2](#OQ-LT2), and I would rather the maintainer rule on it than have the next author
+That is [OQ-LT2](#13-decision-ledger), and I would rather the maintainer rule on it than have the next author
 rediscover the principle in `git log`.
 
 ## 7. Ship day: state that already exists
 
 What is out there on the day the removal lands, and what happens to each. The disposition of the
-first two rows is [OQ-LT1](#OQ-LT1); the rest are settled by evidence.
+first two rows is [OQ-LT1](#13-decision-ledger); the rest are settled by evidence.
 
 | Pre-existing state | Where | What the code does after removal, absent a rule | Ruling |
 | :--- | :--- | :--- | :--- |
-| a **non-empty** `~/.config/yolo-jail/config.lua` or `<workspace>/yolo-jail.config.lua` | any host that wrote one | nothing reads it; the file is inert and the user's agent config silently changes | [OQ-LT1](#OQ-LT1) — [P2](#1-the-verdict) forbids "nothing" |
-| a `host_files[].transform` key, or a pack surface with `transform` | user config; a third-party pack | the config loader refuses the unknown key (the `host_files` known-key list is closed); `DecodeSurfaces` refuses the unknown field — both loud, neither names the removal | [OQ-LT1](#OQ-LT1) — the precedent is a refusal **that names its replacement** (`validateJournalRetired`, [`validate.go:426-470`](../../internal/config/validate.go#L426-L470)) |
-| the **0-byte** `config.lua` on this very machine | `~/.config/yolo-jail/config.lua` | an empty script is the identity today ([`luahook.go:62-64`](../../internal/agentcfg/luahook/luahook.go#L62-L64)); after removal it is a stray file | ignored — nothing changes for it, so no message is owed; the leaning under [OQ-LT1](#OQ-LT1) keys on non-emptiness for this reason |
+| a **non-empty** `~/.config/yolo-jail/config.lua` or `<workspace>/yolo-jail.config.lua` | any host that wrote one | nothing reads it; the file is inert and the user's agent config silently changes | [OQ-LT1](#13-decision-ledger) — [P2](#1-the-verdict) forbids "nothing" |
+| a `host_files[].transform` key, or a pack surface with `transform` | user config; a third-party pack | the config loader refuses the unknown key (the `host_files` known-key list is closed); `DecodeSurfaces` refuses the unknown field — both loud, neither names the removal | [OQ-LT1](#13-decision-ledger) — the precedent is a refusal **that names its replacement** (`validateJournalRetired`, [`validate.go:426-470`](../../internal/config/validate.go#L426-L470)) |
+| the **0-byte** `config.lua` on this very machine | `~/.config/yolo-jail/config.lua` | an empty script is the identity today ([`luahook.go:62-64`](../../internal/agentcfg/luahook/luahook.go#L62-L64)); after removal it is a stray file | ignored — nothing changes for it, so no message is owed; the leaning under [OQ-LT1](#13-decision-ledger) keys on non-emptiness for this reason |
 | provenance sidecars carrying a `transform` or `transform (dropped)` token, written by an earlier render | `<workspace>/.yolo/prism/*.provenance`; host-provenance records | `ParseProvenanceRecord` accepts any token; `LayerAsserted` is a closed set and already returns false for `transform` ([`retiredlayer_test.go:90-91`](../../internal/agentcfg/retiredlayer_test.go#L90-L91)); `colorLayer` falls through to plain text | **already fail-safe** — no migration, no action |
 | a capture overlay narrowed against `computed` and `managed` today | `.yolo/prism/*.overlay.json` | unaffected; the transform was never a narrowing input ([§3.8](#38-one-more-mismatch-found-while-writing)) | none |
 | a host `yolo` and a jail `yolo-entrypoint` on different sides of the removal | any skewed machine | old launcher mounts a file the new entrypoint ignores, or vice versa — inert either way, and `version.SourceSkew` refuses the pairing before boot | none |
@@ -473,7 +473,7 @@ first two rows is [OQ-LT1](#OQ-LT1); the rest are settled by evidence.
 | Alternative | Verdict |
 | :--- | :--- |
 | **Keep it as is.** | Rejected. No user, four live disconnected parts ([§3.4](#34-shipped-inert-repeatedly)), an unenforced determinism requirement, and the one ungated code-execution crossing in [`trust-paths.md`](trust-paths.md). |
-| **Keep it, gated behind the `config_transform` key the design promised.** | Rejected. A key makes the crossing visible to the config gate — closing [§3.6](#36-the-trust-finding) — but builds a fifth part for a feature with no user. Worth building only if [OQ-LT2](#OQ-LT2) rules that the escape hatch must survive. |
+| **Keep it, gated behind the `config_transform` key the design promised.** | Rejected. A key makes the crossing visible to the config gate — closing [§3.6](#36-the-trust-finding) — but builds a fifth part for a feature with no user. Worth building only if [OQ-LT2](#13-decision-ledger) rules that the escape hatch must survive. |
 | **Move it to the pack side: let `derive.lua` register `yolo.transform`.** | Rejected for now. It would give pack authors a post-merge hook and inherit the derive path's disclosure rules. It also reintroduces value-dependent editing at pack level with zero demand behind it. If the [§6](#6-what-is-genuinely-lost) gap ever has a concrete case, this is the shape to revisit before any data vocabulary. |
 | **Remove Lua entirely — `gopher-lua`, `luahook`, the derive path.** | Rejected. Six shipped packs compute their MCP/LSP reshapes and their provider environment in `derive.lua`; the provider system ([`providers.md`](../reference/providers.md)) depends on it. Out of scope by [P1](#1-the-verdict). |
 | **Delete the transform half but leave `Ctx` and `Enforce` in `luahook`.** | Rejected. The engine would keep importing a Lua package to call a function that touches no Lua, and the package doc would describe a bridge nothing crosses — the [§3.4](#34-shipped-inert-repeatedly) pattern, reproduced on purpose. |
@@ -486,7 +486,7 @@ first two rows is [OQ-LT1](#OQ-LT1); the rest are settled by evidence.
 | **R1 — `Enforce` changes meaning in the move.** The obvious "reuse `mergeValue`" changes what a nil-valued managed key does ([§4.2](#42-what-moves-enforce) item 1). | Move `enforceValue` verbatim; pin the nil case with a test before the move; `TestRenderFingerprintStable` and the `compose_test.go` enforce suite pass unmodified. |
 | **R2 — the shared sandbox loses its proofs.** `vm_test.go` is where forbidden-globals, timeout, error-location and round-trip are proven, and it dies with `Apply`. | Re-home each on `Derive` first ([§4.1](#41-luahook-symbol-by-symbol)); a `derive_test.go` that proves only `os` is absent is not a sandbox proof. |
 | **R3 — the keyless floor ships unproven.** Its only test today runs a transform ([§4.2](#42-what-moves-enforce) item 2). | Rewrite without the script first. |
-| **R4 — a user's `config.lua` goes quiet.** | [OQ-LT1](#OQ-LT1); the refusal pattern exists and is named. |
+| **R4 — a user's `config.lua` goes quiet.** | [OQ-LT1](#13-decision-ledger); the refusal pattern exists and is named. |
 | **R5 — old provenance records confuse a reader.** | Already fail-safe ([§7](#7-ship-day-state-that-already-exists)); `retiredlayer_test.go` stays as the guard. |
 | **R6 — the cut takes shared code.** `openSandboxLibs`, `wrapLuaErr`, the marshallers, the `GopherLuaVM` type all *look* like transform code. | The per-symbol table in [§4.1](#41-luahook-symbol-by-symbol); `derive_test.go` and `deriveapiskew_test.go` green is the tripwire. |
 | **R7 — an in-review doc is edited under its reviewer.** | [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) is not touched until its review closes; the four edits are listed in [§5.6](#56-documentation). |
@@ -510,7 +510,7 @@ no behaviour and make the rest of the removal checkable.
    `transform` tokens and colour, the help text. `yolo config render` and `--explain` lose one line
    and one hue and are otherwise unchanged.
 4. **Cut the channels** ([§5.3](#53-the-config-schema-and-the-cli), [§5.4](#54-the-mount-channel)) per
-   [OQ-LT1](#OQ-LT1): the `host_files` key becomes a named refusal; `SurfaceDTO` loses the field; the
+   [OQ-LT1](#13-decision-ledger): the `host_files` key becomes a named refusal; `SurfaceDTO` loses the field; the
    `inheritscope.go` mount goes; the file probe lands in the launcher beside `refuseLiveWorkspaceLaunch`
    if the ruling asks for one.
 5. **Delete the transform half of `luahook`** ([§4.1](#41-luahook-symbol-by-symbol)) and rewrite its
@@ -519,7 +519,7 @@ no behaviour and make the rest of the removal checkable.
    [`trust-paths.md`](trust-paths.md) row 13, the roadmap clause, and — after its review — the four
    lines in the ownership doc.
 
-Steps 3 through 6 wait on [OQ-LT1](#OQ-LT1). Step 6's postscript should also record [OQ-LT2](#OQ-LT2)'s
+Steps 3 through 6 wait on [OQ-LT1](#13-decision-ledger). Step 6's postscript should also record [OQ-LT2](#13-decision-ledger)'s
 ruling, whichever way it goes, because that is where the next author will look.
 
 ## 11. What this doc does not propose
@@ -528,7 +528,7 @@ ruling, whichever way it goes, because that is where the next author will look.
 - **Touching `derive.lua`, `yolo.derive`, or `yolo.env`.** Not one line.
 - **Fixing the derive sandbox's `math.random`.** Found here ([§3.5](#35-determinism-required-unenforced-and-unenforceable)),
   owned elsewhere. One line in `extraStrippedGlobals`, plus a test.
-- **Adding a declarative replacement** for the [§6](#6-what-is-genuinely-lost) gap. [OQ-LT2](#OQ-LT2)
+- **Adding a declarative replacement** for the [§6](#6-what-is-genuinely-lost) gap. [OQ-LT2](#13-decision-ledger)
   decides whether that is ever on the table; this doc does not design it.
 - **Re-ordering the layer stack.** `defaults → host → workspace → config-overlay → overlay →
   computed → managed` is the stack with one element removed, not a new stack.
@@ -539,50 +539,42 @@ ruling, whichever way it goes, because that is where the next author will look.
 
 ## 12. Open Questions
 
-1. 💬 **OQ-LT1: What does a user who still has a transform see on ship day?** Three channels can
-   carry one — the two auto-loaded files and the per-surface key in `host_files` or a pack manifest
-   ([§2.2](#22-three-channels-feed-the-script)). The options are a **refusal that names the
-   removal**, a **warning**, or **silence**; and for the files, whether the check is permanent or
-   lives one release like `removeRetiredGeneratedDirs`. This decides step 4 of
-   [§10](#10-what-i-would-do-in-order) and the shape of the one new piece of code the removal adds.
-   Silence is the option [P2](#1-the-verdict) rules out and the A9 docstring argues against
-   ("the user asked for a transform, got none, and the file looks plausibly correct").
+**None — both were ruled on 2026-09-11 and are in [§13](#13-decision-ledger).** The rulings are
+folded into [§10](#10-what-i-would-do-in-order)'s build order and
+[§11](#11-what-this-doc-does-not-propose).
 
-   <!-- vantage: oq id=OQ-LT1 leaning="Refuse by name, permanently, for the keys — host_files transform and the pack DTO field — following validateJournalRetired. For the two files: refuse at launch when the file is NON-EMPTY, naming the removal and the file; say nothing for a 0-byte file, which was already the identity. A warning scrolls past in the banner and is the quiet failure by another route." -->
+---
 
-   _Leaning:_ Refuse by name, permanently, for the keys, following `validateJournalRetired`'s
-   pattern. For the two files: refuse at launch when the file is **non-empty**, naming the removal
-   and the path; stay silent for a 0-byte file, which was already the identity transform. A warning
-   is the quiet failure by another route — it scrolls past in the launch banner, and the config
-   still changes underneath the user. Permanent rather than one release: it is two `stat` calls,
-   and a one-release probe is a hidden state machine.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-LT2: Does principle 4 retire with the transform?** Principle 4 of the design of record
-   ([§2](../plans/agent-settings-composition.md#2-six-principles-the-line-in-the-sand)) is
-   *"Transform with Lua, not a data vocabulary"* — reshaping is a hook, never a closed op-set.
-   Removing the hook leaves the two gaps in [§6](#6-what-is-genuinely-lost) with no answer, and the
-   only declarative answers are exactly the ops the principle rejected. This decides what the
-   postscript on the design of record says, and whether a future "remove the element matching X"
-   request is met with a design or with a pointer to this ledger.
-
-   <!-- vantage: oq id=OQ-LT2 leaning="Yes, retire it: rule that the gaps are accepted, the workarounds (capture once, or content: for a jail-specific copy) are the answer, and a declarative op is designed only against a concrete case — the transform is not coming back in another guise." -->
-
-   _Leaning:_ Yes, retire it. Rule that the two gaps are accepted, that the workarounds — capture
-   once, or `content:` for a jail-specific copy — are the answer for now, and that a declarative op
-   is designed only against a concrete case, if one ever arrives. Fifty-two days without a user is
-   the evidence; the pack-side `yolo.transform` of [§8](#8-alternatives-considered) is the shape to
-   reach for first if that changes, not a data vocabulary.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 ## 13. Decision Ledger
 
-No rulings yet. Rows appear here as the questions in [§12](#12-open-questions) close.
+Both questions closed 2026-09-11. The doc is `status: accepted`.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| — | — | — | — |
+| OQ-LT1 | **Delete it outright — no refusal machinery, no deprecation window.** *"Nobody is using it. Just delete it and pretend it never existed."* The leaning proposed permanent named refusals following `validateJournalRetired`; that is code written for nobody. | 2026-09-11 | [§10](#10-what-i-would-do-in-order) step 4 |
+| OQ-LT2 | **Yes — principle 4 retires with the transform**, until a concrete case argues otherwise. The stated reason it existed: *"I just didn't want to create a generic DSL out of JSON — we don't need that here now anyway."* So the gaps are accepted, `capture`-once and `content:` are the answer, and a declarative op is designed against a real case or not at all. | 2026-09-11 | [§11](#11-what-this-doc-does-not-propose) |
+
+> [!IMPORTANT]
+> **"Just delete it" is not the silent option, and that is why it is safe — the loudness is
+> free.** Both declared channels already fail closed through generic machinery, verified
+> 2026-09-11:
+>
+> - **Config keys** — `internal/config/validate.go:124-130` emits `"<path>.<key>: unknown key"`
+>   for anything outside the allowed set, so dropping `transform` from `host_files`' set makes a
+>   stale entry an error with no new code.
+> - **Pack manifests** — `internal/agentcfg/manifest/load.go:99` calls `DisallowUnknownFields()`,
+>   so a pack surface still declaring `transform` fails to decode.
+>
+> The leaning's `validateJournalRetired` pattern buys one thing over that: a *named* refusal says
+> "this was removed" where a bare `unknown key` reads as a typo — a distinction this file's own
+> validator notes at `:177-179` and `:829`. With no user to read either message, it is not worth
+> the code.
+>
+> ⚠ **One case genuinely is silent, and it is accepted rather than unnoticed.** The two
+> auto-loaded files are loaded *by existence*, not by a config key
+> ([§2.2](#22-three-channels-feed-the-script)), so deleting the loader means a **non-empty**
+> `~/.config/yolo-jail/config.lua` or `<ws>/yolo-jail.config.lua` stops applying with nothing
+> said. Known instances: **zero** — the maintainer's is 0 bytes and no workspace file exists
+> (measured 2026-09-11). That is the whole basis for accepting it; a future user with one would
+> get no warning.

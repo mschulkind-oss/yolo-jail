@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 18 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 17 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-11**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -846,9 +846,9 @@ once at the front. So this authorizes Phase 6.4 + 4.3 rather than designing them
 **Answer:**
 > _(empty — fill in when decided; [`OQ-RO7`](../design/report-tiers.md#10-open-questions) gates the fatal's predicate, and nothing else here waits on a person)_
 
-### 💬 30 — The Lua config transform: remove it, and leave the derive VM standing
+### 📦 30 — The Lua config transform: remove it, and leave the derive VM standing
 
-📄 [`lua-transform-removal.md`](../design/lua-transform-removal.md) — **[`OQ-LT1`](../design/lua-transform-removal.md#OQ-LT1) · [`OQ-LT2`](../design/lua-transform-removal.md#OQ-LT2)** ·
+📄 [`lua-transform-removal.md`](../design/lua-transform-removal.md) — **both questions RULED 2026-09-11** ([`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) · [`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger)) — `status: accepted` ·
 written 2026-09-10, **routed here the same day**
 
 The maintainer's instinct — *"I'm not sure it's fully thought through"* — checked against the tree: the
@@ -862,11 +862,11 @@ shared with six packs' `derive.lua`, so the doc's load-bearing section is the pe
 `luahook`, and the managed floor (`Enforce`) has to be lifted into `internal/agentcfg` before the
 transform half goes. Two real capability gaps are named rather than waved away. Nothing removed.
 
-- **[`OQ-LT1`](../design/lua-transform-removal.md#OQ-LT1) — what does a user who still has a
+- **[`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) — what does a user who still has a
   `config.lua` or a `transform` key see on ship day: a refusal that names the removal, a warning, or
   silence?** *Leaning: refuse by name for the keys (the `journal` precedent); refuse at launch for a
   non-empty file; silence only for a 0-byte one, which was already the identity.*
-- **[`OQ-LT2`](../design/lua-transform-removal.md#OQ-LT2) — does principle 4 of the design of record
+- **[`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger) — does principle 4 of the design of record
   ("transform with Lua, not a data vocabulary") retire with it, accepting the two gaps?** *Leaning:
   yes; a declarative op is designed only against a concrete case, and the pack-side `yolo.transform`
   is the shape to revisit first.*
@@ -875,7 +875,7 @@ transform half goes. Two real capability gaps are named rather than waved away. 
 lift `Enforce` — and make the rest checkable.
 
 **Answer:**
-> _(empty — fill in when decided; [`OQ-LT1`](../design/lua-transform-removal.md#OQ-LT1) alone unblocks the removal commits)_
+> _(empty — fill in when decided; [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) alone unblocks the removal commits)_
 
 # 📦 Up next
 
@@ -943,6 +943,15 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   **New CI cost:** every image-building job also builds `.#imageCopier` (~2 min cold per nixpkgs, 0
   warm). `publish.yml` and `just cachix-push` push it — an optimization only, with nothing wired to
   a cache miss ([`OQ-LI1`](../design/layer-aware-image-delivery.md#91-decision-ledger)).
+
+⚠ **Both ruled 2026-09-11, and [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) came out simpler than its leaning.** *"Nobody is using it.
+Just delete it and pretend it never existed"* — so no refusal machinery and no deprecation window.
+That is safe because the loudness is **free**: `validate.go:124-130` already emits `unknown key` for
+a dropped config key, and `manifest/load.go:99` calls `DisallowUnknownFields()`, so a stale pack
+surface fails to decode. The one genuinely silent case is accepted on measured grounds — the two
+auto-loaded files load *by existence*, so a non-empty one would stop applying with nothing said, and
+known instances are **zero**. [`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger) retires principle 4 with the transform, with the reason it
+existed recorded: *"I just didn't want to create a generic DSL out of JSON."*
 
 ### 💬 31 — Which package manager an environment actually has, and who picks it
 
