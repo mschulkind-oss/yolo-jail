@@ -1045,8 +1045,8 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   and whether the stage runs eagerly.
 
 - 💬 **The macos-user home has one tier where it needs two, and content delivery just made it
-  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **OQ-HT-1 ·
-  OQ-HT-2 · OQ-HT-3 · OQ-HT-4**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine
+  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **OQ-HT1 ·
+  OQ-HT2 · OQ-HT3 · OQ-HT4**. `SandboxHome()` is the constant `/Users/_yolojail`, so the machine
   tier
   (credentials — correct, and the point of a dedicated account), the workspace tier (pack
   `state`, agent history) and the session tier are one directory. Two symptoms were static
@@ -1056,7 +1056,7 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   per-project prose an agent is mid-session reading. The proposal is the two-tier structure the
   container backends already have, in the one account this backend has. **The trap is that a naive
   split repairs the workspace tier by breaking the machine one** — the single home IS the
-  credential-sharing mechanism here — so the fix must restore both explicitly, and OQ-HT-2 asks
+  credential-sharing mechanism here — so the fix must restore both explicitly, and OQ-HT2 asks
   what happens to the credentials already sitting in the old layout.
 
   ⚠ **WHERE the per-workspace half lives is now itself open, and this row named the losing

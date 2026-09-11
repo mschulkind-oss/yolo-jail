@@ -9,7 +9,7 @@ summary: "macos-user has one sandbox home, /Users/_yolojail, so the machine tier
 # The macos-user home: one account, three tiers that collapsed into it
 
 **Status:** DESIGN SKETCH, 2026-09-03. Nothing built. Three open questions, and
-OQ-HT-2 blocks a sibling doc as well as this one.
+[`OQ-HT2`](#OQ-HT2) blocks a sibling doc as well as this one.
 
 **The short version.** `SandboxHome()` is the constant `/Users/_yolojail`, so three
 tiers every other backend keeps apart are one directory. The **machine tier** is
@@ -19,7 +19,7 @@ write-write race rather than mere leakage. The fix is the two-tier structure the
 container backends already have, inside the one account this backend has —
 per-workspace state separated from machine-wide credentials, with symlinks carrying
 whichever half does not live where the agent looks for it. **Where the per-workspace
-half lives is OQ-HT-4**, and review moved the leaning: `<workspace>/.yolo/home/`,
+half lives is [`OQ-HT4`](#OQ-HT4)**, and review moved the leaning: `<workspace>/.yolo/home/`,
 which is where every other backend already puts it. **The trap is that a
 naive split repairs the workspace tier by breaking the machine one** ([§3](#3-why-it-has-not-been-fixed-by-simply-splitting)).
 
@@ -122,7 +122,7 @@ That last sentence is the design question this section used to answer without
 asking. **The container does not move its home per workspace** — `HOME` is
 `/home/agent` always, and specific *subdirectories* are mounted in from the
 workspace. So there are two ways to give macos-user the same separation, and [§7](#7-alternatives)
-weighs them as OQ-HT-4.
+weighs them as [`OQ-HT4`](#OQ-HT4).
 
 - **`/Users/_yolojail/` stays the machine tier.** Credentials live here, exactly as
   now. Nothing about `shared_credentials` changes.
@@ -141,6 +141,134 @@ weighs them as OQ-HT-4.
   to the workspace home plus the shared credential paths, which makes symptom 2
   enforced rather than merely stated.
 
+## 5.0 The constraint that outranks the layout choice: one mechanism, every backend
+
+**Stated in review 2026-09-11, and it is the strongest argument in this
+document — including against [§5](#5-the-proposal)'s own first proposal:**
+
+> *"You can share [credentials] to the home, but if you don't, you have their own
+> homes. It's going to be just identical to how you share them in container jails.
+> It seems like we should have the same mechanisms across these things. If
+> possible — otherwise you're just fragmenting the utility of this tool and you
+> can't really share things, because you'd have to detect features and stuff and it
+> would be awful."*
+
+**That is a constraint on the answer, not a preference between answers**, and it
+is why [`OQ-HT4`](#OQ-HT4) leans **A′** rather than A. The container backends
+already solve credential sharing with a **machine-scope location plus symlinks**
+(`configureSharedCredentials`); a per-workspace home that reached credentials some
+*other* way would make "where are my credentials" a per-backend question, and
+every pack that touches them would need to know which backend it is on. **Feature
+detection in a pack is the failure mode** — the same class
+[`backend-parity.md`](backend-parity.md) exists to make visible, where a mechanism
+added on one backend is absent elsewhere with no error.
+
+So the test any layout here must pass: **the symlink mechanism, the location, and
+the thing a pack declares are identical on every backend.** What may differ is
+only the *primitive that enforces the boundary* — a bind mount on podman, an SBPL
+rule on macos-user — because that is invisible to a pack and to a user.
+
+⚠ **This is also the axis on which [§5.1](#51-the-plumbing-already-exists--this-is-a-parameter-not-a-rewrite) through [§5.4](#54-seatbelt-can-replace-more-mounts-than-this-one)
+below should be read.** Those sections were written about alternative **A** (a
+per-workspace `HOME` under the shared account) before A′ was weighed. **Their
+findings are about the enforcement primitive and survive either choice** — the
+three call sites take a home parameter either way, and the `/Users` read-deny
+narrows whatever home it is given. What they do *not* settle is which layout wins;
+that is [`OQ-HT4`](#OQ-HT4), and the parity constraint above is the reason its
+leaning is A′.
+
+## 5.1 The plumbing already exists — this is a parameter, not a rewrite
+
+**Measured 2026-09-11, in review.** `SandboxHome()` is a *default*, not a
+constraint. Every place that needs a home already takes one as an argument and
+falls back to the constant only when passed `""`:
+
+| Call site | Signature | What a narrower home changes |
+| :--- | :--- | :--- |
+| `internal/macosuser/macosuser.go:461` | `SandboxPath(home string, prefix []string)` | every PATH entry (`.yolo/bin/block`, `.local/bin`, mise shims, …) |
+| `internal/macosuser/macosuser.go:481` | `LaunchArgv(…, workspace, user, home string, …)` | the `HOME`/`USER`/`SHELL`/`PATH` quartet handed to `env -i` |
+| `internal/macosuser/seatbelt.go:34` | `SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string)` | the writable subtree **and** the `/Users` read re-allow |
+
+So [§5](#5-the-proposal)'s per-workspace home is "pass a different string at three
+call sites", not a re-architecture.
+
+### 5.2 Isolation is already enforced for workspaces — the home is the one hole left
+
+⚠ **This corrects a claim made earlier in the same review**, that a per-workspace
+home would confine writes but leave reads open because the profile opens
+`(allow default)`. It does open that way, **and then denies `/Users` wholesale**:
+
+```scheme
+(deny file-read* (subpath "/Users"))
+(allow file-read*
+    (literal "/Users") (literal "/Users/Shared")
+    <ancestor literals of the workspace>
+    (subpath <workspace>)
+    (subpath <home>))
+```
+
+Two consequences worth stating plainly:
+
+- **Workspaces are already isolated from each other.** A sibling workspace under
+  `/Users/Shared/yolo/<other>` is re-allowed by nothing — the ancestors are granted
+  as `(literal)`, which grants the directory entry *without* re-allowing siblings a
+  `(subpath)` would. That comment is in the profile and the mechanism is live.
+- **The home is the single remaining shared surface**, and it is shared only
+  because every launch passes the same string. Narrow it and **reads narrow with
+  it, for free** — the deny is already written; `(subpath <home>)` is the only
+  thing re-allowing it.
+
+### 5.3 What the credential tier then needs, precisely
+
+[§3](#3-why-it-has-not-been-fixed-by-simply-splitting)'s trap — *"a naive split
+repairs the workspace tier by breaking the machine one"* — now has an exact
+location rather than a warning. Once `home` is per-workspace, the shared
+credential store falls under the `/Users` deny like anything else, so it needs its
+own re-allow, **for read and for write**: the OAuth path *refreshes* tokens, so a
+read-only carve-out would break the thing it was meant to preserve. That is one
+`(subpath …)` in each of the two lists, and it is the whole machine tier.
+
+## 5.4 Seatbelt can replace more mounts than this one
+
+**Raised in review 2026-09-11, and the pattern already has a shipped precedent in
+this backend.** The reason macos-user drops features is stated everywhere as *"it
+has no bind mounts"* — but a `:ro` bind does two separable things: it makes a file
+*appear* at a path, and it makes that path *unwritable*. Seatbelt does the second
+natively, and the **launcher runs outside the sandbox**, so it can do the first by
+copying.
+
+**The precedent is `workspace_readonly`**, and `SeatbeltProfile`'s own docstring
+gives the argument:
+
+> Why this exists: the key is delivered as a `-v …:ro` bind on the container
+> backends (`internal/cli/run/mounts.go`), and macos-user has no mounts, so it used
+> to accept the key and **silently do nothing**. A security key that lies is worse
+> than one that refuses.
+
+So one config key already took this route. The candidates that could follow:
+
+| Feature | Container mechanism | macos-user equivalent |
+| :--- | :--- | :--- |
+| `host_files` `mode: readonly` | `:ro` bind + `0444` | launcher copies the file in; profile emits `(deny file-write* (literal <dest>))` |
+| `host_files` `mode: once` / `copy` | staged write | already possible — no host layer needed, it is a copy |
+| `reads-host` (the `host` layer) | `:ro` `/ctx` mount | launcher copies to a staging path; profile denies writes to it |
+
+⚠ **And on `readonly` this would be STRONGER than the container backends, not a
+degraded port.** `yolo config-ref` says of the container path: *"0444 is DAC, not
+kernel enforcement: an agent running as root (Claude YOLO does) bypasses the mode
+bits. It is a strong signal and a speed bump, not a sandbox."* A Seatbelt
+`file-write*` deny is kernel-enforced regardless of uid. So the backend with "no
+mounts" would be the one that actually enforces the promise.
+
+**What Seatbelt cannot supply**, so the resemblance to a container jail stops
+here: no PID, network or mount namespace; and every jail runs as the same
+`_yolojail` uid, so a host daemon cannot tell which jail is calling — the reason
+[`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md)
+rejected the helper-outside-the-sandbox shape. Concurrent jails with *different*
+profiles already work (each launch writes its own profile and passes
+`sandbox-exec -f <path>`); what does not work is a macos-user jail launching
+another one, which is an equality constraint in `sandbox_apply`, not a policy gap.
+
 ## 6. The principle this rests on
 
 **P1. A split must restore every tier it breaks, explicitly.** Colocation is not a
@@ -154,19 +282,19 @@ not removed it.
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **A. Per-workspace home under the shared account** ([§5](#5-the-proposal)) — `HOME` becomes `/Users/_yolojail/workspaces/<cname>` | **Now the runner-up**, see OQ-HT-4. Keeps agent state out of the project tree, at the cost of putting it somewhere no other backend puts it. |
-| **A′. Symlink the per-workspace dirs into `<ws>/.yolo/home/`** — `HOME` stays `/Users/_yolojail`, and `~/.claude` and kin become symlinks into the workspace sidecar | **Probably right, and it was not considered until review asked.** It is what the container backend already does, minus the mount: same LOCATION for a project's agent state on every backend, the same symlink mechanism `configureSharedCredentials` already uses for the machine tier, and credentials never move — which shrinks OQ-HT-2 from "migrate an account" to almost nothing. |
+| **A. Per-workspace home under the shared account** ([§5](#5-the-proposal)) — `HOME` becomes `/Users/_yolojail/workspaces/<cname>` | **Now the runner-up**, see [`OQ-HT4`](#OQ-HT4). Keeps agent state out of the project tree, at the cost of putting it somewhere no other backend puts it. |
+| **A′. Symlink the per-workspace dirs into `<ws>/.yolo/home/`** — `HOME` stays `/Users/_yolojail`, and `~/.claude` and kin become symlinks into the workspace sidecar | **Probably right, and it was not considered until review asked.** It is what the container backend already does, minus the mount: same LOCATION for a project's agent state on every backend, the same symlink mechanism `configureSharedCredentials` already uses for the machine tier, and credentials never move — which shrinks [`OQ-HT2`](#OQ-HT2) from "migrate an account" to almost nothing. |
 | **B. Split the account** — one `_yolojail` uid per workspace | **Rejected**, in [§8](#8-risks). Restores every tier by DAC rather than layout, and costs admin on every new project. |
-| **C. Per-session home** | **Rejected for now**, and it is OQ-HT-3. Two launches on one workspace sharing a home is what attach does elsewhere; the difference is that macos-user has no attach. |
+| **C. Per-session home** | **Rejected for now**, and it is [`OQ-HT3`](#OQ-HT3). Two launches on one workspace sharing a home is what attach does elsewhere; the difference is that macos-user has no attach. |
 | **D. Leave it, keep warning** (today) | **Rejected as an end state.** It was defensible while the cost was leakage between workspaces. Content delivery made it a race on files an agent reads as instructions, which is a different kind of wrong. |
 
 ## 8. Risks
 
 | Risk | Mitigation |
 | :--- | :--- |
-| Migration costs every user a re-login | The whole of OQ-HT-2, and the reason it blocks. A migration that moves credentials without an auth dance is the bar. |
+| Migration costs every user a re-login | The whole of [`OQ-HT2`](#OQ-HT2), and the reason it blocks. A migration that moves credentials without an auth dance is the bar. |
 | The Seatbelt profile's writable set has to narrow in step | Same change, same commit — a per-workspace home with a `/Users/_yolojail`-wide writable set repairs nothing. |
-| Two jails on one workspace still share | Accepted, and named as OQ-HT-3 rather than left to be discovered. |
+| Two jails on one workspace still share | Accepted, and named as [`OQ-HT3`](#OQ-HT3) rather than left to be discovered. |
 
 ## 9. What this does NOT propose
 
@@ -178,22 +306,22 @@ on macos-user exactly the mechanism this backend's design says it does not need.
 
 ## Open Questions
 
-1. 💬 **OQ-HT-1: Which paths are machine tier?** Credentials are certain. Agent
+1. 💬 **OQ-HT1: Which paths are machine tier?** Credentials are certain. Agent
    *history* (`~/.claude/projects/`) is the interesting one: sharing it is symptom 1
    in [§2](#2-what-the-collapse-actually-costs), but cross-workspace history is a thing some people want. This decides how
    much of the shared home survives the split, and therefore how much the migration
-   in OQ-HT-2 has to move.
+   in [`OQ-HT2`](#OQ-HT2) has to move.
 
    _Leaning:_ Workspace tier, with no override until someone asks for one. History
    that leaks between projects is the reported defect; wanting it shared is a
    preference nobody has stated.
 
-   <!-- vantage: oq id=OQ-HT-1 leaning="Workspace tier, with no override until someone asks — history leaking between projects is the reported defect; wanting it shared is a preference nobody has stated." -->
+   <!-- vantage: oq id=OQ-HT1 leaning="Workspace tier, with no override until someone asks — history leaking between projects is the reported defect; wanting it shared is a preference nobody has stated." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-HT-2: What happens to an existing `/Users/_yolojail`?** A machine that
+2. 💬 **OQ-HT2: What happens to an existing `/Users/_yolojail`?** A machine that
    has been running this backend has real credentials at the old paths. Migration
    has to move them to the machine tier without a re-login, or the fix costs every
    user an auth dance on upgrade. **This is the blocking question**: it gates this
@@ -206,12 +334,12 @@ on macos-user exactly the mechanism this backend's design says it does not need.
    privileged. The alternative (migrate lazily on first launch) puts a one-time
    mutation on a hot path forever.
 
-   <!-- vantage: oq id=OQ-HT-2 leaning="A one-shot migration in `macos-setup`: already the command that owns this account's layout, already privileged, already where a user expects to wait. Migrating lazily on first launch would put a one-time mutation on a hot path forever." -->
+   <!-- vantage: oq id=OQ-HT2 leaning="A one-shot migration in `macos-setup`: already the command that owns this account's layout, already privileged, already where a user expects to wait. Migrating lazily on first launch would put a one-time mutation on a hot path forever." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-HT-3: Is per-workspace enough, or is per-session needed?** Two launches
+3. 💬 **OQ-HT3: Is per-workspace enough, or is per-session needed?** Two launches
    on the SAME workspace still share a home. On the container backends that is
    exactly what attach does, so it is probably correct — but macos-user has no
    attach, so those two launches are genuinely independent processes rather than one
@@ -219,24 +347,24 @@ on macos-user exactly the mechanism this backend's design says it does not need.
 
    _Leaning:_ Per-workspace, treating concurrent same-workspace launches as the
    user's business the way an explicit stop-and-relaunch already does. Per-session would also
-   multiply the migration surface in OQ-HT-2 by every session ever run.
+   multiply the migration surface in [`OQ-HT2`](#OQ-HT2) by every session ever run.
 
-   <!-- vantage: oq id=OQ-HT-3 leaning="Per-workspace, treating concurrent same-workspace launches as the user's business the way `yolo --new` already does. Per-session would also multiply OQ-HT-2's migration surface by every session ever run." -->
+   <!-- vantage: oq id=OQ-HT3 leaning="Per-workspace, treating concurrent same-workspace launches as the user's business the way `yolo --new` already does. Per-session would also multiply OQ-HT2's migration surface by every session ever run." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-HT-4: Where does per-workspace state live — under the sandbox account, or
+4. 💬 **OQ-HT4: Where does per-workspace state live — under the sandbox account, or
    in `<workspace>/.yolo/home/`?** [§5](#5-the-proposal) assumed the first without noticing it was a
    choice. The second is what the container backends already do: `HOME` is fixed and
    the per-workspace dirs are mounted in from the workspace sidecar. macos-user has
    no mounts, but it has symlinks, and it already uses them for the machine tier.
 
-   This decides how much OQ-HT-2 has to migrate. Under A′ credentials never move, so
+   This decides how much [`OQ-HT2`](#OQ-HT2) has to migrate. Under A′ credentials never move, so
    the migration is per-workspace state only — or nothing at all, if a fresh symlink
    into an empty sidecar is acceptable.
 
-   <!-- vantage: oq id=OQ-HT-4 leaning="A′ — symlink into <ws>/.yolo/home/. Same location as every other backend, same symlink mechanism already used for the machine tier, credentials never move, and the directory already exists and is gitignored. The one thing A has over it is keeping agent state out of the project tree, which is not a property yolo preserves anywhere else." -->
+   <!-- vantage: oq id=OQ-HT4 leaning="A′ — symlink into <ws>/.yolo/home/. Same location as every other backend, same symlink mechanism already used for the machine tier, credentials never move, and the directory already exists and is gitignored. The one thing A has over it is keeping agent state out of the project tree, which is not a property yolo preserves anywhere else." -->
 
    _Leaning:_ **A′.** Same location as every other backend, same mechanism already in
    use one direction over, and the directory exists and is gitignored today. The one
