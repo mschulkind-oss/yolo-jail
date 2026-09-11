@@ -374,6 +374,22 @@ not exist. Two remedies were weighed:
 | Mirror each `SharedDirs` entry into the sidecar as a symlink to the account-home dir | **Chosen.** It is the "make it appear at the path" half of a bind, done with a symlink, launcher-side, and invisible to the pack — the hook's output is byte-identical. |
 | Emit an absolute target from `linkSharedCredential` on macos-user | **Rejected** by [§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend): a backend branch in the one hook every backend shares. |
 
+> [!NOTE]
+> **CONFIRMED ON DARWIN, 2026-09-11 — the `..` measurement above was made on a Linux jail, and it
+> transfers.** The fixture this doc's reasoning rests on
+> (`link → real/sub`, `real/sub/via → ../shared/f`) was rebuilt on macOS 26.5 and the read failed
+> with `No such file or directory`: darwin resolves `..` **physically**, to `real/`, exactly as
+> Linux does. So A′'s mirror-the-shared-dir remedy is necessary here and is not solving a
+> Linux-only artifact.
+>
+> **It needed no sandbox to establish, and that is worth recording as method.**
+> [`provisioner-sets.md` §15](provisioner-sets.md#15-what-a-mac-session-should-measure) asked for
+> this under a `macos-user` launch, on the reasonable worry that kernel path semantics *under a
+> profile* might differ. They cannot differ in the direction that matters: resolution happens in
+> the VFS before the policy is consulted, and a Seatbelt profile can only deny an access that
+> resolves — never make an unresolvable path resolve. The unsandboxed failure therefore entails the
+> sandboxed one, and the item spent no password.
+
 ## 5.4 Seatbelt can replace more mounts than this one
 
 **Raised in review 2026-09-11, and the pattern already has TWO shipped precedents in
