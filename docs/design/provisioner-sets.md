@@ -3,29 +3,35 @@ title: "yolo is a package manager whose backends differ per environment — and 
 date: 2026-09-11
 status: in-review
 tags: [packs, program, requires, provisioning, notch, nix, npm, brew, capture, host, guest]
-summary: "Every notch has a provisioner set — the mechanisms that can make a binary present there — and a pack's `program` names one provisioner (`via`) rather than a need, so it degenerates wherever that provisioner is absent. The jail has a full set, the guest a nix profile plus half-wired launchers, the host nothing yolo drives. yolo ships a default precedence order and the user's config overrides it. Eleven questions live; `noncontainer-nix-environment.md` was merged in here on 2026-09-11 and retired, and §15's Mac measurements ran the same day."
+summary: "Every notch has a provisioner set — the mechanisms that can make a binary present there — and a pack's `program` named one provisioner (`via`) rather than a need, so it degenerated wherever that provisioner was absent. The jail has a full set, the guest a nix profile plus half-wired launchers, the host nothing yolo drives. Three rulings now stand: a pack declares a need plus its recipes, yolo ships a default precedence order the user's config overrides, and yolo drives the winner behind a confirm, sequenced last. Thirteen questions live after three compound ones were carved into their real decisions on 2026-09-11."
 vantage:
   status-chip: true
 ---
 
 # yolo is a package manager whose backends differ per environment — and the pack contract cannot say so yet
 
-**Status:** DESIGN, 2026-09-11, **amended the same day** to absorb
-[`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) (retired; see the Scope note). Nothing built. Claims about
-the tree were verified at `77190a2b`/`6eb7fe7f` on 2026-09-11 and are labelled **MEASURED**,
-**READ FROM CODE** or **NOT MEASURED**; claims inherited from the merged doc keep their own
-2026-08-02 / 2026-08-23 verification dates and say so ([§14](#14-facts-verified-for-this-doc)).
-One question was ruled on 2026-09-11 ([`OQ-PS4`](#decision-ledger)); eleven are open and all eleven
-are the maintainer's. **[§15](#15-what-a-mac-session-should-measure)'s five Mac measurements RAN on
-2026-09-11**, on hardware this doc could not reach when it was written — they carry their own
-results, they corrected four of the five items that asked them, and one of them opened
-[`OQ-PS8`](#OQ-PS8).
+**Status:** DESIGN, 2026-09-11, **amended twice the same day** — first to absorb
+[`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) (retired; see the Scope note),
+then by a review round that ruled two questions and **carved three compound ones into the
+decisions they actually contained** ([the carve table](#the-2026-09-11-carve-one-question-one-decision)).
+Nothing built. Claims about the tree were verified at `77190a2b`/`6eb7fe7f` on 2026-09-11 and are
+labelled **MEASURED**, **READ FROM CODE** or **NOT MEASURED**; claims inherited from the merged doc
+keep their own 2026-08-02 / 2026-08-23 verification dates and say so
+([§14](#14-facts-verified-for-this-doc)). **Three questions are ruled** —
+[`OQ-PS4`](#decision-ledger), [`OQ-PS3`](#decision-ledger), [`OQ-PS2`](#decision-ledger) — and
+thirteen are open, all thirteen the maintainer's. The count went **up** because splitting a
+compound question into its real decisions is the point.
+**[§15](#15-what-a-mac-session-should-measure)'s five Mac measurements RAN on 2026-09-11**, on
+hardware this doc could not reach when it was written — they corrected four of the five items that
+asked them, one of them opened [`OQ-PS8`](#OQ-PS8), and one retracted a claim that had been
+gating [`OQ-PS10`](#OQ-PS10).
 
 > **In short.** yolo already is a package manager — the corpus has held that position since
 > [`program-delivery.md` §6.3](program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
 > adopted the AUR model — but it is one whose **backends differ per environment**, and the pack
-> contract has no way to say so: `program` names one backend (`via`) where it should declare a
-> need, so it works only where that backend happens to exist.
+> contract had no way to say so: `program` named one backend (`via`) where it should declare a
+> need, so it worked only where that backend happened to exist. **The contract is now ruled the
+> other way round**: the pack declares the need and its recipes, and the environment resolves.
 
 **Why it matters.** At the host `program` and `requires` collapse into one report line because
 there is nothing for either to drive; a user cannot say *"install claude from brew here"* because
@@ -40,17 +46,21 @@ dispositions: *drives*, *hints*, *absent*.
 **Cost.** Reverses `depcheck`'s shipped remedy precedence (the pack's own installer first),
 knowingly accepting the version-currency cost that precedence exists to avoid
 ([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)); adds a user-facing
-preference surface; and, if the kind is renamed, touches a closed 19-kind set, seven shipped
-manifests and a documentation gate.
+preference surface and the first yolo-driven mutation of a real machine's toolchain
+([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)); and, if the kind is
+renamed, touches a closed 19-kind set, seven shipped manifests and a documentation gate.
 
 **Start at [§3](#3-the-provisioner-inventory-per-environment)** — the inventory. The five
 findings in [§3.1](#31-five-findings-the-table-forces) and every question below fall out of that
-table. [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) is the one
-ruling so far.
+table. The three rulings are
+[§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves) (the
+declaration), [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) (the
+order) and [§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last) (the verb).
 
-**Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS2`](#OQ-PS2), [`OQ-PS3`](#OQ-PS3),
-[`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6), [`OQ-PS7`](#OQ-PS7), [`OQ-NX4`](#OQ-NX4),
-[`OQ-NX5`](#OQ-NX5), [`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
+**Needs your ruling:** [`OQ-PS1`](#OQ-PS1), [`OQ-PS5`](#OQ-PS5), [`OQ-PS6`](#OQ-PS6),
+[`OQ-PS7`](#OQ-PS7), [`OQ-PS8`](#OQ-PS8), [`OQ-PS9`](#OQ-PS9), [`OQ-PS10`](#OQ-PS10),
+[`OQ-PS11`](#OQ-PS11), [`OQ-PS12`](#OQ-PS12), [`OQ-NX4`](#OQ-NX4), [`OQ-NX5`](#OQ-NX5),
+[`OQ-NX8`](#OQ-NX8), [`OQ-NX9`](#OQ-NX9).
 
 > [!NOTE]
 > **Scope note — this doc absorbed
@@ -107,7 +117,10 @@ maintainer's, stated in review on 2026-09-11; the other three are what the tree 
 - **P1. The environment and the user choose the provisioner; the pack declares the need.**
   *"It shouldn't be up to the pack — that's the wrong place. It would be normal to use the
   Claude pack but install Claude from Homebrew."* A pack says what it needs and how it *can* be
-  produced; who produces it is decided where the binary will live.
+  produced; who produces it is decided where the binary will live. **Ruled into the contract
+  2026-09-11** — [`OQ-PS3`](#decision-ledger),
+  [§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves) — so this
+  is no longer only a principle: `via` stops being a selector and every recipe is a candidate.
 - **P2. A notch's provisioner choice does not propagate.** npm in the jail is a fact about the
   jail — *"in the jail containers we don't [use the system manager]… but that doesn't mean other
   environments have to follow that decision."*
@@ -126,7 +139,9 @@ maintainer's, stated in review on 2026-09-11; the other three are what the tree 
   overwhelm the user with package choices here."* Pluralism is the justification and a
   **default precedence order** is the shape;
   [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) is the ruling and
-  what it does **not** settle.
+  what it does **not** settle, and
+  [§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last) rules what yolo does
+  with the winner.
 
 ---
 
@@ -220,7 +235,7 @@ consumer at all today"*. What the roadmap's thread 29 did on 2026-09-10 was **au
 6.4 and 4.3 as the mechanism for the `--assert` fatal, not design them, and
 [`OQ-RO7`](report-tiers.md#11-decision-ledger) — whether the fatal covers `program` as well as `requires` — was
 RULED on 2026-09-11: **both fatal, only `program` gets the offer**, which is the predicate
-[`OQ-PS3`](#OQ-PS3)'s recipe model reinforces rather than disturbs (a `requires` is a need with no
+[`OQ-PS3`](#decision-ledger)'s recipe model reinforces rather than disturbs (a `requires` is a need with no
 runnable recipe, so there is nothing to offer). ⚠ **And the shipped precedence has the pack choosing.** `depcheck.Check` ranks the
 declaring pack's *own* installer first and the detected manager's hint second, keeping the
 manager's command only as `Fallback` (`depcheck.go:147-151`, `:160-164`, re-read 2026-09-11;
@@ -335,8 +350,9 @@ survive the ruling:
 3. **The printed remedy is the floor the design deliberately guarantees** (env-manager
    [§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest):
    *"the composed manifest is always the floor"*). Anything driven is an *additional* offer, never
-   a replacement for the floor. [`OQ-PS2`](#OQ-PS2) asks whether to build the offer; it does not
-   propose removing the floor.
+   a replacement for the floor — which is exactly how [`OQ-PS2`](#decision-ledger) was ruled on
+   2026-09-11 ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)): the
+   offer was taken, the floor was not touched.
 
 ---
 
@@ -374,8 +390,9 @@ where it does not, it is left alone.
   `provides_from` in [§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)'s
   example — and the field never shipped: a `program`'s accepted fields are `bin`, `via`, `package`,
   `url`, `flags`, `update`, `install_hints` (`internal/packdecl/contributes.go:29-72`), and
-  `requires` takes `bin` and `install_hints` alone, refusing the rest by name (`:1588`). Evidence for
-  [`OQ-PS5`](#OQ-PS5), where it stays.
+  `requires` takes `bin` and `install_hints` alone, refusing the rest by name
+  (`:1589-1592`, re-resolved 2026-09-11). Evidence for [`OQ-PS11`](#OQ-PS11) — whether the pair
+  collapses — which is where the verb/verb relation now lives.
 - **`optdepends`.** No kind has an `optional` field (READ FROM CODE, every kind's field set), so
   yolo has no declared-but-optional category. [`OQ-RO7`](report-tiers.md#11-decision-ledger)'s fatal implicitly
   assumes that category does not exist; if a pack ever needs it, the assumption becomes a
@@ -384,7 +401,9 @@ where it does not, it is left alone.
   distinction (MEASURED negative: no `makedepends`, build-time or from-source vocabulary in
   `internal/packdecl`, `internal/depcheck`, `checkdeps.go` or `applyhostdeps.go`). The moment a
   `program` can be a build, yolo acquires it whether or not it is named
-  ([§5.3](#53-a-custom-build-is-expressible-today-and-what-it-lacks)).
+  ([§5.3](#53-a-custom-build-is-expressible-today-and-what-it-lacks)) — and
+  [§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves) now names
+  it: a build recipe carries its own build-time needs.
 
 ### 5.2 Where it breaks
 
@@ -424,10 +443,14 @@ lacks:
    paid the enum tolerance so a third `via` value degrades to a skip on an older image rather than
    a refused boot — the tolerance is spent and waiting.
 
-**Is `via` the right axis for it?** Today `via` is the pack *selecting* the delivery mechanism.
-Under P1 the pack does not select; it **lists** what can produce the binary, and the resolver
-picks. A build is then a third *recipe kind* beside "an npm package" and "a vendor script", not a
-third value of a selector — which is [`OQ-PS3`](#OQ-PS3)'s question in miniature.
+**Is `via` the right axis for it? RULED: no.** `via` was the pack *selecting* the delivery
+mechanism; under [`OQ-PS3`](#decision-ledger) (2026-09-11) the pack does not select — it **lists**
+what can produce the binary, and the resolver picks. **A build is a third *recipe kind*** beside
+"an npm package" and "a vendor script", not a third value of a selector, and it carries the
+build-time needs item 1 above found missing
+([§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves)). The one
+thing the ruling does not widen is what core may *deliver*: `knownVias` stays closed until core
+knows how.
 
 ---
 
@@ -524,8 +547,9 @@ Keep it in mind as a simplification if the `buildEnv` ever proves more machinery
 
 ### 6.3 `nix profile --profile <dir>`: the only candidate that reaches a user's own PATH
 
-This is the mechanism half of [`OQ-PS1`](#OQ-PS1), and the reason the merged doc's own [`OQ-3`](#decision-ledger)
-folded into it.
+This is [`OQ-PS10`](#OQ-PS10) — the *what does it leave behind* question, carved out of the old
+compound [`OQ-PS1`](#OQ-PS1)(c) on 2026-09-11 — and the reason the merged doc's own
+[`OQ-3`](#decision-ledger) folded into it.
 
 `nix profile add` puts the binary on the user's PATH **forever, in every shell, with no
 cooperation from yolo** — which is precisely what a user asking *"how do I install copilot"*
@@ -539,9 +563,33 @@ refuses the three `unfree` packages.
 the corpus considered it. `nix profile add --profile ~/.local/state/yolo/host-profile nixpkgs#…`
 builds a **yolo-owned** profile the user's PATH does not see by default — a `buildEnv`-like
 stable path *with* generations, rollback and `nix profile list` provenance. Verified working
-2026-08-02 into a temp dir. It costs the imperative/declarative purity the env-manager's sealing
-story rests on ([§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)):
-a profile is *mutable state*, and the closure table gains a row.
+2026-08-02 into a temp dir, and again on darwin 2026-09-11
+([§15](#15-what-a-mac-session-should-measure) M3).
+
+> [!WARNING]
+> **⚠ Retracted 2026-09-11: "it costs the imperative/declarative purity the env-manager's sealing
+> story rests on… the closure table gains a row."** That sentence stood here and was the whole
+> basis of the old [`OQ-PS1`](#OQ-PS1)(c) conditional. It is **wrong**, and the correction is what
+> made [`OQ-PS10`](#OQ-PS10) answerable. Sealing's rule over the closure tiers is *"`--sealed`
+> refuses the **Undeclared** tier and **reports** the Declared-impure tier"*, and its criterion is
+> **nameability**
+> ([`yolo-as-environment-manager.md` §3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)).
+> A profile at a path yolo names is therefore **Declared-impure** — the tier `mise_tools` already
+> occupies — so it is reported and never refused. Confirmed against the code: `applySealed` refuses
+> exactly two inputs, a present `yolo-jail.local.jsonc` and outstanding capture overlay keys
+> (`internal/cli/apply.go:800-833`, read 2026-09-11); it reads no toolchain and no store path.
+> ⚠ Do not reintroduce a "sealing forbids a mutable profile" argument anywhere in this corpus —
+> at `guest` and `host`
+> [§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)
+> already puts the **whole toolchain** outside the sealed closure, and
+> that is the design, not an oversight.
+
+**Three costs that are real**, and they are what [`OQ-PS10`](#OQ-PS10) actually weighs: it
+**mutates state yolo then owns** (a thing to reap, report and reason about across versions); its
+**pin is weaker** — MEASURED 2026-09-11, a `--profile` entry locks to whatever channel tarball
+`nixpkgs#…` resolved to, not to yolo's `flake.lock` ([§15](#15-what-a-mac-session-should-measure)
+M3); and a bare install still **refuses the three `unfree` packages**, which on a flake needs
+`--impure` rather than an environment variable (M3 again).
 
 ⚠ **One argument for it has since been taken off the table:** the declarative `buildEnv` now
 GC-roots itself ([§6.8](#68-what-if-the-user-has-no-nix)), so *"it gcroots itself"* is no longer
@@ -716,10 +764,16 @@ Three sub-cases, and only one is interesting. This is the half of [`OQ-PS1`](#OQ
 doc treated as terminal.
 
 1. **No nix at all** (the common macOS/Linux user). The resolver is unavailable. `yolo check`
-   already fails on `nix not found` — but on Linux the `/nix`-exists and `nix store info` probes
-   are `IsMacOS`-gated and never run ([`OQ-NX9`](#OQ-NX9)). **Telling a brew user to install nix
-   to get `copilot` is worse than `brew install copilot-cli`**, so `install_hints` stays the
-   floor. That objection stands unchanged and is why [`OQ-PS1`](#OQ-PS1)(b) leans no.
+   already fails on `nix not found` and prints the download URL
+   (`internal/cli/check/section_nix_probe.go:25`, read 2026-09-11) — but on Linux the `/nix`-exists
+   and `nix store info` probes are `IsMacOS`-gated and never run ([`OQ-NX9`](#OQ-NX9)). **Telling
+   a brew user to install nix to get `copilot` is worse than `brew install copilot-cli`**, so
+   `install_hints` stays the floor. ⚠ **Re-examined 2026-09-11: that objection is about RANKING,
+   and it does not reach [`OQ-PS9`](#OQ-PS9).** It says nix must not lead the macOS default order —
+   which [`OQ-PS6`](#OQ-PS6)'s leaning already honours — and says nothing about a user whose only
+   covering provisioner *is* nix, which on a non-Arch Linux host is the ordinary case
+   ([§4](#4-the-coverage-matrix-which-manager-covers-what)). The old
+   [`OQ-PS1`](#OQ-PS1)(b) leaning cited it for work it could not do.
 2. **nix present, user not trusted.** Already handled as a warning, not a failure: a non-trusted
    user can still substitute from `cache.nixos.org`; being trusted is what makes
    `--accept-flake-config` consult yolo's cachix.
@@ -797,8 +851,10 @@ reframing changes what an implementer would build rather than what they would ca
 
 ### 7.3 Naming is downstream
 
-A kind rename is its own decision ([`OQ-PS5`](#OQ-PS5)) and must not drive the model above. Its
-measured blast radius, so the cost is on the table: the closed 19-kind const set and
+A kind rename is its own decision ([`OQ-PS5`](#OQ-PS5)) and must not drive the model above —
+which is why [`OQ-PS3`](#decision-ledger) was ruled without it, and why
+[`OQ-PS11`](#OQ-PS11) (does the pair collapse) sits **upstream** of the name. Its measured blast
+radius, so the cost is on the table: the closed 19-kind const set and
 `footprints` map (`internal/packdecl/kinds.go:40-223`, `:293`); the validator's per-kind cases
 (`contributes.go:1540`, `:1588`); **seven shipped manifests** under `packs/` — six `program`
 (agy, claude, codex via installer; copilot, opencode, pi via npm — re-MEASURED 2026-09-11) and
@@ -838,14 +894,20 @@ each; and any fetched pack. The pack **lockfile** records no kind names
 > no tension.** npm is not a bash script, so it was never in scope; capture's installer-only
 > boundary is the rule's implementation, not a gap in it.
 >
-> **What the rule does bear on** is [`OQ-PS5`](#OQ-PS5) — *"it doesn't have to be yolo's package
-> manager"* means yolo's own store is one provisioner among several rather than the privileged one,
-> which is the same conclusion the provisioner-set model reaches from the other direction.
+> **What the rule bore on** was the model, and the model is now ruled: *"it doesn't have to be
+> yolo's package manager"* means yolo's own store is one provisioner among several rather than the
+> privileged one — the same conclusion [`OQ-PS3`](#decision-ledger) reached from the other
+> direction ([§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves)).
+> What it still bears on downstream is [`OQ-PS11`](#OQ-PS11) and [`OQ-PS5`](#OQ-PS5), the
+> vocabulary that names the result.
 
 ## 8. The shape this doc leans toward
 
-Not a decision, except where [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)
-says otherwise — the leaning the questions are asked against, so their stakes are concrete.
+**Three of its five parts are now ruled** — the declaration by
+[§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves), the
+precedence by [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides), the verb by
+[§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last). The rest is still the
+leaning the remaining questions are asked against, so their stakes are concrete.
 
 ```mermaid
 flowchart LR
@@ -866,10 +928,11 @@ flowchart LR
 
 Read as behaviour, exhaustively; mechanism is the implementer's.
 
-- **Declaration.** A pack declares a binary and every recipe it knows that produces it. Today's
-  `via` + `package`/`url` is one recipe; today's `install_hints` are the rest. Nothing forces a
-  pack to know the user's platform, and a pack with **no** recipe for a binary is today's
-  `requires`.
+- **Declaration — RULED** ([§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves)).
+  A pack declares a binary and every recipe it knows that produces it, and privileges none of
+  them. Today's `via` + `package`/`url` is one recipe; today's `install_hints` are the rest.
+  Nothing forces a pack to know the user's platform, and a pack with **no** recipe for a binary is
+  today's `requires`.
 - **Provisioner set.** Each environment enumerates what it has, and the enumeration is what
   `describe` prints — the way it already prints the profile line when `PrimBakedImage` is absent.
   An environment with an **empty** set (a host with no manager detected and no nix) reports every
@@ -881,7 +944,9 @@ Read as behaviour, exhaustively; mechanism is the implementer's.
   A recipe the declaration carries for a provisioner the environment lacks is *reported*, never
   attempted. The pack's own installer is one candidate among the set, ranked by the precedence —
   not the head of the list as `depcheck.Check` ranks it today (F2).
-- **Disposition and record.** *Drives* writes a receipt, as every driven install already does;
+- **Disposition and record.** *Drives* — RULED as a confirm-gated offer sequenced last
+  ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)) — writes a receipt,
+  as every driven install already does;
   *hints* writes the manifest, as `check-deps` already does; *absent* names the binary and the
   set that could not cover it. Nothing is ever rendered inert (P3): a provisioner the environment
   cannot run is not in its set.
@@ -909,9 +974,10 @@ the pack's installer first is hardcoded (F2).
 
 ### 8.2 The ruling: a shipped default order, the user config overrides
 
-**Ruled 2026-09-11.** This settles [`OQ-PS4`](#decision-ledger) as asked and narrows
-[`OQ-PS2`](#OQ-PS2); it deliberately settles nothing else, and
-[§8.3](#83-what-the-ruling-does-not-settle) says what stays open.
+**Ruled 2026-09-11.** This settles [`OQ-PS4`](#decision-ledger) as asked and narrowed
+[`OQ-PS2`](#decision-ledger), which was itself ruled later the same day
+([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)); it deliberately
+settles nothing else, and [§8.3](#83-what-the-ruling-does-not-settle) says what stays open.
 
 **1. The version-currency cost is accepted, and it is the user's to accept.** `depcheck.Check`'s
 stated precedence reason is a real cost, and it is preserved rather than deleted:
@@ -955,21 +1021,110 @@ right default anywhere.
 ### 8.3 What the ruling does NOT settle
 
 Three things stay live, sharpened rather than closed. Recording them explicitly because the
-ruling reads broader than it is.
+ruling reads broader than it is. ⚠ **The last two rows were one question when this table was
+written** — the table listing them separately is what exposed that, and they were carved apart on
+2026-09-11 ([the carve table](#the-2026-09-11-carve-one-question-one-decision)).
 
 | Still open | Question | Why the ruling does not reach it |
 | :--- | :--- | :--- |
-| **What the shipped default order actually is, per environment** | [`OQ-PS6`](#OQ-PS6) | P4 makes it a per-platform table, not a word; and the jail's row is the absorbed [`OQ-NX7`](#question-id-map-old-spelling--new) — *should the jail's agent CLIs come from nix?* — which the ruling does not answer. |
-| **Whether the override is per-package or per-environment-only** | [`OQ-PS7`](#OQ-PS7) | *"Claude from brew"* is the maintainer's own example and needs per-package grain; *"don't overwhelm the user"* pushes the other way. Both sentences are his and they pull apart. |
-| **Whether this is a config key over `install_hints` or new machinery** | [`OQ-PS7`](#OQ-PS7) | The data exists ([§8.1](#81-who-chooses-the-provisioner-today)) but only for hints the packs already ship; a recipe they do not ship makes it a subsystem. |
+| **What the shipped default order actually is, per environment** | [`OQ-PS6`](#OQ-PS6) | P4 makes it a per-platform table, not a word; and the jail's row is the absorbed [`OQ-7`](#question-id-map-old-spelling--new) — *should the jail's agent CLIs come from nix?* — which the ruling does not answer. |
+| **Whether the override is per-package or per-environment only** | [`OQ-PS7`](#OQ-PS7) | *"Claude from brew"* is the maintainer's own example and needs per-package grain; *"don't overwhelm the user"* pushes the other way. Both sentences are his and they pull apart. |
+| **Whether a user may name a recipe no pack ships** | [`OQ-PS12`](#OQ-PS12) | Re-ranking the recipes packs already declare is a config key over data that exists ([§8.1](#81-who-chooses-the-provisioner-today)); a recipe they do **not** ship is a subsystem with a trust story. |
 
-And one thing the ruling makes *sharper* rather than settling: **whether yolo executes the
-winner at all** is still [`OQ-PS2`](#OQ-PS2). A precedence order that resolves to `brew install
-claude-code` and then prints it is a strictly better hint than today's; a precedence order that
-*runs* it is the first time yolo mutates a real machine's toolchain. The ruling picks the order,
-not the verb.
+And the thing this ruling made sharper rather than settling — **whether yolo executes the winner
+at all** — was itself ruled later the same day: **drive it, behind the confirm, sequenced last**
+([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last),
+[`OQ-PS2`](#decision-ledger)). This ruling picked the order; that one picked the verb.
 
 ---
+
+### 8.4 The ruling: a pack declares a need and its recipes; the environment resolves
+
+**Ruled 2026-09-11**, settling [`OQ-PS3`](#decision-ledger) — the model question the rest of this
+doc turns on, and P1 turned from a principle into a contract.
+
+**A pack declares a NEED — a binary, plus every recipe it knows that can produce it — and
+privileges none of them.** The environment's provisioner set and the
+[§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) precedence order choose
+which recipe runs. This is the AUR recipe/installer split
+([§5.1](#51-where-the-aur-model-carries-weight)) with the destination made plural, which is the
+one place AUR does not carry ([§5.2](#52-where-it-breaks)).
+
+Three consequences, and none of them is a new field:
+
+- **`via` stops being a selector.** A `via`+`package`/`url` contribution is **one recipe**, and
+  each `install_hints` entry is **another**. The data already exists — `hintFor` indexes hints by
+  manager (`internal/depcheck/depcheck.go:77-78`) and `Fallback` already carries the alternative
+  the user did not get (`:110-117`). What the ruling removes is the pack's power to rank them.
+- **A custom build is a recipe KIND, not a third `via` value.**
+  [§5.3](#53-a-custom-build-is-expressible-today-and-what-it-lacks)'s question in miniature is
+  answered: the capability already exists inside the capture jail, and what it lacked was a place
+  in the vocabulary. It arrives as a recipe carrying its **own build-time needs** — the
+  `makedepends` category [§5.1](#51-where-the-aur-model-carries-weight) found missing — rather
+  than as a value of a selector the ruling just retired.
+- **`requires` is a need with an empty recipe list.** That is a statement about semantics, and it
+  is all the ruling settles here; whether the manifest keeps two kind names for it is
+  [`OQ-PS11`](#OQ-PS11), and what the surviving kind is called is [`OQ-PS5`](#OQ-PS5).
+
+> [!WARNING]
+> **The ruling does not widen what a pack may *deliver*, and the enum tolerance is what makes
+> that safe.** `knownVias` is closed at two values precisely because *"core has to know how to
+> DELIVER a mechanism before a pack may name it"*
+> (`internal/packdecl/contributes.go:378-381`). Recipes are declarations the resolver ranks; a
+> recipe naming a mechanism this yolo cannot drive is **reported, never attempted**
+> ([§8](#8-the-shape-this-doc-leans-toward)). The
+> [§6.2](program-delivery.md#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives)
+> tolerance covers the older-image case — a recipe kind an older image does not know degrades to
+> a skip rather than a refused boot — and it is already paid.
+>
+> ⚠ **And the installer rule is untouched.** *"It's just not going to be a bash script"* still
+> binds every recipe: whatever reaches a real environment is a **package with a manifest**, and a
+> `via: installer` recipe reaches it through capture. A recipe is a declaration of how a package
+> can be produced, never a licence to run a script in place.
+
+### 8.5 The ruling: yolo drives the winner, behind the confirm, and last
+
+**Ruled 2026-09-11**, settling [`OQ-PS2`](#decision-ledger). The answer is **drive it** — and two
+qualifiers carry as much weight as the verb.
+
+1. **Behind the confirm that is already ruled.** Executing a system-manager command runs under
+   env-manager [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s
+   disposition — batched by elevation class, sudo shown through — which was ruled 2026-08-01 and
+   whose own audit says it *"has no consumer at all today"*. This ruling is that consumer.
+2. **Sequenced LAST.** The precedence order ships first as a **print-only** improvement, and the
+   driving is the increment after it ([§9](#9-what-i-would-build-in-order) steps 4 then 5). A
+   precedence order that only ever prints the winner is already strictly better than today and
+   carries no elevation risk; introducing the preference surface and the first mutation of a real
+   machine's toolchain in one step would make a single failure ambiguous between the two.
+3. **The written manifest stays the floor.** The env-manager guarantee — *"the composed manifest
+   is always the floor"*
+   ([§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest))
+   — survives the ruling intact. `check-deps` keeps writing `~/.config/yolo/Brewfile` and kin
+   whether or not the offer is taken, and a declined offer leaves a user exactly where today's
+   yolo leaves them. Running it is an **offer on top**, never a replacement.
+
+**What was already settled and is not re-opened:** the version-currency objection to leading with
+a system manager. [`OQ-PS4`](#decision-ledger) ruled it an accepted cost
+([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)), so what this ruling
+decided was purely *does yolo execute the winner*.
+
+> [!WARNING]
+> **F2's precedence comment is preserved, not repealed.** `depcheck.Check` still ranks the
+> declaring pack's own installer first for the reason it states — *"a tool with a first-party
+> installer has a first-party updater, and a distro package silently pins it to whatever that repo
+> has"* (`internal/depcheck/depcheck.go:147-151`). The ruling inverts the **order**, knowingly;
+> the sentence stays because it is what the inversion costs, and R2 prices it.
+>
+> ⚠ **Driving is a per-launch offer, never a background action.** Nothing here licenses
+> provisioning on a timer or at boot: the offer belongs to an `apply`-shaped verb a human invoked,
+> and with no TTY it degrades to printing. That is the same rule
+> [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
+> already carries, restated because this is the first thing that will actually take it.
+
+**The precondition is met on hardware.** A driven `brew` path presupposes the manifest yolo writes
+is one `brew bundle` can read, and that was measured for the first time on 2026-09-11: `brew
+bundle check --verbose` parsed the generated file, cask lines included, and reported per-entry
+misses rather than a syntax error ([§15](#15-what-a-mac-session-should-measure) M2).
 
 ## 9. What I would build, in order
 
@@ -987,16 +1142,18 @@ these are independent of every open question and should not wait on one.
 3. **Make `yolo host apply` say what `describe` says about `packages:`**
    ([`OQ-NX8`](#OQ-NX8)'s narrow half). Two yolo commands currently disagree about whether the
    host manages packages; that is worth closing even if every policy question stays open.
-4. **Then the precedence order**, which is the ruling's first increment and the smallest thing
-   that changes user-visible behaviour: a user-scope ordered preference replacing
-   `detectManager`'s answer and re-ranking `SelfInstall` over hints the packs already ship
-   ([§8.1](#81-who-chooses-the-provisioner-today)). It needs [`OQ-PS6`](#OQ-PS6) for its default
-   and [`OQ-PS7`](#OQ-PS7) for its grain, and nothing else.
-5. **Only then the driven half** — Phase 6.4 plus [`OQ-PS2`](#OQ-PS2). It is the first mutation
-   of a real machine and should not be the increment that also introduces the preference surface.
+4. **Then the precedence order, PRINT-ONLY** — the first increment of both rulings and the
+   smallest thing that changes user-visible behaviour: a user-scope ordered preference replacing
+   `detectManager`'s answer and re-ranking the recipes a pack already ships
+   ([§8.1](#81-who-chooses-the-provisioner-today)). It needs [`OQ-PS6`](#OQ-PS6) for its default,
+   [`OQ-PS7`](#OQ-PS7) for its grain and [`OQ-PS12`](#OQ-PS12) for its scope, and nothing else.
+5. **Only then the driven half** — Phase 6.4, which [`OQ-PS2`](#decision-ledger) ruled **in**, at
+   this position deliberately ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)).
+   It is the first mutation of a real machine and must not be the increment that also introduces
+   the preference surface, or a failure is ambiguous between the two.
 
 Steps 1–3 are defect-shaped and ruled by P3 and by the two narrow halves already leaning; steps
-4–5 are the design.
+4–5 are the design, and their order is itself ruled rather than merely preferred.
 
 ---
 
@@ -1008,15 +1165,15 @@ shipped status so nobody re-opens a settled fork.
 | Alternative | Verdict |
 | :--- | :--- |
 | **A. Status quo, reported honestly** — keep `via`, keep hinting at the host, fix F5 and the unwarned guest launcher | **Rejected as an end state, accepted as the interim.** It satisfies P3 and nothing else; a user still cannot choose brew, and the host still has no provisioner. |
-| **B. Rename only** — `program` → `package`, `requires` unchanged | **Rejected.** [§7.1](#71-tested-against-the-mechanical-differences): it changes no disposition anywhere. |
-| **C. A provisioner set per environment, a need per pack, a precedence between them** ([§8](#8-the-shape-this-doc-leans-toward)) | **The shape this doc leans toward**, and the one the [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) ruling picks the precedence half of. Costs a preference surface, the F2 precedence reversal, and — if the host is to *drive* anything — Phase 6.4. |
+| **B. Rename only** — `program` → `package`, `requires` unchanged | **Rejected, and now unreachable.** [§7.1](#71-tested-against-the-mechanical-differences): it changes no disposition anywhere — and since [`OQ-PS3`](#decision-ledger) retired `via` as a selector, the *"rename while `via` still selects"* arm it names no longer exists. What survives of naming is [`OQ-PS11`](#OQ-PS11) then [`OQ-PS5`](#OQ-PS5). |
+| **C. A provisioner set per environment, a need per pack, a precedence between them** ([§8](#8-the-shape-this-doc-leans-toward)) | **ADOPTED, in three rulings.** [`OQ-PS3`](#decision-ledger) took the declaration half ([§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves)), [`OQ-PS4`](#decision-ledger) the precedence half ([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)), [`OQ-PS2`](#decision-ledger) the verb ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)). Costs a preference surface, the F2 precedence reversal, and Phase 6.4. |
 | **D. Per-notch `via` in the manifest** — `via: {jail: npm, host: brew}` | **Rejected.** The pack is the wrong place (P1), and a pack author cannot know the user's distro; the coverage matrix makes any pack-chosen host value wrong on some platform. P5 is the general form of this. |
-| **E. Give the host nix** — yolo installs nix so every notch has the same provisioner | **Not an alternative to the model; one cell of it**, and the half of [`OQ-PS1`](#OQ-PS1) the corpus had never considered before this merge. |
+| **E. Give the host nix** — yolo installs nix so every notch has the same provisioner | **Not an alternative to the model; one cell of it**, and the half of the old compound [`OQ-PS1`](#OQ-PS1) the corpus had never considered before this merge. It is now [`OQ-PS9`](#OQ-PS9) in its own right, reframed 2026-09-11 from *no* to **yes-in-principle, blocked on effort**. |
 | **F. Agent CLIs from nix in the jail** | **No longer out of scope** — it was the absorbed doc's [`OQ-7`](#decision-ledger) and is now the jail row of [`OQ-PS6`](#OQ-PS6). Leaning stays no, for the freshness reason in [§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps). |
 | **G. Do nothing; fix the two `install_hints` defects instead** (absorbed Option 0) | **DONE 2026-08-02.** The brew-cask Brewfile verb and the unfree hint both shipped (`e40df9f1`). The rest of it — *leave provisioning at the host as "print the remedy"* — is alternative A. |
 | **H. Rename and generalize the nix mechanism, add no new consumer** (absorbed Option 1) | **MOSTLY SHIPPED 2026-08-05** (`11f8bb72`, `23cee7a6`): the system-neutral name, `NativeSystem()`, the GC root, `describe`'s report. Leftovers are [`OQ-NX8`](#OQ-NX8) and [`OQ-NX9`](#OQ-NX9), plus the deliberately-deferred `darwinpkg` Go-package rename. ⚠ **It was never able to deliver on its own**: a rename does not give `host` a consumer. |
 | **I. A launch verb below `jail`** (absorbed Option 2) | **SHIPPED 2026-08-30.** `yolo host -- <cmd>`, with `yolo --at host -- <cmd>` as its systematic alias. This resolved the absorbed doc's [`OQ-NX1`](#decision-ledger) by events. |
-| **J. A yolo-owned `nix profile` installer** (absorbed Option 3) | **Still unbuilt and unruled** — and it is not the other arm of a resolved fork, it is a separate installer product. Folded into [`OQ-PS1`](#OQ-PS1); the mechanism is [§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path). |
+| **J. A yolo-owned `nix profile` installer** (absorbed Option 3) | **Still unbuilt and unruled** — and it is not the other arm of a resolved fork, it is a separate installer product. It is now [`OQ-PS10`](#OQ-PS10) in its own right; the mechanism is [§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path), whose sealing objection was retracted 2026-09-11. |
 
 ---
 
@@ -1026,7 +1183,7 @@ shipped status so nobody re-opens a settled fork.
 | :--- | :--- | :--- |
 | R1 | **A preference surface nobody sets.** Most users never touch it, so the default must be right per platform (P4, P5). | The default is the product, not the override — [`OQ-PS6`](#OQ-PS6) is where it gets chosen. Print which provisioner won, every time. |
 | R2 | **Reversing `depcheck`'s precedence re-pins agent CLIs to distro versions.** | **Ruled an accepted cost, 2026-09-11** ([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)) — the user choosing brew chooses brew's cadence knowingly. Keep the pack's recipe as the printed alternative, as `Fallback` does today in the other direction. The evergreen ruling is a **jail** policy and does not reach a host the user provisions (P2). |
-| R3 | **Driving the system manager is the first time yolo mutates a real machine's toolchain.** | Exactly the elevation the env-manager design priced: batched confirms, sudo shown through, no TTY means print only. [`OQ-PS2`](#OQ-PS2) asks whether to take it; [§9](#9-what-i-would-build-in-order) sequences it last. |
+| R3 | **Driving the system manager is the first time yolo mutates a real machine's toolchain.** | **Accepted 2026-09-11** ([`OQ-PS2`](#decision-ledger)) with the mitigation as the ruling's own terms: exactly the elevation the env-manager design priced — batched confirms, sudo shown through, no TTY means print only — and [§9](#9-what-i-would-build-in-order) sequences it **last**, behind a print-only precedence order. ⚠ [`OQ-PS9`](#OQ-PS9) would raise this risk by a class, since installing nix is a daemon and a store rather than a package. |
 | R4 | **A custom build widens the capture jail's trust surface.** | It does not — the capture jail already runs arbitrary vendor scripts, and the product is what is trusted ([§5.1](#51-where-the-aur-model-carries-weight)). What widens is the *declaration*, and a fetched pack's installer URL is already the review-flagged claim. |
 | R5 | **Almost every guest claim here is unmeasured.** | Every guest cell is labelled, and [§15](#15-what-a-mac-session-should-measure) is the ordered list that would close them. ⚠ Note the *session* Seatbelt profile IS kernel-verified as of 2026-09-10 — see [§14.2](#142-what-the-mac-runbook-already-settled-and-one-stale-comment). |
 | R6 | **The set is enumerated by hand and drifts.** | Derive it from the same source `describe` reads; a provisioner with no `describe` line is not in the set. This doc already found three drifted line numbers and one stale census while merging ([§14](#14-facts-verified-for-this-doc)). |
@@ -1071,8 +1228,8 @@ shipped status so nobody re-opens a settled fork.
 | [`macos-user-provisioning.md`](macos-user-provisioning.md) | the guest's floor and stage | Takes its four-keys table as the guest column's basis, **corrected** in one cell: the agent launchers are generated *and run* there, failing for want of npm — not inert. |
 | [`macos-user-home-tiers.md`](macos-user-home-tiers.md) | the guest's one-home defect and the A′ symlink layout | Nothing directly, but [§15](#15-what-a-mac-session-should-measure) M4 is its measurement, because a provisioner that stages into the sandbox home depends on that layout resolving. |
 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) | *declare once, check once, hand off* ([§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)); [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) | Generalises [§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) from "the host hands off" to "each environment resolves". ⚠ [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) and the plan's Phase 4 warning both say `FieldSet` *refuses* `program` at host citing `fieldset.go:38`; `HostFields()` honours it (`internal/render/fieldset.go:194`, *"honored but confirm-gated by the caller"*), so that refusal string is unreachable for `program` and the shipped rule is *report, do not install*. ⚠ Its promised `✗ packages   yolo does not manage packages here` line is contradicted by shipped `describe` and should be retired — [`OQ-NX8`](#OQ-NX8). |
-| [`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md) | Phase 6.4 and 4.3, [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) | Both unbuilt; [`OQ-PS2`](#OQ-PS2) is whether to build them as *the host's driven provisioner* rather than as a one-off offer. |
-| [`report-tiers.md`](report-tiers.md) | the `--assert` fatal, [`OQ-RO7`](report-tiers.md#11-decision-ledger) | RO7's leaning (*both fatal, only `program` gets the offer*) is a **kind**-keyed rule; under P1 the offer would key on *whether a provisioner covers the binary here*, which is a different predicate. Flagged, not ruled. |
+| [`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md) | Phase 6.4 and 4.3, [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) | Both unbuilt. **[`OQ-PS2`](#decision-ledger) ruled 2026-09-11 that they get built** — as *the host's driven provisioner*, behind that plan's own already-ruled confirm, and sequenced after the print-only precedence order. That plan's audit says [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s resolution *"has no consumer at all today"*; this ruling is its consumer. |
+| [`report-tiers.md`](report-tiers.md) | the `--assert` fatal, [`OQ-RO7`](report-tiers.md#11-decision-ledger) | **RO7 was RULED 2026-09-11** — *both kinds fatal, only `program` gets the offer* — and [`OQ-PS3`](#decision-ledger)'s recipe model **reinforces** that predicate rather than disturbing it ([§3.1](#31-five-findings-the-table-forces) F2): a `requires` is a need with no runnable recipe, so there is nothing to offer. ⚠ What is still unsettled is the *spelling*: RO7's rule keys on the **kind**, and under P1 the offer keys on *whether a provisioner covers this binary here*. [`OQ-PS11`](#OQ-PS11) decides whether there is still a kind to key on. |
 | [`host-render-target.md`](host-render-target.md) | the host as a reduced render target | ⚠ Its [§2.2](host-render-target.md#22-so-which-is-it-a-command-or-a-mode) table marks `macos-user · program: ✅ (native nix)`; that cell describes `packages:`, not `program` — no `program` is provisioned by nix on any notch. |
 | [`boundary-broker.md`](boundary-broker.md), [`workspace-path-mirroring.md`](workspace-path-mirroring.md), [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) | — | All three cited the retired doc's ledger and were repointed here on 2026-09-11. |
 | [`../reference/pack-system.md`](../reference/pack-system.md) | the kinds and their combine rules | Its [`requires`](../reference/pack-system.md#requires) section is the *install vs presence* frame ([§2](#2-two-frames-that-failed-in-review)); correct about the jail, silent about why the host differs. |
@@ -1231,9 +1388,10 @@ stock macOS does not, and this Mac confirms it (no `/usr/bin/timeout`; Homebrew'
 backend: **there is no wall-clock bound on a guest update at all**, by the ruling in that comment. (3) **Two installers write into the generated home** and one of them reorders PATH:
 see [§15.1](#151-what-a-vendor-installer-does-to-the-generated-home).
 
-**M2 — Does the generated Brewfile actually apply, casks included?** Decides
-[`OQ-PS2`](#OQ-PS2) (drive or keep hinting) and the macOS row of [`OQ-PS6`](#OQ-PS6). This is the
-first hardware exercise of the `brew-cask` hint key shipped 2026-08-02.
+**M2 — Does the generated Brewfile actually apply, casks included?** Decided
+[`OQ-PS2`](#decision-ledger)'s precondition (drive or keep hinting — ruled **drive**, 2026-09-11)
+and the macOS row of [`OQ-PS6`](#OQ-PS6). This is the first hardware exercise of the `brew-cask`
+hint key shipped 2026-08-02.
 
 ```console
 $ yolo check-deps                      # note which manager it names
@@ -1244,14 +1402,15 @@ $ brew bundle check --file ~/.config/yolo/Brewfile
 **Expect:** `check-deps` names **brew** (confirming `DetectManager()` on a real Mac), the file
 contains `cask "claude-code"`-style lines for the four casks and `brew "…"` for the rest, and
 `brew bundle check` **parses the file** and reports what is missing rather than erroring. A parse
-error means the manifest yolo hands users is not runnable, and [`OQ-PS2`](#OQ-PS2) should not be
-ruled "drive it" until it is. `check`, not `install` — this must not mutate the machine.
+error means the manifest yolo hands users is not runnable, and [`OQ-PS2`](#decision-ledger) should
+not be ruled "drive it" until it is. `check`, not `install` — this must not mutate the machine.
 
 **MEASURED 2026-09-11 — the manifest is RUNNABLE, and the cask verb is right on hardware for the
 first time.** `brew bundle check --verbose` parsed the generated file and reported per-entry
 misses (`→ Cask codex needs to be installed or updated`, `→ Formula fd needs to be installed or
 updated`), exiting 1 for "things are missing" rather than erroring on the syntax. That is
-[`OQ-PS2`](#OQ-PS2)'s precondition met: the file yolo hands a user is one `brew bundle` understands.
+[`OQ-PS2`](#decision-ledger)'s precondition met: the file yolo hands a user is one `brew bundle`
+understands — and it was met before the question was ruled **drive it** the same day.
 Two corrections to the expectation:
 
 - **Two casks appeared, not four**, and the reason is not a defect: the Brewfile lists **misses
@@ -1263,15 +1422,16 @@ Two corrections to the expectation:
 - **`check-deps` never prints the word "brew".** It names the manager only implicitly: it writes a
   file called **`Brewfile`** and appends `or via brew: brew install --cask …` to each miss, then
   closes with the manager-agnostic `install with the command for your manager`. `DetectManager()`
-  is confirmed to have returned brew — by the artifact it chose, not by a statement. If
-  [`OQ-PS2`](#OQ-PS2) rules "drive it", that line is where the driving command belongs.
+  is confirmed to have returned brew — by the artifact it chose, not by a statement. **That line
+  is where the driving command belongs**, now that [`OQ-PS2`](#decision-ledger) has ruled drive-it.
 
 One unrelated observation, so the next reader does not chase it: `brew bundle check --verbose` also
 printed `Formulae dependency graph sorting found a circular dependency: libtiff, webp`. That is
 the measuring machine's own keg state, not anything in yolo's file.
 
 **M3 — Does `nix profile install` really refuse the three `unfree` agent CLIs on darwin, and
-does a yolo-owned `--profile` dir work there?** Decides [`OQ-PS1`](#OQ-PS1)'s mechanism half and
+does a yolo-owned `--profile` dir work there?** Decides [`OQ-PS10`](#OQ-PS10) (the old compound
+[`OQ-PS1`](#OQ-PS1)'s mechanism half, carved out 2026-09-11) and
 [§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path).
 
 ```console
@@ -1418,256 +1578,362 @@ against the npm row, which can only place a package.
 
 ## Open Questions
 
-Eleven live, in id order; [`OQ-PS3`](#OQ-PS3) and [`OQ-PS1`](#OQ-PS1) gate the most. Seven are this
-doc's, four are the retired doc's under an `NX` prefix ([the id map](#question-id-map-old-spelling--new)).
-The seventh, [`OQ-PS8`](#OQ-PS8), was opened by the 2026-09-11 Mac session rather than by a review.
-Each is written to be decidable, with stakes and a leaning; the leaning is mine and is not a
+Thirteen live, in id order. Seven are this doc's original `PS` series, four are carved out of
+compound questions on 2026-09-11 ([the carve table](#the-2026-09-11-carve-one-question-one-decision)),
+and four are the retired doc's under an `NX` prefix ([the id map](#question-id-map-old-spelling--new)).
+[`OQ-PS11`](#OQ-PS11) gates [`OQ-PS5`](#OQ-PS5); [`OQ-PS2`](#decision-ledger) and
+[`OQ-PS3`](#decision-ledger) were ruled on 2026-09-11 and are in the
+[Decision Ledger](#decision-ledger). Each question below is written to be decidable **on its own** —
+that is what the carve was for — with stakes and a leaning; the leaning is mine and is not a
 recommendation the doc rests on.
 
-1. 💬 **OQ-PS1: Should the host notch have nix — and by which mechanism?** Three sub-questions,
-   one of them absorbed. **(a)** *Use the user's nix if `/nix` is present* — the whole premise of
+1. 💬 **OQ-PS1: Should the host notch use the user's nix when `/nix` is present?** The premise of
    the retired doc, whose [§6.8](#68-what-if-the-user-has-no-nix) treats absence as terminal and
-   whose mechanism has two consumers and no host caller (F1). **(b)** *yolo installs nix* — never
-   considered anywhere in the corpus (MEASURED negative: the only "install nix" sentences say
-   that telling a brew user to do so is worse than `brew install`). **(c)** *Which nix mechanism*
-   — the declarative `buildEnv` yolo already ships, or a yolo-owned
-   `nix profile --profile <dir>` with generations and rollback
-   ([§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)).
-   **(c) is the absorbed [`OQ-3`](#decision-ledger) and is the only one that reaches a user's own PATH.**
-   **Stakes:** (a) decides whether the host's provisioner set can contain a yolo-driven member
-   without Phase 6.4, and whether `packages:` gains a meaning below `jail`
-   ([`OQ-NX8`](#OQ-NX8)); (b) decides whether yolo is willing to be a package manager that
-   installs a package manager; (c) decides how much of the sealing story
-   ([§3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails))
-   has to cover host provisioning, because a profile is mutable state and adds a row to the
-   closure table.
+   whose mechanism has two consumers and no host caller (F1). **This asks one thing and nothing
+   else**: does the already-built `yoloNoncontainerPackages` attribute get a third caller. What it
+   produces is [`OQ-PS10`](#OQ-PS10); whether yolo would install nix for a user who has none is
+   [`OQ-PS9`](#OQ-PS9); where nix ranks once it is in the set is
+   [`OQ-PS6`](#OQ-PS6). **Stakes:** whether the host's provisioner set can contain a yolo-driven
+   member at all without Phase 6.4, and whether `packages:` gains a meaning below `jail`
+   ([`OQ-NX8`](#OQ-NX8)).
 
-   _Leaning:_ **(a) yes, as one member of the host set, ranked by the precedence; (b) no; (c) the
-   `--profile <dir>` variant, but only if `--sealed` is best-effort.** (a) costs one caller for an
-   attribute that already builds on every system, and on Linux it is the only provisioner
-   covering all six agent CLIs ([§4](#4-the-coverage-matrix-which-manager-covers-what)). (b) is
-   the one act P1 reserves for the user: a machine-wide daemon and store is not a dependency a
-   pack introduced, and the brew user's objection in [§6.8](#68-what-if-the-user-has-no-nix)
-   stands unchanged. On (c) I genuinely do not know and would not guess in code — if sealing is a
-   hard guarantee a mutable profile is a trap; if best-effort, it is the cheapest route to
-   generations and rollback, and N1 has already taken *"it gcroots itself"* off its side of the
-   scale.
+   _Leaning:_ **Yes, as one member of the host set, ranked by the precedence.** Unchanged, and the
+   maintainer left it standing on 2026-09-11. It costs one caller for an attribute that already
+   builds on every system `flake-utils` enumerates
+   ([§6.1](#61-what-is-already-solved-stated-precisely)), and on Linux it is the only provisioner
+   covering all six agent CLIs ([§4](#4-the-coverage-matrix-which-manager-covers-what)).
 
-   <!-- vantage: oq id=OQ-PS1 leaning="(a) yes — use the user's nix when /nix exists, as one ranked member of the host's provisioner set; it needs one caller for an attribute that already builds everywhere and is the only manager covering all six agent CLIs on Linux. (b) no — yolo installing nix is a machine-wide act P1 reserves for the user. (c) undecided, and it turns on --sealed: if sealing is a hard guarantee a mutable nix profile is a trap; if best-effort, --profile <dir> is the cheapest route to generations and rollback." -->
+   <!-- vantage: oq id=OQ-PS1 leaning="Yes — use the user's nix when /nix exists, as one ranked member of the host's provisioner set. It needs one caller for an attribute that already builds on every system, and on Linux it is the only provisioner covering all six agent CLIs." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-PS2: Should yolo drive the system package manager, or keep hinting?** Today it is
-   modelled completely and never run (F2). **Narrowed by the
-   [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) ruling**: the
-   version-currency objection to leading with a system manager is now an accepted cost, so what
-   remains is purely *does yolo execute the winner*. The adjacent authorisations are narrower
-   than this question: Phase 6.4 is an *offer-to-run* attached to `apply`, and roadmap thread 29
-   authorised it as the mechanism behind the `--assert` fatal. **Stakes:** the first mutation of
-   a real machine's toolchain by yolo; [`OQ-RO7`](report-tiers.md#11-decision-ledger)'s predicate (kind-keyed
-   today, provisioner-keyed under P1); and whether the manifest stays the floor when the offer
-   exists.
+2. 💬 **OQ-PS5: Does the kind get renamed to `package`?** **Narrowed by
+   [`OQ-PS3`](#decision-ledger)'s ruling**, which removed one of the two answers this question used
+   to carry: with the pack declaring a need plus recipes, `via` is no longer a selector, so
+   *"rename while `via` still selects"* — [§10](#10-alternatives-each-with-a-verdict) alternative B,
+   *"a noun and no behaviour"* — is not on the table. What survives is naming whatever kind or kinds
+   the model leaves, which is why this now sits **downstream of [`OQ-PS11`](#OQ-PS11)**: rule the
+   collapse first and you may be naming one kind rather than re-spelling one of two.
+   **Stakes:** the measured blast radius in [§7.3](#73-naming-is-downstream) — a closed 19-kind
+   const set, seven shipped manifests, two help surfaces gated by `TestEveryKindIsDocumented` —
+   against the one place a rename changes what gets **built** rather than what it is called,
+   capture ([§7.2](#72-the-capture-payoff)).
 
-   _Leaning:_ **Drive it, behind the confirm [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
-   already ruled — but sequence it last** ([§9](#9-what-i-would-build-in-order)). Keep hinting as
-   the floor the env-manager design guarantees: the manifest is always written; running it is the
-   offer on top. A precedence order that only ever *prints* the winner is already strictly better
-   than today and is the increment that carries no elevation risk.
+   _Leaning:_ **Rename to `package` only if [`OQ-PS11`](#OQ-PS11) collapses the pair; otherwise
+   keep both names.** The rename earns its blast radius when there is one declaration to name and
+   *"the capture is the package"* becomes literal; it does not earn it as a re-spelling of one half
+   of a surviving pair.
 
-   <!-- vantage: oq id=OQ-PS2 leaning="Drive it, behind OQ-9's batched confirm, but sequence it last — after the precedence order ships as a print-only improvement. The written manifest stays the floor; running it is the offer on top. The version-currency objection is already settled as an accepted cost." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-PS3: Does a pack declare a provisioner, or a need the environment resolves?** This is
-   the deep one. Today `via` is the pack choosing the mechanism, and `install_hints` is a side
-   channel of alternatives the host may print. P1 says the pack should declare *what* and *how it
-   can be produced*, and the environment plus the precedence should choose. **Stakes:** whether
-   `via` survives as a selector or becomes one recipe among several; whether a custom build is a
-   third `via` value or a third recipe kind
-   ([§5.3](#53-a-custom-build-is-expressible-today-and-what-it-lacks)), and with it whether
-   build-time dependencies get a declaration; whether `install_hints` stops being a hint and
-   becomes a recipe with a provisioner name; and whether
-   [§6](program-delivery.md#6-the-general-seam-one-ledger-many-resolvers)'s *one ledger, many
-   resolvers* gains its mirror image, *one declaration, many environments*.
-
-   _Leaning:_ **A need plus the recipes that can produce it; the environment resolves.** The AUR
-   split ([§5.1](#51-where-the-aur-model-carries-weight)) is the shape; the current fields already
-   hold the data (a `via`+`package`/`url` is one recipe, each `install_hints` entry is another);
-   what changes is that no recipe is privileged by the pack. A custom build then arrives as a
-   recipe kind carrying its own build-time needs, and the enum tolerance
-   [§6.2](program-delivery.md#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) already
-   paid covers the older-image case.
-
-   <!-- vantage: oq id=OQ-PS3 leaning="A need plus the recipes that can produce it, resolved by the environment and the precedence order — the AUR recipe/installer split. Today's via+package/url is one recipe and each install_hints entry is another; what changes is that the pack privileges none of them. A custom build is then a recipe kind with its own build-time needs." -->
+   <!-- vantage: oq id=OQ-PS5 leaning="Rename to package only if OQ-PS11 collapses program and requires into one kind; otherwise keep both names. The rename earns its blast radius when there is one declaration to name and 'the capture is the package' becomes literal, not as a re-spelling of one half of a surviving pair." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-PS5: Does `program` become `package`, and what happens to `requires` under that?**
-   Downstream of [`OQ-PS3`](#OQ-PS3) by construction: if the pack declares a need, the pair is
-   *provides*/*depends*-shaped, verb/verb, and `requires` is a need with **no recipe of its own**
-   — the same declaration minus the pack's own way to produce it. If `via` survives as a
-   selector, the rename is cosmetic and [§7.1](#71-tested-against-the-mechanical-differences) says
-   it buys a noun and no behaviour. **Stakes:** the blast radius in
-   [§7.3](#73-naming-is-downstream) — a closed const set, seven manifests, two help surfaces and a
-   doc gate — against the one place the rename changes what gets built, capture
-   ([§7.2](#72-the-capture-payoff)); and whether `requires` keeps refusing `via`/`package`/`url`
-   by name (`contributes.go:1588`) or becomes the degenerate case of one kind.
-
-   _Leaning:_ **Defer until [`OQ-PS3`](#OQ-PS3) is ruled; then rename only if the ruling makes the
-   pair one kind.** A rename that leaves `via` as a selector is alternative B in
-   [§10](#10-alternatives-each-with-a-verdict). If PS3 rules "need", the honest shape is one kind
-   whose recipe list may be empty, and the two names collapse rather than get re-spelled.
-
-   <!-- vantage: oq id=OQ-PS5 leaning="Defer until OQ-PS3 is ruled, then rename only if that ruling makes the pair one kind: a need whose recipe list may be empty. A rename that leaves via as a selector is alternative B — a noun and no behaviour." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-PS6: What is the shipped default precedence order, per environment?** Opened by the
+3. 💬 **OQ-PS6: What is the shipped default precedence order, per environment?** Opened by the
    [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) ruling, which settled
    that there **is** a default order and left its content open. **Absorbs the retired doc's
-   [`OQ-7`](#decision-ledger)** (*should the jail get its agent CLIs from nix too?*), which is exactly this question
-   for the jail row. P4 makes it a per-platform table rather than a word. **Stakes:** the default
-   is the product, because most users never set the override (R1); the macOS row and the
-   non-Arch-Linux row cannot be the same list ([§4](#4-the-coverage-matrix-which-manager-covers-what));
-   and the jail row interacts with the evergreen ruling, which P2 scopes to the jail but does not
-   remove ([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)'s warning).
+   [`OQ-7`](#decision-ledger)** (*should the jail get its agent CLIs from nix too?*), which is
+   exactly this question for the jail row. P4 makes it a per-platform table rather than a word.
+   ⚠ **[`OQ-PS3`](#decision-ledger)'s ruling changed what is being ordered, not the order**: the
+   list now ranks **recipes and provisioners uniformly** — the pack's own installer is one
+   candidate and each `install_hints` entry is another — rather than *"the manager's hint versus
+   the pack's installer"*, which is the two-slot shape `depcheck.Check` hardcodes today (F2).
+   **Stakes:** the default is the product, because most users never set the override (R1); the
+   macOS row and the non-Arch-Linux row cannot be the same list
+   ([§4](#4-the-coverage-matrix-which-manager-covers-what)); and the jail row interacts with the
+   evergreen ruling, which P2 scopes to the jail but does not remove
+   ([§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)'s warning).
 
    _Leaning:_ **macOS host: brew → user's nix if present → the pack's own recipe. Non-Arch Linux
    host: user's nix if present → the pack's own recipe → the native manager (which covers almost
    nothing). Jail: unchanged — npm/installer, never nix.** The Linux row inverts the macOS one
-   because the coverage matrix inverts, which is P4 in one line. On the absorbed [`OQ-7`](#decision-ledger) half:
-   **no, not now** — same-day upstream versions matter more for a CLI that ships daily than the
-   pin does, two of six already lagged in nixpkgs at last measurement, and three are unfree,
-   which would put warn-and-skip on the jail's critical path.
+   because the coverage matrix inverts, which is P4 in one line. On the absorbed
+   [`OQ-7`](#decision-ledger) half: **no, not now** — same-day upstream versions matter more for a
+   CLI that ships daily than the pin does, two of six already lagged in nixpkgs at last
+   measurement, and three are unfree, which would put warn-and-skip on the jail's critical path.
+   ⚠ One number moved under nix on 2026-09-11: an unfree attr has **no binary cache**, so the
+   three unfree CLIs build locally on first use ([§15](#15-what-a-mac-session-should-measure) M3),
+   which is a real cost against ranking nix first on macOS.
 
-   <!-- vantage: oq id=OQ-PS6 leaning="macOS host: brew, then the user's nix if present, then the pack's own recipe. Non-Arch Linux host: the user's nix if present, then the pack's recipe, then the native manager which covers almost nothing. Jail: unchanged — npm/installer, never nix, because daily-shipping agent CLIs need upstream freshness more than a pin and three of six are unfree." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-PS7: Is the override per-package or per-environment-only, and is it a config key or new
-   machinery?** The other residue of the ruling, and the two halves are entangled enough to ask
-   together. *"Claude from brew"* is the maintainer's own example and needs **per-package** grain;
-   *"we don't want to overwhelm the user with package choices"* pushes toward
-   **per-environment-only**. On scope: over the `install_hints` the packs already ship this is a
-   **config key** that replaces `detectManager`'s answer and re-ranks `SelfInstall`
-   ([§8.1](#81-who-chooses-the-provisioner-today)); if the override must name a recipe no pack
-   ships, it is a **subsystem**. **Stakes:** whether one user-scope list is the whole surface, or
-   every package acquires a settable field; and whether this increment is small enough to ship
-   ahead of [`OQ-PS2`](#OQ-PS2), which is [§9](#9-what-i-would-build-in-order)'s ordering.
-
-   _Leaning:_ **Per-environment ordered list as the surface, with a per-package override that
-   exists but is not advertised; a config key first, never a subsystem.** The list is what a user
-   sets once; the override is the escape hatch for the one package where the list is wrong, and
-   putting it behind a rarely-read key is how *"don't overwhelm"* and *"claude from brew"* are
-   both true. Per-environment, never global, because a jail's list must not be a host's (P2).
-
-   <!-- vantage: oq id=OQ-PS7 leaning="A per-environment ordered list as the advertised surface, with a per-package override that exists but is not advertised — that is how 'claude from brew' and 'don't overwhelm the user' are both satisfied. A config key over the install_hints packs already ship, never a subsystem, and per-environment rather than global because a jail's list must not be a host's." -->
+   <!-- vantage: oq id=OQ-PS6 leaning="macOS host: brew, then the user's nix if present, then the pack's own recipe. Non-Arch Linux host: the user's nix if present, then the pack's recipe, then the native manager which covers almost nothing. Jail: unchanged — npm/installer, never nix, because daily-shipping agent CLIs need upstream freshness more than a pin and three of six are unfree with no binary cache." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-PS8: Can a recipe carry environment, and who decides an installer is
-   non-interactive?** Opened by a MEASUREMENT, not a review: codex's installer prompts
+4. 💬 **OQ-PS7: Is the override per-package, or per-environment only?** *"Claude from brew"* is
+   the maintainer's own example and needs **per-package** grain; *"we don't want to overwhelm the
+   user with package choices"* pushes toward **per-environment only**. Both sentences are his and
+   they pull apart, which is the whole of this question. Its former second half — how much
+   machinery the override needs — is now [`OQ-PS12`](#OQ-PS12), because the two are ruleable
+   independently and [§8.3](#83-what-the-ruling-does-not-settle) was already listing them as two
+   rows. **Stakes:** whether one user-scope ordered list is the whole surface, or every package
+   acquires a settable field.
+
+   _Leaning:_ **A per-environment ordered list as the advertised surface, with a per-package
+   override that exists but is not advertised.** The list is what a user sets once; the override is
+   the escape hatch for the one package where the list is wrong, and putting it behind a
+   rarely-read key is how *"don't overwhelm"* and *"claude from brew"* are both true.
+   Per-environment, never global, because a jail's list must not be a host's (P2).
+
+   <!-- vantage: oq id=OQ-PS7 leaning="A per-environment ordered list as the advertised surface, with a per-package override that exists but is not advertised — that is how 'claude from brew' and 'don't overwhelm the user' are both satisfied. Per-environment rather than global, because a jail's list must not be a host's." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. 💬 **OQ-PS8: How is a vendor installer made non-interactive — core detaches the tty, or a
+   recipe names the variable?** Opened by a MEASUREMENT, not a review: codex's installer prompts
    `Start Codex now? [y/N]` on `/dev/tty` and a human answered `N` mid-`--version`-probe
    ([§15.1](#151-what-a-vendor-installer-does-to-the-generated-home)). It honors
    `CODEX_NON_INTERACTIVE=1`; `packdecl.Install` has no field that can pass it, and its one
-   extensibility point (`flags`) is npm-only. **Two ways to close it, and they differ in who owns
-   the knowledge.** Per-recipe `env` in the manifest puts it with the vendor's own facts, at the
-   cost of a new manifest field on the sharpest kind there is — a `via: installer` contribution is
-   already *"a URL whose contents run as a shell script"*, and an env map on it is a second thing
-   the origin rule has to cover. Alternatively core makes every installer non-interactive
-   structurally, by giving it no tty rather than by naming a variable — which needs no vocabulary
-   and covers vendors yolo has never heard of, but cannot express the *positive* case (a variable
-   an installer needs to succeed at all). **Stakes:** whether the manifest gains a general
-   env-carrying field under [`OQ-PS3`](#OQ-PS3)'s recipes (where it would be per-recipe, not
-   per-program); whether an installer can ever block a launch on stdin; and the "no agent tests"
-   rule, which this prompt is one `y` away from violating in CI.
+   extensibility point (`flags`) is npm-only. **Two mechanisms, one decision, and they differ in who
+   owns the knowledge.** Naming the variable per recipe puts it with the vendor's own facts, at the
+   cost of a new field on the sharpest kind there is — a `via: installer` contribution is already
+   *"a URL whose contents run as a shell script"*, and an env map on it is a second thing the
+   origin rule has to cover. Detaching the tty makes every installer non-interactive
+   **structurally**, needs no vocabulary and covers vendors yolo has never heard of, but cannot
+   express the *positive* case (a variable an installer needs to succeed at all).
+   ⚠ **This was written as two questions and is deliberately kept as one**: the env field is on the
+   table only as the alternative way to close this prompt, and nothing measured yet needs an
+   installer to *receive* a variable — so a separate *"may a recipe carry env?"* would be a
+   question with no stakes. If a vendor ever needs one, that is when it becomes its own id.
+   **Stakes:** whether an installer can block a launch on stdin; and the *no agent tests* rule,
+   which this prompt is one `y` away from violating in CI.
 
    _Leaning:_ **Detach the tty in core, and do not add an env field yet.** The failure being
    prevented is *an installer waiting for a human*, and no vocabulary makes that impossible the way
-   having no tty does — a per-vendor variable only fixes the vendors we have already met. It also
-   keeps the field out of the manifest until [`OQ-PS3`](#OQ-PS3) has decided whether recipes exist,
-   at which point `env` belongs to a recipe rather than being retrofitted onto `Install`. The cost
-   I would accept: an installer that genuinely needs an answer fails instead of prompting, which is
-   the right failure for something running inside a jail nobody is watching.
+   having no tty does — a per-vendor variable only fixes the vendors we have already met. ⚠ The
+   *"wait for [`OQ-PS3`](#decision-ledger)"* half of this leaning is **spent**: that ruling landed
+   on 2026-09-11 and recipes exist, so an env field would now have an obvious home (per recipe, not
+   per program) and this question is decidable today rather than deferred. The cost I would accept
+   is unchanged: an installer that genuinely needs an answer fails instead of prompting, which is
+   the right failure for something running where nobody is watching.
 
-   <!-- vantage: oq id=OQ-PS8 leaning="Detach the tty in core rather than adding a per-recipe env field — 'an installer waiting for a human' is prevented structurally by having no tty, and a named variable only covers vendors already met. Defer env until OQ-PS3 decides whether recipes exist, so it lands on a recipe instead of being retrofitted onto Install. Accepted cost: an installer that needs an answer fails rather than prompting." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-8. 💬 **OQ-NX4: Does the environment need to carry *variables*, not just PATH?** (The retired
-   doc's [`OQ-4`](#decision-ledger).) A `buildEnv` cannot; a devShell can, and that is the *only* real argument for
-   one ([§6.2](#62-the-four-nix-mechanisms-compared-and-why-never-a-devshell)). Verified
-   2026-08-23: the Go whitelist is still exactly one variable, `PKG_CONFIG_PATH`, and only when
-   `<out>/lib/pkgconfig` exists (`internal/darwinpkg/darwinpkg.go:175`, `:194`, re-resolved
-   2026-09-11). The jail's baked `Env` carries `SSL_CERT_FILE`, `LD_LIBRARY_PATH`,
-   `PKG_CONFIG_PATH`, `FONTCONFIG_*`, `TZDIR`. **What it decides:** whether the devShell rejection
-   is re-opened on this one axis (never on PATH — that is not in question), and how far "mimic the
-   in-jail env" can go for a non-container notch.
-
-   _Leaning:_ **Keep the Go whitelist.** One variable is not a case for 121, and an explicit list
-   in Go is more auditable than a derivation's dump. Revisit only if the enumeration comes back
-   with more than about three.
-
-   <!-- vantage: oq id=OQ-NX4 leaning="Keep the Go whitelist. One variable does not justify 121, and an explicit list is more auditable than a derivation dump. Revisit past about three." -->
+   <!-- vantage: oq id=OQ-PS8 leaning="Detach the tty in core rather than adding a per-recipe env field — 'an installer waiting for a human' is prevented structurally by having no tty, and a named variable only covers vendors already met. Accepted cost: an installer that needs an answer fails rather than prompting. The old 'wait for OQ-PS3' deferral is spent — recipes now exist, so this is decidable today." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. 💬 **OQ-NX5: Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
-   *undeclared* pollution"?** (The retired doc's [`OQ-5`](#decision-ledger).) A `buildEnv` containing `gnugrep` still
-   shadows `/usr/bin/grep` when prepended — the difference from a devShell is legibility, not
-   effect, and on a Mac host that is the BSD-vs-GNU hazard arriving by the front door
-   ([§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)). **What it decides:** whether a
-   non-container profile *warns* when a declared package shadows a system binary, or trusts the
-   declaration. Nothing warns today, on any path (confirmed absent 2026-08-23). ⚠ It is the same
-   hazard as [`OQ-P2`](macos-user-provisioning.md#decision-ledger) one level up, and the two should be
-   ruled together.
+6. 💬 **OQ-PS9: Should yolo help the user install nix?** Carved from the old compound
+   [`OQ-PS1`](#OQ-PS1) on 2026-09-11, and **reframed by the maintainer in the same review**: the
+   leaning was a flat *no*, and he moved — *"If we can help the user install nix, that sounds like a
+   good idea. Not sure how tough that is, and not a huge blocker right now."* So this is **not
+   refused; it is yes-in-principle with effort as the blocker**, and the question is now *when and
+   at what cost*, not *whether it is allowed*.
 
-   _Leaning:_ **Restate the claim honestly as "no undeclared pollution" and build no warner yet**
-   — a shadow is what `packages: ["gnugrep"]` means. Revisit if the `host` notch ever puts this on
-   a human's interactive PATH, where the declaration was made once and the surprise arrives
-   months later.
+   **⚠ The objection the old leaning rested on does not carry this question.**
+   [§6.8](#68-what-if-the-user-has-no-nix)'s *"telling a brew user to install nix to get `copilot`
+   is worse than `brew install copilot-cli`"* is an argument about **ranking** — it says nix must
+   not lead the macOS default order, which [`OQ-PS6`](#OQ-PS6)'s leaning already honours. It says
+   nothing about a user whose **only** covering provisioner is nix, which on a non-Arch Linux host
+   is the ordinary case: 0–1 of six from the native manager against 6/6 from nix
+   ([§4](#4-the-coverage-matrix-which-manager-covers-what)). Re-examined 2026-09-11 as asked; the
+   objection stays true of the default order and is withdrawn from this question.
 
-   <!-- vantage: oq id=OQ-NX5 leaning="Restate the claim as 'no undeclared pollution' and build no warner yet — a shadow is what packages: ['gnugrep'] means. Revisit if the host notch puts this on a human's interactive PATH, and rule it together with OQ-P2." -->
+   **What it would take, stated plainly — this is the cost the ruling is really about.** Installing
+   nix is not installing a package; it is installing a **machine-wide store and daemon**, and four
+   things follow:
+
+   - **Root, and a system service.** `/nix`, a daemon (launchd on macOS, systemd on Linux), the
+     `nixbld` build users, and `/etc` shell-rc edits. On macOS since Catalina also an APFS volume
+     and an `/etc/synthetic.conf` firmlink. This is a strictly larger elevation class than every
+     remedy [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
+     batched.
+   - **yolo would drive someone else's installer, not write one.** Both user-facing guides already
+     recommend the Determinate installer by name (`docs/guides/USER_GUIDE.md:46`,
+     `docs/guides/macos.md:88`, read 2026-09-11), so the work is the confirm, the sudo pass-through
+     and the failure reporting — the same shape as any other driven remedy, one rung up.
+   - **The trusted-user follow-on is the part that does not fit.** A fresh install leaves the
+     invoking user untrusted, which is exactly what `yolo check` already flags; and the nearest
+     precedent in the tree **refuses to write host nix config at all** — *"only a human can set it —
+     yolo must not edit host nix config"* (`internal/cli/check/section_autogc.go:16-18`, read
+     2026-09-11). An install that stops short of trusting the user has not finished the job it was
+     wanted for, and finishing it means editing the one file yolo has ruled it will not touch.
+   - **It is the one act yolo cannot cleanly undo.** Every other remedy in the corpus removes with
+     the manager that installed it.
+
+   **Stakes:** whether yolo is willing to be a package manager that installs a package manager;
+   whether [`OQ-PS1`](#OQ-PS1)'s *"if `/nix` is present"* qualifier is permanent or a stepping
+   stone; and the size of the first elevation yolo ever takes, if this lands before
+   [`OQ-PS2`](#decision-ledger)'s driving machinery rather than after.
+
+   _Leaning:_ **Yes in principle, not now — and not first.** Build it as one more driven remedy
+   once [`OQ-PS2`](#decision-ledger)'s confirm-gated driving exists, so nix's install is the
+   *largest* case of a mechanism that already works rather than the case that introduces it. Until
+   then keep the hint yolo already prints (`internal/cli/check/section_nix_probe.go:25`, read
+   2026-09-11). ⚠ And close the inconsistency that is live today either way: `detectManager` falls
+   back to `nix` by elimination and `installCmd` then emits `nix profile install nixpkgs#<pkg>`
+   (`internal/depcheck/depcheck.go:129-141`, `:206`), so a user with no other manager is told to
+   run nix by one command while another tells them nix is missing.
+
+   <!-- vantage: oq id=OQ-PS9 leaning="Yes in principle, not now and not first. Build it as one more driven remedy after OQ-PS2's confirm-gated driving exists, so installing nix is the largest case of a working mechanism rather than the case that introduces it. The blocker is effort and blast radius — root, a system service, an APFS volume on macOS, a trusted-user edit yolo has ruled it will not make, and no clean undo — not principle. The brew-user objection is about ranking and does not reach this." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-10. 💬 **OQ-NX8: Should the `packages:` key report at all below `jail`, and which command says
-   so?** (The retired doc's [`OQ-8`](#decision-ledger).) `packages` is not a pack kind, so the `FieldSet` census never
-   sees it and `yolo host apply` prints nothing about it, while `macos-user` honours it natively.
-   The env-manager design promises `check --at host` will print *"packages: yolo does not manage
-   packages here."* **What it decides:** whether "silently absent" — the exact failure mode
-   `render.HostUnimplemented` exists to prevent, and P3 one level up — is allowed to persist for
-   the one config key that has a real off-container implementation. Under this doc's frame it is
-   the general question of **whether an environment's provisioner set reports itself, and where**
-   (R6, and [§8](#8-the-shape-this-doc-leans-toward)'s *"the enumeration is what `describe`
-   prints"*).
+7. 💬 **OQ-PS10: Does the host's nix provisioner leave anything behind?** Carved from the old
+   compound [`OQ-PS1`](#OQ-PS1)(c) and **rewritten**, because the question as posed could not be
+   read: it asked *"which nix mechanism"* and hid the stakes inside a conditional on `--sealed`'s
+   semantics. Asked in terms of what a user gets, it is two answers:
 
-   _Leaning:_ **The narrow half should just be fixed, ahead of any ruling.** `describe` already
-   reports the resolved profile whenever `PrimBakedImage` is absent
-   (`internal/cli/describe.go:177-180`), which contradicts the env-manager's promised
-   `✗ packages` line — so two yolo commands now disagree. Make `yolo host apply` say what
-   `describe` says, and retire the `✗ packages` sentence from the env-manager design
-   ([§9](#9-what-i-would-build-in-order) step 3). The *policy* half — should `host` manage
-   packages at all — is [`OQ-PS1`](#OQ-PS1)(a).
+   | | what it is | what survives the command |
+   | :--- | :--- | :--- |
+   | **A declarative closure** (ships today) | the `buildEnv` at `packages.yoloNoncontainerPackages`, realized with `--out-link`, `<out>/bin` prepended for the process yolo launches | **nothing** — one flake-pinned store path, GC-rooted, reachable only inside a yolo launch |
+   | **A yolo-owned mutable profile** | `nix profile add --profile <dir>` into a yolo path ([§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)) | a generation-tracked directory: rollback, `nix profile list` provenance, a stable path a user could put on their own PATH |
 
-   <!-- vantage: oq id=OQ-NX8 leaning="Fix the narrow half now: describe already reports the resolved profile when PrimBakedImage is absent, contradicting the promised '✗ packages' line, so two commands disagree. Make yolo host apply agree with describe and retire that sentence from the env-manager design. The policy half is OQ-PS1(a)." -->
+   > [!IMPORTANT]
+   > **The `--sealed` precondition is RESOLVED, and it resolves against the old conditional.**
+   > The former leaning read *"the `--profile <dir>` variant, but only if `--sealed` is
+   > best-effort"* — which asked a reviewer to hold sealing's semantics in their head to reach a
+   > provisioning decision. Verified 2026-09-11: `applySealed` refuses exactly **two** inputs, a
+   > present `yolo-jail.local.jsonc` and outstanding capture overlay keys
+   > (`internal/cli/apply.go:800-833`); it reads no toolchain and no store path. And sealing's rule
+   > over the closure tiers is *"refuses the **Undeclared** tier and **reports** the
+   > Declared-impure tier"*
+   > ([`yolo-as-environment-manager.md` §3.3](yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails)),
+   > whose criterion is **nameability** — so a profile at a path yolo names is Declared-impure, the
+   > same tier `mise_tools` already occupies, and `--sealed` was never going to refuse it. **The
+   > conditional was vacuous; it is withdrawn, and the decision below stands on its own.**
+
+   **Stakes:** whether the host notch acquires **persistent yolo-owned state** at all — today it
+   has none below rendered config, and a profile adds a thing to reap, report and reason about
+   across versions; whether a yolo-provisioned binary is reachable **without going through yolo**
+   (the `yolo host -- <cmd>` wrapper is the alternative answer to that); and what `describe` prints
+   for the host environment — a single flake-pinned store path, or a generation number.
+
+   _Leaning:_ **The declarative closure, with the profile held in reserve** — and this is a
+   **change from the old (c) leaning**, driven by the resolved precondition above and by two
+   measurements, so it is flagged rather than quietly swapped. Three reasons. (1) The profile's
+   headline advantage is smaller than it looked: `--profile <dir>` builds a profile **the user's
+   PATH does not see by default** ([§6.3](#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)),
+   so it does not answer *"how do I install copilot"* either — that is
+   [`OQ-PS9`](#OQ-PS9)'s and `install_hints`' job. (2) Its pin is **weaker**: MEASURED 2026-09-11,
+   a `--profile` entry locks to whatever channel tarball `nixpkgs#…` resolved to, not to yolo's
+   `flake.lock` ([§15](#15-what-a-mac-session-should-measure) M3), so matching the `buildEnv`'s
+   pinning means passing yolo's own flake ref and re-deriving what the closure gets structurally.
+   (3) *"It gcroots itself"* left the profile's side of the scale when the `buildEnv` acquired its
+   own root ([`OQ-NX2`](#decision-ledger)). Revisit if generations and rollback are ever asked for
+   by name.
+
+   <!-- vantage: oq id=OQ-PS10 leaning="The declarative buildEnv closure, with the mutable profile held in reserve — a change from the old leaning. --profile <dir> is not on the user's PATH either, so it does not answer 'how do I install copilot'; its pin is weaker (it locks to a channel tarball, not yolo's flake.lock); and 'it gcroots itself' left its side of the scale when the buildEnv got its own root. The --sealed conditional that used to gate this is withdrawn: sealing reports the Declared-impure tier and refuses only the Undeclared one." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-11. 💬 **OQ-NX9: Do non-macOS `yolo check` runs need the nix probes and the profile report?** (The
+8. 💬 **OQ-PS11: Do `program` and `requires` collapse into one kind?** Carved from the old
+   compound [`OQ-PS5`](#OQ-PS5) on 2026-09-11, and **sharpened by
+   [`OQ-PS3`](#decision-ledger)'s ruling**, which settled the *semantics* and left the *vocabulary*:
+   under the ruling a `requires` already **is** a need whose recipe list is empty — the same
+   declaration minus the pack's own way to produce it. What is still open is whether the manifest
+   keeps two kind names for one declaration. **Stakes:** whether `requires` keeps refusing
+   `via`/`package`/`url` by name (`internal/packdecl/contributes.go:1589-1592`, read 2026-09-11) or
+   becomes the degenerate case of one kind; whether F3's nine jail-side differences become
+   properties of *whether a recipe exists* rather than of the kind label; and whether
+   [`OQ-RO7`](report-tiers.md#11-decision-ledger)'s kind-keyed `--assert` predicate still has a kind
+   to key on. **Upstream of [`OQ-PS5`](#OQ-PS5)** — rule this one first, because it decides whether
+   there is one kind to name or two.
+
+   _Leaning:_ **Collapse.** If a need's recipe list may be empty, two names for one declaration is
+   a distinction the resolver never reads, and every one of F3's nine differences is better
+   predicted by *has a recipe here* than by the label — which is what makes them collapse at the
+   host in the first place. The honest cost is the blast radius
+   ([§7.3](#73-naming-is-downstream)) and a migration for seven shipped manifests.
+
+   <!-- vantage: oq id=OQ-PS11 leaning="Collapse them. Under OQ-PS3's ruling a requires is already a need with an empty recipe list, so two names for one declaration is a distinction the resolver never reads, and F3's nine jail-side differences are better predicted by 'has a recipe here' than by the kind label. The cost is the blast radius and a migration for seven shipped manifests." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+9. 💬 **OQ-PS12: May a user's override name a recipe no pack ships?** Carved from the old compound
+   [`OQ-PS7`](#OQ-PS7) on 2026-09-11 — the *how much machinery* half, which
+   [§8.3](#83-what-the-ruling-does-not-settle) was already listing as its own row. **Narrowed by
+   [`OQ-PS3`](#decision-ledger)'s ruling**: each `install_hints` entry is now a recipe, so an
+   override that merely **re-ranks what packs already declare** is a **config key** over data that
+   exists ([§8.1](#81-who-chooses-the-provisioner-today)). The open arm is the other one — may a
+   user name a recipe the pack does **not** ship (*"get `claude` from this tap"*, a local build, a
+   binary at a path)? That is a **subsystem**: a user-side recipe source, a trust story, and a place
+   to record it. **Stakes:** whether [§9](#9-what-i-would-build-in-order) step 4 is a key or a
+   subsystem, and therefore whether it can ship ahead of [`OQ-PS2`](#decision-ledger)'s driving.
+
+   _Leaning:_ **A config key first; refuse a user-named recipe for now.** The maintainer's own
+   example needs nothing more: *"Claude from brew"* is a re-ranking of a recipe `packs/claude`
+   already ships — `install_hints: {"brew-cask": "claude-code"}` (`packs/claude/pack.json:5-7`,
+   read 2026-09-11). A user-authored recipe is a new trust surface and belongs with
+   [`trust-paths.md`](trust-paths.md), not with a preference list; opening it later costs nothing
+   that closing it now does not already pay.
+
+   <!-- vantage: oq id=OQ-PS12 leaning="A config key first, refusing a user-named recipe for now. 'Claude from brew' needs only a re-ranking of a recipe packs/claude already ships, so the whole motivating case is a key; a user-authored recipe is a new trust surface that belongs with trust-paths.md rather than with a preference list." -->
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+10. 💬 **OQ-NX4: Does the environment need to carry *variables*, not just PATH?** (The retired
+    doc's [`OQ-4`](#decision-ledger).) A `buildEnv` cannot; a devShell can, and that is the *only*
+    real argument for one ([§6.2](#62-the-four-nix-mechanisms-compared-and-why-never-a-devshell)).
+    Verified 2026-08-23: the Go whitelist is still exactly one variable, `PKG_CONFIG_PATH`, and only
+    when `<out>/lib/pkgconfig` exists (`internal/darwinpkg/darwinpkg.go:175`, `:194`, re-resolved
+    2026-09-11). The jail's baked `Env` carries `SSL_CERT_FILE`, `LD_LIBRARY_PATH`,
+    `PKG_CONFIG_PATH`, `FONTCONFIG_*`, `TZDIR`. **What it decides:** whether the devShell rejection
+    is re-opened on this one axis (never on PATH — that is not in question), and how far "mimic the
+    in-jail env" can go for a non-container notch.
+
+    _Leaning:_ **Keep the Go whitelist.** One variable is not a case for 121, and an explicit list
+    in Go is more auditable than a derivation's dump. Revisit only if the enumeration comes back
+    with more than about three.
+
+    <!-- vantage: oq id=OQ-NX4 leaning="Keep the Go whitelist. One variable does not justify 121, and an explicit list is more auditable than a derivation dump. Revisit past about three." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+11. 💬 **OQ-NX5: Is "no PATH pollution" the right claim for a `buildEnv`, or should it be "no
+    *undeclared* pollution"?** (The retired doc's [`OQ-5`](#decision-ledger).) A `buildEnv`
+    containing `gnugrep` still shadows `/usr/bin/grep` when prepended — the difference from a
+    devShell is legibility, not effect, and on a Mac host that is the BSD-vs-GNU hazard arriving by
+    the front door ([§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)). **What it
+    decides:** whether a non-container profile *warns* when a declared package shadows a system
+    binary, or trusts the declaration. Nothing warns today, on any path (confirmed absent
+    2026-08-23). ⚠ It is the same hazard as [`OQ-P2`](macos-user-provisioning.md#decision-ledger) one
+    level up, and the two should be ruled together.
+
+    _Leaning:_ **Restate the claim honestly as "no undeclared pollution" and build no warner yet**
+    — a shadow is what `packages: ["gnugrep"]` means. Revisit if the `host` notch ever puts this on
+    a human's interactive PATH, where the declaration was made once and the surprise arrives
+    months later.
+
+    <!-- vantage: oq id=OQ-NX5 leaning="Restate the claim as 'no undeclared pollution' and build no warner yet — a shadow is what packages: ['gnugrep'] means. Revisit if the host notch puts this on a human's interactive PATH, and rule it together with OQ-P2." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+12. 💬 **OQ-NX8: Should the `packages:` key report at all below `jail`, and which command says
+    so?** (The retired doc's [`OQ-8`](#decision-ledger).) `packages` is not a pack kind, so the
+    `FieldSet` census never sees it and `yolo host apply` prints nothing about it, while
+    `macos-user` honours it natively. The env-manager design promises `check --at host` will print
+    *"packages: yolo does not manage packages here."* **What it decides:** whether "silently
+    absent" — the exact failure mode `render.HostUnimplemented` exists to prevent, and P3 one level
+    up — is allowed to persist for the one config key that has a real off-container implementation.
+    Under this doc's frame it is the general question of **whether an environment's provisioner set
+    reports itself, and where** (R6, and [§8](#8-the-shape-this-doc-leans-toward)'s *"the
+    enumeration is what `describe` prints"*).
+
+    _Leaning:_ **The narrow half should just be fixed, ahead of any ruling.** `describe` already
+    reports the resolved profile whenever `PrimBakedImage` is absent
+    (`internal/cli/describe.go:177-180`), which contradicts the env-manager's promised
+    `✗ packages` line — so two yolo commands now disagree. Make `yolo host apply` say what
+    `describe` says, and retire the `✗ packages` sentence from the env-manager design
+    ([§9](#9-what-i-would-build-in-order) step 3). The *policy* half — should `host` manage
+    packages at all — is [`OQ-PS1`](#OQ-PS1).
+
+    <!-- vantage: oq id=OQ-NX8 leaning="Fix the narrow half now: describe already reports the resolved profile when PrimBakedImage is absent, contradicting the promised '✗ packages' line, so two commands disagree. Make yolo host apply agree with describe and retire that sentence from the env-manager design. The policy half is OQ-PS1." -->
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+13. 💬 **OQ-NX9: Do non-macOS `yolo check` runs need the nix probes and the profile report?** (The
     retired doc's [`OQ-9`](#decision-ledger) — **note the collision this prefix resolves**:
     env-manager's own [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
-    is cited three times in this doc and is a different question.) Re-verified 2026-08-23:
+    is cited several times in this doc and is a different question.) Re-verified 2026-08-23:
     `nixDaemonStoreCheck` and the extra-platforms block are still `IsMacOS`-gated
     (`internal/cli/check/section_nix_probe.go:28-31`), and so is the whole platform section
     (`check.go:77-78`). The profile report is **also** macOS-only — it lives inside
@@ -1711,10 +1977,39 @@ this doc already had, per the rule that one subject gets one question.
 | [`OQ-9`](#decision-ledger) | [`OQ-NX9`](#OQ-NX9) | live — **and this is the id whose collision forced the prefix** |
 | `N2` | `N2` | unchanged — a roadmap id, not an open-question one; [Decision Ledger](#decision-ledger) |
 
-**This doc's own id also moved once:** [`OQ-PS4`](#decision-ledger) was **answered** on
-2026-09-11 and compacted into the ledger; its residues opened as [`OQ-PS6`](#OQ-PS6) and
-[`OQ-PS7`](#OQ-PS7). An inbound link to that question's old anchor should point at the
-[Decision Ledger](#decision-ledger) instead.
+**This doc's own ids moved twice, both on 2026-09-11.** [`OQ-PS4`](#decision-ledger) was
+**answered** and compacted into the ledger; its residues opened as [`OQ-PS6`](#OQ-PS6) and
+[`OQ-PS7`](#OQ-PS7). Later the same day [`OQ-PS2`](#decision-ledger) and
+[`OQ-PS3`](#decision-ledger) were answered and compacted the same way, and three compound
+questions were carved (below). An inbound link to any answered question's old anchor should point
+at the [Decision Ledger](#decision-ledger) instead.
+
+### The 2026-09-11 carve: one question, one decision
+
+Three questions each asked **two or three** things under one id, so a reviewer could not accept
+one half and reject another — *"I need these split out into OQs, I can't follow this subquestion
+thing"* (maintainer, 2026-09-11). The rule applied: **if the maintainer could rule one half yes
+and the other no, they are two questions.** Every carved-off half took a **new** id at the end of
+the series; **no existing id was renumbered or re-spelled**, because the roadmap and four sibling
+docs cite them.
+
+| Was | Now | What the half decides |
+| :--- | :--- | :--- |
+| [`OQ-PS1`](#OQ-PS1)(a) | [`OQ-PS1`](#OQ-PS1) (kept) | does the host use the user's nix when `/nix` is present |
+| [`OQ-PS1`](#OQ-PS1)(b) | **[`OQ-PS9`](#OQ-PS9)** | does yolo *help install* nix — reframed from a flat *no* to yes-in-principle, blocked on effort |
+| [`OQ-PS1`](#OQ-PS1)(c) | **[`OQ-PS10`](#OQ-PS10)** | does the host's nix provisioner leave anything behind — rewritten; its `--sealed` conditional is withdrawn as vacuous |
+| [`OQ-PS5`](#OQ-PS5) first clause | [`OQ-PS5`](#OQ-PS5) (kept) | is the kind renamed to `package` |
+| [`OQ-PS5`](#OQ-PS5) second clause | **[`OQ-PS11`](#OQ-PS11)** | do `program` and `requires` collapse into one kind — **upstream** of the rename |
+| [`OQ-PS7`](#OQ-PS7) first clause | [`OQ-PS7`](#OQ-PS7) (kept) | is the override per-package or per-environment only |
+| [`OQ-PS7`](#OQ-PS7) second clause | **[`OQ-PS12`](#OQ-PS12)** | may a user's override name a recipe no pack ships — a config key versus a subsystem |
+
+**One compound title was deliberately NOT carved.** [`OQ-PS8`](#OQ-PS8) read *"can a recipe carry
+environment, and who decides an installer's interactivity?"*, which passes the *could-be-ruled-
+separately* test on its face — but the env half is on the table **only** as the alternative
+mechanism for the interactivity half, and nothing measured yet needs an installer to *receive* a
+variable. A separate *"may a recipe carry env?"* would therefore be a question with no stakes,
+which is the one thing an open question may not be. It is retitled as the single decision it is,
+and the note in its body says when it would become two.
 
 ---
 
@@ -1726,6 +2021,8 @@ inherited from the retired doc with their rulings intact.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| [`OQ-PS3`](#decision-ledger) | **A pack declares a NEED plus the recipes that can produce it; the environment and the precedence order resolve it** — the AUR recipe/installer split. Today's `via`+`package`/`url` is **one** recipe and each `install_hints` entry is **another**; what changes is that the pack privileges none of them. A custom build is then a **recipe kind** carrying its own build-time needs, not a third `via` value. This is P1 made into a contract, and it is the model question the rest of the doc turns on | 2026-09-11 | [§8.4](#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves), P1 in [§1](#1-the-verdict-and-five-principles) |
+| [`OQ-PS2`](#decision-ledger) | **Drive the winner — behind [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s batched confirm, and sequenced LAST**, after the precedence order has shipped as a print-only improvement. The **written manifest stays the floor**; running it is the offer on top, never a replacement. The version-currency objection was already settled as an accepted cost by [`OQ-PS4`](#decision-ledger) | 2026-09-11 | [§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last), [§9](#9-what-i-would-build-in-order) step 5 |
 | [`OQ-PS4`](#decision-ledger) | **A default precedence order yolo ships, overridden by user config** — not a per-package interrogation, and ordered rather than a single name because on a non-Arch Linux host the first choice covers 0–1 of six. The version-currency cost of leading with a system manager is an **accepted trade**, not a blocker: a user choosing brew chooses brew's cadence knowingly. Justified by pluralism — *"there won't be one right answer for everybody"*. ⚠ Residues opened as [`OQ-PS6`](#OQ-PS6) (what the default order is) and [`OQ-PS7`](#OQ-PS7) (the override's grain and its machinery) | 2026-09-11 | [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides), P5 in [§1](#1-the-verdict-and-five-principles) |
 | [`OQ-NX1`](#decision-ledger) / `N3` | **The host notch is a place agents RUN, answered by events**: `yolo host -- <cmd>` shipped with a fully composed launch env (`d546e9e1`, `e23df4aa`), and the provider-catalog rulings made host launches a peer of jail launches (*"the host notch runs the env derive"* — a constraint, not a choice). Reopen only if that shipped behaviour turns out to be unintended | 2026-09-02 (events 2026-08-30 → 09-02) | [§10](#10-alternatives-each-with-a-verdict) alternative I |
 | [`OQ-NX2`](#decision-ledger) / `N1` | **Yes, GC-root the realized profile** — and the root IS the build's `--out-link`, at `build/package-roots/packages`, a sibling of the image roots so `prune` cannot sweep it. Shipped `23cee7a6` | 2026-08-05 | [§6.8](#68-what-if-the-user-has-no-nix) and its warning block |

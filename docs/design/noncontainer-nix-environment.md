@@ -50,7 +50,7 @@ folded into questions the merged doc already had, is
 | :--- | :--- |
 | [`OQ-1`](provisioner-sets.md#decision-ledger) (also cited as `N3`) | [`OQ-NX1`](provisioner-sets.md#decision-ledger) — settled |
 | [`OQ-2`](provisioner-sets.md#decision-ledger) (also cited as `N1`) | [`OQ-NX2`](provisioner-sets.md#decision-ledger) — settled |
-| [`OQ-3`](provisioner-sets.md#decision-ledger) | folded into [`OQ-PS1`](provisioner-sets.md#OQ-PS1)(c) |
+| [`OQ-3`](provisioner-sets.md#decision-ledger) | folded into [`OQ-PS1`](provisioner-sets.md#OQ-PS1)(c), and carved out again as [`OQ-PS10`](provisioner-sets.md#OQ-PS10) on 2026-09-11 |
 | [`OQ-4`](provisioner-sets.md#decision-ledger) | [`OQ-NX4`](provisioner-sets.md#OQ-NX4) |
 | [`OQ-5`](provisioner-sets.md#decision-ledger) | [`OQ-NX5`](provisioner-sets.md#OQ-NX5) |
 | [`OQ-6`](provisioner-sets.md#decision-ledger) | [`OQ-NX6`](provisioner-sets.md#decision-ledger) — settled |
