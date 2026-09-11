@@ -828,6 +828,16 @@ host that will get the tool later, that is a new question with a named caller be
 `requires` deserve the same treatment, and that is exactly the assumption worth not making
 silently; the question states the case for splitting it.
 
+> [!NOTE]
+> **The probe this fatal rests on does not go through the argv path that was measured mangling
+> commands** (checked 2026-09-11, after the Mac session). `depcheck` probes with in-process
+> `exec.LookPath` (`internal/depcheck/depcheck.go:120-136`), not by forwarding a command through a
+> launch — so the `sudo --login` concatenation found on `macos-user`
+> ([`macos-user-provisioning.md` §1.1](macos-user-provisioning.md)) cannot reach it. That matters
+> because the same defect made a probe run report **five successes for commands that never ran**,
+> and a dependency fatal built on a probe that can silently report *present* would be worse than no
+> fatal at all. The seam is a `var` for test overriding, which is the only way the answer changes.
+
 ## 5. Completeness — the holes, walked
 
 - **Zero packs.** Today the branch prints one dim line, runs the retire passes, and returns at
