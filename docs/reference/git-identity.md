@@ -185,5 +185,21 @@ only place the values themselves are stated.
 | Writable sibling | `~/.config/git/config.local`, `[include]`d first | `gitLocalConfigInJail`, `gitIncludeHeader` |
 | Host-side staged file | `<workspace state>/yolo-gitconfig` | `Options.gitIdentityMountArgs` |
 | Host key lookup | `git config --get <key>`; `--global --get core.excludesFile` | `Options.hostGitConfigGet` |
-| `macos-user` variables | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL`, `YOLO_GLOBAL_GITIGNORE` | `entrypoint.configureGit` |
+| `macos-user` variables | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` — **and NOT `YOLO_GLOBAL_GITIGNORE`**, which `configureGit` reads and nothing sets (see the note below) | `macosuser.MacosSandboxEnv` sets; `entrypoint.configureGit` reads |
 | Home-root alias | `~/.gitconfig` → `.config/git/config` | `storage.EnsureSymlink` |
+
+> [!WARNING]
+> **`YOLO_GLOBAL_GITIGNORE` is read and never set — the global gitignore does NOT
+> replay on `macos-user`** (measured 2026-09-11). `entrypoint.configureGit`
+> (`internal/entrypoint/identity.go:22`) reads it and points `core.excludesFile` at
+> it; **nothing in the tree writes it.** `MacosSandboxEnv`
+> (`internal/macosuser/orchestrator.go:144`) forwards exactly two pairs —
+> `YOLO_GIT_NAME`/`user.name` and `YOLO_GIT_EMAIL`/`user.email` — and the container
+> backends do not use the env route at all: `Options.gitIdentityMountArgs` replaced
+> it with a composed gitconfig plus a `:ro` mount of the gitignore, precisely so a
+> CLEARED host key can be reflected (an add-only setter could never remove one).
+>
+> So the variable is a leftover of the replaced mechanism, and the user-visible
+> consequence is real: on `macos-user`, git *identity* replays and the global
+> *gitignore* does not. Whether that backend should carry the gitignore at all is
+> undecided — it has no bind mounts, so the container answer does not port.
