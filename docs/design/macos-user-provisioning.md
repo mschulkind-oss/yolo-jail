@@ -1,6 +1,6 @@
 ---
 title: "macos-user has no floor and no provisioning stage"
-status: in-review
+status: accepted
 date: 2026-09-04
 tags: [macos-user, provisioning, packages, mise, backend-parity]
 summary: "Almost every imperative provisioning step the container path runs — mise install, the LSP/MCP npm installs, the npm half of the agent CLI installers — is missing on macos-user, and so is the package floor those steps need to run at all. (Measured 2026-09-11: the `via: installer` half of the agent CLIs does work there, needing only macOS's own curl and bash.) Two separable halves, in that order: give the noncontainer profile a core set, then run the same stage, confined, inside the sandbox. Where the stage's state lives is settled by the container's own partition; how much floor and whether it is GNU or BSD are the two rulings left."
@@ -10,8 +10,8 @@ summary: "Almost every imperative provisioning step the container path runs — 
 
 **Status:** DESIGN, 2026-09-11 (DESIGN SKETCH 2026-09-04). Nothing built. Audited
 against the tree at `61c26c18` on 2026-09-11; two of its four questions are settled and
-compacted into the [Decision Ledger](#decision-ledger). **[`OQ-P1`](#OQ-P1) and
-[`OQ-P2`](#OQ-P2) need a ruling**, and both are the maintainer's.
+compacted into the [Decision Ledger](#decision-ledger). **[`OQ-P1`](#decision-ledger) and
+[`OQ-P2`](#decision-ledger) need a ruling**, and both are the maintainer's.
 
 > **In short.** A container jail gets its tools from an image **floor** and an
 > imperative **stage**; macos-user has neither, so four config keys render and install
@@ -36,7 +36,7 @@ into ([`OQ-P3`](#decision-ledger)).
 backend it does not have in an image, and the ruling turns on whether it is worth
 paying.
 
-**Needs your ruling:** [`OQ-P1`](#OQ-P1), [`OQ-P2`](#OQ-P2).
+**Needs your ruling:** **None** — both closed 2026-09-11 ([Decision Ledger](#decision-ledger)). Ready to build; the home-split dependency is gone too.
 
 > [!NOTE]
 > **Terms coined here.** The **floor** is the set of packages present in a jail
@@ -53,7 +53,7 @@ paying.
 (what nix produces for each backend, and why the image is a floor),
 [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the home split, whose
 [§5](macos-user-home-tiers.md#5-the-proposal) supplies [`OQ-P3`](#decision-ledger)'s answer and
-whose [`OQ-HT2`](macos-user-home-tiers.md#OQ-HT2) is the one ruling still between
+whose [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) is the one ruling still between
 this doc's half two and buildable), and
 [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) (the backend).
 
@@ -236,7 +236,7 @@ unconfined here would be a regression the container never had.
 **Half one: a core set for the noncontainer profile.** `yoloNoncontainerPackages`
 gains a core list, the way the image has one — the same attr, evaluated for the
 native system. Minimum viable core is whatever the stage needs to run: `mise` and
-`nodejs`. Whether it extends toward the image's 36 is **[`OQ-P1`](#OQ-P1)**.
+`nodejs`. Whether it extends toward the image's 36 is **[`OQ-P1`](#decision-ledger)**.
 
 **Half two: a provisioning stage inside the sandbox.** The macos-user launch grows a
 **third** step between the bootstrap and the agent (`orchestrator.go:432-440`): the
@@ -329,19 +329,19 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 
 | Risk | Mitigation |
 | :--- | :--- |
-| A core package has no native darwin build | It is the same `yoloUnavailablePackages` mechanism `packages:` uses — but for a CORE package a skip must be **fatal**, not warned: a floor with a hole in it is not a floor. ⚠ At least two of the image's 36 are Linux-only by nature (`iptables`, `procps`), so "the whole image core" is not even an option here without a native eval per entry — see [`OQ-P1`](#OQ-P1). |
+| A core package has no native darwin build | It is the same `yoloUnavailablePackages` mechanism `packages:` uses — but for a CORE package a skip must be **fatal**, not warned: a floor with a hole in it is not a floor. ⚠ At least two of the image's 36 are Linux-only by nature (`iptables`, `procps`), so "the whole image core" is not even an option here without a native eval per entry — see [`OQ-P1`](#decision-ledger). |
 | First launch builds a large closure natively | One-off per machine; nix caches. Cachix already applies (`--accept-flake-config`). Measure before assuming it is a problem. |
 | The stage's state lands in the shared home | Settled: the container's partition ([§4](#4-the-proposed-shape), [`OQ-P3`](#decision-ledger)). The residual risk is the **inverted default** — `MISE_DATA_DIR` unset once `~/.local` is a sidecar symlink — and it is closed by setting the variable explicitly. |
 | The mise *config* collision ships today, without any stage | Real and already live ([§1](#1-the-two-missing-halves)); fixed by the same `config` sidecar symlink, which is why half two waits for the split rather than the other way round. |
-| GNU-vs-BSD userland surprise | [`OQ-P2`](#OQ-P2). |
+| GNU-vs-BSD userland surprise | [`OQ-P2`](#decision-ledger). |
 | The stage runs vendor postinstall scripts | Confined under the same profile as the agent (P4). |
 
 ## 8. Sequencing
 
 Ship the unwarned agent-launcher case first — it is independent of every question
 below and it is the one failure that lands on a user's first real command. Then
-half one, gated on [`OQ-P1`](#OQ-P1) and [`OQ-P2`](#OQ-P2). Then half two, gated on
-the home split's one open ruling ([`OQ-HT2`](macos-user-home-tiers.md#OQ-HT2)) — its
+half one, gated on [`OQ-P1`](#decision-ledger) and [`OQ-P2`](#decision-ledger). Then half two, gated on
+the home split's one open ruling ([`OQ-HT2`](macos-user-home-tiers.md#decision-ledger)) — its
 own [`OQ-P3`](#decision-ledger) is settled. Half two is worth nothing before half one, so there
 is no partial-credit ordering to be clever about.
 
@@ -355,56 +355,38 @@ split at all — it depends on setting `MISE_DATA_DIR`, which the split makes
 
 ## Open Questions
 
-1. 💬 **OQ-P1: How much floor?** The minimum that makes the stage run is `mise` and
-   `nodejs`. The maximum is the image's core — **36 packages, not the ~19 the first
-   draft said** — minus whatever has no darwin build. Everything between is available.
-   ⚠ *Sharpened 2026-09-11:* two facts move the stakes. The gap is roughly twice as
-   wide as first stated, so "the whole core" is a real native build, not a rounding
-   error; and the GNU userland question ([`OQ-P2`](#OQ-P2)) decides nine of the 36
-   on its own (`coreutils-full`, `findutils`, `gnused`, `gnugrep`, `gawk`, `gnupatch`,
-   `diffutils`, `gnutar`, `which`), so the two rulings are not independent — rule P2
-   first.
+**None — both closed 2026-09-11.** The rulings are in the [Decision Ledger](#decision-ledger) and
+folded into [§4](#4-the-proposed-shape).
 
-   _Leaning:_ Start at the minimum plus `git` — `git` because a jail without it is
-   not a development environment and the Mac's `/usr/bin/git` is an Xcode shim the
-   user may not have. Add on demand. A large floor here costs a native build on a
-   machine that is not building an image, which is the thing this backend exists to
-   avoid. And the minimum is already reachable by hand today — `packages:` is realized
-   natively and the `mise_tools` warning tells users to put the tools there — so the
-   floor's job is to make that implicit, not to invent it.
-
-   <!-- vantage: oq id=OQ-P1 leaning="Start at the minimum (mise and nodejs) plus git — git because a jail without it is not a development environment and the Mac's /usr/bin/git is an Xcode shim the user may not have. Add on demand. The maximum is 36 packages, not ~19, and nine of them are OQ-P2's GNU set, so rule P2 first." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-P2: GNU userland or the Mac's own?** The image's core deliberately bakes
-   `coreutils-full`, `gnused`, `gnugrep`, `gawk` and the rest of the GNU set so a jail
-   behaves the same everywhere. On macos-user those would sit ahead of the BSD tools
-   the human's own shell uses. This decides whether a script that works in the jail
-   works in the human's terminal on the same machine — and, per
-   [`OQ-P1`](#OQ-P1), it decides a quarter of the floor.
-
-   _Leaning:_ **No GNU userland.** The consistency argument is real but this
-   backend's whole proposition is "your Mac, confined" — an agent whose `sed -i`
-   behaves differently from the human's is a surprise in the direction that costs
-   more. Revisit if a pack turns out to depend on GNU behavior. ⚠ *One fact for the
-   leaning, found 2026-09-11:* the one place the tree has already chosen, it chose BSD —
-   `DarwinEnvFrom` sets `GNUStat = false` and points the shim realbins at `/usr/bin`
-   (`internal/entrypoint/darwin.go:62-63`), so yolo's own generated shims speak BSD on
-   this backend. A GNU userland ahead on PATH would make the agent's shell disagree
-   with the shims yolo wrote for it.
-
-   <!-- vantage: oq id=OQ-P2 leaning="No GNU userland. This backend's proposition is 'your Mac, confined' — an agent whose sed -i behaves differently from the human's is a surprise in the direction that costs more; and yolo's own darwin shims already speak BSD (GNUStat=false). Revisit if a pack turns out to depend on GNU behavior." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-P1 | **Still open** — how much floor. Rule [`OQ-P2`](#OQ-P2) first; it decides nine of the 36. | — | [Open Questions](#open-questions) |
+| OQ-P1 | **The floor is EVERYTHING the container image bakes, minus an EXPLICIT darwin exclusion list.** Never a silent skip: *"I'd rather pain than something silently skipped […] if something's not available on Darwin we need to explicitly exclude it rather than silently skip it, because that will lead to sadness. And if we have a fatal error, then we have the opportunity to fix it."* A package that is neither buildable on darwin nor on the exclusion list is a **fatal**, not an omission. Ruled *against* the leaning's minimum-plus-`git`. | 2026-09-11 | [§4](#4-the-proposed-shape) |
+| OQ-P2 | **No GNU userland.** This backend's proposition is *"your Mac, confined"* — an agent whose `sed -i` behaves differently from the human's is a surprise in the direction that costs more, and yolo's own darwin shims already speak BSD (`GNUStat=false`). Revisit if a pack turns out to depend on GNU behavior. | 2026-09-11 | [§4](#4-the-proposed-shape) |
+| OQ-P1 | **Still open** — how much floor. Rule [`OQ-P2`](#decision-ledger) first; it decides nine of the 36. | — | [Open Questions](#open-questions) |
 | OQ-P2 | **Still open** — GNU userland or the Mac's own. | — | [Open Questions](#open-questions) |
 | OQ-P3 | The container's own partition: mise **data** machine-wide with `MISE_DATA_DIR` set **explicitly**, because the unset default would land inside the per-workspace `~/.local` symlink; mise config, the npm prefix and `~/.local` per-workspace through the home split's sidecar symlinks. A per-workspace `MISE_DATA_DIR` is rejected twice over. | 2026-09-11 | [§4](#4-the-proposed-shape), [§5](#5-what-this-does-not-propose) |
 | OQ-P4 | Unconditional, before the agent, matching the container. [§4](#4-the-proposed-shape)'s own skip rule already delivers on-demand's only benefit, and on-demand would be a second dialect of "when are my tools there". | 2026-09-11 | [§4](#4-the-proposed-shape), [§6 row E](#6-alternatives) |
+
+
+> [!IMPORTANT]
+> **The two rulings compose: [`OQ-P2`](#decision-ledger) populates the first entries of
+> [`OQ-P1`](#decision-ledger)'s exclusion list.** And the list has **two kinds of entry**, which the
+> mechanism must keep apart because only one of them is protected by the fatal:
+>
+> | Kind | Why excluded | What happens if you forget |
+> | :--- | :--- | :--- |
+> | **Unbuildable on darwin** — e.g. `iptables`, which is Linux netfilter | necessity | the build **fails**, which is the fatal doing its job |
+> | **GNU userland** — `gnused`, `gnugrep`, `gawk`, `coreutils-full`, `findutils`, `gnupatch`, `diffutils`, `gnutar` | **policy**, per [`OQ-P2`](#decision-ledger) | it builds fine and **ships silently**, and the agent gets GNU `sed` on a Mac — the exact surprise P2 rules out |
+>
+> **So the fatal covers necessity and cannot cover policy.** A GNU package left off the list is
+> precisely the silent skip this ruling exists to prevent, arriving by the other door — which means
+> the policy exclusions need their own assertion (a test over the darwin floor), not just a list
+> someone maintains.
+>
+> **Deriving the list is cheap and does not need the Mac.** `nix eval` is cross-platform, so
+> evaluating the floor for `aarch64-darwin` from a Linux jail names the unbuildable set without
+> hardware. Do that before hand-writing entries — the 2026-09-11 Mac session deliberately did *not*
+> ask for this, on the grounds that it is faster from here.

@@ -1140,9 +1140,9 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
   depth-limited" becomes expressible if anyone ever wants it — without that refactor changing any
   rule, which was the explicit instruction.
 
-- 💬 **macos-user has no package floor and no provisioning stage, so four config keys render and
+- ✅ **macos-user has no package floor and no provisioning stage, so four config keys render and
   install nothing.** 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
-  **[`OQ-P1`](../design/macos-user-provisioning.md#OQ-P1) · [`OQ-P2`](../design/macos-user-provisioning.md#OQ-P2)** — [`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger) and
+  **[`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger) · [`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger)** — [`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger) and
   [`OQ-P4`](../design/macos-user-provisioning.md#decision-ledger) were **answered and compacted 2026-09-11**. A container jail
   gets tools two ways: an image floor of **36** baked packages (git, node, mise, ripgrep, fd…) and
   an imperative stage the launch runs inside it
@@ -1156,17 +1156,28 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
 
   ⚠ **Two of the four are now ruled, and the "~19" above was wrong** (audited 2026-09-11 against
   `corePackagesFromNixpkgs`, which has **36** entries — every line citation in the doc was stale,
-  and [`OQ-P1`](../design/macos-user-provisioning.md#OQ-P1)'s maximum doubles). **[`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger)** — the state partition
+  and [`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger)'s maximum doubles). **[`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger)** — the state partition
   follows the container's: mise *data* machine-wide (its premise that sharing it is a collision
   was backwards — the container shares it by design), config/npm/`~/.local` per-workspace.
   **[`OQ-P4`](../design/macos-user-provisioning.md#decision-ledger)** — eager, because the lazy launchers cover agent CLIs only,
   never `mise_tools` or LSP servers. **What still needs you: how much floor
-  ([`OQ-P1`](../design/macos-user-provisioning.md#OQ-P1)) and GNU or BSD userland ([`OQ-P2`](../design/macos-user-provisioning.md#OQ-P2))** — rule P2 first,
+  ([`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger)) and GNU or BSD userland ([`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger))** — rule P2 first,
   since nine of the 36 are its GNU set.
 
   ⚠ **And the second half is a NEW confined step, not a port.** The doc implied the bootstrap was
   already sandboxed; it is not — the argv is `sudo --user=… env -i … darwin-bootstrap` with no
   `sandbox-exec` (`internal/macosuser/runplan.go:103-110`, verified 2026-09-11).
+
+  ⚠ **BOTH RULED 2026-09-11 — this row is done and the design is `status: accepted`.**
+  [`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger) went **against** its leaning: the floor is **everything the
+  container image bakes, minus an EXPLICIT darwin exclusion list** — *"I'd rather pain than
+  something silently skipped… if we have a fatal error, then we have the opportunity to fix it."*
+  [`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger) ruled **no GNU userland**, which populates the first entries of
+  that list. ⚠ **The two compose with a gap worth knowing:** an unbuildable package (`iptables`) is
+  caught by the fatal, but a GNU one **builds fine and ships silently**, so the policy exclusions
+  need their own assertion rather than a hand-maintained list. Deriving the unbuildable set needs no
+  Mac — `nix eval` is cross-platform. **The home-split dependency is also gone**, so half two is
+  unblocked.
 
 - ✅ **The macos-user home has one tier where it needs two, and content delivery just made it
   bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **[`OQ-HT2`](../design/macos-user-home-tiers.md#decision-ledger) is the only one left**;
