@@ -38,10 +38,21 @@ package macosuser
 // that connect them. CapturePlanInvariants is the gate that fails if the profile is swapped for
 // the session one or the bootstrap is pointed at the shared home.
 //
-// NOT MEASURED, anywhere: that any of it works on a Mac. No Seatbelt profile has been loaded by
-// a kernel, no `sudo dscl` has run, this backend's installer pipeline is itself unverified on
-// hardware (docs/reference/macos-user-nix-and-features.md), and podman-in-podman cannot exercise
-// this backend at all. The hardware checklist is in install-capture.md's slice 6 section.
+// MEASURED ON HARDWARE, 2026-09-11: the whole recording half, in one pass, on an Apple Silicon Mac
+// (macOS 26.5, yolo 0.8.0+1336.gecb17e8c). `yolo capture claude` ran every stage listed above —
+// staging tree, bootstrap into the STAGING home, the generated launcher driving the real vendor
+// installer, then `capture-run: 10 paths (3 renamed, 0 copied)` and the host act moving the
+// proto-entry into the store as entry ceb51e9936131b0a. So this file's Seatbelt profile HAS been
+// loaded by a kernel, and it is capture's own profile rather than the session one — which is the
+// thing CapturePlanInvariants exists to keep separate. Until that run, this comment said "NOT
+// MEASURED, anywhere: that any of it works on a Mac. No Seatbelt profile has been loaded by a
+// kernel" — true when written, then stale in two stages (the session profile was measured
+// 2026-09-10 by docs/plans/runbooks/macos-user-manual-checks.md item 2).
+//
+// STILL NOT MEASURED: the MATERIALIZE half, which cannot run until install-capture.md hand-off H2
+// lands (internal/cli/run/autocapture.go), and podman-in-podman cannot exercise this backend at
+// all, so no nested jail will ever cover any of it. The hardware checklist is in
+// install-capture.md's slice 6 section.
 
 import (
 	"errors"
