@@ -263,3 +263,89 @@ func TestSharedCredentialsHookLogsDiscardDecision(t *testing.T) {
 		t.Errorf("log does not record the discard: %q", logData)
 	}
 }
+
+// TestSharedCredentialResolvesThroughASidecarHome is a PRE-WRITTEN GATE FOR UNLANDED WORK.
+// IT IS RED ON PURPOSE. DO NOT DELETE IT AS BROKEN, AND DO NOT t.Skip IT.
+//
+// It pins the trap in docs/design/macos-user-home-tiers.md §5.3 (alternative A′, chosen):
+// under a per-workspace home, a BARE symlink `~/.claude -> <ws>/.yolo/home/claude`
+// reproduces the HOST's dangling view of the credential link, and the fix — mirroring every
+// SharedDirs entry into the sidecar — has not landed yet. The gate exists now so the work
+// cannot land without it, and so nobody re-derives the trap from the symptom.
+//
+// WHY IT DANGLES. linkSharedCredential writes a RELATIVE target BY DESIGN
+// (docs/reference/jail-home.md: relative "so it resolves through whichever mount backs the
+// agent's own state dir into the separately mounted shared dir"), and the kernel resolves
+// `..` PHYSICALLY — measured on Linux 2026-09-11 and re-measured on darwin 26.5 the same
+// day, where the same fixture failed with ENOENT. So from a state dir that physically lives
+// in the sidecar, `../.claude-shared-credentials/.credentials.json` names a path under the
+// SIDECAR, not under the account home where the shared dir actually is.
+//
+// WHY THE REMEDY IS NOT "EMIT AN ABSOLUTE TARGET". §5.3 weighed exactly that and rejected
+// it under §5.0: it is a backend branch inside the one hook every backend shares. The
+// chosen remedy is launcher-side and invisible to the pack — the hook's output stays
+// byte-identical, which is why this test asserts on RESOLUTION and never on the link text.
+//
+// HOW TO MAKE IT GREEN. Land the mirror, then give mirrorSharedDirsIntoSidecar below a body
+// that calls it. That helper is a no-op stub today and is the ONLY line this test needs;
+// its signature is the shape the production helper has to offer.
+func TestSharedCredentialResolvesThroughASidecarHome(t *testing.T) {
+	p, hook := sharedCredsHook(t, "claude")
+
+	// The A′ layout, built by hand because the launcher half does not exist yet.
+	accountHome := t.TempDir()
+	sidecar := filepath.Join(t.TempDir(), "ws", ".yolo", "home")
+	stateDir := filepath.Join(sidecar, "claude")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// ~/.claude is a BARE symlink into the sidecar — the shape §5.3 says is not enough.
+	if err := os.Symlink(stateDir, filepath.Join(accountHome, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	// The machine-global tier lives in the ACCOUNT home, beside the per-workspace sidecar
+	// rather than inside it — that separation is the whole point of the tier.
+	sharedDir := filepath.Join(accountHome, filepath.FromSlash(hook.SharedDir))
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const sharedToken = `{"claudeAiOauth":{"accessToken":"SHARED"}}`
+	shared := filepath.Join(sharedDir, filepath.Base(hook.File))
+	if err := os.WriteFile(shared, []byte(sharedToken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mirrorSharedDirsIntoSidecar(t, p, accountHome, sidecar)
+
+	e := &Env{Home: accountHome, Workspace: t.TempDir(), Vars: map[string]string{}}
+	if err := e.linkSharedCredential(p, hook); err != nil {
+		t.Fatalf("linkSharedCredential: %v", err)
+	}
+
+	// THE ASSERTION: the agent, which knows only ~/.claude/.credentials.json, can READ the
+	// shared credential. Reading `shared` directly would pass under the broken layout too —
+	// the shared file is fine; it is the path from the agent to it that is severed.
+	link := filepath.Join(accountHome, filepath.FromSlash(hook.File))
+	got, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatalf("the credential link dangles from the account home: %v\n"+
+			"This is macos-user-home-tiers.md §5.3: every SharedDirs entry must be mirrored "+
+			"into the sidecar, or the hook's relative target resolves `..` into the sidecar "+
+			"and misses the shared dir entirely.", err)
+	}
+	if string(got) != sharedToken {
+		t.Errorf("credential through the link = %q, want the shared token %q", got, sharedToken)
+	}
+}
+
+// mirrorSharedDirsIntoSidecar is the STUB half of the pre-written gate above: it must make
+// every dir the pack declared in sharedDirs reachable at the same name inside the sidecar,
+// as a symlink to the account-home copy (macos-user-home-tiers.md §5.3, chosen remedy).
+//
+// It does nothing today because the production helper does not exist. Replace this body
+// with a call to it — do not implement the mirroring here, or the gate starts verifying the
+// test instead of the launcher, which is the "pins the callee while the call site is
+// unpinned" shape AGENTS.md calls out.
+func mirrorSharedDirsIntoSidecar(t *testing.T, _ *packload.Pack, _, _ string) {
+	t.Helper()
+}
