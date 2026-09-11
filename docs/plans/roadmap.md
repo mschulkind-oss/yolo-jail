@@ -1111,7 +1111,10 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   `<workspace>/.yolo/home/`, which is the location every other backend already uses — **not** the
   per-workspace `/Users/_yolojail/workspaces/<cname>` home this row used to describe.
   [`OQ-HT4`](../design/macos-user-home-tiers.md#decision-ledger) ruled it on the parity constraint: one mechanism on every
-  backend, or packs have to feature-detect.
+  backend, or packs have to feature-detect. **The sharpest form of that argument, reached
+  independently on the Mac side:** the container backends *do not move their home per workspace* —
+  `HOME` is `/home/agent` always, and specific subdirectories are mounted in from the workspace
+  sidecar — so the original proposal was diverging from the very model it claimed to adopt.
 
   ⚠ **"The single home IS the credential-sharing mechanism" is RETRACTED.** The mechanism is the
   `shared_credentials` hook — `Env.linkSharedCredential` writing a *relative* symlink into a
@@ -1123,18 +1126,6 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   **[`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2) is re-scoped and is now the single ruling between here and
   buildable**: credentials never move under A′, so it asks only what happens to the
   workspace-scope state already sitting in `/Users/_yolojail`.
-
-  ⚠ **WHERE the per-workspace half lives is now itself open, and this row named the losing
-  answer until 2026-09-10.** It said "a per-workspace home under
-  `/Users/_yolojail/workspaces/<cname>`" as though settled; review asked whether that displaces
-  `<workspace>/.yolo/`, and the answer exposed a design error. **The container backends do not
-  move their home per workspace** — `HOME` is `/home/agent` always, and specific subdirectories
-  are mounted in from the workspace sidecar — so the original proposal was diverging from the
-  model it claimed to adopt. That fork is **OQ-HT-4**, and its leaning is the alternative review
-  found: keep `HOME` at `/Users/_yolojail` and symlink `~/.claude` and kin into
-  `<workspace>/.yolo/home/`, which is where every other backend already puts that state. **Rule
-  OQ-HT-4 before OQ-HT-2**, not after: under the leaning credentials never move, which shrinks
-  the blocking migration question to nearly nothing.
 
 - ✅ **The four manual Mac checks are RUN, and all four PASSED.** 📄
   [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md). Everything that
