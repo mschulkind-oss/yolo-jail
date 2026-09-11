@@ -1472,75 +1472,74 @@ Observable outcomes that mean this was built as designed:
    **Answer:**
    > _(blocked — wiring the `workspace` layer decides it; and per the note above,
    > that is three pieces of work — a config key, a producer, and an argument
-   > about a jail-writable layer's reach — not one)_
 9. 💬 **<a id="OQ-CO9"></a>OQ-CO9: What does `own` mean for a KEYLESS surface?**
-   Opened in review 2026-09-10, **and re-grounded in round 2 after review asked
-   what `rmw` even means here — both of this entry's original claims were wrong.**
+   Opened in review 2026-09-10 and re-grounded twice since. **Three of this entry's
+   claims have been wrong, including both leanings it has carried** — recorded in
+   full because the pattern is the finding: every wrong version assumed a fallback
+   that does not exist.
 
-   ⚠ **Wrong claim 1: "refuse `own`, they stay `rmw`". There is no `rmw` to stay
+   ⚠ **Wrong claim 1 — "refuse `own`, they stay `rmw`". There is no `rmw` to stay
    in.** `rmwCodecRefusal` (`internal/entrypoint/surfacecodec.go:78-95`) refuses
-   keyless codecs **by kind**, and its reasoning inverts the original leaning:
+   keyless codecs **by kind**: *"RMW asserts and fills individual keys, so it needs
+   an object […] Those surfaces belong in `stateful`/`computed`."* So `assert` is
+   the mode a keyless surface **cannot** have, and `own` is the only coherent one.
 
-   > RMW asserts and fills individual keys, so it needs an object. `codec.KindArray`
-   > (`lines`) and `codec.KindScalar` (`raw`) have exactly one "key" — the whole
-   > file — which means the only RMW an honest implementation could do is replace
-   > the file wholesale, i.e. the opposite of the mode's promise. **Those surfaces
-   > belong in `stateful`/`computed`**, where whole-file replacement is the declared
-   > behavior and the capture sidecars carry the user's edits.
+   ⚠ **Wrong claim 2 — "no shipped host surface is keyless", offered as "the class
+   is empty so the carve-out is free".** The conclusion was right and the reason was
+   not, which is worse than being wrong: `raw` **is** reachable — it is the default
+   codec for any `host_files` entry whose destination is not `.json`/`.toml`
+   (`hostFileCodecFor`, `internal/config/hostfiles.go:205-211`). See the scope
+   correction below for why that still does not populate *this* class.
 
-   The code already rules that a keyless surface's home is `stateful` — which is
-   what `own` renders as. **So `own` is a keyless surface's natural mode, and
-   `assert` is the one it cannot have.** That answers *"why would we own a keyless
-   surface?"*: owning it is the only coherent thing to do with one.
+   ⚠ **Wrong claim 3 — "adopt them on the host notch, because there the file IS the
+   output". That reasoning inverts into the same failure it was avoiding.** Adopting
+   a keyless surface makes **the whole file** the overlay, and the overlay outranks
+   every declared layer beneath it — so the file would freeze at its adopted content
+   and yolo's declarations would never take effect again. `staterender.go:213` says
+   exactly this about the jail (*"adoption would mean 'the existing file wins
+   outright'"*), and relocating it to the host does not repair it. **Adopting is
+   strictly worse than overwriting**, not safer.
 
-   ⚠ **Wrong claim 2: "no shipped host surface is keyless."** True of **pack config
-   surfaces** — none declares `raw` or `lines` — and false of the other producer:
-   **`raw` is the DEFAULT codec for a `host_files` entry**, taken by anything whose
-   destination extension is not `.json` or `.toml` (`hostFileCodecFor`,
-   `internal/config/hostfiles.go:205-211`). A `.yaml`, `.jsonc`, `.sh` or `.zshrc`
-   host file is keyless *by default* — and `.jsonc` deliberately so, because
-   *"routing it through the json codec would sort keys and DROP COMMENTS, silently
-   mangling a hand-written file."* The class is populated the moment anyone points
-   `host_files` at a non-JSON/TOML file.
+   **The scope correction that makes this rulable.** `host_management` governs the
+   **host notch**, and `RenderHostPack` walks `p.SurfacesForReport(…)` —
+   **a pack's own surfaces** (`internal/entrypoint/hostrender.go:175`). `host_files`
+   entries are not pack surfaces; they are a user config key rendered **in the jail**
+   (`internal/entrypoint/hostfiles.go`), which is where carrying a host file *into* a
+   container belongs. So:
 
-   **The two keyless codecs are in different positions, and only one is a removal
-   candidate** (*"do we have lines ideas? what motivated them?"*):
+   - **`raw`'s real job is jail-side delivery, not host composition** — which answers
+     *"how would we even use raw?"*. In `host_files` it is not a merge strategy at
+     all; it is "the bytes are the value", which is what lets capture give a carried-in
+     file **edit-survives-regeneration for free** rather than needing a parallel
+     mechanism (`staterender.go`'s keyless note).
+   - **At the host notch the class is empty**, and only a pack deliberately declaring
+     a `raw`/`lines` surface could populate it. None does.
 
-   | Codec | Reachability | Motivation, as written |
-   | :--- | :--- | :--- |
-   | `raw` | **The default fallback** for every non-JSON/TOML `host_files` destination | Not removable — it is what stops a hand-written file being reformatted |
-   | `lines` | **Opt-in only.** Auto-detect never selects it; it needs an explicit `codec: lines` (`internal/cli/config_ref.txt:525`, *"Overrides auto-detect"*), and **no shipped pack or surface uses it** | *"the newline-delimited codec for allowlist-style files […] decoded to a `[]any` of strings so the engine can deep-merge / append over it like any array"* (`internal/agentcfg/codec/lines.go:9`) |
+   **So all four options are now visible, and three are bad:** `assert` is impossible;
+   `own`-with-adoption freezes the file; `own`-without-adoption overwrites a real
+   file in a real home; refusing costs nothing today.
 
-   So `lines` exists for **append-merge over allowlist files** — a `.gitignore`, an
-   `.npmrc`, a deny-list — where array merge is the point. The idea is coherent; it
-   has no user. **Unlike this repo's other unused surfaces it is not inert** — it is
-   implemented, tested, and reachable by anyone who types the codec name — so
-   *"remove it if we do not know how it is used"* is a live option, but a different
-   act from deleting dead code. Named here, not ruled: it belongs with the
-   `host_files` codec set rather than with ownership. **`raw` settles this question
-   on its own either way.**
+   <!-- vantage: oq id=OQ-CO9 leaning="Refuse `own` for a keyless surface at the host notch — which is what review proposed. Not the original reason (falling back to rmw, which is impossible) but because the other three options are each worse: assert is refused by kind, adoption freezes the file at its adopted content forever, and no-adoption overwrites a real file in a real home. The class is empty at the host notch — host_files are jail-side and no pack declares a keyless surface — so the refusal costs nobody anything and turns an unruled case into a named one. Revisit if a pack ever has a reason to declare a keyless surface it wants host-rendered." -->
 
-   **What is actually open**, once both wrong claims are removed: adoption skips
-   keyless surfaces (`staterender.go:213`), so the first `own` render of one
-   **overwrites** without the capture step that makes every object surface
-   byte-identical. Options: adopt them on the host notch; refuse `own` for them
-   (which leaves a keyless surface with *no* host-notch mode at all, since `assert`
-   already refuses it); or archive-and-overwrite, leaning on
-   [OQ-CO7](#OQ-CO7)'s copy as the whole safety net.
+   _Leaning (**third version, and it is review's**):_ **Refuse `own` for a keyless
+   surface at the host notch** — *"we could still just refuse it outright."* Not for
+   the original reason, which was impossible, but because the alternatives are each
+   worse and the class is empty. A refusal that names the codec turns an unruled case
+   into a stated one, which is the cheapest possible answer while nothing is affected.
+   Revisit if a pack ever has a reason to declare a keyless surface it wants
+   host-rendered — at which point the question is a real one with a real user, rather
+   than a hypothetical ruled in advance.
 
-   <!-- vantage: oq id=OQ-CO9 leaning="Adopt keyless surfaces on the host notch. The jail-side reason for skipping them — a host-mirrored file freezing at stale content and never picking up host-side changes — exists because the jail's copy is downstream of a host file. On the host notch the file IS the output, so there is nothing upstream to freeze against and the reason does not carry. Adopting whole-file there makes the first owned render byte-identical for the same reason it is for object surfaces. Refusing `own` instead would leave keyless surfaces with no host-notch mode at all, since rmw already refuses them by kind." -->
-
-   _Leaning:_ **Adopt keyless surfaces on the host notch.** The jail-side reason for
-   skipping is that a host-mirrored file would *"freeze at whatever stale content was
-   on disk and never pick up host-side changes again"* — a hazard that exists because
-   the jail's copy is **downstream** of a host file. **On the host notch the file *is*
-   the output**, so there is nothing upstream to freeze against and the reason does
-   not carry. Adopting whole-file there makes the first owned render byte-identical,
-   for the same reason it is for object surfaces. Refusing instead would leave a
-   keyless surface with no host-notch mode at all.
+   ⚠ **This says nothing about `raw` or `lines` as codecs.** Both survive on their
+   jail-side merits: `raw` is the default that stops a hand-written `.jsonc` or
+   `.yaml` being reformatted, and `lines` carries append-merge semantics for
+   allowlist-style files (`internal/agentcfg/codec/lines.go:9`) — *"a decent
+   motivation, and I could see that being used."* `lines` has no shipped user today;
+   whether that matters belongs with the `host_files` codec set, not here.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > _(empty — fill in when decided; the leaning is review's own proposal, so this
+   > may be closable as-is)_
 
 ---
 
