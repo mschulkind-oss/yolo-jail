@@ -417,7 +417,7 @@ the ones [§4.2](#42-what-moves-enforce) says must be handled **before** anythin
 | [`host-file-staging.md`](../plans/host-file-staging.md) | the `transform` row of the key table and the whole *Transforms on non-object surfaces* section | postscript on the section; the row goes |
 | [`pack-system.md`](../reference/pack-system.md) | layer-order lines with `[lua transform]`; the surface-field list; a registrations row that lists `yolo.transform` among **derive** registrations — which is wrong today ([§2.3](#23-the-package-two-halves-and-a-seam)) | the lines are corrected; the wrong row is corrected regardless |
 | [`config-migration-to-prism.md`](../reference/config-migration-to-prism.md) | "Loading the Lua transform" as a boot step; `config.lua` as a user input | corrected |
-| [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) | the layer stack ([§2.1](config-ownership-and-promotion.md#21-the-layer-stack)), one clause in [§5.4](config-ownership-and-promotion.md#54-promotion-moves-a-key-down-the-stack), the "no change to the precedence stack" promise in [§7](config-ownership-and-promotion.md#7-what-this-does-not-propose), and [OQ-CO6](config-ownership-and-promotion.md#OQ-CO6)'s framing | **in review — not edited by this doc.** Four one-word edits after its review closes; [OQ-CO6](config-ownership-and-promotion.md#OQ-CO6)'s argument survives on `computed` and `managed` alone |
+| [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) | the layer stack ([§2.1](config-ownership-and-promotion.md#21-the-layer-stack)), one clause in [§5.4](config-ownership-and-promotion.md#54-promotion-moves-a-key-down-the-stack), the "no change to the precedence stack" promise in [§7](config-ownership-and-promotion.md#7-what-this-does-not-propose), and [OQ-CO6](config-ownership-and-promotion.md#13-decision-ledger)'s framing | **in review — not edited by this doc.** Four one-word edits after its review closes; [OQ-CO6](config-ownership-and-promotion.md#13-decision-ledger)'s argument survives on `computed` and `managed` alone |
 | [`trust-paths.md`](trust-paths.md) | row 13 of the crossing inventory | becomes "removed 2026-…", the way that table records closed rows |
 | [`BACKLOG.md`](../plans/BACKLOG.md) rows A9, A13; [`composed-config-work.md`](../plans/composed-config-work.md); [`open-rulings.md`](../plans/open-rulings.md) | history of the inert episodes | **kept** — a doc recording a defect is supposed to name it |
 | [`roadmap.md`](../plans/roadmap.md) | one supporting clause in 💬 7 lists `transform` among the layers capture loses to | one word |
@@ -535,7 +535,7 @@ ruling, whichever way it goes, because that is where the next author will look.
 - **Editing [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md)** while it is
   in review.
 - **Building the `workspace` layer** the design of record calls "DECIDED BUT UNWIRED". Unrelated,
-  and [OQ-CO8](config-ownership-and-promotion.md#OQ-CO8) depends on that wording staying put.
+  and [OQ-CO8](config-ownership-and-promotion.md#13-decision-ledger) depends on that wording staying put.
 
 ## 12. Open Questions
 

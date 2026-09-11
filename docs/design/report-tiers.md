@@ -73,7 +73,7 @@ Six principles, cited by number below:
   it is a change or a loss.
 - **P2 — Every loss names its remedy, in copy-paste form, and names the scope the remedy covers.**
   A loss with no remedy says so rather than borrowing a `⚠` it cannot cash. This is
-  [OQ-CO2](config-ownership-and-promotion.md#OQ-CO2)'s ruling — feedback belongs *at the point of
+  [OQ-CO2](config-ownership-and-promotion.md#13-decision-ledger)'s ruling — feedback belongs *at the point of
   the act* — taken seriously: the message at that point has to be good enough to carry the whole
   load, because nothing else will.
 - **P3 — Facts and remedies by default; rationale on demand.** The *why* of a rule is for the
