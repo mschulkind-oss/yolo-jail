@@ -1060,7 +1060,7 @@ Observable outcomes that mean this was built as designed:
 
 ## 12. Open Questions
 
-1. 💬 **OQ-CO1: Two values or three?** Does `assert` earn its place, or is the
+1. ✅ **OQ-CO1: Two values or three?** — **RULED 2026-09-10: three.** Does `assert` earn its place, or is the
    real choice binary — yolo writes the host file or it does not? Three values
    is one more thing to explain at the one moment a user is deciding; two values
    collapses "asserts my declared keys into a file that is mine" into either
@@ -1075,8 +1075,16 @@ Observable outcomes that mean this was built as designed:
    maintainer's machine right now, and collapsing it means either regressing that
    or force-escalating it to `own` without asking.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-10, review round 0 — THREE, with the leaning):**
+   > **Three values.** Ruled in the leaning's own words: *"`assert` is the shipped
+   > behavior and has real users — including this maintainer today — so collapsing
+   > it means either a regression or a forced escalation to `own`."* The cost the
+   > question worried about — one more thing to explain at the deciding moment —
+   > is paid down by [OQ-CO2](#OQ-CO2)'s ruling, which removed the prompt that
+   > would have done the explaining: nobody is asked to choose at upgrade, so the
+   > third value costs a line in `yolo config-ref` rather than a decision under
+   > time pressure. Alternative C in [§8](#8-alternatives-considered) resolves as
+   > rejected.
 
 2. ✅ **OQ-CO2: Should the unset state prompt, or just warn?** — **RULED 2026-09-10: neither.** [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)
    proposes that the first `host apply --assert` under an absent key stops and
@@ -1138,7 +1146,7 @@ Observable outcomes that mean this was built as designed:
    > [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to) and
    > [§6.3.1](#631-why-the-adoption-diff-is-empty).
 
-4. 💬 **OQ-CO4: Is the conventional local pack too blunt a default destination?**
+4. ✅ **OQ-CO4: Is the conventional local pack too blunt a default destination?** — **RULED 2026-09-10: no — keep it, and confirm.**
    It is implicitly selected in every jail and renders at every notch, so
    `--to local` is genuinely "everywhere, forever" — which is the feature, and
    also means a casually promoted key has the widest possible blast radius with
@@ -1151,8 +1159,25 @@ Observable outcomes that mean this was built as designed:
    in words. The edit is a readable line in a `pack.json` and trivially undone;
    requiring `--to` taxes the common case to guard a reversible one.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-10, review round 0 — KEEP the default; the guard is the
+   confirmation, not the flag):**
+   > **`local` stays the default, and promote shows exactly what it is about to
+   > write and asks — unless `--yes` is passed.** *"If we show what's being
+   > promoted and require a confirm (unless a `--yes` or whatever is passed) that
+   > is enough."* So the blast radius is disclosed at the moment of the act rather
+   > than defended by making every invocation type `--to`, which is the same
+   > shape [OQ-CO2](#OQ-CO2) took for the unset state: **feedback at the point of
+   > the act beats ceremony in front of it.**
+   >
+   > Two requirements this pins, both already in [§5.1](#51-surface) and now
+   > load-bearing rather than incidental:
+   >
+   > - **Selection is explicit and reviewable.** `--keys a,b` selects specific
+   >   keys; omitting it means all of them. Either way the confirmation lists what
+   >   was selected — *"we'll want a confirm of what we've selected before running
+   >   it"* — so "all" is never silently wider than the user pictured.
+   > - **`--yes` is the only way past it**, and it is the scripting path, not a
+   >   default. `--plan` remains the read-only form for looking without deciding.
 
 5. 💬 **OQ-CO5: In-jail promote — refuse with instructions, or file a request?**
    [§5.5](#55-where-promote-may-run) establishes promote as host-side. But the
@@ -1212,6 +1237,60 @@ Observable outcomes that mean this was built as designed:
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+11. 💬 **<a id="OQ-CO11"></a>OQ-CO11: Does the `host` layer survive
+    `host_management` at all?** Opened in review 2026-09-10, and it is **upstream
+    of [OQ-CO10](#OQ-CO10)** — if the answer is no for config surfaces, CO10's
+    packaging question dissolves rather than being answered.
+
+    **The argument, as put in review:** *"It's not always natural to involve the
+    host file. In fact it seems quite weird. We said all surfaces are equal(ish),
+    so why auto-leak from host→jail if host is managed? We don't leak from jail to
+    jail automatically."*
+
+    Three things make that more than a preference:
+
+    - **It contradicts this document's own [P5](#1-the-verdict-and-the-principles-it-rests-on).**
+      "The host is a notch like any other" — and no other notch's files compose
+      into a jail. Two jails on two workspaces share nothing; the host getting an
+      automatic inbound channel makes it privileged in exactly the direction P5
+      says it is not.
+    - **The value degrades as ownership rises, to zero.** Under `none` the host
+      file is entirely the user's, so reading it in is meaningful. Under `assert`
+      it is shared, so the jail re-imports yolo's own declared keys alongside the
+      user's. Under **`own` the file is yolo's derived output**, so the jail reads
+      back what yolo wrote — a loop with no source. The layer's usefulness is a
+      function of the very key this document introduces, and nothing today notices.
+    - **It is already recorded as owed.** [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md)'s [*The `host` layer is the input we should retire*](yolo-as-environment-manager.md#the-host-layer-is-the-input-we-should-retire)
+      carries a section titled *"The `host` layer is the input we should retire"*,
+      for the same reason: *"A pipeline that both reads your live settings in and
+      asserts config out over the same file is a loop: which one is the source? You
+      cannot cleanly have both on one surface — it is an XOR at best."* **This
+      document is the one that makes the XOR decidable**, because it is where the
+      out-direction becomes a declared value rather than an inference — and it has
+      not engaged with that section until now.
+
+    **What it decides:** whether `reads-host` keeps a config-surface role at all;
+    whether the answer is per-`host_management`-value rather than global; and
+    whether [§2.1](#21-the-layer-stack)'s stack loses a layer. It also decides
+    what `--to host` means — promoting into a file nothing reads is a different
+    act from promoting into a file every jail reads.
+
+    <!-- vantage: oq id=OQ-CO11 leaning="The host layer should not be automatic, and under `own` it should not exist — reading back yolo's own derived output is a loop with no source. Under `none` it is genuinely the user's file and defensible. So make it a per-surface opt-in that is REFUSED under `own`, rather than a global yes or a global no — which also makes the answer depend on the key this document introduces, instead of being invisible to it. Retiring it outright is the cleaner end state and should be the direction of travel, but it needs the migration story env-manager §3.3 never wrote." -->
+
+    _Leaning:_ **Not automatic, and under `own` not at all.** Reading yolo's own
+    derived output back into a jail is a loop with no source, so `own` should
+    *refuse* a host layer rather than merely making it pointless. Under `none` the
+    file is genuinely the user's and the layer is defensible. That makes the answer
+    **per-ownership-value**, which is the shape this document is for — today the
+    layer is invisible to the key that should govern it. Retiring it outright is
+    the cleaner end state and the right direction of travel, but it needs the
+    migration story [that section](yolo-as-environment-manager.md#the-host-layer-is-the-input-we-should-retire)
+    never wrote: two shipped surfaces compose from it today, and users have real
+    settings in those files.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
 
 10. 💬 **<a id="OQ-CO10"></a>OQ-CO10: Is `reads-host` coverage a decision, and
     should the grant name a path at all?** Opened in review 2026-09-10 from
@@ -1370,11 +1449,13 @@ Rulings on [§12](#12-open-questions)'s questions get folded into the normative
 body text and compacted into this table, keeping the exact `OQ-CO` ids so
 citations from sibling docs and code comments continue to resolve.
 
-**Two settled in review round 0; five still open, plus one opened by the same
-round.**
+**Four settled in review round 0; six still open, three of them opened by the
+same rounds — and [OQ-CO11](#OQ-CO11) is upstream of [OQ-CO10](#OQ-CO10).**
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| [OQ-CO1](#OQ-CO1) | **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. [OQ-CO2](#OQ-CO2) pays down its cost by removing the prompt that would have explained it. | 2026-09-10 | [§4.1](#41-the-key) |
+| [OQ-CO4](#OQ-CO4) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--yes` is the only way past it. Same shape as CO2 — feedback at the point of the act beats ceremony in front of it. | 2026-09-10 | [§5.1](#51-surface) |
 | [OQ-CO2](#OQ-CO2) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning.* | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
 | [OQ-CO3](#OQ-CO3) | **Yes, under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render byte-identical. The refusal stays for `none` and `assert`. | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-why-the-adoption-diff-is-empty) |
