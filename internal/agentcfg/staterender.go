@@ -196,13 +196,31 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 				pm, _ := pureMap.(map[string]any)
 				curMap, _ := current.(map[string]any)
 				residue := dropNullLeaves(mergeDiff(pm, curMap))
-				residue = dropYoloOwnedSubtrees(residue, pm)
-				// Anything the surface MANAGES is dropped too — but that is not done
-				// here any more. It is the SHARED narrowing below, which both branches
-				// run (see narrowOverlay). Adoption's behaviour is unchanged by the
-				// move: dropYoloOwnedSubtrees has already removed every top-level key
-				// the pure render holds as an object, and a managed object key is
-				// always one of those because Enforce puts it there.
+				// Narrowing the residue takes TWO passes at DIFFERENT GRANULARITIES,
+				// and the order is load-bearing.
+				//
+				// (a) WHOLESALE, here: a top-level key the COMPUTED layer holds as an
+				// object is a table yolo regenerates in full, so nothing on disk under
+				// it is agent state (dropComputedTables).
+				//
+				// (b) LEAF-LEVEL, after this branch: the SHARED narrowing both branches
+				// run (narrowOverlay), which is the exact dual of the merge each owning
+				// layer gets — it keeps a captured SIBLING inside an object-valued
+				// owner, because such a sibling really does reach the file.
+				//
+				// (b) CANNOT SUBSUME (a), which is why both exist: dropOverriddenKeys
+				// recurses into an object-valued owner and keeps every key the owner
+				// lacks — and a stale entry under a computed table is exactly such a
+				// key, so the leaf pass alone resurrects an MCP server dropped from
+				// config (§2 principle 1, regenerate-don't-reconcile).
+				//
+				// Neither may be the OLD blanket drop of every top-level key the pure
+				// render holds as an object. That took managed `permissions` with it,
+				// so `permissions.ask` — a leaf managed does not hold, which Enforce
+				// merges around — was silently lost on every adopting boot, while the
+				// very next boot captured it happily. dropOverriddenKeys says why in as
+				// many words: a blanket top-level key drop is "simpler and wrong".
+				residue = dropComputedTables(residue, in.Base.Computed)
 				if len(residue) > 0 {
 					overlay = residue
 				}
@@ -311,18 +329,12 @@ func decodeKind(c codec.Codec, kind codec.Kind, data []byte) (any, bool) {
 	return decoded, true
 }
 
-// emptyOverlay is the "no captured edits" overlay for a surface kind.
-//
-// For an object surface that is `{}` — an empty merge patch, which changes
-// nothing. For a keyless surface it is nil, NOT the zero value: Compose treats a
-// non-nil keyless layer as a real assertion that wins the fold, so an empty
-// string overlay would blank the file instead of deferring to the layers below.
-// dropYoloOwnedSubtrees removes from an adopted residue every key that collides
-// with a CONTAINER yolo itself produces, keyed against the pure render.
-//
-// This is the line between "state the agent owns" and "yolo's own output from a
-// previous boot", and on a first migration it is the only signal available —
-// last_render, which normally disambiguates them, is exactly what is missing.
+// dropComputedTables removes from an adopted first-migration residue every
+// top-level key the COMPUTED layer holds as an OBJECT — a table yolo regenerates
+// in full every boot. Nothing on disk under such a key is agent state: it is
+// yolo's own output from a previous boot, and on a first migration this is the
+// only signal that says so, because last_render — which normally disambiguates
+// them — is exactly what is missing.
 //
 // Without it, adoption resurrects dropped yolo-owned entries and breaks §2
 // principle 1 ("regenerate, don't reconcile"): an MCP server removed from config
@@ -331,14 +343,31 @@ func decodeKind(c codec.Codec, kind codec.Kind, data []byte) (any, bool) {
 // mcp_servers.staleServer, opencode's mcp.staleServer and mise's stale baked
 // [tools] runtimes all resurrected before this.
 //
-// The rule: if the pure render has the key as an OBJECT, yolo owns that subtree and
-// nothing inside it is adopted. If the key is absent from the pure render entirely,
-// yolo knows nothing about it, so it is agent state and IS adopted — that is the
-// copilot_tokens case this whole change exists for.
-func dropYoloOwnedSubtrees(residue, pure map[string]any) map[string]any {
+// THE GRANULARITY IS THE WHOLE POINT, in both directions:
+//
+//   - WHOLESALE against COMPUTED, because the leaf-level narrowing cannot express
+//     this. dropOverriddenKeys is the dual of a merge-patch and therefore KEEPS a
+//     key the owner lacks — which is precisely the stale entry. Deleting this pass
+//     leaves the resurrection class wide open with every other test still green.
+//   - NOT wholesale against the PURE RENDER, which is what this replaced. The pure
+//     render holds managed's `permissions` as an object too, so the blanket drop
+//     took Claude's own `permissions.ask` with it: an adopting boot silently
+//     discarded the agent's permission list, while a steady-state boot kept it.
+//     Everything below computed — managed, host, workspace, defaults — merges
+//     key-by-key, so it gets the leaf-level pass (narrowOverlay) instead.
+//
+// A key the computed layer does not hold as an object is untouched here: either
+// yolo knows nothing about it, in which case it is agent state and IS adopted
+// (the copilot_tokens case this whole branch exists for), or an owning layer
+// asserts it as a leaf and the leaf-level pass will drop it.
+func dropComputedTables(residue map[string]any, computed any) map[string]any {
+	computedMap, ok := computed.(map[string]any)
+	if !ok {
+		return residue
+	}
 	out := make(map[string]any, len(residue))
 	for k, v := range residue {
-		if _, yoloOwns := pure[k].(map[string]any); yoloOwns {
+		if _, wholesale := computedMap[k].(map[string]any); wholesale {
 			continue
 		}
 		out[k] = v
@@ -480,6 +509,12 @@ func dropNullLeaves(m map[string]any) map[string]any {
 	return out
 }
 
+// emptyOverlay is the "no captured edits" overlay for a surface kind.
+//
+// For an object surface that is `{}` — an empty merge patch, which changes
+// nothing. For a keyless surface it is nil, NOT the zero value: Compose treats a
+// non-nil keyless layer as a real assertion that wins the fold, so an empty
+// string overlay would blank the file instead of deferring to the layers below.
 func emptyOverlay(kind codec.Kind) any {
 	if kind == codec.KindObject {
 		return map[string]any{}

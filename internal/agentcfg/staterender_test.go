@@ -698,13 +698,18 @@ func TestComposeStatefulKeylessWithoutManagedStillCaptures(t *testing.T) {
 	}
 }
 
-// TestComposeStatefulFirstMigrationDropsManagedObjectSubtree pins that the
-// first-migration branch is UNCHANGED by the shared narrowing. Adoption runs
-// dropYoloOwnedSubtrees first, which already removes every top-level key the
-// pure render holds as an object — and a managed object key is always one of
-// those, because Enforce puts it there. So adoption never reaches the deep half
-// of the rule, and its behaviour is the same before and after.
-func TestComposeStatefulFirstMigrationDropsManagedObjectSubtree(t *testing.T) {
+// TestComposeStatefulFirstMigrationKeepsManagedObjectSibling is the ADOPTION twin
+// of TestComposeStatefulSteadyStateKeepsManagedObjectSibling, and the granularity
+// the adoption branch got wrong. Managed `permissions` is an OBJECT, so Enforce
+// merges it key-by-key and a leaf managed does NOT hold — Claude's own
+// `permissions.ask` — really does reach the file. It must survive adoption exactly
+// as it survives steady-state capture.
+//
+// This is not a hypothetical: the two branches disagreeing means a jail that loses
+// its last_render sidecar (a fresh workspace, a deleted or truncated sidecar, an
+// interrupted migration) silently discards the agent's permission list, while the
+// very next boot keeps it.
+func TestComposeStatefulFirstMigrationKeepsManagedObjectSibling(t *testing.T) {
 	current := `{"permissions":{"defaultMode":"plan","ask":["Bash(rm:*)"]},"model":"agent-picked"}`
 
 	out, err := ComposeStateful(StatefulInputs{
@@ -716,11 +721,73 @@ func TestComposeStatefulFirstMigrationDropsManagedObjectSubtree(t *testing.T) {
 		t.Fatalf("ComposeStateful error: %v", err)
 	}
 	got := jsonObj(t, string(out.OverlayJSON))
-	if _, bad := got["permissions"]; bad {
-		t.Errorf("adoption must not adopt a yolo-owned/managed subtree: %v", got)
+	perms, _ := got["permissions"].(map[string]any)
+	if perms == nil {
+		t.Fatalf("adoption dropped the whole managed object, losing a live sibling: %v", got)
+	}
+	if _, bad := perms["defaultMode"]; bad {
+		t.Errorf("adoption captured a MANAGED leaf: %v", perms)
+	}
+	ask, _ := perms["ask"].([]any)
+	if len(ask) != 1 || ask[0] != "Bash(rm:*)" {
+		t.Errorf("adopted permissions = %v, want the non-managed ask sibling preserved", perms)
 	}
 	if got["model"] != "agent-picked" {
 		t.Errorf("overlay = %v, want the unasserted key adopted", got)
+	}
+	// And the sibling is live rather than noise: Enforce merges managed over it, so
+	// `ask` reaches the file while `defaultMode` is yolo's.
+	rendered, _ := out.Result.ConfigMap()["permissions"].(map[string]any)
+	if rendered["defaultMode"] != "acceptEdits" {
+		t.Errorf("rendered defaultMode = %v, want acceptEdits (managed wins)", rendered["defaultMode"])
+	}
+	if ra, _ := rendered["ask"].([]any); len(ra) != 1 {
+		t.Errorf("rendered permissions = %v, want the adopted ask sibling to reach the file", rendered)
+	}
+}
+
+// TestComposeStatefulFirstMigrationDropsComputedTableWholesale is the other half
+// of the adoption narrowing, and the half that must stay WHOLESALE. A top-level
+// key the COMPUTED layer holds as an object is a table yolo regenerates in full
+// (codex's mcp_servers, opencode's mcp, mise's tools), so a stale entry sitting
+// under it on disk is yolo's own output from a previous boot, not agent state.
+//
+// The leaf-level pass cannot express this: dropOverriddenKeys recurses into an
+// object-valued owner and KEEPS every key the owner lacks — which is exactly the
+// stale entry. Adoption therefore drops the whole table first, and only then
+// hands the residue to the leaf-level narrowing. Delete that first pass and the
+// dropped server comes back, breaking §2 principle 1 (regenerate, don't
+// reconcile).
+func TestComposeStatefulFirstMigrationDropsComputedTableWholesale(t *testing.T) {
+	computed := map[string]any{"mcpServers": map[string]any{
+		"live": map[string]any{"command": "/bin/live"},
+	}}
+	// On disk: yolo's own table from a previous boot, still carrying a server that
+	// has since been dropped from config, plus a key the agent owns.
+	current := `{"mcpServers":{"live":{"command":"/bin/live"},` +
+		`"stale":{"command":"/gone"}},"model":"agent-picked"}`
+
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface(), Computed: computed},
+		CurrentBytes:      []byte(current),
+		LastRenderPresent: false,
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	got := jsonObj(t, string(out.OverlayJSON))
+	if _, bad := got["mcpServers"]; bad {
+		t.Errorf("adoption kept part of a computed-owned table: %v", got)
+	}
+	if got["model"] != "agent-picked" {
+		t.Errorf("overlay = %v, want the unasserted key adopted", got)
+	}
+	rendered, _ := out.Result.ConfigMap()["mcpServers"].(map[string]any)
+	if _, resurrected := rendered["stale"]; resurrected {
+		t.Errorf("rendered mcpServers = %v, want the dropped server to stay dropped", rendered)
+	}
+	if _, ok := rendered["live"]; !ok {
+		t.Errorf("rendered mcpServers = %v, want yolo's regenerated table", rendered)
 	}
 }
 
