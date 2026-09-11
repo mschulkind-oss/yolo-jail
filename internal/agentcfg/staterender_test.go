@@ -20,12 +20,18 @@ func jsonObj(t *testing.T, s string) map[string]any {
 	return m
 }
 
-// TestComposeStatefulFirstMigrationDropsStaleKey is the §3.1/§3.2 regression
-// vector the migration doc (§6, Phase A) demands: a first-boot input where the
-// on-disk file carries a stale key the new pipeline no longer emits. On the
-// FIRST migration boot (last_render absent) the render must DROP the stale key
-// and the overlay must stay EMPTY — proving the empty-overlay SEED path is
-// wired, not the naïve mergeDiff(∅, file) path that would pin the whole file.
+// TestComposeStatefulFirstMigrationAdoptsUnassertedKeys is the §3.1/§3.2
+// regression vector the migration doc (§6, Phase A) demands, with the rule B1
+// inverted: a first-boot input where the on-disk file carries a key the new
+// pipeline no longer emits.
+//
+// §3.2 asked for the stale key to be DROPPED and the overlay to stay EMPTY. B1
+// rejected that, because nothing here can tell a stale key from the agent's own
+// live state and guessing wrong is the copilot OAuth wipe — so a key yolo does
+// not assert is ADOPTED, while what yolo does assert still wins the render. The
+// stale-key half of §3.1 survives only where ownership is PROVABLE, which is a
+// computed-owned table: see
+// TestComposeStatefulFirstMigrationDropsComputedTableWholesale.
 func TestComposeStatefulFirstMigrationAdoptsUnassertedKeys(t *testing.T) {
 	// The pre-existing bespoke file: a stale key ("legacyPin") plus an in-jail
 	// theme change ("dark"). No host layer, no transform.
@@ -454,12 +460,13 @@ func TestFirstMigrationWithNoFileStaysClean(t *testing.T) {
 // Managed keys are never captured — in EITHER branch.
 //
 // Managed is re-asserted after the fold (compose.go's Enforce step), so a
-// captured managed key can never reach the written file. The first-migration
-// branch has always narrowed its adopted residue against Managed; steady-state
-// capture did not, so every boot that saw a managed key edited on disk folded
-// that key into the overlay sidecar as permanent, un-actionable noise. The
-// tests below pin the rule in the steady-state branch and pin that it is
-// SELF-HEALING: a sidecar that already carries the dead key comes back clean.
+// captured managed key can never reach the written file. Steady-state capture
+// did not narrow against Managed at all, so every boot that saw a managed key
+// edited on disk folded it into the overlay sidecar as permanent, un-actionable
+// noise. The tests below pin the rule in BOTH branches, pin that it is
+// SELF-HEALING (a sidecar that already carries the dead key comes back clean),
+// and pin that it narrows at LEAF granularity — a managed object is merged
+// key-by-key, so a sibling inside it is a real edit in either branch.
 // ---------------------------------------------------------------------------
 
 // nestedManagedSurface mirrors packs/claude's claude/settings under the

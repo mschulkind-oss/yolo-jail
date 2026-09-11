@@ -1,15 +1,20 @@
 package agentcfg
 
 // staterender.go is the stateful boot render harness: the §5 capture-diff
-// overlay loop plus the §3.2 first-migration bootstrap from
+// overlay loop plus the §3.2 first-migration path from
 // docs/reference/config-migration-to-prism.md. Compose (compose.go) renders ONE
 // surface as a pure function of its layers; ComposeStateful wraps it with the
 // per-boot state machine that decides the overlay layer from the sidecar files
 // and reports what the caller must persist.
 //
-// It stays PURE — no file I/O, no container. The caller (internal/entrypoint,
-// wired in a later commit) reads the two sidecars and the current surface file,
-// hands their bytes here, and writes back what StatefulOutput says to write.
+// §3.2 originally called that path a BOOTSTRAP that seeds an empty overlay and
+// skips capture. B1 inverted it — it now ADOPTS the on-disk file — and the
+// docstrings below describe the body as it stands, not as §3.2 wrote it.
+//
+// It stays PURE — no file I/O, no container. The callers (internal/entrypoint's
+// boot path and internal/cli's `config diff`) read the two sidecars and the
+// current surface file, hand their bytes here, and write back what
+// StatefulOutput says to write.
 // Keeping the state machine here means the hard parts — first-migration
 // detection, the §3.3 defensive handling of dangling/corrupt sidecars, and the
 // diff/accumulate/render loop — are unit-tested with zero filesystem, and it
@@ -83,18 +88,24 @@ type StatefulInputs struct {
 	CurrentBytes []byte
 
 	// LastRenderPresent reports whether the last_render sidecar exists on disk.
-	// Its ABSENCE is the first-migration signal (§3.2): the harness seeds a
-	// truthful baseline with an empty overlay and skips capture this boot.
+	// Its ABSENCE is the first-migration signal (§3.2). With no baseline there is
+	// nothing to diff against, so capture is impossible — and since B1 the harness
+	// ADOPTS the on-disk file instead of discarding it, seeding the overlay from
+	// what the file holds beyond the pure render. It seeded an EMPTY overlay here
+	// before B1, which is what wiped copilot's OAuth tokens.
 	LastRenderPresent bool
 	// LastRenderBytes is the last_render sidecar content (the surface-codec bytes
 	// yolo wrote last boot). Ignored when LastRenderPresent is false. A present
 	// but empty or undecodable value is treated as a first migration (§3.3): it
-	// cannot be trusted as a diff baseline, so re-seed rather than capture the
-	// whole file.
+	// cannot be trusted as a diff baseline, so this boot adopts rather than
+	// capturing a diff against a baseline that is not there.
 	LastRenderBytes []byte
 
 	// OverlayJSON is the overlay sidecar content (JSON), or nil when absent. On a
-	// first migration it is reset to {} regardless (§3.3 dangling-overlay case).
+	// first migration it is IGNORED regardless (§3.3 dangling-overlay case): that
+	// boot's overlay is rebuilt from the on-disk file by adoption, so a dangling
+	// sidecar cannot leak into it. (Before B1 the rebuilt value was always {},
+	// which is why this said "reset to {}".)
 	OverlayJSON []byte
 }
 
@@ -112,13 +123,17 @@ type StatefulOutput struct {
 	// named field so the caller's intent reads clearly at the write site.
 	LastRenderBytes []byte
 
-	// OverlayJSON is what to write to the overlay sidecar (JSON): {} on a first
-	// migration, else the accumulated overlay after this boot's capture.
+	// OverlayJSON is what to write to the overlay sidecar (JSON): on a first
+	// migration the ADOPTED residue of the on-disk file — {} when there is no file,
+	// or nothing in it beyond what yolo already asserts — else the accumulated
+	// overlay after this boot's capture. Narrowed against computed and managed
+	// either way.
 	OverlayJSON []byte
 
-	// FirstMigration reports that this boot took the §3.2 seed path (absent or
-	// untrusted last_render): the render used an empty overlay and capture was
-	// skipped. The caller uses this to gate the one-time §4.7 orphan-file cleanup.
+	// FirstMigration reports that this boot took the §3.2 path (absent or untrusted
+	// last_render): the overlay came from ADOPTING the on-disk file rather than
+	// from a capture diff. The caller uses this to gate the one-time §4.7
+	// orphan-file cleanup.
 	FirstMigration bool
 }
 
@@ -132,14 +147,17 @@ type StatefulOutput struct {
 //
 // The two paths (docs/reference/config-migration-to-prism.md §3.2):
 //
-//	first migration (last_render absent/untrusted):
-//	    render  = Compose(overlay=∅)
-//	    write surface_path, last_render := render; overlay := {}   # skip capture
+//	first migration (last_render absent/untrusted):   # B1: ADOPT, don't discard
+//	    pure    = Compose(overlay=∅)
+//	    overlay = dropNullLeaves(mergeDiff(pure, current_decoded))  # the residue
+//	    overlay = dropComputedTables(overlay)                       # wholesale
 //	steady state (last_render trusted):
 //	    delta   = mergeDiff(last_render_decoded, current_decoded)
-//	    overlay = mergeAccumulate(overlay, delta)                  # §3.4 tombstones
+//	    overlay = mergeAccumulate(overlay, delta)                   # §3.4 tombstones
+//	then BOTH paths:
+//	    overlay = narrowOverlay(overlay, computed, managed)         # leaf-level
 //	    render  = Compose(overlay)
-//	    write surface_path, last_render := render
+//	    write surface_path, last_render := render, overlay := overlay
 func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	c, ok := codec.LookupCodec(in.Base.Surface.Codec)
 	if !ok {
@@ -153,9 +171,10 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	//
 	// A last_render sidecar is TRUSTED only when it is present AND decodes to the
 	// surface's own shape. Absent, empty, or undecodable last_render => first
-	// migration (§3.2 / §3.3): we cannot diff against it, so seeding from the
-	// fresh render with an empty overlay is the only correct move — capturing the
-	// on-disk file would pin stale bespoke output (§3.1).
+	// migration (§3.2 / §3.3): there is no baseline, so capture is impossible and
+	// the branch below ADOPTS the on-disk file instead (B1). It adopts a NARROWED
+	// residue rather than the file itself, because taking the whole file would pin
+	// stale bespoke output (§3.1) — that narrowing is what the two passes do.
 	lastRender, lastOK := decodeKind(c, kind, in.LastRenderBytes)
 	firstMigration := !in.LastRenderPresent || !lastOK
 
