@@ -535,6 +535,62 @@ counterpart a user plausibly has: `claude/config` (`~/.claude.json`),
 settings surface of an agent that has one"* — a pattern, not a chosen subset, and
 **no doc records a reason any of the nine declined**.
 
+##### The coupling is a basename match, and the read that depends on it is fail-open
+
+**Asked in review: *"why would we want to allow a surface to exist without
+`reads-host`? Package this so it structurally can't be forgotten."* Chasing that
+found the mechanism is weaker than "separable" — it is `path.Base`.**
+
+The surface already carries the field. `manifest.Surface.HostSource` is *"the
+in-jail path the `host` layer is read from"*, and `Surface.HasHostLayer()` is
+*exactly* `HostSource != ""` — the one predicate the boot render and the host-side
+`config` verbs both consult. So the host layer is already a property **of the
+surface**. The `reads-host` contribution does not express it; it *populates* it,
+across a seam:
+
+```go
+// internal/packload/packload.go:316 — verified 2026-09-10
+func (p *Pack) hostSourceFor(surfacePath string, granted []packdecl.HostFile) string {
+    want := path.Base(surfacePath)
+    for _, hf := range granted {
+        if path.Base(hf.From) != want { continue }
+        return CtxPath(p.StagedSlug(), hf)
+    }
+    return ""
+}
+```
+
+A surface is bound to its grant **if the two paths share a final component**. Three
+consequences, none of them chosen:
+
+1. **The directory is ignored.** A grant for `.claude/settings.json` binds to a
+   surface at any path ending `settings.json`. Two surfaces in one pack sharing a
+   basename would both take the first matching grant. Nothing shipped collides —
+   `pi/settings` and `pi/models` differ — so the hazard is latent, not live.
+2. **A typo does not fail; it un-binds.** A grant whose basename stops matching
+   silently yields `HostSource == ""`, and `HasHostLayer()` then reports **false**
+   for a surface whose author declared a host layer.
+3. **And the read is fail-open**: `data, _ := os.ReadFile(remapCtx(surface.HostSource))`
+   (`internal/entrypoint/packsurfaces.go:467`) discards the error and composes the
+   surface **without** its host layer. **This has already shipped a real bug** —
+   `StagedSlug`'s docstring records it, measured 2026-09-05: a pack named `my_pack`
+   had its file mounted at `/ctx/host-my_pack/` while the entrypoint read
+   `/ctx/host-my_5fpack/`, *"and the host-layer read is fail-open, so the surface
+   composed"*.
+
+So the honest answer to *"why allow a surface without it"* is: **no reason was
+ever given**, and the separation is not a design with a rationale — it is two
+declarations naming the same file, joined by a string match, guarding a read that
+cannot tell "no host layer" from "I could not find it".
+
+⚠ **`CombineShared` is not the obstacle it looks like.** `reads-host` is
+`Combine: CombineShared` (*"Many packs may read one file; no combine"*,
+`internal/packdecl/kinds.go:87`), which sounds like a reason it must stand apart
+from a `CombineExclusive` surface. It is not: sharing describes how the **mount**
+de-duplicates when two packs want one file, and says nothing about where the
+**declaration** lives. Two surfaces could each declare the same host file and
+still share one mount.
+
 This is [OQ-CO10](#OQ-CO10). It is really a
 [`pack-system`](../reference/pack-system.md) question rather than an ownership
 one, and it is routed here because `--to host`'s usefulness is a direct function
@@ -1111,15 +1167,40 @@ Observable outcomes that mean this was built as designed:
       surface has no host layer, so nothing will read this"* rather than writing
       a file no jail consults.
 
-    <!-- vantage: oq id=OQ-CO10 leaning="Keep the per-pack declaration (it is a disclosed privilege claim), narrow the FIELD to a boolean since both shipped grants name their own surface path, and treat the nine missing grants as unfinished rather than deliberate — but per-surface, since mise/config is a genuine no. Regardless of coverage, promote must refuse --to host on a surface with no host layer instead of writing a file nothing reads." -->
+    <!-- vantage: oq id=OQ-CO10 leaning="Move the declaration ONTO the surface so the binding is structural instead of a path.Base match, and make the read fail CLOSED. Keep the privilege claim and its disclosure — those come from the declaration existing and being enumerable, not from its being a separate contribution kind. Coverage then becomes a visible per-surface yes/no in review rather than something that can be forgotten, and mise/config is a deliberate no. Regardless, promote must refuse --to host on a surface with no host layer." -->
 
-    _Leaning:_ **Keep the declaration, narrow the field, treat coverage as
-    unfinished — but decide it per surface, not in bulk.** The privilege claim is
-    right and the disclosure depends on it. The path is redundant and should be a
-    boolean. The nine are probably unfinished rather than deliberate, but
-    `mise/config` shows the answer is not a blanket yes, so each needs its own
-    line. The third sub-question needs no ruling either way: promote must refuse
-    `--to host` on a surface with no host layer regardless of who has one.
+    _Leaning (**revised in review 2026-09-10**, and the revision is the
+    maintainer's, not mine):_ **Package it onto the surface so the binding is
+    structural, and make the read fail closed.** My first leaning was "keep the
+    separate kind, narrow its field to a boolean" — which treats a redundant path
+    as a cosmetic problem. The review asked the better question: *why is a surface
+    allowed to exist without it at all?* Chasing that found the binding is a
+    `path.Base` match feeding a fail-open read
+    ([the basename-match finding](#the-coupling-is-a-basename-match-and-the-read-that-depends-on-it-is-fail-open)
+    under [§5.1.1](#511-why-only-two--and-why-that-is-a-question-not-a-fact-to-design-around)),
+    which has already shipped one silent-wrong-composition bug. A boolean would
+    not have touched that.
+
+    What moves and what does not:
+
+    - **Moves:** the declaration goes on the surface, so `HostSource` is populated
+      from the surface's own manifest entry rather than matched to a sibling
+      contribution. *A surface with a host layer* and *a surface without one*
+      become the only representable states, and the third — **declared but not
+      bound** — stops existing.
+    - **Stays:** the privilege claim and its disclosure. Both come from the
+      declaration being present and enumerable, not from its being a separate
+      kind; the footprint can walk surfaces as easily as contributions.
+    - **Also changes:** the read fails **closed**. A surface that declares a host
+      layer and cannot read it must refuse rather than compose without it — today
+      those two outcomes are the same bytes.
+    - **Coverage falls out.** Every surface then visibly says yes or no in one
+      place, so `mise/config` becomes a deliberate **no** — importing the host's
+      mise config would fight the pinned toolchain — rather than an omission
+      indistinguishable from the other eight.
+
+    Unchanged either way: promote must refuse `--to host` on a surface with no
+    host layer rather than writing a file nothing reads.
 
     **Answer:**
     > _(empty — fill in when decided)_
