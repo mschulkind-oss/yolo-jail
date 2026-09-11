@@ -3,7 +3,7 @@ title: "macos-user has no floor and no provisioning stage"
 status: in-review
 date: 2026-09-04
 tags: [macos-user, provisioning, packages, mise, backend-parity]
-summary: "Every imperative provisioning step the container path runs — mise install, the LSP/MCP npm installs, the agent CLI installers — is missing on macos-user, and so is the package floor those steps need to run at all. Two separable halves, in that order: give the noncontainer profile a core set, then run the same stage, confined, inside the sandbox. Where the stage's state lives is settled by the container's own partition; how much floor and whether it is GNU or BSD are the two rulings left."
+summary: "Almost every imperative provisioning step the container path runs — mise install, the LSP/MCP npm installs, the npm half of the agent CLI installers — is missing on macos-user, and so is the package floor those steps need to run at all. (Measured 2026-09-11: the `via: installer` half of the agent CLIs does work there, needing only macOS's own curl and bash.) Two separable halves, in that order: give the noncontainer profile a core set, then run the same stage, confined, inside the sandbox. Where the stage's state lives is settled by the container's own partition; how much floor and whether it is GNU or BSD are the two rulings left."
 ---
 
 # macos-user has no floor and no provisioning stage
@@ -19,10 +19,10 @@ compacted into the [Decision Ledger](#decision-ledger). **[`OQ-P1`](#OQ-P1) and
 > stage's state goes exactly where the container already puts it — machine-wide
 > for mise's data, per-workspace for everything else.
 
-**Why it matters.** `mise_tools`, `lsp_servers`, `mcp_presets` and the lazy
-agent-CLI installers all render config and install nothing — three of them warn,
-the fourth still fails silently on the user's first real command
-([§2](#2-what-this-costs-today)).
+**Why it matters.** `mise_tools`, `lsp_servers` and `mcp_presets` all render config and install
+nothing, and all three warn. The lazy agent-CLI installers were the fourth item on that list until
+they were measured on 2026-09-11: **the `via: installer` half works there, the `via: npm` half fails
+at the moment the agent is invoked** ([§2](#2-what-this-costs-today)).
 
 **The shape.** Half one adds a core set to the noncontainer nix profile. Half two
 runs the container's `setupScript` body as a **new, Seatbelt-confined step** between
@@ -104,6 +104,50 @@ Neither is a stage:
 > ran under the sandbox, and that is the load-bearing error: half two is a **new
 > confined step**, not a line added to an already-confined one
 > ([§4](#4-the-proposed-shape)).
+>
+> **And `--login` is not cosmetic after all** — it mangles the forwarded command, measured
+> the same day. See [§1.1](#11-the-forwarded-command-is-not-passed-through-faithfully).
+
+### 1.1 The forwarded command is not passed through faithfully
+
+**A defect, found by measurement on 2026-09-11 and not yet fixed.** It is stated here because this
+section owns the launch argv; it is orthogonal to this doc's thesis, and it is not part of
+[§4](#4-the-proposed-shape)'s proposal.
+
+`sudo --login` does not `execve` the argv it is given. Per sudo(8) `-i`: *"If a command is
+specified, it is passed to the shell as a simple command using the -c option. The command and any
+args are **concatenated, separated by spaces, after escaping each character (including white space)
+with a backslash** — except for alphanumerics, underscores, hyphens, and dollar signs."* Two
+consequences follow from that one sentence, and **both were measured on hardware**
+(`YOLO_RUNTIME=macos-user yolo -- bash -lc …`, host `yolo` `0.8.0+1336.gecb17e8c`):
+
+| Probe | Sound behaviour | Measured |
+| :--- | :--- | :--- |
+| `bash -lc $'echo A\necho B'` | `A` then `B` | **`Aecho B`** — the newline arrived as a `\`-continuation and bash removed it, joining the lines |
+| `bash -lc 'X=inner; echo got=$X'` | `got=inner` | **`got=`** — `$X` is unescaped, so the intermediate login shell expanded it (unset) before the sandbox's bash saw the string |
+
+**Why it is worse than it looks.** Neither failure is an error. The wrong command runs, exits 0, and
+prints plausible output — the first attempt at
+[`provisioner-sets.md` §15](provisioner-sets.md#15-what-a-mac-session-should-measure) M1 collapsed
+nine probes into five and reported five successes, none of which had run. Every container backend
+passes argv through `podman exec` untouched, so this is a **backend-parity defect**: the same
+`yolo --` invocation means different things per backend, and only this one rewrites it.
+
+**Why the obvious fix is wrong.** `--login` is load-bearing for
+[`OQ-1`](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown):
+the login rc files `WriteLoginRC` generates are what re-prepend PATH after macOS `path_helper`
+reorders it, and that is the acceptance bar the runbook passed on 2026-09-10. Dropping the flag to
+get a faithful argv would trade one measured behaviour for another.
+
+**What to weigh instead** (a fix, not a design — deliberately unresolved here): the outer login
+shell's own rc work is *already* discarded, because the very next word in the argv is
+`/usr/bin/env -i`, which wipes the environment it just built; PATH inside the sandbox comes from the
+explicit `PATH=` in that `env -i` list. If that reading holds, `sudo --user=… --set-home` plus an
+inner **`zsh -l -c`** keeps every rc file that matters (a login zsh reads `.zprofile`; `.zshrc` is
+not read by either spelling, since neither is interactive) while letting sudo `execve` the argv
+verbatim. `PlanInvariants` pins the current shape and would move with it. **Not verified** — it
+needs the same one-password launch these probes needed, and a fix that re-plumbs the launch argv
+wants its own test at the plan level first.
 
 **Verified on the machine, not inferred — and one observation retracted.** No `mise`
 binary exists on any path the sandbox can read — the host's is at `/opt/homebrew/bin`,
@@ -124,22 +168,32 @@ directory listing again.
 | `mise_tools` | installed by the stage | nothing; shims dir on PATH so it *looks* provisioned; `~/.config/mise/config.toml` written to the shared home | warns, host-side (`internal/cli/run/loopholeinert.go:309-315`, since 2026-09-04) |
 | `lsp_servers` | npm-installed by the stage | config renders, binaries absent | warns, host-side (`loopholeinert.go:316-321`) |
 | `mcp_presets` | npm-installed by the stage | wrappers skipped | warns — **in the bootstrap only** (`darwin.go:100-105`), so `--dry-run` never shows it |
-| agent CLIs (lazy launchers) | launcher execs npm/native installer | launcher generated, but no node and no npm to run it | **silent** — `GenerateAgentLaunchers` has no runtime precondition (`internal/entrypoint/shims.go`, verified 2026-09-11) |
+| agent CLIs (lazy launchers), `via: installer` | launcher execs the vendor installer | **works** — `curl` and `bash` are at `/usr/bin`; MEASURED 2026-09-11, three of three packs, two installing from scratch | n/a — nothing to tell |
+| agent CLIs (lazy launchers), `via: npm` | launcher execs `npm install -g` | fails — no node, no npm | **loud, at run time**: `npm: command not found` then `⚠ <bin> not available`, exit 1 (MEASURED 2026-09-11). `GenerateAgentLaunchers` still has no *generation*-time precondition (`internal/entrypoint/shims.go`, verified 2026-09-11), so nothing warns at launch |
 | `packages:` | baked into the image | realized natively | works |
 
-The last row is the tell: the one mechanism that works on this backend is the
-declarative one, and it works because it is the only one that never needed a
-runtime to already be present. **It is also the escape hatch the warnings already
+`packages:` works because it is the only declarative mechanism here — the only one that never
+needed a runtime to already be present. **It is also the escape hatch the warnings already
 point at**: `mise` and `nodejs` in `packages:` give a user the minimum floor today,
 and the `mise_tools` warning says so verbatim.
 
-> [!WARNING]
-> The agent-CLI launchers are the sharp edge and are still unwarned (re-verified
-> 2026-09-11). They are generated (`generate_agent_launchers` runs in the darwin
-> bootstrap, `darwin.go:78`), they sit on PATH, and they fail at the moment an agent
-> is invoked rather than at launch — so the failure lands on the user's first real
-> command, not on the launch they could have read. Fixing the warning is cheap and
-> should not wait for this design.
+> [!IMPORTANT]
+> **The agent-CLI row SPLIT on 2026-09-11, when it was finally measured on hardware, and the split
+> is the most load-bearing correction this doc has taken.** It used to be one row reading *"launcher
+> generated, but no node and no npm to run it — silent"*, which generalised the npm case to all six
+> packs. Measured: **three of the six install and run** — `claude`, `codex` and `agy` are
+> `via: installer`, and a vendor installer needs only the `curl` and `bash` that macOS ships. So the
+> guest is not a notch where agent CLIs cannot arrive; it is one where they arrive **by exactly one
+> of the two mechanisms** ([`provisioner-sets.md` §15](provisioner-sets.md#15-what-a-mac-session-should-measure)
+> M1, and its [§3](provisioner-sets.md#3-the-provisioner-inventory-per-environment) rows 5 and 6).
+>
+> Two live edges survive the correction. **The npm half is loud but late** — the launcher prints
+> `npm: command not found` and exits 1 when the agent is invoked, so the failure still lands on the
+> user's first real command rather than on the launch they could have read; a generation-time or
+> launch-time warning is still cheap and should still not wait for this design. **And the evergreen
+> half is unproven** — `claude`'s hourly update ran and failed (`status 124`, the vendor's own),
+> unbounded because `timeout(1)` does not exist on macOS (`internal/entrypoint/shims.go:1020-1029`
+> rules that explicitly). Installing once is measured; staying current is not.
 
 ## 3. Principles
 
@@ -165,6 +219,17 @@ bootstrap runs outside Seatbelt and that is tolerable because it executes only y
 code against a root-owned staged tree. The stage runs `npm install` postinstall hooks
 and mise plugins — vendor code — and the container runs it inside the jail. Running it
 unconfined here would be a regression the container never had.
+
+> [!NOTE]
+> **Measured 2026-09-11, and it sharpens P4 rather than confirming it.** Two vendor installers ran
+> under the session profile — so *confined* — and both still reached past their own prefix into
+> **yolo's generated files**: `agy` appended a PATH export to `.bashrc`, `.zshrc`, `.zprofile` and
+> `.bash_profile`, and `codex` prompted `Start Codex now? [y/N]` on `/dev/tty` and waited for a human
+> ([`provisioner-sets.md` §15.1](provisioner-sets.md#151-what-a-vendor-installer-does-to-the-generated-home)).
+> Seatbelt was doing its job: the sandbox home is *supposed* to be writable, and the tty is the one
+> the launch legitimately owns. **So "run it confined" does not mean "run it safely" for anything
+> inside the sandbox home** — which is where every generated PATH-ordering and launcher artifact
+> lives. A stage that runs installers on a schedule inherits both effects, unprompted.
 
 ## 4. The proposed shape
 
