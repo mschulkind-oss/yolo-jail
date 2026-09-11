@@ -362,11 +362,19 @@ func GenerateAgentLaunchers(e *Env) error {
 		return err
 	}
 	for _, p := range packs {
-		// HonoredInstalls applies the ORIGIN gate PER CONTRIBUTION: a fetched pack cannot
-		// introduce a curl-piped installer, because that would let a git ref run arbitrary
-		// code in the jail — but an npm install beside it is not gated, so the decision
-		// cannot be made once for the whole pack. The refusals were already reported at
-		// staging time on the host.
+		// HonoredInstalls refuses NOTHING, and the discarded second return is always nil.
+		// It used to apply an origin gate per contribution — a fetched pack kept its npm
+		// install and lost only its curl-piped installer — and OQ-TP9
+		// (docs/design/trust-paths.md, 2026-09-04) deleted that, because `npm install -g`
+		// from the same fetched tree runs `postinstall` ungated: the set refused one path
+		// to arbitrary in-jail execution while permitting another. So there is no staging-
+		// time refusal to have been reported either; what replaced the gate is disclosure
+		// at launch (packload.FootprintOf, run.notePackHostAccess).
+		//
+		// What survives is the per-contribution SHAPE, and the loop below still depends on
+		// it: one launcher per `program`, npm and installer alike. A caller that collapsed
+		// this slice to one decision per pack would drop launchers a pack asked for —
+		// TestBothInstallShapesGetALauncher (launcherdir_test.go) is that pin.
 		installs, _ := p.HonoredInstalls()
 		for i := range installs {
 			inst := &installs[i]
