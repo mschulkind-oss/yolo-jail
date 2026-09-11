@@ -953,9 +953,11 @@ existed recorded: *"I just didn't want to create a generic DSL out of JSON."*
 
 ### 💬 31 — Which package manager an environment actually has, and who picks it
 
-📄 [`provisioner-sets.md`](../design/provisioner-sets.md) — **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) · [`OQ-PS2`](../design/provisioner-sets.md#OQ-PS2) · [`OQ-PS3`](../design/provisioner-sets.md#OQ-PS3) ·
-[`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5) · [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) · [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) · plus the four `NX` questions
-the merge carried in** — [`OQ-PS4`](../design/provisioner-sets.md#decision-ledger) is RULED · written
+📄 [`provisioner-sets.md`](../design/provisioner-sets.md) — **thirteen live questions** after the 2026-09-11 carve:
+[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) · [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5) · [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) · [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) ·
+[`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) · **[`OQ-PS9`](../design/provisioner-sets.md#OQ-PS9) · [`OQ-PS10`](../design/provisioner-sets.md#OQ-PS10) · [`OQ-PS11`](../design/provisioner-sets.md#OQ-PS11) ·
+[`OQ-PS12`](../design/provisioner-sets.md#OQ-PS12)** (new) · [`OQ-NX4`](../design/provisioner-sets.md#OQ-NX4) · [`OQ-NX5`](../design/provisioner-sets.md#OQ-NX5) · [`OQ-NX8`](../design/provisioner-sets.md#OQ-NX8) ·
+[`OQ-NX9`](../design/provisioner-sets.md#OQ-NX9) — with [`OQ-PS2`](../design/provisioner-sets.md#decision-ledger), [`OQ-PS3`](../design/provisioner-sets.md#decision-ledger) and [`OQ-PS4`](../design/provisioner-sets.md#decision-ledger) RULED · written
 2026-09-11, a sibling of [`program-delivery.md`](../design/program-delivery.md) rather than an
 extension of it — [`OQ-PD16`](../design/program-delivery.md#decision-ledger) ruled that doc
 jail-only, so extending it would have reversed a ledger row.
@@ -992,9 +994,29 @@ jail get its agent CLIs from nix too?*) and [`OQ-PS1`](../design/provisioner-set
 doc routes both out of scope rather than re-opening them, which is the right move and the reason to
 read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be ruled without [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1).**
 
+⚠ **The carve raised the count on purpose, 11 → 13.** `OQ-PS1`, `OQ-PS5` and `OQ-PS7` each asked two
+things, so none could be ruled: *"I need these split out into OQs, I can't follow this subquestion thing."*
+They are now [`OQ-PS9`](../design/provisioner-sets.md#OQ-PS9) (does yolo help install nix), [`OQ-PS10`](../design/provisioner-sets.md#OQ-PS10) (does the
+host's nix provisioner leave anything behind), [`OQ-PS11`](../design/provisioner-sets.md#OQ-PS11) (do `program` and `requires`
+collapse) and [`OQ-PS12`](../design/provisioner-sets.md#OQ-PS12) (may an override name a recipe no pack ships). No id was
+renumbered. [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) was deliberately **kept joined** and retitled — its two halves fail
+the could-be-ruled-separately test, because the env half is on the table only as the alternative mechanism
+for the interactivity half.
+
+⚠ **And one sub-question was withdrawn as PROVABLY VACUOUS rather than answered.** `PS1(c)` was gated on
+*"only if `--sealed` is best-effort"* — which the maintainer could not parse, and checking the premise
+explains why: `applySealed` refuses **exactly two** inputs, a present `yolo-jail.local.jsonc` and
+outstanding capture keys (`internal/cli/apply.go:800-833`), and reads no toolchain or store path at all.
+A nix profile at a path yolo names is Declared-impure — `mise_tools`' own tier — so sealing never had an
+opinion. The conditional is withdrawn and §6.3's "the closure table gains a row" is retracted in place.
+**A question the reviewer cannot parse is a broken question**, and this one was broken because it was
+wrong.
+
 **Answer:**
-> _(empty — fill in when decided; [`OQ-PS3`](../design/provisioner-sets.md#OQ-PS3) is the deep one — does a pack declare a
-> provisioner or a need — and the other four mostly fall out of it)_
+> _(empty — fill in when decided. **[`OQ-PS3`](../design/provisioner-sets.md#decision-ledger) — the model question — is RULED**: a pack
+> declares a need plus the recipes that can produce it, and privileges none of them. That cascaded into five
+> places, so what remains is narrower than the count suggests: [`OQ-PS11`](../design/provisioner-sets.md#OQ-PS11) is upstream of
+> [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5) — you may be naming ONE kind rather than re-spelling one of two.)_
 
 # 🔒 Waiting
 
@@ -1264,7 +1286,7 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
   `shims.go:1020-1029` rules that explicitly.
 
   **What the two hint mechanisms do on hardware (M2, M3).** The generated Brewfile parses, casks
-  included — [`OQ-PS2`](../design/provisioner-sets.md#OQ-PS2)'s precondition, met. The unfree
+  included — [`OQ-PS2`](../design/provisioner-sets.md#decision-ledger)'s precondition, met. The unfree
   refusal is real on darwin, **and `NIXPKGS_ALLOW_UNFREE=1` does not lift it**: flake evaluation is
   pure, so the variable is never read and `--impure` is required. That one had been asserted from a
   Linux jail and is wrong on both platforms; it matters because a flag is something yolo would be
