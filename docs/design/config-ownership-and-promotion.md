@@ -583,6 +583,47 @@ ever given**, and the separation is not a design with a rationale — it is two
 declarations naming the same file, joined by a string match, guarding a read that
 cannot tell "no host layer" from "I could not find it".
 
+##### There is no second location to name — the homes differ by `~` and nothing else
+
+**Pushed further in review: *"How could a host surface ever be at a different
+location? How could one NOT exist? Everything is mirrored."* Both halves hold,
+and the manifest already says so about itself.**
+
+`HostSource`'s own docstring calls it **"Derived, not declared"** — it is the
+`/ctx` mount path the host CLI chose, not a path anyone wrote down
+(`internal/agentcfg/manifest/manifest.go:131-142`). So the only *declared* path in
+the whole arrangement is the grant's `host:` field, and that one cannot vary:
+
+- **Every shipped surface path is `~/`-relative** — all eleven pack surfaces plus
+  core's `mise/config` (`~/.config/mise/config.toml`); zero exceptions, measured
+  2026-09-10.
+- `~` is the **only** thing that differs between the two homes. So "the host's
+  version of this surface" is fully determined by the surface's own path, and both
+  shipped grants are exactly `<surface path minus ~/>`.
+
+A grant *could* today name some other file — bind `~/.claude/settings.json` into a
+surface that writes `~/.claude/settings.local.json` — but nothing does, nothing
+ever has, and no doc describes a case for it. That is speculative generality with
+a `path.Base` join holding it up.
+
+**And "the host surface does not exist" is a policy claim wearing a factual one.**
+The same docstring says *"Empty means the surface has no host layer, which is the
+common case: most surfaces are yolo-owned outright."* But the file can exist for
+every surface — the path mirrors — so what "no host layer" actually means is **yolo
+declines to read it**. Those are different statements, and only one of them is
+about the world. The field should therefore be a **policy bit on the surface**
+("does this surface import the user's version?"), with the path derived, because
+there is no second location for a path to name.
+
+> [!IMPORTANT]
+> **One thing this must not take with it: `reads-host` also serves the user's
+> `host_files` key**, which maps to review-worthy `reads-host` claims in the
+> footprint (`internal/packload/footprint_test.go:74-76`). Those carry *arbitrary*
+> host files into a jail — not a config surface's mirrored twin — so they are
+> genuinely not derivable and genuinely need a declared path. **The kind stays;
+> what moves onto the surface is the config-surface binding.** A naive "delete the
+> kind, put a boolean on the surface" would break `host_files`.
+
 ⚠ **`CombineShared` is not the obstacle it looks like.** `reads-host` is
 `Combine: CombineShared` (*"Many packs may read one file; no combine"*,
 `internal/packdecl/kinds.go:87`), which sounds like a reason it must stand apart
@@ -1183,11 +1224,16 @@ Observable outcomes that mean this was built as designed:
 
     What moves and what does not:
 
-    - **Moves:** the declaration goes on the surface, so `HostSource` is populated
-      from the surface's own manifest entry rather than matched to a sibling
-      contribution. *A surface with a host layer* and *a surface without one*
-      become the only representable states, and the third — **declared but not
-      bound** — stops existing.
+    - **Moves:** the config-surface binding becomes a **policy bit on the surface**
+      — *does this surface import the user's own version?* — with the path derived,
+      because [there is no second location to name](#there-is-no-second-location-to-name--the-homes-differ-by--and-nothing-else):
+      every surface is `~/`-relative and `~` is the only difference between the two
+      homes. *A surface with a host layer* and *a surface without one* become the
+      only representable states, and the third — **declared but not bound** — stops
+      existing.
+    - **Does NOT move:** the `reads-host` kind itself, which also carries the user's
+      `host_files` entries. Those are arbitrary host files with no mirrored twin, so
+      they genuinely need a declared path. Deleting the kind would break them.
     - **Stays:** the privilege claim and its disclosure. Both come from the
       declaration being present and enumerable, not from its being a separate
       kind; the footprint can walk surfaces as easily as contributions.
