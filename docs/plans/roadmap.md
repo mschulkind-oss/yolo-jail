@@ -641,7 +641,7 @@ shape the schema; [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) is
 ### 💬 25 — Who owns the config file, and the `promote` verb three messages already advise
 
 📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) —
-**[`OQ-CO1`](../design/config-ownership-and-promotion.md#12-open-questions) … [`OQ-CO7`](../design/config-ownership-and-promotion.md#12-open-questions)** · written 2026-09-09, **routed here the same day**
+**[`OQ-CO9`](../design/config-ownership-and-promotion.md#OQ-CO9) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) · [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)** — CO1–CO8 are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger) · written 2026-09-09, **routed here the same day**
 
 yolo infers config-file ownership from the confinement notch rather than asking, and the inference
 is wrong for anyone who adopted `yolo host apply`. **Nothing is built** (verified 2026-09-09: no
@@ -663,7 +663,7 @@ ruled and one is new, so the gating sentence this row used to carry is retired:
   `lines`) is never adopted by `ComposeStateful`, which is safe in a disposable jail home and not on
   a real one. Empty class today, which is why it is worth ruling before someone adds one.
 
-**[`OQ-CO1`](../design/config-ownership-and-promotion.md#12-open-questions) is now the only gate** — two ownership values or three. The
+~~**[`OQ-CO1`](../design/config-ownership-and-promotion.md#13-decision-ledger) is now the only gate**~~ — **spent: CO1 ruled three values, and CO2–CO8 followed.** The
 remainder are promotion mechanics ([`OQ-CO4`](../design/config-ownership-and-promotion.md#12-open-questions)–[`OQ-CO7`](../design/config-ownership-and-promotion.md#12-open-questions):
 default destination, in-jail refusal, precedence loss, archiving) plus CO9's carve-out.
 
@@ -685,7 +685,7 @@ than in the design's own.**
 
 Two consequences, and the first needs you before anything else here moves:
 
-- **[`OQ-CO3`](../design/config-ownership-and-promotion.md#OQ-CO3), which you settled in review round 0, reverses [`OQ-4`](environment-manager-plan.md#resolved)/[`OQ-5`](environment-manager-plan.md#resolved).** Either
+- **[`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger), which you settled in review round 0, reverses [`OQ-4`](environment-manager-plan.md#resolved)/[`OQ-5`](environment-manager-plan.md#resolved).** Either
   the 2026-08-01 ruling stands and `own` needs rethinking, or it is superseded and that ledger
   needs a dated reversal row. The audit flagged rather than flipped it, correctly.
 - **[`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) may already be answered "retire it".** The irony worth noting:
@@ -694,11 +694,13 @@ Two consequences, and the first needs you before anything else here moves:
   existed. **If [`OQ-3`](environment-manager-plan.md#resolved) stands, CO11 and [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) both dissolve and this doc gets
   materially smaller.**
 
-Live questions are now **[`OQ-CO5`](../design/config-ownership-and-promotion.md#OQ-CO5) · [`OQ-CO6`](../design/config-ownership-and-promotion.md#OQ-CO6) ·
-[`OQ-CO7`](../design/config-ownership-and-promotion.md#OQ-CO7) · [`OQ-CO9`](../design/config-ownership-and-promotion.md#OQ-CO9) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) ·
-[`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)**, with CO1–CO4 settled and CO8 blocked. The audit ruled none — all six
-were sharpened, not answered — so **nothing here is compacted yet, deliberately**: compacting
-would bury the [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) / [`OQ-3`](environment-manager-plan.md#resolved) contradiction while it is live.
+**Three questions remain: [`OQ-CO9`](../design/config-ownership-and-promotion.md#OQ-CO9) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) ·
+[`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)**, and [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) is first because the other two may
+dissolve behind it. CO1–CO8 are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger); the doc was
+rewritten 2026-09-11 (2076 → 1561 lines) to carry its traps forward-facing rather than as a record of
+the argument. **The [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) /
+[`OQ-3`](environment-manager-plan.md#resolved) contradiction was deliberately NOT compacted** — it is
+live, and it sits in that doc's [§3](../design/config-ownership-and-promotion.md#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) rather than inside a question block.
 
 ⚠ **Two code defects the audit surfaced, neither of which needs a ruling:**
 `dropYoloOwnedSubtrees` drops every object-valued key while `dropOverriddenKeys` — three
