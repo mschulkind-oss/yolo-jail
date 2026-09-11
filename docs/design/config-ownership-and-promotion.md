@@ -1473,33 +1473,71 @@ Observable outcomes that mean this was built as designed:
    > _(blocked — wiring the `workspace` layer decides it; and per the note above,
    > that is three pieces of work — a config key, a producer, and an argument
    > about a jail-writable layer's reach — not one)_
+9. 💬 **<a id="OQ-CO9"></a>OQ-CO9: What does `own` mean for a KEYLESS surface?**
+   Opened in review 2026-09-10, **and re-grounded in round 2 after review asked
+   what `rmw` even means here — both of this entry's original claims were wrong.**
 
-9. 💬 **<a id="OQ-CO9"></a>OQ-CO9: What does a KEYLESS host surface do under
-   `own`?** Opened in review 2026-09-10 by the [§6.3.2](#632-the-three-classes-adoption-does-not-cover)
-   table. `stateful` adoption is object-only by deliberate design — a `raw` or
-   `lines` surface has one "key", the whole file, so adopting it would mean "the
-   existing file wins outright" and a host-mirrored file would freeze at stale
-   content forever ([`staterender.go:213`](../../internal/agentcfg/staterender.go#L213)).
-   That reasoning is sound in a jail, where the file is disposable. On a real
-   host it means the first owned render of a keyless surface **overwrites**
-   without the capture step that makes every object surface non-destructive.
-   Options: refuse `own` for keyless surfaces (they stay `rmw` regardless of the
-   key); adopt them after all, accepting the frozen-content failure mode on the
-   host only; or archive-and-overwrite, leaning on
-   [OQ-CO7](#OQ-CO7)'s copy as the whole safety net for this one class.
+   ⚠ **Wrong claim 1: "refuse `own`, they stay `rmw`". There is no `rmw` to stay
+   in.** `rmwCodecRefusal` (`internal/entrypoint/surfacecodec.go:78-95`) refuses
+   keyless codecs **by kind**, and its reasoning inverts the original leaning:
 
-   **Stakes are currently theoretical and that is the reason to rule it now:**
-   no shipped host surface is keyless, so nothing regresses on the day `own`
-   lands — which is exactly the condition under which an unruled case gets
-   built wrong by the first person who adds one.
+   > RMW asserts and fills individual keys, so it needs an object. `codec.KindArray`
+   > (`lines`) and `codec.KindScalar` (`raw`) have exactly one "key" — the whole
+   > file — which means the only RMW an honest implementation could do is replace
+   > the file wholesale, i.e. the opposite of the mode's promise. **Those surfaces
+   > belong in `stateful`/`computed`**, where whole-file replacement is the declared
+   > behavior and the capture sidecars carry the user's edits.
 
-   <!-- vantage: oq id=OQ-CO9 leaning="Refuse `own` for keyless surfaces — they stay `rmw` whatever the key says, reported at apply. It is the only option that cannot lose a real host file, and the class is empty today so the carve-out costs nobody anything. Revisit if a keyless host surface ever has a reason to be derived." -->
+   The code already rules that a keyless surface's home is `stateful` — which is
+   what `own` renders as. **So `own` is a keyless surface's natural mode, and
+   `assert` is the one it cannot have.** That answers *"why would we own a keyless
+   surface?"*: owning it is the only coherent thing to do with one.
 
-   _Leaning:_ **Refuse `own` for keyless surfaces** — they stay `rmw` whatever
-   the key says, and the apply reports that it did so. It is the only option
-   that cannot lose a real host file, the class is empty today so the carve-out
-   costs nobody anything, and a per-surface exception is honest in a way that a
-   silently different adoption path is not.
+   ⚠ **Wrong claim 2: "no shipped host surface is keyless."** True of **pack config
+   surfaces** — none declares `raw` or `lines` — and false of the other producer:
+   **`raw` is the DEFAULT codec for a `host_files` entry**, taken by anything whose
+   destination extension is not `.json` or `.toml` (`hostFileCodecFor`,
+   `internal/config/hostfiles.go:205-211`). A `.yaml`, `.jsonc`, `.sh` or `.zshrc`
+   host file is keyless *by default* — and `.jsonc` deliberately so, because
+   *"routing it through the json codec would sort keys and DROP COMMENTS, silently
+   mangling a hand-written file."* The class is populated the moment anyone points
+   `host_files` at a non-JSON/TOML file.
+
+   **The two keyless codecs are in different positions, and only one is a removal
+   candidate** (*"do we have lines ideas? what motivated them?"*):
+
+   | Codec | Reachability | Motivation, as written |
+   | :--- | :--- | :--- |
+   | `raw` | **The default fallback** for every non-JSON/TOML `host_files` destination | Not removable — it is what stops a hand-written file being reformatted |
+   | `lines` | **Opt-in only.** Auto-detect never selects it; it needs an explicit `codec: lines` (`internal/cli/config_ref.txt:525`, *"Overrides auto-detect"*), and **no shipped pack or surface uses it** | *"the newline-delimited codec for allowlist-style files […] decoded to a `[]any` of strings so the engine can deep-merge / append over it like any array"* (`internal/agentcfg/codec/lines.go:9`) |
+
+   So `lines` exists for **append-merge over allowlist files** — a `.gitignore`, an
+   `.npmrc`, a deny-list — where array merge is the point. The idea is coherent; it
+   has no user. **Unlike this repo's other unused surfaces it is not inert** — it is
+   implemented, tested, and reachable by anyone who types the codec name — so
+   *"remove it if we do not know how it is used"* is a live option, but a different
+   act from deleting dead code. Named here, not ruled: it belongs with the
+   `host_files` codec set rather than with ownership. **`raw` settles this question
+   on its own either way.**
+
+   **What is actually open**, once both wrong claims are removed: adoption skips
+   keyless surfaces (`staterender.go:213`), so the first `own` render of one
+   **overwrites** without the capture step that makes every object surface
+   byte-identical. Options: adopt them on the host notch; refuse `own` for them
+   (which leaves a keyless surface with *no* host-notch mode at all, since `assert`
+   already refuses it); or archive-and-overwrite, leaning on
+   [OQ-CO7](#OQ-CO7)'s copy as the whole safety net.
+
+   <!-- vantage: oq id=OQ-CO9 leaning="Adopt keyless surfaces on the host notch. The jail-side reason for skipping them — a host-mirrored file freezing at stale content and never picking up host-side changes — exists because the jail's copy is downstream of a host file. On the host notch the file IS the output, so there is nothing upstream to freeze against and the reason does not carry. Adopting whole-file there makes the first owned render byte-identical for the same reason it is for object surfaces. Refusing `own` instead would leave keyless surfaces with no host-notch mode at all, since rmw already refuses them by kind." -->
+
+   _Leaning:_ **Adopt keyless surfaces on the host notch.** The jail-side reason for
+   skipping is that a host-mirrored file would *"freeze at whatever stale content was
+   on disk and never pick up host-side changes again"* — a hazard that exists because
+   the jail's copy is **downstream** of a host file. **On the host notch the file *is*
+   the output**, so there is nothing upstream to freeze against and the reason does
+   not carry. Adopting whole-file there makes the first owned render byte-identical,
+   for the same reason it is for object surfaces. Refusing instead would leave a
+   keyless surface with no host-notch mode at all.
 
    **Answer:**
    > _(empty — fill in when decided)_
