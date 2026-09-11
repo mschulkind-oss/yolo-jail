@@ -35,8 +35,8 @@ $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs
 > **S5**. Restructuring into states retired the letters, and several sibling docs still cite them.
 > Where they went: **B-rows** → [`boundary-broker.md` §7](../design/boundary-broker.md#7-what-i-would-build-in-order)'s own
 > numbering; **Thread A** → [`retired-decisions.md`](../plans/retired-decisions.md); **Thread C** →
-> [`shipped-2026-08-12.md`](shipped-2026-08-12.md); **N3** → [`nix OQ-1`](../design/noncontainer-nix-environment.md#9-open-questions) in
-> [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** →
+> [`shipped-2026-08-12.md`](shipped-2026-08-12.md); **N3** → [`OQ-NX1`](../design/provisioner-sets.md#decision-ledger) (re-prefixed from the retired nix doc's bare numbering by the 2026-09-11 merge) in
+> [`noncontainer-nix-environment.md`](../design/provisioner-sets.md); **S5** →
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
 Rows below are the *blocking subset*, grouped by decision; the rest are named in
@@ -149,7 +149,7 @@ pinned SHA, or re-derive it. *(B1b was created as an ID on 2026-08-23 — [§10.
 "the maintainer's call, see the B1b row in roadmap.md", a row that never existed, while this file
 cited the ID back at the doc. Neither end resolved.)*
 
-**Both of this project's upstream blockers dissolved on 2026-09-02** — nix [OQ-1](../design/noncontainer-nix-environment.md#9-open-questions) answered (host =
+**Both of this project's upstream blockers dissolved on 2026-09-02** — nix [`OQ-NX1`](../design/provisioner-sets.md#decision-ledger) answered (host =
 run) and auth [OQ-1](../design/agent-auth-modes.md#12-decision-ledger) measured — so nothing gates these four questions but themselves. The 2026-09-02
 audit also gave OQ-A and OQ-C the shipped-precedent facts their leanings were missing: every verb
 yolo ships is synchronous, and the oauth broker already returns per-verb response shapes (with the
@@ -939,8 +939,9 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
 
 ### 💬 31 — Which package manager an environment actually has, and who picks it
 
-📄 [`provisioner-sets.md`](../design/provisioner-sets.md) — **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) · [`OQ-PS2`](../design/provisioner-sets.md#OQ-PS2) ·
-[`OQ-PS3`](../design/provisioner-sets.md#OQ-PS3) · [`OQ-PS4`](../design/provisioner-sets.md#OQ-PS4) · [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5)** · written
+📄 [`provisioner-sets.md`](../design/provisioner-sets.md) — **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) · [`OQ-PS2`](../design/provisioner-sets.md#OQ-PS2) · [`OQ-PS3`](../design/provisioner-sets.md#OQ-PS3) ·
+[`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5) · [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) · [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) · plus the four `NX` questions
+the merge carried in** — [`OQ-PS4`](../design/provisioner-sets.md#decision-ledger) is RULED · written
 2026-09-11, a sibling of [`program-delivery.md`](../design/program-delivery.md) rather than an
 extension of it — [`OQ-PD16`](../design/program-delivery.md#decision-ledger) ruled that doc
 jail-only, so extending it would have reversed a ledger row.
@@ -971,11 +972,11 @@ gate, not an absence. Coverage elsewhere: `brew` 6/6 (4 casks), `pacman` 2, `dnf
 "prefer the system manager" is right on macOS and collapses on Linux, where nix is the only manager
 covering all six.
 
-⚠ **This thread overlaps [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md), which has owned the host notch
-since 2026-08-02 and keeps six live questions on it** — including [`OQ-7`](../design/noncontainer-nix-environment.md#OQ-7) (*should the
-jail get its agent CLIs from nix too?*) and [`OQ-3`](../design/noncontainer-nix-environment.md#OQ-3) (`nix profile --profile`). The new
+⚠ **This thread overlaps [`noncontainer-nix-environment.md`](../design/provisioner-sets.md), which has owned the host notch
+since 2026-08-02 and keeps six live questions on it** — including [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) (*should the
+jail get its agent CLIs from nix too?*) and [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) (`nix profile --profile`). The new
 doc routes both out of scope rather than re-opening them, which is the right move and the reason to
-read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be ruled without [`OQ-3`](../design/noncontainer-nix-environment.md#OQ-3).**
+read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be ruled without [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1).**
 
 **Answer:**
 > _(empty — fill in when decided; [`OQ-PS3`](../design/provisioner-sets.md#OQ-PS3) is the deep one — does a pack declare a
@@ -1300,7 +1301,7 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
   (`cache-relocation.md:17-18`), cold and keep-forever, where relocation is the only lever. The
   abstraction-level question and the threat model are untouched by the ruling.
 - 🧊 **Boundary broker B2** (approval-gated host credentials) — **no longer gated on anything; iced
-  only because nobody has said they want it.** Both of its gates opened on 2026-09-02: nix [OQ-1](../design/noncontainer-nix-environment.md#9-open-questions)
+  only because nobody has said they want it.** Both of its gates opened on 2026-09-02: nix [`OQ-NX1`](../design/provisioner-sets.md#decision-ledger)
   closed as *run* (the notch B2's approval tier is compelling in exists), and the experiment this
   row used to call "the cheapest thing in the whole file" **was run** — Claude Code sends the
   subscription bearer to any base URL, so a broker interposes by URL alone with no client change
@@ -1364,10 +1365,10 @@ asked to make and these are not blocking anything:
   questions, so the basename now exists in both trees: the built system is in `docs/reference/`, the
   unanswered questions are here. A basename-driven link sweep has already got this wrong once and
   pointed a reference doc at itself. **Check which tree you mean before repointing either.**
-- **nix [OQ-3](../design/noncontainer-nix-environment.md#9-open-questions) · 4 · 5 · 7 · 8 · 9** in
-  [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) — what remains of
-  the retired 💬 4 after [OQ-1](../design/noncontainer-nix-environment.md#9-open-questions) closed (2026-09-02). None blocks anything: [OQ-3](../design/noncontainer-nix-environment.md#9-open-questions) is the `nix profile`
-  installer product, [OQ-7](../design/noncontainer-nix-environment.md#9-open-questions) is agents-from-nix (leaning no), [OQ-8](../design/noncontainer-nix-environment.md#9-open-questions)'s reporting half and [OQ-9](../design/noncontainer-nix-environment.md#9-open-questions)'s
+- **nix [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) · 4 · 5 · 7 · 8 · 9** in
+  [`noncontainer-nix-environment.md`](../design/provisioner-sets.md) — what remains of
+  the retired 💬 4 after [`OQ-NX1`](../design/provisioner-sets.md#decision-ledger) closed (2026-09-02). None blocks anything: [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) is the `nix profile`
+  installer product, [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) is agents-from-nix (leaning no), [`OQ-NX8`](../design/provisioner-sets.md#OQ-NX8)'s reporting half and [`OQ-NX9`](../design/provisioner-sets.md#OQ-NX9)'s
   Linux-diagnostics half are worth fixing under any answer and are work, not rulings.
 - **auth [OQ-9](../design/agent-auth-modes.md#11-open-questions)** in [`agent-auth-modes.md`](../design/agent-auth-modes.md) — the AWS credential-pair
   gap, carried back in when the retired 💬 3's doc rewrite dropped it unanswered. Working today via
