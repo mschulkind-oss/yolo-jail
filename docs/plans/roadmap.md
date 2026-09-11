@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 17 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 16 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-11**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -795,9 +795,9 @@ twelve questions are live with no home**, two of which stand whether or not mirr
 **Answer:**
 > _(empty — fill in when decided; [`OQ-WP2`](../design/workspace-path-mirroring.md#open-questions) and [`OQ-WP4`](../design/workspace-path-mirroring.md#open-questions) can be ruled without touching the mirroring verdict)_
 
-### 💬 29 — One report, three readers: what `yolo host apply` and the launch banner say by default
+### 📦 29 — One report, three readers: what `yolo host apply` and the launch banner say by default
 
-📄 [`report-tiers.md`](../design/report-tiers.md) — **[`OQ-RO7`](../design/report-tiers.md#10-open-questions)** is the only one left; RO1–RO6 were ruled 2026-09-11 and compacted into the [Decision Ledger](../design/report-tiers.md#11-decision-ledger).
+📄 [`report-tiers.md`](../design/report-tiers.md) — **[`OQ-RO7`](../design/report-tiers.md#11-decision-ledger)** is the only one left; RO1–RO6 were ruled 2026-09-11 and compacted into the [Decision Ledger](../design/report-tiers.md#11-decision-ledger).
 written 2026-09-10, **routed here the same day**
 
 The maintainer's complaint — *"hard to read, not intuitive, and not so actionable"* — measured: an
@@ -835,7 +835,7 @@ code**, with its confirm UX resolved as [`OQ-9`](environment-manager-plan.md#ope
 all no-elevation remedies, one for all `sudo` ones, sudo first so the OS password prompt comes up
 once at the front. So this authorizes Phase 6.4 + 4.3 rather than designing them.
 
-- 💬 **[`OQ-RO7`](../design/report-tiers.md#10-open-questions) — does the fatal cover `program` as well as `requires`?**
+- 💬 **[`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) — does the fatal cover `program` as well as `requires`?**
   The two kinds share one reporting path at the host notch but make different claims: `program` is
   *"yolo installs this into a jail and owns a launcher path"*, `requires` is *"this must already
   exist"*. Shipped populations are 6 `program` (the agent CLIs) and 2 `requires` (`guardrails`' `rg`
@@ -844,7 +844,7 @@ once at the front. So this authorizes Phase 6.4 + 4.3 rather than designing them
   fatal, only `program` gets the offer.*
 
 **Answer:**
-> _(empty — fill in when decided; [`OQ-RO7`](../design/report-tiers.md#10-open-questions) gates the fatal's predicate, and nothing else here waits on a person)_
+> _(empty — fill in when decided; [`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) gates the fatal's predicate, and nothing else here waits on a person)_
 
 ### 📦 30 — The Lua config transform: remove it, and leave the derive VM standing
 

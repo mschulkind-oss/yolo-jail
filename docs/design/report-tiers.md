@@ -1,7 +1,7 @@
 ---
 title: "One report, three readers — why `yolo host apply` says everything and tells you nothing"
 date: 2026-09-10
-status: in-review
+status: accepted
 tags: [design, cli, ux, host-apply, launch, reporting]
 summary: "`yolo host apply` prints 277 true lines for one home and never states how it went, so the reader is left adding them up — and a missing host dependency, the one finding that makes the rest of the apply pointless, is just another line in the middle of them. Make the command state its own result: one verdict line per run, and a report tier on every line beneath it so the tiers serve that verdict instead of competing with it."
 vantage:
@@ -52,7 +52,7 @@ and [§4.8](#48-machine-consumers) extends its boundary from *verb* to *posture*
 [§2](#2-what-exists-today-measured) and [§3](#3-the-diagnosis) are the evidence that they are the
 right cut.
 
-**Needs your ruling:** [OQ-RO7](#OQ-RO7).
+**Needs your ruling:** [OQ-RO7](#11-decision-ledger).
 
 **Reads with:** [`report-tiers-plan.md`](report-tiers-plan.md) (the implementation sketch —
 incomplete, and not a hand-off while it says SKETCH), [`perf-logging.md`](../reference/perf-logging.md) (D14,
@@ -824,7 +824,7 @@ drop the pack from `packs`, and the way to see the config half regardless is the
 prints everything and writes nothing. If a real caller turns up that needs to apply config onto a
 host that will get the tool later, that is a new question with a named caller behind it.
 
-**Whose severity, per kind** — [OQ-RO7](#OQ-RO7). The fatal above is written as if `program` and
+**Whose severity, per kind** — [OQ-RO7](#11-decision-ledger). The fatal above is written as if `program` and
 `requires` deserve the same treatment, and that is exactly the assumption worth not making
 silently; the question states the case for splitting it.
 
@@ -915,7 +915,7 @@ silently; the question states the case for splitting it.
   whether the two verbs should stay separate is the maintainer's call elsewhere.
 - **Not a ruling on whether `program` and `requires` should both exist.** This doc records only
   that they share the host probe and make different claims, and asks the narrow question its own
-  fatal needs answered ([OQ-RO7](#OQ-RO7)).
+  fatal needs answered ([OQ-RO7](#11-decision-ledger)).
 - **Not Phase 4.3's confirm UX.** Running an install is that increment's work, with its own open
   questions on batching and elevation; this design says only that a decline is fatal and that the
   prompt exists.
@@ -974,7 +974,7 @@ silently; the question states the case for splitting it.
 4. **Group tier 3 by remedy** and rewrite the MCP remedy to name the file and the scope. The
    confirmation prompt's text and the per-surface text become one string.
 5. **The dependency pre-flight, the prompt and the fatal decline**
-   ([§4.9](#49-a-missing-dependency-is-a-result-not-a-line)). [OQ-RO7](#OQ-RO7) scopes *which
+   ([§4.9](#49-a-missing-dependency-is-a-result-not-a-line)). [OQ-RO7](#11-decision-ledger) scopes *which
    kinds* it covers; the mechanism is identical either way, so the question gates the predicate,
    not the step.
 6. **The default/`--verbose` split**, and in the same commit the rationale's move to the manual
@@ -990,37 +990,17 @@ run a verdict.
 
 ## 10. Open Questions
 
-1. 💬 **OQ-RO7: Does the dependency fatal cover `program` as well as `requires`?**
-   [§4.9](#49-a-missing-dependency-is-a-result-not-a-line) writes the refusal as though the two
-   kinds were one thing, because at the host notch they share a probe and a reporting path
-   ([`apply.go:382-397`](../../internal/cli/apply.go#L382-L397)) — but they make different claims.
-   `requires` means *this must already exist*, and the code says outright that yolo never installs
-   one ([`applyhostdeps.go:188-189`](../../internal/cli/applyhostdeps.go#L188-L189)); `program`
-   means *yolo installs this*, which at a jail notch it does through a launcher near the head of
-   PATH. The shipped populations are not interchangeable either: 6 `program` contributions, one per
-   agent CLI (`agy`, `claude`, `codex`, `copilot`, `opencode`, `pi`), and 2 `requires`, both
-   `guardrails`' — `rg` and `fd`, the replacements its two `blocked-tool` entries point `grep` and
-   `find` at (counted over `packs/*/pack.json`, 2026-09-11). This decides whether an `--assert` on
-   a host with no `claude` binary refuses, and whether yolo may offer to install a binary its own
-   code says it never installs.
+**None — [`OQ-RO7`](#11-decision-ledger) closed 2026-09-11, and it was the last.** All seven
+rulings are in [§11](#11-decision-ledger) and folded into the sections they govern.
 
-   <!-- vantage: oq id=OQ-RO7 leaning="Both kinds are fatal, but only program gets the install offer. A missing requires is the more clear-cut blocker and offering to install it contradicts the kind's own definition, so it refuses with the remedy named; program gets both the fatal and the offer, which is the case Phase 4.3 was written for." -->
+---
 
-   _Leaning:_ **Both are fatal; only `program` gets the offer.** A missing `requires` is if anything
-   the more clear-cut blocker — `guardrails` removes `grep` and `find` in favour of binaries that
-   must be present, and this repo's rule is that a block may never leave a jail with neither the
-   tool nor its replacement — so refusing over it is right, while offering to install it would
-   contradict the kind's own definition; the refusal names the remedy and stops. `program` gets both
-   the fatal and the offer, which is exactly the case Phase 4.3 was written for.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 ## 11. Decision Ledger
 
 Rulings are folded into the normative body text and compacted here, keeping the exact `OQ-RO` ids
-so citations from the sketch and from sibling docs continue to resolve. Six of the seven questions
-are settled; [OQ-RO7](#OQ-RO7) is live.
+so citations from the sketch and from sibling docs continue to resolve. **All seven are settled**, the last on
+2026-09-11.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
@@ -1030,5 +1010,6 @@ are settled; [OQ-RO7](#OQ-RO7) is live.
 | [`OQ-RO4`](#11-decision-ledger) | **Yes for the dry run; refused with `--assert`** (exit 2, stdout empty). The standard's own rationale — agents are the primary operators and cannot read the host by hand — is the argument for the reporting half, and the acting half keeps the refusal it already has. Extends the standard's boundary from *verb* to *posture*. | 2026-09-11 | [§4.8](#48-machine-consumers) |
 | [`OQ-RO5`](#11-decision-ledger) | **The dry run exits 0 — it is information**, and the pin that says so stays. **`--assert` carries an accurate exit code**: 0 only when the apply completed, non-zero naming why. The posture split is the reason the two differ. Recorded with it: *observe* undersells what the posture is for — it is a **dry run**, answering *would an `--assert` complete?*, and the report says so in those words. | 2026-09-11 | [§4.3](#43-the-verdict-block), [§4.6](#46-the-report-vocabulary-and-where-the-rationale-goes), [§4.8](#48-machine-consumers) |
 | [`OQ-RO6`](#11-decision-ledger) | **Offer to install, with a confirm — and a decline is fatal at the prompt**, not at the end of the run: a later stage of the apply may come to rely on the tool, so continuing past a NO continues into an environment already known to be incomplete. The dry run reports and never prompts. Silence is NO, so an unattended `--assert` refuses rather than installing. | 2026-09-11 | [§4.9](#49-a-missing-dependency-is-a-result-not-a-line) |
+| OQ-RO7 | **Both kinds are fatal; only `program` gets the install offer.** A missing `requires` is the more clear-cut blocker — `guardrails` removes `grep`/`find` in favour of binaries that must be present, and a block may never leave a jail with neither the tool nor its replacement — while offering to install one would contradict the kind's own definition, so it refuses with the remedy named. `program` gets both, which is the case Phase 4.3 was written for. | 2026-09-11 | [§4.9](#49-a-missing-dependency-is-a-result-not-a-line) |
 | — | **Two principles added, and they are the ones the rest serve.** P7: the command states its own result; the reader never computes it. P8: the report states facts, not rationale — which costs the report its kind-refusal paragraphs and buys it a closed vocabulary. Not questions; recorded because they reframed the thesis. | 2026-09-11 | [§1](#1-verdict-and-the-principles-it-rests-on), [§4.6](#46-the-report-vocabulary-and-where-the-rationale-goes) |
 | — | **Terminology: *blocker* joins *loss* in tier 3.** A tier is a rendering decision, and both want the same rendering, so they are one tier with two members rather than two tiers or a severity axis. Recorded because renaming a tier later costs every anchor that cites it. | 2026-09-11 | [§4.1](#41-the-tiers) |

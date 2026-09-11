@@ -30,7 +30,7 @@ results, they corrected four of the five items that asked them, and one of them 
 **Why it matters.** At the host `program` and `requires` collapse into one report line because
 there is nothing for either to drive; a user cannot say *"install claude from brew here"* because
 the pack picks the backend; and a missing dependency is about to become fatal under `--assert`
-([`OQ-RO7`](report-tiers.md#OQ-RO7)) with the install offer it presupposes unbuilt.
+([`OQ-RO7`](report-tiers.md#11-decision-ledger)) with the install offer it presupposes unbuilt.
 
 **The shape.** A **need** the pack declares once (a binary, plus the recipes that can produce
 it); a **provisioner set** each environment has; a **resolution** that walks an ordered
@@ -218,7 +218,7 @@ Then it stops. **MEASURED negative:** no reader of a remedy ever executes it —
 elevation class, sudo first* — and that plan's own audit says its resolution *"has no
 consumer at all today"*. What the roadmap's thread 29 did on 2026-09-10 was **authorise** Phase
 6.4 and 4.3 as the mechanism for the `--assert` fatal, not design them, and
-[`OQ-RO7`](report-tiers.md#OQ-RO7) — whether the fatal covers `program` as well as `requires` — is
+[`OQ-RO7`](report-tiers.md#11-decision-ledger) — whether the fatal covers `program` as well as `requires` — is
 still open. ⚠ **And the shipped precedence has the pack choosing.** `depcheck.Check` ranks the
 declaring pack's *own* installer first and the detected manager's hint second, keeping the
 manager's command only as `Fallback` (`depcheck.go:147-151`, `:160-164`, re-read 2026-09-11;
@@ -375,7 +375,7 @@ where it does not, it is left alone.
   `requires` takes `bin` and `install_hints` alone, refusing the rest by name (`:1588`). Evidence for
   [`OQ-PS5`](#OQ-PS5), where it stays.
 - **`optdepends`.** No kind has an `optional` field (READ FROM CODE, every kind's field set), so
-  yolo has no declared-but-optional category. [`OQ-RO7`](report-tiers.md#OQ-RO7)'s fatal implicitly
+  yolo has no declared-but-optional category. [`OQ-RO7`](report-tiers.md#11-decision-ledger)'s fatal implicitly
   assumes that category does not exist; if a pack ever needs it, the assumption becomes a
   question. One sentence, because nothing in the tree needs it yet.
 - **`depends` vs `makedepends`** — runtime versus build-time. Nothing in the tree expresses the
@@ -809,6 +809,31 @@ each; and any fetched pack. The pack **lockfile** records no kind names
 
 ---
 
+> [!IMPORTANT]
+> **The maintainer's framing, 2026-09-11, and it is the shape this whole document is reaching
+> for:** *"Essentially we now have a yolo package manager. We should be clear that we only ever
+> install captured packages — in a jail, container, guest, host, wherever — and we have the
+> machinery already for the capture. So it truly is just another backend, and truly just a
+> slotted-in package manager."*
+>
+> **What that settles.** yolo's own provisioner stops being a special case and becomes one row in
+> the provisioner set beside nix, brew and npm. Its *build* step is `capture`; its *install* step is
+> materialize; and the install offer never runs arbitrary code at install time — it materializes a
+> previously-captured artifact. That is the AUR property
+> [`program-delivery.md`](program-delivery.md) already states as the prior art — *"the package
+> manager never trusts the build script's environment, only its captured product"* — completed
+> rather than newly proposed.
+>
+> ⚠ **One thing it does NOT settle, and the tension is with shipped code.** Capture is deliberately
+> **installer-only** today, and `yolo capture`'s own help gives the reason: *"an npm-declared
+> program has a registry version to name and needs no capture"*
+> (`internal/cli/capturehost.go:76-78`, verified 2026-09-11). So *"we only ever install captured
+> packages"* either extends capture to cover `via: npm` — reversing that reasoning — or is scoped to
+> the install-offer path, leaving npm programs installed live from the registry as they are now.
+> **Those are different systems**, and which one is meant is part of
+> [`OQ-PS3`](#OQ-PS3): a pack declaring a *need* that the environment resolves is compatible with
+> both; a pack declaring a *provisioner* is not.
+
 ## 8. The shape this doc leans toward
 
 Not a decision, except where [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides)
@@ -1039,7 +1064,7 @@ shipped status so nobody re-opens a settled fork.
 | [`macos-user-home-tiers.md`](macos-user-home-tiers.md) | the guest's one-home defect and the A′ symlink layout | Nothing directly, but [§15](#15-what-a-mac-session-should-measure) M4 is its measurement, because a provisioner that stages into the sandbox home depends on that layout resolving. |
 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) | *declare once, check once, hand off* ([§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)); [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) | Generalises [§3.5](yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) from "the host hands off" to "each environment resolves". ⚠ [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1) and the plan's Phase 4 warning both say `FieldSet` *refuses* `program` at host citing `fieldset.go:38`; `HostFields()` honours it (`internal/render/fieldset.go:194`, *"honored but confirm-gated by the caller"*), so that refusal string is unreachable for `program` and the shipped rule is *report, do not install*. ⚠ Its promised `✗ packages   yolo does not manage packages here` line is contradicted by shipped `describe` and should be retired — [`OQ-NX8`](#OQ-NX8). |
 | [`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md) | Phase 6.4 and 4.3, [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) | Both unbuilt; [`OQ-PS2`](#OQ-PS2) is whether to build them as *the host's driven provisioner* rather than as a one-off offer. |
-| [`report-tiers.md`](report-tiers.md) | the `--assert` fatal, [`OQ-RO7`](report-tiers.md#OQ-RO7) | RO7's leaning (*both fatal, only `program` gets the offer*) is a **kind**-keyed rule; under P1 the offer would key on *whether a provisioner covers the binary here*, which is a different predicate. Flagged, not ruled. |
+| [`report-tiers.md`](report-tiers.md) | the `--assert` fatal, [`OQ-RO7`](report-tiers.md#11-decision-ledger) | RO7's leaning (*both fatal, only `program` gets the offer*) is a **kind**-keyed rule; under P1 the offer would key on *whether a provisioner covers the binary here*, which is a different predicate. Flagged, not ruled. |
 | [`host-render-target.md`](host-render-target.md) | the host as a reduced render target | ⚠ Its [§2.2](host-render-target.md#22-so-which-is-it-a-command-or-a-mode) table marks `macos-user · program: ✅ (native nix)`; that cell describes `packages:`, not `program` — no `program` is provisioned by nix on any notch. |
 | [`boundary-broker.md`](boundary-broker.md), [`workspace-path-mirroring.md`](workspace-path-mirroring.md), [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) | — | All three cited the retired doc's ledger and were repointed here on 2026-09-11. |
 | [`../reference/pack-system.md`](../reference/pack-system.md) | the kinds and their combine rules | Its [`requires`](../reference/pack-system.md#requires) section is the *install vs presence* frame ([§2](#2-two-frames-that-failed-in-review)); correct about the jail, silent about why the host differs. |
@@ -1432,7 +1457,7 @@ recommendation the doc rests on.
    remains is purely *does yolo execute the winner*. The adjacent authorisations are narrower
    than this question: Phase 6.4 is an *offer-to-run* attached to `apply`, and roadmap thread 29
    authorised it as the mechanism behind the `--assert` fatal. **Stakes:** the first mutation of
-   a real machine's toolchain by yolo; [`OQ-RO7`](report-tiers.md#OQ-RO7)'s predicate (kind-keyed
+   a real machine's toolchain by yolo; [`OQ-RO7`](report-tiers.md#11-decision-ledger)'s predicate (kind-keyed
    today, provisioner-keyed under P1); and whether the manifest stays the floor when the offer
    exists.
 
