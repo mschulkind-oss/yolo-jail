@@ -453,7 +453,8 @@ distribution mechanism; it needs a destination.
 
 ```console
 $ yolo config promote <agent> [--surface <name>] [--keys a,b] [--to <dest>]
-                              [--plan] [--json] [--answers <file>] [--yes]
+                              [--plan] [--json] [--answers <file>]
+                              [--accept-promotion]
 ```
 
 | Destination | Written as | Notes |
@@ -1180,8 +1181,9 @@ Observable outcomes that mean this was built as designed:
    >   path, not a default. `--plan` remains the read-only form for looking
    >   without deciding.
    >
-   > ⚠ **That flag is NOT `--yes`** (revised in review: *"I don't love `--yes`,
-   > isn't there a more standard option name for this?"*). `--yes`/`-y` is the most
+   > ⚠ **That flag is NOT `--yes`** — raised in review (*"I don't love `--yes`,
+   > isn't there a more standard option name for this?"*) and **settled
+   > 2026-09-10: keep the repo's form.** `--yes`/`-y` is the most
    > standard name across tools generally — and **this repo has already declined
    > the generic form, on the record.** `config.AcceptConfigChangesFlag`
    > (`internal/config/snapshot.go:81`) is spelled **`--accept-config-changes`**,
