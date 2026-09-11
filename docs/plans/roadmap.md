@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 17 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 18 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-10**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -936,6 +936,50 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   **New CI cost:** every image-building job also builds `.#imageCopier` (~2 min cold per nixpkgs, 0
   warm). `publish.yml` and `just cachix-push` push it — an optimization only, with nothing wired to
   a cache miss ([`OQ-LI1`](../design/layer-aware-image-delivery.md#91-decision-ledger)).
+
+### 💬 31 — Which package manager an environment actually has, and who picks it
+
+📄 [`provisioner-sets.md`](../design/provisioner-sets.md) — **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) · [`OQ-PS2`](../design/provisioner-sets.md#OQ-PS2) ·
+[`OQ-PS3`](../design/provisioner-sets.md#OQ-PS3) · [`OQ-PS4`](../design/provisioner-sets.md#OQ-PS4) · [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5)** · written
+2026-09-11, a sibling of [`program-delivery.md`](../design/program-delivery.md) rather than an
+extension of it — [`OQ-PD16`](../design/program-delivery.md#decision-ledger) ruled that doc
+jail-only, so extending it would have reversed a ledger row.
+
+**The reframe that produced it.** `program` and `requires` look redundant, and at the host notch
+today they are: both mean *"check, and hand you a command."* Two models were tried and both failed —
+*install vs presence* describes the check rather than the cause, and *yolo produces it vs external*
+dies on `via: npm` being an external manager yolo merely drives, and on a user having `claude` from
+brew. What survives: **an environment has a SET of available provisioners, and a pack should declare
+a need rather than a resolver.** The notch only correlates; the environment decides.
+
+**Three findings, each measured:**
+
+- **The host is the only notch where yolo drives no provisioner at all** — jail has the nix image,
+  guest has `MaterializeDarwin`, the host has nothing. That is why `program` degenerates there.
+- **The system package manager is modelled and never executed.** `install_hints` produces brew/dnf
+  commands and `check-deps` writes a Brewfile; Phase 6.4's offer-to-run is deferred **by name in the
+  code**, with its confirm UX already ruled as [`OQ-9`](environment-manager-plan.md#open-questions-to-resolve-before-their-phase).
+- ⚠ **`depcheck.Check` ranks the declaring pack's OWN installer FIRST and keeps the manager's
+  command as a fallback token** — with a stated reason: *"a tool with a first-party installer has a
+  first-party updater, and a distro package silently pins it to whatever that repo has."* So
+  "Homebrew as the host default" **reverses a considered ranking**, and the thing it trades away is
+  version currency.
+
+**And one premise correction worth carrying:** *"there's no nix package"* is wrong — nixpkgs has
+**6/6** of the agent CLIs; three are `unfree`, so a bare `nix profile install` refuses. A licensing
+gate, not an absence. Coverage elsewhere: `brew` 6/6 (4 casks), `pacman` 2, `dnf` 1, `apt` 0 — so
+"prefer the system manager" is right on macOS and collapses on Linux, where nix is the only manager
+covering all six.
+
+⚠ **This thread overlaps [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md), which has owned the host notch
+since 2026-08-02 and keeps six live questions on it** — including [`OQ-7`](../design/noncontainer-nix-environment.md#OQ-7) (*should the
+jail get its agent CLIs from nix too?*) and [`OQ-3`](../design/noncontainer-nix-environment.md#OQ-3) (`nix profile --profile`). The new
+doc routes both out of scope rather than re-opening them, which is the right move and the reason to
+read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be ruled without [`OQ-3`](../design/noncontainer-nix-environment.md#OQ-3).**
+
+**Answer:**
+> _(empty — fill in when decided; [`OQ-PS3`](../design/provisioner-sets.md#OQ-PS3) is the deep one — does a pack declare a
+> provisioner or a need — and the other four mostly fall out of it)_
 
 # 🔒 Waiting
 
