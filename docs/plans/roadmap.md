@@ -1168,8 +1168,8 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
   already sandboxed; it is not — the argv is `sudo --user=… env -i … darwin-bootstrap` with no
   `sandbox-exec` (`internal/macosuser/runplan.go:103-110`, verified 2026-09-11).
 
-- 💬 **The macos-user home has one tier where it needs two, and content delivery just made it
-  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **[`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2) is the only one left**;
+- ✅ **The macos-user home has one tier where it needs two, and content delivery just made it
+  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **[`OQ-HT2`](../design/macos-user-home-tiers.md#decision-ledger) is the only one left**;
   [`OQ-HT1`](../design/macos-user-home-tiers.md#decision-ledger), [`OQ-HT3`](../design/macos-user-home-tiers.md#decision-ledger) and
   [`OQ-HT4`](../design/macos-user-home-tiers.md#decision-ledger) were **answered and compacted 2026-09-11**.
   `SandboxHome()` is the constant `/Users/_yolojail`, so the machine tier
@@ -1197,9 +1197,19 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
   the state dir*, so a bare `~/.claude → <ws>/.yolo/home/claude` symlink reproduces the host's
   **dangling** view. Every `SharedDirs` entry must be mirrored into the sidecar.
 
-  **[`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2) is re-scoped and is now the single ruling between here and
+  **[`OQ-HT2`](../design/macos-user-home-tiers.md#decision-ledger) is re-scoped and is now the single ruling between here and
   buildable**: credentials never move under A′, so it asks only what happens to the
   workspace-scope state already sitting in `/Users/_yolojail`.
+
+  ⚠ **ALL FOUR RULED as of 2026-09-11 — this row is done and the design is `status: accepted`.**
+  [`OQ-HT2`](../design/macos-user-home-tiers.md#decision-ledger) closed last and closed *smaller* than its leaning: **no
+  migration at all.** *"Nobody is using it. No transition needed. If I need to wipe it first,
+  that's fine."* So A′ ships with no one-shot mutation, no `.pre-tiers-<date>` directory and no
+  first-launch copy path — `sudo rm -rf /Users/_yolojail` before the first launch **is** the
+  migration. What that gives up (the workspace tier's agent history) is affordable because the
+  backend's only session was the 2026-09-11 hardware run, whose content is yolo-generated.
+  **[`macos-user-provisioning.md`](../design/macos-user-provisioning.md)'s half two is no longer
+  blocked by the home split.**
 
 - ✅ **The four manual Mac checks are RUN, and all four PASSED.** 📄
   [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md). Everything that
@@ -1258,7 +1268,7 @@ read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be
   artifact.
 
   **What needed no Mac at all (M5).** darwin resolves `..` physically, same as Linux, so
-  [`OQ-HT2`](../design/macos-user-home-tiers.md#OQ-HT2)'s A′ mirror stands — and the fixture fails
+  [`OQ-HT2`](../design/macos-user-home-tiers.md#decision-ledger)'s A′ mirror stands — and the fixture fails
   *unsandboxed*, because resolution happens in the VFS before the policy is consulted. An item is
   only worth a password when the sandbox could change the answer.
 

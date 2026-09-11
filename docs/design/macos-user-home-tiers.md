@@ -1,7 +1,7 @@
 ---
 title: "The macos-user Home: One Account, Three Tiers That Collapsed Into It"
 date: 2026-09-03
-status: in-review
+status: accepted
 tags: [macos-user, jail-home, backend-parity, design]
 summary: "macos-user has one sandbox home, /Users/_yolojail, so the machine tier, the workspace tier and the session tier are the same directory. The machine tier is right; the other two collapsing into it is the defect, and since content delivery landed it is a write-write race. The fix keeps HOME where it is and symlinks every directory the container backends bind from <workspace>/.yolo/home/ into that same sidecar — the credential-sharing mechanism already runs here unchanged, and needs only its shared dir mirrored so its relative link resolves."
 ---
@@ -10,7 +10,7 @@ summary: "macos-user has one sandbox home, /Users/_yolojail, so the machine tier
 
 **Status:** DESIGN, 2026-09-11 (DESIGN SKETCH 2026-09-03). Nothing built. Audited
 against the tree at `61c26c18` on 2026-09-11; three of its four questions are settled
-and compacted into the [Decision Ledger](#decision-ledger). **[`OQ-HT2`](#OQ-HT2) is the
+and compacted into the [Decision Ledger](#decision-ledger). **[`OQ-HT2`](#decision-ledger) is the
 one that still needs a ruling**, and it is the maintainer's.
 
 > **In short.** The machine tier is **not** colocation: the `shared_credentials` hook
@@ -31,12 +31,12 @@ every pack-declared machine-scope directory stays in the account home and is
 ([§5](#5-the-proposal)).
 
 **Cost.** The workspace-scope state already sitting in `/Users/_yolojail` belongs to
-every workspace at once, so it has no single destination — [`OQ-HT2`](#OQ-HT2).
+every workspace at once, so it has no single destination — [`OQ-HT2`](#decision-ledger).
 
 **Start at [§5](#5-the-proposal)**, then [§3](#3-why-it-has-not-been-fixed-by-simply-splitting)
 for the trap the first draft mis-stated.
 
-**Needs your ruling:** [`OQ-HT2`](#OQ-HT2).
+**Needs your ruling:** **None** — all four closed ([Decision Ledger](#decision-ledger)), the last on 2026-09-11. Ready to build, and it needs no migration step.
 
 > [!NOTE]
 > **Terms coined here.** A **tier** is a scope at which jail state is kept
@@ -217,7 +217,7 @@ macos-user writes `prism/` there today and ignores `home/` entirely.
   Symptom 2 becomes enforced without a profile edit.
 - **The migration question shrinks to the workspace-scope state already in the
   account home**, because the machine tier never moves —
-  [`OQ-HT2`](#OQ-HT2).
+  [`OQ-HT2`](#decision-ledger).
 
 **Stated residuals** (holes the first draft left silent, now delegated or named):
 
@@ -233,7 +233,7 @@ macos-user writes `prism/` there today and ignores `home/` entirely.
   hooks `MkdirAll` through the link and compute their relative targets lexically
   (`packhooks.go:128-137`), so ordering is the only thing that matters. A real
   directory already at a link's path is the pre-existing-state case and is
-  [`OQ-HT2`](#OQ-HT2).
+  [`OQ-HT2`](#decision-ledger).
 - **Two launches on one workspace share the sidecar, and that is the end state** —
   per-workspace is the whole tier and there is no per-session one
   ([`OQ-HT3`](#decision-ledger)). It is what the container's attach already does: one
@@ -508,14 +508,14 @@ reason: that is where the container puts it.
 | **A. Per-workspace home under the shared account** — `HOME` becomes `/Users/_yolojail/workspaces/<cname>` | **Runner-up**, settled by [`OQ-HT4`](#decision-ledger). Fails [§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend) on *location* (no other backend puts a project's state there); needs the profile narrowed and the credential re-allow of [§5.3](#53-what-the-credential-tier-then-needs-precisely); moves the install prefixes out of reach of the `agent_updates` lock that `runplan.go:251-253` relies on the shared home for; and overturns the reference doc's standing refusal of a per-workspace home. Its one merit — agent state out of the project tree — is a property yolo preserves nowhere else, so it is a principle invented to justify the choice rather than a reason for it. |
 | **A′. Symlink the sidecar dirs into the account home** ([§5](#5-the-proposal)) — `HOME` stays `/Users/_yolojail`; every dir podman binds from `<ws>/.yolo/home/` becomes a symlink into it; `SharedDirs` stay put and are mirrored into the sidecar | **Chosen.** Same location, same declaration and same hook output on every backend; zero profile change; credentials never move. Its one trap is the relative link, and [§5.3](#53-what-the-credential-tier-then-needs-precisely) closes it. |
 | **B. Split the account** — one `_yolojail` uid per workspace | **Rejected**, in [§9](#9-what-this-does-not-propose). Restores every tier by DAC rather than layout, and costs admin on every new project. |
-| **C. Per-session home** | **Rejected**, settled by [`OQ-HT3`](#decision-ledger): a mechanism no other backend has, buying nothing the per-workspace tier does not already buy — and it would have multiplied [`OQ-HT2`](#OQ-HT2)'s migration surface by every session ever run. |
+| **C. Per-session home** | **Rejected**, settled by [`OQ-HT3`](#decision-ledger): a mechanism no other backend has, buying nothing the per-workspace tier does not already buy — and it would have multiplied [`OQ-HT2`](#decision-ledger)'s migration surface by every session ever run. |
 | **D. Leave it, keep warning** (today) | **Rejected as an end state.** It was defensible while the cost was leakage between workspaces. Content delivery made it a race on files an agent reads as instructions, which is a different kind of wrong. |
 
 ## 8. Risks
 
 | Risk | Mitigation |
 | :--- | :--- |
-| Migration costs every user a re-login | Cannot happen under A′: the machine-scope dir never moves and the hook's link is regenerated every boot. What *can* be lost is workspace-scope state — the whole of [`OQ-HT2`](#OQ-HT2). |
+| Migration costs every user a re-login | Cannot happen under A′: the machine-scope dir never moves and the hook's link is regenerated every boot. What *can* be lost is workspace-scope state — the whole of [`OQ-HT2`](#decision-ledger). |
 | The hook's relative link dangles through a sidecar symlink | The `SharedDirs` mirror in [§5](#5-the-proposal); pin it with a test that resolves the link *through* the symlinked state dir, since a callee-only test of `linkSharedCredential` stays green without it. |
 | The mise data dir silently becomes per-workspace once `~/.local` is a sidecar symlink | Set `MISE_DATA_DIR` explicitly to a machine-wide path on this backend ([§5](#5-the-proposal); [OQ-P3](macos-user-provisioning.md#decision-ledger)). |
 | The login rc files keep carrying per-workspace bytes into a shared `$HOME` | Stated residual in [§5](#5-the-proposal); the fix is delegated, the requirement is not. |
@@ -541,44 +541,32 @@ reason: that is where the container puts it.
 
 ## Open Questions
 
-1. 💬 **OQ-HT2: What happens to the workspace-scope state already in
-   `/Users/_yolojail`?** ⚠ *Re-scoped 2026-09-11.* The first draft asked what happens
-   to *credentials* at the old paths; under A′ the answer is **nothing** — the
-   machine-scope dir never moves and the hook regenerates its link every boot. What
-   remains is `/Users/_yolojail/.claude`, `.codex`, `.npm-global`, `.local`, … — each
-   holding the *union* of every workspace's state, so none has a single correct
-   destination. The migration has to choose between two outcomes on the first launch
-   after upgrade. **This is the blocking question**: it gates this design, and it is
-   the only thing left between [`macos-user-provisioning.md`](macos-user-provisioning.md)'s
-   half two and its home-split dependency.
+**None — [`OQ-HT2`](#decision-ledger) closed 2026-09-11, and it was the last.** All four rulings are
+in the [Decision Ledger](#decision-ledger) and folded into the sections they govern.
 
-   _Leaning:_ **Rename once, then copy into every workspace's sidecar on that
-   workspace's first launch.** The old dir is moved aside to
-   `<name>.pre-tiers-<date>` exactly once (a machine-wide, one-shot mutation — a
-   single `stat` afterwards, so the "hot path forever" objection to a lazy migration
-   does not apply); each workspace's first post-upgrade launch then copies the moved
-   union into its own sidecar before the symlink is laid. Every workspace sees what it
-   saw before; the cost is duplicated bytes, which `prune` already dedups for the
-   `HomeSurfaces` set. ⚠ **The first draft's leaning — "a one-shot migration in
-   `macos-setup`" — is retired**: `macos-setup` does not know the workspaces, and under
-   A′ the destinations are per-workspace, so it cannot be the owner; nothing in the tree
-   gives it a layout-migration role either (verified 2026-09-11 against
-   [`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md)).
-   The alternative — discard, start every sidecar empty — has a priced precedent
-   (`linkThroughShared` accepted losing one login on a layout change,
-   `internal/entrypoint/claude.go`), but transcripts are user work product where a
-   token is not.
-
-   <!-- vantage: oq id=OQ-HT2 leaning="Rename the old workspace-scope dirs aside once, then copy the moved union into each workspace's sidecar on that workspace's first post-upgrade launch. Lossless at the cost of duplicated bytes prune already dedups. Discarding is the alternative and has a priced precedent, but transcripts are work product where a token is not. macos-setup cannot own this: it does not know the workspaces." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-HT1 | The pack's declared `scope` decides the tier and this backend honors it: `scope: machine` → `packload.SharedDirs`, `scope: workspace` → `packload.WritableDirs`. Credentials are machine tier, history and transcripts are workspace tier. | 2026-09-11 | [§6 P2](#6-the-principles-this-rests-on) |
-| OQ-HT2 | **Still open** — the one ruling outstanding. | — | [Open Questions](#open-questions) |
+| OQ-HT2 | **No migration. Discard the old layout; wiping `/Users/_yolojail` is a supported reset.** *"Nobody is using it. No transition needed. If I need to wipe it first, that's fine."* The leaning's rename-then-copy-per-workspace scheme is machinery written for nobody — see the note below for what that gives up and why it is affordable. | 2026-09-11 | [§5](#5-the-proposal) |
 | OQ-HT3 | Per-workspace, not per-session. The same-workspace overwrite is convergent, which is what the container's attach already relies on; per-session is a mechanism no other backend has. The container's courtesy flock ports as a moved call. | 2026-09-11 | [§5](#5-the-proposal), [§7 row C](#7-alternatives) |
 | OQ-HT4 | **A′** — `HOME` stays `/Users/_yolojail`; every dir podman binds from `<ws>/.yolo/home/` becomes a symlink into it, and `SharedDirs` stay put and are mirrored back into the sidecar. A is the recorded runner-up. | 2026-09-11 | [§5](#5-the-proposal), [§7 row A′](#7-alternatives) |
+
+> [!NOTE]
+> **What discarding gives up, recorded because the leaning weighed it and the ruling overrides it.**
+> The old shared home holds the **workspace tier** — pack `state` and agent history — for every
+> workspace that ever launched on this backend, and agent transcripts are user work product in a way
+> a re-fetchable token is not. That is why the leaning proposed copying rather than dropping.
+>
+> **The ruling accepts the loss on measured grounds: nobody has used this backend for real work.**
+> Its only session was the 2026-09-11 hardware run, whose content is yolo-generated — staged skills,
+> a briefing, a capture store entry. There are no transcripts to preserve. The precedent is already
+> in the tree and was already priced: `linkThroughShared` accepted losing one login on a layout
+> change (`internal/entrypoint/claude.go`).
+>
+> **What it buys the build:** [§5](#5-the-proposal) needs no migration step at all. The
+> per-workspace sidecar is laid on a clean account, so A′ ships with no one-shot mutation, no
+> `.pre-tiers-<date>` directory and no first-launch copy path. If the account has content when the
+> split lands, `sudo rm -rf /Users/_yolojail` before the first launch **is** the migration.
