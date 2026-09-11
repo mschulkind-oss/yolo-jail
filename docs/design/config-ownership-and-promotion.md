@@ -504,15 +504,42 @@ $ yolo config promote <agent> [--surface <name>] [--keys a,b] [--to <dest>]
 declared? Not generic? Is that smart?"* Three separate answers, and they do not
 all point the same way.
 
-**Yes, pack-declared, and that half is right.** `reads-host` is a **privilege
-claim**, not a convenience: it carries a real file out of the user's home into a
-container. It is `ReviewWorthy` in the footprint and is honored-and-disclosed for
-every pack (`internal/packload/footprint_test.go:74-98`), which is what puts it
-on the startup disclosure banner. A generic rule — *"every surface imports its
-own host file"* — would make every jail read host state with nothing declaring
-it and nothing to disclose, which is the shape
-[`gate-placement-principle.md`](../reference/gate-placement-principle.md) exists to refuse.
-Keep the declaration.
+**Yes, pack-declared — and it should stay declared, though not for the reason
+this section first gave.** `reads-host` carries a real file out of the user's home
+into a container, and it is `ReviewWorthy` in the footprint
+(`internal/packload/footprint_test.go:74-98`), which is what puts it on the
+startup disclosure banner. A generic rule — *"every surface imports its own host
+file"* — would make every jail read host state with nothing declaring it and
+nothing to disclose, which is the shape
+[`gate-placement-principle.md`](../reference/gate-placement-principle.md) exists
+to refuse.
+
+> [!WARNING]
+> **It is NOT a gate, and an earlier draft of this section called it one**
+> (corrected 2026-09-10). A declared `reads-host` is **unconditionally honored** —
+> no approval, no origin check, no per-pack decision:
+>
+> ```go
+> // internal/packload/packload.go:440
+> func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string) {
+>     return p.Decl.HostFileContributions(), nil
+> }
+> ```
+>
+> [OQ-TP9](trust-paths.md#decision-ledger) **deleted `MayAccessHost` and the whole
+> fetched-pack origin gate on 2026-09-04**, and `HonoredMounts` says the same for
+> mounts: *"Nothing is refused — a mount reads the host home exactly like a host
+> file, and [OQ-TP9](trust-paths.md#decision-ledger) retired that gate for both."* The `refused` return slot is
+> vestigial — its only consumer (`run/packrefusal.go`) was deleted with the gate and
+> all five remaining call sites spell it `granted, _ :=`. A guard test
+> (`TestNoPackHostAccessGate`) goes red if a refusal source reappears without its
+> own ruling.
+>
+> **This strengthens the packaging argument rather than weakening it.** A
+> declaration that can never be refused does exactly one job — *disclosure* — and a
+> field on the surface discloses precisely as well as a separate contribution kind
+> does. The only thing the separate kind still buys is the `host_files` case
+> below.
 
 **But the declaration carries no information.** Measured across all six shipped
 agent packs on 2026-09-10:
@@ -1234,9 +1261,12 @@ Observable outcomes that mean this was built as designed:
     - **Does NOT move:** the `reads-host` kind itself, which also carries the user's
       `host_files` entries. Those are arbitrary host files with no mirrored twin, so
       they genuinely need a declared path. Deleting the kind would break them.
-    - **Stays:** the privilege claim and its disclosure. Both come from the
-      declaration being present and enumerable, not from its being a separate
-      kind; the footprint can walk surfaces as easily as contributions.
+    - **Stays:** the disclosure. It comes from the declaration being present and
+      enumerable, not from its being a separate kind — the footprint can walk
+      surfaces as easily as contributions. Note there is no *gate* to preserve:
+      [OQ-TP9](trust-paths.md#decision-ledger) deleted `MayAccessHost` on
+      2026-09-04, so a declared grant is unconditionally honored and the claim
+      discloses rather than decides.
     - **Also changes:** the read fails **closed**. A surface that declares a host
       layer and cannot read it must refuse rather than compose without it — today
       those two outcomes are the same bytes.
