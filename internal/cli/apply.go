@@ -561,9 +561,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 //
 // Three properties make it a real gate instead of noise:
 //
-//   - ONLY WHEN SOMETHING IS ACTUALLY LOST. Gated on FirstApply && Overwrites — a clean home,
-//     or any home yolo has asserted before, prompts not at all. A confirmation that fires on
-//     every run trains people to hit `y` without reading, which is worse than no gate.
+//   - ONLY WHEN SOMETHING IS ACTUALLY LOST. Gated on FirstApply && EntryLosses — a clean
+//     home, or any home yolo has asserted before, prompts not at all. A confirmation that
+//     fires on every run trains people to hit `y` without reading, which is worse than no
+//     gate. NOT `Overwrites`, which is the WIDER field beside it: an overwrite is a scalar
+//     whose value changes, so gating on it would fire the prompt on every scalar flip —
+//     exactly the every-run confirmation this property refuses. See the loop below, and
+//     HostRenderResult.EntryLosses for why the two are split.
 //   - OBSERVE NEVER REACHES HERE (the caller checks `write`). A dry-run writes nothing, so
 //     there is nothing to confirm; it just reports the same collisions as ⚠ lines, which is
 //     how the user gets the information BEFORE the prompt ever appears.
