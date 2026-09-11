@@ -973,7 +973,7 @@ Three facts dissolve that:
    [`OQ-CO`](../plans/BACKLOG.md#-oq-co--two-packs-writing-one-config-overlay-key-is-silent-last-one-wins),
    silent last-one-wins between overlays, seen from the promote side. One latent
    exception: a pack pulled in through `needs` is appended *after* local
-   ([`cli/run/packs.go:254`](../../internal/cli/run/packs.go#L254)); no such pack
+   ([`cli/run/packs.go:293`](../../internal/cli/run/packs.go#L293)); no such pack
    declares a `config-overlay` today.
 
 So the precedence check stays — it is a pure function of the layer set, it is
@@ -1593,7 +1593,7 @@ Observable outcomes that mean this was built as designed:
    ⚠ **Re-grounded 2026-09-11: for every shipped surface the option does not
    exist, so the question has shrunk to a niche.** `Surface.Managed` is populated
    only from the owning pack's own `config` contribution plus its autonomy posture
-   ([`packload.go:133`](../../internal/packload/packload.go#L133)); a
+   ([`packload.go:144-164`](../../internal/packload/packload.go#L144-L164) — `SurfaceContributions` → `DecodeSurfaces` → `foldPostureManaged`); a
    `config-overlay` body has a field *named* `managed` that is *"NOT a claim about
    the managed LAYER"* and folds at the single `config-overlay` slot
    ([`overlay.go:33`](../../internal/agentcfg/manifest/overlay.go#L33)). So neither
