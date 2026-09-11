@@ -1,7 +1,7 @@
 ---
 title: "Who owns the config file — declared host management, and the way out of capture"
 date: 2026-09-09
-status: in-review
+status: accepted
 tags: [design, config, host, capture, packs, ownership]
 summary: "yolo decides who owns an agent's config file by inferring it from the confinement notch, and the inference is wrong for anyone who adopted `yolo host apply`. Declare ownership in the user config instead, make the host render like a jail when it is owned, and build the promotion path that turns a captured in-jail edit into a declared one — the verb a shipped message already advises and nothing implements."
 vantage:
@@ -35,9 +35,11 @@ on 2026-08-01 — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-just
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
-**Needs your ruling:** [OQ-CO11](#OQ-CO11) first (it is upstream of
-[OQ-CO10](#OQ-CO10), and it asks you to confirm or reverse your own 2026-08-01
-ruling), then [OQ-CO9](#OQ-CO9), [OQ-CO10](#OQ-CO10).
+**Needs your ruling:** **None** — all eleven questions are settled
+([§13](#13-decision-ledger)). Ready to build, in [§10](#10-what-i-would-build-in-order)'s order.
+⚠ **One thing to carry out of this doc rather than into it:** four rulings in
+[`environment-manager-plan.md`](../plans/environment-manager-plan.md)'s 2026-08-01 ledger are
+reversed here, and that ledger needs the dated reversal rows.
 
 **Reads with:** [`host-render-target.md`](host-render-target.md) (whose
 [§6.3](host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output)
@@ -255,7 +257,7 @@ the scope is exactly what the user leaves when they adopt host apply.
 > **[`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)**
 > *retired* the read-in `host` layer — "RESOLVED: YES", never implemented — and
 > named the migration this document's own verb provides. That is
-> [OQ-CO11](#OQ-CO11), and it is the first thing to rule.
+> [OQ-CO11](#13-decision-ledger), and it is the first thing to rule.
 >
 > The reversal is defensible on grounds [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
 > never weighed: its argument was that `rmw` *protects the agent's keys*, which it
@@ -429,7 +431,7 @@ Consequences worth stating because users act on them:
 - Under `none`, the host file is today still **read** into a jail as the `host`
   layer — for the two surfaces with a `reads-host` grant, on the backends that can
   mount it. Ownership governs writing; the read is a separate grant, and whether it
-  survives at all is [OQ-CO11](#OQ-CO11).
+  survives at all is [OQ-CO11](#13-decision-ledger).
 - Under `none`, `host_apply_on_launch` has nothing to check: with no rendered host
   surface there is no staleness, and the *nothing would change ⇒ silent* rule
   ([§4.4](#44-what-the-key-does-not-do)) makes the launch check a no-op rather than
@@ -636,7 +638,7 @@ the `host` layer must never be given a path to a real home.
 Eleven pack surfaces ship; two carry a `reads-host` grant, and no doc records a
 reason any of the nine declined. Both grants that exist are *"the settings surface
 of an agent that has one"* — a pattern, not a chosen subset. This is
-[OQ-CO10](#OQ-CO10); the findings below are what make it answerable.
+[OQ-CO10](#13-decision-ledger); the findings below are what make it answerable.
 
 **The grant is pack-declared, and it should stay declared.** `reads-host` carries
 a real file out of the user's home into a container, and it is `ReviewWorthy` in
@@ -748,8 +750,8 @@ consequences, none of them chosen:
    ([`packsurfaces.go:455`](../../internal/entrypoint/packsurfaces.go#L455)).
    **That is a user feature-detecting the backend to learn whether their settings
    arrived** — the failure [P5](#1-the-verdict-and-the-principles-it-rests-on)
-   exists to forbid — and it counts for both [OQ-CO10](#OQ-CO10) (fail closed) and
-   [OQ-CO11](#OQ-CO11) (retire).
+   exists to forbid — and it counts for both [OQ-CO10](#13-decision-ledger) (fail closed) and
+   [OQ-CO11](#13-decision-ledger) (retire).
 
 So *"why allow a surface without it"* has no recorded answer: the separation is two
 declarations naming the same file, joined by a string match, guarding a read that
@@ -1179,7 +1181,7 @@ drop so there is nothing for a guard to catch; until then the archive
    but jail-side delivery is its job. No shipped pack declares a `raw`/`lines`
    surface.
 
-What to do about row 3 is [OQ-CO9](#OQ-CO9).
+What to do about row 3 is [OQ-CO9](#13-decision-ledger).
 
 ### 6.3.3 What survives as a guard
 
@@ -1347,7 +1349,7 @@ already has.
    ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)) and
    host-side `reset` in the same commit** — adoption is unsafe without either
    ([§6.3.3](#633-what-survives-as-a-guard)) — plus the one-time archive, the
-   keyless carve-out [OQ-CO9](#OQ-CO9) rules, and **adoption narrowed to `rmw`'s
+   keyless carve-out [OQ-CO9](#13-decision-ledger) rules, and **adoption narrowed to `rmw`'s
    granularity** ([§6.3.1](#631-adoption-is-capture-then-regenerate)), without
    which `own` is not zero-bytes on an `assert` home. Last because it is the only
    step that can lose data, and by then promotion exists, which is what makes
@@ -1404,152 +1406,55 @@ Observable outcomes that mean this was built as designed:
 > BACKLOG's is [§5.4](#54-promotion-moves-a-key-down-the-stack)'s residual
 > precedence case seen from the pack side.
 
-Three live questions. [OQ-CO11](#OQ-CO11) is upstream of
-[OQ-CO10](#OQ-CO10): if the 2026-08-01 ruling stands, CO10 dissolves for config
+Three live questions. [OQ-CO11](#13-decision-ledger) is upstream of
+[OQ-CO10](#13-decision-ledger): if the 2026-08-01 ruling stands, CO10 dissolves for config
 surfaces rather than being answered. Settled questions are in
 [§13](#13-decision-ledger).
+**None — every question this design opened is settled.** The last three were ruled on
+2026-09-11 and are in [§13](#13-decision-ledger); the rulings themselves live in the
+sections they govern.
 
-1. 💬 **<a id="OQ-CO9"></a>OQ-CO9: What does `own` mean for a KEYLESS surface?**
-   A `raw` or `lines` surface has no keys, so adoption cannot apply to it and a
-   render replaces the whole file. **What this decides:** whether `own` is
-   refused for keyless surfaces, or whether the one-way-door guard grows to
-   recognise a whole-file replacement as a loss.
-
-   *The evidence:* all three alternatives to a guard are bad —
-   [§6.3.2](#632-the-three-classes-adoption-does-not-cover) row 3 — because
-   `assert` is impossible for a keyless surface by codec, adopting one freezes the
-   file forever, and rendering over one destroys a real file in a real home. And
-   the existing guard is shaped wrong to notice: `EntryLosses` counts named table
-   entries, so it is always empty for a keyless surface and the most destructive
-   render available happens silently
-   ([§6.3.3](#633-what-survives-as-a-guard)).
-
-   <!-- vantage: oq id=OQ-CO9 leaning="Keep the rule uniform across notches — a keyless surface renders stateful everywhere and is never adopted — and fix the guard: a whole-file replacement is the maximal loss and should confirm the way an entry loss does, with OQ-CO7's archive as the second half where there is no TTY. Refusing `own` for keyless is the cheap fallback if the guard is not worth building, since the class is empty today, but it buys that with the per-notch asymmetry P5 exists to prevent." -->
-
-   _Leaning:_ **Keep the rule uniform and fix the guard.** A whole-file
-   replacement is the maximal loss and should confirm the way an entry loss does,
-   with the archive as the second half where there is no TTY. Refusing `own` for
-   keyless is the cheap fallback — the class is empty today, so it costs nobody
-   anything — but it buys that cheapness with exactly the per-notch asymmetry
-   [P5](#1-the-verdict-and-the-principles-it-rests-on) exists to prevent.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **<a id="OQ-CO10"></a>OQ-CO10: Is `reads-host` coverage a decision, and
-   should the grant name a path at all?** Two shipped grants, eleven pack
-   surfaces, no recorded reason for the nine without one — and both grants name
-   their own surface's path. **What this decides:** whether `--to host` is a
-   destination users can reason about, and whether the other nine surfaces are
-   deliberately host-blind or merely unfinished.
-
-   *The evidence:* the binding is a `path.Base` match feeding a fail-open read,
-   which has already shipped one silent-wrong-composition bug and silently drops
-   the whole layer on `macos-user`
-   ([§5.1.1](#511-why-only-two-surfaces-have-a-host-layer)). There is no second
-   location a path could name, because every surface path is `~/`-relative and `~`
-   is the only difference between the two homes.
-
-   Three sub-questions, and they separate cleanly:
-
-   - **Coverage.** Do the nine get grants, or is host-blindness correct for
-     them? `mise/config` is the interesting case *against* a blanket yes —
-     importing the host's mise config into a jail would fight the pinned
-     toolchain rather than help it.
-   - **Shape.** Should the config-surface binding become a policy bit on the
-     surface (*does this surface import the user's own version?*), with the path
-     derived? That would make *declared but not bound* stop existing as a state.
-     The `reads-host` **kind** stays regardless — the user's `host_files` entries
-     are arbitrary files with no mirrored twin and genuinely need a declared path.
-   - **Failure direction.** Should a surface that declares a host layer and cannot
-     read it **refuse** rather than compose without it? Today those two outcomes
-     are the same bytes.
-
-   Unchanged either way: promote must refuse `--to host` on a surface with no
-   host layer rather than writing a file nothing reads.
-
-   <!-- vantage: oq id=OQ-CO10 leaning="Move the declaration ONTO the surface so the binding is structural instead of a path.Base match, and make the read fail CLOSED. Keep the disclosure — it comes from the declaration being present and enumerable, not from its being a separate contribution kind — and keep the kind itself for host_files. Coverage then becomes a visible per-surface yes/no, and mise/config is a deliberate no. Regardless, promote must refuse --to host on a surface with no host layer." -->
-
-   _Leaning:_ **Package it onto the surface so the binding is structural, and make
-   the read fail closed.** Fail-closed is not only about a typo — it would turn the
-   `macos-user` silent drop into a refusal that names the backend. Coverage then
-   falls out: every surface visibly says yes or no in one place, so `mise/config`
-   becomes a deliberate **no** rather than an omission indistinguishable from the
-   other eight. The disclosure survives, because it comes from the declaration
-   being present and enumerable, not from its being a separate kind.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **<a id="OQ-CO11"></a>OQ-CO11: Does the 2026-08-01 ruling retiring the
-   read-in `host` layer stand, now that its migration exists?** Env-manager plan
-   [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
-   resolved **YES — retire it**, naming the migration as *"author (or `yolo config
-   promote` into) a one-file local pack"*; the ruling was never implemented, and
-   its 2026-08-23 consumption check records that *"`HostSource` still exists and
-   the `host` layer still composes"*. **What this decides:** whether `reads-host`
-   keeps any config-surface role; whether [§2.1](#21-the-layer-stack)'s stack loses
-   a layer; what `--to host` means ([§5.1](#51-surface)); and whether
-   [OQ-CO10](#OQ-CO10) is asked at all.
-
-   *The evidence, three lines:*
-
-   - **The migration the ruling assumed is this document's verb.** `own` makes it
-     mechanical rather than manual — adoption captures the host file's undeclared
-     keys ([§6.3.1](#631-adoption-is-capture-then-regenerate)), promote lifts them
-     into the local pack, and the local pack renders at every notch — so a user on
-     `own` loses nothing when the layer goes. Under `assert` and `none` the path is
-     *adopt `own` first, or author by hand*.
-   - **Reading the file back into a jail imports another notch's captures.** Under
-     `own` the host file is `declared layers + host capture overlay`, so the
-     read-in layer carries host-side edits into a jail at the second-weakest
-     precedence. By [P3](#1-the-verdict-and-the-principles-it-rests-on) and
-     [P5](#1-the-verdict-and-the-principles-it-rests-on) together, **no notch's
-     captures flow to another notch automatically; promotion is the channel.**
-   - **The layer is not at parity today.** It silently drops on `macos-user`
-     ([§5.1.1](#511-why-only-two-surfaces-have-a-host-layer)), which makes it the
-     one input whose *meaning* depends on the backend. Retiring it is the parity
-     fix; gating it per ownership value would carry the defect forward.
-
-   A per-value alternative exists — `none`: read; `assert`: import only the keys
-   the provenance record labels `host`; `own`: refuse — and it has a real cost: a
-   hand edit to `~/.claude/settings.json` would reach every jail under `assert` and
-   no jail under `own`, so switching to `own` would silently cut a channel the user
-   was relying on.
-
-   <!-- vantage: oq id=OQ-CO11 leaning="Honour OQ-3: retire the read-in host layer for config surfaces at every ownership value, with per-value TIMING rather than per-value semantics — `own` refuses it immediately (adoption captured the keys, promote carries them, nothing is lost); `none`/`assert` keep today's read only until promote ships, then one launch notice naming `yolo config promote` and the local pack. CO10 dissolves for config surfaces; `host_files` keeps the kind." -->
-
-   _Leaning:_ **Honour [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase).**
-   Retire the read-in layer for config surfaces at every ownership value, with
-   per-value *timing* rather than per-value *semantics*: under `own` refuse it
-   immediately — adoption captured the keys and promote carries them, so nothing is
-   lost; under `none` and `assert` keep today's read only until promote ships, then
-   retire it with one launch notice naming `yolo config promote` and the local
-   pack. If the ruling stands, [OQ-CO10](#OQ-CO10) dissolves for config surfaces
-   and `host_files` keeps the kind; if it is reversed, the reversal belongs in that
-   ledger, dated, and the per-value table becomes the design.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+**One consequence is large enough to state here rather than leave in a ledger row.**
+[`OQ-CO10`](#13-decision-ledger) decided the *shape* of the read-in `host` layer — the
+declaration moves onto the surface, the read fails closed, coverage becomes a visible
+per-surface yes/no. **Deciding a mechanism's shape decides that it exists**, so the
+2026-08-01 ruling to retire that layer
+([`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase))
+is **superseded**, and it is one of four from that ledger this design reverses —
+[§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) names them all with
+their dated reversals.
 
 ---
+
 
 ## 13. Decision Ledger
 
 Rulings on [§12](#12-open-questions)'s questions are folded into the normative
 body text and compacted here, keeping the exact `OQ-CO` ids so citations from
-sibling docs and code comments continue to resolve.
+sibling docs and code comments continue to resolve. **All eleven are settled**;
+the last three on 2026-09-11.
+
+> [!IMPORTANT]
+> **This design reverses four rulings from [`environment-manager-plan.md`](../plans/environment-manager-plan.md)'s
+> 2026-08-01 ledger, and all four reversals are deliberate** — recorded here because
+> that ledger's existence is why this document spent four review rounds re-arguing
+> settled ground. [`OQ-1`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) (no `--revert`) is reversed by
+> [§10](#10-what-i-would-build-in-order) step 3; [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) (pure `rmw`; whole-file
+> `stateful`+capture rejected) by [`OQ-CO3`](#13-decision-ledger); and [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) (retire the read-in `host`
+> layer) by [`OQ-CO10`](#13-decision-ledger), which decided that layer's shape and thereby its existence.
+> **The reversal rows belong in that ledger too** — a ruling reversed in one document
+> and unmarked in the other is the exact failure this note exists to stop repeating.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-CO1 | **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. The cost — one more thing to explain — is paid down by [`OQ-CO2`](#13-decision-ledger) removing the prompt that would have explained it. Alternative C in [§8](#8-alternatives-considered) resolves as rejected. | 2026-09-10 | [§4.1](#41-the-key) |
-| OQ-CO2 | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning:* the ambiguity this design fixes was **inference**, not silence, so a documented default that equals today's behavior is declared in the only sense that matters. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
-| OQ-CO3 | **Yes, host-side capture under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render reproduce the file. The refusal stays for `none` and `assert`. Reverses env-manager plan [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications). | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-adoption-is-capture-then-regenerate) |
-| OQ-CO4 | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` (`internal/config/snapshot.go:81`) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) |
-| OQ-CO5 | **Refuse-with-instructions in v1.** Design the jail→host request channel but do not build it until promote has been used enough to know which keys people actually promote — the transport is free, the consent prompt is what needs the evidence. | 2026-09-11 | [§5.5](#55-where-promote-may-run) |
-| OQ-CO6 | **Refuse only, everywhere** — promote never offers the pack's `managed` block to a key that would lose precedence. For shipped surfaces nothing else is expressible (`managed` is owner-only and every owner is an embedded pack). For a user's own surface the friction is the point: a one-keystroke path to outranking `computed`/`transform` would be used for exactly the reasons those layers exist, so the managed block stays a hand edit. | 2026-09-11 | [§5.4](#54-promotion-moves-a-key-down-the-stack) |
-| OQ-CO7 | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) |
-| OQ-CO8 | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) |
+| [`OQ-CO1`](#13-decision-ledger) | **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. The cost — one more thing to explain — is paid down by [`OQ-CO2`](#13-decision-ledger) removing the prompt that would have explained it. Alternative C in [§8](#8-alternatives-considered) resolves as rejected. | 2026-09-10 | [§4.1](#41-the-key) |
+| [`OQ-CO2`](#13-decision-ledger) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning:* the ambiguity this design fixes was **inference**, not silence, so a documented default that equals today's behavior is declared in the only sense that matters. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
+| [`OQ-CO3`](#13-decision-ledger) | **Yes, host-side capture under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render reproduce the file. The refusal stays for `none` and `assert`. Reverses env-manager plan [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications). | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-adoption-is-capture-then-regenerate) |
+| [`OQ-CO4`](#13-decision-ledger) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` (`internal/config/snapshot.go:81`) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) |
+| [`OQ-CO5`](#13-decision-ledger) | **Refuse-with-instructions in v1.** Design the jail→host request channel but do not build it until promote has been used enough to know which keys people actually promote — the transport is free, the consent prompt is what needs the evidence. | 2026-09-11 | [§5.5](#55-where-promote-may-run) |
+| [`OQ-CO6`](#13-decision-ledger) | **Refuse only, everywhere** — promote never offers the pack's `managed` block to a key that would lose precedence. For shipped surfaces nothing else is expressible (`managed` is owner-only and every owner is an embedded pack). For a user's own surface the friction is the point: a one-keystroke path to outranking `computed`/`transform` would be used for exactly the reasons those layers exist, so the managed block stays a hand edit. | 2026-09-11 | [§5.4](#54-promotion-moves-a-key-down-the-stack) |
+| [`OQ-CO7`](#13-decision-ledger) | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) |
+| [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
 
 **One consequence worth recording where a reader will hit it, because it moved
@@ -1559,3 +1464,6 @@ confirmation ([`OQ-CO3`](#13-decision-ledger)) — and in each case the replacem
 `assert` default, and `ComposeStateful`'s first-migration adoption.
 [§10](#10-what-i-would-build-in-order)'s step 1 is smaller for it, and step 6
 gains the host capture store it now depends on.
+| [OQ-CO9](#12-open-questions) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) |
+| [OQ-CO10](#12-open-questions) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) |
+| [OQ-CO11](#12-open-questions) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§12](#12-open-questions) |

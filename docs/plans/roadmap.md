@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 18 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 17 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-10**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -638,10 +638,10 @@ shape the schema; [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) is
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 25 — Who owns the config file, and the `promote` verb three messages already advise
+### 📦 25 — Who owns the config file, and the `promote` verb one message already advises
 
 📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) —
-**[`OQ-CO9`](../design/config-ownership-and-promotion.md#OQ-CO9) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) · [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)** — CO1–CO8 are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger) · written 2026-09-09, **routed here the same day**
+**[`OQ-CO9`](../design/config-ownership-and-promotion.md#13-decision-ledger) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) · [`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger)** — CO1–CO8 are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger) · written 2026-09-09, **routed here the same day**
 
 yolo infers config-file ownership from the confinement notch rather than asking, and the inference
 is wrong for anyone who adopted `yolo host apply`. **Nothing is built** (verified 2026-09-09: no
@@ -679,7 +679,7 @@ Decision Ledger carries **[`OQ-1`](environment-manager-plan.md#resolved) — `--
 the `reads-host` read-in layer? RESOLVED: YES** (express personal settings as a local pack
 instead), and **[`OQ-4`](environment-manager-plan.md#resolved)/[`OQ-5`](environment-manager-plan.md#resolved) — pure `rmw`; whole-file `stateful` + capture REJECTED, "capture buys
 nothing"**. This design proposes `--revert` (build step 3), asks whether the host layer survives
-([`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)), and renders `own` as `stateful` with a host capture store. **Four
+([`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger)), and renders `own` as `stateful` with a host capture store. **Four
 review rounds argued that ground fresh because the rulings live in a plan doc's ledger rather
 than in the design's own.**
 
@@ -688,19 +688,23 @@ Two consequences, and the first needs you before anything else here moves:
 - **[`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger), which you settled in review round 0, reverses [`OQ-4`](environment-manager-plan.md#resolved)/[`OQ-5`](environment-manager-plan.md#resolved).** Either
   the 2026-08-01 ruling stands and `own` needs rethinking, or it is superseded and that ledger
   needs a dated reversal row. The audit flagged rather than flipped it, correctly.
-- **[`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) may already be answered "retire it".** The irony worth noting:
+- **[`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger) may already be answered "retire it".** The irony worth noting:
   [`OQ-3`](environment-manager-plan.md#resolved)'s stated migration — *"express personal settings as a local pack"* — is exactly what this
   doc's `promote --to local` builds, so [§5](../design/config-ownership-and-promotion.md#5-promotion--the-way-out-of-capture) is the migration story for a ruling it did not know
-  existed. **If [`OQ-3`](environment-manager-plan.md#resolved) stands, CO11 and [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) both dissolve and this doc gets
+  existed. **If [`OQ-3`](environment-manager-plan.md#resolved) stands, CO11 and [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) both dissolve and this doc gets
   materially smaller.**
 
-**Three questions remain: [`OQ-CO9`](../design/config-ownership-and-promotion.md#OQ-CO9) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#OQ-CO10) ·
-[`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11)**, and [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) is first because the other two may
-dissolve behind it. CO1–CO8 are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger); the doc was
-rewritten 2026-09-11 (2076 → 1561 lines) to carry its traps forward-facing rather than as a record of
-the argument. **The [`OQ-CO11`](../design/config-ownership-and-promotion.md#OQ-CO11) /
-[`OQ-3`](environment-manager-plan.md#resolved) contradiction was deliberately NOT compacted** — it is
-live, and it sits in that doc's [§3](../design/config-ownership-and-promotion.md#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) rather than inside a question block.
+**ALL ELEVEN QUESTIONS ARE SETTLED** (2026-09-11) and the doc is `status: accepted` — it moved to
+📦 the moment [`OQ-CO9`](../design/config-ownership-and-promotion.md#13-decision-ledger), [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) and [`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger) were ruled. CO11 was
+decided *by* CO10 rather than separately: ruling a mechanism's binding, failure direction and
+coverage decides that it exists, so asking in the same breath whether to delete it was incoherent.
+
+⚠ **That reverses four rulings in [`environment-manager-plan.md`](environment-manager-plan.md#blocks-phase-4-host-render)'s
+2026-08-01 ledger** — [`OQ-1`](environment-manager-plan.md#blocks-phase-4-host-render) (no `--revert`), [`OQ-3`](environment-manager-plan.md#blocks-phase-4-host-render) (retire the read-in `host`
+layer) and [`OQ-4`](environment-manager-plan.md#blocks-phase-4-host-render)/[`OQ-5`](environment-manager-plan.md#blocks-phase-4-host-render) (pure `rmw`, capture rejected). **The dated reversal rows are now in that ledger**,
+because their absence is what let this design re-argue settled ground for four rounds. The lesson
+is worth more than the rows: **before opening a question, search sibling ledgers** — a cross-document
+collision is invisible by construction.
 
 ⚠ **Two code defects the audit surfaced, neither of which needs a ruling:**
 `dropYoloOwnedSubtrees` drops every object-valued key while `dropOverriddenKeys` — three

@@ -696,6 +696,24 @@ implementing any phase.
 
 ### Blocks Phase 4 (host render)
 
+> [!WARNING]
+> **Four rulings in this section were REVERSED on 2026-09-11 by
+> [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md), and the
+> reversals are recorded here because their absence cost four review rounds.** That design
+> re-argued this ground from scratch — nobody knew these rulings existed, because a ledger is
+> per-document and nothing points across.
+>
+> | Ruled here (2026-08-01) | Reversed by | Now |
+> | :--- | :--- | :--- |
+> | **[OQ-1](#open-questions-to-resolve-before-their-phase)** — no `--revert` on the host target | [§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) step 3 | `--revert` under `assert`, consuming the provenance record that now exists |
+> | **[OQ-3](#open-questions-to-resolve-before-their-phase)** — retire the `reads-host` read-*in* layer | [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) | The layer STAYS. Ruling its binding, failure direction and coverage decided that it exists |
+> | **[OQ-4](#open-questions-to-resolve-before-their-phase) / [OQ-5](#open-questions-to-resolve-before-their-phase)** — pure `rmw`; whole-file `stateful`+capture rejected, "capture buys nothing" | [`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger) | `own` renders `stateful` with a host capture store, which is what makes adoption byte-identical |
+>
+> **The lesson this pair leaves behind, worth more than the rows:** before opening a question,
+> search sibling ledgers for a prior ruling on the same subject. A cross-document ledger
+> collision is invisible by construction.
+
+
 **Context — how `yolo host apply` touches a file the agent also writes.** Two calls, both now
 resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-phase) corrected an over-complication I had introduced.
 
