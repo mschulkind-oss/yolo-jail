@@ -1,27 +1,42 @@
 ---
 title: "The macos-user Home: One Account, Three Tiers That Collapsed Into It"
 date: 2026-09-03
-status: draft
+status: in-review
 tags: [macos-user, jail-home, backend-parity, design]
-summary: "macos-user has one sandbox home, /Users/_yolojail, so the machine tier, the workspace tier and the session tier are the same directory. That is deliberate for credentials and wrong for everything else — pack state, agent history, and now the composed skills and briefings a second workspace overwrites while the first is mid-session. This proposes a per-workspace home under an explicitly shared machine tier, and records what must be restored rather than merely split."
+summary: "macos-user has one sandbox home, /Users/_yolojail, so the machine tier, the workspace tier and the session tier are the same directory. The machine tier is right; the other two collapsing into it is the defect, and since content delivery landed it is a write-write race. The fix keeps HOME where it is and symlinks every directory the container backends bind from <workspace>/.yolo/home/ into that same sidecar — the credential-sharing mechanism already runs here unchanged, and needs only its shared dir mirrored so its relative link resolves."
 ---
 
 # The macos-user home: one account, three tiers that collapsed into it
 
-**Status:** DESIGN SKETCH, 2026-09-03. Nothing built. Three open questions, and
-[`OQ-HT2`](#OQ-HT2) blocks a sibling doc as well as this one.
+**Status:** DESIGN, 2026-09-11 (DESIGN SKETCH 2026-09-03). Nothing built. Audited
+against the tree at `61c26c18` on 2026-09-11: three of four questions are settled by a
+stated principle or a measured fact and await compaction; **[`OQ-HT2`](#OQ-HT2) is the
+one that still needs a ruling**, and it is the maintainer's.
 
-**The short version.** `SandboxHome()` is the constant `/Users/_yolojail`, so three
-tiers every other backend keeps apart are one directory. The **machine tier** is
-right and is the point of a dedicated account; the **workspace** and **session**
-tiers collapsing into it is the defect, and since content delivery landed it is a
-write-write race rather than mere leakage. The fix is the two-tier structure the
-container backends already have, inside the one account this backend has —
-per-workspace state separated from machine-wide credentials, with symlinks carrying
-whichever half does not live where the agent looks for it. **Where the per-workspace
-half lives is [`OQ-HT4`](#OQ-HT4)**, and review moved the leaning: `<workspace>/.yolo/home/`,
-which is where every other backend already puts it. **The trap is that a
-naive split repairs the workspace tier by breaking the machine one** ([§3](#3-why-it-has-not-been-fixed-by-simply-splitting)).
+> **In short.** The machine tier is **not** colocation: the `shared_credentials` hook
+> already makes `~/.claude/.credentials.json` a relative symlink into a pack-declared
+> machine-scope directory on this backend exactly as on every other, and the single
+> home supplies only that directory's *backing*. What macos-user lacks is the
+> per-workspace tier — and it gets it by symlinking the same `<workspace>/.yolo/home/`
+> sidecar the container backends bind, with no Seatbelt change and no moved credential.
+
+**Why it matters.** Content delivery (2026-09-03) turned a static leak between
+workspaces into a write-write race on the briefing an agent reads as instructions
+([§2](#2-what-the-collapse-actually-costs)).
+
+**The shape.** `HOME` stays `/Users/_yolojail`. Every directory the podman argv binds
+from `<ws>/.yolo/home/` becomes a symlink from the account home into that sidecar;
+every pack-declared machine-scope directory stays in the account home and is
+*mirrored* into the sidecar so the hook's relative link keeps resolving
+([§5](#5-the-proposal)).
+
+**Cost.** The workspace-scope state already sitting in `/Users/_yolojail` belongs to
+every workspace at once, so it has no single destination — [`OQ-HT2`](#OQ-HT2).
+
+**Start at [§5](#5-the-proposal)**, then [§3](#3-why-it-has-not-been-fixed-by-simply-splitting)
+for the trap the first draft mis-stated.
+
+**Needs your ruling:** [`OQ-HT2`](#OQ-HT2).
 
 > [!NOTE]
 > **Terms coined here.** A **tier** is a scope at which jail state is kept
@@ -37,63 +52,117 @@ naive split repairs the workspace tier by breaking the machine one** ([§3](#3-w
 > root your PROJECTS live under — `/Users/Shared/yolo/yolo-jail` is a workspace.
 > `/Users/_yolojail` (`SandboxHome`) is the sandbox account's HOME, holding agent
 > config, credentials and history. Everything below is about the second.
+>
+> **The sidecar** *(coined here)* is `<workspace>/.yolo/` — the workspace's own
+> gitignored state directory, and `<workspace>/.yolo/home/` within it is the SOURCE of
+> every per-workspace directory the container backends bind into `/home/agent`. It is
+> not the jail home and not the workspace tree; it is where the workspace tier lives on
+> every backend that has one.
 
 **Reads with:** [`jail-home.md`](../reference/jail-home.md) (the container home layout this
-should converge on), [`backend-parity.md`](backend-parity.md) (OQ-BP-2, the
-delivery gap this follows), [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
-(the backend), and [`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md).
+converges on — its *Shared credentials* section is the relative-link fact
+[§5](#5-the-proposal) rests on), [`backend-parity.md`](backend-parity.md) (its four
+dispositions, and [OQ-BP-2](backend-parity.md#decision-ledger), the delivery gap this
+follows), [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
+(the backend), [`macos-user-provisioning.md`](macos-user-provisioning.md) (whose
+[OQ-P3](macos-user-provisioning.md#OQ-P3) takes its answer from this doc's
+[§5](#5-the-proposal)), and
+[`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md).
 
 ---
 
 ## 1. The shape of the problem
 
-`macosuser.SandboxHome()` is the constant `/Users/_yolojail`. It has no workspace
+`macosuser.SandboxHome()` is the constant `/Users/_yolojail`
+(`internal/macosuser/macosuser.go:56`, verified 2026-09-11). It has no workspace
 component and no session component, so three tiers the other backends keep apart
 are one directory here:
 
 | Tier | Container backends | macos-user |
 | :--- | :--- | :--- |
-| **machine** — credentials shared by every jail | `~/.local/share/yolo-jail/home/` + per-agent shared-credential symlinks | `/Users/_yolojail` |
-| **workspace** — pack `state` dirs, agent history, composed content | `<ws>/.yolo/home/`, bind-mounted | `/Users/_yolojail` |
-| **session** — one launch's generated config | regenerated into the workspace overlay | `/Users/_yolojail` |
+| **machine** — credentials shared by every jail | `~/.local/share/yolo-jail/home/` (`paths.GlobalHome`), bound `:ro` as the home base, plus each pack's `scope: machine` dir bound rw from it (`internal/cli/run/assemble_parts.go:107`, `assemble.go:344`) | `/Users/_yolojail` |
+| **workspace** — pack `state` dirs, agent history, composed content, installed programs | `<ws>/.yolo/home/{npm-global,local,go,yolo-bin,config}` plus each pack's `scope: workspace` dir, bind-mounted (`assemble_parts.go:106-120`, `assemble.go:336`) | `/Users/_yolojail` |
+| **session** — one launch's generated config | regenerated into the workspace binds above on every entry | regenerated into `/Users/_yolojail` on every launch |
 
 The machine tier is the one that is *right*: a single account holding one set of
 agent credentials is the whole point of a dedicated sandbox user, and it is what
 makes `shared_credentials` work here with no broker at all
-([macos-user-nix-and-features.md](../reference/macos-user-nix-and-features.md) [§3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better)). The other two rows are the defect.
+([the loopholes section of `macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better)).
+The other two rows are the defect.
 
 ## 2. What the collapse actually costs
 
 Three symptoms, in increasing order of how much they matter.
 
 1. **Pack `state` dirs are machine-wide.** `.claude`, `.codex`, `.gemini`, `.pi`
-   are per-workspace on every other backend. A session's history is visible to
-   every other workspace you launch. Reported at launch by
-   `noteMachineWideWorkspaceState`.
+   are per-workspace on every other backend. Reported at launch by
+   `noteMachineWideWorkspaceState` (`internal/cli/run/loopholeinert.go:261`, called
+   from the macos-user arm at `run.go:327`). ⚠ **One file in that set is already
+   per-workspace here**: the `per_jail_history` hook keys on `YOLO_HOST_DIR`
+   (`internal/entrypoint/packhooks.go:169-193`), which this backend sets
+   (`internal/macosuser/runplan.go:240`), so `~/.claude/history.jsonl` is already a
+   symlink to `~/.claude/jail-history/<hash>.jsonl`. What leaks is everything
+   *else* under the state dir — `~/.claude/projects/<workspace>/*.jsonl` transcripts
+   above all.
 2. **The Seatbelt profile enforces a boundary the home then leaks.** The profile
    denies reading a sibling workspace's files — and
    `~/.claude/projects/<other-workspace>/*.jsonl` is readable anyway, because it
    lives in the shared home rather than under the workspace.
 3. **Composed content races between concurrent launches.** This is the new one.
    Skills and briefings are now delivered by copying a composed overlay over the
-   home on every entry. Two workspaces launched concurrently write the same paths,
-   so the second replaces the first's — and a briefing is *per-project prose*, so
-   an agent mid-session can go on reading a description of a different project.
+   home on every entry (`InstallHomeOverlay`, `internal/entrypoint/darwin.go:158`).
+   Two workspaces launched concurrently write the same paths, so the second
+   replaces the first's — and a briefing is *per-project prose*, so an agent
+   mid-session can go on reading a description of a different project. **Two more
+   files are in the same class and were not listed before** (found 2026-09-11): the
+   login rc files (`WriteLoginRC`, `darwin.go:222-234`) carry this workspace's
+   `packages:` store paths, and `~/.config/mise/config.toml` (`ConfigureMisePrism`,
+   `darwin.go:85`) carries this workspace's `mise_tools`. Both are written to the
+   shared home on every launch.
 
 Symptom 3 is qualitatively worse than 1 and 2. Those leak information between
 workspaces; this one feeds an agent instructions for the wrong project, silently,
-while it is working.
+while it is working. **And nothing guards it**: this backend has no attach
+(`run.go:377`), no workspace flock (`acquireWorkspaceLock`'s one production caller
+is inside `runContainer`, `run.go:732`), and `yolo stop` is a no-op here
+(`internal/cli/stop.go:112-116`) — verified 2026-09-11.
 
 ## 3. Why it has not been fixed by simply splitting
 
-Splitting `SandboxHome()` per workspace repairs the workspace tier by **breaking
-the machine tier**: the single home *is* the shared-credentials mechanism on this
-backend. `~/.claude/.credentials.json` is shared because there is only one home to
-put it in. Give each workspace its own and every workspace needs its own login.
+### ⚠ Retracted (2026-09-11): "the single home IS the shared-credentials mechanism"
 
-So a fix has to restore both tiers explicitly, which is a design change and not a
-launch-time patch — which is exactly why `noteMachineWideWorkspaceState` warns
-instead of fixing.
+That sentence is in this doc's first draft, in `run.go:325-326`, in
+`seatbeltcapture.go:9-13`, in `macos-user-nix-and-features.md` and in the roadmap,
+and it is **imprecise in the one way that matters for the fix**. Measured against the
+tree 2026-09-11:
+
+- The mechanism is the `shared_credentials` **hook** — `Env.linkSharedCredential`
+  (`internal/entrypoint/packhooks.go:109-142`) replaces `~/.claude/.credentials.json`
+  with a **relative** symlink (`../.claude-shared-credentials/.credentials.json`) into
+  a directory the pack declared at `scope: machine`
+  (`packs/claude/pack.json:152-157`, hook at `:163-168`).
+- **That hook runs on macos-user**, unchanged: `RunDarwinBootstrap` calls
+  `RunPackHooks` (`internal/entrypoint/darwin.go:112`). The link exists in
+  `/Users/_yolojail/.claude/` today, pointing at
+  `/Users/_yolojail/.claude-shared-credentials/`.
+- What the single home supplies is therefore only the **backing** of the shared
+  directory — a plain dir in the one home, where the container binds it from
+  `GlobalHome`. The mechanism, the location a pack sees, and the declaration are
+  already identical on every backend; [§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend)'s
+  test is already passed for the machine tier.
+
+So the trap is narrower than "a split breaks credential sharing". **The trap is that
+a split has to keep the declared machine-scope directory machine-scope AND keep it
+reachable through the hook's relative link** — and the second half is where a naive
+symlink layout fails ([§5.3](#53-what-the-credential-tier-then-needs-precisely)).
+Give each workspace its own copy of `.claude-shared-credentials` and every workspace
+needs its own login; leave it shared but break the relative path and every workspace
+gets a dangling link, which `linkThroughShared` then "repairs" by discarding the
+local login on the next boot (`internal/entrypoint/claude.go:59`, rule "the shared
+file always wins").
+
+That is a design change and not a launch-time patch — which is exactly why
+`noteMachineWideWorkspaceState` warns instead of fixing.
 
 ## 4. What forced this
 
@@ -105,46 +174,76 @@ instructions.
 ## 5. The proposal
 
 Adopt the two-tier structure the container backends already have, in the one
-account this backend has.
+account this backend has — **by reusing the container's own bind table as a symlink
+table.** This is alternative **A′** of [§7](#7-alternatives), settled by
+[`OQ-HT4`](#OQ-HT4).
 
 **Nothing here moves your projects, and `<workspace>/.yolo/` does not go away.**
 `/Users/Shared/yolo` stays exactly as it is, and so does every workspace under it.
+The sidecar is already gitignored, and on the reviewing Mac it already holds
+`claude`, `config`, `go`, `npm-global` and a `bash_history` from container runs.
+macos-user writes `prism/` there today and ignores `home/` entirely.
 
-`<workspace>/.yolo/` is a THIRD path, and naming it is overdue: it is the
-workspace's own sidecar — `prism/` (composed config surfaces), `config-snapshot.json`,
-and `home/`, which on the container backends is the SOURCE of the per-workspace state
-dirs bind-mounted into the jail (`<ws>/.yolo/home/claude` → `/home/agent/.claude`,
-`assemble.go`). It is gitignored, and on this Mac it already holds `claude`, `config`,
-`go`, `npm-global` and a `bash_history` from container runs. macos-user writes
-`prism/` there and ignores `home/` entirely.
+- **`HOME` stays `/Users/_yolojail`.** Nothing in `LaunchArgv`, `SandboxPath` or the
+  Seatbelt profile changes its home argument. This is also what keeps
+  [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s
+  standing refusal of "a per-workspace home" true rather than overturned.
+- **Every directory the podman argv binds from the sidecar becomes a symlink from the
+  account home into the sidecar.** The list is the container's, not a new one:
+  `npm-global→.npm-global`, `local→.local`, `go→go` (`paths.HomeSurfaces()`,
+  `internal/paths/paths.go:438-444`), `yolo-bin→.yolo/bin`, `config→.config`
+  (`assemble_parts.go:118-119`), and each pack's `scope: workspace` state dir
+  (`packload.WritableDirs`, `assemble.go:336-339`). Same location for a project's
+  agent state on every backend; a symlink where podman has a bind.
+- **Every pack-declared machine-scope directory stays in the account home — and is
+  mirrored into the sidecar.** `packload.SharedDirs` (`assemble.go:344-347`) is the
+  list. The mirror is a symlink `<ws>/.yolo/home/.claude-shared-credentials →
+  /Users/_yolojail/.claude-shared-credentials`, and it is not optional:
+  [§5.3](#53-what-the-credential-tier-then-needs-precisely) is why.
+- **What stays machine-wide stays because the container keeps it machine-wide too.**
+  `~/.cache` is `paths.GlobalCache()` on podman (`assemble_parts.go:120`) and the mise
+  data dir is a machine-wide store mounted at `/mise` (`assemble_parts.go:172-176`) —
+  neither is per-workspace anywhere, so neither gets a symlink here. ⚠ The mise data
+  dir needs `MISE_DATA_DIR` set explicitly on this backend once `~/.local` is a
+  sidecar symlink, because the unset default is `$HOME/.local/share/mise`
+  (`internal/entrypoint/env.go:161-165`) — which would land it in the *per-workspace*
+  tier, the opposite of every other backend. That is
+  [OQ-P3](macos-user-provisioning.md#OQ-P3)'s answer.
+- **The Seatbelt profile does not change.** The sidecar sits under the workspace, so
+  it is inside `(allow file-write* (subpath <ws>))` and `(allow file-read* (subpath
+  <ws>))` already (`internal/macosuser/seatbelt.go:49, 79`), and a *sibling*
+  workspace's sidecar is already denied by the `/Users` read-deny with
+  `(literal)`-only ancestors (`:74-80`, [§5.2](#52-isolation-is-already-enforced-for-workspaces--the-home-is-the-one-hole-left)).
+  Symptom 2 becomes enforced without a profile edit.
+- **The migration question shrinks to the workspace-scope state already in the
+  account home**, because the machine tier never moves —
+  [`OQ-HT2`](#OQ-HT2).
 
-That last sentence is the design question this section used to answer without
-asking. **The container does not move its home per workspace** — `HOME` is
-`/home/agent` always, and specific *subdirectories* are mounted in from the
-workspace. So there are two ways to give macos-user the same separation, and [§7](#7-alternatives)
-weighs them as [`OQ-HT4`](#OQ-HT4).
+**Stated residuals** (holes the first draft left silent, now delegated or named):
 
-- **`/Users/_yolojail/` stays the machine tier.** Credentials live here, exactly as
-  now. Nothing about `shared_credentials` changes.
-- **`/Users/_yolojail/workspaces/<cname>/` becomes the per-workspace HOME** — the
-  home a launch on that workspace gets, not a copy of the workspace. `<cname>` is
-  the same `runtime.FromWorkspace` slug pack staging and the Seatbelt profile
-  already key on: a short name DERIVED from the workspace path, so a project at
-  `/Users/Shared/yolo/yolo-jail` gets a home at
-  `/Users/_yolojail/workspaces/yolo-yolo-jail/` while the project itself stays
-  where it is. `HOME`/`JAIL_HOME` in the launch and bootstrap env point here.
-- **The machine tier is reached by the mechanism it already uses: symlinks.**
-  `configureSharedCredentials` already links `~/.claude/.credentials.json` to a
-  shared target; the same links, pointed one level up, restore sharing explicitly
-  rather than by accident of colocation.
-- **The Seatbelt profile's writable set narrows** from `(subpath "/Users/_yolojail")`
-  to the workspace home plus the shared credential paths, which makes symptom 2
-  enforced rather than merely stated.
+- **The login rc files** (`.zprofile`, `.zshrc`, `.bash_profile`) are read by the
+  shell from `$HOME`, which stays shared, and they carry per-workspace bytes (this
+  launch's store bin dirs, `darwin.go:222-234`). They must stop carrying
+  per-workspace content. *How* is the implementer's — indirect the PATH through an
+  environment variable the launch already sets, or point `ZDOTDIR` into the sidecar —
+  because both give the same observable behaviour: a login shell in workspace A
+  never sees workspace B's store paths.
+- **The sidecar symlinks are created by the launcher or the bootstrap on every
+  launch, idempotently**, before `InstallHomeOverlay` and the pack hooks run — the
+  hooks `MkdirAll` through the link and compute their relative targets lexically
+  (`packhooks.go:128-137`), so ordering is the only thing that matters. A real
+  directory already at a link's path is the pre-existing-state case and is
+  [`OQ-HT2`](#OQ-HT2).
+- **Two launches on one workspace** share the sidecar, exactly as the container's
+  attach shares one home ([`OQ-HT3`](#OQ-HT3)). The courtesy flock the container
+  takes (`internal/cli/run/flock.go:41-57`, waits rather than refuses) should be
+  taken on this arm too; it is a moved call, not a design point, and belongs in the
+  companion sketch.
 
 ## 5.0 The constraint that outranks the layout choice: one mechanism, every backend
 
 **Stated in review 2026-09-11, and it is the strongest argument in this
-document — including against [§5](#5-the-proposal)'s own first proposal:**
+document — including against this doc's own first proposal:**
 
 > *"You can share [credentials] to the home, but if you don't, you have their own
 > homes. It's going to be just identical to how you share them in container jails.
@@ -154,43 +253,60 @@ document — including against [§5](#5-the-proposal)'s own first proposal:**
 > would be awful."*
 
 **That is a constraint on the answer, not a preference between answers**, and it
-is why [`OQ-HT4`](#OQ-HT4) leans **A′** rather than A. The container backends
-already solve credential sharing with a **machine-scope location plus symlinks**
-(`configureSharedCredentials`); a per-workspace home that reached credentials some
-*other* way would make "where are my credentials" a per-backend question, and
-every pack that touches them would need to know which backend it is on. **Feature
-detection in a pack is the failure mode** — the same class
-[`backend-parity.md`](backend-parity.md) exists to make visible, where a mechanism
-added on one backend is absent elsewhere with no error.
+is why [`OQ-HT4`](#OQ-HT4) settles on **A′** rather than A. The container backends
+already solve credential sharing with a **machine-scope location plus a relative
+symlink** (the `shared_credentials` hook, [§3](#3-why-it-has-not-been-fixed-by-simply-splitting));
+a per-workspace home that reached credentials some *other* way would make "where
+are my credentials" a per-backend question, and every pack that touches them would
+need to know which backend it is on. **Feature detection in a pack is the failure
+mode** — the same class [`backend-parity.md`](backend-parity.md) exists to make
+visible, where a mechanism added on one backend is absent elsewhere with no error.
+In its vocabulary the target disposition is **HonoredBy**: the same outcome by a
+named different primitive, never a different mechanism.
 
 So the test any layout here must pass: **the symlink mechanism, the location, and
 the thing a pack declares are identical on every backend.** What may differ is
 only the *primitive that enforces the boundary* — a bind mount on podman, an SBPL
 rule on macos-user — because that is invisible to a pack and to a user.
 
-⚠ **This is also the axis on which [§5.1](#51-the-plumbing-already-exists--this-is-a-parameter-not-a-rewrite) through [§5.4](#54-seatbelt-can-replace-more-mounts-than-this-one)
-below should be read.** Those sections were written about alternative **A** (a
-per-workspace `HOME` under the shared account) before A′ was weighed. **Their
-findings are about the enforcement primitive and survive either choice** — the
-three call sites take a home parameter either way, and the `/Users` read-deny
-narrows whatever home it is given. What they do *not* settle is which layout wins;
-that is [`OQ-HT4`](#OQ-HT4), and the parity constraint above is the reason its
-leaning is A′.
+⚠ **[§5.1](#51-the-plumbing-already-exists--this-is-a-parameter-not-a-rewrite) through
+[§5.4](#54-seatbelt-can-replace-more-mounts-than-this-one) below were written about
+alternative A** (a per-workspace `HOME` under the shared account) before A′ was
+weighed. **Their findings are about the enforcement primitive and survive the
+choice** — the call sites take a home parameter either way, and the `/Users`
+read-deny narrows whatever home it is given. What A′ *removes* is the need to use
+them for this fix: with `HOME` constant, [§5.1](#51-the-plumbing-already-exists--this-is-a-parameter-not-a-rewrite)'s
+parameter is never passed a different value and
+[§5.3](#53-what-the-credential-tier-then-needs-precisely)'s re-allow is never
+emitted. They stay because they are true, because A is the recorded runner-up, and
+because [§5.4](#54-seatbelt-can-replace-more-mounts-than-this-one) is a live
+proposal in its own right.
 
 ## 5.1 The plumbing already exists — this is a parameter, not a rewrite
 
-**Measured 2026-09-11, in review.** `SandboxHome()` is a *default*, not a
-constraint. Every place that needs a home already takes one as an argument and
-falls back to the constant only when passed `""`:
+**Measured 2026-09-11, in review, and re-measured in audit the same day.**
+`SandboxHome()` is a *default*, not a constraint. Every place that needs a home
+already takes one as an argument and falls back to the constant only when passed
+`""`:
 
 | Call site | Signature | What a narrower home changes |
 | :--- | :--- | :--- |
 | `internal/macosuser/macosuser.go:461` | `SandboxPath(home string, prefix []string)` | every PATH entry (`.yolo/bin/block`, `.local/bin`, mise shims, …) |
-| `internal/macosuser/macosuser.go:481` | `LaunchArgv(…, workspace, user, home string, …)` | the `HOME`/`USER`/`SHELL`/`PATH` quartet handed to `env -i` |
+| `internal/macosuser/macosuser.go:482` | `LaunchArgv(…, workspace, user, home string, …)` | the `HOME`/`USER`/`SHELL`/`PATH` quartet handed to `env -i` |
 | `internal/macosuser/seatbelt.go:34` | `SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string)` | the writable subtree **and** the `/Users` read re-allow |
+| `internal/macosuser/runplan.go:82` | `DarwinBootstrapArgv(stagedYolo, home string, …)` | the `HOME`/`JAIL_HOME` pair the generators write into |
+| `internal/macosuser/runplan.go:236` | `buildBootstrapEnv(…, home string, …)` | the login-rc PATH (`YOLO_DARWIN_LOGIN_PATH`) |
 
-So [§5](#5-the-proposal)'s per-workspace home is "pass a different string at three
-call sites", not a re-architecture.
+⚠ The first review counted three; there are five in `BuildRunPlan`'s reach alone
+(`runplan.go:183, 192, 202, 203`), which is the difference between "pass a string at
+three call sites" and "audit every site that spells the constant". **And the
+strongest fact was missed entirely: a non-default home is already exercised in
+production.** The install-capture path bootstraps a THROWAWAY STAGING HOME through
+these same functions (`runplan.go:221-225`; `internal/macosuser/capture.go:106-107,
+253-254, 328-329`), and its profile already emits a post-allow
+`(deny file-write* (subpath <home>))` over the whole shared home
+(`internal/macosuser/seatbeltcapture.go:103-108`) — the exact shape a narrowing under
+A would have needed, shipped and pinned.
 
 ### 5.2 Isolation is already enforced for workspaces — the home is the one hole left
 
@@ -212,169 +328,299 @@ Two consequences worth stating plainly:
 - **Workspaces are already isolated from each other.** A sibling workspace under
   `/Users/Shared/yolo/<other>` is re-allowed by nothing — the ancestors are granted
   as `(literal)`, which grants the directory entry *without* re-allowing siblings a
-  `(subpath)` would. That comment is in the profile and the mechanism is live.
+  `(subpath)` would. That comment is in the profile (`seatbelt.go:145-148`) and the
+  mechanism is live.
 - **The home is the single remaining shared surface**, and it is shared only
   because every launch passes the same string. Narrow it and **reads narrow with
   it, for free** — the deny is already written; `(subpath <home>)` is the only
-  thing re-allowing it.
+  thing re-allowing it. Under A′ the same isolation reaches the workspace tier by a
+  different route: the per-workspace state moves *under the workspace*, where the
+  sibling deny already applies.
 
 ### 5.3 What the credential tier then needs, precisely
 
-[§3](#3-why-it-has-not-been-fixed-by-simply-splitting)'s trap — *"a naive split
-repairs the workspace tier by breaking the machine one"* — now has an exact
-location rather than a warning. Once `home` is per-workspace, the shared
-credential store falls under the `/Users` deny like anything else, so it needs its
-own re-allow, **for read and for write**: the OAuth path *refreshes* tokens, so a
-read-only carve-out would break the thing it was meant to preserve. That is one
-`(subpath …)` in each of the two lists, and it is the whole machine tier.
+Two different requirements, one per alternative.
+
+**Under A** (runner-up): once `home` is per-workspace, the shared credential store
+falls under the `/Users` deny like anything else, so it needs its own re-allow,
+**for read and for write** — the OAuth path *refreshes* tokens, so a read-only
+carve-out would break the thing it was meant to preserve. That is one
+`(subpath …)` in each of the two lists.
+
+**Under A′** (chosen): no profile change — but a layout one, and it is the trap the
+first A′ sketch did not see. **The hook's symlink is relative *by design***:
+[`jail-home.md`](../reference/jail-home.md) says it is relative *"so it resolves
+through whichever mount backs the agent's own state dir into the separately mounted
+shared dir"*. Measured on the reviewing jail 2026-09-11:
+`<ws>/.yolo/home/claude/.credentials.json → ../.claude-shared-credentials/.credentials.json`
+is **dangling from the host's view** and resolves only inside the container, where
+`GlobalHome/.claude-shared-credentials` is bound beside it. A bare symlink
+`~/.claude → <ws>/.yolo/home/claude` reproduces the host's view: the kernel resolves
+`..` physically, to `<ws>/.yolo/home/`, so the credential link points at
+`<ws>/.yolo/home/.claude-shared-credentials/.credentials.json` — a path that does
+not exist. Two remedies were weighed:
+
+| Remedy | Verdict |
+| :--- | :--- |
+| Mirror each `SharedDirs` entry into the sidecar as a symlink to the account-home dir | **Chosen.** It is the "make it appear at the path" half of a bind, done with a symlink, launcher-side, and invisible to the pack — the hook's output is byte-identical. |
+| Emit an absolute target from `linkSharedCredential` on macos-user | **Rejected** by [§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend): a backend branch in the one hook every backend shares. |
 
 ## 5.4 Seatbelt can replace more mounts than this one
 
-**Raised in review 2026-09-11, and the pattern already has a shipped precedent in
+**Raised in review 2026-09-11, and the pattern already has TWO shipped precedents in
 this backend.** The reason macos-user drops features is stated everywhere as *"it
-has no bind mounts"* — but a `:ro` bind does two separable things: it makes a file
-*appear* at a path, and it makes that path *unwritable*. Seatbelt does the second
-natively, and the **launcher runs outside the sandbox**, so it can do the first by
-copying.
+has no bind mounts"* — twenty-odd places in code and docs, counted 2026-09-11 — but a
+`:ro` bind does two separable things: it makes a file *appear* at a path, and it
+makes that path *unwritable*. Seatbelt does the second natively, and the **launcher
+runs outside the sandbox**, so it can do the first by copying.
 
-**The precedent is `workspace_readonly`**, and `SeatbeltProfile`'s own docstring
-gives the argument:
+**The first precedent is `workspace_readonly`**, and `SeatbeltProfile`'s own
+docstring gives the argument:
 
 > Why this exists: the key is delivered as a `-v …:ro` bind on the container
 > backends (`internal/cli/run/mounts.go`), and macos-user has no mounts, so it used
 > to accept the key and **silently do nothing**. A security key that lies is worse
 > than one that refuses.
 
-So one config key already took this route. The candidates that could follow:
+**The second is skills and briefings themselves**: the host composes the same trees
+the container mounts, stages them root-owned at `/var/yolo-jail/home-overlay/<cname>`
+(`StageHomeOverlayCommands`, `internal/macosuser/macosuser.go:229-251`), and the
+bootstrap copies them over the home (`InstallHomeOverlay`, `darwin.go:158-199`). Only
+the *unwritable* half is missing — the copy is agent-writable, which
+`noteMacosUserContentGaps` says at every launch (`loopholeinert.go:291`) — and that
+half is one `readonlyDenies`-shaped `(deny file-write* …)` per delivered path.
 
-| Feature | Container mechanism | macos-user equivalent |
-| :--- | :--- | :--- |
-| `host_files` `mode: readonly` | `:ro` bind + `0444` | launcher copies the file in; profile emits `(deny file-write* (literal <dest>))` |
-| `host_files` `mode: once` / `copy` | staged write | already possible — no host layer needed, it is a copy |
-| `reads-host` (the `host` layer) | `:ro` `/ctx` mount | launcher copies to a staging path; profile denies writes to it |
+So two features already took the copy route. The census of what could follow,
+corrected against the tree 2026-09-11:
+
+| Feature | Container mechanism | macos-user today | Copy + Seatbelt equivalent |
+| :--- | :--- | :--- | :--- |
+| skills, briefings | `:ro` bind per staged dir | **copied, writable** — warned | add a write deny per delivered path; precedent `seatbeltcapture.go:108` |
+| `host_files`, source-less (`content`/`defaults`, any of the four modes) | rendered by `ConfigureHostFiles` under a `:ro` base | **already works** — `darwin.go:119` runs the same generator; `readonly` chmods `0444` here too | add a `(deny file-write* (literal <dest>))` for `mode: readonly` |
+| `host_files`, source-bearing | `:ro` `/ctx/host-user` bind carries the host bytes | **dropped, warned** (`loopholeinert.go:365-370`; `SourceLessHostFiles`, `internal/config/hostfiles.go:990`) | launcher copies the host file into the root-owned staging tree; ⚠ the source-bearing read is the user-config-only read that *is* the credential boundary (`hostfiles.go:1010-1012`), so the copy must happen in the host CLI, never in the pure plan builder |
+| pack `reads-host` (the host layer) | `:ro` `/ctx` mount | **renders from DEFAULTS, warned** — *"a working config file that is not yours"* (`loopholeinert.go:349-352`) | same as the row above; the most urgent, because its failure looks like success |
+| pack `mount`, config `mounts` | `:ro` bind under `/ctx` | **silently ignored, no warning** — the only row with none (`docs/guides/macos.md`, `mounts` row) | copy into the root-owned staging tree as the pack tree already is (`StagePackCommands`); at minimum, warn |
+
+⚠ **The first draft's row "`mode: once` / `copy` — already possible, it is a copy"
+was wrong.** Entries are dropped by *source-bearing-ness*, not by mode
+(`hostfiles.go:990-997`): a `mode: copy` entry with a `source` is dropped today, and
+a `mode: readonly` entry without one works today. There are four modes, not three —
+`readonly`, `once`, `copy`, `capture` (`hostfiles.go:59-62`).
 
 ⚠ **And on `readonly` this would be STRONGER than the container backends, not a
 degraded port.** `yolo config-ref` says of the container path: *"0444 is DAC, not
 kernel enforcement: an agent running as root (Claude YOLO does) bypasses the mode
 bits. It is a strong signal and a speed bump, not a sandbox."* A Seatbelt
 `file-write*` deny is kernel-enforced regardless of uid. So the backend with "no
-mounts" would be the one that actually enforces the promise.
+mounts" would be the one that actually enforces the promise. **One difference
+survives and must be stated**: a copy is a snapshot taken at launch, where a bind
+reflects a host-side edit live — but `readonly` entries are *re-rendered at boot*
+on the container too (`yolo config-ref`, *Modes*), so for `host_files` the two are
+equivalent; for a pack `mount` of a live directory they are not.
 
 **What Seatbelt cannot supply**, so the resemblance to a container jail stops
-here: no PID, network or mount namespace; and every jail runs as the same
-`_yolojail` uid, so a host daemon cannot tell which jail is calling — the reason
-[`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md)
-rejected the helper-outside-the-sandbox shape. Concurrent jails with *different*
-profiles already work (each launch writes its own profile and passes
-`sandbox-exec -f <path>`); what does not work is a macos-user jail launching
-another one, which is an equality constraint in `sandbox_apply`, not a policy gap.
+here — these "no mounts" claims **survive** the audit:
 
-## 6. The principle this rests on
+- `per_side_paths` — two different contents at one path is a mount-namespace
+  capability; Seatbelt filters permissions and cannot fork a path
+  (`internal/macosuser/orchestrator.go:193-210`, warned).
+- `cache_relocations` — a bind onto other storage; the "just symlink it" workaround
+  is refuted by the profile's own `/Volumes` read-deny (`orchestrator.go:227-236`,
+  warned). ⚠ Two in-tree docs still repeat the refuted workaround
+  (`internal/cli/config_ref.txt`, the `cache_relocations` entry, and
+  [`cache-relocation.md`](../plans/cache-relocation.md)); they are not this doc's to
+  fix and are listed for the roadmap.
+- `writable_home_dirs` — not a gap: the home is natively writable, so the knob has
+  no target ([`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md),
+  *No bind mounts*).
+- No PID, network or mount namespace; and every jail runs as the same `_yolojail`
+  uid, so a host daemon cannot tell which jail is calling — the reason
+  [`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md)
+  rejected the helper-outside-the-sandbox shape. Concurrent jails with *different*
+  profiles already work (each launch writes its own profile and passes
+  `sandbox-exec -f <path>`); what does not work is a macos-user jail launching
+  another one, which is an equality constraint in `sandbox_apply`, not a policy gap.
+
+## 6. The principles this rests on
 
 **P1. A split must restore every tier it breaks, explicitly.** Colocation is not a
-mechanism. The machine tier works here *by accident* — credentials are shared
-because there is only one directory to put them in — and any change that separates
-the directories has to replace that accident with something stated. A fix that
-repairs the workspace tier and leaves the machine tier to luck has moved the bug,
-not removed it.
+mechanism. The machine tier's *backing* works here by accident — the shared dir is
+a plain directory because there is only one home to put it in — and any change
+that separates the directories has to replace that accident with something stated.
+A fix that repairs the workspace tier and leaves the machine tier to luck has moved
+the bug, not removed it.
+
+**P2. The tier of a path is what the pack declares, and a backend honors the
+declaration rather than re-deciding it.** `scope: machine` → `packload.SharedDirs`,
+the machine-wide tier; `scope: workspace` → `packload.WritableDirs`, the per-workspace
+tier (`internal/packload/packload.go:729-738`). The container mount assembler consumes
+exactly these two lists, and so does the symlink layout in [§5](#5-the-proposal). A
+backend that shared a `scope: workspace` dir, or split a `scope: machine` one, would
+be re-deciding a declaration — the feature-detection failure of
+[§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend)
+seen from the pack's side.
 
 ## 7. Alternatives
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **A. Per-workspace home under the shared account** ([§5](#5-the-proposal)) — `HOME` becomes `/Users/_yolojail/workspaces/<cname>` | **Now the runner-up**, see [`OQ-HT4`](#OQ-HT4). Keeps agent state out of the project tree, at the cost of putting it somewhere no other backend puts it. |
-| **A′. Symlink the per-workspace dirs into `<ws>/.yolo/home/`** — `HOME` stays `/Users/_yolojail`, and `~/.claude` and kin become symlinks into the workspace sidecar | **Probably right, and it was not considered until review asked.** It is what the container backend already does, minus the mount: same LOCATION for a project's agent state on every backend, the same symlink mechanism `configureSharedCredentials` already uses for the machine tier, and credentials never move — which shrinks [`OQ-HT2`](#OQ-HT2) from "migrate an account" to almost nothing. |
-| **B. Split the account** — one `_yolojail` uid per workspace | **Rejected**, in [§8](#8-risks). Restores every tier by DAC rather than layout, and costs admin on every new project. |
-| **C. Per-session home** | **Rejected for now**, and it is [`OQ-HT3`](#OQ-HT3). Two launches on one workspace sharing a home is what attach does elsewhere; the difference is that macos-user has no attach. |
+| **A. Per-workspace home under the shared account** — `HOME` becomes `/Users/_yolojail/workspaces/<cname>` | **Runner-up**, settled by [`OQ-HT4`](#OQ-HT4). Fails [§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend) on *location* (no other backend puts a project's state there); needs the profile narrowed and the credential re-allow of [§5.3](#53-what-the-credential-tier-then-needs-precisely); moves the install prefixes out of reach of the `agent_updates` lock that `runplan.go:251-253` relies on the shared home for; and overturns the reference doc's standing refusal of a per-workspace home. Its one merit — agent state out of the project tree — is a property yolo preserves nowhere else. |
+| **A′. Symlink the sidecar dirs into the account home** ([§5](#5-the-proposal)) — `HOME` stays `/Users/_yolojail`; every dir podman binds from `<ws>/.yolo/home/` becomes a symlink into it; `SharedDirs` stay put and are mirrored into the sidecar | **Chosen.** Same location, same declaration and same hook output on every backend; zero profile change; credentials never move. Its one trap is the relative link, and [§5.3](#53-what-the-credential-tier-then-needs-precisely) closes it. |
+| **B. Split the account** — one `_yolojail` uid per workspace | **Rejected**, in [§9](#9-what-this-does-not-propose). Restores every tier by DAC rather than layout, and costs admin on every new project. |
+| **C. Per-session home** | **Rejected**, settled by [`OQ-HT3`](#OQ-HT3): a mechanism no other backend has, buying nothing the per-workspace tier does not already buy. |
 | **D. Leave it, keep warning** (today) | **Rejected as an end state.** It was defensible while the cost was leakage between workspaces. Content delivery made it a race on files an agent reads as instructions, which is a different kind of wrong. |
 
 ## 8. Risks
 
 | Risk | Mitigation |
 | :--- | :--- |
-| Migration costs every user a re-login | The whole of [`OQ-HT2`](#OQ-HT2), and the reason it blocks. A migration that moves credentials without an auth dance is the bar. |
-| The Seatbelt profile's writable set has to narrow in step | Same change, same commit — a per-workspace home with a `/Users/_yolojail`-wide writable set repairs nothing. |
-| Two jails on one workspace still share | Accepted, and named as [`OQ-HT3`](#OQ-HT3) rather than left to be discovered. |
+| Migration costs every user a re-login | Cannot happen under A′: the machine-scope dir never moves and the hook's link is regenerated every boot. What *can* be lost is workspace-scope state — the whole of [`OQ-HT2`](#OQ-HT2). |
+| The hook's relative link dangles through a sidecar symlink | The `SharedDirs` mirror in [§5](#5-the-proposal); pin it with a test that resolves the link *through* the symlinked state dir, since a callee-only test of `linkSharedCredential` stays green without it. |
+| The mise data dir silently becomes per-workspace once `~/.local` is a sidecar symlink | Set `MISE_DATA_DIR` explicitly to a machine-wide path on this backend ([§5](#5-the-proposal); [OQ-P3](macos-user-provisioning.md#OQ-P3)). |
+| The login rc files keep carrying per-workspace bytes into a shared `$HOME` | Stated residual in [§5](#5-the-proposal); the fix is delegated, the requirement is not. |
+| Two jails on one workspace still share | Accepted, and named as [`OQ-HT3`](#OQ-HT3) rather than left to be discovered; the same-workspace overwrite is convergent, and the container's courtesy flock ports as a moved call. |
+| ⚠ *(retired)* "The Seatbelt writable set has to narrow in step, same commit" | This was an **alternative-A** cost stated as if universal. Under A′ the profile is untouched, because the per-workspace tier moves under a subpath the profile already allows and already isolates from siblings. |
 
 ## 9. What this does NOT propose
 
-Splitting the *account*. One `_yolojail` uid per workspace would restore every
-tier by DAC rather than by layout, and it is the wrong trade: account creation
-needs admin, `macos-setup` would become per-workspace, and the credential sharing
-that motivates the single account would need a broker to cross uids — reintroducing
-on macos-user exactly the mechanism this backend's design says it does not need.
+- **Splitting the *account*.** One `_yolojail` uid per workspace would restore every
+  tier by DAC rather than by layout, and it is the wrong trade: account creation
+  needs admin, `macos-setup` would become per-workspace, and the credential sharing
+  that motivates the single account would need a broker to cross uids —
+  reintroducing on macos-user exactly the mechanism this backend's design says it
+  does not need.
+- **A per-workspace `HOME`.** A′ keeps it constant; the reference doc's refusal
+  stands.
+- **A backend branch in `linkSharedCredential`**, or in any other pack hook. The
+  hook's output must stay byte-identical on every backend; the layout around it is
+  what adapts ([§5.3](#53-what-the-credential-tier-then-needs-precisely)).
+- **A new list of "which dirs are per-workspace".** The list is the podman mount
+  table, and adding a directory to one without the other is the drift this
+  proposal exists to end.
 
 ## Open Questions
 
-1. 💬 **OQ-HT1: Which paths are machine tier?** Credentials are certain. Agent
-   *history* (`~/.claude/projects/`) is the interesting one: sharing it is symptom 1
-   in [§2](#2-what-the-collapse-actually-costs), but cross-workspace history is a thing some people want. This decides how
-   much of the shared home survives the split, and therefore how much the migration
-   in [`OQ-HT2`](#OQ-HT2) has to move.
+1. ✅ **OQ-HT1: Which paths are machine tier? — RESOLVED (2026-09-11, by principle in
+   audit).** Credentials are certain. Agent *history* (`~/.claude/projects/`) was the
+   interesting one: sharing it is symptom 1 in
+   [§2](#2-what-the-collapse-actually-costs). This decides how much of the shared
+   home survives the split, and therefore how much
+   [`OQ-HT2`](#OQ-HT2) has to move.
 
-   _Leaning:_ Workspace tier, with no override until someone asks for one. History
-   that leaks between projects is the reported defect; wanting it shared is a
-   preference nobody has stated.
+   <!-- vantage: oq id=OQ-HT1 leaning="Answered: the pack's declared scope decides — scope:machine dirs (packload.SharedDirs) are machine tier, scope:workspace dirs (packload.WritableDirs) are workspace tier, and the container consumes exactly those two lists. Reopen only if that partition is not the intended answer." -->
 
-   <!-- vantage: oq id=OQ-HT1 leaning="Workspace tier, with no override until someone asks — history leaking between projects is the reported defect; wanting it shared is a preference nobody has stated." -->
+   _Leaning (superseded):_ Workspace tier, with no override until someone asks for one.
+
+   **Answer:**
+   > **The pack's declared scope decides, and this backend honors it** (P2 in
+   > [§6](#6-the-principles-this-rests-on)). `scope: machine` →
+   > `packload.SharedDirs`, the machine-wide tier; `scope: workspace` →
+   > `packload.WritableDirs`, the per-workspace tier — the two lists the container
+   > mount assembler already consumes (`assemble.go:336, 344`). `~/.claude` is declared
+   > `scope: workspace` (`packs/claude/pack.json:147-151`), so history and transcripts
+   > are workspace tier; `.claude-shared-credentials` is `scope: machine`
+   > (`:152-157`), so credentials are machine tier. Everything the container binds
+   > from the sidecar but no pack declares (`npm-global`, `local`, `go`, `yolo-bin`,
+   > `config`) is workspace tier for the same reason: that is where the container
+   > puts it. **The first draft's "cross-workspace history is a thing some people
+   > want" was unsourced**; every doc in the tree treats history isolation as the
+   > intent (`per_jail_history` is *"belt and braces"* in
+   > [`jail-home.md`](../reference/jail-home.md)), and nothing records a request for
+   > sharing. A shared-history *feature* would be a pack-scope or config change on
+   > every backend, not a macos-user question.
+
+2. 💬 **OQ-HT2: What happens to the workspace-scope state already in
+   `/Users/_yolojail`?** ⚠ *Re-scoped 2026-09-11.* The first draft asked what happens
+   to *credentials* at the old paths; under A′ the answer is **nothing** — the
+   machine-scope dir never moves and the hook regenerates its link every boot. What
+   remains is `/Users/_yolojail/.claude`, `.codex`, `.npm-global`, `.local`, … — each
+   holding the *union* of every workspace's state, so none has a single correct
+   destination. The migration has to choose between two outcomes on the first launch
+   after upgrade. **This is the blocking question**: it gates this design, and it is
+   the only thing left between [`macos-user-provisioning.md`](macos-user-provisioning.md)'s
+   half two and its home-split dependency.
+
+   _Leaning:_ **Rename once, then copy into every workspace's sidecar on that
+   workspace's first launch.** The old dir is moved aside to
+   `<name>.pre-tiers-<date>` exactly once (a machine-wide, one-shot mutation — a
+   single `stat` afterwards, so the "hot path forever" objection to a lazy migration
+   does not apply); each workspace's first post-upgrade launch then copies the moved
+   union into its own sidecar before the symlink is laid. Every workspace sees what it
+   saw before; the cost is duplicated bytes, which `prune` already dedups for the
+   `HomeSurfaces` set. ⚠ **The first draft's leaning — "a one-shot migration in
+   `macos-setup`" — is retired**: `macos-setup` does not know the workspaces, and under
+   A′ the destinations are per-workspace, so it cannot be the owner; nothing in the tree
+   gives it a layout-migration role either (verified 2026-09-11 against
+   [`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md)).
+   The alternative — discard, start every sidecar empty — has a priced precedent
+   (`linkThroughShared` accepted losing one login on a layout change,
+   `internal/entrypoint/claude.go`), but transcripts are user work product where a
+   token is not.
+
+   <!-- vantage: oq id=OQ-HT2 leaning="Rename the old workspace-scope dirs aside once, then copy the moved union into each workspace's sidecar on that workspace's first post-upgrade launch. Lossless at the cost of duplicated bytes prune already dedups. Discarding is the alternative and has a priced precedent, but transcripts are work product where a token is not. macos-setup cannot own this: it does not know the workspaces." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-HT2: What happens to an existing `/Users/_yolojail`?** A machine that
-   has been running this backend has real credentials at the old paths. Migration
-   has to move them to the machine tier without a re-login, or the fix costs every
-   user an auth dance on upgrade. **This is the blocking question**: it gates this
-   design, and it gates [OQ-P3](./macos-user-provisioning.md#OQ-P3) in
-   [`macos-user-provisioning.md`](macos-user-provisioning.md), whose stage writes
-   into the same home.
+3. ✅ **OQ-HT3: Is per-workspace enough, or is per-session needed? — RESOLVED
+   (2026-09-11, by principle in audit).** Two launches on the SAME workspace still
+   share a home. On the container backends that is exactly what attach does, so it is
+   probably correct — but macos-user has no attach, so those two launches are
+   genuinely independent processes rather than one jail re-entered.
 
-   _Leaning:_ A one-shot migration in `macos-setup` — already the command that owns
-   this account's layout, already the place a user expects to wait, and already
-   privileged. The alternative (migrate lazily on first launch) puts a one-time
-   mutation on a hot path forever.
+   <!-- vantage: oq id=OQ-HT3 leaning="Answered: per-workspace. A per-session home is a mechanism no other backend has (§5.0 rules it out); the same-workspace overwrite is convergent, which is the argument the container's attach already relies on; the container's courtesy flock ports as a moved call." -->
 
-   <!-- vantage: oq id=OQ-HT2 leaning="A one-shot migration in `macos-setup`: already the command that owns this account's layout, already privileged, already where a user expects to wait. Migrating lazily on first launch would put a one-time mutation on a hot path forever." -->
+   _Leaning (confirmed):_ Per-workspace.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Per-workspace.** Three facts settle it. (1) A per-session home is a mechanism
+   > no other backend has — the container's attach *shares* one home per workspace and
+   > re-runs its generators inside it ([`jail-home.md`](../reference/jail-home.md),
+   > *Reuse and attach*), so per-session fails
+   > [§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend)
+   > outright. (2) The same-workspace race is **convergent**: two launches on one
+   > workspace compose identical content (same config, same packs, same briefing), so
+   > the second overwrite is a no-op in bytes — the same argument the container makes
+   > for re-running generators on attach ("safe because every generator is
+   > convergent"). Symptom 3 is a *cross*-workspace race, and per-workspace ends it.
+   > (3) What macos-user lacks is not isolation but the container's **courtesy
+   > flock** (`flock.go:41-57` — non-blocking probe, then a blocking wait with a
+   > notice), whose one production caller sits inside `runContainer`. Taking it on this
+   > arm is a moved call, not a design point, and goes to the companion sketch. Per-session
+   > would also have multiplied [`OQ-HT2`](#OQ-HT2)'s surface by every session ever run.
 
-3. 💬 **OQ-HT3: Is per-workspace enough, or is per-session needed?** Two launches
-   on the SAME workspace still share a home. On the container backends that is
-   exactly what attach does, so it is probably correct — but macos-user has no
-   attach, so those two launches are genuinely independent processes rather than one
-   jail re-entered.
+4. ✅ **OQ-HT4: Where does per-workspace state live — under the sandbox account, or
+   in `<workspace>/.yolo/home/`? — RESOLVED (2026-09-11, by principle in audit).**
+   The first draft assumed the first without noticing it was a choice. The second is
+   what the container backends already do: `HOME` is fixed and the per-workspace dirs
+   are mounted in from the workspace sidecar. macos-user has no mounts, but it has
+   symlinks, and it already uses them for the machine tier.
 
-   _Leaning:_ Per-workspace, treating concurrent same-workspace launches as the
-   user's business the way an explicit stop-and-relaunch already does. Per-session would also
-   multiply the migration surface in [`OQ-HT2`](#OQ-HT2) by every session ever run.
+   <!-- vantage: oq id=OQ-HT4 leaning="Answered: A′ — symlink the container's own sidecar bind list into the account home, mirror SharedDirs into the sidecar so the hook's relative link resolves. A fails §5.0 on location, needs a profile change A′ does not, and would move the install prefixes out of the agent_updates lock's reach." -->
 
-   <!-- vantage: oq id=OQ-HT3 leaning="Per-workspace, treating concurrent same-workspace launches as the user's business the way `yolo --new` already does. Per-session would also multiply OQ-HT2's migration surface by every session ever run." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-HT4: Where does per-workspace state live — under the sandbox account, or
-   in `<workspace>/.yolo/home/`?** [§5](#5-the-proposal) assumed the first without noticing it was a
-   choice. The second is what the container backends already do: `HOME` is fixed and
-   the per-workspace dirs are mounted in from the workspace sidecar. macos-user has
-   no mounts, but it has symlinks, and it already uses them for the machine tier.
-
-   This decides how much [`OQ-HT2`](#OQ-HT2) has to migrate. Under A′ credentials never move, so
-   the migration is per-workspace state only — or nothing at all, if a fresh symlink
-   into an empty sidecar is acceptable.
-
-   <!-- vantage: oq id=OQ-HT4 leaning="A′ — symlink into <ws>/.yolo/home/. Same location as every other backend, same symlink mechanism already used for the machine tier, credentials never move, and the directory already exists and is gitignored. The one thing A has over it is keeping agent state out of the project tree, which is not a property yolo preserves anywhere else." -->
-
-   _Leaning:_ **A′.** Same location as every other backend, same mechanism already in
-   use one direction over, and the directory exists and is gitignored today. The one
-   thing A has over it — keeping agent state out of the project tree — is not a
-   property yolo preserves anywhere else, so it is a principle invented to justify a
-   choice rather than a reason for it.
+   _Leaning (confirmed):_ **A′.**
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **A′**, and it is settled by the constraint rather than by preference. (1) A puts a
+   > project's agent state at `/Users/_yolojail/workspaces/<cname>` — a *location* no
+   > other backend uses — and [§5.0](#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend)
+   > names location as one of the three things that must be identical. (2) A′ needs no
+   > Seatbelt change; A needs the profile narrowed plus the credential re-allow of
+   > [§5.3](#53-what-the-credential-tier-then-needs-precisely). (3) A would move the
+   > install prefixes (`~/.local`, `~/.npm-global`) per workspace *under a new path*,
+   > out of reach of the install-prefix lock `agent_updates` relies on the shared home
+   > for (`runplan.go:251-253`); A′ moves them to the sidecar — where the container
+   > already keeps them, and where the same lock semantics the container has apply.
+   > (4) The reference doc's standing refusal of "a per-workspace home" survives A′
+   > intact. **The one trap A′ carries** — the hook's relative link dangling through a
+   > sidecar symlink — is real, measured, and closed by mirroring `SharedDirs` into the
+   > sidecar ([§5.3](#53-what-the-credential-tier-then-needs-precisely)). The one thing
+   > A had over it — keeping agent state out of the project tree — is not a property
+   > yolo preserves anywhere else, so it is a principle invented to justify a choice
+   > rather than a reason for it.
 
 ## Decision Ledger
 
-_(empty — no questions settled yet)_
+_(empty — [`OQ-HT1`](#OQ-HT1), [`OQ-HT3`](#OQ-HT3) and [`OQ-HT4`](#OQ-HT4) are
+answered above and await compaction; the roadmap's per-id links must be repointed
+here when they are folded.)_
