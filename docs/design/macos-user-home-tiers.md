@@ -466,6 +466,24 @@ here — these "no mounts" claims **survive** the audit:
   `sandbox-exec -f <path>`); what does not work is a macos-user jail launching
   another one, which is an equality constraint in `sandbox_apply`, not a policy gap.
 
+> [!WARNING]
+> **The obvious test for [§5.3](#53-what-the-credential-tier-then-needs-precisely)'s mirror pins NOTHING —
+> measured 2026-09-11, after one was written and reverted.** A test that stubs
+> `mirrorSharedDirsIntoSidecar` and asserts the link resolves is satisfied by giving the
+> **stub** a mirroring body: zero production code changes, and it goes green. That is the
+> *"pins the CALLEE while the CALL SITE is unpinned"* shape `AGENTS.md` names — weaker still
+> here, because the callee is test-local too.
+>
+> **So the test this work needs must assert against the real boot path.** The question to ask
+> before writing it is AGENTS.md's own: *does it fail if I delete the call site?* Concretely,
+> it has to drive whatever lays the layout inside `RunDarwinBootstrap` and observe a link that
+> resolves from the account home — not a fixture standing in for it.
+>
+> ⚠ **And do not pre-write it as a deliberately RED gate.** One was, and it turned `just
+> test-fast` and `just done` red for the whole tree — which costs every unrelated commit the
+> ability to distinguish *"I broke something"* from *"the known red"*. Reverted in `efe7282c`.
+> Write it when the code lands, in the same commit.
+
 ## 6. The principles this rests on
 
 **P1. A split must restore every tier it breaks, explicitly.** Colocation is not a
