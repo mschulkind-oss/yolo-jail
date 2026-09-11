@@ -1071,26 +1071,32 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   OQ-HT-4 before OQ-HT-2**, not after: under the leaning credentials never move, which shrinks
   the blocking migration question to nearly nothing.
 
-- 🔒 **Four manual checks are all that is left on a Mac, and they are written down.** 📄
+- ✅ **The four manual Mac checks are RUN, and all four PASSED.** 📄
   [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md). Everything that
   could be automated was, on 2026-09-04: two darwin-gated harnesses run on any Mac with NO
   privilege and cover the generated home, a blocker actually refusing, the composed overlay
   landing and replacing a removed pack's subtree, the staging commands really executing, the mode
-  bits, and the J2 fresh-inode rule. What is left needs root or a kernel — the privilege
-  transition, Seatbelt actually loading, the `packages:` acceptance bar, and content reaching the
-  agent — and it is four commands, not a project.
+  bits, and the J2 fresh-inode rule. The remaining four needed root or a kernel, and were four
+  commands rather than a project.
 
-  **TWO OF THE FOUR ARE NOW RUN, and they PASSED** (2026-09-10, the maintainer's Apple Silicon
-  Mac, host `yolo` `0.8.0+1293.g520e848d`) — **the first live `macos-user` session there.** The
-  privilege transition returns `_yolojail` and the workspace path; the sandbox is refused both
-  `/Users/<host user>/.ssh` and `/Library/Keychains`, which settles the one fact no unit test in
-  this repo can reach: **the kernel really loads the profile.** Items 3 (the `packages:`
-  acceptance bar) and 4 (content reaching the agent) are still unrun. The runbook gained one
-  correction the measurement forced — the two refusals do NOT print the same message (`EACCES`
-  for the home path, `EPERM` for the keychain), and the old wording said they did, which reads
-  as a half-failure to anyone running it. ⚠ **These four are a human's to run:** `sudo -n true`
-  reports `a password is required`, and every macos-user argv leads with `sudo --user=_yolojail`,
-  so an agent attempting the launch hangs on the prompt rather than failing.
+  **Measured 2026-09-10** in one session on the maintainer's Apple Silicon Mac (macOS 26.5,
+  arm64), host `yolo` `0.8.0+1293.g520e848d` — **the first live `macos-user` session there.**
+  The privilege transition returns `_yolojail` and the workspace path. The sandbox is refused
+  both `/Users/<host user>/.ssh` and `/Library/Keychains`, which settles the one fact no unit
+  test in this repo can reach: **the kernel really loads the profile.** `packages:` reaches the
+  agent natively — `just` and `fzf` both resolved into the store profile, and that pair was
+  chosen because each had a competing host copy (Homebrew's `fzf`, mise's `just`) that would
+  have won had the login-rc re-prepend lost to `path_helper`, **which answers [`OQ-1`](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)**. And all
+  fourteen built-in skills plus the native-backend briefing landed in the sandbox home.
+
+  **This closes the Mac-gated column; it does not retire the runbook** — none of the four is
+  pinned by a test, so a change to the privilege transition, the Seatbelt profile, the native
+  nix chain or content staging needs them run again. The measurement also corrected the runbook
+  twice: the two refusals do NOT print the same message (`EACCES` for the home path, `EPERM` for
+  the keychain), and item 3 now says to pick a package that has a host rival, since one without
+  cannot tell a working re-prepend from a lucky PATH. ⚠ **These four are a human's to run:**
+  `sudo -n true` reports `a password is required` and every macos-user argv leads with
+  `sudo --user=_yolojail`, so an agent attempting the launch hangs on the prompt.
 
 - 🔒 **On a Mac — three things need the hardware, and the first is a config rename.** *(The
   headline used to announce what had LEFT this row, which tells a reader nothing about what is in

@@ -1,6 +1,6 @@
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Status:** IN PROGRESS — restamped **2026-09-10** (written 2026-07-21; body
+**Status:** IN PROGRESS — restamped **2026-09-11** (written 2026-07-21; body
 below is the original plan except where a dated annotation says otherwise).
 Tracks J and M are done. Track D's engineering is done, but **two of its four
 steps were later reverted or superseded** and the header this line replaces did
@@ -9,13 +9,19 @@ header's closing claim — *"nothing engineering-side fully open"* — was **fal
 it is retracted in §*Retracted claims* below.
 
 > [!NOTE]
-> **A2 was still named as open in this header until 2026-09-10, six days after it
-> shipped.** The status table has said **DONE 2026-09-04** since the day it landed,
-> and the two disagreed in three places (this line, §*Active work*, and the NOW/LATER
-> block). The table was right — `platforms` filters in `EffectivePackages` and the
-> aggregated hard error is in `internal/macosuser/orchestrator.go`. A status line
-> outliving the work it describes is the drift this corpus's fifth sweep exists to
-> catch; it is recorded here rather than silently deleted.
+> **A2 shipped 2026-09-04 and this file went on calling it open in SIX places** — the
+> status line above, §*Active work*'s recheck, the NOW/LATER block, "the one live
+> engineering item", the short version's "two loose ends", and §*Retracted claims*.
+> Three were corrected 2026-09-10 and the last three on 2026-09-11; the count in this
+> note said "three" until the second sweep found the rest, which is the same failure
+> one level up.
+>
+> **The status TABLE was right the whole time** — `platforms` filters in
+> `EffectivePackages` and the aggregated hard error is in
+> `internal/macosuser/orchestrator.go`. That is the reusable lesson: the table carries
+> one row per item and is edited when the item moves, while prose restates status as a
+> side effect of making some other point, so it drifts wherever it was convenient to
+> mention. **Prefer the table; distrust a status claim embedded in an argument.**
 
 > [!IMPORTANT]
 > **2026-09-03: the Mac is back on the product, and this changes what "Mac-gated"
@@ -27,7 +33,9 @@ it is retracted in §*Retracted claims* below.
 > macOS-user readiness section green throughout (`sandbox-exec`, `_yolojail`, nix
 > daemon trusted, `flake.lock`), and `yolo run --dry-run` renders a complete,
 > invariant-clean plan **in 0.093s**. The Mac-gated proofs in this plan are
-> therefore *runnable* again; they are not yet *run*.
+> therefore *runnable* again; they are not yet *run*. **← superseded 2026-09-10: they
+> ran, and all four passed.** (Spelled out here rather than left to the note below,
+> whose "supersedes the two paragraphs it follows" does not obviously reach this one.)
 >
 > **What still blocks a real launch there is not yolo.** The maintainer's user
 > config selects packs by `file:///home/matt/.dotfiles/yolo-packs/…` — Linux
@@ -67,19 +75,26 @@ it is retracted in §*Retracted claims* below.
 > human installs — so a Mac left alone for a week reports a config error that is
 > really a deploy error.
 >
-> **Runbook items 1 and 2 both PASS** ([`runbooks/macos-user-manual-checks.md`](./runbooks/macos-user-manual-checks.md)),
-> measured on the maintainer's Mac: the privilege transition returns `_yolojail` and
-> the workspace path, and the sandbox is refused both `/Users/<host user>/.ssh` and
-> `/Library/Keychains`. This is the first live `macos-user` session, and it closes the
-> question of whether the kernel actually loads the profile. **Items 3 and 4 remain
-> unrun.** See the runbook for the one wording correction the measurement forced.
+> **ALL FOUR runbook items PASS** ([`runbooks/macos-user-manual-checks.md`](./runbooks/macos-user-manual-checks.md)),
+> measured on the maintainer's Mac in one session — the first live `macos-user` session
+> there. The privilege transition returns `_yolojail` and the workspace path; the
+> sandbox is refused both `/Users/<host user>/.ssh` and `/Library/Keychains`, which
+> closes the question of whether the kernel actually loads the profile; `packages:`
+> reaches the agent natively, with `just` and `fzf` both resolving into the store
+> profile over their competing host copies — **that is [`OQ-1`](./runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) answered, the re-prepend
+> holds**; and all fourteen built-in skills plus the native briefing landed in the
+> sandbox home. This closes the Mac-gated column. It does NOT retire the runbook —
+> none of the four is pinned by a test. See the runbook for the two wording
+> corrections the measurement forced.
 
 **The short version.** The revival landed: macos-user is a real, real-HW-proven
 backend and the distribution regression is closed by a baked prebuilt bundle
-rather than by the source bundle this plan designed. What is left is not a
-track, it is **two loose ends** — A2's hard-error half, and the loophole
-framework on the macos-user launch path — plus a pile of Mac-gated *proofs* that
-no Linux jail can perform.
+rather than by the source bundle this plan designed. What is left is not a track, it
+is **one loose end** — the loophole framework on the macos-user launch path (Track L
+part 1). *(This sentence said "two loose ends" and named A2's hard-error half as the
+other until 2026-09-11; A2 shipped 2026-09-04. It was the fourth place in this file
+that outlived it.)* The pile of Mac-gated *proofs* that no Linux jail can perform is
+**no longer pending**: all four ran on 2026-09-10 and passed.
 
 > [!WARNING]
 > **Two reversals live inside the track descriptions below, not in this header.**
@@ -137,8 +152,10 @@ the 07-21 build and not of today's. See [`roadmap.md`](roadmap.md)'s 🔒 macOS 
 
 - **⚠ Retracted (2026-08-23): "nothing engineering-side fully open."** Written
   2026-07-21 and false by its own §"Active work", which listed A1/A2/A3 as live
-  on 2026-07-23. A2 is still open today (row above). The claim was a summary of
-  the *tracks*, and it silently annexed the A-items.
+  on 2026-07-23. The claim was a summary of the *tracks*, and it silently annexed
+  the A-items. *(This bullet went on to say "A2 is still open today"; A2 shipped
+  2026-09-04. Corrected 2026-09-11 — the retraction outlived the thing it retracted,
+  which is the same drift one paragraph over.)* All three A-items are now done.
 - **⚠ Retracted (2026-08-23): the header's flat "D1, D2, D3 … landed."** All
   three landed and then moved: D1 retired, D2 reverted, D3 superseded. A "landed"
   with no half-life is what let `docs/plans/README.md:30` still assert "D2
@@ -201,9 +218,11 @@ macos-user backend, at which point SandVault retires.
 
 ## Active work — decided 2026-07-23 (do these now)
 
-> **Status recheck 2026-08-23: A1 ✅ · A2 ⚠ HALF DONE · A3 ✅.** Only A2 is
-> still live, and only its *second* half. Verdicts and evidence are per-item
-> below; the header table carries the same rows.
+> **Status recheck 2026-09-11: A1 ✅ 2026-08-18 · A2 ✅ 2026-09-04 · A3 ✅ 2026-07-23.**
+> **This whole section is CLOSED** — nothing under "do these now" is live. It read
+> "A2 ⚠ HALF DONE … only A2 is still live" from 2026-08-23 until A2 shipped and for a
+> week after. Verdicts and evidence are per-item below; the header table carries the
+> same rows, and it was the table that stayed right throughout.
 
 Three items promoted from the "Open items" list in
 [macos-user-nix-and-features.md](../reference/macos-user-nix-and-features.md) once
