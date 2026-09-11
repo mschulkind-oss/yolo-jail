@@ -76,8 +76,28 @@ shell script.
 
 **Could not verify:** whether copilot's `--no-auto-update` launch flag (declared at
 `packs/copilot/pack.json:82`) suppresses the `isSea()` self-updater the flip is bought for — the
-"no agent tests" rule forbids running the CLI to find out. Whether codex prompts without a TTY
-(`CODEX_NON_INTERACTIVE` defaults to `false`) — read but not exercised.
+"no agent tests" rule forbids running the CLI to find out. ~~Whether codex prompts without a TTY
+(`CODEX_NON_INTERACTIVE` defaults to `false`) — read but not exercised.~~
+
+**MEASURED 2026-09-11 — codex's installer PROMPTS, and the question was posed one notch too
+narrowly.** Running `codex --version` in a `macos-user` jail installed 0.154.0 and asked
+`Start Codex now? [y/N]`; a human answered `N`. The tty question is not "without a TTY" but *which*
+tty: `prompt_yes_no` (`install.sh:830-851`) tries **`/dev/tty` first**, falls back to stdin when
+that is a tty, and only declines when neither is — so redirecting stdin does not silence it, and a
+yolo launch always has a tty to find. The one prompt reachable this way is at `:888`, immediately
+after a successful install; a second at `:925` offers to uninstall a conflicting
+package-manager-managed copy.
+
+Two consequences for this plan. **The flip is still right** — the install itself needed no npm and
+no node, which is the whole point of it. But **a `via: installer` flip inherits the vendor's
+prompts**, and `y` at that prompt starts an agent session. That is why this went unseen until a
+human sat in front of it: the pack matrix reaches the `else` branch of `prompt_yes_no` — no
+`/dev/tty`, stdin not a tty, so the installer declines and CI never blocks. **The exposure is an
+interactive launch**, where the prompt is answerable and a wrong keystroke starts an agent inside
+what the caller asked to be a `--version` probe. `codex` honors
+`CODEX_NON_INTERACTIVE=1`, and **`packdecl.Install` has no field that can carry it** — filed as
+[`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8), with the alternative of giving installers no tty
+at all in core. Worth settling before the pack matrix runs this installer unattended on two arches.
 
 ## Map
 
