@@ -572,7 +572,7 @@ launcher — apply --host configures your tools but never runs them."*
 
 **Both reasons are true of `apply --host` and false of the notch.** They describe a missing
 *verb*, not an inapplicable *kind*: `yolo --at host -- <cmd>` (the design's own [§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story) escape valve,
-Option 2 of [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md))
+alternative I of [`../design/provisioner-sets.md`](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict), which absorbed `noncontainer-nix-environment.md`)
 would make both renderable immediately, because yolo would be the one launching the process. And
 at `guest` the verb ALREADY exists — macos-user execs the agent today — so `env` and `launch` are
 not "unavailable below jail" at all. They are unavailable in the one sub-case where yolo never

@@ -831,8 +831,8 @@ half of a two-part problem and leaves the dangerous half undone. Doing the other
 inverts that: if both sides run the same nix-provided userland, content agrees, and then
 whatever path agreement is needed is safe rather than merely convenient. The mechanism exists
 and is named — `yoloNoncontainerPackages` / `yoloUnavailablePackages`
-(`flake.nix:1204,1210`), the subject of
-[`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), whose [`OQ-1`](./noncontainer-nix-environment.md#decision-ledger) was answered
+(`flake.nix:1636`, `:1642` — re-resolved 2026-09-11), the subject of
+[`provisioner-sets.md` §6](provisioner-sets.md#6-the-nix-resolver-in-depth), whose [`OQ-NX1`](./provisioner-sets.md#decision-ledger) was answered
 by events on 2026-09-02 (*"the host notch is a place agents run"*, `yolo host -- <cmd>`
 shipped 2026-08-30). This is a much larger programme than mirroring and I am not proposing it
 here; I am naming it as the place the maintainer's underlying goal actually lives, so that a
@@ -1413,7 +1413,7 @@ and it already has a home in the tree.
     portability, and [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) found that content, not naming, is what blocks an artifact from
     crossing. If the underlying want is "the same environment at different confinement
     levels", the lever is `yoloNoncontainerPackages` and
-    [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), not the mount table.
+    [`provisioner-sets.md` §6](provisioner-sets.md#6-the-nix-resolver-in-depth), not the mount table.
     Worth knowing whether that is the want, because a no to mirroring should not read as a no
     to it.
 
@@ -1421,7 +1421,7 @@ and it already has a home in the tree.
     genuinely unsure whether the goal is portability or simply "paths that make sense to a
     human", which is a different and smaller want that [§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host) addresses.
 
-    <!-- vantage: oq id=OQ-WP10 leaning="I suspect the underlying goal is cross-notch portability and mirroring looked like a route to it, in which case the lever is userland unification (yoloNoncontainerPackages, noncontainer-nix-environment.md) rather than the mount table. But the want might instead be the smaller one of human-legible paths, which is section 3.3. Worth asking which." -->
+    <!-- vantage: oq id=OQ-WP10 leaning="I suspect the underlying goal is cross-notch portability and mirroring looked like a route to it, in which case the lever is userland unification (yoloNoncontainerPackages, provisioner-sets.md section 6) rather than the mount table. But the want might instead be the smaller one of human-legible paths, which is section 3.3. Worth asking which." -->
 
     **Answer:**
     > _(empty — fill in when decided)_

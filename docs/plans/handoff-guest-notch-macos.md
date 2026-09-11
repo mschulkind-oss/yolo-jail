@@ -17,8 +17,8 @@ questions are collected in [§9](#9-open-questions); three of them are questions
 spec), [`../reference/macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)
 (the existing backend — see the correction in [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) before trusting it),
 [`../guides/macos.md`](../guides/macos.md) (usage),
-[`../design/noncontainer-nix-environment.md` §5](../design/noncontainer-nix-environment.md#5-macos-vs-linux)
-and [§8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) (Option 1 **was** a prerequisite for 7.2 and is now shipped — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23) below),
+[`../design/provisioner-sets.md` §6.7](../design/provisioner-sets.md#67-macos-vs-linux-coverage-freshness-and-the-traps)
+and [§10](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict) (alternative H, formerly Option 1, **was** a prerequisite for 7.2 and is now shipped — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23) below),
 [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) (the other
 Mac-gated ledger; its Track M and this doc's [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7) overlap), and [`roadmap.md`](roadmap.md).
 
@@ -170,7 +170,7 @@ have closed, one has changed shape, and one is new and blocks every other row on
 | ~~**E8's nightly**~~ | **CLOSED, and its stated cause was wrong.** `BACKLOG.md:208` marks E8 done 2026-08-03, and the macOS nightly is **GREEN** as of run `32623453131` (2026-08-23). The row said the nightly stayed red until the multi-arch builder image reached GHCR — but the nightly builds the image on `ubuntu-latest` and downloads it as an artifact (`nightly-macos.yml`, `build-image` → `integration-macos`); it never pulls the GHCR builder. **The 29 red nights were the flake throwing on `x86_64-darwin`**, fixed by `927fb9f` (2026-08-18). *(v0.8.0 did ship 2026-08-13, so `publish.yml` has run since E8's fix — whether GHCR carries the multi-arch index is not verifiable from here.)* | [`BACKLOG.md`](BACKLOG.md) E8 |
 | **agent-auth macos-user parity** | 4 verified defects whose fixes need a Mac to verify. *(The "ROADMAP item 4" pointer is dead; the defects are in the agent-auth design doc.)* | [`../design/agent-auth-modes.md`](../design/agent-auth-modes.md) |
 | **`cache_relocations`** | One real cross-filesystem move as an acceptance step. Still **held** — [`roadmap.md`](roadmap.md) keeps it in 🧊 Icebox as genuinely undecided, not merely unscheduled | [`cache-relocation.md`](cache-relocation.md) |
-| ~~**`yoloDarwinPackages` rename**~~ | **SHIPPED — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23).** No longer Mac-gated to write *or* to prove on Linux; only a `packages:` launch on a Mac would exercise it there | [`../design/noncontainer-nix-environment.md` §8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) Option 1 |
+| ~~**`yoloDarwinPackages` rename**~~ | **SHIPPED — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23).** No longer Mac-gated to write *or* to prove on Linux; only a `packages:` launch on a Mac would exercise it there | [`../design/provisioner-sets.md` §10](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict) alternative H (formerly Option 1) |
 | **MCP wrappers on macOS** | *New, found 2026-08-23.* `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers` unconditionally, and the bodies are Linux-absolute — `/usr/bin/chromium` (`mcp_wrappers.go:39`), `exec /bin/node` (`:74`), `/etc/fonts` (`:26-27`). A macos-user home gets three wrappers pointing at paths macOS does not have. Harmless until one is exec'd | revival plan, Open decision #4 |
 
 ---
@@ -181,7 +181,7 @@ have closed, one has changed shape, and one is new and blocks every other row on
 > bullets landed. It is kept, rather than deleted, because the reasoning below is why Phase
 > 7.2 is unblocked, and because the trap at the end of the section is still live.
 
-[`noncontainer-nix-environment.md` §8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) **Option 1**
+[`provisioner-sets.md` §10](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict) **alternative H** (formerly `noncontainer-nix-environment.md`'s Option 1)
 was a prerequisite for Phase 7.2, and NOT because of anything about the `host` notch —
 `guest` is a real home with no image, so it needs a tool closure for exactly the reason `host`
 does. Each bullet, with what it became:
@@ -300,7 +300,7 @@ Two constraints that have burned agents in this repo repeatedly:
   middle of a single manifest.
 - **`yolo cache relocate`** (cache-relocation item 11) — *held*, not deferred. The maintainer
   is not convinced it should exist.
-- **`yolo --at host -- <cmd>`** (noncontainer-nix-environment [§8](../design/noncontainer-nix-environment.md#8-options-with-a-recommendation) Option 2) — a real option, but a
+- **`yolo --at host -- <cmd>`** ([`provisioner-sets.md` §10](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict) alternative I) — a real option, but a
   bigger product claim ("yolo launches your host agent"). Not required for Phase 7.
 
 ---

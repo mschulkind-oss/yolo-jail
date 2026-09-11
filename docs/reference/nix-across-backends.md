@@ -31,7 +31,8 @@ other difference follows from that one.
 | The macOS Linux-builder offload | `internal/containerbuilder` |
 | Platform filtering of the declared list | `internal/config` (`EffectivePackages`, `PackagesExcludedOn`) |
 
-**Reads with:** [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md),
+**Reads with:** [`provisioner-sets.md`](../design/provisioner-sets.md) (which absorbed
+`noncontainer-nix-environment.md` on 2026-09-11; its [§6](../design/provisioner-sets.md#6-the-nix-resolver-in-depth) is the nix resolver),
 [`image-staging-vs-baking.md`](image-staging-vs-baking.md),
 [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md).
 

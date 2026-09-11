@@ -85,7 +85,8 @@ func (o *Options) checkMacosUserBackend(r *reporter) {
 
 // checkPackageProfile reports the RESOLVED `packages:` nix profile and its GC root — the
 // two facts that make a non-container notch's tool closure inspectable (N2's fourth
-// sub-item; docs/design/noncontainer-nix-environment.md §8 Option 1).
+// sub-item; docs/design/provisioner-sets.md §10 alternative H, formerly
+// noncontainer-nix-environment.md's Option 1).
 //
 // Read from the GC-ROOT SYMLINK, never by invoking nix: check already owns the one place a
 // real build is allowed (the --build-gated image section), and resolving a profile here

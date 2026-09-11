@@ -40,7 +40,7 @@ guarding against.
 **Reads with:** [`../reference/pack-system.md#program`](../reference/pack-system.md#program)
 (Q1.1–Q3.1), [`pack-host-management-plan.md`](pack-host-management-plan.md) Phase 11 and
 items 8.3/8.4, [`../reference/pack-system.md#config-surfaces-and-the-compose-engine`](../reference/pack-system.md#config-surfaces-and-the-compose-engine)
-[§8](../reference/pack-system.md#config-surfaces-and-the-compose-engine), and [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger).
+[§8](../reference/pack-system.md#config-surfaces-and-the-compose-engine), and [`../design/provisioner-sets.md`](../design/provisioner-sets.md) [`OQ-NX6`](../design/provisioner-sets.md#decision-ledger).
 
 ---
 
@@ -60,7 +60,7 @@ waiting on a decision — this doc is ready to implement against.
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
 | 5 | `depcheck.Manifest` cannot express a brew cask (8.4) | `brew-cask` key → `cask "<pkg>"` in the Brewfile | **RULED — just make it work** · **SHIPPED 2026-08-02** |
 | 6 | `install_hints` routes agents through nix (8.3) | **Prefer the pack's OWN installer**; **DROP the nix hints for the six agent CLIs** (keep them for real deps like `fd`/`jq`) | **REFRAMED, then TRIMMED** — `copilot` is 16 releases behind, and the "pin the closure" case I invented is unreachable · **SHIPPED 2026-08-03** |
-| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger)) | `meta.available` check beside `availableOn` | still stands — [§6](#6-the-three-unfree-nix-hints-83--and-the-better-question-underneath) removes the example, not the defect · **SHIPPED 2026-08-02** |
+| 7 | `packages: ["claude-code"]` fails at build with a nix trace (nix [`OQ-NX6`](../design/provisioner-sets.md#decision-ledger)) | `meta.available` check beside `availableOn` | still stands — [§6](#6-the-three-unfree-nix-hints-83--and-the-better-question-underneath) removes the example, not the defect · **SHIPPED 2026-08-02** |
 | 8 | `rmwProvenance` is a second "which layer won" | Parity table now; **unify at the third** derivation | **RULED — wait for 3** · **TABLE SHIPPED 2026-08-03** (`TestProvenanceParityAcrossBothDerivations`); unification still deferred, by ruling |
 | 9 | Nightly macOS builder arch mismatch (BACKLOG E8) | Publish the builder multi-arch (or skip the two tests, recorded) | **CORRECTED** — a CI capability constraint, not platform support · **SHIPPED 2026-08-03**, and it was BIGGER than this row: the advertised system was hardcoded in three places, not one (see BACKLOG E8) |
 | 10 | A pack cannot install Claude MCP servers on the host | Prune workspace-keyed subtrees instead of refusing the surface | **RULED — warn and wait for confirm** · **SHIPPED 2026-08-03** |
@@ -621,7 +621,7 @@ distinction I should have drawn instead of inventing a user.
 
 **Where a real "pin the closure" want belongs**, if it ever shows up: not a hint that looks like
 a plain install command, but
-[`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)'s `buildEnv` — a whole
+[`../design/provisioner-sets.md`](../design/provisioner-sets.md)'s `buildEnv` — a whole
 declared closure, which is a different feature with a different UI. **Not building it on
 speculation.**
 
@@ -658,7 +658,7 @@ next hint, not code. That is a real reduction in scope from what I first propose
 
 ---
 
-## 7. `packages: ["claude-code"]` fails with a raw nix trace (nix [OQ-6](../design/noncontainer-nix-environment.md#decision-ledger)) — **SHIPPED 2026-08-02**
+## 7. `packages: ["claude-code"]` fails with a raw nix trace (nix [`OQ-NX6`](../design/provisioner-sets.md#decision-ledger)) — **SHIPPED 2026-08-02**
 
 > **Implemented, with one deliberate substitution and one bug the doc's framing would have
 > introduced.** (1) The check is `drv.meta.available`, not `meta.unfree`/`meta.license.free`:

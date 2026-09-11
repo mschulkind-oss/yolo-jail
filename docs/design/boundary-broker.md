@@ -373,9 +373,10 @@ possibly step 1.** The reasons:
   ([`handoff-guest-notch-macos.md`](../plans/handoff-guest-notch-macos.md), env-manager Phase 7 —
   was "P7"). This is a thing that does not exist yet. Wrong-things-first is the right default when
   the wrong things include silent data loss.
-- **Its upstream design question is now answered:** nix **[OQ-1](noncontainer-nix-environment.md#decision-ledger)** (formerly *N3*) — whether `host`
+- **Its upstream design question is now answered:** nix **[`OQ-NX1`](provisioner-sets.md#decision-ledger)** (formerly *N3*, and spelled
+  [`OQ-1`](provisioner-sets.md#decision-ledger) before the 2026-09-11 merge) — whether `host`
   is a place agents *run* or only get *configured* — closed 2026-09-02 as **run**
-  ([`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) Decision Ledger): `yolo
+  ([`provisioner-sets.md`](provisioner-sets.md) Decision Ledger): `yolo
   host -- <cmd>` shipped with a composed launch env. That is the world in which this doc said a
   boundary approval service is *"much more compelling"*, so the priority argument here is now
   weaker than when written — the capability question (OQ-A) is what remains, and it no longer has
@@ -383,8 +384,8 @@ possibly step 1.** The reasons:
 - **Step 1 (the audit log) is the exception** and could be done any time: it is small, it is
   strictly additive, it has no design risk, and it produces the evidence that would tell us which
   verbs are worth gating. If any part of this jumps the queue, that is the part.
-- **Step 2 (the injecting proxy) is the second exception**, and it never waited on nix [OQ-1](noncontainer-nix-environment.md#decision-ledger) the
-  way the approval tier did (both are now unblocked — [OQ-1](noncontainer-nix-environment.md#decision-ledger) closed 2026-09-02) — it has no human in
+- **Step 2 (the injecting proxy) is the second exception**, and it never waited on nix [`OQ-NX1`](provisioner-sets.md#decision-ledger) the
+  way the approval tier did (both are now unblocked — [`OQ-NX1`](provisioner-sets.md#decision-ledger) closed 2026-09-02) — it has no human in
   it, so it does not care whether `host` is a place agents run. It is also the step that makes the motivating use case work, which is a better
   reason to do it than its position here suggests.
 - **Auth-mode modeling was split out** to [`agent-auth-modes.md`](agent-auth-modes.md) (**B3** in [§7](#7-what-i-would-build-in-order)'s numbering)

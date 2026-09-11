@@ -11,7 +11,8 @@
 // availableOn is a per-system predicate — so the exact same code resolves
 // x86_64-linux. Only the package's own name is still darwin-shaped, and
 // renaming a Go package is a mechanical move left for the consumer that needs
-// it (docs/design/noncontainer-nix-environment.md §8 Option 1).
+// it (docs/design/provisioner-sets.md §10 alternative H; that section absorbed
+// noncontainer-nix-environment.md's Option 1 on 2026-09-11).
 package darwinpkg
 
 // How this relates to the container backends' nix path — what each produces, why
