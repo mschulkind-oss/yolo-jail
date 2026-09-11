@@ -286,19 +286,44 @@ into a workspace sidecar, not "it would be meaningless here". Three different
 justifications for one asymmetry, and they do not compose into a story.
 
 > [!IMPORTANT]
-> **What survives the critique.** One asymmetry is real and does not go away by
-> declaring ownership: the jail home is disposable and regenerated, the host home
-> is not. Whole-file composition on the host authorizes yolo to **delete** keys
-> from a real file in a real home — including keys a future agent version adds
-> that no pack knows about yet, and keys another tool wrote. In a jail that costs
-> a workspace's overlay; on the host it costs the machine's config, and nothing
-> snapshots it. This is an argument for caution about *deletion*
-> ([§6.3](#63-the-one-asymmetry-that-survives-deletion)) and **not** an argument
-> against capture: capture is about surviving regeneration, and nothing stops
-> yolo recording "the human changed `permissions.defaultMode` since the last
-> apply" with no whole-file compose at all. That recording is what the current
-> `⚠ would overwrite your existing value` warning gropes toward, one apply at a
-> time, with no memory between them.
+> **What survives the critique — and it is NOT "the jail home is disposable".**
+> ⚠ **Reframed in review 2026-09-11; the earlier version of this callout had the
+> axis wrong**, and the correction matters because the wrong axis makes the host
+> look permanently special when it is only *temporarily* so.
+>
+> **The axis is OWNERSHIP, not the notch.** An **owned** file is derived output:
+> delete it and the next render reproduces it exactly — [§3.1](#31-first-what-actually-differs-between-rmw-and-capture)'s
+> own table already says so (*"Delete the file | it is gone; nothing can rebuild
+> it | the next boot reproduces it exactly"*). So an owned file is disposable
+> **wherever it lives, host included**. What is not disposable is a file holding
+> bytes that exist nowhere else — which is every file yolo does not yet own.
+>
+> **So the host's specialness is a TRANSITION, not a property.** Before adoption a
+> host file is the user's and irreplaceable; after adoption it is derived and
+> reproducible. The dangerous moment is the crossing, not the address.
+>
+> ⚠ **And jails have that crossing too — this is measured, not theoretical.** A
+> jail starts empty, so the common case has nothing to lose. But enable a pack that
+> starts owning a file the home already has and you are in the same transition:
+> that is `ComposeStateful`'s `firstMigration` branch, and **the B1 data-loss fix
+> exists because a jail lost real state to it** — `copilot/config` collapsed to
+> `{"yolo": true}` and logged the user out, destroying `copilot_tokens` that lived
+> only in that jail home ([§6.3.1](#631-why-the-adoption-diff-is-empty)). A home
+> that holds an agent's auth tokens is not disposable, whatever notch it is on.
+>
+> **What this changes.** The guard belongs on the **transition** — first render into
+> a home that already has content — which is what `FirstApply` already keys on
+> host-side and `firstMigration` keys on jail-side: *two names for one concept, on
+> two notches, handled differently*. The residual host-only fact is narrow and
+> real: a jail's transition is survivable by relaunching from a clean home, and the
+> host has no clean home to fall back to. That justifies a **stronger net** there
+> ([§6.3.3](#633-what-survives-as-a-guard)'s archive), never a different rule.
+>
+> None of this is an argument against capture: capture is about surviving
+> regeneration, and nothing stops yolo recording "the human changed
+> `permissions.defaultMode` since the last apply" with no whole-file compose at all.
+> That recording is what the current `⚠ would overwrite your existing value` warning
+> gropes toward, one apply at a time, with no memory between them.
 
 ---
 
@@ -1513,14 +1538,25 @@ Observable outcomes that mean this was built as designed:
      file **edit-survives-regeneration for free** rather than needing a parallel
      mechanism (`staterender.go`'s keyless note).
      > [!NOTE]
-     > **"`host_files` means just copying in files" is nearly right, and the exception
-     > is the interesting one.** Three modes, not one
-     > (`hostFileDefaultMode`, `internal/config/hostfiles.go:213-226`): `once` really
-     > is a copy — seed the jail's copy and leave it alone; `readonly` is not a copy
-     > but a **live source of truth**, where host edits keep propagating and an in-jail
-     > edit fails at the moment of the edit; and `capture` carries a sidecar, because
-     > *"overlay outranks host permanently"*. So a `host_files` entry becomes a real
-     > surface composed through the engine (as the `user` pseudo-agent), not a `cp`.
+     > **"`host_files` means just copying in files" is nearly right, and the exceptions
+     > are the interesting part.** **Four** modes, and only one is a copy
+     > (`yolo config-ref`, `host_files` → *Modes*):
+     >
+     > | Mode | What it does | Default for |
+     > | :--- | :--- | :--- |
+     > | `readonly` | Re-rendered every boot at `0444`; a **host-side edit propagates** on the next launch | a source-bearing entry |
+     > | `once` | Seeded when absent, then never touched; in-jail edits persist with no sidecar, later host edits do **not** propagate. Re-seed by DELETING the file | a source-less entry |
+     > | `copy` | Overwritten every boot; in-jail edits discarded | implied for a directory |
+     > | `capture` | Re-rendered every boot **and** in-jail edits captured into a sidecar that outranks the host layer | **never** — always explicit |
+     >
+     > `capture` is never a default *"because a captured edit wins over the host file
+     > FOREVER (the sidecar never ages out), so implicit capture would silently fork a
+     > host-mirrored file the first time a tool rewrote its own config (`npm config
+     > set`, any CLI's first run)"*. So a `host_files` entry becomes a real surface
+     > composed through the engine (as the `user` pseudo-agent), not a `cp`. Worked
+     > examples — `~/.npmrc`, a `starship.toml` with a `managed` key, an inline-`content`
+     > ripgrep config, a `capture` surface with `defaults` — are in `yolo config-ref`
+     > under `host_files`.
      > **What review is right about is ownership**: yolo never writes the host's copy,
      > so there is no host-notch ownership question for these at all — which is why
      > they are absent from the host apply report.
@@ -1545,13 +1581,18 @@ Observable outcomes that mean this was built as designed:
    one surface kind behave differently on one notch for no reason the surface knows
    about.
 
-   **What genuinely differs is not the rule but the COST of the first render**, and
-   P5 already carves exactly that out — *"except where a real home forbids it"*.
-   [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) states it as
-   the one asymmetry that survives: the jail home is disposable and regenerated, the
-   host home is not. So the correct shape is **same rule everywhere, stronger safety
-   net where the home is real** — which is how every other surface is already
-   treated.
+   **What genuinely differs is not the rule but the COST of the TRANSITION** — the
+   first render into a home that already has content. ⚠ **Reframed again 2026-09-11**:
+   this paragraph used to say the difference was that *"the jail home is disposable
+   and the host home is not"*, and [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications)
+   now records why that axis is wrong. An **owned** file is disposable wherever it
+   lives, because it is reproducible; an **unowned** one is not, wherever it lives.
+   The host is not permanently special — it is special *until it is owned*, and a
+   jail hits the same crossing whenever a newly-enabled pack starts owning a file
+   the home already had. So the correct shape is **same rule everywhere, stronger
+   net at the transition**, with the residual host-only fact being narrow: a jail's
+   bad transition is survivable by relaunching from a clean home and the host has no
+   clean home to fall back to.
 
    ⚠ **And the existing safety net structurally cannot see this case.** The
    one-way-door gate reads `EntryLosses`, which is defined as *"the NAMED-ENTRY
@@ -1560,8 +1601,12 @@ Observable outcomes that mean this was built as designed:
    no named entries**, so `EntryLosses` is always empty for one, `confirmHostLosses`
    returns *"nothing would be lost — no prompt"*, and the render replaces the whole
    file **silently**. The most destructive case available is the one case the gate is
-   shaped wrong to notice. Latent today — it needs a pack to declare a keyless
-   surface — but it is a gap in the guard, not in the rule.
+   shaped wrong to notice. It is a gap in the guard, not in the rule — **and by the
+   transition framing above it is not host-only**: a keyless surface at a jail's own
+   `firstMigration` cannot adopt either (adoption would freeze it), so the same
+   whole-file overwrite is available there, against a home that may hold an agent's
+   own state. Latent at both notches today, since it needs a pack to declare a
+   keyless surface.
 
    <!-- vantage: oq id=OQ-CO9 leaning="Keep the rule uniform across notches — a keyless surface renders stateful everywhere and is never adopted — and fix the guard instead. A whole-file replacement of a keyless surface is the maximal loss, so it should confirm like an EntryLoss does, and EntryLosses cannot express it because it is defined in terms of named table entries. Refusing `own` for keyless is the cheap fallback if the guard is not worth building, since the class is empty at the host notch, but it introduces a per-notch asymmetry that P5 argues against. The archive (OQ-CO7) is the second half either way." -->
 
