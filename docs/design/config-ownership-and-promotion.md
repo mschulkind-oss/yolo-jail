@@ -1512,6 +1512,18 @@ Observable outcomes that mean this was built as designed:
      all; it is "the bytes are the value", which is what lets capture give a carried-in
      file **edit-survives-regeneration for free** rather than needing a parallel
      mechanism (`staterender.go`'s keyless note).
+     > [!NOTE]
+     > **"`host_files` means just copying in files" is nearly right, and the exception
+     > is the interesting one.** Three modes, not one
+     > (`hostFileDefaultMode`, `internal/config/hostfiles.go:213-226`): `once` really
+     > is a copy — seed the jail's copy and leave it alone; `readonly` is not a copy
+     > but a **live source of truth**, where host edits keep propagating and an in-jail
+     > edit fails at the moment of the edit; and `capture` carries a sidecar, because
+     > *"overlay outranks host permanently"*. So a `host_files` entry becomes a real
+     > surface composed through the engine (as the `user` pseudo-agent), not a `cp`.
+     > **What review is right about is ownership**: yolo never writes the host's copy,
+     > so there is no host-notch ownership question for these at all — which is why
+     > they are absent from the host apply report.
    - **At the host notch the class is empty**, and only a pack deliberately declaring
      a `raw`/`lines` surface could populate it. None does.
 
@@ -1519,26 +1531,62 @@ Observable outcomes that mean this was built as designed:
    `own`-with-adoption freezes the file; `own`-without-adoption overwrites a real
    file in a real home; refusing costs nothing today.
 
-   <!-- vantage: oq id=OQ-CO9 leaning="Refuse `own` for a keyless surface at the host notch — which is what review proposed. Not the original reason (falling back to rmw, which is impossible) but because the other three options are each worse: assert is refused by kind, adoption freezes the file at its adopted content forever, and no-adoption overwrites a real file in a real home. The class is empty at the host notch — host_files are jail-side and no pack declares a keyless surface — so the refusal costs nobody anything and turns an unruled case into a named one. Revisit if a pack ever has a reason to declare a keyless surface it wants host-rendered." -->
+   ##### Why this was scoped to the host notch — and why that was wrong
 
-   _Leaning (**third version, and it is review's**):_ **Refuse `own` for a keyless
-   surface at the host notch** — *"we could still just refuse it outright."* Not for
-   the original reason, which was impossible, but because the alternatives are each
-   worse and the class is empty. A refusal that names the codec turns an unruled case
-   into a stated one, which is the cheapest possible answer while nothing is affected.
-   Revisit if a pack ever has a reason to declare a keyless surface it wants
-   host-rendered — at which point the question is a real one with a real user, rather
-   than a hypothetical ruled in advance.
+   **Review pushed back: *"why do you single out the host notch? All should be
+   equal, no?"* That is [P5](#1-the-verdict-and-the-principles-it-rests-on), and
+   applying it correctly changes the answer.**
+
+   **The RULE is already uniform and should stay so.** A keyless surface renders
+   `stateful` at every notch — that is `rmwCodecRefusal`'s ruling — and adoption
+   never applies to it at any notch. Nothing about that is host-specific, and
+   "refuse `own`" would have *introduced* an asymmetry rather than removing one:
+   `own` is simply the host notch's name for `stateful`, so refusing it would make
+   one surface kind behave differently on one notch for no reason the surface knows
+   about.
+
+   **What genuinely differs is not the rule but the COST of the first render**, and
+   P5 already carves exactly that out — *"except where a real home forbids it"*.
+   [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) states it as
+   the one asymmetry that survives: the jail home is disposable and regenerated, the
+   host home is not. So the correct shape is **same rule everywhere, stronger safety
+   net where the home is real** — which is how every other surface is already
+   treated.
+
+   ⚠ **And the existing safety net structurally cannot see this case.** The
+   one-way-door gate reads `EntryLosses`, which is defined as *"the NAMED-ENTRY
+   casualties of this render: an entry in a table like `mcpServers`"*
+   (`internal/entrypoint/hostrender.go:84-97`). **A keyless surface has no tables and
+   no named entries**, so `EntryLosses` is always empty for one, `confirmHostLosses`
+   returns *"nothing would be lost — no prompt"*, and the render replaces the whole
+   file **silently**. The most destructive case available is the one case the gate is
+   shaped wrong to notice. Latent today — it needs a pack to declare a keyless
+   surface — but it is a gap in the guard, not in the rule.
+
+   <!-- vantage: oq id=OQ-CO9 leaning="Keep the rule uniform across notches — a keyless surface renders stateful everywhere and is never adopted — and fix the guard instead. A whole-file replacement of a keyless surface is the maximal loss, so it should confirm like an EntryLoss does, and EntryLosses cannot express it because it is defined in terms of named table entries. Refusing `own` for keyless is the cheap fallback if the guard is not worth building, since the class is empty at the host notch, but it introduces a per-notch asymmetry that P5 argues against. The archive (OQ-CO7) is the second half either way." -->
+
+   _Leaning (**fourth version, following review's equality argument rather than my
+   earlier scoping**):_ **Keep the rule uniform and fix the guard.** A keyless
+   surface renders `stateful` at every notch and is never adopted — unchanged. What
+   changes is that a **whole-file replacement is recognised as a loss**: it is the
+   maximal one, and `EntryLosses` cannot express it because that field is defined in
+   terms of named table entries. Confirm it the way an entry loss is confirmed, and
+   let [OQ-CO7](#OQ-CO7)'s archive be the second half. **Refusing `own` for keyless
+   remains the cheap fallback** if the guard is not worth building — the class is
+   empty at the host notch, so it costs nobody anything — but it buys that cheapness
+   with exactly the per-notch asymmetry P5 exists to prevent.
 
    ⚠ **This says nothing about `raw` or `lines` as codecs.** Both survive on their
    jail-side merits: `raw` is the default that stops a hand-written `.jsonc` or
    `.yaml` being reformatted, and `lines` carries append-merge semantics for
    allowlist-style files (`internal/agentcfg/codec/lines.go:9`) — *"a decent
-   motivation, and I could see that being used."* `lines` has no shipped user today;
-   whether that matters belongs with the `host_files` codec set, not here.
+   motivation, and I could see that being used"* — which is an extension point
+   waiting for its first user rather than a mistake.
 
    **Answer:**
-   > _(empty — fill in when decided; the leaning is review's own proposal, so this
+   > _(empty — fill in when decided; two live shapes — uniform-rule-plus-guard, or
+   > refuse-as-cheapest — and the choice is whether the guard is worth building
+   > before anyone has a keyless host surface)_
    > may be closable as-is)_
 
 ---
