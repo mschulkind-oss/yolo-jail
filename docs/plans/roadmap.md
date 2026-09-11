@@ -797,7 +797,7 @@ twelve questions are live with no home**, two of which stand whether or not mirr
 
 ### 📦 29 — One report, three readers: what `yolo host apply` and the launch banner say by default
 
-📄 [`report-tiers.md`](../design/report-tiers.md) — **[`OQ-RO7`](../design/report-tiers.md#11-decision-ledger)** is the only one left; RO1–RO6 were ruled 2026-09-11 and compacted into the [Decision Ledger](../design/report-tiers.md#11-decision-ledger).
+📄 [`report-tiers.md`](../design/report-tiers.md) — **all seven RULED**, the last on 2026-09-11; `status: accepted`.
 written 2026-09-10, **routed here the same day**
 
 The maintainer's complaint — *"hard to read, not intuitive, and not so actionable"* — measured: an
@@ -835,16 +835,14 @@ code**, with its confirm UX resolved as [`OQ-9`](environment-manager-plan.md#ope
 all no-elevation remedies, one for all `sudo` ones, sudo first so the OS password prompt comes up
 once at the front. So this authorizes Phase 6.4 + 4.3 rather than designing them.
 
-- 💬 **[`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) — does the fatal cover `program` as well as `requires`?**
-  The two kinds share one reporting path at the host notch but make different claims: `program` is
-  *"yolo installs this into a jail and owns a launcher path"*, `requires` is *"this must already
-  exist"*. Shipped populations are 6 `program` (the agent CLIs) and 2 `requires` (`guardrails`' `rg`
-  and `fd`). **Stakes:** whether an `--assert` on a host with no `claude` binary refuses, and
-  whether yolo may offer to install a binary its own code says it never installs. *Leaning: both
-  fatal, only `program` gets the offer.*
+✅ **[`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) — RULED 2026-09-11: both kinds fatal, only `program` gets the offer.** A
+missing `requires` is the more clear-cut blocker — `guardrails` removes `grep`/`find` in favour of
+binaries that must be present — while offering to install one would contradict the kind's own
+definition, so it refuses with the remedy named.
 
-**Answer:**
-> _(empty — fill in when decided; [`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) gates the fatal's predicate, and nothing else here waits on a person)_
+**Answer (2026-09-11):**
+> **Nothing here waits on a person.** All seven are ruled and the doc is `status: accepted`; what
+> remains is build work, whose mechanism is env-manager Phases 4.3 and 6.4.
 
 ### 📦 30 — The Lua config transform: remove it, and leave the derive VM standing
 

@@ -218,8 +218,10 @@ Then it stops. **MEASURED negative:** no reader of a remedy ever executes it —
 elevation class, sudo first* — and that plan's own audit says its resolution *"has no
 consumer at all today"*. What the roadmap's thread 29 did on 2026-09-10 was **authorise** Phase
 6.4 and 4.3 as the mechanism for the `--assert` fatal, not design them, and
-[`OQ-RO7`](report-tiers.md#11-decision-ledger) — whether the fatal covers `program` as well as `requires` — is
-still open. ⚠ **And the shipped precedence has the pack choosing.** `depcheck.Check` ranks the
+[`OQ-RO7`](report-tiers.md#11-decision-ledger) — whether the fatal covers `program` as well as `requires` — was
+RULED on 2026-09-11: **both fatal, only `program` gets the offer**, which is the predicate
+[`OQ-PS3`](#OQ-PS3)'s recipe model reinforces rather than disturbs (a `requires` is a need with no
+runnable recipe, so there is nothing to offer). ⚠ **And the shipped precedence has the pack choosing.** `depcheck.Check` ranks the
 declaring pack's *own* installer first and the detected manager's hint second, keeping the
 manager's command only as `Fallback` (`depcheck.go:147-151`, `:160-164`, re-read 2026-09-11;
 commit `b796d8b8`, *"remedies that lead with upstream"*). Under P1 that order is inverted: the
@@ -706,7 +708,7 @@ containing `gnugrep` still shadows `/usr/bin/grep` when its `bin` is prepended; 
 from a devShell is **legibility, not effect**. On a Mac host that is the BSD-vs-GNU hazard
 arriving by the front door instead of the back. Nothing warns today, on any path (confirmed
 absent 2026-08-23). That is [`OQ-NX5`](#OQ-NX5), and it is now also
-[`OQ-P2`](macos-user-provisioning.md#OQ-P2)'s problem one level down.
+[`OQ-P2`](macos-user-provisioning.md#decision-ledger)'s problem one level down.
 
 ### 6.8 What if the user has no nix?
 
@@ -1040,8 +1042,8 @@ shipped status so nobody re-opens a settled fork.
   *one ledger, many resolvers* is taken as ruled; this doc adds no record format.
 - **Trust.** [`trust-paths.md`](trust-paths.md). A provisioner set says what *can* install; whether
   a fetched pack may name a recipe is that doc's.
-- **How large the guest floor is, and GNU or BSD** — [`OQ-P1`](macos-user-provisioning.md#OQ-P1),
-  [`OQ-P2`](macos-user-provisioning.md#OQ-P2). This doc needs the guest to have a *stage*; it does
+- **How large the guest floor is, and GNU or BSD** — [`OQ-P1`](macos-user-provisioning.md#decision-ledger),
+  [`OQ-P2`](macos-user-provisioning.md#decision-ledger). This doc needs the guest to have a *stage*; it does
   not say how big. ⚠ [`OQ-NX5`](#OQ-NX5) is the same hazard one level up and the two should be
   ruled together.
 - **The Linux guest** (env-manager Phase 7.2). No code, no row — though
@@ -1346,7 +1348,7 @@ output, under `CapturesDir()` in the invoking user's home
 a clean success as a failure.
 
 **M5 — Does Seatbelt resolve `..` through a symlinked directory the way the Linux measurement
-assumed?** Decides [`OQ-HT2`](macos-user-home-tiers.md#OQ-HT2)'s layout — the A′ remedy in
+assumed?** Decides [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger)'s layout — the A′ remedy in
 [`macos-user-home-tiers.md` §5.3](macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely)
 rests on a `..` resolution measured on a **Linux** jail on 2026-09-11, and kernel path semantics
 under a sandbox profile cannot be checked from here.
@@ -1373,7 +1375,7 @@ answer.**
 
 **Deliberately not asked.** The runbook's four checks (passed 2026-09-10). Capture's
 *materialize* half (H2-gated, so a failure would prove nothing). And *"which of the image's 36
-core packages have native darwin builds"* for [`OQ-P1`](macos-user-provisioning.md#OQ-P1) — that
+core packages have native darwin builds"* for [`OQ-P1`](macos-user-provisioning.md#decision-ledger) — that
 is a per-attr `nix eval`, which is platform-independent and runs faster from this Linux jail than
 from a Mac.
 
@@ -1625,7 +1627,7 @@ recommendation the doc rests on.
    ([§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)). **What it decides:** whether a
    non-container profile *warns* when a declared package shadows a system binary, or trusts the
    declaration. Nothing warns today, on any path (confirmed absent 2026-08-23). ⚠ It is the same
-   hazard as [`OQ-P2`](macos-user-provisioning.md#OQ-P2) one level up, and the two should be
+   hazard as [`OQ-P2`](macos-user-provisioning.md#decision-ledger) one level up, and the two should be
    ruled together.
 
    _Leaning:_ **Restate the claim honestly as "no undeclared pollution" and build no warner yet**
