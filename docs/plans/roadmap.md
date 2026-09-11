@@ -994,7 +994,7 @@ jail get its agent CLIs from nix too?*) and [`OQ-PS1`](../design/provisioner-set
 doc routes both out of scope rather than re-opening them, which is the right move and the reason to
 read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be ruled without [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1).**
 
-⚠ **The carve raised the count on purpose, 11 → 13.** `OQ-PS1`, `OQ-PS5` and `OQ-PS7` each asked two
+⚠ **The carve raised the count on purpose, 11 → 13.** [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1), [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5) and [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) each asked two
 things, so none could be ruled: *"I need these split out into OQs, I can't follow this subquestion thing."*
 They are now [`OQ-PS9`](../design/provisioner-sets.md#OQ-PS9) (does yolo help install nix), [`OQ-PS10`](../design/provisioner-sets.md#OQ-PS10) (does the
 host's nix provisioner leave anything behind), [`OQ-PS11`](../design/provisioner-sets.md#OQ-PS11) (do `program` and `requires`
@@ -1008,7 +1008,7 @@ for the interactivity half.
 explains why: `applySealed` refuses **exactly two** inputs, a present `yolo-jail.local.jsonc` and
 outstanding capture keys (`internal/cli/apply.go:800-833`), and reads no toolchain or store path at all.
 A nix profile at a path yolo names is Declared-impure — `mise_tools`' own tier — so sealing never had an
-opinion. The conditional is withdrawn and §6.3's "the closure table gains a row" is retracted in place.
+opinion. The conditional is withdrawn and [§6.3](../design/provisioner-sets.md#63-nix-profile---profile-dir-the-only-candidate-that-reaches-a-users-own-path)'s "the closure table gains a row" is retracted in place.
 **A question the reviewer cannot parse is a broken question**, and this one was broken because it was
 wrong.
 
