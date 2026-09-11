@@ -810,29 +810,35 @@ each; and any fetched pack. The pack **lockfile** records no kind names
 ---
 
 > [!IMPORTANT]
-> **The maintainer's framing, 2026-09-11, and it is the shape this whole document is reaching
-> for:** *"Essentially we now have a yolo package manager. We should be clear that we only ever
-> install captured packages — in a jail, container, guest, host, wherever — and we have the
-> machinery already for the capture. So it truly is just another backend, and truly just a
-> slotted-in package manager."*
+> **An installer script never runs inside a container. That is the rule** (maintainer,
+> 2026-09-11): *"We're not going to run an installer in a container. We're going to turn it into
+> something that looks like the Arch solution — or we can use another package manager. It doesn't
+> have to be yolo's package manager, but it's just not going to be a bash script."*
 >
-> **What that settles.** yolo's own provisioner stops being a special case and becomes one row in
-> the provisioner set beside nix, brew and npm. Its *build* step is `capture`; its *install* step is
-> materialize; and the install offer never runs arbitrary code at install time — it materializes a
-> previously-captured artifact. That is the AUR property
-> [`program-delivery.md`](program-delivery.md) already states as the prior art — *"the package
-> manager never trusts the build script's environment, only its captured product"* — completed
-> rather than newly proposed.
+> **The invariant is about the FORM of the installed thing, not about who supplies it.** Whatever
+> installs into an environment installs a **package** — an artifact with a manifest — and never an
+> opaque script executed in place. Any provisioner delivering that shape qualifies; what is excluded
+> is the non-package form.
 >
-> ⚠ **One thing it does NOT settle, and the tension is with shipped code.** Capture is deliberately
-> **installer-only** today, and `yolo capture`'s own help gives the reason: *"an npm-declared
-> program has a registry version to name and needs no capture"*
-> (`internal/cli/capturehost.go:76-78`, verified 2026-09-11). So *"we only ever install captured
-> packages"* either extends capture to cover `via: npm` — reversing that reasoning — or is scoped to
-> the install-offer path, leaving npm programs installed live from the registry as they are now.
-> **Those are different systems**, and which one is meant is part of
-> [`OQ-PS3`](#OQ-PS3): a pack declaring a *need* that the environment resolves is compatible with
-> both; a pack declaring a *provisioner* is not.
+> **This is already how the two shipped `via` values behave, and the rule names it rather than
+> changing it:**
+>
+> - **`via: npm`** is a package manager already, with a registry version to name — so it installs
+>   directly and needs no capture (`internal/cli/capturehost.go:76-78`).
+> - **`via: installer`** is the `curl | bash` case, and it is exactly the one `capture` exists for:
+>   the script runs **once, in a throwaway jail**, and what reaches any real environment is the
+>   captured product. That is [`program-delivery.md`](program-delivery.md)'s AUR prior art — *"the
+>   package manager never trusts the build script's environment, only its captured product"* — and
+>   under this rule it is the **requirement**, not an optimisation.
+>
+> ⚠ **Corrected 2026-09-11.** An earlier version of this note read the framing as *"everything yolo
+> installs becomes a capture,"* and flagged a tension with capture being installer-only. **There is
+> no tension.** npm is not a bash script, so it was never in scope; capture's installer-only
+> boundary is the rule's implementation, not a gap in it.
+>
+> **What the rule does bear on** is [`OQ-PS5`](#OQ-PS5) — *"it doesn't have to be yolo's package
+> manager"* means yolo's own store is one provisioner among several rather than the privileged one,
+> which is the same conclusion the provisioner-set model reaches from the other direction.
 
 ## 8. The shape this doc leans toward
 
