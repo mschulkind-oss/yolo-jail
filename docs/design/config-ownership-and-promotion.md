@@ -1162,8 +1162,8 @@ Observable outcomes that mean this was built as designed:
    **Answer (2026-09-10, review round 0 — KEEP the default; the guard is the
    confirmation, not the flag):**
    > **`local` stays the default, and promote shows exactly what it is about to
-   > write and asks — unless `--yes` is passed.** *"If we show what's being
-   > promoted and require a confirm (unless a `--yes` or whatever is passed) that
+   > write and asks — unless the approval flag is passed.** *"If we show what's
+   > being promoted and require a confirm (unless a `--yes` or whatever is passed) that
    > is enough."* So the blast radius is disclosed at the moment of the act rather
    > than defended by making every invocation type `--to`, which is the same
    > shape [OQ-CO2](#OQ-CO2) took for the unset state: **feedback at the point of
@@ -1176,8 +1176,29 @@ Observable outcomes that mean this was built as designed:
    >   keys; omitting it means all of them. Either way the confirmation lists what
    >   was selected — *"we'll want a confirm of what we've selected before running
    >   it"* — so "all" is never silently wider than the user pictured.
-   > - **`--yes` is the only way past it**, and it is the scripting path, not a
-   >   default. `--plan` remains the read-only form for looking without deciding.
+   > - **One approval flag is the only way past it**, and it is the scripting
+   >   path, not a default. `--plan` remains the read-only form for looking
+   >   without deciding.
+   >
+   > ⚠ **That flag is NOT `--yes`** (revised in review: *"I don't love `--yes`,
+   > isn't there a more standard option name for this?"*). `--yes`/`-y` is the most
+   > standard name across tools generally — and **this repo has already declined
+   > the generic form, on the record.** `config.AcceptConfigChangesFlag`
+   > (`internal/config/snapshot.go:81`) is spelled **`--accept-config-changes`**,
+   > and its docstring rules why consent here has the shape it does:
+   >
+   > > A FLAG AND NOT AN ENVIRONMENT VARIABLE, deliberately […] Those suppress a
+   > > DIAGNOSIS; this one grants an APPROVAL. An env var is inherited by every
+   > > child process and survives in a shell for the rest of a session — precisely
+   > > the property a per-launch approval must not have.
+   >
+   > Both halves apply verbatim to promote: it grants an approval, and an
+   > inheritable env var would be the wrong vehicle. The house pattern is
+   > **`--accept-<what is being approved>`**, so promote's is
+   > **`--accept-promotion`**. It also keeps `--force` free for its existing job —
+   > overriding a *refusal* (`refuseHostSideWrite`) — which is a different act from
+   > confirming an intended one, and collapsing the two is how `--force` becomes
+   > the flag people paste without reading.
 
 5. 💬 **OQ-CO5: In-jail promote — refuse with instructions, or file a request?**
    [§5.5](#55-where-promote-may-run) establishes promote as host-side. But the
@@ -1289,8 +1310,48 @@ Observable outcomes that mean this was built as designed:
     never wrote: two shipped surfaces compose from it today, and users have real
     settings in those files.
 
+    **Shape proposed in review 2026-09-10, and it resolves per ownership value —
+    which is the answer to "is this too complex?" being *no*:**
+
+    | `host_management` | Host layer | Why |
+    | :--- | :--- | :--- |
+    | `none` | **On by default, user-selectable off, per surface** | The file is entirely the user's, so importing it is meaningful. Selectable because *"it's not always natural to involve the host file"* — a capability the pack declares, a choice the user makes. |
+    | `assert` | **Import only the keys the user owns** | The file is shared. Importing it whole re-imports yolo's own asserted keys. |
+    | `own` | **Refused** | The file is yolo's derived output; reading it back is a loop with no source. |
+
+    ⚠ **The `assert` row is the one that sounds expensive and is not, because the
+    data is already on disk and nothing reads it.** The host provenance record
+    ([§2.3](#23-the-notches-and-what-each-keeps-on-disk)) records, per key, which
+    layer set it — measured there as:
+
+    ```text
+    enabledPlugins  computed
+    env             computed
+    permissions     managed
+    skipDangerousModePermissionPrompt  managed
+    verbose         host
+    ```
+
+    `verbose` is the user's; the rest is yolo's. So *"read in the non-managed
+    keys"* is exactly **"import the keys whose provenance is `host`"** — a filter
+    over a record that already exists. [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications)'s
+    evidence item (2) already says this record is *"recorded and unused"*; this is
+    the consumer it has been waiting for. It is a filter, not a new mechanism.
+
+    ⚠ **And filtering may fix a staleness path, not merely a tidiness one.** Two
+    measured facts: the host render composes the surface's `Defaults` layer
+    (`internal/entrypoint/hostrender.go:211,1021`), and in the jail the `host`
+    layer sits **above** `defaults` ([§2.1](#21-the-layer-stack)). Together those
+    mean a pack default yolo wrote into the host file returns to the jail
+    *outranking the pack's own current default* — so a changed default would be
+    shadowed by yesterday's copy until the next `host apply`. **This follows from
+    the two facts rather than having been reproduced**, and it wants a test before
+    anyone leans on it; filtering to user-owned keys closes it either way.
+
     **Answer:**
-    > _(empty — fill in when decided)_
+    > _(empty — fill in when decided; the three-row table above is the shape under
+    > review, and its `assert` row is a filter over an existing record rather than
+    > new machinery)_
 
 10. 💬 **<a id="OQ-CO10"></a>OQ-CO10: Is `reads-host` coverage a decision, and
     should the grant name a path at all?** Opened in review 2026-09-10 from
@@ -1455,7 +1516,7 @@ same rounds — and [OQ-CO11](#OQ-CO11) is upstream of [OQ-CO10](#OQ-CO10).**
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | [OQ-CO1](#OQ-CO1) | **Three values** (`none`/`assert`/`own`). `assert` is shipped behavior with real users, so collapsing it is either a regression or a forced escalation to `own`. [OQ-CO2](#OQ-CO2) pays down its cost by removing the prompt that would have explained it. | 2026-09-10 | [§4.1](#41-the-key) |
-| [OQ-CO4](#OQ-CO4) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--yes` is the only way past it. Same shape as CO2 — feedback at the point of the act beats ceremony in front of it. | 2026-09-10 | [§5.1](#51-surface) |
+| [OQ-CO4](#OQ-CO4) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it (NOT `--yes` — the repo's consent pattern names what is approved). Same shape as CO2 — feedback at the point of the act beats ceremony in front of it. | 2026-09-10 | [§5.1](#51-surface) |
 | [OQ-CO2](#OQ-CO2) | **Neither prompt nor notice** — the unset state is `assert`, silently. Each value explains itself at the point of the act; `apply --sealed` is the one place an unset key bites. *Against the leaning.* | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
 | [OQ-CO3](#OQ-CO3) | **Yes, under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render byte-identical. The refusal stays for `none` and `assert`. | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-why-the-adoption-diff-is-empty) |
