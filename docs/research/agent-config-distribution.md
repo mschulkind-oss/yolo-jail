@@ -501,8 +501,8 @@ Two prism features a standalone product would have to keep are documented as
 deliberately absent, which matters if extraction is ever pitched: there is **no Lua
 helper library** (yolo's only contribution to the transform is parsing) and
 per-keypath `append` merge is an open TODO, because the pure engine has no
-manifest/keypath context (`internal/agentcfg/engine.go:51-54` — re-verified 2026-08-23; the
-`TODO(append-strategy, §4)` is still there). **It is the same question as `E5` in
+manifest/keypath context ([`engine.go`](../../internal/agentcfg/engine.go) — re-verified
+2026-08-23; its `append-strategy` TODO is still there). **It is the same question as `E5` in
 [`../plans/BACKLOG.md`](../plans/BACKLOG.md) §Stage E**, whose leaning is *don't build it until the
 named trigger fires* — so this is one decision with two write-ups, not two gaps.
 
@@ -513,9 +513,11 @@ as the whole bill:
 - **No black-box test suite exists.** All five `internal/agentcfg` test files are
   `package agentcfg`, i.e. white-box — they reach unexported layer constants and
   helpers. A published API would start with zero tests written against it.
-- **The Lua global is named `yolo`** (`luahook/vm.go:176`, `sandbox.go:65`). A
+- **The Lua global is named `yolo`** ([`luahook/derive.go`](../../internal/agentcfg/luahook/derive.go)). A
   standalone tool either ships branded `yolo` or renames it and breaks every existing
-  `config.lua`.
+  `derive.lua`. (It was also the global a user's `config.lua` saw, until the Lua config
+  transform was removed on 2026-09-11 —
+  [`../design/lua-transform-removal.md`](../design/lua-transform-removal.md).)
 - **`manifest.Surface` has no json tags and no schema version**, both prerequisites
   for the data-loaded registry the manifest's own docstring anticipates
   (`manifest.go:48-52`).

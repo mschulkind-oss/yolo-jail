@@ -32,14 +32,19 @@ IDs (`CFP-*`) minted 2026-08-23.
 
 1. 💬 **CFP-1: Does `:ro` for a Derived surface need host-side composition — and is that
    per-surface or blanket?** Yes to the first half, and it is the cost nobody has priced: you
-   cannot compose into a `:ro` mount, so a `:ro` posture gives up `managed`/`defaults`/`transform`
+   cannot compose into a `:ro` mount, so a `:ro` posture gives up `managed`/`defaults`
    and the overlay for that surface and moves its rendering to the host CLI. **This is the
    question `E2` (`readonly` as a real `:ro` mount) turns into the moment it is answered yes**, so
    it decides how expensive `E2` actually is.
 
    _Leaning:_ per-surface, not blanket. For a pure-overwrite computed surface the trade is clean —
-   there is no transform to lose. For anything carrying a Lua transform it is not, and a blanket
-   rule would silently downgrade those.
+   there is nothing layered to lose. ~~For anything carrying a Lua transform it is not, and a
+   blanket rule would silently downgrade those.~~
+
+   **2026-09-12: the second half of that leaning has lost its referent.** The Lua transform is
+   removed ([`lua-transform-removal.md`](lua-transform-removal.md)), so no surface carries one and
+   the per-surface-vs-blanket call now turns on `managed`/`defaults` and the overlay alone.
+   Whoever answers CFP-1 owns that re-weighing; this note does not make it.
 
    **Answer:**
    > _(empty — fill in when decided)_

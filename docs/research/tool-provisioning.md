@@ -60,7 +60,7 @@ numbers are "look here", not eternal truth.
   if a workspace pins `node` in `mise.toml` does a mise node reappear and win for
   PATH-resolved commands (mise shims sit before `/bin`); MCP servers → the **baked** `/bin/node` (the wrapper
   execs it by absolute path). This split is deliberate and documented in
-  `../reference/mise-node-dynamic-linking.md`.
+  [`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md).
 - **A mise runtime is a per-workspace opt-in, not a default.** yolo's mise
   defaults (`miseBaseTools`) are now **empty** — node, python, and go are all
   baked, so installing a second copy is pure duplication (and was the source of
@@ -146,6 +146,10 @@ mise manages the *interactive* / *project* toolchains. Two config scopes:
   > the `mise_tools` config key becomes just "the workspace layer for that
   > surface." A user who needs more than a merge (drop a default tool, rewrite a
   > version) uses a Lua transform instead of yolo growing another special key.
+  > *(The transform was removed on 2026-09-11 —
+  > [`../design/lua-transform-removal.md`](../design/lua-transform-removal.md). The
+  > declarative answer to the same need is a `null` tombstone from a declared layer,
+  > which deletes a key the layers below supplied.)*
   > **The base-tool defaults themselves still have to live somewhere** — they're
   > the `defaults` layer's data — but the *merge machinery* and the env-var
   > plumbing are what the prism replaces. This is the direct answer to "why do we
@@ -262,7 +266,7 @@ then execs the **baked** `/bin/node`.
   `mise.toml`) — the legitimate "this project needs a specific version" case,
   no image rebuild. That override is the *only* thing that reintroduces a non-nix
   node and its `LD_LIBRARY_PATH` dependency — which is exactly the case
-  **nix-ld** (`../reference/mise-node-dynamic-linking.md` §Resolution) makes robust:
+  **nix-ld** ([`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md) §Resolution) makes robust:
   once nix-ld is the `/lib64` interpreter, the pinned mise node links `libstdc++`
   env-free, so overriding node versions is safe even under a scrubbed environment.
   Until nix-ld lands, the baked image env + the MCP wrappers cover it for the
@@ -376,7 +380,7 @@ from the image:
   installed lazily so boot stays fast (`shell.go:164-166`).
 
 The deeper reason the mise/baked *node* duality can't just be collapsed is the
-loader wiring analyzed in `../reference/mise-node-dynamic-linking.md`: the image
+loader wiring analyzed in [`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md): the image
 points FHS binaries at a Nix `ld.so` that ignores `/etc/ld.so.cache`, and the mise
 node binary is host-shared (can't be patchelf'd), so `LD_LIBRARY_PATH` (baked env
 + wrappers) is the only runtime lever. The doc's accepted direction is **nix-ld**
@@ -429,5 +433,5 @@ before restarting.
 - PATH assembly: `internal/entrypoint/shell.go:108-110,159`,
   `internal/entrypoint/boot.go:356,489-491`.
 - Node-binary duality + loader analysis + nix-ld direction:
-  `../reference/mise-node-dynamic-linking.md`.
+  [`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md).
 - mise shared-store host↔jail pitfalls: `docs/research/mise-host-jail-path-mismatch.md`.

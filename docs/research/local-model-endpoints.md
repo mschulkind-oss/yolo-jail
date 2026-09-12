@@ -841,12 +841,16 @@ provider today.
 ### The layer model, and the precedent that constrains this
 
 Composition order, ascending
-(`internal/agentcfg/compose.go:354-379`, `:445-489`):
+([`compose.go`](../../internal/agentcfg/compose.go)):
 
 ```
 defaults < host < workspace < config-overlay:<pack> < overlay(capture) < computed
-        → transform (Lua, post-merge) → managed (re-enforced last, always wins)
+        → managed (re-enforced last, always wins)
 ```
+
+A post-merge Lua `transform` sat between `computed` and `managed` until 2026-09-11
+([`lua-transform-removal.md`](../design/lua-transform-removal.md)); the derive Lua this
+section goes on to use is the other half of that package and is untouched.
 
 `computed` — what `derive.lua` returns — sits **above** the captured in-jail
 overlay on purpose: *regenerate, don't reconcile*.
@@ -1076,7 +1080,7 @@ Carry these forward; do not build on them without re-checking.
 ## Open Questions
 
 > IDs use the `LM` prefix (minted 2026-08-23; the only other `OQ-LM*` in the
-> repo is `docs/plans/roadmap.md:689`, which points back at these). They were bare `OQ-1`…`OQ-6` until then, which collided with the
+> repo is `docs/plans/roadmap.md:689`, which points back at these). They were bare numeric ids until then, which collided with the
 > [`OQ-1`](../design/agent-auth-modes.md#12-decision-ledger)…[`OQ-9`](../design/agent-auth-modes.md#12-decision-ledger) in `docs/design/agent-auth-modes.md` — the very doc [OQ-LM1](#oq-lm1) is
 > about. Nothing outside this file cited the old spellings.
 

@@ -50,8 +50,10 @@ sharing is a git ref, so sharing needs no PR and rollback is a ref change.
 mechanism — *a pack contributes a **layer** to a prism surface*
 ([agent-config-packs.md §6.1](../plans/agent-config-packs.md)). Specifically the
 `workspace` layer, which is implemented, tested, and has **zero non-test producers**
-today. It folds above `defaults` and `host` and below `overlay`/`computed`/`transform`/
-`managed` — meaning a company pack can set a default a user then overrides in-jail, and
+today. It folds above `defaults` and `host` and below `overlay`/`computed`/`managed`
+(a Lua `transform` layer sat between the last two until 2026-09-11 —
+[`lua-transform-removal.md`](lua-transform-removal.md)) — meaning a company pack can set a
+default a user then overrides in-jail, and
 can never overrule what yolo asserts. That ordering is not a coincidence; it is what makes
 packs safe to accept from a colleague's branch.
 
@@ -443,7 +445,7 @@ are better candidates than agent support is.
 - **Mount assembly, the OAuth broker.** These are the security model.
 
 **`AgentSpec.HostFiles` — RESOLVED 2026-07-27, and the two docs disagreed until now.**
-This section said it "must stay in Go"; `three-decisions.md` §0.1 (archived 2026-09-09; the ruling lives in [`pack-system.md`](../reference/pack-system.md#the-packs-key))
+This section said it "must stay in Go"; `three-decisions.md` (archived 2026-09-09; the ruling lives in [`pack-system.md`](../reference/pack-system.md#the-packs-key))
 said user-scope-only packs dissolve the tension. Both were half right, and the missing
 distinction is **which kind of pack**:
 

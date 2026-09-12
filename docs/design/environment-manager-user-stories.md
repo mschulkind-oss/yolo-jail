@@ -20,7 +20,7 @@ document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. I
 > | Story defect | Verdict, verified 2026-08-23 | Evidence |
 > |---|---|---|
 > | **Story 1 Gap 1** — the `host` layer reads an undeclared file | **STILL LIVE**, and *worse* than the story says | `HostSource` at `internal/agentcfg/manifest/manifest.go:142`; nothing in `describe` names it, and `config ls`'s `host` column comes from a hardcoded 2-entry map (`internal/cli/configls.go:196-202`) |
-> | **Story 1 Gap 2** — capture outranks the definition | **PARTLY LIVE**; the story overstates it, and `--sealed` now catches it | Real order at `internal/agentcfg/compose.go:357-379`: capture loses to `computed`/`transform`/`managed`. `applySealed` refuses on outstanding captures (`internal/cli/apply.go:617-651`) |
+> | **Story 1 Gap 2** — capture outranks the definition | **PARTLY LIVE**; the story overstates it, and `--sealed` now catches it | Real order at [`compose.go`](../../internal/agentcfg/compose.go): capture loses to `computed`/`managed`. `applySealed` refuses on outstanding captures (`internal/cli/apply.go:617-651`) |
 > | **Story 1 Gap 3** — `yolo-jail.local.jsonc` | **STILL LIVE** as an input; now refused by `--sealed` | `internal/config/config.go:38`, auto-merge at `internal/config/load.go:205-221`; refusal at `internal/cli/apply.go:623-630` |
 > | **Story 2 step 3** — macos-user renders 0 surfaces (**G3**) | **FIXED 2026-08-12** (`a39628ad`) | packs staged *above* the backend dispatch at `internal/cli/run/run.go:103`; `YOLO_PACK_ROOT` set at `internal/macosuser/runplan.go:208-211`; tests `internal/cli/run/packstagedispatch_test.go:87,131` |
 > | **Story 2 step 6** — host-side `config reset` data loss (**G1**) | **FIXED 2026-08-01** (`1220ac55`) | `refuseHostSideWrite` at `internal/cli/configdiff.go:84-93`, wired at `:645`; regression test `configdiff_test.go:172` |
@@ -160,13 +160,18 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    > [!WARNING]
    > **Gap 2 is PARTLY LIVE, and this story overstates it — verified 2026-08-23.** The capture
    > overlay does **not** outrank *every* declared layer. The real ascending precedence
-   > (`internal/agentcfg/compose.go:357-379`) is:
+   > ([`compose.go`](../../internal/agentcfg/compose.go)) is:
    >
    > `defaults` → `host` → `workspace` → `config-overlay:<pack>` → **`overlay` (capture)** →
-   > `computed` → `transform` (Lua) → `managed` (enforced as a floor)
+   > `computed` → `managed` (enforced as a floor)
    >
-   > So capture beats `defaults`/`host`/`workspace`/pack overlays and **loses** to `computed`,
-   > `transform` and `managed` — deliberately, so a stale in-jail edit cannot defeat
+   > *(A Lua `transform` layer sat between `computed` and `managed` when this note was written;
+   > it was removed on 2026-09-11 — [`lua-transform-removal.md`](lua-transform-removal.md) — so
+   > this note and the three others in this doc that enumerated it now name `computed` and
+   > `managed` alone. Nothing else about the ordering moved.)*
+   >
+   > So capture beats `defaults`/`host`/`workspace`/pack overlays and **loses** to `computed`
+   > and `managed` — deliberately, so a stale in-jail edit cannot defeat
    > regenerate-don't-reconcile (`compose.go:65-77`; pinned by
    > `internal/agentcfg/staterender_test.go:337`). Maya's actual example survives intact, because
    > `enabledPlugins` is a plain declared key rather than a `managed` one. The shipped user-facing
@@ -930,7 +935,7 @@ jail at all, and killing it would break the feature packs exist to provide.
 > names a host layer at all (Gap 1's verdict). Two corrections to the table itself:
 >
 > - The **capture overlay** row's "outranks everything" is wrong as a claim about the compose
->   stack — it loses to `computed`/`transform`/`managed` (`internal/agentcfg/compose.go:357-379`).
+>   stack — it loses to `computed`/`managed` ([`compose.go`](../../internal/agentcfg/compose.go)).
 >   It remains an **undeclared** input, which is what the row is actually for, so the tier is
 >   right and the parenthetical is not.
 > - The **`host` layer** row is under a standing decision to be *removed*, not reported: design
@@ -992,8 +997,8 @@ saying what moved and what the question still decides. **IDs are cited from
    promote` does not exist** (`internal/cli/config.go:33-60`: `ls, render, diff, reset, capture,
    drift, dump`), so capture is still a *winning layer* with no promotion path, and the refusal
    message at `apply.go:648-652` advises a verb that is not there. Two corrections to the question's
-   premise, neither of which retires it: capture loses to `computed`/`transform`/`managed`
-   (`internal/agentcfg/compose.go:357-379`), so "outranks every declared layer" is true only of
+   premise, neither of which retires it: capture loses to `computed`/`managed`
+   ([`compose.go`](../../internal/agentcfg/compose.go)), so "outranks every declared layer" is true only of
    the lower half of the stack; and the closure hole is now *detectable* even though it is not
    closed. **Q1 still decides the staging-area-vs-layer question**, which is the part nothing has
    built.

@@ -170,8 +170,11 @@ Hence: **`cache_relocations` is read directly from `paths.UserConfigPath()` at
 assemble time and never from the merged config.** Workspace scope becomes
 inexpressible by construction; the validation error is defense-in-depth against
 silent no-ops, not the security boundary. This is the *mechanism* the Lua
-transform uses (fixed path, `internal/cli/config.go:224`) — note it is not the
-same *policy*, since that loader deliberately reads both scopes.
+transform used — a fixed path, never the merged config — though never the same
+*policy*, since that loader deliberately read both scopes. The transform and its
+loader were removed on 2026-09-11
+([`lua-transform-removal.md`](../design/lua-transform-removal.md)), which changes
+nothing here: `cache_relocations` reads its own fixed path for its own reason.
 
 **Correction (found in review, 2026-07-21).** An earlier draft of this table
 claimed the jail's `~/.config` is purely a per-workspace overlay, so the host
