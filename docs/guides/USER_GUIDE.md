@@ -367,8 +367,9 @@ Dropping a pack removes its launcher and its staged files. **It has never remove
 installed** — so a jail is the union of every pack it has ever selected, and an npm package or a
 `~/.local/bin` binary can outlive the config line that asked for it by months. `yolo programs ls`
 names those *orphans* with their sizes (measured 448.6 MB in this repo's own jail), plus anything
-the install receipts and the LSP sentinel now disagree with the disk about. Every boot prints the
-same orphan list as `boot catalog:` lines.
+the install receipts and the LSP sentinel now disagree with the disk about. Every boot COUNTS the
+same orphans, in one `boot catalog:` line, and writes the list itself to
+`<workspace>/.yolo/boot.log`.
 
 Removal is deliberately awkward, in three ways:
 

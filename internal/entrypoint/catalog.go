@@ -136,29 +136,79 @@ func InstalledOrphans(e *Env) []Orphan {
 }
 
 // CatalogInstalledOrphans reports every installed package, ~/.local/bin entry and $GOBIN
-// binary that no selected pack, preset or LSP recipe declares — one line each, naming the
-// orphan and, for a file, its size.
+// binary that no selected pack, preset or LSP recipe declares: ONE line on the launch
+// terminal stating how many there are, and the list — one line each, naming the orphan and,
+// for a file, its size — in the boot log.
 //
 // It is the boot's RENDERER for InstalledOrphans and, when the user has turned the option
 // on, the caller of the removal act. Autoprune is OQ-PD4's third clause and it is DEFAULT
 // OFF: without the option this function is exactly what it was before the act existed —
-// three loops that print. See autopruneOrphans for what turning it on costs.
+// three loops that report. See autopruneOrphans for what turning it on costs.
+//
+// # Why the list moved off the terminal
+//
+// These are docs/design/report-tiers.md §4.7's NOTCH FACTS WITH A STATE DEPENDENCY: true
+// until the user does something, and repeated until then. This jail has printed the same
+// eight lines at every launch since the packages were installed (measured 2026-09-10, §2.4)
+// — a launch stream where a third of the boot's lines never change is one where the lines
+// that DO change are skimmed past. §4.7 rules the compression: one line, with the list going
+// to boot.log through the split e.note already exists for (Env.LogOnly).
+//
+// THE SET IS NOT COMPRESSED, only the lines. Every orphan is still named, in the file that
+// the very same launch writes, and the summary says where — which is what keeps this a
+// change of density rather than a deletion. It is also why the count is the summary's
+// subject: a number the reader can compare against the last launch's is the one fact eight
+// invariant lines were failing to deliver.
+//
+// NO QUIET FLAG FOLLOWS FROM THIS (OQ-RO3). The compression IS the density control for the
+// launch stream; a flag that could hide a line is refused by P4, which §4.7 promotes from
+// three docstrings that each reached it independently to the written rule.
 func CatalogInstalledOrphans(e *Env) {
 	orphans := InstalledOrphans(e)
-	for _, o := range orphans {
-		switch o.Class {
-		case OrphanNpm:
-			e.warn(catalogPrefix + "npm package installed but not declared by any selected " +
-				"pack, preset or LSP recipe: " + o.Display)
-		case OrphanLocalBin:
-			e.warn(catalogPrefix + o.Display + " installed but not declared by any " +
-				"selected pack" + o.Size)
-		case OrphanGoBin:
-			e.warn(catalogPrefix + o.Display + " installed but not declared by any " +
-				"selected pack or LSP recipe" + o.Size)
+	if len(orphans) > 0 {
+		e.warn(catalogSummary(len(orphans)))
+		for _, o := range orphans {
+			e.note(catalogPrefix + catalogLine(o))
 		}
 	}
 	autopruneOrphans(e, orphans)
+}
+
+// catalogSummary is the one line the launch terminal gets. It states the finding, the count
+// and where the names are — never a recommendation, because nothing removes these by ruling
+// (OQ-PD4) — and it names the two verbs that act, so a reader who wants the list is one
+// command away rather than one file away.
+func catalogSummary(n int) string {
+	return fmt.Sprintf("%s%d installed %s %s declared by no selected pack, preset or LSP "+
+		"recipe — boot.log names them (`yolo programs ls` for sizes; `programs.autoprune` "+
+		"removes them)", catalogPrefix, n,
+		catalogPlural(n, "program", "programs"), catalogPlural(n, "is", "are"))
+}
+
+// catalogPlural picks a word for n. Local to this file: the entrypoint is the boot's
+// dependency-light half and one call site does not earn a shared helper.
+func catalogPlural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// catalogLine is one orphan's line, in the boot log. The three classes state DIFFERENT
+// declaring sets — an npm package can be claimed by an MCP preset or an LSP recipe, a
+// ~/.local/bin entry only by a pack — and saying so per class is the half of the report that
+// tells a reader which declaration they would have to add to keep it.
+func catalogLine(o Orphan) string {
+	switch o.Class {
+	case OrphanNpm:
+		return "npm package installed but not declared by any selected pack, preset or " +
+			"LSP recipe: " + o.Display
+	case OrphanLocalBin:
+		return o.Display + " installed but not declared by any selected pack" + o.Size
+	case OrphanGoBin:
+		return o.Display + " installed but not declared by any selected pack or LSP recipe" + o.Size
+	}
+	return o.Display
 }
 
 // catalogNpmOrphans compares the global node_modules tree against every npm package name

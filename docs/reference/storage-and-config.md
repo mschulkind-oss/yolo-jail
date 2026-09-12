@@ -225,12 +225,18 @@ Each workspace carries a gitignored `.yolo/` directory. Its two documented halve
   in the directory name). **The contents are pack data**, not a fixed list: which state
   dirs exist follows from which packs are selected.
 - **Logs and per-launch config** — `config-assembled.json` and `config-boot.json` as
-  above, `startup.log` from the last new-container provisioning run, and `boot.log` (plus
-  one rotation) which carries everything the entrypoint said.
+  above, `startup.log` from the last new-container provisioning run, `boot.log` (plus one
+  rotation) which carries everything the entrypoint said, and `launch.log` which carries
+  everything the host launcher said.
 
 `boot.log` exists because it **outlives the container**: a boot that *refused* leaves no
 jail to ask, and the provisioning log is written by a shell wrapper that only runs on a
-fresh container, so it cannot cover an exec or a refusal.
+fresh container, so it cannot cover an exec or a refusal. `launch.log` is the other half of
+the same launch — the flake source, the nix build, image delivery, the pack disclosures —
+which was written down nowhere until it existed. The two retentions differ on purpose: a
+jail boots once per launch, so `boot.log` keeps one generation aside and answers "did it
+work last time?", while a host accumulates launches, so `launch.log` appends one run block
+per launch and trims to the newest 50, exactly as `host-perf.log` does beside it.
 
 First boot for a new workspace installs tools into empty overlay dirs; later boots reuse
 what is there.
@@ -353,6 +359,7 @@ the only place the values themselves are stated.
 | Launch lock | `<machine storage>/locks/<container-name>.lock` | `internal/cli/run/flock.go` |
 | Storage layout version | 2 | `storage.StorageLayoutVersion` |
 | Boot log, and its one rotation | `<workspace>/.yolo/boot.log`, `boot.log.prev` | `internal/entrypoint/bootlog.go` |
+| Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/launch.log` | `internal/cli/run/launchlog.go` |
 | Provisioning log (fresh containers only) | `<workspace>/.yolo/startup.log` | `internal/cli/run/command.go` |
 | Host launch-wrapper dir (the one a user prepends) | `<machine storage>/bin/wrap` | `paths.WrapDir` |
 | mise store, in-jail | `/mise`; `yolo-mise-data-v2` named volume on macOS | `internal/cli/run/assemble.go` |

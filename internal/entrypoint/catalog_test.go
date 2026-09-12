@@ -59,13 +59,27 @@ func seedLocalBin(t *testing.T, home string, size int, names ...string) {
 	}
 }
 
+// runCatalog returns the whole report — the terminal line AND the boot-log list — because
+// what the tests below are about is the FINDING SET: which bytes the catalog calls orphaned
+// and which it spares. Which sink each half lands in is one property, pinned once by
+// TestBootCatalogSaysHowManyAndLogsWhich; asserting it in every test here would be nine
+// copies of one fact and would make a spared-package regression read as a routing change.
 func runCatalog(t *testing.T, vars map[string]string) string {
 	t.Helper()
-	var out strings.Builder
+	term, logOnly := runCatalogSplit(t, vars)
+	return term + logOnly
+}
+
+// runCatalogSplit returns the two halves separately: what the launch terminal sees, and
+// what lands in boot.log through Env.LogOnly.
+func runCatalogSplit(t *testing.T, vars map[string]string) (string, string) {
+	t.Helper()
+	var term, logOnly strings.Builder
 	e := NewEnv(vars)
-	e.Stderr = &out
+	e.Stderr = &term
+	e.LogOnly = &logOnly
 	CatalogInstalledOrphans(e)
-	return out.String()
+	return term.String(), logOnly.String()
 }
 
 // TestCatalogNamesNpmOrphansAndSparesEveryDeclaredSource walks the whole declared union in
@@ -131,7 +145,8 @@ func TestCatalogSkipsNpmStagingDirsAtBothLevels(t *testing.T) {
 		"leftover-agent",        // a real orphan, so silence here is not the wrong pass
 	)
 
-	got := runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	term, listed := runCatalogSplit(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	got := term + listed
 
 	if !strings.Contains(got, "leftover-agent") {
 		t.Errorf("the real orphan was not cataloged:\n%s", got)
@@ -142,8 +157,14 @@ func TestCatalogSkipsNpmStagingDirsAtBothLevels(t *testing.T) {
 				"declaration can ever match it:\n%s", staging, got)
 		}
 	}
-	if lines := strings.Split(strings.TrimSpace(got), "\n"); len(lines) != 1 {
-		t.Errorf("want exactly the one real orphan, got %d lines:\n%s", len(lines), got)
+	// The LIST is where one-line-per-orphan lives now (§4.7 moved it to boot.log), so this
+	// is the half that says a staging dir produced no finding — and the count on the
+	// terminal is the other half of the same claim.
+	if lines := strings.Split(strings.TrimSpace(listed), "\n"); len(lines) != 1 {
+		t.Errorf("want exactly the one real orphan, got %d lines:\n%s", len(lines), listed)
+	}
+	if !strings.Contains(term, "1 installed program is") {
+		t.Errorf("the count must agree with the list: %s", term)
 	}
 }
 
@@ -432,18 +453,82 @@ func TestCatalogLinesReadAsACatalog(t *testing.T) {
 	seedLocalBin(t, home, 8, "huge-orphan")
 	seedGoBin(t, home, 8, "orphan-go-tool")
 
-	got := runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
-	lines := strings.Split(strings.TrimSpace(got), "\n")
+	term, logOnly := runCatalogSplit(t,
+		map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	lines := strings.Split(strings.TrimSpace(logOnly), "\n")
 	if len(lines) != 3 {
-		t.Fatalf("want one line per orphan, got %d:\n%s", len(lines), got)
+		t.Fatalf("want one logged line per orphan, got %d:\n%s", len(lines), logOnly)
 	}
-	for _, line := range lines {
+	for _, line := range append(lines, strings.TrimSpace(term)) {
 		if !strings.HasPrefix(line, catalogPrefix) {
 			t.Errorf("every line must be prefixed so the report reads as one thing: %q", line)
 		}
-		if !strings.Contains(line, "not declared") {
+		if !strings.Contains(line, "declared by no") && !strings.Contains(line, "not declared") {
 			t.Errorf("every line must say what the finding IS: %q", line)
 		}
+	}
+}
+
+// TestBootCatalogSaysHowManyAndLogsWhich is docs/design/report-tiers.md §4.7's compression,
+// and the ONE test that pins which sink each half goes to.
+//
+// The eight lines this jail printed at every launch (§2.4) are notch facts with a state
+// dependency: true until the user acts, repeated until then. §4.7 compresses them to one —
+// the count, and where the names are — with the list going to boot.log through the split
+// Env.LogOnly already exists for.
+//
+// BOTH HALVES ARE ASSERTED, because each is a way to get this wrong that the other cannot
+// catch. A terminal that names an orphan is the repetition coming back; a boot log that does
+// not name one is the compression having DELETED the set rather than the lines, which §4.7
+// forbids in as many words.
+//
+// MUTATION: change the loop body back to e.warn and this goes red on the terminal half;
+// change it to e.warn AND drop the summary and it goes red on the log half.
+func TestBootCatalogSaysHowManyAndLogsWhich(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	seedNpm(t, home, "leftover-agent")
+	seedLocalBin(t, home, 8, "huge-orphan")
+	seedGoBin(t, home, 8, "orphan-go-tool")
+
+	term, logOnly := runCatalogSplit(t,
+		map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+
+	if got := strings.Count(strings.TrimSpace(term), "\n"); got != 0 {
+		t.Errorf("the launch terminal gets ONE line, got %d:\n%s", got+1, term)
+	}
+	if !strings.Contains(term, "3 installed programs") {
+		t.Errorf("the one line must state the count — it is the fact eight invariant lines "+
+			"could not deliver:\n%s", term)
+	}
+	if !strings.Contains(term, "boot.log") {
+		t.Errorf("the one line must say where the names went, or the compression reads as a "+
+			"deletion:\n%s", term)
+	}
+	for _, name := range []string{"leftover-agent", "huge-orphan", "orphan-go-tool"} {
+		if strings.Contains(term, name) {
+			t.Errorf("%q is named on the launch terminal — the list is the log's:\n%s", name, term)
+		}
+		if !strings.Contains(logOnly, name) {
+			t.Errorf("%q is in neither the line nor the log: the set was compressed, not the "+
+				"lines:\n%s", name, logOnly)
+		}
+	}
+}
+
+// TestBootCatalogIsSilentOnBothSinksWithNoOrphans: a clean home says nothing at all, which
+// is what keeps the one line above worth reading. The old shape got this for free (an empty
+// loop prints nothing); a summary line does not, and "0 installed programs are declared by
+// no pack" on every healthy launch is exactly the noise §4.7 is removing.
+func TestBootCatalogIsSilentOnBothSinksWithNoOrphans(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	seedNpm(t, home, "@scope/declared") // declared by the fixture pack: not an orphan
+	seedLocalBin(t, home, 8, "declared-native")
+
+	term, logOnly := runCatalogSplit(t,
+		map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	if term != "" || logOnly != "" {
+		t.Errorf("a home with nothing undeclared must produce no report at all\nterminal:\n%s\nlog:\n%s",
+			term, logOnly)
 	}
 }
 
