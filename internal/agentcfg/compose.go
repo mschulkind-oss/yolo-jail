@@ -87,10 +87,14 @@ type Inputs struct {
 	// It is a SKELETON, not a layer: a map mirroring the marked paths, where a
 	// `nil` leaf marks "null here" and an object value means "something below
 	// this key is marked". It never merges. After the fold and after
-	// enforceManaged, each marked path is set to nil ONLY where the composed
-	// config has no value there and no layer mentions it at that path — so a
-	// managed floor, a computed tombstone and an ordinary layer value all
-	// outrank it, and it can only ever ADD a key no layer spoke for.
+	// enforceManaged, each marked path is set to nil wherever no layer that
+	// OUTRANKS THE CAPTURE OVERLAY mentions it — a `computed` tombstone and a
+	// `managed` floor win; `defaults`, `host`, `workspace` and every
+	// `config-overlay` LOSE to it, exactly as they lose to a non-null captured
+	// value. See overlayIdx below for why the line falls there and what it cost
+	// to put it anywhere else. ⚠ A value already standing at the path is NOT a
+	// veto: it is there precisely because some layer supplied it, and the question
+	// of which layer has already been asked.
 	//
 	// WHY IT CANNOT BE A LAYER, which is the whole reason this field exists.
 	// Every layer folds through RFC 7386, where a null under a key DELETES that
@@ -433,8 +437,17 @@ func Compose(in Inputs) (*Result, error) {
 	// meant to record. MEASURED on a real jail boot 2026-09-12, and invisible to the
 	// host-notch tests, which only ever exercise the adoption branch. It also self-heals
 	// an overlay an older yolo already polluted, which is why the tombstone is left in
-	// the sidecar rather than swept: inert, and removing durable state deserves its own
-	// argument.
+	// the sidecar rather than swept: removing durable state deserves its own argument.
+	//
+	// ⚠ THE TOMBSTONE IS INERT FOR THE RENDER AND NOT FOR THE REPORT, and this comment
+	// claimed both until it was measured on 2026-09-12. `yolo config diff` and
+	// `yolo config promote` read the sidecar directly, share configdiff.go's one
+	// definition `Deleted: v == nil`, and so call a key the file HOLDS a deletion —
+	// promote then offers to write that null into a pack's config-overlay, where it
+	// becomes a real tombstone at every notch. Recorded as live residue in
+	// docs/design/config-ownership-and-promotion.md §11; the fix is provable (a keypath
+	// in Inputs.LiteralNulls means the file HOLDS the key, so it can never be a genuine
+	// deletion record) and only its placement is unruled.
 	overlayIdx := -1
 	for i, l := range preLayers {
 		if l.name == layerOverlay {

@@ -34,9 +34,16 @@ package agentcfg
 //     mark goes with it, which is the capture behaviour a user expects;
 //     `yolo config reset` truncates to the pure render and takes it too, which is
 //     what reset means.
-//   - A literal null cannot be PROMOTED. A pack's `config-overlay` is a merge patch
-//     as well, so no destination could hold it. `yolo config promote` refuses it as
-//     not in the capture, and that refusal is correct rather than a gap.
+//   - A literal null cannot be PROMOTED, because a pack's `config-overlay` is a merge
+//     patch as well and no destination could hold one. ⚠ That is a statement about what
+//     a destination can EXPRESS, not a claim that promote refuses it today — and this
+//     comment made the second claim until it was measured on 2026-09-12. It holds on the
+//     ADOPTION branch, where dropNullLeaves strips the residue's nulls before promote can
+//     see them. On the STEADY-STATE branch the overlay DOES carry `k: null`, because
+//     mergeDiff cannot tell a key added-as-null from a deleted one, so promote reads it as
+//     a captured DELETION and will write it into the local pack — where it deletes the key
+//     the user was trying to set. Live residue in
+//     docs/design/config-ownership-and-promotion.md §11, with the shape of the fix.
 
 // literalNullSkeleton returns the marked-keypath skeleton of a DECODED surface
 // file: a map mirroring m in which a `nil` leaf marks a key the file holds with a
