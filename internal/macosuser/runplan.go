@@ -273,6 +273,26 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		bootstrapEnv.Set("YOLO_HOST_FILES", wire)
 	}
 
+	// YOLO_HOST_LAYERS — the host-layer report, "unsupported" on this backend and only on
+	// this one (packload.HostLayerReport).
+	//
+	// THE CARVE-OUT, DECLARED. A `readsHost` surface's bytes cross on a /ctx mount and this
+	// backend has no mounts, so every host layer is missing here by construction — and the
+	// jail's read fails CLOSED, which would refuse every launch that selects the claude or
+	// pi pack on a Mac with a settings.json. It does not, because severity belongs to the
+	// DISPOSITION: "this backend cannot" is not a delivery fault, it is a backend fact the
+	// launcher knows before it starts, and refusing a user for what yolo cannot do here is
+	// the shape the reachability witness's OQ-R3 already ruled against. What the fail-closed
+	// read is for is the launch that said it delivered and did not.
+	//
+	// The deficiency stays SAID, which is the parity half: the launch names each grant that
+	// did not cross (run.noteMacosUserHostByteGaps) and the agent's own briefing says its
+	// config was rendered from DEFAULTS rather than the human's (run.backendLimits). This
+	// line adds the third reader — the jail itself now knows, instead of inferring it from
+	// an absent file. The same treatment a source-bearing `host_files` entry already gets a
+	// few lines above: filtered with a recorded deficiency, never a refused launch.
+	bootstrapEnv.Set(packload.HostLayerEnvVar, packload.HostLayersUnsupportedWire())
+
 	// YOLO_PACK_ROOT — the same generator-contract variable the container entrypoint
 	// reads off its /ctx/packs mount, pointed at the root-owned staged copy. Without it
 	// RunDarwinBootstrap's LoadJailPacks returns nothing and every pack loop below it

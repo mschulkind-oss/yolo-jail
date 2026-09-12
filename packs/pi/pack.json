@@ -34,6 +34,7 @@
           },
           "name": "settings",
           "path": "~/.pi/agent/settings.json",
+          "readsHost": true,
           "retireOnFirstRender": [
             "yolo-host-synced-settings.json"
           ]
@@ -81,11 +82,6 @@
       "at": ".pi",
       "kind": "state",
       "scope": "workspace"
-    },
-    {
-      "host": ".pi/agent/settings.json",
-      "into": "host-pi/settings.json",
-      "kind": "reads-host"
     }
   ],
   "name": "pi"

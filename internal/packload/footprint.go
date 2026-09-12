@@ -497,6 +497,14 @@ func FootprintOf(p *Pack) Footprint {
 	}
 
 	// config → one claim per decoded surface, keyed by identity "agent/name".
+	//
+	// AND the reads-host claim for a surface that declares one. Since OQ-CO10 (2026-09-12)
+	// a config surface's host layer is a field on the surface rather than a `reads-host`
+	// contribution, so the contribution loop above cannot see it — and this report is the
+	// ONLY place a user learns that a file is carried out of their home (run.disclosedClaims
+	// prints the ReviewWorthy ones on every launch). The claim is IDENTICAL to the one the
+	// contribution produced: same kind, same target, same detail, same review flag. The
+	// declaration moved; the disclosure did not.
 	if surfaces, _ := p.Surfaces(); len(surfaces) > 0 {
 		for _, s := range surfaces {
 			id := s.Agent + "/" + s.Name
@@ -505,6 +513,9 @@ func FootprintOf(p *Pack) Footprint {
 				detail = s.ResolvedMode() + " → " + s.Path
 			}
 			add(packdecl.KindConfig, id, detail, false)
+			if hf, ok := SurfaceHostFile(s); ok {
+				add(packdecl.KindReadsHost, hf.From, "read-only host file", true)
+			}
 		}
 	}
 

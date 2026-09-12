@@ -333,11 +333,15 @@ func TestPromoteRefusesASurfaceNoPackOwns(t *testing.T) {
 }
 
 // [OQ-CO10]: promote refuses `--to host` on a surface with no host layer. Exactly two
-// shipped surfaces carry a `reads-host` grant; for every other one a host promotion is an
-// edit no jail would ever read.
+// shipped surfaces declare `readsHost`; for every other one a host promotion is an edit no
+// jail would ever read.
 //
-// Bound to the mechanism that SHIPS — Surface.HasHostLayer, populated from the pack's
-// `reads-host` grant — deliberately, rather than to the restructure [OQ-CO10] also rules.
+// Bound to the PREDICATE — Surface.HasHostLayer — and not to what populates it. That was a
+// deliberate choice when the predicate meant "a `reads-host` contribution matched this
+// surface's basename", and it is why this test needed no edit on 2026-09-12 when [OQ-CO10]
+// moved the declaration onto the surface and the basename match was deleted. What it pins
+// is unchanged: the refusal tracks whether the surface HAS a host layer, by whatever
+// mechanism gives it one.
 func TestPromoteToHostRefusesASurfaceWithNoHostLayer(t *testing.T) {
 	w := newPromoteWorld(t, `["claude","codex"]`)
 	w.capture("codex", "config", "{\"model\":\"mine\"}", "model = \"theirs\"\n")

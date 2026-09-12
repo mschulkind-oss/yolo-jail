@@ -131,6 +131,13 @@ func TestNoPacksMeansNoDeclarations(t *testing.T) {
 // purpose, and a test that merely accepted whatever the packs declared would let it grow
 // silently — which is precisely what the retired host_claude_files/host_pi_files config keys
 // allowed and why they were removed.
+//
+// THROUGH HonoredHostFiles, NOT Decl.HostFileContributions, since OQ-CO10 moved the
+// config-surface half of the declaration onto the surface (2026-09-12). The boundary is
+// what CROSSES, and there are now two declarations that can widen it — a `reads-host`
+// contribution and a surface's `readsHost` — so a test that walked only the first would
+// have gone green on the day both shipped packs stopped using it, while reporting that
+// nothing crosses at all.
 func TestHostFileGrantsAreExactlyTwoSettingsFiles(t *testing.T) {
 	want := map[string][]string{
 		"claude": {".claude/settings.json"},
@@ -138,7 +145,8 @@ func TestHostFileGrantsAreExactlyTwoSettingsFiles(t *testing.T) {
 	}
 	for _, p := range loadAll(t) {
 		var froms []string
-		for _, hf := range p.Decl.HostFileContributions() {
+		granted, _ := p.HonoredHostFiles()
+		for _, hf := range granted {
 			froms = append(froms, hf.From)
 		}
 		expected, listed := want[p.Name]
@@ -172,7 +180,7 @@ func TestHostFileGrantsAreExactlyTwoSettingsFiles(t *testing.T) {
 // a call site, which packnohostgate_test.go covers) turns this red.
 func TestEveryShippedPacksHostFilesAreHonored(t *testing.T) {
 	for _, p := range loadAll(t) {
-		want := len(p.Decl.HostFileContributions())
+		want := len(p.Decl.HostFileContributions()) + len(p.SurfaceHostFiles())
 		if want == 0 {
 			continue
 		}

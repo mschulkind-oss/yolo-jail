@@ -402,11 +402,20 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		return err
 	}
 
+	// THE HOST LAYER IS READ BY THE TWO MODES THAT COMPOSE ONE, and not before the switch.
+	// `rmw` never folds a host layer — it read-modify-writes the agent's own file — so
+	// reading it there could only produce a refusal (hostSurfaceBytes fails closed) over
+	// bytes the render would discard. A surface that declares `readsHost` AND `rmw` is
+	// making an inert declaration; refusing the boot for it would be the over-refusal this
+	// whole mechanism is careful not to be.
 	switch surface.ResolvedMode() {
 	case manifest.ModeComputed:
 		computed = dropReservedSelection(e, surface, computed)
-		_, err := renderSurfaceStatelessSurface(e, surface, hostSurfaceBytes(e, surface),
-			computed, overlays)
+		hostBytes, err := hostSurfaceBytes(e, surface)
+		if err != nil {
+			return err
+		}
+		_, err = renderSurfaceStatelessSurface(e, surface, hostBytes, computed, overlays)
 		return err
 	case manifest.ModeRMW:
 		computed = dropReservedSelection(e, surface, computed)
@@ -432,8 +441,11 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 		}
 		return err
 	default:
-		out, err := renderSurfaceStatefulSurface(e, surface,
-			hostSurfaceBytes(e, surface), computed, overlays)
+		hostBytes, err := hostSurfaceBytes(e, surface)
+		if err != nil {
+			return err
+		}
+		out, err := renderSurfaceStatefulSurface(e, surface, hostBytes, computed, overlays)
 		if err != nil {
 			return err
 		}
@@ -446,26 +458,72 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 
 // hostSurfaceBytes reads the surface's host source from its /ctx mount, if it has one.
 //
-// The path is DERIVED from the surface's own file name under the pack's /ctx dir, which
-// is how a surface's host layer stopped needing a Go constant per agent (hostClaudeDir,
-// hostPiDir). The pack declares `hostFiles: [{from: ".claude/settings.json"}]`, the host
-// mounts it at /ctx/host-<pack>/settings.json if the origin gate allows, and this finds
-// it there.
+// The path is DERIVED from the surface's own path under the pack's /ctx dir
+// (packload.SurfaceHostFile → packload.CtxPath), which is how a surface's host layer
+// stopped needing a Go constant per agent (hostClaudeDir, hostPiDir). The surface declares
+// `"readsHost": true`, the host mounts its real-home twin at
+// /ctx/host-<staged dir>/<basename>, and this opens exactly that string.
 //
-// Read FAIL-OPEN, and deliberately: an absent mount means the user has no such host file
-// (or this is macos-user, with no /ctx at all), and the render falls back to its lower
-// layers. Treating that as an error would make a jail refuse to start because the user
-// had never configured the tool on the host.
-func hostSurfaceBytes(e *Env, surface manifest.Surface) []byte {
+// # It FAILS CLOSED, and what that means here
+//
+// It was fail-open until 2026-09-12: `data, _ := os.ReadFile(...)`, composing the surface
+// without its host layer whenever the read failed for any reason at all. The user's whole
+// ~/.claude/settings.json would drop out of the composition and the jail would come up
+// looking healthy, with a config file the agent has no way to tell from the human's. That
+// shipped as a real bug (a pack whose staged directory name was escaped had its file
+// mounted at one /ctx path and read at another) and OQ-CO10
+// (docs/design/config-ownership-and-promotion.md) rules the read closed.
+//
+// FAILING CLOSED IS NOT "AN ABSENT FILE IS AN ERROR". An absent file is the common,
+// correct case — most users have no ~/.pi/agent/settings.json — and refusing a launch for
+// it would be a worse bug than the one being fixed. What the jail cannot tell apart, from
+// inside, is "there was nothing to deliver" and "it did not arrive", so the LAUNCHER says
+// which (packload.HostLayerReport, the YOLO_HOST_LOOPBACK pattern) and this is the
+// witness. Exactly one of the four dispositions refuses: the launcher delivered this path
+// and the jail cannot read it there.
+//
+// The other three compose without the host layer and say nothing, each for its own reason:
+// the user has no such file (normal); this backend carries no host layers at all
+// (macos-user, whose deficiency the launch and the briefing both name); or there is no
+// report, which means only that the host half is older than this variable and never that
+// nothing was delivered.
+func hostSurfaceBytes(e *Env, surface manifest.Surface) ([]byte, error) {
 	// Through Surface.HasHostLayer rather than an inline HostSource test: the host-side
 	// `config` verbs decide the same thing about the same surfaces, and this is the call
 	// site that makes the predicate the boot path's own rather than a claim the CLI makes
 	// about it (docs/design/host-render-target.md §3.4).
 	if !surface.HasHostLayer() {
-		return nil
+		return nil, nil
 	}
-	data, _ := os.ReadFile(remapCtx(surface.HostSource))
-	return data
+	if surface.HostSource == "" {
+		// The surface declares a host layer and no loader derived where it lands. Not a
+		// user-reachable state — packload fills HostSource for every surface it decodes,
+		// and a `readsHost` on a path that has no host twin is refused at decode — so this
+		// is a pack read by something that is not packload. Refused rather than skipped,
+		// because skipping is the silent composition this function stopped doing.
+		return nil, fmt.Errorf("surface %s/%s declares a host layer (readsHost) but no "+
+			"/ctx source was derived for it — the pack was loaded by something other than "+
+			"packload.Pack.Surfaces, so the host bytes cannot be found",
+			surface.Agent, surface.Name)
+	}
+	src := remapCtx(surface.HostSource)
+	data, err := os.ReadFile(src)
+	if err == nil {
+		return data, nil
+	}
+	report, ok := packload.ParseHostLayerReport(e.Getenv(packload.HostLayerEnvVar))
+	if !ok {
+		return nil, nil
+	}
+	if d := report.DispositionFor(surface.HostSource); d != packload.HostLayerDelivered {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("surface %s/%s: the launch delivered the user's own copy of "+
+		"this file to %s and it cannot be read there: %w.\nRefusing rather than composing "+
+		"%s without the host layer — the result would be a config file that looks correct "+
+		"and is missing the user's own settings (OQ-CO10, "+
+		"docs/design/config-ownership-and-promotion.md)",
+		surface.Agent, surface.Name, src, err, surface.Path)
 }
 
 // ctxRoot is where host-file mounts appear in this process's filesystem. It is

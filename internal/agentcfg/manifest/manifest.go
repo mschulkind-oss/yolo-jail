@@ -120,17 +120,39 @@ type Surface struct {
 	// surface.
 	Mode string
 
-	// HostSource is the in-jail path the `host` layer is read from — the /ctx mount
+	// ReadsHost declares that this surface composes a `host` layer: the user's own
+	// version of THIS file, from their real home, read-only.
+	//
+	// A BOOLEAN, because there is nothing else to say. The host file is the surface's own
+	// Path in the other home — `~/.claude/settings.json` on the host feeds
+	// `~/.claude/settings.json` in the jail — and `~` is the only thing that differs
+	// between the two, so a path here could name nothing the surface does not already
+	// state. It was one until 2026-09-12: a `reads-host` contribution named the file and
+	// packload bound it to this surface when the two paths shared a FINAL COMPONENT, which
+	// ignored the directory, bound the first of two same-named surfaces, and — the reason
+	// it is gone — un-bound SILENTLY when the match stopped holding, leaving a surface
+	// whose author declared a host layer composing without one
+	// (docs/design/config-ownership-and-promotion.md OQ-CO10).
+	//
+	// The `reads-host` KIND stays, for the user's `host_files` key: those carry arbitrary
+	// host files that have no mirrored twin, so they are genuinely not derivable and
+	// genuinely need a declared path. Only the config-surface binding moved here.
+	ReadsHost bool
+
+	// HostSource is the in-jail path that host layer is read from — the /ctx mount
 	// carrying the user's own version of this file.
 	//
-	// Derived, not declared: the host CLI mounts a pack's granted host file at a path
-	// it chooses, and this is that path. It exists on the Surface so the render is a
-	// pure function of the surface rather than needing a per-agent Go constant
-	// (hostClaudeDir, hostPiDir — two globals that existed only because the host layer
-	// had nowhere else to say where it came from).
+	// Derived, not declared, and derived from ReadsHost: the host CLI mounts the surface's
+	// implied grant at a path both halves compute with one expression
+	// (packload.SurfaceHostFile → packload.CtxPath), and this is that path. It exists on
+	// the Surface so the render is a pure function of the surface rather than needing a
+	// per-agent Go constant (hostClaudeDir, hostPiDir — two globals that existed only
+	// because the host layer had nowhere else to say where it came from).
 	//
-	// Empty means the surface has no host layer, which is the common case: most surfaces
-	// are yolo-owned outright.
+	// NOT the predicate. ReadsHost is what HasHostLayer reads; this is where the bytes
+	// are, and a surface that declares a host layer while this is empty is a LOADER fault
+	// (a pack read by something other than packload) — which the jail's read refuses
+	// rather than composes around.
 	HostSource string
 
 	// RetireOnFirstRender are files to DELETE the first time yolo renders this surface
@@ -171,8 +193,16 @@ func (s Surface) ResolvedMode() string {
 }
 
 // HasHostLayer reports whether this surface composes a `host` layer — the user's own
-// version of the file, carried in from outside. It is exactly "HostSource is set", and it
-// exists so that fact has ONE spelling rather than one per reader.
+// version of the file, carried in from outside. It is exactly the surface's own
+// ReadsHost declaration, and it exists so that fact has ONE spelling rather than one per
+// reader.
+//
+// IT READS THE DECLARATION, NOT THE DERIVED PATH, and the difference is the whole of
+// OQ-CO10. `HostSource != ""` was the predicate until 2026-09-12, which made "the author
+// declared a host layer" and "a loader successfully derived where it lands" the same
+// answer — so a derivation that came up empty reported a surface with no host layer, and
+// every reader believed it. They are different propositions now: this one is answerable
+// from the manifest alone, host-side and jail-side, by any loader.
 //
 // THE READERS ARE ON BOTH SIDES OF THE CONTAINER WALL, which is the whole reason this is a
 // method. The boot render asks it to decide whether to read the /ctx mount
@@ -185,7 +215,7 @@ func (s Surface) ResolvedMode() string {
 // (docs/design/host-render-target.md §3.4). A surface's own HostSource is the declaration;
 // a map keyed on identity cannot answer for a surface it has never heard of, and answering
 // wrongly means `config ls` prints a layer stack the jail does not compose.
-func (s Surface) HasHostLayer() bool { return s.HostSource != "" }
+func (s Surface) HasHostLayer() bool { return s.ReadsHost }
 
 // Key returns the (Agent, Name) identity used to detect duplicates.
 func (s Surface) Key() SurfaceKey { return SurfaceKey{Agent: s.Agent, Name: s.Name} }

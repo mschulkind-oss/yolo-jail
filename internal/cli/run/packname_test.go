@@ -151,15 +151,15 @@ func TestPackCtxMountAgreesAcrossTheSplitForANonSlugCleanName(t *testing.T) {
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A `reads-host` grant with NO `into` — the only shape that derives its /ctx dir from
-	// the pack at all (CtxPath returns early for an `into`, which is why both shipped
-	// grants route around this entirely) — plus the config surface whose host layer reads
-	// it.
+	// One config surface declaring its own host layer. Since OQ-CO10 (2026-09-12) that
+	// single `readsHost` is BOTH halves of the grant — the /ctx dir it derives is the pack's
+	// staged directory on the host side and on the jail side, which is the string this test
+	// crosses. There is no `into` anywhere to route around the derivation with, which is why
+	// the shipped packs are now in this shape too rather than exempt from it.
 	if err := os.WriteFile(filepath.Join(src, "pack.json"),
 		[]byte(`{"name":"house_rules","contributes":[`+
-			`{"kind":"reads-host","host":".acme/settings.json"},`+
 			`{"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",`+
-			`"path":"~/.acme/settings.json","managed":{"x":1}}]}]}`), 0o644); err != nil {
+			`"path":"~/.acme/settings.json","readsHost":true,"managed":{"x":1}}]}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	writeUserPacks(t, home, `["file://`+src+`"]`)
@@ -220,8 +220,8 @@ func TestPackCtxMountAgreesAcrossTheSplitForANonSlugCleanName(t *testing.T) {
 	}
 	jailSource := surfaces[0].HostSource
 	if jailSource == "" {
-		t.Fatal("the jail surface has no host layer — the reads-host grant did not resolve, " +
-			"so this test is not measuring the mount path")
+		t.Fatal("the jail surface has no host layer — the surface's `readsHost` did not " +
+			"resolve, so this test is not measuring the mount path")
 	}
 
 	if hostDest != jailSource {
@@ -237,7 +237,7 @@ func TestPackCtxMountAgreesAcrossTheSplitForANonSlugCleanName(t *testing.T) {
 
 	// AND THE SAME PACK, LOADED THE HOST'S WAY, MUST RESOLVE THE SAME HOST LAYER. The
 	// check above cannot see packload's own half of the derivation: the jail-loaded pack
-	// has Name == staged dir, so hostSourceFor gives the same answer from either
+	// has Name == staged dir, so surfaceHostSource gives the same answer from either
 	// expression for THAT pack. This is the one that separates them — the same staged tree,
 	// loaded under the config name, must still resolve to the path the jail will open, or
 	// the surface's host layer depends on which half loaded the pack.
@@ -250,8 +250,8 @@ func TestPackCtxMountAgreesAcrossTheSplitForANonSlugCleanName(t *testing.T) {
 		t.Errorf("the surface's host layer moves with the loader:\n"+
 			"  loaded under the config name: %s\n"+
 			"  loaded under the staged dir:  %s\n"+
-			"packload.hostSourceFor must key on the staged directory, so one pack has one "+
-			"host layer whichever half read it.",
+			"packload.surfaceHostSource must key on the staged directory, so one pack has "+
+			"one host layer whichever half read it.",
 			hostSurfaces[0].HostSource, jailSource)
 	}
 }

@@ -55,6 +55,10 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 				// An absent host file is a NORMAL state (the user has not created it),
 				// and the surface falls back to its defaults layer. Mounting a missing
 				// source would kill the container with a bare statfs error.
+				//
+				// NOT RECORDED as delivered, which is the whole of what makes the jail's
+				// read able to fail closed: this is the one case where nothing arriving is
+				// correct, and it is decided HERE, by the half that can see the user's home.
 				continue
 			}
 			// packload.CtxPath is THE definition of where this lands, shared with the
@@ -80,6 +84,12 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 			// wsState (which IS /home/agent on this backend) and tell the entrypoint where
 			// to look. The read side was already parameterized for tests; YOLO_CTX_ROOT
 			// promotes that seam to a production one.
+			//
+			// RECORDED AS DELIVERED EVEN THOUGH acMaterialize SWALLOWS ITS ERRORS, and
+			// that is the point rather than an oversight: a copy that fails is exactly the
+			// silent-wrong-composition this record exists to turn loud. The launcher says
+			// what it undertook to do; the jail reports what it found.
+			in.hostLayersDelivered = append(in.hostLayersDelivered, dest)
 			if in.rt == "container" {
 				acMaterialize(hostFile, filepath.Join(acCtxDirRel,
 					filepath.FromSlash(strings.TrimPrefix(dest, packload.CtxRoot+"/"))), in.wsState)
@@ -93,6 +103,36 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 		}
 	}
 	return args
+}
+
+// hostLayerEnv emits the launcher's host-layer report — what a `readsHost` surface's
+// bytes did on this launch — for the entrypoint's fail-closed read
+// (packload.HostLayerReport states the contract and why the jail cannot derive it).
+//
+// EMITTED ON EVERY LAUNCH, including the one that delivered nothing, and that is the
+// property the whole mechanism rests on: an absent variable then means "launcher older
+// than the variable" and nothing else, so the jail can tolerate absence without
+// tolerating a real delivery failure. Emitting it only when something crossed would make
+// those two indistinguishable again, one level up.
+//
+// This is the CONTAINER path, so Delivery is always "supported" — every backend that
+// reaches here can carry a host file, Apple Container by copying it into the home rather
+// than binding it. The macos-user arm reports "unsupported" from its own plan builder
+// (internal/macosuser/runplan.go), which is the one backend with no mechanism at all.
+func (o *Options) hostLayerEnv(in *assembleInput) []string {
+	wire, err := packload.HostLayerReport{
+		Delivery:  packload.HostLayersSupported,
+		Delivered: in.hostLayersDelivered,
+	}.Marshal()
+	if err != nil {
+		// Unreachable for a []string, and silence would be the wrong failure anyway: no
+		// variable means "unknown" in the jail, so the read degrades to the fail-open
+		// behaviour that shipped before it rather than refusing anything.
+		o.pr(o.Stdout).print("[yellow]Warning: host layers: " + err.Error() +
+			" — the jail cannot check that they arrived[/yellow]")
+		return nil
+	}
+	return []string{"-e", packload.HostLayerEnvVar + "=" + wire}
 }
 
 // acCtxDirRel is where Apple Container's materialized /ctx host-file copies live,

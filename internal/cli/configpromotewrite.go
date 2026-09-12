@@ -161,8 +161,8 @@ func refusePromoteHostWrite(errw io.Writer) int {
 		"destinations (`--to local`, `--to pack:<name>`). The plan above is accurate; only "+
 		"the write is missing.\n"+
 		"  `--to local` is the better answer for almost every key anyway: it reaches every "+
-		"jail AND the host, folds three slots above the `host` layer, and needs no pack to "+
-		"grant `reads-host` (docs/design/config-ownership-and-promotion.md §5.1).\n")
+		"jail AND the host, folds three slots above the `host` layer, and needs no surface "+
+		"to declare `readsHost` (docs/design/config-ownership-and-promotion.md §5.1).\n")
 	return 1
 }
 

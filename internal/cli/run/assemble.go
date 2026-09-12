@@ -127,6 +127,13 @@ type assembleInput struct {
 	// a backend that rejects a duplicate flag.
 	acCtxMaterialized bool
 
+	// hostLayersDelivered is where hostFileArgs records the /ctx destination of every
+	// pack-declared host file it actually put in the jail, for the report the entrypoint's
+	// fail-closed host-layer read witnesses against (packload.HostLayerReport). Written by
+	// the emitter and read once, by hostLayerEnv below: the launcher is the only half that
+	// knows the difference between "the user has no such file" and "it did not arrive".
+	hostLayersDelivered []string
+
 	// channel is the profile/provider environment the run pipeline composed above the
 	// backend dispatch (profilechannel.go). The env block below EMITS it; it must not
 	// re-derive any part of it, or the argv and whatever the macos-user arm delivered
@@ -700,6 +707,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = append(runCmd, "-e", "YOLO_CTX_ROOT=/home/agent/"+acCtxDirRel)
 	}
 	runCmd = append(runCmd, o.hostFilesEnv(in)...)
+	// What the launcher delivered, for the jail's fail-closed host-layer read. AFTER
+	// hostFileArgs, which is what fills it in.
+	runCmd = append(runCmd, o.hostLayerEnv(in)...)
 
 	// --- PACK-DECLARED briefings ---
 	// Same Apple-Container single-file-mount limitation as yolo-user-env.sh: AC

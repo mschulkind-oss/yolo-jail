@@ -83,9 +83,9 @@ const (
 	// promoted value would lose at the destination (§5.4's "wins after" half).
 	promotionOutranked = "outranked"
 	// promotionNoHostLayer: `--to host` on a surface that has no host layer, which is
-	// [OQ-CO10]'s refusal. Only the two agent-settings surfaces whose packs grant
-	// `reads-host` have one, so for every other surface a host promotion is a host-only edit
-	// no jail would ever read — §5.1's third fact, made visible per surface.
+	// [OQ-CO10]'s refusal. Only the two agent-settings surfaces that declare `readsHost`
+	// have one, so for every other surface a host promotion is a host-only edit no jail
+	// would ever read — §5.1's third fact, made visible per surface.
 	promotionNoHostLayer = "no-host-layer"
 	// promotionNoPackOwner: the surface has no owner among the loaded packs, so a
 	// config-overlay naming it would be INERT — packoverlay's ruling R2 reports such an
@@ -466,11 +466,11 @@ func classifyPromoteSurface(s manifest.Surface, o promoteOptions, dest promoteDe
 	// no loaded pack declares cannot receive a config-overlay (ruling R2), and a surface
 	// with no host layer cannot receive a `--to host` promotion ([OQ-CO10]).
 	//
-	// HasHostLayer is read as it stands TODAY — HostSource != "", populated by the pack's
-	// `reads-host` grant through a basename match (packload.hostSourceFor). [OQ-CO10] rules
-	// that binding should move onto the surface and fail closed; that restructure is its own
-	// phase, and promote deliberately binds to the mechanism that ships rather than to the
-	// one that is coming.
+	// HasHostLayer is the surface's own `readsHost` declaration
+	// (manifest.Surface.ReadsHost). It was `HostSource != ""` — a /ctx path populated from a
+	// `reads-host` contribution through a basename match — when this check was written, and
+	// [OQ-CO10]'s restructure landed on 2026-09-12; promote needed no change, which is the
+	// evidence that binding to the predicate rather than to its implementation was right.
 	unowned := !dest.host && !fold.ownedByPack(s)
 	noHostLayer := dest.host && !s.HasHostLayer()
 
@@ -494,9 +494,9 @@ func classifyPromoteSurface(s manifest.Surface, o promoteOptions, dest promoteDe
 		if noHostLayer {
 			ps.Keys = append(ps.Keys, promoteKey{
 				Key: st.Key, Disposition: promotionNoHostLayer, value: v,
-				Reason: fmt.Sprintf("%s/%s has no host layer — no pack grants `reads-host` for "+
-					"it, so a key written into its real-home file would be read by no jail. "+
-					"`--to local` reaches every jail and the host", s.Agent, s.Name),
+				Reason: fmt.Sprintf("%s/%s has no host layer — its surface does not declare "+
+					"`readsHost`, so a key written into its real-home file would be read by no "+
+					"jail. `--to local` reaches every jail and the host", s.Agent, s.Name),
 			})
 			continue
 		}

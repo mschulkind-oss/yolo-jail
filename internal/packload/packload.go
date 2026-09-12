@@ -89,16 +89,17 @@ type Pack struct {
 // the /ctx path the host CLI mounts it at.
 //
 // The RESOLUTION is here rather than in the manifest schema because it is a fact about
-// how the two sides agree, not about the surface: a pack says "I want ~/.claude/
-// settings.json from the host", the CLI mounts it under /ctx, and both sides derive the
-// same path from the same declaration. Keeping the derivation in ONE function is what
-// makes that agreement checkable — a second copy would be a silent-empty-host-layer bug
-// waiting to happen, and the symptom (a config file missing the user's own settings)
+// how the two sides agree, not about the surface: a surface says "I am also a file in the
+// user's own home" (`readsHost`), the CLI mounts that file under /ctx, and both sides
+// derive the same path from the same declaration. Keeping the derivation in ONE function
+// is what makes that agreement checkable — a second copy would be a silent-empty-host-layer
+// bug waiting to happen, and the symptom (a config file missing the user's own settings)
 // looks nothing like a path mismatch.
 //
-// A surface is matched to a host file by BASENAME. That is sufficient because a pack's
-// grants land in one flat /ctx dir, so two grants with the same basename would already
-// collide there; HostFileConflicts reports that as a pack error.
+// A SURFACE'S HOST LAYER IS ITS OWN DECLARATION, not a match against something else. It was
+// a `reads-host` contribution bound to the surface by BASENAME until 2026-09-12, which is
+// the un-binding OQ-CO10 removed: see manifest.Surface.ReadsHost for what the field says and
+// SurfaceHostFile for the derivation both halves run.
 func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 	// The jail/guest default is autonomy ON — so the boot path (which calls Surfaces)
 	// renders the autonomous posture, keeping boot output byte-identical after packs
@@ -149,9 +150,32 @@ func (p *Pack) SurfacesForReport(autonomy bool) ([]manifest.Surface, []string, [
 	for i, prob := range problems {
 		problems[i] = "pack " + p.Name + ": " + prob
 	}
-	granted, _ := p.HonoredHostFiles()
+	// The /ctx path each surface's own `readsHost` declaration lands at. DERIVED FROM THE
+	// SURFACE, so a surface either declares a host layer and gets one, or does neither;
+	// there is no third state where the declaration is present and the binding is not.
+	//
+	// TWO SURFACES OF ONE PACK MAY NOT DERIVE THE SAME /ctx PATH, and that check is here
+	// because the destination is still keyed on the file's BASENAME (packload.CtxPath):
+	// `~/.a/settings.json` and `~/.b/settings.json` in one pack would land on one mount,
+	// and the second would compose the first's bytes — a wrong config that looks right.
+	// Under the retired basename BINDING this was unrepresentable-and-wrong in a different
+	// way (both surfaces bound to whichever grant matched first, silently); it is a
+	// refusal now. Nothing shipped is anywhere near it, and a pack that gets here has
+	// asked two surfaces to read one host file.
+	claimed := map[string]manifest.SurfaceKey{}
 	for i := range surfaces {
-		surfaces[i].HostSource = p.hostSourceFor(surfaces[i].Path, granted)
+		surfaces[i].HostSource = p.surfaceHostSource(surfaces[i])
+		if surfaces[i].HostSource == "" {
+			continue
+		}
+		if first, taken := claimed[surfaces[i].HostSource]; taken {
+			problems = append(problems, fmt.Sprintf("pack %s: surfaces %s and %s both read "+
+				"the host home at %s — a host layer's /ctx destination is keyed on the file's "+
+				"basename, so two surfaces whose paths share one cannot both declare "+
+				"\"readsHost\"", p.Name, first, surfaces[i].Key(), surfaces[i].HostSource))
+			continue
+		}
+		claimed[surfaces[i].HostSource] = surfaces[i].Key()
 	}
 	var notes []FoldNote
 	// Fold the selected autonomy posture's config patch into the matching surfaces.
@@ -306,22 +330,94 @@ func mergeManagedMap(base, over map[string]any) map[string]any {
 	return out
 }
 
-// hostSourceFor finds the granted host file whose basename matches this surface's file,
-// and returns the /ctx path it is mounted at. Empty when the pack granted none — the
-// surface then has no host layer, which is the common case.
+// SurfaceHostFile is the host-file grant a config surface's own `readsHost` declaration
+// makes: the same path, in the user's real home. THE derivation, in one place, because the
+// mount and the read are two halves of one agreement and a second copy of this expression
+// is a silently-empty host layer waiting to happen.
+//
+// `To` is deliberately left empty so CtxPath supplies `/ctx/host-<staged dir>/<basename>`.
+// One expression over one string, on both sides of the container wall — see StagedSlug for
+// the incident that established that rule.
+//
+// (false) for a surface that declares nothing, and for one whose path is not `~/`-relative:
+// that combination is refused at decode (manifest.SurfaceDTO.Surface), so reaching it means
+// a Surface built in Go rather than loaded, and there is no host twin to name.
+func SurfaceHostFile(s manifest.Surface) (packdecl.HostFile, bool) {
+	if !s.ReadsHost {
+		return packdecl.HostFile{}, false
+	}
+	rel, ok := strings.CutPrefix(s.Path, "~/")
+	if !ok {
+		return packdecl.HostFile{}, false
+	}
+	return packdecl.HostFile{From: rel}, true
+}
+
+// SurfaceHostFiles is every grant this pack's own config surfaces imply — what
+// HonoredHostFiles folds in beside the manifest's `reads-host` contributions.
+//
+// It decodes the surfaces rather than reading a cached list because that is the only
+// statement of the declaration there is: the surfaces are DATA, and the pack's manifest is
+// re-read by both halves. SurfacesFor(true) is the posture the boot path renders, and the
+// choice cannot matter here — the autonomy fold merges `managed` keys and touches no other
+// field — but it is named rather than left implicit so a fold that grows a reach is a
+// deliberate change to this line.
+func (p *Pack) SurfaceHostFiles() []packdecl.HostFile {
+	surfaces, _ := p.Surfaces()
+	var out []packdecl.HostFile
+	for _, s := range surfaces {
+		if hf, ok := SurfaceHostFile(s); ok {
+			out = append(out, hf)
+		}
+	}
+	return out
+}
+
+// surfaceHostSource is the /ctx path this pack's copy of that grant lands at, or "" when
+// the surface declares no host layer.
 //
 // KEYED ON THE STAGED DIRECTORY, not the name: this is the READ side of the mount the
-// CLI's hostFileArgs emits, and the two must evaluate one expression over one string.
-// See StagedSlug.
-func (p *Pack) hostSourceFor(surfacePath string, granted []packdecl.HostFile) string {
-	want := path.Base(surfacePath)
-	for _, hf := range granted {
-		if path.Base(hf.From) != want {
+// CLI's hostFileArgs emits. See StagedSlug.
+func (p *Pack) surfaceHostSource(s manifest.Surface) string {
+	hf, ok := SurfaceHostFile(s)
+	if !ok {
+		return ""
+	}
+	return CtxPath(p.StagedSlug(), hf)
+}
+
+// retiredSurfaceHostGrants reports a `reads-host` contribution that names one of this
+// pack's OWN config surfaces — the spelling that bound a surface to a grant by basename
+// until 2026-09-12 (OQ-CO10). The migration is one field, and the message is the whole of
+// it.
+//
+// STRICT PATH ONLY, which is LoadDir's caller-facing half: this is a version-skew fact, and
+// the jail must boot across the version boundary rather than refuse a manifest some other
+// build wrote (packdecl.retiredFieldProblems states that rule and the incident behind it).
+// So an author and a host launch hear it, and a jail that meets an unconverted pack renders
+// the surface without a host layer — which the jail's own read then reports, because the
+// surface does not claim one.
+func retiredSurfaceHostGrants(decl *packdecl.Manifest) []string {
+	surfaces, _ := manifest.DecodeSurfaces(decl.SurfaceContributions())
+	own := map[string]manifest.Surface{}
+	for _, s := range surfaces {
+		if rel, ok := strings.CutPrefix(s.Path, "~/"); ok {
+			own[rel] = s
+		}
+	}
+	var problems []string
+	for _, hf := range decl.HostFileContributions() {
+		s, isOwn := own[hf.From]
+		if !isOwn {
 			continue
 		}
-		return CtxPath(p.StagedSlug(), hf)
+		problems = append(problems, fmt.Sprintf("reads-host %q names this pack's own config "+
+			"surface %s/%s — a surface's host layer is declared ON THE SURFACE now: set "+
+			"\"readsHost\": true in its `config` body and drop this contribution. The kind "+
+			"itself stays, for host files that are not a surface's own twin.",
+			hf.From, s.Agent, s.Name))
 	}
-	return ""
+	return problems
 }
 
 // StagedSlug is the name of the DIRECTORY this pack was loaded from, and it is the key
@@ -443,8 +539,16 @@ func (p *Pack) HostFileConflicts() []string {
 // package, hostaccessgates_test.go) scans production code for the retired gate identifiers,
 // and TestFetchedPackHostClaimsAreHonoredWithNoApproval (internal/cli/run) pins the
 // behaviour end to end.
+// EVERY host file this pack reads, from BOTH declarations that can ask for one: its
+// `reads-host` contributions, and the `readsHost` field of its own config surfaces
+// (OQ-CO10, 2026-09-12). ONE accessor rather than two, because every consumer wants the
+// same thing — the mount argv, the /ctx collision check, the macos-user deficiency notice,
+// the briefing that names what did not cross — and a second accessor is a call site that
+// will be written against the wrong half. The footprint is the one exception, and only
+// because it reports per DECLARATION (FootprintOf walks the contributions and the surfaces
+// separately, and emits the same reads-host claim from either).
 func (p *Pack) HonoredHostFiles() (granted []packdecl.HostFile, refused []string) {
-	return p.Decl.HostFileContributions(), nil
+	return append(p.Decl.HostFileContributions(), p.SurfaceHostFiles()...), nil
 }
 
 // HonoredMounts returns this pack's mount contributions. Nothing is refused — a mount reads
@@ -645,6 +749,9 @@ func LoadDir(root, name string) (*Pack, []string) {
 			decl, problems, skewNotes = packdecl.DecodeTolerant(data)
 		} else {
 			decl, problems = packdecl.Decode(data)
+			if decl != nil {
+				problems = append(problems, retiredSurfaceHostGrants(decl)...)
+			}
 		}
 		if decl == nil {
 			decl = &packdecl.Manifest{}

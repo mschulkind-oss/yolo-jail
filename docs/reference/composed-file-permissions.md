@@ -66,8 +66,8 @@ Orthogonal to the three kinds, and it sharpens the rule rather than adding a fou
   layer, so a host-side edit propagates on the next launch.
 - **Jail-only** — no host file crosses; the surface is composed purely from yolo's own layers.
 
-Which surfaces are host-linked is decided by a **reads-host declaration**, not by config: it is a
-credential boundary no config key can widen. Most surfaces are jail-only.
+Which surfaces are host-linked is decided by the surface's own **`readsHost` declaration**, not
+by config: it is a credential boundary no config key can widen. Most surfaces are jail-only.
 
 Crossed with the three kinds, **two cells are deliberately empty, and naming them is the point of
 the axis:**

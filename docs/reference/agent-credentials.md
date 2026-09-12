@@ -91,7 +91,9 @@ enforced by the Seatbelt profile's read denies instead.
   all — a crossing outside it would appear in no report and no audit.
 
 - **Which host files cross *for an agent surface* is yolo-shipped code, not a config knob.** It
-  is each pack's `reads-host` contributions, read through `packload.Pack.HonoredHostFiles`. A
+  is each pack's `reads-host` contributions **plus the `readsHost` field of its own config
+  surfaces** (the declaration a surface's host layer moved onto on 2026-09-12), both read
+  through the one accessor `packload.Pack.HonoredHostFiles`. A
   pack's declaration is data yolo ships; the retired `host_claude_files`/`host_pi_files` keys let
   a *workspace* config widen this, and that was the hole closing them bought.
 
@@ -132,8 +134,10 @@ regardless.
 
 The entrypoint re-runs pure generators on every boot and writes into the writable per-workspace
 overlays. For credentials the relevant case is that **host agent settings are composed in**: the
-packs that declare a `reads-host` grant read their one host file from the `/ctx/host-<pack>/`
-mount, **fail-open** — a missing mount yields the defaults — and the composed result lands on the
+surfaces that declare `readsHost` read their one host file from the `/ctx/host-<pack>/`
+mount, **fail-closed** — a file the launcher reports as delivered that the jail cannot read
+refuses the boot, while a file the user simply does not have yields the defaults — and the
+composed result lands on the
 jail's own surface through the ordinary layer fold, so host changes propagate, jail-local edits
 survive, and yolo-required keys win. This is also the delivery path for an API key written into an
 agent's settings.

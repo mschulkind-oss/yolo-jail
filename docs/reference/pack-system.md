@@ -564,11 +564,19 @@ exclusion, so this reasoning has to be restated or refuted by anyone who changes
 #### `reads-host` and `mount`
 
 Two host-home reads. `reads-host` names one **file**, whose `/ctx` destination defaults to
-the pack's staging slug plus the basename, and which becomes the `host` layer of a config
-surface by basename match. `mount` names a directory (or a file) and picks an arbitrary
-`/ctx` destination, for making a reference tree — a dataset, a shared prompt library —
-visible in the jail. An absent source is skipped with a warning rather than failing the
-jail: the user simply has not created it, and the surface falls back to its defaults layer.
+the pack's staging slug plus the basename. `mount` names a directory (or a file) and picks an
+arbitrary `/ctx` destination, for making a reference tree — a dataset, a shared prompt
+library — visible in the jail. An absent source is skipped with a warning rather than failing
+the jail: the user simply has not created it.
+
+> [!IMPORTANT]
+> **`reads-host` is no longer how a config surface gets its `host` layer.** It was, bound by
+> a **basename match** between the grant and the surface path, until 2026-09-12; that half is
+> a field on the surface now — `"readsHost": true` — and naming one of your own surfaces in a
+> `reads-host` contribution is refused with the migration
+> ([`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger)). What the kind still serves is the user's `host_files` key, whose entries carry
+> arbitrary host files that have no mirrored twin in the jail and so genuinely need a
+> declared path.
 
 Both are Shared: many readers of one host file is fine. **Neither is origin-gated any
 more** — see [the credential boundary](#the-credential-boundary-disclosure-not-consent).
@@ -791,7 +799,8 @@ callers wanting the full set merge pack surfaces via `ManifestWith`. The surface
 validated by the config engine and its fields are documented in `internal/agentcfg/manifest`
 — `codec` is the decode/encode round-trip, `defaults` is yolo's freely-overridable base
 layer, `managed` is the keys yolo asserts and always wins, `retireOnFirstRender` names stale
-sidecars to clean up.
+sidecars to clean up, and `readsHost` declares that the user's own copy of this same file,
+from their real home, is composed as the `host` layer.
 
 The engine composes a surface by folding layers with RFC-7386 merge semantics, lowest to
 highest precedence:
@@ -800,9 +809,14 @@ highest precedence:
 defaults < host < workspace < config-overlay < capture-overlay < computed(derive) < managed
 ```
 
-- **`host`** is derived, not declared: a `reads-host` grant whose basename matches the
-  surface path becomes this layer, read from its `/ctx` mount. This is how an agent's own
-  host-side settings compose into the jail with no second declaration.
+- **`host`** is declared by the surface (`"readsHost": true`) and its `/ctx` mount path is
+  derived from the surface's own `path`, which is how an agent's own host-side settings
+  compose into the jail with no second declaration and no second path to keep in step. The
+  read **fails closed**: the launcher reports what it delivered, and a host file the launch
+  says it delivered that the jail cannot read refuses the boot rather than composing the
+  file without the user's settings. The three states that are not a delivery fault — the
+  user has no such file, the backend carries no host layers (`macos-user`), or the launcher
+  is older than the report — compose without it and refuse nothing.
 - **`config-overlay`** carries the keys OTHER packs contribute to a surface this one owns, in
   `packs`-list order (later wins). Below `managed`, so the owner still wins a genuine
   conflict.
@@ -895,7 +909,7 @@ alongside a `config` on one identity is the supported shape, not a clash.
 ### Overlay rules
 
 - **An overlay body may set ONLY `managed`.** Every field that would redefine the *surface*
-  (`agent`, `name`, `path`, `codec`, `mode`, `defaults`, `retireOnFirstRender`)
+  (`agent`, `name`, `path`, `codec`, `mode`, `defaults`, `retireOnFirstRender`, `readsHost`)
   is refused BY NAME at decode, with the rule in the message rather than a generic
   unknown-field error — each of those keys is real, it is just not a contributor's to set.
   That refusal is what makes "the contributor cannot change the file's mode, path or codec"
@@ -957,8 +971,8 @@ Every composed file has a read/write posture, from a three-way taxonomy:
 - **State** — the agent owns it; yolo only seeds and persists it (`stateful` with capture, or
   a `state` dir).
 
-A second axis is whether a surface is **host-linked** (has a `host` layer from a `reads-host`
-grant). The posture and the host-link together decide whether an in-jail edit survives, and
+A second axis is whether a surface is **host-linked** (declares `readsHost`, so it has a
+`host` layer). The posture and the host-link together decide whether an in-jail edit survives, and
 whether the file is safe to regenerate.
 
 **Ownership does not carry over from the jail to the host.** Every jail path is disposable
@@ -1256,7 +1270,10 @@ Everything else is offline.
 
 ## The credential boundary: disclosure, not consent
 
-**Host access is six crossings**: a `reads-host` file read; a `mount` directory or file read;
+**Host access is six crossings**: a host file read (a `reads-host` contribution, or a config
+surface's own `readsHost` — one kind of crossing, disclosed identically, declared in two
+places because only one of them can name a file that is not a surface's twin); a `mount`
+directory or file read;
 `program` via `installer`, a curl-to-shell install URL; `briefing` with `after: "host:…"`,
 prepending the user's own briefing file; a wrapped **plugin's** code-running components; and a
 shipped **loophole's** daemon, intercepts, host binds and devices. Static `env` is not host

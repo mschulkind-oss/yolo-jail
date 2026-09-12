@@ -558,6 +558,12 @@ func podmanLinuxGolden(home string) []string {
 	add("-e", "MISE_DISABLE_TOOLS=pnpm")
 	// skills mount (claude has .claude/skills).
 	add("-v", agentsPath+"/skills-claude:/home/agent/.claude/skills:ro")
+	// The host-layer report, on EVERY launch (OQ-CO10) — the same always-emit rule the
+	// loopback disposition above follows, and for the same reason: the jail's host-layer
+	// read fails closed, so an ABSENT variable has to mean "a launcher older than it" and
+	// nothing else. `delivered` is empty here because this fixture's home has no
+	// ~/.claude/settings.json, which is the state the jail must NOT refuse for.
+	add("-e", packload.HostLayerEnvVar+`={"delivery":"supported"}`)
 	// PACK-DECLARED briefing mount: the claude pack declares AGENTS.md -> .claude/CLAUDE.md.
 	// The staged name is per-DESTINATION since briefing-audiences.md — RFC 6901-escaped (`/`
 	// → `~1`), injective, computed by run.briefingStagingName, which the write half uses too.

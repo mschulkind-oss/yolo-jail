@@ -77,10 +77,12 @@ effect, with a "kind" from a closed set:
   skills           merge a skills tree (optionally addressed: "agents")
   briefing         prose for the briefing (optionally addressed: "agents")
   files            own a file tree, bind-mounted :ro in the jail
-  config           a composed config surface
+  config           a composed config surface ("readsHost" composes the user's own
+                   copy of that same file, from their real home, :ro)
   config-overlay   keys on a config surface another pack owns
   state            a persistent home dir
-  reads-host       read one host-home file :ro
+  reads-host       read one host-home file :ro (for a file that is NOT a config
+                   surface's own twin — that is the surface's "readsHost")
   mount            mount a host-home dir :ro
   env              set static env vars in the jail
   launch           inject launch flags after a binary
@@ -124,8 +126,8 @@ The packs yolo ships are selected by NAME, and none is on by default:
 
   "packs": ["claude"]        # or copilot, codex, opencode, pi, agy
 
-ANY pack may read the host home — reads-host, mount, an installer program, or a
-host-prepending briefing — whoever shipped it. There is no approval prompt: naming a pack
+ANY pack may read the host home — reads-host, a config surface's readsHost, mount, an
+installer program, or a host-prepending briefing — whoever shipped it. There is no approval prompt: naming a pack
 in "packs" means editing your own user config, which already grants more than a prompt
 could withhold. So READ BEFORE YOU SELECT: yolo pack footprint <ref> prints every claim a
 pack makes, and every loaded pack's host access is listed in the startup banner at each

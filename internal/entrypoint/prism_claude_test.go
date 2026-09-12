@@ -11,11 +11,13 @@ import (
 )
 
 // newClaudePrismEnv builds an Env with a fake jail home, a fake /ctx/host-claude
-// mount (via the overridable hostClaudeDir), and a writable workspace (for the
+// mount (via the overridable ctxRoot), and a writable workspace (for the
 // .yolo/prism sidecars). vars carries the YOLO_* knobs (YOLO_LSP_SERVERS,
-// YOLO_MCP_SERVERS). Returns the env and the host-mount dir so a test can seed a
-// host settings.json, which the prism reads unconditionally (fail-open — there
-// is no host_claude_files allow-list any more, plan §10.4).
+// YOLO_MCP_SERVERS, and the launcher's host-layer report). Returns the env and the
+// host-mount dir so a test can seed a host settings.json, which the prism reads
+// unconditionally — there is no host_claude_files allow-list any more (plan §10.4),
+// and whether a MISSING one is fatal is the launcher's report to decide
+// (hostlayer_test.go).
 func newClaudePrismEnv(t *testing.T, vars map[string]string) (*Env, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -156,9 +158,13 @@ func TestConfigureClaudePrismStripsHostMCPServers(t *testing.T) {
 // TestConfigureClaudePrismComposesTheHostLayer pins the invariant the migration
 // guide got wrong: the user's OWN ~/.claude/settings.json on the host is a
 // composed layer of the jail's settings, not merely a file the agent can look at.
-// The claude pack grants it with `reads-host`, packload.hostSourceFor matches the
-// grant to the surface by BASENAME to fill Surface.HostSource, and
-// hostSurfaceBytes reads it every boot as the `host` layer.
+// The claude/settings surface declares `readsHost`, packload derives the /ctx path
+// the launch mounts it at (SurfaceHostFile → CtxPath), and hostSurfaceBytes reads
+// it every boot as the `host` layer.
+//
+// This env carries NO launcher report, so it is also the older-launcher case: the
+// read composes what it finds and refuses nothing. hostlayer_test.go is where the
+// four dispositions are separated.
 //
 // StripsHostMCPServers already asserts a host key merges, but as a side-note
 // inside a test named for the opposite outcome — so a reader asking "does my host

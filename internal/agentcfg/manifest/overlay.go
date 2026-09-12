@@ -44,6 +44,12 @@ type OverlayDTO struct {
 	Codec    string         `json:"codec,omitempty"`
 	Mode     string         `json:"mode,omitempty"`
 	Retire   []string       `json:"retireOnFirstRender,omitempty"`
+	// ReadsHost is refused for a reason the others are not: it is a GRANT, not a
+	// description. Every other refused field here decides how the owner's file is written;
+	// this one would reach into the user's real home and carry a file out of it, declared
+	// by a pack that does not own the surface and disclosed under that pack's name. The
+	// owner's manifest is the only place that may say it.
+	ReadsHost bool `json:"readsHost,omitempty"`
 }
 
 // overlayRefusals is the reason each non-contributable field is refused, so the
@@ -69,6 +75,10 @@ var overlayRefusals = []struct {
 		func(d OverlayDTO) bool { return d.Mode != "" }},
 	{"retireOnFirstRender", "sidecar cleanup belongs to the surface's owner",
 		func(d OverlayDTO) bool { return len(d.Retire) > 0 }},
+	{"readsHost", "a host layer is a GRANT on the user's real home, not a key — only the " +
+		"surface's OWNER may declare that its file is read out of the host home, because " +
+		"the owner is who the launch discloses it under",
+		func(d OverlayDTO) bool { return d.ReadsHost }},
 }
 
 // DecodeOverlay decodes a config-overlay body into the single layer map the compose

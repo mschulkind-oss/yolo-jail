@@ -169,8 +169,15 @@ func TestMacosUserNotesHostByteGaps(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The claude pack declares `reads-host .claude/settings.json`; the config adds a
-	// source-bearing host_files entry. Both grants exist on paper, neither can arrive.
+	// The claude pack's settings surface declares `readsHost` — disclosed, here and on the
+	// banner, in the `reads-host` vocabulary the kind still owns (OQ-CO10 moved the
+	// declaration, not the word) — and the config adds a source-bearing host_files entry.
+	// Both grants exist on paper, neither can arrive.
+	//
+	// THIS IS ALSO THE macos-user CARVE-OUT'S OTHER HALF. The jail's host-layer read fails
+	// closed, and the reason a launch here is not refused is that the backend declares its
+	// host layers `unsupported` — which is only defensible while the launch SAYS what did
+	// not cross. These two assertions are that condition.
 	body := `{"packs": ["claude"], "host_files": [{"path": ".npmrc", "source": "~/.npmrc"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)

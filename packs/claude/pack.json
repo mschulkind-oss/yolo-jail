@@ -60,6 +60,7 @@
           "codec": "json",
           "name": "settings",
           "path": "~/.claude/settings.json",
+          "readsHost": true,
           "retireOnFirstRender": [
             "yolo-host-synced-settings.json"
           ]
@@ -154,11 +155,6 @@
       "because": "identity/credential state shared across workspaces",
       "kind": "state",
       "scope": "machine"
-    },
-    {
-      "host": ".claude/settings.json",
-      "into": "host-claude/settings.json",
-      "kind": "reads-host"
     },
     {
       "at": ".claude-shared-credentials",

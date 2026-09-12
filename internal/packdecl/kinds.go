@@ -86,13 +86,19 @@ const (
 	KindState Kind = "state"
 	// KindReadsHost: a host-home file mounted read-only into the jail — the
 	// credential boundary. Many packs may read one file; no combine.
+	//
+	// FOR A FILE THAT IS NOT A CONFIG SURFACE'S OWN TWIN. It used to also be how a
+	// config surface got its `host` layer, bound by basename; that half is a field on
+	// the surface now (manifest.Surface.ReadsHost, OQ-CO10, 2026-09-12) and naming
+	// one of your own surfaces here is refused with the migration. What is left is
+	// what was never derivable: the user's `host_files` key, which carries arbitrary
+	// host files that have no mirrored twin in the jail and so genuinely need a path.
 	KindReadsHost Kind = "reads-host"
 	// KindMount: a host-home dir (or file) mounted read-only into the jail at a
 	// /ctx destination. Like reads-host but the source may be a whole directory and
-	// the destination is an arbitrary /ctx path (reads-host feeds a config surface
-	// by basename; mount just makes the tree visible). Reads the host home, so it is
-	// origin-gated exactly like reads-host — a fetched pack is refused. Many packs
-	// may mount; no combine (each is an independent read).
+	// the destination is an arbitrary /ctx path (mount just makes the tree visible).
+	// Reads the host home, so it is origin-gated exactly like reads-host — a fetched
+	// pack is refused. Many packs may mount; no combine (each is an independent read).
 	KindMount Kind = "mount"
 	// KindEnv: static environment variables set in the jail. Values are literal
 	// strings only (no interpolation, no host reads), so it is NOT origin-gated. A

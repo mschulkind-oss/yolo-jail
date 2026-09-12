@@ -250,11 +250,16 @@ per-agent table anywhere.
   not an error the way a missing directory is — the jail just comes up with a blank
   briefing.
 - **Pack `files` trees** — an opaque tree the pack owns, bound at its declared `into`.
-- **Granted host files** — each pack's `reads-host` contribution, bound `:ro` at the `/ctx`
-  path `packload.CtxPath` derives from its `into`. There is no config key and no env var
-  listing them: which host files cross into the jail is a credential boundary fixed in
-  yolo-shipped code. **The gate is ORIGIN, not a baked list** — `HonoredHostFiles` honors a
-  grant only for an embedded or local pack and refuses a fetched one outright. The
+- **Granted host files** — each pack's `reads-host` contribution and each of its config
+  surfaces that declares `readsHost`, bound `:ro` at the `/ctx` path `packload.CtxPath`
+  derives (from the contribution's `into`, or from the surface's own path). There is no config
+  key and no env var listing them: which host files cross into the jail is a credential
+  boundary fixed in yolo-shipped code. **The protection is DISCLOSURE, not a gate** —
+  `HonoredHostFiles` refuses nothing since
+  [`OQ-TP9`](../design/trust-paths.md#decision-ledger) retired the fetched-pack origin check
+  (2026-09-04); what keeps a hostile declaration
+  out is that selecting a pack means writing user-scope config as the host user, and every
+  grant is named on the launch banner. The
   entrypoint re-derives the identical set in-jail from the same manifests, which is why
   `CtxPath` is deliberately the single definition both sides call.
 

@@ -24,8 +24,13 @@ import (
 )
 
 // TestHostColumnIsDerivedForEverySurface enumerates every surface and requires the `host`
-// column to agree with the surface's own HostSource — the declaration the boot render
-// reads (entrypoint.hostSurfaceBytes, via Surface.HasHostLayer).
+// column to agree with the surface's own ReadsHost — the declaration the boot render reads
+// (entrypoint.hostSurfaceBytes, via Surface.HasHostLayer).
+//
+// THE ORACLE IS THE DECLARATION, NOT THE DERIVED PATH, since OQ-CO10 (2026-09-12). It was
+// `HostSource != ""` — the /ctx path a loader computed — which made "this surface has a
+// host layer" unanswerable by anything that had not run packload, and made a derivation
+// that came up empty indistinguishable from a surface that never asked for one.
 //
 // The SYNTHETIC surface at the end is the load-bearing half, and it is there because the
 // enumeration alone cannot fail against a CORRECT lookup table. A map keyed on
@@ -36,21 +41,25 @@ import (
 func TestHostColumnIsDerivedForEverySurface(t *testing.T) {
 	check := func(s manifest.Surface, why string) {
 		got := slices.Contains(builtinLayers(s), "host")
-		if want := s.HostSource != ""; got != want {
+		if want := s.ReadsHost; got != want {
 			t.Errorf("%s/%s (%s): `host` column = %v, want %v — the column must be the "+
-				"surface's own HostSource (%q), not a table keyed on its identity",
-				s.Agent, s.Name, why, got, want, s.HostSource)
+				"surface's own `readsHost` declaration, not a table keyed on its identity",
+				s.Agent, s.Name, why, got, want)
 		}
 	}
 	for _, s := range surfaceManifest().Surfaces() {
 		check(s, "shipped")
 	}
+	// NO HostSource on purpose, beside the identity no table can name: the column must
+	// answer from the DECLARATION, which is readable from the manifest alone, and not from
+	// the /ctx path a loader derives — a surface described host-side, where no /ctx exists,
+	// has a host layer exactly the same way.
 	check(manifest.Surface{
-		Agent:      "zz-future",
-		Name:       "settings",
-		Path:       "~/.zz-future/settings.json",
-		Codec:      "json",
-		HostSource: "/ctx/host-zz-future/settings.json",
+		Agent:     "zz-future",
+		Name:      "settings",
+		Path:      "~/.zz-future/settings.json",
+		Codec:     "json",
+		ReadsHost: true,
 	}, "synthetic: an identity no lookup table can name")
 }
 

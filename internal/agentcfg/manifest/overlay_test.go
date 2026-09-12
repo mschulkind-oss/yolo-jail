@@ -30,6 +30,9 @@ func TestDecodeOverlayRefusesSurfaceRedefinition(t *testing.T) {
 		"mode":                `{"mode":"rmw","managed":{"k":1}}`,
 		"defaults":            `{"defaults":{"k":1},"managed":{"j":1}}`,
 		"retireOnFirstRender": `{"retireOnFirstRender":["x"],"managed":{"k":1}}`,
+		// A GRANT, not a description: an overlay that could set it would carry a file out
+		// of the user's real home under someone else's surface (OQ-CO10).
+		"readsHost": `{"readsHost":true,"managed":{"k":1}}`,
 	}
 	for field, body := range cases {
 		t.Run(field, func(t *testing.T) {

@@ -703,6 +703,16 @@ the `/ctx` mount path the host CLI chose, not a path anyone wrote down
 
 ##### The binding is a basename match, and the read that depends on it is fail-open
 
+> [!NOTE]
+> **SHIPPED 2026-09-12, and this section describes the state it replaced.** The declaration
+> is a `readsHost` field on the surface (`manifest.Surface.ReadsHost`), `HasHostLayer()` reads
+> it, the `/ctx` path is derived from the surface's own path by one expression both halves run
+> (`packload.SurfaceHostFile` → `CtxPath`), and the read fails CLOSED against a report of what
+> the launcher delivered (`packload.HostLayerReport`). `macos-user` reports `unsupported` and
+> is **not** refused — the carve-out and its reasoning are in
+> `internal/macosuser/hostlayers_test.go`. Everything below is the diagnosis that produced
+> [OQ-CO10](#13-decision-ledger), kept because the ruling rests on it.
+
 The surface already carries the field: `Surface.HasHostLayer()` is *exactly*
 `HostSource != ""`, the one predicate the boot render and the host-side `config`
 verbs both consult. The `reads-host` contribution does not express that; it

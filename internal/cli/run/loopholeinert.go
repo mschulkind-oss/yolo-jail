@@ -337,6 +337,14 @@ func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.Or
 // the sandbox home, the way Apple Container's .yolo-ctx copies work), which is a design
 // change and not a launch-time patch. What is NOT acceptable is the prior state, where
 // a user pointed at a host file by path and the jail neither used it nor mentioned it.
+//
+// THIS WARNING IS HALF OF WHY THE JAIL DOES NOT REFUSE HERE. The host-layer read fails
+// closed since OQ-CO10, and this backend reports its host layers `unsupported`
+// (macosuser/runplan.go) so that a launch is not refused for what the backend cannot do.
+// That carve-out is only defensible while the deficiency is SAID — here, and in the
+// agent's own briefing (backendLimits) — so this line is load-bearing rather than a
+// courtesy: deleting it would leave the user feature-detecting the backend to learn
+// whether their settings arrived, which is the parity defect (P5) the ruling names.
 func (o *Options) noteMacosUserHostByteGaps(packs []*packload.Pack, cfg *jsonx.OrderedMap) {
 	var grants []string
 	for _, p := range packs {
