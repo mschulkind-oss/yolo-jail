@@ -63,7 +63,7 @@ Three principles I would hold to:
 
 One file per runtime, `~/.local/share/yolo-jail/build/last-load-<runtime>`, one nix store
 path per line, **most-recent-last**, capped at **ten entries**
-(`internal/image/image.go:270-284`):
+(`AddLoadedPath`, `internal/image/image.go`):
 
 ```
 AddLoadedPath(sentinel, storePath):
@@ -75,11 +75,11 @@ AddLoadedPath(sentinel, storePath):
 
 | Property | Value | Evidence |
 | :--- | :--- | :--- |
-| Capacity | 10 entries, per runtime | `image.go:280-282` |
-| Order | most-recent-last; dedupe-then-append | `image.go:274-279` |
-| Written by | `AutoLoadImage`, on every SUCCESS (not only on a load) | `autoload.go:575` |
-| Read as | an unordered SET (`map[string]struct{}`) | `image.go:224` |
-| Write errors | discarded (`_ =`) | `autoload.go:575` |
+| Capacity | 10 entries, per runtime | `AddLoadedPath`, `image.go` |
+| Order | most-recent-last; dedupe-then-append | `AddLoadedPath`, `image.go` |
+| Written by | `AutoLoadImage`, on every SUCCESS (not only on a load) | `autoload.go` |
+| Read as | an unordered SET (`map[string]struct{}`) | `ReadLoadedPaths`, `image.go` |
+| Write errors | discarded (`_ =`) | `autoload.go` |
 | One writer | `AutoLoadImage` only; no locking between concurrent launches | — |
 
 Two properties matter later. The **append fires on launch**, so a jail that is up but not
@@ -161,7 +161,7 @@ Three things had to line up, and all three are ordinary:
    launched. A `flake.lock` update plus per-workspace `packages:` variation (each distinct
    list is its own content-addressed image, C2) does that across a dozen workspaces in a
    day or two.
-2. **The keep window is small.** `DefaultKeepImages = 2` (`autoreap.go:30`) — only the two
+2. **The keep window is small.** `DefaultKeepImages = 2` (`autoreap.go`) — only the two
    newest by `CreatedAt` survive on age alone.
 3. **The sort key works against long-running jails.** `CreatedAt` is when the archive was
    *streamed*, so a jail running for four days carries a four-day-old timestamp and sorts

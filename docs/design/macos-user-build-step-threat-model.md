@@ -5,7 +5,7 @@
 cwd walk-up from `internal/reporoot` entirely, for source-skew hygiene rather than for this threat
 model — resolution is now `YOLO_REPO_ROOT` env → exe-relative bundle → staged install bundle, with
 **no cwd read anywhere** (`reporoot.go:95-117`; the package doc at `:7-29` records the removal).
-The same `Resolve` feeds the macos-user build (`run.go:45-46` → `MacosUserRun` →
+The same `Resolve` feeds the macos-user build (`run.go` → `MacosUserRun` →
 `darwinpkg/materialize.go:44,62`), so **Vector B is dead**: a workspace-planted
 `flake.nix`+`go.mod` can no longer be *selected*, only explicitly pointed at by a human setting
 `YOLO_REPO_ROOT`. **H1 and Q1 are therefore moot** — the hardening they proposed is a subset of

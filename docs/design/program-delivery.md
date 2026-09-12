@@ -641,7 +641,7 @@ until `a16403e2` removed the upgrade — [`OQ-PD3`](#decision-ledger)'s ruling l
 a workspace `mise.lock` governs resolution when present (`internal/cli/run/command.go:15-25`). The
 diagnosis below is preserved because the store's shape is unchanged and the fossil record is the
 evidence for everything else in this section. The store is a single bind —
-`-v <miseStore>:/mise` (`internal/cli/run/assemble_parts.go:156-161`), backed by
+`-v <miseStore>:/mise` (`internal/cli/run/assemble_parts.go`), backed by
 `paths.GlobalMise()` = `~/.local/share/yolo-jail/mise` (`internal/paths/paths.go`) — **one store
 for every workspace and every nesting depth.**
 

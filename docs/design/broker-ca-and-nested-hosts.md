@@ -23,8 +23,8 @@ open.
 >   image** — it is the description of the defect, not of today.
 > - **[§3.1](#31-a-return-value-thrown-away) is fixed.** The discarded return value is now consumed:
 >   `if !brokerWaitForSocket(...) { reportFailedSpawn(deps, exited) }`
->   (`internal/broker/brokerlifecycle.go:387–388`), and `reportFailedSpawn`
->   (`brokerlifecycle.go:393`) cites this doc's [§3.1](#31-a-return-value-thrown-away) by name. Landed as `05c286d3`, refined by
+>   (`internal/broker/brokerlifecycle.go`), and `reportFailedSpawn`
+>   (`brokerlifecycle.go`) cites this doc's [§3.1](#31-a-return-value-thrown-away) by name. Landed as `05c286d3`, refined by
 >   `389f82b2`. That is [§8](#8-sequencing) item 2.
 > - **[§3.2](#32-a-log-with-no-reader) is unchanged.** Nothing in the tree reads a host-service log.
 > - **[§3.3](#33-yolo-check-skips-the-area--and-calls-it-pass) is unchanged, and is the live one.** `r.ok("Inside jail — loophole checks skipped

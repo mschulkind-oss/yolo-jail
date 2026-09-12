@@ -291,7 +291,7 @@ To avoid brittle, hardcoded special cases (`if agent == "agy"` or `if tool == "t
 There is currently a behavioral discrepancy between launching an agent from the host vs. typing its name in an interactive in-jail shell:
 
 * **Host CLI (`yolo -- claude`)**:
-  [`internal/cli/run/run.go:125`](../../internal/cli/run/run.go#L125) calls `packload.InjectLaunchFlags()`, which checks `p.Decl.PostureFor(true).Launch` and injects `--dangerously-skip-permissions`.
+  [`internal/cli/run/run.go`](../../internal/cli/run/run.go) calls `packload.InjectLaunchFlags()`, which checks `p.Decl.PostureFor(true).Launch` and injects `--dangerously-skip-permissions`.
 * **In-Jail Shell (`claude` inside `yolo -- bash`)**:
   [`internal/entrypoint/shell.go:packAliases`](../../internal/entrypoint/shell.go#L27-L34) generates `.bashrc` shell aliases, but calls `p.Decl.LaunchFlagContributions()`. That helper **only inspects top-level `launch` contributions and skips the `autonomy` block**.
   Because Claude's and agy's flags are declared under `autonomy.autonomous.launch`, no alias is emitted. Furthermore, the lazy launcher in `~/.yolo-launchers/claude` only runs `exec "$REAL_BIN" "$@"`.

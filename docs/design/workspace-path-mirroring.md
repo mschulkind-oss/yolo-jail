@@ -356,9 +356,9 @@ Recording these so the next reader does not re-derive them.
 | mise records workspace-derived absolute paths into a shared store | **Historical, and already fixed the other way.** This was the 2026-07 incident. **MEASURED:** `/mise` holds **zero** symlinks pointing into `/workspace` today, because `CARGO_HOME=/mise/cargo` moved the target out of the workspace ([`storage-and-config.md`](../reference/storage-and-config.md):367). Mirroring would *re-open* it — [§4.2](#42-the-re-opened-class). |
 | `node_modules` / `.venv` cross the boundary badly | **Real, and not a path problem.** Both are per-side shadow-mounted (`internal/cli/run/mounts.go:78-109`). The stated reason for `node_modules` is native builds and userland skew, not path spelling (`mounts.go:60-66`), and mirroring does not touch it. `.venv`'s path half is genuine but partial — see [§5](#5-what-this-does-not-fix-and-what-it-does-not-license). |
 | Go build cache poisoned by two projects sharing the name | **No.** Content-addressed; a same-path different-source build misses rather than false-hits (**MEASURED**, [§3.1](#31-confirmed-jail-built-go-binaries-carry-workspace-source-paths)). |
-| Prism sidecars and receipts under `<ws>/.yolo` | **No.** Per-workspace by construction, and already path-parameterized: sidecar root is `filepath.Join(t.Workspace, ".yolo", "prism")` (`internal/render/target.go:246`), receipts path is baked from `Env.WorkspaceDir()` at generation time (`internal/entrypoint/shims.go:448`). |
+| Prism sidecars and receipts under `<ws>/.yolo` | **No.** Per-workspace by construction, and already path-parameterized: sidecar root is `filepath.Join(t.Workspace, ".yolo", "prism")` (`Target.SidecarDir`, `internal/render/target.go`), receipts path is baked from `Env.WorkspaceDir()` at generation time (`internal/entrypoint/shims.go`). |
 | LSP servers reporting absolute paths | **Not a crossing.** The editor runs in the jail too, so both ends agree. **NOT MEASURED** beyond that reasoning. |
-| `mise` config paths | **Fixed already, and not by mirroring.** `MISE_TRUSTED_CONFIG_PATHS=/workspace` (`internal/cli/run/assemble.go:729`) is a jail-side value matching a jail-side mount; `MISE_DATA_DIR=/mise` is deliberately neutral. |
+| `mise` config paths | **Fixed already, and not by mirroring.** `MISE_TRUSTED_CONFIG_PATHS=/workspace` (`internal/cli/run/assemble.go`) is a jail-side value matching a jail-side mount; `MISE_DATA_DIR=/mise` is deliberately neutral. |
 
 ---
 
@@ -555,7 +555,7 @@ occurrences. But the *seam* already exists, built for `macos-user`:
   rationale comment (`:20-31`) says outright: *"the workspace root is NOT always
   `/workspace`: `Env.WorkspaceDir` honors `YOLO_WORKSPACE`, and the macos-user backend has no
   `/workspace` at all. A literal in the manifest was therefore a latent correctness bug."*
-- `internal/entrypoint/env.go:195-200` — `Env.WorkspaceDir()`, contract at `:38-42`:
+- `internal/entrypoint/env.go` — `Env.WorkspaceDir()`, and the `Workspace` field it reads:
   *"Generators that used to hardcode `/workspace` read this instead so the same code is
   correct on both platforms."*
 - `internal/render/target.go:51` — `Target.Workspace`.
@@ -568,14 +568,14 @@ and `hostrender.go:386,429,916`. What was never parameterized is a short list:
 | `assemble_parts.go:59,106` | the two mounts |
 | `assemble.go:322` | `--workdir` |
 | `assemble.go:532,535` | `/dev/null` shadow-outs of `.vscode/mcp.json` and `.overmind.sock` |
-| `assemble.go:729` | `MISE_TRUSTED_CONFIG_PATHS` |
+| `assemble.go` | `MISE_TRUSTED_CONFIG_PATHS` |
 | `mounts.go:37,50,109` | `workspace_readonly` and per-side shadow joins |
-| `command.go:32` | `const startupLog = "/workspace/.yolo/startup.log"` |
+| `command.go` | `startupLog = "/workspace/.yolo/startup.log"` |
 | `check/sections_misc.go:104`, `prune/probes.go:140` | find the bind by **destination** in `podman inspect` |
-| `configls.go:391` | `workspaceRoot() == "/workspace"` — the `config reset`/`capture` locality guard |
+| `configls.go` | `workspaceRoot() == "/workspace"` — the `config reset`/`capture` locality guard |
 | `config/load.go:349` | `jailOwnWorkspace` fallback |
 | `entrypoint/env.go:185,197` | the in-jail default |
-| `cli/config.go:239` | `const containerWorkspace`, the `yolo config render` preview value |
+| `cli/config.go` | `const containerWorkspace`, the `yolo config render` preview value |
 | `run/retire.go:27` | `/workspace/` in `jailPrefixes`, host-side jail-made-venv detection |
 | `entrypoint/prism_mise.go:120` | `var workspaceMisePath` |
 
@@ -586,7 +586,7 @@ Two of those carry judgement rather than mechanics:
 > *"`YOLO_HOST_DIR` is deliberately NOT used: it is the HOST-side path of that mount, **which
 > never matches the in-jail path** a caller passes here."* Under mirroring the two always
 > match, and every reader of that comment has to re-derive why the code is still right. And
-> `YOLO_WORKSPACE` — the override both `load.go:349` and `env.go:185` read — is **never set by
+> `YOLO_WORKSPACE` — the override both `load.go` and `env.go` read — is **never set by
 > any launcher** (`internal/entrypoint/shims.go:442-444`: *"a HOST-side launcher input that is
 > absent inside a live container"*), so `/workspace` is the effective hardcode in both.
 
@@ -675,7 +675,7 @@ does not hold up, and the reason is sharper than "different backends differ".
 the real host path: the launch argv `cd`s into it directly
 (`internal/macosuser/macosuser.go:357`), the Seatbelt profile grants `(subpath <workspace>)`
 verbatim (`internal/macosuser/seatbelt.go:34-84`), and
-`internal/macosuser/orchestrator.go:157` sets `MISE_TRUSTED_CONFIG_PATHS` to it where the
+`internal/macosuser/orchestrator.go` sets `MISE_TRUSTED_CONFIG_PATHS` to it where the
 container branch sets the literal `/workspace` (`internal/cli/run/assemble.go:729`).
 `internal/agentcfg/builtin.go:24-25` states it plainly — *"the macos-user backend has no
 `/workspace` at all"*.
@@ -862,7 +862,7 @@ R2 is withdrawn from this table by the churn ruling; R1, R4, R6 and R7 carry ove
 | # | Risk | Severity | Mitigation |
 | :--- | :--- | :--- | :--- |
 | R8 | A cross-boundary reference resolves to an ABI-incompatible artifact instead of failing with ENOENT ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)) | **Critical, and it is the verdict** | None available. The two sides are different userlands by design; only alternative G addresses it |
-| R9 | `retireJailMadeVenv` (`internal/cli/run/retire.go:60`) degrades from a working guard to always-pass ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)) | High — a shipped safety net stops working, silently | Replace the path-prefix test with something that survives mirroring. Nothing in the tree offers one; a content probe (`file`, ELF interpreter) would have to be invented |
+| R9 | `retireJailMadeVenv` (`internal/cli/run/retire.go`) degrades from a working guard to always-pass ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)) | High — a shipped safety net stops working, silently | Replace the path-prefix test with something that survives mirroring. Nothing in the tree offers one; a content probe (`file`, ELF interpreter) would have to be invented |
 | R10 | Host-credential paths and their jail namesakes become the same string, in agent-editable config ([§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does)) | High | Scope-rule workspace `mounts` ([`OQ-WP4`](#OQ-WP4)), which is worth doing regardless and is not sufficient alone |
 | R11 | On `macos-user`, a sandbox home at `/Users/<hostuser>` hands the agent read-write over the human's home via `(subpath <sandboxHome>)` ([§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice)) | **Critical, mechanical** | None. `dscl` also refuses the duplicate shortname, so the shape is inexpressible rather than dangerous — but only because macOS stops it, not because yolo does |
 | R12 | Captures and other home-relative artifacts stop being machine-independent, foreclosing cross-machine reuse ([§12.6](#126-capture-relocation--chased-hard-it-cuts-the-other-way)) | Medium, and it is a foreclosure rather than a break | None. It is inherent: the mirrored home embeds the host username |
@@ -1032,7 +1032,7 @@ the jail's own empty equivalent"* the same string. Every reviewer, every doc, ev
 What does *not* get worse, to be fair: the scope-ruled boundaries are untouched, because they
 are enforced by which file is read, not by classifying strings (`hostwrappers.go:33-35`,
 `hostapplyonlaunch.go:47-49`); and `host_files` destinations are home-relative, with
-`hostFileWritableRoots` keyed on the first home segment (`internal/config/hostfiles.go:1069`),
+`hostFileWritableRoots` keyed on the first home segment (`internal/config/hostfiles.go`),
 so they are mirroring-agnostic.
 
 ### 12.6 Capture relocation — chased hard, it cuts the other way

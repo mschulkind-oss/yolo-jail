@@ -170,7 +170,7 @@ existing check or gives an existing namespace the check its neighbours already h
 
 | | |
 | :--- | :--- |
-| **Today** | ~~`[PASS] Merged config is semantically valid`~~ **SHIPPED ([§7](#7-sequencing-by-user-visible-payoff) step 2)**: a mistyped `use_profiles` key now `[FAIL]`s naming every installed CLI (`unknownProfileCLIMessage`, `validate.go:1133-1141`) |
+| **Today** | ~~`[PASS] Merged config is semantically valid`~~ **SHIPPED ([§7](#7-sequencing-by-user-visible-payoff) step 2)**: a mistyped `use_profiles` key now `[FAIL]`s naming every installed CLI (`unknownProfileCLIMessage`, `validate.go`) |
 | **After (as proposed)** | `[FAIL] config.pack_profiles.cloude: no pack named 'cloude' is selected — did you mean 'claude'? Selected packs: [claude, pi, codex]. Add the pack to 'packs', or remove this entry.` — the shipped message differs in two honest ways: the key is `use_profiles`, and there is **no edit-distance did-you-mean**, only the full candidate list. Whether that residue is worth building is R3's call, not settled here. |
 | **Where** | `yolo check` **and** launch preflight. Both shipped. |
 | **Also fixed** | `-p <name> -- <bin>` resolves the binary to a pack slug and refuses when no pack owns that bin. Today it keys the profile by binary basename with no check; every shipped pack happens to have `bin == slug`, so it works by coincidence. |
@@ -310,13 +310,13 @@ when they fire.** That is the premise this work is built on; it is a ruling, not
    and its three callers are unchanged. Still the highest payoff per line in this doc.
 2. **Selection-key validation.** *(Written as `pack_profiles`; the key is `use_profiles` since
    `43d24e9e`.)* **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
-   unresolvable pack); live at `validateUseProfiles` (`validate.go:1074-1126`) with the CLI-flag
+   unresolvable pack); live at `validateUseProfiles` (`validate.go`) with the CLI-flag
    preflight in `internal/cli/run/packs.go:363-400`, pinned by
    `internal/config/useprofilekeys_test.go`. One deviation from [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist)'s proposed message: the shipped
    refusal **lists every installed CLI name but computes no edit-distance did-you-mean**.
 3. **`wire_api` enum and `base_url` credential refusal.** **SHIPPED** — the canonical closed enum
-   (`2ced4944` + `0f04632d`, `validateWireAPI` at `validate.go:1047-1053`) and the userinfo refusal
-   (`0bc29bd5`, `providerURLProblem` at `validate.go:978-991`). Adjacent hardening from the same
+   (`2ced4944` + `0f04632d`, `validateWireAPI` in `validate.go`) and the userinfo refusal
+   (`0bc29bd5`, `providerURLProblem` in `validate.go`). Adjacent hardening from the same
    cluster: a composed `base_url`+`endpoints` pair is refused (`5d8bd1fe`, [`OQ-PT2`](../reference/providers.md#why-its-this-way)).
 4. **Relocate the supersession match to the launch path.** Message unchanged; disposition and
    surface change. Needs [`OQ-RM2`](#OQ-RM2) ruled first. **NOT SHIPPED** — `discover.go:717-728` /
@@ -328,7 +328,7 @@ when they fire.** That is the premise this work is built on; it is a ruling, not
    must record rather than paper over.** `c77cfd05` gates on the **selected pack**, not the active
    profile — its commit message says *"the earlier active-profile scoping is withdrawn"* — and the
    requirement now keys on catalog membership (`868b610f`, [`OQ-PT4`](../reference/providers.md#why-its-this-way)'s dissolution:
-   `packload.ProviderCredentialGaps`, `internal/packload/providers.go:271-298`, wired at
+   `packload.ProviderCredentialGaps`, `internal/packload/providers.go`, wired at
    `internal/cli/run/providerpreflight.go:51-63`). [§4.5](#45-an-active-profile-whose-credential-was-never-hydrated)'s "Scope: Active profiles only" is
    therefore superseded; the shipped rule is broader and was chosen on review, not by accident.
 

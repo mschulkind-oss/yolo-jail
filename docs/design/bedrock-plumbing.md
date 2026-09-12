@@ -386,7 +386,7 @@ writes, not that codex reads it. **Fix `env_key` first** — the gateway arm can
 credential without it, and the zai path has the same hole today.
 
 **D2 (live hazard). The profile env gate leaks across agents.**
-`internal/packload/packload.go:430-443`: `profileActive` returns true if the profile is
+`internal/packload/packload.go`: `profileActive` returns true if the profile is
 active for a bin *this* pack installs **or for any bin the launch installs at all**. The
 wide pass exists so a CLI-less pack's gated env is reachable, and it is correct for that.
 But it means `-p codex=bedrock` in a jail that also selects packs/claude fires claude's

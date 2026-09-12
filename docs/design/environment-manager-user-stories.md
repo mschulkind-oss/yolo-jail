@@ -20,9 +20,9 @@ document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. I
 > | Story defect | Verdict, verified 2026-08-23 | Evidence |
 > |---|---|---|
 > | **Story 1 Gap 1** — the `host` layer reads an undeclared file | **STILL LIVE**, and *worse* than the story says | `HostSource` at `internal/agentcfg/manifest/manifest.go:142`; nothing in `describe` names it, and `config ls`'s `host` column comes from a hardcoded 2-entry map (`internal/cli/configls.go:196-202`) |
-> | **Story 1 Gap 2** — capture outranks the definition | **PARTLY LIVE**; the story overstates it, and `--sealed` now catches it | Real order at [`compose.go`](../../internal/agentcfg/compose.go): capture loses to `computed`/`managed`. `applySealed` refuses on outstanding captures (`internal/cli/apply.go:617-651`) |
+> | **Story 1 Gap 2** — capture outranks the definition | **PARTLY LIVE**; the story overstates it, and `--sealed` now catches it | Real order at [`compose.go`](../../internal/agentcfg/compose.go): capture loses to `computed`/`managed`. `applySealed` refuses on outstanding captures (`internal/cli/apply.go`) |
 > | **Story 1 Gap 3** — `yolo-jail.local.jsonc` | **STILL LIVE** as an input; now refused by `--sealed` | `internal/config/config.go:38`, auto-merge at `internal/config/load.go:205-221`; refusal at `internal/cli/apply.go:623-630` |
-> | **Story 2 step 3** — macos-user renders 0 surfaces (**G3**) | **FIXED 2026-08-12** (`a39628ad`) | packs staged *above* the backend dispatch at `internal/cli/run/run.go:103`; `YOLO_PACK_ROOT` set at `internal/macosuser/runplan.go:208-211`; tests `internal/cli/run/packstagedispatch_test.go:87,131` |
+> | **Story 2 step 3** — macos-user renders 0 surfaces (**G3**) | **FIXED 2026-08-12** (`a39628ad`) | packs staged *above* the backend dispatch (`stageRunPacks`, `internal/cli/run/run.go`); `YOLO_PACK_ROOT` set in `buildBootstrapEnv` (`internal/macosuser/runplan.go`); tests `internal/cli/run/packstagedispatch_test.go` |
 > | **Story 2 step 6** — host-side `config reset` data loss (**G1**) | **FIXED 2026-08-01** (`1220ac55`) | `refuseHostSideWrite` at `internal/cli/configdiff.go:84-93`, wired at `:645`; regression test `configdiff_test.go:172` |
 > | `config capture` leaks host config into the workspace (**G2**) | **FIXED 2026-08-01** (`1220ac55`) | same guard, wired at `internal/cli/configdiff.go:848` |
 >
@@ -180,7 +180,7 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    > lower half of the stack.
    >
    > **What HAS shipped:** `yolo apply --sealed` now refuses while any capture is outstanding
-   > (`applySealed`, `internal/cli/apply.go:617-651`; tests `internal/cli/describe_test.go:264-287`).
+   > (`applySealed`, `internal/cli/apply.go`; tests `internal/cli/describe_test.go`).
    > **What has NOT:** `yolo config promote` (plan Phase 5.3). The refusal message at `apply.go:648-652`
    > tells the user to "promote them into a pack" — advice for a verb that does not exist. The only
    > shipped remedy is `yolo config reset`. That is precisely the half of Q1's leaning still owed.
@@ -366,7 +366,7 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    **Gap — and this is the live defect, not a hypothetical.** `surfaces 0 rendered` was printed
    as *success*. On the `macos-user` backend the run path returns at `cli/run/run.go:73` before
    `stagePacks` ever runs, and `YOLO_PACK_ROOT` is never set, so
-   `LoadJailPacks`/`ConfigurePackSurfaces`/`RunPackHooks` (`entrypoint/darwin.go:57-62`) loop
+   `LoadJailPacks`/`ConfigurePackSurfaces`/`RunPackHooks` (`entrypoint/darwin.go`) loop
    over an empty list on every single launch. Eleven surfaces are declared; zero render; nothing
    errors. `../reference/macos-user-nix-and-features.md:174` still claims pack selection works.
 
@@ -384,7 +384,7 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    >   `internal/cli/run/run.go:103`; the macos-user branch begins at `:112` and returns at
    >   `:155-156` **passing `staged.root` through**. The cited `run.go:73` is now inside a
    >   container-only repo-root gate that macos-user skips.
-   > - `YOLO_PACK_ROOT` is set at `internal/macosuser/runplan.go:208-211`, and deliberately left
+   > - `YOLO_PACK_ROOT` is set in `buildBootstrapEnv` (`internal/macosuser/runplan.go`), and deliberately left
    >   unset when nothing was staged, so "no packs" is stated by absence.
    > - Three plan invariants at `internal/macosuser/runplan.go:302-320` refuse exactly the silent
    >   shapes this defect had (a root outside the state dir, a root nothing stages, a root never
@@ -458,11 +458,11 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    for every non-agent project on her machine — is now a single newline.
 
    **Gap — probed, real, and filed as BACKLOG G1 (⚠ data loss).**
-   `truncateSurfaceToPureRender` (`cli/configdiff.go:381`) resolves `~` through
+   `truncateSurfaceToPureRender` (`cli/configdiff.go`) resolves `~` through
    `paths.Home()`, which host-side is **the invoking human's home**, and it composes with no
    computed layer. `reset codex`/`reset opencode` replace real files with yolo's managed keys
    only; `reset claude` merges yolo's managed layer into the user's own file. The fix is a
-   one-line predicate that already exists — `surfacesAreLocal()` (`configls.go:341`) — and is
+   one-line predicate that already exists — `surfacesAreLocal()` (`configls.go`) — and is
    currently consulted only by `composedFileExists`. `configCapture`'s own docstring
    (`:415-419`) explains why a host-side re-render is wrong, one function away in the same file.
 
@@ -480,13 +480,13 @@ exactly what she needs and exactly why she's here: **a real home on the real fil
    >   when `surfacesAreLocal() || force`, otherwise it prints *"refusing — these surfaces resolve
    >   against a real home, not a jail's"* and aborts.
    > - It is wired at **both** destructive verbs, before any surface enumeration:
-   >   `internal/cli/configdiff.go:645` (`configReset`) and `:848` (`configCapture` — that is
+   >   `internal/cli/configdiff.go`'s `configReset` and `configCapture` (that is
    >   **G2**, the privacy leak, closed by the same predicate the plan predicted).
    > - `truncateSurfaceToPureRender` still exists and still resolves `~` through `expandHome`
-   >   (`internal/cli/configdiff.go:804-827`) — it has simply become **unreachable host-side**: its
+   >   (`internal/cli/configdiff.go`) — it has simply become **unreachable host-side**: its
    >   only caller sits at `:684`, downstream of the `:645` guard. Reachable via explicit
    >   `--force` only, which is the escape hatch plan [§0.1](../plans/environment-manager-plan.md#phase-0--stop-the-destructive-host-side-write--was-backlog-g1--g2---shipped-2026-08-01) specified.
-   > - `surfacesAreLocal()` moved from `configls.go:341` to `internal/cli/configls.go:385-393`,
+   > - `surfacesAreLocal()` moved within `internal/cli/configls.go`,
    >   and `2b317dba` tightened it to require `workspaceRoot() == "/workspace"` — so a *different*
    >   workspace's surfaces inside a nested jail also count as non-local.
    > - Plan item 0.3's regression test exists:

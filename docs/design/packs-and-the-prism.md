@@ -256,7 +256,7 @@ graph**, and it is the right shape — because the codebase already proves it wo
 
 ### It is already implemented in Go, which is the strongest possible evidence
 
-There is exactly **one canonical MCP form** today (`LoadMCPServers`, `mcp.go:120` — an
+There is exactly **one canonical MCP form** today (`LoadMCPServers`, `mcp.go` — an
 ordered map of `name → {command, args, env}`), and each agent applies a **pure projection**
 of it into its own dialect:
 

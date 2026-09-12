@@ -351,7 +351,7 @@ observation:
   race — a post-load `podman tag` reading a shared mutable name while a concurrent launch
   moves it — cannot arise, for exactly the reason `StreamRepoTag`
   (`internal/image/image.go:130-152`) gives today. Nothing is retagged afterwards. The
-  best-effort `:latest` alias (`pointLatestAt`, `internal/image/autoload.go:589`) is
+  best-effort `:latest` alias (`pointLatestAt`, `internal/image/autoload.go`) is
   unchanged and stays best-effort.
 - **No archive exists at any point**, on either side. This is strictly stronger than C3,
   which removed yolo's tar and left podman's spool; the `nix:` transport reads store paths
@@ -378,9 +378,9 @@ disturbs them. It does not:
   — a killed copy leaves orphan layers and no image, so the next launch asks the same question,
   gets the same answer, and re-copies over the layers already written.
 - **The load sentinel and its ten-entry LRU.** `AddLoadedPath` still records the store path on
-  every successful launch, capped at 10 (`internal/image/image.go:270-287`), and
+  every successful launch, capped at 10 (`internal/image/image.go`), and
   `ProtectedImageTags` still derives the protected tag set from it
-  (`internal/prune/imageroots_probe.go:79-86`). Layer-aware delivery changes what a copy
+  (`internal/prune/imageroots_probe.go`). Layer-aware delivery changes what a copy
   *costs*, not what a store path *is*.
 - **The durable GC root.** `RegisterRoot` roots the store path
   (`internal/image/autoload.go:583`), and the manifest's closure still references every layer's
@@ -551,7 +551,7 @@ Every step that can fail, what happens, and who finds out. The user-facing rule 
 
 | Failure | Behaviour |
 | :--- | :--- |
-| The copier cannot be built (nix build of the copier attr fails) | Same as any failed image build: fatal, nix's own stderr printed with the classification (`internal/image/autoload.go:355-366`). `YOLO_ALLOW_STALE_IMAGE=1` still lets an already-loaded image run. |
+| The copier cannot be built (nix build of the copier attr fails) | Same as any failed image build: fatal, nix's own stderr printed with the classification (`internal/image/autoload.go`). `YOLO_ALLOW_STALE_IMAGE=1` still lets an already-loaded image run. |
 | An unpatched `skopeo` on `PATH` | Cannot arise — the copier is a store path ([§3.2](#32-the-copy)). If the resolved binary rejects the `nix:` transport, that is a build/packaging bug and the copy fails as itself. |
 | Copy interrupted (SIGINT, crash, disk full mid-blob) | No image record is committed, so the ref stays absent and the next launch re-copies. Layers already written are reused by that retry. **Nothing is left half-named.** |
 | Copy fails and exits nonzero | Retried **at most once**, immediately, no backoff — the same bound and the same reasoning as the Apple Container cache recovery's two passes: one recovery from a transient loss, never a loop that re-copies gigabytes forever. A second failure abandons the launch with skopeo's stderr. Priced as R8. |
