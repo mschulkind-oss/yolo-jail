@@ -30,10 +30,19 @@ import (
 // and its job is narrow: make the next `imagePkgs` cleanup fail here instead of in
 // somebody's nested jail a month later.
 //
-// It reads the CORE list specifically. `corePackagesFromNixpkgs` ships in both the
-// full and the minimal image variant, and the minimal one is a host for its
-// children too — moving the package down into `fullPackages` would restore the
-// original bug for exactly the CI-shaped jails that already run minimal.
+// It reads the CORE list specifically. `coreFloorNames` — the names
+// `corePackagesFromNixpkgs` is built from — ships in both the full and the minimal
+// image variant, and the minimal one is a host for its children too: moving the
+// package down into `fullPackages` would restore the original bug for exactly the
+// CI-shaped jails that already run minimal.
+//
+// It reads the NAME list rather than the derivation list because since 2026-09-12
+// the names are the source of truth: `corePackagesFromNixpkgs` is
+// `map (n: imagePkgs.${n}) coreFloorNames`, and the same names are resolved a
+// second time against the native package set to build the non-container FLOOR
+// (docs/design/macos-user-provisioning.md). So this guard now covers openssl on
+// macos-user too, which has no image and would otherwise lose the package the same
+// silent way.
 func TestImageBakesOpensslForTheBrokerCA(t *testing.T) {
 	// Repo root is two dirs up from this package (internal/oauthbroker → internal
 	// → repo). Absent flake.nix means a shipped bundle or a trimmed checkout, not
@@ -61,15 +70,16 @@ func TestImageBakesOpensslForTheBrokerCA(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot read flake.nix (%v) — skipping cross-check", err)
 	}
-	core, ok := nixListBody(string(flake), "corePackagesFromNixpkgs")
+	core, ok := nixListBody(string(flake), "coreFloorNames")
 	if !ok {
-		t.Fatal("flake.nix has no `corePackagesFromNixpkgs = [ … ];` binding — this guard " +
+		t.Fatal("flake.nix has no `coreFloorNames = [ … ];` binding — this guard " +
 			"reads that list by name, so the rename has to move the check with it")
 	}
-	// \b so the match cannot be satisfied by `imagePkgs.openssh`, which sits in
-	// fullPackages one letter away, nor by an `openssl_*` variant attribute.
-	if !regexp.MustCompile(`imagePkgs\.openssl\b`).MatchString(core) {
-		t.Errorf("flake.nix's corePackagesFromNixpkgs does not bake `imagePkgs.openssl`.\n" +
+	// The quotes are what make the match exact: `"openssl"` cannot be satisfied by
+	// `openssh`, which sits in fullPackages one letter away, nor by an `openssl_*`
+	// variant attribute.
+	if !regexp.MustCompile(`"openssl"`).MatchString(core) {
+		t.Errorf("flake.nix's coreFloorNames does not bake `openssl`.\n" +
 			"internal/oauthbroker mints the broker CA by exec'ing openssl, so without it " +
 			"every launch whose host is itself a jail kills the broker singleton at " +
 			"startup — silently, because the only record is a log nobody reads.\n" +

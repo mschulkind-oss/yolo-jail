@@ -534,6 +534,120 @@
             (builtins.concatMap (r: selectOutputs r.drv r.outputs) noncontainerKept)
             noncontainerSkipped;
 
+        # ── The non-container FLOOR (docs/design/macos-user-provisioning.md) ──
+        # OQ-P1, ruled 2026-09-11 AGAINST its leaning: the floor a non-container
+        # notch gets is EVERYTHING THE IMAGE BAKES, minus an EXPLICIT exclusion
+        # list.  A package that is neither buildable for the target system nor
+        # named below is FATAL — never a silent skip.  *"I'd rather pain than
+        # something silently skipped […] if we have a fatal error, then we have
+        # the opportunity to fix it."*
+        #
+        # THE EXCLUSION LIST HAS TWO KINDS OF ENTRY AND THE FATAL ONLY PROTECTS
+        # ONE OF THEM.  That asymmetry is the whole reason they are two attrs
+        # rather than one list:
+        #
+        #   • ``noncontainerFloorUnbuildable`` — NECESSITY.  Forgetting an entry
+        #     here fails the evaluation, naming the package.  The fatal doing
+        #     its job.
+        #   • ``noncontainerFloorPolicy`` — POLICY (OQ-P2, no GNU userland).
+        #     Forgetting an entry here BUILDS FINE AND SHIPS SILENTLY, and the
+        #     agent gets GNU `sed` on a Mac — the exact surprise OQ-P2 rules
+        #     out.  Nothing in nix can catch that, so it is caught in Go:
+        #     internal/darwinpkg/floor_policy_test.go asserts over the DERIVED
+        #     floor that no entry is GNU userland, and internal/darwinpkg's
+        #     drift gate asserts this file and that one still agree.
+        #
+        # The unbuildable half is DERIVED, not guessed.  `nix eval` is
+        # cross-platform, so the set was enumerated from a Linux jail on
+        # 2026-09-12 by reading meta.platforms/meta.available for all 36 names
+        # against both darwin systems this flake locks (nixpkgs
+        # c043004d for aarch64-darwin, nixpkgs-26.05-darwin c19db427 for
+        # x86_64-darwin).  Exactly ONE name came back unavailable on either.
+        #
+        # ⚠ `procps` is NOT one of them, though every doc said it was: on darwin
+        # nixpkgs maps that attr to `unixtools.procps` (name
+        # `procps-1003.1-2008`), a wrapper around the Mac's own BSD ps/pgrep —
+        # which is also what OQ-P2 wants.
+        noncontainerFloorUnbuildable = [
+          # Linux netfilter.  meta.unsupported = true on both darwin systems
+          # (24 platforms, none of them darwin).  In the image it writes the
+          # DNAT rules that fix published ports up to localhost; there is no
+          # container and no netns on a non-container notch, so nothing here
+          # would have called it either.
+          "iptables"
+        ];
+        # OQ-P2, ruled 2026-09-11: NO GNU USERLAND.  This backend's proposition
+        # is *"your Mac, confined"*, and an agent whose `sed -i` behaves
+        # differently from the human's is a surprise in the direction that costs
+        # more.  yolo's own darwin shims already speak BSD (GNUStat=false).
+        #
+        # Every entry here builds perfectly well for darwin — that is precisely
+        # why the list is needed and why the fatal cannot cover it.
+        noncontainerFloorPolicy = [
+          "coreutils-full"  # ls, cp, stat, date, …
+          "findutils"       # find, xargs
+          "gnused"
+          "gnugrep"
+          "gawk"
+          "gnupatch"
+          "diffutils"       # diff, cmp
+          "gnutar"
+        ];
+        noncontainerFloorExcluded =
+          noncontainerFloorUnbuildable ++ noncontainerFloorPolicy;
+
+        # The floor's names for THIS system: the image core minus both kinds of
+        # exclusion, minus anything the user declared in `packages:`.
+        #
+        # The LAST filter is not tidiness.  buildEnv dedups two identical store
+        # paths but COLLIDES on two different builds of one name, so a user who
+        # pins `{"name": "git", "version": …}` would otherwise turn their own
+        # declaration into an eval failure.  Dropping the floor's copy lets the
+        # user's spec win, which is the only answer that is not a surprise.
+        noncontainerDeclaredNames = map (r: r.name) noncontainerResolved;
+        noncontainerFloorNames = builtins.filter
+          (n: !(builtins.elem n noncontainerFloorExcluded)
+              && !(builtins.elem n noncontainerDeclaredNames))
+          coreFloorNames;
+
+        # The floor, resolved against `pkgs` — and THE FATAL.
+        #
+        # Each element is lazy, so reading `noncontainerFloorNames` never
+        # throws; forcing the list (buildEnv does) is what raises.  That is
+        # deliberate: the diagnostic attrs below stay readable even on a system
+        # where the floor cannot be built, so the CLI can report the hole.
+        noncontainerFloorPackages = map (n:
+          let
+            present = pkgs ? ${n};
+            drv = if present then pkgs.${n} else null;
+            okAttempt =
+              if !present then { success = true; value = false; }
+              else builtins.tryEval
+                (pkgs.lib.meta.availableOn { inherit system; } drv);
+            metaAttempt =
+              if !present then { success = true; value = false; }
+              else builtins.tryEval (drv.meta.available or true);
+            ok = present
+              && okAttempt.success && okAttempt.value
+              && metaAttempt.success && metaAttempt.value;
+          in
+            if ok then drv
+            else throw ("yolo: the non-container package FLOOR has a hole in it: "
+              + "\"${n}\" has no ${system} build.\n\n"
+              + "The floor is everything the container image bakes, minus an "
+              + "EXPLICIT exclusion list\n(docs/design/macos-user-provisioning.md, "
+              + "OQ-P1).  This is FATAL rather than a silent\nskip so the hole gets "
+              + "fixed instead of shipped: a floor with a hole in it is not a "
+              + "floor.\n\n"
+              + "Fix it in flake.nix, in one of two ways:\n"
+              + "  • add \"${n}\" to `noncontainerFloorUnbuildable`, with the reason "
+              + "it cannot build; or\n"
+              + "  • drop it from `coreFloorNames` if the image does not need it "
+              + "either.\n"
+              + "Then mirror the change in internal/darwinpkg/floor.go — its drift "
+              + "gate compares\nthe two and fails if they disagree.")
+        ) noncontainerFloorNames;
+
         # Runtime-library derivations for the /lib farm.  getLib is applied
         # to the BASE derivation of each spec, never the selected outputs:
         # getLib is a no-op on an output-specified entry, so deriving the
@@ -986,41 +1100,54 @@
         # cannot move our Go binaries and the diff should not pay for two `go
         # build`s.  That argument is now structural: the Go build is not in the
         # image at all — it is mounted in.)
-        corePackagesFromNixpkgs = [
-          imagePkgs.bashInteractive
-          imagePkgs.coreutils-full
-          imagePkgs.git
-          imagePkgs.ripgrep
-          imagePkgs.fd
-          imagePkgs.curl          # real curl for host-port-forwarding tests
-          imagePkgs.cacert
-          imagePkgs.mise
-          imagePkgs.findutils
-          imagePkgs.which
-          imagePkgs.nodejs_24
-          imagePkgs.python3
-          imagePkgs.go            # baked so the default go is RPATH-self-contained like node/python — no LD_LIBRARY_PATH dependency, no mise download on first use
-          imagePkgs.neovim        # baked for the same reason, and because the run env sets VISUAL=nvim unconditionally (human ctrl-g editing): nvim must exist without any mise_tools entry. Was `mise_tools: {neovim: stable}` by default; a tool yolo wants in EVERY jail belongs in the image, not a per-workspace mise store. Override with mise_tools for a nightly/pinned build.
-          imagePkgs.gh
-          imagePkgs.gnused
-          imagePkgs.gnugrep
-          imagePkgs.gawk
-          imagePkgs.gnupatch
-          imagePkgs.diffutils
-          imagePkgs.gzip
-          imagePkgs.bzip2
-          imagePkgs.xz
-          imagePkgs.gnutar
-          imagePkgs.unzip
-          imagePkgs.zip
-          imagePkgs.zlib
-          imagePkgs.procps        # ps, pgrep, pkill
-          imagePkgs.overmind      # exercised by overmind isolation tests
-          imagePkgs.jq
-          imagePkgs.uv
-          imagePkgs.iptables      # DNAT rules (published port → localhost fixup)
-          imagePkgs.socat         # host port forwarding into the jail
-          imagePkgs.sox           # Claude Code's `/voice` recorder depends on it
+        # ── The image core, BY NAME ────────────────────────────────────────
+        # ``coreFloorNames`` is the SINGLE SOURCE OF TRUTH for this list, and it
+        # is a list of nixpkgs ATTR NAMES rather than derivations because two
+        # consumers need the same list resolved against two different package
+        # sets: the image resolves each name against ``imagePkgs`` (the Linux
+        # set, possibly cross), and the NON-CONTAINER FLOOR below resolves the
+        # same names against ``pkgs`` (this flake's own ``system``).
+        #
+        # Before 2026-09-12 this was a list of ``imagePkgs.<name>`` derivations
+        # and there was no floor at all — macos-user got ``packages:`` and
+        # nothing else, so mise, node, git and ripgrep were simply absent
+        # (docs/design/macos-user-provisioning.md §1).  Naming the entries is
+        # what lets a second backend take the same list without a second list.
+        coreFloorNames = [
+          "bashInteractive"
+          "coreutils-full"
+          "git"
+          "ripgrep"
+          "fd"
+          "curl"          # real curl for host-port-forwarding tests
+          "cacert"
+          "mise"
+          "findutils"
+          "which"
+          "nodejs_24"
+          "python3"
+          "go"            # baked so the default go is RPATH-self-contained like node/python — no LD_LIBRARY_PATH dependency, no mise download on first use
+          "neovim"        # baked for the same reason, and because the run env sets VISUAL=nvim unconditionally (human ctrl-g editing): nvim must exist without any mise_tools entry. Was `mise_tools: {neovim: stable}` by default; a tool yolo wants in EVERY jail belongs in the image, not a per-workspace mise store. Override with mise_tools for a nightly/pinned build.
+          "gh"
+          "gnused"
+          "gnugrep"
+          "gawk"
+          "gnupatch"
+          "diffutils"
+          "gzip"
+          "bzip2"
+          "xz"
+          "gnutar"
+          "unzip"
+          "zip"
+          "zlib"
+          "procps"        # ps, pgrep, pkill
+          "overmind"      # exercised by overmind isolation tests
+          "jq"
+          "uv"
+          "iptables"      # DNAT rules (published port → localhost fixup)
+          "socat"         # host port forwarding into the jail
+          "sox"           # Claude Code's `/voice` recorder depends on it
           # Baked for ONE consumer that never appears in this image's own argv:
           # `internal/oauthbroker`'s EnsureCAAndLeaf shells out to `openssl` to
           # mint the broker CA (a crypto/x509 port is flagged in that function
@@ -1034,14 +1161,15 @@
           # dead spawns in one jail) because on a real host openssl is simply
           # always there. Core, not full: a minimal-variant jail is a host for
           # its children too. See docs/design/broker-ca-and-nested-hosts.md.
-          imagePkgs.openssl
+          "openssl"
           # Timezone database — without it, glibc can't resolve
           # ``TZ=America/New_York`` etc. and silently falls back to UTC,
           # so `date` inside the jail reports wall-clock time that
           # disagrees with the host.  TZDIR in the image env below
           # points glibc at this store path.
-          imagePkgs.tzdata
+          "tzdata"
         ];
+        corePackagesFromNixpkgs = map (n: imagePkgs.${n}) coreFloorNames;
         # NOTE the absence: `installPrefix` is NOT here any more, and that
         # absence is the whole change — it is what removes `goSrc` from the image
         # derivation. What is here in its place carries only names
@@ -1639,7 +1767,51 @@
           # Merge pkg-config metadata so PKG_CONFIG_PATH can point at one dir.
           extraOutputsToInstall = [ "bin" "lib" "dev" ];
         };
+
+        # ── The SAME closure PLUS the floor ────────────────────────────────
+        # THE TWO ATTRS ARE NOT A CHOICE OF SPELLING; they serve consumers that
+        # differ on exactly one fact — whether the notch already has a floor.
+        #
+        #   • `yoloNoncontainerPackages` — the DECLARED `packages:` alone.  Its
+        #     consumer is the container path's store delivery (C4/C5,
+        #     YOLO_STORE_PACKAGES=1, internal/cli/run/storepackages.go), which
+        #     runs in a jail whose IMAGE already bakes the core.  Adding the
+        #     floor there would write 27 duplicate names into
+        #     /run/yolo/packages/bin — a directory that sits AHEAD of /bin on
+        #     PATH, so every one of them would silently start resolving through
+        #     the farm instead of the image (AGENTS.md, "the 'a boot-written dir
+        #     cannot shadow the image' invariant genuinely inverts").
+        #   • `yoloNoncontainerProfile` — floor ++ declared.  Its consumer is a
+        #     notch with NO baked image, which is macos-user today and Linux
+        #     `guest` next.  There the floor is the only core there is.
+        #
+        # ONE buildEnv rather than two, so the launch has one `<out>/bin` to put
+        # on PATH and one GC root to keep — a second profile is a second thing a
+        # launch can forget.  noncontainerFloorNames already dropped every name
+        # the user declared, so the two halves cannot collide inside it.
+        packages.yoloNoncontainerProfile = pkgs.buildEnv {
+          name = "yolo-noncontainer-profile";
+          paths = noncontainerFloorPackages ++ noncontainerPackages;
+          extraOutputsToInstall = [ "bin" "lib" "dev" ];
+        };
         yoloUnavailablePackages = noncontainerSkippedNames;
+
+        # ── Floor diagnostics, read by `nix eval` and by nothing that builds ──
+        # These exist so the floor's composition is inspectable — and, more to
+        # the point, so internal/darwinpkg's drift gate has something to compare
+        # its Go constants against without parsing this file's syntax.
+        #
+        # None of them force noncontainerFloorPackages, so they stay readable on
+        # a system where the floor would throw; that is what lets a diagnostic
+        # report the hole the fatal refuses to build through.
+        yoloImageCoreNames = coreFloorNames;
+        yoloNoncontainerFloorExclusions = {
+          unbuildable = noncontainerFloorUnbuildable;
+          policy = noncontainerFloorPolicy;
+        };
+        # For THIS system, with YOLO_EXTRA_PACKAGES applied (so a user's own
+        # `git` shows up as absent from the floor, which is the correct answer).
+        yoloNoncontainerFloorNames = noncontainerFloorNames;
       }
     );
 }

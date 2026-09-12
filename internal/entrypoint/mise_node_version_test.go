@@ -35,14 +35,17 @@ func TestMiseSurfaceInstallsNoBakedRuntime(t *testing.T) {
 	flakeStr := string(flake)
 
 	// Map a baked-package marker regex in flake.nix → the mise tool name it
-	// duplicates. Each value is compiled as a regex directly (NOT QuoteMeta'd) so
-	// the go marker can anchor with \b — `imagePkgs\.go\b` matches the exact
-	// corePackages entry and CANNOT false-match imagePkgs.gh/gawk/git/glibc/… or
-	// the host cross-compiler `pkgs.go` (no imagePkgs. prefix).
+	// duplicates. The markers read the QUOTED NAME, because since 2026-09-12 the
+	// core list is a list of nixpkgs attr NAMES (`coreFloorNames`) that
+	// `corePackagesFromNixpkgs` maps over — the same names the non-container FLOOR
+	// resolves against the native package set
+	// (docs/design/macos-user-provisioning.md). The quotes are what keep `"go"`
+	// exact: it cannot false-match gh/gawk/git/golangci-lint, nor the host
+	// cross-compiler `pkgs.go`.
 	bakedRuntime := map[string]string{
-		`imagePkgs\.nodejs_`: "node",   // imagePkgs.nodejs_<major>
-		`imagePkgs\.python3`: "python", // imagePkgs.python3
-		`imagePkgs\.go\b`:    "go",     // imagePkgs.go (baked 2026-07-20)
+		`"nodejs_`:  "node",   // "nodejs_<major>"
+		`"python3"`: "python", // "python3"
+		`"go"`:      "go",     // "go" (baked 2026-07-20)
 	}
 	baked := map[string]bool{}
 	for marker, tool := range bakedRuntime {
