@@ -528,16 +528,36 @@ func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.Ordere
 		home = SandboxHome()
 	}
 	envPairs := sandboxEnvPairs(home, user, SandboxPath(home, pathPrefix), sandboxEnv)
-	// Run the agent from the workspace. A login zsh cd's in, then execs the
-	// agent so it inherits the TTY and PID.
+	// Run the agent from the workspace: a zsh cd's in, then execs the agent so it inherits
+	// the TTY and PID.
 	quotedAgent := make([]string, len(agentArgv))
 	for i, a := range agentArgv {
 		quotedAgent[i] = shQuote(a)
 	}
 	inner := "cd " + shQuote(workspace) + " && exec " + strings.Join(quotedAgent, " ")
+	// ⚠ NO `--login`, FOR THE SAME CORRECTNESS REASON THE STAGE ARGV HAS NEVER HAD IT
+	// (provision.go). `sudo -i` does not execve its argv: per sudo(8) it concatenates the
+	// command and args, backslash-escaping every character EXCEPT alphanumerics,
+	// underscores, hyphens and DOLLAR SIGNS, and hands the string to a login shell. So a
+	// newline arrived as a `\`-continuation and was removed, and every `$var` was expanded
+	// by that intermediate shell against an empty environment. Neither is an error: the
+	// wrong command runs, exits 0, and prints plausible output.
+	//
+	// The flag was kept here until 2026-09-12 on the belief that the login rc files it runs
+	// are what re-prepend PATH after macOS path_helper (OQ-1, the acceptance bar). They are
+	// not: the very next word is `/usr/bin/env -i`, which wipes the environment that login
+	// shell just built. The agent's PATH is the explicit `PATH=` below, and the re-prepend
+	// that OQ-1 measures happens in the user's OWN login shell downstream — `yolo -- bash
+	// -lc …` reads /etc/profile (path_helper) and then WriteLoginRC's rc file, inside the
+	// sandbox. Removing the flag leaves both untouched and lets sudo execve the argv.
+	//
+	// MEASURED BOTH WAYS ON HARDWARE 2026-09-12 (macOS 26.5, arm64): with the flag, a
+	// nine-binary floor probe printed nine BLANK lines because `$b` was eaten — item 6 could
+	// not be measured at all until the probe was rewritten without variables. Without it,
+	// the same probe resolves all nine into the store profile and item 3's `fzf` still beats
+	// Homebrew's. PlanInvariants pins the absence on both argvs.
 	out := []string{
 		"sudo",
-		"--login",
 		"--set-home",
 		"--user=" + user,
 		"/usr/bin/env",

@@ -203,7 +203,9 @@ func TestRunHappyPathLaunches(t *testing.T) {
 	if !strings.Contains(joined, "install:/var/yolo-jail/profile-") {
 		t.Error("profile not installed")
 	}
-	if !strings.Contains(joined, "proxy:sudo --login --set-home") {
+	// No `--login`: it rewrote every forwarded command (see
+	// TestNeitherArgvForwardsThroughSudoLogin), and sudo execve's the argv without it.
+	if !strings.Contains(joined, "proxy:sudo --set-home --user=_yolojail") {
 		t.Errorf("proxy launch missing:\n%s", joined)
 	}
 }

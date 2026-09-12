@@ -89,29 +89,66 @@ func TestNoStageWhenNothingIsDeclared(t *testing.T) {
 // `$(date …)`, so a stage forwarded through that flag would provision nothing and report
 // success.
 //
-// The LAUNCH argv keeps the flag deliberately (the login rc files are what re-prepend
-// PATH after macOS path_helper, the acceptance bar OQ-1 passed on hardware), so this test
-// asserts the two argvs differ ON PURPOSE rather than that the flag is gone everywhere —
-// a reader who "fixes the inconsistency" by adding it back is the failure being guarded.
-func TestProvisionArgvDoesNotForwardThroughSudoLogin(t *testing.T) {
+// THE LAUNCH ARGV NO LONGER CARRIES IT EITHER, since 2026-09-12. It did until then, on the
+// belief that the login rc files that flag runs are what re-prepend PATH after macOS
+// path_helper (OQ-1). They are not — `/usr/bin/env -i` is the very next word and wipes the
+// environment that shell built, and the re-prepend OQ-1 measures happens downstream in the
+// user's own `bash -lc`, inside the sandbox. Both measured on hardware the same day: the
+// flag cost item 6 its measurement (a `$b` probe printed nine blank lines), and removing it
+// left item 3's `fzf` still resolving into the store profile ahead of Homebrew's.
+func TestNeitherArgvForwardsThroughSudoLogin(t *testing.T) {
 	plan := provisionPlan(t)
-	for _, a := range plan.ProvisionArgv {
-		if a == "--login" {
-			t.Fatalf("the stage argv carries sudo --login:\n%s",
-				strings.Join(plan.ProvisionArgv, " "))
+	for name, argv := range map[string][]string{
+		"stage":  plan.ProvisionArgv,
+		"launch": plan.LaunchArgv,
+	} {
+		if containsArg(argv, "--login") {
+			t.Errorf("the %s argv carries sudo --login, which rewrites the command it "+
+				"forwards (drops newlines, expands $vars against an empty env) and still "+
+				"exits 0:\n%s", name, strings.Join(argv, " "))
 		}
 	}
-	if !containsArg(plan.LaunchArgv, "--login") {
-		t.Error("the launch argv lost --login; the login rc files are what re-prepend PATH " +
-			"after macOS path_helper (OQ-1), so dropping it there is a separate change " +
-			"with its own measurement — not a consequence of this one")
+	// And the invariant must SAY so for EACH of them, or a future edit reintroduces the flag
+	// with the whole suite green. Two argvs, two checks: the stage's has always been pinned,
+	// and the launch's is what shipped with the fix.
+	for name, mutate := range map[string]func(RunPlan) RunPlan{
+		"stage": func(p RunPlan) RunPlan {
+			p.ProvisionArgv = append([]string{"sudo", "--login"}, p.ProvisionArgv[1:]...)
+			return p
+		},
+		"launch": func(p RunPlan) RunPlan {
+			p.LaunchArgv = append([]string{"sudo", "--login"}, p.LaunchArgv[1:]...)
+			return p
+		},
+	} {
+		if !hasProblem(PlanInvariants(mutate(plan)), "--login") {
+			t.Errorf("PlanInvariants accepts a %s argv with --login", name)
+		}
 	}
-	// And the invariant must SAY so, or a future edit reintroduces the flag with the
-	// whole suite green.
-	broken := plan
-	broken.ProvisionArgv = append([]string{"sudo", "--login"}, plan.ProvisionArgv[1:]...)
-	if !hasProblem(PlanInvariants(broken), "--login") {
-		t.Error("PlanInvariants accepts a stage argv with --login")
+}
+
+// A COMMAND CROSSES INTO THE SANDBOX AS ONE ARGUMENT, AND THAT IS THE WHOLE POINT OF THE
+// FIX ABOVE. The two shapes below are the two that were measured mangled on hardware — a
+// newline (which arrived as a `\`-continuation and was removed) and a `$var` (which an
+// intermediate login shell expanded against an empty environment). Both are ordinary in a
+// forwarded command, and `podman exec` carries both untouched on every other backend, so
+// this is the backend-parity assertion: the argv yolo builds still HOLDS the text verbatim.
+func TestLaunchArgvCarriesAForwardedCommandVerbatim(t *testing.T) {
+	const cmd = "echo A\necho B; X=inner; echo got=$X"
+	argv := LaunchArgv([]string{"bash", "-lc", cmd}, "/var/yolo-jail/p.sb",
+		jsonx.NewOrderedMap(), "/Users/Shared/yolo/ws", "", "", nil)
+	last := argv[len(argv)-1]
+	if !strings.Contains(last, cmd) {
+		t.Errorf("the forwarded command is not in the final argument intact.\ngot:  %q\nwant it to contain: %q",
+			last, cmd)
+	}
+	// One argument, not several: a command split across argv elements is a command sudo or
+	// the shell gets to re-join on its own terms, which is how the mangling started.
+	for i, a := range argv[:len(argv)-1] {
+		if strings.Contains(a, "echo B") {
+			t.Errorf("argv[%d] = %q also carries part of the command; it must live in one "+
+				"argument", i, a)
+		}
 	}
 }
 

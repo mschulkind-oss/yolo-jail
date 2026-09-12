@@ -515,6 +515,22 @@ func PlanInvariants(plan RunPlan) []string {
 		}
 	}
 
+	// ⚠ NO `--login` ON THE LAUNCH ARGV EITHER, since 2026-09-12. The stage's copy of this
+	// check (below) has always been here; the launch's absence was the fix that let a
+	// forwarded command survive at all. `sudo -i` concatenates and backslash-escapes the
+	// command it is given, leaving `$` for an intermediate login shell — so every `$var` in a
+	// user's own `yolo -- bash -lc …` arrived empty and every newline was removed, silently
+	// and with exit 0. It cost runbook item 6 a measurement (nine blank lines) and made this
+	// backend the only one that rewrites the argv it is handed.
+	if containsArg(plan.LaunchArgv, "--login") {
+		problems = append(problems,
+			"the launch argv carries `sudo --login`, which does not execve the command it "+
+				"is given: it concatenates and backslash-escapes it, dropping newlines and "+
+				"letting an intermediate login shell expand every `$var` against an empty "+
+				"environment. A forwarded command would be silently rewritten and would "+
+				"still exit 0 — see docs/design/macos-user-provisioning.md §1.1")
+	}
+
 	// Acceptance-bar guard: darwin store bin dirs must reach the launch PATH.
 	launchStr := strings.Join(plan.LaunchArgv, " ")
 	for _, storeBin := range plan.DarwinPathPrefix {

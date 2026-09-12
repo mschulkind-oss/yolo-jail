@@ -101,15 +101,20 @@ func ProvisionScript(workspace, bootstrapScript string) string {
 // having provisioned nothing, which is the exact failure mode the startup log exists to
 // make impossible.
 //
-// ROUTED AROUND, NOT FIXED. The launch argv keeps `--login`, because it is load-bearing
-// there for a different measured reason (the login rc files re-prepend PATH after macOS
-// path_helper reorders it — the acceptance bar OQ-1 passed on 2026-09-10), and changing
-// it is its own change with its own test. The stage instead takes the BOOTSTRAP argv's
-// shape, which has never had the flag: `sudo --user=… /usr/bin/env -i …`. That costs
-// nothing here, because the login shell's rc work is discarded by the very next word in
-// either argv — `/usr/bin/env -i` wipes the environment it just built — and the PATH the
-// stage actually runs with is the explicit `PATH=` in the env list below, the same value
-// SandboxPath gives the agent. PlanInvariants pins the absence.
+// THE STAGE ROUTED AROUND IT FIRST; THE LAUNCH ARGV WAS FIXED ON 2026-09-12 and no argv in
+// this backend carries the flag any more. The stage took the BOOTSTRAP argv's shape, which
+// has never had it: `sudo --user=… /usr/bin/env -i …`. That cost nothing, because the login
+// shell's rc work is discarded by the very next word in every one of these argvs —
+// `/usr/bin/env -i` wipes the environment it just built — and the PATH the stage actually
+// runs with is the explicit `PATH=` in the env list below, the same value SandboxPath gives
+// the agent.
+//
+// That same reading is what retired the flag on the launch argv, where it had been kept for
+// a reason that turned out not to hold: the login rc files it runs were believed to be what
+// re-prepend PATH after macOS path_helper (OQ-1), but `env -i` discards them there too, and
+// the re-prepend OQ-1 measures happens in the user's own downstream `bash -lc` inside the
+// sandbox. Measured both ways on hardware 2026-09-12. PlanInvariants pins the absence on
+// all of them.
 //
 // YOLO_BYPASS_SHIMS is set in the ENVIRONMENT rather than inside an `sh -c '…'` prefix the
 // way the container spells it. Two things follow: the whole stage process bypasses the
