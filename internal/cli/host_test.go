@@ -419,6 +419,7 @@ func TestApplyHostGeneratesWrappersOnlyWhenOptedIn(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	userCfg(t, home, `{"packs": ["claude"]}`)
+	stubDeclaredBins(t)
 
 	var out, errw bytes.Buffer
 	applyHost(&out, &errw, false, true, strings.NewReader(""))
@@ -439,6 +440,7 @@ func TestApplyHostWrappersLifecycle(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	userCfg(t, home, `{"packs": ["claude"], "host_wrappers": true}`)
+	stubDeclaredBins(t)
 	dir := paths.WrapDirUnder(home)
 
 	// First apply: writes the wrapper AND prints the PATH line.
@@ -730,6 +732,7 @@ func TestApplyHostWrappersRemovedWhenPacksIsEmptied(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	userCfg(t, home, `{"packs": ["claude"], "host_wrappers": true}`)
+	stubDeclaredBins(t)
 	dir := paths.WrapDirUnder(home)
 
 	// Setup, exactly as the lifecycle test does it: an asserting apply generates the

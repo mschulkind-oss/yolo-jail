@@ -40,6 +40,10 @@ func gateFixture(t *testing.T, keyOn bool) string {
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv(acceptConfigChangesEnv, "")
 	setGateTTY(t, false)
+	// The gate drives a WRITING apply, and `claude` declares `program claude`: without the
+	// stub these tests assert the launch gate on a machine that has the agent CLIs and assert
+	// the DEPENDENCY refusal on one that does not.
+	stubDeclaredBins(t)
 	return home
 }
 

@@ -23,6 +23,9 @@ func shellInitHome(t *testing.T) string {
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	userCfg(t, home, `{"packs": ["claude"], "host_wrappers": true}`)
+	// --shell-init runs after a WRITING apply, which the dependency gate refuses when the
+	// `claude` pack's declared binary is missing — true on CI, false in a development jail.
+	stubDeclaredBins(t)
 	return home
 }
 

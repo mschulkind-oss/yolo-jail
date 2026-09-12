@@ -52,6 +52,10 @@ func hostMCPFixture(t *testing.T, contributorJSON string) string {
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// The shipped `claude` pack declares `program claude`, and since the dependency gate a
+	// MISSING declared binary refuses a writing apply. Unstubbed, every fixture below would
+	// pass in a development jail (which has the agent CLIs) and refuse on CI (which has none).
+	stubDeclaredBins(t)
 	return home
 }
 

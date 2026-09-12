@@ -26,8 +26,10 @@ func TestApplyHostNamesTheOutrankedOverlayKey(t *testing.T) {
 		"p1": claudeDefaultModeOverlayJSON("p1"),
 		"p2": claudeDefaultModeOverlayJSON("p2"),
 	})
-	// `claude` is embedded, so it joins the fixture's `packs` by bare name.
+	// `claude` is embedded, so it joins the fixture's `packs` by bare name — and it declares
+	// `program claude`, which a writing apply's dependency gate refuses when it is missing.
 	addPackToConfig(t, home, `"claude"`)
+	stubDeclaredBins(t)
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
