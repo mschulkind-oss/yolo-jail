@@ -317,9 +317,9 @@ func macosUserTestNameOK(name string) bool {
 // the fixture self-sufficient on a Mac whose shared root predates the current account
 // — where an inherited-looking ACE can name a UUID that resolves to nobody.
 //
-// t.TempDir() is still used for the resolved-path trap it solves elsewhere: the path
-// here is resolved with EvalSymlinks at the point it is MINTED, per AGENTS.md's darwin
-// PATH-RESOLUTION rule, so no later comparison has to remember.
+// The path is resolved with EvalSymlinks at the point it is MINTED, per AGENTS.md's
+// darwin PATH-RESOLUTION rule, so no later comparison has to remember to — and a
+// launch that echoes its own workspace path back can be compared against this one.
 func macosUserWorkspace(t *testing.T, configJSON string) string {
 	t.Helper()
 	if strings.Contains(configJSON, `"packs"`) {
@@ -337,6 +337,13 @@ func macosUserWorkspace(t *testing.T, configJSON string) string {
 	resolved, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatalf("resolving the workspace path %s: %v", dir, err)
+	}
+	// MkdirTemp makes it 0700; a project directory a human made is 0755. The ACL is
+	// what actually admits the sandbox user either way (macOS evaluates an explicit
+	// ACE ahead of the mode bits), so this is about the fixture resembling the case
+	// it stands for rather than about access.
+	if err := os.Chmod(resolved, 0o755); err != nil {
+		t.Fatalf("setting workspace mode on %s: %v", resolved, err)
 	}
 	t.Cleanup(func() { removeMacosUserWorkspace(t, resolved) })
 	if err := os.WriteFile(filepath.Join(resolved, "yolo-jail.jsonc"), []byte(configJSON), 0o644); err != nil {
