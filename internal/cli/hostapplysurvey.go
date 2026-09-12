@@ -1,7 +1,8 @@
 package cli
 
 // hostapplysurvey.go accumulates THE CHANGE PREDICATE across one whole host apply
-// (docs/reference/host-apply-staleness.md §3.4, §10 step 1).
+// (docs/reference/host-apply-staleness.md §3.4, §10 step 1) AND the counts the report's
+// verdict block is evidenced by (docs/design/report-tiers.md §4.3, §9 step 1).
 //
 // Each of the four written kinds computes the predicate for its own destinations — see
 // entrypoint.HostRenderResult.WouldChange and hostskills.Result.WouldChange — and each already
@@ -14,8 +15,49 @@ package cli
 // the answer from its own observe pass: it runs the SAME applyHost in observe posture with the
 // output discarded and reads the survey it filled in. A second traversal of the four kinds
 // would be a second thing to drift out of step with the apply it is supposed to describe.
+//
+// ONE WRITER for the counts, for the same reason (report-tiers.md §5, *One writer*): the
+// survey is the only thing that knows them and the printer reads it, so no emitter computes
+// its own total. The counts are what they are because the DESTINATION count answers a
+// question nobody asked — 76 of them in the measured home, 70 being fourteen skills counted
+// once per agent directory (§3.4). Everything below counts files, keys, entries, skills and
+// binaries instead.
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+)
+
+// reportTier is docs/design/report-tiers.md §4.1's REPORT TIER: the class of fact a line
+// states, assigned WHERE THE FACT IS PRODUCED and read by the printer to decide whether a
+// line prints, how many times, and under which flag.
+//
+// It is deliberately not a log level: a level is what an emitter picks in the moment ("this
+// feels like a warning"), which is exactly how today's output came to be, while a tier is a
+// property of the FACT — two emitters stating the same fact assign the same tier. It is not
+// severity either; a kind refusal is a refusal and is a tier-1 notch fact, while an MCP entry
+// loss is a warning and is tier 3.
+//
+// Tiers 1 (notch facts) and 4 (launch disclosures) have no per-destination representative and
+// so have no constant here: a notch fact is true of the NOTCH rather than of a destination
+// (§9 step 3 collapses those lines), and a disclosure belongs to a launch (§9 step 7).
+type reportTier int
+
+const (
+	// tierRun is §4.1's tier 2: varies with the home, needs no action — a destination that
+	// would render, one already in sync, a declared dependency that is present.
+	tierRun reportTier = 2
+	// tierLoss is §4.1's tier 3, which has TWO members and one treatment. A loss takes
+	// something of the user's (a value replaced, a named entry dropped, a skill moved into
+	// the local pack); a blocker stands between this home and a completed apply (a missing
+	// declared dependency, a refusal, a pack that failed to render). They share a tier
+	// because a tier is a RENDERING decision and both want the same rendering: always
+	// itemized, the remedy stated once, and always represented in the verdict line.
+	tierLoss reportTier = 3
+)
 
 // hostChange is one destination an --assert would alter.
 type hostChange struct {
@@ -27,9 +69,33 @@ type hostChange struct {
 	Surface string
 	// Path is the absolute destination in the home.
 	Path string
+	// Tier is the class of fact this destination states (§4.1). tierLoss means THIS RUN
+	// would take something of the user's here; everything else is tierRun.
+	Tier reportTier
 }
 
-// hostApplySurvey is the accumulated predicate for one apply.
+// skillFate is what an apply would do to one SKILL — by NAME, across every destination that
+// skill reaches. The name is the unit because the destination is not: fourteen skills in five
+// agent directories are seventy destinations and fourteen facts, and the seventy is most of
+// why the measured count line was useless (§3.3, §3.4).
+//
+// Ordered by precedence, so a skill that is adopted in one directory and merely composed in
+// another reports the adoption: the bigger claim on the user's content wins.
+type skillFate int
+
+const (
+	// skillComposed — yolo's own content lands in a destination. A run fact.
+	skillComposed skillFate = iota
+	// skillRetired — composed output is archived out of the home. Nothing of the user's
+	// moves (their own skills live in the local pack), so this is not an adoption; it is
+	// still content leaving a directory they look at.
+	skillRetired
+	// skillAdopted — a skill of the USER's moves or unions into their local pack and is
+	// composed back. §4.4's loss class with a remedy, and the one the verdict names.
+	skillAdopted
+)
+
+// hostApplySurvey is the accumulated predicate and counts for one apply.
 //
 // Every method is nil-safe, so a caller that does not want the roll-up passes nil rather than
 // threading an unused value through five signatures.
@@ -43,11 +109,39 @@ type hostApplySurvey struct {
 	InSync int
 	// Changed lists the destinations the render would alter, in report order.
 	Changed []hostChange
+
+	// replacedKeys are the dotted managed keys that would overwrite a value of the user's,
+	// and replacedFiles the destinations they sit in — §4.3's "values of yours replaced,
+	// keys, with the file count". Two sets rather than one count because the operator's
+	// first question is how many of THEIR values move, and the file count is what makes
+	// that number locatable.
+	replacedKeys  map[string]bool
+	replacedFiles map[string]bool
+	// droppedEntries are the NAMES of named-table entries that would be dropped or replaced
+	// (an MCP server), deduplicated across agents; droppedFrom are the surfaces they would
+	// go from. Nine raw losses in the measured home, three servers, three surfaces.
+	droppedEntries map[string]bool
+	droppedFrom    map[string]bool
+	// skills is every skill this run touches, keyed by NAME (see skillFate).
+	skills map[string]skillFate
+	// deps is every declared dependency's state keyed by BINARY, plus a count of the
+	// contributions that named no binary at all — those cannot be deduplicated by one, and
+	// they are not missing either: they were never probed (§4.9 point 6).
+	deps        map[string]hostDepState
+	depsNoBin   int
+	firstApply  bool
+	failedPacks []string
 }
 
-// note records one result's verdict. A result with no PATH is not a destination — an ownerless
-// config patch, a pack-level refusal — and is counted in neither bucket.
-func (s *hostApplySurvey) note(kind, surface, path string, wouldChange bool) {
+// note records one result's verdict at the given tier. A result with no PATH is not a
+// destination — an ownerless config patch, a pack-level refusal — and is counted in neither
+// bucket.
+//
+// The TIER is the caller's to decide and is passed rather than derived, which is the whole
+// point of §4.1: the class of a fact is known where the fact is produced (the result struct
+// carrying the losses, the typed skills Action) and is unrecoverable from the three strings
+// that arrive here.
+func (s *hostApplySurvey) note(tier reportTier, kind, surface, path string, wouldChange bool) {
 	if s == nil || path == "" {
 		return
 	}
@@ -55,17 +149,224 @@ func (s *hostApplySurvey) note(kind, surface, path string, wouldChange bool) {
 		s.InSync++
 		return
 	}
-	s.Changed = append(s.Changed, hostChange{Kind: kind, Surface: surface, Path: path})
+	s.Changed = append(s.Changed, hostChange{Kind: kind, Surface: surface, Path: path, Tier: tier})
+}
+
+// noteConfig records ONE config surface's result: its change predicate, its tier, and every
+// loss the verdict counts. One call rather than five, because the losses and the predicate are
+// facts about the same render and separating them at the call site is how one of them comes to
+// be forgotten at a new one.
+func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
+	if s == nil {
+		return
+	}
+	s.note(configResultTier(r), "config", r.Surface, r.Path, r.WouldChange)
+	if r.FirstApply {
+		s.firstApply = true
+	}
+	for _, k := range r.Overwrites {
+		s.mark(&s.replacedKeys, k)
+		s.mark(&s.replacedFiles, r.Path)
+	}
+	for _, e := range r.EntryLosses {
+		s.mark(&s.droppedEntries, entryLossName(e))
+		s.mark(&s.droppedFrom, r.Surface)
+	}
+}
+
+// configResultTier is §4.1 applied to one config surface: tier 3 when this render would take
+// something of the user's here, tier 2 otherwise.
+//
+// `Formatting` counts, and it is the one entry that is not obvious. Nothing the user
+// CONFIGURED changes when a comment is dropped — which is why it is not an overwrite — but a
+// comment they wrote does not come back, so the destination is one where something of theirs
+// is lost, which is exactly what the tier decides.
+func configResultTier(r entrypoint.HostRenderResult) reportTier {
+	if len(r.Overwrites) > 0 || len(r.EntryLosses) > 0 || len(r.Formatting) > 0 {
+		return tierLoss
+	}
+	return tierRun
+}
+
+// entryLossName reduces one HostRenderResult.EntryLosses string to the NAME of the entry it is
+// about, which is the unit the count has to be keyed on.
+//
+// The strings are built by entrypoint's tableLosses as "<table>.<entry> (<what happened>)",
+// and the TABLE is the half that differs between agents for one server: claude spells the
+// table `mcpServers`, codex `mcp_servers`, opencode `mcp`. Counting the raw strings therefore
+// reports three servers the user added by hand as nine losses — §3.3's worst repetition axis,
+// and the only reason this reduction exists.
+//
+// The format is pinned by going through the real multi-agent render rather than by a literal
+// (hostapplysurvey_test.go), so a change to tableLosses' wording breaks that test instead of
+// silently inflating this count back to nine.
+func entryLossName(loss string) string {
+	name := loss
+	if i := strings.Index(name, " ("); i >= 0 {
+		name = name[:i]
+	}
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
+}
+
+// noteSkill records what would become of one skill BY NAME. The bigger fate wins, so a skill
+// adopted at one destination and composed at four more is one adoption, not five facts.
+func (s *hostApplySurvey) noteSkill(name string, fate skillFate) {
+	if s == nil || name == "" {
+		return
+	}
+	if s.skills == nil {
+		s.skills = map[string]skillFate{}
+	}
+	if cur, seen := s.skills[name]; !seen || fate > cur {
+		s.skills[name] = fate
+	}
+}
+
+// noteDep records one declared dependency's probed state, keyed by binary so two packs
+// declaring `rg` are one dependency on one host. A contribution naming no binary is counted
+// separately: it has no key to deduplicate by, and it is NOT missing — nothing probed it.
+func (s *hostApplySurvey) noteDep(state hostDepState, bin string) {
+	if s == nil {
+		return
+	}
+	if bin == "" {
+		s.depsNoBin++
+		return
+	}
+	if s.deps == nil {
+		s.deps = map[string]hostDepState{}
+	}
+	if cur, seen := s.deps[bin]; !seen || state > cur {
+		s.deps[bin] = state
+	}
+}
+
+// noteRenderFailure records a pack whose render errored. It is a §4.1 blocker: its surfaces
+// are absent from every count above, so a verdict that did not name it would be claiming a
+// completed apply out of counts that silently lost a pack.
+func (s *hostApplySurvey) noteRenderFailure(pack string) {
+	if s == nil {
+		return
+	}
+	s.failedPacks = append(s.failedPacks, pack)
+}
+
+func (s *hostApplySurvey) mark(set *map[string]bool, key string) {
+	if *set == nil {
+		*set = map[string]bool{}
+	}
+	(*set)[key] = true
 }
 
 // Changes reports whether an --assert would alter anything at all. This is the whole question
 // §4.3's table branches on.
 func (s *hostApplySurvey) Changes() bool { return s != nil && len(s.Changed) > 0 }
 
-// Summary is the one-line roll-up a dry run ends with.
+// Summary is the DESTINATION roll-up, which is the launch gate's question and not the
+// operator's: it counts the destinations a traversal visited (docs/reference/host-apply-staleness.md
+// §3.4). The reader's counts are the ones below it — see hostapplyverdict.go.
 func (s *hostApplySurvey) Summary() string {
 	if s == nil {
 		return "0 in sync, 0 would change"
 	}
 	return fmt.Sprintf("%d in sync, %d would change", s.InSync, len(s.Changed))
+}
+
+// ChangedOfKind counts the changed destinations one written kind owns.
+func (s *hostApplySurvey) ChangedOfKind(kind string) int {
+	if s == nil {
+		return 0
+	}
+	n := 0
+	for _, c := range s.Changed {
+		if c.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+// ReplacedValues is §4.3's "values of yours replaced": how many keys, in how many files.
+func (s *hostApplySurvey) ReplacedValues() (keys, files int) {
+	if s == nil {
+		return 0, 0
+	}
+	return len(s.replacedKeys), len(s.replacedFiles)
+}
+
+// DroppedEntries is §4.3's "MCP entries dropped", said as N entries from M surfaces.
+func (s *hostApplySurvey) DroppedEntries() (entries, surfaces int) {
+	if s == nil {
+		return 0, 0
+	}
+	return len(s.droppedEntries), len(s.droppedFrom)
+}
+
+// SkillNames lists the skills with this fate, sorted — NAMES, because §4.4 forbids a default
+// view that drops a name from a loss group, and a sorted list is the only form a report can
+// print twice and get the same answer.
+func (s *hostApplySurvey) SkillNames(fate skillFate) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for name, f := range s.skills {
+		if f == fate {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Deps is §4.3's dependency count, three ways. "Not probed" is its own number and never folds
+// into missing: §4.9 point 6 rules that yolo may not call an environment unready on evidence
+// it does not have.
+func (s *hostApplySurvey) Deps() (present, missing, notProbed int) {
+	if s == nil {
+		return 0, 0, 0
+	}
+	for _, st := range s.deps {
+		switch st {
+		case depPresent:
+			present++
+		case depMissing:
+			missing++
+		default:
+			notProbed++
+		}
+	}
+	return present, missing, notProbed + s.depsNoBin
+}
+
+// MissingDeps names the binaries that are declared and absent, sorted. The verdict line names
+// them rather than counting them (§4.3): a blocker contributes its NAME, because the reader's
+// next action is about that binary.
+func (s *hostApplySurvey) MissingDeps() []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for bin, st := range s.deps {
+		if st == depMissing {
+			out = append(out, bin)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// FirstApply reports whether any surface this run rendered has no provenance record — yolo has
+// never asserted it in this home. It is what turns the losses above into a prompt on --assert.
+func (s *hostApplySurvey) FirstApply() bool { return s != nil && s.firstApply }
+
+// FailedPacks names the packs whose render errored this run.
+func (s *hostApplySurvey) FailedPacks() []string {
+	if s == nil {
+		return nil
+	}
+	return s.failedPacks
 }

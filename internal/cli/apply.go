@@ -164,7 +164,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// against an empty configured set. Nothing else does: with no pack to render there is
 		// no surface, no briefing, and no candidate whose destination to visit, which is why
 		// this is a narrow second call rather than a fall-through into the loop below.
-		pr.Printf("[dim]No packs configured — nothing to apply to the host.[/dim]")
+		// A HEADER for the retire passes below, not the result — the result is the verdict
+		// this branch now ends with (report-tiers.md §4.3). It says what is about to happen
+		// rather than repeating the verdict's own sentence two lines ahead of it.
+		pr.Printf("[dim]No packs configured — nothing to apply, so this run only retires " +
+			"what dropped packs left behind.[/dim]")
 		// The overlay-key half runs here too, and for the same reason: with `packs` empty every
 		// key any pack ever contributed is an orphan, so the most complete drop there is must
 		// not be the one case that cleans up nothing. No live overlays exist to cross-check
@@ -198,6 +202,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		if wrc := applyHostWrappers(pr, errw, home, nil, write, survey); wrc != 0 {
 			rc = wrc
 		}
+		// THE VERDICT, HERE TOO. This branch returns before the tail below, so an empty
+		// `packs` ended with no count, no verdict and no "nothing written" line at all
+		// (§5's first hole, verified 2026-09-11) — the one posture in which the reader has
+		// least context got the least output.
+		printHostApplyVerdict(pr, survey, home, write, true)
 		return rc
 	}
 
@@ -385,6 +394,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			case !hostFields.Honors(c.Kind):
 				pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), hostFields.Refuse(c.Kind))
 			case isDepKind(c.Kind):
+				// The probe's answer reaches the VERDICT, not just this line. A missing
+				// declared dependency is the finding that makes the rest of the apply
+				// pointless (§4.9), and until this call it changed neither the exit code
+				// nor the roll-up — it was a line in the middle of 277 of them.
+				survey.noteDep(deps.state(c), c.Bin)
 				// program AND requires: resolved dep state, not a static "confirm-gated"
 				// line — which bin, present or missing, and the install command
 				// (pack-host-management-plan.md Phase 8). Running it is still Phase 4.3's.
@@ -420,11 +434,18 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		results, rerr := entrypoint.RenderHostPack(p, home, !write, overlays)
 		if rerr != nil {
 			fmt.Fprintf(errw, "yolo host apply: %s: %v\n", p.Name, rerr)
+			// A §4.1 BLOCKER, and it has to reach the verdict: this pack's surfaces are
+			// absent from every count below, so a verdict built from those counts alone
+			// would claim a completed apply out of a traversal that lost a pack.
+			survey.noteRenderFailure(p.Name)
 			rc = 1
 			continue
 		}
 		for _, r := range results {
-			survey.note("config", r.Surface, r.Path, r.WouldChange)
+			// ONE call, carrying the predicate, the §4.1 tier and every loss the verdict
+			// counts: they are facts about the same render, and splitting them at the call
+			// site is how one of them comes to be forgotten at the next one.
+			survey.noteConfig(r)
 			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 			// Which packs contributed config-overlay keys to this surface (ruling R3). An
 			// overlay folds BELOW the owner's managed layer, so it leaves no trace in the
@@ -533,17 +554,22 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	}
 
 	if !write {
-		// THE ROLL-UP, and it is the point of the change predicate at this surface: an observe
-		// pass over an already-applied home used to end in N identical `would render` lines with
-		// nothing saying they were all no-ops (§10 step 1). Printed before the "nothing written"
-		// line, so the last two lines read as verdict-then-posture.
+		// THE DESTINATION ROLL-UP, and it is the point of the change predicate at this surface:
+		// an observe pass over an already-applied home used to end in N identical `would render`
+		// lines with nothing saying they were all no-ops (§10 step 1). It counts DESTINATIONS,
+		// which is the launch gate's question and not the reader's (report-tiers.md §3.4), so it
+		// sits above the verdict as the detail it is — and it is a tier-2 itemization, which is
+		// what moves behind --verbose in §9 step 6.
 		pr.Printf("[bold]%s[/bold]", survey.Summary())
 		for _, c := range survey.Changed {
 			pr.Printf("  [yellow]would change[/yellow] [cyan]%-10s %s[/cyan] [dim]%s[/dim]",
 				c.Kind, c.Surface, c.Path)
 		}
-		pr.Printf("[dim]observe only — nothing written. Re-run with --assert to apply.[/dim]")
 	}
+	// THE VERDICT, OUTSIDE THE POSTURE GUARD. §4.3 requires it on every path in every
+	// posture, and the block above used to be the whole tail: an --assert therefore ended
+	// with no summary at all, having just written into a real home.
+	printHostApplyVerdict(pr, survey, home, write, false)
 	return rc
 }
 

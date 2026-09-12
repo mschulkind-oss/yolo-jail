@@ -130,7 +130,8 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 // false for the one mechanism that made the launch observable at all — a pack added since the
 // last apply has no wrapper, and nothing else in the survey would say so.
 func noteWrapperPlan(survey *hostApplySurvey, dir string, plan hostwrap.Plan) {
-	survey.note("host_wrappers", "host_wrappers", dir, plan.Changed())
+	// tierRun: the wrapper dir is generated whole and holds nothing the user wrote.
+	survey.note(tierRun, "host_wrappers", "host_wrappers", dir, plan.Changed())
 }
 
 func describeWrapperPlan(plan hostwrap.Plan, wrote bool) string {

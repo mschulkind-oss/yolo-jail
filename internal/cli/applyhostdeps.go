@@ -51,6 +51,38 @@ type hostDeps struct {
 	sawMissing bool
 }
 
+// hostDepState is the three-way answer about one declared dependency, and THREE is the point:
+// docs/design/report-tiers.md §4.9 point 6 rules that a dependency yolo could not probe is NOT
+// missing — yolo may not call an environment unready on evidence it does not have — so "not
+// probed" is a state of its own rather than a missing one with an excuse. The ordering is by
+// consequence, so a survey deduplicating one binary across two packs keeps the worse answer.
+type hostDepState int
+
+const (
+	depNotProbed hostDepState = iota
+	depPresent
+	depMissing
+)
+
+// state is the ONE authority for which of the three a contribution is in: depLines switches on
+// it and the apply's survey counts it, so the words in the report and the counts in the verdict
+// cannot disagree about a binary. They are the same question asked twice, and asking it twice
+// was how a dep line came to be a fact that reached neither the exit code nor the roll-up.
+func (h *hostDeps) state(c packdecl.Contribution) hostDepState {
+	if c.Bin == "" {
+		return depNotProbed
+	}
+	r, ok := h.byBin[c.Bin]
+	switch {
+	case !ok:
+		return depNotProbed
+	case r.Present:
+		return depPresent
+	default:
+		return depMissing
+	}
+}
+
 // isDepKind reports whether a contribution feeds the host dep probe. Both `program` and
 // `requires` do, and deliberately: below the jail notch yolo bakes no image, so "yolo would
 // install this" and "this must already exist" are the same question about the host. They
@@ -127,20 +159,20 @@ func (h *hostDeps) lines(c packdecl.Contribution) []string {
 // different claim.
 func (h *hostDeps) depLines(c packdecl.Contribution) []string {
 	label := string(c.Kind)
-	if c.Bin == "" {
-		// `bin` is required for both kinds, so there is nothing to probe — but "your
-		// manifest is broken" is a better answer than silence.
-		return []string{fmt.Sprintf("  [yellow]%-10s[/yellow] declares no \"bin\" — nothing to "+
-			"probe; `yolo pack lint` explains why", label)}
-	}
-	r, ok := h.byBin[c.Bin]
-	if !ok {
+	r := h.byBin[c.Bin]
+	switch h.state(c) {
+	case depNotProbed:
+		if c.Bin == "" {
+			// `bin` is required for both kinds, so there is nothing to probe — but "your
+			// manifest is broken" is a better answer than silence.
+			return []string{fmt.Sprintf("  [yellow]%-10s[/yellow] declares no \"bin\" — nothing to "+
+				"probe; `yolo pack lint` explains why", label)}
+		}
 		// Defensive: DepRequirements returns every program/requires carrying a Bin, so this
 		// is unreachable unless the two diverge. Report it rather than dropping the line.
 		return []string{fmt.Sprintf("  [yellow]%-10s[/yellow] [yellow]?[/yellow] %-16s not probed",
 			label, c.Bin)}
-	}
-	if r.Present {
+	case depPresent:
 		return []string{fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s present at %s",
 			label, r.Bin, r.Path)}
 	}

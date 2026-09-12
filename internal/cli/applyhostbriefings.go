@@ -114,7 +114,10 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			reportBriefingAdoptions(pr, adoptions, req.LocalPackAGENTS)
 			mres, _ := entrypoint.MigrateHostBriefings(adoptions, req, true)
 			for _, r := range mres {
-				survey.note(string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
+				// tierLoss: a MIGRATION moves the user's own prose out of the destination
+				// they wrote it in and into the local pack. That is §4.4's adoption class,
+				// and the tier is what keeps it itemized once the run facts compress.
+				survey.note(tierLoss, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 				pr.Printf("  [yellow]%-20s %s[/yellow]  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 			}
 		} else if !confirmBriefingAdoption(pr, out, stdin, adoptions, req.LocalPackAGENTS) {
@@ -156,7 +159,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	bres, berr := entrypoint.RenderHostBriefings(loaded, home, req, !write)
 	for _, r := range bres {
-		survey.note(string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
+		survey.note(tierRun, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if berr != nil {
@@ -169,7 +172,10 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	// byte yolo wrote — there is no user content in a wholesale-composed file to ask about.
 	pres, perr := entrypoint.PruneHostBriefings(candidates, active, home, req, !write)
 	for _, r := range pres {
-		survey.note(string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
+		// tierRun, not tierLoss: a retired destination is WHOLESALE yolo-owned content
+		// (§6a), so archiving it takes nothing of the user's — their prose is in the local
+		// pack, which does not stop existing when a pack is dropped.
+		survey.note(tierRun, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 		pr.Printf("  [yellow]%-20s %s[/yellow]  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if perr != nil {

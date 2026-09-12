@@ -53,7 +53,10 @@ func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home,
 		return 1
 	}
 	for _, r := range results {
-		survey.note(string(packdecl.KindFiles), r.Surface, r.Path, r.WouldChange)
+		// tierRun: a `files` render only writes paths this kind's ownership record says are
+		// yolo's, and archives the previous copy of one before replacing it — so nothing of
+		// the user's leaves the home at a destination this loop reports.
+		survey.note(tierRun, string(packdecl.KindFiles), r.Surface, r.Path, r.WouldChange)
 		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if write {

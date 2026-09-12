@@ -365,7 +365,16 @@ func confirmSkillAdoption(pr richtext.Printer, out io.Writer, stdin io.Reader,
 // reports results goes through this function or it does not report at all, so it cannot
 // contribute lines to the report and nothing to the predicate the launch gate reads.
 func printSkillResult(pr richtext.Printer, survey *hostApplySurvey, r hostskills.Result) {
-	survey.note(string(packdecl.KindSkills), r.Name, r.Path, r.WouldChange)
+	fate, counted := skillFateOf(r.Action)
+	survey.note(skillResultTier(r.Action, fate, counted), string(packdecl.KindSkills),
+		r.Name, r.Path, r.WouldChange)
+	if counted {
+		// BY NAME, not by destination. One skill reaching five agent dirs is five results
+		// here and ONE fact — and counting the results instead is most of why the measured
+		// roll-up said "76 would change" about six files and fourteen skills
+		// (docs/design/report-tiers.md §3.3, §3.4).
+		survey.noteSkill(r.Name, fate)
+	}
 	color := "yellow"
 	switch r.Action {
 	case hostskills.ActionWrote, hostskills.ActionWouldWrite:
@@ -378,6 +387,39 @@ func printSkillResult(pr richtext.Printer, survey *hostApplySurvey, r hostskills
 	}
 	pr.Printf("  ["+color+"]skills[/"+color+"]     %-24s %s  [dim]%s[/dim]",
 		r.Name, r.Action, r.Detail)
+}
+
+// skillFateOf classifies one skills action into §4.4's loss classes, or composition, or
+// nothing at all. The second return is whether this result counts toward the verdict: a skill
+// yolo left alone, one already in sync, and one whose delivery was refused all change nothing,
+// so counting them would inflate every number the verdict rests on.
+//
+// It switches on the TYPED action rather than on the printed line, which is the whole reason
+// the classification lives at this call site: hostskills has the vocabulary (moved, unioned,
+// archived) and the report has only a string.
+func skillFateOf(a hostskills.Action) (skillFate, bool) {
+	switch a {
+	case hostskills.ActionWrote, hostskills.ActionWouldWrite:
+		return skillComposed, true
+	case hostskills.ActionMoved, hostskills.ActionWouldMove,
+		hostskills.ActionUnioned, hostskills.ActionWouldUnion,
+		hostskills.ActionRenamed, hostskills.ActionWouldRename:
+		return skillAdopted, true
+	case hostskills.ActionArchived, hostskills.ActionWouldArchive,
+		hostskills.ActionCleared, hostskills.ActionWouldClear:
+		return skillRetired, true
+	}
+	return skillComposed, false
+}
+
+// skillResultTier is §4.1 applied to one skills entry. An ADOPTION and a RETIREMENT move
+// content out of a directory the user looks at, and a REFUSAL is a blocker — one of the two
+// members of tier 3 — so all three are itemized; a plain composition is a run fact.
+func skillResultTier(a hostskills.Action, fate skillFate, counted bool) reportTier {
+	if a == hostskills.ActionRefused || (counted && fate != skillComposed) {
+		return tierLoss
+	}
+	return tierRun
 }
 
 // reportSkillCollisions prints the S1 refusal and reports whether the apply must stop.
