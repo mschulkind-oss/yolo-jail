@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: 38873c0d
+verified: 2026-09-11
+verified_commit: 3c25d099
 covers:
   - internal/agentcfg/staterender.go
   - internal/agentcfg/engine.go
@@ -14,7 +14,7 @@ summary: "The per-boot state machine that renders one composed surface: the firs
 
 # First migration and the stateful boot render
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-11, verified against `3c25d099`.
 
 Every boot, yolo re-renders each composed surface from its layers. But most surfaces already
 have a file on disk: written by an older yolo, or by the agent itself, or by a person. **The
@@ -24,17 +24,19 @@ workspace, a deleted sidecar, and a newly-added surface all take the same path.
 
 Two paths, chosen by one signal — whether a trusted `last_render` sidecar exists:
 
-- **First migration** — render with an **empty** overlay, write the surface, seed the baseline
-  from that render, and **skip capture** for this boot. Stale bespoke output that no layer emits
-  simply does not render, so it never comes back.
+- **First migration** — **adopt** the on-disk file into the overlay (object surfaces only, and
+  only the narrowed residue), render, write the surface, seed the baseline from that render, and
+  capture nothing this boot — there is no baseline to diff against. Stale bespoke output that no
+  layer emits simply does not render, so it never comes back, while the agent's own keys survive.
 - **Steady state** — diff the on-disk file against the trusted baseline, fold that delta into the
   durable overlay, render with the overlay in the fold, and rewrite both.
 
 | Component | Lives in |
 | :--- | :--- |
 | The state machine, pure and file-free | `internal/agentcfg` (`ComposeStateful`, `StatefulInputs`, `StatefulOutput`) |
-| The merge primitives | `internal/agentcfg` (`mergeDiff`, `mergeAccumulate`, `deepMerge`, `dropNullLeaves`, `dropYoloOwnedSubtrees`) |
-| The boot caller: sidecar I/O, host source, transforms, orphan retirement | `internal/entrypoint` (`renderSurfaceStateful`, `renderSurfaceStatefulSurface`, `retireOrphanSidecars`) |
+| The merge primitives | `internal/agentcfg` (`mergeDiff`, `mergeAccumulate`, `deepMerge`, `dropNullLeaves`) |
+| The two narrowings an overlay passes through | `internal/agentcfg` (`dropComputedTables`, wholesale, adoption only; `narrowOverlay`/`dropOverriddenKeys`, leaf-level, both branches) |
+| The boot caller: sidecar I/O, host source, orphan retirement | `internal/entrypoint` (`renderSurfaceStateful`, `renderSurfaceStatefulSurface`, `retireOrphanSidecars`) |
 | The non-stateful siblings | `internal/entrypoint` (`renderSurfaceComputed`, `renderSurfaceRMWSurface`) |
 | Discarding captured edits | `internal/cli` (`configReset`, `truncateSurfaceToPureRender`) |
 
@@ -83,13 +85,15 @@ sentence.
 - **Never seed the baseline from the pre-existing file.** Seed from the fresh render, always. A
   baseline taken from the on-disk bytes re-introduces the whole hazard: the diff then reports the
   entire file as an in-jail edit and the overlay pins it.
-- **The overlay begins genuinely empty on a first migration**, and capture is skipped that boot.
+- **The overlay on a first migration is the ADOPTED residue, not an empty map**, and capture is
+  skipped that boot. Seeding empty is the data-loss bug the adoption rule below was written
+  against; the empty seed survives only for a keyless surface, which is deliberately not adopted.
   From the second boot the ordinary loop runs against a *truthful* baseline, so only real edits
   become deltas.
 - **A recoverable on-disk condition never fails the boot.** A corrupt, empty or absent sidecar,
   or an undecodable current file, self-heals by re-seeding or by skipping capture. Only a genuine
-  programmer error — an unknown codec, a Lua failure — propagates, and boot's step wrapper
-  downgrades even that to a warning.
+  programmer error — an unknown codec, or a `Compose` failure such as a shape mismatch —
+  propagates, and boot's step wrapper downgrades even that to a warning.
 - **Three writes, unconditionally, every boot:** the surface file, the `last_render` sidecar, and
   the overlay sidecar. The state machine returns all three values and performs no I/O itself.
 - **A pure-overwrite surface must not go through the stateful path.** It would begin capturing
@@ -155,13 +159,27 @@ so seeding from the fresh render is the only correct move.
 
 The first-migration branch **adopts** the on-disk file rather than discarding it. For an
 **object** surface the seed overlay is the *residue*: `mergeDiff(pure render, current file)`, with
-null leaves dropped, subtrees yolo itself would produce dropped, and every key the surface
-`managed` layer asserts dropped. What is left is the agent-owned state yolo says nothing about.
+null leaves dropped, then narrowed twice. What is left is the agent-owned state yolo says nothing
+about.
 
-Each subtraction earns its place. Yolo-owned subtrees drop because yolo's own layers must win the
-keys yolo asserts. Managed keys drop because `managed` is re-asserted *after* the fold, so an
-adopted managed key could never affect the output — it would sit in the sidecar as permanent
-noise and make `yolo config diff` report a phantom edit the user cannot act on.
+**The two narrowings run at different granularities and neither subsumes the other.** First,
+*wholesale*: a top-level key the **computed** layer holds as an object is a table yolo regenerates
+in full, so whatever sits under it on disk is yolo's own previous output rather than a captured
+edit, and the whole subtree drops (`dropComputedTables`, adoption only). Second, *leaf-level*:
+the shared pass both branches run strips every individual key a higher-ranking layer — computed,
+then managed — would override anyway (`narrowOverlay`, built on `dropOverriddenKeys`). Managed
+keys drop there because `managed` is re-asserted *after* the fold, so an adopted managed key could
+never affect the output — it would sit in the sidecar as permanent noise and make
+`yolo config diff` report a phantom edit the user cannot act on.
+
+> [!WARNING]
+> **Neither narrowing may become a blanket drop of every top-level key the pure render holds as
+> an object.** That is what an earlier version did, and it took the `managed` `permissions` object
+> with it — so `permissions.ask`, a leaf `managed` does not hold and `Enforce` merges around, was
+> silently lost on every adopting boot while the very next boot captured it happily. Equally, the
+> leaf pass alone cannot replace the wholesale one: `dropOverriddenKeys` keeps every key an
+> object-valued owner lacks, and a stale entry under a computed table is exactly such a key — so
+> the leaf pass on its own resurrects an MCP server that was dropped from config.
 
 > [!WARNING]
 > **Do not restore the empty-overlay seed for object surfaces.** Seeding empty destroyed every
@@ -218,7 +236,6 @@ The state machine is pure. Everything environment-dependent stays in the boot pa
 - **The sidecar file layout**, under the workspace's gitignored `.yolo/prism/`. Paths key on the
   surface's agent and name, so a user-declared surface (a `host_files` destination) is
   collision-free with every builtin.
-- **Loading the Lua transform** (user, then workspace).
 - **The one-time orphan retirement**, gated on the first-migration signal: a surface declares the
   pre-prism sidecar and snapshot filenames it obsoletes, and the migrating boot removes exactly
   those names beside the surface. Scoped to files yolo wrote, never a directory sweep, and
@@ -251,8 +268,8 @@ sidecars plus a truncation, per surface.
 - **Agent project and session state** — conversation history, logs, caches, credentials and OAuth
   tokens. These are runtime state, not composed config; clearing them would destroy the agent's
   memory and log the user out.
-- **The user's own config inputs** — `config.jsonc` and `config.lua` are *inputs* to the
-  pipeline, not outputs. Clearing them would delete the user's own transforms and settings.
+- **The user's own config inputs** — `config.jsonc` is an *input* to the pipeline, not an
+  output. Clearing it would delete the user's own settings.
 
 ## What this does not license
 
@@ -281,7 +298,7 @@ sidecars plus a truncation, per surface.
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `3c25d099`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

@@ -30,6 +30,49 @@ more than a key deletion. The approach is now **decided in [§10](#10-retiring-t
 the copied-in host-file set per agent (a credential boundary, not
 workspace-widenable) and both keys hard-error.
 
+> [!IMPORTANT]
+> **Postscript, 2026-09-11 — the Lua transform in this doc's title is REMOVED.** [§1](#1-the-decision-in-one-paragraph)–[§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)
+> are kept in their original tense and describe the design as it was settled on 2026-07-20; this
+> note says what has since been taken out of the tree. The removal is designed and ruled in
+> [`lua-transform-removal.md`](../design/lua-transform-removal.md).
+>
+> - **[§3](#3-the-lua-transform--the-abstraction) is gone in full** — the `config.lua` files (user and workspace), the
+>   per-surface `transform` key on a pack surface and on a `host_files` entry, the `transform`
+>   provenance layer and its `transform (dropped)` variant, `ctx.stage.exclude`, and the
+>   transform half of `internal/agentcfg/luahook`. The compose pipeline is now
+>   `decode → deepMerge → enforce(managed) → encode`, so the `transform(merged, ctx)` line in
+>   [§3.1](#31-shape), [§4](#4-layers-and-scope)'s `render = pipeline(…, transform, managed)` and
+>   [§6.5](#65-worked-example--the-pi-permission-gate-end-to-end)'s worked example describe a step that no longer exists.
+>   **[§1](#1-the-decision-in-one-paragraph)'s "Lua is the *only* transform mechanism" is now "there is no transform mechanism."**
+> - **What the removal did NOT touch:** the layered deep-merge itself, the capture overlay
+>   ([§5](#5-surviving-regeneration--the-capture-diff-overlay)), `yolo config render` ([§6](#6-yolo-config-render--run-the-pipeline-on-demand)), the user-scope-only
+>   ownership rule (principle 2), and the packs' own `derive.lua` sandbox — which shares the Lua
+>   VM and stays. The removal was a split of `luahook`, not a deletion of Lua.
+> - **Why:** the transform had no user in 52 days, its motivating case ([§6.5](#65-worked-example--the-pi-permission-gate-end-to-end)) is served by the
+>   declarative `autonomy` kind, and half its parts shipped inert at least once.
+>
+> **Two rulings, both 2026-09-11, both recorded here because this is where the next author looks.**
+>
+> - **[`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) — delete it outright.** No refusal machinery, no deprecation window, no named
+>   "this was removed" error. *"Nobody is using it. Just delete it and pretend it never existed."*
+>   The design's leaning had proposed permanent named refusals; that is code written for nobody.
+>   Both declared channels still fail closed through machinery that already exists — an unknown
+>   `host_files` key is a config error, and a pack surface declaring `transform` fails to decode
+>   — so the loudness is free. The one genuinely silent case is accepted rather than unnoticed:
+>   the two `config.lua` files were loaded *by existence*, so a non-empty one stops applying with
+>   nothing said. Known instances at removal: zero.
+> - **[`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger) — principle 4 retires with the transform.** *"Transform with Lua, not a data
+>   vocabulary"* ([§2](#2-six-principles-the-line-in-the-sand)) was the rejection of a `drop`/`dropItems`/`set` op-set in favour of a
+>   general hook. With the hook gone the rejection has nothing to defend, and the maintainer's
+>   stated reason for it — *"I just didn't want to create a generic DSL out of JSON — we don't
+>   need that here now anyway"* — is a reason to build neither. So the two capability gaps the
+>   removal leaves (a value-dependent edit *inside* a host-supplied array, and a declared partial
+>   rewrite of a raw surface) are **accepted**: `mode: capture` once, or an inline `content:`, is
+>   the answer today, and a declarative op is designed against a real case or not at all.
+>   **Principle 5 ("never touch the source") survives in substance** — yolo still composes a
+>   build product and never rewrites the host file — but it is no longer a statement about a
+>   transform.
+
 yolo generates a number of config files inside the jail from host + jail sources
 — coding-agent settings (Claude's `settings.json`, Codex's `config.toml`, pi's
 `settings.json`, …), but **also** the MCP-server config, LSP config, the global

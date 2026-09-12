@@ -16,7 +16,9 @@ repinned, and the ones that named code the 2026-09-04 rulings deleted are rewrit
 compacting commit lists both). Beyond the rulings, **everything here is inventory** — traced in the
 code, with the anchors inline.
 
-**The short version.** Twenty-six paths deliver someone else's content into a jail.
+**The short version.** Twenty-six paths deliver someone else's content into a jail — twenty-five
+since row 13 was removed with the Lua config transform on 2026-09-11; the row is kept, struck
+through, because a census that silently loses an entry cannot be re-checked against its own history.
 **Pinning changes an outcome in three of them** ([§1](#1-the-verdict)); everywhere else it is
 theatre, because **every gate in this system keys on a DECLARATION and none on CONTENT.** Two
 rulings made elsewhere reshaped this document without touching that verdict: agent CLIs are
@@ -335,7 +337,7 @@ pre-spawn block for host execution, `yolo pack footprint` on demand.
 | 10 | workspace `env_sources` | host read, exfiltration-shaped | at the config diff, same as 9 | yes — re-read live each launch; a missing file warns and skips |
 | 11 | workspace `mcp_servers` / `lsp_servers` / `packages` / `mise_tools` | in-jail exec | at a diff that shows the NAME, never what it resolves to | mixed — the most useful contrast in the table |
 | 12 | **the config gate itself** (`CheckConfigChanges`) | — it *is* the gate | — | **closed 2026-08-29** (`27b335ce`): a fresh workspace with declared config prompts, a non-TTY changed config refuses; attach still skips it, by design ([§3.3](#33-the-config-gate-is-closed-and-the-scope-model-it-leaves)) |
-| 13 | workspace `yolo-jail.config.lua` — **activated by existing** | agent context, transitively in-jail exec | **never**; not a config key, so outside the diff, drift and snapshot | yes, every boot, with nothing to diff against |
+| 13 | ~~workspace `yolo-jail.config.lua` — **activated by existing**~~ | ~~agent context, transitively in-jail exec~~ | ~~**never**; not a config key, so outside the diff, drift and snapshot~~ | **REMOVED 2026-09-11.** The Lua config transform is deleted and nothing loads either `config.lua` any more ([`lua-transform-removal.md`](lua-transform-removal.md)) — this crossing no longer exists. It was the one input that executed code at every boot while sitting outside the config diff, drift and snapshot, and that property is what this row was filed for; the removal closes it rather than gating it. The pack-shipped Lua that remains is row 26, which is declared and disclosed |
 | 14 | workspace `mise.toml` | in-jail exec | **never** — trust asserted *for* you on the podman argv | yes — `git pull`, and `latest` resolves at install |
 | 15 | `agents_md_extra`, blocked-tool messages, source-less `host_files` | agent context | at the diff, which does carry the prose | covered by the diff; the finding is scope asymmetry |
 | 16 | **`.yolo/handover.md`** | agent context, framed as an authoritative task list | **never** — no key, no prompt, no validation, no attribution | **yes, continuously** — an ordinary file any agent can write |

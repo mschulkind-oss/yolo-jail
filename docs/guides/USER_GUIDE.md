@@ -1103,7 +1103,9 @@ recorded in `<workspace>/.yolo/housekeeping.log` instead, beside `boot.log`:
 
 ```bash
 tail ~/code/myproject/.yolo/housekeeping.log
-``` The one class yolo will not reclaim without asking is the shared build-tool cache, because
+```
+
+The one class yolo will not reclaim without asking is the shared build-tool cache, because
 re-fetching it is unbounded — you will be offered it on a TTY launch when there is at least a
 gigabyte of it older than 30 days, and answering "never" stops the asking for good.
 

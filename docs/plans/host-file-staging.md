@@ -6,6 +6,30 @@ not](#what-is-built-and-what-is-not) first** — the body of this doc is the ori
 DESIGN and still reads in the future tense; that section is the authority on what
 the code actually does and what remains open.
 
+> [!IMPORTANT]
+> **Postscript, 2026-09-11 — `host_files[].transform` is REMOVED, and so is the Lua transform
+> it pointed at.** The design and the rulings are in
+> [`lua-transform-removal.md`](../design/lua-transform-removal.md); [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) there ruled
+> *"delete it outright"*, with no deprecation window and no named refusal. Three consequences for
+> this doc:
+>
+> - **The key no longer validates.** `transform` is out of `host_files`' known-key set, so an
+>   entry still carrying it is a `yolo check` error — the generic `unknown key` one, not a named
+>   "this was removed". [Example 3](#example-3--rich-seed-from-host-transform-one-managed-key) below still shows it and is the one snippet in this
+>   doc that must not be copied as written; drop the `transform` line and it is correct again.
+> - **The [Transforms on non-object surfaces](#transforms-on-non-object-surfaces) capability is gone**, and its worked case — rewriting
+>   `/Users/matt/` to `/home/agent/` inside a host `.npmrc` — is the concrete gap the removal
+>   accepts. The declarative answers are `mode: capture` (edit once in the jail, the overlay
+>   keeps it) or an inline `content:` copy. Nothing declarative expresses a *partial* edit of a
+>   file the host also owns.
+> - **Everything else in the key survives untouched**: the four modes, the four codecs, the
+>   `defaults`/`managed` layers, directory entries, the credential boundary, and
+>   `yolo config ls`/`diff`/`reset`. The removal took one field, not the feature.
+>
+> The body below is the original design and keeps its tense; the rows that made a *current-state*
+> claim about `transform` — the field table and the shipped-capability table — are edited rather
+> than annotated, because a reference row is read as fact.
+
 **Supersedes:** the `## 10` retirement decisions in
 [agent-settings-composition.md](agent-settings-composition.md) — specifically
 **D4** ("hard-error, as if it never existed"). This plan reopens a user-scope
@@ -82,7 +106,7 @@ design of record for the `host_files` key itself and is **closed** to new scope.
 | string sugar + object form, one `host_files` key | validated by `yolo check`; malformed entries are errors, not skips |
 | codecs `json` / `toml` / `lines` / `raw`, auto-detected by extension | a declared codec is accepted iff something can decode it (`knownCodecs` derives from the registry) |
 | modes `readonly` / `once` / `copy` / `capture` | per-kind defaults; `capture` is never implicit |
-| `defaults` / `managed` / `transform` layers | RFC-7386 object merge; transform works on every codec incl. `raw` |
+| `defaults` / `managed` layers | RFC-7386 object merge. (A `transform` layer shipped here too and was removed 2026-09-11 — see the postscript above.) |
 | directory entries (recursive copy) | `mode: copy` implied; composition keys rejected for a dir |
 | per-entry credential boundary | source-bearing entries are **unreadable** from workspace scope by construction, plus a hard `yolo check` error |
 | destination staging (`.config/*`, home-root files, new top-level dirs) | all three cases verified in a nested jail |
@@ -258,7 +282,6 @@ bullets below describe the *old* tree and are kept only for the reasoning:
 | `codec` | — | `json` \| `toml` \| `lines` \| `raw` — the four real codecs. Overrides auto-detect. There is no `yaml` codec (the phantom name is removed — see below); a `.yaml` file is handled as `raw`. |
 | `managed` | — | object of yolo-asserted keys that **revert on edit** (re-Enforced each render). Structured codecs only. |
 | `defaults` | — | user-overridable base layer. Structured codecs only. |
-| `transform` | — | path to a Lua hook. Works on **every** codec, raw included — for a raw surface `ctx.config` is a Lua **string** (see [Transforms on non-object surfaces](#transforms-on-non-object-surfaces)). |
 | `mode` | — | `readonly` (`0o444`, re-rendered each boot, no sidecar — edits fail loudly) \| `once` (seed if absent, then never touched — edits just persist, no sidecar) \| `copy` (`0o644`, overwritten each boot, no sidecar — edits silently lost) \| `capture` (`0o644`, **the overlay exception** — re-rendered each boot *and* in-jail edits captured into a sidecar that outranks `host`). **Default:** `readonly` for source-bearing, `once` for source-less — never `capture`; it is always explicit. See [below](#overlay-capture-is-the-exception-never-a-default). |
 
 > **Naming:** the `managed` **field** (keys yolo re-asserts every render) and
@@ -442,9 +465,14 @@ managed lifecycle** as structured ones (intent #4).
 
 ## Transforms on non-object surfaces
 
-> **✅ Built** as described: `Ctx.Config` is `any`, and `vm.go` checks the returned
-> value against the surface's `codec.Kind` (fail-closed) rather than "must be an
-> object".
+> [!WARNING]
+> **REMOVED 2026-09-11. This whole section describes a capability the tree no longer has.** It
+> was built as described — `Ctx.Config` was widened to `any` and `vm.go` kind-checked the
+> returned value against the surface's codec — and then deleted with the rest of the transform
+> ([`lua-transform-removal.md`](../design/lua-transform-removal.md), [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger)). The section is kept because the `.npmrc` example
+> below is the clearest statement of what the removal gives up: a declared, portable, *partial*
+> rewrite of a file the host also owns. Today that is `mode: capture` and one edit in the jail,
+> or an inline `content:` copy. Read the rest as history.
 
 A Lua transform works on a raw surface too — `ctx.config` is simply a **string**
 instead of a table. Lua is good at strings (`string.gsub`, `string.format`,
@@ -1204,9 +1232,9 @@ surfaces too, which have carried silent capture overlays since the prism cutover
 15. **`internal/cli/config_ref.txt`** — a `host_files` block: the string|object
     union, codec auto-detect table, per-entry scope rule, the four modes + their
     per-kind defaults, and that capture is opt-in.
-16. **`../reference/agent-credentials.md`** — add `host_files` to the credential
+16. **[`../reference/agent-credentials.md`](../reference/agent-credentials.md)** — add `host_files` to the credential
     matrix; the per-entry source-bearing = user-scope boundary.
-17. **`../reference/jail-home.md`** — user surfaces in the home overlay; writable
+17. **[`../reference/jail-home.md`](../reference/jail-home.md)** — user surfaces in the home overlay; writable
     subtree registration; the composed-wins ordering vs. a dir copy.
 18. **[`agent-settings-composition.md`](agent-settings-composition.md)** — annotate D4 (reversed + generalized),
     fix the [§4](agent-settings-composition.md#4-layers-and-scope) layer table's `agent_config.<agent>` claim (decided-but-unwired), and

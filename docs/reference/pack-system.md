@@ -50,7 +50,7 @@ they are rendered into a jail.
 | Jail-side render — one loop, no switch on a tool name | `internal/entrypoint` (`ConfigurePackSurfaces`, `packhooks.go`) |
 | Config surfaces, the layer fold, the four modes | `internal/agentcfg` (`manifest.Surface`, `Compose`, `ManifestWith`) |
 | `config-overlay` fold and the `profile` gate | `internal/packoverlay` |
-| The Lua sandbox: `yolo.derive` / `yolo.transform` / `yolo.env` | `internal/agentcfg/luahook` (`DeriveCtx`) |
+| The Lua sandbox: `yolo.derive` / `yolo.env` | `internal/agentcfg/luahook` (`DeriveCtx`) |
 | The packs yolo ships | `packs/` (each a directory; `packs/embed.go` is the embed) |
 | CLI surface | `internal/cli/pack.go` (`packMain`) |
 
@@ -797,7 +797,7 @@ The engine composes a surface by folding layers with RFC-7386 merge semantics, l
 highest precedence:
 
 ```
-defaults < host < workspace < config-overlay < capture-overlay < computed(derive) < [lua transform] < managed
+defaults < host < workspace < config-overlay < capture-overlay < computed(derive) < managed
 ```
 
 - **`host`** is derived, not declared: a `reads-host` grant whose basename matches the
@@ -895,7 +895,7 @@ alongside a `config` on one identity is the supported shape, not a clash.
 ### Overlay rules
 
 - **An overlay body may set ONLY `managed`.** Every field that would redefine the *surface*
-  (`agent`, `name`, `path`, `codec`, `mode`, `transform`, `defaults`, `retireOnFirstRender`)
+  (`agent`, `name`, `path`, `codec`, `mode`, `defaults`, `retireOnFirstRender`)
   is refused BY NAME at decode, with the rule in the message rather than a generic
   unknown-field error — each of those keys is real, it is just not a contributor's to set.
   That refusal is what makes "the contributor cannot change the file's mode, path or codec"
@@ -931,8 +931,7 @@ read does not make an override legible — which was the entire justification fo
 `yolo config diff <agent>` therefore reads pack declarations *and* the render's own record,
 and reports one of five outcomes per contributed key: `set by <pack>` when it won,
 `contributed by <pack> but <layer> won` (naming the layer, measured, not guessed),
-`contributed by <pack> but the key is not in the rendered file` (a tombstone or a transform
-dropped it), `contributed by <pack> (winner not measured at the <notch> notch — <reason>)`,
+`contributed by <pack> but the key is not in the rendered file` (a tombstone dropped it), `contributed by <pack> (winner not measured at the <notch> notch — <reason>)`,
 and `written by a past apply for <pack>, which no longer asserts it`.
 
 > [!WARNING]
@@ -988,10 +987,10 @@ A surface whose content depends on live configuration — which MCP servers are 
 servers are enabled, which provider a profile selected — cannot be static data. That dynamic
 layer is the one place a pack runs Lua, and it is tightly bounded.
 
-A pack ships `derive.lua` at its root and registers producers. There are three registrations,
+A pack ships `derive.lua` at its root and registers producers. There are two registrations,
 each with a key space of its own: `yolo.derive(agent, surface, fn)` produces a surface's
-computed layer, `yolo.transform(agent, fn)` is the transform hook above the fold, and
-`yolo.env(agent, fn)` emits process environment (see [`providers.md`](providers.md)).
+computed layer, and `yolo.env(agent, fn)` emits process environment (see
+[`providers.md`](providers.md)).
 
 ```lua
 yolo.derive("opencode", "config", function(ctx)
@@ -1440,11 +1439,11 @@ only place the values themselves are stated.
 | Host staging root | `<global storage>/agents/<container>/packs/<slug>` | `paths.AgentsDir`, `PackEntry.Slug` |
 | Lockfile | `~/.config/yolo-jail/packs.lock.json` (beside the user config) | `packsrc/lock.go` |
 | Conventional local pack | `~/.config/yolo-jail/local` (`AGENTS.md`, `skills/`) | `paths.LocalPackDir` |
-| Config-surface layer order | `defaults < host < workspace < config-overlay < capture-overlay < computed < [transform] < managed` | `internal/agentcfg` |
+| Config-surface layer order | `defaults < host < workspace < config-overlay < capture-overlay < computed < managed` | `internal/agentcfg` |
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |
 | `skills_tier` values | `""` / `flat` (default), `namespaced` | `packdecl.Manifest.SkillsTier` |
-| Derive registrations | `yolo.derive(agent, surface, fn)`, `yolo.transform(agent, fn)`, `yolo.env(agent, fn)` | `internal/agentcfg/luahook` |
+| Derive registrations | `yolo.derive(agent, surface, fn)`, `yolo.env(agent, fn)` | `internal/agentcfg/luahook` |
 | Derive ctx sentinels | `ctx.tombstone`, `ctx.empty_array` | `luahook/derive.go` |
 | Derive ctx sources | `ctx.mcp_servers`, `ctx.lsp_servers`, `ctx.providers`, `ctx.selected_provider`, `ctx.profile_name`, `ctx.profile` | `luahook.DeriveCtx` |
 | Loophole settings token | `{settings}` in a manifest `cmd` | `internal/loopholes/settings.go` |

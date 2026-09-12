@@ -72,12 +72,15 @@ scan target (e.g. `--help` command names).
 `blue`, `magenta`, `cyan` (`ansiForTag`, richtext.go:39-42) — 6 true hues plus 2
 modifiers, no background/inverse. One audited surface still wants more than that:
 
-1. **`config render --explain` — 6 provenance layers, 6 hues. RESOLVED.**
+1. **`config render --explain` — one hue per provenance layer. RESOLVED.**
    Option (a) shipped: richtext gained `magenta` (ANSI 35) + `blue` (ANSI 34) in
    6be7884, and `--explain` took the one-hue-per-layer route in 59568e4 —
    `colorLayer` (config.go) maps `defaults`→`[dim]`, `host`→`[blue]`,
-   `workspace`→`[cyan]`, `overlay`→`[magenta]`, `transform`→`[yellow]`,
-   `managed`→`[green]`, so the closed layer set now gets one distinct color each.
+   `workspace`→`[cyan]`, `overlay`→`[magenta]`, `managed`→`[green]`, so the
+   closed layer set gets one distinct color each. (It was six layers and six
+   hues when this was written; `transform`→`[yellow]` went with the Lua
+   transform on 2026-09-11 — [`lua-transform-removal.md`](../design/lua-transform-removal.md) — so the palette now has a
+   hue to spare rather than a gap.)
 2. **`check` badges use background/inverse video. (still open.)**
    `reporter.go:20-21` renders `[FAIL]` white-on-red and `[WARN]` black-on-yellow
    via its own ANSI constants — backgrounds richtext cannot express. This is only
@@ -148,7 +151,7 @@ Highest value, low risk (text stays byte-identical after strip).
   color}`, cyans each key, and runs the LAYER token through `colorLayer`, which
   gives one hue per layer (palette gap #1 resolved via the extended palette). The
   output now scans like syntax highlighting — which keys `managed` clobbered vs
-  came from `host`/`transform`.
+  came from `host`/`workspace`.
 - [x] **`yolo --help`** (help.go usageText L32-52, rendered at cli.go via
   `richtext.Render(usageText(), isTTY(os.Stdout))`) — **DONE (59568e4).**
   `usageText` emits `[bold]` headers (`Usage:`/`Commands:`), `[cyan]` on each
@@ -158,8 +161,10 @@ Highest value, low risk (text stays byte-identical after strip).
 - [ ] **`config --help` / `configUsage`** (config.go L26-44) —
   **Impact: med · Effort: med** (same config.go color path). Headers
   `Usage:`/`Subcommands:`/`render flags:`→bold; `render <agent>` token and each
-  flag (`--surface`, `--explain`, `--help, -h`)→cyan; file paths
-  (`yolo-jail.config.lua`, `~/.config/yolo-jail/config.lua`)→cyan or dim.
+  flag (`--surface`, `--explain`, `--help, -h`)→cyan; file paths→cyan or dim.
+  (Written when `configUsage` named the two `config.lua` files; both are gone
+  with the Lua transform — [`lua-transform-removal.md`](../design/lua-transform-removal.md) — so the paths left to
+  color are whatever the help text names today.)
 - [ ] **`yolo init` / `init-user-config`** (init.go L66/73/76/105/108) —
   **Impact: med · Effort: low-med.** Color the scaffolder's own status lines to
   match the richly-styled briefing that follows: `Created …`→green,
