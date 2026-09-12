@@ -6,7 +6,7 @@ Last updated **2026-09-12**. Counts are tallied from this file's contents, not a
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!NOTE]
-> **Reconciled 2026-09-12 against a 138-commit sprint, and the tally moved on three axes.** It was
+> **Reconciled 2026-09-12 against a 138-commit sprint, and the tally moved on two axes.** It was
 > **17 · 2 · 0 · 6 · 0 · 3**. *Ready* lost both its rows — ✅ **29** (report tiers) and ✅ **30**
 > (the Lua transform) — and briefly gained one: [OQ-CO7](../design/config-ownership-and-promotion.md#13-decision-ledger)'s
 > adoption archive, the single ruling of the five shipped designs' thirty-one with no code behind
