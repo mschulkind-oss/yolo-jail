@@ -106,6 +106,53 @@ func resolveHostDeps(p *packload.Pack) *hostDeps {
 	return h
 }
 
+// hostDepPreflight is the WHOLE RUN's dep probe: every configured pack's binaries, resolved
+// once, BEFORE the first render (docs/design/report-tiers.md §4.9 point 1, §9 step 5).
+//
+// The probe used to run per pack INSIDE the render loop, and the position is not a detail. The
+// next step makes a declined install fatal at the prompt, and a fatal that fires in the middle
+// of the loop would leave the packs already visited WRITTEN and the rest not — so *"we cannot
+// continue"* would not also mean *"nothing was written"*, which is the only form of that
+// sentence worth saying. Only a pre-flight delivers both, and it has to land before the abort
+// does or the abort inherits a half-applied home.
+//
+// THIS COMMIT CHANGES NO OUTPUT. The probe prints nothing and the report still names each
+// binary at its own contribution, in the same order; what moved is WHEN the host is asked.
+type hostDepPreflight struct {
+	byPack map[*packload.Pack]*hostDeps
+}
+
+// hostDepProbe is the per-pack probe, behind a var so a test can observe WHEN the run asks the
+// host rather than only what it learned. That is the property this step is about, and it is
+// invisible in the report by construction — a hoisted probe and a probe in the loop produce
+// byte-identical output, which is exactly why the refactor needs a seam to be testable at all.
+var hostDepProbe = resolveHostDeps
+
+// probeHostDeps takes the pre-flight over the resolved pack set.
+//
+// Every pack is probed, including the many that declare no dependency: resolveHostDeps returns
+// early for those without shelling out, and probing unconditionally keeps this loop the same
+// shape as the render loop it precedes — a filter here would be a second, quieter answer to
+// "which packs have dependencies?" than the one the report gives.
+func probeHostDeps(loaded []*packload.Pack) hostDepPreflight {
+	pf := hostDepPreflight{byPack: make(map[*packload.Pack]*hostDeps, len(loaded))}
+	for _, p := range loaded {
+		pf.byPack[p] = hostDepProbe(p)
+	}
+	return pf
+}
+
+// of returns one pack's probed deps. Nil-safe in both directions — an empty pre-flight, or a
+// pack it never saw — because the answer for an unprobed pack is "not probed", which
+// hostDeps.state already produces for an empty table (§4.9 point 6: yolo may not call an
+// environment unready on evidence it does not have).
+func (pf hostDepPreflight) of(p *packload.Pack) *hostDeps {
+	if h := pf.byPack[p]; h != nil {
+		return h
+	}
+	return &hostDeps{byBin: map[string]depcheck.Result{}}
+}
+
 // packDepRequirements adapts one pack's declared DepRequirements to the shared checker's
 // input. Extracted from check-deps' configuredDepRequirements (which now calls it) so both
 // commands feed the same probe through the same adapter: two adapters would be two answers

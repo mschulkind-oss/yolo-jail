@@ -374,6 +374,20 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			orphan.Reason(), orphan.Pack)
 	}
 
+	// THE DEPENDENCY PRE-FLIGHT (report-tiers.md §4.9 point 1, §9 step 5). Every configured
+	// pack's declared binaries, probed once, BEFORE anything is written — including before
+	// the one-way door below, which is the other thing that can stop this run.
+	//
+	// It used to be one `resolveHostDeps(p)` inside the render loop. That position is fine
+	// while the answer is only a line, and wrong the moment it can stop the run: §9 step 6
+	// makes a declined install fatal, and a fatal from inside the loop would leave the packs
+	// already visited written and the rest not. "We cannot continue" has to also mean
+	// "nothing was written", and only a pre-flight delivers both.
+	//
+	// NO OUTPUT MOVES with this. The probe prints nothing and each binary is still reported
+	// at its own contribution, in the same order; what changed is when the host is asked.
+	deps := probeHostDeps(loaded)
+
 	// THE ONE-WAY DOOR. Before writing anything, ask an observe pass what an --assert would
 	// destroy, and if the answer is "a value yolo has never asserted in this home", require a
 	// confirmation. Maintainer ruling (2026-08-02): "let's just warn during the first apply
@@ -406,7 +420,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// — for the two dep kinds — probed here. A kind that produced no line at all was the
 		// G1 bug: `skills`/`briefing` were honored by the FieldSet but rendered by nothing, so
 		// they vanished silently, which is strictly worse than a loud refusal.
-		deps := resolveHostDeps(p) // one probe per pack, consulted by the dep case below
+		packDeps := deps.of(p) // probed in the pre-flight above, consulted here
 		for _, c := range p.Decl.Contributions() {
 			// The dep kinds are the one class whose answer is a property of THIS HOST rather
 			// than of the notch, so they are the one class still reported per contribution.
@@ -422,12 +436,12 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// because §4.4 groups a blocker by its remedy key, and for a dependency that key
 			// is the binary: two packs declaring `rg` are one missing dependency with one
 			// install command, stated once below.
-			survey.noteDep(c.Bin, deps.finding(c))
+			survey.noteDep(c.Bin, packDeps.finding(c))
 			// program AND requires: resolved dep state, not a static "confirm-gated" line —
 			// which kind asked, which bin, present or missing
 			// (pack-host-management-plan.md Phase 8). `requires` shares this path because
 			// below the jail notch the two kinds ask the host the same question.
-			pr.Printf("%s", deps.depLine(c))
+			pr.Printf("%s", packDeps.depLine(c))
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
 			rc = frc
