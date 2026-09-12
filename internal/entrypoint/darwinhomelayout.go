@@ -159,18 +159,42 @@ func DeriveDarwinHomeLayout(home, sidecar string, writableDirs, sharedDirs []str
 // Every occupied path is collected and reported TOGETHER. One at a time would make the
 // first launch after this shipped a sequence of refusals, each naming one directory of an
 // account the user is being told to wipe anyway.
+//
+// ⚠ AND IN TWO GROUPS, BECAUSE THEY HAVE TWO DIFFERENT REMEDIES — which is the whole
+// reason this is not one list. A Link or a FileRedirect is a path in the ACCOUNT HOME, so
+// `sudo rm -rf <home>` reaches it. A Mirror is a path in the WORKSPACE SIDECAR, which that
+// command does not touch: prescribing it for a mirror sends the reader to destroy the
+// machine tier the mirror exists to preserve AND get the identical refusal on the next
+// launch, because the offending directory was never in the account. A refusal whose remedy
+// cannot reach the path it names is worse than no remedy — it looks actionable.
+//
+// Recorded as one of the two defects a mutation pass found and this fixes:
+// docs/design/macos-user-home-tiers.md §10, runbook item 10
+// (docs/plans/runbooks/macos-user-manual-checks.md).
 func (l DarwinHomeLayout) Apply() error {
 	for _, dir := range l.Dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
-	var occupied []string
-	for _, group := range [][]DarwinHomeLink{l.Links, l.Mirrors} {
-		for _, ln := range group {
-			if err := ensureLayoutSymlink(ln.Path, ln.Target, &occupied); err != nil {
-				return err
-			}
+	var inHome []string
+	var inSidecar []DarwinHomeLink
+	for _, ln := range l.Links {
+		occupied, err := ensureLayoutSymlink(ln.Path, ln.Target)
+		if err != nil {
+			return err
+		}
+		if occupied {
+			inHome = append(inHome, ln.Path)
+		}
+	}
+	for _, ln := range l.Mirrors {
+		occupied, err := ensureLayoutSymlink(ln.Path, ln.Target)
+		if err != nil {
+			return err
+		}
+		if occupied {
+			inSidecar = append(inSidecar, ln)
 		}
 	}
 	for _, r := range l.FileRedirects {
@@ -182,42 +206,82 @@ func (l DarwinHomeLayout) Apply() error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		if err := ensureLayoutSymlink(r.Path, r.Target, &occupied); err != nil {
+		occupied, err := ensureLayoutSymlink(r.Path, r.Target)
+		if err != nil {
 			return err
 		}
+		if occupied {
+			inHome = append(inHome, r.Path)
+		}
 	}
-	if len(occupied) > 0 {
-		return fmt.Errorf("the sandbox home predates the per-workspace layout: %s %s real, "+
-			"where the workspace tier's symlink belongs.\n"+
-			"There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here is "+
-			"copied, renamed or deleted for you.\n"+
-			"Move what you want to keep, then reset the account:\n  sudo rm -rf %s",
-			strings.Join(occupied, ", "), plural(len(occupied), "is", "are"), l.Home)
+	if len(inHome)+len(inSidecar) == 0 {
+		return nil
 	}
-	return nil
+	return occupiedLayoutError(l.Home, inHome, inSidecar)
 }
 
-// ensureLayoutSymlink makes path a symlink to target, or records path as occupied.
+// occupiedLayoutError is the refusal, split out so the two-remedy rule above is one
+// function a test can read rather than a format string inside a loop.
+//
+// The paths are listed one per line and INDENTED. A comma-joined run of absolute paths is
+// the form a reader cannot copy out of a CI log, and this refusal's whole job is to be
+// acted on by somebody who has only the log.
+func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLink) error {
+	var b strings.Builder
+	n := len(inHome) + len(inSidecar)
+	fmt.Fprintf(&b, "the per-workspace home layout cannot be laid: %d %s real, where the "+
+		"workspace tier's symlink belongs.\n", n, plural(n, "path is", "paths are"))
+	b.WriteString("There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here " +
+		"is copied, renamed or deleted for you.\n")
+	if len(inHome) > 0 {
+		b.WriteString("\nIn the SANDBOX ACCOUNT HOME, which predates this layout:\n")
+		for _, p := range inHome {
+			fmt.Fprintf(&b, "  %s\n", p)
+		}
+		fmt.Fprintf(&b, "Move what you want to keep, then reset the account:\n  sudo rm -rf %s\n", home)
+	}
+	if len(inSidecar) > 0 {
+		b.WriteString("\nIn the WORKSPACE SIDECAR — and `sudo rm -rf " + home +
+			"` does NOT touch these, so resetting the account would lose your credentials " +
+			"and leave the launch refusing:\n")
+		for _, ln := range inSidecar {
+			fmt.Fprintf(&b, "  %s (mirrors %s)\n", ln.Path, ln.Target)
+		}
+		b.WriteString("Each is a real directory where a mirror of a machine-scope directory " +
+			"belongs — a copy stranded by a container-era launch, whose live original is the " +
+			"path in parentheses. Remove the WORKSPACE copy:\n")
+		for _, ln := range inSidecar {
+			fmt.Fprintf(&b, "  sudo rm -rf %s\n", ln.Path)
+		}
+	}
+	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
+}
+
+// ensureLayoutSymlink makes path a symlink to target, and reports whether a real file or
+// directory was sitting there instead.
 //
 // A real file or directory is NEVER removed: that is OQ-HT2's no-migration ruling as code.
 // A symlink pointing somewhere else IS replaced — it is a layout yolo wrote, and the
 // sidecar it names moved.
-func ensureLayoutSymlink(path, target string, occupied *[]string) error {
+//
+// It RETURNS the occupancy rather than appending to a caller's slice, because the caller
+// is the only thing that knows which TIER the path is in, and that decides the remedy
+// (see Apply).
+func ensureLayoutSymlink(path, target string) (occupied bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	if cur, err := os.Readlink(path); err == nil {
 		if cur == target {
-			return nil
+			return false, nil
 		}
 		if err := os.Remove(path); err != nil {
-			return err
+			return false, err
 		}
 	} else if _, lerr := os.Lstat(path); lerr == nil {
-		*occupied = append(*occupied, path)
-		return nil
+		return true, nil
 	}
-	return os.Symlink(target, path)
+	return false, os.Symlink(target, path)
 }
 
 func plural(n int, one, many string) string {

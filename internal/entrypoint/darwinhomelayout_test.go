@@ -474,3 +474,171 @@ func TestTheHomeLayoutsTiersComeFromThePackDeclaration(t *testing.T) {
 		t.Errorf("mirror -> %q, want %q", got, want)
 	}
 }
+
+// THE REFUSAL'S REMEDY HAS TO REACH THE PATH IT NAMES — the first of the two defects a
+// mutation pass found on 2026-09-12 and left unfixed (macos-user-home-tiers.md §10; the
+// runbook's item 10, docs/plans/runbooks/macos-user-manual-checks.md).
+//
+// THE DEFECT. `Apply` collected every occupied path into ONE list and always prescribed
+// `sudo rm -rf <account home>`. A Link's path is in the account home, so that works. A
+// MIRROR's path is in the WORKSPACE SIDECAR, which that command does not touch — so the
+// refusal for an occupied mirror told the reader to destroy the machine tier (their
+// credentials, the one thing the mirror exists to keep reachable) and then get the
+// identical refusal on the next launch, because the offending directory was never in the
+// account. Refusing is correct; the remedy was the bug.
+//
+// HOW IT IS ASSERTED, and why not on the prose: the message is checked by collecting the
+// COMMANDS it offers and requiring each to name a path that is actually occupied. That
+// survives rewording, and it fails the moment the two groups are merged back into one —
+// a merged message offers `rm -rf <home>` for a sidecar path, which is precisely the
+// defect. The account home is still expected to be NAMED in the mirror case, because the
+// warning "the account reset does not touch these" is the sentence that stops a reader
+// running it from memory; naming it and prescribing it are different acts.
+func TestDarwinHomeLayoutRefusalPrescribesARemedyThatReachesTheOccupiedPath(t *testing.T) {
+	// A pack of its own, so the mirror path comes from a DECLARATION rather than from a
+	// list this test also writes — the same sourcing rule
+	// TestTheHomeLayoutsTiersComeFromThePackDeclaration pins.
+	packRoot := t.TempDir()
+	packDir := filepath.Join(packRoot, "remedy-probe")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+	  "name": "remedy-probe",
+	  "contributes": [
+	    {"kind": "state", "at": ".probe-workspace-state", "scope": "workspace"},
+	    {"kind": "state", "at": ".probe-machine-state", "scope": "machine",
+	     "because": "its mirror lands in the sidecar, which is the tier under test"}
+	  ]
+	}`
+	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// occupy makes `rel` a real directory under `root`, which is what every case here
+	// needs and what the layout must refuse to replace.
+	occupy := func(t *testing.T, root, rel string) string {
+		t.Helper()
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	cases := []struct {
+		name string
+		// occupied returns the paths to make real, and the remedies the refusal must
+		// then offer — in the order Apply reports them (account home first).
+		setup func(t *testing.T, home, sidecar string) (wantRemedies []string)
+	}{
+		{
+			// The pre-A′ account: only the account home is occupied, so the account reset
+			// IS the remedy. This is the case that worked before and must keep working.
+			name: "only the account home is occupied",
+			setup: func(t *testing.T, home, sidecar string) []string {
+				occupy(t, home, ".probe-workspace-state")
+				return []string{home}
+			},
+		},
+		{
+			// THE DEFECT'S CASE. A container-era launch bound /home/agent at the sidecar,
+			// so the agent's own `scope: machine` dir landed as a REAL directory inside
+			// <ws>/.yolo/home — where this backend now needs a mirror.
+			name: "only the workspace sidecar is occupied",
+			setup: func(t *testing.T, home, sidecar string) []string {
+				return []string{occupy(t, sidecar, ".probe-machine-state")}
+			},
+		},
+		{
+			// Both at once: one refusal, both remedies, neither standing in for the other.
+			name: "both tiers are occupied",
+			setup: func(t *testing.T, home, sidecar string) []string {
+				occupy(t, home, ".probe-workspace-state")
+				return []string{home, occupy(t, sidecar, ".probe-machine-state")}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			home := filepath.Join(base, "home")
+			sidecar := filepath.Join(base, "ws", ".yolo", "home")
+			for _, d := range []string{home, sidecar} {
+				if err := os.MkdirAll(d, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantRemedies := tc.setup(t, home, sidecar)
+
+			e := DarwinEnvFrom(map[string]string{
+				"HOME":               home,
+				"YOLO_PACK_ROOT":     packRoot,
+				DarwinHomeSidecarEnv: sidecar,
+			}, home)
+			packs, err := LoadJailPacks(e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The REAL boot entry, not Apply directly: the remedy is only worth anything
+			// if it reaches a launch, and the tier lists have to come from the pack.
+			err = InstallDarwinHomeLayout(e, packs)
+			if err == nil {
+				t.Fatal("a real directory where a layout symlink belongs must refuse " +
+					"(OQ-HT2: nothing is migrated, copied or renamed) — this applied cleanly")
+			}
+			msg := err.Error()
+
+			for _, p := range wantRemedies {
+				if !strings.Contains(msg, p) {
+					t.Errorf("the refusal never names %s, so the reader cannot tell which "+
+						"path is in the way:\n%s", p, msg)
+				}
+			}
+			got := layoutRemedyPaths(msg)
+			if !equalStrings(got, wantRemedies) {
+				t.Errorf("the refusal offers these commands:\n  rm -rf %v\nand the paths it "+
+					"must be able to fix are:\n  %v\n\nA remedy naming a path that is not "+
+					"occupied cannot fix anything, and one MISSING for an occupied path "+
+					"leaves that launch refusing forever. The sidecar case is the one that "+
+					"regressed before: `rm -rf <account home>` does not touch "+
+					"<workspace>/.yolo/home, so following it destroys the machine tier and "+
+					"changes nothing.\nFull refusal:\n%s", got, wantRemedies, msg)
+			}
+		})
+	}
+}
+
+// layoutRemedyPaths returns the path argument of every `rm -rf` the refusal OFFERS — the
+// indented command lines, not a path merely mentioned in prose. The distinction is the
+// test's whole subject: the mirror case has to NAME the account home (to warn that
+// resetting it does not help) while not PRESCRIBING it.
+func layoutRemedyPaths(msg string) []string {
+	var out []string
+	for _, line := range strings.Split(msg, "\n") {
+		if line == strings.TrimLeft(line, " \t") {
+			continue // not an indented command line
+		}
+		trimmed := strings.TrimSpace(line)
+		for _, prefix := range []string{"sudo rm -rf ", "rm -rf "} {
+			if rest, ok := strings.CutPrefix(trimmed, prefix); ok {
+				out = append(out, rest)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
