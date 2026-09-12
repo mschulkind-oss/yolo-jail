@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -468,6 +469,27 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
+	// 3.5 THE PROVISIONING STAGE — the third privileged step, between the bootstrap and
+	// the agent (docs/design/macos-user-provisioning.md half two). Confined under the same
+	// Seatbelt profile the agent gets, which step 2 already installed; empty when the
+	// config declares no tools, and then this costs nothing at all.
+	//
+	// A FAILING STAGE DOES NOT ABORT THE LAUNCH, and the exit code here says only whether
+	// the human asked it to. The script records its own failure — the banner, the red
+	// console line and the PROVISIONING FAILED line in <workspace>/.yolo/startup.log that
+	// the next launch's briefing reports — then completes with status 0 unless someone
+	// answered `n` at the interactive prompt. So a non-zero status is a deliberate abort,
+	// which is why it is treated as one rather than warned about: a jail whose tools did
+	// not install is still a jail the user asked for, and the record is in the log.
+	if len(plan.ProvisionArgv) > 0 {
+		if deps.Run(plan.ProvisionArgv) != 0 {
+			out.print("[bold red]Provisioning was aborted.[/bold red] The sandbox is set up " +
+				"but its declared tools were not installed — the log is at " +
+				provision.StartupLog(plan.Workspace) + ".")
+			return 1
+		}
+	}
+
 	// 4. Launch under the TTY proxy.
 	return deps.RunWithProxy(plan.LaunchArgv)
 }
@@ -508,6 +530,13 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.print("  sudo " + strings.Join(cmd, " "))
 	}
 	p.print("  sudo " + strings.Join(plan.BootstrapArgv[1:], " "))
+	// NAMED EVEN WHEN THERE IS NO STAGE, for the reason the pack line above is: "this
+	// launch installs nothing" and "this backend cannot install anything" were
+	// indistinguishable until half two, and a dry run that simply omitted the step would
+	// keep them that way.
+	if len(plan.ProvisionArgv) > 0 {
+		p.print("  sudo " + strings.Join(plan.ProvisionArgv[1:], " "))
+	}
 	p.print("")
 
 	section := func(title, body string) {
@@ -518,6 +547,14 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	section("Seatbelt profile", plan.Seatbelt)
 	p.print("[bold]── bootstrap argv (self-exec as sandbox) ──[/bold]")
 	p.print("  " + strings.Join(plan.BootstrapArgv, " "))
+	p.print("")
+	if len(plan.ProvisionArgv) == 0 {
+		p.print("[bold]── provisioning stage ──[/bold]")
+		p.print("  [dim]skipped — no mise_tools and no lsp_servers declared[/dim]")
+	} else {
+		p.print("[bold]── provisioning stage (confined, before the agent) ──[/bold]")
+		p.print("  " + strings.Join(plan.ProvisionArgv, " "))
+	}
 	p.print("")
 	p.print("[bold]── launch argv ──[/bold]")
 	p.print("  " + strings.Join(plan.LaunchArgv, " "))

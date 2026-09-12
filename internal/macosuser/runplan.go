@@ -8,6 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -26,16 +27,22 @@ type RunPlan struct {
 	StageCommands [][]string
 	// PackRoot is the root-owned staged pack tree this session's bootstrap renders
 	// from (YOLO_PACK_ROOT in BootstrapArgv), or "" when the launch staged no packs.
-	PackRoot           string
-	BootstrapArgv      []string
-	LaunchArgv         []string
-	GitIdentity        *jsonx.OrderedMap
-	OffendingHome      string // "" when on neutral ground
-	OffendingHomeSet   bool   // true when a home contains the workspace
-	DarwinPathPrefix   []string
-	DarwinEnv          *jsonx.OrderedMap
-	DarwinSkipped      []string
-	DarwinMaterialized bool
+	PackRoot      string
+	BootstrapArgv []string
+	// ProvisionArgv is the CONFINED provisioning stage, run between the bootstrap and
+	// the agent — nil when this config gives it nothing to do (ProvisionNeeded), which
+	// is what makes `yolo -- bash` in a tool-less workspace pay nothing for it.
+	// ProvisionScriptPath is the generated script that argv execs; both are "" together.
+	ProvisionArgv       []string
+	ProvisionScriptPath string
+	LaunchArgv          []string
+	GitIdentity         *jsonx.OrderedMap
+	OffendingHome       string // "" when on neutral ground
+	OffendingHomeSet    bool   // true when a home contains the workspace
+	DarwinPathPrefix    []string
+	DarwinEnv           *jsonx.OrderedMap
+	DarwinSkipped       []string
+	DarwinMaterialized  bool
 }
 
 // Darwin carries the already-materialized native `packages:` result threaded
@@ -191,6 +198,22 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(workspace, "")
 
+	// THE PROVISIONING STAGE (docs/design/macos-user-provisioning.md half two), composed
+	// here so the dry-run plan shows it and PlanInvariants can check it — the two things
+	// a step assembled inside the orchestrator would be invisible to.
+	//
+	// Skipped ENTIRELY, argv and all, when the config declares nothing for it. Absence is
+	// the honest representation: a plan carrying a stage the launch will not run describes
+	// a launch nobody performs, and every invariant below is written to say nothing about
+	// an empty argv rather than to demand one.
+	var provisionArgv []string
+	provisionScriptPath := ""
+	if ProvisionNeeded(cfg) {
+		provisionScriptPath = ProvisionBootstrapScript(workspace)
+		provisionArgv = ProvisionArgv(ProvisionScript(workspace, provisionScriptPath),
+			profilePath, sandboxEnv, workspace, "", "", darwinPrefix)
+	}
+
 	return RunPlan{
 		Workspace:   workspace,
 		Cname:       cname,
@@ -204,16 +227,18 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		StageCommands: append(append(StageBinaryCommands(selfExe, ""),
 			StagePackCommands(hostPackRoot, cname, "")...),
 			StageHomeOverlayCommands(hostHomeOverlay, cname, "")...),
-		PackRoot:           packRoot,
-		BootstrapArgv:      DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
-		LaunchArgv:         LaunchArgv(agentArgv, profilePath, sandboxEnv, workspace, "", "", darwinPrefix),
-		GitIdentity:        gitIdentity,
-		OffendingHome:      offendingHome,
-		OffendingHomeSet:   offendingSet,
-		DarwinPathPrefix:   darwinPrefix,
-		DarwinEnv:          darwinEnv,
-		DarwinSkipped:      darwinSkipped,
-		DarwinMaterialized: darwin != nil,
+		PackRoot:            packRoot,
+		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
+		ProvisionArgv:       provisionArgv,
+		ProvisionScriptPath: provisionScriptPath,
+		LaunchArgv:          LaunchArgv(agentArgv, profilePath, sandboxEnv, workspace, "", "", darwinPrefix),
+		GitIdentity:         gitIdentity,
+		OffendingHome:       offendingHome,
+		OffendingHomeSet:    offendingSet,
+		DarwinPathPrefix:    darwinPrefix,
+		DarwinEnv:           darwinEnv,
+		DarwinSkipped:       darwinSkipped,
+		DarwinMaterialized:  darwin != nil,
 	}
 }
 
@@ -527,6 +552,68 @@ func PlanInvariants(plan RunPlan) []string {
 		}
 	}
 
+	// THE PROVISIONING STAGE, when there is one. Every check below is silent for an
+	// EMPTY ProvisionArgv, because "this config asked for no tools" is a legitimate plan
+	// and the skip is the feature (ProvisionNeeded).
+	if len(plan.ProvisionArgv) > 0 {
+		// ⚠ NO `--login`. This is the invariant this file exists to carry, and it guards a
+		// MEASURED defect rather than a style: `sudo -i` does not execve its argv — it
+		// concatenates and backslash-escapes the command, leaving `$` unescaped for an
+		// intermediate login shell to expand. The stage script is dense with `$_prc`,
+		// `${PIPESTATUS[0]}` and `$(date …)`, and the failure is silent: the wrong command
+		// runs and exits 0. A plan that grew the flag would provision nothing and report
+		// success, which is precisely what the startup log cannot then record.
+		if containsArg(plan.ProvisionArgv, "--login") {
+			problems = append(problems,
+				"the provisioning stage argv carries `sudo --login`, which does not execve "+
+					"the command it is given: it concatenates and backslash-escapes it, and "+
+					"leaves `$` for the login shell to expand. The stage script would be "+
+					"mangled and would exit 0 having provisioned nothing — see "+
+					"docs/design/macos-user-provisioning.md §1.1")
+		}
+		// CONFINED, under THIS session's profile. The stage runs vendor code (npm
+		// postinstall hooks, mise plugins), which the container runs inside its jail; the
+		// bootstrap's unconfined argv is tolerable only because it runs yolo's own code
+		// (the design's P4). A stage that lost its sandbox-exec would be the one step
+		// running third-party installers on a naked macOS account.
+		if !containsArg(plan.ProvisionArgv, "/usr/bin/sandbox-exec") {
+			problems = append(problems,
+				"the provisioning stage is not run under sandbox-exec; it executes vendor "+
+					"install code (npm postinstall hooks, mise plugins) and would be the "+
+					"only unconfined step in the launch")
+		}
+		if !containsArg(plan.ProvisionArgv, plan.ProfilePath) {
+			problems = append(problems,
+				"the provisioning stage does not name this session's Seatbelt profile ("+
+					plan.ProfilePath+"); it would be confined by some other launch's policy "+
+					"or none")
+		}
+		// IT MUST EXEC THE SCRIPT THE BOOTSTRAP WRITES. Two halves, and either alone is
+		// silently useless: a stage naming a path nothing generates fails on its first
+		// line, and a script generated somewhere the stage never looks is a file nobody
+		// runs. Both sides resolve through ProvisionBootstrapScript, so this is what
+		// fails if one of them starts spelling the path itself.
+		if want := ProvisionBootstrapScript(plan.Workspace); plan.ProvisionScriptPath != want {
+			problems = append(problems,
+				"the provisioning stage execs "+plan.ProvisionScriptPath+", but the bootstrap "+
+					"generates the script at "+want)
+		}
+		if !argvMentions(plan.ProvisionArgv, plan.ProvisionScriptPath) {
+			problems = append(problems,
+				"the provisioning stage argv never names the generated bootstrap script ("+
+					plan.ProvisionScriptPath+"); the stage would install nothing")
+		}
+		// AND IT MUST RECORD ITS FAILURE WHERE THE BRIEFING READS IT. The reader
+		// (jailcontent.ReadProvisioningFailed) resolves the log from the HOST's workspace;
+		// this backend has no bind to make a second path name the same file, so an emitter
+		// rooted anywhere else leaves a failed provision reported as healthy.
+		if !argvMentions(plan.ProvisionArgv, provision.StartupLog(plan.Workspace)) {
+			problems = append(problems,
+				"the provisioning stage does not write "+provision.StartupLog(plan.Workspace)+
+					"; a failure would never reach the agent's briefing")
+		}
+	}
+
 	// A LAUNCH THAT MATERIALIZED MUST HAVE SOMETHING TO SHOW FOR IT. Since the
 	// floor landed there is no such thing as an empty native closure: even with an
 	// empty `packages:` the profile holds mise, node, git and the rest, so an empty
@@ -541,6 +628,21 @@ func PlanInvariants(plan RunPlan) []string {
 	}
 
 	return problems
+}
+
+// argvMentions reports whether any argv element CONTAINS sub — the substring test the
+// stage checks need, because the script is one argv element and the paths it must name
+// are embedded in it rather than being arguments of their own.
+func argvMentions(argv []string, sub string) bool {
+	if sub == "" {
+		return false
+	}
+	for _, a := range argv {
+		if strings.Contains(a, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // containsArg reports whether argv contains the exact arg.

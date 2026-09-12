@@ -207,20 +207,28 @@ func TestMacosUserNotesHostByteGaps(t *testing.T) {
 	}
 }
 
-// mise_tools had the same defect as lsp_servers and none of the same warning: the
-// shims dir is on the sandbox PATH, so it LOOKS provisioned, while nothing provides
-// a `mise` binary the sandbox can reach and nothing runs `mise install` (that step
-// is in the CONTAINER command wrapper). A config declaring tools got silence and a
-// jail without them.
+// mise_tools and lsp_servers BOTH warned that they install nothing on macos-user, and
+// both gaps are CLOSED as of 2026-09-12: the floor puts mise and node on the sandbox
+// PATH, and the confined provisioning stage runs `mise install` and the generated
+// bootstrap script before the agent starts (docs/design/macos-user-provisioning.md).
 //
-// Verified on a Mac 2026-09-04: no mise data dir in the sandbox home, no mise on any
-// path it can read.
-func TestMacosUserWarnsAboutMiseTools(t *testing.T) {
+// So the requirement inverted, and this test inverted with it — the same move
+// TestMacosUserNoLongerClaimsMachineWideWorkspaceState made, for the same reason: a
+// warning describing a closed gap teaches the reader to distrust the ones still true,
+// and these two named a specific mechanism ("nothing runs `mise install`") that a reader
+// would act on by rewriting their config around a limitation that is gone.
+//
+// ⚠ THIS IS THE NEGATIVE HALF ONLY. That the stage actually runs is pinned where it can
+// be observed rather than inferred from silence — macosuser.TestProvisioningStageRuns…,
+// which fails if the orchestrator's call site is deleted. Absence of a warning is not
+// evidence of a feature.
+func TestMacosUserNoLongerWarnsThatToolsAreUninstallable(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"),
-		[]byte(`{"mise_tools": {"neovim": "nightly"}}`), 0o644); err != nil {
+		[]byte(`{"mise_tools": {"neovim": "nightly"}, "lsp_servers": {"pyright": `+
+			`{"command": "pyright-langserver --stdio", "fileExtensions": {"py": "python"}}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -238,15 +246,12 @@ func TestMacosUserWarnsAboutMiseTools(t *testing.T) {
 	}
 
 	got := stdout.String() + stderr.String()
-	if !strings.Contains(got, "mise_tools are NOT installed on macos-user") {
-		t.Errorf("a config declaring mise tools was told nothing:\n%s", got)
+	if strings.Contains(got, "mise_tools are NOT installed on macos-user") {
+		t.Errorf("the launch still says mise_tools are not installed here, but the "+
+			"provisioning stage runs `mise install` before the agent:\n%s", got)
 	}
-	if !strings.Contains(got, "neovim") {
-		t.Errorf("the warning does not name the tools that will be missing:\n%s", got)
-	}
-	// It must point at the mechanism that DOES work here, or the user is left with a
-	// problem and no route out.
-	if !strings.Contains(got, "packages:") {
-		t.Errorf("the warning does not name the working alternative:\n%s", got)
+	if strings.Contains(got, "lsp_servers CONFIG renders but the binaries are not installed") {
+		t.Errorf("the launch still says lsp_servers never install here, but the bootstrap "+
+			"script that installs them is generated and exec'd by the stage:\n%s", got)
 	}
 }

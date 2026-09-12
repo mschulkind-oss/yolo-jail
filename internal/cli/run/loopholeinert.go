@@ -288,31 +288,30 @@ func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.Or
 			"every other backend mounts them read-only, so here the agent can edit its own " +
 			"skills and briefing, and the next launch overwrites them again.")
 	}
-	// mise_tools has the SAME defect as lsp_servers below and, until 2026-09-04, none
-	// of the same warning — so a config declaring tools got silence and a jail without
-	// them. Three independent reasons it cannot work here, all verified on a Mac:
-	// nothing provides a `mise` binary the sandbox can reach (no image bakes one, and
-	// /opt/homebrew/bin is not on SandboxPath — nor would the host's own mise state
-	// under /Users be readable if it were); nothing runs `mise install`, which lives in
-	// the CONTAINER command wrapper (setupScript) that this backend never invokes; and
-	// the sandbox home has no mise data dir at all.
+	// ⚠ TWO WARNINGS WERE RETIRED HERE ON 2026-09-12, and what retired them is that the
+	// gap they named is closed rather than that they became inconvenient.
 	//
-	// Warned rather than fixed because the fix is a real decision — bake mise, or
-	// install it, or declare the tools in `packages:` instead — and shipping the
-	// warning is what makes the choice visible instead of the absence.
-	if mise := cfgMap(cfg, "mise_tools"); mise != nil && len(mise.Keys()) > 0 {
-		o.pr(o.Stderr).print("[yellow]Warning: mise_tools are NOT installed on macos-user[/yellow] — " +
-			strings.Join(mise.Keys(), ", ") + ". The mise shims dir is on PATH but nothing " +
-			"provides `mise` here and nothing runs `mise install`: that step is part of the " +
-			"container provisioning script this backend does not run. Declare these in " +
-			"`packages:` instead, which this backend DOES materialize natively.")
-	}
-	if lsp := cfgMap(cfg, "lsp_servers"); lsp != nil && len(lsp.Keys()) > 0 {
-		o.pr(o.Stderr).print("[yellow]Warning: lsp_servers CONFIG renders but the binaries are not installed on macos-user[/yellow] — " +
-			strings.Join(lsp.Keys(), ", ") + ". The installer is a generated bootstrap script the " +
-			"container path runs and this backend deliberately does not, so an agent is told the " +
-			"server is enabled and then cannot start it. Install them yourself, or add them to `packages`.")
-	}
+	// One said `mise_tools` are NOT installed on macos-user, on three stated grounds:
+	// nothing provides a `mise` binary the sandbox can reach, nothing runs
+	// `mise install`, and the sandbox home has no mise data dir. All three are now
+	// false. The floor puts mise on the sandbox's PATH
+	// (docs/design/macos-user-provisioning.md §9), MISE_DATA_DIR names a real
+	// machine-wide store (macosuser.SandboxMiseData), and the confined provisioning
+	// stage runs `mise install` before the agent starts (macosuser.ProvisionSetup).
+	//
+	// The other said `lsp_servers` CONFIG renders but the binaries never install,
+	// because the installer is a generated bootstrap script "the container path runs and
+	// this backend deliberately does not". That script is now generated here too
+	// (entrypoint.GenerateDarwinBootstrapScript) and the stage execs it.
+	//
+	// Leaving either would be the failure the note above this function names: a warning
+	// that describes a gap yolo has closed teaches the reader to distrust the warnings
+	// that are still true — and the ones below are still true.
+	//
+	// What is NOT retired is `mcp_presets`, which really is still undelivered here: the
+	// preset wrappers are Linux-absolute, so the bootstrap skips them and warns from
+	// inside itself (entrypoint.RunDarwinBootstrap), and the stage installs none of the
+	// npm packages behind them either (Env.SkipMCPPresets).
 	o.noteMacosUserHostByteGaps(packs, cfg)
 }
 
