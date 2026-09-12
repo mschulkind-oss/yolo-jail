@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -196,5 +197,90 @@ func TestResetCaptureRefuseHostSideWithoutForce(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); !os.IsNotExist(err) {
 		t.Errorf("reset --force did not remove the overlay sidecar (err=%v)", err)
+	}
+}
+
+// diffFixture seeds a workspace-local sidecar pair for one surface and returns
+// `config diff <agent>`'s plain-text output.
+//
+// It drives configDiff rather than readLastRenderKeys directly, on purpose: the bug
+// these tests pin is a mismatch between the two sidecar readers the COMMAND pairs, so
+// a test that called the reader alone would still pass with the pairing broken.
+func diffFixture(t *testing.T, agent, name, lastRender, overlayJSON string) string {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	ws := t.TempDir()
+	prev := prismSidecarDir
+	prismSidecarDir = func() string { return filepath.Join(ws, ".yolo", "prism") }
+	t.Cleanup(func() { prismSidecarDir = prev })
+	if err := os.MkdirAll(prismSidecarDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if len(capturedSurfaces(agent, name)) == 0 {
+		t.Fatalf("%s/%s is not a capture surface, so the fixture proves nothing", agent, name)
+	}
+	if err := os.WriteFile(prismLastRenderPath(agent, name), []byte(lastRender), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prismOverlayPath(agent, name), []byte(overlayJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if rc := configDiff([]string{agent, "--surface", name}, &out, io.Discard, false); rc != 0 {
+		t.Fatalf("config diff %s rc=%d\n%s", agent, rc, out.String())
+	}
+	return out.String()
+}
+
+// A capture that is byte-for-byte yolo's own last render is REDUNDANT, and diff must
+// say so whatever format the surface is written in.
+//
+// It did not. readLastRenderKeys read every last_render sidecar as JSON, but the
+// sidecar holds the last render's exact bytes, so a TOML surface's baseline failed to
+// decode and came back empty — and an empty baseline reads as "(added in-jail)". Both
+// TOML surfaces (mise/config, codex/config) reported a fully redundant capture as a
+// new in-jail edit; measured on this repo's own jail before the fix.
+//
+// `config promote` consumes the same comparison to decide which captured keys are
+// redundant, so the wrong answer here would become a wrong promotion there.
+func TestDiffReadsTheLastRenderInTheSurfacesOwnCodec(t *testing.T) {
+	// mise/config is core's own TOML surface — no pack needed to reach it.
+	got := diffFixture(t, "mise", "config",
+		"[tools]\nneovim = \"nightly\"\n",
+		`{"tools":{"neovim":"nightly"}}`)
+	if strings.Contains(got, "added in-jail") {
+		t.Errorf("a TOML capture identical to the last render reported as a NEW edit:\n%s", got)
+	}
+	if !strings.Contains(got, "redundant capture") {
+		t.Errorf("a TOML capture identical to the last render was not reported redundant:\n%s", got)
+	}
+}
+
+// A TOML surface whose capture genuinely differs from the last render must still read
+// as a real edit — the fix above must not make every TOML key look redundant.
+func TestDiffStillReportsARealTOMLEdit(t *testing.T) {
+	got := diffFixture(t, "mise", "config",
+		"[tools]\nneovim = \"nightly\"\n",
+		`{"tools":{"neovim":"stable"}}`)
+	if strings.Contains(got, "redundant capture") {
+		t.Errorf("a changed TOML value reported as redundant:\n%s", got)
+	}
+	if !strings.Contains(got, `(was {"neovim": "nightly"})`) {
+		t.Errorf("a changed TOML value did not report what it was:\n%s", got)
+	}
+}
+
+// The codec swap alone would have traded the TOML bug for a JSON one, so this pins the
+// other half: the baseline is re-encoded through the JSON codec and re-decoded with
+// jsonx, which is exactly the transform agentcfg.marshalOverlay applied to the overlay
+// sidecar. Without it an integer arrives as a jsonx integer literal on the overlay side
+// ("5") and as float64 on the codec side ("5.0"), and every integer-valued key in a
+// JSON surface starts misreporting as an edit.
+func TestDiffComparesIntegersAcrossTheTwoSidecarModels(t *testing.T) {
+	got := diffFixture(t, "claude", "settings",
+		`{"cleanupPeriodDays":5}`,
+		`{"cleanupPeriodDays":5}`)
+	if !strings.Contains(got, "redundant capture") {
+		t.Errorf("an integer key identical to the last render did not report redundant:\n%s", got)
 	}
 }

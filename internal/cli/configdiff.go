@@ -611,23 +611,56 @@ func overlayDiffLines(overlay any, baseline map[string]string) []string {
 // readLastRenderKeys decodes the last_render sidecar into per-key one-line JSON,
 // so a captured value can be compared against what yolo last wrote. An absent or
 // undecodable sidecar yields an empty map (everything reads as "added in-jail").
+//
+// It decodes through the SURFACE'S OWN CODEC, and that is the whole correctness
+// argument. The sidecar holds the exact bytes of the last render, so its format is
+// the surface's — TOML for codex/config and mise/config, JSON for the rest. Reading
+// every sidecar as JSON made both TOML surfaces fail to decode, yielding an empty
+// baseline, so a capture that was byte-for-byte the last render was reported as
+// "(added in-jail)" — a fully redundant capture presented as a new in-jail edit.
+//
+// The two-step re-encode below is the other half. The overlay sidecar is
+// agentcfg.marshalOverlay's encoding/json over CODEC-DECODED values, so running the
+// baseline through the same transform (JSON codec encode, jsonx decode) lands both
+// sides in one value model and makes them comparable by construction. Skipping it
+// would trade the TOML bug for a JSON one: an integer reaches the overlay side as a
+// jsonx integer literal ("5") and the codec side as float64 ("5.0"), so every
+// integer-valued key in a JSON surface would start misreporting instead.
 func readLastRenderKeys(s manifest.Surface) map[string]string {
 	baseline := map[string]string{}
 	data, err := os.ReadFile(prismLastRenderPath(s.Agent, s.Name))
 	if err != nil {
 		return baseline
 	}
-	// The sidecar is in the SURFACE's codec, so only decode the object codecs; a
-	// keyless surface has no keys to compare and falls back to the whole-file line.
-	decoded, derr := jsonx.Decode(data)
+	c, ok := codec.LookupCodec(s.Codec)
+	if !ok {
+		return baseline
+	}
+	decoded, derr := c.Decode(data)
 	if derr != nil {
 		return baseline
 	}
-	if m, ok := decoded.(*jsonx.OrderedMap); ok {
-		for _, k := range m.Keys() {
-			v, _ := m.Get(k)
-			baseline[k] = oneLineJSON(v)
-		}
+	// Only the object codecs have keys; a keyless surface (lines/raw) decodes to a
+	// slice or a string and falls back to the whole-file line.
+	m, isObject := decoded.(map[string]any)
+	if !isObject {
+		return baseline
+	}
+	encoded, eerr := codec.JSON{}.Encode(m)
+	if eerr != nil {
+		return baseline
+	}
+	rt, rerr := jsonx.Decode(encoded)
+	if rerr != nil {
+		return baseline
+	}
+	om, isMap := rt.(*jsonx.OrderedMap)
+	if !isMap {
+		return baseline
+	}
+	for _, k := range om.Keys() {
+		v, _ := om.Get(k)
+		baseline[k] = oneLineJSON(v)
 	}
 	return baseline
 }
