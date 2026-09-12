@@ -29,11 +29,23 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// Flake attribute contract — the two attrs flake.nix exposes for a
-// non-container notch's tool closure.
+// Flake attribute contract — the attrs flake.nix exposes for a non-container
+// notch's tool closure. Two profiles and one diagnostic list.
 const (
-	ProfileAttr     = "yoloNoncontainerPackages" // packages.<system>.<attr> (buildEnv)
-	UnavailableAttr = "yoloUnavailablePackages"  // <attr>.<system> -> [str]
+	// ProfileAttr is the DECLARED `packages:` alone — the closure for a consumer
+	// that already has a floor of its own. Its caller is the container path's
+	// store delivery (C4/C5, YOLO_STORE_PACKAGES=1), which runs in a jail whose
+	// image bakes the core already.
+	ProfileAttr = "yoloNoncontainerPackages" // packages.<system>.<attr> (buildEnv)
+	// FloorProfileAttr is the floor PLUS the declared `packages:` — the whole tool
+	// closure for a notch with NO baked image (macos-user today, Linux `guest`
+	// next), where the floor is the only core there is. See floor.go.
+	//
+	// The two are separate attrs because putting the floor in ProfileAttr would
+	// write 27 duplicate names into /run/yolo/packages/bin on a container launch,
+	// a directory that sits AHEAD of /bin on PATH.
+	FloorProfileAttr = "yoloNoncontainerProfile" // packages.<system>.<attr> (buildEnv)
+	UnavailableAttr  = "yoloUnavailablePackages" // <attr>.<system> -> [str]
 )
 
 // DarwinPackages is the result of materializing `packages:` natively.
@@ -134,7 +146,25 @@ func BuildEnv(baseEnv []string, packages []any) ([]string, error) {
 // An empty outLink keeps the historical `--no-link` — the UNROOTED build, which
 // is what a caller that only wants the path (a diagnostic, a dry run) should
 // ask for, stated rather than defaulted.
+//
+// This one realizes ProfileAttr — the DECLARED packages alone. A notch with no
+// image wants BuildFloorProfileArgv instead. They are two functions rather than
+// one with an attr parameter because the difference is invisible in an argv and
+// catastrophic in a jail: an empty-string default would hand a new caller the
+// floorless closure silently, which on macos-user is a launch with no mise, no
+// node and no git.
 func BuildProfileArgv(system, outLink string) []string {
+	return buildProfileArgv(system, outLink, ProfileAttr)
+}
+
+// BuildFloorProfileArgv is BuildProfileArgv for FloorProfileAttr: the floor PLUS
+// the declared packages, i.e. the whole tool closure a notch with no baked image
+// needs. See floor.go for what the floor is and why it is not optional.
+func BuildFloorProfileArgv(system, outLink string) []string {
+	return buildProfileArgv(system, outLink, FloorProfileAttr)
+}
+
+func buildProfileArgv(system, outLink, attr string) []string {
 	if system == "" {
 		system = NativeSystem()
 	}
@@ -149,7 +179,7 @@ func BuildProfileArgv(system, outLink string) []string {
 	argv = append(argv,
 		"--print-out-paths",
 		"--print-build-logs",
-		".#packages."+system+"."+ProfileAttr,
+		".#packages."+system+"."+attr,
 	)
 	return argv
 }
