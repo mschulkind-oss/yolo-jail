@@ -385,14 +385,15 @@ design doc. That is what happened — [`roadmap.md`](roadmap.md) carried it as a
 so this blocker is spent and the graduation no longer waits on it.
 
 ⚠ **It closed with residue, and the residue is now graduation content rather than a footnote.**
-Verification after the build measured **four gaps the archive does not reach** — a different four
-from the criterion's four axes below, and unrelated to them — `yolo config reset`
-spending the one-per-surface slot on yolo's own output, a deleted overlay sidecar dropping keys with
-no archive and no loss line, an existing-but-unreadable file counted as absent, and an adopting
-render still filed as *in sync* in the verdict. They are recorded in
-[§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), unfixed, because
-each candidate fix reverses a ruling. In a design doc that sits honestly as live residue. **In a
-reference it becomes present tense** — *here is what the net does and does not catch* — which is the
+Verification after the build measured **four gaps the archive did not reach** — a different four
+from the criterion's four axes below, and unrelated to them. **Two were fixed on 2026-09-12**, both
+of them things the GATE could not tell apart: yolo's own output from the user's file (which is what
+let `yolo config reset` spend the one-per-surface slot), and an absent file from an
+existing-but-unreadable one. **Two remain** — a deleted overlay sidecar dropping keys with no
+archive and no loss line, and an adopting render still filed as *in sync* in the verdict — recorded
+in [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), unfixed,
+because each candidate fix reverses a ruling. In a design doc that sits honestly as live residue.
+**In a reference it becomes present tense** — *here is what the net does and does not catch* — which is the
 same kind of re-statement the criterion below needs, and it is the second thing the rewrite owes.
 
 ⚠ **The subtler blocker, and the more dangerous one.** The design's own success criterion —
@@ -561,7 +562,7 @@ not after it.
 3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**.
    [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive **is built**
    (2026-09-12), so what remains is two re-statements, not one: the zero-bytes criterion as a stated
-   contract rather than a partly-met goal, and the archive's four measured gaps as present-tense
+   contract rather than a partly-met goal, and the archive's two remaining gaps as present-tense
    behavior. The first is still gated on a live ruling
    ([`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions)), which under
    [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s precedent means a stub

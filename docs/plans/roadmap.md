@@ -1076,14 +1076,15 @@ C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
   original with yolo's output); and a copy that cannot be written REFUSES the adoption, leaving the
   file untouched, rather than warning past it.
 
-  ⚠ **It shipped with four measured gaps, and they are recorded rather than closed over.**
+  ⚠ **It shipped with four measured gaps; two are now closed and two are yours to call.**
   Verification after the build found that `yolo config reset` spends the one-per-surface slot on
   yolo's own output; that deleting a surface's overlay sidecar while keeping `last_render` drops the
   adopted keys with no archive, no loss line and no prompt; that an existing-but-UNREADABLE file
   reaches the gate as zero bytes and is replaced wholesale; and that an adopting render is still
-  filed as *in sync* in `yolo host apply`'s verdict. None is a regression — each is a loss that
-  predates the archive — and none is fixed, because every candidate fix reverses a ruling, so each
-  is yours to call. They live in
+  filed as *in sync* in `yolo host apply`'s verdict. **The first and third are fixed (2026-09-12)**
+  — they were one defect wearing two faces, a gate that could not tell "there are bytes here" from
+  "these bytes are mine", and an absent file from an unreadable one. The other two are UNFIXED,
+  because each candidate fix reverses a ruling. None was a regression. They live in
   [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), beside the
   ruling they qualify. **This row stays ✅:** the step is built, and a ✅ that quietly meant
   "complete" is what [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s own

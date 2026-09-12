@@ -268,8 +268,11 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 // to REPORT that path — `yolo host apply` prints one line per surface and e.Stderr is nil
 // there by design — while the boot notch announces it on stderr as it goes.
 //
-// A non-nil render comes back even on a refusal, so a caller can still see what was decided
-// before the write declined; callers that only need the output keep the wrapper above.
+// A non-nil render comes back even on a refusal AT THE WRITE, so a caller can still see what
+// was decided before persist declined; callers that only need the output keep the wrapper
+// above. A refusal at the COMPOSE — a surface file that exists and cannot be read — has no
+// render to hand back and returns nil, which is why the host arm reads sr for the archive path
+// under a nil check rather than unconditionally.
 func renderSurfaceStatefulDetail(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*statefulRender, error) {
 	r, err := composeStatefulSurface(e, surface, hostBytes, computed, overlays)
 	if err != nil {
