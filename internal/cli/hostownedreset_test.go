@@ -16,11 +16,14 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -162,5 +165,122 @@ func TestHostSideCaptureStaysRefusedUnderOwn(t *testing.T) {
 	}
 	if !strings.Contains(errw.String(), "refusing") {
 		t.Errorf("capture under `own` did not refuse:\n%s", errw.String())
+	}
+}
+
+// AND THE TRUNCATION RENDERS THE GUARDED POSTURE, not the autonomous one. This is the half
+// that keeps the exemption from being a jail-bypass leak with extra steps.
+//
+// `own` is what turned the CLI's surface manifest from a REPORTING input into a host-side
+// WRITER, and those are not the same manifest: packload.Pack.Surfaces() is SurfacesFor(true)
+// — the autonomous posture — whose own docstring says "The host path calls
+// SurfacesFor(false)". Printing a pack's autonomous declarations at either notch is harmless;
+// composing them into a real ~/.claude/settings.json is the leak the 2026-08-01
+// autonomy-as-notch-policy ruling exists to prevent (§4.2), and which
+// internal/entrypoint/hostrender.go states in as many words where it resolves the same
+// posture from the Target's Profile.
+//
+// Asserted against the POSTURE's own keys rather than against a second composition, so this
+// cannot pass by both halves sharing one bug: `allow`, `deny`, `acceptEdits`,
+// `additionalDirectories: ["/"]` and `skipDangerousModePermissionPrompt: true` are declared
+// by packs/claude/pack.json's `autonomous` block and by nothing else, and the `guarded` block
+// declares the three values wanted below.
+func TestHostSideResetTruncatesToTheGuardedPosture(t *testing.T) {
+	_, _, surfacePath := hostResetFixture(t, "own")
+
+	var out, errw bytes.Buffer
+	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	data, err := os.ReadFile(surfacePath)
+	if err != nil {
+		t.Fatalf("read the surface after reset: %v", err)
+	}
+	var got struct {
+		Permissions struct {
+			AdditionalDirectories []string        `json:"additionalDirectories"`
+			Allow                 json.RawMessage `json:"allow"`
+			DefaultMode           string          `json:"defaultMode"`
+			Deny                  json.RawMessage `json:"deny"`
+		} `json:"permissions"`
+		SkipDangerous bool `json:"skipDangerousModePermissionPrompt"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("decode the truncated surface: %v\n%s", err, data)
+	}
+	if got.Permissions.DefaultMode != "default" {
+		t.Errorf("permissions.defaultMode = %q, want %q — reset composed the AUTONOMOUS "+
+			"posture into a real home. The host notch renders autonomy OFF:\n%s",
+			got.Permissions.DefaultMode, "default", data)
+	}
+	if got.SkipDangerous {
+		t.Errorf("skipDangerousModePermissionPrompt is true — that key is the jail's "+
+			"permission bypass, written into the user's own ~/.claude/settings.json:\n%s", data)
+	}
+	if len(got.Permissions.AdditionalDirectories) != 0 {
+		t.Errorf("permissions.additionalDirectories = %v, want empty — \"/\" is the jail's "+
+			"whole-filesystem grant:\n%s", got.Permissions.AdditionalDirectories, data)
+	}
+	// allow/deny are declared ONLY by the autonomous posture, so their presence is also what
+	// the NEXT apply's adoption would capture back as if the user had written it — reset
+	// leaving a fresh overlay instead of nothing to adopt.
+	if got.Permissions.Allow != nil || got.Permissions.Deny != nil {
+		t.Errorf("permissions.allow/deny survived the truncation (allow=%s deny=%s) — only "+
+			"the autonomous posture declares them, so the next `yolo host apply` adopts them "+
+			"back as a user overlay:\n%s", got.Permissions.Allow, got.Permissions.Deny, data)
+	}
+}
+
+// AND THE COUPLING IS MEASURED THROUGH THE NEXT APPLY, which is the property the exemption's
+// whole argument rests on and the one no other test here runs.
+//
+// The file assertions above pin what reset WROTE. This pins what that means: reset's premise
+// is that it truncates the surface to the render the next apply computes, so adoption's
+// first-migration branch finds nothing to take back. Stated only in a comment, that premise
+// was FALSE as shipped — the truncation composed a different (autonomous) posture, so the
+// apply adopted `permissions.allow`/`deny` as if the user had typed them and pinned them as
+// an overlay indefinitely. A reset that leaves a fresh overlay is not a discard.
+//
+// The assertion is on the OVERLAY rather than the file, deliberately: the file can agree by
+// accident (the apply rewrites it either way), while an empty overlay is only reachable when
+// the two compositions actually match. It fails if the truncation's notch resolution is
+// removed, which the file assertions alone do not guarantee for a future posture key.
+func TestHostSideResetLeavesTheNextApplyNothingToAdopt(t *testing.T) {
+	home, store, _ := hostResetFixture(t, "own")
+
+	var claude *packload.Pack
+	for _, p := range packload.Embedded() {
+		if p.Name == "claude" {
+			claude = p
+			break
+		}
+	}
+	if claude == nil {
+		t.Fatal("the claude pack is not embedded")
+	}
+
+	var out, errw bytes.Buffer
+	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	// The command reset's own trailer names, at the notch it named it for.
+	if _, err := entrypoint.RenderHostPack(claude, home, render.OwnershipOwn, false, nil); err != nil {
+		t.Fatalf("the host apply reset told the user to run: %v", err)
+	}
+
+	overlay := filepath.Join(store, "claude-settings.overlay.json")
+	data, err := os.ReadFile(overlay)
+	if err != nil {
+		t.Fatalf("read the overlay the apply left: %v", err)
+	}
+	var captured map[string]any
+	if err := json.Unmarshal(data, &captured); err != nil {
+		t.Fatalf("decode the overlay: %v\n%s", err, data)
+	}
+	if len(captured) != 0 {
+		t.Errorf("the apply after reset adopted %d key(s) as a user overlay, from a file the "+
+			"user had just asked to be reset — so reset truncated to a DIFFERENT render than "+
+			"the one the apply computes, and those keys are now pinned as though the user "+
+			"wrote them:\n%s", len(captured), data)
 	}
 }

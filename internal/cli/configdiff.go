@@ -1011,7 +1011,24 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 // `host_management: own`: compose from the DECLARED layers alone — no ${workspace} referent,
 // no host layer, no overlay — and write that. See its caller for why each of those three is
 // a deliberate difference rather than an omission.
+//
+// # A FOURTH difference, and the one that is not about layers: the AUTONOMY POSTURE
+//
+// The surface handed in came from surfaceManifest(), which folds each pack's AUTONOMOUS
+// posture because its callers are reporting commands (see hostSurfaceManifest for the whole
+// argument). Writing that composition into a real home puts the jail's permission bypass into
+// the user's own config — the 2026-08-01 leak. So the surface is RE-RESOLVED here at the host
+// notch, by its own (agent, name), through the manifest built with the host Target's posture.
+//
+// Re-resolving rather than taking a second parameter keeps the choice at the one place that
+// writes: a caller that forgot to pass the host surface would be a silent leak, while a
+// surface this lookup cannot find falls back to the one it was given — a pseudo-agent
+// "user" host_files slug, which declares no autonomy posture and so cannot carry the keys
+// this guards against.
 func truncateHostSurfaceToPureRender(s manifest.Surface, path string) error {
+	if hs, ok := hostSurfaceManifest().Lookup(s.Agent, s.Name); ok {
+		s = hs
+	}
 	sub, _ := entrypoint.PruneWorkspaceKeyed(s)
 	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub})
 	if err != nil {

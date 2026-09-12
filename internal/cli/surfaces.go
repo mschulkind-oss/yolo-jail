@@ -23,6 +23,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 var (
@@ -121,4 +123,55 @@ func surfaceHasComputedLayer(s manifest.Surface) bool {
 		}
 	})
 	return computedSet[s.Key()]
+}
+
+var (
+	hostSurfacesOnce sync.Once
+	hostSurfacesMan  *manifest.Manifest
+)
+
+// hostSurfaceManifest is surfaceManifest() resolved at the HOST notch: each pack's surfaces
+// folded with the host's own §4.2 autonomy posture rather than the jail's.
+//
+// # Why there are two, and why the difference is not cosmetic
+//
+// surfaceManifest() is built from packload.Pack.Surfaces(), which is SurfacesFor(TRUE) — the
+// AUTONOMOUS posture — and whose own docstring says "The host path calls SurfacesFor(false)".
+// That is the right input for a REPORTING command: `yolo config ls` and `config diff` describe
+// what a jail renders, at either notch, and describing the autonomous posture host-side is
+// accurate. It is the wrong input for a host-side WRITE. Composing a pack's autonomous block
+// into a real ~/.claude/settings.json puts the jail's permission bypass — `defaultMode:
+// acceptEdits`, `additionalDirectories: ["/"]`, `skipDangerousModePermissionPrompt: true` —
+// into the user's own config, which is exactly the leak the 2026-08-01
+// autonomy-as-notch-policy ruling exists to prevent.
+//
+// `host_management: own` is what created the hazard: before it, every host-side write was
+// refused outright, so the single reporting manifest had no writing caller to be wrong for.
+// The `own` reset exemption gave it one.
+//
+// THE POSTURE COMES FROM THE TARGET'S PROFILE, never a hardcoded false — the same one
+// statement internal/entrypoint/hostrender.go reads where it calls SurfacesForReport. A
+// boolean written twice is a boolean that can disagree, and the two halves here are the
+// truncation and the `yolo host apply` its own trailer tells the user to run next: they
+// compose the same surface and must not differ.
+func hostSurfaceManifest() *manifest.Manifest {
+	hostSurfacesOnce.Do(func() {
+		autonomy := render.Host(paths.Home(), nil, hostOwnership()).Profile().AgentAutonomy
+		var extra []manifest.Surface
+		for _, p := range packload.Embedded() {
+			surfaces, probs := p.SurfacesFor(autonomy)
+			// A broken embedded pack is a yolo bug; surfaceManifest's reasoning for
+			// skipping rather than refusing applies unchanged.
+			if len(probs) > 0 {
+				continue
+			}
+			extra = append(extra, surfaces...)
+		}
+		m, merr := agentcfg.ManifestWith(extra...)
+		if merr != nil {
+			m = agentcfg.BuiltinManifest()
+		}
+		hostSurfacesMan = m
+	})
+	return hostSurfacesMan
 }
