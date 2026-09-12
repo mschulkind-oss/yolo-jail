@@ -403,8 +403,25 @@ func Compose(in Inputs) (*Result, error) {
 	)
 
 	// The object layers actually folded, kept past the branch: the literal-null
-	// pass below has to ask which layers SPOKE for a key, and this is that list.
+	// pass below has to ask which layers SPOKE for a key, and these are the lists.
+	//
+	// TWO lists, because the CAPTURE OVERLAY IS NOT EVIDENCE about a literal null and
+	// every other layer is. The overlay is a record OF the file, so letting it outrank
+	// the file is circular — and it is circular in the one direction that loses the key:
+	// `mergeDiff` cannot tell a key the user ADDED with a null value from a key the user
+	// DELETED (both are `k: null` in the patch), so a file gaining `"k": null` puts a
+	// TOMBSTONE in the overlay, which then deletes the key it was meant to record.
+	// MEASURED on a real jail boot 2026-09-12, and invisible to the host-notch tests,
+	// which only ever exercise the adoption branch.
+	//
+	// Excluding it costs nothing the `present` check does not already cover: an overlay
+	// holding a real VALUE at the key makes the composed config hold one too, and
+	// reinstateAt declines on that. So the only case this changes is the stale tombstone,
+	// where the file is both newer and unambiguous. It also self-heals an overlay an
+	// older yolo already polluted, which is why the tombstone is left in the sidecar
+	// rather than swept: inert, and removing durable state deserves its own argument.
 	var orderedLayers []map[string]any
+	var nullEvidence []map[string]any
 
 	var merged any
 	if kind == codec.KindObject {
@@ -420,6 +437,9 @@ func Compose(in Inputs) (*Result, error) {
 					in.Surface.Agent, in.Surface.Name, l.name, l.data)
 			}
 			orderedLayers = append(orderedLayers, m)
+			if l.name != layerOverlay {
+				nullEvidence = append(nullEvidence, m)
+			}
 			for k := range m {
 				// A null tombstone in a layer deletes the key; reflect that in
 				// provenance so --explain doesn't claim a deleted key is present.
@@ -481,9 +501,9 @@ func Compose(in Inputs) (*Result, error) {
 	// keys. Object surfaces only: a keyless file has no keypath to mark.
 	if kind == codec.KindObject && len(in.LiteralNulls) > 0 {
 		if cfgMap, cfgIsObj := config.(map[string]any); cfgIsObj {
-			layers := orderedLayers
+			layers := nullEvidence
 			if mm := in.Surface.ManagedMap(); mm != nil {
-				layers = append(append([]map[string]any{}, orderedLayers...), mm)
+				layers = append(append([]map[string]any{}, nullEvidence...), mm)
 			}
 			for _, k := range reinstateLiteralNulls(cfgMap, in.LiteralNulls, layers) {
 				// The FILE put it there, and `overlay` is this vocabulary's name

@@ -216,6 +216,84 @@ func TestComposeStatefulReadsLiteralNullsOffTheFile(t *testing.T) {
 	}
 }
 
+// THE CASE ONLY A REAL BOOT FOUND: a null ADDED in steady state, whose capture lands in the
+// overlay as a TOMBSTONE.
+//
+// mergeDiff cannot tell "the user added `k: null`" from "the user deleted k" — both are
+// `k: null` in the patch — so the first edit records a tombstone, and the tombstone then
+// deletes the very key it was meant to record. The overlay is a record OF the file and
+// therefore cannot be evidence AGAINST it, which is why Compose excludes it from the
+// literal-null evidence. Nothing in the host-notch tests could see this: they only ever
+// exercise the ADOPTION branch, where the overlay is built from the file in the same breath.
+//
+// Measured on a nested jail boot 2026-09-12 against claude/settings, before the exclusion:
+// `oqco12Null` gone, `nested_probe.deepNull` gone, and both sitting in the sidecar as nulls.
+func TestLiteralNullAddedInSteadyStateSurvivesItsOwnTombstone(t *testing.T) {
+	surface := manifest.Surface{Agent: "acme", Name: "settings", Codec: "json"}
+
+	// Boot 1: a plain file, so the overlay is seeded and last_render is trusted after.
+	first, err := ComposeStateful(StatefulInputs{
+		Base: Inputs{Surface: surface}, CurrentBytes: []byte(`{"keep":"me"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The in-jail EDIT: two nulls added to the rendered file, one nested.
+	edited := `{"keep":"me","added":null,"sub":{"deep":null}}`
+
+	// Boot 2: steady state. The delta records both as tombstones — which is the shape
+	// this test exists for, so assert it rather than hoping.
+	second, err := ComposeStateful(StatefulInputs{
+		Base: Inputs{Surface: surface}, CurrentBytes: []byte(edited),
+		LastRenderPresent: true, LastRenderBytes: first.LastRenderBytes,
+		OverlayJSON: first.OverlayJSON,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.FirstMigration {
+		t.Fatal("fixture did not take the steady-state branch")
+	}
+	var overlay map[string]any
+	if err := json.Unmarshal(second.OverlayJSON, &overlay); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := overlay["added"]; !ok || v != nil {
+		t.Fatalf("the premise moved: the capture no longer records the added null as a "+
+			"tombstone, so this test is measuring something else now. Overlay: %s",
+			second.OverlayJSON)
+	}
+
+	cfg := second.Result.ConfigMap()
+	if v, ok := cfg["added"]; !ok || v != nil {
+		t.Errorf("the overlay's own tombstone deleted the key it was recording: %s",
+			second.Result.Encoded)
+	}
+	sub, _ := cfg["sub"].(map[string]any)
+	if sub == nil {
+		t.Fatalf("the nested key is gone entirely: %s", second.Result.Encoded)
+	}
+	if v, ok := sub["deep"]; !ok || v != nil {
+		t.Errorf("the nested null did not survive its tombstone: %s", second.Result.Encoded)
+	}
+
+	// Boot 3: and it is a fixed point, with the stale tombstone still in the sidecar —
+	// the exclusion has to keep working against an overlay it did not clean.
+	third, err := ComposeStateful(StatefulInputs{
+		Base: Inputs{Surface: surface}, CurrentBytes: second.Result.Encoded,
+		LastRenderPresent: true, LastRenderBytes: second.LastRenderBytes,
+		OverlayJSON: second.OverlayJSON,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(third.Result.Encoded) != string(second.Result.Encoded) {
+		t.Errorf("not a fixed point:\nsecond:\n%s\nthird:\n%s",
+			second.Result.Encoded, third.Result.Encoded)
+	}
+}
+
 // AND THE PURE RENDER STAYS LAYERS-ALONE. StatefulOutput.PureBytes is what
 // entrypoint.archiveAdoption compares the file against to ask "is this anything other than
 // yolo's own output?", so a literal null of the user's must NOT appear in it — or the archive

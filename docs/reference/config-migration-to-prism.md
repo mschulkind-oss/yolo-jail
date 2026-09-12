@@ -245,6 +245,16 @@ set to a literal null **only where the composed config has no value there and no
 it**. A layer always wins, including when what it says is *deleted*: a `computed` tombstone
 removes a key deliberately, and reinstating it would undo a decision that boot just made.
 
+> [!IMPORTANT]
+> **The capture overlay is the one layer that does not count as evidence, and the reason is
+> circularity.** The overlay is a record *of* the file, so it cannot outrank the file — and the
+> direction it fails in loses the key. A user ADDING `"k": null` to a rendered file produces the
+> same delta as a user DELETING `k`, so the capture stores a tombstone, and on the next boot that
+> tombstone deletes the key it was meant to record. Excluding the overlay costs nothing the
+> "composed config already has a value here" check does not cover, and it self-heals a sidecar an
+> older yolo already polluted. The stale tombstone stays in the sidecar: inert, and sweeping
+> durable state is a separate decision.
+
 Three properties follow, and the first is what keeps the sidecars honest:
 
 - **The overlay is untouched and stays a pure merge patch.** Adoption goes on stripping every

@@ -68,12 +68,16 @@ func literalNullSkeleton(m map[string]any) map[string]any {
 // reinstateLiteralNulls sets each marked keypath of skeleton to a literal nil in
 // cfg, and returns the TOP-LEVEL keys it created (for provenance). It mutates cfg.
 //
-// layers is every object layer that took part in the fold, plus managed — the
-// evidence for "did anything else speak for this key?". THE RULE IS THAT A LAYER
-// ALWAYS WINS, including when what it says is "deleted": a computed tombstone
-// removes a key deliberately (§2 principle 1, regenerate-don't-reconcile), and a
-// pass that put it back as null would undo a decision yolo made this boot. So this
-// can only ever ADD a key no layer spoke for at that path, never override one.
+// layers is every object layer that took part in the fold EXCEPT the capture
+// overlay, plus managed — the evidence for "did anything else speak for this key?".
+// THE RULE IS THAT A LAYER ALWAYS WINS, including when what it says is "deleted": a
+// computed tombstone removes a key deliberately (§2 principle 1,
+// regenerate-don't-reconcile), and a pass that put it back as null would undo a
+// decision yolo made this boot. So this can only ever ADD a key no layer spoke for
+// at that path, never override one.
+//
+// ⚠ The capture overlay is excluded by its caller and must stay excluded — it is a
+// record OF the file, so it cannot be evidence AGAINST it. Compose says why in full.
 func reinstateLiteralNulls(cfg, skeleton map[string]any, layers []map[string]any) []string {
 	var created []string
 	for k, marked := range skeleton {

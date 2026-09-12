@@ -1906,6 +1906,18 @@ Observable outcomes that mean this was built as designed:
   >   *deleted*: a `computed` tombstone removes a key on purpose, and putting it
   >   back as null would undo a decision yolo made that boot.
   >
+  > ⚠ **With ONE layer excluded, and only a real jail boot found it: the capture
+  > overlay is not evidence.** It is a record OF the file, so letting it outrank the
+  > file is circular — and circular in the direction that loses the key. `mergeDiff`
+  > cannot tell a key the user ADDED with a null value from one they DELETED (both
+  > are `k: null` in a patch), so a file gaining `"k": null` in STEADY STATE records
+  > a tombstone, which then deletes the very key it was recording. Every test here
+  > missed it because they all exercise the ADOPTION branch, where the overlay is
+  > built from the file in the same breath; it took the nested-jail run the build
+  > rules require, against `claude/settings` on a real boot. The tombstone is left in
+  > the sidecar rather than swept — inert once it is not evidence, and sweeping
+  > durable state deserves its own argument.
+  >
   > **The switch is never silent on any axis.** `WouldChange` compares BYTES —
   > deliberately stricter than this criterion
   > ([`hostStatefulWouldChange`](../../internal/entrypoint/hostrender.go)) — so a
