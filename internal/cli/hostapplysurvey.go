@@ -270,8 +270,23 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 // CONFIGURED changes when a comment is dropped — which is why it is not an overwrite — but a
 // comment they wrote does not come back, so the destination is one where something of theirs
 // is lost, which is exactly what the tier decides.
+//
+// `Archived` counts for the same kind of reason one step further out, and it is the entry
+// that is NOT derivable from the other three. A non-empty Archived means this render ADOPTED
+// the file — composed the whole thing out of what it already held, for the first time
+// (OQ-CO7) — and that is a one-way door whether or not the composition happened to reproduce
+// the bytes. §11's criterion says the `assert` -> `own` switch usually DOES reproduce them, so
+// without this the canonical adoption reports WouldChange=false, tier 2, and its line drops
+// behind --verbose while the archive disclosure printed under it stays (OQ-RO3 forbids hiding
+// that one). The result was an indented "archived your file as yolo found it: …" attaching
+// itself to whatever unrelated line came before it, under a verdict reading "Nothing to apply
+// — this home is up to date". The tier is what puts the surface's own line back above it.
+//
+// It changes no COUNT: hostApplySurvey.note reads the predicate first and files a
+// !wouldChange destination as in-sync without consulting the tier at all.
 func configResultTier(r entrypoint.HostRenderResult) reportTier {
-	if len(r.Overwrites) > 0 || len(r.EntryLosses) > 0 || len(r.Formatting) > 0 {
+	if len(r.Overwrites) > 0 || len(r.EntryLosses) > 0 || len(r.Formatting) > 0 ||
+		r.Archived != "" {
 		return tierLoss
 	}
 	return tierRun
