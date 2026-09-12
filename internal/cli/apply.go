@@ -623,10 +623,20 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 					"[dim](yolo owns this table)[/dim]",
 					verb, strings.Join(r.EntryLosses, ", "))
 			}
-			// The ${workspace}-keyed keys this render DROPPED, by name. A pruned key is a
-			// declaration the pack made that the host notch chose not to honor, so it gets a
-			// line for the same reason a refusal does — the surface rendering is not a licence
-			// for part of it to vanish quietly.
+			// The ${workspace}-keyed keys this render DROPPED, by name — a TIER-2 fact under
+			// its surface, so the --verbose view's since §4.5 ("every tier-2 destination
+			// itemized: the skipped surfaces and why").
+			//
+			// NOT the carve-out a refusal gets. This comment used to argue the opposite —
+			// "a line for the same reason a refusal does" — while the line below it was moved
+			// behind detail(), which is a written argument, in this file, for reverting the
+			// code or for generalising detail() onto a real refusal by the analogy. The two
+			// are different classes: a pruned key has another representation (the key is
+			// still in the pack that declared it, and `yolo config-ref` says why the host
+			// notch does not honor it), where a refused skill adoption has none — which is
+			// why THAT one is explicitly exempted from detail() (applyhostskills.go, §4.4).
+			// The no-silent-drop rule is unchanged: the key is still named, in the view that
+			// itemizes a destination's keys at all.
 			if len(r.Pruned) > 0 {
 				detail(pr, "    [dim]skipped ${workspace}-keyed (no host referent): %s[/dim]",
 					strings.Join(r.Pruned, ", "))
