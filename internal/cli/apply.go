@@ -26,6 +26,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -43,10 +44,23 @@ func runApply(args []string) int {
 // `yolo host apply --assert` must not destroy a user's MCP server because nobody was there to
 // answer.
 func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+	// Read off the same argv before anything else, and refused here if the value is not one
+	// yolo emits (outputformat.go). What the format is FOR is the host notch's dry run
+	// ([OQ-RO4]); the refusal for every other route is below, where the notch is known.
+	format, ok := parseOutputFormat("apply", args, errw)
+	if !ok {
+		return 2
+	}
 	var at string
 	var dryRun, sealed, assert bool
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		// Already consumed by the format parse above; this parser refuses an unrecognized
+		// argument, so a `--format json` it did not skip would be rejected as one.
+		if n := outputFormatTokens(args, i); n > 0 {
+			i += n - 1
+			continue
+		}
 		switch {
 		case isHelpToken(a):
 			io.WriteString(out, applyUsage+"\n")
@@ -96,13 +110,25 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	}
 
 	pr := richtext.Printer{W: out, Color: color}
+	// THE FLAG BELONGS TO ONE ROUTE, and every other one refuses it rather than answering a
+	// request for data with prose — which is the failure the flag exists to prevent, and the
+	// shape `yolo broker` already uses for its acting verbs. `--sealed` is a refusal verb,
+	// the guest notch is unbuilt, and the jail notch's apply is a stub pointing at launch:
+	// none of the three has a document to emit, and each would otherwise print a human
+	// report to something that asked for JSON.
+	if outfmt.IsJSON(format) && (sealed || notch != config.ConfinementHost) {
+		fmt.Fprintln(errw, "yolo apply: --format json is the HOST notch's dry run "+
+			"(`yolo apply --at host`, or `yolo host apply`). No other notch has a document "+
+			"to emit: guest is unbuilt, and at jail this verb points at launch.")
+		return 2
+	}
 	if sealed {
 		return applySealed(out, errw, color)
 	}
 
 	switch notch {
 	case config.ConfinementHost:
-		return applyHost(out, errw, color, assert && !dryRun, stdin)
+		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format)
 	case config.ConfinementGuest:
 		pr.Printf("[yellow]apply at the guest notch is not built yet (env-manager plan " +
 			"Phase 7 — the LSM-confined backend).[/yellow]")
@@ -130,6 +156,39 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	return applyHostSurveyed(out, errw, color, write, stdin, nil)
 }
 
+// applyHostFormatted is applyHost plus the output-format family (report-tiers.md §4.8,
+// self-documenting-cli.md item 7). Both spellings of the verb route through it, because
+// `yolo host apply` and `yolo apply --at host` are one operation and only differ in how
+// they are typed (OQ-7) — a flag that worked at one of them would be a flag an agent has to
+// guess about.
+//
+// THE POSTURE DECIDES, NOT THE VERB ([OQ-RO4]). The dry run's whole output is a state
+// report, so it emits the document; --assert ACTS, so it refuses the flag rather than
+// growing a second output mode — exit 2, and stdout stays empty because nothing has been
+// written to it yet. The refusal is HERE, above the render, for the reason the format parse
+// is above the probes: a refusal after the work is a refusal that cost something.
+//
+// The human report is DISCARDED, never reshaped (outfmt.Sink): the text form is the contract
+// existing readers have, and the same single pass fills the survey the document is built
+// from. stdin is nil in the JSON branch by construction — the observe posture prompts for
+// nothing, and promptYesNo reads nil as NO, so a document can never be the thing that
+// answered a question.
+func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Reader,
+	format string) int {
+	if !outfmt.IsJSON(format) {
+		return applyHost(out, errw, color, write, stdin)
+	}
+	if write {
+		fmt.Fprintln(errw, "yolo host apply: --format json is the DRY RUN's — this posture "+
+			"ACTS, and an acting verb refuses the flag rather than growing a second output "+
+			"mode. Drop the assert flag to see what an apply would do, as data.")
+		return 2
+	}
+	survey := &hostApplySurvey{}
+	rc := applyHostSurveyed(outfmt.Sink(out, format), errw, false, false, nil, survey)
+	return emitHostApplyDoc(out, errw, format, survey, rc)
+}
+
 // applyHostSurveyed is applyHost with the change-predicate ROLL-UP handed back to the caller
 // (hostapplysurvey.go). It is the same operation and the same output; the survey is an extra
 // return channel, not a mode.
@@ -152,6 +211,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		fmt.Fprintf(errw, "yolo host apply: cannot resolve your home: %v\n", err)
 		return 1
 	}
+	// The survey carries the home from here on: the verdict's footer names it and so does
+	// the machine document, and a fact resolved once and passed twice is a fact two readers
+	// can come to disagree about.
+	survey.noteHome(home)
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host apply: %v\n", err)
@@ -169,6 +232,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// rather than repeating the verdict's own sentence two lines ahead of it.
 		pr.Printf("[dim]No packs configured — nothing to apply, so this run only retires " +
 			"what dropped packs left behind.[/dim]")
+		// The BRANCH, recorded: "no packs are configured" and "every configured pack changed
+		// nothing" are different results with different next actions, and both reach the
+		// survey as an empty changed set. Nothing can derive it downstream, so it is stated
+		// here, where it is known.
+		survey.noteZeroPacks()
 		// The overlay-key half runs here too, and for the same reason: with `packs` empty every
 		// key any pack ever contributed is an orphan, so the most complete drop there is must
 		// not be the one case that cleans up nothing. No live overlays exist to cross-check
@@ -210,7 +278,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// `packs` ended with no count, no verdict and no "nothing written" line at all
 		// (§5's first hole, verified 2026-09-11) — the one posture in which the reader has
 		// least context got the least output.
-		printHostApplyVerdict(pr, survey, home, write, true)
+		printHostApplyVerdict(pr, survey, write)
 		return rc
 	}
 
@@ -427,7 +495,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	//
 	// Before the loop, so "folded into the config surfaces below" is a true word about what
 	// comes next, and so a reader meets the notch before they meet this home.
-	printNotchFacts(pr, surveyNotchFacts(loaded, hostFields))
+	notch := surveyNotchFacts(loaded, hostFields)
+	survey.noteNotch(notch)
+	printNotchFacts(pr, notch)
 
 	for _, p := range loaded {
 		// Account for EVERY kind the pack declares. Three outcomes, and the invariant is that
@@ -620,7 +690,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// THE VERDICT, OUTSIDE THE POSTURE GUARD. §4.3 requires it on every path in every
 	// posture, and the block above used to be the whole tail: an --assert therefore ended
 	// with no summary at all, having just written into a real home.
-	printHostApplyVerdict(pr, survey, home, write, false)
+	printHostApplyVerdict(pr, survey, write)
 	return rc
 }
 
@@ -937,6 +1007,11 @@ const applyUsage = `yolo apply — make this environment match its description, 
   yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
                             (yolo-jail.local.jsonc, an outstanding capture overlay)
   yolo apply --dry-run      show what would change, write nothing
+
+Machine-readable output, at the HOST notch's dry run only (` + "`yolo apply --at host --format json`" + `):
+the asserting posture acts, and an acting verb refuses the flag rather than growing a
+second output mode — so it exits 2 there instead.
+` + outputFormatUsage + `
 
 apply splits "make it so" from "run something in it": ` + "`yolo -- <cmd>`" + ` is
 "apply, then exec." Every notch has both halves — the host's exec half is

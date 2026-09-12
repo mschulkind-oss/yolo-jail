@@ -128,7 +128,7 @@ func TestHostApplyVerdictRepresentsEveryRemedyGroup(t *testing.T) {
 		t.Fatalf("fixture bug: %d tier-3 group(s), so \"every group\" is nearly free\n%s",
 			len(groups), report)
 	}
-	verdict := hostApplyVerdict(survey, false, false) + "\n" +
+	verdict := hostApplyVerdict(survey, false) + "\n" +
 		strings.Join(hostApplyCounts(survey, false), "\n")
 	for _, g := range groups {
 		if !strings.Contains(verdict, g.VerdictTerm) {

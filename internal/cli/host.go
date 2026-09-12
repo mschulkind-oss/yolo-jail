@@ -59,6 +59,10 @@ apply flags:
                   surface, every dependency probe, every skill by destination.
   --shell-init    Append the PATH line for the wrapper dir to your shell rc.
                   yolo otherwise only PRINTS that line — the rc is your file.
+  --format json   Emit the dry run as data instead of a report: destinations, losses,
+                  blockers, the counts and the outcome. --json is the same flag.
+                  Refused with --assert (exit 2): that posture acts, and an acting
+                  verb does not grow a second output mode.
 
 The report ends in one sentence saying how the run went, with the counts beneath it.
 A missing declared dependency STOPS an --assert: yolo shows the install command each

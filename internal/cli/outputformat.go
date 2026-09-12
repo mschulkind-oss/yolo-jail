@@ -82,6 +82,27 @@ func parseOutputFormat(sub string, args []string, errw io.Writer) (string, bool)
 	return format, validOutputFormat(sub, format, errw)
 }
 
+// outputFormatTokens reports how many argv tokens at index i belong to the format flag
+// family — 2 for `--format json`, 1 for `--json` or `--format=json`, 0 for anything else.
+//
+// It exists for the commands whose OWN parser refuses an unrecognized argument. `ps` and
+// `check` ignore strays, so parseOutputFormat's scan is all they need; `apply` exits 2 on
+// one, so without this the value of a `--format json` it already consumed arrives at its
+// default arm as an unexpected argument. Spelled here, beside the parse, because the two
+// have to agree on which tokens the family owns.
+func outputFormatTokens(args []string, i int) int {
+	switch a := args[i]; {
+	case a == "--json", strings.HasPrefix(a, "--format="):
+		return 1
+	case a == "--format":
+		if i+1 < len(args) {
+			return 2
+		}
+		return 1
+	}
+	return 0
+}
+
 // validOutputFormat reports whether format is one this CLI emits, complaining to
 // errw when it is not.
 func validOutputFormat(sub, format string, errw io.Writer) bool {

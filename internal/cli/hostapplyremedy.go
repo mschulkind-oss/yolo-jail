@@ -44,6 +44,12 @@ import (
 
 // remedyGroup is one tier-3 group: a set of losses or blockers that share a fix.
 type remedyGroup struct {
+	// Class is WHICH of §4.4's classes this group is — the one field that is not in the
+	// rendered line, and the one a machine consumer branches on (§4.8: "losses and blockers
+	// with class, names and remedy key"). It is carried rather than recovered from the
+	// headline's wording for the reason the tier is: the class is known where the group is
+	// built, and prose is not a type.
+	Class string
 	// Key is §4.4's REMEDY KEY — the config key, the local-pack path, the missing binary, or
 	// "" for a group whose fix does not exist. It is what the grouping is ON, and it is
 	// carried rather than derived so a test can assert that two facts with one fix produced
@@ -134,7 +140,8 @@ func depBlockerGroups(blockers []hostDepBlocker) []remedyGroup {
 	var out []remedyGroup
 	for _, b := range blockers {
 		out = append(out, remedyGroup{
-			Key: b.Bin,
+			Class: remedyClassDependency,
+			Key:   b.Bin,
 			Headline: fmt.Sprintf("`%s` is declared by your packs (%s) and MISSING on this host",
 				b.Bin, b.Kind),
 			Remedy:      b.Remedy,
@@ -160,7 +167,8 @@ func droppedEntryGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 		verb = "were dropped"
 	}
 	return remedyGroup{
-		Key: mcpEntryRemedyKey,
+		Class: remedyClassEntryDropped,
+		Key:   mcpEntryRemedyKey,
 		Headline: fmt.Sprintf("%d of your %s %s from %d %s", len(names),
 			plural(len(names), "entry", "entries"), verb, surfaces,
 			plural(surfaces, "agent surface", "agent surfaces")),
@@ -185,7 +193,8 @@ func adoptedSkillGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 		verb = "moved"
 	}
 	g := remedyGroup{
-		Key: localPack,
+		Class: remedyClassSkillAdopted,
+		Key:   localPack,
 		Headline: fmt.Sprintf("%d %s in your agent skill dirs %s yours, not yolo's, and %s "+
 			"into your local pack", len(names), plural(len(names), "skill", "skills"),
 			plural(len(names), "is", "are"), verb),
@@ -222,7 +231,8 @@ func replacedValueGroup(s *hostApplySurvey, write bool) (remedyGroup, bool) {
 		verb = "were replaced"
 	}
 	return remedyGroup{
-		Key: "",
+		Class: remedyClassValueReplaced,
+		Key:   "",
 		Headline: fmt.Sprintf("%d of your values %s in %d %s", keys, verb, files,
 			plural(files, "file", "files")),
 		Items: s.ReplacedKeyNames(),
@@ -246,6 +256,7 @@ func droppedCommentGroup(s *hostApplySurvey, write bool) (remedyGroup, bool) {
 		verb = "lost"
 	}
 	return remedyGroup{
+		Class:    remedyClassCommentDropped,
 		Key:      "",
 		Headline: fmt.Sprintf("%d %s %s comments of yours", n, plural(n, "surface", "surfaces"), verb),
 		Items:    s.CommentSurfaces(),
@@ -285,6 +296,22 @@ func printRemedyGroups(pr richtext.Printer, groups []remedyGroup) {
 		}
 	}
 }
+
+// The §4.4 classes. A BLOCKER stands between this home and a completed apply; a LOSS takes
+// something of the user's. They share tier 3 because they want the same rendering, and they
+// are told apart here because a consumer acting on the document needs to know which it is.
+const (
+	// remedyClassDependency — a declared dependency is missing on this host. A blocker.
+	remedyClassDependency = "missing_dependency"
+	// remedyClassEntryDropped — a named table entry of the user's (an MCP server) goes.
+	remedyClassEntryDropped = "entry_dropped"
+	// remedyClassSkillAdopted — a skill of the user's moves into their local pack.
+	remedyClassSkillAdopted = "skill_adopted"
+	// remedyClassValueReplaced — a managed key replaces a value of the user's. No remedy.
+	remedyClassValueReplaced = "value_replaced"
+	// remedyClassCommentDropped — a comment above a changed key does not come back. No remedy.
+	remedyClassCommentDropped = "comment_dropped"
+)
 
 // mcpEntryRemedyKey is the config key that keeps a hand-added MCP server through a wholesale
 // table regeneration. It is the GROUP KEY as well as the text, which is the point of §4.4's

@@ -175,10 +175,11 @@ layer order and subcommands. Both point onward at `docs/` rather than dead-endin
 ### 7. State-reporting surfaces offer `--format json`
 
 Anything that reports state must emit stable, ANSI-free, machine-readable output on request:
-`ps`, `check`, `loopholes list`, `loopholes status`, `broker status`, `prune`'s plan. Both `--json`
-and `--format json` are accepted and must produce identical bytes.
+`ps`, `check`, `loopholes list`, `loopholes status`, `broker status`, `prune`'s plan, and
+`yolo host apply`'s dry run. Both `--json` and `--format json` are accepted and must produce
+identical bytes.
 
-Two properties matter more than the flag existing:
+Three properties matter more than the flag existing:
 
 - **"Nothing to report" must still be a document.** A command that finds no config, no jails and no
   broker must emit valid JSON anyway. "Nothing to report" and "nothing was written" are the same
@@ -186,6 +187,14 @@ Two properties matter more than the flag existing:
 - **A verb that would lie about the format refuses it.** An *acting* command does not accept
   `--format json` and then print prose; it refuses, so a caller never parses a report of work it
   did not get.
+- **The boundary is the POSTURE, not the verb.** `yolo host apply` is both: its default posture
+  writes nothing and its whole output is *what would change*, while `--assert` acts. So the dry run
+  emits the document and `--assert` refuses it (exit 2, stdout empty) — one command on both sides of
+  the rule above. The argument for the reporting half is this requirement's own rationale: agents
+  are the primary operators, the jail is credential-isolated, and the one report telling an in-jail
+  agent what a host render would do to its own home must not be prose to scrape. Ruled as
+  [`OQ-RO4`](../design/report-tiers.md#11-decision-ledger), and stated in
+  [`report-tiers.md` §4.8](../design/report-tiers.md#48-machine-consumers).
 
 ## Items the CLI already meets or exceeds
 

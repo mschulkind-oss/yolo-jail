@@ -142,6 +142,77 @@ type hostApplySurvey struct {
 	installedDeps []string
 	firstApply    bool
 	failedPacks   []string
+
+	// home is the home THIS apply rendered into, and zeroPacks whether it took the
+	// no-packs-configured branch. Both are RECORDED rather than re-derived, because both
+	// are known exactly once — at the top of applyHostSurveyed, and in the branch itself —
+	// and every consumer of the roll-up needs them: the verdict's footer names the home, and
+	// "no packs are configured" is a different result from "every configured pack changed
+	// nothing" with a different next action, which an empty Changed set cannot distinguish.
+	home      string
+	zeroPacks bool
+	// notch is the tier-1 half of the report: the kinds this notch does nothing with and
+	// whether any pack declares `autonomy`. Recorded for the machine document (§4.8), which
+	// names the kinds and carries none of their prose — rationale is not data.
+	notch notchFacts
+}
+
+// noteHome records the home this apply is rendering into. Called once, where it is resolved.
+func (s *hostApplySurvey) noteHome(home string) {
+	if s != nil {
+		s.home = home
+	}
+}
+
+// noteZeroPacks marks the no-packs-configured branch.
+func (s *hostApplySurvey) noteZeroPacks() {
+	if s != nil {
+		s.zeroPacks = true
+	}
+}
+
+// noteNotch records the tier-1 facts (hostapplynotch.go) so the machine document can state
+// them without taking a second census.
+func (s *hostApplySurvey) noteNotch(f notchFacts) {
+	if s != nil {
+		s.notch = f
+	}
+}
+
+// Home is the home this apply rendered into, "" for a survey nobody filled.
+func (s *hostApplySurvey) Home() string {
+	if s == nil {
+		return ""
+	}
+	return s.home
+}
+
+// ZeroPacks reports whether this run took the no-packs-configured branch.
+func (s *hostApplySurvey) ZeroPacks() bool { return s != nil && s.zeroPacks }
+
+// InapplicableKinds names the contribution kinds this notch does nothing with, sorted as the
+// census collected them. The NAMES only: their reasons live in the manual (§4.6), and no
+// terminal view or document prints them.
+func (s *hostApplySurvey) InapplicableKinds() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.notch.Inapplicable))
+	for _, k := range s.notch.Inapplicable {
+		out = append(out, string(k))
+	}
+	return out
+}
+
+// AutonomyPosture is the posture this notch renders, or "" when no pack declares the kind.
+// One value, because the posture is the NOTCH's — render.Host(...).Profile().AgentAutonomy
+// resolves to guarded here and cannot differ between packs in one run, which is why
+// printNotchFacts states it as a constant too.
+func (s *hostApplySurvey) AutonomyPosture() string {
+	if s == nil || !s.notch.Autonomy {
+		return ""
+	}
+	return "guarded"
 }
 
 // note records one result's verdict at the given tier. A result with no PATH is not a

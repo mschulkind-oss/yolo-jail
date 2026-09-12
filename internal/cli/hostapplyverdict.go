@@ -38,13 +38,15 @@ import (
 
 // printHostApplyVerdict ends one apply with the verdict line, the counts and the footer.
 //
-// zeroPacks is the branch flag rather than a survey property on purpose: "no packs are
-// configured" and "every configured pack happened to change nothing" are different results
-// with different next actions, and the survey cannot tell them apart — both reach it as an
-// empty changed set.
-func printHostApplyVerdict(pr richtext.Printer, s *hostApplySurvey, home string,
-	write, zeroPacks bool) {
-	pr.Printf("[bold]%s[/bold]", hostApplyVerdict(s, write, zeroPacks))
+// The home and the no-packs branch are READ FROM THE SURVEY rather than passed, because
+// there is a second consumer now — the machine document (§4.8) — and two consumers each
+// given their own copy of a fact is how the two come to disagree about it. The survey still
+// cannot DERIVE either one (both a zero-packs run and a settled home reach it as an empty
+// changed set, which is why they are recorded at the one place each is known), and that is
+// the distinction: recorded, not inferred.
+func printHostApplyVerdict(pr richtext.Printer, s *hostApplySurvey, write bool) {
+	home := s.Home()
+	pr.Printf("[bold]%s[/bold]", hostApplyVerdict(s, write))
 	for _, line := range hostApplyCounts(s, write) {
 		pr.Printf("  [dim]%s[/dim]", line)
 	}
@@ -63,16 +65,62 @@ func printHostApplyVerdict(pr richtext.Printer, s *hostApplySurvey, home string,
 		"lists every destination.[/dim]", home)
 }
 
-// hostApplyVerdict is §4.3's verdict line: one sentence, in every posture, on every path,
-// including the degenerate ones.
+// hostApplyOutcome is §4.3's verdict as a STABLE TOKEN — the machine document's answer to
+// "how did it go" (§4.8), and the thing the sentence below is rendered from.
 //
-// The order of the cases IS the ruling. A blocker outranks "would complete" because a blocker
-// is what decides the outcome, and a render failure outranks a blocker because it has already
-// cost this run a pack's worth of surfaces — every count below is missing them, so the verdict
-// must not claim a completed apply out of an incomplete traversal.
-func hostApplyVerdict(s *hostApplySurvey, write, zeroPacks bool) string {
+// THE ORDER OF THE CASES IS THE RULING, and it lives here rather than in the sentence
+// builder so that the two forms cannot disagree about the outcome they are reporting. A
+// blocker outranks "would complete" because a blocker is what decides the outcome, and a
+// render failure outranks a blocker because it has already cost this run a pack's worth of
+// surfaces — every count is missing them, so no verdict may claim a completed apply out of
+// an incomplete traversal.
+//
+// The tokens name the OUTCOME, never the posture: `nothing_to_do` is the same finding in a
+// dry run and an --assert, and the sentences differ because the sentences are what the
+// posture changes.
+func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 	switch {
-	case zeroPacks:
+	case s.ZeroPacks():
+		return outcomeNoPacks
+	case len(s.FailedPacks()) > 0:
+		return outcomeIncomplete
+	case !write && len(s.MissingDeps()) > 0:
+		return outcomeBlocked
+	case !s.Changes():
+		return outcomeNothingToDo
+	case write:
+		return outcomeApplied
+	default:
+		return outcomeWouldComplete
+	}
+}
+
+// The outcome vocabulary. Stable tokens: a consumer branches on these, so they change only
+// when the set of distinguishable outcomes does.
+const (
+	// outcomeNoPacks — no packs are configured. Different from nothing_to_do, and the
+	// difference is the next action: one is "your config names nothing", the other "your
+	// home already matches what it names".
+	outcomeNoPacks = "no_packs"
+	// outcomeIncomplete — a pack failed to render, so the counts are missing its surfaces.
+	outcomeIncomplete = "incomplete"
+	// outcomeBlocked — a declared dependency is missing (dry run only: an --assert with one
+	// is refused by the gate before it reaches a verdict at all).
+	outcomeBlocked = "blocked"
+	// outcomeNothingToDo — this home already matches what the packs declare.
+	outcomeNothingToDo = "nothing_to_do"
+	// outcomeApplied — an --assert wrote what it planned.
+	outcomeApplied = "applied"
+	// outcomeWouldComplete — a dry run that found work and no blocker.
+	outcomeWouldComplete = "would_complete"
+)
+
+// hostApplyVerdict is §4.3's verdict line: one sentence, in every posture, on every path,
+// including the degenerate ones. One case per outcome above, in the same order, so a reader
+// comparing the two sees the same list twice.
+func hostApplyVerdict(s *hostApplySurvey, write bool) string {
+	switch hostApplyOutcome(s, write) {
+	case outcomeNoPacks:
 		// §4.3's zero-packs row. The retire passes still run here (emptying `packs` is the
 		// most complete drop there is), so the number they retired is the whole result.
 		n := 0
@@ -87,7 +135,7 @@ func hostApplyVerdict(s *hostApplySurvey, write, zeroPacks bool) string {
 		}
 		return fmt.Sprintf("No packs configured — nothing to apply; %d destination(s) "+
 			"would be retired.", n)
-	case len(s.FailedPacks()) > 0:
+	case outcomeIncomplete:
 		failed := s.FailedPacks()
 		if write {
 			return fmt.Sprintf("Incomplete — %d pack(s) failed to render (%s); see stderr.",
@@ -95,7 +143,7 @@ func hostApplyVerdict(s *hostApplySurvey, write, zeroPacks bool) string {
 		}
 		return fmt.Sprintf("An --assert would be incomplete — %d pack(s) failed to render "+
 			"(%s); see stderr.", len(failed), strings.Join(failed, ", "))
-	case !write && len(s.MissingDeps()) > 0:
+	case outcomeBlocked:
 		// §4.9: in the DRY RUN a missing declared dependency is a tier-3 blocker that decides
 		// the verdict and changes nothing else — exit 0, nothing written, nothing installed.
 		// The names, not a count: the reader's next action is about those binaries.
@@ -103,7 +151,7 @@ func hostApplyVerdict(s *hostApplySurvey, write, zeroPacks bool) string {
 		return fmt.Sprintf("An --assert would NOT complete: %d declared %s missing (%s).",
 			len(missing), plural(len(missing), "dependency is", "dependencies are"),
 			strings.Join(missing, ", "))
-	case !s.Changes():
+	case outcomeNothingToDo:
 		if !write {
 			return "Nothing to do — this home is up to date."
 		}
@@ -111,7 +159,7 @@ func hostApplyVerdict(s *hostApplySurvey, write, zeroPacks bool) string {
 			return p + "nothing else to apply — this home is up to date."
 		}
 		return "Nothing to apply — this home is up to date."
-	case write:
+	case outcomeApplied:
 		if p := installedPrefix(s); p != "" {
 			return p + "applied: " + hostApplyWork(s, true) + "."
 		}

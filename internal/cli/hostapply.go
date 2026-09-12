@@ -9,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -18,8 +19,23 @@ import (
 // Both remain; this one also owns --shell-init, which has no counterpart at any other
 // notch because no other notch has a user's shell.
 func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+	// The format family is read FIRST, off the same argv, for the reason `ps` reads it
+	// before its probes: a rejected value is misuse, and a run that renders first and
+	// refuses afterwards spends the work on an answer nobody gets. See outputformat.go.
+	format, ok := parseOutputFormat("host apply", args, errw)
+	if !ok {
+		return 2
+	}
 	assert, dryRun, shellInit := false, false, false
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		// Tokens the format parse above already consumed. This parser REFUSES an
+		// unrecognized argument, so without the skip the VALUE of `--format json` arrives
+		// below as one.
+		if n := outputFormatTokens(args, i); n > 0 {
+			i += n - 1
+			continue
+		}
 		switch {
 		case isHelpToken(a):
 			fmt.Fprintln(out, hostUsage)
@@ -36,9 +52,14 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		}
 	}
 	write := assert && !dryRun
-	rc := applyHost(out, errw, color, write, stdin)
+	rc := applyHostFormatted(out, errw, color, write, stdin, format)
 	if shellInit {
-		if src := runShellInit(richtext.Printer{W: out, Color: color}, errw, write); src != 0 {
+		// THROUGH THE SINK, like the report above it: in JSON mode stdout carries one
+		// document and nothing else, and this stage's output is human prose about an rc
+		// file that the document has no field for. Its WRITING half is unreachable here —
+		// the assert posture refuses the format — so nothing is silently skipped.
+		if src := runShellInit(richtext.Printer{W: outfmt.Sink(out, format), Color: color},
+			errw, write); src != 0 {
 			rc = src
 		}
 	}
