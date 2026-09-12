@@ -82,12 +82,23 @@ func TestRunRefusesALiveWorkspaceLaunch(t *testing.T) {
 // refusal in the pipeline into one that had already done the work it exists to
 // prevent. Reading the source is the repo's existing answer for unrunnable
 // call sites (configapproval_test.go's methodDecl pattern, plain-function form).
+//
+// attachLaunchLog IS THE SECOND THING IT PINS, and it is pinned because the
+// side effect is real rather than hypothetical. run.go's own docstring says the
+// tee is attached "AFTER the live-overlay guard … creating a file under the
+// workspace it is refusing to touch would be one [side effect]", and nothing
+// enforced it: moving those two lines above the guard left this package green
+// while TestRunRefusesALiveWorkspaceLaunch — which passes the LITERAL path
+// "/workspace" — wrote a launch.log into the running jail's own workspace
+// (measured 2026-09-11, 803 bytes ending "=== launch done, rc=1 ==="). A test
+// that creates the file the refusal exists to prevent is the shape this pin is
+// for.
 func TestRunCallsTheLiveOverlayGuardBeforeAnyWork(t *testing.T) {
 	f, err := parser.ParseFile(token.NewFileSet(), "run.go", nil, 0)
 	if err != nil {
 		t.Fatalf("parse run.go: %v", err)
 	}
-	var runDecl, guardPos, stagePos token.Pos
+	var runDecl, guardPos, stagePos, logPos token.Pos
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
 		if !ok || fd.Name.Name != "Run" {
@@ -109,6 +120,10 @@ func TestRunCallsTheLiveOverlayGuardBeforeAnyWork(t *testing.T) {
 					if stagePos == token.NoPos {
 						stagePos = call.Pos()
 					}
+				case "attachLaunchLog":
+					if logPos == token.NoPos {
+						logPos = call.Pos()
+					}
 				}
 			}
 			return true
@@ -126,5 +141,14 @@ func TestRunCallsTheLiveOverlayGuardBeforeAnyWork(t *testing.T) {
 	if stagePos != token.NoPos && guardPos > stagePos {
 		t.Fatal("refuseLiveWorkspaceLaunch sits BELOW pack staging — the refusal would " +
 			"fire only after the work it exists to prevent had already run.")
+	}
+	if logPos == token.NoPos {
+		t.Fatal("Run no longer calls attachLaunchLog — the launcher's half of a launch " +
+			"stopped being persisted (report-tiers.md §4.7).")
+	}
+	if guardPos > logPos {
+		t.Fatal("attachLaunchLog sits ABOVE the live-overlay guard — the refusal would " +
+			"create <workspace>/.yolo/launch.log under the very workspace it is refusing " +
+			"to touch, which for the /workspace case is the running session's own.")
 	}
 }
