@@ -371,7 +371,7 @@ func FootprintOf(p *Pack) Footprint {
 				add(packdecl.KindEnv, k, "="+c.Vars[k], false)
 			}
 		case packdecl.KindLaunch:
-			add(packdecl.KindLaunch, c.Bin, strings.Join(c.Flags, " "), false)
+			add(packdecl.KindLaunch, c.Bin, launchClaimDetail(c), false)
 		case packdecl.KindHook:
 			add(packdecl.KindHook, c.Hook, "", false)
 		case packdecl.KindAutonomy:
@@ -1229,6 +1229,39 @@ func packExecutables(root string) []string {
 	})
 	sort.Strings(out)
 	return out
+}
+
+// launchClaimDetail renders what a `launch` contribution actually carries: the flags it
+// injects, the flag ALIASES it declares, or both.
+//
+// The aliases half is not decoration — it is the only half any shipped launch contribution
+// still has. copilot's declares a bin and `{"--yolo": ["-y"]}` and no flags at all: the flag
+// moved under `autonomy`, where the notch can withhold it, and AutonomyLaunch is {bin, flags}
+// with nowhere to put an alias map. Rendering Flags alone left that claim as a bare
+// `launch  copilot`, which a reader resolves against the kind's documented meaning — "inject
+// flags after a binary" — and so reads as an injection that does not happen, beside a real
+// contribution whose content is invisible.
+//
+// An alias is worth a line of its own rather than being folded into the posture's: it decides
+// whether a flag the user typed THEMSELVES is honored or duplicated, and it is declared under
+// a different kind from the flag it suppresses, so nothing else in the report names it.
+func launchClaimDetail(c packdecl.Contribution) string {
+	var parts []string
+	if len(c.Flags) > 0 {
+		parts = append(parts, strings.Join(c.Flags, " "))
+	}
+	flags := make([]string, 0, len(c.Aliases))
+	for flag := range c.Aliases {
+		flags = append(flags, flag)
+	}
+	sort.Strings(flags)
+	for _, flag := range flags {
+		if len(c.Aliases[flag]) == 0 {
+			continue
+		}
+		parts = append(parts, "alias "+strings.Join(c.Aliases[flag], "/")+" → "+flag)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // postureInjects renders the launch flags one autonomy posture injects, as
