@@ -75,7 +75,7 @@ func TestHostApplyReportsTheSurfaceWhenAdoptionChangesNoBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(after) != string(canonical) {
-		t.Fatalf("the render moved the file, so this is not the zero-bytes case any more and "+
+		t.Fatalf("the render moved the file, so this is not the byte-identical case any more and "+
 			"the surface line would print for the ordinary reason.\nbefore:\n%s\nafter:\n%s",
 			canonical, after)
 	}

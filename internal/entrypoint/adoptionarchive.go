@@ -67,7 +67,7 @@ import (
 //
 // ⚠ THE THIRD CONDITION IS NOT "WOULD THE RENDER CHANGE THE FILE?", which is the attractive
 // predicate and the wrong one. That one (r.text() versus r.current, the writer's own bytes)
-// is available here for free, and it would mean §11's zero-bytes switch — `assert` -> `own`,
+// is available here for free, and it would mean the `assert` -> `own` switch §11 governs —
 // the transition this net exists for — leaves no archive at all, because adoption reproduces
 // the file it just read. It makes the net conditional on the render being CORRECT, deploying
 // only when adoption is believed to have lost nothing, and the archive exists precisely

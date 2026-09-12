@@ -55,7 +55,7 @@ func jailConfigArchive(workspace, agent, name, basename string) string {
 // re-emits canonically — so that "the archive holds the seed" is a statement about the
 // PRE-RENDER bytes rather than about a file the render happened to leave alone. The assert ->
 // own transition below is the opposite fixture on purpose: adoption there is byte-identical by
-// construction (§11's zero-bytes criterion), which is the transition the ruling is about. Two
+// construction (the `assert` -> `own` switch §11 governs), which is the transition the ruling is about. Two
 // fixtures, one for each claim.
 //
 // ⚠ NEITHER OF THEM PINS THE CALL'S POSITION, and it would be easy to read this one as doing
@@ -245,7 +245,7 @@ func TestOwnAdoptionArchivesOnlyTheFirstTime(t *testing.T) {
 // proves against a control render that the canonical re-emit moves it.
 //
 // The assert -> own home this used to use could not: adoption there is byte-identical by
-// construction (§11's zero-bytes criterion), so writeInPlaceString rewrites the same bytes and
+// construction (the `assert` -> `own` switch §11 governs), so writeInPlaceString rewrites the same bytes and
 // an inverted call site passes. Measured — moving archiveAdoption below the surface write left
 // the whole suite green.
 func TestOwnAdoptionRefusesWhenTheArchiveCannotBeWritten(t *testing.T) {

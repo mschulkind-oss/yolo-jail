@@ -269,8 +269,9 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 	}
 	if r.Archived != "" {
 		// THE ADOPTION ITSELF, which is none of the three losses above and is the one fact
-		// in this method that can be the ONLY thing a run did. OQ-CO7's zero-bytes
-		// criterion says the `assert` -> `own` switch reproduces the file exactly, so the
+		// in this method that can be the ONLY thing a run did. §11's criterion says the
+		// `assert` -> `own` switch reproduces the file, and on an already-canonical one it
+		// does so byte for byte (OQ-CO12 relaxed the criterion, not this case), so the
 		// destination reports WouldChange=false and files as in-sync — and with nothing
 		// recorded here the run closed on "Nothing to apply — this home is up to date",
 		// directly under the unsuppressible line naming the copy it had just taken

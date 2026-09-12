@@ -510,8 +510,16 @@ func hostMechanismWouldChange(e *Env, mechanism string, s manifest.Surface, path
 // cancels; here the render IS the file's content by definition — `own` means yolo composes the
 // whole thing — so any difference in the bytes is a difference the user would see. The first
 // owned render on an adopted home is the case that matters, and it answers "no change"
-// precisely when adoption reproduced the file, which is §11's zero-bytes criterion computed
-// rather than asserted.
+// precisely when adoption reproduced the file BYTE FOR BYTE.
+//
+// ⚠ THAT IS STRICTER THAN §11's CRITERION, since OQ-CO12 relaxed the criterion to keys and
+// values and left byte layout conformant. The gap is deliberate and must not be closed by
+// teaching this predicate to decode: the question here is "would an apply alter the file?",
+// and re-sorting a user's JSON keys or dropping their TOML comments ALTERS IT — a predicate
+// that answered "no change" to that would suppress the one disclosure the switch still makes
+// (§11's warning: `WouldChange` is true on every conformant axis, so the switch is never
+// silent). The criterion and this predicate answer different questions and are allowed to
+// disagree; what they may never do is disagree about a KEY.
 //
 // EVERY FAILURE ANSWERS "no change", as the rmw half does: a surface this cannot compose is
 // one the render REFUSES (hostStatefulRefusal, which the caller runs first), and a refusal is

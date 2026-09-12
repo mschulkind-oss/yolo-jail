@@ -1,9 +1,14 @@
 package entrypoint
 
 // hostassertbaseline_test.go pins THE BYTES a host `--assert` apply leaves on a home it has
-// already applied to — the measurable form of the "switching to `own` changes **zero bytes**"
-// criterion (docs/design/config-ownership-and-promotion.md §11), written against the `assert`
-// path FIRST so the baseline exists before anything renders `own`.
+// already applied to — the `assert` half of §11's "switching to `own` keeps every key and
+// value" criterion (docs/design/config-ownership-and-promotion.md §11), written against the
+// `assert` path FIRST so the baseline exists before anything renders `own`.
+//
+// It stays a BYTE golden even though the criterion asks for keys and values (OQ-CO12), and
+// that is not an oversight: §11's LAST bullet is a separate, unrelaxed requirement — a host
+// apply under `assert` leaves an undeclared key byte-identical — and this file is what
+// measures it. The criterion that moved governs the SWITCH, not this notch.
 //
 // Why a byte golden rather than key assertions. §11's criterion is a claim about the FILE, and
 // the class it has to catch is the one §6.3.1 measured on the engine as it then stood: adoption
@@ -11,14 +16,14 @@ package entrypoint
 // pure render holds, wholesale, while `rmw` DEEP-MERGES the same object and keeps it
 // (`applyRMWLayer`). So a user's `permissions.ask` sitting beside yolo's managed
 // `permissions.defaultMode` survives here and would not have survived an owned render built on
-// that rule. A test asserting "permissions is present" passes in both worlds; only the bytes
-// tell them apart, and the bytes are what the criterion says.
+// that rule. A test asserting "permissions is present" passes in both worlds; only the VALUE
+// tells them apart, and a byte golden states the value without having to enumerate which one.
 //
 // The blanket drop is GONE — adoption now narrows in two passes, `dropComputedTables` then the
 // shared leaf-level `narrowOverlay` — so this golden and its `own` twin agree. What the golden
 // does NOT establish is the criterion in general: it is one JSON fixture whose keys are already
-// in the order a composing encoder emits, and §11 records the axes on which a home that is not
-// changes anyway.
+// in the order a composing encoder emits, so it cannot see the axes on which a home that is not
+// changes anyway. Those are hostownedkeysandvalues_test.go's, and §11 lists them.
 //
 // The fixture surface declares NO mode, i.e. `stateful` (manifest.Surface.ResolvedMode's
 // default), because that is the coercion case: at the host notch the census runs `rmw` alone
@@ -89,7 +94,9 @@ func assertBaselineHome(t *testing.T) (home, path string) {
 }
 
 // THE BASELINE. These exact bytes are what an `assert` home holds; §11's criterion is that
-// switching it to `own` produces them unchanged. Written out in full rather than computed, so
+// switching it to `own` keeps every key and value in them, and for THIS fixture — canonical on
+// every axis the criterion leaves free — that is the same as keeping the bytes. Written out in
+// full rather than computed, so
 // the comparison is against a STATED expectation and not against whatever the engine happens
 // to emit on both sides of a change.
 const assertBaselineBytes = `{
@@ -116,7 +123,8 @@ func TestHostAssertLeavesTheAdoptionBaseline(t *testing.T) {
 	if string(got) != assertBaselineBytes {
 		t.Errorf("the `assert` baseline moved.\n got:\n%s\nwant:\n%s\n\nThis is the file "+
 			"docs/design/config-ownership-and-promotion.md §11 says an `own` render must "+
-			"reproduce byte for byte. If the diff is `permissions.ask`, it is §6.3.1's measured "+
+			"reproduce — and since this fixture is already canonical, byte for byte. If the "+
+			"diff is `permissions.ask`, it is §6.3.1's measured "+
 			"defect — adoption drops every leaf under a declared object while `rmw` deep-merges "+
 			"it — and narrowing the drop to `rmw`'s granularity is the fix, not moving this "+
 			"golden.", got, assertBaselineBytes)
@@ -124,8 +132,8 @@ func TestHostAssertLeavesTheAdoptionBaseline(t *testing.T) {
 }
 
 // AND IT IS A FIXED POINT. A second apply over the first's output changes nothing — the
-// property "zero bytes" is measured against, one notch at a time: a mechanism that were not
-// idempotent could not be byte-identical across a switch either.
+// property the switch is measured against, one notch at a time: a mechanism that were not
+// idempotent could not preserve keys and values across a switch either.
 func TestHostAssertIsAFixedPoint(t *testing.T) {
 	home, path := assertBaselineHome(t)
 	first, err := os.ReadFile(path)

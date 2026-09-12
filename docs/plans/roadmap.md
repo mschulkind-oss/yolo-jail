@@ -731,12 +731,14 @@ surfaced below, and worth naming because neither was in scope and the first was 
   every host render still doing `rmw`. `ModeSet.Mechanism` now answers the question a render entry
   actually asks, and the census is pinned per row rather than per dispatch (`3ca670fc`).
 
-💬 **What still needs you is one question the BUILD opened, not one the design left:**
-[`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions) — is the `assert` → `own` switch required to be
-byte-invariant, or only key-invariant? [§11](../design/config-ownership-and-promotion.md#11-success-criteria)
-says zero bytes; measured, the switch is zero bytes for the leaf case the criterion was written
-for and changes bytes on four other axes, two of them silent key deletion. The section carries
-the measurements and the leaning.
+✅ **[`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) — RULED 2026-09-12: keys and values, not bytes**, and
+the two silent deletions are BUGS rather than newly-conformant behaviour. Of the four axes
+measured against the `assert` → `own` switch, JSON key order and a TOML surface's comments and
+generated header are conformant — a composing renderer that sorts keys is the contract `own`
+states — while a key valued `null` or `{}` disappearing is not, at any depth.
+[§11](../design/config-ownership-and-promotion.md#11-success-criteria) carries the comparator
+(decode with the surface's own codec; a key valued `null` is a key) and the measurements.
+**Nothing in this row needs you now.**
 
 ⚠ **Review round 0 landed 2026-09-10 and this row is smaller than it was.** Two of the seven are
 ruled and one is new, so the gating sentence this row used to carry is retired:

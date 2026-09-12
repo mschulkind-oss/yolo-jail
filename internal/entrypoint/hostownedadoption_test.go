@@ -1,8 +1,17 @@
 package entrypoint
 
-// hostownedadoption_test.go is §11's ZERO-BYTES criterion, measured: switching a home already
-// applying under `host_management: assert` to `own` changes nothing in the file
+// hostownedadoption_test.go is the BYTE-INVARIANT case of §11's criterion, measured: switching
+// a home already applying under `host_management: assert` to `own` changes nothing in the file
 // (docs/design/config-ownership-and-promotion.md §11, §6.3.1).
+//
+// ⚠ BYTE INVARIANCE IS NO LONGER THE CRITERION — it is a STRONGER property this one fixture
+// happens to have, and keeping it asserted here is the point. OQ-CO12 relaxed §11 to
+// keys-and-values, which hostownedkeysandvalues_test.go states over fixtures that are not
+// canonical. This fixture IS canonical (key-sorted JSON, no comments), so the two contracts
+// have nothing left to disagree about except a dropped key — which makes a byte comparison the
+// sharpest available instrument here, not a stale one. Relaxing THIS file to the ruled
+// comparator would trade that sharpness for nothing: every axis the ruling made conformant is
+// absent from the fixture by construction.
 //
 // It is the SAME FIXTURE hostassertbaseline_test.go pins, and that is the whole method. That
 // file states the bytes an `assert` home holds; this one renders the identical pack into the
@@ -38,15 +47,17 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// THE CRITERION. A home applying under `assert` is switched to `own`, and the file does not
-// move — not "keeps its keys", not "still parses": the same bytes.
+// THE BYTE-INVARIANT CASE. A home applying under `assert` is switched to `own`, and the file
+// does not move — not "keeps its keys", not "still parses": the same bytes. §11 asks for less
+// than this (keys and values, OQ-CO12); this fixture delivers more, and the surplus is what
+// catches a dropped leaf without having to name the leaf.
 //
 // It works because ComposeStateful reads "no trusted last_render for this surface" as a FIRST
 // MIGRATION and seeds the overlay from the file it finds, so the first owned render is
 // `declared layers + everything the file holds that yolo does not declare` — which is the file.
 // Nothing in this step adds a guard for that; the guard is that branch, and it exists because
 // seeding an empty overlay there was a shipped data-loss bug (B1).
-func TestSwitchingToOwnChangesZeroBytes(t *testing.T) {
+func TestSwitchingToOwnKeepsACanonicalFileByteIdentical(t *testing.T) {
 	home, path := assertBaselineHome(t)
 	before, err := os.ReadFile(path)
 	if err != nil {
@@ -73,20 +84,24 @@ func TestSwitchingToOwnChangesZeroBytes(t *testing.T) {
 	}
 	if string(after) != string(before) {
 		t.Errorf("switching to `own` changed the file.\nbefore:\n%s\nafter:\n%s\n\n"+
-			"docs/design/config-ownership-and-promotion.md §11 requires ZERO bytes. If the "+
-			"diff is a LEAF under a declared object, adoption has gone back to dropping whole "+
-			"top-level subtrees (dropComputedTables' second bullet says why that is wrong). If "+
-			"it is a whole top-level key the file held and no layer declares, the first-"+
-			"migration adoption branch is not running — check that the host capture store is "+
-			"resolving (render.Target.SidecarDir) rather than leaving last_render present.",
+			"This fixture is canonical on every axis OQ-CO12 made conformant — already "+
+			"key-sorted JSON, no comments — so a byte diff here is a KEY OR VALUE that moved, "+
+			"which §11 still forbids. Do not answer it by weakening this comparison to the "+
+			"ruled keys-and-values one: hostownedkeysandvalues_test.go already states that, "+
+			"over fixtures built to exercise it. If the diff is a LEAF under a declared "+
+			"object, adoption has gone back to dropping whole top-level subtrees "+
+			"(dropComputedTables' second bullet says why that is wrong). If it is a whole "+
+			"top-level key the file held and no layer declares, the first-migration adoption "+
+			"branch is not running — check that the host capture store is resolving "+
+			"(render.Target.SidecarDir) rather than leaving last_render present.",
 			before, after)
 	}
 }
 
 // AND THE OWNED RENDER IS A FIXED POINT. The second apply has a real last_render to diff
 // against, so it takes the STEADY-STATE branch rather than adoption — a different code path
-// reaching the same bytes. Without this, "zero bytes" could be true only of the one render that
-// adopts, and the next apply could quietly drop what the first preserved.
+// reaching the same bytes. Without this, byte invariance could be true only of the one render
+// that adopts, and the next apply could quietly drop what the first preserved.
 func TestOwnedRenderIsAFixedPoint(t *testing.T) {
 	home, path := assertBaselineHome(t)
 	pack := adoptionBaselinePack(t)
@@ -133,8 +148,8 @@ func TestOwnedObserveReportsUnchangedAndWritesNothing(t *testing.T) {
 	if results[0].WouldChange || results[0].Action != "unchanged" {
 		t.Errorf("a dry run over a home `own` would adopt byte-for-byte reported %q "+
 			"(WouldChange=%v), want \"unchanged\" — the predicate runs the render and compares "+
-			"its bytes, so this disagreeing with TestSwitchingToOwnChangesZeroBytes means one "+
-			"of the two is not running the writer's own fold", results[0].Action,
+			"its bytes, so this disagreeing with TestSwitchingToOwnKeepsACanonicalFileByteIdentical "+
+			"means one of the two is not running the writer's own fold", results[0].Action,
 			results[0].WouldChange)
 	}
 	after, err := os.ReadFile(path)
@@ -187,7 +202,7 @@ func TestOwnedRenderWritesTheHostCaptureStore(t *testing.T) {
 				"that yolo's layers do not", filepath.Base(p), perm)
 		}
 	}
-	// The overlay is the ADOPTED residue, which is what makes the zero-bytes property a
+	// The overlay is the ADOPTED residue, which is what makes the invariance a
 	// consequence rather than a coincidence: the keys the file holds and no layer declares
 	// are recorded, so the next render reproduces them from the store.
 	data, err := os.ReadFile(target.OverlayPath("acme", "settings"))

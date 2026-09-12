@@ -51,9 +51,9 @@ settled by [`OQ-CO11`](#13-decision-ledger) on 2026-09-11. See
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
-**Needs your ruling:** [`OQ-CO12`](#12-open-questions) — the one question the BUILD opened, and
-the only live question in this file. All eleven this design opened are settled
-([§13](#13-decision-ledger)).
+**Nothing here needs a ruling.** All twelve questions are settled
+([§13](#13-decision-ledger)) — eleven this design opened, and
+[`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12.
 **What is left to compact is the graduation rewrite, not another pass over this file.** Every
 ruling is already folded into [§13](#13-decision-ledger) and the sections it governs; what still
 reads as sequencing is [§10](#10-what-i-would-build-in-order)'s build order, which is now history,
@@ -1319,9 +1319,11 @@ shared leaf-level `narrowOverlay` both branches run. A leaf under a deep-merged
 owner survives the switch, measured as a byte golden in
 `internal/entrypoint/hostassertbaseline_test.go` and its `own` twin.
 
-**It is not the whole of [§11](#11-success-criteria)'s criterion, and the gap is
-recorded there** rather than here: the leaf case passes, and four other axes of
-the same switch do not.
+**It is not the whole of [§11](#11-success-criteria)'s criterion, and the rest is
+recorded there** rather than here: the leaf case passes, and so — since
+[`OQ-CO12`](#13-decision-ledger) relaxed the criterion to keys and values — do the
+two reformatting axes, which that comparator does not reach. The two that remain
+are key DELETIONS, and [§11](#11-success-criteria) names them as bugs.
 
 ### 6.3.2 The three classes adoption does not cover
 
@@ -1789,7 +1791,7 @@ already has.
    ([§6.3.3](#633-what-survives-as-a-guard)), the
    keyless carve-out [OQ-CO9](#13-decision-ledger) rules, and **adoption narrowed to `rmw`'s
    granularity** ([§6.3.1](#631-adoption-is-capture-then-regenerate)), without
-   which `own` is not zero-bytes on an `assert` home. Last because it is the only
+   which `own` does not keep an `assert` home's keys and values. Last because it is the only
    step that can lose data, and by then promotion exists, which is what makes
    `own` attractive rather than merely strict. ⚠ Reverses env-manager plan
    [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
@@ -1829,44 +1831,69 @@ Observable outcomes that mean this was built as designed:
   at all, so `--keys permissions` fails
   [§5.6](#56-degenerate-inputs-and-failure-paths)'s *not in the capture* check
   instead.
-- Switching to `own` on a home already applying under `assert` changes **zero
-  bytes** — the measurable form of
+- Switching to `own` on a home already applying under `assert` keeps **every key
+  and every value** — the measurable form of
   [§6.3.1](#631-adoption-is-capture-then-regenerate). Switching on a home that
   never applied loses only what a first `assert` apply would have lost, prompts
   for it through the gate that already exists, and leaves the pre-existing file
   recoverable from the archive.
 
-  > [!WARNING]
-  > **PARTLY MET, AND THE REST IS OPEN.** The case this criterion was written for
-  > — a leaf such as `permissions.ask` under a declared object — passes, pinned as
-  > a byte golden across the switch. The criterion as STATED does not hold, on
-  > four axes measured 2026-09-12 against a fixture home, each of which changes
-  > bytes between the two contracts:
+  **Keys-and-values invariance, stated once so the comparator is not re-invented
+  per test.** Decode both files with the SURFACE'S OWN codec and compare the
+  decoded values structurally: two objects are equal when they hold the same key
+  set and equal values under each key, two arrays when they hold equal elements
+  in the same order, scalars by value — and **a key present with a `null` value is
+  a key, not an absence**. A number cannot differ by type across the comparison,
+  because one codec decodes both sides. Everything the codec does not decode is
+  outside the criterion *by construction*, and that is the whole content of the
+  relaxation: byte layout, indentation, insertion order, and — a comment being
+  neither a key nor a value — **TOML comments and yolo's generated header**. A
+  keyless (`raw`/`lines`) surface has one value, the whole file, so the comparator
+  degenerates to byte equality there; `own` refuses keyless surfaces
+  ([`OQ-CO9`](#13-decision-ledger)), so the case cannot arise at the switch.
+
+  > [!IMPORTANT]
+  > **This criterion was BYTE invariance until [`OQ-CO12`](#13-decision-ledger)
+  > relaxed it (2026-09-12), and two of the four axes that relaxation was measured
+  > against are NOT conformant — they are bugs.** Keeping them named here is the
+  > point: a criterion that moves must not launder into conformance the defects
+  > that prompted it.
   >
-  > | Axis | Under `assert` | Under `own` |
-  > | :--- | :--- | :--- |
-  > | A top-level key valued `null` | kept | **deleted** |
-  > | A top-level key valued `{}` | kept | **deleted** |
-  > | JSON key order, at every depth | the file's own order | sorted |
-  > | A TOML surface's user comments | reattached in place | **destroyed**, and a three-line generated header prepended |
+  > | Axis measured 2026-09-12 | Under `assert` | Under `own` | Verdict |
+  > | :--- | :--- | :--- | :--- |
+  > | A key valued `null`, at any depth | kept | **deleted** | **bug** — a key, and it is gone |
+  > | A key valued `{}`, at any depth | kept | **deleted** | **bug** — a key, and it is gone |
+  > | JSON key order, at every depth | the file's own order | sorted | conformant |
+  > | A TOML surface's user comments | reattached in place | destroyed, and a three-line generated header prepended | conformant |
   >
-  > The first two are silent key deletion: neither `EntryLosses` nor `Formatting`
-  > names them, so `yolo host apply`'s loss gate does not prompt. `WouldChange` is
-  > true in every case above, so the switch is not wholly silent.
+  > **Why the last two are conformant rather than tolerated.** A composing
+  > renderer that sorts keys is the contract `own` *states* — the file is derived,
+  > and a derivation has no insertion order to preserve. The alternative was to
+  > teach `own`'s encoder rmw's byte layout, which would push formatting knowledge
+  > into the capture path, a path that has no reason to know it. The two contracts
+  > compose through **different encoders** and that is what they are for: `assert`
+  > writes read-modify-write, preserving insertion order and reattaching comments
+  > because *that* is its contract; `own` composes the whole file through the
+  > surface's codec.
   >
-  > The cause is one sentence: the two contracts compose through **different
-  > encoders**. `assert` writes through the read-modify-write path, which preserves
-  > insertion order and reattaches comments because that is its contract; `own`
-  > composes the whole file through the surface's codec, which sorts keys and
-  > emits the generated header. A `null` leaf is dropped by name on the adoption
-  > path, and an empty object diffs to nothing, so neither reaches the overlay.
+  > **The switch is never silent on any axis.** `WouldChange` compares BYTES —
+  > deliberately stricter than this criterion
+  > ([`hostStatefulWouldChange`](../../internal/entrypoint/hostrender.go)) — so a
+  > conformant reformat is still announced as a pending change, and the adoption
+  > archive still holds the file as yolo found it
+  > ([§6.3.3](#633-what-survives-as-a-guard)). What the two bugs defeat is the
+  > LOSS GATE, not the announcement: neither `EntryLosses` nor `Formatting` names
+  > a dropped `null`- or `{}`-valued key, so `yolo host apply` does not prompt for
+  > it.
   >
-  > **What this means for the key:** `own` is safe to offer, and it is the
-  > contract's stated shape — a derived file contains what the definition says.
-  > It is not yet a byte-invariant migration, so the criterion is not evidence
-  > that a home can be switched and back with nothing observed. The shipped test
-  > (`TestSwitchingToOwnChangesZeroBytes`) is green on a fixture that is already
-  > key-sorted JSON; that is its scope, and it is stated at the fixture.
+  > Measured by `TestSwitchingToOwnPreservesKeysAndValues`
+  > ([`hostownedkeysandvalues_test.go`](../../internal/entrypoint/hostownedkeysandvalues_test.go)),
+  > whose fixtures are deliberately non-canonical — unsorted JSON, a commented TOML
+  > file — so each case asserts both that the bytes DIFFER and that the values do
+  > not. `TestSwitchingToOwnKeepsACanonicalFileByteIdentical`
+  > ([`hostownedadoption_test.go`](../../internal/entrypoint/hostownedadoption_test.go))
+  > keeps the stricter byte comparison for the one fixture that is canonical on
+  > every freed axis, where it is the sharper instrument rather than a stale one.
 - A `yolo host apply --assert` under `assert` still leaves an undeclared key
   byte-identical — the property measured on 2026-09-09 and the one thing this
   design must not regress.
@@ -1883,26 +1910,10 @@ Observable outcomes that mean this was built as designed:
 > BACKLOG's is [§5.4](#54-promotion-moves-a-key-down-the-stack)'s residual
 > precedence case seen from the pack side.
 
-Every question this design OPENED is settled — the last three were ruled on 2026-09-11 and
-are in [§13](#13-decision-ledger), with the rulings themselves living in the sections they
-govern. One question the BUILD opened is live, below.
-
-1. 💬 **OQ-CO12: is the `assert` → `own` switch required to be byte-invariant, or only
-   key-invariant?** [§11](#11-success-criteria) states zero bytes; the shipped switch is zero
-   bytes for the case it was written for and changes bytes on four other axes — JSON key
-   order, a `null`- or `{}`-valued top-level key, and a TOML surface's comments and generated
-   header — because the two contracts compose through different encoders. Two of those are
-   silent key deletion that no loss field names. The stakes are which half moves: tightening
-   `own`'s encoder to preserve order and comments is a change to the composing path every
-   notch shares, while relaxing the criterion to keys-and-values makes the two silent
-   deletions bugs to fix on their own and the rest expected.
-
-   <!-- vantage: oq id=OQ-CO12 leaning="Relax the criterion to keys-and-values, and fix the two silent deletions as bugs — a composing renderer that sorts keys is the contract `own` states, and matching rmw's byte layout would make the capture path carry formatting it has no reason to know about." -->
-
-   _Leaning:_ Relax the criterion to keys-and-values, and fix the two deletions separately.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+**None.** Every question this design OPENED is settled — the last three were ruled on
+2026-09-11 — and so is the one its BUILD opened
+([`OQ-CO12`](#13-decision-ledger), ruled 2026-09-12). All twelve are in
+[§13](#13-decision-ledger), with the rulings themselves living in the sections they govern.
 
 **One consequence is large enough to state here rather than leave in a ledger row.**
 [`OQ-CO10`](#13-decision-ledger) decided the *shape* of the read-in `host` layer — the
@@ -1921,8 +1932,9 @@ their dated reversals.
 
 Rulings on [§12](#12-open-questions)'s questions are folded into the normative
 body text and compacted here, keeping the exact `OQ-CO` ids so citations from
-sibling docs and code comments continue to resolve. **All eleven are settled**;
-the last three on 2026-09-11.
+sibling docs and code comments continue to resolve. **All twelve are settled** —
+eleven the design opened, the last three of those on 2026-09-11, and
+[`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12.
 
 **Settled and built are two axes, and the second does not follow from the first.** Each `Built`
 cell names the symbol that carries the ruling, read off the tree on 2026-09-12 rather than off
@@ -1956,6 +1968,7 @@ is complete.
 | [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) | ✅ `resolvePromoteDest` refuses `--to workspace` by naming this ruling, rather than folding it into "unknown destination" |
 | [`OQ-CO9`](#13-decision-ledger) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) | ✅ `render.HostOwnedModes` refuses the coercion and `entrypoint.hostStatefulRefusal` refuses the surface, leaving the user's file untouched |
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; `macos-user` reports `unsupported` and is not refused |
+| [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
 | — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |

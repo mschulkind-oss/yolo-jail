@@ -1,6 +1,6 @@
 package cli
 
-// hostadoptionverdict_test.go is OQ-CO7's D3: the VERDICT half of the zero-bytes adoption
+// hostadoptionverdict_test.go is OQ-CO7's D3: the VERDICT half of the byte-identical adoption
 // (docs/design/config-ownership-and-promotion.md §6.3.3, docs/design/report-tiers.md §4.3).
 //
 // hostadoptionarchivetier_test.go pinned the HEADING — an adopting render is a tier-3
@@ -75,7 +75,7 @@ func TestHostApplyVerdictNamesAnAdoptionThatChangedNoBytes(t *testing.T) {
 	// verdict names it through the `config file` count and this test passes for the wrong
 	// reason.
 	if string(after) != string(canonical) {
-		t.Fatalf("the render moved the file, so this is not the zero-bytes case any more and "+
+		t.Fatalf("the render moved the file, so this is not the byte-identical case any more and "+
 			"the verdict would name it as an ordinary change.\nbefore:\n%s\nafter:\n%s",
 			canonical, after)
 	}

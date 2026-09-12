@@ -397,15 +397,17 @@ because every candidate fix reverses a ruling. In a design doc that sits honestl
 **In a reference it becomes present tense** — *here is what the net does and does not catch* — which is the
 same kind of re-statement the criterion below needs, and it is the second thing the rewrite owes.
 
-⚠ **The subtler blocker, and the more dangerous one.** The design's own success criterion —
-*switching to `own` on a home already applying under `assert` changes zero bytes* — is **PARTLY
-MET**, on four axes measured 2026-09-12: a top-level `null` and a top-level `{}` are **deleted**,
-JSON key order is **sorted** at every depth, and a TOML surface's user comments are **destroyed**.
-The first two are silent key deletion that no loss gate prompts for. In a design doc this sits
-honestly as a failed criterion under a `> [!WARNING]`. In a reference it would have to be
-re-stated as **the contract** — *`own` composes through the surface's codec, and here is what that
-costs you* — which is a rewrite of the claim, not a re-filing of it. That rewrite is the real work
-in this graduation and it should be done deliberately, not as a side effect of moving a file.
+⚠ **The subtler blocker, and the more dangerous one — now HALF resolved, which changes what the
+rewrite owes.** The design's own success criterion was *switching to `own` on a home already
+applying under `assert` changes zero bytes*, and it was **PARTLY MET** on four axes measured
+2026-09-12: a `null`- and a `{}`-valued key **deleted**, JSON key order **sorted** at every depth,
+a TOML surface's user comments **destroyed**.
+[`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) ruled on 2026-09-12
+that the criterion is **keys and values**, which makes the last two axes conformant and states
+the contract the reference needs — *`own` composes through the surface's codec* — in the design
+doc rather than leaving it for the move. The first two stay **bugs**, named as such under
+[§11](../design/config-ownership-and-promotion.md#11-success-criteria)'s callout. So the rewrite this graduation owes is now a re-filing of a STATED contract plus whatever
+is still open about the two deletions, rather than a rewrite of the claim itself.
 
 **Where it would live:** `docs/reference/config-ownership.md`, holding the ownership axis (the
 notch does not decide who owns a file; a declared key does), the three modes and their surface
@@ -562,12 +564,13 @@ not after it.
    [`report-tiers-plan.md`](../design/report-tiers-plan.md) in the same commit.
 3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**.
    [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive **is built**
-   (2026-09-12), so what remains is two re-statements, not one: the zero-bytes criterion as a stated
-   contract rather than a partly-met goal, and the archive's two remaining gaps as present-tense
-   behavior. The first is still gated on a live ruling
-   ([`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions)), which under
-   [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s precedent means a stub
-   at the original filename rather than a reason to wait.
+   (2026-09-12), so what remains is two re-statements, not one: the keys-and-values criterion as a
+   stated contract rather than a partly-met goal, and the archive's two remaining gaps as
+   present-tense behavior. The first is **no longer gated on a ruling** —
+   [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) settled it on
+   2026-09-12 — so both are ordinary rewriting now, and
+   [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s stub-at-the-original-
+   filename precedent is no longer needed for this one.
 4. **Fold [`lua-transform-removal.md`](../design/lua-transform-removal.md) into
    [`../reference/pack-system.md`](../reference/pack-system.md) and archive it.** Do not mint a
    second reference for one subsystem.
