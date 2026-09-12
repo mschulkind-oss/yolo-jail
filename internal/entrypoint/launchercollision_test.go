@@ -201,7 +201,7 @@ func TestImageProbePathDropsThePerHomePrefixes(t *testing.T) {
 	e2 := NewEnv(map[string]string{
 		"JAIL_HOME": "/Users/_yolojail",
 		"YOLO_DARWIN_LOGIN_PATH": "/Users/_yolojail/.yolo/bin/block:/Users/_yolojail/.local/bin:" +
-			"/Users/_yolojail/.npm-global/bin:/Users/_yolojail/.local/share/mise/shims:" +
+			"/Users/_yolojail/.npm-global/bin:/Users/_yolojail/.yolo/mise/shims:" +
 			"/Users/_yolojail/go/bin:/nix/store/abc-env/bin:/usr/bin:/bin:/usr/sbin:/sbin:" +
 			"/Users/_yolojail/.yolo/bin/launch",
 	})

@@ -55,6 +55,29 @@ const (
 // SandboxHome is /Users/_yolojail.
 func SandboxHome() string { return "/Users/" + SandboxUser }
 
+// SandboxMiseData is the mise data dir for a sandbox home: <home>/.yolo/mise.
+//
+// IT IS THE MACHINE TIER, AND IT HAS TO BE NAMED TO STAY THERE. mise's own default is
+// $HOME/.local/share/mise (entrypoint.NewEnv resolves the same fallback), and under the
+// home-tier layout ~/.local is a symlink into <workspace>/.yolo/home — so leaving the
+// default in place would put the tool store in the PER-WORKSPACE tier, where no other
+// backend keeps it: the container mounts one machine-wide store at /mise
+// (internal/cli/run/assemble_parts.go) for every workspace on the host.
+// docs/design/macos-user-home-tiers.md §5 states this as a precondition of the layout, and
+// macos-user-provisioning.md's OQ-P3 takes its answer from it.
+//
+// Under ~/.yolo because that is yolo's own namespace in the home. Its sibling ~/.yolo/bin
+// IS a layout symlink (the generated-script anchor is per-workspace on every backend), so
+// the two tiers do meet inside that directory — which is the layout's rule working, not an
+// exception to it: a path is workspace tier when the layout links it and machine tier
+// otherwise.
+func SandboxMiseData(home string) string {
+	if home == "" {
+		home = SandboxHome()
+	}
+	return filepath.Join(home, ".yolo", "mise")
+}
+
 // SharedRootDefault is the neutral shared-workspace root (/Users/Shared/yolo).
 // A NEUTRAL directory outside every user's home — the crux of the model's
 // "clear semantics".
@@ -467,7 +490,7 @@ func SandboxPath(home string, prefix []string) string {
 		home + "/.yolo/bin/launch",
 		home + "/.local/bin",
 		home + "/.npm-global/bin",
-		home + "/.local/share/mise/shims",
+		filepath.Join(SandboxMiseData(home), "shims"),
 		home + "/go/bin",
 	}
 	parts = append(parts, prefix...)
@@ -524,12 +547,21 @@ func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.Ordere
 // (CaptureDriverArgv), which differ in what they exec and in nothing about the environment they
 // exec it in; two spellings of that would be two ways for a capture to stop resembling a launch.
 func sandboxEnvPairs(home, user, pathValue string, sandboxEnv *jsonx.OrderedMap) []string {
-	protected := map[string]struct{}{"HOME": {}, "USER": {}, "SHELL": {}, "PATH": {}}
+	protected := map[string]struct{}{
+		"HOME": {}, "USER": {}, "SHELL": {}, "PATH": {}, "MISE_DATA_DIR": {},
+	}
 	envPairs := []string{
 		"HOME=" + home,
 		"USER=" + user,
 		"SHELL=/bin/zsh",
 		"PATH=" + pathValue,
+		// MISE_DATA_DIR is emitted WITH the PATH because they are one fact: the shims dir on
+		// that PATH is <this>/shims (SandboxPath), so a process that resolved the shims from
+		// one value and the store from another would run a shim whose install is elsewhere.
+		// Protected for the same reason the quartet is — the tier a store belongs to is this
+		// backend's to decide, not a caller's, and the default it overrides lands in the
+		// per-workspace tier (SandboxMiseData).
+		"MISE_DATA_DIR=" + SandboxMiseData(home),
 	}
 	if sandboxEnv != nil {
 		for _, k := range sandboxEnv.Keys() {

@@ -337,6 +337,14 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		}
 	}
 
+	// MISE_DATA_DIR, named rather than defaulted — the bootstrap's Env resolves
+	// $HOME/.local/share/mise when it is unset (entrypoint.NewEnv), and ~/.local is a
+	// symlink into the workspace sidecar under the home-tier layout, so the default would
+	// put the tool store in the per-workspace tier. The launch env carries the same value
+	// from the same function (sandboxEnvPairs), so the store the generated .bashrc names
+	// and the store the agent's PATH resolves through cannot disagree.
+	bootstrapEnv.Set("MISE_DATA_DIR", SandboxMiseData(home))
+
 	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
 	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
 	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
