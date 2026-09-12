@@ -173,15 +173,15 @@ Proposed, following that policy:
 
 | Doc | Verdict |
 |---|---|
-| `../reference/composed-file-permissions.md` | **keep (A)** — the reference for postures + the audit. The one doc to read. |
-| `design/packs-and-the-prism.md` | **keep (A)** — the conceptual frame; distinct audience (deciding an architecture, not implementing) |
-| `../reference/what-yolo-is.md` | **keep (A)** — the boundaries question (what is separable from the sandbox) + how pack *logic* would ship. Answers the two questions the packs sketch left open |
-| `plans/composed-config-work.md` *(this)* | **keep (B)** — the single work list |
-| `plans/host-file-staging.md` | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
-| `plans/agent-settings-composition.md` | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |
-| `plans/sequencing-2026-07.md` | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |
-| `../reference/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the [§3.2](../reference/config-migration-to-prism.md#the-two-paths)/[§3.3](../reference/config-migration-to-prism.md#defensive-handling-of-inconsistent-sidecars) sidecar state machine is not documented elsewhere |
-| `../reference/agent-credentials.md`, `../reference/jail-home.md` | **keep (A)** — different questions (what crosses the boundary; how the home is built) |
+| [`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md) | **keep (A)** — the reference for postures + the audit. The one doc to read. |
+| [`../design/packs-and-the-prism.md`](../design/packs-and-the-prism.md) | **keep (A)** — the conceptual frame; distinct audience (deciding an architecture, not implementing) |
+| [`../reference/what-yolo-is.md`](../reference/what-yolo-is.md) | **keep (A)** — the boundaries question (what is separable from the sandbox) + how pack *logic* would ship. Answers the two questions the packs sketch left open |
+| [`composed-config-work.md`](composed-config-work.md) *(this)* | **keep (B)** — the single work list |
+| [`host-file-staging.md`](host-file-staging.md) | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
+| [`agent-settings-composition.md`](agent-settings-composition.md) | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |
+| [`sequencing-2026-07.md`](sequencing-2026-07.md) | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |
+| [`../reference/config-migration-to-prism.md`](../reference/config-migration-to-prism.md) | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the [§3.2](../reference/config-migration-to-prism.md#the-two-paths)/[§3.3](../reference/config-migration-to-prism.md#defensive-handling-of-inconsistent-sidecars) sidecar state machine is not documented elsewhere |
+| [`../reference/agent-credentials.md`](../reference/agent-credentials.md), [`../reference/jail-home.md`](../reference/jail-home.md) | **keep (A)** — different questions (what crosses the boundary; how the home is built) |
 
 **Rule going forward, to stop the sprawl recurring:** a *posture or mechanism* goes in
 `composed-file-permissions.md`; a *work item* goes here; a *sequencing decision* goes in

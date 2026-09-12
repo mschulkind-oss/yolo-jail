@@ -30,10 +30,10 @@ block; and `zai` ships neither. The argument is unaffected; the number was.)* Co
 ### ⚠ [`bin/file-suggestion.sh`](bin/file-suggestion.sh) is a starting point, not your script
 
 The real finder lives at `~/.dotfiles/claude/file-suggestion.sh` on the host,
-which is invisible from inside a jail (the credential boundary — see
-`AGENTS.md` "Limitations"), so it could not be copied in. What ships here is a
-**working** `fd | fzf --filter` implementation written from scratch and verified
-end to end.
+which is invisible from inside a jail (the credential boundary — every jail's
+generated briefing states it under *Limitations*), so it could not be copied in.
+What ships here is a **working** `fd | fzf --filter` implementation written from
+scratch and verified end to end.
 
 Swapping in your own is a **one-file edit**: nothing else in the pack references
 the script's internals, only its path.
@@ -83,10 +83,14 @@ executable and arrives that way, which is the whole point — a pack delivering 
 script nothing can run is a pack that has delivered nothing.
 
 This step used to read the other way. Until 2026-08-30 the entry needed
-`"allow_exec": true`, and without it the launch was refused with *"pack file
-bin/file-suggestion.sh is executable (mode 755)"*. That gate is gone, key and
-all: it read as a trust boundary and was not one, since `bash file.sh` never
-needed the bit. **A config still carrying `allow_exec` is now refused as an
+`"allow_exec": true`, and without it the launch was refused:
+
+```text
+pack file bin/file-suggestion.sh is executable (mode 755)
+```
+
+That gate is gone, key and all: it read as a trust boundary and was not one,
+since `bash file.sh` never needed the bit. **A config still carrying `allow_exec` is now refused as an
 unknown key** — delete it.
 
 Two things replaced it, and this pack sits on the right side of both:
@@ -338,9 +342,11 @@ Reported, not fixed (they live in files under concurrent development):
    during this work: a test pack deleted from config kept generating its
    `fzf` launcher (which then broke `fzf` per finding #1) across
    several launches, and the only fix was deleting the staging dir by hand. This
-   contradicts the invariant stated in `AGENTS.md` ("`stagePacks` copies only the
-   SELECTED packs into the mounted tree (and clears it, so a dropped pack stops
-   rendering)") — the clear covers `_official` only.
+   contradicted the *MOUNT is the filter* invariant in the repo's own
+   [Agent Developer Guide](../../../AGENTS.md), which then read the clear as
+   covering every dropped pack when it covered `_official` only. That invariant has since been
+   rewritten around this finding — a dropped pack now has to be UNSTAGED or it
+   keeps rendering, and `pruneDroppedPackStaging` does it per configured slug.
 4. **`yolo config ls` cannot show a configured pack's surface mode.** It merges
    *embedded* packs only (documented in `internal/cli/surfaces.go`), so the
    `stateful`-vs-`rmw` question this pack used to turn on is not answerable from

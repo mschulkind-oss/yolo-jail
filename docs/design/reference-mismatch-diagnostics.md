@@ -183,8 +183,9 @@ existing check or gives an existing namespace the check its neighbours already h
 | **After** | `[FAIL] config.providers.bedrock.wire_api: unknown protocol 'totally-not-a-wire-api' — expected one of: anthropic, openai-chat, openai-completions, responses` |
 | **Where** | `yolo check`, at parse time. It is a closed enum; nothing needs resolving. |
 
-> **CORRECTED 2026-09-02 by [`OQ-PT1`](../reference/providers.md#why-its-this-way) in [`providers.md`](../reference/providers.md)
-> §3.0a/§3.1.** This mock-up is where the enum's four values were minted, and the list it quoted is
+> **CORRECTED 2026-09-02 by [`OQ-PT1`](../reference/providers.md#why-its-this-way), now carried by
+> [the canonical `wire_api` vocabulary](../reference/providers.md#the-canonical-wire_api-vocabulary)
+> in [`providers.md`](../reference/providers.md).** This mock-up is where the enum's four values were minted, and the list it quoted is
 > retired: `anthropic`, `openai-chat`, `openai-completions` and `responses` were the union of the
 > spellings three agents happened to use, in which two names covered ONE protocol and the protocol
 > pi and codex really differ over had only codex's spelling. The vocabulary is now three
@@ -192,7 +193,8 @@ existing check or gives an existing namespace the check its neighbours already h
 > chosen to be **nobody's dialect** (defined: a name that names a protocol, never a value an
 > agent's config file reads). Translation, not pass-through, is the contract: each derive maps
 > canonical → its own agent's spelling and emits nothing for a protocol that agent cannot speak
-> (§3.4). "The value lands verbatim" in the **Today** row describes a world that ended twice:
+> (the dialect maps' [*Emits for unspeakable protocols*](../reference/providers.md#the-canonical-wire_api-vocabulary)
+> column). "The value lands verbatim" in the **Today** row describes a world that ended twice:
 > `0bc29bd5` (2026-09-01) began refusing values outside the set, and `0f04632d` (2026-09-02) made
 > the derives translate a value inside it. The one part of the mock-up that was ever load-bearing
 > can no longer go stale the way it just did: `validateWireAPI` renders its list by asking
@@ -277,8 +279,9 @@ The honest list. Each of these is a config that launches now and will not after.
 | An active profile whose key was never hydrated | launches, fails at the agent | **refused** | populate the `env_sources` file |
 | A pack tree newer than the image | any of the above, unexplained | **refused, naming `just load`** | `just load` on the host |
 
-> **CORRECTED 2026-09-02 by [`OQ-PT1`](../reference/providers.md#why-its-this-way) in [`providers.md`](../reference/providers.md)
-> §3.0a/§3.4.** Row 2's "four known protocols" and its recovery column are both retired. The
+> **CORRECTED 2026-09-02 by [`OQ-PT1`](../reference/providers.md#why-its-this-way), now carried by
+> [the canonical `wire_api` vocabulary](../reference/providers.md#the-canonical-wire_api-vocabulary)
+> in [`providers.md`](../reference/providers.md).** Row 2's "four known protocols" and its recovery column are both retired. The
 > vocabulary is the three canonical names above ([§4.2](#42-an-invented-wire_api)'s note), and adding one is **not** "a
 > one-line enum addition": it is a line in `packdecl`'s `knownWireAPIs` **plus a dialect row in
 > every derive that can speak it**, because a protocol no derive translates is a name in the list

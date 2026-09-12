@@ -123,9 +123,9 @@ opaque blob — Claude doesn't even examine `expiresAt`. This is the
 reactive-only behavior the original handoff was confused about.
 
 (A separate `cXH` class with proactive refresh exists in the bundle, but
-it's for **MCP-OAuth** tokens — not the user's Pro/Max token. See
-`.research/REPORT.md` *(never committed)* §2.6 if you want the
-diff.)
+it's for **MCP-OAuth** tokens — not the user's Pro/Max token. The
+MCP-OAuth walkthrough in `.research/REPORT.md` *(never committed, so
+there is nothing to open)* has the diff.)
 
 ### 3.2 `Pu` — single-flight wrapper
 
@@ -418,7 +418,8 @@ fix, but they are worth investigating before any *next* round.
 2. **Anthropic's server-side grace window past `expiresAt`.** The
    2026-05-17 incident showed Claude happy for 23 min past `expiresAt`
    client-side; could be Anthropic leniency, could be Claude idle. Test
-   #1 in `.research/REPORT.md` *(never committed)* §5 resolves it.
+   #1 in `.research/REPORT.md` *(never committed, so there is nothing to
+   open)* resolves it.
 3. **Concurrency between proactive loop and Claude's own 401-driven
    refresh.** Both go through `do_refresh`'s flock, so they should
    compose. Worth a stress test with N=8 concurrent jails before any

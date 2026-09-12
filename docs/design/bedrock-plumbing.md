@@ -134,7 +134,8 @@ parts Bedrock lands on.
   `api_key_env_name`, no models), `kind: "profile"` named `bedrock` selecting it, a
   `profile`-gated `kind: "env"` setting `CLAUDE_CODE_USE_BEDROCK=1`, and a `profile`-gated
   `config-overlay` writing the same key into `claude/settings`. It is the worked example
-  the reference doc names for the post-OQ-PT8 decomposition.
+  the reference doc names for the post-[`OQ-PT8`](../reference/providers.md#profiles-and-options)
+  decomposition.
 - **Only the claude derive reads `region`.** `packs/claude/derive.lua:61-63` maps
   `p.region` → `AWS_REGION`. The schema field is documented as exactly this
   (`internal/packdecl/contributes.go:237-242`: *"Region is the region a regional provider
@@ -452,8 +453,8 @@ shipped entry states its own (`runtime`, `mantle`), and an entry omitting it is 
 rather than guessed, because a guessed family is a wrong model id (P1). `region:
 "us-east-1"` (shipped on both entries; overridable per user). `aws_profile: null` — declared, no
 default, meaning "use the chain". Model alias fallback: the profile's `model` option, else
-`default` — the existing OQ-CS3 ladder, unchanged. No timeouts and no retries are introduced
-by this design.
+`default` — the existing [`OQ-CS3`](../reference/providers.md#per-agent-delivery) ladder,
+unchanged. No timeouts and no retries are introduced by this design.
 
 **Trigger.** Everything renders in the ordinary boot render, once per launch, from the
 composed provider table — plus the host notch's env derive at `yolo host -- <agent>`. There

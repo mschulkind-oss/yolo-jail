@@ -228,7 +228,8 @@ there is one config path now, so AGY needs no special-casing.
 
 - **Phase 4: Docs & verification**
   * Add the `agy` bullet to `internal/cli/config_ref.txt`; note it in
-    `../reference/agent-briefings.md` and `../reference/mcp-configuration.md` and
-    `docs/guides/USER_GUIDE.md`.
+    [`../reference/agent-briefings.md`](../reference/agent-briefings.md) and
+    [`../reference/mcp-configuration.md`](../reference/mcp-configuration.md) and
+    [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md).
   * Run `just test-fast`; nested-jail verify (a throwaway `{"agents":["agy"]}`
     workspace, two boots to prove the [§5](#5-execution-roadmap--phases) capture loop).
