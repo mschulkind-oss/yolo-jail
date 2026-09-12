@@ -382,50 +382,45 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		return 1
 	}
 
+	// THE TIER-1 FACTS, ONCE FOR THE WHOLE RUN (report-tiers.md §4.1, §9 step 3). Which kinds
+	// this notch does nothing with, and which autonomy posture it renders, are properties of
+	// the NOTCH: the same sentences in every home on every machine. They used to print per
+	// CONTRIBUTION — nineteen ~40-word refusal paragraphs naming seven kinds, plus five
+	// identical autonomy lines — and the census invariant they serve is satisfied by NAMING
+	// (P5: "appearing once is appearing"), not by repetition. See hostapplynotch.go.
+	//
+	// Before the loop, so "folded into the config surfaces below" is a true word about what
+	// comes next, and so a reader meets the notch before they meet this home.
+	printNotchFacts(pr, surveyNotchFacts(loaded, hostFields))
+
 	for _, p := range loaded {
-		// Account for EVERY kind the pack declares, before rendering. Three outcomes, and
-		// the invariant is that there is no fourth: refused by the census, honored-but-
-		// unbuilt (named as such), or rendered below. A kind that produced no line at all
-		// was the G1 bug — `skills`/`briefing` were honored by the FieldSet but rendered by
-		// nothing, so they vanished silently, which is strictly worse than a loud refusal.
-		deps := resolveHostDeps(p) // one probe per pack, consulted by the program case below
+		// Account for EVERY kind the pack declares. Three outcomes, and the invariant is that
+		// there is no fourth: named once above as a kind this notch does not apply (whether
+		// the FieldSet refuses it or honors it with no renderer behind it), rendered below, or
+		// — for the two dep kinds — probed here. A kind that produced no line at all was the
+		// G1 bug: `skills`/`briefing` were honored by the FieldSet but rendered by nothing, so
+		// they vanished silently, which is strictly worse than a loud refusal.
+		deps := resolveHostDeps(p) // one probe per pack, consulted by the dep case below
 		for _, c := range p.Decl.Contributions() {
-			switch {
-			case !hostFields.Honors(c.Kind):
-				pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), hostFields.Refuse(c.Kind))
-			case isDepKind(c.Kind):
-				// The probe's answer reaches the VERDICT, not just this line. A missing
-				// declared dependency is the finding that makes the rest of the apply
-				// pointless (§4.9), and until this call it changed neither the exit code
-				// nor the roll-up — it was a line in the middle of 277 of them.
-				survey.noteDep(deps.state(c), c.Bin)
-				// program AND requires: resolved dep state, not a static "confirm-gated"
-				// line — which bin, present or missing, and the install command
-				// (pack-host-management-plan.md Phase 8). Running it is still Phase 4.3's.
-				// `requires` shares this path because below the jail notch the two kinds ask
-				// the host the same question; the line names which kind asked.
-				for _, l := range deps.lines(c) {
-					pr.Printf("%s", l)
-				}
-			case c.Kind == packdecl.KindAutonomy:
-				// Rendered, but INVISIBLY: an autonomy posture folds into the managed layer
-				// of a surface the same pack owns, so it shows up as that surface's line and
-				// never as its own. Say which posture won, because "did my jail-bypass keys
-				// reach my real home?" is the single most consequential question this
-				// command answers (env-manager Phase 9).
-				pr.Printf("  [cyan]autonomy[/cyan]   guarded posture — permission prompts " +
-					"stay ON; folded into this pack's own config surfaces below")
-			case c.Kind == packdecl.KindSkills, c.Kind == packdecl.KindBriefing,
-				c.Kind == packdecl.KindFiles:
-				// All three render below with their own per-entry lines (applyHostSkills,
-				// applyHostBriefings, applyHostFiles), so a summary line here would just be
-				// noise. `briefing` and `skills` render once for the whole pack SET rather than
-				// per pack (each destination's content is the union of every contributor's), so
-				// their lines come after the loop.
-			default:
-				if why, unbuilt := render.HostUnimplemented(c.Kind); unbuilt {
-					pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), why)
-				}
+			// The dep kinds are the one class whose answer is a property of THIS HOST rather
+			// than of the notch, so they are the one class still reported per contribution.
+			// The Honors guard keeps the old precedence: a kind the FieldSet stopped honoring
+			// is a notch fact named above and must not also earn a dep line here.
+			if !isDepKind(c.Kind) || !hostFields.Honors(c.Kind) {
+				continue
+			}
+			// The probe's answer reaches the VERDICT, not just this line. A missing declared
+			// dependency is the finding that makes the rest of the apply pointless (§4.9), and
+			// until this call it changed neither the exit code nor the roll-up — it was a line
+			// in the middle of 277 of them.
+			survey.noteDep(deps.state(c), c.Bin)
+			// program AND requires: resolved dep state, not a static "confirm-gated" line —
+			// which bin, present or missing, and the install command
+			// (pack-host-management-plan.md Phase 8). Running it is still Phase 4.3's.
+			// `requires` shares this path because below the jail notch the two kinds ask the
+			// host the same question; the line names which kind asked.
+			for _, l := range deps.lines(c) {
+				pr.Printf("%s", l)
 			}
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {

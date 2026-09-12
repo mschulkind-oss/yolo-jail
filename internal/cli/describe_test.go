@@ -348,8 +348,13 @@ func TestApplyHostRMW(t *testing.T) {
 	if rc := applyMain([]string{"--at", "host"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("apply --at host observe rc=%d: %s", rc, errw.String())
 	}
-	if !strings.Contains(out.String(), "refused") || !strings.Contains(out.String(), "mount") {
-		t.Errorf("observe should refuse the mount kind by name:\n%s", out.String())
+	// `does not apply`, not `refused` — report-tiers.md §4.6's closed vocabulary reserves
+	// `refused` for an apply that STOPPED, and a kind with no meaning off-container stopped
+	// nothing. The assertion this test is making is unchanged: the kind is NAMED, never
+	// silently skipped.
+	if !strings.Contains(out.String(), "does not apply") || !strings.Contains(out.String(), "mount") {
+		t.Errorf("observe should name the mount kind as one that does not apply here:\n%s",
+			out.String())
 	}
 	data, _ := os.ReadFile(filepath.Join(home, ".hp", "settings.json"))
 	if !strings.Contains(string(data), `"telemetry": true`) && !strings.Contains(string(data), `"telemetry":true`) {
