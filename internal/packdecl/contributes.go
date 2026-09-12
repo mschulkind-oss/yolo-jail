@@ -208,12 +208,23 @@ type Contribution struct {
 	Replacement string   `json:"replacement,omitempty"`
 
 	// --- autonomy (§4.2 / env-manager plan Phase 9) ---
-	// A pack declares BOTH postures; the confinement notch's AgentAutonomy policy
-	// selects which one renders (autonomous at jail/guest, guarded at host). Each
-	// posture folds config-managed keys into the pack's OWN surfaces and merges launch
-	// flags — it is not a second config writer, it is a notch-gated patch of the
-	// managed layer. Either posture may be empty (pi is permissive by default, so its
-	// autonomous is empty and only guarded tightens it).
+	// The confinement notch's AgentAutonomy policy selects which posture renders
+	// (autonomous at jail/guest, guarded at host). Each posture folds config-managed keys
+	// into the pack's OWN surfaces and merges launch flags — it is not a second config
+	// writer, it is a notch-gated patch of the managed layer.
+	//
+	// EITHER POSTURE MAY BE ABSENT, and both directions ship. pi is permissive by default,
+	// so its autonomous is empty and only guarded tightens it. copilot is the mirror: its
+	// autonomy is a LAUNCH FLAG alone (`--yolo`), and a flag has no persistence — it is
+	// composed per launch from LaunchFlagsFor — so not selecting it IS the tightening, and
+	// the pack declares no guarded posture at all. The rule behind both: a guarded posture
+	// is needed when the autonomous one writes something that OUTLIVES the render, which is
+	// a config key and never a flag.
+	//
+	// ⚠ An empty `guarded.launch` entry is NOT how to spell "no flags in this posture". A
+	// posture entry REPLACES that binary's plain `launch` flags rather than adding to them
+	// (LaunchFlagsFor), so it would strip the binary's ORDINARY flags at the host notch
+	// too — flags no notch gates.
 	Autonomous *AutonomyPosture `json:"autonomous,omitempty"`
 	Guarded    *AutonomyPosture `json:"guarded,omitempty"`
 

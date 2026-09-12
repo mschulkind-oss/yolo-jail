@@ -663,6 +663,18 @@ saying "only because I am jailed":
 | `opencode` | `permission: "allow"` |
 | `pi` | *(nothing — pi is permissive by default)* |
 
+> [!NOTE]
+> **`copilot` is missing from this table, and the omission outlived the fix it drove.** Its
+> `--yolo` — copilot's whole bypass, `--allow-all-tools --allow-all-paths
+> --allow-all-urls` — was a plain `launch` contribution, which is exactly the shape this section
+> calls the bug, and the Phase 9.4 migration worked from this table — its two commits, both
+> 2026-08-01, are titled for `claude` and then for `codex/agy/opencode/pi`, a list with the same
+> hole. So every pack above moved into the `autonomy` kind and copilot was never carried; it
+> stayed outside the policy until **2026-09-12**. Nothing leaked — `yolo host -- <cmd>` injects no
+> launch flags at all, so the host notch was safe for a reason unrelated to this design — which is
+> why it went unnoticed. The lesson is about the migration's INPUT rather than its mechanism: a
+> census taken from prose is only as complete as the prose.
+
 `yolo host apply --assert` renders a pack's `managed` keys into your **real**
 `~/.claude/settings.json` (pure RMW; the managed layer wins — `hostrender.go`,
 `compose.go` Enforce). So following the host-management guide today writes `acceptEdits` +

@@ -3,7 +3,7 @@ title: "Plan: agent CLIs from npm to their vendors' native installers"
 date: 2026-09-03
 status: shipped-in-part
 tags: [packs, program-delivery, installers, evergreen]
-summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
+summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. Its --no-auto-update question was ruled separately on 2026-09-12 (option A: the flag is dropped, without the flip). opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
 ---
 
 # Plan: agent CLIs from npm to their vendors' native installers
@@ -18,7 +18,7 @@ ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · **Status:
 > | :--- | :--- |
 > | 1 · delete claude's `managed.preferences` | ✅ shipped. Re-measured against the ELF this jail runs (**2.1.261**, not the 2.1.260 the plan read): `"preferences"` still appears **zero** times, `autoUpdaterStatus` twice, both in the `~/.claude.json` migration. Thirteen tests pinned the key as a specimen and were repointed at `permissions.defaultMode`. |
 > | 2 · flip `codex` | ✅ shipped. `chatgpt.com/codex/install.sh` re-fetched 2026-09-04 (200, `text/x-sh`, 30285 bytes); `BIN_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"` with **no root branch**, so the default landing path is the launcher's `REAL_BIN`. |
-> | 3 · flip `copilot` | ⛔ **REFUSED — the flip would make copilot uninstallable.** See below. It never reached the `--no-auto-update` question, which stays **open and undecided** (Blockers). |
+> | 3 · flip `copilot` | ⛔ **REFUSED — the flip would make copilot uninstallable.** See below. It never reached the `--no-auto-update` question, which was then ruled **on its own, without the flip**, on 2026-09-12: **option A, the flag is dropped** (Blockers). |
 >
 > **Why copilot cannot flip, and what the plan's Traps were missing.** Trap 1 names the constraint
 > — the installer's *default* must land the binary at `$HOME/.local/bin/$BIN` — and the plan's
@@ -42,10 +42,13 @@ ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · **Status:
 > `REAL_BIN`?** Three facts, and the verification table has a column for none of them. Ask them of
 > `opencode` too before its blockers are called closed.
 >
-> **`--no-auto-update`: MEASURED, NOT DECIDED.** The mechanics are now facts rather than guesses —
-> see the Blockers bullet for them and for the four options they frame. The choice is left to a
-> human: it changes what a shipped agent does on a user's machine, and nothing forces it while
-> copilot stays on npm.
+> **`--no-auto-update`: MEASURED 2026-09-04, THEN DECIDED 2026-09-12 — option A, the flag is
+> DROPPED.** The measurement is what makes the ruling safe and is kept in full in the Blockers
+> bullet; the ruling sits beside it there. The choice was the human's, as this plan said it had to
+> be: *"drop the no auto update too, we decided to just let agents be agents. and of course fix the
+> autonomy."* It shipped **without** the flip, which this plan is still refusing — so the cost
+> option A names is not yet paid (the `isSea()` gate makes copilot's updater a notifier under npm),
+> and the flip, whenever it comes, inherits a dropped flag rather than a decision.
 >
 > **What is inert until the sibling plan lands** (both stated in the flip's commit body):
 > [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared update verb means codex's
@@ -74,10 +77,12 @@ shell script.
 | opencode | `opencode.ai/install` → `raw.githubusercontent.com/anomalyco/opencode/…/install` | **`$HOME/.opencode/bin`, hardcoded** (served script line 68 — a bare assignment, no `${…:-}`) | ❌ none | ✅ `VERSION=` |
 | pi | `pi.dev/install.sh` | **npm's global prefix** — it runs `npm install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent` (`install.sh:925-927`); `$HOME/.local` only when that prefix is unwritable | indirect | ❌ none found |
 
-**Could not verify:** whether copilot's `--no-auto-update` launch flag (declared at
-`packs/copilot/pack.json:82`) suppresses the `isSea()` self-updater the flip is bought for — the
-"no agent tests" rule forbids running the CLI to find out. ~~Whether codex prompts without a TTY
-(`CODEX_NON_INTERACTIVE` defaults to `false`) — read but not exercised.~~
+~~**Could not verify:** whether copilot's `--no-auto-update` launch flag suppresses the `isSea()`
+self-updater the flip is bought for — the "no agent tests" rule forbids running the CLI to find
+out.~~ **ANSWERED 2026-09-04 by reading the bundle instead of running it** (Blockers): it does, in
+both builds. The flag itself is gone as of 2026-09-12, so there is nothing left to suppress.
+~~Whether codex prompts without a TTY (`CODEX_NON_INTERACTIVE` defaults to `false`) — read but not
+exercised.~~
 
 **MEASURED 2026-09-11 — codex's installer PROMPTS, and the question was posed one notch too
 narrowly.** Running `codex --version` in a `macos-user` jail installed 0.154.0 and asked
@@ -103,7 +108,7 @@ at all in core. Worth settling before the pack matrix runs this installer unatte
 
 | Path | Change |
 | :--- | :--- |
-| ~~`packs/copilot/pack.json`~~ | ⛔ **not changed** — the flip is refused, see the outcome box |
+| `packs/copilot/pack.json` | ⛔ **`via` not changed** — the flip is refused, see the outcome box. The file did change on 2026-09-12, for the other half of step 3: `--no-auto-update` dropped (option A) and `--yolo` moved under `autonomy`. |
 | `packs/codex/pack.json` | `via: npm` + `package` → `via: installer` + `url: https://chatgpt.com/codex/install.sh` |
 | `packs/claude/pack.json` | delete the `managed.preferences` block (lines 58–62); KEEP the surface — its `retireOnFirstRender` is load-bearing, and a surface with neither `managed` nor `defaults` is valid (`packs/agy/pack.json:41-47`) |
 | `README.md:290-293` | the "installed via" column for copilot/codex |
@@ -180,7 +185,10 @@ edit, so each step's proof is its own CI cell on both arches.
 3. ~~**Flip `copilot`**, and rule on `--no-auto-update` in the same commit (see Blockers).~~
    ⛔ **REFUSED 2026-09-04** — the installer's root branch puts the binary nowhere the jail can
    write, let alone at `REAL_BIN`. The outcome box has the measurement. Its CI cell would have
-   caught it, one downloaded image later; the read did.
+   caught it, one downloaded image later; the read did. **The two halves separated:**
+   `--no-auto-update` was ruled and dropped on its own on 2026-09-12 (option A, Blockers), in a
+   commit that touched no `via`. "In the same commit" was a convenience, not a dependency — the
+   flag is a launch contribution and the flip is an install one.
 4. **Stop.** copilot, opencode and pi do not flip here — see Don't and the outcome box.
 
 ## Ships with
@@ -232,10 +240,38 @@ edit, so each step's proof is its own CI cell on both arches.
 - **[OQ-PD12a](../design/program-delivery.md#decision-ledger) / B2 (launch dir ahead of the install prefixes)**, same sibling plan, is what makes
   the flip reach an existing workspace. Without it, steps 2 and 3 are correct for new workspaces and inert for old
   ones. Not a reason to hold the flip — a reason to say so in the commit body.
-- **Stop and ask: copilot's `--no-auto-update`. STILL OPEN — the MEASUREMENT is closed, the
-  DECISION is not, and this plan does not take it.** Nothing forces it today: copilot did not flip
-  (see the outcome box), so the flag currently suppresses an updater that is inert anyway. It binds
-  the moment copilot flips.
+- **copilot's `--no-auto-update`: ASKED, AND ANSWERED — option A, 2026-09-12. The flag is
+  DROPPED.** The maintainer's words: *"drop the no auto update too, we decided to just let agents be
+  agents. and of course fix the autonomy."* It shipped on its own, with copilot still on npm and the
+  flip still refused (see the outcome box).
+
+  **Why the measurement below is kept rather than replaced by the verdict.** The measurement is
+  *why the ruling is safe now*: under npm `isSea()` is false, so what the dropped flag re-enables is
+  a startup version CHECK that can only NOTIFY (`Update not supported when running js directly`,
+  then `<tag> available · run /update`). That is the same poll-and-notify shape
+  [`trust-paths.md` §1](../design/trust-paths.md#1-the-verdict) row 1 ([OQ-TP5](../design/trust-paths.md#decision-ledger))
+  already requires of yolo's OWN launcher, so the ruling does not contradict *"a binary that changes
+  between two invocations with nobody present"* — it adds a second poll beside yolo's, and no
+  second writer.
+
+  **What is therefore still open, and must not be treated as inherited.** Option A's stated cost —
+  the vendor's updater running on a user's machine on its own schedule, outside yolo's record — is
+  **unpaid**, because the `isSea()` gate withholds the download-and-replace half. The flip flips
+  that gate. So the fork A-vs-B is settled for *copilot-on-npm* and NOT for the scope question
+  underneath it (whether an agent CLI updating itself unobserved is acceptable at all —
+  [P6](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)).
+  **Whoever flips copilot re-asks it, with a dropped flag as the starting position rather than as
+  the answer.**
+
+  **What shipped with the ruling, and is not part of it.** `--yolo` moved from the pack's plain
+  `launch` contribution into an `autonomy` contribution's autonomous posture — *"and of course fix
+  the autonomy"* — because a permission-bypass flag declared as a plain launch flag is outside the
+  notch policy of
+  [`yolo-as-environment-manager.md` §4.2](../design/yolo-as-environment-manager.md#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config)
+  by construction. Unrelated to delivery; recorded here only because it rode the
+  same ruling. copilot declares **no guarded posture**: it has no persistent permission setting to
+  tighten (the pack's `defaults: {"yolo": true}` is not one — 1.0.48 has no such settings key), and
+  a launch flag not selected is already the tightening.
 
   **What is now fact** (read statically out of the installed `@github/copilot` 1.0.48 — `index.js`
   and `app.js`; no CLI was started, so the no-agent-tests rule is intact):
@@ -249,11 +285,11 @@ edit, so each step's proof is its own CI cell on both arches.
   - It is off in CI regardless of either: the default consults
     `!(CI || BUILD_NUMBER || RUN_ID || SYSTEM_COLLECTIONURI)`.
 
-  **The options, none of them picked here:**
+  **The options. A is the one taken (2026-09-12), minus the flip it assumed:**
 
   | | Choice | What it costs |
   | :--- | :--- | :--- |
-  | A | Flip, and **drop** the flag | The vendor's updater runs on a user's machine on its own schedule, outside yolo's record — the native launcher's vendor self-updates deliberately emit no receipt ([§6.3](../design/program-delivery.md)), so drift becomes the reconcile's problem. This is where [OQ-PD13](../design/program-delivery.md#decision-ledger)'s rationale points. |
+  | **A** ✅ | Flip, and **drop** the flag — *taken 2026-09-12, flag only* | The vendor's updater runs on a user's machine on its own schedule, outside yolo's record — the native launcher's vendor self-updates deliberately emit no receipt ([§6.3](../design/program-delivery.md)), so drift becomes the reconcile's problem. This is where [OQ-PD13](../design/program-delivery.md#decision-ledger)'s rationale points. |
   | B | Flip, and **keep** the flag | Buys the SEA build, `VERSION=` pinning and a single binary, but **not** evergreen — the one thing the flip was bought for. Evergreen would then have to come from [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared verb (`/update`, or re-running the installer), which has the merit of making an update something yolo triggers and can record. |
   | C | Flip, keep the flag, pin with `VERSION=` | Reproducible copilot. **Not expressible** — the manifest cannot pass env to an installer, the same wall the flip already hits. |
   | D | Do not flip | Where the tree is, and where it stays until the `PREFIX=` problem is solved regardless. |
@@ -262,4 +298,6 @@ edit, so each step's proof is its own CI cell on both arches.
   itself unobserved is acceptable — a question about the scope of
   [P6](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
   not about copilot. Worth settling alongside [OQ-PD14](../design/program-delivery.md#decision-ledger), since B only makes sense once the declared
-  verb exists.
+  verb exists. **Taking A for the flag did not settle that fork** — under npm the unobserved update
+  it disagrees about cannot happen (see the bullet above), so the disagreement is intact and waiting
+  at the flip.

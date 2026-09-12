@@ -26,6 +26,39 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### ⚠️ `copilot` checks for its own updates again, and `--yolo` moves under the autonomy notch
+
+**What changed** (2026-09-12). The `copilot` pack stopped passing `--no-auto-update`, and moved
+`--yolo` out of its plain `launch` contribution into an `autonomy` contribution's **autonomous**
+posture. Both halves are one ruling: *"drop the no auto update too, we decided to just let agents be
+agents. and of course fix the autonomy."*
+
+**Who this bites.** Anyone running `copilot` in a jail. It now runs GitHub's own update check about
+a second after startup and tells you in-session when a newer version exists (`<version> available ·
+run /update`). On the **npm** build yolo installs, that is all it can do — the download-and-replace
+half of copilot's updater is gated on its single-file build, which an npm install is not (measured
+statically against `@github/copilot` 1.0.48; no CLI was started). So this does **not** re-open the
+silent-change path that [npm-installed agent CLIs no longer update
+themselves](#️-npm-installed-agent-clis-no-longer-update-themselves) closed — it adds a second
+poll-and-notify beside yolo's own, which is the shape that ruling left standing. The day copilot
+ships from its native installer, this same flag's absence becomes a real self-update, and that is a
+decision to take **then**, with the flip.
+
+**What to do.** Nothing, to accept it. To silence the check, set `COPILOT_AUTO_UPDATE=false` in the
+jail (or copilot's own `autoUpdate: false` setting). **`agent_updates: false` will not silence it** —
+that key governs yolo's launcher, never an agent's own updater, and `yolo config-ref` now says so.
+
+**`--yolo` changes nothing you can see, and that is the point.** It is copilot's permission bypass
+(`--allow-all-tools --allow-all-paths --allow-all-urls`, in its own help text). A jail still gets it,
+from the interactive alias and from `yolo -- copilot` alike. What changes is that it is now declared
+where the confinement notch can see it: packs render their **autonomous** posture in a jail and their
+**guarded** posture on your real machine, and until now copilot's bypass flag sat outside that policy
+by construction — every other agent pack already declared its equivalent flag inside it. Nothing
+leaked, because `yolo host -- <cmd>` injects no launch flags at all; the declaration was one
+`hostExec` change away from mattering. `yolo pack footprint copilot` reports the new claim as
+*"autonomous posture only"*: copilot has no persistent permission setting for a guarded posture to
+tighten, and a flag not selected is already the tightening.
+
 ### `--new` is REMOVED — replacing a jail is `yolo stop`, then an ordinary launch
 
 **What changed** (2026-09-06). `yolo run --new` is gone. It force-replaced a RUNNING jail in one
@@ -332,13 +365,18 @@ host layer permanently — so if an agent edited the empty file, check the desti
 path, which the `macos-user` arm returns before reaching. Nothing failed; the backend just launched
 without them. The injection now happens above the backend dispatch, so both arms consume one result.
 The flags are `--dangerously-skip-permissions` (`claude`, `agy`), `--yolo --no-auto-update`
-(`copilot`), and `--dangerously-bypass-approvals-and-sandbox` (`codex`).
+(`copilot`), and `--dangerously-bypass-approvals-and-sandbox` (`codex`) — as they stood that day;
+copilot's `--no-auto-update` was dropped on 2026-09-12 ([entry
+above](#️-copilot-checks-for-its-own-updates-again-and---yolo-moves-under-the-autonomy-notch)).
 
 **Who this bites**, and the two casualties were not symmetric:
 
 - **`copilot` was a 100% drop** — a plain `launch` contribution with no config half to fall back on.
   It has been prompting you for approval and self-updating on that backend. It now runs `--yolo`,
-  which approves everything, and stops updating itself.
+  which approves everything, and stopped updating itself. (Both clauses have moved on since: on
+  2026-09-12 `--no-auto-update` was dropped, so copilot polls for its own updates again, and `--yolo`
+  became an `autonomy` contribution — so "a plain `launch` contribution" describes the declaration as
+  it was that day, not as it is.)
 - **`claude` fell back to `defaultMode: acceptEdits`**, the settings half of the same declaration,
   which auto-accepts **edits** and not Bash or WebFetch. With the flag, those are accepted too.
 
