@@ -153,6 +153,18 @@ type HostRenderResult struct {
 	// a written destination and is always false: a render that will not happen cannot be a
 	// change that is pending (§4.4's cannot-determine class).
 	WouldChange bool
+	// Archived is where this render copied the PRE-EXISTING file before ADOPTING it — the
+	// one-time archive OQ-CO7 rules, written once per surface per home
+	// (§6.3.3, entrypoint/adoptionarchive.go). Empty for every render that adopted nothing:
+	// an `assert` home (rmw asserts keys and adopts no file), a surface with no file yet, a
+	// steady-state owned render, and a second adoption of a surface already archived.
+	//
+	// ASSERT ONLY, and that is not an omission the way a missing Overwrites would be. The
+	// other fields on this struct describe what an --assert WOULD do; this one describes a
+	// copy that was MADE, and a dry run makes none — reporting a path that does not exist
+	// would be the one lie a net cannot afford. What observe reports instead is the render
+	// it would run, through the fields above.
+	Archived string
 }
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
@@ -365,6 +377,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// already refused everything neither arm handles, and a third mechanism is added at
 		// that switch and here together.
 		var werr error
+		// Where the adoption archive landed, for THIS surface's result line. Set by the
+		// stateful arm alone: rmw asserts individual keys and adopts nothing, so there is
+		// no one-way door for it to net.
+		var archived string
 		switch mechanism {
 		case manifest.ModeStateful:
 			// `host_management: own`. Whole-file composition into a real home, with the capture
@@ -379,25 +395,33 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			// an EMPTY overlay was a shipped data-loss bug; it is why this arm can be reached on
 			// a home full of hand-written config without a guard of its own.
 			//
-			// ⚠ IT IS OWED ONE GUARD THAT IS NOT BUILT, and the sentence above used to read
-			// "needs nothing here", which is how the gap stayed invisible. OQ-CO7 rules ONE
-			// ARCHIVE AT ADOPTION — the pre-existing file copied once into the archive
-			// subsystem, as a `config` bucket beside the ones that already ship (§6.3.3). It
-			// covers the deep-merged leaf adoption drops, which `confirmHostLosses` is
+			// THE ONE GUARD IT IS OWED, and it is BUILT (OQ-CO7, 2026-09-12): one archive
+			// at adoption — the pre-existing file copied once into the archive subsystem, as
+			// a `config` bucket beside the ones that already ship (§6.3.3). The copy is made
+			// by the shared writer this arm calls (entrypoint.archiveAdoption, run from
+			// persistStatefulSurface), so the jail's own firstMigration gets the same net
+			// from the same line rather than from a second implementation here.
+			//
+			// It covers the deep-merged leaf adoption drops, which `confirmHostLosses` is
 			// structurally blind to: that gate reads EntryLosses and fires only on a first
-			// apply, so the `assert` -> `own` switch — the exact transition that loses the leaf
-			// — is unprompted. Nothing writes such a bucket: every root internal/cli's
-			// hostArchiveRoot mints is written by the render's own replace/retire passes, none
-			// by adoption. So the design's §9 risk table names a net that does not exist, and
-			// its §10 step 8 lists the archive as shipping in this arm's commit. Recorded, not
-			// fixed — building it is not a comment's job.
+			// apply, so the `assert` -> `own` switch — the exact transition that loses the
+			// leaf — is unprompted. The archive is what stands in for the prompt there.
+			//
+			// A FAILED ARCHIVE REFUSES THE SURFACE, which is why this arm needs no branch of
+			// its own for it: the refusal arrives as an *rmwRefusedError at the write, and
+			// the paragraph above already says what happens to one of those — a per-surface
+			// result, the file untouched, the remaining surfaces still rendered.
 			//
 			// hostBytes is nil, and that is not the host LAYER going missing: at this notch the
 			// surface's own file IS what a `host` layer would have carried, and it arrives
 			// through adoption. Passing the same bytes as a layer too would fold them in BELOW
 			// the declared layers, so a key the user owns and a pack also declares would flip to
 			// the pack's value while adoption says it should not.
-			_, werr = renderSurfaceStatefulSurface(e, s, nil, tableLayer, surfaceOverlays)
+			var sr *statefulRender
+			sr, werr = renderSurfaceStatefulDetail(e, s, nil, tableLayer, surfaceOverlays)
+			if sr != nil {
+				archived = sr.archived
+			}
 		default:
 			werr = renderSurfaceRMWSurface(e, s, tableLayer, surfaceOverlays)
 		}
@@ -412,7 +436,8 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
 			Outranked: outranked, Pruned: pruned, EntryLosses: losses,
-			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange})
+			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange,
+			Archived: archived})
 	}
 	return out, nil
 }

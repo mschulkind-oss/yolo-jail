@@ -655,6 +655,20 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 					"[dim](yolo owns this table)[/dim]",
 					verb, strings.Join(r.EntryLosses, ", "))
 			}
+			// WHERE THE FILE YOLO ADOPTED WENT (OQ-CO7). Under `host_management: own` the
+			// first render composes the whole file out of what it already holds, and this is
+			// the copy of it taken beforehand — the net for the deep-merged leaf the ⚠ above
+			// cannot see, because EntryLosses is defined over named entries in a table and
+			// that loss is neither.
+			//
+			// NOT behind detail(). It is a disclosure, and by OQ-RO3 a disclosure is never
+			// suppressible: an archive the user cannot find is a deletion from where they
+			// stand. It fires at most once per surface per home, so the density argument that
+			// moved other lines behind --verbose does not reach it.
+			if r.Archived != "" {
+				pr.Printf("    [cyan]archived your file as yolo found it: %s[/cyan] "+
+					"[dim](once, before adopting it)[/dim]", r.Archived)
+			}
 			// The ${workspace}-keyed keys this render DROPPED, by name — a TIER-2 fact under
 			// its surface, so the --verbose view's since §4.5 ("every tier-2 destination
 			// itemized: the skipped surfaces and why").

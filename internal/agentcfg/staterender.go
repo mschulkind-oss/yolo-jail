@@ -213,14 +213,19 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// reset → no baseline → adopt would resurrect the very edits the user asked
 		// to discard, making reset a no-op. The two halves are one change.
 		//
-		// ⚠ THE ONE-TIME ARCHIVE THIS BRANCH IS OWED IS NOT BUILT.
-		// docs/design/config-ownership-and-promotion.md's OQ-CO7 rules one archive at
-		// adoption at BOTH notches — the host's, and this one, into the workspace's own
-		// .yolo/ tree — and the reason it is not host-only is the reason it matters most
-		// here: the net has to differ by the primitive available, and a boot has no TTY to
-		// prompt on, so a copy is the only net this path can have. The narrowing below
-		// keeps the residue honest; it is not a record of what the file held before. If a
-		// pass ever drops a key it should have kept, there is nothing to read it back from.
+		// THE ONE-TIME ARCHIVE THIS BRANCH IS OWED IS BUILT (OQ-CO7, 2026-09-12), and it
+		// is NOT built here, deliberately. This function is PURE — no file I/O, by the
+		// contract at the top of this file — so the copy belongs to the caller that already
+		// holds the bytes and the destination: internal/entrypoint's persistStatefulSurface,
+		// through archiveAdoption, which serves the host's `own` adoption from the same line.
+		// FirstMigration on StatefulOutput is how that caller learns this branch ran; keep it
+		// reported, or the net loses its trigger.
+		//
+		// Why the net is owed HERE at all, and not only at the host: it has to differ by the
+		// primitive available, and a boot has no TTY to prompt on, so a copy is the only net
+		// this path can have. The narrowing below keeps the residue honest; it is not a record
+		// of what the file held before. If a pass ever drops a key it should have kept, the
+		// archive under <workspace>/.yolo/archive/config/ is where it is read back from.
 		//
 		// "Empty" is nil for a keyless surface, NOT the zero value: an empty
 		// string is a real assertion that the file is empty and would win the

@@ -250,11 +250,17 @@ func firstSegment(rel string) string {
 // as unreclaimed until someone adds it here, where a store whose reclaimer was
 // deleted would otherwise keep claiming one forever.
 var stateReclaimers = map[string]Reclaimer{
-	"captures":   {Func: "capture.PruneSupersededCaptures", Detail: "newest per program", Trigger: "yolo prune --apply"},
-	"agents":     {Func: "PruneOrphanAgentStaging", Detail: "liveness-gated", Trigger: "yolo prune --apply"},
-	"build":      {Func: "PruneOrphanImageRoots", Detail: "+ legacy build roots, dangling out-links", Trigger: "yolo prune --apply"},
-	"home":       {Func: "PruneShadowedHome", Detail: "overlay-masked seeds", Trigger: "yolo prune --apply"},
-	"archive":    {Func: "PruneHostArchiveBuckets", Detail: "keep 3 generations", Trigger: "yolo prune --apply"},
+	"captures": {Func: "capture.PruneSupersededCaptures", Detail: "newest per program", Trigger: "yolo prune --apply"},
+	"agents":   {Func: "PruneOrphanAgentStaging", Detail: "liveness-gated", Trigger: "yolo prune --apply"},
+	"build":    {Func: "PruneOrphanImageRoots", Detail: "+ legacy build roots, dangling out-links", Trigger: "yolo prune --apply"},
+	"home":     {Func: "PruneShadowedHome", Detail: "overlay-masked seeds", Trigger: "yolo prune --apply"},
+	// ⚠ "keep 3 generations" is true of the STAMPED buckets — the skills/files/briefing/
+	// retired copies a render replaced, which it can regenerate. The `config` bucket inside
+	// this tree is keyed by SURFACE and holds the one copy of a user's pre-yolo file
+	// (OQ-CO7, render.Target.ArchivePath), so the sweep below cannot parse it as a
+	// generation and leaves it — which is the point, not an oversight. The reclaimer named
+	// here is still the right one; what it reclaims is a subset.
+	"archive":    {Func: "PruneHostArchiveBuckets", Detail: "keep 3 generations (adoption archive exempt)", Trigger: "yolo prune --apply"},
 	"state":      {Func: "PruneRetiredLoopholeState", Detail: "keep 3 generations", Trigger: "yolo prune --apply"},
 	"containers": {Func: "PruneStoppedContainers", Detail: "tracking files", Trigger: "yolo prune --apply"},
 }

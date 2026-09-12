@@ -255,14 +255,30 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 // none, the universal case today). They fold BELOW the capture overlay, so a user's
 // in-jail edit still wins over another pack's contribution.
 func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.StatefulOutput, error) {
+	r, err := renderSurfaceStatefulDetail(e, surface, hostBytes, computed, overlays)
+	if err != nil {
+		return nil, err
+	}
+	return r.out, nil
+}
+
+// renderSurfaceStatefulDetail is the same render, handing back the whole statefulRender
+// instead of just the compose output. It exists for the one thing the caller cannot learn
+// from StatefulOutput: where persist put the ADOPTION ARCHIVE (OQ-CO7). The host notch has
+// to REPORT that path — `yolo host apply` prints one line per surface and e.Stderr is nil
+// there by design — while the boot notch announces it on stderr as it goes.
+//
+// A non-nil render comes back even on a refusal, so a caller can still see what was decided
+// before the write declined; callers that only need the output keep the wrapper above.
+func renderSurfaceStatefulDetail(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*statefulRender, error) {
 	r, err := composeStatefulSurface(e, surface, hostBytes, computed, overlays)
 	if err != nil {
 		return nil, err
 	}
 	if err := persistStatefulSurface(e, r); err != nil {
-		return nil, err
+		return r, err
 	}
-	return r.out, nil
+	return r, nil
 }
 
 // statefulRender is one composed stateful surface and everything persisting it needs: the
@@ -284,6 +300,15 @@ type statefulRender struct {
 	// moving it without writing the file would leave the next real render reading a
 	// baseline that never reached disk.
 	selection map[string]any
+	// archived is where persist copied the PRE-EXISTING file before an adopting render
+	// composed over it (OQ-CO7, adoptionarchive.go), or "" when this render archived
+	// nothing — which is every steady-state render, every surface with no file yet, and
+	// every second adoption of a surface already archived.
+	//
+	// Set by the WRITE half, so it is empty on a composed-but-not-persisted render: an
+	// observe posture copies nothing, which is what lets `yolo host apply --dry-run` run
+	// the full render for free.
+	archived string
 }
 
 // text is the exact file content this render produces — the same expression persist writes,
@@ -362,6 +387,18 @@ func persistStatefulSurface(e *Env, r *statefulRender) error {
 	// Persist the render to the surface path.
 	if IsMountPoint(r.path) {
 		return nil
+	}
+	// ⚠ THE ONE-TIME ADOPTION ARCHIVE (OQ-CO7), and it must stay FIRST. This is the only
+	// write that has to happen BEFORE the surface file is touched: an adopting render
+	// composes the whole file out of what the file already holds, so once the line below
+	// runs there is nothing left to copy. Past the mount-point return above, because a
+	// render that never reaches the file needs no net.
+	//
+	// It refuses rather than warns when the copy cannot be made — see archiveRefusal for
+	// the argument, and note that refusing HERE is what makes "the file is untouched"
+	// true rather than aspirational.
+	if err := archiveAdoption(e, r); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		return err

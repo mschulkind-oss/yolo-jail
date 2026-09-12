@@ -511,3 +511,96 @@ func (t Target) ProvenancePath(agent, name string) string {
 	}
 	return filepath.Join(dir, agent+"-"+name+".provenance")
 }
+
+// archiveLeaf and configArchiveBucket spell the ADOPTION ARCHIVE's location: the copy of a
+// pre-existing file taken once, before the first render that ADOPTS it
+// (docs/design/config-ownership-and-promotion.md §6.3.3, OQ-CO7).
+//
+// `archive/` is the subsystem's existing root — the same directory `yolo host apply` already
+// writes its replaced skills, files and briefings into (internal/cli.hostArchiveRoot) — and
+// `config` is one more BUCKET beside those, not a new place to look. That is the whole of what
+// the ruling asked for on the host side; the jail side reaches the same two leaves under the
+// workspace's own .yolo/ tree, for the reason ArchiveDir states.
+const (
+	archiveLeaf         = "archive"
+	configArchiveBucket = "config"
+)
+
+// ArchiveDir is where THIS target keeps the one-time adoption archive: the pre-existing
+// content of a surface file, copied once before the first render that composes the whole file
+// from it. "" means this target has nowhere to keep one, and the caller must treat that as a
+// reason to REFUSE the adoption rather than to skip the copy — see the writer.
+//
+// Two answers, and they differ by the PRIMITIVE available rather than by taste (P5):
+//
+//   - host: <home>/.local/share/yolo-jail/archive/config/. The state dir, beside the buckets
+//     `yolo host apply` already mints, so "what did yolo move out of my way?" has one answer.
+//   - jail / preview: <workspace>/.yolo/archive/config/. The workspace, because a jail's own
+//     net has to survive in the tree the human reads from the host side — and because a boot
+//     has NO TTY to prompt on, so the copy is the only net that path can have (§6.3.3).
+//
+// WHY THE WORKSPACE IS THE JAIL'S ANCHOR, and why that is not lspSentinelExpr's problem: the
+// two backends reach a per-workspace directory INSIDE THE HOME by different primitives (the
+// container binds one, macos-user has one account home shared by every workspace), which is
+// what forces that function's two spellings. This directory is not in the home. It is in the
+// workspace, which both backends name directly — Env.WorkspaceDir honors YOLO_WORKSPACE and
+// macos-user passes the real path (agentcfg.WorkspacePlaceholder says the same) — and it is
+// the SAME anchor SidecarDir already uses for the capture sidecars. One anchor, one answer,
+// no backend switch.
+//
+// Never relative, for SidecarDir's reason: only the kinds that HAVE a root to join one onto
+// do, and every other kind returns "" rather than a bare ".yolo/archive" that would resolve
+// against whatever directory the process is sitting in.
+//
+// NOT gated on the host CONTRACT, which is the one place this deliberately parts from
+// SidecarDir. The capture sidecars are the MECHANISM'S OWN STATE, so `assert` — which captures
+// nothing — genuinely has none, and gating there is the honest answer. An archive is not the
+// mechanism's state; it is a copy of the USER'S file, and what decides whether one exists is
+// the ADOPTION EVENT at the call site. Gating here too would mean a second door to remember to
+// open, and would make "nowhere to put one" — the condition the writer refuses on —
+// indistinguishable from "this contract does not adopt".
+func (t Target) ArchiveDir() string {
+	switch t.KindOf() {
+	case KindJail, KindPreview:
+		if t.Workspace == "" {
+			return ""
+		}
+		return filepath.Join(t.Workspace, ".yolo", archiveLeaf, configArchiveBucket)
+	case KindHost:
+		if t.Home == "" {
+			return ""
+		}
+		return filepath.Join(paths.GlobalStorageUnder(t.Home), archiveLeaf, configArchiveBucket)
+	default:
+		return ""
+	}
+}
+
+// ArchivePath is the archived copy of ONE surface's pre-existing file, or "" when this target
+// has nowhere to keep one.
+//
+// KEYED BY SURFACE, NOT BY STAMP, and that is a deliberate departure from the generation
+// layout the other buckets use (archive/<bucket>/<stamp>/…). Two reasons, and the second is
+// the load-bearing one:
+//
+//   - THE ARCHIVE IS NOT AN UNDO BUFFER OF APPLIES. Those buckets hold content yolo REPLACED
+//     and can regenerate; keep-newest-N is right for them because what a user wants back is
+//     "the last few applies". This holds the user's own pre-yolo file, which nothing can
+//     regenerate, and there is exactly one per surface ever — a fact, not a retention policy.
+//   - PRUNE WOULD OTHERWISE DELETE IT. internal/prune keeps the newest 3 generations PER
+//     BUCKET, so a home that adopted a dozen surfaces on a dozen days would have nine
+//     originals swept — by yolo's own reaper, for a policy nobody chose, out of the one
+//     directory that exists to prevent exactly that loss. A name prune cannot parse as a
+//     stamp is LEFT ALONE by its own stated rule ("prune does not delete what it cannot
+//     explain"), so this layout needs no exemption; it is already covered.
+//
+// basename is the surface file's own basename, so the copy opens in whatever tooling the
+// original did. The <agent>-<name> directory is what disambiguates two agents' settings.json,
+// and it is also the idempotency key: the writer archives only when this path does not exist.
+func (t Target) ArchivePath(agent, name, basename string) string {
+	dir := t.ArchiveDir()
+	if dir == "" || basename == "" {
+		return ""
+	}
+	return filepath.Join(dir, agent+"-"+name, basename)
+}
