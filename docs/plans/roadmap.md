@@ -690,10 +690,17 @@ adoption sites in code by `86c4ad0e`, which is comment-only.
 
 **[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) was six steps when it was written, and the build needed
 eight.** Steps 6 and 7 — the
-`reads-host` restructure, declaration-onto-the-surface then read-fails-closed — were never scheduled;
-step 5 asks the predicate they change. They were added AFTER step 5 rather than before it, because
-promote binds to `HasHostLayer()` and is invisible to what populates it, while the restructure
-touches the boot render on every backend (`3dc58314`).
+`reads-host` restructure, declaration-onto-the-surface then read-fails-closed — were unplanned: no
+version of [§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) scheduled them, and step 5 asks the predicate they change. **Both shipped anyway**
+(`cc674ac1`; `manifest.Surface.ReadsHost` is the field, `Surface.HasHostLayer()` returns it, and
+`surfaceHasHostLayer` survives only in comments recording its retirement). They were added AFTER
+step 5 rather than before it, because promote binds to `HasHostLayer()` and is invisible to what
+populates it, while the restructure touches the boot render on every backend (`3dc58314`).
+
+> [!NOTE]
+> "Never scheduled" here means **absent from the plan, not absent from the tree** — two readers in a
+> row took it the other way. Unplanned-and-shipped and ruled-and-unbuilt are different states, and
+> only the second ([`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger), above) is work still owed.
 
 ✅ **Two defects the build fixed that nobody had filed** — distinct from the two the audit
 surfaced below, and worth naming because neither was in scope and the first was live for every user:

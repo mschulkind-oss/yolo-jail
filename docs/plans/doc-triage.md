@@ -500,11 +500,24 @@ line asserts neither a build nor *"nothing built"*. It reads `ACCEPTED (2026-08-
 
 The doc survives only because a 2026-09-02 `> [!NOTE]` warns *"when the body below disagrees with
 the code, the code is right"* — a patch over a status line that should read **SUPERSEDED**. It is
-therefore not a graduation candidate at all: it is a **C-bucket archive whose replacement shipped
-three weeks ago and is still filed as an accepted design.**
+therefore not a graduation candidate at all: it is a **C-bucket archive whose replacement shipped on
+2026-09-02 (`4e4ca2d1`) and is still filed as an accepted design.**
 
-Re-stamping it is a one-line fix, independent of every graduation below, and worth doing first
-because it is the only doc in the tree actively misrepresenting its own status.
+Re-stamping it is independent of every graduation below and was worth doing first, because it was
+the only doc in the tree actively misrepresenting its own status.
+
+> [!NOTE]
+> **Done 2026-09-12 — and it was not the one-line fix this section first called it.** The stub
+> treatment `noncontainer-nix-environment.md` got does not apply: `providers.md` carries no
+> occurrence of `tavily`, `web_search`, `failover`, `429` or `refresh`, so [§2](../design/agent-auth-modes.md#2-measured-state--bedrock-teams-and-the-manual-switch)/[§3](../design/agent-auth-modes.md#3-core-principle-a-mode-is-a-bundle) (the measured
+> Bedrock→Teams switch), [§6](../design/agent-auth-modes.md#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern) (capability resolution), [§8](../design/agent-auth-modes.md#8-dynamic-overflow-what-is-reachable-and-what-is-not) (deferred failover and the measured
+> `ANTHROPIC_BASE_URL` bearer leak) and [§9](../design/agent-auth-modes.md#9-traps-and-failure-modes) (the credential traps) have **no successor at all**.
+> Retired in `pack-profiles.md`'s shape instead — `status: superseded`, a banner naming the
+> successor, and a section-by-section table saying which half moved and which is kept. The body
+> stays, because eight live anchors reach into it from seven docs and three Go files — one of them
+> `internal/cli/config_ref.txt`, which documents that `required_capabilities` is accepted but
+> unenforced *by citing that doc's [`OQ-CAP2`](../design/agent-auth-modes.md#12-decision-ledger)*. A stub would have pointed the shipped config
+> reference at nothing.
 
 ### What a graduation would cost
 
