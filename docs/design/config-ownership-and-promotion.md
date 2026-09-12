@@ -797,8 +797,12 @@ is that yolo declines to read it.
    which leaves one dead class: a key the Lua `transform` rewrites, which
    `narrowOverlay` does not see — its signature takes only the two owner layers
    ([`staterender.go:387`](../../internal/agentcfg/staterender.go#L387)). Redundant
-   is free and it is most of the noise: of the six keys captured in this
-   development jail on 2026-09-09, four were redundant.
+   is free and it is most of the noise: **re-measured 2026-09-12**, this
+   development jail carries three captured top-level keys across three surfaces —
+   `codex/config`'s `mcp_servers`, `mise/config`'s `tools`, `opencode/config`'s
+   `mcp` — and **two of the three are redundant**, both TOML surfaces reporting
+   *"same as yolo's last render"*. The third is redundant in every leaf but one
+   (see the gaps below).
 3. Classify the remainder ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)).
 4. Check each surviving key would **still win** after the move
    ([§5.4](#54-promotion-moves-a-key-down-the-stack)).
@@ -811,6 +815,63 @@ Steps 5–7 are one logical write. If any part fails the whole promotion is
 abandoned with nothing changed: a half-promoted key is declared *and* captured,
 which is the double-declaration the verb exists to end.
 
+> [!NOTE]
+> **The figure above replaces a withdrawn one, and the withdrawal is the point.**
+> This step used to read *"of the six keys captured in this development jail on
+> 2026-09-09, four were redundant"*. That count came out of the same
+> `yolo config diff` comparison step 2 consumes — which decoded **every**
+> `last_render` sidecar as JSON, so a TOML sidecar failed to decode, the baseline
+> came back empty, and a byte-for-byte-identical capture read as `(added in-jail)`
+> on every TOML surface (fixed in `027bd9bd`, 2026-09-12). The old number is not
+> recoverable and has not been adjusted: it was read through the bug *and* against
+> a different day's sidecars, both of which have since changed. The re-measurement
+> was taken with the fixed binary against the live `<workspace>/.yolo/prism/`.
+>
+> It is the only measured claim in this document that came through that
+> comparison. The other 2026-09-09 measurements — the host provenance record
+> ([§2.3](#23-the-notches-and-what-each-keeps-on-disk)), the local pack's
+> `config-overlay` reaching a host apply ([§5](#5-promotion--the-way-out-of-capture)),
+> and the undeclared key left byte-identical under `assert`
+> ([§11](#11-success-criteria)) — were all read off
+> `yolo host apply --assert`, which does not use it.
+
+> [!WARNING]
+> **Two known gaps in the redundancy verdict step 2 rests on.** Both verified
+> 2026-09-12, both recorded here rather than fixed; neither is a misreport today.
+>
+> **1. The verdict is all-or-nothing per top-level key, so a redundant sibling
+> leaf rides along into the deep-merge.** `overlayKeyStates` compares whole
+> top-level values (`Redundant: baseline[k] == oneLineJSON(v)`,
+> [`configdiff.go`](../../internal/cli/configdiff.go)), so one changed leaf makes
+> the entire key non-redundant and step 5 deep-merges all of it into the
+> destination. **This is live in this jail**, and it is the measured case twice
+> over: `opencode/config`'s `mcp` is non-redundant solely because
+> `mcp.tavily.environment.TAVILY_API_KEY` expanded — `mcp.chrome-devtools` and
+> `mcp.sequential-thinking` are identical to the last render, and `mcp.tavily`'s
+> own `command`, `enabled` and `type` are too. Promoting `mcp` would declare four
+> values the layers already produce. Refusing a key for a leaf's sake and
+> declaring a key for a leaf's sake are the same defect seen from two sides: the
+> credential walk already descends to the leaves
+> ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)),
+> and redundancy does not. Cost it as **narrowing the promoted value to its
+> non-redundant leaves**, not as a display fix.
+>
+> **2. A keyless surface (`lines`/`raw`) gets no redundancy verdict at all.**
+> `overlayKeyStates` returns `ok=false` for anything that is not an object, and
+> `overlayDiffLines` then prints a bare `<file>` line with the whole captured value
+> and no annotation — so `config diff` cannot say whether such a capture is
+> identical to the last render, and `readLastRenderKeys` returns an empty baseline
+> for it regardless. **Promote already has an answer and it is not "unknown"**: it
+> refuses the surface outright, noting *"the whole file is one captured value, so
+> there is no key to declare — `yolo config reset` is the only exit"*
+> ([`configpromote.go`](../../internal/cli/configpromote.go)). So the gap is
+> `config diff`'s output, not promote's decision. **It is latent, not live:** no
+> shipped surface declares the `lines` or `raw` codec, and every capture-mode
+> surface today is `json` or `toml` (`yolo config ls --all`, 2026-09-12). It
+> becomes real the first time a pack declares a capture-mode keyless surface, and
+> the answer it needs then is a whole-file redundant/changed verdict — cheap,
+> since the sidecar holds the exact bytes.
+
 ### 5.3 Classification — what a machine can decide, and what it cannot
 
 This is the "how automatic can this really be" question, and the honest answer is
@@ -819,7 +880,10 @@ and makes the judgement part answerable three ways.
 
 **Fully mechanical, no judgement:**
 
-- **Redundancy** — already computed by `yolo config diff`.
+- **Redundancy** — already computed by `yolo config diff`, and shared as data
+  rather than re-derived (`overlayKeyStates`). Whole top-level keys only, and
+  nothing at all for a keyless surface — the two gaps in
+  [§5.2](#52-what-it-does-in-order).
 - **Precedence** — whether the key still wins after moving down the stack. Pure
   function of the layer set.
 - **Environment-bound by construction** — a value containing the workspace root,
