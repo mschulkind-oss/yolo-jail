@@ -47,6 +47,7 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	names, dirErr := wrapperNames(dir)
 
 	r.sectionHeader("Host launch wrappers")
+	hostManagementRow(r)
 	hostApplyOnLaunchRow(r)
 
 	if dirErr != nil && os.IsNotExist(dirErr) {
@@ -77,6 +78,47 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 			"  "+hostwrap.PathLine(dir)+"\n"+
 			"`yolo host apply --shell-init` will append it for you. Either way "+
 			dir+"/"+names[0]+" works right now as an absolute path.")
+}
+
+// hostManagementRow says who owns the config files yolo renders into this home — the
+// declared ownership contract (docs/design/config-ownership-and-promotion.md §4).
+//
+// IT RIDES THE WRAPPERS SECTION, beside host_apply_on_launch, and the placement earns itself
+// rather than merely being convenient: `none` REFUSES `yolo host apply`, and that same apply
+// is what generates the wrappers. So a home with host_wrappers on and host_management "none"
+// has a wrapper directory nothing will ever regenerate — a combination that is invisible
+// anywhere else and is exactly this section's WARN criterion (configuration that is not in
+// effect, rather than a broken jail).
+//
+// The coverage boundary it inherits is real and worth stating: with host_wrappers OFF the
+// whole section is silent, so this row is not the place a user learns the key exists. That is
+// what `yolo config-ref` is for; this is where the key's INTERACTION with the wrappers on
+// their PATH is observable.
+//
+// [OK] for "assert", including when nobody wrote the key: an unset key IS "assert" by ruling
+// (OQ-CO2), and saying so is how a reader learns that the silent default is a decision rather
+// than an absence.
+func hostManagementRow(r *reporter) {
+	switch config.HostManagementMode() {
+	case config.HostManagementNone:
+		r.warn("host_management is \"none\" — `yolo host apply` refuses, so these wrappers "+
+			"are never regenerated",
+			"The key says your agents' config files are entirely yours, and yolo honors it "+
+				"by writing nothing at all — including the wrapper directory this section is "+
+				"about, which the same command generates.\n"+
+				"Set host_management to \"assert\" in "+paths.UserConfigPath()+" to have "+
+				"yolo own the keys your packs declare, or turn host_wrappers off.")
+	case config.HostManagementOwn:
+		r.warn("host_management is \"own\" — whole-file host composition is not built yet, "+
+			"so `yolo host apply` refuses",
+			"yolo refuses rather than rendering as \"assert\", which would leave you "+
+				"believing the file is derived output while it still holds bytes that exist "+
+				"nowhere else.\nSet it to \"assert\" in "+paths.UserConfigPath()+" to apply "+
+				"today.")
+	default:
+		r.ok("host_management is \"assert\" — yolo owns the keys your packs declare and " +
+			"rewrites only those; every other key in those files is yours and is left alone")
+	}
 }
 
 // hostApplyOnLaunchRow says whether a wrapped launch re-checks its own render before exec'ing

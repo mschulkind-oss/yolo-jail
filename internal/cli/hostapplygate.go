@@ -115,6 +115,19 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	if !config.HostApplyOnLaunchEnabled() {
 		return true
 	}
+	// NOTHING TO CHECK WITHOUT A RENDER. Under `host_management: none` yolo writes no host
+	// surface, so there is no staleness for this gate to find and the check is a NO-OP rather
+	// than a nag (config-ownership-and-promotion.md §4.1). `own` is the same answer for a
+	// different reason: the apply it would offer to run refuses today (hostmanagementgate.go),
+	// so prompting about a render nothing can perform would stop launches over a question with
+	// no yes. The two keys are orthogonal and both are read — this one says HOW the host
+	// renders, host_apply_on_launch says WHEN a re-render is checked (§4.4).
+	//
+	// Ordered after the opt-in, not before it, so the overwhelmingly common case (the key off)
+	// still reads the user config exactly once.
+	if config.HostManagementMode() != config.HostManagementAssert {
+		return true
+	}
 
 	// ONE WRITER PER HOME (§4.6, hostapplylock.go), taken around the WHOLE observe-then-write
 	// sequence rather than around the write alone. Locking only the apply would leave the

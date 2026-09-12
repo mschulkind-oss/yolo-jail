@@ -59,6 +59,13 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	if jsonRefusedForPosture(format, write) {
 		return refuseJSONForActingApply(errw)
 	}
+	// THE DECLARED OWNERSHIP CONTRACT, above every stage for the same reason the refusal
+	// above it is: `--shell-init` runs AFTER the render, so a refusal that only stopped the
+	// render would leave a command that wrote nothing appending a PATH line to the user's
+	// shell rc (hostmanagementgate.go).
+	if rc, refused := refuseHostManagement(errw); refused {
+		return rc
+	}
 	rc := applyHostFormatted(out, errw, color, write, stdin, format)
 	if shellInit {
 		// THROUGH THE SINK, like the report above it: in JSON mode stdout carries one

@@ -124,10 +124,11 @@ func TestHostWrappersPassesWhenOnPath(t *testing.T) {
 		return ""
 	}
 	o.sectionHostWrappers(r)
-	// TWO passes: the wrap dir being on PATH, and host_apply_on_launch's own row
-	// (hostApplyOnLaunchRow — it shares this section because it shares its coverage boundary).
-	if r.passed != 2 || r.warned != 0 {
-		t.Errorf("passed=%d warned=%d, want 2/0:\n%s", r.passed, r.warned, buf.String())
+	// THREE passes: the wrap dir being on PATH, plus the two host-key rows that share this
+	// section because they share its coverage boundary — hostManagementRow (who owns the
+	// files this apply writes) and hostApplyOnLaunchRow (when a re-render is checked).
+	if r.passed != 3 || r.warned != 0 {
+		t.Errorf("passed=%d warned=%d, want 3/0:\n%s", r.passed, r.warned, buf.String())
 	}
 	if !strings.Contains(buf.String(), "[PASS]") {
 		t.Errorf("no PASS badge:\n%s", buf.String())
@@ -204,5 +205,62 @@ func TestHostWrappersWarnsOnEmptyDir(t *testing.T) {
 	o.sectionHostWrappers(r)
 	if r.warned != 1 {
 		t.Errorf("warned = %d, want 1:\n%s", r.warned, buf.String())
+	}
+}
+
+// TestHostManagementRowWarnsWhenTheApplyCannotRun is why this row rides the WRAPPERS section
+// rather than one of its own (docs/design/config-ownership-and-promotion.md §4.1).
+//
+// `none` refuses `yolo host apply`, and that same command is what GENERATES the wrappers this
+// section is about — so a home with host_wrappers on and host_management "none" has a wrapper
+// directory nothing will ever regenerate. That combination is invisible everywhere else, and
+// it is precisely this section's WARN criterion: configuration that is not in effect.
+//
+// It pins the CALL SITE. Deleting `hostManagementRow(r)` from sectionHostWrappers leaves
+// hostManagementRow itself perfectly testable and this test red.
+func TestHostManagementRowWarnsWhenTheApplyCannotRun(t *testing.T) {
+	for _, mode := range []string{"none", "own"} {
+		t.Run(mode, func(t *testing.T) {
+			o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
+			cfg := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+			if err := os.WriteFile(cfg,
+				[]byte(`{"host_wrappers": true, "host_management": "`+mode+`"}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			o.sectionHostWrappers(r)
+			out := buf.String()
+			if !strings.Contains(out, `host_management is "`+mode+`"`) {
+				t.Errorf("the section never names the declared ownership contract:\n%s", out)
+			}
+			// TWO warns: this row, and the pre-existing not-on-PATH one. The count is the
+			// assertion that the row is summary-COUNTED rather than prose nobody tallies.
+			if r.warned != 2 {
+				t.Errorf("warned = %d, want 2 (host_management + not-on-PATH):\n%s", r.warned, out)
+			}
+			if !strings.Contains(out, "refuses") {
+				t.Errorf("the row must say the apply refuses, which is what makes the "+
+					"wrappers inert:\n%s", out)
+			}
+			if !strings.Contains(out, filepath.Join(".config", "yolo-jail")) {
+				t.Errorf("the row must name the USER config — the only scope the key is "+
+					"read from:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestHostManagementRowSaysAssertWhenUnset: an unset key IS "assert" by ruling (OQ-CO2), and
+// saying so is how a reader learns the silent default is a decision rather than an absence.
+// [PASS], not silence — yolo is writing into their real home either way.
+func TestHostManagementRowSaysAssertWhenUnset(t *testing.T) {
+	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, `host_management is "assert"`) {
+		t.Errorf("an unset key must still report the contract it means:\n%s", out)
+	}
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (only the pre-existing not-on-PATH row):\n%s",
+			r.warned, out)
 	}
 }

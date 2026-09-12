@@ -699,17 +699,19 @@
     Ownership is DECLARED here, never inferred from where a file happens to live.
     The value selects the surface mode the host notch renders in:
 
-      "none"    yolo writes nothing; the files are entirely yours.
+      "none"    yolo writes nothing.  `yolo host apply` REFUSES, naming this key,
+                and a wrapped launch has no render to re-check, so
+                [bold]host_apply_on_launch[/bold] becomes a no-op rather than a nag.
       "assert"  shared: yolo owns the keys your packs declare and rewrites only
                 those; every other key in the file is yours and is left byte for
-                byte.  This is what `yolo host apply` has always done.
+                byte.  This is what `yolo host apply` has always done, and writing
+                the value changes nothing about what it writes.
       "own"     yolo owns the file -- it is derived output, composed whole from
                 your packs and reproducible by deleting it and applying again.
-
-    [bold yellow]Declared, not yet acted on.[/bold yellow]  Today the key is PARSED and VALIDATED and the
-    contract is expressible; `yolo host apply` still behaves as "assert" whatever
-    you write here.  The values are wired next, "none" and "assert" first and "own"
-    last, because "own" is the only one that can lose data.
+                [bold yellow]NOT BUILT YET[/bold yellow]: the value parses and validates, and a host apply
+                under it REFUSES rather than quietly rendering as "assert" -- which
+                would leave you believing the file is derived while it still holds
+                bytes that exist nowhere else.
 
     [bold yellow]The key enables the mechanism.  It does not grant the approval.[/bold yellow]  Same ruling
     as [bold]host_apply_on_launch[/bold] above: it selects HOW the host renders, and every

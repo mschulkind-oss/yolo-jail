@@ -129,6 +129,13 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 
 	switch notch {
 	case config.ConfinementHost:
+		// The declared ownership contract decides whether there is a host render at all
+		// (hostmanagementgate.go). Both spellings of the verb are one operation (OQ-7), so
+		// both ask — a key that stopped `yolo host apply` and not `yolo apply --at host`
+		// would be a contract with a way around it.
+		if rc, refused := refuseHostManagement(errw); refused {
+			return rc
+		}
 		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format)
 	case config.ConfinementGuest:
 		pr.Printf("[yellow]apply at the guest notch is not built yet (env-manager plan " +
