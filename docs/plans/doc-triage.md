@@ -307,7 +307,7 @@ that route them keep resolving. That is the precedent, and it is what
 | Doc | Fully built? | Verifiable here? | Verdict |
 | :--- | :--- | :--- | :--- |
 | [`report-tiers.md`](../design/report-tiers.md) | **Yes** — all eight steps | **Yes, and measured with a control** | ✅ **Graduate first** |
-| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Yes** — the named hole closed 2026-09-12 | Yes | ⏸ Graduate second, and no longer on the hole: on [§11](../design/config-ownership-and-promotion.md#11-success-criteria)'s criterion |
+| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Yes** — the named hole closed 2026-09-12 | Yes | ⏸ **Graduate second, and both named blockers are spent.** What gates it now is [`OQ-DT1`](#open-question) and the size of the rewrite, not a fact about the doc |
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Yes** | Yes | ↩ **Do not graduate — archive.** There is no system to describe |
 | [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
 | [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
@@ -360,7 +360,7 @@ in the roadmap row being closed, not in the reference.
 [`report-tiers-plan.md`](../design/report-tiers-plan.md) — self-declared **CONSUMED** — archives
 alongside it. It is an `implementation-plan` artifact, and its whole subject shipped.
 
-### 2. `config-ownership-and-promotion.md` — the named hole is closed, and the harder blocker is not
+### 2. `config-ownership-and-promotion.md` — both named blockers are closed, and the rewrite is larger than they were
 
 Steps 1–7 of [§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) are
 built and verifiable: `HostManagement` / `KnownHostManagements` / `HostManagementDeclared` in
@@ -411,6 +411,36 @@ the layer stack because no merge patch can hold one
 ([`config-migration-to-prism.md`](../reference/config-migration-to-prism.md#and-therefore-a-literal-null-travels-beside-the-overlay-not-in-it)).
 So this blocker is **gone**: the criterion is stated, met and measured, and the rewrite this
 graduation owes is an ordinary re-filing rather than a rewrite of the claim itself.
+
+#### The verdict, now that both named blockers are spent
+
+**Both are. Nothing about the doc's own content blocks it any more**, and that is the honest answer
+to the question this assessment asked: [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s
+archive is built, [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) is
+ruled and both deletions it measured are fixed, the doc's last Open Question is compacted and its
+[§12](../design/config-ownership-and-promotion.md#12-open-questions) reads **None**. It has
+completed the `design-doc` genre's settled phase and is a graduation CANDIDATE. The only thing
+holding it is [`OQ-DT1`](#open-question) — sequencing, and the maintainer's.
+
+⚠ **What is honestly still in the way is the SIZE of the rewrite, and it grew on 2026-09-12.**
+Neither half is a blocker in the sense the two named ones were — nothing is unruled and nothing is
+unbuilt — but a reference is a harder genre than a design doc for this particular content, and
+pretending otherwise is how a premature graduation happens:
+
+- **Seven live residue items, up from one.** The archive's unnetted overlay-sidecar loss is joined
+  by [six](../design/config-ownership-and-promotion.md#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling)
+  that a second verification pass measured against the criterion once it was relaxed — a JSON
+  integer past 2^53 rounded away where the byte criterion used to catch it, a stale tombstone that
+  makes `yolo config diff` and `yolo config promote` misreport a null the user ADDED, a host-file
+  null on a `readsHost` surface, a latent panic, an undeclared provenance divergence, and an
+  `assert`-side non-finite float. **In a design doc these sit honestly as residue. In a reference
+  every one becomes present tense** — *here is what the render does and does not preserve* — which
+  is the same re-statement the criterion needed, seven times over.
+- **One of the seven should be FIXED rather than described.** The tombstone's two misreporting
+  readers have a data-loss path: an accepted `promote` writes the null into the local pack's
+  `config-overlay`, where it is a real tombstone at every notch. A reference that documents that as
+  behavior is worse than a design doc that records it as a defect. The fix is provable and its
+  placement is the only open part.
 
 **Where it would live:** `docs/reference/config-ownership.md`, holding the ownership axis (the
 notch does not decide who owns a file; a declared key does), the three modes and their surface
@@ -565,16 +595,15 @@ not after it.
    five whose behavior was reproduced with a control, its principles are already cited as law from
    [`AGENTS.md`](../../AGENTS.md), and it carries no unbuilt step. Archive
    [`report-tiers-plan.md`](../design/report-tiers-plan.md) in the same commit.
-3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**.
-   [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive **is built**
-   (2026-09-12), so what remains is two re-statements, not one: the keys-and-values criterion as a
-   stated contract rather than a partly-met goal, and the archive's two remaining gaps as
-   present-tense behavior. **Neither is gated any more** —
-   [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) settled the
-   criterion on 2026-09-12 and the two deletions it measured were fixed the same day — so both
-   are ordinary rewriting, and
-   [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s stub-at-the-original-
-   filename precedent is no longer needed for this one.
+3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**, and
+   **nothing about the doc gates it any more** — both named blockers closed on 2026-09-12, and its
+   last Open Question was compacted the same day, so
+   [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s
+   stub-at-the-original-filename precedent is not needed for this one. What remains is rewriting,
+   and it is bigger than this file said a day ago: the keys-and-values criterion as a stated
+   contract, and **seven** residue items as present-tense behavior rather than two. **Fix the
+   tombstone's two misreporting readers before the move, not after** — it is the one item of the
+   seven with a data-loss path, and a reference is the wrong place to document a lie as behavior.
 4. **Fold [`lua-transform-removal.md`](../design/lua-transform-removal.md) into
    [`../reference/pack-system.md`](../reference/pack-system.md) and archive it.** Do not mint a
    second reference for one subsystem.

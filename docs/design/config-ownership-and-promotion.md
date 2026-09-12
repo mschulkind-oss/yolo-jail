@@ -23,6 +23,9 @@ residue in [§6.3.3](#633-what-survives-as-a-guard) rather than closed over — 
 a loss a reader of this doc would expect the copy to net.
 [§13](#13-decision-ledger)'s **Built** column carries the same answer ruling by ruling, so
 "settled" and "shipped" can be read apart rather than inferred from each other.
+[`OQ-CO12`](#13-decision-ledger) — the one the build itself opened — was ruled and built the same
+day, and **verified on a second pass that found six more things**, all recorded in
+[§11](#11-success-criteria) and none of them fixed here.
 Claims about *current behavior*
 in [§2](#2-what-exists-today-stated-precisely) were verified or measured between
 2026-09-09 and 2026-09-11 and describe the tree the build acted on; the figures
@@ -51,16 +54,22 @@ settled by [`OQ-CO11`](#13-decision-ledger) on 2026-09-11. See
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
-**Nothing here needs a ruling.** All twelve questions are settled
+**Nothing here needs a ruling, and nothing here is a question.** All twelve are settled
 ([§13](#13-decision-ledger)) — eleven this design opened, and
-[`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12.
-**What is left to compact is the graduation rewrite, not another pass over this file.** Every
+[`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12, the last of them.
+⚠ **Settled is not the same as clean, and the difference is recorded rather than rounded off.**
+Two sections carry **live residue** — measured behavior that no ruling covers and no commit closed:
+[§6.3.3](#633-what-survives-as-a-guard)'s one unnetted adoption loss, and
+[§11](#11-success-criteria)'s six, found by verifying the ruling above rather than by trusting it.
+Both sit in the body as present-tense behavior, because that is what they are.
+**What is left is the graduation rewrite, not another pass over this file.** Every
 ruling is already folded into [§13](#13-decision-ledger) and the sections it governs; what still
 reads as sequencing is [§10](#10-what-i-would-build-in-order)'s build order, which is now history,
 and [§6.3](#63-the-one-asymmetry-that-survives-deletion)'s argument, which a reference would have
 to re-state as a contract. That rewrite is scoped in
-[`doc-triage.md`](../plans/doc-triage.md#2-config-ownership-and-promotionmd--the-named-hole-is-closed-and-the-harder-blocker-is-not),
-and a live question rules this file out as a graduation candidate until it is answered.
+[`doc-triage.md`](../plans/doc-triage.md#2-config-ownership-and-promotionmd--both-named-blockers-are-closed-and-the-rewrite-is-larger-than-they-were),
+which no longer holds a live question against this file; [`OQ-DT1`](../plans/doc-triage.md#open-question)
+decides when the move happens, and it is the maintainer's.
 ⚠ **One thing to carry out of this doc rather than into it:** four rulings in
 [`environment-manager-plan.md`](../plans/environment-manager-plan.md)'s 2026-08-01 ledger are
 reversed here; that ledger carries the dated reversal rows as of 2026-09-12.
@@ -1869,6 +1878,14 @@ Observable outcomes that mean this was built as designed:
   > | JSON key order, at every depth | the file's own order | sorted | conformant | sorted |
   > | A TOML surface's user comments | reattached in place | destroyed, and a three-line generated header prepended | conformant | unchanged |
   >
+  > ⚠ **The two *"kept"* cells answer for these two axes, not for every key on the switch.** A
+  > surface declaring an object-valued `computed` table still loses the user's own leaves under
+  > that table at an adopting render: `dropComputedTables` drops such a table WHOLESALE, which
+  > is [§6.3.1](#631-adoption-is-capture-then-regenerate)'s granularity rule — leaf-level against
+  > deep-merged owners, wholesale against `computed` — and is disclosed there with its reason.
+  > Measured at HEAD on 2026-09-12 and named here because a reader who stops at this table takes
+  > the switch for lossless, which it is only where no `computed` table is declared.
+  >
   > **Why the last two are conformant rather than tolerated.** A composing
   > renderer that sorts keys is the contract `own` *states* — the file is derived,
   > and a derivation has no insertion order to preserve. The alternative was to
@@ -1939,8 +1956,11 @@ Observable outcomes that mean this was built as designed:
   > missed it because they all exercise the ADOPTION branch, where the overlay is
   > built from the file in the same breath; it took the nested-jail run the build
   > rules require, against `claude/settings` on a real boot. The tombstone is left in
-  > the sidecar rather than swept — inert once it is not evidence, and sweeping
-  > durable state deserves its own argument.
+  > the sidecar rather than swept, because sweeping durable state deserves its own argument —
+  > **but the reason first given for leaving it, that it is *inert* once it is not evidence, is
+  > false and was measured false the same day.** It is inert for the RENDER and not for the two
+  > commands that read the sidecar directly; [the residue below](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling)
+  > has the measurement and the shape of the fix.
   >
   > **The switch is never silent on any axis.** `WouldChange` compares BYTES —
   > deliberately stricter than this criterion
@@ -1994,6 +2014,114 @@ Observable outcomes that mean this was built as designed:
   byte-identical — the property measured on 2026-09-09 and the one thing this
   design must not regress.
 
+#### What the criterion does not see — live residue, measured after the ruling
+
+> [!CAUTION]
+> **A relaxed criterion is a smaller instrument, and a ✅ over what it can no longer see is the
+> failure this section is already the case study for.** So a second verification pass ran on
+> 2026-09-12, after the two deletions were fixed, and measured the six below through
+> `RenderHostPack` and `Compose` against real fixtures rather than reasoning about them. **None
+> is fixed here.** Two are value-model calls whose fix reaches well past this design, one is the
+> durable-state sweep the note above declined to make a side effect, and three are smaller. They
+> sit here as present-tense behavior because that is what they are — a reference would say the
+> same sentences.
+
+**1. A JSON integer past $$2^{53}$$ is silently rounded, and keys-and-values is structurally
+incapable of seeing it.** Measured: a file holding `"bigId": 9007199254740993` keeps that value
+under `assert`, because `rmw` touches only the keys yolo declares, and becomes `9007199254740992`
+under `own`. **The criterion says the two are equal, and it is right to** — `codec.JSON` decodes
+through `encoding/json` into `any`, so both sides are `float64` and compare equal. The byte
+criterion caught this; keys-and-values cannot, ever, and the reassurance stated above — *a number
+cannot differ by type across the comparison, because one codec decodes both sides* — is precisely
+the mechanism that hides it. Nothing else names it either: `Formatting` is empty and correctly so
+(JSON has no comments), `EntryLosses` and `Overwrites` are empty, and `WouldChange` gives a
+re-sorted key and a rounded integer the same undifferentiated word. The adoption archive does hold
+the original.
+
+> [!WARNING]
+> **The `rmw` half solved this deliberately and the composing half never inherited the fix.**
+> `tomlValue`'s docstring ([`surfacecodec.go`](../../internal/entrypoint/surfacecodec.go)) says so
+> in as many words — *"INTEGERS STAY INTEGERS. `jsonx.Plain` turns an integer literal into
+> float64 … the TOML emitter would then render it `4096.0`, silently retyping a user's
+> `model_max_output_tokens` on every apply"* — and lowers integers to `int64` for exactly this
+> reason. `Compose` has no such step. TOML surfaces are unaffected, because their decode yields
+> `int64` already. A fix means `json.Number` through `codec.Decode`, which reaches merge, diff,
+> enforce and promote and every `float64` fixture behind them: **a value-model decision, not a bug
+> fix**, which is why it is recorded here rather than closed in a commit.
+
+**2. The stale tombstone is not inert, and two commands now state the opposite of the truth.**
+The render half of the *inert* argument holds — the key survives, because the overlay is no longer
+evidence against the file. The REPORTING half does not. Measured over three renders: boot 1 renders
+a file; the user types `"autoMemoryEnabled": null`; boot 2 keeps the key in the file and writes
+`{"autoMemoryEnabled": null}` into the overlay sidecar; boot 3 leaves both exactly there, so the
+record is durable and the file and the sidecar now disagree about what that `null` means.
+[`configdiff.go`](../../internal/cli/configdiff.go)'s `Deleted: v == nil` is the one definition
+both readers share, so:
+
+- **`yolo config diff` prints *"deleted in-jail"*** for a key the file holds.
+- **`yolo config promote` offers it** as *"a captured DELETION — declaring it in `local` deletes
+  the key wherever that pack renders"* and, accepted, writes the `null` into the local pack's
+  `config-overlay`. That block is a merge patch, `local` folds after every other pack and needs no
+  `packs` entry, so the promoted null becomes a **real** tombstone at every notch — and promote
+  clears the key from the capture overlay, leaving the user's null existing only as a deletion.
+  The user asked to ADD a null-valued key.
+
+⚠ It also falsifies a claim shipped in [`literalnull.go`](../../internal/agentcfg/literalnull.go) —
+*"`yolo config promote` refuses it as not in the capture, and that refusal is correct rather than a
+gap"*. True on the ADOPTION branch, where `dropNullLeaves` strips the residue's nulls before
+anything can see them; false on the steady-state branch, which is the branch that escaped to a real
+boot once already. **The fix is provable and its two sets are disjoint by construction:** a keypath
+marked in `Inputs.LiteralNulls` means the DECODED FILE holds that key, so it can never be a genuine
+deletion record, which requires the key to be absent. What is unruled is WHERE — sweep the
+accumulated sidecar, narrow the delta before it accumulates, or fix the readers — and that is the
+durable-state argument, not a patch to make on the way past.
+
+**3. A literal `null` in the HOST file of a `readsHost` surface never reaches the jail, and
+tombstones yolo's own default on the way.** The same collision on a second, unfixed channel:
+`Inputs.LiteralNulls` is read off the CURRENT FILE only, and `Inputs.HostBytes` has no equivalent.
+Measured through `Compose`: a host file of `{"apiKeyHelper":null,"theme":null,"other":"reaches"}`,
+against a surface declaring `readsHost` and a `defaults` of `theme: "system"`, composes to
+`{"other":"reaches"}` — `apiKeyHelper` silently absent, and `theme` DELETED, so the jail receives
+neither the host's null nor yolo's own default. `apiKeyHelper: null` is
+[`literalnull.go`](../../internal/agentcfg/literalnull.go)'s own motivating example and
+`claude/settings` is the shipped `readsHost` surface, so the class is not hypothetical. Left
+unfixed because it needs the same argument made in a different place: *a decoded file holds no
+tombstones* is what licensed the jail-file channel, and whether it licenses the host file — and at
+what precedence a host-file null should fold — is a ruling rather than a patch.
+
+**4. `reinstateAt` panics on a typed-nil map, on the boot render path.**
+[`literalnull.go`](../../internal/agentcfg/literalnull.go) is the only writer into the composed
+config in its package, and every other writer allocates by construction, so nothing before it
+needed the guard. Its subtree branch allocates when the key is absent — but a `map[string]any(nil)`
+is PRESENT, so the leaf recursion assigns into a nil map. Measured: a surface whose `managed` holds
+`permissions` as a typed-nil map, against a file of `{"permissions":{"ask":null}}`, panics as
+`assignment to entry in nil map`. The one producer is `enforceValue` → `deepCopyMap(nil)`
+([`enforce.go`](../../internal/agentcfg/enforce.go)), and **no shipped surface reaches it** —
+`encoding/json` never yields a typed-nil map, so no manifest and no sidecar can carry one. Latent,
+one line, recorded so the next rewriter of a `managed` block does not find it on a user's boot.
+
+**5. The same key is labelled `host` at one notch and `overlay` at the other, and the corpus built
+to catch that has no fixture for it.** At `assert`, `rmwProvenance` records `LayerHost` for every
+key the file had — `present := obj.Keys()`, null-valued keys included
+([`prism.go`](../../internal/entrypoint/prism.go)). At `own`, `Compose`'s literal-null pass records
+`overlay`. Before the fix there was no shared key to disagree about, because `own` deleted it.
+[`provenanceparity_test.go`](../../internal/entrypoint/provenanceparity_test.go) exists for exactly
+this class — *the two derivations naming different winners for the same layer set* — and refuses an
+UNDOCUMENTED divergence, and no literal-null fixture was added to it. Reporting-only, since
+`LayerAsserted` is false for both labels and no mechanism turns on the difference; but whether
+`overlay` is the honest label for a value that came from the file is a judgement, and a declared
+divergence is what that corpus is for.
+
+**6. Adjacent, and not this ruling's subject: `assert` writes invalid TOML for a non-finite float,
+and `own` then refuses the file.** `codec.TOML`'s scalar encoder formats a `float64` with
+`strconv.FormatFloat` and appends `.0` whenever the result contains none of `.eE`, so a TOML file
+holding `infinite = inf` survives decode as `+Inf` and is written back as `infinite = +Inf.0`.
+Measured: the `assert` apply reports `rendered`, and the next `own` render refuses with *"is not
+valid TOML … refusing to rewrite it, because a read that cannot see your keys cannot preserve
+them"* — loudly, which is the right failure, over a file `assert` had already corrupted. NaN is the
+same class. Pre-existing, and unreachable from the switch except through that corruption, so it is
+recorded rather than folded into the criterion.
+
 ---
 
 ## 12. Open Questions
@@ -2008,8 +2136,18 @@ Observable outcomes that mean this was built as designed:
 
 **None.** Every question this design OPENED is settled — the last three were ruled on
 2026-09-11 — and so is the one its BUILD opened
-([`OQ-CO12`](#13-decision-ledger), ruled 2026-09-12). All twelve are in
+([`OQ-CO12`](#13-decision-ledger), ruled 2026-09-12, which closed this section). All twelve are in
 [§13](#13-decision-ledger), with the rulings themselves living in the sections they govern.
+
+⚠ **"No open questions" is not "nothing outstanding", and the two are kept apart on purpose.**
+Seven measured behaviors are unclosed and live in the body as present-tense **residue** rather
+than here: [§6.3.3](#633-what-survives-as-a-guard)'s unnetted overlay-sidecar loss, and
+[§11](#11-success-criteria)'s
+[six](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling). Three of the seven
+will need a ruling eventually — a JSON value model, a host-file null's precedence, and where a
+stale tombstone gets swept — and none is opened as an `OQ-CO` here, because a question in this
+section is one whose answer this design owes before it can be believed, and all three outlive it.
+Whoever picks one up opens it where it lands.
 
 **One consequence is large enough to state here rather than leave in a ledger row.**
 [`OQ-CO10`](#13-decision-ledger) decided the *shape* of the read-in `host` layer — the
@@ -2039,7 +2177,8 @@ ruling here now has code behind it**; [`OQ-CO7`](#13-decision-ledger) was the la
 its one-time adoption archive shipped on 2026-09-12 — **with four measured gaps, three closed
 the same day and one left as open residue rather than an open question**
 ([§6.3.3](#633-what-survives-as-a-guard)): a `Built` cell says a mechanism exists, never that it
-is complete.
+is complete. [`OQ-CO12`](#13-decision-ledger)'s row carries the same caveat for the same reason,
+and its residue is the larger of the two.
 
 > [!IMPORTANT]
 > **This design reverses four rulings from [`environment-manager-plan.md`](../plans/environment-manager-plan.md)'s
@@ -2064,7 +2203,7 @@ is complete.
 | [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) | ✅ `resolvePromoteDest` refuses `--to workspace` by naming this ruling, rather than folding it into "unknown destination" |
 | [`OQ-CO9`](#13-decision-ledger) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) | ✅ `render.HostOwnedModes` refuses the coercion and `entrypoint.hostStatefulRefusal` refuses the surface, leaving the user's file untouched |
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; `macos-user` reports `unsupported` and is not refused |
-| [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change |
+| [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change. ⚠ **Built is not complete**: a second verification pass the same day measured [six live items](#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling) the relaxed criterion cannot see or the fixes did not reach — a JSON integer past 2^53 rounded, the stale tombstone making `config diff` and `promote` misreport a null the user ADDED, a host-file null on a `readsHost` surface, a latent `reinstateAt` panic, an undeclared provenance divergence, and an `assert`-side non-finite float. None is fixed |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
 | — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |

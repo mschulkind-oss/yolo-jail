@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 20 needing you · 0 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
+**Status: 19 needing you · 0 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-12**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -22,6 +22,13 @@ Last updated **2026-09-12**. Counts are tallied from this file's contents, not a
 > shipped and kept one question the BUILD opened; 💬 **31** never shipped at all and still holds
 > thirteen. The previous note recorded a one-day drift in *waiting* caused by `36bee3e8`; it is
 > superseded and lives in this file's history.
+>
+> ⚠ **Then it moved, later the same day: 17 → 20 → 19.** ✅ **25**'s last question —
+> [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger), the one the BUILD
+> opened — was ruled and compacted on 2026-09-12, so the row closed and the count was re-run, not
+> decremented. The paragraph above is left standing because it was true when it was written and
+> the correction is the more useful record: *"nothing that shipped closed a question"* held for
+> about six hours.
 
 > [!IMPORTANT]
 > **If a row disagrees with the doc it points at, trust the doc and fix the row.** This file groups
@@ -661,12 +668,13 @@ shape the schema; [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) is
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 25 — Who owns the config file: SHIPPED, with one question the build opened
+### ✅ 25 — Who owns the config file: SHIPPED, and CLOSED 2026-09-12 — the last question was the build's own
 
-📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) — **the one live question is
-[`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions)**, and the BUILD opened it · **all eleven the DESIGN opened are
-settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger)** (CO1–CO8 on 2026-09-10/11,
-CO9–CO11 on 2026-09-11) · written 2026-09-09, **routed here the same day**
+📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) — **nothing here needs you**. All
+twelve are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger)
+(CO1–CO8 on 2026-09-10/11, CO9–CO11 on 2026-09-11, and
+[`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) — the BUILD's own — on 2026-09-12) ·
+written 2026-09-09, **routed here the same day**, closed 2026-09-12
 
 yolo inferred config-file ownership from the confinement notch rather than asking, and the
 inference was wrong for anyone who adopted `yolo host apply`. This row took over the *promote* half
@@ -812,7 +820,19 @@ in [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md#50-the-constr
 `macos-user` reports `unsupported` rather than being refused for what it cannot do.
 
 **Answer:**
-> _(empty — fill in when decided; the live question is now [`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions), above. The 2026-08-01 ledger in [`environment-manager-plan.md`](environment-manager-plan.md#resolved) carries its dated reversal rows.)_
+> **Closed 2026-09-12.** Every question this row ever routed is ruled, and the last of them —
+> [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger), which the build
+> opened rather than the design — was ruled *keys and values, not bytes*, with the two silent
+> deletions it measured fixed as bugs the same day. The 2026-08-01 ledger in
+> [`environment-manager-plan.md`](environment-manager-plan.md#resolved) carries its dated reversal
+> rows. ⚠ **What the doc keeps is residue, not questions:** seven measured behaviors nothing
+> closed — the archive's unnetted overlay-sidecar loss, and
+> [six](../design/config-ownership-and-promotion.md#what-the-criterion-does-not-see--live-residue-measured-after-the-ruling)
+> the criterion's relaxation freed or the fixes did not reach. Three of the seven will need a
+> ruling eventually and none is opened as an `OQ-CO`, because each outlives this design; whoever
+> picks one up opens it where it lands. **The row is closed because nothing here is waiting on
+> you** — the graduation that follows it is [`OQ-DT1`](doc-triage.md#open-question)'s call, in
+> [`doc-triage.md`](doc-triage.md#2-config-ownership-and-promotionmd--both-named-blockers-are-closed-and-the-rewrite-is-larger-than-they-were).
 
 ### 💬 26 — The same model has a different name in every provider, and switching leaves the old one behind
 
