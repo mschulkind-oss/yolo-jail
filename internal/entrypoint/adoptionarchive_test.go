@@ -18,6 +18,7 @@ package entrypoint
 // ⚠ Never point one at a real home: these are --assert-equivalent renders that write files.
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -51,10 +52,17 @@ func jailConfigArchive(workspace, agent, name, basename string) string {
 // hand-written file, in the user's own formatting, adopted by a first `own` apply.
 //
 // The fixture is chosen so the render VISIBLY CHANGES the file — the seed is compact and yolo
-// re-emits canonically — because that is the only way this can tell a copy taken BEFORE the
-// write from one taken after. The assert -> own transition below cannot: adoption there is
-// byte-identical by construction (§11's zero-bytes criterion), so both orderings archive the
-// same bytes and the ordering bug would pass. Two fixtures, one for each claim.
+// re-emits canonically — so that "the archive holds the seed" is a statement about the
+// PRE-RENDER bytes rather than about a file the render happened to leave alone. The assert ->
+// own transition below is the opposite fixture on purpose: adoption there is byte-identical by
+// construction (§11's zero-bytes criterion), which is the transition the ruling is about. Two
+// fixtures, one for each claim.
+//
+// ⚠ NEITHER OF THEM PINS THE CALL'S POSITION, and it would be easy to read this one as doing
+// so. archiveAdoption copies the bytes composeStatefulSurface already read, never a re-read of
+// the path, so a copy taken after writeInPlaceString archives exactly these bytes too and every
+// content assertion here passes. TestOwnAdoptionRefusesWhenTheArchiveCannotBeWritten is the one
+// that can see the ordering, through the only consequence it has — see its comment.
 func TestOwnAdoptionArchivesTheFileAsYoloFoundIt(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".acme", "settings.json")
@@ -80,9 +88,9 @@ func TestOwnAdoptionArchivesTheFileAsYoloFoundIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(rendered) == seed {
-		t.Fatalf("the render left the seed byte-identical, so this fixture cannot tell a copy "+
-			"taken before the write from one taken after — pick a seed the canonical re-emit "+
-			"changes:\n%s", rendered)
+		t.Fatalf("the render left the seed byte-identical, so \"the archive holds the seed\" "+
+			"below says nothing about WHEN the copy was taken from a file nothing rewrote — "+
+			"pick a seed the canonical re-emit changes:\n%s", rendered)
 	}
 
 	want := hostConfigArchive(home, "acme", "settings", "settings.json")
@@ -95,9 +103,9 @@ func TestOwnAdoptionArchivesTheFileAsYoloFoundIt(t *testing.T) {
 	}
 	if string(got) != seed {
 		t.Errorf("the archive does not hold the file as yolo FOUND it.\narchived:\n%s\nthe "+
-			"file before the render:\n%s\n\nA copy taken after the render is yolo's own "+
-			"output under the name of a backup — the archive must be written BEFORE the "+
-			"surface write, from the bytes composeStatefulSurface read.", got, seed)
+			"file before the render:\n%s\n\nA copy taken from yolo's own output is a backup "+
+			"of nothing — the archive is written from the bytes composeStatefulSurface read, "+
+			"never from a re-read of the path after the render.", got, seed)
 	}
 	// And the render REPORTS it. An archive the user cannot find is a deletion from where
 	// they stand, and at the host notch e.Stderr is nil by design — so this field is the only
@@ -224,8 +232,57 @@ func TestOwnAdoptionArchivesOnlyTheFirstTime(t *testing.T) {
 // The obstruction is a FILE where the archive root's parent directory must be, which makes
 // MkdirAll fail as ENOTDIR — chosen over chmod deliberately, because this suite runs as root in
 // the jail and a mode bit would not stop it.
+//
+// ⚠ THIS IS ALSO THE ONE TEST THAT PINS THE CALL'S POSITION, and the fixture is what makes it
+// able to. archiveAdoption copies the bytes composeStatefulSurface ALREADY READ, so no content
+// assertion anywhere can tell a copy taken before the surface write from one taken after — the
+// archived bytes are identical either way. The only externally observable consequence of the
+// ordering is this one: a refusal raised AFTER writeInPlaceString leaves the surface adopted
+// while reporting a refusal and persisting no baseline, so the next render adopts again and
+// archives yolo's own output as if it were the user's file. "The file is untouched" is the
+// measurement of that, and it is only a measurement if the render WOULD have changed the file —
+// which is why this seeds a hand-written file (compact, unsorted, no trailing newline) and
+// proves against a control render that the canonical re-emit moves it.
+//
+// The assert -> own home this used to use could not: adoption there is byte-identical by
+// construction (§11's zero-bytes criterion), so writeInPlaceString rewrites the same bytes and
+// an inverted call site passes. Measured — moving archiveAdoption below the surface write left
+// the whole suite green.
 func TestOwnAdoptionRefusesWhenTheArchiveCannotBeWritten(t *testing.T) {
-	home, path := assertBaselineHome(t)
+	const seed = `{"permissions":{"ask":["Bash(rm:*)"]},"apiKeyHelper":"/usr/local/bin/acme-key.sh"}`
+
+	// The CONTROL: the same seed, the same pack, no obstruction. What comes back is what the
+	// obstructed render would have written, and it must DIFFER from the seed or the assertion
+	// below is vacuous.
+	control := t.TempDir()
+	controlPath := filepath.Join(control, ".acme", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(controlPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(controlPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RenderHostPack(adoptionBaselinePack(t), control, render.OwnershipOwn, false, nil); err != nil {
+		t.Fatalf("control `own` apply: %v", err)
+	}
+	rendered, err := os.ReadFile(controlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(rendered) == seed {
+		t.Fatalf("the render leaves this seed byte-identical, so \"the file is untouched\" "+
+			"below cannot tell a refusal that wrote the file from one that did not — pick a "+
+			"seed the canonical re-emit changes:\n%s", rendered)
+	}
+
+	home := t.TempDir()
+	path := filepath.Join(home, ".acme", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +312,9 @@ func TestOwnAdoptionRefusesWhenTheArchiveCannotBeWritten(t *testing.T) {
 	}
 	if string(after) != string(before) {
 		t.Errorf("the refused surface was written anyway:\n%s\n\n\"the file is untouched\" is "+
-			"only true if the archive is attempted BEFORE the surface write", after)
+			"only true if the archive is attempted BEFORE the surface write — and the archive "+
+			"copies bytes already in memory, so this is the only assertion in the suite that "+
+			"can see the call site move", after)
 	}
 	// And nothing was persisted, so the NEXT apply still sees a first migration and can retry
 	// the whole adoption from the same pre-existing file. A refusal that left a last_render
@@ -349,6 +408,8 @@ func jailAdoptionHome(t *testing.T, seed string) (e *Env, path string) {
 func TestJailFirstMigrationArchivesThePreExistingFile(t *testing.T) {
 	const seed = `{"apiKeyHelper":"/usr/local/bin/acme-key.sh","permissions":{"ask":["Bash(rm:*)"]}}` + "\n"
 	e, path := jailAdoptionHome(t, seed)
+	var errw bytes.Buffer
+	e.Stderr = &errw
 
 	ConfigurePackSurfaces(e, []*packload.Pack{archiveJailPack(t)})
 	if fails := e.GenFailures(); len(fails) != 0 {
@@ -368,6 +429,15 @@ func TestJailFirstMigrationArchivesThePreExistingFile(t *testing.T) {
 	}
 	if string(got) != seed {
 		t.Errorf("the archive holds %q, want the file as yolo found it (%q)", got, seed)
+	}
+	// AND THE BOOT SAYS SO, by name. This is the jail notch's whole disclosure — there is no
+	// report to read it off afterwards the way `yolo host apply` has one — and by OQ-RO3 a
+	// disclosure is never suppressible, so a copy made silently is the same as a deletion from
+	// where the user stands. Deleting the e.warn in archiveAdoption must redden something.
+	if !strings.Contains(errw.String(), want) {
+		t.Errorf("the boot archived %s and never said where it went:\n%s\n\nThe jail has no "+
+			"report of its own, so this line is the only thing that tells a user the copy "+
+			"exists.", want, errw.String())
 	}
 }
 
