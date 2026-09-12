@@ -8,7 +8,7 @@ the TTY probe unified onto `internal/tty` (`b76b2ba`), a genuine `check`/`doctor
 ANSI-leak-to-a-pipe closed (`c9ea5e8`), and the last three commands
 (`loopholes`/`init`/`init-user-config`) classified — `init` already colors
 correctly, the other two are intentionally plain (no leaked markup). Pulled out
-of the archived `go-port-post-transition.md` §5. Was jail-testable end-to-end
+of the archived `go-port-post-transition.md` (its CLI-colour section; the doc is gone, so the number resolves nowhere). Was jail-testable end-to-end
 (no host needed); paired with the renderer consolidation in
 [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md).
 

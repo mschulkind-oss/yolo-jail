@@ -1562,7 +1562,7 @@ widening the boundary.
 > The adoption-lens objection ("user-config-only is an adoption wall") stands as a real
 > cost and is accepted: onboarding is a printed `yolo pack add` line in `yolo check`, one
 > copy-paste worse, and threat-model-identical. See
-> `three-decisions.md` (archived 2026-09-09; superseded by `docs/reference/pack-system.md`) §0.1 (`three-decisions.md`, archived 2026-09-09 — superseded by [`pack-system.md`](../reference/pack-system.md)).
+> `three-decisions.md` (archived 2026-09-09; superseded by `docs/reference/pack-system.md`) (`three-decisions.md`, archived 2026-09-09 — superseded by [`pack-system.md`](../reference/pack-system.md)).
 
 ### 💬 [OQ-ACP1](#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) — what happens when two people attach to the same jail with different pack sets
 

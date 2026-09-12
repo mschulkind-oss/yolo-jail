@@ -259,7 +259,7 @@ A pack contributing a standard LLM provider declares `kind: "provider"`:
 | `kind` | `string` | **Yes** | Must be `"provider"`. |
 | `name` | `string` | **Yes** | Unique provider identifier (e.g. `"deepseek"`, `"bedrock"`, `"local-ollama"`). |
 | `base_url` | `string` | **Yes** | Fully qualified HTTP or HTTPS base URL. |
-| `wire_api` | `string` | No | The wire protocol that URL speaks, named in yolo's canonical vocabulary: `"anthropic"`, `"openai-chat-completions"`, `"openai-responses"`. Never passed through: each derive translates it into its own agent's spelling, and emits no entry at all for a protocol that agent cannot speak ([providers.md](../reference/providers.md) §3.4). |
+| `wire_api` | `string` | No | The wire protocol that URL speaks, named in yolo's canonical vocabulary: `"anthropic"`, `"openai-chat-completions"`, `"openai-responses"`. Never passed through: each derive translates it into its own agent's spelling, and emits no entry at all for a protocol that agent cannot speak ([providers.md, *Derives: the delivery mechanism*](../reference/providers.md#derives-the-delivery-mechanism)). |
 | `api_key_env`| `string` | No | Name of the environment variable containing the secret API key. |
 | `models` | `map[string]string` | No | Map of generic model aliases (e.g. `"default"`, `"fast"`, `"coder"`) to upstream model IDs. |
 | `region` | `string` | No | Cloud provider region (e.g. `"us-east-1"`). |
