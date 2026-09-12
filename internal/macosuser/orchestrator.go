@@ -69,6 +69,16 @@ type Deps struct {
 	PathIsDir func(string) bool
 	// PathExists reports whether a path exists (broker socket, etc.).
 	PathExists func(string) bool
+	// ReadFile reads a file, reporting whether the content is KNOWN — an ABSENT
+	// file is ("", true), because "it is not there" is knowledge; only a real read
+	// error is ("", false). The provisioning stage's outcome is read through it —
+	// see runProvisionStage for why a returncode alone cannot answer the question
+	// it is asked, and why that distinction decides the answer.
+	ReadFile func(string) (string, bool)
+	// RemoveFile removes a file, reporting whether it is gone afterwards (removed
+	// or already absent). Used to clear the previous launch's startup log before
+	// the stage writes its own, so a stale marker cannot be read as this launch's.
+	RemoveFile func(string) bool
 	// Out receives the human output. Rich markup is rendered to ANSI when
 	// Color is set, else stripped to plain text.
 	Out io.Writer
@@ -501,21 +511,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// the agent (docs/design/macos-user-provisioning.md half two). Confined under the same
 	// Seatbelt profile the agent gets, which step 2 already installed; empty when the
 	// config declares no tools, and then this costs nothing at all.
-	//
-	// A FAILING STAGE DOES NOT ABORT THE LAUNCH, and the exit code here says only whether
-	// the human asked it to. The script records its own failure — the banner, the red
-	// console line and the PROVISIONING FAILED line in <workspace>/.yolo/startup.log that
-	// the next launch's briefing reports — then completes with status 0 unless someone
-	// answered `n` at the interactive prompt. So a non-zero status is a deliberate abort,
-	// which is why it is treated as one rather than warned about: a jail whose tools did
-	// not install is still a jail the user asked for, and the record is in the log.
-	if len(plan.ProvisionArgv) > 0 {
-		if deps.Run(plan.ProvisionArgv) != 0 {
-			out.print("[bold red]Provisioning was aborted.[/bold red] The sandbox is set up " +
-				"but its declared tools were not installed — the log is at " +
-				provision.StartupLog(plan.Workspace) + ".")
-			return 1
-		}
+	if len(plan.ProvisionArgv) > 0 && !runProvisionStage(deps, out, plan) {
+		return 1
 	}
 
 	// 4. Launch under the TTY proxy — OUTSIDE the lock. Everything that writes the
@@ -523,6 +520,59 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// sessions on one workspace already share on every backend.
 	release()
 	return deps.RunWithProxy(plan.LaunchArgv)
+}
+
+// runProvisionStage runs the confined provisioning stage and reports whether the launch
+// should continue. false means the human asked to stop.
+//
+// ⚠ A FAILING STAGE MUST NOT ABORT THE LAUNCH (§4 of the design doc), and the stage's
+// RETURNCODE CANNOT TELL YOU WHETHER IT FAILED. That is the whole reason this is a
+// function. The script completes with status 0 on every failure it survives — it records
+// the banner, the red console line and the PROVISIONING FAILED marker in
+// <workspace>/.yolo/startup.log that the next launch's briefing reports, and only an
+// explicit `n` at the interactive prompt propagates a non-zero status.
+//
+// But `deps.Run` returns non-zero for a second, entirely different reason: THE STAGE
+// NEVER RAN. sudo refusing authorization, sandbox-exec rejecting the profile, /bin/bash
+// missing — each is an exec-layer failure nobody chose, and each is on §10.7's list of
+// things only a Mac can settle. This code used to state as fact that "the exit code says
+// only whether the human asked it to" and return 1 on every non-zero, so on those paths a
+// workspace that merely DECLARES mise_tools could not launch at all, and the message
+// blamed the user for it — the exact inversion of the rule above.
+//
+// The discriminator is the marker, because the marker is written by the script and
+// therefore exists only if the script ran:
+//
+//   - non-zero AND the marker is in this launch's log → the stage ran, its body failed,
+//     and a human answered `n`. A deliberate veto: abort, as before.
+//   - non-zero AND no marker → the stage never reported anything, so the status came from
+//     the exec layer. WARN and continue to the agent, per §4.
+//
+// The log is cleared first so "this launch's log" is a fact rather than a hope; the script
+// truncates it one instruction later anyway, so clearing costs nothing. If the clear or
+// the read fails we CANNOT prove the stage never ran, and the conservative direction is
+// the one that honors a possible veto — so an unreadable log aborts, as it did before.
+func runProvisionStage(deps Deps, out printer, plan RunPlan) bool {
+	log := provision.StartupLog(plan.Workspace)
+	cleared := deps.RemoveFile != nil && deps.RemoveFile(log)
+	if deps.Run(plan.ProvisionArgv) == 0 {
+		return true
+	}
+	vetoed := true // the conservative reading; see the docstring.
+	if cleared && deps.ReadFile != nil {
+		body, ok := deps.ReadFile(log)
+		vetoed = !ok || strings.Contains(body, provision.FailedMarker)
+	}
+	if vetoed {
+		out.print("[bold red]Provisioning was aborted.[/bold red] The sandbox is set up " +
+			"but its declared tools were not installed — the log is at " + log + ".")
+		return false
+	}
+	out.print("[bold yellow]The provisioning stage could not be started.[/bold yellow] It " +
+		"wrote nothing to " + log + ", so it never ran — sudo, sandbox-exec or the " +
+		"profile, not the tools themselves. Launching anyway: the declared tools are " +
+		"NOT installed in this sandbox.")
+	return true
 }
 
 // PrintPlan renders a RunPlan for --dry-run (human-readable; rich markup
@@ -660,6 +710,8 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		SetRandomPassword: func() bool { return setRandomPasswordReal(SandboxUser) },
 		PathIsDir:         pathIsDirReal,
 		PathExists:        pathExistsReal,
+		ReadFile:          readFileReal,
+		RemoveFile:        removeFileReal,
 		Out:               os.Stdout,
 		Color:             color,
 	}

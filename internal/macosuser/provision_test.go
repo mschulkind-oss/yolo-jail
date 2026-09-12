@@ -317,3 +317,128 @@ func TestAnUnavailableLockDoesNotRefuseTheLaunch(t *testing.T) {
 			rc, buf.String())
 	}
 }
+
+// ⚠ THE INVERSION THIS BACKEND SHIPPED WITH, and the rule it broke. §4 of the design doc
+// states it in bold — *"a failing stage must not abort the launch"* — and the orchestrator
+// used to return 1 on EVERY non-zero status from the stage, on a comment that asserted as
+// fact that "the exit code says only whether the human asked it to".
+//
+// It does not. `deps.Run` is also non-zero when the stage NEVER RAN: sudo refusing
+// authorization, sandbox-exec rejecting the profile, /bin/bash missing — every one of them
+// on §10.7's list of things only a Mac can settle. On those paths a workspace that merely
+// DECLARES mise_tools could not launch at all, and the message blamed the user.
+//
+// The two tests below are the two branches, and they are written against the marker rather
+// than against a returncode because the marker is the only thing that distinguishes them:
+// the script writes it, so it exists if and only if the script ran.
+
+// stageFailureDeps returns deps whose provisioning stage exits non-zero, with the startup
+// log for `ws` containing `logBody` afterwards ("" = the stage wrote nothing at all).
+func stageFailureDeps(t *testing.T, rec *[]string, ws, logBody string) Deps {
+	t.Helper()
+	d := mockDeps(rec)
+	log := provision.StartupLog(ws)
+	cleared := false
+	inner := d.Run
+	d.Run = func(argv []string) int {
+		rc := inner(argv)
+		if strings.Contains(strings.Join(argv, " "), "sandbox-exec") {
+			return 7 // the stage body's own code, forwarded by the script's `exit "$_prc"`
+		}
+		return rc
+	}
+	d.RemoveFile = func(p string) bool {
+		if p == log {
+			cleared = true
+		}
+		return true
+	}
+	// An absent log is ("", true) — knowledge, not a failure — exactly as readFileReal
+	// reports it; only an unreadable one is ("", false), which no branch here produces.
+	d.ReadFile = func(p string) (string, bool) {
+		if p != log || !cleared {
+			return "", false
+		}
+		return logBody, true
+	}
+	return d
+}
+
+// Branch one: the stage RAN, its body failed, and a human answered `n`. The marker is in
+// the log, the veto is explicit, and the launch must stop.
+func TestAnExplicitVetoStillAbortsTheLaunch(t *testing.T) {
+	ws := "/Users/Shared/yolo/proj"
+	var rec []string
+	d := stageFailureDeps(t, &rec, ws,
+		"=== yolo provisioning ===\n"+provision.FailedMarker+" (exit 7)\n")
+	var buf bytes.Buffer
+	d.Out = &buf
+	opts := newOpts(ws)
+	opts.Config = provisionCfg()
+
+	if rc := RunMacosUser(d, opts); rc != 1 {
+		t.Fatalf("rc = %d, want 1 — a human answering `n` to the stage's prompt must stop "+
+			"the launch, which is the one thing a non-zero status from the script means\n%s",
+			rc, buf.String())
+	}
+	for _, line := range rec {
+		if strings.HasPrefix(line, "proxy:") {
+			t.Errorf("the agent launched after an explicit veto:\n%s", line)
+		}
+	}
+}
+
+// Branch two, and the regression: the stage NEVER RAN, so there is no marker. §4 says the
+// launch continues. Reverting runProvisionStage to `if deps.Run(...) != 0 { return 1 }`
+// fails here — the agent never launches and rc is 1.
+func TestAStageThatNeverRanDoesNotAbortTheLaunch(t *testing.T) {
+	ws := "/Users/Shared/yolo/proj"
+	var rec []string
+	d := stageFailureDeps(t, &rec, ws, "") // nothing written: sudo/sandbox-exec/bash failed
+	var buf bytes.Buffer
+	d.Out = &buf
+	opts := newOpts(ws)
+	opts.Config = provisionCfg()
+
+	if rc := RunMacosUser(d, opts); rc != 42 {
+		t.Fatalf("rc = %d, want 42 (the agent's own exit) — §4: a failing stage must not "+
+			"abort the launch, and a stage that never ran is not even a failing one\n%s",
+			rc, buf.String())
+	}
+	launched := false
+	for _, line := range rec {
+		if strings.HasPrefix(line, "proxy:") {
+			launched = true
+		}
+	}
+	if !launched {
+		t.Errorf("the agent never launched:\n%s", strings.Join(rec, "\n"))
+	}
+	// The silence is the other half of the defect: the user must be told the tools are
+	// absent, since nothing else on this path will say so.
+	if !strings.Contains(buf.String(), "never ran") {
+		t.Errorf("the launch continued silently — the declared tools are absent and "+
+			"nothing said so:\n%s", buf.String())
+	}
+}
+
+// The conservative direction, stated as a test so a later "simplification" cannot quietly
+// flip it: when the log cannot be cleared or cannot be read, the stage's failure is
+// UNCLASSIFIABLE, and the launch must honor a possible veto rather than assume there was
+// none. Aborting a launch that should have continued is recoverable; ignoring a human's
+// explicit `n` is not.
+func TestAnUnreadableLogIsTreatedAsAVeto(t *testing.T) {
+	ws := "/Users/Shared/yolo/proj"
+	var rec []string
+	d := stageFailureDeps(t, &rec, ws, "")
+	d.RemoveFile = func(string) bool { return false } // e.g. the sidecar is not writable
+	var buf bytes.Buffer
+	d.Out = &buf
+	opts := newOpts(ws)
+	opts.Config = provisionCfg()
+
+	if rc := RunMacosUser(d, opts); rc != 1 {
+		t.Fatalf("rc = %d, want 1 — an unclassifiable stage failure must not be read as "+
+			"'the human said nothing'\n%s", rc, buf.String())
+	}
+}

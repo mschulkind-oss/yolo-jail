@@ -159,6 +159,32 @@ func pathExistsReal(p string) bool {
 	return err == nil
 }
 
+// readFileReal reads a file, reporting whether the content is KNOWN.
+//
+// ⚠ AN ABSENT FILE IS KNOWLEDGE, not a failure, and the distinction is the whole point
+// for the one caller (runProvisionStage): "the stage wrote no log" is the observation it
+// classifies on, while "I could not read the log" is the one it must refuse to classify.
+// os.ReadFile reports both as an error, so they are separated here.
+func readFileReal(p string) (string, bool) {
+	b, err := os.ReadFile(p)
+	switch {
+	case err == nil:
+		return string(b), true
+	case os.IsNotExist(err):
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+// removeFileReal removes a file and reports whether it is GONE afterwards — an
+// already-absent file is a success, because the caller asks "is this path clear?" rather
+// than "did I delete something?".
+func removeFileReal(p string) bool {
+	err := os.Remove(p)
+	return err == nil || os.IsNotExist(err)
+}
+
 // --- small subprocess helpers ---------------------------------------------
 
 func runWithTimeout(cmd *exec.Cmd, d time.Duration) int {
