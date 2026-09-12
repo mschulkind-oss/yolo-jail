@@ -61,8 +61,14 @@ func TestImageOwnerLabel(t *testing.T) {
 	// variants and every `packages:` list, because nix cannot reference a
 	// derivation's own output path. It is here so a nameless row can still be
 	// traced back to the flake that built it.
-	if id := inspectLabel(t, rt, ref, "org.yolo-jail.image-identity"); !strings.HasPrefix(id, "/nix/store/") {
-		t.Errorf("%s carries image-identity %q, want a /nix/store path", ref, id)
+	//
+	// The value is a `sha256:` hash, not the `/nix/store/…` path it was until
+	// 2026-09-12: a store path carries the evaluating host's system, so no second
+	// host could compute it (docs/design/darwin-image-provenance.md, OQ-IP1). The
+	// label is checked for SHAPE only — nothing keys off it — but a shape check is
+	// what would catch the value silently becoming a store path again.
+	if id := inspectLabel(t, rt, ref, "org.yolo-jail.image-identity"); !strings.HasPrefix(id, identityPrefix) {
+		t.Errorf("%s carries image-identity %q, want a %s digest", ref, id, identityPrefix)
 	}
 
 	// 3. THE PROBE THE REAP ACTUALLY ISSUES finds it. This is the assertion that

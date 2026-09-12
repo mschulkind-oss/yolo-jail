@@ -65,9 +65,12 @@ mounts the launch supplies — the Linux binaries at `bin/`, the flake bundle at
 `cmd/` or `internal/` moves no image input, so it costs no image rebuild and no delivery.
 
 **The image moves only when an image input moves.** Those inputs are `flake.nix`,
-`flake.lock`, and the `packages:` list a launch bakes. `imageIdentity` is a derivation over
+`flake.lock`, and the `packages:` list a launch bakes. `imageIdentity` is a sha256 over
 exactly the first two, baked into the image and read back out of a loaded one — the oracle
-for "is this loaded image built from this flake". Before the binaries left the image, yolo's
+for "is this loaded image built from this flake". It is a **content hash and not a store
+path**, so any host can compute it: it was a `pkgs.runCommand` whose output path varied by
+evaluating system until 2026-09-12, which is why a darwin host could not vouch for an image
+a Linux runner built from its own commit ([`darwin-image-provenance.md`](../design/darwin-image-provenance.md)). Before the binaries left the image, yolo's
 own Go source was the trigger behind roughly half of all commits; measured after, a Go-only
 edit leaves `.#ociImage`'s store path unchanged.
 
@@ -304,7 +307,7 @@ supplies the content.**
 | Content | Why it is image content |
 | :--- | :--- |
 | The `/opt/yolo-jail/{bin,share/yolo-jail}` mountpoints and the `/bin/<name>` links | A `--read-only` rootfs cannot grow a mountpoint; the links are the only knowledge the image has of yolo's binaries, and they depend on the name list alone |
-| `imageIdentity` at `/etc/yolo-jail-image-identity`, and the image labels | The staleness oracle for the flake's decisions; the owner label is how the image reaper proves a tag-less image is yolo's |
+| `imageIdentity` at `/etc/yolo-jail-image-identity` (a file holding the hash), and the image labels | The staleness oracle for the flake's decisions; the owner label is how the image reaper proves a tag-less image is yolo's |
 | `bash`, `sh`, `env`, coreutils under `/bin` and `/usr/bin` | Generated scripts and the runtime's exec path need a shell in the rootfs |
 | nix-ld at `/lib/ld-*` and `/lib64/ld-*`, and its fallback library dir | A `PT_INTERP` is an absolute path in every FHS binary, not a PATH entry; the fallback dir is the only library search path a scrubbed environment gets |
 | `/etc/passwd`, `/etc/group`, `/etc/containers/*`, `/etc/subuid`, `/etc/subgid` | Read by podman before and independently of yolo; nested-podman config on a read-only root |
@@ -774,11 +777,11 @@ values themselves are stated.
 | Skew gate opt-out | `YOLO_ALLOW_SOURCE_SKEW=1` | `AllowSourceSkewEnv` (`internal/cli/run/srcskew.go`) |
 | Stale-image opt-out | `YOLO_ALLOW_STALE_IMAGE` (any non-empty value) | `image.StaleImageEnv` |
 | Failed-build headline | `IMAGE BUILD FAILED` | `image.BuildFailedMarker` (the integration harness greps for it) |
-| Image attributes | `.#ociImage`, `.#ociImageLean`, `.#ociImageMinimal` (CI only), `.#installPrefix`, `.#yoloImageExtras`, `.#imageIdentity` | `image.ImageAttrDefault`, `image.ImageAttrLean`, `image.installPrefixAttr`; `flake.nix` |
+| Image attributes | `.#ociImage`, `.#ociImageLean`, `.#ociImageMinimal` (CI only), `.#installPrefix`, `.#yoloImageExtras` — and `.#imageIdentity`, the one output with no system in its path, a string rather than a derivation | `image.ImageAttrDefault`, `image.ImageAttrLean`, `image.installPrefixAttr`; `flake.nix` |
 | Image tags the flake bakes | `latest`, `lean`, `ci-minimal` | `mkOciImage` (`flake.nix`) |
 | Content ref | `localhost/yolo-jail:<first 16 hex of sha256(store path)>` (`yolo-jail:…` on Apple Container) | `image.JailImageRef`, `paths.JailImageRepo` |
-| Image identity file | `/etc/yolo-jail-image-identity` → the `imageIdentity` store path | `imageIdentity` (`flake.nix`) |
-| Image labels | `org.yolo-jail.owner=yolo`, `org.yolo-jail.image-identity=<store path>` | `mkOciImage` (`flake.nix`); read by `internal/prune` |
+| Image identity file | `/etc/yolo-jail-image-identity`, holding `sha256:<64 hex>` | `imageIdentity` (`flake.nix`) |
+| Image labels | `org.yolo-jail.owner=yolo`, `org.yolo-jail.image-identity=sha256:<64 hex>` | `mkOciImage` (`flake.nix`); read by `internal/prune` |
 | Layer cap; creation time | `maxLayers = 100`; `created = "now"` | `mkOciImage` (`flake.nix`) |
 | Nix flags on every flake evaluation | `--extra-experimental-features "nix-command flakes" --accept-flake-config`; builds add `--impure --out-link … --print-build-logs` | `image.NixFlakeFlags`, `flakeBuildArgv` |
 | Load sentinel | `~/.local/share/yolo-jail/build/last-load-<runtime>`, newest last, capped at 10 | `image.AddLoadedPath`, `paths.BuildDir` |

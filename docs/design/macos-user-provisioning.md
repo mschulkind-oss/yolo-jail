@@ -78,7 +78,7 @@ because a fix that addresses one is not a partial fix — it is no fix.
 
 **The floor.** `flake.nix` assembles the image root as
 `[ variantBinPathLinks ] ++ corePackages ++ variantFullPackages ++ extraPackages`,
-where `corePackages` is `[ jailPrefixLinks imageIdentity ] ++ corePackagesFromNixpkgs`
+where `corePackages` is `[ jailPrefixLinks ] ++ corePackagesFromNixpkgs`
 and `corePackagesFromNixpkgs` is the list that matters here: **36 nixpkgs entries**
 when counted 2026-09-11 — `bashInteractive`, `coreutils-full`, `git`, `ripgrep`, `fd`,
 `curl`, `cacert`, `mise`, `findutils`, `which`, `nodejs_24`, `python3`, `go`, `neovim`,

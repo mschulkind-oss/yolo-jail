@@ -243,7 +243,7 @@ Three tiers, bottom to top:
 | :--- | :--- | :--- |
 | **Base** | `corePackages` and `fullPackages` — the nixpkgs closure | `flake.lock` moves, or a package is added to the flake |
 | **Extras** | the launch's `packages:` closure (`YOLO_EXTRA_PACKAGES`) | that workspace's `packages:` list changes |
-| **Top** | `binPathLinks`, the `/lib` farm, `imageIdentity`, `fakeRootCommands`' directories, `/etc/passwd` | any `flake.nix` edit |
+| **Top** | `binPathLinks`, the `/lib` farm, the image identity, `fakeRootCommands`' directories, `/etc/passwd` | any `flake.nix` edit |
 
 The base tier keeps a popularity split *within itself* so one nixpkgs bump does not
 invalidate a single 3 GB blob; the budget is **90 layers for the base, 1 for extras, 1 for
@@ -385,9 +385,10 @@ disturbs them. It does not:
 - **The durable GC root.** `RegisterRoot` roots the store path
   (`internal/image/autoload.go:583`), and the manifest's closure still references every layer's
   store paths, so the closure the running jail depends on stays reachable from one root.
-- **`imageIdentity` and the suite's skew check.** It is a derivation over `flake.nix` +
-  `flake.lock` and is unaffected; the layer plan must keep it in the top tier, where it is
-  already (measured, [§2.2](#22-the-layer-sizes)).
+- **`imageIdentity` and the suite's skew check.** It is over `flake.nix` + `flake.lock` and is
+  unaffected; the layer plan must keep it in the top tier, where it is already (measured,
+  [§2.2](#22-the-layer-sizes)). (Since 2026-09-12 it is a hash written into the root tree rather
+  than a package joined into it — same tier, no closure entry: [`darwin-image-provenance.md`](darwin-image-provenance.md).)
 
 > [!WARNING]
 > **One thing genuinely does change, and it is in another package.** nix2container's
@@ -847,9 +848,12 @@ that fired and the risk that exists BECAUSE the fallback is gone.
 >    forever.** `buildEnv` points a link at the source LINK (`$out/etc/x -> <pkg>/etc/x`), while
 >    `lndir` — which `symlinkJoin` and therefore `streamLayeredImage`'s customisation layer use —
 >    COPIES A SYMLINK BY VALUE (measured 2026-09-09: a source `bin/bash -> /nix/store/…-bash/bin/
->    bash` is recreated with that same target). Two oracles depend on the by-value form:
->    `readlink /etc/yolo-jail-image-identity` must equal `nix eval .#imageIdentity.outPath`
+>    bash` is recreated with that same target). Two oracles depended on the by-value form:
+>    `readlink /etc/yolo-jail-image-identity` had to equal `nix eval .#imageIdentity.outPath`
 >    (`integration/imageskew_test.go`), and `readlink /bin/bash` must name the bash store path.
+>    **Only the second still does**: on 2026-09-12 the identity stopped being a store path
+>    altogether, exactly because a store path is a per-system value
+>    ([`darwin-image-provenance.md`](darwin-image-provenance.md)).
 >    What shipped instead is **ONE `symlinkJoin` over the same `contents` list in the same order**
 >    as the single top-tier `copyToRoot`, with the package closures carried by the lower tiers'
 >    `deps`. That also makes the collision question moot: one entry, so the union has nothing to

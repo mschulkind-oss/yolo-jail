@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -39,15 +38,26 @@ import (
 //
 // THE CHECK. Ask the two sides what the IMAGE was built from and compare:
 //
-//   - what the SOURCE wants — `nix eval .#imageIdentity.outPath`. imageIdentity
-//     is a derivation over flake.nix + flake.lock and nothing else, which is
-//     exactly the image's input set now that the Go build is not in it. It is an
-//     EVAL, not a build: ~0.3s, so it can run on every suite start (the
-//     constraint that the suite must not rebuild the image every run is about the
-//     multi-minute `nix build`, which this deliberately avoids).
-//   - what the LOADED IMAGE has — `readlink /etc/yolo-jail-image-identity`
-//     inside it. imageIdentity bakes that symlink pointing at its own store path,
-//     so one ~0.15s container run recovers what the image actually carries.
+//   - what the SOURCE wants — `nix eval --raw .#imageIdentity`. imageIdentity is
+//     a sha256 over flake.nix + flake.lock and nothing else, which is exactly the
+//     image's input set now that the Go build is not in it. It is an EVAL, not a
+//     build — and not even a nixpkgs eval, so ~0.1s — which is what lets it run
+//     on every suite start (the constraint that the suite must not rebuild the
+//     image every run is about the multi-minute `nix build`).
+//   - what the LOADED IMAGE has — `cat /etc/yolo-jail-image-identity` inside it.
+//     mkOciImage writes that file with the same value, so one ~0.15s container
+//     run recovers what the image actually carries.
+//
+// IT IS A HASH AND NOT A STORE PATH, AND THAT IS THE WHOLE OF THE DARWIN FIX.
+// Until 2026-09-12 both sides were a /nix/store path, because `imageIdentity` was
+// a `pkgs.runCommand` evaluated inside `eachDefaultSystem`: identical content,
+// one store path per evaluating system. A darwin host therefore could not vouch
+// for a Linux-built image from its own commit, and this file papered over that
+// with a darwin-only downgrade to a warning. THE DOWNGRADE IS GONE. Its premise
+// was that a darwin eval and a Linux eval legitimately disagree; they no longer
+// do, so a mismatch on darwin now means exactly what it means everywhere.
+// Measured for all four default systems by TestImageIdentityIsSystemInvariant
+// (docs/design/darwin-image-provenance.md, OQ-IP1).
 //
 // WHY NOT REUSE AutoLoadImage's NOTION. Because it answers a different question,
 // and it has answered it two different ways.
@@ -94,14 +104,43 @@ const (
 	rebuildEnv = "YOLO_TEST_REBUILD_IMAGE"
 )
 
-// identityLinkPath is where imageIdentity bakes a symlink to its own store path.
+// identityFilePath is the file mkOciImage writes the image's identity into.
 // Reading it inside a loaded image yields what that image was built from.
 //
 // It replaced `readlink /bin/yolo-entrypoint`, which is no longer an oracle for
 // anything: that link now points at /opt/yolo-jail/bin/yolo-entrypoint — a fixed
 // string naming the launch's bind mount — so it reads the same in every image
 // ever built and would report "matches" always.
-const identityLinkPath = "/etc/yolo-jail-image-identity"
+const identityFilePath = "/etc/yolo-jail-image-identity"
+
+// identityPrefix tags the digest with its algorithm, so a `cat` of the baked
+// file is self-describing and so a value that is not an identity at all can be
+// REJECTED rather than compared. flake.nix writes the same prefix.
+const identityPrefix = "sha256:"
+
+// identityAbsent is what the in-image probe prints when the file is not there at
+// all — distinct from an empty read, which is a file that exists and is empty.
+const identityAbsent = "ABSENT"
+
+// identityReadScript reads the identity out of an image and ALWAYS SUCCEEDS.
+//
+// That is deliberate, and it is the difference between a check and a check-
+// shaped hole. A probe that exits nonzero reaches checkImageSkew as "the oracle
+// is unavailable", which degrades and runs the suite anyway — the right answer
+// for an absent runtime and precisely the wrong one for an image whose identity
+// is missing or malformed, which is evidence of staleness rather than of a
+// harness limitation. So every outcome comes back as a STRING and the comparison
+// decides.
+//
+// The `readlink` rung is DIAGNOSIS, NOT ACCEPTANCE (OQ-IP3 ruled out a
+// compatibility window). On an image built before 2026-09-12 the path is a
+// symlink to a directory, so `cat` fails; recovering the store path it names is
+// what lets identityHint say "this image predates content addressing" instead of
+// leaving the reader with a bare failed probe on the one commit where every
+// image mismatches.
+const identityReadScript = "cat " + identityFilePath + " 2>/dev/null" +
+	" || readlink " + identityFilePath + " 2>/dev/null" +
+	" || echo " + identityAbsent
 
 // skewFixDest is the `skopeo copy` DESTINATION for the runtime the suite
 // detected — the half of the manual fix that is not the same on both backends.
@@ -160,45 +199,56 @@ func parseSkewMode(v string) (skewMode, error) {
 	return skewFail, fmt.Errorf("%s=%q is not one of fail|warn|off", skewEnv, v)
 }
 
-// effectiveSkewMode downgrades skewFail to skewWarn where a mismatch cannot be
-// attributed with confidence, returning the reason for the downgrade ("" when
-// none happened).
+// THERE IS NO PER-PLATFORM DOWNGRADE, AND THAT IS A RULING, NOT AN OMISSION.
+// `effectiveSkewMode` used to sit here and turn skewFail into skewWarn on
+// darwin, because a darwin eval of the old store-path identity could not be
+// compared with a Linux runner's. The identity is content-addressed now
+// (flake.nix, `imageIdentity`), so both hosts compute the same string and the
+// downgrade's premise is false — keeping it would mean the macOS nightly could
+// never fail on a genuinely stale image, which is the one thing the nightly is
+// for. docs/design/darwin-image-provenance.md, OQ-IP1.
+
+// parseImageIdentity validates one side's answer as an identity — the algorithm
+// tag plus a 64-char lowercase hex digest. Kept pure (no exec) so the parse is
+// covered by the -short suite, where no container runs.
 //
-// darwin is the one such case. imageIdentity is built with the HOST pkgs, so a
-// darwin eval and an x86_64-linux eval of the same commit are different store
-// paths — and the macOS nightly loads an image built on an ubuntu runner. The harness cannot tell the
-// two provenances apart from here, and a false "stale image" that reds the
-// nightly is worse than a missed one, so on darwin the finding is reported and
-// the suite proceeds.
-func effectiveSkewMode(mode skewMode, goos string) (skewMode, string) {
-	if mode == skewFail && goos == "darwin" {
-		return skewWarn, "on darwin the image may have been built on a Linux runner, " +
-			"whose imageIdentity legitimately differs from a local eval — reporting instead of failing"
+// It is applied to the SOURCE side (a malformed `nix eval` result is a broken
+// oracle, not a stale image) and by TestImageSkewOracleAnswers to the IMAGE side.
+// checkImageSkew deliberately does NOT apply it to the image side: see
+// identityReadScript — a bad value there is a finding, not a missing oracle.
+func parseImageIdentity(raw string) (string, error) {
+	id := strings.TrimSpace(raw)
+	hex, ok := strings.CutPrefix(id, identityPrefix)
+	if !ok {
+		return "", fmt.Errorf("%q is not an image identity (want %s<64 hex>)", id, identityPrefix)
 	}
-	return mode, ""
+	if len(hex) != 64 || strings.TrimLeft(hex, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("%q is not an image identity: %q is not a 64-char lowercase hex digest",
+			id, hex)
+	}
+	return id, nil
 }
 
-// identityFromLink validates the /etc/yolo-jail-image-identity symlink target as
-// a store path. Kept pure (no exec) so the parse is covered by the -short suite,
-// where no container runs.
-func identityFromLink(link string) (string, error) {
-	link = strings.TrimSpace(link)
-	if !strings.HasPrefix(link, "/nix/store/") || strings.Contains(link, "..") {
-		return "", fmt.Errorf("unexpected %s target %q (want a /nix/store path)",
-			identityLinkPath, link)
-	}
-	return link, nil
-}
-
-// expectedImageIdentity evaluates (never builds) the imageIdentity store path
-// this source tree would bake into the image.
+// expectedImageIdentity evaluates (never builds) the identity this source tree
+// would bake into the image.
+//
+// `.#imageIdentity` is a bare flake attribute, not `packages.<system>.…`, which
+// is how it carries no system; nix falls back to a bare attribute after trying
+// both per-system prefixes, so the spelling is the same on every host.
 //
 // --impure mirrors every other nix invocation in the repo and is not
-// load-bearing here: imageIdentity does not read YOLO_EXTRA_PACKAGES, so the pure
-// and impure evals agree. stderr is dropped on purpose — nix emits
-// untrusted-flake-config warnings and a "Git tree is dirty" notice that would
-// bury the one line we want.
+// load-bearing here: imageIdentity reads neither YOLO_EXTRA_PACKAGES nor
+// nixpkgs, so the pure and impure evals agree. stderr is dropped on purpose —
+// nix emits untrusted-flake-config warnings and a "Git tree is dirty" notice
+// that would bury the one line we want.
 func expectedImageIdentity() (string, error) {
+	return evalImageIdentity()
+}
+
+// evalImageIdentity is expectedImageIdentity with optional extra nix flags, so
+// TestImageIdentityIsSystemInvariant can ask the same question once per
+// `--system` without a second copy of the invocation.
+func evalImageIdentity(extraFlags ...string) (string, error) {
 	if _, err := exec.LookPath("nix"); err != nil {
 		return "", fmt.Errorf("nix is not on PATH")
 	}
@@ -207,40 +257,41 @@ func expectedImageIdentity() (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "nix",
-		"--extra-experimental-features", "nix-command flakes",
-		"eval", "--impure", "--raw", ".#imageIdentity.outPath")
+	argv := []string{"--extra-experimental-features", "nix-command flakes"}
+	argv = append(argv, extraFlags...)
+	argv = append(argv, "eval", "--impure", "--raw", ".#imageIdentity")
+	cmd := exec.CommandContext(ctx, "nix", argv...)
 	cmd.Dir = repoRoot
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("nix eval .#imageIdentity failed: %w", err)
+		return "", fmt.Errorf("nix %s failed: %w", strings.Join(argv, " "), err)
 	}
-	path := strings.TrimSpace(string(out))
-	if !strings.HasPrefix(path, "/nix/store/") {
-		return "", fmt.Errorf("nix eval returned %q, not a store path", path)
-	}
-	return path, nil
+	return parseImageIdentity(string(out))
 }
 
 // loadedImageIdentity asks the loaded image what it was built from, by reading
-// the identity symlink inside it.
+// the identity file inside it.
+//
+// It returns the image's answer VERBATIM (trimmed), valid or not — an error here
+// means the container did not run at all. See identityReadScript for why the
+// difference matters: "the image answered with something that is not an
+// identity" must reach the comparison as a finding, never as a skipped check.
 func loadedImageIdentity(rt, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
 	defer cancel()
 	argv := []string{"run", "--rm"}
-	// --network=none: the probe reads one symlink and needs no network, and
+	// --network=none: the probe reads one file and needs no network, and
 	// skipping netavark cuts it from ~0.5s to ~0.15s. Only for podman — Apple
-	// Container spells its network flags differently, and darwin is report-only
-	// anyway (see effectiveSkewMode).
+	// Container spells its network flags differently.
 	if rt == "podman" {
 		argv = append(argv, "--network=none")
 	}
-	argv = append(argv, image, "readlink", identityLinkPath)
+	argv = append(argv, image, "sh", "-c", identityReadScript)
 	out, err := exec.CommandContext(ctx, rt, argv...).Output()
 	if err != nil {
 		return "", fmt.Errorf("%s %s: %w", rt, strings.Join(argv, " "), err)
 	}
-	return identityFromLink(string(out))
+	return strings.TrimSpace(string(out)), nil
 }
 
 // checkImageSkew compares the loaded image against the source tree and, by
@@ -268,7 +319,7 @@ func checkImageSkew(rt, image string) {
 	}
 	got, err := loadedImageIdentity(rt, image)
 	if err != nil {
-		degraded("cannot read the loaded image's baked yolo-jail version (%v) — "+
+		degraded("cannot read the loaded image's baked identity (%v) — "+
 			"skipping the staleness check", err)
 		return
 	}
@@ -277,10 +328,6 @@ func checkImageSkew(rt, image string) {
 		return
 	}
 
-	mode, downgrade := effectiveSkewMode(mode, goruntime.GOOS)
-	if downgrade != "" {
-		degraded("stale-image finding downgraded to a warning: %s", downgrade)
-	}
 	msg := skewMessage(image, rt, want, got)
 	if mode == skewWarn {
 		log.Printf("[integration] WARNING (proceeding anyway):\n%s", msg)
@@ -320,13 +367,64 @@ func TestImageSkewOracleAnswers(t *testing.T) {
 		t.Fatalf("source-tree side of the staleness check is broken: %v\n"+
 			"Until this works, the suite cannot tell a stale image from a fresh one.", err)
 	}
-	got, err := loadedImageIdentity(rt, image)
+	raw, err := loadedImageIdentity(rt, image)
 	if err != nil {
 		t.Fatalf("image side of the staleness check is broken: %v\n"+
-			"Has flake.nix stopped baking the %s symlink (imageIdentity)?",
-			err, identityLinkPath)
+			"Has flake.nix stopped writing %s (mkOciImage's postBuild)?",
+			err, identityFilePath)
+	}
+	// The image side is parsed HERE and nowhere else on the read path: this is
+	// the test whose job is "the oracle answers", so a malformed value is its
+	// failure. checkImageSkew must keep treating the same value as a finding.
+	got, err := parseImageIdentity(raw)
+	if err != nil {
+		t.Fatalf("image side of the staleness check answered %q: %v\n"+
+			"Has flake.nix stopped writing %s (mkOciImage's postBuild)?",
+			raw, err, identityFilePath)
 	}
 	t.Logf("source tree wants %s; %s has %s", want, image, got)
+}
+
+// TestImageIdentityIsSystemInvariant is the measurement OQ-IP1 turned into a
+// requirement: two hosts of different systems evaluating this commit must agree
+// on the image's identity, or the identity is a local cache key wearing one.
+//
+// It is the guard that makes removing the darwin downgrade safe. The old
+// store-path identity fails it outright — measured on THIS Linux host on
+// 2026-09-12, `imageIdentity.outPath` evaluated to three different store paths
+// for x86_64-linux, aarch64-linux and aarch64-darwin with byte-identical content
+// — which is precisely why the macOS nightly could not vouch for an image an
+// ubuntu runner had built from the same commit.
+//
+// WHAT IT DOES AND DOES NOT MEASURE. `--system` changes the system nix evaluates
+// FOR, not the machine it evaluates ON, so this proves the expression carries no
+// system; it is not a substitute for running the suite on a Mac. That is enough
+// for the property at issue, because the defect was entirely in the expression:
+// a `pkgs.runCommand` reaches the evaluating host's package set, and a
+// `builtins.hashFile` over two files has nothing per-host to reach.
+func TestImageIdentityIsSystemInvariant(t *testing.T) {
+	requireJail(t)
+	want, err := expectedImageIdentity()
+	if err != nil {
+		t.Fatalf("cannot evaluate this tree's image identity: %v", err)
+	}
+	for _, sys := range []string{
+		"x86_64-linux", "aarch64-linux", "x86_64-darwin", "aarch64-darwin",
+	} {
+		got, err := evalImageIdentity("--system", sys)
+		if err != nil {
+			// A system whose eval FAILS is the same defect wearing a different
+			// face: a host there cannot compute the identity either.
+			t.Errorf("--system %s cannot evaluate the identity: %v", sys, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("--system %s evaluates the identity as %s, want %s\n"+
+				"An identity that varies by evaluating system cannot vouch for an image "+
+				"built anywhere else (docs/design/darwin-image-provenance.md, OQ-IP1).",
+				sys, got, want)
+		}
+	}
 }
 
 // skewMessage is the whole point of this file: turn a mystery into an
@@ -343,6 +441,7 @@ func skewMessage(image, rt, want, got string) string {
 	fmt.Fprintf(&b, "  that is not in the code under test.\n\n")
 	fmt.Fprintf(&b, "    source tree wants: %s\n", want)
 	fmt.Fprintf(&b, "    loaded image has : %s\n\n", got)
+	b.WriteString(identityHint(got))
 	fmt.Fprintf(&b, "  Fix (pick one):\n")
 	fmt.Fprintf(&b, "    rebuild + reload, then run the suite:\n")
 	fmt.Fprintf(&b, "        %s=1 go test -count=1 -timeout 0 ./integration\n", rebuildEnv)
@@ -355,4 +454,31 @@ func skewMessage(image, rt, want, got string) string {
 	fmt.Fprintf(&b, "  Note: nix only sees git-TRACKED files, so `git add` a newly created file\n")
 	fmt.Fprintf(&b, "  before rebuilding, or the rebuilt image still won't contain it.\n")
 	return b.String()
+}
+
+// identityHint explains an image-side answer that is not an identity at all, so
+// the reader is told what they are looking at instead of comparing a hash to a
+// string that is obviously not one.
+//
+// The first case is the one commit's worth of noise this change creates. Making
+// the identity content-addressed moves every image's recorded value exactly once,
+// so on the commit that lands it every already-loaded image mismatches and needs
+// one rebuild (OQ-IP3, which ruled that cost accepted over a dual-spelling
+// window). An unexplained "loaded image has: /nix/store/…" would read as a
+// corrupt image; naming it costs four lines and expires on its own, because the
+// shape it recognises can never be produced again.
+func identityHint(got string) string {
+	switch {
+	case strings.HasPrefix(got, "/nix/store/"):
+		return "  That is a STORE PATH, not an identity. This image predates the identity\n" +
+			"  becoming content-addressed (2026-09-12), when the baked value was a symlink\n" +
+			"  to a per-system store path — which is why a darwin host could never vouch for\n" +
+			"  a Linux-built image. EVERY image built before that commit mismatches exactly\n" +
+			"  once, and the rebuild below is the whole fix.\n\n"
+	case got == identityAbsent || got == "":
+		return "  The image carries NO identity. On a freshly built image that means flake.nix\n" +
+			"  has stopped writing " + identityFilePath + " (mkOciImage's postBuild),\n" +
+			"  and the staleness check is blind until it does again.\n\n"
+	}
+	return ""
 }

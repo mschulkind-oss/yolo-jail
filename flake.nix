@@ -66,6 +66,59 @@
   };
 
   outputs = { self, nixpkgs, nixpkgs-x86-darwin, flake-utils, nix2container }:
+    let
+      # ── The image's own identity, for staleness checks ───────────────────
+      # A value that moves when — and only when — an INPUT TO THE IMAGE moves.
+      # Since the Go build left the image derivation, that is exactly
+      # `flake.nix` + `flake.lock`: every package set, FHS link, /etc file and
+      # env entry is spelled in the first, and every nixpkgs version in the
+      # second.  The only other paths this file reads — `goSrc` and
+      # `bin/linux-<arch>` — feed `installPrefix`, which is BIND-MOUNTED at
+      # launch and is not image content, so a Go change cannot make a loaded
+      # image stale and is correctly absent here.
+      #
+      # It is baked into the image as the CONTENTS of
+      # `/etc/yolo-jail-image-identity` and compared against
+      # `nix eval --raw .#imageIdentity` (integration/imageskew_test.go).
+      #
+      # IT IS A CONTENT HASH, AND IT IS DEFINED OUT HERE, FOR ONE REASON:
+      # EVERY OTHER HOST HAS TO BE ABLE TO COMPUTE IT.  It used to be a
+      # `pkgs.runCommand` inside `eachDefaultSystem` whose STORE PATH was the
+      # identity — content identical on every system, path carrying the
+      # evaluating host's `system`.  So a darwin host could not vouch for a
+      # Linux-built image from this very commit: the eval disagreed with the
+      # image, every launch demanded a rebuild it had no Linux builder to
+      # perform, and the macOS nightly went red on that one fact
+      # (docs/design/darwin-image-provenance.md; OQ-IP1 ruled cross-system
+      # invariance a REQUIREMENT — "an identity a second host cannot compute
+      # is not an identity, it is a local cache key wearing one").  Living out
+      # here, where neither `system` nor `pkgs` is in scope, is what makes that
+      # structural instead of a promise: there is nothing per-host to leak in.
+      #
+      # `builtins.hashFile`, not a derivation, because the oracle must be
+      # answerable BY EVAL.  integration/imageskew_test.go asks on every suite
+      # start, and this reaches no nixpkgs at all (~0.1s, against ~0.4s for the
+      # store-path oracle it replaces); turning it into a build would cost
+      # minutes a run and is the one regression worse than the bug.  A fixed-output derivation
+      # would also be system-independent, but its `outputHash` is the NAR hash
+      # of a directory nix cannot know before building it — so an FOD here is
+      # either a build or a hardcoded lie.
+      #
+      # DELIBERATELY NOT COVERED, exactly as before: `YOLO_EXTRA_PACKAGES` (so
+      # every per-workspace `packages:` lib-farm image shares one identity) and
+      # the full/lean/minimal variant flag.  It answers "was this image built
+      # from this flake", never "is it the same variant".
+      #
+      # The leading `sha256:` is there so a bare `cat` of the baked file is
+      # self-describing, and so the Go side can reject a value it does not
+      # recognise rather than comparing two arbitrary strings.
+      imageIdentity =
+        "sha256:" + builtins.hashString "sha256" (
+          "yolo-jail-image-identity v1\n"
+          + "flake.nix ${builtins.hashFile "sha256" ./flake.nix}\n"
+          + "flake.lock ${builtins.hashFile "sha256" ./flake.lock}\n"
+        );
+    in
     flake-utils.lib.eachDefaultSystem (system:
       let
         # See the nixpkgs-x86-darwin input comment: 26.11 throws on x86_64-darwin,
@@ -1076,35 +1129,13 @@
           done
         '';
 
-        # ── The image's own identity, for staleness checks ─────────────────
-        # A store path that moves when — and only when — an INPUT TO THE IMAGE
-        # moves. Since the Go build left the image derivation, that is exactly
-        # `flake.nix` + `flake.lock`: every package set, FHS link, /etc file and
-        # env entry is spelled in the first, and every nixpkgs version in the
-        # second. It is read back OUT of a loaded image by
-        # `readlink /etc/yolo-jail-image-identity` and compared against
-        # `nix eval .#imageIdentity.outPath` (integration/imageskew_test.go).
-        #
-        # It replaces `installPrefix` in that role, which covered the goSrc
-        # fileset + flake.nix and was the right oracle only while the binaries
-        # were baked. It is invariant across the full/minimal variants and across
-        # `packages:` lib-farm images, as installPrefix was, and now also across
-        # every Go change — because a Go change can no longer make a loaded image
-        # stale.
-        imageIdentity = pkgs.runCommand "yolo-jail-image-identity" { } ''
-          mkdir -p $out/etc
-          cp ${./flake.nix} $out/flake.nix
-          cp ${./flake.lock} $out/flake.lock
-          ln -s $out $out/etc/yolo-jail-image-identity
-        '';
-
         # Core packages: everything the integration test suite in
         # integration/ actually touches, plus POSIX essentials.
         # Shared between the full and minimal image variants.
         #
-        # Split in two on purpose: ``jailPrefixLinks`` and ``imageIdentity`` are
-        # OURS, everything below them comes from nixpkgs.  ``imageClosureRoot``
-        # (below) wants the nixpkgs half ALONE, so the weekly flake.lock diff
+        # Split in two on purpose: ``jailPrefixLinks`` is OURS, everything
+        # below it comes from nixpkgs.  ``imageClosureRoot`` (below) wants the
+        # nixpkgs half ALONE, so the weekly flake.lock diff
         # reports what nixpkgs moved and nothing else.  (It used to say
         # ``installPrefix`` here, and the reason was that a flake.lock bump
         # cannot move our Go binaries and the diff should not pay for two `go
@@ -1183,8 +1214,11 @@
         # NOTE the absence: `installPrefix` is NOT here any more, and that
         # absence is the whole change — it is what removes `goSrc` from the image
         # derivation. What is here in its place carries only names
-        # (jailPrefixLinks) and the image's own identity (imageIdentity).
-        corePackages = [ jailPrefixLinks imageIdentity ] ++ corePackagesFromNixpkgs;
+        # (jailPrefixLinks).  `imageIdentity` used to ride along here too, as a
+        # store path whose own name was the identity; it is a plain string now
+        # and the root tree writes it as a file (see `postBuild` below), so it is
+        # no longer a package and no longer in anyone's closure.
+        corePackages = [ jailPrefixLinks ] ++ corePackagesFromNixpkgs;
 
         # Extras that bulk the image up but aren't exercised by the
         # integration test suite.  Kept out of the minimal variant so CI
@@ -1380,12 +1414,12 @@
             # `lndir` also COPIES A SYMLINK BY VALUE (measured 2026-09-09: a
             # source `bin/bash -> /nix/store/…-bash/bin/bash` is recreated with
             # that same target, not pointed at the source link), which is what
-            # keeps two oracles reading as they always have: `readlink /bin/bash`
-            # names the bash store path, and `readlink
-            # /etc/yolo-jail-image-identity` names `imageIdentity`'s store path —
-            # the value integration/imageskew_test.go compares against `nix eval
-            # .#imageIdentity.outPath`.  A `buildEnv` per tier would have made
-            # both a symlink-to-a-symlink and reded the skew check forever.
+            # keeps `readlink /bin/bash` naming the bash store path instead of
+            # naming another symlink; a `buildEnv` per tier would have made it a
+            # symlink-to-a-symlink.  The image's identity oracle used to depend
+            # on the same property — it was a `readlink` of a baked store path —
+            # and deliberately no longer does: `postBuild` writes the identity as
+            # FILE CONTENTS below, which nothing in the join can indirect.
             #
             # The packages appear here only as symlink TARGETS, so this tree is
             # ~27 MB of links; their content is in the tiers below and dedups out
@@ -1435,6 +1469,20 @@
                 echo 'root:x:0:0:root:/home/agent:/bin/bash' > $out/etc/passwd
                 echo 'root:x:0:' > $out/etc/group
                 echo 'nixbld:x:30000:' >> $out/etc/group
+
+                # The image's own identity, as CONTENT — see `imageIdentity` at
+                # the top of this file.  A plain file holding the hash, read back
+                # with `cat`, because the two sides of the staleness check have
+                # to agree ACROSS HOSTS and only content does: this was a symlink
+                # naming a store path until 2026-09-12, and a store path is a
+                # per-system value no second host can compute.
+                #
+                # Written here rather than carried in by a package on purpose.
+                # A package would put the value behind a store path again — the
+                # closure would have to hold it, `lndir` would indirect it, and a
+                # tier change could dangle it.  This file is image content —
+                # one small file in the top layer — and nothing can indirect it.
+                printf '%s\n' '${imageIdentity}' > $out/etc/yolo-jail-image-identity
               '';
             };
           in
@@ -1518,16 +1566,21 @@
               # `imageIdentity`, which is the FINEST identity spellable in this
               # config: nix cannot reference a derivation's own output path, and
               # nix2container's image.json has no name field at all, so nothing
-              # per-image or per-launch can be injected. imageIdentity is a
-              # derivation over flake.nix + flake.lock alone, so the full/minimal/
-              # lean trio and every `packages:` variant SHARE ONE VALUE. That is
-              # enough for "this is ours" and is not a per-image key — the
-              # content tag (image.ImageStoreKey) and the load sentinel remain the
+              # per-image or per-launch can be injected. imageIdentity is a hash
+              # of flake.nix + flake.lock alone, so the full/minimal/lean trio and
+              # every `packages:` variant SHARE ONE VALUE. That is enough for
+              # "this is ours" and is not a per-image key — the content tag
+              # (image.ImageStoreKey) and the load sentinel remain the
               # liveness/identity keys, and the `podman ps` veto still gates every
               # removal. Ownership is not liveness.
+              #
+              # It was a `/nix/store/...` path until 2026-09-12 and is a
+              # `sha256:...` hash now; nothing keys off the value, so the change
+              # costs the label nothing (integration/imagelabel_test.go pins the
+              # spelling).
               Labels = {
                 "org.yolo-jail.owner" = "yolo";
-                "org.yolo-jail.image-identity" = "${imageIdentity}";
+                "org.yolo-jail.image-identity" = imageIdentity;
               };
             };
           };
@@ -1731,11 +1784,6 @@
         # .#installPrefix`) whenever the resolved flake source ships no prebuilt
         # bin/linux-<arch> of its own — i.e. a live checkout.
         packages.installPrefix = installPrefix;
-        # What the image was built FROM, as one store path: the oracle the
-        # integration suite compares against `readlink
-        # /etc/yolo-jail-image-identity` inside a loaded image. See the
-        # definition above for why it is flake.nix + flake.lock and nothing else.
-        packages.imageIdentity = imageIdentity;
         # The /lib symlink farm alone — buildable in seconds, so tests and
         # humans can assert lib discovery (e.g. that a "foo.dev" package
         # spec still lands libfoo.so in /lib) without building an image.
@@ -1832,5 +1880,16 @@
         # `git` shows up as absent from the floor, which is the correct answer).
         yoloNoncontainerFloorNames = noncontainerFloorNames;
       }
-    );
+    )
+    # ── The one output with NO system in it ──────────────────────────────────
+    # What the image was built FROM, as one string: the oracle the integration
+    # suite compares against `cat /etc/yolo-jail-image-identity` inside a loaded
+    # image, reachable as `nix eval --raw .#imageIdentity` (nix falls back to a
+    # bare attribute after `packages.<system>` and `legacyPackages.<system>`).
+    #
+    # It is OUTSIDE `eachDefaultSystem` because it is the same value on every
+    # system and has to stay that way — see its definition at the top for the
+    # nightly that a per-system identity cost. Putting it back inside would
+    # compile, evaluate, and quietly reintroduce the whole defect.
+    // { inherit imageIdentity; };
 }

@@ -330,12 +330,22 @@ there is no sync step.
   suite's `yolo` and the `yolo-entrypoint` it runs come from one tree by
   construction. What a stale image can still be wrong about is what the FLAKE
   decides — baked packages, the `/lib` farm, `/etc`, the image env — so
-  `ensureJailImage` compares `nix eval .#imageIdentity.outPath` (an eval, ~0.3s,
-  never a build) against `readlink /etc/yolo-jail-image-identity` inside the
+  `ensureJailImage` compares `nix eval --raw .#imageIdentity` (an eval, ~0.1s,
+  never a build) against `cat /etc/yolo-jail-image-identity` inside the
   loaded image, and **aborts with the fix command** on a mismatch.
-  `imageIdentity` is the right oracle because it is a derivation over `flake.nix`
+  `imageIdentity` is the right oracle because it is a sha256 over `flake.nix`
   + `flake.lock` and nothing else — exactly the image's input set — while being
   invariant across the full/minimal variants and `packages:` lib-farm images.
+  **It is a CONTENT HASH and it is declared outside `eachDefaultSystem`, so every
+  host computes the same value**: it was a `pkgs.runCommand` whose STORE PATH was
+  the identity until 2026-09-12, and a store path carries the evaluating host's
+  `system` — so a darwin host could not vouch for a Linux-built image of its own
+  commit, every launch there demanded a rebuild it had no Linux builder for, and
+  the macOS nightly went red for six runs on that one fact. Putting it back
+  inside the per-system scope would compile and silently restore all of it
+  (`docs/design/darwin-image-provenance.md`;
+  `integration/imageskew_test.go`'s `TestImageIdentityIsSystemInvariant` is the
+  guard, and the darwin-only downgrade it replaced is gone).
   Knobs:
   `YOLO_TEST_REBUILD_IMAGE=1` forces a rebuild+reload (~45s in-jail);
   `YOLO_TEST_IMAGE_SKEW=warn|off` downgrades the check (`fail` is the default,
