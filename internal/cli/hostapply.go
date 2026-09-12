@@ -26,7 +26,7 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	if !ok {
 		return 2
 	}
-	assert, dryRun, shellInit := false, false, false
+	assert, dryRun, shellInit, revert := false, false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// Tokens the format parse above already consumed. This parser REFUSES an
@@ -46,6 +46,8 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			dryRun = true
 		case a == "--shell-init":
 			shellInit = true
+		case a == "--revert":
+			revert = true
 		default:
 			fmt.Fprintf(errw, "yolo host apply: unexpected argument %q\n\n%s\n", a, hostUsage)
 			return 2
@@ -58,6 +60,28 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// empty stdout while appending the PATH line to the user's rc file (jsonRefusedForPosture).
 	if jsonRefusedForPosture(format, write) {
 		return refuseJSONForActingApply(errw)
+	}
+	// --revert is a DIFFERENT OPERATION, not a modifier of the render, so it takes the whole
+	// command: it consumes the provenance record instead of writing one, has no document to
+	// emit and no wrappers to generate. The two flags it cannot share are refused by name
+	// rather than silently ignored (hostrevert.go).
+	if revert {
+		if shellInit {
+			fmt.Fprintf(errw, "yolo host apply: --revert and --shell-init are different "+
+				"operations — a revert withdraws yolo from your home and has no wrapper "+
+				"directory to put on your PATH.\n")
+			return 2
+		}
+		if outfmt.IsJSON(format) {
+			fmt.Fprintf(errw, "yolo host apply: --revert has no document to emit — it is a "+
+				"dry run by default, and its report IS the thing you read before asserting "+
+				"it.\n")
+			return 2
+		}
+		if rc, refused := refuseHostRevert(errw); refused {
+			return rc
+		}
+		return hostRevert(out, errw, color, write)
 	}
 	// THE DECLARED OWNERSHIP CONTRACT, above every stage for the same reason the refusal
 	// above it is: `--shell-init` runs AFTER the render, so a refusal that only stopped the

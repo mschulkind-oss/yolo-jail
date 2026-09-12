@@ -404,9 +404,19 @@ is **overwritten** with the pack's value. So:
   the dangerous `permissions.allow`/`deny` at the host notch, a hand-authored
   `permissions.deny: ["Read(~/.ssh/**)"]` is **left alone** rather than wiped.
 
-There is no `--revert` and no restore-to-previous: "undo yolo's management" is simply "stop
-declaring the key and re-apply," which drops it (it does **not** bring back what was there
-before yolo — nothing snapshots that).
+There is **no restore-to-previous**, and that is the part to internalise: nothing snapshots
+what a key held before yolo first wrote it, so no verb can bring it back.
+
+What there IS, since 2026-09-11, is **`yolo host apply --revert`** — take yolo back *out* of
+this home. It removes the keys yolo asserted, on the authority of the per-key provenance
+record yolo wrote beside them, and deletes that record; a key you set yourself (recorded
+`host`) is never touched. It is a dry run until you pass `--assert`, and it lists every key
+with the attribution the removal rests on. It needs `host_management: "assert"` — at `"none"`
+yolo wrote nothing to withdraw, and at `"own"` the file is derived output you delete rather
+than retreat from key by key.
+
+The narrower move is unchanged and still the right one most of the time: "stop managing this
+one key" is "stop declaring it and re-apply," which drops it.
 
 Re-run `yolo host apply --assert` any time you change the pack — it re-asserts, idempotently.
 

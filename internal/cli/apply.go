@@ -53,7 +53,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		return 2
 	}
 	var at string
-	var dryRun, sealed, assert bool
+	var dryRun, sealed, assert, revert bool
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// Already consumed by the format parse above; this parser refuses an unrecognized
@@ -81,6 +81,8 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			assert = true // write (the assert posture); default is observe/dry-run
 		case a == "--sealed":
 			sealed = true
+		case a == "--revert":
+			revert = true
 		default:
 			fmt.Fprintf(errw, "yolo apply: unexpected argument %q\n\n%s\n", a, applyUsage)
 			return 2
@@ -127,12 +129,28 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		return applySealed(out, errw, color)
 	}
 
+	if revert && notch != config.ConfinementHost {
+		// The verb consumes the HOST provenance record, which is the only notch that keeps
+		// one (render.Target.ProvenanceDir: jail sidecars live in the workspace and are
+		// removed by discarding the jail). Naming that beats silently reverting nothing.
+		fmt.Fprintf(errw, "yolo apply: --revert is the host notch's — it withdraws yolo from "+
+			"the config files in your real home. Pass `--at host`, or use the ergonomic "+
+			"spelling `yolo host apply` with the same flag.\n")
+		return 2
+	}
+
 	switch notch {
 	case config.ConfinementHost:
 		// The declared ownership contract decides whether there is a host render at all
 		// (hostmanagementgate.go). Both spellings of the verb are one operation (OQ-7), so
 		// both ask — a key that stopped `yolo host apply` and not `yolo apply --at host`
 		// would be a contract with a way around it.
+		if revert {
+			if rc, refused := refuseHostRevert(errw); refused {
+				return rc
+			}
+			return hostRevert(out, errw, color, assert && !dryRun)
+		}
 		if rc, refused := refuseHostManagement(errw); refused {
 			return rc
 		}
@@ -156,7 +174,11 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL
 // home (env-manager plan Phase 4). Default posture is OBSERVE (dry-run): it prints what
 // would change and writes nothing; --assert (write=true) actually renders. Pure RMW, no
-// computed layer, user-scoped, no --revert — the resolved OQ-1..4 model. Non-config
+// computed layer, user-scoped — the resolved OQ-2..4 model. (OQ-1's "no --revert" half was
+// REVERSED on 2026-09-11 by docs/design/config-ownership-and-promotion.md §10 step 3, on
+// grounds that ruling did not have: it named the missing memory as the blocker, and the
+// provenance record is that memory. The verb is hostrevert.go; this render is untouched by
+// it.) Non-config
 // kinds are refused by name via the host FieldSet, and `program` resolves to the host's
 // real dep state (present/missing + the remedy for the detected manager) without running
 // an install — that stays confirm-gated behind env-manager plan Phase 4.3.
@@ -1071,8 +1093,13 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             (a DRY RUN by default — prints what would change, writes nothing)
   yolo apply --at host --assert  actually write: regenerate only the keys yolo manages (pure
                             rmw), leaving your own keys; non-config kinds refused by name
+  yolo apply --at host --revert   take yolo back OUT: remove the keys it asserted, on the
+                            authority of the provenance record it wrote, and forget the home.
+                            Your own keys are never touched. A DRY RUN until --assert.
+                            Needs host_management "assert"; refused at none/own.
   yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
-                            (yolo-jail.local.jsonc, an outstanding capture overlay)
+                            (yolo-jail.local.jsonc, an outstanding capture overlay,
+                            an unset host_management)
   yolo apply --dry-run      show what would change, write nothing
 
 Machine-readable output, at the HOST notch's dry run only (` + "`yolo apply --at host --format json`" + `):
@@ -1087,6 +1114,7 @@ Examples:
   yolo apply                          # provision the jail, launch nothing
   yolo apply --at host                # what would change in your real home?
   yolo apply --at host --assert       # write it
+  yolo apply --at host --revert       # what would withdrawing yolo remove?
   yolo apply --sealed                 # refuse if an undeclared input shaped this
 
 See ` + "`yolo describe`" + ` for what the current description resolves to, and

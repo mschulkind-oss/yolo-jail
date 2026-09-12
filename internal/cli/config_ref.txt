@@ -722,6 +722,14 @@
     the first one.  Under "own" the file is derived and belongs in .gitignore --
     what goes in the dotfiles repo is the pack.
 
+    [bold]--revert[/bold] (`yolo host apply --revert`) is the way back out under "assert": it
+    removes the keys yolo asserted, on the authority of the provenance record it
+    wrote beside them, and deletes that record -- so a later apply is a FIRST apply
+    again.  A key you set yourself is never touched.  It is a dry run until
+    --assert, and it REMOVES what yolo wrote rather than restoring what was there
+    before.  Refused under "own" (the file is derived -- delete it) and under
+    "none" (yolo wrote nothing).
+
     An UNSET key is the default, not a fourth value, and it bites in exactly one
     place: `yolo apply --sealed` refuses while it is unset, beside the undeclared
     inputs it already refuses for.  An environment whose host-ownership contract is

@@ -59,6 +59,15 @@ apply flags:
                   surface, every dependency probe, every skill by destination.
   --shell-init    Append the PATH line for the wrapper dir to your shell rc.
                   yolo otherwise only PRINTS that line — the rc is your file.
+  --revert        Take yolo back OUT of this home: remove the keys it asserted, on
+                  the authority of the provenance record it wrote, and delete that
+                  record. A key you set yourself (recorded "host") is never touched.
+                  A DRY RUN like every other posture here — it lists each key with
+                  the attribution the removal rests on, and --assert performs it.
+                  It REMOVES what yolo wrote; it does not restore what a key held
+                  before yolo wrote it, because nothing snapshots that. Needs
+                  host_management "assert" — refused at "none" (nothing was
+                  written) and at "own" (the file is derived; delete it instead).
   --format json   Emit the dry run as data instead of a report: destinations, losses,
                   blockers, the counts and the outcome. --json is the same flag.
                   Refused with --assert (exit 2): that posture acts, and an acting
@@ -81,6 +90,7 @@ Examples:
   yolo host -p bedrock -- claude      # ... on the bedrock profile, this launch only
   eval "$(yolo host env)"             # the same environment, in this shell
   yolo host apply --assert            # write the config surfaces
+  yolo host apply --revert            # what would withdrawing yolo remove?
 
 ` + "`yolo apply --at host`" + ` is the systematic spelling of ` + "`yolo host apply`" + `; both remain.`
 

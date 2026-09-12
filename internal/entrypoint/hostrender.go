@@ -9,7 +9,12 @@ package entrypoint
 // §6.3, §6.6):
 //   - PURE RMW. Every surface is read-modify-written: yolo regenerates only the keys it
 //     declares (managed + dynamic tables) and leaves every key the agent wrote. No
-//     whole-file compose, so no capture overlay, so no --revert (OQ-4).
+//     whole-file compose, so no capture overlay (OQ-4).
+//     ⚠ "So no --revert" USED TO FOLLOW HERE, and it does not: that inference was the
+//     resolved OQ-1, REVERSED on 2026-09-11 (docs/design/config-ownership-and-promotion.md
+//     §10 step 3). A revert needs to know which keys are yolo's, not a capture overlay, and
+//     the per-key record below is exactly that. hostrevert.go is the verb, and it consumes
+//     that record rather than any sidecar this mode lacks.
 //   - PROVENANCE IS STILL RECORDED. "No sidecars" covers the two CAPTURE sidecars
 //     (last_render, overlay), which pure RMW genuinely has no use for. It does not cover
 //     the per-key winning-layer record: a host render knows which layer won each key, and
