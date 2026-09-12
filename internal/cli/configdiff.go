@@ -582,27 +582,74 @@ func sortedStrings(m map[string]string) []string {
 	return keys
 }
 
+// overlayKeyState is one captured key's relationship to yolo's own last render — the
+// comparison `config diff` prints and `config promote` acts on.
+//
+// IT IS DATA BECAUSE IT HAS TWO CONSUMERS NOW. The comparison used to exist only as
+// formatted lines, and promote needs the same answer as a decision: §5.2 step 2 of
+// docs/design/config-ownership-and-promotion.md drops every REDUNDANT key before
+// classifying anything, and a second implementation of "is this capture identical to what
+// yolo wrote?" is precisely the shape that made this comparison wrong for TOML surfaces
+// until readLastRenderKeys' codec fix — one reader corrected, another left to drift. So
+// the two commands read one function and can only be wrong together.
+type overlayKeyState struct {
+	// Key is the captured top-level key.
+	Key string
+	// Value is the captured value as one-line JSON, for DISPLAY ONLY. `config diff` prints
+	// it; promote must not, and does not — see promotePlanDoc's header on why a plan names
+	// keys and never values.
+	Value string
+	// Was is the last render's value for the key as one-line JSON, empty when the last
+	// render had no such key.
+	Was string
+	// Redundant reports a capture identical to yolo's own last render — the common case,
+	// and the one promote drops rather than declaring a value the layers already produce.
+	Redundant bool
+	// Deleted reports a null tombstone: the key was deleted in-jail, and the capture is the
+	// record of that deletion rather than of a value.
+	Deleted bool
+}
+
+// overlayKeyStates compares a decoded capture overlay against the last-render baseline,
+// key by key, in sorted order. ok=false for a KEYLESS surface (raw/lines), whose overlay
+// is the whole file and has no keys to compare — the caller decides what to say about it.
+func overlayKeyStates(overlay any, baseline map[string]string) ([]overlayKeyState, bool) {
+	m, isObject := overlay.(*jsonx.OrderedMap)
+	if !isObject {
+		return nil, false
+	}
+	states := make([]overlayKeyState, 0, m.Len())
+	for _, k := range sortedKeys(m) {
+		v, _ := m.Get(k)
+		got := oneLineJSON(v)
+		states = append(states, overlayKeyState{
+			Key: k, Value: got, Was: baseline[k],
+			Redundant: v != nil && baseline[k] == got,
+			Deleted:   v == nil,
+		})
+	}
+	return states, true
+}
+
 // overlayDiffLines renders one line per captured key: the key, the captured value,
 // and how it compares to the last render (the bytes yolo itself wrote).
 func overlayDiffLines(overlay any, baseline map[string]string) []string {
-	m, ok := overlay.(*jsonx.OrderedMap)
+	states, ok := overlayKeyStates(overlay, baseline)
 	if !ok {
 		// A keyless surface (raw/lines): the whole file is the captured value.
 		return []string{"  [magenta]<file>[/magenta]  " + oneLineJSON(overlay)}
 	}
 	var lines []string
-	for _, k := range sortedKeys(m) {
-		v, _ := m.Get(k)
-		got := oneLineJSON(v)
+	for _, s := range states {
 		switch {
-		case v == nil:
-			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  [red]deleted in-jail[/red]", k))
-		case baseline[k] == got:
-			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](same as yolo's last render — redundant capture)[/dim]", k, got))
-		case baseline[k] != "":
-			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](was %s)[/dim]", k, got, baseline[k]))
+		case s.Deleted:
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  [red]deleted in-jail[/red]", s.Key))
+		case s.Redundant:
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](same as yolo's last render — redundant capture)[/dim]", s.Key, s.Value))
+		case s.Was != "":
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](was %s)[/dim]", s.Key, s.Value, s.Was))
 		default:
-			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](added in-jail)[/dim]", k, got))
+			lines = append(lines, fmt.Sprintf("  [magenta]%s[/magenta]  %s [dim](added in-jail)[/dim]", s.Key, s.Value))
 		}
 	}
 	return lines
