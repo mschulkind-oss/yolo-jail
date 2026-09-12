@@ -386,14 +386,17 @@ there is skipped. Most of it is irrelevant — image load, stale-container reapi
 lock. Two are not, and both were fixed by moving the work rather than by warning:
 
 - **Pack `launch` contributions** were injected inside the container function, so on this
-  backend a `launch` contribution **did nothing at all**. The two shipped instances failed
-  differently, which is why this ranked as a must-fix rather than a warning: one pack's flags
-  are a plain `launch` kind with no config half to fall back on — a total drop — while
-  another's are the launch half of an autonomy contribution whose config half still rendered,
-  so it degraded to a *partial, silent* downgrade of the autonomy the user asked for. Injection
-  is now hoisted above the backend dispatch and threaded in as a parameter, the same move pack
-  staging made. Nothing downstream ever recovered these flags: both in-jail launcher templates
-  end by exec'ing the real binary and never read the contributions.
+  backend a `launch` contribution **did nothing at all**. What ranked it a must-fix rather than
+  a warning is that the shipped bypass flags failed *differently*, so no one symptom led back
+  to the cause: a flag declared as a plain `launch` contribution had no config half to fall
+  back on and was a total drop, while one declared as the launch half of an autonomy
+  contribution kept its config half rendering, so it degraded to a *partial, silent* downgrade
+  of the autonomy the user asked for. (copilot's `--yolo` was the plain-`launch` case. It moved
+  under `autonomy` on 2026-09-12, which changes where the flag is declared and not whether the
+  hoist is needed.) Injection is now hoisted above the backend dispatch and threaded in as a
+  parameter, the same move pack staging made. Nothing downstream ever recovered these flags:
+  both in-jail launcher templates end by exec'ing the real binary and never read the
+  contributions.
 - **The config-change approval prompt** is called on this arm itself, before the launch. It
   sits in the arm rather than hoisted above the dispatch **on purpose**: the container arm gates
   the *fresh-launch* path only, because attaching to a running jail deliberately skips the check.
