@@ -88,6 +88,24 @@ Global options are listed by 'yolo --help'; the full config reference is
 // runFlags is every flag runRun itself consumes. It exists so the usage text and
 // the parser cannot drift apart silently (TestRunUsageListsEveryRunFlag), and so
 // runHelpRequested's "keep scanning past a run flag" branch has one definition.
+//
+// ⚠ THERE IS NO QUIET FLAG FOR A LAUNCH, AND THERE IS NOT GOING TO BE ONE. This is the
+// list someone reaches for to add `--quiet`, so the rule is written here rather than
+// argued again in the docstring of whichever line the flag would have hidden.
+//
+// P4, docs/design/report-tiers.md §1: DISCLOSURES ARE NEVER SUPPRESSIBLE. Progress and
+// provenance may be COMPRESSED to a line — that is what the boot catalog's one-liner is
+// (§4.7), and it is the whole density control a launch gets — but the decision a
+// disclosure reports stays visible on every launch. A flag that could hide the
+// host-access banner would delete the one thing trust-paths.md's OQ-TP9 kept when it
+// deleted the approval gate; a flag that could hide only progress would save four lines.
+//
+// It is a RULE now rather than three independent conclusions: the version banner, the
+// flake-source line and the jail line each carried their own docstring arguing they must
+// stay unconditional, which is what a policy made one line at a time looks like just
+// before the fourth author makes it differently. Ruled by OQ-RO3, 2026-09-11; pinned by
+// TestTheLaunchHasNoQuietFlag. `YOLO_NO_BANNER` is the one pre-existing hatch and it is
+// deliberately narrow — it silences the version line and nothing else.
 var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes"}
 
 // applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,

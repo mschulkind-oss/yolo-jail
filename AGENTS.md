@@ -472,6 +472,23 @@ there is no sync step.
   unaffected, and an entry naming the same tool as a pack's REPLACES it whole.
 - **Use `shquote.Join`** (`internal/shquote`) for anything crossing into the
   container's `bash -c`.
+- **A LAUNCH HAS NO QUIET MODE, by ruling**
+  ([`OQ-RO3`](./docs/design/report-tiers.md#11-decision-ledger);
+  [P4](./docs/design/report-tiers.md#1-verdict-and-the-principles-it-rests-on) and
+  [§4.7](./docs/design/report-tiers.md#47-the-launch-stream-under-the-same-tiers)).
+  Progress and provenance may be COMPRESSED to a line — the boot
+  catalog's eight `boot catalog:` lines are one line plus a list in `boot.log`, and that
+  compression is the whole density control a launch gets — but a **disclosure is never
+  suppressible**: the pack read/exec banners are the entire trust boundary today
+  (`packhostgrants.go`: *"the boundary today is DISCLOSURE, not consent"*), so a flag
+  that could hide one deletes what
+  [`OQ-TP9`](./docs/design/trust-paths.md#decision-ledger) kept when it deleted the
+  approval gate. `YOLO_NO_BANNER` is the one hatch and it is narrow on purpose (the
+  version line, nothing else). The rule sits on `runFlags` — the list you would reach
+  for to add the flag — and `TestTheLaunchHasNoQuietFlag` fails if it appears.
+  Everything the launcher prints is teed to `<workspace>/.yolo/launch.log`, beside the
+  entrypoint's `boot.log`, so "too much on the terminal" is answered by reading the file
+  rather than by hiding the line.
 - **Podman-in-podman**: when already inside a container the CLI uses
   `--userns=host` (doubly-nested user namespaces fail mounting `/proc`) and
   forces `--net=host` (netavark can't create netns without `NET_ADMIN`). Inner

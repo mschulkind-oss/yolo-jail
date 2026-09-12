@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/banner"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
@@ -560,5 +561,41 @@ func TestProfileFlagTakesBothGrammars(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTheLaunchHasNoQuietFlag is docs/design/report-tiers.md's P4 as a gate: a launch has no
+// quiet mode, by ruling (OQ-RO3, 2026-09-11), and this is what stops the next author deciding
+// otherwise in a docstring.
+//
+// WHY A TEST FOR AN ABSENCE. P4 says a disclosure is never suppressible — the pack read/exec
+// banners are the WHOLE boundary today ("the boundary today is DISCLOSURE, not consent",
+// packhostgrants.go), so a flag that could hide one would delete what trust-paths.md's OQ-TP9
+// kept when it deleted the approval gate. Before the ruling, the case for each unconditional
+// line lived in that line's own docstring, three of them, reached independently; a policy in
+// that shape is one edit away from being made differently. The compression IS the density
+// control: the boot catalog's eight lines became one (§4.7), the list moved to boot.log, and
+// that is the whole of what a launch gets.
+//
+// IF THIS FAILS, the flag is the thing to reconsider, not the test. A launch density control
+// that is genuinely needed goes through the design doc first, because the question it has to
+// answer — which line may a flag hide? — is exactly the one P4 already answered.
+func TestTheLaunchHasNoQuietFlag(t *testing.T) {
+	for _, spelling := range []string{"--quiet", "--silent", "--no-progress"} {
+		if slices.Contains(runFlags, spelling) {
+			t.Errorf("the launch parses %s — P4 (report-tiers.md §1, OQ-RO3) says a launch has "+
+				"no quiet mode: progress may be COMPRESSED to a line, a disclosure may never "+
+				"be hidden, and the disclosures are the whole trust boundary a launch has",
+				spelling)
+		}
+		if strings.Contains(runUsage, spelling) {
+			t.Errorf("`yolo --help` offers %s, which the parser does not honor", spelling)
+		}
+	}
+	// The one hatch, and its narrowness is the point: it silences the version line and
+	// nothing else (banner.go's three "not negotiable" properties).
+	if !strings.Contains(banner.SuppressEnv, "BANNER") {
+		t.Errorf("banner.SuppressEnv = %q — the launch's one suppression hatch must stay the "+
+			"narrow, version-line-only one P4 carves out", banner.SuppressEnv)
 	}
 }
