@@ -483,9 +483,15 @@ stderr report still work, and a jail is never refused over its timing log.
   the container.
 - It does not fix any delay it names. The deferred fixes in [Known gaps](#known-gaps)
   are decided; each waits on a span, not on a ruling.
-- `--verbose` carries no non-timing meaning. The first non-timing diagnostic that
-  wants a gate decides what the flag means; until then it must not sprout meaning
-  by accident.
+- ~~`--verbose` carries no non-timing meaning.~~ **The reservation was spent on
+  2026-09-12** and this bullet no longer describes the flag. `yolo host apply`'s
+  compressed report is D14's first non-timing consumer: `--verbose` (typed, or inherited
+  through `YOLO_VERBOSE`) switches it to the per-destination detail view
+  ([`report-tiers.md`](../design/report-tiers.md#11-decision-ledger),
+  [`OQ-RO2`](../design/report-tiers.md#11-decision-ledger);
+  [`hostapplydetail.go`](../../internal/cli/hostapplydetail.go)). What still holds is the
+  rule underneath it — the flag gains meaning from a named consumer, never by accident —
+  and nothing in *this* system reads it for anything but the timing table.
 - Nothing here crosses the host↔jail boundary (P5). A second spelling that did
   would be a deploy-skew bug, not a convenience.
 
@@ -658,5 +664,5 @@ defence.
 | D11 — the report is once-per-`Run`, guarded by a `*sync.Once` on `Options` | Both teardown arms legitimately run on the signal path, so "the second report is a bug in the arms" is the wrong diagnosis; the pointer form is what vet's copylocks requires of a by-value `Options` |
 | D12 — recording and reporting are separate gates | Folding the config key into `Options.Timing` is the one-line "fix" that reunites them and brings back a table at every jail quit. The classification rule is P1 |
 | D13 — the jail-half variable is `YOLO_JAIL_TIMING` | "Match the flag" argues for `YOLO_TIMING`, which D5 forbids; `YOLO_TIMING_INNER` recreates the prefix collision the rename fixed. The rename itself was long blocked by a false premise — that the variable was a host↔jail wire contract — when both halves are host-side |
-| D14 — `--verbose` gets no vocabulary until something needs one | Giving it meaning ahead of a consumer is a vocabulary nobody has lived with; the first non-timing diagnostic decides |
+| D14 — `--verbose` gets no vocabulary until something needs one | Giving it meaning ahead of a consumer is a vocabulary nobody has lived with; the first non-timing diagnostic decides. **Spent 2026-09-12** by `yolo host apply`'s detail view ([`report-tiers.md`](../design/report-tiers.md#11-decision-ledger)) |
 | D15 — Window A attribution RECORDS (every opt-in) while the table PRINTS (the typed flags) | D12 reads as "attribution is part of the report", and it shipped that way. But D12 governs what prints, and Window A is the one measurement a user cannot ask for in advance — they learn it was slow by waiting through it, after the launch that could have measured it is over. The cost is one bounded exec per quiet quit; the alternative was a number yolo could go and get, and chose not to write down |

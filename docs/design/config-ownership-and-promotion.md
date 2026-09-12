@@ -10,9 +10,13 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** BUILT, 2026-09-12. All eight steps of [§10](#10-what-i-would-build-in-order)
-shipped — the `host_management` key, `own`'s composing render and its capture store,
-`yolo config promote`, and `yolo host apply --revert`. Claims about *current behavior*
+**Status:** BUILT, 2026-09-12 — [§10](#10-what-i-would-build-in-order)'s eight steps landed
+with **one carve-out**: the `host_management` key, `own`'s composing render and its capture
+store, host-side `reset`, `yolo config promote` and `yolo host apply --revert` all ship, but
+step 8's **one-time adoption archive does not exist** ([§6.3.3](#633-what-survives-as-a-guard),
+[`OQ-CO7`](#13-decision-ledger)) — no adoption path writes a `config` bucket, and the code
+records that where it would be written
+([`hostrender.go`](../../internal/entrypoint/hostrender.go)). Claims about *current behavior*
 in [§2](#2-what-exists-today-stated-precisely) were verified or measured between
 2026-09-09 and 2026-09-11 and describe the tree the build acted on; the figures
 re-measured after it say so at the point they are stated.
@@ -32,9 +36,11 @@ selects the host notch's surface mode; `own` makes the host render like a jail;
 `yolo config promote` lifts captured keys into the conventional local pack,
 which renders at every notch.
 
-**Cost.** It reverses three rulings recorded in
+**Cost.** It reverses **four** rulings recorded in
 [`environment-manager-plan.md`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
-on 2026-08-01 — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications).
+on 2026-08-01 — three settled when this was written and the fourth ([`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase))
+settled by [`OQ-CO11`](#13-decision-ledger) on 2026-09-11. See
+[§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications).
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
@@ -244,8 +250,10 @@ The mechanism claim is true. The conclusion is scoped narrower than it reads, an
 the scope is exactly what the user leaves when they adopt host apply.
 
 > [!WARNING]
-> **This design reverses three rulings recorded in another ledger, and that
-> collision is LIVE.** The env-manager plan's ledger
+> **This design reverses four rulings recorded in another ledger.** Three are below;
+> the fourth was a live question when this was written and is now
+> [`OQ-CO11`](#13-decision-ledger)'s ruling. **The collision is no longer unrecorded** — that
+> ledger carries the dated reversal rows as of 2026-09-12. The env-manager plan's ledger
 > ([`environment-manager-plan.md`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase),
 > all dated 2026-08-01) holds:
 >
@@ -260,11 +268,12 @@ the scope is exactly what the user leaves when they adopt host apply.
 > - **[`OQ-1`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)** — *"Is there a `--revert` verb on the host target? → RESOLVED:
 >   NO."* [§10](#10-what-i-would-build-in-order) step 3 is that verb.
 >
-> A fourth is the subject of a live question rather than a settled reversal:
-> **[`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)**
+> The fourth was the subject of a live question when this section was written and is now
+> settled: **[`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)**
 > *retired* the read-in `host` layer — "RESOLVED: YES", never implemented — and
-> named the migration this document's own verb provides. That is
-> [OQ-CO11](#13-decision-ledger), and it is the first thing to rule.
+> named the migration this document's own verb provides.
+> [`OQ-CO11`](#13-decision-ledger) ruled on 2026-09-11 that **the layer stays**, because
+> deciding its binding, failure direction and coverage decides that it exists.
 >
 > The reversal is defensible on grounds [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
 > never weighed: its argument was that `rmw` *protects the agent's keys*, which it
@@ -1366,6 +1375,14 @@ What to do about row 3 is [OQ-CO9](#13-decision-ledger).
 
 ### 6.3.3 What survives as a guard
 
+> [!WARNING]
+> **NOT BUILT as of 2026-09-12, and this section is the net two other places assume exists.**
+> `own` shipped without it: no adoption path writes a `config` bucket, and
+> [§9](#9-risks)'s row for the `assert`→`own` leaf and [§10](#10-what-i-would-build-in-order)'s
+> step 8 both name the archive as the mitigation. The gap is recorded at the adoption arm in
+> [`hostrender.go`](../../internal/entrypoint/hostrender.go). The paragraphs below are the
+> design, unchanged.
+
 **One archive at adoption.** The pre-existing file is copied once to the state dir
 before the first owned render — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on),
 at a jail's `firstMigration` too, into the workspace's own `.yolo/` tree. Not
@@ -1497,7 +1514,7 @@ already has.
 | Risk | Mitigation |
 |---|---|
 | A user picks `own`, and yolo deletes settings they cared about | Adoption is capture-then-regenerate, so the first owned render reproduces the file's undeclared keys ([§6.3.1](#631-adoption-is-capture-then-regenerate)); the classes it does not cover are in [§6.3.2](#632-the-three-classes-adoption-does-not-cover), plus the one-time archive |
-| A user on `assert` switches to `own` and silently loses a leaf under a managed object (`permissions.ask`) | Adoption must drop at `rmw`'s granularity ([§6.3.1](#631-adoption-is-capture-then-regenerate)); until it does, the archive is the only net, because `confirmHostLosses` is off once provenance exists |
+| A user on `assert` switches to `own` and silently loses a leaf under a managed object (`permissions.ask`) | Adoption must drop at `rmw`'s granularity ([§6.3.1](#631-adoption-is-capture-then-regenerate)) — **shipped 2026-09-12**, so the leaf survives. ⚠ The fallback this row named is not there: the archive was never built ([§6.3.3](#633-what-survives-as-a-guard)), so for any class adoption still drops there is **no net at all**, `confirmHostLosses` being off once provenance exists |
 | Promotion silently demotes a key that then reverts | Precedence check is a **refusal**, not a warning ([§5.4](#54-promotion-moves-a-key-down-the-stack)) — and the class is empty for `--to local`; the check protects `--to pack:<name>` |
 | A credential is promoted into a pack, and the pack is pushed — or already sits in a sidecar | Promote's deny-list ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot), new work); `--force` is per-key and named in output; the sidecar half is a capture-time question at every notch ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)), listed for the roadmap |
 | The local pack becomes an unreviewable pile of promoted keys | Every promotion is an ordinary edit to a readable `pack.json`; `yolo pack lint` and `footprint` already report its claims |
@@ -1565,7 +1582,8 @@ already has.
 8. **`own`:** the host notch renders `stateful`, **with the host capture store
    ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)) and
    host-side `reset` in the same commit** — adoption is unsafe without either
-   ([§6.3.3](#633-what-survives-as-a-guard)) — plus the one-time archive, the
+   ([§6.3.3](#633-what-survives-as-a-guard)) — plus the one-time archive (⚠ **the one part of
+   this step that did NOT ship**; see [§6.3.3](#633-what-survives-as-a-guard)), the
    keyless carve-out [OQ-CO9](#13-decision-ledger) rules, and **adoption narrowed to `rmw`'s
    granularity** ([§6.3.1](#631-adoption-is-capture-then-regenerate)), without
    which `own` is not zero-bytes on an `assert` home. Last because it is the only

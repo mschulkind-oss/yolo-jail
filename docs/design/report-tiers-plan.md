@@ -8,13 +8,14 @@ summary: "Parking lot for the implementation material that surfaced while writin
 
 # Report tiers — implementation sketch
 
-**Status:** SKETCH — incomplete, and unstable while questions are open. Opened 2026-09-10 beside
-[`report-tiers.md`](report-tiers.md), which owns every behavioral decision; where the two disagree,
-**the design wins**. This is **not a hand-off artifact** — nothing may be built from it while it says
-SKETCH. The `implementation-plan` skill owns what it must become first, against the tree, once the
-design's questions are ruled.
+**Status:** CONSUMED — the design shipped on 2026-09-12 and this sketch is history. Opened 2026-09-10
+beside [`report-tiers.md`](report-tiers.md), which owns every behavioral decision and is the doc to
+read; where the two disagree, **the design wins**. It is kept for the traps it names, not as a
+hand-off: the build order it points at is [§9](report-tiers.md#9-what-i-would-build-in-order) of the
+design, and every question it treats as open was ruled on 2026-09-11.
 
-Every anchor below was read on 2026-09-10 at `48f47e56`.
+Every anchor below was read on 2026-09-10 at `48f47e56` and describes the tree the build acted on,
+not today's.
 
 ## The survey grows
 
@@ -114,8 +115,9 @@ Every anchor below was read on 2026-09-10 at `48f47e56`.
 - `depcheck` already computes the remedy and the package-manager fallback
   (`applyhostdeps.go:143-158`); running it is what does not exist. Whatever runs it is Phase 4.3's
   shape, and this design only requires that a NO aborts.
-- Scope of the fatal is blocked on [OQ-RO7](report-tiers.md#OQ-RO7) — a predicate over
-  `packdecl.Kind`, not a structural difference.
+- Scope of the fatal was blocked on [OQ-RO7](report-tiers.md#11-decision-ledger) — a predicate over
+  `packdecl.Kind`, not a structural difference. **Ruled 2026-09-11:** both kinds are fatal and only
+  `program` is offered an install.
 
 ## The manual, and the gate that has to grow with it
 

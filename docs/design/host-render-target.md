@@ -52,6 +52,20 @@ below).
 > **[§6.1](#61-finding-yolo-already-does-this-and-it-is-destructive) stays in the doc verbatim and must not be softened**: it is the measured
 > evidence that the target was never a parameter, and its probes are what justified
 > steps 1 and 3. The finding is historical; the diagnosis is not.
+>
+> **Postscript 2, 2026-09-12 — three more of the body's claims were superseded by
+> [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md), which shipped that
+> day.** Each is marked in place; they are listed together here because they are one change.
+> [§6.3](#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output)'s rule
+> *"on a host target, every surface is `rmw`"* is now the `assert` row of a three-value
+> user-scope `host_management` key rather than the whole answer;
+> [§6.5](#65-the-posture-stated-as-a-table)'s `own` row is that key's third value, never the
+> per-surface opt-in this doc guessed at, and `observe` is no longer a word the report uses;
+> and [§7.2](#72-the-human-manages-their-own-machine)'s `--revert` — ruled away on 2026-08-01
+> and marked for deletion — was **reinstated and built** as `yolo host apply --revert`, on the
+> host provenance record rather than a reconcile sidecar. [§9.3](#decision-ledger)'s refusal
+> gained one exemption the same day. The mechanism arguments underneath all three are intact;
+> what moved is which of them a given host render runs.
 Started as *"how could we pull all of this pack stuff out of yolo, yet still use it in yolo,
 but also manage the host configs — a separate util"*; the measurement said the extraction is
 the wrong shape ([§1.3](#13-what-this-measurement-means), [§2.3](#23-extraction-settled-and-the-answer-is-no)), so **this doc designs the capability inside yolo.** The
@@ -759,11 +773,15 @@ reads two different files:
 ```
    ~/.claude/settings.json  (host, :ro at /ctx)  ──►  layer `host`
                                                        │
-                     defaults < host < workspace < overlay < computed < lua < managed
+                     defaults < host < workspace < overlay < computed < managed
                                                        │
                                                        ▼
                               /home/agent/.claude/settings.json  (output)
 ```
+
+(A `lua` layer sat between `computed` and `managed` in this diagram until the Lua config
+transform was removed on 2026-09-11 — [`lua-transform-removal.md`](lua-transform-removal.md).
+Nothing else about the ordering moved.)
 
 On a host target there is only one file, so the composition becomes a **fixpoint over its
 own output**. Compose twice and yolo's managed keys are indistinguishable from the user's
@@ -798,7 +816,8 @@ two that needed it in a jail.
 
 That has a crisp consequence worth stating as a rule:
 
-> **On a host target, every surface is `rmw`.** The reason is not "the editor and yolo are
+> **On a host target, every surface is `rmw`.** *(True as written until 2026-09-12; now the
+> `assert` row of `host_management` — see the warning below.)* The reason is not "the editor and yolo are
 > the same person" (a loose framing — a host agent edits its own config constantly, and that
 > is fine). It is that **`rmw` only ever rewrites the keys yolo declares** (`managed` +
 > dynamic tables), filling absent `defaults` and touching nothing else — so an agent's own
@@ -809,17 +828,24 @@ That has a crisp consequence worth stating as a rule:
 > option for a key yolo owns. `computed`-mode overwrite-every-*whole-file* is unacceptable
 > here for the same reason probe 2 is a bug. *(Confirmed 2026-08-01, env-manager plan [OQ-4](../plans/environment-manager-plan.md#blocks-phase-4-host-render).)*
 
-> [!NOTE]
-> **Challenged 2026-09-09 as SCOPED rather than wrong.** The rule above holds for a host
-> file the human owns and yolo asserts keys into. It is silent about the user who has
-> ADOPTED `yolo host apply` as their source of truth — for whom "undeclared keys are
-> preserved for free" is not a benefit but the thing they are trying to stop, and who wants
-> composition, a capture overlay and a `--revert` exactly as a jail has them.
-> [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) argues that the
-> missing variable is an ownership DECLARATION rather than a notch, and proposes a
-> user-scope `host_management` key that selects the mode. It does not dispute this
-> paragraph's mechanism, and it keeps the one asymmetry that survives: deletion from a real
-> home. Nothing is built.
+> [!WARNING]
+> **SUPERSEDED 2026-09-12 — the rule above is now the `assert` row of a three-value key, not
+> the host target's whole answer.** It was challenged on 2026-09-09 as SCOPED rather than
+> wrong: it holds for a host file the human owns and yolo asserts keys into, and is silent
+> about the user who has ADOPTED `yolo host apply` as their source of truth — for whom
+> "undeclared keys are preserved for free" is not a benefit but the thing they are trying to
+> stop, and who wants composition, a capture overlay and a `--revert` exactly as a jail has
+> them. [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) ruled that
+> the missing variable is an ownership DECLARATION rather than a notch, and **that design is
+> BUILT**: a user-scope `host_management: none | assert | own` key
+> ([`internal/config/hostmanagement.go`](../../internal/config/hostmanagement.go)) selects the
+> surface mode the host renders in, and the mode census — not this paragraph — is what
+> `yolo host apply` asks ([`internal/entrypoint/hostrender.go`](../../internal/entrypoint/hostrender.go)).
+> `none` renders nothing, `assert` is the `rmw` above, and `own` composes the whole file with
+> a host capture store at `<home>/.local/share/yolo-jail/host-capture/`. The mechanism claim
+> is untouched — `rmw` really does preserve the agent's keys for free — but **"every surface
+> is `rmw`" is no longer true of every host render**, and the one asymmetry that survives is
+> still deletion from a real home.
 
 ### 6.4 What else changes on a host target
 
@@ -864,10 +890,23 @@ renderer is allowed to do*. This is `Target.Posture` from [§3.3](#33-what-each-
 |---|---|---|---|
 | `observe` | host files, sidecars | nothing | `yolo config apply --host --dry-run` — what would change |
 | `assert` | host files, sidecars | only keys the pack declares `managed`, recorded in a sidecar | the real product: keep your MCP servers in sync across five agents |
-| `own` | host files | the whole file, backing up first | opt-in per surface, for someone who wants home-manager semantics |
+| `own` | host files | the whole file, backing up first | opt-in, for someone who wants home-manager semantics |
 
-`observe` is the default and `own` needs a per-surface opt-in. Note what this makes
-possible that nothing currently does: **`assert` across every agent from one declaration**.
+`observe` is the default.
+
+> [!WARNING]
+> **Two corrections, both 2026-09-12.** `own` shipped as a value of the **user-scope
+> `host_management` key**, never as a per-surface opt-in, and it is an OWNERSHIP axis rather
+> than a third value of `Target.Posture` — the posture dial that reaches the user is the
+> two-valued dry-run/`--assert` one, and the word `observe` no longer appears in the report
+> at all ([`report-tiers.md`](report-tiers.md#46-the-report-vocabulary-and-where-the-rationale-goes)). Read
+> [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#4-declaring-ownership--the-host_management-key)
+> for the key and [its §6](config-ownership-and-promotion.md#6-the-host-as-a-notch-like-any-other)
+> for what `own` composes; this table is the shape the argument arrived at, not the shipped
+> surface.
+
+Note what this table makes possible that nothing currently did: **`assert` across every agent
+from one declaration**.
 That is the actual unmet need — you have five agents that each want the same MCP server in
 a different dialect, and the per-agent `derive` Lua slot already expresses the reshape
 (`packs/<agent>/derive.lua`, run through `internal/agentcfg/luahook`; this replaced the
@@ -966,6 +1005,21 @@ $ yolo config apply --host              # assert: only declared keys, records a 
 $ yolo config apply --host --revert     # removes exactly what the sidecar says it added
 ```
 
+> [!NOTE]
+> **`--revert` SHIPPED on 2026-09-12, and its spelling is `yolo host apply --revert`.** It was
+> ruled away on 2026-08-01 — env-manager plan
+> [`OQ-1`](../plans/environment-manager-plan.md#blocks-phase-4-host-render), whose consequence
+> line told a later author to *strike this design from [§6.5](#65-the-posture-stated-as-a-table),
+> [§7.2](#72-the-human-manages-their-own-machine) and [§9.5](#9-open-questions--the-discussion-part)* —
+> and that ruling was reversed by
+> [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#10-what-i-would-build-in-order)
+> step 3.
+> **Do not strike it.** What it consumes is the per-key host provenance record
+> (`<home>/.local/share/yolo-jail/host-provenance/<agent>-<name>.provenance`), not a reconcile
+> sidecar, so the sentence below is right about the shape and wrong about the file: a key
+> recorded `host` — one you set yourself — is never touched. It needs `host_management: "assert"`;
+> under `own` the file is derived output you delete rather than retreat from key by key.
+
 Three things to notice. `mise/config` is *refused* rather than truncated — probe 2 turned into
 a designed outcome, and it is refused because `render.Host()` declares `Tables` empty rather
 than because someone remembered to add a check ([§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)). The INAPPLICABLE block is `FieldSet`
@@ -1052,7 +1106,7 @@ compacted into the ledger and kept in place only as anchors.
 | ID | Ruling / Outcome | Date | Settled in / Evidence |
 | :--- | :--- | :--- | :--- |
 | 9.1 | **The second sense** — yolo is an interface for describing environments agents run in; the host target is one notch of a `confinement` dial, not a special case | 2026-07-27 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md); shipped as `internal/render/confinement.go` + the `confinement` config key (`internal/config/confinement.go:45`) |
-| 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented | 2026-08-23 (verified) | `refuseHostSideWrite`, `internal/cli/configdiff.go:84-90` |
+| 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented. **Amended 2026-09-12:** `reset` is now EXEMPT under `host_management: own`, because that contract answers the guard's own premise — the files are yolo's derived output, so truncating one to its pure render is the operation working rather than data loss, and adoption depends on it. `capture` stays refused at every contract, deliberately | 2026-08-23; amended 2026-09-12 | `refuseHostSideWrite` / `hostOwnsSurfaces`, [`internal/cli/configdiff.go`](../../internal/cli/configdiff.go) |
 | 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped) argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go:284-296`), with the two rejected alternatives written into the doc comment |
 | 9.7 | **Fixed** — macos-user is the `guest` notch and receives packs | 2026-08-23 (verified) | `YOLO_PACK_ROOT` set at `internal/macosuser/runplan.go:200-210`, asserted `:314`; `render.GuestProfileMacOS` (`confinement.go:130`) |
 | 9.8 | **A real fourth row, and it needed no new concept** — as predicted. Declared in the vocabulary; no backend fills it yet | 2026-08-23 (verified) | `render.GuestProfileLinux()` = namespaces + Landlock (`internal/render/confinement.go:136`) |

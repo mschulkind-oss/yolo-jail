@@ -244,9 +244,16 @@ classified by whether it is part of the definition:
 | Tier | Inputs | nix analogue |
 |---|---|---|
 | **Locked** (reproducible, pinned) | nixpkgs + the image (`flake.lock`); the pack set with per-pack commit pins and host-access approvals (`packs.lock.json`) | `flake.lock` revs |
-| **Declared** (named by the definition) | `yolo-jail.jsonc`; pack `contributes[]` — surfaces, `defaults`/`managed`, `derive`; the workspace transform `yolo-jail.config.lua`; inline `env_sources` entries | `flake.nix` |
-| **Declared-impure** (named, but the *content* is external machine state) | the user config `~/.config/yolo-jail/config.jsonc`; `include_if_found` targets; `env_sources` dotenv *files* (secret values); the user `config.lua`; `mise_tools` (versions declared, toolchains fetched); the **`host` layer** (§below) | a fixed-output derivation — impure, but *named* |
+| **Declared** (named by the definition) | `yolo-jail.jsonc`; pack `contributes[]` — surfaces, `defaults`/`managed`, `derive`; inline `env_sources` entries | `flake.nix` |
+| **Declared-impure** (named, but the *content* is external machine state) | the user config `~/.config/yolo-jail/config.jsonc`; `include_if_found` targets; `env_sources` dotenv *files* (secret values); `mise_tools` (versions declared, toolchains fetched); the **`host` layer** (§below) | a fixed-output derivation — impure, but *named* |
 | **Undeclared** (participates, nothing names it) | `yolo-jail.local.jsonc` (auto-merged, gitignored); the **capture overlay** (outranks every declared layer, nothing declares *it*) | `--impure`, silently |
+
+Two inputs left this table on 2026-09-11: the workspace `yolo-jail.config.lua` (Declared) and
+the user `~/.config/yolo-jail/config.lua` (Declared-impure) were the Lua config transform's two
+scripts, and nothing loads either since it was removed
+([`lua-transform-removal.md`](lua-transform-removal.md)). The classification they had is the
+reason they are worth naming here: the workspace one was the only Declared input that *executed
+code*.
 
 Sealing's rule is one line against this table: **`--sealed` refuses the Undeclared tier and
 reports the Declared-impure tier; the Locked and Declared tiers are the definition.** It does
@@ -851,11 +858,11 @@ there and from `BACKLOG.md`; the `OQ-EM` spellings are this doc's own and start 
 | — | Sealing is a **host-side** check; it needs no container | 2026-07-31 | [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails) | ✅ |
 | — | Sealing (input closure) and dep-checking (environment sufficiency) are two guarantees, not one — they split the moment the toolchain leaves the image | 2026-07-31 | [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails) | ✅ two verbs |
 | — | Three notches on the surface, **composable primitives underneath** — presets, not monoliths | 2026-07-31 | [§4.0](#40-why-the-middle-notch-is-not-called-sandbox) | ✅ `internal/render/confinement.go` |
-| OQ-3 | Retire the read-in `host` layer; express personal settings as a **local pack** instead | 2026-08-01 | [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails) | ❌ **not implemented** — see [`OQ-EM2`](#OQ-EM2) |
-| OQ-4 | On the host notch, pure `rmw` — yolo rewrites only the keys it declares; no whole-file compose, no capture overlay | 2026-08-01 | [§4.2](#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) / plan [§4.2](#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) | ✅ |
+| OQ-3 | ~~Retire the read-in `host` layer; express personal settings as a **local pack** instead~~ **REVERSED 2026-09-12** — never implemented, and now superseded: [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#13-decision-ledger)'s [`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger)/[`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger) ruled that **the layer stays**, because deciding its binding, failure direction and coverage decides that it exists. The declaration moved onto the surface and the read fails closed ([`internal/packload`](../../internal/packload), [`internal/agentcfg/manifest`](../../internal/agentcfg/manifest)) | 2026-08-01; reversed 2026-09-12 | [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails); see [`OQ-EM2`](#10-open-questions) |
+| OQ-4 | ~~On the host notch, pure `rmw` — yolo rewrites only the keys it declares; no whole-file compose, no capture overlay~~ **REVERSED 2026-09-12** — `rmw` is now the `assert` value of the user-scope `host_management` key, and `own` composes the whole file with a host capture store. The mechanism claim still holds for `assert`; what changed is that it is no longer the host notch's only mode ([`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#13-decision-ledger), [`OQ-CO3`](config-ownership-and-promotion.md#13-decision-ledger)) | 2026-08-01; reversed 2026-09-12 | [§4.2](#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) / plan [§4.2](#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) | ⚠ reversed, and the reversal is built |
 | OQ-11 | A pack encodes its two autonomy postures as a dedicated `autonomy` **kind**, not a `when:` discriminator — so a bypass key cannot be left in the unconditional half by accident | 2026-08-01 | [§4.2](#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) | ✅ |
 | OQ-8 | The dep-checker boundary is a **declared schema** a third-party doctor can read, not an importable Go package | 2026-08-01 | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) | ✅ `install_hints` + `internal/depcheck/` |
-| OQ-9 | Offer-to-run confirms are **batched by elevation class**, `sudo` first, never per-command | 2026-08-01 | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) | ❌ no consumer exists |
+| OQ-9 | Offer-to-run confirms are **batched by elevation class**, `sudo` first, never per-command | 2026-08-01 | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) | ⚠ **a consumer exists since 2026-09-12, and it reverses half of this row.** `yolo host apply --assert`'s dependency gate ([`internal/cli/applyhostdepgate.go`](../../internal/cli/applyhostdepgate.go)) offers the install behind **one** prompt listing every missing dependency — not one per elevation class — and **a decline is FATAL at the prompt**, where this row's *"the manifest is still the floor"* made it non-fatal. [`report-tiers.md`](report-tiers.md#11-decision-ledger) [`OQ-RO6`](report-tiers.md#11-decision-ledger)/[`OQ-RO7`](report-tiers.md#11-decision-ledger) rule that reversal for this verb and state the reason: an `--assert`'s promise is a ready environment. The elevation-class batching itself is still unbuilt |
 
 > [!WARNING]
 > **A trap this ledger exists to preserve: an unsealed `describe --hash` is worse than no hash.**
@@ -910,15 +917,30 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    on 2026-08-01 — drop settings-inheritance, express personal settings as a local pack — and
    nothing has been done in the ~3 weeks since. Meanwhile the layer's cost has grown in a way the
    original ruling did not price: the `host` provenance a user can actually *see* is derived from
-   a hand-maintained two-entry map, `surfaceHasHostLayer` (`internal/cli/configls.go:196-202`,
+   a hand-maintained two-entry map, `surfaceHasHostLayer` (in `internal/cli/configls.go`,
    listing only `claude/settings` and `pi/settings`), **not** from the per-surface `HostSource`
-   the boot render actually reads (`internal/agentcfg/manifest/manifest.go:142`, consumed at
-   `internal/entrypoint/packsurfaces.go:328,331`). A pack surface with a real `HostSource`
+   the boot render actually reads ([`manifest.go`](../../internal/agentcfg/manifest/manifest.go),
+   consumed in [`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)). A pack surface
+   with a real `HostSource`
    therefore takes a machine-shaped input that `config ls` does not show and `describe` never
    mentions. **What this decides:** whether the fix is *removal* (execute [`OQ-3`](#9-decision-ledger)) or *disclosure*
    (derive the display from `HostSource` and report the row as a declared impurity in
    `--sealed`, per [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails)) — they are different work, and doing the cheap one first forecloses
    nothing but does spend effort on a layer already voted off.
+
+   > [!IMPORTANT]
+   > **Both halves of this question were answered elsewhere, and the paragraph above describes a
+   > tree that no longer exists (noted 2026-09-12; the ruling is recorded, the bookkeeping is
+   > not).** *Removal:* [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#13-decision-ledger)'s
+   > [`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger) ruled that the layer
+   > **stays** and supersedes [`OQ-3`](#9-decision-ledger) — deciding a mechanism's binding,
+   > failure direction and coverage decides that it exists. *Disclosure:*
+   > [`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger) moved the declaration onto
+   > the surface and made coverage a visible per-surface yes/no, and the two-entry
+   > `surfaceHasHostLayer` map this question is built on was **deleted** on 2026-09-09 (both
+   > columns are derived now — [`host-render-target.md`](host-render-target.md#0-the-one-paragraph-version)'s
+   > postscript, item 1). What is left is not a design question but a bookkeeping one: whether
+   > this entry is retired outright, which moves a 💬 count the roadmap owns.
 
    <!-- vantage: oq id=OQ-EM2 leaning="Execute OQ-3 as ruled, but derive the display from `HostSource` first and cheaply — the removal has a real migration cost and disclosure is the honest interim. The one option to reject is leaving it as an undisclosed impure input." -->
 

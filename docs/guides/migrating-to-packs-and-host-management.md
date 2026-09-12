@@ -69,10 +69,10 @@ nothing.
 - **Nothing is active by default.** An empty config gives you a jail with a shell and no
   agent. You opt in with the `packs` key.
 - **Your personal `~/.claude/settings.json` is still a composed config layer — but it is no
-  longer the *durable* place to keep settings.** The shipped `claude` pack grants the file
-  with a `reads-host` entry; `packload.hostSourceFor` matches that grant to the
-  `claude/settings` surface by basename, and the boot render reads it every launch as the
-  surface's `host` layer. So a key you put there does reach every jail, and
+  longer the *durable* place to keep settings.** The shipped `claude` pack's `claude/settings`
+  surface declares `"readsHost": true`; the launcher mounts your own copy of the file under
+  `/ctx`, and the boot render reads it every launch as the surface's `host` layer. So a key
+  you put there does reach every jail, and
   `yolo config ls` names `host` among the surface's layers. What that layer cannot do is
   travel: it is one file on one machine, it sits below every other layer, and — now that
   [`yolo host apply`](#part-2--manage-your-host) *writes* the same file — part of it is a
@@ -84,7 +84,12 @@ nothing.
   silently composes into what yolo writes". Both were wrong, and had been since they were
   written: `TestConfigureClaudePrismComposesTheHostLayer` and
   `TestConfigureClaudePrismStripsHostMCPServers` in `internal/entrypoint` both fail if
-  either half of the wiring is removed.)*
+  either half of the wiring is removed. Re-corrected 2026-09-12: the binding used to be a
+  separate `reads-host` contribution matched to the surface by BASENAME, through
+  `packload.hostSourceFor`. That match is gone — a surface declares its own host layer now,
+  and the `/ctx` path is derived from the surface's own path — so a grant that stopped
+  matching can no longer un-bind a host layer in silence. The `reads-host` KIND stays, for
+  the `host_files` key below, whose entries have no mirrored twin to derive from.)*
 
 Check where you are today:
 
@@ -331,31 +336,50 @@ $ yolo describe --hash    # a sha256 pin, for CI / cache keys
 
 ### Step 2: preview the host render (writes nothing)
 
-`yolo host apply` renders your packs' **config surfaces** into your real `$HOME`. It defaults
-to **observe** (a dry-run) — it prints what it *would* do and writes nothing:
+`yolo host apply` renders your packs' **config surfaces** into your real `$HOME`. It is a
+**dry run** unless you pass `--assert` — it prints what it *would* do and writes nothing:
 
 ```console
 $ yolo host apply
-host apply  home /home/me  posture observe (dry-run)
-  claude/settings          would render  /home/me/.claude/settings.json
-  claude/config            skipped: only ${workspace}-keyed keys, which have no host referent
-    skipped ${workspace}-keyed (no host referent): projects.${workspace}.enableAllProjectMcpServers, projects.${workspace}.hasTrustDialogAccepted
-  reads-host refused — reads-host carries a host file INTO a jail — meaningless when there is no jail
-  state      refused — state names a jail-writable home subtree — off-container the home simply is writable
-observe only — nothing written. Re-run with --assert to apply.
+host apply — dry run into /home/me; nothing is written
+  6 kinds do not apply at the host notch: env, hook, loophole, profile, provider, state (`yolo config-ref` says why)
+  autonomy   guarded posture — permission prompts stay ON; folded into the config surfaces below
+  claude/settings      would render  /home/me/.claude/settings.json
+    ⚠ would overwrite your existing value for: permissions.defaultMode
+  ⚠ 3 skills in your agent skill dirs are yours, not yolo's, and would move into your local pack: house-rules, review, triage
+    → to keep one out of yolo's hands, remove it from the agent dir before applying
+  1 of your values would be replaced in 1 file: permissions.defaultMode
+    no remedy: these keys are managed by the packs that declare them, and a config-overlay folds BELOW the managed layer, which still wins — so there is no way to keep your value at this notch yet
+An --assert would complete.
+  2 config files would change · 3 skills would move into your local pack · 5 destinations already in sync
+  1 of your values would be replaced in 1 file · 2 declared dependencies present · first apply into this home
+dry run — nothing was written into /home/me. `--assert` applies; `--verbose` lists every destination.
 ```
 
+**The report ends with its own result** and states everything above it in the units you care
+about — files, keys, skills. Every line is either a change, a loss, or a blocker; a destination
+that is already in sync is counted, not listed. `--verbose` prints the per-destination view
+instead (every surface, every `program` probe, every pruned key) — that is where the paths below
+show up, and it is the long form this compressed report replaced on 2026-09-12.
+
 Three things this tells you — but note the last is a real gap, not honesty:
-- **Only config surfaces port.** Kinds that need a container (`reads-host`, `state`,
-  `files`, and `mount` if a pack declares one) are **refused by name** — a copy is never
-  a silent substitute for a mount. A `${workspace}`-KEYED *key* has no host referent, so it
-  is **pruned by name** — but only that key: the rest of the surface still renders. Above,
-  the shipped `claude` pack's `config` surface carries nothing *but* those two per-jail
-  trust flags, so with no other pack contributing to it the whole surface is skipped. Add a
-  pack that contributes, say, `mcpServers` to `claude/config` and the same surface renders,
-  still naming the two pruned keys. (This used to be a surface-level *refusal*, which made
-  all of `~/.claude.json` — including user-scope MCP servers — unreachable at the host notch
-  because of two unrelated keys.)
+- **Not every kind ports, and the ones that do not are named once.** Two different reasons
+  fold into one line. A kind the host notch cannot honor at all — `state`, `mount`,
+  `reads-host`, `loophole` — has no meaning without a container, and a copy is never a silent
+  substitute for a mount. A kind it *could* express but has no host renderer for — `env`,
+  `launch`, `hook`, `provider`, `profile` — is named in the same breath, because the reader's
+  question and its answer are the same either way. (`files` is NOT in either group: since
+  2026-08-02 a pack's owned tree is **written** into your real home rather than bound into a
+  jail.) The word is `do not apply`, never *refused* — a kind that stopped nothing did not
+  refuse anything — and `yolo config-ref` carries the reason per kind, which is where the
+  ~40-word paragraphs this line replaced now live. A `${workspace}`-KEYED *key* has no
+  host referent, so it is **pruned by name** under `--verbose` — but only that key: the rest of
+  the surface still renders. The shipped `claude` pack's `config` surface carries nothing *but*
+  those two per-jail trust flags, so with no other pack contributing to it the whole surface is
+  skipped. Add a pack that contributes, say, `mcpServers` to `claude/config` and the same
+  surface renders, still naming the two pruned keys. (This used to be a surface-level *refusal*,
+  which made all of `~/.claude.json` — including user-scope MCP servers — unreachable at the
+  host notch because of two unrelated keys.)
 - **`skills` and `briefing` ARE written**, and yolo owns those destinations **outright** — this
   changed on 2026-08-04 and the earlier text here (saying they were silently skipped) is no
   longer true. Each skills directory and each briefing file is **composed wholesale** from your
@@ -371,15 +395,23 @@ Three things this tells you — but note the last is a real gap, not honesty:
     `~/.claude/skills/foo/` by hand is composed away on the next apply — it is offered for
     migration into the local pack instead, and the report says so. Edit
     `~/.config/yolo-jail/local/skills/` and every agent gets it.
-- **`program` (install) is not run** by `yolo host apply`. Installing software on your real
-  machine is a separate, sharper decision (see Step 4).
+- **A `program` install never runs in the dry run** — and since 2026-09-12 it *can* run under
+  `--assert`, behind a confirm. A declared dependency that is missing from your host is a
+  **blocker**: the dry run reports it and exits 0, and `--assert` stops at a prompt that lists
+  every missing binary and the exact install command for each. Answering no is fatal — the run
+  writes nothing rather than continuing into an environment it already knows is incomplete —
+  and **silence is no**, so a scripted `--assert` refuses instead of installing. Only a
+  `program` is offered an install; a missing `requires` refuses with the remedy named, because
+  offering to install one would contradict what that kind means. Installing software on your
+  real machine is still the sharper decision (see Step 4).
 
-> **⚠ Observe hides the payload.** The preview prints only *paths* (`would render …`), not
-> the keys and values that would land. So `claude/settings would render` looks innocuous
-> while the actual content is the jail-bypass block from the security banner at the top of
-> this guide. "Preview first" is **not** sufficient review here: before you ever `--assert`
-> a shipped agent pack, read the pack's `managed` block yourself (`yolo pack lint <pack>`,
-> or `packs/claude/pack.json`) and understand every key it will write.
+> **⚠ The dry run does not show you the payload.** It names the keys it would **overwrite**,
+> and nothing else about the content — not the values, and not the keys you do not already
+> have. So `claude/settings would render` can look nearly innocuous while the actual content is
+> the jail-bypass block from the security banner at the top of this guide. "Preview first" is
+> **not** sufficient review here, and neither is `--verbose`: before you ever `--assert` a
+> shipped agent pack, read the pack's `managed` block yourself (`yolo pack lint <pack>`, or
+> `packs/claude/pack.json`) and understand every key it will write.
 
 ### Step 3: apply it for real
 
@@ -387,8 +419,11 @@ When the preview looks right, write it with `--assert`:
 
 ```console
 $ yolo host apply --assert
-host apply  home /home/me  posture assert (writing)
-  claude/settings          rendered  /home/me/.claude/settings.json
+host apply — applying into /home/me
+  claude/settings      rendered  /home/me/.claude/settings.json
+Applied: 2 config files, 3 skills moved into your local pack.
+  2 config files changed · 3 skills moved into your local pack · 5 destinations already in sync
+assert — this posture writes into /home/me. Without --assert it is a dry run.
 ```
 
 **This is read-modify-write, but be precise about what "untouched" means.** yolo preserves
@@ -399,7 +434,7 @@ is **overwritten** with the pack's value. So:
   theme) **survives** — that part of "RMW preserves your keys" is true.
 - A key the pack manages is **overwritten** — but at the host notch, no longer *silently*.
   If a managed key's value differs from what you already have, `yolo host apply` prints a
-  `⚠ would overwrite your existing value for: <key>` line (in the observe preview too), so
+  `⚠ would overwrite your existing value for: <key>` line (in the dry run too), so
   you see the collision before writing. And because the guarded posture no longer manages
   the dangerous `permissions.allow`/`deny` at the host notch, a hand-authored
   `permissions.deny: ["Read(~/.ssh/**)"]` is **left alone** rather than wiped.
@@ -514,9 +549,11 @@ A few things the design calls for are **not built**:
 - **The `guest` confinement notch** — a real home under an LSM boundary (macOS Seatbelt /
   Linux bwrap+Landlock), between `jail` and `host`. `confinement: guest` validates but the
   backend is not implemented; use `jail` or `host`.
-- **`yolo host apply` offering to run installs for you.** Today it renders config and *names*
-  missing deps (`check-deps`); it does not run installers. That confirm-gated offer-to-run
-  is a planned follow-up.
+- ~~**`yolo host apply` offering to run installs for you.**~~ **Built 2026-09-12** — see Step 2.
+  `--assert` offers to run a missing `program`'s install behind one confirm, and a decline stops
+  the run. What is still unbuilt is batching those confirms by elevation class (`sudo` first,
+  shown through), so today it is one prompt for everything. `yolo check-deps` still installs
+  nothing, by design.
 - **A provision-without-launch at the jail notch.** `yolo apply` at jail currently directs
   you to `yolo -- <cmd>` (or `yolo -- true` to provision and exit); a dedicated no-exec
   provision is a follow-up.
@@ -538,7 +575,7 @@ Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environm
 | Turn packs on | edit `~/.config/yolo-jail/config.jsonc` `packs`, then `yolo pack install` |
 | See what packs stage / drifted | `yolo pack ls` · `yolo pack status` |
 | See the resolved environment | `yolo describe` (`--json`, `--hash`) |
-| Preview host config render | `yolo host apply` (⚠ shows paths, not the keys — read the pack first) |
+| Preview host config render | `yolo host apply` (⚠ names the keys it would overwrite, never the payload — read the pack first) |
 | Apply config to your real home | `yolo host apply --assert` (⚠ writes jail-bypass keys from shipped agent packs — see banner) |
 | Check host has the needed tools | `yolo check-deps` |
 | Prove nothing undeclared crept in | `yolo apply --sealed` |

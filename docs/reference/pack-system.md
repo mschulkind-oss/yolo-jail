@@ -545,9 +545,17 @@ cross-pack, so neither author could see it.
 
 Apple Container cannot bind-mount a single file, so a `files` contribution naming one FILE
 is copied into the jail home there instead of mounted. A directory is mounted on both
-backends. Rendering `files` at the HOST is refused by name: a bind mount means nothing
-off-container, and writing the tree into a real `$HOME` is a different posture with its own
-never-clobber and file-mode rules.
+backends. **At the HOST notch the tree is WRITTEN, not bound** — `yolo host apply` copies it
+into the real `$HOME` against an ownership record shared with skill delivery: it writes only
+paths that record says are yolo's, archives the previous copy into the kind's own archive
+bucket before replacing one, and **fails closed** — a render that cannot prove ownership
+refuses and touches nothing
+([`applyhostfiles.go`](../../internal/cli/applyhostfiles.go),
+[`render.HostFields`](../../internal/render/fieldset.go)). It used to be refused there, on the
+grounds that a bind mount means nothing off-container — true of the mechanism and false of the
+intent, since a pack that owns `~/.claude/file-suggestion.sh` means *this file is mine to
+maintain*. That changed on 2026-08-02; **ownership does not carry over**, which is the one
+asymmetry the host copy keeps.
 
 #### `state`
 

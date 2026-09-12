@@ -390,8 +390,10 @@ inapplicable kinds are refused by name.
 > config reset` (discard) as the only shipped remedy. Two facts worth carrying forward: the
 > Declared-impure `host`-layer row is **reported by nothing** (`describe` never names a host
 > layer), and the capture overlay does **not** outrank every declared layer — it loses to
-> `computed`/`transform`/`managed` (`internal/agentcfg/compose.go:357-379`,
-> `:65-77`), which is why it is a closure problem rather than a correctness one. **This is
+> `computed`/`managed` ([`compose.go`](../../internal/agentcfg/compose.go); the `transform`
+> layer this note also listed was removed 2026-09-11,
+> [`lua-transform-removal.md`](../design/lua-transform-removal.md)), which is why it is a
+> closure problem rather than a correctness one. **This is
 > user-stories Q1's unbuilt half.**
 
 **Design:** design doc [§3.3](../design/yolo-as-environment-manager.md#33-apply---sealed-the-definition-binds-or-the-apply-fails) (the full-closure table + the sealing rule).
@@ -437,6 +439,18 @@ from declared inputs, and its `--hash` is a reproducibility pin.
 > confirm, [OQ-9](#open-questions-to-resolve-before-their-phase)) belongs to `apply` at a lower notch"* (`internal/cli/checkdeps.go:9-12`). Since
 > `apply`'s half of that is Phase 4.3, also unbuilt, **[OQ-9](#open-questions-to-resolve-before-their-phase)'s resolution has no consumer at all
 > today.** The manifest floor is shipped; only the offer on top of it is missing.
+>
+> **Corrected 2026-09-12: there IS a consumer now, and it reverses half of [OQ-9](#open-questions-to-resolve-before-their-phase).**
+> `yolo host apply --assert` grew a dependency gate
+> ([`applyhostdepgate.go`](../../internal/cli/applyhostdepgate.go)) that offers to run a missing
+> `program`'s install — but behind **one** prompt listing every missing dependency, not one per
+> elevation class, and **a decline is FATAL at the prompt** where [OQ-9](#open-questions-to-resolve-before-their-phase) made the manifest a
+> floor the run continued over. The gate's own docstring names the reversal and
+> [`report-tiers.md`](../design/report-tiers.md#11-decision-ledger)'s [`OQ-RO6`](../design/report-tiers.md#11-decision-ledger)/[`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) carry the
+> reasoning: an `--assert`'s promise is a ready environment, so a posture that exits 0 having
+> left it unready has stated a result it did not achieve. **The elevation-class batching is
+> still unbuilt** — what shipped is the offer, not [OQ-9](#open-questions-to-resolve-before-their-phase)'s shape for it. `yolo check-deps`
+> still installs nothing.
 
 **Design:** design doc [§3.4](../design/yolo-as-environment-manager.md#34-check-becomes-is-this-description-satisfiable-here), [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest).
 **Depends on:** Phase 1 (`FieldSet`/notch-aware render), Phase 4 (host apply is where a
@@ -690,6 +704,10 @@ implementing any phase.
   pre-yolo state would need a before-snapshot nothing takes. *Consequence:* no revert verb,
   no per-file reconcile sidecar; the host-render doc's `--revert` design ([§6.5](../design/host-render-target.md#65-the-posture-stated-as-a-table)/[§7.2](../design/host-render-target.md#72-the-human-manages-their-own-machine)/[§9.5](../design/host-render-target.md#9-open-questions--the-discussion-part)) is
   **superseded** — strike it there when that doc is next touched.
+  > ⚠ **REVERSED 2026-09-11, and the strike instruction above is now the wrong action** — see
+  > the table under [Blocks Phase 4](#blocks-phase-4-host-render). `yolo host apply --revert`
+  > SHIPPED on 2026-09-12, consuming the per-key host provenance record that did not exist when
+  > this was ruled. The host-render doc keeps its `--revert` design, annotated rather than struck.
 - **[OQ-2](#open-questions-to-resolve-before-their-phase) — Is host management user-scoped, with the workspace contributing nothing? →
   RESOLVED: YES (2026-08-01).** What `yolo host apply` asserts is a function of your *user*
   config + the packs *you* installed, never of the repo you ran it from — the same
@@ -785,7 +803,10 @@ the call site.
   read; this can grow a Go helper later if a spec proves too weak. No lock-in either way.
   Design doc [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest).
 - **[OQ-9](#open-questions-to-resolve-before-their-phase) — Offer-to-run confirm UX → RESOLVED: batch by elevation class, minimize
-  interaction (2026-08-01).** Not per-command (my earlier split was too interactive) and not
+  interaction (2026-08-01).** ⚠ **Half-reversed 2026-09-12 by
+  [`report-tiers.md`](../design/report-tiers.md#11-decision-ledger)** for `yolo host apply
+  --assert` only: one prompt rather than one per elevation class, and a decline is FATAL rather
+  than falling back to the manifest floor. See the Phase 6 status box above. Not per-command (my earlier split was too interactive) and not
   one blind confirm. **Confirm everything, batched:** group the remedies by elevation class
   ([OQ-7](#open-questions-to-resolve-before-their-phase)'s a/b line) and ask **once per class** — show all category-(a) commands and confirm
   them, show all category-(b)/`sudo` commands and confirm them — so there are two approvals,
