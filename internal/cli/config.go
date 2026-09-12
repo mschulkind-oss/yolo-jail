@@ -237,7 +237,7 @@ const containerWorkspace = "/workspace"
 // --explain provenance to out.
 //
 // SCOPE, stated because A7 half-closed and half-documented this: render composes
-// defaults < host < transform < managed. It does NOT supply the `computed` layer,
+// defaults < host < managed. It does NOT supply the `computed` layer,
 // and that is a real limitation rather than an oversight — the computed builders
 // bake JAIL-ABSOLUTE, $HOME-derived paths (Env.McpWrappersBin() =
 // $HOME/.local/bin/mcp-wrappers, Env.GoBin() = $GOPATH/bin), so composing them

@@ -176,7 +176,7 @@ the owner still wins a genuine conflict.
 
 **What a contributor cannot do, mechanically:** the overlay body may carry only
 `managed`. Every field that would redefine the *surface* — `agent`, `name`,
-`path`, `codec`, `mode`, `transform`, `defaults`, `retireOnFirstRender` — is
+`path`, `codec`, `mode`, `defaults`, `retireOnFirstRender` — is
 refused **by name** at decode. So this pack cannot change where the file lands,
 in what format, or how it is maintained across boots, even by accident.
 

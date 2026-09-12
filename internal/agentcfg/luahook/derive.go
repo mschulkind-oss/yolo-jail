@@ -2,17 +2,18 @@ package luahook
 
 // Derive registrations and ctx: docs/reference/providers.md
 
-// derive.go is the PRODUCER half of the Lua slot, distinct from the mutator
-// (transform) half in vm.go.
+// derive.go is the whole Lua slot: the PRODUCER a pack declares. A mutator
+// (transform) half stood beside it in vm.go until
+// docs/design/lua-transform-removal.md deleted it; vm.go is now the VM and its
+// sandbox and nothing else, so there is no other half to be distinct from.
 //
-// A `transform` runs POST-merge: it receives ctx.config (the composed surface)
-// and mutates it. A `derive` runs PRE-merge: it receives the live config tables
-// (mcp_servers, lsp_servers) and RETURNS a fresh object — the computed layer that
-// feeds Inputs.Computed (packsurfaces.go). It is the one place a pack runs Lua:
+// A `derive` runs PRE-merge: it receives the live config tables (mcp_servers,
+// lsp_servers) and RETURNS a fresh object — the computed layer that feeds
+// Inputs.Computed (packsurfaces.go). It is the one place a pack runs Lua:
 // a sandboxed producer of a config value, never an effect
 // (docs/reference/pack-system.md §7).
 //
-// Two facilities a derive needs that a transform does not, both added here:
+// Two facilities the producer needs, both added here:
 //
 //   - the live tables, exposed read-only as ctx.mcp_servers / ctx.lsp_servers.
 //     A derive is a pure function of these; it may not mutate them.
@@ -34,9 +35,9 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// DeriveCtx is what a derive function receives. It is deliberately NOT the
-// transform Ctx: a derive does not see the composed config or the stage handle,
-// only the inputs it is a pure function of.
+// DeriveCtx is what a derive function receives: only the inputs the producer is a
+// pure function of. It deliberately carries no composed config and no stage
+// handle — a derive reads its sources and returns a value, and that is all.
 type DeriveCtx struct {
 	// Agent / Surface identify which registered derive fn to invoke, matching the
 	// (agent, name) surface identity — a derive registers with BOTH, because one
@@ -298,8 +299,8 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 // surface has a producer, without the producer itself.
 //
 // A luahook-local type rather than manifest.SurfaceKey on purpose: manifest and luahook
-// are siblings neither of which imports the other (a Surface carries the transform PATH,
-// never a VM), and a reporting type is not worth being the first edge between them.
+// are siblings neither of which imports the other, and a reporting type is not worth
+// being the first edge between them.
 // packload maps it to a SurfaceKey, which is where the two vocabularies already meet.
 type DeriveRegistration struct {
 	// Agent is the first argument of the yolo.derive call.
