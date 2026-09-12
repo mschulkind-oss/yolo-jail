@@ -1,16 +1,22 @@
 # Roadmap
 
-**Status: 17 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 17 needing you · 1 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-12**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!NOTE]
-> **"6 waiting" is true again as of 2026-09-11, and was one high for a day.** `36bee3e8` graduated a
-> 🔒 bullet to ✅ without decrementing, leaving six asserted against five bullets; the
-> `macos-user`-forwarded-command row added below brings the count back to what the file contains.
-> Worth recording rather than silently fixing — the number moved for two independent reasons at
-> once, which is precisely how this tally goes wrong.
+> **Reconciled 2026-09-12 against a 138-commit sprint, and the tally moved on three axes.** It was
+> **17 · 2 · 0 · 6 · 0 · 3**. *Ready* lost both its rows — ✅ **29** (report tiers) and ✅ **30**
+> (the Lua transform) — and gained one: [OQ-CO7](../design/config-ownership-and-promotion.md#13-decision-ledger)'s
+> adoption archive, the single ruling of the five shipped designs' thirty-one that has no code
+> behind it. *Waiting* gained ONE row — the six never-run Mac runbook items the macos-user pair
+> added, which had been recorded inside an ✅ bullet where no count could see them, the same failure
+> the C4/C5 row was promoted out of a preamble to fix. *Needs you* did not move, and that is the
+> honest result rather than an oversight: **nothing that shipped closed a question**. 💬 **25**
+> shipped and kept one question the BUILD opened; 💬 **31** never shipped at all and still holds
+> thirteen. The previous note recorded a one-day drift in *waiting* caused by `36bee3e8`; it is
+> superseded and lives in this file's history.
 
 > [!IMPORTANT]
 > **If a row disagrees with the doc it points at, trust the doc and fix the row.** This file groups
@@ -168,22 +174,27 @@ trust-regime caveat recorded in the doc).
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
 [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md)
 
-**Two of the three defects these stories are built on have been FIXED** (G1 on 2026-08-01, G3 on
-2026-08-12), and the doc now carries a dated verdict at every gap — read those before hunting for a
-bug. What is still live is **Gap 1, and it is worse than the story says**: `config ls`'s `host`
-column is not derived from `HostSource` at all but from a hand-maintained two-entry map
-(`surfaceHasHostLayer`, `internal/cli/configls.go:196-202`), so any *pack* surface that really does read machine state shows
-**no host layer**.
+**All three defects these stories are built on are now FIXED** (G1 on 2026-08-01, G3 on
+2026-08-12, **Gap 1 on 2026-09-12**), and the doc carries a dated verdict at every gap — read those
+before hunting for a bug. Gap 1 was the one this row kept alive: `config ls`'s `host` column came
+from a hand-maintained two-entry map (`surfaceHasHostLayer`) rather than from the render, so any
+*pack* surface that really did read machine state showed **no host layer**. The map is retired and
+every column is derived — `builtinLayers` asks `manifest.Surface.HasHostLayer`, which is now the
+surface's own `ReadsHost` declaration and the SAME predicate the boot render's host-layer read
+consults ([`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger), 💬 25's step 6).
 
 **user-stories Q1** is called "the biggest question in the document" by its own author — **and its
-premise needs narrowing**: capture does *not* outrank every declared layer — it loses to
-`computed`, `transform` and `managed` (`internal/agentcfg/compose.go:357-379`). Q1 is still the
+premise needs narrowing**: capture does *not* outrank every declared layer — it loses to `computed`
+and `managed` (`internal/agentcfg/compose.go`'s ascending fold). ⚠ **That list used to name
+`transform` as a third, and there is no transform layer any more** — see ✅ 30. Q1 is still the
 biggest question, on the narrower and better ground that capture is **undeclared**, not that it wins
-everything. **Its leaning is also half-built**: it wants capture to become a *staging area* that
-`yolo config promote` drains, and that subcommand **does not exist** (`internal/cli/config.go:33-60` lists `ls · render ·
-diff · reset · capture · drift · dump`, verified 2026-08-23). So `apply --sealed` can already
-*refuse* on an outstanding capture while the user's only remedy is still "discard it" — answering Q1
-in the leaning's direction means building the verb, not just ruling.
+everything. ✅ **Its leaning is no longer half-built**: it wants capture to become a *staging area*
+that `yolo config promote` drains, and **that verb shipped 2026-09-12** (`4223ca95`,
+[§5](../design/config-ownership-and-promotion.md#5-promotion--the-way-out-of-capture)) — `promote` is
+in `yolo config`'s dispatch and its usage text. So the remedy for an outstanding capture that
+`apply --sealed` refuses on is no longer "discard it", and **answering Q1 in the leaning's direction
+is now a ruling rather than a build**. What Q1 still decides is whether capture is *defined* as a
+staging area — the verb existing does not make it one.
 
 **Q7** asks whether Linux `guest` is a promise or a hypothesis — **and events have overtaken its
 leaning.** It wanted the vocabulary withheld until
@@ -647,20 +658,60 @@ shape the schema; [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) is
 
 ### 💬 25 — Who owns the config file: SHIPPED, with one question the build opened
 
-📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) —
-**[`OQ-CO9`](../design/config-ownership-and-promotion.md#13-decision-ledger) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) · [`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger)** — CO1–CO8 are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger) · written 2026-09-09, **routed here the same day**
+📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) — **the one live question is
+[`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions)**, and the BUILD opened it · **all eleven the DESIGN opened are
+settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger)** (CO1–CO8 on 2026-09-10/11,
+CO9–CO11 on 2026-09-11) · written 2026-09-09, **routed here the same day**
 
 yolo inferred config-file ownership from the confinement notch rather than asking, and the
 inference was wrong for anyone who adopted `yolo host apply`. This row took over the *promote* half
-of 💬 7's user-stories Q1, which reports the same missing subcommand from the capture side — Q1
-asks whether capture should become a staging area, this doc designs the drain.
+of 💬 7's user-stories Q1, which reported the same missing subcommand from the capture side — Q1
+asks whether capture should become a staging area, this doc designed the drain, and **the drain is
+now built**, which narrows Q1 to the definition rather than the verb.
 
-✅ **BUILT 2026-09-11/12 — all eight steps of
-[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order)'s order.** The key and its
-fail-closed read; `none`/`assert` wired; `--revert`; `promote --plan` and its write path; both
-halves of the `reads-host` restructure; and `own` — the host notch composing `stateful`, with the
-capture store, host-side `reset` and the one-time archive in the same commit. `assert` remains the
-undeclared default, so nothing moved for a user who set nothing.
+✅ **BUILT 2026-09-12 — all eight steps of
+[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order)'s order, with one
+carve-out.** The key and its fail-closed read (`6012ff9e`); `none`/`assert` wired (`24c5eb90`);
+`--revert` (`0c935f2b`); `promote --plan` and its write path (`4223ca95`); both halves of the
+`reads-host` restructure (`cc674ac1`); and `own` — the host notch composing `stateful`, with the
+capture store and host-side `reset` in the same commit (`c2c4873e`). `assert` remains the undeclared
+default, so nothing moved for a user who set nothing.
+
+⚠ **THE ONE-TIME ADOPTION ARCHIVE DID NOT SHIP, and this row said it did.** Step 8 lists it as
+landing in `own`'s commit and [§9](../design/config-ownership-and-promotion.md#9-risks)'s risk table
+names it as the mitigation for two data-loss rows — **no adoption path writes a `config` bucket**,
+and every root `hostArchiveRoot` mints comes from the render's own replace/retire passes. That makes
+[`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger) the **single ruling of the
+five shipped designs' thirty-one with no code behind it**, and it is the 📦 row in *Up next*. It
+matters most where the guard is weakest: `confirmHostLosses` reads `EntryLosses` and fires only on
+first apply, so the `assert` → `own` switch — the exact transition that drops a deep-merged leaf — is
+unprompted, and the jail's own first-migration half has no TTY for a prompt at all. Recorded at both
+adoption sites in code by `86c4ad0e`, which is comment-only.
+
+**[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) was six steps when it was written, and the build needed
+eight.** Steps 6 and 7 — the
+`reads-host` restructure, declaration-onto-the-surface then read-fails-closed — were never scheduled;
+step 5 asks the predicate they change. They were added AFTER step 5 rather than before it, because
+promote binds to `HasHostLayer()` and is invisible to what populates it, while the restructure
+touches the boot render on every backend (`3dc58314`).
+
+✅ **Two defects the build fixed that nobody had filed** — distinct from the two the audit
+surfaced below, and worth naming because neither was in scope and the first was live for every user:
+
+- **`yolo config diff` misreported a fully redundant capture as a new in-jail edit, on every TOML
+  surface** (`027bd9bd`). `readLastRenderKeys` decoded every `last_render` sidecar with `jsonx`, but
+  the sidecar holds the exact bytes of the last render, so its format is the SURFACE's — a TOML
+  sidecar failed to decode, the baseline came back empty, and empty reads as *"(added in-jail)"*.
+  Measured on this repo's own jail: of the four surfaces carrying a non-empty capture overlay, both
+  TOML ones (`codex/config`, `mise/config`) misreported. It is upstream of more than the display —
+  `promote` drops the keys this comparison calls redundant, so a wrong answer here would have become
+  a wrong promotion.
+- **The mode census was half wired, and `own` could have shipped leaving it a false statement**
+  (`67b649ac`). `Records()` had one production caller; `Runs()`, `Excludes()` and `Undecided()` had
+  none, and the host's *"every surface is `rmw`"* was an unconditional call rather than the census.
+  The two AGREED, which is the hazard — `HostModes` could have been edited to say anything with
+  every host render still doing `rmw`. `ModeSet.Mechanism` now answers the question a render entry
+  actually asks, and the census is pinned per row rather than per dispatch (`3ca670fc`).
 
 💬 **What still needs you is one question the BUILD opened, not one the design left:**
 [`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions) — is the `assert` → `own` switch required to be
@@ -672,24 +723,24 @@ the measurements and the leaning.
 ⚠ **Review round 0 landed 2026-09-10 and this row is smaller than it was.** Two of the seven are
 ruled and one is new, so the gating sentence this row used to carry is retired:
 
-- ✅ **[`OQ-CO2`](../design/config-ownership-and-promotion.md#12-open-questions) — RULED: neither prompt nor warn.** The undeclared state is
+- ✅ **[`OQ-CO2`](../design/config-ownership-and-promotion.md#13-decision-ledger) — RULED: neither prompt nor warn.** The undeclared state is
   `assert`, silently; each value explains itself at the point of the act and `apply --sealed` is the
   one place undeclaredness bites. **Against the leaning**, and it deleted the migration prompt from
   the build order's step 1.
-- ✅ **[`OQ-CO3`](../design/config-ownership-and-promotion.md#12-open-questions) — RULED: yes, host capture under `own` only** — and it is a
+- ✅ **[`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger) — RULED: yes, host capture under `own` only** — and it is a
   *precondition* of adoption rather than an added capability, so it lands in the same commit as `own`.
-- 🆕 **[`OQ-CO9`](../design/config-ownership-and-promotion.md#12-open-questions) — opened by the same round**: a KEYLESS host surface (`raw`,
+- 🆕 **[`OQ-CO9`](../design/config-ownership-and-promotion.md#13-decision-ledger) — opened by the same round**: a KEYLESS host surface (`raw`,
   `lines`) is never adopted by `ComposeStateful`, which is safe in a disposable jail home and not on
   a real one. Empty class today, which is why it is worth ruling before someone adds one.
 
 ~~**[`OQ-CO1`](../design/config-ownership-and-promotion.md#13-decision-ledger) is now the only gate**~~ — **spent: CO1 ruled three values, and CO2–CO8 followed.** The
-remainder are promotion mechanics ([`OQ-CO4`](../design/config-ownership-and-promotion.md#12-open-questions)–[`OQ-CO7`](../design/config-ownership-and-promotion.md#12-open-questions):
+remainder are promotion mechanics ([`OQ-CO4`](../design/config-ownership-and-promotion.md#13-decision-ledger)–[`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger):
 default destination, in-jail refusal, precedence loss, archiving) plus CO9's carve-out.
 
 **What the round changed about the WORK, which is the useful part:** both rulings removed a mechanism
 the design had proposed, and in both cases the replacement was already shipped — the `assert` default,
-and `ComposeStateful`'s first-migration adoption (`staterender.go:174`, the `B1 (⚠ DATA LOSS FIX)`
-branch). So the first owned render is byte-identical to the file on disk *by construction*, and the
+and `ComposeStateful`'s first-migration adoption (`internal/agentcfg/staterender.go`, the
+`B1 (⚠ DATA LOSS FIX)` branch). So the first owned render is byte-identical to the file on disk *by construction*, and the
 adoption-diff confirmation the design wanted is not built at all.
 
 ⚠ **AUDITED 2026-09-11, and the headline is that three of these were already ruled — by you,
@@ -809,91 +860,118 @@ twelve questions are live with no home**, two of which stand whether or not mirr
 **Answer:**
 > _(empty — fill in when decided; [`OQ-WP2`](../design/workspace-path-mirroring.md#open-questions) and [`OQ-WP4`](../design/workspace-path-mirroring.md#open-questions) can be ruled without touching the mirroring verdict)_
 
-### 📦 29 — One report, three readers: what `yolo host apply` and the launch banner say by default
+### ✅ 29 — One report, three readers: SHIPPED, and the report went 278 lines to 30
 
-📄 [`report-tiers.md`](../design/report-tiers.md) — **all seven RULED**, the last on 2026-09-11; `status: accepted`.
+📄 [`report-tiers.md`](../design/report-tiers.md) — **all seven RULED**, the last on 2026-09-11 ·
+**BUILT 2026-09-11, all eight steps of [§9](../design/report-tiers.md#9-what-i-would-build-in-order)**; measured 2026-09-12 ·
+`status: accepted` · written 2026-09-10, **routed here the same day**
+
+The maintainer's complaint — *"hard to read, not intuitive, and not so actionable"* — was measured at
+**277 lines, about sixteen of them actionable**, for one observe-posture `yolo apply --at host` over
+this development jail's home. Nineteen lines were verbatim kind-refusal paragraphs printed once per
+*contribution* while the text is per *kind*; **210 lines stated one fact** (fourteen skills in five
+agent dirs are yours and would move to the local pack) at three granularities; and the roll-up
+counted destinations rather than files and carried no loss count.
+
+**Answer (2026-09-11) — and the build consumed it the same day:**
+> **Nothing here waits on a person.** All seven were ruled and the doc is `status: accepted`.
+
+✅ **MEASURED AFTER THE BUILD, in this jail on 2026-09-12: the default report is 30 lines where it
+was 278, and `--verbose` carries the 267-line detail view.** *(277 and 278 are the same report on two
+days — the diagnosis above was taken at `48f47e56` on 2026-09-10, the before/after pair on 2026-09-12
+against a freshly built binary. Neither number is the other rounded.)* Every step landed — the survey's tiers
+and loss counts, the verdict line (`f8e265ea`), notch facts said once (`2a363580`), tier 3 grouped by
+remedy (`7e05bfcc`), the dependency pre-flight with its prompt and fatal decline (`3914ec75`,
+`f94b2c97`), the default/`--verbose` split with the rationale's move to the manual under the kind-doc
+gate (`ae21e151`), the launch side (`7150319d`, `5dc1c26d`), and JSON for the dry run with its
+`--assert` refusal (`866aa2e1`, `896f0cde`).
+
+⚠ **Two of this row's own supporting findings are now false, and they are false BECAUSE of the
+build** — worth keeping rather than deleting, because each was the argument that authorized the
+thing that falsified it:
+
+- *"`--verbose` has only timing consumers today"* — that is what made this the *"first non-timing
+  diagnostic"* [`reference/perf-logging.md`](../reference/perf-logging.md) D14 said would decide the
+  flag's meaning. `internal/cli/hostapplydetail.go` is that consumer, and D14 is spent. ⚠ It honors
+  BOTH spellings (a typed `--verbose`/`-v` and an inherited `YOLO_VERBOSE`), which is deliberate and
+  is the easy thing to copy wrong — `explicitVerbose()` is the narrower accessor and the wrong one
+  here.
+- *"there is no quiet mode anywhere"* — that is now a **ruling**, not an observation.
+  [`OQ-RO3`](../design/report-tiers.md#11-decision-ledger) and P4 say a launch has no quiet mode;
+  progress and provenance may be COMPRESSED to a line, but a **disclosure is never suppressible**,
+  because the pack read/exec banners are the entire trust boundary today. `TestTheLaunchHasNoQuietFlag`
+  fails if a flag appears on `runFlags`, everything the launcher prints is teed to
+  `<workspace>/.yolo/launch.log`, and the rule is in `AGENTS.md`.
+
+⚠ **The review moved the thesis before the build consumed it.** It was *"the report has no author;
+give every line a tier."* It became **the command states its own result — the reader never computes
+it**, carried by **P7** (the result) and **P8** (*facts, not rationale*), which is what collapsed the
+repeated 40-word kind-refusal paragraphs into a manual entry.
+
+✅ **A missing host dependency became a blocker, and that authorized env-manager Phases 6.4 + 4.3
+rather than designing them.** [`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) ruled both
+kinds fatal with only `program` getting the offer — a missing `requires` refuses with the remedy
+named, because offering to install one would contradict the kind's own definition. ⚠ **The shipped
+gate is a one-prompt shape, and env-manager [`OQ-9`](environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
+rules the batching two-class** (one approval for no-elevation remedies, one for `sudo`, sudo first).
+Both ends are marked and **neither is ruled**: whether Phase 6.4 still wants two classes, or the
+shipped shape becomes the answer, is an open decision nobody has taken.
+
+### ✅ 30 — The Lua config transform: REMOVED, and the derive VM is standing
+
+📄 [`lua-transform-removal.md`](../design/lua-transform-removal.md) — **both questions RULED
+2026-09-11** ([`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) ·
+[`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger)) — **SHIPPED 2026-09-11**,
+[§10](../design/lua-transform-removal.md#10-what-i-would-do-in-order)'s order, with the doc sweeps closing 2026-09-12 ·
+`status: accepted` ·
 written 2026-09-10, **routed here the same day**
 
-The maintainer's complaint — *"hard to read, not intuitive, and not so actionable"* — measured: an
-observe-posture `yolo apply --at host` over this development jail's home prints **277 lines, about
-sixteen of them actionable**. Nineteen are verbatim kind-refusal paragraphs (`state` ×6, `hook` ×4,
-`loophole` ×4), printed once per *contribution* because the loop is per contribution while the text
-is per kind; **210 lines state one fact** (fourteen skills in five agent dirs are yours and would
-move to the local pack) at three granularities; and the roll-up that already exists (`8 in sync, 76
-would change`, since `015527be`) counts destinations rather than files and carries no loss count —
-seven of the user's values replaced and three MCP servers dropped appear nowhere as numbers. The
-doc's answer is a **report tier** per fact (notch facts said once, run facts counted, losses itemized
-and grouped by remedy, disclosures never compressible) and a **verdict block** that counts what the
-reader cares about. Nothing built.
+The maintainer's instinct — *"I'm not sure it's fully thought through"* — checked out: the
+`config.lua` hook between the merge and the managed-enforce step had no user, its one worked example
+was served by the declarative `autonomy` kind, four of its parts were disconnected, and the
+determinism the design required was unenforced (`math.random` was reachable in the sandbox). The
+removal's hard part was never the deletion — the VM is shared with six packs' `derive.lua`, so the
+cut had to split `luahook` along a per-symbol seam and lift the managed floor (`Enforce`) into
+`internal/agentcfg` first.
 
-**Two findings worth knowing before ruling.** `--verbose` has **only timing consumers** today
-(`stop.go:72`, `commands.go:860`, `runcmd.go:354/373/451`), so this is the *"first non-timing
-diagnostic"* that [`reference/perf-logging.md`](../reference/perf-logging.md) D14 said would decide the flag's
-meaning. And **there is no quiet mode anywhere** — `YOLO_NO_BANNER` covers exactly one line, the
-launcher's half of the startup stream is persisted nowhere (the entrypoint's half is, in `boot.log`),
-and `NO_COLOR` is honored by nothing while the polish plan claims it as an invariant.
+✅ **BUILT 2026-09-11, and the seam held.** `internal/agentcfg` **no longer links gopher-lua**;
+`internal/packload` still does, and the derive path renders every shipped pack at boot. The order
+was: pin the shared sandbox and the managed floor first (`9761ba6a`), lift `Enforce` (`a1496d0e`),
+cut the transform producers (`2c5c84a1`), then retire the channels — the `config_transform` key, the
+`Surface.Transform` field and the `config.lua` mount — as one breaking change (`e6c45b77`), leaving
+`luahook` as the pack derive sandbox and nothing else (`e958ed96`).
 
-⚠ **The review did more than rule: it moved the thesis.** It was *"the report has no author; give
-every line a tier."* It is now **the command states its own result — the reader never computes it**,
-and the tiers serve that rather than being the point. Two new principles carry it: **P7** (the
-result) and **P8** — *facts, not rationale*, which is the ruling that collapses the measured defect,
-since the repeated 40-word kind-refusal paragraphs are explanation and move to the manual.
+⚠ **This row used to name `ctx.stage.exclude`, `ValidateSandbox` and the `config_transform` key as
+parts that were disconnected "today". All three are now DELETED**, along with `Result.Excluded`,
+`Inputs.Script` and the `transform` layer itself — so the compose order is
+`defaults → host → workspace → config-overlay → capture → computed → managed`, with no transform
+slot. Seven other docs printed the old order as measured current behaviour and were corrected
+(`d285b7f7`). [§5.6](../design/lua-transform-removal.md#56-documentation) left exactly TWO rows open when the removal landed —
+this file and [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md),
+which was in review and could not be edited under its reviewer. **Both are closed now**: that doc's
+four transform references are dated and historical, and this row's was the one clause 💬 7 names,
+fixed above.
 
-⚠ **A missing host dependency became a BLOCKER, and the design for it already exists.** Today a
-missing dep prints a line with its remedy and touches neither the exit code nor the roll-up. It is
-now fatal to `--assert`, behind an offer-to-install with a confirm; **declining is fatal at the
-prompt**, because later stages may rely on the tool. That is not new policy in two separate ways —
-`yolo check-deps` already runs the same probe and exits non-zero, and
-[`environment-manager-plan.md`](environment-manager-plan.md#blocks-phase-4-host-render)'s Phase 6.4 defers the offer-to-run **by name in the
-code**, with its confirm UX resolved as [`OQ-9`](environment-manager-plan.md#open-questions-to-resolve-before-their-phase): **batched by elevation class** — one approval for
-all no-elevation remedies, one for all `sudo` ones, sudo first so the OS password prompt comes up
-once at the front. So this authorizes Phase 6.4 + 4.3 rather than designing them.
-
-✅ **[`OQ-RO7`](../design/report-tiers.md#11-decision-ledger) — RULED 2026-09-11: both kinds fatal, only `program` gets the offer.** A
-missing `requires` is the more clear-cut blocker — `guardrails` removes `grep`/`find` in favour of
-binaries that must be present — while offering to install one would contradict the kind's own
-definition, so it refuses with the remedy named.
-
-**Answer (2026-09-11):**
-> **Nothing here waits on a person.** All seven are ruled and the doc is `status: accepted`; what
-> remains is build work, whose mechanism is env-manager Phases 4.3 and 6.4.
-
-### 📦 30 — The Lua config transform: remove it, and leave the derive VM standing
-
-📄 [`lua-transform-removal.md`](../design/lua-transform-removal.md) — **both questions RULED 2026-09-11** ([`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) · [`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger)) — `status: accepted` ·
-written 2026-09-10, **routed here the same day**
-
-The maintainer's instinct — *"I'm not sure it's fully thought through"* — checked against the tree: the
-`config.lua` hook between the merge and the managed-enforce step has **no user** (the workspace file
-does not exist, the user file is 0 bytes, no pack declares it), its one worked example is served by the
-declarative `autonomy` kind, and four of its parts are disconnected **today** — `ctx.stage.exclude`
-records globs nothing prunes, `ValidateSandbox` has no caller, the `config_transform` key was never
-built, and the "converged" loader still has a second hand-copy. The determinism the design requires is
-unenforced: `math.random` is reachable in the sandbox (measured). The verdict is remove — but the VM is
-shared with six packs' `derive.lua`, so the doc's load-bearing section is the per-symbol seam through
-`luahook`, and the managed floor (`Enforce`) has to be lifted into `internal/agentcfg` before the
-transform half goes. Two real capability gaps are named rather than waved away. Nothing removed.
-
-- **[`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) — what does a user who still has a
-  `config.lua` or a `transform` key see on ship day: a refusal that names the removal, a warning, or
-  silence?** *Leaning: refuse by name for the keys (the `journal` precedent); refuse at launch for a
-  non-empty file; silence only for a 0-byte one, which was already the identity.*
-- **[`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger) — does principle 4 of the design of record
-  ("transform with Lua, not a data vocabulary") retire with it, accepting the two gaps?** *Leaning:
-  yes; a declarative op is designed only against a concrete case, and the pack-side `yolo.transform`
-  is the shape to revisit first.*
-
-**Steps 1–2 of the build order need no ruling** — pin the shared sandbox proofs on the derive path and
-lift `Enforce` — and make the rest checkable.
-
-**Answer:**
-> _(empty — fill in when decided; [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) alone unblocks the removal commits)_
+**Answers (2026-09-11):**
+> - ✅ **[`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) — came out SIMPLER than its
+>   leaning.** *"Nobody is using it. Just delete it and pretend it never existed"* — no refusal
+>   machinery, no deprecation window. Safe because the loudness is **free**: `validate.go` already
+>   emits `unknown key` for a dropped config key and `manifest/load.go` calls `DisallowUnknownFields()`,
+>   so a stale pack surface fails to decode. The one genuinely silent case is accepted on measured
+>   grounds — the two auto-loaded files load *by existence*, so a non-empty one stops applying with
+>   nothing said, and known instances are **zero**.
+> - ✅ **[`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger) — principle 4 retires with
+>   the transform**, with the reason it existed recorded: *"I just didn't want to create a generic DSL
+>   out of JSON."* The two capability gaps [§6](../design/lua-transform-removal.md#6-what-is-genuinely-lost)
+>   names are accepted, not waved away, and the pack-side `yolo.transform` is the shape to revisit
+>   first if either ever bites.
 
 # 📦 Up next
 
-**Three rows, all filed 2026-09-09 out of the disk/image sprint's rulings.** Ordered — LI6's
-measurement is the first act of the whole sequence, and LS3 is a prerequisite of the layer work's
-step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
+**One live row.** All three filed here on 2026-09-09 out of the disk/image sprint's rulings have
+shipped; only layer-aware delivery's ✅ record is still parked below, for the measurements and the
+two carve-outs it left in `AGENTS.md`. What is live is a ruling the 2026-09-11/12 sprint did NOT
+build. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
 
 - ✅ **1. Layer-aware image delivery — SHIPPED 2026-09-09** (`04e39353`), and it left this section
   the day its gate cleared. 📄 [`layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) ·
@@ -956,14 +1034,28 @@ step 1. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 
   warm). `publish.yml` and `just cachix-push` push it — an optimization only, with nothing wired to
   a cache miss ([`OQ-LI1`](../design/layer-aware-image-delivery.md#91-decision-ledger)).
 
-⚠ **Both ruled 2026-09-11, and [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) came out simpler than its leaning.** *"Nobody is using it.
-Just delete it and pretend it never existed"* — so no refusal machinery and no deprecation window.
-That is safe because the loudness is **free**: `validate.go:124-130` already emits `unknown key` for
-a dropped config key, and `manifest/load.go:99` calls `DisallowUnknownFields()`, so a stale pack
-surface fails to decode. The one genuinely silent case is accepted on measured grounds — the two
-auto-loaded files load *by existence*, so a non-empty one would stop applying with nothing said, and
-known instances are **zero**. [`OQ-LT2`](../design/lua-transform-removal.md#13-decision-ledger) retires principle 4 with the transform, with the reason it
-existed recorded: *"I just didn't want to create a generic DSL out of JSON."*
+- 📦 **2. The one-time adoption archive — [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger),
+  ruled and NOT built.** 📄 [`config-ownership-and-promotion.md`
+  §10 step 8](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) ·
+  [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard). **Filed here
+  2026-09-12 by the ruled-but-unbuilt sweep**, which walked all thirty-one ledger rows of the five
+  designs that shipped this sprint: **this is the one with no code behind it**, and until `86c4ad0e`
+  nothing in the tree recorded that. `own` ships its capture store and its host-side `reset`; what is
+  missing is the single archive of the pre-existing file **at adoption**, as a `config` bucket in the
+  archive subsystem that already exists.
+
+  **It needs no ruling and it is small.** What makes it worth a row rather than a backlog line is
+  where the gap sits: `confirmHostLosses` reads `EntryLosses` and fires only on first apply, so the
+  `assert` → `own` switch is unprompted — and it is the exact transition that drops a deep-merged
+  leaf. The jail's own first-migration half cannot have a prompt at all, because an unattended boot
+  has no TTY. The archive is the only net the design offers either one.
+
+  ⚠ **The design's ledger has no Built column**, which is why this was unrecoverable from the doc
+  and had to be found by walking the tree.
+  [`the-load-sentinel-is-not-a-liveness-oracle.md`](../design/the-load-sentinel-is-not-a-liveness-oracle.md)
+  and [`disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md) both carry one and are
+  the models — the latter's header says *"nine of ten rulings built"* without anyone having to check.
+  Worth adding to this ledger and to [`report-tiers.md`](../design/report-tiers.md)'s.
 
 ### 💬 31 — Which package manager an environment actually has, and who picks it
 
@@ -1002,11 +1094,21 @@ gate, not an absence. Coverage elsewhere: `brew` 6/6 (4 casks), `pacman` 2, `dnf
 "prefer the system manager" is right on macOS and collapses on Linux, where nix is the only manager
 covering all six.
 
-⚠ **This thread overlaps [`noncontainer-nix-environment.md`](../design/provisioner-sets.md), which has owned the host notch
-since 2026-08-02 and keeps six live questions on it** — including [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) (*should the
-jail get its agent CLIs from nix too?*) and [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) (`nix profile --profile`). The new
-doc routes both out of scope rather than re-opening them, which is the right move and the reason to
-read them together: **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) cannot be ruled without [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1).**
+✅ **The overlap this row used to warn about is GONE, because the two docs are one.**
+`noncontainer-nix-environment.md` had owned the host notch since 2026-08-02 and kept six live
+questions on it; `9b9da960` merged it into this doc and re-prefixed its bare numbering to `NX`. Its
+two questions that overlapped were not routed out of scope in the end — they were **absorbed**: the
+retired doc's bare `3` folded into [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) and its bare `7` into
+[`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6). ⚠ This row read *"PS1 cannot be ruled without PS1"* until 2026-09-12, which
+is what a dependency looks like after both of its ends are mapped onto the same id; the dependency is
+real and is now internal to one question.
+
+⚠ **[`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) is not a unique id across the corpus.** A live `oq` directive defines
+that spelling in **both** this doc and
+[`provider-switching.md`](../design/provider-switching.md#10-open-questions) (💬 26), which are
+different questions — `vantage-check` only enforces uniqueness within a document, so nothing flags
+it, and an unlinked reference is ambiguous. Always link it. Same hazard
+[`config-ownership-and-promotion.md` §12](../design/config-ownership-and-promotion.md#12-open-questions) already records for `OQ-CO`.
 
 ⚠ **The carve raised the count on purpose, 11 → 13.** [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1), [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5) and [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) each asked two
 things, so none could be ruled: *"I need these split out into OQs, I can't follow this subquestion thing."*
@@ -1026,11 +1128,39 @@ opinion. The conditional is withdrawn and [§6.3](../design/provisioner-sets.md#
 **A question the reviewer cannot parse is a broken question**, and this one was broken because it was
 wrong.
 
+**What is actually blocking, as of 2026-09-12 — because "thirteen" is the wrong unit.** With ✅ 29
+and ✅ 30 shipped and 💬 25 down to one question the build opened, this row is where most of what is
+left to decide now sits. The thirteen do not block equally, and
+[§9](../design/provisioner-sets.md#9-what-i-would-build-in-order)'s build order is what sorts them:
+
+- ✅ **Steps 1–3 are blocked by NOTHING and are defect-shaped.** Two provisioners armed and
+  unreachable on the guest, silently; the profile report running only inside the macos-user `check`
+  section when the predicate `describe` already uses would run it anywhere; and `yolo host apply`
+  disagreeing with `describe` about whether the host manages `packages:`. They are ruled by P3 and by
+  the narrow halves of [`OQ-NX8`](../design/provisioner-sets.md#OQ-NX8)/[`OQ-NX9`](../design/provisioner-sets.md#OQ-NX9), which lean and do not wait.
+  **Nothing in this row's count needs answering to start them.**
+- **Step 4 — the precedence order, PRINT-ONLY — is the first thing a ruling gates**, and it
+  needs exactly three: [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) for its default, [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) for its grain,
+  [`OQ-PS12`](../design/provisioner-sets.md#OQ-PS12) for its scope. **Those three are the real blocker.**
+- **[`OQ-PS11`](../design/provisioner-sets.md#OQ-PS11) is upstream of [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5)** — under
+  [`OQ-PS3`](../design/provisioner-sets.md#decision-ledger)'s ruling a `requires` is already a need with an empty recipe list,
+  so you may be naming ONE kind rather than re-spelling one of two. Rule PS11 first or PS5 is
+  unanswerable.
+- ⚠ **[`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) was opened by a MEASUREMENT, not a review**, and is the only one
+  here with hardware behind it: codex's installer prompted `Start Codex now? [y/N]` on `/dev/tty`
+  mid-`--version`-probe and a human answered `N`. It honors `CODEX_NON_INTERACTIVE=1` and
+  `packdecl.Install` has no field that can carry it.
+- **The four remaining — [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1), [`OQ-PS9`](../design/provisioner-sets.md#OQ-PS9), [`OQ-PS10`](../design/provisioner-sets.md#OQ-PS10),
+  [`OQ-NX4`](../design/provisioner-sets.md#OQ-NX4)/[`OQ-NX5`](../design/provisioner-sets.md#OQ-NX5)** — block step 5 or nothing at all, and step 5 is
+  ruled to come last on purpose: it is the first mutation of a real machine and must not be the
+  increment that also introduces the preference surface.
+
 **Answer:**
 > _(empty — fill in when decided. **[`OQ-PS3`](../design/provisioner-sets.md#decision-ledger) — the model question — is RULED**: a pack
 > declares a need plus the recipes that can produce it, and privileges none of them. That cascaded into five
-> places, so what remains is narrower than the count suggests: [`OQ-PS11`](../design/provisioner-sets.md#OQ-PS11) is upstream of
-> [`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5) — you may be naming ONE kind rather than re-spelling one of two.)_
+> places, so what remains is narrower than the count suggests — and the smallest useful sitting is
+> **[`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) · [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) · [`OQ-PS12`](../design/provisioner-sets.md#OQ-PS12)**, which unblocks
+> step 4 and leaves the other ten where they are.)_
 
 # 🔒 Waiting
 
@@ -1199,8 +1329,11 @@ wrong.
   since nine of the 36 are its GNU set.
 
   ⚠ **And the second half is a NEW confined step, not a port.** The doc implied the bootstrap was
-  already sandboxed; it is not — the argv is `sudo --user=… env -i … darwin-bootstrap` with no
-  `sandbox-exec` (`internal/macosuser/runplan.go:103-110`, verified 2026-09-11).
+  already sandboxed; it is not — `DarwinBootstrapArgv` emits
+  `sudo --user=… /usr/bin/env -i … <yolo> internal darwin-bootstrap` with no `sandbox-exec`
+  (`internal/macosuser/runplan.go`, verified 2026-09-11 and still true after the build: the STAGE is
+  the confined step, and `PlanInvariants` refuses a launch whose `ProvisionArgv` has lost
+  `/usr/bin/sandbox-exec`).
 
   ⚠ **BOTH RULED 2026-09-11, and HALF ONE IS BUILT 2026-09-12
   ([§9](../design/macos-user-provisioning.md#9-what-shipped-half-one)).**
@@ -1213,15 +1346,34 @@ wrong.
   `internal/darwinpkg/floor_policy_test.go`, a predicate over the DERIVED floor, which catches a GNU
   package added to the image core with no list edit at all.
 
-  **What the eval said, derived from this Linux jail rather than a Mac:** the exclusion list is
-  **9 of 36** and the floor is **27**. ⚠ **`procps` is NOT Linux-only**, though this row and the
-  design's own risk table both said so — on darwin nixpkgs resolves that attr to
-  `unixtools.procps`, a wrapper around the Mac's own BSD `ps`/`pgrep`. `iptables` is the only
-  unbuildable entry, on both `aarch64-darwin` and `x86_64-darwin`. Two costs shipped with it and
-  were accepted, not overlooked: **every macos-user launch now needs the repo root** (the
-  empty-`packages:` exemption is gone; `--dry-run` still exempt), and the first launch on a machine
-  builds a 27-package native closure — ⚠ **NOT MEASURED**, like every other runtime claim about
-  this change, which was implemented where macOS cannot run.
+  **What the eval said, derived from this Linux jail rather than a Mac** — the composition is
+  [§9.1](../design/macos-user-provisioning.md#91-the-floors-composition-and-how-it-was-derived), which
+  is the authority and prints the resolved list. As of 2026-09-12 the exclusion list is **ten of the
+  image core's thirty-six** — one by necessity (`iptables`, the only entry unbuildable on either
+  `aarch64-darwin` or `x86_64-darwin`) and nine by policy — leaving a **26-package** floor.
+
+  ⚠ **`procps` is NOT Linux-only**, though this row and the design's own risk table both said so —
+  on darwin nixpkgs resolves that attr to `unixtools.procps`, a wrapper around the Mac's own BSD
+  `ps`/`pgrep`/`pkill`, which is exactly what [`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger)
+  wants. **Guessing the exclusion list would have removed a working tool** for a reason nobody
+  would have re-checked; deriving it is what caught that.
+
+  ⚠ **And the same sentence got its other half WRONG in the shipping direction, which is the
+  one that costs something.** The Go comment keeping `which` off the policy exclusions asserted
+  *"`which`, `procps` — on darwin nixpkgs resolves both through `unixtools`"*. Re-measured against
+  the same locked inputs: `pkgs.which` is **GNU `which-2.25`** and is not one of `pkgs.unixtools`'
+  attrs at all. So GNU `which` shipped on a floor whose governing ruling is *no GNU userland*,
+  **with the policy gate green** — the exact silent shipment that gate exists to prevent. Fixed
+  2026-09-12 (`76306dcc`); macOS's own `/usr/bin/which` serves instead. The general lesson is
+  [§9.1](../design/macos-user-provisioning.md#91-the-floors-composition-and-how-it-was-derived)'s:
+  the policy predicate's unprefixed half is a known-incomplete **supplement**, not an enumeration —
+  `cpio`, `ed`, `m4`, `nano`, `bc`, `time`, `texinfo`, `groff` and `wget` would all pass it green,
+  and the honest oracle (`meta.homepage`) is a nix evaluation a Go test cannot perform.
+
+  **Two costs shipped with the floor and were accepted, not overlooked:** **every macos-user launch
+  now needs the repo root** (the empty-`packages:` exemption is gone; `--dry-run` still exempt), and
+  the first launch on a machine builds the whole native closure — ⚠ **NOT MEASURED**, like every
+  other runtime claim about this change, which was implemented where macOS cannot run.
 
   ⚠ **HALF TWO IS BUILT TOO, the same day
   ([§10](../design/macos-user-provisioning.md#10-what-shipped-half-two)).** The launch grew a
@@ -1249,12 +1401,29 @@ wrong.
     binds a set of home-root FILES per workspace that the layout covers none of. Any future
     generator writing a home-root file on this backend has to place it itself.
 
+  ⚠ **A FIFTH thing, added after the build and not in the four above: the failure policy the code
+  did not implement.** [§4](../design/macos-user-provisioning.md#4-the-proposed-shape) states in bold
+  that *a failing stage must not abort the launch*, and the orchestrator did the opposite on every
+  path where the stage could not START — `sudo` refusing authorization, `sandbox-exec` rejecting the
+  profile, a missing `/bin/bash` are all non-zero for reasons nobody chose, and those are items 1 and
+  4 of what a Mac has to settle. A workspace that merely *declared* `mise_tools` could not launch,
+  and the message blamed the user. It now discriminates on the `PROVISIONING FAILED` marker, which
+  exists if and only if the script ran; an unreadable log is treated as a veto, because honoring a
+  veto that was not given is recoverable and ignoring one that was is not
+  ([§10.7](../design/macos-user-provisioning.md#107-the-failure-policy-the-code-did-not-implement),
+  `3dbc10f8`).
+
   ⚠ **NOT MEASURED**, all of it — half two was built from the same Linux jail as half one. What
   a Mac has to settle is listed at
-  [§10.7](../design/macos-user-provisioning.md#107-what-a-mac-has-to-settle), ordered by what
-  would invalidate the most: that `sandbox-exec` accepts a separately-launched process under an
-  already-loaded profile, that the confined stage reaches the network, and that it can write the
-  prefixes it installs into.
+  [§10.8](../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle), ordered by what
+  would invalidate the most: that `sandbox-exec` accepts the stage process under this session's
+  profile at all, that the confined stage reaches the network, and that it can write the
+  prefixes it installs into. ⚠ **That list grew a correction of its own** — item 1 used to say *"a
+  profile already loaded for this session"*, and nothing has loaded one when the stage runs: the
+  orchestrator runs it at step 3.5, **before** the agent launch, so the stage is the FIRST process
+  under that profile, not a second. **Every item on that list is a runbook entry now** — items 6-10
+  of [`macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md) — and **none has been
+  run**; see the 🔒 row below.
 
 - ✅ **The macos-user home has one tier where it needs two, and content delivery just made it
   bite — RULED, and BUILT 2026-09-12
@@ -1310,6 +1479,30 @@ wrong.
   **[`macos-user-provisioning.md`](../design/macos-user-provisioning.md)'s half two is no longer
   blocked by the home split** — which is now built rather than merely unblocking.
 
+  ⚠ **The build shipped TWO runtime defects unfixed, deliberately**, because neither leaves the tree
+  red and both are behaviour on a backend CI cannot run
+  ([§10](../design/macos-user-home-tiers.md#10-what-shipped); runbook item 10):
+
+  1. **A transient pack-load failure permanently poisons the account home.** The link set is derived
+     from the loaded packs and a `LoadJailPacks` error does not abort the bootstrap (A12: every step
+     still runs), so `install_home_overlay` creates a REAL `~/.claude` and every later launch
+     refuses forever — with a remedy (`sudo rm -rf <home>`) that destroys the machine tier the
+     shared-credentials hook exists to preserve.
+  2. **An occupied MIRROR path prints a remedy that cannot fix it.** The refusal always names
+     `rm -rf` of the ACCOUNT home; a mirror's path is in the WORKSPACE SIDECAR, which that command
+     does not touch — so following the instruction leaves the launch refusing forever. It is
+     reachable today: `run/prepare.go`'s `migrateOldOverlay` COPIES every `packload.SharedDirs`
+     entry into `<ws>/.yolo/home` and never deletes, so any workspace that ever ran a container
+     launch on that machine may already hold one.
+
+  ⚠ **A mutation pass is what found them, and it found two unpinned rules the table above claimed.**
+  Truncating the mirror loop to its first entry passed the whole short suite — both mirror tests used
+  a one-element list, and `packs/agy` declares a second machine-scope dir, so `packs: ["claude","agy"]`
+  was exactly the untested case. And substituting literal slices for `packload.WritableDirs`/`SharedDirs`
+  left the suite fully green, so a pack added tomorrow would have got no link and no mirror, silently.
+  Both are pinned now. **The reusable form is AGENTS.md's:** a test that pins the callee while the
+  call site is unpinned is not a test — ask whether it fails when you delete the call site.
+
 - ✅ **The four manual Mac checks are RUN, and all four PASSED.** 📄
   [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md). Everything that
   could be automated was, on 2026-09-04: two darwin-gated harnesses run on any Mac with NO
@@ -1328,10 +1521,11 @@ wrong.
   have won had the login-rc re-prepend lost to `path_helper`, **which answers [`OQ-1`](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)**. And all
   fourteen built-in skills plus the native-backend briefing landed in the sandbox home.
 
-  ⚠ **A FIFTH item was added 2026-09-12 and has never been run** — the per-workspace home
-  layout, whose every runtime claim is unmeasured, and which makes item 3 (`packages:` beating
-  `path_helper`) worth re-running because the login rc now re-prepends a variable rather than a
-  baked PATH.
+  ⚠ **The runbook has grown from four items to ten, and items 5-10 have never been run.** They are
+  the 🔒 row immediately below, promoted out of this bullet on 2026-09-12 so a never-run check is
+  visible to the counts rather than parked inside an ✅. One of them also invalidates an item that
+  DID pass: item 3 (`packages:` beating `path_helper`) is worth re-running, because the login rc now
+  re-prepends a **variable** rather than a baked PATH.
 
   **This closed the Mac-gated column as it stood; it does not retire the runbook** — none of the four is
   pinned by a test, so a change to the privilege transition, the Seatbelt profile, the native
@@ -1341,6 +1535,44 @@ wrong.
   cannot tell a working re-prepend from a lucky PATH. ⚠ **These four are a human's to run:**
   `sudo -n true` reports `a password is required` and every macos-user argv leads with
   `sudo --user=_yolojail`, so an agent attempting the launch hangs on the prompt.
+
+- 🔒 **Runbook items 5-10 have NEVER BEEN RUN, and every runtime claim the macos-user pair
+  shipped on 2026-09-12 rests on them.** 📄
+  [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md) items 5-10. **Filed
+  as its own row 2026-09-12**, out of the ✅ bullet above, because a never-run check recorded inside
+  a closed item is invisible to this file's counts — the same reason C4/C5 was promoted from a
+  preamble paragraph on 2026-09-02.
+
+  **Both designs say so themselves.** [`macos-user-home-tiers.md`
+  §10](../design/macos-user-home-tiers.md#10-what-shipped) and
+  [`macos-user-provisioning.md` §9](../design/macos-user-provisioning.md#9-what-shipped-half-one) /
+  [§10](../design/macos-user-provisioning.md#10-what-shipped-half-two)
+  each carry a NOT MEASURED warning over everything runtime: both halves were implemented from this
+  Linux jail, on a backend that cannot run here. What IS pinned is the Go half — the composed script
+  (parsed with `bash -n`), the plan invariants, the generated bytes, the layout's position, the
+  derived floor and the policy predicate, each verified by deleting its call site.
+
+  **What the six settle**, in the order that would invalidate the most:
+
+  - **5 — the per-workspace home layout** (the sandbox uid creating `<ws>/.yolo/home` through the
+    shared-group ACL; the refusal a pre-A′ account gets; `MISE_DATA_DIR` holding a real store; the
+    login-rc re-prepend still beating `path_helper` now that its value arrives by variable).
+  - **6 — the floor is on the sandbox's PATH**, which is also what would retire
+    [§2](../design/macos-user-provisioning.md#2-what-this-costs-today)'s *"no node, no npm"* row for
+    the `via: npm` agent launchers.
+  - **7 — the provisioning stage runs, and is confined**: `sandbox-exec` accepting the stage
+    process, the confined stage reaching the network, and it being able to write the prefixes it
+    installs into. Three things composing correctly, none measured.
+  - **8 — a stage that cannot START does not kill the launch**, the half the code was wrong about
+    until `3dbc10f8`.
+  - **9 — `mise_tools` and `lsp_servers` actually arrive.** The runbook's *known-absent* list
+    struck both entries on this claim alone; until a Mac says otherwise, an absence there is a bug
+    worth reporting with `<workspace>/.yolo/startup.log` attached.
+  - **10 — the two layout defects a mutation pass found**, both refusal-message quality rather than
+    data loss, and both found by reasoning rather than measurement.
+
+  ⚠ **These are a human's to run, like the four above:** `sudo -n true` reports
+  `a password is required`, so an agent attempting the launch hangs on the prompt.
 
 - ✅ **The FIVE provisioner measurements are RUN too, and one of them found a defect nothing else
   could see.** 📄 [`../design/provisioner-sets.md` §15](../design/provisioner-sets.md#15-what-a-mac-session-should-measure),
@@ -1559,11 +1791,15 @@ asked to make and these are not blocking anything:
   questions, so the basename now exists in both trees: the built system is in `docs/reference/`, the
   unanswered questions are here. A basename-driven link sweep has already got this wrong once and
   pointed a reference doc at itself. **Check which tree you mean before repointing either.**
-- **nix [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) · 4 · 5 · 7 · 8 · 9** in
-  [`noncontainer-nix-environment.md`](../design/provisioner-sets.md) — what remains of
-  the retired 💬 4 after [`OQ-NX1`](../design/provisioner-sets.md#decision-ledger) closed (2026-09-02). None blocks anything: [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) is the `nix profile`
-  installer product, [`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6) is agents-from-nix (leaning no), [`OQ-NX8`](../design/provisioner-sets.md#OQ-NX8)'s reporting half and [`OQ-NX9`](../design/provisioner-sets.md#OQ-NX9)'s
-  Linux-diagnostics half are worth fixing under any answer and are work, not rulings.
+- ⚠ **The retired 💬 4's nix questions are NO LONGER in this list, and this bullet used to say
+  they were.** `9b9da960` merged `noncontainer-nix-environment.md` into
+  [`provisioner-sets.md`](../design/provisioner-sets.md) and re-prefixed its bare numbering to `NX`,
+  so every one of them is now inside 💬 **31**'s thirteen — which makes them **rows**, and this
+  section is for questions that are not. Corrected 2026-09-12; the merge created the contradiction
+  and nothing was tracking it. The claim that survives is the one worth keeping: their *narrow*
+  halves — [`OQ-NX8`](../design/provisioner-sets.md#OQ-NX8)'s reporting half and
+  [`OQ-NX9`](../design/provisioner-sets.md#OQ-NX9)'s Linux-diagnostics half — are work rather than
+  rulings and block nothing, which is exactly why they are steps 2 and 3 of that doc's build order.
 - **auth [OQ-9](../design/agent-auth-modes.md#11-open-questions)** in [`agent-auth-modes.md`](../design/agent-auth-modes.md) — the AWS credential-pair
   gap, carried back in when the retired 💬 3's doc rewrite dropped it unanswered. Working today via
   `env_sources`; likely absorbed by the in-flight env-derive work rather than decided.
