@@ -401,12 +401,30 @@ lock. Two are not, and both were fixed by moving the work rather than by warning
   site is where the two backends actually agree. A dry run is exempt: it launches nothing, so
   there is nothing to approve, and refusing would only hide the diff the user asked to inspect.
 
-One remains absent and warned: **`lsp_servers` binaries never install.** The config renders and
-the agent is *told* the server is enabled, but the installer is a block of the generated
-container bootstrap script this backend deliberately does not run — and there is no lazy-install
-channel to fall back on, because the launcher directory carries only pack `program`
-contributions and one package manager. So the warning names the configured keys and points at
-`packages:` as the native alternative.
+⚠ **This section listed `lsp_servers` as "absent and warned" until 2026-09-12, and that is
+retracted** — the installer it said this backend "deliberately does not run" now runs. The
+macos-user launch has a **provisioning stage**: a
+Seatbelt-confined step between the bootstrap and the agent that runs `mise install` and the
+generated bootstrap script, so `mise_tools` and `lsp_servers` install here the way they do
+everywhere else ([`../design/macos-user-provisioning.md`](../design/macos-user-provisioning.md)).
+The launch warnings for both keys were retired with it, on the rule this page applies
+elsewhere: a warning describing a closed gap teaches the reader to distrust the ones still
+true. What remains undelivered here is `mcp_presets`, whose preset *wrappers* hardcode Linux
+paths — so the stage does not install the npm packages behind them either, and the bootstrap
+still warns.
+
+⚠ **NOT MEASURED.** Half two was built from a Linux jail, like half one — no `sandbox-exec`,
+no `_yolojail`. Every sentence above about what the stage *does* is a description of code that
+has never run.
+
+The stage differs from the container's in three stated ways, each a decision rather than a
+gap. It runs **confined**, where the darwin bootstrap beside it does not — the bootstrap runs
+yolo's own code, the stage runs vendor install scripts. It does **not** forward its command
+through `sudo --login`, which the agent launch does: `sudo -i` concatenates and
+backslash-escapes the command instead of exec'ing it, leaving `$` for a login shell to expand,
+and the stage script is full of `$`. And it takes **four of the six** steps the container
+takes: the store prune needs a liveness proof this backend never computes, and the
+venv-precreate script is Linux-absolute.
 
 > [!WARNING]
 > **The blocked-tool blockers ARE generated, which made the old briefing gap a trap.** When

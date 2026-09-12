@@ -23,13 +23,18 @@ failures before anything else.
 ## 2. Provisioning failed → read the startup log
 
 If tools the project expects are missing, the last boot's provisioning may have
-failed. Look for `PROVISIONING FAILED` in:
+failed. Look for `PROVISIONING FAILED` in the workspace's own `.yolo` directory:
 
 ```
-/workspace/.yolo/startup.log
+/workspace/.yolo/startup.log          # container backends
+<your workspace>/.yolo/startup.log    # macos-user, where /workspace does not exist
 ```
 
-Self-serve from there: e.g. run `mise install` in `/workspace`, then re-run the
+It is one file under two names on the container backends — `/workspace` is where
+the workspace is mounted. On **macos-user** there is no mount and no `/workspace`,
+so use the project's real path.
+
+Self-serve from there: e.g. run `mise install` in the workspace, then re-run the
 step that failed. (The briefing shows a `⚠ Provisioning failed` banner on the
 next attach after a failed boot.)
 

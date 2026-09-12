@@ -8,18 +8,21 @@ summary: "Almost every imperative provisioning step the container path runs — 
 
 # macos-user has no floor and no provisioning stage
 
-**Status:** **HALF ONE BUILT, 2026-09-12** ([§9](#9-what-shipped-half-one)); half two
-designed and unbuilt. DESIGN 2026-09-11, DESIGN SKETCH 2026-09-04. All four questions are
-ruled and compacted into the [Decision Ledger](#decision-ledger).
+**Status:** **BOTH HALVES BUILT, 2026-09-12** — the floor in
+[§9](#9-what-shipped-half-one), the stage in [§10](#10-what-shipped-half-two). DESIGN
+2026-09-11, DESIGN SKETCH 2026-09-04. All four questions are ruled and compacted into the
+[Decision Ledger](#decision-ledger).
 
 > [!WARNING]
-> **Every runtime claim about half one is NOT MEASURED.** It was implemented from a Linux
-> jail, where there is no `sandbox-exec`, no `_yolojail` account, and `RunMacosUser` fails
-> closed on `!deps.IsMacOS()`. What IS measured is the nix evaluation — the floor's
+> **Every runtime claim about either half is NOT MEASURED.** Both were implemented from a
+> Linux jail, where there is no `sandbox-exec`, no `_yolojail` account, and `RunMacosUser`
+> fails closed on `!deps.IsMacOS()`. What IS measured is the nix evaluation — the floor's
 > composition and the fatal, both read with `nix eval` for `aarch64-darwin` and
 > `x86_64-darwin` from Linux ([§9](#9-what-shipped-half-one)) — and the Go half, unit-tested
-> with fake homes. That the closure BUILDS on a Mac, that the sandbox gets the PATH, and
-> what the first launch costs are all owed a hardware run.
+> with fake homes. That the closure BUILDS on a Mac, that the sandbox gets the PATH, that
+> the confined stage can reach the network and write the prefixes it installs into, and what
+> the first launch costs are all owed a hardware run
+> ([§10.7](#107-what-a-mac-has-to-settle)).
 
 > **In short.** A container jail gets its tools from an image **floor** and an
 > imperative **stage**; macos-user has neither, so four config keys render and install
@@ -46,7 +49,7 @@ dependency is discharged.
 backend it does not have in an image, and the ruling turns on whether it is worth
 paying.
 
-**Needs your ruling:** **None** — both closed 2026-09-11 ([Decision Ledger](#decision-ledger)). Half one is built ([§9](#9-what-shipped-half-one)); half two is ready to build, with the home-split dependency gone.
+**Needs your ruling:** **None** — both closed 2026-09-11 ([Decision Ledger](#decision-ledger)). Both halves are built ([§9](#9-what-shipped-half-one), [§10](#10-what-shipped-half-two)); what is left is a hardware run ([§10.7](#107-what-a-mac-has-to-settle)).
 
 > [!NOTE]
 > **Terms coined here.** The **floor** is the set of packages present in a jail
@@ -247,7 +250,10 @@ gains a core list, the way the image has one — the same attr, evaluated for th
 native system. Minimum viable core is whatever the stage needs to run: `mise` and
 `nodejs`. Whether it extends toward the image's 36 is **[`OQ-P1`](#decision-ledger)**.
 
-**Half two: a provisioning stage inside the sandbox.** The macos-user launch grows a
+**Half two: a provisioning stage inside the sandbox.** *(Built 2026-09-12 —
+[§10](#10-what-shipped-half-two) records what it actually became, including the two places
+this proposal was wrong: where the generated script goes, and the `sudo --login` forwarding
+it had to route around.)* The macos-user launch grows a
 **third** step between the bootstrap and the agent (`orchestrator.go:432-440`): the
 same `setupScript` body, run as the sandbox user **under `sandbox-exec -f <profile>`**
 — the profile is already installed before the bootstrap (`orchestrator.go:417`), so
@@ -347,6 +353,11 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 
 ## 8. Sequencing
 
+⚠ **Both halves are shipped** ([§9](#9-what-shipped-half-one),
+[§10](#10-what-shipped-half-two)); this section is kept as the record of the ordering
+argument, which held. The dependency it checks was real in a fourth place nobody listed —
+see [§10.3](#103-where-the-generated-script-lives-and-why-not-the-home).
+
 Ship the unwarned agent-launcher case first — it is independent of every question
 below and it is the one failure that lands on a user's first real command. Then
 half one, gated on [`OQ-P1`](#decision-ledger) and [`OQ-P2`](#decision-ledger). Then half two, whose dependency on the home
@@ -358,14 +369,17 @@ is no partial-credit ordering to be clever about.
 writes to three per-workspace surfaces (`config`, `npm-global`, `local`) that exist on
 this backend only once the sidecar symlinks of the home split are laid; without them
 the stage writes per-workspace content into the shared home and reproduces the race
-the split exists to end. The machine-wide half (mise data) does not depend on the
+the split exists to end. ⚠ **And a fourth surface the split does not cover**, found while
+building: the generated bootstrap script and the LSP sentinel are home-ROOT FILES, and the
+layout links directories — so half two had to place them itself rather than inherit a link
+([§10.3](#103-where-the-generated-script-lives-and-why-not-the-home)). The machine-wide half (mise data) does not depend on the
 split at all — it depends on setting `MISE_DATA_DIR`, which the split makes
 *necessary* rather than optional.
 
 ## 9. What shipped (half one)
 
-**Built 2026-09-12**, in four commits, on a Linux jail — so read the warning at the top of
-this document before treating any runtime sentence here as measured.
+**Built 2026-09-12**, on a Linux jail — so read the warning at the top of this document
+before treating any runtime sentence here as measured.
 
 ### 9.1 The floor's composition, and how it was derived
 
@@ -490,12 +504,200 @@ overlooked:
 
 ### 9.7 What is left
 
-Half two — the confined provisioning stage — is unchanged and unbuilt
-([§4](#4-the-proposed-shape)). Its dependency on the home split is discharged
-([§8](#8-sequencing)). The `via: npm` agent-launcher failure is *no longer* the loud-but-late
-case [§2](#2-what-this-costs-today) describes, because the floor supplies node and npm — but
-that claim is NOT MEASURED and is exactly the sort of thing a hardware run should check
-first.
+⚠ **Superseded the same day.** This section said half two was unbuilt; it is built, in
+[§10](#10-what-shipped-half-two). What survives from it is the other sentence: the
+`via: npm` agent-launcher failure is *no longer* the loud-but-late case
+[§2](#2-what-this-costs-today) describes, because the floor supplies node and npm — but that
+claim is NOT MEASURED and is exactly the sort of thing a hardware run should check first.
+
+## 10. What shipped (half two)
+
+**Built 2026-09-12**, on a Linux jail — so read the warning at the top of this document
+before treating any runtime sentence here as measured. What is pinned is the
+Go half: the composed script (parsed with `bash -n`), the plan and its invariants, the
+generated bytes, and every call site, each verified by deleting it.
+
+### 10.1 What the stage runs, and under which profile
+
+The macos-user launch grew a **third privileged step**, between the darwin bootstrap and the
+agent:
+
+```
+sudo --user=_yolojail /usr/bin/env -i YOLO_BYPASS_SHIMS=1 <the agent's own env…> \
+     /usr/bin/sandbox-exec -f /var/yolo-jail/profile-<session>.sb -- \
+     /bin/bash -c '<the wrapped stage script>'
+```
+
+**The profile is the session's own**, the same one the agent gets — already installed two
+steps earlier, so nothing new has to exist for the stage to be confined, and a separately
+launched `sandbox-exec` is not the nested-profile case Seatbelt refuses. That answers
+[§4](#4-the-proposed-shape)'s "run it confined" with the only profile there is here.
+
+⚠ **`(allow default)` is what that profile is**, so "confined" bounds the stage OUTSIDE the
+sandbox and promises nothing inside it. The measurement in [§3](#3-principles) is the proof
+rather than a worry: two vendor installers run under this very profile on 2026-09-11 still
+appended to `.bashrc`/`.zshrc`/`.zprofile`/`.bash_profile` and prompted on `/dev/tty`, and
+Seatbelt was working correctly both times — the sandbox home is supposed to be writable and
+the tty is the launch's own.
+
+**The body is FOUR of the six steps** the container runs, and the two omissions are
+decisions with stated reasons rather than gaps:
+
+| Step | Container | macos-user | Why |
+| :--- | :--- | :--- | :--- |
+| prune dangling store symlinks | ✅ | ❌ | gated on `YOLO_STORE_PRUNE_OK`, which the container's launcher sets only after proving no other jail is live. Nothing here computes that proof, so the step would be permanently inert — a line that reads like a feature and is one only on the other backend. |
+| `mise install --quiet` | ✅ | ✅ | |
+| the generated bootstrap script | ✅ | ✅ | by ABSOLUTE path, not `~/.yolo-bootstrap.sh` — see [§10.3](#103-where-the-generated-script-lives-and-why-not-the-home) |
+| `~/.yolo-venv-precreate.sh` | ✅ | ❌ | its body tests `/workspace/mise.toml` and shells out to `/bin/python3`, so on a Mac it finds neither and exits 0 on every launch. That is the silent skip [`OQ-P1`](#decision-ledger) ruled against, so nothing generates it here either. **A Mac workspace configuring `_.python.venv` gets no pre-created venv.** |
+
+**And `mcp_presets` is not a reason to run the stage at all.** The preset *wrappers* are not
+generated on this backend ([§1](#1-the-two-missing-halves) — their bodies are Linux-absolute)
+and the stage no longer installs the npm packages behind them either, because a package whose
+wrapper nothing writes is a download nothing can exec. So the design's skip rule ships minus
+that entry: the stage runs when `mise_tools` **or** `lsp_servers` is non-empty, and a bare
+`yolo -- bash` pays nothing — no third step, no sudo, no `mise install` against an empty
+config.
+
+### 10.2 The `sudo --login` mangling, and how it was handled
+
+[§1.1](#11-the-forwarded-command-is-not-passed-through-faithfully)'s defect is load-bearing
+for this stage rather than adjacent to it. The stage script is dense with `$_prc`,
+`${PIPESTATUS[0]}`, `$(date …)` and `$MISE_DATA_DIR`; forwarded through `sudo --login`, every
+one of them would be expanded by an intermediate login shell against an empty environment
+before the inner shell saw the text — and **the failure is silent**, which is how one probe
+run reported five successes for commands that never ran.
+
+**ROUTED AROUND, NOT FIXED.** The LAUNCH argv keeps the flag: it is load-bearing there for a
+different measured reason (the login rc files re-prepend PATH after macOS `path_helper`,
+which is the acceptance bar [`OQ-1`](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)
+passed on 2026-09-10), and trading one measured behaviour for another is its own change with
+its own test. The stage instead takes the **bootstrap argv's shape**, which has never carried
+the flag. That costs nothing, for the reason [§1.1](#11-the-forwarded-command-is-not-passed-through-faithfully)
+already identified: `/usr/bin/env -i` is the very next word in either argv and wipes whatever
+the login shell built, so the PATH the stage runs with is the explicit `PATH=` in its env
+list — the same `SandboxPath` value the agent gets.
+
+**A plan invariant pins the absence, with the reason in the message**, because the natural
+later edit is to make the two argvs "consistent". A unit test mutates the flag back in and
+asserts both the invariant and the stage's own ordering test fail; it also asserts the LAUNCH
+argv still HAS it, so the two argvs differ on purpose rather than by drift.
+
+`YOLO_BYPASS_SHIMS=1` moves from an `sh -c '…'` prefix into the process environment. The
+bypass is not optional — the generated script uses `find` and `grep`, which the `guardrails`
+pack refuses with exit 127 — and putting it in the environment also frees the script to embed
+an absolute path without nesting quotes inside a single-quoted `sh -c`. The agent, a separate
+process, does not inherit it.
+
+### 10.3 Where the generated script lives, and why not the home
+
+[§4](#4-the-proposed-shape) said *"`RunDarwinBootstrap` starts generating
+`~/.yolo-bootstrap.sh` so there is something to run."* It generates the script; it does
+**not** put it there.
+
+`~/.yolo-bootstrap.sh` is, on the container, a BIND of `<workspace>/.yolo/home/yolo-bootstrap.sh`
+— the home path is the bind's appearance and the sidecar path is where the bytes are.
+macos-user has no binds and one account home shared by every workspace, so a home-rooted copy
+would put one workspace's generated script (its MCP list, its receipts path) where the next
+workspace's launch overwrites it: **the cross-workspace write-write race
+[`macos-user-home-tiers.md`](macos-user-home-tiers.md) exists to end, re-created by half two
+rather than inherited from it.** So the bootstrap writes `<sidecar>/yolo-bootstrap.sh` — the
+same path the container's mount table names host-side — and the stage execs it absolutely.
+Nothing here needs the home spelling, because the only thing that execs the script is an argv
+yolo composes itself.
+
+**The LSP sentinel moved for the same reason**, and it is the sharper case: it records what
+the last run installed into a prefix (`~/.npm-global`) that the home split already made
+per-workspace, so a shared sentinel would claim installs living in another workspace's
+directory. The container's half is unchanged, expression and all — `$HOME/.yolo-installed-lsps`
+is already that workspace's file there, by bind.
+
+⚠ **One stranded case, stated rather than closed.** The uninstall loop reads that sentinel,
+so removing the *last* entry from `lsp_servers` flips the skip rule to "no stage" and the loop
+never runs: the package stays in the workspace's own npm prefix. Closing it needs a filesystem
+probe, and the plan is a pure function of the config by deliberate choice — a dry run has to
+describe the launch without touching the disk.
+
+### 10.4 One producer, because the marker has three readers
+
+[§4](#4-the-proposed-shape) called the failure emitter "one seam". It was one seam and a
+package boundary: the stage's bytes lived in `internal/cli/run`, which **imports**
+`internal/macosuser`, so the new backend could not reach them. They moved to
+`internal/provision`, which both import.
+
+The container's composed output is **byte-identical** — its golden passes unchanged, which is
+what makes the move verifiable rather than merely plausible. Two things got better on the way.
+The log path became a function of the workspace instead of a constant rooted at the
+container's fixed `/workspace` bind, which is what [§4](#4-the-proposed-shape) asked for and
+is now structural: the READER (`jailcontent.ReadProvisioningFailed`) has always resolved it
+from the host's workspace, and the two agreed only because the container's bind made them one
+file. And `PROVISIONING FAILED` has ONE definition, beside the producer that writes it —
+`internal/jailcontent` used to spell both it and the path itself, so a rename on either side
+would have left a failed provision reported as healthy with every test green.
+
+**A failing stage does not abort the launch**, which is [§4](#4-the-proposed-shape)'s rule and
+is now a property with a test: the only non-zero exit is the interactive `n` answer, so a
+non-interactive launch — where there is nobody to ask — always continues, and the record is
+the log.
+
+⚠ **The briefing reports the PREVIOUS launch's stage**, on this backend exactly as on the
+container: `refreshJailBriefings` runs before the backend dispatch, so a stage that fails
+today is banner-ed tomorrow. Unchanged, and stated because the arrival of an emitter makes it
+look like a new question.
+
+### 10.5 The workspace lock
+
+[§4](#4-the-proposed-shape) called this "a moved call". The CALL moved; the implementation did
+not — `internal/macosuser` cannot import `internal/cli/run`, so the flock got an exported
+front door and the backend reaches it through a `Deps` seam the launch path wires.
+
+The window is **bootstrap-through-stage**, not the stage alone: the bootstrap generates the
+very script the stage execs, into the same sidecar, so a second launch bootstrapping in
+between would have this one exec its script. It is **released before the agent** — holding it
+across the session would make a second terminal in the same workspace block until the first
+one ended, a serialisation no backend has and which reads as a hang. A lock that cannot be
+taken still launches, on the container's own reasoning: a workspace lock is a courtesy against
+a self-inflicted race, not a safety property worth refusing over.
+
+### 10.6 Two warnings retired, and the rule that retired them
+
+`mise_tools` and `lsp_servers` each carried a launch warning saying they install nothing here.
+Both named a mechanism — *"nothing runs `mise install`"*, *"the installer is a generated
+bootstrap script this backend deliberately does not run"* — and both mechanisms are now false.
+They are gone, on the rule the surrounding code already applies: **a warning describing a
+closed gap teaches the reader to distrust the warnings that are still true**, and a reader
+would have acted on these by rewriting their config around a limitation that no longer exists.
+
+Their test inverted with them. ⚠ **The absence of a warning is not evidence of a feature**, so
+the positive half lives where it can be observed: a test that drives the orchestrator and
+fails if the stage's call site is deleted.
+
+### 10.7 What a Mac has to settle
+
+Nothing below has been run. The list is ordered by what would invalidate the most.
+
+1. **That the stage runs at all** — `sandbox-exec` accepting a separately-launched process
+   under a profile already loaded for this session. The argument that it works is
+   [§4](#4-the-proposed-shape)'s (it is not the nested-profile case), and an argument is not a
+   measurement.
+2. **That the confined stage can reach the network.** `npm install` and `mise install` both
+   download. The profile is `(allow default)` with targeted denies and none of them names the
+   network, so this should hold — and "should hold" is the phrasing that has been wrong twice
+   in this document.
+3. **That it can write what it installs into.** `~/.npm-global` and `~/.local` are sidecar
+   symlinks into the workspace, and `~/.yolo/mise` is in the account home; the profile allows
+   writes under both the workspace and the sandbox home, and the layout resolves in the VFS
+   before the policy is consulted. Three things composing correctly, none measured.
+4. **That `sudo --user=… env -i … sandbox-exec …` forwards the script verbatim** — the
+   positive half of [§10.2](#102-the-sudo---login-mangling-and-how-it-was-handled). The
+   bootstrap argv has the same shape and has run on hardware, but it forwards no shell
+   command.
+5. **What the first stage costs.** An LSP-configured workspace's first launch now runs
+   `mise install` plus an `npm install -g` per server, in series, before the agent starts.
+6. **That a failed stage's banner reaches the briefing** end to end: script → `startup.log`
+   → `ReadProvisioningFailed` → the next launch's briefing.
+7. **The `via: npm` agent launchers**, still owed from [§9.7](#97-what-is-left) — the floor
+   supplies node and npm, so the loud-but-late failure in [§2](#2-what-this-costs-today)
+   should be gone.
 
 ## Open Questions
 

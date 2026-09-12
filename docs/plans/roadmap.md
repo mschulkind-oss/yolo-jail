@@ -1175,8 +1175,7 @@ wrong.
   rule, which was the explicit instruction.
 
 - ✅ **macos-user has no package floor and no provisioning stage, so four config keys render and
-  install nothing.** — **HALF ONE (the floor) SHIPPED 2026-09-12; half two (the confined stage) is
-  designed and unbuilt.** 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
+  install nothing.** — **BOTH HALVES SHIPPED 2026-09-12** (the floor, then the confined stage). 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
   **[`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger) · [`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger)** — [`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger) and
   [`OQ-P4`](../design/macos-user-provisioning.md#decision-ledger) were **answered and compacted 2026-09-11**. A container jail
   gets tools two ways: an image floor of **36** baked packages (git, node, mise, ripgrep, fd…) and
@@ -1222,8 +1221,40 @@ wrong.
   were accepted, not overlooked: **every macos-user launch now needs the repo root** (the
   empty-`packages:` exemption is gone; `--dry-run` still exempt), and the first launch on a machine
   builds a 27-package native closure — ⚠ **NOT MEASURED**, like every other runtime claim about
-  this change, which was implemented where macOS cannot run. **The home-split dependency is also
-  gone**, so half two is unblocked and is all that remains.
+  this change, which was implemented where macOS cannot run.
+
+  ⚠ **HALF TWO IS BUILT TOO, the same day
+  ([§10](../design/macos-user-provisioning.md#10-what-shipped-half-two)).** The launch grew a
+  third privileged step between the bootstrap and the agent — `mise install` plus the generated
+  bootstrap script, under `sandbox-exec` with the session's own profile — and the two launch
+  warnings that said these keys install nothing here were retired, because both named a
+  mechanism that is now false. Four things are worth carrying out of it:
+
+  - **It is a NEW CONFINED step, and the confinement buys less than it sounds like.** The
+    profile is `(allow default)` with targeted denies, so it bounds the stage OUTSIDE the
+    sandbox and promises nothing inside it — which is exactly what the 2026-09-11 hardware run
+    already showed, when two vendor installers under this very profile rewrote yolo's generated
+    rc files and prompted on the tty.
+  - ⚠ **The stage does NOT go through `sudo --login`, and must not.** That flag does not execve
+    its argv — it concatenates, backslash-escapes, and leaves `$` for a login shell — so a
+    script full of `${PIPESTATUS[0]}` and `$(date …)` would provision nothing and exit 0. The
+    LAUNCH argv keeps the flag (it is the `path_helper` fix, measured); the stage takes the
+    bootstrap argv's shape instead, and a plan invariant pins the difference so the natural
+    "make them consistent" edit fails loudly.
+  - **The design said the bootstrap script goes at `~/.yolo-bootstrap.sh`. It does not.** That
+    path is a BIND on the container; here it would put one workspace's generated script in a
+    home every workspace shares — the write-write race the home split exists to end, re-created
+    by half two. It and the LSP sentinel go in the workspace sidecar instead.
+  - **The takeaway that generalises:** the home split linked DIRECTORIES, and the container also
+    binds a set of home-root FILES per workspace that the layout covers none of. Any future
+    generator writing a home-root file on this backend has to place it itself.
+
+  ⚠ **NOT MEASURED**, all of it — half two was built from the same Linux jail as half one. What
+  a Mac has to settle is listed at
+  [§10.7](../design/macos-user-provisioning.md#107-what-a-mac-has-to-settle), ordered by what
+  would invalidate the most: that `sandbox-exec` accepts a separately-launched process under an
+  already-loaded profile, that the confined stage reaches the network, and that it can write the
+  prefixes it installs into.
 
 - ✅ **The macos-user home has one tier where it needs two, and content delivery just made it
   bite — RULED, and BUILT 2026-09-12
