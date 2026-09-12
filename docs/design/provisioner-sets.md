@@ -1338,10 +1338,18 @@ written by an agent on the maintainer's Mac. Every one of them is a fact no Linu
 > *"separated by spaces, after escaping each character (including white space) with a backslash"*
 > (sudo(8) `-i`), so every newline arrives at the target shell as a `\`-continuation it removes:
 > nine probes collapsed into five commands, each becoming an argument to the previous `echo`, and
-> every one of them exited 0. Single-line and semicolon-separated is immune. This is a **defect in
+> every one of them exited 0. ~~Single-line and semicolon-separated is immune.~~ This is a **defect in
 > the launch, not in the method** — it is filed at
 > [`macos-user-provisioning.md` §1.1](macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully),
 > which owns that argv.
+>
+> **FIXED 2026-09-12** ([§1.1](macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully) has the measurement), and the struck sentence above was **wrong
+> while it stood**: single-line is immune to the NEWLINE half only. sudo(8) leaves dollar signs
+> unescaped too, so an intermediate login shell expanded every `$var` against an empty
+> environment — runbook item 6's one-line `for b in …; do … "$b" …; done` probe printed nine
+> BLANK lines and exited 0. Measured 2026-09-12; the item could not be run at all until its
+> probe was rewritten without variables. If you are reading this on an older binary, the safe
+> spelling is **no newlines AND no shell variables**.
 
 **M1 — Does the guest have *any* working `program` provisioner?** Decides
 [§3](#3-the-provisioner-inventory-per-environment) rows 5 and 6, and the guest row of

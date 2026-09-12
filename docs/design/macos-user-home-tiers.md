@@ -582,6 +582,36 @@ workspace — the tier crosses as one variable, and nothing else would report it
 | `MISE_DATA_DIR` names a path OUTSIDE the workspace tier | `macosuser.SandboxMiseData` is the one function the launch env, the bootstrap env and the PATH's shims dir all read. ⚠ **Strengthened 2026-09-12:** the guard was `strings.Contains(want, "/.local/")` — the spelling its own comment mentions, not the property. Pointing the store at `~/.config/mise-store` or `~/go/mise` put it back inside the sidecar with the whole short suite green, since `.config` and `go` are links too. It now asks `DeriveDarwinHomeLayout` whether the path resolves through ANY workspace-tier link |
 | `InstallHomeOverlay` must not destroy the layout | it descends through a symlink and replaces at the first real directory, in the same commit as the mirror |
 
+> [!IMPORTANT]
+> **A SIXTH RULE, found on hardware 2026-09-12 and fixed the same day: a redirect is laid only
+> when this launch lays the directory that holds it.** The row above orders `Dirs` before
+> `Links` precisely because `MkdirAll` through a dangling symlink fails — and the
+> `FileRedirects` step, which runs *after* the links and `MkdirAll`s the target's parent
+> **through** them, was the one place that hazard still bit.
+>
+> The asymmetry that made it reachable: `paths.HomeFileRedirects()` is CORE, while the
+> directories it points into are not. `.claude.json` targets `.claude/claude.json`, and
+> `.claude` is a link only when a PACK declares it. So a launch declaring **no packs** still
+> required `~/.claude` to exist as a directory — and if an earlier launch had pointed it at a
+> workspace since DELETED, the layout generator failed with `mkdir …/.claude: file exists`, the
+> boot refused **naming no remedy**, and every later launch without that pack hit the same
+> wall. Same permanence as [§10](#10-what-shipped)'s second mutation-found defect, by a route
+> nothing had considered.
+>
+> **The ruling is [P2](#6-the-principles-this-rests-on)'s, applied to redirects:** the layout
+> manages what THIS launch declares. `~/.claude.json` means nothing without a `~/.claude` to
+> hold it, so it is not laid. And the stale link is **left alone, not removed** — removing it
+> would either break a live sidecar's link or leave a real directory that
+> [`OQ-HT2`](#decision-ledger) then refuses forever. A launch that *does* declare the pack
+> repoints it, which is the paired half of the test
+> (`TestDarwinHomeLayoutSurvivesAStaleLinkFromADeletedWorkspace` and
+> `…RepointsAStaleLinkThePackStillDeclares` — two inputs differing only in the pack).
+>
+> **Found by the first hardware run of the macos-user integration twins**, three of which
+> failed on it: each configures no packs, and an earlier test in the same run had pointed
+> `~/.claude` at a workspace it then deleted. So the suite was also poisoning itself in test
+> order — invisible on a fresh CI runner, cumulative on a developer's Mac.
+
 **The mirror's test, and its call-site proof.** [§6](#6-the-principles-this-rests-on)'s warning
 is honoured: `TestDarwinBootstrapLaysTheTierAndTheCredentialResolvesThroughIt` drives
 `RunDarwinBootstrap` itself against a real filesystem with the REAL claude manifest staged as

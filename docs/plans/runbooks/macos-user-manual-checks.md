@@ -27,14 +27,38 @@ shape, and the J2 fresh-inode rule (re-stage, then exec) — all in
 
 What remains needs either root, a kernel, or a human at a password prompt.
 
+> [!NOTE]
+> **ALL TEN ITEMS NOW HAVE A HARDWARE MEASUREMENT** — one session on the maintainer's Apple
+> Silicon Mac (macOS 26.5, arm64) on **2026-09-12**, host `yolo` taken to HEAD with `just
+> install` first (it was **136 commits** behind, and on this backend the host binary *is* the
+> implementation, so every item would otherwise have measured September 3rd's code).
+>
+> **Items 3, 5, 6, 7 and 9 PASS**, item 10a's twin PASSES, and items 1, 2 and 4 pass again on
+> the new code. Per-item results are under each heading. **Three defects were found, all three
+> fixed the same day**, and each is recorded at the item that found it:
+>
+> | # | Defect | Found by |
+> | :--- | :--- | :--- |
+> | 1 | `macos-setup` did not reprovision a DELETED account home, and reported "✓ ready" over a machine that could not launch — so **item 5's own prescribed remedy bricked the Mac** | following item 5 by hand |
+> | 2 | the launch mangled every forwarded command (`sudo --login`): newlines dropped, `$vars` expanded away, silently and with exit 0 | item 6's probe printing **nine blank lines** |
+> | 3 | a stale layout link from a DELETED workspace bricked every later launch whose packs did not declare that path | the twins' first run |
+>
+> ⚠ **Defect 2 is why "single-line is immune" was wrong** (it was published in
+> `provisioner-sets.md` [§15](../../design/provisioner-sets.md#15-what-a-mac-session-should-measure)): single-line survives the newline half only. Any forwarded command
+> containing a shell variable was silently rewritten. Item 6 could not be measured at all until
+> its probe was rewritten without variables — and after the fix, the item's own spelling works.
+
 > [!IMPORTANT]
-> **Items 5-10 are NEW (2026-09-12) and NONE HAS EVER BEEN RUN — including by their own
-> automated twins.** Three things shipped that day — the per-workspace home layout, the
-> non-container package FLOOR, and the confined provisioning STAGE — and every runtime claim
-> about all three is unmeasured. Six integration tests were then written against them, and
-> writing a test measures nothing: **no Mac has executed one**, so the first nightly run is
-> the first measurement either way. Item 3 is worth re-running with them, for the reason that
-> item states.
+> **Items 5-10 were NEW on 2026-09-12 and had never been run when this callout was written —
+> including by their own automated twins.** *(Superseded by the note above, the same day. Kept
+> because it is what made the first run readable: every warning it gives about how to read a
+> first red turned out to be load-bearing, and [§0.6](#06-the-first-run-is-different-and-the-section-above-does-not-apply-to-it)
+> is the section that got the triage right.)* Three things shipped that day — the per-workspace
+> home layout, the non-container package FLOOR, and the confined provisioning STAGE — and every
+> runtime claim about all three was unmeasured. Six integration tests were then written against
+> them, and writing a test measured nothing: **no Mac had executed one**, so the first run was
+> the first measurement either way. Item 3 was worth re-running with them, for the reason that
+> item states — and was.
 >
 > **Read items 6-9 in order and stop at the first failure.** They are a dependency chain, not
 > a list: no floor means no `mise` and no `npm`, which means the stage's first line fails,
@@ -231,7 +255,8 @@ This is the whole irreducible remainder: `sudo` running at all, the `-u _yolojai
 switch landing, and the staged binary self-exec'ing as that user. Everything before
 and after it is covered by the harnesses above.
 
-**PASSED 2026-09-10.** It printed `_yolojail` and the workspace path after one
+**PASSED 2026-09-10, and again on 2026-09-12** (five more launches that session, each of which
+had to clear this to reach anything else). It printed `_yolojail` and the workspace path after one
 password prompt — `sudo` ran, the `-u` switch landed, and the staged binary
 self-exec'd as that user (`internal/macosuser/runplan.go` builds both argvs).
 
@@ -273,6 +298,10 @@ the failure this catches, and it is silent otherwise.
 
 **PASSED 2026-09-10**, same session as item 1 — both paths refused, so the kernel
 does load the profile. That is the fact no unit test in this repo can reach.
+
+**RE-RUN 2026-09-12 — PASS, on the probe that proves something.** `/Library/Keychains` returned
+`Operation not permitted` (`EPERM`), the errno nothing in the filesystem would produce there.
+The `~/.ssh` line was deliberately not run, per the ⚠ below.
 
 > [!WARNING]
 > **Only the SECOND probe proves anything, and the two errnos above are the evidence.** A
@@ -336,6 +365,15 @@ meant the re-prepend lost to `path_helper` or to mise. Neither did. **Pick the
 package the same way when re-running this** — a declared package with no host rival
 cannot distinguish a working re-prepend from a lucky PATH.
 
+**RE-RUN 2026-09-12 — PASS, and this was the re-run the ⚠ in item 5 asked for.** `fzf` resolved
+to `/nix/store/…-yolo-noncontainer-profile/bin/fzf` (Homebrew's copy still present and still
+beaten), so the re-prepend holds now that its value arrives as `$YOLO_DARWIN_LOGIN_PATH` rather
+than baked. **Then measured a second time**, deliberately, as the regression check on the
+`--login` removal (defect 2): same answer, which is what proved
+[`OQ-1`](mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)
+never depended on that flag. Note the profile's name has changed since the 2026-09-10 record —
+`yolo-noncontainer-profile`, was `yolo-noncontainer-packages`.
+
 > [!NOTE]
 > **Half of this is now asserted every night, for a different package set.**
 > `integration/TestMacosUserFloorReachesTheSandboxPath` (item 6) requires each of nine FLOOR
@@ -367,6 +405,13 @@ Worth noting `developing-yolo-jail` is among them: it is the source-tree-only sk
 so its presence also confirms the source-tree probe fired correctly for this
 workspace rather than the list being staged blind.
 
+**RE-RUN 2026-09-12 — PASS, with THIRTEEN skills rather than fourteen, and the difference is the
+probe working.** The absent one is `developing-yolo-jail`, and the workspace was
+`/Users/Shared/yolo/mac-hand` — not the source tree. Read together with the 2026-09-10 result
+above, the pair is a better check than either alone: the same list, one entry, decided by
+whether the workspace is this repo. `~/.claude/CLAUDE.md` again opened with the native-backend
+briefing.
+
 > [!NOTE]
 > **No automated twin.** It needs a launch with a pack selected (the isolated user config the
 > suite already writes, via `packHome`), then two reads: `~/.claude/skills` and the first line
@@ -392,6 +437,22 @@ the boot fails with the layout step named and the existing ACL hint attached —
 `yolo macos-fix-permissions <workspace>` — which is the diagnosis to follow rather than a bug
 to file.
 
+**MEASURED 2026-09-12 — PASS, completely, and this is the layout's first hardware run.** Read
+from the host (the host user is in the `_yolojail` group, so the account home is readable
+without a launch):
+
+- all **six** account-home paths are symlinks into `<ws>/.yolo/home` — `.claude`, `.config`,
+  `.local`, `.npm-global`, `go`, `.yolo/bin`;
+- `.claude-shared-credentials` is a **real directory** in the account home, and the sidecar
+  **mirror** points back at it;
+- the credential is still spelled **relatively** — `../.claude-shared-credentials/.credentials.json`;
+- `~/.yolo/mise` is a real directory in the account home while its sibling `~/.yolo/bin` is a
+  symlink, which is item 9's tier check with the contrast that makes it mean something.
+
+⚠ **Not claimed: "the credential reads."** The chain is verifiably correct but its target was
+absent, because the reset below destroys the sandbox account's Claude login. The twin proves
+resolution with a **probe file**, which is the right instrument and the reason it uses one.
+
 > [!WARNING]
 > **An account that predates this refuses to launch, by design.** There is no migration
 > ([`OQ-HT2`](../../design/macos-user-home-tiers.md#decision-ledger)): a real directory where a
@@ -404,6 +465,23 @@ to file.
 >
 > You lose that account's agent history, which was ruled affordable because the only session
 > this backend ever had was the 2026-09-11 hardware run.
+>
+> ⚠ **THIS REMEDY BRICKED THE MACHINE UNTIL 2026-09-12, and following it is how the defect was
+> found.** `rm -rf` takes the HOME and leaves the ACCOUNT, and every home step
+> (`createhomedir`, `chown -R`, `chmod 750`) lived in `macos-setup`'s account-CREATION branch.
+> So setup did nothing, printed **"✓ macos-user backend ready … preconditions pass"**, and the
+> next launch built the entire native closure before failing **twenty config generators at
+> once** with `mkdir /Users/_yolojail: permission denied` — `/Users` is root-owned 0755, so the
+> sandbox uid cannot create its own home. The diagnosis then blamed the WORKSPACE ACL and
+> prescribed `yolo macos-fix-permissions <workspace>`, which cannot reach `/Users/_yolojail`:
+> the same defect shape [item 10](#10-the-two-layout-defects-a-mutation-pass-found--new-2026-09-12-never-run) had just
+> been fixed for, one path over.
+>
+> **Fixed both halves the same day**: setup reprovisions a missing home under an existing
+> account (and a failed repair aborts instead of reporting ready), and a launch refuses on one
+> stat, before the build, naming `yolo macos-setup`. The command above is now safe to follow.
+> ⚠ **The twins could not have found this** — every one of them runs
+> `macos-fix-permissions` on a workspace under an account whose home a previous test created.
 
 ⚠ **Two more unmeasured facts ride along with this item.** `MISE_DATA_DIR` is now named
 (`~/.yolo/mise`) rather than defaulted, so nothing lands in the per-workspace `~/.local`; and
@@ -453,6 +531,28 @@ actually reaches the sandbox — the single largest unmeasured claim of the whol
 that [`OQ-P2`](../../design/macos-user-provisioning.md#decision-ledger)'s no-GNU-userland
 ruling is true of the shipped article and not just of the exclusion list.
 
+**MEASURED 2026-09-12 — PASS, and this settles the pair's largest unmeasured claim.** All nine
+floor binaries resolved into `/nix/store/…-yolo-noncontainer-profile/bin/` —
+`mise node npm git rg fd jq gh curl` — including **`git` and `curl`, which have `/usr/bin`
+rivals**, so the re-prepend beats `path_helper` for the floor and not just for `packages:`. And
+the policy half in full: all nine `FloorExcludedPolicy` names — `stat grep sed awk find tar
+diff patch which` — resolved to **`/usr/bin`**, never the store, so
+[`OQ-P2`](../../design/macos-user-provisioning.md#decision-ledger)'s no-GNU-userland ruling is
+true of the shipped article. `which --version` printed `which: illegal option -- -`, which is
+Apple's own binary answering.
+
+> [!WARNING]
+> ⚠ **THIS ITEM COULD NOT BE MEASURED AT ALL ON ITS FIRST ATTEMPT, and finding out why is what
+> exposed defect 2.** The command above is single-line, which `provisioner-sets.md` [§15](../../design/provisioner-sets.md#15-what-a-mac-session-should-measure) said was
+> immune to the forwarding defect. It is not: sudo(8) leaves **dollar signs** unescaped as well,
+> so an intermediate login shell expanded `$b` and `$(command -v $b)` against an empty
+> environment and the probe printed **nine blank lines** — with exit 0, the failure mode this
+> whole runbook exists to catch. The item was measured with a variable-free probe
+> (`command -v mise || echo MISSING-mise; …`), and then the launch was fixed
+> ([§1.1](../../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully)),
+> so **the spelling above works as written on any binary from 2026-09-12 on**. On an older one,
+> use no newlines and no variables.
+
 **If `mise` or `npm` is MISSING**, stop: nothing below can pass, and this is the bug to file,
 with the output of `yolo --dry-run` (which names the profile path the launch built).
 
@@ -495,6 +595,13 @@ $ cat <workspace>/.yolo/startup.log
 **Expect:** the launch prints the provisioning banner and pauses before the agent; the log
 exists, is **truncated to this launch** (its first line is `=== yolo provisioning <date> ===`),
 and records `mise install` running. No `PROVISIONING FAILED` line.
+
+**MEASURED 2026-09-12 — PASS.** `<ws>/.yolo/startup.log` was exactly three lines:
+`=== yolo provisioning 2026-09-12T14:02:20-0400 ===`, then `  ↳ mise install`, then
+`  ↳ bootstrap`. No `PROVISIONING FAILED`. The banner's timestamp parses and falls inside the
+launch's own window, which is the item-4 check below — the one a mangled script cannot pass
+while still exiting 0. So `sandbox-exec` accepted the stage, the confined stage reached the
+network (it installed two declared tools from scratch), and it wrote the sidecar.
 
 **Settles:** [§10.8](../../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle)
 items 1, 2, 3 and 4 at once — that `sandbox-exec` accepts the stage process, that the confined
@@ -595,6 +702,18 @@ $ YOLO_RUNTIME=macos-user yolo -- bash -lc 'mise ls --installed; ls ~/.yolo/mise
 **Expect:** the declared tools are installed; the mise store is under **`~/.yolo/mise`**, in
 the ACCOUNT home; and `~/.npm-global` (a symlink into `<workspace>/.yolo/home`) holds the LSP
 binaries.
+
+**MEASURED 2026-09-12 — the `mise_tools` half PASSES, which is the half the verdict turns on.**
+Both declared tools installed from scratch (`neovim` nightly and `pipx:swarf` latest) under
+`/Users/_yolojail/.yolo/mise/installs`, and the ⚠ tier check holds: that store is a **real
+directory in the account home**, not a symlink into any workspace, while its sibling
+`~/.yolo/bin` is a symlink. [§10.6](../../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them)'s retirement of the `mise_tools` warning was made on code
+that had never run; it is now measured and correct.
+
+⚠ **The `lsp_servers` half is NOT evidence either way from this run.** `~/.npm-global/bin` did
+not exist, but the measuring host declares `lsp_servers: {}` — so nothing was asked for, and
+this run cannot distinguish the predicted wiring defect from an empty declaration. The twin
+declares its own, and is the instrument.
 
 **Settles:** the two launch warnings retired on 2026-09-12 — which were removed on the
 strength of code that had never run. If either tool is absent, that retirement was premature

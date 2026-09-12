@@ -122,7 +122,33 @@ Neither is a stage:
 
 ### 1.1 The forwarded command is not passed through faithfully
 
-**A defect, found by measurement on 2026-09-11 and not yet fixed.** It is stated here because this
+> [!NOTE]
+> **FIXED 2026-09-12 — `--login` is gone from the launch argv, and no argv in this backend
+> carries it.** The fix is the one this section proposed below, and the paragraph that argued
+> against the obvious one ([*"Why the obvious fix is wrong"*](#11-the-forwarded-command-is-not-passed-through-faithfully))
+> was itself wrong: `--login` was never load-bearing for [`OQ-1`](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown). Measured both ways on hardware
+> (macOS 26.5, arm64) the same day, in one launch each:
+>
+> | Probe | With `--login` | Without |
+> | :--- | :--- | :--- |
+> | `bash -lc $'echo A\necho B'` | `Aecho B` | **`A` / `B`**, two lines |
+> | `bash -lc 'X=inner; echo got=$X'` | `got=` | **`got=inner`** |
+> | a nine-binary `for b in …; do … "$b" …; done` floor probe | **nine blank lines** | all nine labelled, each resolving into the store profile |
+> | `command -v fzf` (the [`OQ-1`](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown) acceptance bar) | store profile | **store profile** — unchanged |
+>
+> The last row is the one that settles it. What re-prepends PATH after `path_helper` is the
+> user's OWN downstream login shell — `yolo -- bash -lc …` reads `/etc/profile` and then
+> `WriteLoginRC`'s rc file, inside the sandbox — never sudo's outer shell, whose environment
+> `/usr/bin/env -i` wipes on the very next word. This section already stated that fact about
+> the STAGE argv and did not draw the conclusion for the LAUNCH argv.
+>
+> ⚠ **And it cost a measurement before it was found.** Runbook item 6 could not be run at all
+> until its probe was rewritten without shell variables: the `$b` form printed nine blank
+> lines and, per the rule below, exited 0. `PlanInvariants` now refuses the flag on both
+> argvs, and a test pins that a forwarded command crosses in one argument with its newlines
+> and `$vars` intact.
+
+**A defect, found by measurement on 2026-09-11 and fixed on 2026-09-12.** It is stated here because this
 section owns the launch argv; it is orthogonal to this doc's thesis, and it is not part of
 [§4](#4-the-proposed-shape)'s proposal.
 
@@ -145,11 +171,17 @@ nine probes into five and reported five successes, none of which had run. Every 
 passes argv through `podman exec` untouched, so this is a **backend-parity defect**: the same
 `yolo --` invocation means different things per backend, and only this one rewrites it.
 
-**Why the obvious fix is wrong.** `--login` is load-bearing for
+**Why the obvious fix looked wrong — and was not.** *(Measured false 2026-09-12; kept because
+the reasoning is what a reader of the fix needs to see refuted.)* `--login` is load-bearing for
 [`OQ-1`](../plans/runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown):
 the login rc files `WriteLoginRC` generates are what re-prepend PATH after macOS `path_helper`
 reorders it, and that is the acceptance bar the runbook passed on 2026-09-10. Dropping the flag to
 get a faithful argv would trade one measured behaviour for another.
+
+⚠ **That last sentence is the error, and it survived because nobody asked WHICH shell does the
+re-prepending.** `sudo --login` makes the OUTER shell a login shell, and `env -i` discards
+everything it builds; the shell that actually reads `path_helper` and then `WriteLoginRC`'s rc
+file is the user's own `bash -lc`, downstream and inside the sandbox. There was no trade.
 
 **What to weigh instead** (a fix, not a design — deliberately unresolved here): the outer login
 shell's own rc work is *already* discarded, because the very next word in the argv is
@@ -160,6 +192,14 @@ not read by either spelling, since neither is interactive) while letting sudo `e
 verbatim. `PlanInvariants` pins the current shape and would move with it. **Not verified** — it
 needs the same one-password launch these probes needed, and a fix that re-plumbs the launch argv
 wants its own test at the plan level first.
+
+> [!NOTE]
+> **That reading HELD, and this is what shipped** (2026-09-12) — with one simplification: the
+> inner shell stayed `zsh -c`, not `zsh -l -c`. Making it a login zsh would newly run
+> `/etc/zprofile`'s `path_helper` inside the sandbox, which is a PATH change to buy nothing —
+> the rc file that matters is read by the user's own `bash -lc`, and the agent's PATH is the
+> explicit `PATH=`. So the fix is one deletion (`--login`), two `PlanInvariants` checks, and
+> the plan-level test this paragraph asked for.
 
 **Verified on the machine, not inferred — and one observation retracted.** No `mise`
 binary exists on any path the sandbox can read — the host's is at `/opt/homebrew/bin`,
