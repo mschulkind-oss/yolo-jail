@@ -36,7 +36,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // The in-jail names of the two generated files. Both live in the jail's own
@@ -136,24 +135,22 @@ func inheritScopeFiles(effective *jsonx.OrderedMap, rt, launchedAt string) (file
 	return files, unknown, nil
 }
 
-// userConfigMountArgs delivers the generated inner user scope (and config.lua), returning
-// the container argv for it.
+// userConfigMountArgs delivers the generated inner user scope, returning the container
+// argv for it.
 //
 // It REPLACED a raw `:ro` bind of paths.UserConfigPath(). The old comment said the mount
 // was "for nested jails"; measured, its readers were broader (`yolo check`, `yolo loopholes
 // list`, `yolo pack` all read user scope in-jail on every setup) and its content was
-// narrower (only config.jsonc and config.lua crossed, so `include_if_found` files stayed
-// host-side). So it was neither the effective config nor a designed subset — it filtered by
-// accident. Now it filters on purpose, per consumer.
+// narrower (only config.jsonc crossed, so `include_if_found` files stayed host-side). So it
+// was neither the effective config nor a designed subset — it filtered by accident. Now it
+// filters on purpose, per consumer.
 //
-// config.lua still crosses AS THE HOST'S FILE, unfiltered, and that is not an oversight:
-// it is a Lua transform script, not a config with keys to classify, and the entrypoint
-// reads it from $HOME/.config/yolo-jail/config.lua (loadPrismTransformScript) as the user
-// half of the documented "user then workspace" transform pair. There is nothing to filter
-// and no false-error class to kill — a transform that references a host path simply does
-// not fire on a surface that is not there. (A13: this file used to have no channel into any
-// jail at all, while `yolo config-ref` advertised it as auto-loaded.)
-func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[string]struct{}) []string {
+// The user's ~/.config/yolo-jail/config.lua crossed here too, as the host's own file and
+// unfiltered, because it was a Lua transform script rather than a config with keys to
+// classify. The transform is gone (docs/design/lua-transform-removal.md) and so is that
+// bind: nothing in the jail reads the file, so mounting it would be one more host path
+// crossing for no reader.
+func (o *Options) userConfigMountArgs(rt, wsState string) []string {
 	var args []string
 
 	// The GENERATED files. Written into wsState (the jail's own per-workspace state dir,
@@ -206,18 +203,6 @@ func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[strin
 		args = append(args, "-v", staged+":/home/agent/"+f.rel+":ro")
 	}
 
-	// config.lua, still the host's own file (see the doc comment above). Mounted only when
-	// present, so a user with no transform adds no argv.
-	userLua := filepath.Join(filepath.Dir(paths.UserConfigPath()), "config.lua")
-	if isFile(userLua) {
-		const rel = ".config/yolo-jail/config.lua"
-		if rt == "container" {
-			acMaterialize(userLua, rel, wsState)
-		} else {
-			args = append(args, ROFileMountArg(
-				userLua, "/home/agent/"+rel, wsState, rel, mountTargets, nil)...)
-		}
-	}
 	return args
 }
 

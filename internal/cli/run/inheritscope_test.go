@@ -119,7 +119,7 @@ func TestInheritedPreflightFileDropsHostOnlyKeys(t *testing.T) {
 	}`)
 	o := inheritOptions(t)
 
-	args := o.userConfigMountArgs("podman", wsState, map[string]struct{}{})
+	args := o.userConfigMountArgs("podman", wsState)
 	keys, found := mountedKeys(t, args, "/home/agent/"+inheritPreflightRel)
 	if !found {
 		t.Fatalf("no preflight user config was mounted; args: %v", args)
@@ -148,7 +148,7 @@ func TestInheritedScopeIsMountedPerFileNotAsADirectory(t *testing.T) {
 	_, wsState := inheritHome(t, `{"packs": ["claude"]}`)
 	o := inheritOptions(t)
 
-	args := o.userConfigMountArgs("podman", wsState, map[string]struct{}{})
+	args := o.userConfigMountArgs("podman", wsState)
 	if len(args) == 0 {
 		t.Fatal("no mounts emitted for a config with a packs key")
 	}
@@ -192,7 +192,7 @@ func TestNestedLaunchFileOnlyOnANestingBackend(t *testing.T) {
 	} {
 		_, wsState := inheritHome(t, `{"packages": ["postgresql"], "packs": ["claude"]}`)
 		o := inheritOptions(t)
-		args := o.userConfigMountArgs(tc.rt, wsState, map[string]struct{}{})
+		args := o.userConfigMountArgs(tc.rt, wsState)
 
 		// On `container` nothing is bind-mounted (the whole wsState becomes /home/agent),
 		// so look for the materialized file in the tree instead of in the argv.
@@ -218,7 +218,7 @@ func TestNestedLaunchFileOnlyOnANestingBackend(t *testing.T) {
 func TestTheTwoDeliveredFilesCarryDifferentKeys(t *testing.T) {
 	_, wsState := inheritHome(t, `{"packages": ["postgresql"], "agents_md_extra": "hi\n", "packs": ["claude"]}`)
 	o := inheritOptions(t)
-	args := o.userConfigMountArgs("podman", wsState, map[string]struct{}{})
+	args := o.userConfigMountArgs("podman", wsState)
 
 	preKeys, okPre := mountedKeys(t, args, "/home/agent/"+inheritPreflightRel)
 	nestKeys, okNest := mountedKeys(t, args, "/home/agent/"+inheritNestedRel)
@@ -255,39 +255,32 @@ func TestNothingToInheritDeliversNoFile(t *testing.T) {
 	// Only host-referent keys: everything is filtered, so both scopes are empty.
 	_, wsState := inheritHome(t, `{"gpu": {"enabled": true}, "kvm": true}`)
 	o := inheritOptions(t)
-	args := o.userConfigMountArgs("podman", wsState, map[string]struct{}{})
+	args := o.userConfigMountArgs("podman", wsState)
 	if len(args) != 0 {
 		t.Errorf("a config with nothing inheritable emitted argv %v — the golden argv for a "+
 			"bare launch would drift", args)
 	}
 }
 
-// config.lua still crosses, as the HOST'S OWN FILE. It is a Lua transform, not a config with
-// keys to classify, and the entrypoint reads it as the user half of the documented
-// "user then workspace" transform pair (A13: it used to have no channel into any jail while
-// `yolo config-ref` advertised it as auto-loaded). Filtering has nothing to say about it, so
-// this pins that OQ-LP9 did not silently drop it while replacing its neighbour.
-func TestConfigLuaStillCrossesUnfiltered(t *testing.T) {
+// The host's own ~/.config/yolo-jail/config.lua used to cross here UNFILTERED — the only
+// file this function bound straight off the human's real disk rather than generating — as
+// the user half of the "user then workspace" Lua transform pair (A13). The transform is
+// gone (docs/design/lua-transform-removal.md §5.4), and so is the bind.
+//
+// Pinned in the NEGATIVE, with the file actually present, because that is the direction
+// the mistake runs: nothing in the jail reads it any more, so re-adding the mount would be
+// a host path crossing into a jail for no reader — the ungated-crossing row this removal
+// closes (docs/design/trust-paths.md row 13).
+func TestUserConfigLuaNoLongerCrosses(t *testing.T) {
 	home, wsState := inheritHome(t, `{"packs": ["claude"]}`)
 	lua := filepath.Join(home, ".config", "yolo-jail", "config.lua")
-	if err := os.WriteFile(lua, []byte("-- transform\n"), 0o644); err != nil {
+	if err := os.WriteFile(lua, []byte("-- a stale transform\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	o := inheritOptions(t)
-	joined := strings.Join(o.userConfigMountArgs("podman", wsState, map[string]struct{}{}), " ")
-	if !strings.Contains(joined, "/home/agent/.config/yolo-jail/config.lua") {
-		t.Errorf("config.lua did not cross:\n%s", joined)
-	}
-}
-
-// And an absent config.lua adds no argv, so the golden argv of a jail with no transform is
-// unchanged (the invariant the A13 fix shipped with).
-func TestAbsentConfigLuaAddsNoArgv(t *testing.T) {
-	_, wsState := inheritHome(t, `{"packs": ["claude"]}`)
-	o := inheritOptions(t)
-	joined := strings.Join(o.userConfigMountArgs("podman", wsState, map[string]struct{}{}), " ")
+	joined := strings.Join(o.userConfigMountArgs("podman", wsState), " ")
 	if strings.Contains(joined, "config.lua") {
-		t.Errorf("absent config.lua must not be mounted: %s", joined)
+		t.Errorf("a leftover config.lua must not be mounted:\n%s", joined)
 	}
 }
 
@@ -308,7 +301,7 @@ func TestInheritedScopeComposesAcrossTwoLevels(t *testing.T) {
 	  "cache_relocations": {"npm": "/mnt/bigdisk/npm"}
 	}`)
 	o1 := inheritOptions(t)
-	args1 := o1.userConfigMountArgs("podman", wsState1, map[string]struct{}{})
+	args1 := o1.userConfigMountArgs("podman", wsState1)
 	level1, _, ok := mountedBody(t, args1, "/home/agent/"+inheritPreflightRel)
 	if !ok {
 		t.Fatalf("level 1 produced no preflight file; args=%v", args1)
@@ -317,7 +310,7 @@ func TestInheritedScopeComposesAcrossTwoLevels(t *testing.T) {
 	// --- level 2: jail A's home IS that file → jail B's inherited file.
 	_, wsState2 := inheritHome(t, level1)
 	o2 := inheritOptions(t)
-	args2 := o2.userConfigMountArgs("podman", wsState2, map[string]struct{}{})
+	args2 := o2.userConfigMountArgs("podman", wsState2)
 	level2, _, ok := mountedBody(t, args2, "/home/agent/"+inheritPreflightRel)
 	if !ok {
 		t.Fatalf("level 2 produced no preflight file; args=%v", args2)
@@ -376,7 +369,7 @@ func TestFailedStagingEmitsNoMount(t *testing.T) {
 	var out strings.Builder
 	o := inheritOptions(t)
 	o.Stdout = &out
-	args := o.userConfigMountArgs("podman", bad, map[string]struct{}{})
+	args := o.userConfigMountArgs("podman", bad)
 	if len(args) != 0 {
 		t.Errorf("a failed stage emitted mounts %v — podman would refuse to start the jail", args)
 	}

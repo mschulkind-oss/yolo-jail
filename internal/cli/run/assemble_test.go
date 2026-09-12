@@ -2,7 +2,6 @@ package run
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -576,35 +575,22 @@ func podmanLinuxGolden(home string) []string {
 	return a
 }
 
-// A13: a user-scope config.lua must be mounted into the jail. The entrypoint reads
-// $HOME/.config/yolo-jail/config.lua and the CLI docs advertise it as auto-loaded,
-// but only config.jsonc was ever mounted — so the user half of the documented
-// "user then workspace" transform pair silently did nothing.
+// A13: the user scope must actually REACH the jail. The entrypoint and the in-jail verbs
+// read $HOME/.config/yolo-jail/config.jsonc, and for the feature's first week nothing
+// mounted anything there — a documented input with no channel.
 //
-// Both halves of the old pair now live in inheritscope_test.go, because OQ-LP9 split them:
-// config.jsonc is GENERATED per consumer (TestInheritedPreflightFileDropsHostOnlyKeys and
-// friends), while config.lua still crosses as the host's own file
-// (TestConfigLuaStillCrossesUnfiltered / TestAbsentConfigLuaAddsNoArgv). Kept here as a
-// COVERAGE POINTER rather than deleted: the A13 regression must stay findable from the file
-// that used to own it, and the two tests it names are the permanent home of the assertion.
-//
-// This one keeps the half the old test proved that the new ones would otherwise only prove
-// separately: that BOTH files reach the jail from one call.
-func TestUserConfigMountDeliversBothTheGeneratedConfigAndConfigLua(t *testing.T) {
-	home, wsState := inheritHome(t, `{"packs": ["claude"]}`)
-	if err := os.WriteFile(
-		filepath.Join(home, ".config", "yolo-jail", "config.lua"), []byte("-- t\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+// What it delivers is now GENERATED per consumer rather than bound off the human's disk
+// (OQ-LP9), and its CONTENT is asserted in inheritscope_test.go. This is the one assertion
+// that stays here: that the destination path appears on the argv at all. It used to name
+// the host's config.lua as a second destination; that bind went with the Lua transform
+// (docs/design/lua-transform-removal.md §5.4), and its absence is pinned by
+// TestUserConfigLuaNoLongerCrosses.
+func TestUserConfigMountDeliversTheGeneratedConfig(t *testing.T) {
+	_, wsState := inheritHome(t, `{"packs": ["claude"]}`)
 	o := inheritOptions(t)
-	joined := strings.Join(o.userConfigMountArgs("podman", wsState, map[string]struct{}{}), " ")
-	for _, want := range []string{
-		"/home/agent/.config/yolo-jail/config.jsonc",
-		"/home/agent/.config/yolo-jail/config.lua",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("mount args missing %s:\n%s", want, joined)
-		}
+	joined := strings.Join(o.userConfigMountArgs("podman", wsState), " ")
+	if want := "/home/agent/.config/yolo-jail/config.jsonc"; !strings.Contains(joined, want) {
+		t.Errorf("mount args missing %s:\n%s", want, joined)
 	}
 }
 

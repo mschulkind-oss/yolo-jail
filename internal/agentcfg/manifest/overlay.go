@@ -37,14 +37,13 @@ type OverlayDTO struct {
 
 	// The fields below are REFUSED, each with its own reason. They are here to be
 	// rejected by name; none is ever read.
-	Defaults  map[string]any `json:"defaults,omitempty"`
-	Agent     string         `json:"agent,omitempty"`
-	Name      string         `json:"name,omitempty"`
-	Path      string         `json:"path,omitempty"`
-	Codec     string         `json:"codec,omitempty"`
-	Mode      string         `json:"mode,omitempty"`
-	Transform string         `json:"transform,omitempty"`
-	Retire    []string       `json:"retireOnFirstRender,omitempty"`
+	Defaults map[string]any `json:"defaults,omitempty"`
+	Agent    string         `json:"agent,omitempty"`
+	Name     string         `json:"name,omitempty"`
+	Path     string         `json:"path,omitempty"`
+	Codec    string         `json:"codec,omitempty"`
+	Mode     string         `json:"mode,omitempty"`
+	Retire   []string       `json:"retireOnFirstRender,omitempty"`
 }
 
 // overlayRefusals is the reason each non-contributable field is refused, so the
@@ -68,8 +67,6 @@ var overlayRefusals = []struct {
 	{"mode", "an overlay contributes keys; the surface's OWNER decides how the file is " +
 		"maintained across boots (silently flipping it is the hazard this kind exists to remove)",
 		func(d OverlayDTO) bool { return d.Mode != "" }},
-	{"transform", "a transform reshapes the WHOLE file, which is the owner's call, not a " +
-		"contributor's", func(d OverlayDTO) bool { return d.Transform != "" }},
 	{"retireOnFirstRender", "sidecar cleanup belongs to the surface's owner",
 		func(d OverlayDTO) bool { return len(d.Retire) > 0 }},
 }

@@ -20,8 +20,9 @@ package config
 //     home" read on the host; read inside jail A, "the host home" is jail A's disposable
 //     home. Same words, different object.
 //   - And what crossed was NEITHER the effective config NOR a designed subset: only
-//     config.jsonc and config.lua were mounted, so `include_if_found` files stayed
-//     host-side. The raw bind was already filtering — by accident.
+//     config.jsonc (and, until the transform was removed, config.lua) was mounted, so
+//     `include_if_found` files stayed host-side. The raw bind was already filtering —
+//     by accident.
 //
 // THE MODEL. "User level" is not a fixed path; it is the scope that owns the machine a
 // daemon runs on (docs/reference/gate-placement-principle.md). On the human's laptop that is

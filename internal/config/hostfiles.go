@@ -71,7 +71,7 @@ var hostFileModes = []string{
 // knownHostFileKeys is the accepted key set of the object form. Mirrors the
 // per-key doc table in docs/plans/host-file-staging.md.
 var knownHostFileKeys = set(
-	"path", "source", "content", "codec", "managed", "defaults", "transform", "mode",
+	"path", "source", "content", "codec", "managed", "defaults", "mode",
 )
 
 // HostFileEntry is one validated `host_files` entry, lowered from either the
@@ -104,15 +104,11 @@ type HostFileEntry struct {
 	// for a directory entry (a directory is not a codec).
 	Codec string `json:"codec,omitempty"`
 
-	// Managed is the `managed` layer: keys yolo re-asserts after the Lua hook, so
+	// Managed is the `managed` layer: keys yolo re-asserts after the fold, so
 	// they revert on edit. Lowered to the engine's plain value model.
 	Managed any `json:"managed,omitempty"`
 	// Defaults is the `defaults` layer: a user-overridable base. Also plain.
 	Defaults any `json:"defaults,omitempty"`
-
-	// Transform is the path to a Lua hook for this surface, "~" expanded. Empty
-	// means the identity transform.
-	Transform string `json:"transform,omitempty"`
 
 	// Mode is the resolved mode: the explicit `mode` when given, else the per-kind
 	// default (source-bearing → readonly, source-less → once, directory → copy).
@@ -538,18 +534,6 @@ func checkHostFileObject(m *jsonx.OrderedMap, itemPath, scope string, reserved m
 		entry.Defaults = v
 	}
 
-	if rawTransform, has := m.Get("transform"); has {
-		s, ok := asStr(rawTransform)
-		if !ok {
-			return HostFileEntry{}, itemPath + ".transform: expected a path to a Lua hook file"
-		}
-		if entry.IsDir {
-			return HostFileEntry{}, itemPath + ": 'transform' cannot be used with a directory " +
-				"(a directory is copied recursively, not composed)"
-		}
-		entry.Transform = filepath.Clean(expandUser(s))
-	}
-
 	// mode: explicit wins; otherwise the per-kind default, which is never capture.
 	if rawMode, has := m.Get("mode"); has {
 		s, ok := asStr(rawMode)
@@ -697,9 +681,12 @@ func hostFileShapeName(v any) string {
 // READ FROM THE PACKS, not duplicated. It used to be a hand-maintained list, drift-checked
 // by a test, because reading agentcfg.BuiltinManifest() would have pulled the Lua VM
 // (agentcfg/luahook → gopher-lua) into internal/config and therefore into every binary
-// that reads config. internal/packload has no such dependency — it reads manifests and
-// decodes surfaces without the transform engine — so the real declarations are reachable
-// now and the duplicate is gone.
+// that reads config. That reason expired twice over: internal/packload imports luahook
+// itself for the derive path (deriveenv.go), so the edge exists either way, and
+// internal/agentcfg no longer links Lua at all now that the config transform is gone
+// (docs/design/lua-transform-removal.md). What keeps the packs as the source is the
+// original half of the argument that still holds — the real declarations are over there,
+// and a duplicate of them drifts.
 //
 // Embedded packs only, which is a real and deliberate limit: a CONFIGURED pack's surface
 // path is not reserved here, because resolving one requires the pack store (a filesystem

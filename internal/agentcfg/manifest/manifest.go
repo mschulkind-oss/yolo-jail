@@ -24,10 +24,8 @@
 //     (see knownCodecs) — the two lists had drifted, and a name that validates
 //     but cannot decode is worse than the coupling;
 //   - the `defaults` layer data (yolo builtin, user-overridable — §4) and the
-//     `managed` layer data (yolo's asserted keys, re-applied after the Lua hook
-//     — §4, §3.1);
-//   - optionally, the path to a Lua transform hook (§3). Empty means identity
-//     (pass-through).
+//     `managed` layer data (yolo's asserted keys, re-applied after the fold
+//     — §4, §3.1).
 //
 // # Go-declared registry, not a data-loaded file (decision)
 //
@@ -62,8 +60,7 @@ import (
 // Surface declares one generated-config file and the layer data yolo composes
 // for it. Field names follow the design's vocabulary (§4 layer names
 // `defaults`/`managed`, §3.2 `agent`/`surface`, §3.3 `codec`); where the doc
-// does not name a Go field (the file path, the transform path) the names Path
-// and Transform are chosen for clarity.
+// does not name a Go field (the file path) the name Path is chosen for clarity.
 type Surface struct {
 	// Agent is the owning agent id (§3.2 ctx.agent): "claude", "pi", "codex",
 	// "copilot", "codex", "opencode" — or a non-agent surface owner such as
@@ -103,11 +100,6 @@ type Surface struct {
 	// to assert, so a non-nil Managed pins the ENTIRE file — coarse, but it is
 	// the only meaning "enforce" can carry without keys.
 	Managed any
-
-	// Transform is the optional path to the Lua transform hook for this surface
-	// (§3.4). Empty means identity / pass-through. This package does not read or
-	// execute the file; it only carries the path.
-	Transform string
 
 	// Mode names the ENGINE MECHANISM that writes this surface (D2). Empty means
 	// ModeStateful, which is the common case.

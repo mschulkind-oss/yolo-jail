@@ -28,7 +28,6 @@ func TestDecodeOverlayRefusesSurfaceRedefinition(t *testing.T) {
 		"path":                `{"path":"~/x.json","managed":{"k":1}}`,
 		"codec":               `{"codec":"toml","managed":{"k":1}}`,
 		"mode":                `{"mode":"rmw","managed":{"k":1}}`,
-		"transform":           `{"transform":"/x.lua","managed":{"k":1}}`,
 		"defaults":            `{"defaults":{"k":1},"managed":{"j":1}}`,
 		"retireOnFirstRender": `{"retireOnFirstRender":["x"],"managed":{"k":1}}`,
 	}
@@ -62,10 +61,20 @@ func TestDecodeOverlayRejectsEmptyBody(t *testing.T) {
 
 // A misspelled field is loud, for the same reason DecodeSurfaces is strict: silence would
 // mean an overlay that contributes nothing with no signal at all.
+//
+// `transform` is here rather than in the refused-by-name table above because that is the
+// whole of its disposition now: OQ-LT1 of docs/design/lua-transform-removal.md ruled the
+// transform deleted outright, with no named refusal to say it was removed, ON THE BASIS
+// that the generic machinery already fails closed. This is that basis, measured.
 func TestDecodeOverlayRejectsUnknownField(t *testing.T) {
-	_, probs := DecodeOverlay("claude/settings", []byte(`{"manged":{"k":1}}`))
-	if len(probs) == 0 || !strings.Contains(strings.Join(probs, "\n"), "unknown field") {
-		t.Errorf("a misspelled field must be an error, got %v", probs)
+	for _, body := range []string{`{"manged":{"k":1}}`, `{"transform":"/x.lua","managed":{"k":1}}`} {
+		got, probs := DecodeOverlay("claude/settings", []byte(body))
+		if got != nil {
+			t.Errorf("%s: an unknown field must yield no layer, got %#v", body, got)
+		}
+		if len(probs) == 0 || !strings.Contains(strings.Join(probs, "\n"), "unknown field") {
+			t.Errorf("%s: an unknown field must be an error, got %v", body, probs)
+		}
 	}
 }
 

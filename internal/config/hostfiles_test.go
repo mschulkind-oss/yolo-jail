@@ -111,6 +111,23 @@ func TestHostFilesUnknownKey(t *testing.T) {
 	oneProblem(t, `[{"path": "~/.x", "content": "y", "colour": "blue"}]`, "unknown key")
 }
 
+// TestHostFilesRetiredTransformKey is the SAFETY ARGUMENT of OQ-LT1
+// (docs/design/lua-transform-removal.md), pinned.
+//
+// The Lua transform was deleted outright with no deprecation window and no named
+// refusal saying "this was removed" — explicitly because the generic closed-key-set
+// machinery already makes a stale `transform` entry an error, so the loudness was free.
+// That reasoning is only sound while this holds, and nothing else in the suite asserts
+// it: knownHostFileKeys is a var a future edit could widen back without noticing.
+//
+// Measured 2026-09-11 end to end, not just here — `yolo check` reports
+// "config.host_files[0].transform: unknown key" and a launch REFUSES with the same
+// words and rc=1, before any side effect.
+func TestHostFilesRetiredTransformKey(t *testing.T) {
+	oneProblem(t, `[{"path": "~/.x", "content": "y", "transform": "~/hook.lua"}]`,
+		"transform: unknown key")
+}
+
 func TestHostFilesMissingPath(t *testing.T) {
 	oneProblem(t, `[{"content": "y"}]`, "path")
 }
@@ -249,7 +266,6 @@ func TestHostFilesDirRejectsCompositionKeys(t *testing.T) {
 	cases := []struct{ json, substr string }{
 		{`[{"path": "~/d/", "source": "/s/", "codec": "json"}]`, "'codec' cannot be used with a directory"},
 		{`[{"path": "~/d/", "content": "x"}]`, "'content' cannot be used with a directory"},
-		{`[{"path": "~/d/", "source": "/s/", "transform": "~/t.lua"}]`, "'transform' cannot be used with a directory"},
 		{`[{"path": "~/d/", "source": "/s/", "managed": {"a": 1}}]`, "'managed' cannot be used with a directory"},
 		{`[{"path": "~/d/", "source": "/s/", "defaults": {"a": 1}}]`, "'defaults' cannot be used with a directory"},
 	}

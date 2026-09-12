@@ -24,15 +24,14 @@ import (
 
 // SurfaceDTO is the wire form of one surface.
 type SurfaceDTO struct {
-	Agent     string         `json:"agent"`
-	Name      string         `json:"name"`
-	Path      string         `json:"path"`
-	Codec     string         `json:"codec"`
-	Mode      string         `json:"mode,omitempty"`
-	Defaults  map[string]any `json:"defaults,omitempty"`
-	Managed   map[string]any `json:"managed,omitempty"`
-	Transform string         `json:"transform,omitempty"`
-	Retire    []string       `json:"retireOnFirstRender,omitempty"`
+	Agent    string         `json:"agent"`
+	Name     string         `json:"name"`
+	Path     string         `json:"path"`
+	Codec    string         `json:"codec"`
+	Mode     string         `json:"mode,omitempty"`
+	Defaults map[string]any `json:"defaults,omitempty"`
+	Managed  map[string]any `json:"managed,omitempty"`
+	Retire   []string       `json:"retireOnFirstRender,omitempty"`
 }
 
 // knownModes is the closed set a DTO may name. A mode outside it is an error rather
@@ -65,8 +64,7 @@ func (d SurfaceDTO) Surface() (Surface, []string) {
 	}
 	s := Surface{
 		Agent: d.Agent, Name: d.Name, Path: d.Path, Codec: d.Codec,
-		Mode: d.Mode, Transform: d.Transform,
-		RetireOnFirstRender: d.Retire,
+		Mode: d.Mode, RetireOnFirstRender: d.Retire,
 	}
 	// Assign layers only when non-nil. An empty map is NOT the same as absent: on a
 	// keyless surface an empty-map layer hard-errors, and on an object surface it

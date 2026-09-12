@@ -596,7 +596,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.venvShadowMountArgs(cfg, in.wsState)...)
 
 	// --- user config mount (nested jails) ---
-	runCmd = append(runCmd, o.userConfigMountArgs(rt, in.wsState, in.mountTargets)...)
+	runCmd = append(runCmd, o.userConfigMountArgs(rt, in.wsState)...)
 
 	// --- MISE_DISABLE_TOOLS env ---
 	userEnv := config.ResolveEnvSources(o.Workspace, cfg, nil)
@@ -646,8 +646,8 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// The entrypoint renders each pack's declared SURFACES in-jail, so it needs the
 	// same declarations the host just read. Mounting the staged tree is how they cross,
 	// rather than an env var carrying serialized JSON: the tree is already staged (the
-	// exec-bit and symlink-escape refusals in packstage have run on it), and a surface
-	// may name a Lua transform FILE that has to exist at a path in-jail.
+	// exec-bit and symlink-escape refusals in packstage have run on it), and a pack's
+	// `files` and derive.lua have to exist at a path in-jail.
 	//
 	// :ro, and that is load-bearing rather than tidiness — a pack manifest is an INPUT
 	// to composition, and an agent that could rewrite one in-jail could grant its own

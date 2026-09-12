@@ -54,9 +54,9 @@ func ConfigureHostFiles(e *Env) error {
 	}
 	// FAIL-CLOSED (A12 ruling): a host_files entry that cannot be staged is an
 	// ERROR, not a warning. This loop used to warn and continue, which meant a
-	// user who declared a file — or a per-surface `transform` hook — got a jail
-	// that came up looking fine with the file missing or unhooked. A config
-	// surface must not fail silently; the caller aborts boot with this error.
+	// user who declared a file got a jail that came up looking fine with the file
+	// missing. A config surface must not fail silently; the caller aborts boot
+	// with this error.
 	for _, entry := range entries {
 		if err := stageHostFile(e, entry); err != nil {
 			return fmt.Errorf("host_files: staging ~/%s: %w", entry.Path, err)
@@ -184,13 +184,12 @@ func hostSourceIsExecutable(entry config.HostFileEntry) bool {
 // sidecars and keep every user surface distinct from every builtin.
 func hostFileSurface(entry config.HostFileEntry) manifest.Surface {
 	return manifest.Surface{
-		Agent:     "user",
-		Name:      entry.Slug(),
-		Path:      "~/" + entry.Path,
-		Codec:     entry.Codec,
-		Defaults:  entry.Defaults,
-		Managed:   entry.Managed,
-		Transform: entry.Transform,
+		Agent:    "user",
+		Name:     entry.Slug(),
+		Path:     "~/" + entry.Path,
+		Codec:    entry.Codec,
+		Defaults: entry.Defaults,
+		Managed:  entry.Managed,
 	}
 }
 

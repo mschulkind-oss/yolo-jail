@@ -533,7 +533,6 @@
                  hand-written config, json/toml to compose one.
       defaults   user-overridable base layer (structured codecs).
       managed    keys yolo re-asserts every render, so they revert on edit.
-      transform  path to a Lua hook; works on every codec, raw included.
       mode       see below.
 
     [bold]Codec auto-detect[/bold]: .json -> json, .toml -> toml, everything else -> raw
