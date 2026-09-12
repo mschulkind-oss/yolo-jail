@@ -38,8 +38,18 @@ func verboseReport(t *testing.T) {
 	t.Setenv(paths.VerboseEnv, "1")
 }
 
-// detailFixture is one pack whose contributions produce a line in each class the split sorts:
-// a settled config surface, a composed skill, and a briefing.
+// detailFixture is one pack whose contributions produce a line in each class the split sorts.
+//
+// FIVE CLASSES, and the last two were added on 2026-09-11 because they were the two §4.5
+// moved with nothing watching. The fixture declared only skills and a briefing, so
+// `detail(pr, packDeps.depLine(c))` and `reportDestination(..., configResultTier(r), ...)` could
+// each be restored to an unconditional pr.Printf with the whole package green (measured by
+// mutation, both independently). A compression test can only see the classes its fixture
+// produces, which makes the fixture the pin.
+//
+// The dependency is a `requires` whose binary is STUBBED PRESENT: a present dep is the tier-2
+// line the flag carries, where a missing one is a tier-3 blocker that must print at every
+// verbosity — the opposite property, pinned next door in applyhostdepgate_test.go.
 func detailFixture(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -47,12 +57,16 @@ func detailFixture(t *testing.T) string {
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"detailpack","description":"d","contributes":[`+
 			`{"kind":"skills","from":"skills","into":".detail/skills"},`+
+			`{"kind":"requires","bin":"detailbin","install_hints":{"apt":"detailbin-pkg"}},`+
+			`{"kind":"config","config":[{"agent":"dp","name":"settings","codec":"json",`+
+			`"path":"~/.dp/settings.json","mode":"rmw","managed":{"detailKey":"detailValue"}}]},`+
 			`{"kind":"briefing","from":"AGENTS.md","into":".detail/AGENTS.md"}]}`)
 	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Detail prose.\n")
 	writeFile(t, filepath.Join(packDir, "skills", "demo", "SKILL.md"), "---\nname: demo\n---\n")
 	selectPacks(t, home, `{"source":"file://`+packDir+`","name":"detailpack"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	stubBins(t, "detailbin")
 	return home
 }
 
@@ -97,6 +111,61 @@ func TestHostApplyDefaultViewCompressesAndVerboseItemizes(t *testing.T) {
 	if len(verbose) <= len(plain) {
 		t.Errorf("the verbose view (%d bytes) is not longer than the default (%d)",
 			len(verbose), len(plain))
+	}
+}
+
+// TestHostApplyCompressesTheDependencyAndSettledSurfaceLines is the other two classes of
+// §4.5's move, over a SETTLED home — which is the state they are visible in.
+//
+// A config surface only reaches the compressible tier once it is in sync: a first apply has
+// WouldChange set and reportDestination prints it at every verbosity, deliberately (a change
+// is never compressed). So this applies once for real, then reads the dry run that follows —
+// the state an operator's second and every later run is in, and the one where 277 lines of
+// report said the least.
+//
+// Both halves in one test for the reason the test above states: "compressed" is a claim about
+// a DIFFERENCE, so the absence of a line is evidence only beside the same run that has it.
+func TestHostApplyCompressesTheDependencyAndSettledSurfaceLines(t *testing.T) {
+	detailFixture(t)
+
+	// SETTLE IT. This apply writes, so its own report is not what is under test.
+	var out, errw bytes.Buffer
+	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
+		t.Fatalf("settling apply rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+
+	out.Reset()
+	errw.Reset()
+	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
+		t.Fatalf("dry run rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	plain := out.String() + errw.String()
+	for _, absent := range []string{
+		"dp/settings",   // the settled config surface, tier 2 under its own destination
+		"present at",    // the per-contribution dependency probe
+		"detailbin-pkg", // and its remedy, which only a blocker states
+	} {
+		if strings.Contains(plain, absent) {
+			t.Errorf("%q is tier-2 detail and must not print by default (§4.5):\n%s", absent, plain)
+		}
+	}
+	// The COUNT survives the compression — §4.4's rule is that the default view may drop the
+	// lines and never the set, so a reader still learns the dep was probed.
+	if !strings.Contains(plain, "declared dependency present") {
+		t.Errorf("the default view dropped the dependency COUNT, not just its lines:\n%s", plain)
+	}
+
+	verboseReport(t)
+	out.Reset()
+	errw.Reset()
+	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
+		t.Fatalf("verbose dry run rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	verbose := out.String() + errw.String()
+	for _, want := range []string{"dp/settings", "detailbin", "present at"} {
+		if !strings.Contains(verbose, want) {
+			t.Errorf("--verbose must itemize %q:\n%s", want, verbose)
+		}
 	}
 }
 
