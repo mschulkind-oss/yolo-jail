@@ -1,0 +1,178 @@
+name: macos-user backend
+
+# THE macOS JOB THAT NEEDS NO IMAGE — which is the whole reason it is a workflow of
+# its own rather than a second job in `nightly-macos.yml`.
+#
+# A macos-user launch returns before `runContainer`: it never calls `AutoLoadImage`,
+# never loads an OCI image, and builds its tools with NATIVE darwin nix from this
+# flake instead (`internal/cli/run/run.go`, the arm that refuses a launch with no repo
+# root — "the macos-user backend builds its tools from the yolo-jail flake with native
+# nix … so it needs the flake even when you declare nothing"). So none of the
+# four-link chain that has kept `nightly-macos.yml` red since 2026-09-09 applies here:
+# no Linux-built image to vouch for, no forced rebuild, no absent Linux builder, no
+# harness refusal (docs/design/darwin-image-provenance.md §2-§3).
+#
+# THAT IMMUNITY IS ONLY VISIBLE IF IT HAS ITS OWN VERDICT. Inside the nightly this job
+# would sit beside a job that is red for reasons it does not share, under one workflow
+# name and one notification — and "is macOS OK?" is a question people answer by looking
+# at the workflow, not by expanding it. A separate workflow is the difference between
+# a green signal and a green job nobody sees.
+#
+# Two more things a separate file buys, both consequences of needing no image: it can
+# be dispatched alone without also triggering an image build and four 50-minute shards,
+# and it is the one macOS instrument that can keep reporting while the image chain is
+# being fixed.
+
+on:
+  # Nightly, an hour after `nightly-macos.yml`, so the two runs are adjacent in the
+  # log without contending for macOS runners at the same minute.
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+# DELIBERATELY NOT ON push/pull_request, and this is a cost decision rather than a
+# policy one: nobody has measured what a first macos-user launch costs. §10.8 item 5
+# of docs/design/macos-user-provisioning.md says so outright, and the suite's own
+# 30-minute per-launch deadline is documented as a ceiling on waste rather than an
+# estimate. Wiring this to every PR touching `internal/macosuser/` commits every such
+# PR to an unmeasured wait. The first green run IS the measurement; a `paths:` filter
+# is the obvious next step once there is a duration to size it against.
+
+permissions:
+  contents: read
+
+# See ci.yml for the full rationale (pinned JS actions that still bundle Node 20).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  macos-user:
+    # macos-latest, and BOTH halves of that are deliberate.
+    #
+    # NOT `macos-26-intel`: that label exists in `nightly-macos.yml` because Podman
+    # Machine needs nested virtualization, which GitHub's Apple Silicon runners cannot
+    # do. This backend starts no VM and no container, so the constraint does not reach
+    # it — and arm64 is the architecture macos-user is actually used on (the only
+    # hardware session this backend has ever had, 2026-09-10, was an Apple Silicon Mac
+    # running macOS 26.5).
+    #
+    # NOT PINNED, on purpose. `sandbox-exec` is Apple-deprecated and the confinement
+    # this suite measures is the kernel's, not ours; a floating label is the only
+    # early warning we get when a macOS release changes what the profile does. Pinning
+    # would hide exactly the class of breakage this job exists to catch. The runner
+    # facts step below records which OS a given run actually measured.
+    runs-on: macos-latest
+    name: macos-user (native darwin, no image)
+    # A CEILING ON WASTE, not an estimate — the same stance as the suite's per-launch
+    # deadline, for the same reason: the cost is unmeasured. Sized so that ONE launch
+    # hitting its 30-minute deadline still leaves room for the remaining tests to
+    # report their own diagnoses, because a cap that fires first replaces six results
+    # with none. Revise it against the duration a green run reports, never against a
+    # guess. The inner dial is YOLO_TEST_MACOS_USER_TIMEOUT (seconds, per launch).
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The CLI under test is built by the harness with a plain `go build`, so it
+          # carries no version stamp and reports a LIVE `git describe` of this
+          # checkout instead (internal/version). Depth 1 has no tags to describe.
+          fetch-depth: 0
+
+      # Every macos-user launch materializes a darwin profile with `nix build` — the
+      # FLOOR (`darwinpkg.FloorNames()`: bash, git, mise, node, ripgrep, jq, … ) before
+      # the workspace declares anything. No nix, no floor, no launch.
+      #
+      # Nothing to configure beyond the experimental features: the launch's own argv
+      # already carries `--accept-flake-config` (`darwinpkg.nixFlags`), so the flake's
+      # substituter is honored without this step restating it. Note that the substituter
+      # in question serves LINUX closures — `publish.yml` pushes x86_64-linux and
+      # aarch64-linux — so the darwin floor comes from cache.nixos.org, and whatever
+      # part of it has no darwin build compiles here. That is the unmeasured cost above.
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # For correlating a future break with an OS bump, since the runner label floats.
+      # INFORMATIONAL ONLY — deliberately not a precondition check: the gate in
+      # integration/macosusergate_test.go is the one authority on what this backend
+      # needs, and restating its conditions here would be a second copy of them in a
+      # language with no test coverage.
+      - name: Runner facts
+        run: |
+          sw_vers
+          uname -m
+          sudo -n true && echo "sudo -n: passwordless" || echo "sudo -n: WOULD PROMPT"
+
+      # The account the whole backend runs as. The suite will NOT create it — a test
+      # run must not silently add a system account to somebody's Mac — so it is an
+      # explicit step here, where the machine is ephemeral and the mutation is
+      # therefore free. Idempotent; creates `_yolojail` (hidden, random password, no
+      # login shell) plus the shared root at /Users/Shared/yolo.
+      #
+      # NOT under sudo: `macos-setup` refuses to run as root (it would assign the
+      # shared-workspace ACL to root), and calls sudo itself for the steps that need
+      # it. That is why the `sudo -n` fact above matters — on a runner without
+      # passwordless sudo this step hangs instead of failing.
+      - name: Create the sandbox account
+        run: go run ./cmd/yolo macos-setup
+
+      # THE FILTER IS EXHAUSTIVE BY CONSTRUCTION, not by a list somebody maintains:
+      # requireMacosUser FAILS any test behind the gate that is not named
+      # TestMacosUser…, so `-run '^TestMacosUser'` cannot miss one. That rule is
+      # enforced on Linux, by the ordinary `just check-ci`, so a misnamed test is
+      # caught before any Mac is involved.
+      #
+      # AND A TYPO IN THIS VERY PATTERN FAILS THE JOB. Measured on Linux 2026-09-12:
+      # `-run '^TestMacOSUser'` (wrong capitalization) selects zero tests, and the run
+      # exits 1 saying "No test even reached the gate: the -run filter selected none of
+      # them". That is the guard below doing its job on the one input this YAML file
+      # can get wrong.
+      #
+      # The rest of ./integration is NOT selected, and must not be: every container
+      # test needs an image this job deliberately never loads.
+      #
+      # No `-failfast`. Items 6-9 of the runbook are a dependency chain and a human
+      # reading the results is told to stop at the first failure — but `go test` orders
+      # tests by source position, not by that chain, so failing fast would stop at an
+      # arbitrary one and hide the independent items (10a's refusal does not depend on
+      # the floor). The whole log costs runner time on a broken day and buys six
+      # diagnoses instead of one.
+      - name: macos-user integration tests
+        run: go test -count=1 -timeout 0 -v -run '^TestMacosUser' ./integration
+        env:
+          # THE DECLARATION, and the property this entire suite rests on. Set, a run
+          # that executes ZERO macos-user tests EXITS NON-ZERO — because a suite that
+          # skips is indistinguishable from a suite that passes, and this backend
+          # skips on every machine that develops the repo. Unset (a developer's
+          # `just test`, the Linux CI job) the same tests skip quietly, which is
+          # correct there. Only the step that scheduled the work can say which it is,
+          # which is why the declaration lives here and not in the test binary.
+          #
+          # So this job goes RED, naming the reason, when `_yolojail` is missing, when
+          # sudo would prompt, when the tests were renamed out of the filter above —
+          # every way of arriving at "nothing was exercised". See
+          # integration/macosusergate_test.go for the mechanism and its own tests
+          # (which run on Linux, under -short, on every push).
+          YOLO_TEST_MACOS_USER: "1"
+          # DELIBERATELY NO `YOLO_RUNTIME` HERE. The backend is selected PER LAUNCH by
+          # the fixture (`macosUserRunEnv`), which is the spelling a job-level variable
+          # cannot shadow. Setting it here would instead be read by the harness's
+          # `detectRuntime`, which would then look for a container image under a name
+          # that is not a container runtime. There is no image step in this job at all:
+          # with no runtime on the runner the harness prints one DEGRADED line and
+          # carries on, which is the correct outcome for a job that launches no
+          # containers.
+
+      # No artifact upload, and nothing to upload: each fixture workspace (and its
+      # .yolo/startup.log and launch.log) is removed by the test that made it, so the
+      # failing tests attach the stage log to their own failure message instead —
+      # `-v` above is what makes that reach the log a reader gets.
+      #
+      # No teardown either. The runner is ephemeral, and removing the account would
+      # delete the evidence any post-mortem step would want to look at.
