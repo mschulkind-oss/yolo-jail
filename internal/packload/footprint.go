@@ -375,12 +375,29 @@ func FootprintOf(p *Pack) Footprint {
 		case packdecl.KindHook:
 			add(packdecl.KindHook, c.Hook, "", false)
 		case packdecl.KindAutonomy:
+			// The posture PAIR, then the flags each posture injects. Naming the flags is not
+			// decoration: a permission-bypass flag declared here used to be declared as a
+			// plain `launch` contribution, whose claim renders its flags verbatim — so moving
+			// copilot's `--yolo` under this kind (the §4.2 fix that put it inside the notch
+			// policy) took it OUT of every footprint, turning `launch copilot  --yolo` into a
+			// bare `launch copilot` beside a claim that named no flag at all. claude, codex
+			// and agy had never had theirs named. The pair alone is also not an IDENTITY: two
+			// postures injecting different flags rendered the same sentence, which is the
+			// injectivity DisclosureSentence's doc comment forbids.
 			detail := "autonomous+guarded postures"
 			switch {
 			case c.Autonomous == nil:
 				detail = "guarded posture only"
 			case c.Guarded == nil:
 				detail = "autonomous posture only"
+			}
+			for _, half := range []struct {
+				name    string
+				posture *packdecl.AutonomyPosture
+			}{{"autonomous", c.Autonomous}, {"guarded", c.Guarded}} {
+				if inj := postureInjects(half.posture); inj != "" {
+					detail += "; " + half.name + " injects " + inj
+				}
 			}
 			add(packdecl.KindAutonomy, p.Name, detail, false)
 		case packdecl.KindProfile:
@@ -1212,4 +1229,26 @@ func packExecutables(root string) []string {
 	})
 	sort.Strings(out)
 	return out
+}
+
+// postureInjects renders the launch flags one autonomy posture injects, as
+// `<bin> <flags…>` per binary, or "" when the posture declares none.
+//
+// A posture with `launch` entries but no flags on them renders "" rather than a bare binary
+// name: an entry like {"bin":"copilot"} injects nothing, and a footprint line naming a
+// binary beside "injects" would claim an injection that does not happen. (Such an entry is
+// not inert — a posture entry REPLACES that binary's plain launch flags — but what it does
+// is subtract, which "injects" is the wrong word for.)
+func postureInjects(p *packdecl.AutonomyPosture) string {
+	if p == nil {
+		return ""
+	}
+	var parts []string
+	for _, l := range p.Launch {
+		if l.Bin == "" || len(l.Flags) == 0 {
+			continue
+		}
+		parts = append(parts, "`"+l.Bin+" "+strings.Join(l.Flags, " ")+"`")
+	}
+	return strings.Join(parts, ", ")
 }

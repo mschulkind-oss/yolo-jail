@@ -56,8 +56,17 @@ where the confinement notch can see it: packs render their **autonomous** postur
 by construction — every other agent pack already declared its equivalent flag inside it. Nothing
 leaked, because `yolo host -- <cmd>` injects no launch flags at all; the declaration was one
 `hostExec` change away from mattering. `yolo pack footprint copilot` reports the new claim as
-*"autonomous posture only"*: copilot has no persistent permission setting for a guarded posture to
-tighten, and a flag not selected is already the tightening.
+*"autonomous posture only; autonomous injects `copilot --yolo`"*: copilot has no persistent
+permission setting for a guarded posture to tighten, and a flag not selected is already the
+tightening.
+
+**The autonomy claim names its flags now, for every agent pack.** It used to report only which
+postures a pack declares, while a `launch` claim renders its flags verbatim — so moving a bypass
+flag under the notch, as copilot's just was, would have taken it out of the one report that names
+it (`yolo pack footprint` and `yolo pack lint` are the only surfaces that show launch flags at
+all; the launch banner carries review-worthy claims only). claude, codex and agy gain the same
+line — for claude, *"autonomous+guarded postures; autonomous injects
+`claude --dangerously-skip-permissions`"*.
 
 ### `--new` is REMOVED — replacing a jail is `yolo stop`, then an ordinary launch
 
