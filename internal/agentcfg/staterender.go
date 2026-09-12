@@ -136,6 +136,21 @@ type StatefulOutput struct {
 	// named field so the caller's intent reads clearly at the write site.
 	LastRenderBytes []byte
 
+	// PureBytes is the LAYERS-ALONE render this adoption subtracted to find its
+	// residue — Compose(Base) with no capture overlay at all — or nil when this
+	// render computed none: every steady-state render, a keyless surface (which
+	// adopts nothing), and a current file that does not decode.
+	//
+	// Reported for the one question a caller cannot otherwise answer: is the file
+	// on disk anything other than what yolo's own layers produce? The adoption
+	// computes exactly that comparison to build its residue and then drops the
+	// operand, so a caller wanting it had to re-run Compose — a second render of
+	// the same surface, free to disagree with this one. The caller is
+	// entrypoint.archiveAdoption, whose gate has to tell "bytes present" from
+	// "bytes yolo wrote" (OQ-CO7, docs/design/config-ownership-and-promotion.md
+	// §6.3.3); it is a report, never an input to anything here.
+	PureBytes []byte
+
 	// OverlayJSON is what to write to the overlay sidecar (JSON): on a first
 	// migration the ADOPTED residue of the on-disk file — {} when there is no file,
 	// or nothing in it beyond what yolo already asserts — else the accumulated
@@ -191,6 +206,11 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	lastRender, lastOK := decodeKind(c, kind, in.LastRenderBytes)
 	firstMigration := !in.LastRenderPresent || !lastOK
 
+	// The layers-alone render, kept for StatefulOutput.PureBytes when the adoption branch
+	// below computes one. Declared here rather than returned from that branch because only
+	// one of the two branches has one at all, and nil is the answer for the other.
+	var pureBytes []byte
+
 	var overlay any
 	if firstMigration {
 		// B1 (⚠ DATA LOSS FIX): ADOPT the on-disk file instead of discarding it.
@@ -238,6 +258,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 				if perr != nil {
 					return nil, perr
 				}
+				pureBytes = pure.Encoded
 				pureMap, _ := decodeKind(c, kind, pure.Encoded)
 				pm, _ := pureMap.(map[string]any)
 				curMap, _ := current.(map[string]any)
@@ -354,6 +375,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		LastRenderBytes: res.Encoded,
 		OverlayJSON:     overlayJSON,
 		FirstMigration:  firstMigration,
+		PureBytes:       pureBytes,
 	}, nil
 }
 

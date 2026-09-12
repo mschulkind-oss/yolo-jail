@@ -780,11 +780,11 @@ func readLastRenderKeys(s manifest.Surface) map[string]string {
 // configReset implements `yolo config reset <agent> [--surface s]`: discard the
 // capture overlay so the surface returns to what its layers produce.
 //
-// It removes the overlay sidecar AND the last_render sidecar. Removing last_render
-// too is not incidental: it makes the next boot take the §3.2 first-migration path,
-// which re-seeds a truthful baseline with an empty overlay. Deleting only the
-// overlay would leave the next boot diffing the (still-edited) file against a stale
-// baseline and immediately re-capturing the very edits just discarded.
+// It removes the overlay sidecar AND the last_render sidecar, then truncates the surface to
+// its pure render and WRITES THE BASELINE BACK for what it just wrote. Removing last_render
+// first is not incidental — a baseline left pointing at the pre-reset render would have the
+// next boot diff the truncated file against it and capture the discard as an edit — and
+// neither is writing the new one: see reseedResetBaseline for what deleting it cost.
 func configReset(args []string, out, errw io.Writer, color bool) int {
 	agent, surface, force, rc := surfaceArgs("reset", args, out, errw)
 	if rc >= 0 {
@@ -829,7 +829,14 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 		//
 		// Truncating also makes reset VISIBLE immediately rather than only after the
 		// next boot, which is what a user means by "reset".
-		if err := truncateSurfaceToPureRender(s); err != nil {
+		baseline, err := truncateSurfaceToPureRender(s)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
+			return 1
+		}
+		// AND RE-SEED THE BASELINE THE TRUNCATION JUST MADE TRUE, rather than leaving the
+		// next render to infer one (OQ-CO7 D1). See reseedResetBaseline.
+		if err := reseedResetBaseline(lastRenderPath, baseline); err != nil {
 			fmt.Fprintf(errw, "yolo config reset: %s/%s: %v\n", s.Agent, s.Name, err)
 			return 1
 		}
@@ -855,6 +862,56 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 		pr.Printf("[dim]The next jail launch re-renders these surfaces from their layers.[/dim]")
 	}
 	return 0
+}
+
+// reseedResetBaseline writes the last_render sidecar for the bytes `reset` has just truncated
+// the surface to, or leaves it removed when the truncation wrote nothing.
+//
+// # Why reset writes a baseline at all, when its whole first half is deleting sidecars
+//
+// The deletion's STATED purpose is already this — configReset's own output says "baseline
+// re-seeded", and the ruling that deletes last_render says it does so because that "makes the
+// next boot take the §3.2 first-migration path, which re-seeds a truthful baseline". Reset
+// then writes the file itself (ruling 1's truncation), so the truthful baseline is in its
+// hands at that moment and deferring it to a boot is what costs something:
+//
+//   - THE NEXT RENDER MISREADS RESET'S OWN OUTPUT AS THE USER'S FILE. No trusted last_render
+//     over a non-empty file is a first migration, and a first migration over bytes is an
+//     ADOPTION — so it spent OQ-CO7's one-per-surface adoption archive on a copy of yolo's
+//     own render, announced it as "the file as yolo found it", and left the next genuine
+//     adoption with no net at all. Measured 2026-09-12 (§6.3.3, D1).
+//   - "Cannot tell an edit from yolo's own output" is the reason captureSurfaceAt declines to
+//     act with no baseline. Reset used to create exactly that state and then hand it to the
+//     boot render, which has no such guard.
+//
+// Ruling 1's "the two halves are one change" is untouched by this — the truncation and the
+// discard both stay, and this is the same re-seed the deletion was reaching for, performed by
+// the half that knows the bytes instead of by the one that has to guess them. What it costs
+// is that the next boot is no longer a first migration for this surface, so the §4.7 orphan
+// retirement does not fire on it; that sweep is keyed to a surface's FIRST render into a home
+// (RetireOnFirstRender), which a reset is not.
+//
+// An ABSENT surface file leaves the sidecar deleted, and that is not an omission: last_render
+// means "the exact bytes yolo wrote last", so a baseline for a file that does not exist is a
+// lie the next render would act on — it would read the absent file as an empty one, diff it
+// against the baseline, and capture a tombstone for every key.
+func reseedResetBaseline(lastRenderPath string, baseline []byte) error {
+	if len(baseline) == 0 {
+		return nil
+	}
+	return os.WriteFile(lastRenderPath, baseline, resetBaselineMode())
+}
+
+// resetBaselineMode is the mode the re-seeded baseline is written with: the STORE'S OWN mode,
+// taken from the same render.Target that decided where the store is — 0600 in a real home,
+// 0644 in a workspace. Read through the Target rather than spelled here for the reason
+// resetCapturePaths builds one: a hand-copied 0644 would put a host user's own config bytes,
+// credentials included, in a world-readable file.
+func resetBaselineMode() os.FileMode {
+	if hostOwnsSurfaces() {
+		return render.Host(paths.Home(), nil, hostOwnership()).SidecarFileMode()
+	}
+	return render.Jail(paths.Home(), workspaceRoot(), nil).SidecarFileMode()
 }
 
 // readOverlayValue decodes a surface's overlay sidecar, or nil.
@@ -949,6 +1006,12 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 // the edits being re-applied, and this is what removes them from the file the agent
 // reads right now.
 //
+// It RETURNS the bytes it wrote, in the shape the last_render sidecar takes (the encoded
+// surface plus the codec's terminator, no generated header — entrypoint.surfaceText's shape,
+// which is what the boot writer persists). That return is what lets reset re-seed the baseline
+// for its own write instead of deleting it and leaving the next render to guess; see
+// reseedResetBaseline. nil means nothing was written.
+//
 // An ABSENT surface file is left absent: reset discards edits, it does not create
 // files the jail has not written yet.
 //
@@ -974,13 +1037,13 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 //     as a layer (see the `stateful` arm of entrypoint.RenderHostPack). Feeding it back here
 //     would preserve exactly the keys the user asked to discard — reset as a no-op, which is
 //     the failure the truncation exists to prevent.
-func truncateSurfaceToPureRender(s manifest.Surface) error {
+func truncateSurfaceToPureRender(s manifest.Surface) ([]byte, error) {
 	path := expandHome(s.Path)
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	if hostOwnsSurfaces() {
 		return truncateHostSurfaceToPureRender(s, path)
@@ -997,14 +1060,26 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 	}
 	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub, HostBytes: hostBytes})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	text := string(res.Encoded)
-	if sub.Kind() == codec.KindObject {
-		text += "\n"
-	}
+	text := pureRenderText(sub, res.Encoded)
 	// Truncate in place: the file may be a bind-mount target whose inode matters.
-	return os.WriteFile(path, []byte(text), 0o644)
+	if err := os.WriteFile(path, text, 0o644); err != nil {
+		return nil, err
+	}
+	return text, nil
+}
+
+// pureRenderText is the file body for a composed surface at this notch: the encoded bytes plus
+// the object codecs' trailing newline. It is entrypoint.surfaceText's rule, restated here
+// because that one is unexported — and stated ONCE for both truncation notches, which is what
+// makes "reset's bytes and reset's baseline are the same bytes" a fact rather than a
+// coincidence of two hand-copied `if Kind() == KindObject` blocks.
+func pureRenderText(s manifest.Surface, encoded []byte) []byte {
+	if s.Kind() == codec.KindObject {
+		return append(append([]byte(nil), encoded...), '\n')
+	}
+	return append([]byte(nil), encoded...)
 }
 
 // truncateHostSurfaceToPureRender is truncateSurfaceToPureRender at the host notch under
@@ -1025,22 +1100,22 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 // surface this lookup cannot find falls back to the one it was given — a pseudo-agent
 // "user" host_files slug, which declares no autonomy posture and so cannot carry the keys
 // this guards against.
-func truncateHostSurfaceToPureRender(s manifest.Surface, path string) error {
+func truncateHostSurfaceToPureRender(s manifest.Surface, path string) ([]byte, error) {
 	if hs, ok := hostSurfaceManifest().Lookup(s.Agent, s.Name); ok {
 		s = hs
 	}
 	sub, _ := entrypoint.PruneWorkspaceKeyed(s)
 	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	text := string(res.Encoded)
-	if sub.Kind() == codec.KindObject {
-		text += "\n"
-	}
+	text := pureRenderText(sub, res.Encoded)
 	// 0644 and truncate-in-place, as the jail twin does: this is the agent's own file, not a
 	// sidecar, and its inode may be one something else is holding.
-	return os.WriteFile(path, []byte(text), 0o644)
+	if err := os.WriteFile(path, text, 0o644); err != nil {
+		return nil, err
+	}
+	return text, nil
 }
 
 // configCapture folds the current on-disk edits into the overlay sidecar NOW, instead

@@ -72,12 +72,27 @@ func TestHostSideResetWorksUnderOwn(t *testing.T) {
 	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
-	for _, leaf := range []string{"claude-settings.overlay.json", "claude-settings.last_render"} {
-		if _, err := os.Stat(filepath.Join(store, leaf)); !os.IsNotExist(err) {
-			t.Errorf("%s survived reset in the host capture store (err=%v) — the next apply "+
-				"would diff against a stale baseline and re-capture what was just discarded",
-				leaf, err)
-		}
+	if _, err := os.Stat(filepath.Join(store, "claude-settings.overlay.json")); !os.IsNotExist(err) {
+		t.Errorf("the capture overlay survived reset in the host capture store (err=%v) — "+
+			"the next apply would re-apply the very edit the user just discarded", err)
+	}
+	// THE BASELINE IS RE-SEEDED, NOT DELETED (OQ-CO7 D1, reseedResetBaseline). `last_render`
+	// means "the exact bytes yolo wrote last", and reset has just written them; deleting it
+	// instead left the next render unable to tell reset's own output from the user's file,
+	// which is how a reset spent the one-per-surface adoption archive on a copy of yolo's own
+	// render. What the deletion existed to prevent is still prevented, by a stronger
+	// statement: the baseline must not be STALE — it must be exactly what is on disk now.
+	baseline, err := os.ReadFile(filepath.Join(store, "claude-settings.last_render"))
+	if err != nil {
+		t.Fatalf("reset wrote the surface and left no baseline for those bytes: %v", err)
+	}
+	// The store holds the USER'S OWN config bytes, so it is 0600 in a real home — the mode
+	// render.Target decides for this notch, not a literal spelled at the write.
+	if info, err := os.Stat(filepath.Join(store, "claude-settings.last_render")); err != nil {
+		t.Fatal(err)
+	} else if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("the re-seeded baseline is mode %04o in a real home, want 0600 — it holds "+
+			"the user's own config bytes", got)
 	}
 	// The trailer names the command that re-renders THIS notch. Pointing a host-side user at
 	// "the next jail launch" sends them to relaunch a container that has nothing to do with
@@ -94,6 +109,12 @@ func TestHostSideResetWorksUnderOwn(t *testing.T) {
 		t.Errorf("reset left the edit in the file. Deleting the sidecars alone is NOT the "+
 			"discard: the next apply finds no baseline, takes the first-migration branch, and "+
 			"ADOPTS this file — so the edit comes back and reset was a no-op:\n%s", data)
+	}
+	if string(baseline) != string(data) {
+		t.Errorf("the re-seeded baseline is not the file reset wrote:\n baseline: %q\n file:"+
+			"     %q\n\nA baseline that disagrees with the file is exactly the stale one the "+
+			"deletion existed to avoid: the next render diffs the two and captures the "+
+			"difference as a user edit.", baseline, data)
 	}
 }
 

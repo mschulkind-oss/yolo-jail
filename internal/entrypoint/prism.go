@@ -317,6 +317,20 @@ func (r *statefulRender) text() string {
 	return generatedHeader(r.surface) + surfaceText(r.surface, r.out.Result.Encoded)
 }
 
+// pureText is what this surface's LAYERS ALONE produce — the same expression text() builds,
+// over the adoption's own pure render instead of over the composed result — or "" when this
+// render computed no pure half (see agentcfg.StatefulOutput.PureBytes for when that is).
+//
+// It answers "are these bytes anything other than yolo's own?" without consulting the
+// adoption at all, which is what makes it usable as a gate on the one-time archive where
+// r.text() is not. archiveAdoption is its only caller and states the difference there.
+func (r *statefulRender) pureText() string {
+	if r.out == nil || r.out.PureBytes == nil {
+		return ""
+	}
+	return generatedHeader(r.surface) + surfaceText(r.surface, r.out.PureBytes)
+}
+
 // composeStatefulSurface is the PURE half of the stateful render: read the sidecars and the
 // current file, decide the selection, compose. It writes nothing.
 func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*statefulRender, error) {
@@ -326,7 +340,40 @@ func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, 
 	// agent never looks at.
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir())
 	surfacePath := expandHomePath(e, surface.Path)
-	current, _ := os.ReadFile(surfacePath) // absent => nil, treated as no current file
+
+	// THE READ FAILS CLOSED ON ANYTHING BUT ABSENCE, and the three-way distinction is the
+	// whole point (OQ-CO7's D2, docs/design/config-ownership-and-promotion.md §6.3.3):
+	//
+	//	absent                  => nil bytes, an ordinary first render. The common case, and
+	//	                           the one that must never refuse: most homes have no
+	//	                           ~/.pi/agent/settings.json and never will.
+	//	present and unparseable => the bytes, kept. ComposeStateful skips capture and the
+	//	                           render replaces the file wholesale, which is exactly why
+	//	                           archiveAdoption gates on BYTES rather than on parsing.
+	//	present but UNREADABLE  => a REFUSAL, new here. EACCES, EIO, EISDIR and a symlink
+	//	                           loop all yield no bytes, so `current, _ := os.ReadFile`
+	//	                           made a file that EXISTS indistinguishable from one that
+	//	                           does not: the render composed from nothing, WriteInPlace
+	//	                           chmodded the file writable if it had to, and replaced it —
+	//	                           a total loss with no archive, because the gate saw zero
+	//	                           bytes. That is the unparseable case's loss one errno away
+	//	                           and unnetted, which is precisely the class the archive
+	//	                           exists for.
+	//
+	// Refusing is what every other read in this path already does. decodeSurfaceObject
+	// refuses an unreadable surface in these same words at the host notch ("the file is left
+	// untouched"), and hostSurfaceBytes fails closed on the host LAYER (OQ-CO10) — the
+	// surface's OWN file is not owed less than the layer folded beneath it. Both notches then
+	// report it in their existing vocabulary with no branch of their own: at the host this is
+	// the per-surface `refused: …` line RenderHostPack already prints, and at a jail it is
+	// A12-fatal like every other failing read. Fatal is right here and warn-and-carry-on is
+	// not, because the rmw arm's downgrade rests on a premise this condition does not meet —
+	// an agent can produce an unparseable file by crashing mid-write; it cannot produce EACCES.
+	current, rerr := os.ReadFile(surfacePath)
+	if rerr != nil && !os.IsNotExist(rerr) {
+		return nil, refuseRMW(surface, "cannot read %s: %v — the file is left untouched",
+			surfacePath, rerr)
+	}
 
 	lastRenderPath := prismLastRenderPath(e, surface.Agent, surface.Name)
 	lastRenderBytes, lastErr := os.ReadFile(lastRenderPath)

@@ -56,12 +56,21 @@ func TestResetTruncatesSurfaceSoAdoptionFindsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := truncateSurfaceToPureRender(s); err != nil {
+	written, err := truncateSurfaceToPureRender(s)
+	if err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The bytes it hands back ARE the bytes it wrote. reset re-seeds last_render from this
+	// return (reseedResetBaseline), so a baseline that disagreed with the file would have the
+	// next render capture the difference as a user edit — the discard coming back as a
+	// tombstone instead of as nothing.
+	if string(written) != string(data) {
+		t.Errorf("the truncation returned a baseline that is not what it wrote:\n"+
+			" returned: %q\n on disk:  %q", written, data)
 	}
 	if strings.Contains(string(data), "myEdit") {
 		t.Errorf("reset left the discarded edit in the file, so the next boot would adopt it back:\n%s", data)
@@ -77,11 +86,18 @@ func TestResetTruncationLeavesAbsentFileAbsent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	s, _ := surfaceManifest().Lookup("copilot", "config")
-	if err := truncateSurfaceToPureRender(s); err != nil {
+	baseline, err := truncateSurfaceToPureRender(s)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(expandHome(s.Path)); !os.IsNotExist(err) {
 		t.Errorf("reset created a file that did not exist (stat err = %v)", err)
+	}
+	// And it reports no baseline, which is what keeps reset from writing a last_render for a
+	// file that does not exist: the next render would read the absent file as an empty one,
+	// diff it against that baseline, and capture a tombstone for every key in it.
+	if baseline != nil {
+		t.Errorf("an absent surface yielded a baseline (%q) for reset to re-seed", baseline)
 	}
 }
 

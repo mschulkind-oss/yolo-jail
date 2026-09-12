@@ -41,27 +41,68 @@ import (
 // archiveAdoption writes the one-time archive for an adopting render, records the path on r,
 // and announces it. It returns an error only when a copy was OWED and could not be made.
 //
-// THE THREE CONDITIONS, in the order they are cheapest to answer:
+// THE FOUR CONDITIONS, in the order they are cheapest to answer:
 //
 //   - FirstMigration. The render is composing the whole file out of what the file already
-//     holds (ComposeStateful's adoption branch). A steady-state render has a trusted baseline,
-//     captures a diff against it, and loses nothing this could net — so it archives nothing,
-//     which is what keeps "one archive" true without a sentinel of its own.
+//     holds (ComposeStateful's adoption branch). A steady-state render has a trusted baseline
+//     and captures a diff against it, so it is not composing out of the file and this net does
+//     not apply to it — which is what keeps "one archive" true without a sentinel of its own.
+//     ⚠ That is NOT the same sentence as "a steady-state render loses nothing this could net",
+//     which is what stood here until 2026-09-12 and is MEASURABLY FALSE: delete a surface's
+//     overlay sidecar while keeping its last_render, and the next render is in steady state
+//     with an empty overlay — it collapses to the pure layers and drops every adopted key,
+//     with no archive, no loss line and no prompt. That loss is real and this does not net it,
+//     deliberately: the trigger is ADOPTION, not "a render that might drop keys". Widening it
+//     to the second makes this the per-apply snapshot with a retention policy the ruling
+//     explicitly refuses to be, and a one-per-surface slot is the wrong shape for a sidecar
+//     that can be lost more than once. It is live residue, recorded with the rest in §6.3.3.
 //   - Some bytes to archive. An ABSENT file is the overwhelmingly common case (every surface
 //     of a fresh jail home) and there is nothing to lose; an EMPTY one is the same answer for
 //     the same reason — a user restoring either gets the same result, and an archive of zero
-//     bytes is not a net, it is a directory entry saying yolo ran.
-//   - No archive already there. See below.
+//     bytes is not a net, it is a directory entry saying yolo ran. A file that exists and
+//     cannot be READ is neither: composeStatefulSurface refuses it before this is reached, so
+//     "no bytes" here means "no file", which is what this condition has to be able to assume.
+//   - The bytes are not yolo's own output. See below.
+//   - No archive already there. See further below.
 //
-// ⚠ IT IS DELIBERATELY NOT GATED ON "WOULD THE RENDER CHANGE THE FILE?", which is the
-// attractive fourth condition and the wrong one. That predicate is available here for free
-// (r.text() versus r.current, the writer's own bytes) and it would mean §11's zero-bytes
-// switch leaves no archive at all. But it makes the net conditional on the render being
-// CORRECT — deploying only when adoption is believed to have lost nothing — and the archive
-// exists precisely because adoption might be wrong about that. A net that trusts the thing it
-// nets is not a net.
+// ⚠ THE THIRD CONDITION IS NOT "WOULD THE RENDER CHANGE THE FILE?", which is the attractive
+// predicate and the wrong one. That one (r.text() versus r.current, the writer's own bytes)
+// is available here for free, and it would mean §11's zero-bytes switch — `assert` -> `own`,
+// the transition this net exists for — leaves no archive at all, because adoption reproduces
+// the file it just read. It makes the net conditional on the render being CORRECT, deploying
+// only when adoption is believed to have lost nothing, and the archive exists precisely
+// because adoption might be wrong about that. A net that trusts the thing it nets is not a net.
+//
+// What is asked instead is a different question over a different operand: are these bytes
+// anything other than what YOLO'S OWN LAYERS produce? r.pureText() is the adoption's own pure
+// render — Compose with no overlay at all, which never consulted the file — so comparing
+// against it trusts nothing about adoption, and the two answers differ exactly where it
+// matters: on the `assert` -> `own` switch the file holds `permissions.ask`, which the layers
+// alone do not produce, so the copy is still taken. Byte identity is the honest form of "there
+// is nothing here to net": if the file is what the layers alone emit, the render reproduces it
+// exactly, and no key, value, comment or byte of the user's is dropped because none is there.
+//
+// WHY THE GATE NEEDS IT (OQ-CO7 D1, measured 2026-09-12 through RenderHostPack under `own`):
+// "bytes present" and "bytes yolo wrote" were one answer, so a render over a file yolo itself
+// had written spent the one-per-surface slot on yolo's own output and announced it as "the
+// file as yolo found it" — false in substance, in the one line OQ-RO3 will not let a report
+// hide, and it left the next GENUINE adoption with an empty `Archived` and no net, forever.
+// The build author's own argument for the idempotency check below is the same observation one
+// step short: if re-archiving is wrong because the file is yolo's output by then, archiving
+// yolo's output the FIRST time is wrong for exactly the same reason.
+//
+// It is not the whole of D1 and must not be read as one. The comparison is against the layers
+// PLUS the computed layer — a full render — so it recognises a file YOLO ITSELF LAST WROTE.
+// `yolo config reset` is one step off that: it truncates to a pure render WITHOUT the computed
+// layer (it has no jail paths to build one from), so its bytes are a subset of this comparison
+// rather than equal to it. What closes that path is reset keeping the baseline it has just
+// made true instead of deleting it (cli.configReset), which puts the next render in steady
+// state and never reaches this gate at all. The two halves are one change.
 func archiveAdoption(e *Env, r *statefulRender) error {
 	if r == nil || r.out == nil || !r.out.FirstMigration || len(r.current) == 0 {
+		return nil
+	}
+	if pure := r.pureText(); pure != "" && pure == string(r.current) {
 		return nil
 	}
 	target := e.renderTarget()

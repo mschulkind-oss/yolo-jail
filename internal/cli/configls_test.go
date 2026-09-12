@@ -37,6 +37,23 @@ func withLocalSurfaces(t *testing.T) {
 	t.Cleanup(func() { surfacesAreLocal = orig })
 }
 
+// withScratchHome points $HOME at a temp dir for tests that RESET a surface.
+//
+// ⚠ Not optional, and not hygiene. `reset` truncates the surface file to its pure render
+// (ruling 1), and `expandHome` resolves that path against the ambient $HOME — so a reset test
+// without this rewrites the DEVELOPER'S OWN ~/.claude/settings.json, in the jail this repo is
+// developed inside. It survived unnoticed because claude/settings declares `readsHost`, so the
+// jail-notch truncation re-reads the file as its own host layer and composes the same bytes
+// back; a surface without that declaration would have been emptied. It also makes the reset
+// path's own behaviour ambient: whether reset has a file to truncate — and therefore a
+// baseline to re-seed — would depend on what the machine happens to have in its home.
+func withScratchHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	return home
+}
+
 // writeSidecar seeds an overlay (and optionally a last_render baseline).
 func writeSidecar(t *testing.T, dir, agent, name, overlayJSON, lastRenderJSON string) {
 	t.Helper()
@@ -182,15 +199,26 @@ func TestConfigDiffEmptyOverlayIsQuiet(t *testing.T) {
 	}
 }
 
-// TestConfigResetRemovesBothSidecars is the load-bearing reset behavior: removing
-// ONLY the overlay would leave the next boot diffing the still-edited file against
-// a stale baseline and instantly re-capturing the edits just discarded. Deleting
-// last_render too forces the first-migration re-seed.
-func TestConfigResetRemovesBothSidecars(t *testing.T) {
+// TestConfigResetDiscardsTheOverlayAndReSeedsTheBaseline is the load-bearing reset behavior
+// at the JAIL notch: the capture overlay goes, and the baseline is left describing the bytes
+// reset itself just wrote.
+//
+// Both halves are one statement about the NEXT render. A surviving overlay would re-apply the
+// edit that was just discarded. A surviving STALE baseline — the pre-reset render — would have
+// the next boot diff the truncated file against it and capture the discard as an edit. And no
+// baseline at all, which is what this used to assert, has its own cost: a first migration over
+// a non-empty file is an ADOPTION, so the next render treated reset's own output as the user's
+// file and spent OQ-CO7's one-per-surface archive on a copy of it (§6.3.3, D1).
+func TestConfigResetDiscardsTheOverlayAndReSeedsTheBaseline(t *testing.T) {
 	withLocalSurfaces(t)
+	home := withScratchHome(t)
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 	writeSidecar(t, dir, "pi", "settings", `{"other":true}`, `{"other":false}`)
+	// The surface the edit lives in. Without a file there is nothing to truncate and nothing
+	// to re-seed, so the baseline half of this test would be vacuous.
+	settings := filepath.Join(home, ".claude", "settings.json")
+	writeFile(t, settings, `{"theme":"dark"}`)
 
 	var out, errw bytes.Buffer
 	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
@@ -199,10 +227,23 @@ func TestConfigResetRemovesBothSidecars(t *testing.T) {
 	if !strings.Contains(out.String(), "discarded 1 captured key") {
 		t.Errorf("reset did not report what it discarded:\n%s", out.String())
 	}
-	for _, gone := range []string{"claude-settings.overlay.json", "claude-settings.last_render"} {
-		if _, err := os.Stat(filepath.Join(dir, gone)); !os.IsNotExist(err) {
-			t.Errorf("%s survived reset (err=%v) — the next boot would re-capture", gone, err)
-		}
+	if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); !os.IsNotExist(err) {
+		t.Errorf("the capture overlay survived reset (err=%v) — the discarded edit would be "+
+			"re-applied by the next render", err)
+	}
+	baseline, err := os.ReadFile(filepath.Join(dir, "claude-settings.last_render"))
+	if err != nil {
+		t.Fatalf("reset truncated %s and left no baseline for those bytes: %v", settings, err)
+	}
+	rendered, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(baseline) != string(rendered) {
+		t.Errorf("the baseline is not the file reset wrote:\n baseline: %q\n file:     %q\n\n"+
+			"A baseline that disagrees with the file is the stale one this half exists to "+
+			"prevent; one that is ABSENT makes the next render read yolo's own output as the "+
+			"user's file (OQ-CO7 D1).", baseline, rendered)
 	}
 	// A different surface must be untouched.
 	if _, err := os.Stat(filepath.Join(dir, "pi-settings.overlay.json")); err != nil {
@@ -210,9 +251,12 @@ func TestConfigResetRemovesBothSidecars(t *testing.T) {
 	}
 }
 
-// TestConfigResetIsIdempotent: running it twice must not error.
+// TestConfigResetIsIdempotent: running it twice must not error. The second run finds an empty
+// store — this surface has no file, so the first reset had no bytes to re-seed a baseline from
+// — and says so rather than reporting a discard it did not make.
 func TestConfigResetIsIdempotent(t *testing.T) {
 	withLocalSurfaces(t)
+	withScratchHome(t)
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"a":1}`, `{}`)
 	var out, errw bytes.Buffer
@@ -253,6 +297,7 @@ func TestConfigDiffResetRejectMissingAgent(t *testing.T) {
 // — which also lets it clean up after an entry the user has since removed.
 func TestConfigResetUserSurfacesFromSidecars(t *testing.T) {
 	withLocalSurfaces(t)
+	withScratchHome(t)
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "user", ".config_2fmytool_2fx.json", `{"k":"v"}`, `{}`)
 
