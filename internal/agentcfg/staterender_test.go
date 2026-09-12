@@ -644,7 +644,7 @@ func TestComposeStatefulSteadyStateKeepsManagedObjectSibling(t *testing.T) {
 }
 
 // TestComposeStatefulSteadyStateKeylessManagedDoesNotCapture is the keyless twin.
-// A keyless surface has ONE "key" — the whole file — and Ctx.Enforce replaces the
+// A keyless surface has ONE "key" — the whole file — and enforceManaged replaces the
 // whole value when managed is non-nil, so a captured whole-file edit can never
 // reach the file. Capturing it would store a dead copy of the file forever.
 func TestComposeStatefulSteadyStateKeylessManagedDoesNotCapture(t *testing.T) {

@@ -474,9 +474,14 @@ func Compose(in Inputs) (*Result, error) {
 
 	// Enforce step (§3.1): re-apply the managed layer AFTER the hook, so managed
 	// keys win regardless of what the transform did. On a keyless surface a
-	// non-nil managed layer replaces the whole value (see Ctx.Enforce).
-	ctx.Config = transformed
-	ctx.Enforce()
+	// non-nil managed layer replaces the whole value (see enforceManaged).
+	//
+	// in.Surface.Managed is passed DIRECTLY, not ctx.Managed: the latter is the
+	// deep copy the transform is allowed to scribble on, and the floor has to
+	// read the original (enforce.go item 2). It is the same value this ctx was
+	// built from, which is what the floor read privately back when it was a
+	// method on luahook.Ctx.
+	ctx.Config = enforceManaged(transformed, in.Surface.Managed)
 	if mm := in.Surface.ManagedMap(); mm != nil {
 		for k := range mm {
 			if mm[k] == nil {

@@ -108,11 +108,12 @@ type Ctx struct {
 	// §4 "managed" layer). The transform may INSPECT it (e.g. to avoid
 	// clobbering a key yolo will overwrite anyway) but any write to it is a
 	// no-op against the enforced layer: yolo re-applies the enforced keys AFTER
-	// the hook (see Enforce). To make that guarantee concrete on the Go side —
-	// where maps are references — Managed is a defensive DEEP COPY of the
-	// enforced layer, so a transform that assigns into it cannot reach the
-	// bytes Enforce writes. (The gopher-lua impl instead exposes it via a
-	// read-only metatable; same guarantee, VM-native.)
+	// the hook, from the layer the CALLER holds (agentcfg's enforceManaged,
+	// which Compose hands in.Surface.Managed directly). To make that guarantee
+	// concrete on the Go side — where maps are references — Managed is a
+	// defensive DEEP COPY of that layer, so a transform that assigns into it
+	// cannot reach the value the floor reads. (The gopher-lua impl instead
+	// exposes it via a read-only metatable; same guarantee, VM-native.)
 	//
 	// Typed `any` for the same reason as Config: on a keyless surface (raw/lines)
 	// there are no individual keys to enforce, so the managed layer is the
@@ -129,12 +130,6 @@ type Ctx struct {
 	// Surface is the file identifier within the agent ("settings", "config",
 	// …). (ctx.surface)
 	Surface string
-
-	// enforced is the ORIGINAL enforced layer, never exposed to the transform.
-	// Enforce applies it over Config after the hook runs (§3.1 "managed keys
-	// win, applied AFTER Lua"). Kept private so the read-only guarantee on
-	// Managed cannot be defeated from Lua.
-	enforced any
 }
 
 // ConfigMap returns Config as an object, or nil when the surface is keyless. A
@@ -158,9 +153,9 @@ func (c *Ctx) ManagedMap() map[string]any {
 // NewCtx builds a Ctx for an OBJECT surface (json/toml) — the common case, kept
 // as a map-typed convenience so the many existing call sites and tests read
 // unchanged. config is taken by reference: the caller's map is the one mutated
-// and returned. managed is the enforced layer; NewCtx keeps the original
-// privately for Enforce and exposes only a deep copy as ctx.Managed, so the
-// read-only contract holds even though Go maps are references.
+// and returned. managed is the enforced layer; NewCtx exposes only a deep copy
+// of it as ctx.Managed, so the caller's own layer — the one the managed floor
+// reads afterwards — survives the transform even though Go maps are references.
 //
 // For a non-object surface use NewCtxKind.
 func NewCtx(agent, surface string, config, managed map[string]any) *Ctx {
@@ -178,8 +173,8 @@ func NewCtx(agent, surface string, config, managed map[string]any) *Ctx {
 //
 // managed for a non-object surface is the WHOLE-FILE value: there are no keys to
 // enforce individually, so a non-nil managed replaces the rendered value outright
-// (see Enforce). That coarseness is inherent to a keyless format, not a
-// limitation of this function.
+// (see agentcfg.enforceManaged). That coarseness is inherent to a keyless
+// format, not a limitation of this function.
 func NewCtxKind(agent, surface string, kind codec.Kind, config, managed any) *Ctx {
 	if config == nil {
 		config = kind.ZeroValue()
@@ -191,18 +186,18 @@ func NewCtxKind(agent, surface string, kind codec.Kind, config, managed any) *Ct
 // deepCopyValue (not deepCopyMap) so a non-object managed layer is copied too.
 func newCtx(agent, surface string, kind codec.Kind, config, managed any) *Ctx {
 	return &Ctx{
-		Config:   config,
-		Kind:     kind,
-		Managed:  managedView(managed),
-		Stage:    &Stage{},
-		Agent:    agent,
-		Surface:  surface,
-		enforced: managed,
+		Config:  config,
+		Kind:    kind,
+		Managed: managedView(managed),
+		Stage:   &Stage{},
+		Agent:   agent,
+		Surface: surface,
 	}
 }
 
 // managedView returns the ctx.managed value the transform may inspect: a deep
-// copy, so writes to it cannot reach the bytes Enforce writes. For an object
+// copy, so writes to it cannot reach the managed layer the CALLER still holds
+// and hands to the floor afterwards (agentcfg's enforceManaged). For an object
 // surface it keeps the map[string]any type the existing Managed field promises;
 // for other kinds it is the copied whole-file value.
 func managedView(managed any) any {
@@ -212,64 +207,12 @@ func managedView(managed any) any {
 	return deepCopyValue(managed)
 }
 
-// Enforce re-applies the enforced (managed) layer over Config, managed keys
-// winning (§3.1 enforce step, run AFTER the Lua hook). It uses the ORIGINAL
-// enforced layer captured in NewCtx, not the Managed view the transform could
-// have scribbled on — that is what makes ctx.managed effectively read-only.
-//
-// The merge is DEEP: a managed OBJECT merges key-by-key into the existing
-// Config object rather than replacing it wholesale, so host/transform siblings
-// under the same top-level key survive (e.g. a host `permissions.ask` is kept
-// while yolo forces `permissions.allow`). A managed scalar/array still replaces.
-// This closes the "shallow-Enforce subtree clobber" fidelity gap the Phase B
-// surfaces documented (claude/copilot managed nested objects). Managed values are
-// deep-copied in, so Config never shares mutable structure with the enforced
-// layer.
-// For a KEYLESS surface (raw/lines) there is nothing to merge key-by-key: a
-// non-nil enforced layer replaces the whole rendered value. `managed` on a raw
-// surface therefore means "this file is exactly these bytes", which is coarse but
-// is the only thing "enforce" can mean without keys. A nil enforced layer leaves
-// Config alone, so a raw surface with no managed value is untouched.
-func (c *Ctx) Enforce() {
-	cfgMap, cfgIsObj := c.Config.(map[string]any)
-	encMap, encIsObj := c.enforced.(map[string]any)
-	if !cfgIsObj || !encIsObj {
-		if c.enforced != nil {
-			c.Config = deepCopyValue(c.enforced)
-		}
-		return
-	}
-	for k, v := range encMap {
-		cfgMap[k] = enforceValue(cfgMap[k], v)
-	}
-	c.Config = cfgMap
-}
-
-// enforceValue merges an enforced value over the current one, managed winning.
-// Two objects merge recursively (so siblings survive); anything else — a scalar,
-// an array, or a type mismatch — is replaced by a deep copy of the managed value.
-func enforceValue(cur, managed any) any {
-	mMap, mIsObj := managed.(map[string]any)
-	cMap, cIsObj := cur.(map[string]any)
-	if !mIsObj || !cIsObj {
-		return deepCopyValue(managed)
-	}
-	out := make(map[string]any, len(cMap)+len(mMap))
-	for k, v := range cMap {
-		out[k] = v
-	}
-	for k, v := range mMap {
-		out[k] = enforceValue(cMap[k], v)
-	}
-	return out
-}
-
 // Apply runs one transform over ctx and returns the mutated config, or an
 // error. It is the §3.1 pipeline's transform step. On a VM error it returns a
 // nil value and a wrapped error (fail-closed, §3.4 "loud failure") — callers keep
 // the last good render rather than shipping a half-transformed file. Apply does
-// NOT run Enforce; the caller applies the managed layer after (§3.1), which the
-// tests exercise explicitly.
+// NOT enforce the managed layer; the caller applies it after (§3.1), through
+// agentcfg's own floor.
 // Apply returns the config as `any` because the surface's codec decides its
 // shape (map for json/toml, []any for lines, string for raw) — see Ctx.Config.
 func Apply(t Transform, ctx *Ctx) (any, error) {
@@ -310,6 +253,12 @@ func (s *Stage) Excluded() []string {
 
 // deepCopyMap returns a deep copy of m (maps/slices cloned, scalars copied), so
 // the returned value shares no mutable structure with m. nil in -> nil out.
+//
+// The managed floor took the canonical pair to internal/agentcfg
+// (docs/design/lua-transform-removal.md §4.2). This copy stays only because
+// managedView — the transform's read-only ctx.managed — still needs it, and
+// luahook cannot import agentcfg (agentcfg imports luahook until §10 step 3).
+// It goes with Ctx in step 5; do not grow a third caller.
 func deepCopyMap(m map[string]any) map[string]any {
 	if m == nil {
 		return nil

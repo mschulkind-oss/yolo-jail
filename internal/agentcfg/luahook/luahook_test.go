@@ -88,11 +88,14 @@ func TestApply_DropsListElement(t *testing.T) {
 		t.Errorf("Stage.Excluded() = %v, want [extensions/permission-gate.ts]", excl)
 	}
 
-	// Enforce (the §3.1 step AFTER the hook) re-applies the managed key; the
-	// transform could not have dropped it from the generated file.
-	ctx.Enforce()
-	if got["defaultProjectTrust"] != "always" {
-		t.Errorf("managed key not enforced: defaultProjectTrust = %v, want always", got["defaultProjectTrust"])
+	// The managed key is NOT in the transform's output — the floor that puts it
+	// back runs after the hook and now lives in internal/agentcfg
+	// (docs/design/lua-transform-removal.md §4.2). That it beats a transform is
+	// pinned at the level that composes the two, by
+	// TestComposeManagedWinsOverTransform; what this test still owns is that the
+	// hook cannot see it coming.
+	if _, claimed := got["defaultProjectTrust"]; claimed {
+		t.Errorf("the transform's output should not carry the managed key: %#v", got)
 	}
 }
 
@@ -118,8 +121,9 @@ func TestApply_ErrorSurfaces(t *testing.T) {
 }
 
 // TestManaged_ReadOnly: mutating ctx.managed must NOT affect the enforced layer.
-// The transform can scribble on the Managed view, but Enforce re-applies the
-// ORIGINAL enforced keys, so yolo has the last write (§3.1).
+// The transform can scribble on the Managed view, but the view is a deep copy —
+// the caller's own layer, which yolo enforces after the hook, is untouched, so
+// yolo has the last write (§3.1).
 func TestManaged_ReadOnly(t *testing.T) {
 	enforced := map[string]any{"defaultProjectTrust": "always"}
 	vm := fakeVM{hooks: map[string]func(*Ctx) error{
@@ -136,20 +140,21 @@ func TestManaged_ReadOnly(t *testing.T) {
 	if _, err := Apply(Transform{VM: vm, Script: "tamper"}, ctx); err != nil {
 		t.Fatalf("Apply returned error: %v", err)
 	}
-	ctx.Enforce()
 
-	if ctx.ConfigMap()["defaultProjectTrust"] != "always" {
-		t.Errorf("enforced key was overridden by transform: got %v, want always", ctx.ConfigMap()["defaultProjectTrust"])
-	}
 	// The caller's original enforced map must be untouched by the transform's
-	// scribbling on the Managed view (deep-copy isolation).
+	// scribbling on the Managed view (deep-copy isolation). THAT map is what the
+	// caller hands the managed floor afterwards — Compose passes
+	// in.Surface.Managed, the same value it built this ctx from — so this
+	// isolation is the whole of the read-only guarantee on this side of the
+	// seam. The floor itself moved to internal/agentcfg (§4.2); that it stomps
+	// the transform's override is TestComposeManagedWinsOverTransform's.
 	if enforced["defaultProjectTrust"] != "always" {
 		t.Errorf("original enforced layer mutated: got %v, want always", enforced["defaultProjectTrust"])
 	}
 }
 
 // TestManaged_NestedReadOnly: the read-only guarantee holds at depth — mutating
-// a nested table inside ctx.managed must not reach the enforced layer.
+// a nested table inside ctx.managed must not reach the caller's enforced layer.
 func TestManaged_NestedReadOnly(t *testing.T) {
 	enforced := map[string]any{
 		"limits": map[string]any{"cpu": int64(4)},
@@ -165,12 +170,7 @@ func TestManaged_NestedReadOnly(t *testing.T) {
 	if _, err := Apply(Transform{VM: vm, Script: "nested"}, ctx); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	ctx.Enforce()
 
-	inner, _ := ctx.ConfigMap()["limits"].(map[string]any)
-	if inner == nil || inner["cpu"] != int64(4) {
-		t.Errorf("nested enforced value corrupted: got %v, want cpu=4", ctx.ConfigMap()["limits"])
-	}
 	orig := enforced["limits"].(map[string]any)
 	if orig["cpu"] != int64(4) {
 		t.Errorf("original nested enforced layer mutated: got %v, want cpu=4", orig["cpu"])

@@ -437,7 +437,7 @@ func dropComputedTables(residue map[string]any, computed any) map[string]any {
 //     [tools] pins — and the §4 slot exists precisely "so it wins over a stale
 //     in-jail edit to the same key (§2 principle 1, regenerate-don't-reconcile)".
 //   - MANAGED is re-asserted AFTER the fold and after the Lua transform
-//     (Ctx.Enforce), so it wins the file unconditionally.
+//     (enforceManaged), so it wins the file unconditionally.
 //
 // A capture either layer overrides changes nothing. It only sits in the sidecar
 // as permanent noise, and `yolo config diff` reports a phantom "edit" the user
@@ -457,7 +457,7 @@ func dropComputedTables(residue map[string]any, computed any) map[string]any {
 //
 // KEYLESS surfaces (raw/lines) are covered by the same rule rather than being
 // exempt. They have one "key" — the whole file — so a non-nil computed layer
-// replaces the rendered value and Ctx.Enforce replaces it again for managed;
+// replaces the rendered value and enforceManaged replaces it again for managed;
 // either way a captured whole-file edit is dead. No pack yolo ships declares
 // managed or computed on a keyless surface today, but Surface.Managed and
 // Inputs.Computed are both `any` precisely so a surface CAN pin a whole file, so

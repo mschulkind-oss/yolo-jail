@@ -133,6 +133,57 @@ end)
 	}
 }
 
+// tamperManagedVM is a LuaVM that scribbles on the GO-SIDE ctx.Managed — the
+// defensive deep copy NewCtxKind hands the transform — and changes nothing else.
+//
+// The shipped GopherLuaVM cannot do this: it marshals ctx.managed into Lua
+// behind a read-only proxy over a separate table, so a script's write raises
+// instead of landing, and nothing it could do would reach back into the Go map.
+// A fake is therefore the only way to ask the question, and the question is
+// worth asking because LuaVM is an exported interface whose contract says
+// nothing about the field.
+type tamperManagedVM struct{}
+
+func (tamperManagedVM) Run(_ string, ctx *luahook.Ctx) error {
+	delete(ctx.ManagedMap(), "defaultProjectTrust")
+	return nil
+}
+
+// TestComposeEnforcesTheCallersManagedLayer pins WHICH managed value the floor
+// reads (docs/design/lua-transform-removal.md §4.2 item 2): in.Surface.Managed,
+// the layer the caller still holds — never ctx.Managed, the copy the transform
+// is handed and allowed to scribble on.
+//
+// This is the input the floor took privately when it was a method on
+// luahook.Ctx, and getting it wrong during the lift is invisible with the VM
+// yolo ships: the two are deep-equal on every real render, so the whole suite
+// stays green either way (measured — swapping the argument for ctx.Managed
+// failed nothing). Hence this test: it makes the difference observable by
+// supplying the one VM shape that can express it.
+func TestComposeEnforcesTheCallersManagedLayer(t *testing.T) {
+	surface := piSurface()
+	res, err := Compose(Inputs{
+		Surface:   surface,
+		HostBytes: []byte(piHostJSON),
+		Script:    "tamper", // non-empty so the VM actually runs
+		VM:        tamperManagedVM{},
+	})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	if res.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("defaultProjectTrust = %v, want always — the floor read the "+
+			"transform's scribbled-on view instead of the caller's managed layer "+
+			"(§4.2 item 2)", res.ConfigMap()["defaultProjectTrust"])
+	}
+	// And the caller's own layer is intact afterwards, which is what makes
+	// passing it directly safe in the first place.
+	if surface.ManagedMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("the caller's managed layer was reachable from the transform: %#v",
+			surface.ManagedMap())
+	}
+}
+
 // TestComposeOverlayLayer: the capture-diff overlay (§5) merges above workspace
 // and below the transform+managed.
 func TestComposeOverlayLayer(t *testing.T) {

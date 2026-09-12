@@ -52,10 +52,11 @@ end)`
 		t.Errorf("Stage.Excluded() = %v, want [extensions/permission-gate.ts]", excl)
 	}
 
-	// Enforce re-applies the managed key AFTER the hook (§3.1).
-	ctx.Enforce()
-	if got["defaultProjectTrust"] != "always" {
-		t.Errorf("managed key not enforced: %v", got["defaultProjectTrust"])
+	// The managed key is not the hook's to produce: the floor that re-applies it
+	// runs after, in internal/agentcfg (docs/design/lua-transform-removal.md
+	// §4.2), and TestComposeManagedWinsOverTransform pins it against a script.
+	if _, claimed := got["defaultProjectTrust"]; claimed {
+		t.Errorf("the transform's output should not carry the managed key: %#v", got)
 	}
 }
 
@@ -167,12 +168,17 @@ end)`
 	}
 }
 
-// TestRealVM_ManagedNotSurvivingEnforce proves ctx.managed mutations don't
-// survive: the sandbox exposes managed read-only (a write raises), and even if
-// a transform sets the key on ctx.config, Enforce re-applies the original
-// managed value afterward. Two-pronged: an attempted write to ctx.managed is a
-// loud error, and enforcement wins regardless.
-func TestRealVM_ManagedNotSurvivingEnforce(t *testing.T) {
+// TestRealVM_ManagedIsReadOnlyFromLua proves the sandbox's half of the
+// read-only contract on ctx.managed: a write raises, and a read sees the
+// caller's value — which stays the caller's value whatever the script does to
+// ctx.config. Two-pronged: an attempted write to ctx.managed is a loud error,
+// and a script that instead overrides the key on ctx.config leaves the managed
+// layer itself untouched for the floor that runs next.
+//
+// The floor is agentcfg's now (docs/design/lua-transform-removal.md §4.2), so
+// that it STOMPS the override is TestComposeManagedWinsOverTransform's to say,
+// not this test's; this one owns the VM boundary.
+func TestRealVM_ManagedIsReadOnlyFromLua(t *testing.T) {
 	// (a) writing to ctx.managed is rejected by the read-only proxy.
 	writeScript := `yolo.transform("pi", function(ctx)
   ctx.managed.defaultProjectTrust = "never"
@@ -182,9 +188,8 @@ end)`
 		t.Fatal("writing ctx.managed succeeded, want a read-only error")
 	}
 
-	// (b) a transform CAN read ctx.managed and CAN set ctx.config, but Enforce
-	// re-asserts the managed value, so the transform cannot drop it from the
-	// generated file.
+	// (b) a transform CAN read ctx.managed and CAN set ctx.config, but neither
+	// reaches the managed layer the caller hands the floor afterwards.
 	overrideScript := `yolo.transform("pi", function(ctx)
   -- read-only view is visible
   ctx.config.saw = ctx.managed.defaultProjectTrust
@@ -201,11 +206,16 @@ end)`
 		t.Errorf("ctx.managed not readable: saw = %v", got["saw"])
 	}
 	if got["defaultProjectTrust"] != "never" {
-		t.Errorf("pre-Enforce override not applied: %v", got["defaultProjectTrust"])
+		t.Errorf("pre-enforce override not applied: %v", got["defaultProjectTrust"])
 	}
-	ctx2.Enforce()
-	if got["defaultProjectTrust"] != "always" {
-		t.Errorf("managed mutation survived Enforce: %v, want always", got["defaultProjectTrust"])
+	// What this test owns is the READ: ctx.managed is visible to Lua, and the
+	// copy Lua sees is not the caller's layer. The override the script just made
+	// is stomped by the managed floor, which runs after the hook and now lives
+	// in internal/agentcfg (§4.2) — TestComposeManagedWinsOverTransform pins
+	// that, through this same VM.
+	if ctx2.ManagedMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("the caller's managed layer was reachable from Lua: %v",
+			ctx2.ManagedMap()["defaultProjectTrust"])
 	}
 }
 
