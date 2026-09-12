@@ -52,12 +52,19 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		}
 	}
 	write := assert && !dryRun
+	// ABOVE EVERY STAGE, not just above the render. [OQ-RO4]'s refusal is misuse decided
+	// from argv, so it ends the command here; asking applyHostFormatted to make it left
+	// --shell-init running behind it, with `write` still true, and the run exited 2 with an
+	// empty stdout while appending the PATH line to the user's rc file (jsonRefusedForPosture).
+	if jsonRefusedForPosture(format, write) {
+		return refuseJSONForActingApply(errw)
+	}
 	rc := applyHostFormatted(out, errw, color, write, stdin, format)
 	if shellInit {
 		// THROUGH THE SINK, like the report above it: in JSON mode stdout carries one
 		// document and nothing else, and this stage's output is human prose about an rc
 		// file that the document has no field for. Its WRITING half is unreachable here —
-		// the assert posture refuses the format — so nothing is silently skipped.
+		// the refusal above returned before this stage — so nothing is silently skipped.
 		if src := runShellInit(richtext.Printer{W: outfmt.Sink(out, format), Color: color},
 			errw, write); src != 0 {
 			rc = src

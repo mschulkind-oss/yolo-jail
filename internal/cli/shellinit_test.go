@@ -194,3 +194,50 @@ func TestHostApplyShellInitObserveWritesNothing(t *testing.T) {
 		})
 	}
 }
+
+// TestHostApplyShellInitIsNotReachedByARefusedFormat pins [OQ-RO4]'s refusal as
+// SIDE-EFFECT-FREE, which is the half of it that had no test.
+//
+// `--format json` at the acting posture is MISUSE, decided from argv before any work — so
+// it must end the COMMAND, not just the render. It ended only the render: applyHostFormatted
+// returned 2 and hostApply then ran --shell-init anyway, with `write` still true, so the run
+// exited 2 with an EMPTY stdout (the JSON sink swallows the confirmation line) and still
+// appended the PATH line to the user's shell rc. A refusal that edits a shell rc file is
+// exactly the silent write P3 forbids, and the file's own docstring claimed it could not
+// happen.
+//
+// The rc file is the instrument because it is the one durable thing the stage touches: an
+// assertion on stdout alone stays green with the write intact.
+func TestHostApplyShellInitIsNotReachedByARefusedFormat(t *testing.T) {
+	home := shellInitHome(t)
+	t.Setenv("SHELL", "/bin/bash")
+	rcPath := filepath.Join(home, ".bashrc")
+	const own = "# my own aliases\n"
+	if err := os.WriteFile(rcPath, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, rc := hostApplyShellInit("--assert", "--shell-init", "--format", "json")
+	if rc != 2 {
+		t.Fatalf("rc = %d, want 2 (misuse)\nstdout: %s\nstderr: %s", rc, stdout, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("a refused format must leave stdout empty; got:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "--format json is the DRY RUN's") {
+		t.Errorf("the refusal must say why:\n%s", stderr)
+	}
+	body, err := os.ReadFile(rcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != own {
+		t.Errorf("the refusal edited the user's shell rc — it must touch nothing:\nwant %q\ngot  %q",
+			own, string(body))
+	}
+	// And the wrapper dir the PATH line would point at was never created either: the
+	// refusal sits above the whole apply, not merely above the rc append.
+	if _, err := os.Stat(paths.WrapDirUnder(home)); !os.IsNotExist(err) {
+		t.Errorf("the refusal ran the apply: %s exists", paths.WrapDirUnder(home))
+	}
+}

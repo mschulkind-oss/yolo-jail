@@ -178,11 +178,8 @@ func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Re
 	if !outfmt.IsJSON(format) {
 		return applyHost(out, errw, color, write, stdin)
 	}
-	if write {
-		fmt.Fprintln(errw, "yolo host apply: --format json is the DRY RUN's — this posture "+
-			"ACTS, and an acting verb refuses the flag rather than growing a second output "+
-			"mode. Drop the assert flag to see what an apply would do, as data.")
-		return 2
+	if jsonRefusedForPosture(format, write) {
+		return refuseJSONForActingApply(errw)
 	}
 	survey := &hostApplySurvey{}
 	rc := applyHostSurveyed(outfmt.Sink(out, format), errw, false, false, nil, survey)
@@ -197,6 +194,29 @@ func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Re
 // by running THIS pass in observe posture with the output discarded, rather than growing its
 // own traversal of the four written kinds — which would be a second model of the apply, free
 // to drift out of step with the apply it describes.
+// jsonRefusedForPosture answers [OQ-RO4]'s question from ARGV ALONE — is this
+// format+posture pair the one an acting apply refuses? — so a caller can ask it before
+// running anything, rather than inferring it from an exit code afterwards.
+//
+// It exists because the refusal has to stop a COMMAND, not a render. Reached only through
+// applyHostFormatted it stopped the render and left every later stage running: `yolo host
+// apply --assert --shell-init --format json` exited 2 with an empty stdout and STILL
+// appended the PATH line to the user's shell rc, silently — the confirmation line goes
+// through outfmt.Sink, which JSON mode discards. A refusal that edits a shell rc file is
+// the write P3 forbids.
+func jsonRefusedForPosture(format string, write bool) bool {
+	return outfmt.IsJSON(format) && write
+}
+
+// refuseJSONForActingApply prints the refusal and returns its exit code. ONE function, so
+// the two callers that must both stop cannot come to say different things about why.
+func refuseJSONForActingApply(errw io.Writer) int {
+	fmt.Fprintln(errw, "yolo host apply: --format json is the DRY RUN's — this posture "+
+		"ACTS, and an acting verb refuses the flag rather than growing a second output "+
+		"mode. Drop the assert flag to see what an apply would do, as data.")
+	return 2
+}
+
 func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Reader,
 	survey *hostApplySurvey) int {
 	pr := richtext.Printer{W: out, Color: color}
