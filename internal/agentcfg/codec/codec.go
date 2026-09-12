@@ -85,13 +85,11 @@ func Names() []string {
 
 // Kind is the SHAPE of the top-level value a codec decodes to. It is not the
 // codec's identity (that is Name) but the answer to "what Go type does a decoded
-// whole file have", which the engine needs in three places:
+// whole file have", which the engine needs in two places:
 //
 //   - the composition engine, to pick deep-merge (objects) vs. whole-value
-//     replacement (everything else) — see agentcfg.Compose;
-//   - the Lua transform boundary, to check that a hook returned the same shape
-//     it was handed (a raw transform must return a string, not a table) —
-//     see luahook;
+//     replacement (everything else), and to refuse a layer whose shape does not
+//     match the surface — see agentcfg.Compose;
 //   - the zero value for an absent layer, so "no host file" is an empty object
 //     for JSON but an empty string for raw.
 //
@@ -110,7 +108,7 @@ const (
 )
 
 // String names the kind for error messages, in the vocabulary a config author
-// would recognize from the Lua side.
+// would recognize from the surface's own format.
 func (k Kind) String() string {
 	switch k {
 	case KindObject:

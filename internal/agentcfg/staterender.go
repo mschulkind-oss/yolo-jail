@@ -128,7 +128,7 @@ type StatefulInputs struct {
 // OverlayJSON alone (see the file header).
 type StatefulOutput struct {
 	// Result is the composed surface (compose.go Result): Config, Encoded bytes,
-	// Excluded stage globs, Provenance.
+	// Provenance.
 	Result *Result
 
 	// LastRenderBytes is what to write to the last_render sidecar: exactly
@@ -155,7 +155,7 @@ type StatefulOutput struct {
 // a recoverable on-disk condition (corrupt/empty sidecar, corrupt or absent
 // current file) — those self-heal by re-seeding or skipping capture, so a
 // mangled home can never break the boot. It DOES return an error for a genuine
-// programmer error (unknown codec, or a Compose failure such as a Lua error),
+// programmer error (unknown codec, or a Compose failure such as a shape mismatch),
 // matching Compose's fail-closed contract (§3.4).
 //
 // The two paths (docs/reference/config-migration-to-prism.md §3.2):
@@ -315,8 +315,8 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// sidecar an older yolo wrote is canonicalized on the next boot.
 	overlay = narrowOverlay(kind, overlay, in.Base.Computed, in.Base.Surface.Managed)
 
-	// Render with the decided overlay. Compose owns decode/merge/transform/
-	// enforce/encode and is the exact engine `yolo config render` uses (§6).
+	// Render with the decided overlay. Compose owns decode/merge/enforce/encode
+	// and is the exact engine `yolo config render` uses (§6).
 	base := in.Base
 	base.Overlay = overlay
 	res, err := Compose(base)
@@ -436,8 +436,8 @@ func dropComputedTables(residue map[string]any, computed any) map[string]any {
 //     LSP-driven enabledPlugins toggles and env.ENABLE_LSP_TOOL, mise's injected
 //     [tools] pins — and the §4 slot exists precisely "so it wins over a stale
 //     in-jail edit to the same key (§2 principle 1, regenerate-don't-reconcile)".
-//   - MANAGED is re-asserted AFTER the fold and after the Lua transform
-//     (enforceManaged), so it wins the file unconditionally.
+//   - MANAGED is re-asserted AFTER the fold (enforceManaged), so it wins the
+//     file unconditionally.
 //
 // A capture either layer overrides changes nothing. It only sits in the sidecar
 // as permanent noise, and `yolo config diff` reports a phantom "edit" the user

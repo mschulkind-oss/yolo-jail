@@ -19,7 +19,6 @@ package agentcfg
 //   - an ABSENT layer (nil) says nothing, while an EXPLICITLY EMPTY layer ("" /
 //     []any{}) is a real assertion that wins — conflating them would let a
 //     surface with no workspace layer erase its host content;
-//   - a Lua transform sees the surface's own shape and must return that shape;
 //   - capture (§5) works: an in-jail edit to a raw file survives regeneration;
 //   - every shape mismatch fails CLOSED, in both directions.
 
@@ -27,7 +26,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
@@ -222,93 +220,6 @@ func TestComposeRawTypedNilComputedSkipped(t *testing.T) {
 	}
 }
 
-// TestComposeRawTransform runs a REAL Lua transform over a raw surface: the hook
-// receives ctx.config as a string, rewrites it with string.gsub, and returns a
-// string. This is the case the old object-only assertion in vm.go made
-// impossible even though the marshaller and sandbox always supported it.
-func TestComposeRawTransform(t *testing.T) {
-	script := `
-yolo.transform("user", function(ctx)
-  ctx.config = ctx.config:gsub("^#!/bin/sh", "#!/usr/bin/env bash")
-end)
-`
-	host := "#!/bin/sh\necho hi\n"
-	res, err := Compose(Inputs{
-		Surface:   rawSurface(),
-		HostBytes: []byte(host),
-		Script:    script,
-		VM:        &luahook.GopherLuaVM{},
-	})
-	if err != nil {
-		t.Fatalf("Compose returned error: %v", err)
-	}
-	want := "#!/usr/bin/env bash\necho hi\n"
-	if res.Config != want {
-		t.Errorf("Config = %q, want %q", res.Config, want)
-	}
-	if string(res.Encoded) != want {
-		t.Errorf("Encoded = %q, want %q", res.Encoded, want)
-	}
-	// The transform changed the file, so it — not host — owns the whole-file slot.
-	if res.Provenance[WholeFileKey] != layerTransform {
-		t.Errorf("Provenance[%s] = %q, want %q", WholeFileKey,
-			res.Provenance[WholeFileKey], layerTransform)
-	}
-}
-
-// TestComposeRawTransformNoChangeKeepsHostProvenance: a transform that runs but
-// leaves the value alone must NOT steal provenance from the layer that actually
-// produced the content.
-func TestComposeRawTransformNoChangeKeepsHostProvenance(t *testing.T) {
-	script := `yolo.transform("user", function(ctx) local _ = #ctx.config end)`
-	res, err := Compose(Inputs{
-		Surface:   rawSurface(),
-		HostBytes: []byte("untouched\n"),
-		Script:    script,
-		VM:        &luahook.GopherLuaVM{},
-	})
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-	if res.Provenance[WholeFileKey] != layerHost {
-		t.Errorf("Provenance[%s] = %q, want %q (no-op transform must not claim the file)",
-			WholeFileKey, res.Provenance[WholeFileKey], layerHost)
-	}
-}
-
-// TestComposeRawTransformWrongShapeFailsClosed: a raw surface's hook that
-// returns a TABLE is a loud error, not a coercion. Coercing would write a
-// JSON-ish blob into a shell rc — a plausible-looking file that is not what the
-// author meant, discoverable only as the agent misbehaving (§3.4).
-func TestComposeRawTransformWrongShapeFailsClosed(t *testing.T) {
-	script := `yolo.transform("user", function(ctx) ctx.config = { oops = true } end)`
-	_, err := Compose(Inputs{
-		Surface:   rawSurface(),
-		HostBytes: []byte("x\n"),
-		Script:    script,
-		VM:        &luahook.GopherLuaVM{},
-	})
-	if err == nil {
-		t.Fatal("Compose accepted a table from a raw surface's transform, want a loud error")
-	}
-}
-
-// TestComposeObjectTransformWrongShapeFailsClosed is the mirror direction: a
-// json surface's hook that returns a STRING is equally an error. The shape
-// contract is symmetric — widening the engine to raw must not have loosened the
-// object case into "anything goes".
-func TestComposeObjectTransformWrongShapeFailsClosed(t *testing.T) {
-	script := `yolo.transform("pi", function(ctx) ctx.config = "not a table" end)`
-	_, err := Compose(Inputs{
-		Surface: piSurface(),
-		Script:  script,
-		VM:      &luahook.GopherLuaVM{},
-	})
-	if err == nil {
-		t.Fatal("Compose accepted a string from a json surface's transform, want a loud error")
-	}
-}
-
 // TestComposeRawWrongKindLayerFailsClosed: a layer whose Go type doesn't match
 // the surface's codec is a config-authoring bug, and it fails closed with the
 // layer named — silently dropping it would make the mistake invisible.
@@ -392,37 +303,6 @@ func TestComposeLinesLayerPrecedence(t *testing.T) {
 	if res.Provenance[WholeFileKey] != layerWorkspace {
 		t.Errorf("Provenance[%s] = %q, want %q", WholeFileKey,
 			res.Provenance[WholeFileKey], layerWorkspace)
-	}
-}
-
-// TestComposeLinesTransform: a lines surface's hook sees a Lua list and returns
-// a list — the KindArray leg of the shape contract, with a real VM.
-func TestComposeLinesTransform(t *testing.T) {
-	script := `
-yolo.transform("user", function(ctx)
-  local kept = {}
-  for _, line in ipairs(ctx.config) do
-    if not line:find("^#") then kept[#kept + 1] = line end
-  end
-  ctx.config = kept
-end)
-`
-	res, err := Compose(Inputs{
-		Surface:   linesSurface(),
-		HostBytes: []byte("# a comment\nreal.example.com\n# another\n"),
-		Script:    script,
-		VM:        &luahook.GopherLuaVM{},
-	})
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-	want := []any{"real.example.com"}
-	if !reflect.DeepEqual(res.Config, want) {
-		t.Errorf("Config = %#v, want %#v", res.Config, want)
-	}
-	if res.Provenance[WholeFileKey] != layerTransform {
-		t.Errorf("Provenance[%s] = %q, want %q", WholeFileKey,
-			res.Provenance[WholeFileKey], layerTransform)
 	}
 }
 

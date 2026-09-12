@@ -134,12 +134,12 @@ func TestEnforceManagedSharesNoStructureWithManaged(t *testing.T) {
 // objects the config map handed in is the map written to and the map returned.
 //
 // This is not an aesthetic claim about the code — it is what any caller still
-// holding the merged map observes. Compose does: it keeps `preWhole` pointing at
-// the pre-enforce value and compares it by reflect.DeepEqual. A pure copying
-// rewrite is not wrong in itself, but it changes what that comparison sees, so
-// it has to be made deliberately and re-measured against every holder — not
-// arrived at while tidying. If you are here because this test failed, that is
-// the conversation it is asking for.
+// holding the merged map observes. Compose hands its folded map straight in and
+// keeps using the returned one, and a caller that kept a reference to the map it
+// passed sees the enforced keys through it. A pure copying rewrite is not wrong
+// in itself, but it changes that, so it has to be made deliberately and
+// re-measured against every holder — not arrived at while tidying. If you are
+// here because this test failed, that is the conversation it is asking for.
 func TestEnforceManagedMutatesConfigInPlace(t *testing.T) {
 	config := map[string]any{"theme": "dark"}
 	got := enforceManaged(config, map[string]any{"defaultProjectTrust": "always"})

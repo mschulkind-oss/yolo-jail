@@ -15,7 +15,7 @@
 //   - scalars -> string / bool / numeric / nil (nil == a decoded JSON null)
 //
 // Everything with a dependency — the per-surface codecs (decode/encode), the
-// Lua transform VM, the manifest loader, file I/O, and CLI wiring — is a
+// manifest loader, file I/O, and CLI wiring — is a
 // separate, later Phase-A piece and deliberately lives OUTSIDE this leaf. That
 // keeps this the one component that is trivially unit-testable in isolation and
 // shared byte-for-byte by both the entrypoint boot render and `yolo config

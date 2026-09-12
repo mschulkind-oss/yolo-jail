@@ -158,8 +158,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 	// hostTarget: this Env drives render.Host, not render.Jail. Load-bearing for every
 	// Target-keyed path the writers resolve — without it an empty Workspace reads as the
 	// container default "/workspace" (WorkspaceDir()), so a host apply would write its
-	// provenance into some jail's .yolo/prism tree and read a workspace config.lua that
-	// has nothing to do with this render. See Env.hostTarget.
+	// provenance into some jail's .yolo/prism tree. See Env.hostTarget.
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 	// The §4.2 autonomy policy comes from the TARGET's confinement profile, not from a
 	// literal chosen here (plan §6c step 1). At the host notch that resolves to autonomy OFF

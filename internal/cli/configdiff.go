@@ -458,11 +458,11 @@ func writeOverlayContributions(pr richtext.Printer, rows []overlayContribution) 
 			case !recorded:
 				// The surface DID render and the record does not mention this key. Measured,
 				// and it means the key never made it into the file: the only way a
-				// contributed key is unattributed is a tombstone deleting it, or a transform
-				// dropping it. Reported as a measurement, not as a loss to some layer.
+				// contributed key is unattributed is a tombstone deleting it. Reported as a
+				// measurement, not as a loss to some layer.
 				pr.Printf("  [magenta]%s[/magenta]  [yellow]contributed by %s but the key is not in "+
-					"the rendered file[/yellow] [dim](%s notch — deleted by a tombstone or a "+
-					"transform)[/dim]", k, pack, row.Notch)
+					"the rendered file[/yellow] [dim](%s notch — deleted by a tombstone)[/dim]",
+					k, pack, row.Notch)
 			case winner == agentcfg.OverlayLayer(pack):
 				pr.Printf("  [magenta]%s[/magenta]  [green]set by %s[/green] [dim](won the key at the "+
 					"%s notch)[/dim]", k, pack, row.Notch)

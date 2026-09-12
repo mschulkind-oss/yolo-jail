@@ -1,18 +1,22 @@
 package agentcfg
 
 // compose.go is the exported orchestrator that stitches the pure engine
-// (engine.go) to the codec, manifest, and luahook subpackages into the runnable
+// (engine.go) to the codec and manifest subpackages into the runnable
 // pipeline of docs/plans/agent-settings-composition.md §3.1:
 //
 //	decode(host) ─┐
-//	defaults ─────┤ deepMerge → merged → transform(Lua) → enforce(managed) → encode
+//	defaults ─────┤ deepMerge → merged → enforce(managed) → encode
 //	overlay ──────┘
+//
+// The Lua transform step that used to sit between the merge and the enforce is
+// GONE (docs/design/lua-transform-removal.md): it had no user, and the package
+// it ran on is now the pack derive sandbox alone.
 //
 // It is the single entrypoint shared byte-for-byte by the entrypoint boot
 // render and `yolo config render` (§6): "what render prints" is "what the jail
 // gets". The engine stays a pure leaf; everything with a dependency (codecs,
-// the Lua VM, the manifest) is injected through Inputs so this file — and its
-// callers — can be tested without a container.
+// the manifest) is injected through Inputs so this file — and its callers —
+// can be tested without a container.
 
 import (
 	"fmt"
@@ -21,17 +25,16 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
 // Inputs is everything Compose needs to render ONE surface. The layers that
 // come from outside the manifest (the host file, the workspace layer, and the
 // capture-diff overlay from §5) are passed here as already-read bytes / decoded
-// maps; Compose owns the decode/merge/transform/enforce/encode sequence.
+// maps; Compose owns the decode/merge/enforce/encode sequence.
 type Inputs struct {
 	// Surface is the manifest entry being rendered (path, codec name, defaults,
-	// managed, transform-script presence). Required.
+	// managed). Required.
 	Surface manifest.Surface
 
 	// HostBytes is the raw content of the host file the surface mirrors (§6.5 ①),
@@ -61,7 +64,7 @@ type Inputs struct {
 
 	// Overlay is the capture-diff overlay layer (§5) that carries in-jail edits
 	// across regeneration, already decoded. Merged above workspace + config
-	// overlays, below the Lua transform + managed. nil = absent.
+	// overlays, below managed. nil = absent.
 	Overlay any
 
 	// Computed is the runtime-computed layer: yolo's per-boot DYNAMIC content that
@@ -69,18 +72,12 @@ type Inputs struct {
 	// — e.g. the reconciled MCP-server table, or the LSP-plugin enable toggles and
 	// ENABLE_LSP_TOOL env that depend on which LSP servers are configured. The
 	// boot caller computes it and hands it in already decoded. It merges ABOVE
-	// overlay and BELOW the transform + managed (§4 slot: it is yolo's freshly
-	// regenerated data, so it wins over a stale in-jail edit to the same key —
-	// §2 principle 1 "regenerate, don't reconcile" — but a config.lua transform
-	// may still reshape it and managed still wins the floor). A null value is an
+	// overlay and BELOW managed (§4 slot: it is yolo's freshly regenerated data,
+	// so it wins over a stale in-jail edit to the same key — §2 principle 1
+	// "regenerate, don't reconcile" — but managed still wins the floor). A null value is an
 	// RFC-7386 tombstone (deletes the key), so a dynamic entry that is gone this
 	// boot simply is not emitted — no sidecar memory needed. nil = absent.
 	Computed any
-
-	// Script is the concatenated config.lua source (user-then-workspace, §3.4),
-	// or "" for the identity transform. VM is required iff Script is non-empty.
-	Script string
-	VM     luahook.LuaVM
 }
 
 // WholeFileKey is the Provenance key used for a KEYLESS surface (raw/lines):
@@ -91,7 +88,7 @@ const WholeFileKey = "<file>"
 
 // Result is the outcome of composing one surface.
 type Result struct {
-	// Config is the fully-composed decoded config (post-transform, post-enforce).
+	// Config is the fully-composed decoded config (post-enforce).
 	//
 	// Typed `any`: its shape is the surface codec's (map[string]any for
 	// json/toml, []any for lines, string for raw). Use ConfigMap for the object
@@ -100,13 +97,8 @@ type Result struct {
 	// Encoded is Config serialized with the surface codec — the exact bytes yolo
 	// would write to Surface.Path.
 	Encoded []byte
-	// Excluded is the ordered list of stage globs the transform asked to drop
-	// (§3.2 ctx.stage.exclude), deduped.
-	Excluded []string
 	// Provenance records, per top-level config key, which layer last set it —
-	// the data behind `yolo config render --explain` (§6). Keys deleted by the
-	// transform (e.g. §6.5's dropped permission-gate) do not appear in Config but
-	// are recorded here with layer "transform (dropped)".
+	// the data behind `yolo config render --explain` (§6).
 	Provenance map[string]string
 }
 
@@ -136,7 +128,6 @@ const (
 	layerWorkspace = "workspace"
 	layerOverlay   = "overlay"
 	layerComputed  = "computed"
-	layerTransform = "transform"
 	layerManaged   = "managed"
 	// layerConfigOverlay is the provenance-label PREFIX for a config-overlay
 	// contribution; the full label is "config-overlay:<pack>" so a reader sees
@@ -294,11 +285,11 @@ func layerAbsent(data any) bool {
 }
 
 // Compose runs the full §3.1 pipeline for one surface and returns the rendered
-// config, its encoded bytes, the stage excludes, and per-key provenance. It is
-// pure: no file I/O, no container — the caller supplies bytes and decoded
-// layers via in, and Compose returns bytes. Errors are loud and fail-closed
-// (§3.4): a decode failure, a missing VM for a non-empty script, or a Lua error
-// aborts the render rather than shipping a partial file.
+// config, its encoded bytes, and per-key provenance. It is pure: no file I/O,
+// no container — the caller supplies bytes and decoded layers via in, and
+// Compose returns bytes. Errors are loud and fail-closed (§3.4): a decode
+// failure or a layer whose shape does not match the surface's kind aborts the
+// render rather than shipping a partial file.
 //
 // ── ONE OF TWO "which layer won" derivations. UNIFY AT THE THIRD, not before. ──
 //
@@ -431,57 +422,10 @@ func Compose(in Inputs) (*Result, error) {
 		}
 	}
 
-	// Snapshot the pre-transform values so we can attribute transform edits —
-	// not just added/dropped keys but also keys whose value the transform
-	// changed (e.g. §6.5's extensions array, present before and after).
-	preValues := map[string]any{}
-	if mm, ok := merged.(map[string]any); ok {
-		for k, v := range mm {
-			preValues[k] = v
-		}
-	}
-	preWhole := merged
-
-	// Transform step (§3.1): run the Lua hook (or identity when Script == "").
-	// The hook sees the surface's own shape and must return that same shape;
-	// luahook enforces it against Kind (a raw transform returns a string).
-	ctx := luahook.NewCtxKind(in.Surface.Agent, in.Surface.Name, kind, merged, in.Surface.Managed)
-	transformed, terr := luahook.Apply(luahook.Transform{VM: in.VM, Script: in.Script}, ctx)
-	if terr != nil {
-		return nil, terr // already wrapped fail-closed by Apply
-	}
-
-	// Attribute transform edits: any key the transform added, changed, or
-	// dropped is recorded against the transform layer. For a keyless surface the
-	// only attribution possible is "the transform changed the file".
-	if in.Script != "" {
-		if tm, ok := transformed.(map[string]any); ok {
-			for k, nv := range tm {
-				ov, existed := preValues[k]
-				if !existed || !reflect.DeepEqual(ov, nv) {
-					prov[k] = layerTransform
-				}
-			}
-			for k := range preValues {
-				if _, still := tm[k]; !still {
-					prov[k] = layerTransform + " (dropped)"
-				}
-			}
-		} else if !reflect.DeepEqual(preWhole, transformed) {
-			prov[WholeFileKey] = layerTransform
-		}
-	}
-
-	// Enforce step (§3.1): re-apply the managed layer AFTER the hook, so managed
-	// keys win regardless of what the transform did. On a keyless surface a
-	// non-nil managed layer replaces the whole value (see enforceManaged).
-	//
-	// in.Surface.Managed is passed DIRECTLY, not ctx.Managed: the latter is the
-	// deep copy the transform is allowed to scribble on, and the floor has to
-	// read the original (enforce.go item 2). It is the same value this ctx was
-	// built from, which is what the floor read privately back when it was a
-	// method on luahook.Ctx.
-	ctx.Config = enforceManaged(transformed, in.Surface.Managed)
+	// Enforce step (§3.1): re-apply the managed layer over the merged value, so
+	// managed keys win over every layer below. On a keyless surface a non-nil
+	// managed layer replaces the whole value (see enforceManaged).
+	config := enforceManaged(merged, in.Surface.Managed)
 	if mm := in.Surface.ManagedMap(); mm != nil {
 		for k := range mm {
 			if mm[k] == nil {
@@ -493,35 +437,16 @@ func Compose(in Inputs) (*Result, error) {
 		prov[WholeFileKey] = layerManaged
 	}
 
-	encoded, eerr := c.Encode(ctx.Config)
+	encoded, eerr := c.Encode(config)
 	if eerr != nil {
 		return nil, fmt.Errorf("agentcfg: surface %s/%s: encode: %w", in.Surface.Agent, in.Surface.Name, eerr)
 	}
 
 	return &Result{
-		Config:     ctx.Config,
+		Config:     config,
 		Encoded:    encoded,
-		Excluded:   dedupeStable(ctx.Stage.Excluded()),
 		Provenance: prov,
 	}, nil
-}
-
-// dedupeStable returns globs with duplicates removed, preserving first-seen
-// order (the engine's job per luahook.Stage.Exclude's contract).
-func dedupeStable(globs []string) []string {
-	if len(globs) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(globs))
-	out := make([]string, 0, len(globs))
-	for _, g := range globs {
-		if seen[g] {
-			continue
-		}
-		seen[g] = true
-		out = append(out, g)
-	}
-	return out
 }
 
 // ProvenanceLines renders Provenance as sorted "key\tlayer" lines for the

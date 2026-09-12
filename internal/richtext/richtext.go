@@ -34,7 +34,7 @@ const (
 // ansiForTag maps a rich open-tag word (lowercased) to its ANSI code. Compound
 // styles ("bold red") concatenate; closing tags all reset. blue+magenta round
 // out the foreground palette to six hues, enough to give each composition layer
-// (defaults/host/workspace/overlay/transform/managed) a distinct color in
+// (defaults/host/workspace/overlay/managed) a distinct color in
 // `yolo config render --explain` (docs/plans/cli-visual-polish.md).
 var ansiForTag = map[string]string{
 	"bold": ansiBold, "dim": ansiDim, "red": ansiRed, "green": ansiGreen,

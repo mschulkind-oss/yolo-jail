@@ -24,19 +24,6 @@ func writeFile(t *testing.T, path, content string) {
 const piHostSettings = `{"theme":"dark","defaultModel":"claude-fable-5",` +
 	`"extensions":["extensions/permission-gate.ts","extensions/git-helper.ts"]}`
 
-const piGateTransform = `
-yolo.transform("pi", function(ctx)
-  if ctx.config.extensions then
-    local kept = {}
-    for _, ext in ipairs(ctx.config.extensions) do
-      if not ext:find("permission%-gate") then kept[#kept + 1] = ext end
-    end
-    ctx.config.extensions = kept
-    ctx.stage.exclude("extensions/permission-gate.ts")
-  end
-end)
-`
-
 // withHomeAndCwd points HOME at a scratch home and chdirs to a scratch repo,
 // restoring both after the test. Returns (homeDir, repoDir).
 func withHomeAndCwd(t *testing.T) (string, string) {
@@ -55,38 +42,10 @@ func withHomeAndCwd(t *testing.T) (string, string) {
 	return home, repo
 }
 
-// TestConfigRenderPiWithTransform is the §6.5 acceptance test AT THE CLI LEVEL:
-// a host settings file + a workspace config.lua transform, rendered by
-// `yolo config render pi`, drops the permission-gate extension and enforces the
-// managed key.
-func TestConfigRenderPiWithTransform(t *testing.T) {
-	home, repo := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
-	writeFile(t, filepath.Join(repo, "yolo-jail.config.lua"), piGateTransform)
-
-	var out, errw bytes.Buffer
-	rc := configRunW([]string{"render", "pi"}, &out, &errw)
-	if rc != 0 {
-		t.Fatalf("rc=%d, stderr=%s", rc, errw.String())
-	}
-	got := out.String()
-	if strings.Contains(got, "permission-gate") {
-		t.Errorf("permission-gate should be dropped by the transform:\n%s", got)
-	}
-	if !strings.Contains(got, "git-helper") {
-		t.Errorf("git-helper should survive:\n%s", got)
-	}
-	if !strings.Contains(got, `"defaultProjectTrust": "always"`) {
-		t.Errorf("managed key should be enforced:\n%s", got)
-	}
-}
-
-// TestConfigRenderExplain shows the winning layer per key, including the
-// transform-dropped file exclusion.
+// TestConfigRenderExplain shows the winning layer per key.
 func TestConfigRenderExplain(t *testing.T) {
-	home, repo := withHomeAndCwd(t)
+	home, _ := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
-	writeFile(t, filepath.Join(repo, "yolo-jail.config.lua"), piGateTransform)
 
 	var out, errw bytes.Buffer
 	rc := configRunW([]string{"render", "pi", "--explain"}, &out, &errw)
@@ -97,9 +56,8 @@ func TestConfigRenderExplain(t *testing.T) {
 	for _, want := range []string{
 		"defaultModel\thost",
 		"defaultProjectTrust\tmanaged",
-		"extensions\ttransform",
+		"extensions\thost",
 		"theme\thost",
-		"extensions/permission-gate.ts", // excluded file listed
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("--explain output missing %q:\n%s", want, got)
@@ -108,13 +66,12 @@ func TestConfigRenderExplain(t *testing.T) {
 }
 
 // TestConfigRenderExplainColor: with color forced, --explain wraps each layer
-// in its distinct hue (managed=green, transform=yellow, host=blue) and the key
-// in cyan — the syntax-highlight-provenance from cli-visual-polish. With color
-// off the output is plain (the byte-stable path the other tests assert).
+// in its distinct hue (managed=green, host=blue) and the key in cyan — the
+// syntax-highlight-provenance from cli-visual-polish. With color off the output
+// is plain (the byte-stable path the other tests assert).
 func TestConfigRenderExplainColor(t *testing.T) {
-	home, repo := withHomeAndCwd(t)
+	home, _ := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
-	writeFile(t, filepath.Join(repo, "yolo-jail.config.lua"), piGateTransform)
 
 	var out bytes.Buffer
 	// Drive configRender with color=true (the front door gates this on a real
@@ -124,12 +81,11 @@ func TestConfigRenderExplainColor(t *testing.T) {
 		t.Fatalf("rc=%d", rc)
 	}
 	got := out.String()
-	// Green for managed, yellow for transform, blue for host, cyan for the key.
+	// Green for managed, blue for host, cyan for the key.
 	for _, want := range []string{
-		"\x1b[32mmanaged\x1b[0m",   // green
-		"\x1b[33mtransform\x1b[0m", // yellow
-		"\x1b[34mhost\x1b[0m",      // blue
-		"\x1b[36m",                 // cyan (keys)
+		"\x1b[32mmanaged\x1b[0m", // green
+		"\x1b[34mhost\x1b[0m",    // blue
+		"\x1b[36m",               // cyan (keys)
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("--explain color output missing %q:\n%q", want, got)
@@ -137,9 +93,9 @@ func TestConfigRenderExplainColor(t *testing.T) {
 	}
 }
 
-// TestConfigRenderNoTransform: with no config.lua present, render is a plain
-// merge+enforce and both extensions survive.
-func TestConfigRenderNoTransform(t *testing.T) {
+// TestConfigRenderMergesThenEnforces: render is a plain merge+enforce, so every
+// host-declared extension survives into the preview.
+func TestConfigRenderMergesThenEnforces(t *testing.T) {
 	home, _ := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(home, ".pi/agent/settings.json"), piHostSettings)
 
@@ -150,7 +106,7 @@ func TestConfigRenderNoTransform(t *testing.T) {
 	}
 	got := out.String()
 	if !strings.Contains(got, "permission-gate") || !strings.Contains(got, "git-helper") {
-		t.Errorf("no transform: both extensions should survive:\n%s", got)
+		t.Errorf("both host extensions should survive:\n%s", got)
 	}
 }
 

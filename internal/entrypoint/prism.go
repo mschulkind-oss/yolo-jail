@@ -16,7 +16,6 @@ package entrypoint
 //     (/ctx/host-pi/settings.json), gated by the host_*_files allow-list, which
 //     is environment-dependent and so cannot live in the codec-agnostic manifest;
 //   - the sidecar file layout under <workspace>/.yolo/prism/ (§5);
-//   - loading the config.lua transform (user then workspace, §3.4);
 //   - the one-time §4.7 orphan-file cleanup, gated on the first-migration signal.
 
 import (
@@ -31,7 +30,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -180,74 +178,6 @@ func prismOverlayPath(e *Env, agent, name string) string {
 	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".overlay.json")
 }
 
-// loadPrismTransformScript concatenates the user then workspace config.lua
-// (§3.4), user first so the workspace transform runs last. Built from the Env's
-// resolved Home/Workspace (not the process $HOME) so it is testable and correct
-// on a native-macOS home. A missing file contributes nothing; neither present
-// means the identity transform. Mirrors internal/cli.loadTransformScript, which
-// serves the host-side render — the two must stay in sync (§6: "what render
-// prints is what the jail gets").
-func loadPrismTransformScript(e *Env) string {
-	return targetTransformScript(e.renderTarget())
-}
-
-// targetTransformScript is the Target-keyed transform loader: user config.lua (under
-// the target's home) then workspace config.lua (under the target's workspace), user
-// first so the workspace transform runs last. The boot path reaches it via
-// loadPrismTransformScript(e). This is the convergence point the old
-// "mirrors internal/cli.loadTransformScript — the two must stay in sync" comment asked
-// for: one Target-keyed loader instead of two hand-copies.
-func targetTransformScript(t render.Target) string {
-	var b strings.Builder
-	userLua := filepath.Join(t.Home, ".config", "yolo-jail", "config.lua")
-	if data, err := os.ReadFile(userLua); err == nil {
-		b.Write(data)
-		b.WriteByte('\n')
-	}
-	// A host target has NO workspace (render.Host leaves it empty by definition), so
-	// there is no workspace transform to load — and joining anyway would yield a bare
-	// relative "yolo-jail.config.lua" read out of whatever directory the process is
-	// sitting in, which is the same scatter-into-the-CWD hazard the provenance path had
-	// to solve. The user config.lua above is still honored: it is keyed on the home,
-	// which a host target does have.
-	if t.Workspace != "" {
-		wsLua := filepath.Join(t.Workspace, "yolo-jail.config.lua")
-		if data, err := os.ReadFile(wsLua); err == nil {
-			b.Write(data)
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
-}
-
-// surfaceScript is the Lua source for ONE surface: the global config.lua pair
-// (user then workspace, §3.4) with the surface's OWN hook appended last, so a
-// per-surface transform runs after — and can therefore override — the globals.
-//
-// A9: Surface.Transform used to be inert. It is a documented host_files key
-// ("path to a Lua hook; works on every codec"), schema-validated, parsed,
-// path-cleaned and copied onto the surface — but nothing read it, because every
-// Inputs.Script producer filled Script from the global pair alone. A user's
-// per-surface hook was silently ignored.
-//
-// A NAMED-BUT-UNREADABLE hook is a hard error, not a skip. The alternative fails
-// open: the user asked for a transform, got none, and the file looks plausibly
-// correct — the exact silent-misconfiguration class the config surface must not
-// have. (An ABSENT Transform is simply the identity transform; only a named path
-// that cannot be read fails.)
-func surfaceScript(e *Env, surface manifest.Surface) (string, error) {
-	script := loadPrismTransformScript(e)
-	if surface.Transform == "" {
-		return script, nil
-	}
-	data, err := os.ReadFile(surface.Transform)
-	if err != nil {
-		return "", fmt.Errorf("surface %s/%s: transform %s: %w",
-			surface.Agent, surface.Name, surface.Transform, err)
-	}
-	return script + "\n" + string(data) + "\n", nil
-}
-
 // renderSurfaceStateful runs the §5/§3.2 stateful render for one builtin surface
 // and persists the three artifacts (surface file, last_render, overlay). It
 // resolves the host source via hostBytes (caller supplies, since the mount and
@@ -261,8 +191,8 @@ func surfaceScript(e *Env, surface manifest.Surface) (string, error) {
 // env.ENABLE_LSP_TOOL, and the mcpServers tombstone that strips a host block.
 // jsonx-sourced content (the MCP tables) is deep-converted to the engine's plain
 // value model via prismMap first; claude builds its layer as native map[string]any
-// directly. It merges ABOVE the captured overlay and BELOW the transform +
-// managed, so yolo's freshly regenerated data wins over a stale in-jail edit
+// directly. It merges ABOVE the captured overlay and BELOW managed, so yolo's
+// freshly regenerated data wins over a stale in-jail edit
 // (regenerate-don't-reconcile) yet a managed key still wins the floor. A nil
 // value inside it is an RFC-7386 tombstone: the key is deleted from the render
 // and omitted from the output. Pass nil for a static-only surface (copilot/agy/pi
@@ -337,23 +267,12 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 		selectionRecord = next
 	}
 
-	script, serr := surfaceScript(e, surface)
-	if serr != nil {
-		return nil, serr
-	}
-	var vm luahook.LuaVM
-	if script != "" {
-		vm = &luahook.GopherLuaVM{}
-	}
-
 	out, err := agentcfg.ComposeStateful(agentcfg.StatefulInputs{
 		Base: agentcfg.Inputs{
 			Surface:   surface,
 			HostBytes: hostBytes,
 			Overlays:  overlays,
 			Computed:  computed,
-			Script:    script,
-			VM:        vm,
 		},
 		CurrentBytes:      current,
 		LastRenderPresent: lastErr == nil,
@@ -508,22 +427,12 @@ func generatedHeader(surface manifest.Surface) string {
 // (no sidecars) and returns the Result so a caller can chmod or inspect it.
 func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.Result, error) {
 	surface = agentcfg.SubstituteWorkspace(surface, e.WorkspaceDir()) // A11, see the stateful core
-	script, serr := surfaceScript(e, surface)
-	if serr != nil {
-		return nil, serr
-	}
-	var vm luahook.LuaVM
-	if script != "" {
-		vm = &luahook.GopherLuaVM{}
-	}
 
 	res, err := agentcfg.Compose(agentcfg.Inputs{
 		Surface:   surface,
 		HostBytes: hostBytes,
 		Overlays:  overlays,
 		Computed:  computed,
-		Script:    script,
-		VM:        vm,
 	})
 	if err != nil {
 		return nil, err
@@ -1038,7 +947,7 @@ func sortedKeys(m map[string]any) []string {
 // mergeSurfaceRoot returns base with every key of over written at its top level, as
 // a new map. It is how the decided selection reaches the fold: the namespace's keys
 // are SURFACE keys, so they lift to the surface root and fold as ordinary computed
-// keys — above the captured overlay, below the transform and managed — which is
+// keys — above the captured overlay, below managed — which is
 // both what puts them at the top level of the agent's file and what lets a NEW
 // selection outrank a stale captured edit.
 //

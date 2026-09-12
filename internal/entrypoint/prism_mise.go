@@ -40,7 +40,7 @@ import (
 //  1. COMPUTED layer — the dynamic [tools] table. yolo owns no default runtime
 //     (miseBaseTools is empty; every default is baked), so the only yolo-owned
 //     content is the YOLO_MISE_TOOLS injected pins. They ride the computed layer
-//     (above the captured overlay, below transform+managed), so an injected pin
+//     (above the captured overlay, below managed), so an injected pin
 //     wins over a stale in-jail `mise use -g` while a user-added global tool is
 //     captured into the overlay and survives. Versions are forced to strings
 //     (mise versions are strings; a JSON number injected as {"node": 20} would

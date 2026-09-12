@@ -196,9 +196,6 @@ func builtinLayers(s manifest.Surface) []string {
 	if surfaceHasComputedLayer(s) {
 		layers = append(layers, "computed")
 	}
-	if s.Transform != "" {
-		layers = append(layers, "transform")
-	}
 	if s.Managed != nil {
 		layers = append(layers, "managed")
 	}
@@ -216,9 +213,6 @@ func hostFileLayers(e config.HostFileEntry) []string {
 		layers = append(layers, "host")
 	case e.HasContent:
 		layers = append(layers, "content")
-	}
-	if e.Transform != "" {
-		layers = append(layers, "transform")
 	}
 	if e.Managed != nil {
 		layers = append(layers, "managed")

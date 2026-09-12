@@ -24,8 +24,8 @@ package entrypoint
 //   - `stateful` — the file is COMPOSED, so a comment could only come from the `host`
 //     layer, and preserving it is a PROJECTION from one file into another. That is the
 //     case the ranked options were actually about, and it still needs the decision they
-//     name: an optional TriviaCodec on the engine's Codec interface, trivia surviving the
-//     Lua transform boundary, and rule ① keyed on Result.Provenance. Out of scope here.
+//     name: an optional TriviaCodec on the engine's Codec interface and rule ① keyed on
+//     Result.Provenance. Out of scope here.
 //
 // # The rule for which comments survive
 //

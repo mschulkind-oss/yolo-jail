@@ -4,7 +4,7 @@
 // entrypoint boot render calls (internal/agentcfg.Compose) and prints what it
 // would write, touching no live config. It runs host-side (the edit-before-launch
 // loop) and in-jail (the operating agent's "what is my config, and why?" aid),
-// and it is the CLI surface that makes the Lua transform mechanism discoverable
+// and it is the CLI surface that makes the composition pipeline discoverable
 // and operable by interrogation — the self-documenting-CLI gap
 // (docs/reference/self-documenting-cli.md) this closes for the composed surfaces.
 package cli
@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -27,8 +26,8 @@ import (
 const configUsage = `Usage: yolo config <subcommand>
 
 Inspect the generated-config composition pipeline (the layered regeneration of
-agent settings/MCP/LSP/mise config, with optional Lua transforms). See
-'yolo config-ref' and docs/plans/agent-settings-composition.md.
+agent settings/MCP/LSP/mise config). See 'yolo config-ref' and
+docs/plans/agent-settings-composition.md.
 
 Subcommands:
   ls [--all]               List every composed surface — path, codec, mode,
@@ -61,8 +60,8 @@ Subcommands:
 
 render flags:
   --surface <name>   Render only the named surface (e.g. settings).
-  --explain          Print, per config key, which layer/hook set it
-                     (defaults<host<workspace<overlay<transform<managed),
+  --explain          Print, per config key, which layer set it
+                     (defaults<host<workspace<overlay<managed),
                      instead of the rendered file.
   --help, -h         Show this help.
 
@@ -87,10 +86,7 @@ Examples:
   yolo config ls                      # every composed file, and what mode it is in
   yolo config render claude           # what a launch would write for claude
   yolo config diff claude             # what this jail has changed since
-  yolo config reset claude --force    # throw those changes away
-
-Config transforms live in yolo-jail.config.lua (repo root) and
-~/.config/yolo-jail/config.lua (user); both are auto-loaded, user first.`
+  yolo config reset claude --force    # throw those changes away`
 
 // runConfig dispatches `yolo config <subcommand>`. Registered in dispatch.go.
 // Per the dispatch convention (see runBroker), args[0] is the command name
@@ -197,13 +193,6 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 		return 1
 	}
 
-	// Load the concatenated transform script once (user then workspace, §3.4).
-	script := loadTransformScript()
-	var vm luahook.LuaVM
-	if script != "" {
-		vm = &luahook.GopherLuaVM{}
-	}
-
 	rc := 0
 	for _, s := range surfaces {
 		if surface != "" && s.Name != surface {
@@ -230,7 +219,7 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 			}
 			continue
 		}
-		if err := renderSurface(s, script, vm, explain, out, color); err != nil {
+		if err := renderSurface(s, explain, out, color); err != nil {
 			fmt.Fprintf(errw, "yolo config render: %s/%s: %v\n", s.Agent, s.Name, err)
 			rc = 1
 		}
@@ -258,7 +247,7 @@ const containerWorkspace = "/workspace"
 // registrations), so the gap is visible rather than silent. Nor does it supply the
 // captured `overlay`: that is per-workspace state
 // under <workspace>/.yolo/prism/, and `yolo config diff` is the command for it.
-func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain bool, out io.Writer, color bool) error {
+func renderSurface(s manifest.Surface, explain bool, out io.Writer, color bool) error {
 	// A11: resolve ${workspace} exactly as the boot path does, so what `render`
 	// prints is what the jail gets (§6). The jail composes with ITS OWN workspace
 	// root — "/workspace" on a container backend — so that is what we substitute
@@ -284,8 +273,6 @@ func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain 
 	res, err := agentcfg.Compose(agentcfg.Inputs{
 		Surface:   s,
 		HostBytes: hostBytes,
-		Script:    script,
-		VM:        vm,
 	})
 	if err != nil {
 		return err
@@ -308,9 +295,6 @@ func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain 
 			key, layer, _ := strings.Cut(line, "\t")
 			pr.Printf("  [cyan]%s[/cyan]\t%s", key, colorLayer(layer))
 		}
-		if len(res.Excluded) > 0 {
-			pr.Printf("  [dim](staged files excluded: %s)[/dim]", strings.Join(res.Excluded, ", "))
-		}
 		return nil
 	}
 	pr.Print(header)
@@ -320,15 +304,14 @@ func renderSurface(s manifest.Surface, script string, vm luahook.LuaVM, explain 
 
 // colorLayer wraps a provenance layer name in its distinct hue so --explain
 // reads like syntax-highlighted provenance: one hue per composition layer
-// (docs/plans/cli-visual-polish.md). The value may be "transform (dropped)";
-// the hue keys on the leading word.
+// (docs/plans/cli-visual-polish.md). A compound value ("config-overlay:pack")
+// keys its hue on the leading word.
 func colorLayer(layer string) string {
 	tag := map[string]string{
 		"defaults":  "dim",     // lowest precedence — muted
 		"host":      "blue",    // the host mirror
 		"workspace": "cyan",    // workspace layer
 		"overlay":   "magenta", // capture-diff overlay (in-jail edits)
-		"transform": "yellow",  // the Lua hook touched it
 		"managed":   "green",   // yolo-enforced, wins
 	}
 	word := layer
@@ -339,25 +322,6 @@ func colorLayer(layer string) string {
 		return "[" + t + "]" + layer + "[/" + t + "]"
 	}
 	return layer
-}
-
-// loadTransformScript concatenates the user then workspace config.lua (§3.4),
-// user first so the workspace transform runs last. A missing file contributes
-// nothing; neither present means the identity transform.
-func loadTransformScript() string {
-	var b strings.Builder
-	// User: ~/.config/yolo-jail/config.lua (beside the user config.jsonc).
-	userLua := filepath.Join(filepath.Dir(paths.UserConfigPath()), "config.lua")
-	if data, err := os.ReadFile(userLua); err == nil {
-		b.Write(data)
-		b.WriteByte('\n')
-	}
-	// Workspace: yolo-jail.config.lua at the repo root (cwd for the CLI).
-	if data, err := os.ReadFile("yolo-jail.config.lua"); err == nil {
-		b.Write(data)
-		b.WriteByte('\n')
-	}
-	return b.String()
 }
 
 // expandHome expands a leading "~/" in a manifest path to the resolved home dir.

@@ -5,8 +5,7 @@ import "fmt"
 // Raw is the passthrough codec (§3.3 "raw"): the escape hatch for formats yolo
 // will not structurally round-trip. Decode hands the config to the pipeline as
 // a plain string and Encode turns a string back into bytes — no structure, no
-// merge semantics beyond whole-value replacement. A Lua transform sees the
-// config as a string and returns a string (§3.3).
+// merge semantics beyond whole-value replacement (§3.3).
 //
 // The round-trip is byte-exact: Decode(b) -> string(b), and Encode of that
 // string reproduces the original bytes.

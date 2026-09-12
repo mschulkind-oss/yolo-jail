@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
-	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
@@ -29,54 +28,43 @@ const piHostJSON = `{
   "extensions": ["extensions/permission-gate.ts", "extensions/git-helper.ts"]
 }`
 
-// The §6.5 ② user transform: drop the permission-gate extension and exclude its
-// file from the staged tree.
-const piTransformScript = `
-yolo.transform("pi", function(ctx)
-  local kept = {}
-  for _, ext in ipairs(ctx.config.extensions) do
-    if not ext:find("permission%-gate") then kept[#kept + 1] = ext end
-  end
-  ctx.config.extensions = kept
-  ctx.stage.exclude("extensions/permission-gate.ts")
-end)
-`
-
-// TestComposePiWorkedExample is the §6.5 end-to-end acceptance test: the exact
-// inputs from the design doc must produce the exact output in §6.5 ④.
-func TestComposePiWorkedExample(t *testing.T) {
+// TestComposeMergesThenEnforces is the end-to-end acceptance test for one
+// surface: defaults < host, then the managed floor, with per-key provenance.
+//
+// It is what is left of the §6.5 worked example after the Lua transform was
+// removed (docs/design/lua-transform-removal.md §5.5). That example's whole
+// point was its ② step — a script dropping an element out of the `extensions`
+// array — which is the capability §6 of the removal doc records as a deliberate
+// gap. The layering either side of that step is still the pipeline's contract,
+// so it is asserted here without a script.
+func TestComposeMergesThenEnforces(t *testing.T) {
 	res, err := Compose(Inputs{
 		Surface:   piSurface(),
 		HostBytes: []byte(piHostJSON),
-		Script:    piTransformScript,
-		VM:        &luahook.GopherLuaVM{},
 	})
 	if err != nil {
-		t.Fatalf("Compose returned error: %v", err)
+		t.Fatalf("Compose error: %v", err)
 	}
 
-	// §6.5 ④ — what lands in the jail.
 	want := map[string]any{
-		"theme":               "dark",                            // from host, over defaults "system"
-		"defaultModel":        "claude-fable-5",                  // from host
-		"extensions":          []any{"extensions/git-helper.ts"}, // gate dropped by transform
-		"defaultProjectTrust": "always",                          // managed, enforced last
+		"theme":        "dark",           // from host, over defaults "system"
+		"defaultModel": "claude-fable-5", // from host
+		"extensions": []any{ // host array, intact: nothing below managed reshapes it
+			"extensions/permission-gate.ts",
+			"extensions/git-helper.ts",
+		},
+		"defaultProjectTrust": "always", // managed, enforced last
 	}
 	if !reflect.DeepEqual(res.Config, want) {
 		t.Errorf("composed config mismatch:\n got: %#v\nwant: %#v", res.Config, want)
 	}
 
-	// The transform asked to keep the permission-gate file out of the tree.
-	if !reflect.DeepEqual(res.Excluded, []string{"extensions/permission-gate.ts"}) {
-		t.Errorf("stage excludes = %v, want [extensions/permission-gate.ts]", res.Excluded)
-	}
-
-	// Provenance (the --explain data): host wins theme+defaultModel, managed wins
-	// defaultProjectTrust, and extensions was last touched by the transform.
+	// Provenance (the --explain data): host wins every key it set, managed wins
+	// the key it enforces.
 	wantProv := map[string]string{
 		"theme":               layerHost,
 		"defaultModel":        layerHost,
-		"extensions":          layerTransform,
+		"extensions":          layerHost,
 		"defaultProjectTrust": layerManaged,
 	}
 	if !reflect.DeepEqual(res.Provenance, wantProv) {
@@ -84,108 +72,8 @@ func TestComposePiWorkedExample(t *testing.T) {
 	}
 }
 
-// TestComposeIdentityNoScript: with no config.lua, Compose is a plain
-// merge+enforce (defaults<host, then managed).
-func TestComposeIdentityNoScript(t *testing.T) {
-	res, err := Compose(Inputs{
-		Surface:   piSurface(),
-		HostBytes: []byte(piHostJSON),
-		// no Script, no VM — identity transform
-	})
-	if err != nil {
-		t.Fatalf("Compose error: %v", err)
-	}
-	// Both extensions survive (no transform ran); managed key still enforced.
-	exts, ok := res.ConfigMap()["extensions"].([]any)
-	if !ok || len(exts) != 2 {
-		t.Errorf("extensions = %v, want both host extensions intact", res.ConfigMap()["extensions"])
-	}
-	if res.ConfigMap()["defaultProjectTrust"] != "always" {
-		t.Errorf("managed key not enforced: %v", res.ConfigMap()["defaultProjectTrust"])
-	}
-	if len(res.Excluded) != 0 {
-		t.Errorf("identity transform should exclude nothing, got %v", res.Excluded)
-	}
-}
-
-// TestComposeManagedWinsOverTransform: a transform that tries to set a managed
-// key is overridden by Enforce (§3.1 managed wins last).
-func TestComposeManagedWinsOverTransform(t *testing.T) {
-	script := `
-yolo.transform("pi", function(ctx)
-  ctx.config.defaultProjectTrust = "never"
-end)
-`
-	res, err := Compose(Inputs{
-		Surface:   piSurface(),
-		HostBytes: []byte(piHostJSON),
-		Script:    script,
-		VM:        &luahook.GopherLuaVM{},
-	})
-	if err != nil {
-		t.Fatalf("Compose error: %v", err)
-	}
-	if res.ConfigMap()["defaultProjectTrust"] != "always" {
-		t.Errorf("managed key should win over transform: got %v, want always", res.ConfigMap()["defaultProjectTrust"])
-	}
-	if res.Provenance["defaultProjectTrust"] != layerManaged {
-		t.Errorf("provenance for enforced key = %q, want %q", res.Provenance["defaultProjectTrust"], layerManaged)
-	}
-}
-
-// tamperManagedVM is a LuaVM that scribbles on the GO-SIDE ctx.Managed — the
-// defensive deep copy NewCtxKind hands the transform — and changes nothing else.
-//
-// The shipped GopherLuaVM cannot do this: it marshals ctx.managed into Lua
-// behind a read-only proxy over a separate table, so a script's write raises
-// instead of landing, and nothing it could do would reach back into the Go map.
-// A fake is therefore the only way to ask the question, and the question is
-// worth asking because LuaVM is an exported interface whose contract says
-// nothing about the field.
-type tamperManagedVM struct{}
-
-func (tamperManagedVM) Run(_ string, ctx *luahook.Ctx) error {
-	delete(ctx.ManagedMap(), "defaultProjectTrust")
-	return nil
-}
-
-// TestComposeEnforcesTheCallersManagedLayer pins WHICH managed value the floor
-// reads (docs/design/lua-transform-removal.md §4.2 item 2): in.Surface.Managed,
-// the layer the caller still holds — never ctx.Managed, the copy the transform
-// is handed and allowed to scribble on.
-//
-// This is the input the floor took privately when it was a method on
-// luahook.Ctx, and getting it wrong during the lift is invisible with the VM
-// yolo ships: the two are deep-equal on every real render, so the whole suite
-// stays green either way (measured — swapping the argument for ctx.Managed
-// failed nothing). Hence this test: it makes the difference observable by
-// supplying the one VM shape that can express it.
-func TestComposeEnforcesTheCallersManagedLayer(t *testing.T) {
-	surface := piSurface()
-	res, err := Compose(Inputs{
-		Surface:   surface,
-		HostBytes: []byte(piHostJSON),
-		Script:    "tamper", // non-empty so the VM actually runs
-		VM:        tamperManagedVM{},
-	})
-	if err != nil {
-		t.Fatalf("Compose error: %v", err)
-	}
-	if res.ConfigMap()["defaultProjectTrust"] != "always" {
-		t.Errorf("defaultProjectTrust = %v, want always — the floor read the "+
-			"transform's scribbled-on view instead of the caller's managed layer "+
-			"(§4.2 item 2)", res.ConfigMap()["defaultProjectTrust"])
-	}
-	// And the caller's own layer is intact afterwards, which is what makes
-	// passing it directly safe in the first place.
-	if surface.ManagedMap()["defaultProjectTrust"] != "always" {
-		t.Errorf("the caller's managed layer was reachable from the transform: %#v",
-			surface.ManagedMap())
-	}
-}
-
 // TestComposeOverlayLayer: the capture-diff overlay (§5) merges above workspace
-// and below the transform+managed.
+// and below computed+managed.
 func TestComposeOverlayLayer(t *testing.T) {
 	res, err := Compose(Inputs{
 		Surface:   piSurface(),
@@ -204,8 +92,8 @@ func TestComposeOverlayLayer(t *testing.T) {
 }
 
 // TestComposeComputedLayer: the runtime-computed layer (yolo's per-boot dynamic
-// content — MCP tables, LSP-plugin toggles) merges ABOVE overlay and BELOW the
-// transform+managed. This is the mechanism that lets a surface carrying static
+// content — MCP tables, LSP-plugin toggles) merges ABOVE overlay and BELOW
+// managed. This is the mechanism that lets a surface carrying static
 // managed keys ALSO carry yolo-regenerated dynamic keys in the same file: the
 // caller computes the dynamic map from live config and hands it in as Computed.
 // Its precedence embodies §2 principle 1 (regenerate, don't reconcile): the
@@ -236,44 +124,14 @@ func TestComposeComputedLayer(t *testing.T) {
 	}
 }
 
-// TestComposeComputedBelowManagedAndTransform: managed still wins over computed
-// (the hard floor), and a transform can still reshape a computed value (computed
-// is below the transform, same as every pre-transform layer).
-func TestComposeComputedBelowManagedAndTransform(t *testing.T) {
-	script := `
-yolo.transform("pi", function(ctx)
-  ctx.config.defaultModel = ctx.config.defaultModel .. "-reshaped"
-end)
-`
-	res, err := Compose(Inputs{
-		Surface:  piSurface(),
-		Computed: map[string]any{"defaultModel": "computed", "defaultProjectTrust": "never"},
-		Script:   script,
-		VM:       &luahook.GopherLuaVM{},
-	})
-	if err != nil {
-		t.Fatalf("Compose error: %v", err)
-	}
-	// The transform saw the computed value and reshaped it.
-	if res.ConfigMap()["defaultModel"] != "computed-reshaped" {
-		t.Errorf("transform should reshape computed value: got %v", res.ConfigMap()["defaultModel"])
-	}
-	// Managed still stomps a computed attempt to loosen the managed key.
-	if res.ConfigMap()["defaultProjectTrust"] != "always" {
-		t.Errorf("managed must win over computed: got %v", res.ConfigMap()["defaultProjectTrust"])
-	}
-}
-
-// TestComposeManagedWinsOverComputed is the managed-beats-computed half of
-// TestComposeComputedBelowManagedAndTransform, asserted WITHOUT a transform.
+// TestComposeManagedWinsOverComputed pins the hard floor against the computed
+// layer specifically: a computed attempt to loosen a managed key is stomped.
 //
-// That test proved two things at once: a transform can reshape a computed value
-// (which dies with the transform — docs/design/lua-transform-removal.md §5.5),
-// and managed still stomps a computed attempt to loosen a managed key (which is
-// the hard floor and must outlive it). No other test in this file pins the
-// second against the computed layer specifically: TestComposeComputedLayer only
-// ranks computed against overlay, and the *EnforcesManaged suite feeds host
-// bytes. Written here first so the transform test can be deleted whole.
+// It was written to outlive TestComposeComputedBelowManagedAndTransform, which
+// proved this and "a transform can reshape a computed value" at once and died
+// with the transform (docs/design/lua-transform-removal.md §5.5). No other test
+// in this file pins it against computed: TestComposeComputedLayer only ranks
+// computed against overlay, and the *EnforcesManaged suite feeds host bytes.
 func TestComposeManagedWinsOverComputed(t *testing.T) {
 	res, err := Compose(Inputs{
 		Surface:  piSurface(),
@@ -328,34 +186,6 @@ func TestComposeUnknownCodec(t *testing.T) {
 	s.Codec = "bogus"
 	if _, err := Compose(Inputs{Surface: s}); err == nil {
 		t.Fatal("expected error for unknown codec, got nil")
-	}
-}
-
-// TestComposeLuaErrorFailsClosed: a Lua error aborts the render (no partial
-// config), per §3.4.
-func TestComposeLuaErrorFailsClosed(t *testing.T) {
-	script := `yolo.transform("pi", function(ctx) error("boom") end)`
-	_, err := Compose(Inputs{
-		Surface:   piSurface(),
-		HostBytes: []byte(piHostJSON),
-		Script:    script,
-		VM:        &luahook.GopherLuaVM{},
-	})
-	if err == nil {
-		t.Fatal("expected fail-closed error from Lua error, got nil")
-	}
-}
-
-// TestComposeScriptWithoutVM is a loud error (a declared transform with no VM).
-func TestComposeScriptWithoutVM(t *testing.T) {
-	_, err := Compose(Inputs{
-		Surface:   piSurface(),
-		HostBytes: []byte(piHostJSON),
-		Script:    piTransformScript,
-		// VM omitted
-	})
-	if err == nil {
-		t.Fatal("expected error for script without VM, got nil")
 	}
 }
 

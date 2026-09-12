@@ -78,7 +78,7 @@ type Env struct {
 	// WorkspaceDir() resolves an unset Workspace to the container default "/workspace" —
 	// so an empty Workspace means "the container default", not "no workspace". A host Env
 	// was therefore indistinguishable from a jail Env, and every Target-keyed path
-	// (sidecars, provenance, the workspace config.lua) silently resolved against the
+	// (sidecars, provenance) silently resolved against the
 	// jail's tree. Unexported: only this package's host entries set it, and a caller
 	// outside should be reaching for RenderHostPack, not assembling a host Env by hand.
 	hostTarget bool
@@ -202,8 +202,8 @@ func (e *Env) WorkspaceDir() string {
 // renderTarget projects this Env onto the render.Target the surface writers key on
 // (env-manager plan Phase 1): the boot render is the KindJail instance of the one
 // Target-parameterized renderer. The writers touch exactly these three Env fields —
-// Home (surface dest + user config.lua), WorkspaceDir (sidecar root + ${workspace} +
-// workspace config.lua), and Stderr (capture/dropped-entry notices) — so the whole of
+// Home (surface dest), WorkspaceDir (sidecar root + ${workspace}), and Stderr
+// (capture/dropped-entry notices) — so the whole of
 // what a render needs from the environment is this projection; everything else
 // (host bytes, the computed layer) is passed to the writers as arguments. Making the
 // Target explicit here is what lets the host verbs (internal/cli) and

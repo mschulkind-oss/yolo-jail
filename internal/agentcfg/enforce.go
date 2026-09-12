@@ -16,11 +16,10 @@ package agentcfg
 //     look interchangeable. They are not: mergeValue is the fold's merge, this
 //     is the floor's, and a managed null means "this key renders as null", not
 //     "drop whatever the host set".
-//  2. THE INPUT IS THE ORIGINAL managed layer, not a defensive copy of it. When
-//     a transform still ran between the fold and the floor, the Lua-visible
-//     ctx.managed was a deep copy precisely so a script could scribble on it
-//     without moving the floor; the floor read the untouched original. Compose
-//     passes in.Surface.Managed directly for the same reason.
+//  2. THE INPUT IS THE ORIGINAL managed layer, not a defensive copy of it. It
+//     is the surface's own declared layer, read once and never rewritten, so
+//     the floor cannot be moved by anything the fold did. Compose passes
+//     in.Surface.Managed directly.
 //  3. THE CONFIG MAP IS MUTATED IN PLACE when both sides are objects, and the
 //     same map is returned. A pure copying rewrite would change aliasing for any
 //     caller still holding the merged map.
