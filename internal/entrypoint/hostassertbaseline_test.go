@@ -28,8 +28,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // adoptionBaselinePack owns one JSON surface whose `managed` layer is an OBJECT with a single
@@ -134,5 +136,53 @@ func TestHostAssertIsAFixedPoint(t *testing.T) {
 	if string(second) != string(first) {
 		t.Errorf("a second --assert apply changed the file:\nfirst:\n%s\nsecond:\n%s",
 			first, second)
+	}
+}
+
+// THE CENSUS'S ANSWER AND THE MECHANISM THAT RAN, measured in one test so they cannot drift
+// apart silently. RenderHostPack resolves the mechanism through render.ModeSet.Mechanism; this
+// asserts what the census answers for a `stateful`-declaring surface at the host notch, and
+// then that the render left rmw's own signature rather than stateful's.
+//
+// What makes it a pin rather than a restatement: if HostModes is ever changed to run
+// `stateful` — which is what `own` does (docs/design/config-ownership-and-promotion.md §10
+// step 6) — the first assertion fails, and its author has to come here and decide what the
+// host entry should then do. That is the forcing function the census exists to be; a dispatch
+// that hardcoded rmw would have gone on rendering rmw with the census saying otherwise and
+// nothing failing anywhere.
+func TestHostRenderRunsTheMechanismTheCensusNames(t *testing.T) {
+	home, path := assertBaselineHome(t)
+
+	// The fixture surface declares no mode, i.e. `stateful`.
+	mechanism, decided := render.Host(home, nil).Modes().Mechanism(manifest.ModeStateful)
+	if !decided || mechanism != manifest.ModeRMW {
+		t.Fatalf("the host census names %q (decided=%v) for a `stateful` surface, not %q. The "+
+			"render below is still doing rmw — decide what RenderHostPack should run now, and "+
+			"add the arm for it at the mechanism switch in hostrender.go",
+			mechanism, decided, manifest.ModeRMW)
+	}
+
+	// rmw's signature: the deep merge kept a leaf under a declared object. `applyRMWLayer`
+	// recurses so a sibling key the agent owns under the same parent survives; a stateful
+	// render of the same surface adopts through dropYoloOwnedSubtrees, which drops that whole
+	// subtree (§6.3.1). So this key is where the two mechanisms visibly disagree.
+	var got map[string]any
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read rendered surface: %v", err)
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("parse rendered surface: %v\n%s", err, data)
+	}
+	perms, _ := got["permissions"].(map[string]any)
+	if perms == nil || perms["ask"] == nil {
+		t.Errorf("permissions.ask is gone — that is the stateful adoption drop, not an rmw "+
+			"deep merge:\n%s", data)
+	}
+	// And the provenance record IS there, which is this mechanism's recording duty at this
+	// notch (HostModes records rmw) — so the file above is a render that ran, not one that
+	// was quietly skipped into leaving the seed behind.
+	if _, found := hostProvenance(t, home, "acme", "settings"); !found {
+		t.Error("no provenance record: the census says rmw RECORDS at the host notch")
 	}
 }

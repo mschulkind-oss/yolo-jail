@@ -220,3 +220,64 @@ func contains(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// THE HOST COERCES EVERY WRITING MODE TO rmw, and Mechanism is where a render entry reads
+// that instead of assuming it. HostModes says it in three places — `runs` holds rmw alone,
+// and the `stateful`/`computed` exclusions both end "is rendered through `rmw` here" — and
+// this is the machine-readable form of those sentences.
+func TestHostMechanismCoercesEveryWritingModeToRMW(t *testing.T) {
+	host := Host("/home/me", nil).Modes()
+	for _, declared := range []string{manifest.ModeStateful, manifest.ModeComputed, manifest.ModeRMW} {
+		got, decided := host.Mechanism(declared)
+		if !decided || got != manifest.ModeRMW {
+			t.Errorf("a surface declaring %q renders through %q (decided=%v) at the host, want "+
+				"%q — HostModes runs rmw alone, so this is the coercion its exclusions describe",
+				declared, got, decided, manifest.ModeRMW)
+		}
+	}
+	// And `unrendered` is answered with itself, not coerced into a write. Honoring it is
+	// writing nothing, and the host census runs it for exactly that reason.
+	if got, decided := host.Mechanism(manifest.ModeUnrendered); !decided || got != manifest.ModeUnrendered {
+		t.Errorf("unrendered resolved to %q (decided=%v), want itself — coercing it would turn "+
+			"a surface yolo declares it does not write into one it does", got, decided)
+	}
+}
+
+// A NOTCH THAT RUNS EVERY MODE COERCES NOTHING: the jail's answer for each declared mode is
+// that mode. This is the other half of the coercion rule — the fallback must be unreachable
+// wherever the declaration is already something the notch runs — and it is what makes
+// Mechanism safe to put in a dispatch shared with the boot path.
+func TestJailMechanismIsTheDeclaredModeItself(t *testing.T) {
+	jail := Jail("/home/agent", "/workspace", nil).Modes()
+	preview := Preview("/tmp/scratch").Modes()
+	for _, declared := range censusModes {
+		if got, decided := jail.Mechanism(declared); !decided || got != declared {
+			t.Errorf("jail: %q resolved to %q (decided=%v), want itself — the jail runs all four,"+
+				" so no declaration is coerced there", declared, got, decided)
+		}
+		if got, decided := preview.Mechanism(declared); !decided || got != declared {
+			t.Errorf("preview: %q resolved to %q (decided=%v), want itself", declared, got, decided)
+		}
+	}
+}
+
+// AN UNDECIDED NOTCH NAMES NO MECHANISM, for every declared mode — the fail-closed direction
+// Modes() argues for and the answer a caller has to refuse on. `guest` is the live instance:
+// until Phase 7 states its policy, a surface declared for it must not be written by whichever
+// mechanism some other notch happens to use.
+func TestUndecidedNotchNamesNoMechanism(t *testing.T) {
+	for _, k := range []Kind{KindGuest, KindUnset} {
+		m := (Target{kind: k}).Modes()
+		for _, declared := range censusModes {
+			if got, decided := m.Mechanism(declared); decided {
+				t.Errorf("Kind %d named %q for a surface declaring %q — an unstated notch must "+
+					"name nothing, or it inherits a policy nobody wrote", k, got, declared)
+			}
+		}
+		// The refusal a caller prints comes from the census's own reason, not from the
+		// caller's vocabulary — so the message says which notch is missing an answer.
+		if why := m.Excludes(manifest.ModeStateful); why == "" {
+			t.Errorf("Kind %d gives no reason to refuse with", k)
+		}
+	}
+}

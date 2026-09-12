@@ -200,3 +200,53 @@ func (t Target) Modes() ModeSet {
 	}
 	return UndecidedModes("no mode census has been stated for this confinement level")
 }
+
+// Mechanism reports which of the mechanisms this target EXECUTES for a surface DECLARING
+// `declared`, and false when the census cannot say — the fail-closed answer, which a caller
+// must read as "do not render this surface at this notch" rather than as a default.
+//
+// It is the question a render ENTRY asks, and it is not Runs(). Runs answers "do you execute
+// rmw?"; a dispatch holds a surface whose pack declared `stateful` and needs to know what to
+// run for it, and at the host those have different answers: the notch runs rmw alone and
+// renders a `stateful` surface THROUGH it (HostModes' exclusion says exactly that, in prose).
+// Until this existed the host entry answered it by calling renderSurfaceRMWSurface
+// unconditionally — correct, and correct for a reason written down in a file that code never
+// read, so HostModes could have been changed to say something else with every host render
+// still doing rmw. That is the rot the type comment above says this census exists to end.
+//
+// THE COERCION RULE, DERIVED RATHER THAN DECLARED. A target that does not run the declared
+// mode renders the surface through its SOLE composing mechanism: the one mode in `runs` that
+// writes a file. Exactly one is what makes a coercion expressible at all — "every surface is
+// read-modify-written" is a sentence a notch can only say while it has one way to write — so
+// a notch running several (a jail; a host that one day renders `stateful` too) coerces
+// nothing, because every declared mode it runs is already its own answer and the fallback is
+// unreachable there. A notch running none, or several while running none of the declaration,
+// has no answer this table can supply, and says so.
+//
+// `unrendered` is a mechanism like any other here: a target that runs it answers with it, and
+// honoring it means writing nothing. It is deliberately NOT a candidate for the coercion
+// fallback — silently answering "write nothing" for a surface a pack asked to have rendered
+// is the one wrong answer that would look like success.
+func (m ModeSet) Mechanism(declared string) (string, bool) {
+	// Stated rather than left to fall out of the empty maps below, so an undecided notch's
+	// answer stays "nobody has said" even if UndecidedModes is one day given a runs entry.
+	if m.Undecided() {
+		return "", false
+	}
+	if m.Runs(declared) {
+		return declared, true
+	}
+	var sole string
+	for _, mode := range censusModes {
+		if mode == manifest.ModeUnrendered || !m.Runs(mode) {
+			continue
+		}
+		if sole != "" {
+			// Several ways to write and the declaration names none of them: the census has
+			// stated no coercion, and picking one here would invent the notch's policy.
+			return "", false
+		}
+		sole = mode
+	}
+	return sole, sole != ""
+}

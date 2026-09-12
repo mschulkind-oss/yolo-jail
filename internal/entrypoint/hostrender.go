@@ -10,6 +10,11 @@ package entrypoint
 //   - PURE RMW. Every surface is read-modify-written: yolo regenerates only the keys it
 //     declares (managed + dynamic tables) and leaves every key the agent wrote. No
 //     whole-file compose, so no capture overlay (OQ-4).
+//     ⚠ THAT IS THE CENSUS'S STATEMENT, NOT THIS FILE'S. render.HostModes is where the host
+//     notch declares it runs `rmw` alone, and the loop below ASKS — ModeSet.Mechanism, per
+//     surface — instead of calling the rmw writer unconditionally as it once did. The two
+//     agree today, which is exactly why the hardcoded version was unsafe: it would have gone
+//     on agreeing with itself after the census said something else.
 //     ⚠ "So no --revert" USED TO FOLLOW HERE, and it does not: that inference was the
 //     resolved OQ-1, REVERSED on 2026-09-11 (docs/design/config-ownership-and-promotion.md
 //     §10 step 3). A revert needs to know which keys are yolo's, not a capture overlay, and
@@ -218,6 +223,43 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 				Action: "skipped: only ${workspace}-keyed keys, which have no host referent"})
 			continue
 		}
+		// WHICH MECHANISM RENDERS THIS SURFACE — asked of the census (render.ModeSet), not
+		// assumed. The host notch runs `rmw` alone and renders a surface declaring `stateful`
+		// or `computed` THROUGH it, which is what render.HostModes' two exclusions say; this
+		// entry used to say the same thing by calling renderSurfaceRMWSurface unconditionally.
+		// Both spellings agree — and that is the problem the census exists to end (render/
+		// modes.go): the hardcoded call stays "correct" no matter what HostModes is changed to,
+		// so `own` could be built with the census untouched and HostModes left a false
+		// statement. Behavior here is unchanged, deliberately: at this notch Mechanism names
+		// `rmw` for all three writing modes, and TestHostAssertLeavesTheAdoptionBaseline holds
+		// the bytes that say so.
+		//
+		// IN BOTH POSTURES, and ahead of the rmw-specific probe below, because observe's job is
+		// to report what an --assert would do: a mechanism this notch cannot run is a refusal a
+		// dry run has to print, not one discovered at the write.
+		modes := e.renderTarget().Modes()
+		mechanism, decided := modes.Mechanism(s.ResolvedMode())
+		switch {
+		case !decided:
+			// An unstated notch (render.KindGuest today) reaches no writer at all. The reason
+			// is the CENSUS'S, so the line names which notch has not answered rather than
+			// reporting a generic refusal in this entry's vocabulary.
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Action: "refused: " + modes.Excludes(s.ResolvedMode())})
+			continue
+		case mechanism != manifest.ModeRMW:
+			// The census names a mechanism this entry has no arm for. Today unreachable at
+			// every notch RenderHostPack can be pointed at; it becomes reachable the moment a
+			// host census runs `stateful` (config-ownership-and-promotion.md §10 step 6), and
+			// the second arm belongs THERE, with the capture store and host-side reset that
+			// step lands together. Refusing is the fail-closed answer in the meantime: the
+			// file is left exactly as the agent wrote it.
+			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
+				Action: "refused: this notch's census renders a surface declaring " +
+					s.ResolvedMode() + " through " + mechanism + ", which `yolo host apply` " +
+					"does not implement"})
+			continue
+		}
 		// DYNAMIC MANAGED TABLES at the host notch. yolo owns each of these keys wholesale, so
 		// they are written by replacement (regenerateManagedTables) rather than deep-merged —
 		// and stripped from the managed layer so nothing merges them back. Without this an
@@ -305,6 +347,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// is untouched either way — so the honest report is this surface's line, with the
 		// remaining surfaces still rendered. Returning an error would abort the pack over a
 		// file yolo deliberately left alone.
+		//
+		// THE MECHANISM RESOLVED ABOVE. The switch there has already refused everything that
+		// is not `rmw`, so this call is the census's answer being executed rather than this
+		// entry's assumption — and a second mechanism is added at that switch, not here.
 		if err := renderSurfaceRMWSurface(e, s, tableLayer, surfaceOverlays); err != nil {
 			if refusal, isRefusal := asRMWRefusal(err); isRefusal {
 				out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
