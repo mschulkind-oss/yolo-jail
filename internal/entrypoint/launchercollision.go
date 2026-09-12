@@ -40,7 +40,7 @@ import (
 // reasoning agentPath uses to decide which PATH a `requires` probe counts.
 func imageProbePath(e *Env) string {
 	base := "/bin:/usr/bin"
-	if p := e.Vars["YOLO_DARWIN_LOGIN_PATH"]; p != "" {
+	if p := e.Vars[DarwinLoginPathEnv]; p != "" {
 		base = p
 	}
 	var out []string

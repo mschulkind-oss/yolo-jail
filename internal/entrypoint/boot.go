@@ -702,8 +702,8 @@ func aclHint(e *Env, fails []string) string {
 //
 // This is not a licence to route optional inputs through here: a generator must
 // return nil when its input is legitimately ABSENT (InstallYoloLog with no script,
-// WriteLoginRC with no login path, RemoveStaleGeneratedClients finding no stale files all
-// do exactly that). Only a real failure — an unwritable path, a malformed value,
+// InstallDarwinHomeLayout with no sidecar, RemoveStaleGeneratedClients finding no stale
+// files all do exactly that). Only a real failure — an unwritable path, a malformed value,
 // an unreadable declared file — reaches this.
 func genStep(e *Env, label string, fn func() error) {
 	if err := fn(); err != nil {

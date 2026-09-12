@@ -141,7 +141,7 @@ func sortedHintKeys(hints map[string]string) []string {
 // replacement gate), which is precisely why it is one function: they must not be
 // able to disagree about which PATH counts.
 func agentPath(e *Env) string {
-	if p := e.Vars["YOLO_DARWIN_LOGIN_PATH"]; p != "" {
+	if p := e.Vars[DarwinLoginPathEnv]; p != "" {
 		return p
 	}
 	return BootPath(e)

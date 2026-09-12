@@ -123,9 +123,11 @@ func runBundleDir(args []string) int {
 //
 // Inputs arrive as env vars the launcher bakes into the `env -i K=V…` argv
 // (matching how the launch env already crosses into the sandbox): the git
-// identity + YOLO_* generator contract ride through verbatim; the three darwin
-// extras are YOLO_DARWIN_WORKSPACE, YOLO_DARWIN_MACOS_LOG, and
-// YOLO_DARWIN_LOGIN_PATH.
+// identity + YOLO_* generator contract ride through verbatim; the darwin extras are
+// YOLO_DARWIN_WORKSPACE, YOLO_DARWIN_MACOS_LOG, YOLO_DARWIN_HOME_SIDECAR and
+// YOLO_DARWIN_LOGIN_PATH — the last two read off the Env rather than passed as options,
+// because the layout is derived from the staged packs and the login rc files now re-prepend
+// the variable itself instead of a value baked at generation time.
 func runDarwinBootstrap(_ []string) int {
 	home := firstNonEmptyEnv("JAIL_HOME", "HOME")
 	if home == "" {
@@ -143,7 +145,6 @@ func runDarwinBootstrap(_ []string) int {
 
 	opts := entrypoint.DarwinBootstrapOptions{
 		MacosLog:      os.Getenv("YOLO_DARWIN_MACOS_LOG"),
-		LoginPath:     os.Getenv("YOLO_DARWIN_LOGIN_PATH"),
 		YoloLogScript: macosuser.MacosLogWrapperScript(os.Getenv("YOLO_DARWIN_MACOS_LOG")),
 	}
 	if err := entrypoint.RunDarwinBootstrap(e, opts); err != nil {

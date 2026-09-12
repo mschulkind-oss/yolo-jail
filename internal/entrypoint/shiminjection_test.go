@@ -198,7 +198,6 @@ func TestDarwinBootstrapWritesNonInjectableShims(t *testing.T) {
 	e.ShimBinDir = "/usr/bin"
 
 	RunDarwinBootstrap(e, DarwinBootstrapOptions{
-		LoginPath:     filepath.Join(home, ".yolo/bin/block") + ":/usr/bin",
 		YoloLogScript: "#!/bin/sh\nexec /usr/bin/log \"$@\"\n",
 	})
 

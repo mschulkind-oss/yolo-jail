@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -549,6 +550,7 @@ func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.Ordere
 func sandboxEnvPairs(home, user, pathValue string, sandboxEnv *jsonx.OrderedMap) []string {
 	protected := map[string]struct{}{
 		"HOME": {}, "USER": {}, "SHELL": {}, "PATH": {}, "MISE_DATA_DIR": {},
+		entrypoint.DarwinLoginPathEnv: {},
 	}
 	envPairs := []string{
 		"HOME=" + home,
@@ -562,6 +564,12 @@ func sandboxEnvPairs(home, user, pathValue string, sandboxEnv *jsonx.OrderedMap)
 		// backend's to decide, not a caller's, and the default it overrides lands in the
 		// per-workspace tier (SandboxMiseData).
 		"MISE_DATA_DIR=" + SandboxMiseData(home),
+		// The same PATH again, under its own name, because a LOGIN shell does not keep the
+		// one above: macOS path_helper reorders PATH in /etc/zprofile, and the rc files
+		// entrypoint.WriteLoginRC generates re-prepend from this variable rather than from a
+		// literal — those files sit at the root of a home every workspace shares, so a baked
+		// value is one workspace's store dirs in another's login shell.
+		entrypoint.DarwinLoginPathEnv + "=" + pathValue,
 	}
 	if sandboxEnv != nil {
 		for _, k := range sandboxEnv.Keys() {

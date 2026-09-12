@@ -27,10 +27,6 @@ import (
 type DarwinBootstrapOptions struct {
 	// MacosLog gates the yolo-log helper: "off" | "user" | "full".
 	MacosLog string
-	// LoginPath is the PATH to re-prepend in the login rc files (after macOS
-	// path_helper reorders it). The caller assembles this from the sandbox
-	// shims + darwin store dirs + system (macosuser.SandboxPath).
-	LoginPath string
 	// YoloLogScript is the yolo-log helper body (macosuser.MacosLogWrapperScript).
 	// Passed in rather than generated here to keep this package free of the
 	// macosuser dependency (macosuser imports entrypoint, not the reverse).
@@ -144,7 +140,7 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 
 	// macOS-only writers (the two pieces unique to the native-macOS bootstrap).
 	genStep(e, "install_yolo_log", func() error { return InstallYoloLog(e, opts.YoloLogScript) })
-	genStep(e, "write_login_rc", func() error { return WriteLoginRC(e, opts.LoginPath) })
+	genStep(e, "write_login_rc", func() error { return WriteLoginRC(e) })
 
 	return genFailuresError(e)
 }
@@ -269,18 +265,30 @@ func InstallYoloLog(e *Env, script string) error {
 	return writeExecutable(filepath.Join(binDir, "yolo-log"), script)
 }
 
-// WriteLoginRC re-prepends loginPath to PATH in the login rc files (.zprofile,
-// .zshrc, .bash_profile). macOS path_helper (/etc/zprofile, /etc/profile)
-// reorders PATH to put /usr/local/bin first; these rc files run AFTER it, so the
-// nix-store packages + agent shims win again. Bare binaries / plain `-c` shells
-// don't read these and keep the baked env -i PATH. An empty loginPath is a
-// no-op. This carries the (M1-unverified) OQ-1 path_helper fix.
-func WriteLoginRC(e *Env, loginPath string) error {
-	if loginPath == "" {
-		return nil
-	}
-	rc := "# yolo-jail: re-prepend the sandbox PATH AFTER macOS path_helper\n" +
-		"export PATH=\"" + loginPath + ":$PATH\"\n"
+// WriteLoginRC re-prepends the sandbox PATH in the login rc files (.zprofile, .zshrc,
+// .bash_profile). macOS path_helper (/etc/zprofile, /etc/profile) reorders PATH to put
+// /usr/local/bin first; these rc files run AFTER it, so the nix-store packages + agent
+// shims win again. Bare binaries / plain `-c` shells don't read these and keep the baked
+// env -i PATH. This carries the OQ-1 path_helper fix, measured on hardware 2026-09-10.
+//
+// ⚠ THE PATH IS READ FROM THE ENVIRONMENT, NOT BAKED, and that is the point. $HOME is
+// shared by every workspace on this machine — the home-tier layout deliberately leaves it
+// that way (macos-user-home-tiers.md §5, "stated residuals") — and this file sits at its
+// root, below every symlink the layout lays. A literal PATH here is therefore ONE
+// workspace's `packages:` store dirs written into a file the next workspace's login shell
+// reads: the same cross-workspace race the sidecar closed for briefings, in three files
+// nobody would think to look at.
+//
+// The launch exports the value (macosuser.sandboxEnvPairs, from the same SandboxPath call
+// that builds PATH itself), so the indirection costs nothing and cannot disagree with the
+// PATH it is restoring. Unset — a shell nothing yolo launched — leaves PATH alone, which is
+// the honest answer: there is no workspace to re-prepend for.
+func WriteLoginRC(e *Env) error {
+	rc := "# yolo-jail: re-prepend the sandbox PATH AFTER macOS path_helper reorders it.\n" +
+		"# The value is NOT baked here: this file is in a home every workspace shares.\n" +
+		"if [ -n \"${" + DarwinLoginPathEnv + ":-}\" ]; then\n" +
+		"  export PATH=\"$" + DarwinLoginPathEnv + ":$PATH\"\n" +
+		"fi\n"
 	for _, name := range []string{".zprofile", ".zshrc", ".bash_profile"} {
 		if err := os.WriteFile(filepath.Join(e.Home, name), []byte(rc), 0o644); err != nil {
 			return err

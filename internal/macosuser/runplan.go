@@ -370,7 +370,7 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
 	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
 	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
-	bootstrapEnv.Set("YOLO_DARWIN_LOGIN_PATH", SandboxPath(home, darwinPrefix))
+	bootstrapEnv.Set(entrypoint.DarwinLoginPathEnv, SandboxPath(home, darwinPrefix))
 	return bootstrapEnv
 }
 

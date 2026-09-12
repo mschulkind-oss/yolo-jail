@@ -48,6 +48,16 @@ import (
 // launcher sets it; the capture planner does not.
 const DarwinHomeSidecarEnv = "YOLO_DARWIN_HOME_SIDECAR"
 
+// DarwinLoginPathEnv carries the sandbox's real PATH (macosuser.SandboxPath). It is baked
+// onto BOTH argvs the backend emits, by the same call: the bootstrap reads it to decide what
+// the launch already provides (imageProbePath, agentPath), and the login rc files written by
+// WriteLoginRC re-prepend it after macOS path_helper has reordered PATH.
+//
+// One name for one value, because the rc files live in a home every workspace shares: the
+// moment the rc bakes a literal instead of reading this, it is one workspace's `packages:`
+// store dirs in the next workspace's login shell.
+const DarwinLoginPathEnv = "YOLO_DARWIN_LOGIN_PATH"
+
 // DarwinHomeLink is one symlink in the layout: where it goes, and the target string
 // written verbatim.
 //

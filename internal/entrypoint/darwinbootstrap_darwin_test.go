@@ -59,9 +59,7 @@ func TestDarwinBootstrapGeneratesAUsableHome(t *testing.T) {
 	home := t.TempDir()
 	e := bootstrapEnv(t, home, nil)
 
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{
-		MacosLog: "off", LoginPath: "/usr/bin:/bin",
-	}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 

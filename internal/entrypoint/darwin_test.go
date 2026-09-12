@@ -41,31 +41,32 @@ func TestInstallYoloLogEmptyIsNoop(t *testing.T) {
 	}
 }
 
-// TestWriteLoginRC re-prepends the PATH in all three login rc files.
-func TestWriteLoginRC(t *testing.T) {
+// TestWriteLoginRC re-prepends the PATH in all three login rc files — from the ENVIRONMENT,
+// which is the half that matters.
+//
+// These three files sit at the root of a home every workspace on the machine shares (the
+// home-tier layout leaves $HOME shared on purpose), so a baked PATH is one workspace's
+// `packages:` store dirs in the next workspace's login shell — the same cross-workspace
+// race the sidecar closed for briefings, in files nobody would think to look at. So the
+// assertion is BOTH: the re-prepend happens, and no store path is written down.
+func TestWriteLoginRCReadsThePathRatherThanBakingIt(t *testing.T) {
 	home := t.TempDir()
-	e := NewEnv(map[string]string{"HOME": home})
-	loginPath := "/Users/dev/.yolo/bin/block:/nix/store/x/bin"
-	if err := WriteLoginRC(e, loginPath); err != nil {
+	e := NewEnv(map[string]string{
+		"HOME": home,
+		// Set on the Env the way a launch sets it, to prove the writer does not consult it.
+		DarwinLoginPathEnv: "/Users/dev/.yolo/bin/block:/nix/store/this-workspace-only/bin",
+	})
+	if err := WriteLoginRC(e); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{".zprofile", ".zshrc", ".bash_profile"} {
 		got := string(mustRead(t, filepath.Join(home, name)))
-		if !strings.Contains(got, `export PATH="`+loginPath+`:$PATH"`) {
-			t.Errorf("%s missing PATH re-prepend:\n%s", name, got)
+		if !strings.Contains(got, `export PATH="$`+DarwinLoginPathEnv+`:$PATH"`) {
+			t.Errorf("%s does not re-prepend from $%s:\n%s", name, DarwinLoginPathEnv, got)
 		}
-	}
-}
-
-// TestWriteLoginRCEmptyIsNoop: an empty loginPath writes nothing.
-func TestWriteLoginRCEmptyIsNoop(t *testing.T) {
-	home := t.TempDir()
-	e := NewEnv(map[string]string{"HOME": home})
-	if err := WriteLoginRC(e, ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(home, ".zprofile")); !os.IsNotExist(err) {
-		t.Errorf("empty loginPath should write no rc, got err=%v", err)
+		if strings.Contains(got, "/nix/store/") {
+			t.Errorf("%s bakes one workspace's store paths into a shared home:\n%s", name, got)
+		}
 	}
 }
 
@@ -84,7 +85,6 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 
 	RunDarwinBootstrap(e, DarwinBootstrapOptions{
 		MacosLog:      "user",
-		LoginPath:     "/Users/dev/.yolo/bin/block:/usr/bin",
 		YoloLogScript: "#!/bin/sh\nexec /usr/bin/log \"$@\"\n",
 	})
 
@@ -97,10 +97,10 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".local", "bin", "yolo-log")); err != nil {
 		t.Errorf("yolo-log not installed: %v", err)
 	}
-	// Login rc written with the sandbox PATH.
+	// Login rc written, re-prepending the launch's PATH after path_helper.
 	rc := string(mustRead(t, filepath.Join(home, ".zprofile")))
-	if !strings.Contains(rc, "/Users/dev/.yolo/bin/block") {
-		t.Errorf(".zprofile missing sandbox PATH:\n%s", rc)
+	if !strings.Contains(rc, "$"+DarwinLoginPathEnv) {
+		t.Errorf(".zprofile does not restore the sandbox PATH:\n%s", rc)
 	}
 }
 
@@ -120,7 +120,7 @@ func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 	})
 	e.Stderr = &warnings
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", LoginPath: "/usr/bin:/bin"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
 
 	// The wrapper the container path writes must not exist here.
 	if _, err := os.Stat(filepath.Join(e.LocalBin(), "chrome-devtools-mcp-wrapper")); err == nil {
@@ -141,7 +141,7 @@ func TestDarwinBootstrapSilentAboutMCPWhenNonePresetsAsked(t *testing.T) {
 	e := NewEnv(map[string]string{"JAIL_HOME": t.TempDir()})
 	e.Stderr = &warnings
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", LoginPath: "/usr/bin:/bin"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
 
 	if strings.Contains(warnings.String(), "mcp_presets") {
 		t.Errorf("warned about mcp_presets when none were configured:\n%s", warnings.String())
