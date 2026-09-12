@@ -15,11 +15,11 @@ below).
 >
 > | [§8](#8-what-i-would-actually-do-in-order) step | Status 2026-08-23 | Evidence |
 > |---|---|---|
-> | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go:84-90`) aborts unless `surfacesAreLocal() \|\| force`; wired into `configReset` (`:640`) and `configCapture` (`:843,848`). Probes 1–3 are no longer reachable without `--force`. |
+> | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go`) aborts unless `surfacesAreLocal() \|\| force`; wired into `configReset` and `configCapture`. Probes 1–3 are no longer reachable without `--force`. |
 > | 2. Decide the capture-privacy question ([§9.3](#9-open-questions--the-discussion-part)) | ✅ **answered by step 1** | The refusal *is* the answer; no key-level redaction was invented. See the OQ ledger. |
-> | 3. `internal/render` with `Target` | ⚠ **half** | `Target` ships (`internal/render/target.go:39`) with `Jail`/`Preview`/`Host` constructors at `:168,175,181` — plus two things this doc did not predict: a `Kind` notch enum (`:78`, `SelectableNotches` at `:144`) and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go:73`), and `Env.renderTarget()` (`:180-188`) dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s stated payoff landed separately on 2026-09-09** — the two hand-maintained layer tables are retired without the renderer collapse, which is worth knowing about the argument: the tables were duplication of a DECLARATION, and only the writers were duplication of a RENDERER. |
-> | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`internal/macosuser/runplan.go:200-210`, asserted at `:314`); it is the `guest` notch (`render.GuestProfileMacOS`, `confinement.go:130`). [§9.7](#9-open-questions--the-discussion-part)'s "zero surfaces, silently" is over. |
-> | 5. `FieldSet` | ✅ **shipped, and went further** | `internal/render/fieldset.go:13` with `Honors`/`Refuse`; plus a third state this doc never named — `HostUnimplemented` (`:116`), *honored-but-unbuilt*, so a kind is never silently absent. |
+> | 3. `internal/render` with `Target` | ⚠ **half** | `Target` ships (`internal/render/target.go`) with `Jail`/`Preview`/`Host` constructors — plus two things this doc did not predict: a `Kind` notch enum with `SelectableNotches`, and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. **The collapse is PARTIAL, not absent** (corrected 2026-08-23): `internal/entrypoint/hostrender.go` exists, `Env` carries a `hostTarget` (`env.go`), and `Env.renderTarget()` dispatches on `render.Host`/`render.Jail` — so `apply --host` does run the entrypoint's writers keyed on a Target. What is still duplicated is the `internal/cli` config-verb path alone. **[§3.4](#34-what-this-buys-immediately-before-any-host-target-exists)'s stated payoff landed separately on 2026-09-09** — the two hand-maintained layer tables are retired without the renderer collapse, which is worth knowing about the argument: the tables were duplication of a DECLARATION, and only the writers were duplication of a RENDERER. |
+> | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`buildBootstrapEnv`, `internal/macosuser/runplan.go`, asserted in `PlanInvariants`); it is the `guest` notch (`render.GuestProfileMacOS`, `confinement.go:130`). [§9.7](#9-open-questions--the-discussion-part)'s "zero surfaces, silently" is over. |
+> | 5. `FieldSet` | ✅ **shipped, and went further** | `internal/render/fieldset.go` with `Honors`/`Refuse`; plus a third state this doc never named — `HostUnimplemented`, *honored-but-unbuilt*, so a kind is never silently absent. |
 > | 6. `yolo config apply --host` | ✅ **shipped** | `applyHost` with `--assert`; end-to-end tests at `internal/cli/applyhostlocalpack_test.go` and `applyhostidempotent_test.go`. |
 >
 > **Three claims in the body are now false and would send a reader wrong:**
@@ -214,13 +214,13 @@ survive; the init-time one is the constraint.)
 
 **(2) In-jail rendering — `internal/entrypoint`, 1,027 non-test lines of `prism*.go` +
 `pack*.go`.** `LoadJailPacks` → `ConfigurePackSurfaces` → `renderDeclaredSurface`
-(`packsurfaces.go:48,83,115`), the three surface writers in `prism.go`, `RunPackHooks`
-(`packhooks.go:60`), `GenerateAgentLaunchers` (`shims.go:161`). This reads pack data and
+(`packsurfaces.go`), the three surface writers in `prism.go`, `RunPackHooks`
+(`packhooks.go`), `GenerateAgentLaunchers` (`shims.go`). This reads pack data and
 writes files; it does *not* know about mounts.
 
 **(3) Host-side staging and mount assembly — `internal/cli/run`.** `stagePacks`
-(`packs.go:45`), the writable/shared-dir mount loop (`assemble.go:175-186`), skills
-(`prepare.go:68-81`), `/ctx/packs` + `YOLO_PACK_ROOT` (`packs.go:30`, `assemble.go:369-372`),
+(`packs.go`), the writable/shared-dir mount loop (`packload.WritableDirs`/`SharedDirs` in
+`assemble.go`), skills (`prepare.go`), `/ctx/packs` + `YOLO_PACK_ROOT` (`packs.go`, `assemble.go`),
 `hostFileArgs`. This is argv generation — it exists to fill mounts, and a mount is exactly what
 [§2.2](#22-so-which-is-it-a-command-or-a-mode) says the reduced targets do not have. So it is not something a `Target` generalizes; it
 is something the jail target alone runs ([§4.3](#43-staging-and-mount-assembly--the-one-that-must-not-be-generalized)).
@@ -359,7 +359,7 @@ twice:
   (`macosuser/runplan.go:160-166`, pinned by `TestSourceLessHostFilesWireExcludesSourceBearing`).
   **Filtering out is the precedent, not copying.**
 - **The one place yolo does copy, it copies into something still bind-mounted.**
-  `acMaterialize` (`cli/run/helpers.go:48`) exists only because Apple Container trips on
+  `acMaterialize` (`cli/run/helpers.go`) exists only because Apple Container trips on
   *single-file* mounts (apple/container#1089); it writes into `ws_state`, which is itself a
   live bind. So the file is still shared, not snapshotted. That is a mount-shape workaround,
   not a copy semantic.
@@ -422,7 +422,7 @@ internal/cli/configdiff.go:476     ComposeStateful    <- `yolo config capture` (
 Two independent implementations of "render a surface", one per side of the container wall.
 **The code already says the two are copies of each other**, in three places:
 
-- `entrypoint/prism.go:351-353`: *"Mirrors `internal/cli.expandHome` but keyed on the Env
+- `entrypoint/prism.go`, `expandHomePath`: *"Mirrors `internal/cli.expandHome` but keyed on the Env
   rather than the process `$HOME`."*
 - `entrypoint/prism.go:61`: *"Mirrors `internal/cli.loadTransformScript`."*
 - `cli/config.go:3-4`: the package header, describing `config render` as running *"the SAME
@@ -462,7 +462,7 @@ the right direction: **`cli` already imports `entrypoint`** (`cli/internal.go:10
 `cli/check/entrypoint.go:8`) while `entrypoint` imports `cli` nowhere — so the dependency
 edge this needs is the one that already exists. No cycle, no `packreg`-style init dance.
 
-**What does not move:** `liveTables` (`packsurfaces.go:107`) stays core's own — "an MCP server
+**What does not move:** `liveTables` (`packsurfaces.go`) stays core's own — "an MCP server
 is a yolo config concept, not an agent concept" — and `genStep`'s A12 fail-closed policy stays
 yolo's boot behavior. The renderer reports; the caller decides whether a failure is fatal.
 That split is what lets the host target be non-fatal (a refused field is a message, not a
@@ -570,7 +570,7 @@ init-time. They look alike and are not.
 ### 4.2 In-jail rendering — this is the coupling that becomes the design
 
 `renderDeclaredSurface` and the three writers in `prism.go` are already written against
-`e.Home`, resolved as `$JAIL_HOME || $HOME || /home/agent` (`env.go:76`), deliberately not the
+`e.Home`, resolved as `$JAIL_HOME || $HOME || /home/agent` (`env.go`), deliberately not the
 process `$HOME`. **That is already the parameter a host target needs** — it is simply reached
 through an `*entrypoint.Env` that carries twenty other things with it.
 
@@ -578,7 +578,7 @@ So [§3.2](#32-where-the-code-goes)'s move is small in code and large in meaning
 `*Env`, and `entrypoint` supplies `render.Jail(e)`. The `*Env` stops being a hidden target
 declaration and becomes one of three explicit ones.
 
-Two things must *not* move with them. `liveTables` (`packsurfaces.go:107`) is core's own — "an
+Two things must *not* move with them. `liveTables` (`packsurfaces.go`) is core's own — "an
 MCP server is a yolo config concept, not an agent concept" — and `genStep`'s A12
 fatal-collecting behavior is yolo's **boot policy**, not a property of rendering. Keeping the
 policy in the caller is what lets the jail stay loud-and-halting while a host target's refusal
@@ -683,7 +683,7 @@ $ cat $HOME/.claude/settings.json
 
 **Probe 2 — `reset` truncates an unrelated real config to nothing.** `mise/config`'s content
 comes entirely from the `computed` layer (`configls.go:208`), and
-`truncateSurfaceToPureRender` (`configdiff.go:381-404`) calls `agentcfg.Compose` with **only**
+`truncateSurfaceToPureRender` (`configdiff.go`) calls `agentcfg.Compose` with **only**
 `HostBytes` — no `Tables`. So the "pure render" it writes is empty:
 
 ```
@@ -1062,7 +1062,7 @@ first.** Nothing here needs a new module or a decision about one.
 > top of this doc for the full table.
 
 1. **Fix probes 1–3, now, ahead of any refactor.** Host-side `reset` (`configReset`,
-   `configdiff.go:220`) and `capture` (`configCapture`, `:420`) must refuse (or require
+   `configdiff.go`) and `capture` (`configCapture`) must refuse (or require
    `--force`) when `surfacesAreLocal()` is false — the predicate already exists at
    `configls.go:341` and is currently consulted only by `composedFileExists` (`:330`). This is a
    live data-loss path on the maintainer's own machine and it should not wait for an
@@ -1107,9 +1107,9 @@ compacted into the ledger and kept in place only as anchors.
 | :--- | :--- | :--- | :--- |
 | 9.1 | **The second sense** — yolo is an interface for describing environments agents run in; the host target is one notch of a `confinement` dial, not a special case | 2026-07-27 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md); shipped as `internal/render/confinement.go` + the `confinement` config key (`internal/config/confinement.go:45`) |
 | 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented. **Amended 2026-09-12:** `reset` is now EXEMPT under `host_management: own`, because that contract answers the guard's own premise — the files are yolo's derived output, so truncating one to its pure render is the operation working rather than data loss, and adoption depends on it. `capture` stays refused at every contract, deliberately | 2026-08-23; amended 2026-09-12 | `refuseHostSideWrite` / `hostOwnsSurfaces`, [`internal/cli/configdiff.go`](../../internal/cli/configdiff.go) |
-| 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped) argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go:284-296`), with the two rejected alternatives written into the doc comment |
-| 9.7 | **Fixed** — macos-user is the `guest` notch and receives packs | 2026-08-23 (verified) | `YOLO_PACK_ROOT` set at `internal/macosuser/runplan.go:200-210`, asserted `:314`; `render.GuestProfileMacOS` (`confinement.go:130`) |
-| 9.8 | **A real fourth row, and it needed no new concept** — as predicted. Declared in the vocabulary; no backend fills it yet | 2026-08-23 (verified) | `render.GuestProfileLinux()` = namespaces + Landlock (`internal/render/confinement.go:136`) |
+| 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as [§6.6](#66-a-host-target-is-user-scoped-not-workspace-scoped) argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go`), with the two rejected alternatives written into the doc comment |
+| 9.7 | **Fixed** — macos-user is the `guest` notch and receives packs | 2026-08-23 (verified) | `YOLO_PACK_ROOT` set in `buildBootstrapEnv` (`internal/macosuser/runplan.go`), asserted in `PlanInvariants`; `render.GuestProfileMacOS` (`confinement.go`) |
+| 9.8 | **A real fourth row, and it needed no new concept** — as predicted. Declared in the vocabulary; no backend fills it yet | 2026-08-23 (verified) | `render.GuestProfileLinux()` = namespaces + Landlock (`internal/render/confinement.go`) |
 
 ### Still live
 
@@ -1121,7 +1121,7 @@ mechanism** — which is why shipping steps 1–6 did not close them.
    configure agents. _Leaning:_ narrow, and state the `program`-refusal as an invariant
    rather than a default. **Answer:** > _(empty — fill in when decided)_
 2. 💬 **9.4 (see below): what does `program` mean on a host target, if not "never"?**
-   Still "never" in code — `HostUnimplemented`/`Refuse` (`internal/render/fieldset.go:26,116`)
+   Still "never" in code — `HostUnimplemented`/`Refuse` (`internal/render/fieldset.go`)
    is the mechanism, and no grant exists. _Leaning:_ keep "never"; a per-invocation
    grant is a new security surface needing its own design, not a flag.
    **Answer:** > _(empty — fill in when decided)_
@@ -1191,7 +1191,7 @@ make this worse; it should not try to fix it either.
 
 **✅ 9.7 — FIXED (verified 2026-08-23; it gets packs now). macos-user is the existing host-shaped target, and it currently gets no packs at all.**
 `RunDarwinBootstrap` calls `LoadJailPacks` → `ConfigurePackSurfaces` → `RunPackHooks`
-(`darwin.go:57-62`), but the macos-user run path returns at `cli/run/run.go:73` *before* `stagePacks`,
+(`darwin.go`), but the macos-user run path returned before `stagePacks` (`cli/run/run.go`),
 and `YOLO_PACK_ROOT` is never set on that backend — verified, zero occurrences outside the
 container path. So on macos-user the pack loop runs over an empty list every launch, silently.
 That backend is the closest thing to a host target we already ship (a real macOS home, no
