@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
 // gatedSkills are built-in skills staged only when the workspace is the
@@ -77,14 +78,21 @@ func WriteBriefing(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-// ReadProvisioningFailed reports whether workspace/.yolo/startup.log exists and
-// contains "PROVISIONING FAILED". A read error → false.
+// ReadProvisioningFailed reports whether the workspace's provisioning log exists and
+// records a failure. A read error → false.
+//
+// THE PATH AND THE LITERAL BOTH COME FROM THE PRODUCER'S PACKAGE, and that is the point
+// of importing it for two one-line values: this reader and the stage that writes the log
+// run in different processes on different backends, so nothing but a shared definition
+// can make them agree. Both used to be spelled out here, beside a second spelling in
+// internal/cli/run — a rename on either side would have left the briefing reporting a
+// failed provision as healthy, with every test green.
 func ReadProvisioningFailed(workspace string) bool {
-	data, err := os.ReadFile(filepath.Join(workspace, ".yolo", "startup.log"))
+	data, err := os.ReadFile(provision.StartupLog(workspace))
 	if err != nil {
 		return false
 	}
-	return containsSub(string(data), "PROVISIONING FAILED")
+	return containsSub(string(data), provision.FailedMarker)
 }
 
 func containsSub(haystack, needle string) bool {

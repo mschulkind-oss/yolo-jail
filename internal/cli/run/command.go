@@ -1,35 +1,47 @@
 package run
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/provision"
+)
+
+// jailWorkspace is where every container backend binds the workspace. The stage's log
+// path is derived from it rather than written out, so the container's spelling and
+// macos-user's come from one function (provision.StartupLog).
+const jailWorkspace = "/workspace"
 
 // setupScript is the provisioning core (store prune, mise install, bootstrap,
 // venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`.
 //
+// THE CONTAINER TAKES ALL SIX STEPS, which is the thing to notice about this list: it is
+// a SUBSET selection, and the other backend running a stage takes four of them
+// (macosuser.ProvisionSetup). The steps themselves live in internal/provision because
+// internal/macosuser cannot import this package — see that package's comment.
+//
 // ONE thing binds THESE bytes: testdata/final_cmd_bash.txt, which
 // TestBuildFinalInternalCmdBashGolden (command_test.go) compares for exact equality
-// against buildFinalInternalCmd's output — and that output composes this constant, so
+// against buildFinalInternalCmd's output — and that output composes this variable, so
 // any drift here is a golden diff. The in-jail entrypoint parses none of it.
 //
 // This comment used to claim the literal "PROVISIONING FAILED" as a second binder of
-// this string. It is not in these bytes at all: provisionScript below emits it, and
-// its two out-of-package readers are named there.
+// this string. It is not in these bytes at all: provisionScript below emits it, and its
+// readers are named at provision.FailedMarker.
 // Tools resolve on install only; a workspace mise.lock, when present, governs
 // resolution (mise honors it by default), and upgrades happen only through an
 // explicit act — docs/design/program-delivery.md OQ-PD3.
-const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
-	`if [ "${YOLO_STORE_PRUNE_OK:-0}" = "1" ]; then ` +
-	`for _p in "$MISE_DATA_DIR"/installs/*/*; do ` +
-	`if [ -L "$_p" ] && [ ! -e "$_p" ]; then ` +
-	`rm -f -- "$_p" && echo "  ↳ pruned dangling store symlink: $_p" >&2; ` +
-	"fi; done; fi && " +
-	`echo "  ↳ mise install" >&2 && ` +
-	"mise install --quiet && " +
-	`echo "  ↳ bootstrap" >&2 && ` +
-	"~/.yolo-bootstrap.sh >&2 && " +
-	"~/.yolo-venv-precreate.sh >&2'"
+var setupScript = provision.SetupBypassingShims(
+	provision.StepPruneStore,
+	provision.StepAnnounceMiseInstall,
+	provision.StepMiseInstall,
+	provision.StepAnnounceBootstrap,
+	provision.StepRunBootstrap,
+	provision.StepRunVenvPrecreate,
+)
 
-// startupLog is the in-jail provisioning log path.
-const startupLog = "/workspace/.yolo/startup.log"
+// startupLog is the in-jail provisioning log path — the workspace bind's .yolo sidecar,
+// which is the same file jailcontent.ReadProvisioningFailed reads from the HOST side.
+var startupLog = provision.StartupLog(jailWorkspace)
 
 // miseActivate is the one-time mise activation + blocker-dir re-prepend that runs
 // after provisioning. Bound by the same single thing setupScript is:
@@ -41,36 +53,17 @@ const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 	`eval "$(mise env -s bash)" 2>/dev/null; export PATH="$HOME/.yolo/bin/block:$PATH"`
 
 // provisionScript wraps setupScript with the tee-to-log + PROVISIONING FAILED
-// banner + continue/abort prompt.
+// banner + continue/abort prompt. The wrapper is provision.Script, shared with the
+// macos-user stage; what is container-specific here is only the log path and which
+// steps the body carries.
 //
-// Two different contracts bind two different parts of it:
-//
-//   - the WHOLE string is composed into buildFinalInternalCmd's output, pinned
-//     byte-for-byte by TestBuildFinalInternalCmdBashGolden against
-//     testdata/final_cmd_bash.txt — so drift is a golden diff;
-//   - the LITERAL "PROVISIONING FAILED" is a CROSS-PROCESS contract with two readers
-//     outside this package, neither visible to the golden — which would be re-blessed
-//     around a rename without complaint. One is code:
-//     jailcontent.ReadProvisioningFailed (internal/jailcontent/write.go:80-88) greps
-//     startup.log for it to decide whether the briefing shows its banner. The other is
-//     PROSE SHIPPED TO AGENTS: the built-in diagnosing-the-jail skill tells them to
-//     look for exactly this string in /workspace/.yolo/startup.log
-//     (internal/jailcontent/builtinskills/diagnosing-the-jail/SKILL.md §2), so a
-//     rename also silently invalidates the instructions every jail carries.
-//     Either way a failed provision becomes a jail that reports itself healthy.
-var provisionScript = "" +
-	`printf "=== yolo provisioning %s ===\n" "$(date "+%Y-%m-%dT%H:%M:%S%z")" ` +
-	">" + startupLog + "; " +
-	"(" + setupScript + ") 2>&1 | tee -a " + startupLog + " >&2; " +
-	`_prc="${PIPESTATUS[0]}"; ` +
-	`if [ "$_prc" -ne 0 ]; then ` +
-	`printf "PROVISIONING FAILED (exit %s)\n" "$_prc" >>` + startupLog + "; " +
-	`printf "\033[1;31m✗ Provisioning failed (exit %s) — log: ` +
-	startupLog + `\033[0m\n" "$_prc" >&2; ` +
-	`if [ -t 0 ] && [ "${YOLO_PROVISION_PROMPT:-1}" != "0" ]; then ` +
-	`printf "Provisioning failed — continue anyway? [Y/n] " >&2; ` +
-	`read -r _ans; case "$_ans" in [nN]*) exit "$_prc";; esac; ` +
-	"fi; fi"
+// The WHOLE string is composed into buildFinalInternalCmd's output, pinned byte-for-byte
+// by TestBuildFinalInternalCmdBashGolden against testdata/final_cmd_bash.txt — so drift
+// is a golden diff. The cross-process contract the literal carries is documented where
+// the literal now lives (provision.FailedMarker), which is also where its readers are
+// named; the golden would be re-blessed around a rename without complaint, and only a
+// single definition makes the rename a compile error instead.
+var provisionScript = provision.Script(startupLog, setupScript)
 
 // buildFinalInternalCmd assembles the final_internal_cmd:
 // the provisioning message → provision_script → mise activate → executing
