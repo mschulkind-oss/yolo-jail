@@ -14,11 +14,17 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// The repo-root gate: for container backends a missing yolo-jail repo root is
-// FATAL (exit 1), not a degraded launch on a stale cached image. This is the
-// revert of D2 — running the wrong environment silently was deemed worse than
-// failing. macos-user with no `packages:` needs no repo, so it must NOT be
-// gated. Both are pinned here because they are one decision with two arms.
+// The repo-root gate: a missing yolo-jail repo root is FATAL (exit 1), not a
+// degraded launch on a stale cached image. This is the revert of D2 — running
+// the wrong environment silently was deemed worse than failing.
+//
+// BOTH BACKENDS ARE GATED NOW, for different reasons, and the two arms are
+// pinned together because they are one decision. A container backend needs the
+// flake to build its IMAGE. macos-user needs it to build the non-container FLOOR
+// — the core set every jail gets — which since 2026-09-12 is materialized on
+// every launch rather than only when `packages:` is non-empty
+// (docs/design/macos-user-provisioning.md, OQ-P1). --dry-run is the one thing
+// still exempt on that arm: it materializes nothing.
 
 // runFatalOptions builds an Options whose seams reach the repo-root gate
 // deterministically: RepoRoot fails, storage/config are trivially OK (empty
@@ -108,44 +114,56 @@ func TestRunFatalOnMissingRepoRootContainer(t *testing.T) {
 	}
 }
 
-// TestRunMacosUserNotGatedOnMissingRepoRoot: the macos-user backend needs no
-// repo when `packages:` is empty, so a missing repo root must NOT gate it — Run
-// reaches the MacosUserRun handler rather than exiting at the repo-root check.
-func TestRunMacosUserNotGatedOnMissingRepoRoot(t *testing.T) {
-	ws := t.TempDir()
+// TestRunMacosUserGatedOnMissingRepoRootWithNoPackages: the exemption this test
+// used to assert is GONE, and its inversion is the point.
+//
+// It read "the macos-user backend needs no repo when `packages:` is empty, so a
+// missing repo root must NOT gate it" — correct while that backend's only nix
+// work was the user's own declarations. The floor made an empty `packages:` the
+// case that depends on nix MOST: every launch now builds git, node, mise and
+// ripgrep from this flake, so a launch with no repo would produce a sandbox with
+// none of them.
+//
+// Kept rather than deleted, because "was this launch gated?" is the question, and
+// the answer flipping is exactly what a reader needs to find here.
+func TestRunMacosUserGatedOnMissingRepoRootWithNoPackages(t *testing.T) {
+	ws := t.TempDir() // no yolo-jail.jsonc → empty valid config, no `packages:`
 	t.Setenv("HOME", t.TempDir())
 
 	var stdout, stderr bytes.Buffer
 	o := runFatalOptions(t, ws, "macos-user", &stdout, &stderr)
 
 	reached := false
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, repoRoot, _, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _, _ string, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool) int {
 		reached = true
-		// The empty-packages backend gets the empty repoRoot and does not need it.
-		if repoRoot != "" {
-			t.Errorf("MacosUserRun got repoRoot %q, want empty (unresolved)", repoRoot)
-		}
 		return 0
 	}
 
 	rc := Run(*o)
 
-	if !reached {
-		t.Fatalf("Run() exited before MacosUserRun — the repo-root gate wrongly caught macos-user\nstdout:\n%s\nstderr:\n%s",
-			stdout.String(), stderr.String())
+	if reached {
+		t.Error("Run() reached MacosUserRun with no repo root — every macos-user launch " +
+			"materializes the floor from this flake, so nix would have resolved one from " +
+			"the caller's cwd")
 	}
-	if rc != 0 {
-		t.Errorf("Run() = %d, want 0 (MacosUserRun stub returned 0)", rc)
+	if rc != 1 {
+		t.Errorf("Run() = %d, want 1\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}
-	if strings.Contains(stderr.String(), "Cannot find yolo-jail repo root") {
-		t.Errorf("macos-user launch printed the repo-root failure — it must not be gated:\n%s", stderr.String())
+	if !strings.Contains(stderr.String(), "Cannot find yolo-jail repo root") {
+		t.Errorf("missing the actionable repo-root failure on stderr:\n%s", stderr.String())
+	}
+	// The message must explain that the repo is needed even with nothing declared,
+	// or a user who declares no packages reads it as the gate misfiring.
+	if !strings.Contains(stderr.String(), "even when you declare nothing") {
+		t.Errorf("the refusal does not say the repo is needed with an empty `packages:`:\n%s",
+			stderr.String())
 	}
 }
 
-// TestRunMacosUserGatedOnMissingRepoRootWithPackages: the exemption above is
-// CONDITIONAL. A macos-user launch that declares `packages:` builds them from
-// the flake with native nix, so an unresolvable repo root is fatal on that path
-// too — and fatal HERE, where the message can name the fix, rather than three
+// TestRunMacosUserGatedOnMissingRepoRootWithPackages: the declared-packages arm
+// of the same gate. It is no longer the CONDITION — the cell above covers the
+// empty case — but it is still the path that measured the original defect, and it
+// must stay fatal HERE, where the message can name the fix, rather than three
 // layers down where nix reports the user's own workspace as "not part of a
 // flake" (the measured 2026-09-03 symptom).
 //
@@ -182,10 +200,10 @@ func TestRunMacosUserGatedOnMissingRepoRootWithPackages(t *testing.T) {
 	if !strings.Contains(stderr.String(), "Cannot find yolo-jail repo root") {
 		t.Errorf("missing the actionable repo-root failure on stderr:\n%s", stderr.String())
 	}
-	// The message must explain why THIS backend — which normally needs no repo —
-	// is refusing, or it reads as the container gate misfiring.
+	// The message must name `packages:` among what it cannot build, or a user who
+	// declared some reads the refusal as being about something else entirely.
 	if !strings.Contains(stderr.String(), "packages:") {
-		t.Errorf("the refusal never names `packages:` as the reason:\n%s", stderr.String())
+		t.Errorf("the refusal never names `packages:`:\n%s", stderr.String())
 	}
 }
 

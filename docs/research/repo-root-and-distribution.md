@@ -95,8 +95,12 @@ first probe and threads it through the launch:
   does. Resolution is a **hard gate** for the container backends: an
   unresolvable repo root exits 1 with an actionable message rather than
   launching on a possibly-stale cached image. (This reverts D2's graceful
-  degradation — see [§6](#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29) for why the soft path was removed.) The gate fires
-  *after* the macos-user branch, which needs no repo when `packages:` is empty.
+  degradation — see [§6](#6-the-image-cache-fallback-and-why-a-missing-repo-root-is-fatal-d2-reverted-2026-07-29) for why the soft path was removed.) macos-user
+  is gated too, in its own arm and with its own message: since 2026-09-12 every
+  launch on that backend materializes the non-container **floor** from this flake
+  ([`macos-user-provisioning.md`](../design/macos-user-provisioning.md)), so it
+  needs the tree even with an empty `packages:`. `--dry-run` is the one exemption
+  left — it materializes nothing.
 - `run.go` — `repoRoot` becomes the argument to `autoLoadImage`.
 
 `autoLoadImage` runs the Nix build **in `repoRoot` as the working directory**,
@@ -427,8 +431,9 @@ the environment is stale, which is worse than failing. Now an unresolvable repo
 root on a container backend is **fatal** (`run.go`, exit 1) with a message
 pointing at the three fixes — launch from a checkout, set `YOLO_REPO_ROOT`, or
 reinstall so the flake bundle ships beside the binary ([§4](#4-distribution-channels--does-each-ship-a-buildable-flake), `just install` now
-stages it). `macos-user` with empty `packages:` still needs no repo and is not
-gated. `SkipBuild` stays a field on `AutoLoadOptions` as a dormant seam (its
+stages it). ⚠ **`macos-user` with an empty `packages:` used to be exempt and is
+not any more** (2026-09-12): the non-container floor is materialized on every
+launch, so the repo is needed there too. `--dry-run` remains exempt. `SkipBuild` stays a field on `AutoLoadOptions` as a dormant seam (its
 fallback branch and the `autoload_test.go` regressions construct the options
 directly), but the run path never sets it now.
 

@@ -518,9 +518,10 @@ func fillDefaults(o *Options) {
 	}
 	if o.RepoRoot == nil {
 		// stderr is nil so the resolver stays silent: repo-root resolution IS
-		// fatal for container backends, but Run() owns the failure message (it
-		// exits only after the macos-user branch, which needs no repo). Letting
-		// the resolver also print would double the "Cannot find repo root" text.
+		// fatal on every backend now, but Run() owns the failure message, and the
+		// two backends' messages differ (an image build vs. a native nix build).
+		// Letting the resolver also print would double the "Cannot find repo
+		// root" text.
 		o.RepoRoot = func() (reporoot.Resolution, bool) { return resolveRepoRoot(o.Getenv, nil, o.Color) }
 	}
 	if o.Getpid == nil {

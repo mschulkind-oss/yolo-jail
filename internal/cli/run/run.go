@@ -91,19 +91,20 @@ func Run(opts Options) (rc int) {
 	// degradation: launching on an old image with no rebuild was deemed a
 	// footgun, not a convenience.) The gate is applied below, under an explicit
 	// `rt != "macos-user"` guard rather than by sitting after the macos-user
-	// branch: macos-user with empty `packages:` genuinely needs no repo (it
-	// materializes native darwin packages only when `packages:` is non-empty), and
-	// naming that exemption beats encoding it in statement order — which is how it
-	// was expressed until pack staging had to move above the dispatch (B-0), and
-	// what would have silently gated macos-user the moment anything moved again.
+	// branch, because the two arms refuse for different reasons and say so
+	// differently — one is about an image build, the other about a native nix
+	// build. Naming the split beats encoding it in statement order, which is how it
+	// was expressed until pack staging had to move above the dispatch (B-0).
 	//
-	// THE EXEMPTION IS CONDITIONAL, and the `else if` below is the other half of
-	// it. This comment used to close with "and MaterializeDarwin fails loudly on a
-	// bad flake root of its own accord" — measured false on 2026-09-03, and it is
-	// what let the gap ship. An EMPTY root is not a bad root: it became an empty
-	// exec.Cmd.Dir, so nix silently resolved a flake from the user's cwd instead.
-	// darwinpkg.Materialize now refuses an empty repoRoot as its own floor, and a
-	// non-empty `packages:` is gated here where the message can be actionable.
+	// ⚠ THE EXEMPTION IS GONE (2026-09-12), and its history is the reason this
+	// comment is long. It began as "macos-user needs no repo at all", which was
+	// true while that backend's only nix work was the user's own `packages:`. Then
+	// it narrowed to "…unless `packages:` is non-empty", after a launch with an
+	// empty repo root reached darwinpkg.Materialize, left exec.Cmd.Dir empty and
+	// had nix resolve a flake from the user's own cwd (measured 2026-09-03). Now
+	// there is no exemption: every macos-user launch builds the non-container FLOOR
+	// (docs/design/macos-user-provisioning.md, OQ-P1), so every macos-user launch
+	// needs the flake. --dry-run stays exempt because it materializes nothing.
 	repoRes, repoRootOK := o.RepoRoot()
 	repoRoot := repoRes.Root
 	if err := ensureStorage(); err != nil {
@@ -123,9 +124,9 @@ func Run(opts Options) (rc int) {
 	// The two container-only gates, hoisted ABOVE pack staging so a launch that is
 	// going to refuse still refuses before it does any staging work — the order the
 	// container path has always had, kept intact now that staging moved earlier.
-	// Both are skipped for macos-user: --dry-run is that backend's own flag, and a
-	// native run with empty `packages:` genuinely needs no repo (see the comment on
-	// repoRoot above).
+	// Both are skipped for macos-user: --dry-run is that backend's own flag, and the
+	// repo-root refusal it needs says something different (it is about a native nix
+	// build, not an image), so it lives in the `else` arm below.
 	if rt != "macos-user" {
 		if o.DryRun {
 			o.pr(o.Stdout).print(
@@ -161,13 +162,12 @@ func Run(opts Options) (rc int) {
 		if o.refuseOnSourceSkew(repoRoot) {
 			return 1
 		}
-	} else if !repoRootOK && !o.DryRun &&
-		len(config.EffectivePackages(cfg, config.PlatformDarwin)) > 0 {
-		// THE OTHER HALF OF THE SAME EXEMPTION. macos-user needs no repo when
-		// `packages:` is empty — that is the whole reason for the guard above — but
-		// a NON-empty `packages:` is materialized by a host-side `nix build` against
-		// this flake, so on that path the repo is exactly as required as it is for an
-		// image build, and the exemption stops applying.
+	} else if !repoRootOK && !o.DryRun {
+		// THE MACOS-USER ARM, which used to be conditional on `packages:` and is not
+		// any more. Every launch on this backend is materialized by a host-side `nix
+		// build` against this flake — the FLOOR alone is 27 packages before the user
+		// declares anything — so the repo is exactly as required here as it is for an
+		// image build.
 		//
 		// Un-gated, the launch reached darwinpkg.Materialize with repoRoot "", which
 		// left exec.Cmd.Dir empty — so nix inherited the CALLER's cwd and resolved a
@@ -183,13 +183,15 @@ func Run(opts Options) (rc int) {
 		// returns before the nix build, with darwin=nil), and refusing a plan render
 		// would hide the very plan a user asked to inspect.
 		o.pr(o.Stderr).print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
-			"The macos-user backend needs no repo to launch, but this config declares\n" +
-			"[bold]packages:[/bold], which are built from the yolo-jail flake with native nix.\n\n" +
+			"The macos-user backend builds its tools from the yolo-jail flake with native\n" +
+			"nix — the core set every jail gets (git, node, mise, ripgrep, …) as well as\n" +
+			"anything in [bold]packages:[/bold] — so it needs the flake even when you declare nothing.\n\n" +
 			"Fix: reinstall so the flake bundle ships with the binary (`just install`), or\n" +
 			"point yolo at a checkout with [bold]YOLO_REPO_ROOT[/bold]. The working directory\n" +
 			"is never consulted, so standing in a checkout is not enough:\n" +
 			"  YOLO_REPO_ROOT=~/code/yolo-jail yolo …\n\n" +
-			"Or drop `packages:` — with none declared this backend launches with no repo.")
+			"[dim]`yolo run --dry-run` still works with no repo: it prints the plan and builds\n" +
+			"nothing.[/dim]")
 		return 1
 	}
 
