@@ -409,8 +409,9 @@ const macosUserTimeoutEnv = "YOLO_TEST_MACOS_USER_TIMEOUT"
 
 // macosUserTimeout is the per-launch deadline, and it is MUCH larger than
 // jailTimeout() for a reason that is not slowness: a macos-user launch builds a native
-// darwin nix closure — the FLOOR, ~27 packages, before the config declares anything
-// (docs/design/macos-user-provisioning.md §9) — and on a cold machine that is a
+// darwin nix closure — the FLOOR, every package darwinpkg.FloorNames() lists, before the
+// config declares anything (docs/design/macos-user-provisioning.md §9) — and on a cold
+// machine that is a
 // substitution or a compile rather than a container start.
 //
 // The number is a CEILING ON WASTE, not a target. Nobody has measured what a first

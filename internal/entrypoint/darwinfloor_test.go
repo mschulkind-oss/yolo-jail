@@ -7,7 +7,7 @@ package entrypoint
 // None of them needed a code change for it, and that is exactly why they need a
 // test. All three already ask entrypoint.agentPath "will the agent have this
 // binary?", so widening that PATH from "the system dirs plus whatever the user
-// declared" to "the system dirs plus 27 packages" silently flips three decisions
+// declared" to "the system dirs plus the whole floor" silently flips three decisions
 // at once:
 //
 //	GenerateShims          `grep` and `find` become BLOCKED, because their

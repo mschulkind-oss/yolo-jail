@@ -165,9 +165,9 @@ func Run(opts Options) (rc int) {
 	} else if !repoRootOK && !o.DryRun {
 		// THE MACOS-USER ARM, which used to be conditional on `packages:` and is not
 		// any more. Every launch on this backend is materialized by a host-side `nix
-		// build` against this flake — the FLOOR alone is 27 packages before the user
-		// declares anything — so the repo is exactly as required here as it is for an
-		// image build.
+		// build` against this flake — the FLOOR alone is everything darwinpkg.FloorNames()
+		// lists, before the user declares anything — so the repo is exactly as required
+		// here as it is for an image build.
 		//
 		// Un-gated, the launch reached darwinpkg.Materialize with repoRoot "", which
 		// left exec.Cmd.Dir empty — so nix inherited the CALLER's cwd and resolved a
