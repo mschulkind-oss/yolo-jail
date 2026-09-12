@@ -57,7 +57,7 @@ wrong one to sequence on.
 | `internal/macosuser/capture.go` | **new** (slice 6) — the capture plan, its invariants, and the executor over the existing `Deps` seams |
 | `internal/macosuser/runplan.go`, `macosuser.go` | slice 6 lifted `buildBootstrapEnv` (home is now a parameter) and `sandboxEnvPairs` out; no behavior change |
 | `internal/capture/relocate.go` | **new** (slice 6) — the file-content reference scan and the relocatable verdict |
-| `../reference/storage-and-config.md` | [§2](../reference/storage-and-config.md#machine-wide-storage)'s `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
+| [`../reference/storage-and-config.md`](../reference/storage-and-config.md) | [§2](../reference/storage-and-config.md#machine-wide-storage)'s `<gs>` table (line 112) — already missing 9 dirs; add `captures/` |
 | `docs/design/program-delivery.md` | [§10](../design/program-delivery.md#10-what-i-would-build-in-order)'s capture step (was six, now seven — [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1)) → SHIPPED, per slice; [§6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)'s *materialize* verb amended by slice 4 (reflink, not hardlink) |
 
 ## Reuse
