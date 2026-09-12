@@ -386,6 +386,88 @@ func TestDarwinHomeLayoutIsIdempotentAndRepointsItsOwnLinks(t *testing.T) {
 	}
 }
 
+// A LAUNCH MUST NOT BE BRICKED BY A LINK THE PREVIOUS ONE LEFT, and this is the failure that
+// found the rule. `.claude.json → .claude/claude.json` is in paths.HomeFileRedirects, which is
+// CORE, while `.claude` itself is a symlink only when a PACK declares it. So a launch whose
+// packs do not declare `.claude` still needed ~/.claude to exist as a directory — and if a
+// previous launch's workspace had been deleted, ~/.claude was a DANGLING symlink, where
+// MkdirAll fails with `mkdir …: file exists` (Stat fails, mkdir refuses). The layout generator
+// then failed, the boot refused, and nothing repaired it: every later launch without that pack
+// hit the same wall, with no remedy in the message.
+//
+// MEASURED 2026-09-12: three of the six macos-user integration twins failed exactly here on
+// their first hardware run — each configures no packs, and an earlier test in the same run had
+// pointed ~/.claude at a workspace it then deleted.
+//
+// The rule the fix encodes is P2's: the layout manages what THIS launch declares. A redirect
+// whose directory the layout does not lay is not laid either — ~/.claude.json means nothing
+// without a ~/.claude to hold it — and a stale link nothing declares is left alone rather than
+// removed, because removing it would either destroy a live sidecar's link or turn it into the
+// real directory OQ-HT2 then refuses forever.
+func TestDarwinHomeLayoutSurvivesAStaleLinkFromADeletedWorkspace(t *testing.T) {
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	gone := filepath.Join(base, "deleted-ws", ".yolo", "home")
+	// The state a deleted workspace leaves: a link yolo wrote, pointing nowhere.
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(gone, "claude"), filepath.Join(home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A launch in a NEW workspace whose packs declare nothing (`packs: []` is the default,
+	// and the launch says so) — so `.claude` is not in this layout at all.
+	sidecar := filepath.Join(base, "ws", ".yolo", "home")
+	if err := DeriveDarwinHomeLayout(home, sidecar, nil, nil).Apply(); err != nil {
+		t.Fatalf("a stale link from a deleted workspace bricked the launch: %v", err)
+	}
+	// The redirect that needed it is not laid, and the stale link is not touched.
+	if _, err := os.Lstat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("~/.claude.json was laid with no ~/.claude to hold it (err=%v)", err)
+	}
+	if got, _ := os.Readlink(filepath.Join(home, ".claude")); got != filepath.Join(gone, "claude") {
+		t.Errorf("the stale link was rewritten to %q; a link this launch does not declare "+
+			"is left alone", got)
+	}
+	// The redirects whose directories ARE core (.config) are unaffected.
+	if got, err := os.Readlink(filepath.Join(home, ".gitconfig")); err != nil ||
+		got != filepath.Join(".config", "git", "config") {
+		t.Errorf(".gitconfig -> %q (err=%v), want the core .config redirect intact", got, err)
+	}
+}
+
+// And the same launch WITH the pack heals it: `.claude` is in Links, so ensureLayoutSymlink
+// repoints the stale link at this workspace before the redirect step needs it. This is the
+// pairing that makes the test above a statement about DECLARATION rather than about dangling
+// links — one input differs, and it is the pack.
+func TestDarwinHomeLayoutRepointsAStaleLinkThePackStillDeclares(t *testing.T) {
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	gone := filepath.Join(base, "deleted-ws", ".yolo", "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(gone, "claude"), filepath.Join(home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	sidecar := filepath.Join(base, "ws", ".yolo", "home")
+	if err := DeriveDarwinHomeLayout(home, sidecar, []string{".claude"}, nil).Apply(); err != nil {
+		t.Fatalf("a launch that declares .claude must repoint the stale link: %v", err)
+	}
+	if got, _ := os.Readlink(filepath.Join(home, ".claude")); got != filepath.Join(sidecar, "claude") {
+		t.Errorf("~/.claude -> %q, want this workspace's sidecar", got)
+	}
+	// And the redirect it gates is laid, and writes through to the new sidecar.
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing ~/.claude.json through the redirect: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sidecar, "claude", "claude.json")); err != nil {
+		t.Errorf("~/.claude.json did not land in the new sidecar: %v", err)
+	}
+}
+
 // NO SIDECAR, NO LAYOUT — and this is not a degraded mode. An install capture bootstraps a
 // throwaway staging home whose contract is that everything the installer writes lands under
 // it; its delta walk does not follow symlinks, so a layout there would record an empty

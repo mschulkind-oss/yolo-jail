@@ -118,10 +118,14 @@ type DarwinHomeLayout struct {
 // what makes the tier of a path the PACK's declaration on this backend too (P2).
 func DeriveDarwinHomeLayout(home, sidecar string, writableDirs, sharedDirs []string) DarwinHomeLayout {
 	l := DarwinHomeLayout{Home: home}
+	// The home-relative directories THIS layout lays, which is what decides whether a
+	// home-root file redirect has anywhere to point (see the FileRedirects loop below).
+	laid := map[string]struct{}{}
 	link := func(homeRel, subtree string) {
 		target := filepath.Join(sidecar, subtree)
 		l.Dirs = append(l.Dirs, target)
 		l.Links = append(l.Links, DarwinHomeLink{Path: filepath.Join(home, homeRel), Target: target})
+		laid[homeRel] = struct{}{}
 	}
 	// The three INSTALLED-PROGRAM surfaces, from the one list prune and capture also key
 	// on (paths.HomeSurfaces; podman binds each at /home/agent/<HomeRel>).
@@ -147,7 +151,25 @@ func DeriveDarwinHomeLayout(home, sidecar string, writableDirs, sharedDirs []str
 		l.Dirs = append(l.Dirs, real)
 		l.Mirrors = append(l.Mirrors, DarwinHomeLink{Path: filepath.Join(sidecar, dir), Target: real})
 	}
+	// Home-root FILES, but ONLY the ones whose holding directory this layout actually lays.
+	// The list is CORE (paths.HomeFileRedirects) while the directories it points into are
+	// not: `.claude.json` targets `.claude/claude.json`, and `.claude` is a link only when a
+	// PACK declares it. A launch that declares no packs therefore used to require ~/.claude
+	// to exist as a directory anyway — and where a previous launch had left a link to a
+	// workspace since DELETED, Apply's MkdirAll hit a dangling symlink and failed with
+	// `mkdir …: file exists`, refusing the boot with no remedy named and no way out for any
+	// later launch without that pack. Three of the six macos-user twins failed exactly this
+	// way on their first hardware run (2026-09-12).
+	//
+	// P2's rule settles it: the layout manages what THIS launch declares. ~/.claude.json
+	// means nothing without a ~/.claude to hold it, so it is not laid — and the stale link
+	// itself is left ALONE rather than removed, because removing it would either break a live
+	// sidecar's link or leave a real directory OQ-HT2 then refuses forever.
 	for _, r := range paths.HomeFileRedirects() {
+		holder := strings.SplitN(filepath.ToSlash(r.Target), "/", 2)[0]
+		if _, ok := laid[holder]; !ok {
+			continue
+		}
 		l.FileRedirects = append(l.FileRedirects,
 			DarwinHomeLink{Path: filepath.Join(home, r.Name), Target: r.Target})
 	}
