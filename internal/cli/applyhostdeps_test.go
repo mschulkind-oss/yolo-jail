@@ -23,6 +23,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 )
 
+// depNoteMark is the stable half of the one note the dep block carries: the POSTURE fact that
+// a dry run installs nothing. Named once here because three tests pin it and it moved once
+// already — it said "the confirm-gated install is env-manager plan Phase 4.3" until the install
+// was built (docs/design/report-tiers.md §9 step 6).
+const depNoteMark = "a dry run installs nothing"
+
 // TestApplyHostReportsPresentDep: a declared bin that is on PATH reports present, with the
 // resolved path — not the old static "confirm-gated" line.
 func TestApplyHostReportsPresentDep(t *testing.T) {
@@ -39,9 +45,9 @@ func TestApplyHostReportsPresentDep(t *testing.T) {
 	if strings.Contains(report, "MISSING") {
 		t.Errorf("a present bin must not be reported missing:\n%s", report)
 	}
-	// The install deferral note is only interesting when something is missing.
-	if strings.Contains(report, "Phase 4.3") {
-		t.Errorf("nothing is missing, so there is no install to defer:\n%s", report)
+	// The posture note is only interesting when something is missing.
+	if strings.Contains(report, depNoteMark) {
+		t.Errorf("nothing is missing, so there is nothing to say about installing it:\n%s", report)
 	}
 }
 
@@ -74,8 +80,15 @@ func TestApplyHostReportsMissingDepWithRemedy(t *testing.T) {
 	if strings.Contains(report, "missing-brew-pkg") {
 		t.Errorf("the remedy must be for the DETECTED manager only, not every hint:\n%s", report)
 	}
-	if !strings.Contains(report, "Phase 4.3") {
-		t.Errorf("the output must say apply does not run the install (Phase 4.3):\n%s", report)
+	// The note used to say the install was DEFERRED to a later increment ("Phase 4.3"). It is
+	// built now, so the note states the POSTURE SPLIT instead: this dry run installs nothing,
+	// and an --assert offers to run the command and stops if you decline (§4.9's table). Same
+	// property under test — the reader is told what this run did and did not do.
+	if !strings.Contains(report, depNoteMark) {
+		t.Errorf("the output must say a dry run installs nothing:\n%s", report)
+	}
+	if !strings.Contains(report, "`--assert` offers to run") {
+		t.Errorf("the output must say which posture DOES offer the install:\n%s", report)
 	}
 }
 
@@ -207,10 +220,10 @@ func TestApplyHostDepNoteTrailsTheBlockOnce(t *testing.T) {
 	if !strings.Contains(report, "missA") || !strings.Contains(report, "missB") {
 		t.Fatalf("both declared bins must be reported:\n%s", report)
 	}
-	if n := strings.Count(report, "Phase 4.3"); n != 1 {
-		t.Errorf("install-deferral note appeared %d times, want exactly 1:\n%s", n, report)
+	if n := strings.Count(report, depNoteMark); n != 1 {
+		t.Errorf("the posture note appeared %d times, want exactly 1:\n%s", n, report)
 	}
-	if strings.Index(report, "Phase 4.3") < strings.Index(report, "missB") {
+	if strings.Index(report, depNoteMark) < strings.Index(report, "missB") {
 		t.Errorf("the note should follow the last dep line, not split the block:\n%s", report)
 	}
 }

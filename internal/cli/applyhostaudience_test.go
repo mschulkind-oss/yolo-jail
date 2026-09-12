@@ -44,6 +44,9 @@ func audienceFixture(t *testing.T, agents string) (home string) {
 	entries = append(entries, `{"source":"file://`+house+`","name":"house"}`)
 
 	selectPacks(t, home, strings.Join(entries, ","))
+	// Both agent packs declare a `program`, and a writing apply refuses over a missing one
+	// (§4.9). This fixture is about AUDIENCE, so both tools are installed on its host.
+	stubBins(t, "alphacli", "betacli")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	return home

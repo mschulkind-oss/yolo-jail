@@ -206,3 +206,34 @@ func TestBrewCaskHint(t *testing.T) {
 		t.Errorf("no remedy → no manifest, got %q/%q", n, b)
 	}
 }
+
+// TestPresentReprobesThroughTheSeam pins the RE-PROBE half of an install: Present answers
+// "is it there NOW", through the same LookPath seam Check uses.
+//
+// The seam is the assertion, not a detail of the test. `yolo host apply`'s dependency gate
+// re-probes after running a remedy and refuses when the binary still is not there
+// (docs/design/report-tiers.md §4.9 point 5), so a Present that reached exec.LookPath directly
+// would be a second opinion about one PATH — with the first one stubbed and the second one
+// reading the developer's real machine.
+func TestPresentReprobesThroughTheSeam(t *testing.T) {
+	real := LookPath
+	t.Cleanup(func() { LookPath = real })
+
+	asked := 0
+	LookPath = func(bin string) (string, error) {
+		asked++
+		if bin == "there" {
+			return "/stub/there", nil
+		}
+		return "", errors.New("not found")
+	}
+	if p, ok := Present("there"); !ok || p != "/stub/there" {
+		t.Errorf("Present(there) = %q/%v, want the seam's path", p, ok)
+	}
+	if p, ok := Present("gone"); ok || p != "" {
+		t.Errorf("Present(gone) = %q/%v, want not found", p, ok)
+	}
+	if asked != 2 {
+		t.Errorf("the seam was consulted %d times, want 2 — Present probed something else", asked)
+	}
+}

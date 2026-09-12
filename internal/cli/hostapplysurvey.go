@@ -133,10 +133,15 @@ type hostApplySurvey struct {
 	// its remedy key, and for a dependency that key is the binary, across packs). depsNoBin
 	// counts the contributions that named no binary at all: those cannot be deduplicated by
 	// one, and they are not missing either — they were never probed (§4.9 point 6).
-	deps        map[string]hostDepFinding
-	depsNoBin   int
-	firstApply  bool
-	failedPacks []string
+	deps      map[string]hostDepFinding
+	depsNoBin int
+	// installedDeps are the binaries THIS RUN installed, at the user's y, before anything
+	// was rendered (applyhostdepgate.go). The verdict leads with them — "Installed `rg`;
+	// applied: …" — because an apply that changed the host's toolchain did something the
+	// counts below cannot express (§4.3).
+	installedDeps []string
+	firstApply    bool
+	failedPacks   []string
 }
 
 // note records one result's verdict at the given tier. A result with no PATH is not a
@@ -258,12 +263,55 @@ func (s *hostApplySurvey) noteDep(bin string, f hostDepFinding) {
 		s.deps = map[string]hostDepFinding{}
 	}
 	cur, seen := s.deps[bin]
+	s.deps[bin] = mergeDepFinding(cur, f, seen)
+}
+
+// mergeDepFinding is THE rule for two declarations of one binary, and it is a function rather
+// than four lines inside noteDep because the gate's offer now turns on the answer: whichever
+// finding survives here is the one the prompt, the group and the verdict all read.
+//
+// The WORSE state wins — two packs disagreeing about `rg` is one missing dependency on one
+// host. At equal states two tie-breaks, in order:
+//
+//   - an INSTALLABLE finding wins (§4.9 / OQ-RO7). One pack declaring `rg` as a `program` and
+//     another as a `requires` means yolo does have an install to offer, and dropping to the
+//     `requires` would refuse the run over a remedy it was holding.
+//   - otherwise a finding carrying a REMEDY wins: a group stating "no remedy" while a selected
+//     pack declares one sends the reader to fix a manifest that is fine.
+func mergeDepFinding(cur, f hostDepFinding, seen bool) hostDepFinding {
 	switch {
 	case !seen, f.State > cur.State:
-		s.deps[bin] = f
-	case f.State == cur.State && cur.Remedy == "" && f.Remedy != "":
+		return f
+	case f.State != cur.State:
+		return cur
+	case f.installable() && !cur.installable():
+		return f
+	case cur.Remedy == "" && f.Remedy != "":
+		return f
+	}
+	return cur
+}
+
+// noteInstalled records a binary the dependency gate installed this run, and updates the
+// probe's answer to match: a dep the run just installed is PRESENT, so every count, group and
+// line downstream states what is true after the install rather than what was true before it.
+func (s *hostApplySurvey) noteInstalled(bin string) {
+	if s == nil || bin == "" {
+		return
+	}
+	s.installedDeps = append(s.installedDeps, bin)
+	if f, ok := s.deps[bin]; ok {
+		f.State, f.Remedy, f.Alt, f.NoRemedy = depPresent, "", "", ""
 		s.deps[bin] = f
 	}
+}
+
+// InstalledDeps names the binaries this run installed, in install order.
+func (s *hostApplySurvey) InstalledDeps() []string {
+	if s == nil {
+		return nil
+	}
+	return s.installedDeps
 }
 
 // noteRenderFailure records a pack whose render errored. It is a §4.1 blocker: its surfaces

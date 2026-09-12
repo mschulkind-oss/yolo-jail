@@ -20,15 +20,12 @@ package cli
 // for this data is ONE checker over ONE declared list (depcheck's package doc, env-manager
 // plan OQ-8).
 //
-// What it deliberately does NOT do is install. Running the remedies is env-manager plan
-// Phase 4.3, whose batched, elevation-class-grouped confirm UX (OQ-6/7/9) is its own
-// increment; the report says so once so a reader does not mistake "reported" for "done".
-// A missing host dep does not fail `yolo host apply` YET, and `yolo check-deps` is still the
-// verb that exits non-zero for a CI to gate on — but it is no longer merely informational:
-// since the verdict block landed it reaches `state`, which the apply's survey counts and the
-// verdict names, so a dry run says in one sentence that an --assert would not complete
-// (docs/design/report-tiers.md §4.9). The exit code follows in that section's build step 5,
-// with the install prompt and the fatal decline; OQ-RO7 scopes which kinds it covers.
+// WHAT THE ANSWER IS NOW ACTED ON WITH is applyhostdepgate.go, and this file stops at the
+// probe. A missing declared dependency is a tier-3 BLOCKER (docs/design/report-tiers.md §4.9):
+// the dry run reports it and exits 0, and an --assert offers to install a `program`, refuses a
+// decline at the prompt, and writes nothing. `yolo check-deps` is still the non-interactive
+// probe half — it runs this same checker over these same hints and exits non-zero — which is
+// the precedent the fatal adopts rather than invents (checkdeps.go:86-87).
 
 import (
 	"fmt"
@@ -38,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // hostDeps is one pack's resolved host-dep state: probed once per pack, then consulted per
@@ -128,18 +126,60 @@ type hostDepPreflight struct {
 // byte-identical output, which is exactly why the refactor needs a seam to be testable at all.
 var hostDepProbe = resolveHostDeps
 
-// probeHostDeps takes the pre-flight over the resolved pack set.
+// probeHostDeps takes the pre-flight over the resolved pack set AND records what it learned
+// in the survey — one walk over the declared dependencies, not two.
+//
+// The recording used to happen in the render loop, one noteDep per contribution, which was
+// fine while the survey was only counting. It is not fine now: the GATE below runs before the
+// first render and needs the merged, deduplicated answer (two packs declaring `rg` are one
+// missing dependency on one host), and a second walk to build it would be a second answer to
+// "which binaries are missing?" — free to disagree with the one the verdict prints. So the
+// probe fills the survey, the gate reads the survey, and the render loop keeps only the line.
 //
 // Every pack is probed, including the many that declare no dependency: resolveHostDeps returns
 // early for those without shelling out, and probing unconditionally keeps this loop the same
 // shape as the render loop it precedes — a filter here would be a second, quieter answer to
 // "which packs have dependencies?" than the one the report gives.
-func probeHostDeps(loaded []*packload.Pack) hostDepPreflight {
+func probeHostDeps(loaded []*packload.Pack, fields render.FieldSet,
+	survey *hostApplySurvey) hostDepPreflight {
 	pf := hostDepPreflight{byPack: make(map[*packload.Pack]*hostDeps, len(loaded))}
 	for _, p := range loaded {
-		pf.byPack[p] = hostDepProbe(p)
+		h := hostDepProbe(p)
+		pf.byPack[p] = h
+		for _, c := range p.Decl.Contributions() {
+			if !isProbedDep(fields, c) {
+				continue
+			}
+			survey.noteDep(c.Bin, h.finding(c))
+		}
 	}
 	return pf
+}
+
+// isProbedDep is the ONE predicate for "this contribution is a dependency this notch asks the
+// host about": a dep kind the FieldSet still honors. The pre-flight above and the render loop
+// that prints the lines both call it, so the set the survey counts and the set the report
+// itemizes cannot come apart — which they could when each spelled the condition itself.
+//
+// The Honors half is not decoration: a kind the FieldSet stopped honoring is a tier-1 notch
+// fact named once per run, and it must not also earn a dep line or a blocker.
+func isProbedDep(fields render.FieldSet, c packdecl.Contribution) bool {
+	return isDepKind(c.Kind) && fields.Honors(c.Kind)
+}
+
+// markInstalled records that a binary this run installed is now present, at path.
+//
+// The pre-flight is the render loop's authority for the per-contribution line, so without this
+// an install that succeeded would still print `✗ MISSING` under every declaring pack — the
+// report contradicting the verdict about a fact one command apart. The survey is updated by
+// its own noteInstalled, for the same reason and on the same call (applyhostdepgate.go).
+func (pf hostDepPreflight) markInstalled(bin, path string) {
+	for _, h := range pf.byPack {
+		if r, ok := h.byBin[bin]; ok {
+			r.Present, r.Path = true, path
+			h.byBin[bin] = r
+		}
+	}
 }
 
 // of returns one pack's probed deps. Nil-safe in both directions — an empty pre-flight, or a
@@ -185,6 +225,14 @@ func packDepRequirements(p *packload.Pack) []depcheck.Requirement {
 type hostDepFinding struct {
 	// State is the three-way answer (see hostDepState).
 	State hostDepState
+	// Kind is which of the two dep kinds asked — and it is carried for the OFFER, not for
+	// the probe. OQ-RO7 splits them at exactly that point: both kinds are FATAL when the
+	// binary is missing, and only `program` is offered an install, because offering to
+	// install a `requires` would contradict the kind's own definition (it asserts a binary
+	// must ALREADY exist; yolo never installs one). isDepKind stays folded because the
+	// question asked of the HOST is identical; this field is what the answer is acted on
+	// with. See applyhostdepgate.go.
+	Kind packdecl.Kind
 	// Remedy is the install command depcheck resolved for the detected manager, or "" when
 	// nothing covers it. Empty for a present or unprobed dep, which need no remedy.
 	Remedy string
@@ -201,7 +249,7 @@ type hostDepFinding struct {
 // answer becomes report material, so the line, the survey's counts and the group's remedy are
 // three renderings of one fact rather than three readings of the probe.
 func (h *hostDeps) finding(c packdecl.Contribution) hostDepFinding {
-	f := hostDepFinding{State: h.state(c)}
+	f := hostDepFinding{State: h.state(c), Kind: c.Kind}
 	if f.State != depMissing {
 		return f
 	}

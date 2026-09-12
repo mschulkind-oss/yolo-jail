@@ -185,6 +185,23 @@ func presentAt(bin string, res *Result) bool {
 	return true
 }
 
+// Present re-probes ONE binary and reports where it resolved. It is the RE-PROBE half of an
+// install: after a remedy has run, "did that actually produce the binary?" is the only question
+// whose answer may be trusted, because an installer that exits 0 and delivers nothing leaves the
+// environment exactly as unready as one that failed loudly (docs/design/report-tiers.md §4.9
+// point 5, where a still-missing binary is the same fatal as a declined install).
+//
+// Through the LookPath SEAM rather than exec.LookPath directly, so a caller that stubbed the
+// probe for Check does not get an unstubbed second opinion here — two probes over one PATH is
+// the drift this package exists to prevent.
+func Present(bin string) (path string, ok bool) {
+	p, err := LookPath(bin)
+	if err != nil {
+		return "", false
+	}
+	return p, true
+}
+
 // installCmd builds the install command for a package, keyed by hint FLAVOR (a manager
 // name, or brewCaskHint).
 func installCmd(flavor, pkg string) string {

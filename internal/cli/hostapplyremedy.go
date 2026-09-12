@@ -102,32 +102,47 @@ func hostApplyRemedyGroups(s *hostApplySurvey, home string, write bool) []remedy
 	return out
 }
 
-// missingDepGroups is one group per missing BINARY — §4.4's key for this class, "across packs".
-// Two packs declaring `rg` are one group with one install command, where the old report printed
-// the command under each declaration.
+// missingDepGroups is the DRY RUN's rendering of every missing binary — one group each (§4.4's
+// key for this class is the binary, "across packs"), plus the one note that is a property of the
+// posture rather than of any dependency.
 //
-// The install-deferral note trails the LAST of them, because it is a property of the COMMAND
-// rather than of a dependency: repeating it under every binary is noise, and printing it under
-// the first wedges it between two groups.
+// The note trails the LAST group because repeating it under every binary is noise and printing
+// it under the first wedges it between two groups.
 func missingDepGroups(s *hostApplySurvey) []remedyGroup {
-	missing := s.MissingDeps()
-	var out []remedyGroup
-	for _, bin := range missing {
-		f := s.MissingDepFinding(bin)
-		g := remedyGroup{
-			Key:         bin,
-			Headline:    fmt.Sprintf("`%s` is declared by your packs and MISSING on this host", bin),
-			Remedy:      f.Remedy,
-			Alt:         f.Alt,
-			NoRemedy:    f.NoRemedy,
-			VerdictTerm: bin,
-			Warn:        true,
-		}
-		out = append(out, g)
-	}
+	out := depBlockerGroups(hostDepBlockers(s))
 	if len(out) > 0 {
-		out[len(out)-1].Note = "host apply reports host deps; it installs nothing. The " +
-			"confirm-gated install is env-manager plan Phase 4.3."
+		// The note is the DRY RUN's, and it is the only posture that can reach it: an --assert
+		// with a missing dependency is refused by the gate before the first render, so a
+		// writing run never prints these groups from here (applyhostdepgate.go prints them
+		// itself, above its prompt). What the dry-run reader needs is the one fact the lines
+		// above cannot carry — that the command they are looking at is one the NEXT posture
+		// offers to run, and that saying no there stops the run rather than skipping a step.
+		out[len(out)-1].Note = "a dry run installs nothing — `--assert` offers to run the " +
+			"command above, and a decline stops the run with nothing written."
+	}
+	return out
+}
+
+// depBlockerGroups renders missing dependencies as tier-3 groups — ONE group per binary, which
+// is §4.4's remedy key for this class.
+//
+// Shared by the dry run's report and the --assert gate's prompt, and that sharing is the point:
+// the lines a user reads before answering `y` are the same lines the dry run showed them, so
+// "run the dry run first" is advice about the same text rather than about a different rendering
+// of it.
+func depBlockerGroups(blockers []hostDepBlocker) []remedyGroup {
+	var out []remedyGroup
+	for _, b := range blockers {
+		out = append(out, remedyGroup{
+			Key: b.Bin,
+			Headline: fmt.Sprintf("`%s` is declared by your packs (%s) and MISSING on this host",
+				b.Bin, b.Kind),
+			Remedy:      b.Remedy,
+			Alt:         b.Alt,
+			NoRemedy:    b.NoRemedy,
+			VerdictTerm: b.Bin,
+			Warn:        true,
+		})
 	}
 	return out
 }

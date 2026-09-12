@@ -89,6 +89,10 @@ func TestApplyHostAcceptsOnePackOwningItsOwnName(t *testing.T) {
 			`{"kind":"briefing","into":".solo/AGENTS.md","agent":"solocli"}]}`)
 	writeFile(t, filepath.Join(solo, "AGENTS.md"), "Solo prose.\n")
 	selectPacks(t, home, `{"source":"file://`+solo+`","name":"solocli"}`)
+	// The pack declares `program solocli`, and a writing apply now refuses over a declared
+	// binary that is missing (§4.9). This fixture is about NAME OWNERSHIP, so the host it
+	// describes is one where the tool is installed.
+	stubBins(t, "solocli")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 

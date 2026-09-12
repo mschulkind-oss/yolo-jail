@@ -384,9 +384,25 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// already visited written and the rest not. "We cannot continue" has to also mean
 	// "nothing was written", and only a pre-flight delivers both.
 	//
-	// NO OUTPUT MOVES with this. The probe prints nothing and each binary is still reported
-	// at its own contribution, in the same order; what changed is when the host is asked.
-	deps := probeHostDeps(loaded)
+	// It is also the ONE COLLECTOR: it records what it learned in the survey as it goes, so
+	// the gate below, the verdict's counts and the per-contribution lines are three renderings
+	// of one answer rather than three walks that could disagree about which binary is missing.
+	deps := probeHostDeps(loaded, hostFields, survey)
+
+	// THE DEPENDENCY GATE (§4.9, §9 step 5), and it comes FIRST — before the one-way door, and
+	// before anything is written.
+	//
+	// Before the loss confirmation because a decline here is fatal: asking the user to approve
+	// losing their MCP entries and then refusing the run over a missing binary would spend a
+	// `y` on a run that was never going to complete. The gate that can stop the run asks first.
+	//
+	// --assert only. The dry run reports the same blockers through the tier-3 groups below,
+	// names them in its verdict, exits 0 and never prompts (OQ-RO5): its output IS the finding.
+	if write {
+		if grc := gateHostDeps(pr, out, stdin, deps, survey); grc != 0 {
+			return grc
+		}
+	}
 
 	// THE ONE-WAY DOOR. Before writing anything, ask an observe pass what an --assert would
 	// destroy, and if the answer is "a value yolo has never asserted in this home", require a
@@ -424,23 +440,19 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		for _, c := range p.Decl.Contributions() {
 			// The dep kinds are the one class whose answer is a property of THIS HOST rather
 			// than of the notch, so they are the one class still reported per contribution.
-			// The Honors guard keeps the old precedence: a kind the FieldSet stopped honoring
-			// is a notch fact named above and must not also earn a dep line here.
-			if !isDepKind(c.Kind) || !hostFields.Honors(c.Kind) {
+			// The SAME predicate the pre-flight counted with, so the set that reaches the
+			// verdict and the set that reaches the report are one set (isProbedDep).
+			if !isProbedDep(hostFields, c) {
 				continue
 			}
-			// The probe's answer reaches the VERDICT and the tier-3 group, not just this line.
-			// A missing declared dependency is the finding that makes the rest of the apply
-			// pointless (§4.9), and until this call it changed neither the exit code nor the
-			// roll-up — it was a line in the middle of 277 of them. The REMEDY rides along
-			// because §4.4 groups a blocker by its remedy key, and for a dependency that key
-			// is the binary: two packs declaring `rg` are one missing dependency with one
-			// install command, stated once below.
-			survey.noteDep(c.Bin, packDeps.finding(c))
 			// program AND requires: resolved dep state, not a static "confirm-gated" line —
 			// which kind asked, which bin, present or missing
 			// (pack-host-management-plan.md Phase 8). `requires` shares this path because
 			// below the jail notch the two kinds ask the host the same question.
+			//
+			// The SURVEY is not fed here any more: the pre-flight above records every finding,
+			// because the gate needs the merged answer before this loop runs at all. What is
+			// left here is the line.
 			pr.Printf("%s", packDeps.depLine(c))
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {

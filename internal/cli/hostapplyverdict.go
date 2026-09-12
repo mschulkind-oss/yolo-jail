@@ -101,29 +101,45 @@ func hostApplyVerdict(s *hostApplySurvey, write, zeroPacks bool) string {
 			len(missing), plural(len(missing), "dependency is", "dependencies are"),
 			strings.Join(missing, ", "))
 	case !s.Changes():
-		if write {
-			return "Nothing to apply — this home is up to date."
+		if !write {
+			return "Nothing to do — this home is up to date."
 		}
-		return "Nothing to do — this home is up to date."
+		if p := installedPrefix(s); p != "" {
+			return p + "nothing else to apply — this home is up to date."
+		}
+		return "Nothing to apply — this home is up to date."
 	case write:
-		return "Applied: " + hostApplyWork(s, true) + "." + missingDepTail(s)
+		if p := installedPrefix(s); p != "" {
+			return p + "applied: " + hostApplyWork(s, true) + "."
+		}
+		return "Applied: " + hostApplyWork(s, true) + "."
 	default:
 		return "An --assert would complete."
 	}
 }
 
-// missingDepTail is the one place this step deviates from §4.3's table, and it says so rather
-// than being silently wrong: an --assert with a missing dependency is meant to PROMPT and to
-// refuse a decline (§4.9, build step 5), and until that exists the run completes with the
-// environment still unready. Saying "applied" and stopping would be the exact silence P7
-// exists to end, so the verdict carries the blocker as its own clause.
-func missingDepTail(s *hostApplySurvey) string {
-	missing := s.MissingDeps()
-	if len(missing) == 0 {
+// installedPrefix is §4.3's "Installed `rg`; applied: …" — the clause an --assert leads with
+// when the dependency gate installed something before the render (applyhostdepgate.go).
+//
+// It LEADS rather than trails because it is the half the counts cannot express: every other
+// number in the verdict is about this home, and this one is about the machine's toolchain.
+// Empty when nothing was installed, which is why each caller spells its sentence twice — the
+// outcome clause is capitalized when it starts the sentence and lowercase when this one does.
+//
+// WHAT USED TO BE HERE was the inverse — a trailing "N declared dependencies still missing",
+// carried because an --assert completed over an unready environment. It is GONE because that
+// state is now unreachable: a writing run with a missing declared dependency is refused by the
+// gate before the first render, so the verdict is never reached to state it.
+func installedPrefix(s *hostApplySurvey) string {
+	installed := s.InstalledDeps()
+	if len(installed) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(" %d declared %s still missing (%s).", len(missing),
-		plural(len(missing), "dependency is", "dependencies are"), strings.Join(missing, ", "))
+	names := make([]string, 0, len(installed))
+	for _, bin := range installed {
+		names = append(names, "`"+bin+"`")
+	}
+	return fmt.Sprintf("Installed %s; ", strings.Join(names, ", "))
 }
 
 // workItem is one class of work this apply did or would do, in the units §4.3's count table

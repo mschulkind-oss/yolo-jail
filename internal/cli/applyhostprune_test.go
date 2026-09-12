@@ -48,10 +48,16 @@ func dropFixture(t *testing.T, packJSON string) (home, packDir string) {
 
 // selectPacks rewrites the user-scope config's `packs` list. `packs` is user-scope only, so
 // this is the ONLY place a test can drop a pack from.
+//
+// It also makes every SHIPPED pack's declared binary resolvable (stubDeclaredBins), because
+// since the dependency gate landed a missing `program` refuses a writing apply — and without
+// the stubs that refusal would depend on whether the machine running the tests happens to have
+// the agent CLIs installed. See hostdepstub_test.go for both halves of that protection.
 func selectPacks(t *testing.T, home, list string) {
 	t.Helper()
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"packs":[`+list+`]}`)
+	stubDeclaredBins(t)
 }
 
 // applyWith runs one apply and returns its rc plus the whole report.
