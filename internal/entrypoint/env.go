@@ -49,6 +49,15 @@ type Env struct {
 	// BSD flags (`-f`, macOS). Generated launcher templates branch on this.
 	// Defaults to true (the container) via the zero value + StatIsGNU().
 	GNUStat bool
+	// SkipMCPPresets reports that this environment does NOT generate the MCP preset
+	// wrappers, so nothing should install the npm packages behind them either.
+	//
+	// Spelled as the NEGATIVE so the zero value is the container, like every other seam
+	// here. macos-user sets it: the wrapper bodies are Linux-absolute (/usr/bin/chromium,
+	// /bin/node, /etc/fonts) and RunDarwinBootstrap skips them and says so. Without this
+	// the bootstrap script would still `npm install -g chrome-devtools-mcp` — a download
+	// for an executable this backend never writes.
+	SkipMCPPresets bool
 	// Vars is the environment-variable matrix the generators consult.
 	Vars map[string]string
 	// Stderr receives the warning/notice lines the generators emit

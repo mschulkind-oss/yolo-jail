@@ -224,3 +224,13 @@ func InstallDarwinHomeLayout(e *Env, packs []*packload.Pack) error {
 	return DeriveDarwinHomeLayout(e.Home, sidecar,
 		packload.WritableDirs(packs), packload.SharedDirs(packs)).Apply()
 }
+
+// DarwinSidecar returns this Env's workspace sidecar (<workspace>/.yolo/home), or "" when
+// the launcher named none.
+//
+// "" is the honest answer to "which per-workspace directory backs this home", not a
+// degraded one: the container's answer is a set of bind mounts rather than a path this
+// process can name, and an install capture's throwaway staging home genuinely has no
+// workspace tier. A generator that needs a per-workspace FILE asks this and falls back to
+// the spelling its own backend already uses (lspSentinelExpr is the worked example).
+func (e *Env) DarwinSidecar() string { return e.Getenv(DarwinHomeSidecarEnv) }

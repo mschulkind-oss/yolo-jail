@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -209,6 +210,7 @@ func BootstrapScript(e *Env) string {
 		"__YOLO_RECEIPT_LSP_NPM__", shquote.Quote(receiptPrefix("lsp-npm", "", "")),
 		"__YOLO_RECEIPT_LSP_GO__", shquote.Quote(receiptPrefix("lsp-go", "", "")),
 		"__YOLO_RECEIPT_MCP_NPM__", shquote.Quote(receiptPrefix("mcp-npm", "", "")),
+		"__YOLO_LSP_SENTINEL__", lspSentinelExpr(e),
 	)
 	return r.Replace(bootstrapTemplate)
 }
@@ -227,6 +229,14 @@ func BootstrapScript(e *Env) string {
 // makes the eventual move to a pack contribution a change of SOURCE rather than a
 // change of mechanism.
 func mcpPresetNpmPackages(e *Env) string {
+	// An environment that does not generate the preset WRAPPERS installs nothing for
+	// them either (Env.SkipMCPPresets). The wrapper is the executable an MCP client
+	// spawns; the npm package is only what it spawns INTO. Installing the second
+	// without the first is a download nothing can ever exec, and on macos-user it would
+	// also make the launch's own "mcp_presets are not delivered" warning a half-truth.
+	if e.SkipMCPPresets {
+		return ""
+	}
 	var pkgs []string
 	for _, preset := range e.LoadMCPPresetNames() {
 		switch preset {
@@ -237,6 +247,30 @@ func mcpPresetNpmPackages(e *Env) string {
 		}
 	}
 	return strings.Join(pkgs, " ")
+}
+
+// lspSentinelExpr renders the SHELL EXPRESSION the generated script assigns to SENTINEL:
+// where this environment keeps the record of what the last provisioning run installed, so
+// an LSP server dropped from the config can be uninstalled on the next one.
+//
+// It is per-WORKSPACE state, and the two backends reach the same per-workspace directory
+// by different primitives — which is the whole reason it is a function.
+//
+//   - The container binds <ws>/.yolo/home/yolo-installed-lsps at ~/.yolo-installed-lsps
+//     (run.podmanBaseMounts), so `$HOME/.yolo-installed-lsps` already names this
+//     workspace's file and the expression is unchanged from the literal that was here.
+//   - macos-user has no binds and ONE account home shared by every workspace, so the same
+//     spelling would make workspace A's sentinel workspace B's. The install PREFIX it
+//     describes is per-workspace there (a sidecar symlink), so a shared sentinel is not
+//     merely untidy: it claims installs that live in another workspace's prefix.
+//
+// A shell expression rather than a path because the container's half must keep expanding
+// $HOME at run time — the jail resolves it, not the generator.
+func lspSentinelExpr(e *Env) string {
+	if sidecar := e.DarwinSidecar(); sidecar != "" {
+		return shquote.Quote(filepath.Join(sidecar, "yolo-installed-lsps"))
+	}
+	return `"$HOME/.yolo-installed-lsps"`
 }
 
 // bootstrapTemplate is the body of the bootstrap script.
@@ -327,7 +361,7 @@ fi
 # Sentinel records what we installed last boot, so we can uninstall on
 # removal.  Format: one ` + "``" + `kind:identifier` + "``" + ` per line, e.g.
 # ` + "``" + `npm:pyright` + "``" + ` / ` + "``" + `go:github.com/isaacphi/mcp-language-server` + "``" + `.
-SENTINEL="$HOME/.yolo-installed-lsps"
+SENTINEL=__YOLO_LSP_SENTINEL__
 prev=""
 [ -f "$SENTINEL" ] && prev=$(cat "$SENTINEL")
 desired=""

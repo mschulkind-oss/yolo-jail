@@ -57,6 +57,11 @@ func DarwinEnvFrom(vars map[string]string, home string) *Env {
 	}
 	e.ShimBinDir = "/usr/bin"
 	e.GNUStat = false
+	// The MCP preset WRAPPERS are not generated on this backend (see RunDarwinBootstrap),
+	// so nothing installs the npm packages behind them either. Set here, with the other
+	// two platform seams, because it is the same kind of fact: what this environment can
+	// actually provide, decided once at the translation rather than at each consumer.
+	e.SkipMCPPresets = true
 	return e
 }
 
@@ -137,6 +142,14 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 	// create the agent home dirs this copies into (~/.claude and kin), so running it
 	// earlier would either race them or have to re-create them itself.
 	genStep(e, "install_home_overlay", func() error { return InstallHomeOverlay(e) })
+
+	// THE PROVISIONING STAGE'S SCRIPT (step 8 of macos-user-provisioning.md half two).
+	// Written LAST among the generators that produce content, because it is the only one
+	// nothing here consumes: the stage is a separate, Seatbelt-confined process the
+	// launcher runs after this bootstrap returns (macosuser.ProvisionArgv). Its
+	// interpolations read the pack set and the MCP/LSP config, which every step above has
+	// already had its turn with, so writing it here cannot observe a half-built home.
+	genStep(e, "generate_bootstrap_script", func() error { return GenerateDarwinBootstrapScript(e) })
 
 	// macOS-only writers (the two pieces unique to the native-macOS bootstrap).
 	genStep(e, "install_yolo_log", func() error { return InstallYoloLog(e, opts.YoloLogScript) })
