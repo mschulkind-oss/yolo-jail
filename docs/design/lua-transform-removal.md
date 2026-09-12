@@ -10,10 +10,13 @@ vantage:
 
 # The config transform is an escape hatch nobody uses, on a VM everybody does
 
-**Status:** DESIGN, 2026-09-10. **Nothing removed.** Every claim about the tree was verified on
-2026-09-10 at `4975df07`; each carries its evidence inline. Two questions need the maintainer:
-[OQ-LT1](#13-decision-ledger) (what a user who still has a `config.lua` sees on the day this ships) and
-[OQ-LT2](#13-decision-ledger) (whether the design principle the transform embodied retires with it).
+**Status:** SHIPPED, 2026-09-12. Both questions are ruled ([§13](#13-decision-ledger)) and the
+removal landed in [§10](#10-what-i-would-do-in-order)'s order — `internal/agentcfg` no longer links
+gopher-lua, `internal/packload` still does, and the derive path renders every shipped pack at boot.
+Claims about the tree below were verified on 2026-09-10 at `4975df07` and describe the tree the
+removal acted on, not today's; each carries its evidence inline. Two rows of
+[§5.6](#56-documentation) are deliberately still open: [`roadmap.md`](../plans/roadmap.md) (tracked
+there) and [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md) (in review).
 
 > **In short.** The transform slot in the config-composition pipeline should be deleted: it has no
 > user, its motivating case is met by a declarative mechanism that works where the transform's
@@ -89,11 +92,11 @@ Compose renders one surface as `decode → deepMerge → transform(Lua) → enfo
 ([`compose.go:8`](../../internal/agentcfg/compose.go#L8)). The transform step is one call —
 [`compose.go:448-449`](../../internal/agentcfg/compose.go#L448-L449) builds a `luahook.Ctx` over
 the merged value and runs `luahook.Apply`; an empty script is the identity
-([`luahook.go:279-282`](../../internal/agentcfg/luahook/luahook.go#L279-L282)). Its edits are
+(`luahook.go:279-282`). Its edits are
 attributed to a `transform` provenance layer, with a `transform (dropped)` variant for keys it
-deleted ([`compose.go:457-472`](../../internal/agentcfg/compose.go#L457-L472)). Then the same
+deleted (`compose.go:457-472`). Then the same
 `Ctx` re-applies the managed layer: `ctx.Config = transformed; ctx.Enforce()`
-([`compose.go:478-479`](../../internal/agentcfg/compose.go#L478-L479)).
+(`compose.go:478-479`).
 
 The script reaches Compose as two `Inputs` fields, `Script` and `VM`
 ([`compose.go:80-83`](../../internal/agentcfg/compose.go#L80-L83)), and the transform's one other
@@ -104,8 +107,8 @@ output — the globs it asked to exclude from a staged tree — comes back as `R
 
 | Channel | Where it is read | Where it is delivered |
 | :--- | :--- | :--- |
-| **User file** `~/.config/yolo-jail/config.lua` | [`prism.go:200-203`](../../internal/entrypoint/prism.go#L200-L203) (boot) and, separately, [`config.go:350-353`](../../internal/cli/config.go#L350-L353) (`yolo config render`) | bind-mounted `:ro` into the jail when present — [`inheritscope.go:209-218`](../../internal/cli/run/inheritscope.go#L209-L218), with an Apple Container twin |
-| **Workspace file** `<workspace>/yolo-jail.config.lua` | [`prism.go:213-219`](../../internal/entrypoint/prism.go#L213-L219); the CLI copy reads it **cwd-relative** at [`config.go:356`](../../internal/cli/config.go#L356) | rides the `/workspace` bind |
+| **User file** `~/.config/yolo-jail/config.lua` | [`prism.go:200-203`](../../internal/entrypoint/prism.go#L200-L203) (boot) and, separately, `config.go:350-353` (`yolo config render`) | bind-mounted `:ro` into the jail when present — [`inheritscope.go:209-218`](../../internal/cli/run/inheritscope.go#L209-L218), with an Apple Container twin |
+| **Workspace file** `<workspace>/yolo-jail.config.lua` | [`prism.go:213-219`](../../internal/entrypoint/prism.go#L213-L219); the CLI copy reads it **cwd-relative** at `config.go:356` | rides the `/workspace` bind |
 | **Per-surface key** `transform: <path>` | appended after the two files by `surfaceScript` — [`prism.go:238-249`](../../internal/entrypoint/prism.go#L238-L249) | two declarers: the `host_files` config key ([`hostfiles.go:541-550`](../../internal/config/hostfiles.go#L541-L550) → [`entrypoint/hostfiles.go:193`](../../internal/entrypoint/hostfiles.go#L193)) and a pack's `config` surface via `SurfaceDTO` ([`load.go:34`](../../internal/agentcfg/manifest/load.go#L34), [`:68`](../../internal/agentcfg/manifest/load.go#L68)) |
 
 The order is user, then workspace, then the surface's own hook, later registrations overriding
@@ -119,7 +122,7 @@ refused by name at [`overlay.go:71-72`](../../internal/agentcfg/manifest/overlay
 
 | File | Lines | Serves |
 | :--- | ---: | :--- |
-| [`luahook.go`](../../internal/agentcfg/luahook/luahook.go) | 339 | **Transform** — `LuaVM`, `Transform`, `Ctx`, `NewCtx`/`NewCtxKind`, `Apply`, `Stage`. Plus `Enforce`, which is neither half's ([§4.2](#42-what-moves-enforce)). |
+| `luahook.go` | 339 | **Transform** — `LuaVM`, `Transform`, `Ctx`, `NewCtx`/`NewCtxKind`, `Apply`, `Stage`. Plus `Enforce`, which is neither half's ([§4.2](#42-what-moves-enforce)). |
 | [`vm.go`](../../internal/agentcfg/luahook/vm.go) | 291 | **Mostly transform** — `GopherLuaVM.Run`, `registerYoloTable`, `buildCtxTable`, `readOnlyManaged`, `buildStageTable`. **Shared**: the `GopherLuaVM` type and `Timeout`, `openSandboxLibs`, `extraStrippedGlobals`, `wrapLuaErr`. |
 | [`sandbox.go`](../../internal/agentcfg/luahook/sandbox.go) | 128 | **Shared**: `ForbiddenGlobals` (applied by `openSandboxLibs`). **Transform-named, uncalled**: `ValidateSandbox`, `AllowedGlobals` — no production caller anywhere in `internal/` or `cmd/`. |
 | [`marshal.go`](../../internal/agentcfg/luahook/marshal.go) | 205 | **Shared** — `goToLua` / `luaToGo`; derive calls both ([`derive.go:418`](../../internal/agentcfg/luahook/derive.go#L418), [`:489`](../../internal/agentcfg/luahook/derive.go#L489)). |
@@ -200,9 +203,9 @@ Each row was verified against `git log -S` on 2026-09-10.
 | **A9** | `Surface.Transform` — a documented `host_files` key, validated and copied onto the surface, read by nothing | 2026-07-24 (`2ec75e44`) → 2026-07-26 (`145c7f10`): **2 days** | docstring at [`prism.go:227-237`](../../internal/entrypoint/prism.go#L227-L237); [`BACKLOG.md`](../plans/BACKLOG.md) row A9 |
 | **A13** | the user `config.lua` — advertised as auto-loaded, never mounted into the jail on any backend | first appearance → 2026-07-27 (`c069b28b`): **the feature's first week** | `c069b28b`'s message: *"A documented feature with no channel"*; [`BACKLOG.md`](../plans/BACKLOG.md) row A13 |
 | **`ctx.stage.exclude`** | half of the worked example: the globs are recorded into `Result.Excluded` and **printed** by `yolo config render` ([`config.go:311-312`](../../internal/cli/config.go#L311-L312)); nothing prunes a tree. There is no tree surface to prune — the manifest has four modes and none is a tree ([`manifest.go:161-170`](../../internal/agentcfg/manifest/manifest.go#L161-L170)) | **still** | the design of record concedes it: [§10.2](../plans/agent-settings-composition.md#102-why-the-intended-replacement-isnt-built), *"Nothing acts on it"* |
-| **`ValidateSandbox`** | the static lint that "rejects an obviously escaping script BEFORE it runs" | **still** — no caller outside its own tests | [`sandbox.go:73-99`](../../internal/agentcfg/luahook/sandbox.go#L73-L99) |
+| **`ValidateSandbox`** | the static lint that "rejects an obviously escaping script BEFORE it runs" | **still** — no caller outside its own tests | `sandbox.go:73-99` |
 | **`config_transform`** | the config key [§3.4](../plans/agent-settings-composition.md#34-placement-in-config-sandbox-and-safety) says "may still point elsewhere for the unusual case" | **never built** — the string exists nowhere in `internal/` | the design of record, twice |
-| **Two loaders** | [`prism.go:194-199`](../../internal/entrypoint/prism.go#L194-L199) says `targetTransformScript` is *"the convergence point … one Target-keyed loader instead of two hand-copies"*; the second hand-copy still exists at [`config.go:347-359`](../../internal/cli/config.go#L347-L359), reading the workspace file cwd-relative | since `c7a8c5aa` (2026-08-01) | both files |
+| **Two loaders** | [`prism.go:194-199`](../../internal/entrypoint/prism.go#L194-L199) says `targetTransformScript` is *"the convergence point … one Target-keyed loader instead of two hand-copies"*; the second hand-copy still exists at `config.go:347-359`, reading the workspace file cwd-relative | since `c7a8c5aa` (2026-08-01) | both files |
 
 Four of six are live today. A feature whose parts keep turning out to be disconnected is one whose
 model nobody is holding in their head — which is the maintainer's instinct, measured.
@@ -216,7 +219,7 @@ is `mergeDiff(last_render, current_file)`, and a render that differs between two
 would be captured as an edit forever.
 
 Nothing checks it, and the sandbox does not even close the one stock door. `openSandboxLibs` opens
-Lua's `math` library whole ([`vm.go:144-147`](../../internal/agentcfg/luahook/vm.go#L144-L147)), and
+Lua's `math` library whole (`vm.go:144-147`), and
 neither `ForbiddenGlobals` nor `extraStrippedGlobals` names `math.random`. **Measured 2026-09-10**
 with a throwaway test in the package (run, then deleted): a transform calling `math.random()`
 succeeds and `math.randomseed` is non-nil; the same is true on the derive path. So the requirement
@@ -292,7 +295,7 @@ alone; **moves** means re-homed per [P3](#1-the-verdict).
 | `AllowedGlobals`, `ValidateSandbox`, `usesIdentifier`, `isIdentByte` | `sandbox.go` | **goes** | no production caller today; the VM environment is the boundary, and the derive path never used the lint |
 | everything in `marshal.go` | `marshal.go` | **stays** | derive marshals in and out through it |
 | everything in `derive.go` | `derive.go` | **stays** | untouched — [P1](#1-the-verdict) |
-| the package doc ([`luahook.go:1-24`](../../internal/agentcfg/luahook/luahook.go#L1-L24)) | `luahook.go` | **rewritten** | it describes the package as "the config-composition Lua transform sandbox"; after the cut the package is the pack derive sandbox and should say so |
+| the package doc (`luahook.go:1-24`) | `luahook.go` | **rewritten** | it describes the package as "the config-composition Lua transform sandbox"; after the cut the package is the pack derive sandbox and should say so |
 
 Two consequences the implementer must not be left to discover:
 
@@ -303,14 +306,14 @@ Two consequences the implementer must not be left to discover:
 - **The sandbox proofs live in the wrong tests.** `vm_test.go`'s `TestRealVM_*` prove the *shared*
   guarantees — forbidden globals absent, safe libs present, an infinite loop times out, a Lua error
   carries file and line, a compile error surfaces, nested and integer values round-trip — but they
-  prove them **through `Apply`** ([`vm_test.go:66-175`](../../internal/agentcfg/luahook/vm_test.go#L66-L175)).
+  prove them **through `Apply`** (`vm_test.go:66-175`).
   `derive_test.go` proves only that `os` is absent ([`derive_test.go:197-202`](../../internal/agentcfg/luahook/derive_test.go#L197-L202)).
   Deleting `vm_test.go` before re-homing those proofs on `Derive` leaves the derive sandbox
   asserted by one test. [P1](#1-the-verdict) forbids that order.
 
 ### 4.2 What moves: `Enforce`
 
-`Ctx.Enforce` ([`luahook.go:215-265`](../../internal/agentcfg/luahook/luahook.go#L215-L265)) is the
+`Ctx.Enforce` (`luahook.go:215-265`) is the
 managed floor: it merges the enforced layer over the composed value, managed winning, **deep** for
 objects (so a host `permissions.ask` survives beside a managed `permissions.allow`), whole-value for
 a keyless surface. It uses the original enforced layer captured privately at construction, which is
@@ -321,13 +324,13 @@ belongs in `internal/agentcfg`, called from the same place in `Compose` it is ca
 
 1. **The merge is not the fold's merge.** `mergeValue` ([`engine.go:63-90`](../../internal/agentcfg/engine.go#L63-L90))
    is RFC 7386: a `null` under a key **deletes** the key. `enforceValue`
-   ([`luahook.go:251-265`](../../internal/agentcfg/luahook/luahook.go#L251-L265)) is not: a
+   (`luahook.go:251-265`) is not: a
    non-object managed value — including `nil` — is **assigned** by deep copy. The two disagree on a
    nil-valued managed key, and Compose's provenance loop already special-cases that value
-   ([`compose.go:480-485`](../../internal/agentcfg/compose.go#L480-L485)). The move must **not**
+   (`compose.go:480-485`). The move must **not**
    reuse `mergeValue`, however tempting one merge looks; it moves `enforceValue` verbatim and pins
    the nil case with a test before it moves.
-2. **Keyless enforce replaces the whole value** ([`luahook.go:236-241`](../../internal/agentcfg/luahook/luahook.go#L236-L241)).
+2. **Keyless enforce replaces the whole value** (`luahook.go:236-241`).
    Today the only test of that is `TestComposeRawManagedReplacesWholeFile`, and it proves it
    **through a transform script** ([`keyless_test.go:340-361`](../../internal/agentcfg/keyless_test.go#L340-L361)).
    That test is rewritten without the script first, or the keyless floor ships unproven.
@@ -352,10 +355,10 @@ sections a removal must touch are what matter, and the linked anchors are what t
 | What | Where | Disposition |
 | :--- | :--- | :--- |
 | `Inputs.Script`, `Inputs.VM` | [`compose.go:80-83`](../../internal/agentcfg/compose.go#L80-L83) | goes |
-| the transform step and its attribution | [`compose.go:434-472`](../../internal/agentcfg/compose.go#L434-L472) | goes |
-| `ctx.Config = transformed; ctx.Enforce()` | [`compose.go:478-479`](../../internal/agentcfg/compose.go#L478-L479) | becomes the moved `Enforce` call ([§4.2](#42-what-moves-enforce)) |
-| `layerTransform` and the `" (dropped)"` variant | [`compose.go:139`](../../internal/agentcfg/compose.go#L139), [`:462`](../../internal/agentcfg/compose.go#L462), [`:467`](../../internal/agentcfg/compose.go#L467), [`:471`](../../internal/agentcfg/compose.go#L471) | goes — the provenance vocabulary loses two tokens; see [§7](#7-ship-day-state-that-already-exists) for records that still carry them |
-| `Result.Excluded`, `dedupeStable` | [`compose.go:103-105`](../../internal/agentcfg/compose.go#L103-L105), [`:499-517`](../../internal/agentcfg/compose.go#L499-L517) | goes |
+| the transform step and its attribution | `compose.go:434-472` | goes |
+| `ctx.Config = transformed; ctx.Enforce()` | `compose.go:478-479` | becomes the moved `Enforce` call ([§4.2](#42-what-moves-enforce)) |
+| `layerTransform` and the `" (dropped)"` variant | [`compose.go:139`](../../internal/agentcfg/compose.go#L139), [`:462`](../../internal/agentcfg/compose.go#L462), `:467`, `:471` | goes — the provenance vocabulary loses two tokens; see [§7](#7-ship-day-state-that-already-exists) for records that still carry them |
+| `Result.Excluded`, `dedupeStable` | [`compose.go:103-105`](../../internal/agentcfg/compose.go#L103-L105), `:499-517` | goes |
 | the `luahook` import | [`compose.go:24`](../../internal/agentcfg/compose.go#L24) | goes |
 | pipeline comments naming the step | [`compose.go:8`](../../internal/agentcfg/compose.go#L8), [`:31`](../../internal/agentcfg/compose.go#L31), [`:64-74`](../../internal/agentcfg/compose.go#L64-L74), [`engine.go:18`](../../internal/agentcfg/engine.go#L18), `staterender.go` (two comments; the file is under active edit — coordinate), [`codec.go:92-93`](../../internal/agentcfg/codec/codec.go#L92-L93), [`raw.go:8`](../../internal/agentcfg/codec/raw.go#L8) | shrink |
 
@@ -365,11 +368,11 @@ sections a removal must touch are what matter, and the linked anchors are what t
 | :--- | :--- | :--- |
 | `loadPrismTransformScript`, `targetTransformScript`, `surfaceScript` | [`prism.go:183-249`](../../internal/entrypoint/prism.go#L183-L249) | goes |
 | the two `Script:`/`VM:` producers and their `luahook.LuaVM` locals | [`prism.go:340-356`](../../internal/entrypoint/prism.go#L340-L356), [`:511-526`](../../internal/entrypoint/prism.go#L511-L526) | shrink |
-| `loadTransformScript`, `renderSurface`'s `script`/`vm` parameters, the excluded-files line, the `transform` colour | [`config.go:200-204`](../../internal/cli/config.go#L200-L204), [`:261`](../../internal/cli/config.go#L261), [`:284-288`](../../internal/cli/config.go#L284-L288), [`:311-312`](../../internal/cli/config.go#L311-L312), [`:323-331`](../../internal/cli/config.go#L323-L331), [`:344-359`](../../internal/cli/config.go#L344-L359) | goes / shrink |
+| `loadTransformScript`, `renderSurface`'s `script`/`vm` parameters, the excluded-files line, the `transform` colour | [`config.go:200-204`](../../internal/cli/config.go#L200-L204), [`:261`](../../internal/cli/config.go#L261), [`:284-288`](../../internal/cli/config.go#L284-L288), [`:311-312`](../../internal/cli/config.go#L311-L312), [`:323-331`](../../internal/cli/config.go#L323-L331), `:344-359` | goes / shrink |
 | `yolo config --help` text naming transforms and the two files | [`config.go:7`](../../internal/cli/config.go#L7), [`:30`](../../internal/cli/config.go#L30), [`:65`](../../internal/cli/config.go#L65), [`:92-93`](../../internal/cli/config.go#L92-L93) | shrink — user-facing |
 | `yolo config ls` layer column | [`configls.go:199-200`](../../internal/cli/configls.go#L199-L200), [`:220-221`](../../internal/cli/configls.go#L220-L221) | goes |
 | `yolo config diff` explanation naming a transform as a cause | [`configdiff.go:461-465`](../../internal/cli/configdiff.go#L461-L465) | shrink |
-| comments | [`prism.go:19`](../../internal/entrypoint/prism.go#L19), [`:264`](../../internal/entrypoint/prism.go#L264), [`:1041`](../../internal/entrypoint/prism.go#L1041), [`prism_mise.go:43`](../../internal/entrypoint/prism_mise.go#L43), [`tomltrivia.go:28`](../../internal/entrypoint/tomltrivia.go#L28), [`env.go:81`](../../internal/entrypoint/env.go#L81), [`:205-206`](../../internal/entrypoint/env.go#L205-L206), [`hostrender.go:161`](../../internal/entrypoint/hostrender.go#L161), [`richtext.go:37`](../../internal/richtext/richtext.go#L37) | shrink |
+| comments | [`prism.go:19`](../../internal/entrypoint/prism.go#L19), [`:264`](../../internal/entrypoint/prism.go#L264), `:1041`, [`prism_mise.go:43`](../../internal/entrypoint/prism_mise.go#L43), [`tomltrivia.go:28`](../../internal/entrypoint/tomltrivia.go#L28), [`env.go:81`](../../internal/entrypoint/env.go#L81), [`:205-206`](../../internal/entrypoint/env.go#L205-L206), [`hostrender.go:161`](../../internal/entrypoint/hostrender.go#L161), [`richtext.go:37`](../../internal/richtext/richtext.go#L37) | shrink |
 
 ### 5.3 The config schema and the CLI
 
@@ -378,7 +381,7 @@ sections a removal must touch are what matter, and the linked anchors are what t
 | `host_files[].transform` — the known-key list, the field, the validation, and the stale dependency comment | [`hostfiles.go:74`](../../internal/config/hostfiles.go#L74), [`:113-115`](../../internal/config/hostfiles.go#L113-L115), [`:541-550`](../../internal/config/hostfiles.go#L541-L550), [`:697-701`](../../internal/config/hostfiles.go#L697-L701) | goes → a **named refusal** replaces it ([OQ-LT1](#13-decision-ledger)); the comment is rewritten either way, since it is wrong today ([§3.7](#37-what-removal-does-not-buy-the-dependency)) |
 | `yolo config-ref` row | [`config_ref.txt:536`](../../internal/cli/config_ref.txt#L536) | goes |
 | `manifest.Surface.Transform` and its comments | [`manifest.go:29`](../../internal/agentcfg/manifest/manifest.go#L29), [`:65-66`](../../internal/agentcfg/manifest/manifest.go#L65-L66), [`:107-110`](../../internal/agentcfg/manifest/manifest.go#L107-L110) | goes |
-| `SurfaceDTO.Transform` | [`load.go:34`](../../internal/agentcfg/manifest/load.go#L34), [`:68`](../../internal/agentcfg/manifest/load.go#L68) | goes — `DecodeSurfaces` already refuses unknown fields ([`load.go:99`](../../internal/agentcfg/manifest/load.go#L99)), so a pack declaring `transform` fails loudly by construction; whether it fails **by name** is [OQ-LT1](#13-decision-ledger) |
+| `SurfaceDTO.Transform` | [`load.go:34`](../../internal/agentcfg/manifest/load.go#L34), [`:68`](../../internal/agentcfg/manifest/load.go#L68) | goes — `DecodeSurfaces` already refuses unknown fields via `DisallowUnknownFields()`, so a pack declaring `transform` fails loudly by construction; whether it fails **by name** is [OQ-LT1](#13-decision-ledger) |
 | the `config-overlay` refused-field row for `transform` | [`overlay.go:46`](../../internal/agentcfg/manifest/overlay.go#L46), [`:71-72`](../../internal/agentcfg/manifest/overlay.go#L71-L72) | goes — redundant once the field is unknown everywhere; keeping it as a named refusal is the implementer's call |
 | `hostFileSurface`'s copy, and the A12 comment naming the hook | [`entrypoint/hostfiles.go:57`](../../internal/entrypoint/hostfiles.go#L57), [`:193`](../../internal/entrypoint/hostfiles.go#L193) | goes / shrink |
 
@@ -397,11 +400,11 @@ the ones [§4.2](#42-what-moves-enforce) says must be handled **before** anythin
 
 | File | What it holds | Disposition |
 | :--- | :--- | :--- |
-| [`luahook_test.go`](../../internal/agentcfg/luahook/luahook_test.go) | `Apply`, read-only `ctx.managed`, `ValidateSandbox` | goes |
-| ⚠ [`vm_test.go`](../../internal/agentcfg/luahook/vm_test.go) | the shared sandbox and marshal proofs, via `Apply` | **re-home on `Derive` first**, then goes |
+| `luahook_test.go` | `Apply`, read-only `ctx.managed`, `ValidateSandbox` | goes |
+| ⚠ `vm_test.go` | the shared sandbox and marshal proofs, via `Apply` | **re-home on `Derive` first**, then goes |
 | [`compose_test.go`](../../internal/agentcfg/compose_test.go) | five transform tests (the worked example, managed-wins-over-transform, computed-below-transform, Lua-error-fails-closed, script-without-VM) beside the enforce suite | the five go; the enforce suite **stays as the guard** |
 | ⚠ [`keyless_test.go`](../../internal/agentcfg/keyless_test.go) | five raw/lines transform tests, and the keyless managed-floor proof written through a script | the five go; `TestComposeRawManagedReplacesWholeFile` is **rewritten without the script first** |
-| [`probe_adv_test.go:70-77`](../../internal/agentcfg/probe_adv_test.go#L70-L77) | the pre-A9 probe that `Compose` ignores `Surface.Transform` | goes |
+| `probe_adv_test.go:70-77` | the pre-A9 probe that `Compose` ignores `Surface.Transform` | goes |
 | [`retiredlayer_test.go:90-91`](../../internal/agentcfg/retiredlayer_test.go#L90-L91) | asserts a `transform` token proves nothing to `LayerAsserted` | **stays** — it is the pre-existing-state guarantee of [§7](#7-ship-day-state-that-already-exists) |
 | [`entrypoint/hostfiles_test.go:548-604`](../../internal/entrypoint/hostfiles_test.go#L548-L604) | the two A9 tests (per-surface hook runs; a missing hook is an error) | goes |
 | [`cli/config_test.go`](../../internal/cli/config_test.go) | the `piGateTransform` fixture, `--explain`'s `transform` row and colour | shrinks |
@@ -463,7 +466,7 @@ first two rows is [OQ-LT1](#13-decision-ledger); the rest are settled by evidenc
 | :--- | :--- | :--- | :--- |
 | a **non-empty** `~/.config/yolo-jail/config.lua` or `<workspace>/yolo-jail.config.lua` | any host that wrote one | nothing reads it; the file is inert and the user's agent config silently changes | [OQ-LT1](#13-decision-ledger) — [P2](#1-the-verdict) forbids "nothing" |
 | a `host_files[].transform` key, or a pack surface with `transform` | user config; a third-party pack | the config loader refuses the unknown key (the `host_files` known-key list is closed); `DecodeSurfaces` refuses the unknown field — both loud, neither names the removal | [OQ-LT1](#13-decision-ledger) — the precedent is a refusal **that names its replacement** (`validateJournalRetired`, [`validate.go:426-470`](../../internal/config/validate.go#L426-L470)) |
-| the **0-byte** `config.lua` on this very machine | `~/.config/yolo-jail/config.lua` | an empty script is the identity today ([`luahook.go:62-64`](../../internal/agentcfg/luahook/luahook.go#L62-L64)); after removal it is a stray file | ignored — nothing changes for it, so no message is owed; the leaning under [OQ-LT1](#13-decision-ledger) keys on non-emptiness for this reason |
+| the **0-byte** `config.lua` on this very machine | `~/.config/yolo-jail/config.lua` | an empty script is the identity today (`luahook.go:62-64`); after removal it is a stray file | ignored — nothing changes for it, so no message is owed; the leaning under [OQ-LT1](#13-decision-ledger) keys on non-emptiness for this reason |
 | provenance sidecars carrying a `transform` or `transform (dropped)` token, written by an earlier render | `<workspace>/.yolo/prism/*.provenance`; host-provenance records | `ParseProvenanceRecord` accepts any token; `LayerAsserted` is a closed set and already returns false for `transform` ([`retiredlayer_test.go:90-91`](../../internal/agentcfg/retiredlayer_test.go#L90-L91)); `colorLayer` falls through to plain text | **already fail-safe** — no migration, no action |
 | a capture overlay narrowed against `computed` and `managed` today | `.yolo/prism/*.overlay.json` | unaffected; the transform was never a narrowing input ([§3.8](#38-one-more-mismatch-found-while-writing)) | none |
 | a host `yolo` and a jail `yolo-entrypoint` on different sides of the removal | any skewed machine | old launcher mounts a file the new entrypoint ignores, or vice versa — inert either way, and `version.SourceSkew` refuses the pairing before boot | none |
@@ -560,11 +563,15 @@ Both questions closed 2026-09-11. The doc is `status: accepted`.
 > free.** Both declared channels already fail closed through generic machinery, verified
 > 2026-09-11:
 >
-> - **Config keys** — `internal/config/validate.go:124-130` emits `"<path>.<key>: unknown key"`
->   for anything outside the allowed set, so dropping `transform` from `host_files`' set makes a
->   stale entry an error with no new code.
-> - **Pack manifests** — `internal/agentcfg/manifest/load.go:99` calls `DisallowUnknownFields()`,
->   so a pack surface still declaring `transform` fails to decode.
+> - **Config keys** — `checkHostFileObject` walks each entry's keys against the closed
+>   `knownHostFileKeys` set and returns `"<path>.<key>: unknown key"` for anything outside it, so
+>   dropping `transform` from that set makes a stale entry an error with no new code. (`host_files`
+>   rolls its own loop; it does **not** call `validate.go`'s generic `reportUnknownKeys`, which an
+>   earlier draft of this line cited. The two emit the same words, which is why reading rather than
+>   running could not tell them apart — measured by neutering `reportUnknownKeys` and watching the
+>   refusal survive unchanged.)
+> - **Pack manifests** — `DecodeSurfaces` calls `DisallowUnknownFields()`, so a pack surface still
+>   declaring `transform` fails to decode.
 >
 > The leaning's `validateJournalRetired` pattern buys one thing over that: a *named* refusal says
 > "this was removed" where a bare `unknown key` reads as a typo — a distinction this file's own
