@@ -41,6 +41,12 @@ Subcommands:
                            and whether each contribution won or the owner did.
   reset <agent> [flags]    Discard those captured edits, so the surface returns
                            to what its layers produce on the next launch.
+  promote <agent> [flags]  Turn captured in-jail edits into DECLARED ones: write them
+                           into a pack (the conventional local pack by default, which
+                           renders in every jail and on the host) and clear them from
+                           the capture overlay, so the value is declared in one place.
+                           HOST-SIDE ONLY — the destinations are under the host's
+                           ~/.config/yolo-jail/, which no jail may write.
   capture <agent> [flags]  Record the CURRENT on-disk edits into the overlay now,
                            without waiting. Nothing is lost without it — a jail
                            captures on TERMINATE, and the next boot captures again
@@ -77,6 +83,22 @@ reset/capture also take:
   --force            reset and capture WRITE files; run host-side (outside the jail
                      that owns the workspace) they resolve against your REAL home and
                      could clobber your own config, so they refuse there unless --force.
+
+promote flags:
+  --surface <name>   Limit to the named surface.
+  --keys a,b         Promote only these captured keys (default: all of them).
+  --to <dest>        local (default), pack:<name>, or host. "local" is
+                     ~/.config/yolo-jail/local — no packs entry needed, folds after
+                     every other pack, and renders at every notch.
+  --plan             Classify and print; write nothing. Add --json for the document.
+  --force <keys>     Promote these keys despite the credential-name refusal. Per key,
+                     by name — there is no blanket form.
+  --accept-promotion Write. Without it promote prints the plan and writes nothing.
+
+A promotion is refused for a key that is redundant (the layers already produce it),
+dead (an owning layer overrides it where it sits), environment-bound (it holds a jail
+path), credential-named, or outranked by a later pack's config-overlay at the chosen
+destination. Each refusal names the key and the reason.
 
 Only a 'capture'-mode surface accumulates in-jail edits; 'readonly', 'once' and
 'copy' surfaces write no sidecar, so diff/reset do not apply to them. Use
@@ -118,6 +140,8 @@ func configRunW(args []string, out, errw io.Writer) int {
 		return configReset(args[1:], out, errw, colorForWriter(out))
 	case "capture":
 		return configCapture(args[1:], out, errw, colorForWriter(out))
+	case "promote":
+		return configPromote(args[1:], out, errw, colorForWriter(out))
 	case "drift":
 		return configDrift(args[1:], out, errw, colorForWriter(out))
 	case "dump":
