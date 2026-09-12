@@ -7,6 +7,10 @@ guest-notch handoff, `pack-system`, `environment-manager-plan`, `agent-config-pa
 `cli-color-audit` was finished — that row listed two remaining items, both of which had landed). The remaining rows carry their doc's own dated status,
 unverified here. **If a row disagrees with the doc it points at, trust the doc and fix the row.**
 
+**Extended 2026-09-12** with a section for [the five designs the last sprint built](#the-2026-09-sprint--five-designs-all-built),
+which had no rows at all — the same failure one level up, since a doc this file never names cannot
+be caught disagreeing with it.
+
 This directory holds the **active** work — plans and designs we're currently
 implementing or still discussing. Reference docs (how live systems work) live in
 [`../design/`](../design) and [`../research/`](../research); done/obsolete
@@ -26,10 +30,18 @@ for the classification and `git log --follow` to recover any).
 > only place that lists the implementable items in order, with a pointer per item to
 > the doc holding its reasoning.
 
-## Keeping this corpus honest — the five checks, so they are re-runnable
+<!-- Three docs outside this file link the anchor below by its old literal text
+     (AGENTS.md, roadmap.md, further-roadmap-ideas.md). The heading dropped its count
+     when a sixth check was added; this keeps those links resolving. Do not delete it
+     without fixing all three. -->
+<a id="keeping-this-corpus-honest--the-five-checks-so-they-are-re-runnable"></a>
 
-The 2026-08-23 audit ran these by hand; four of the five found something, and the fifth is worth
-keeping because it is now clean and would not stay that way silently. They are not wired into `just`
+## Keeping this corpus honest — the checks, so they are re-runnable
+
+The 2026-08-23 audit ran the first five by hand; four of them found something, and the fifth is
+worth keeping because it is now clean and would not stay that way silently. The 2026-09-12 sprint
+close-out ran all five again and added a **sixth**, which found a class the other five are
+structurally unable to see. They are not wired into `just`
 yet — that proposal, with the allowlists it needs, is
 [`further-roadmap-ideas.md`](further-roadmap-ideas.md) §I1. Until then, run them when a sprint
 closes; the drift clusters there rather than spreading evenly.
@@ -44,15 +56,127 @@ $ git rev-parse --verify --quiet <sha>^{commit}
 # 5. Every in-doc heading link resolves.            (clean — but only with a CORRECT slugger:
 #    GitHub maps each space to its own hyphen, so an em-dash heading yields `--`. A naive
 #    slugger collapses them and reports 67 false positives.)
+# 6. Every file:line citation points where it says. (no one-liner — see below)
 ```
 
 **Checks 3 and 4 need an allowlist or they cry wolf**: upstream `flake.lock` revs and other
 projects' source are legitimately unresolvable, and a doc *recording a deletion* is supposed to name
 the thing it deleted. The signal is a path or SHA offered as **evidence**, not one named as history.
 
+**`uvx vantage-check docs/` subsumes checks 1 and 5** and is the gate a doc commit passes:
+`link/missing-target` is check 1, and `link/dead-section-anchor` is check 5 for both same-document
+and cross-document anchors (verified 2026-09-12). It does **not** subsume 2, 3, 4 or 6 — it
+validates that links resolve, never that a claim is true.
+
+### Check 6 — every `file:line` citation points where it says it does
+
+Added 2026-09-12. It is the only one of the six that finds **moved** things: checks 3 and 4 ask
+whether a SHA or a path *exists*, and a citation whose file exists and whose line has drifted
+eighty lines passes both of them while being exactly the wrong kind of wrong — a `file:line` is
+where a reader stops checking.
+
+There is no one-liner. It is a five-stage pipeline, and the stages exist because each one's output
+is the next one's input:
+
+1. **Extract.** Walk `docs/**/*.md` and match `<path>.<ext>:<start>[-<end>]` for
+   `go|nix|sh|py|ts|jsonc|json|toml|lua|md`, recording the citing doc, its line number, the raw
+   citation, and the whole source line as context. Track fenced code blocks and **flag** the
+   citations inside them rather than dropping them — a pasted transcript is not a claim.
+2. **Resolve.** Build a basename index of the repo, skipping `.git`, `vendor`, `dist-go`, `.yolo`,
+   `node_modules`, `bin`, `.direnv`, `result`, `.claude` and `examples`, then map each citation to a
+   real file: exact relative path first, then unique basename, then unique suffix match. The
+   basename step carries most of the corpus, which writes citations short (`apply.go:170`,
+   `run.go:82`) far more often than it writes them from the repo root.
+3. **Disambiguate.** A basename with several candidates is resolved from the **citing document's
+   own context** — the nearest other citation, or bare path mention, in that same doc that names
+   one of the candidates wins. This is what decides *which* `prism.go` a bare `prism.go:494-511`
+   meant, and it is why the pipeline cannot be one pass.
+4. **Check bounds.** A citation whose start line is past the resolved file's EOF is stale, full
+   stop. This half needs no judgement and should be treated as a finding, not a candidate.
+5. **Check the symbol.** Take the backticked identifiers adjacent to the citation on its own line,
+   keeping only plausible code names — CamelCase or `_`-bearing, five characters or more, so
+   `HostRenderResult` counts and `the` does not — and ask whether **any** of them appears within
+   **±6 lines** of the cited range. If none does, find where the nearest one actually lives and
+   record the distance. **That distance is the triage order**: a symbol nine hundred lines from its
+   citation is drift, and a symbol seven lines away is the window being one line too tight.
+
+**The output is candidates, not findings.** The ±6 window is a guess and the near end of the
+distance ranking is full of honest near-misses, so every row wants a human look. What the check buys
+is the ranking: it takes every `file:line` in the corpus down to a couple of hundred worth reading,
+sorted worst-first.
+
+**What it found, and where the residue is.** Run against the tree at `1118cc52^` — before the
+sprint's two citation sweeps — the corpus held 1,831 `file:line` citations outside code fences and
+the pipeline flagged **234**: 128 in `docs/design/`, 93 in `docs/plans/`, 13 in `docs/research/`.
+Re-run on 2026-09-12 against the swept tree it flagged **137**, and the split is the whole finding
+— `docs/design/` fell from 128 to 33, `docs/plans/` moved from 93 to 91, and `docs/research/` did
+not move at all. **The residue is a queue, not a false-positive tail**: the sweeps walked the
+sprint's own design docs and never walked the other two trees, which is where the next run starts.
+Both totals move whenever anyone edits a doc, so re-run rather than trust them; the durable part is
+the concentration, not the count.
+
+**Where the scripts are.** They were written in the close-out session's scratchpad as
+`extract.py` → `resolve.py` → `disambig.py` → `check.py` → `symcheck2.py`, passing JSON between
+stages. A scratchpad does not survive its session, which is why the method is written above as prose
+precise enough to rebuild from: a check that lives only in a scratchpad is not re-runnable, and this
+file carries no scripts for the other five either.
+
+### Check 2 has two known errors, and a convention question under each
+
+Both were found on 2026-09-12 by tallying two docs by hand against what the regex scored them.
+Neither is fixable by editing the regex alone, because each rests on a convention the corpus has
+not settled.
+
+**It counts 💬 only, so a 🔒 question is invisible.**
+[`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) states in its own header that
+[`OQ-DF4`](../design/minimal-disk-footprint.md#112-open-questions) is its **only live question**
+and that it is blocked on a measurement rather than undecided. The question is written
+`4. 🔒 **…**`, so the regex scores that file **zero** and the doc does not appear in the output at
+all. A check whose stated purpose is *every live open question is countable* cannot be blind to the
+marker that means **live, but blocked**. — **The convention question:** is 🔒 a state a *question*
+can be in, in which case the regex adds it and the corpus-wide count goes up? Or is 🔒 reserved for
+roadmap **rows**, in which case a blocked question stays 💬 and names its blocker in prose? Both
+readings are in use today, and one has to lose before the regex can be corrected.
+
+**It over-reads where 💬 marks sequencing rather than a question.**
+[`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) scores **5** and holds
+**3** questions. [§7](../design/broker-ca-and-nested-hosts.md#7-open-questions) has three;
+[§8](../design/broker-ca-and-nested-hosts.md#8-sequencing) then uses 💬 as a **status marker** on
+build-order items 3 and 4, each of which points back at one of those same three. The regex counts
+list items beginning with 💬 and cannot see that two of them are references to questions counted
+already. — **The convention question:** does 💬 mean *an open question lives here* or *this item is
+not done*? Sequencing lists use it for the second, Open Questions sections for the first, and the
+check only works once it means exactly one of them.
+
+### One cluster of `vantage-check` errors is data, not rot
+
+**Almost every error the corpus has left is in a single file, and all of them are deliberate.**
+[`../research/vantage-check-0.5.9-findings.md`](../research/vantage-check-0.5.9-findings.md) was
+**49 of the 103 errors** `uvx vantage-check docs/` reported at the start of the 2026-09-12
+close-out, and **48 of the 53** it reported an hour later, after the other clusters had been
+worked. Its own number barely moves while the corpus total collapses toward it, so any figure
+written here is stale on arrival — **the shape is the durable fact, not the count**: this one file
+is essentially the whole residual, and every one of its errors is `ref/unlinked-section` or
+`ref/unlinked-oq` fired on an unlinked section number or open-question id.
+
+That document is a defect report **about vantage-check's own reference rules**, written for
+upstream, and every one of those bare ids is a **specimen** it quotes to show what the rules do to
+them. They are data, not references: linking a specimen destroys the thing being shown. The doc
+says so in a note at its top and files the behaviour as its own defect D12. (This paragraph
+deliberately does not quote one, for the same reason — quoting a specimen here would move the
+cluster rather than describe it.)
+
+A future reader working the corpus toward zero needs this, or they will make a doc's examples wrong
+in the course of making its link check green — and the closer the rest of the corpus gets to clean,
+the more this one file looks like the only thing left to fix. It is not. (The doc's own header
+quotes a figure of its own, taken when it was written; it drifts for the same reason.)
+
 ---
 
 ## macOS revival + distribution
+
+The two macos-user designs the 2026-09 sprint built are listed with the rest of that sprint, in
+[The 2026-09 sprint](#the-2026-09-sprint--five-designs-all-built) below.
 
 | Doc | What it is | Status |
 |---|---|---|
@@ -118,6 +242,31 @@ them. Rows checked against the tree 2026-09-09.
 | [providers.md](../reference/providers.md) (was design/docs/reference/providers.md, distilled into the same reference) | Splits the knot the two above left tangled: **catalog** (the agent's directory of providers it *could* use) and **selection** (which one it *does* use) are two features, and one table drives both — measured in a live jail, `-p zai` changes the behaviour of one agent in four. Also dissolves disable-without-deleting. | **DECIDED 2026-09-01** (ledger, [§10](../reference/providers.md); a tenth question was withdrawn as never having been a design question) and **built** 2026-09-02 — [§3](../reference/providers.md)'s empty pi row was filled from source (`070a3574`), which is what unblocked pi's and opencode's selection keys (`6d1d7c54`), and selection landed for all four agents. [§8](../reference/providers.md)'s own order has one residue: step 4, option C's explicit disable, is still unbuilt. |
 | [../design/bedrock-plumbing.md](../design/bedrock-plumbing.md) | Bedrock's native arm: codex, opencode and pi each ship an `amazon-bedrock` provider on one credential, so what yolo owes is a region, a key and a model id — but the three default to different endpoint families with different model-id spellings, so the design ships the family twice. | **Design sketch, nothing built** (verified 2026-09-09). Seven questions, routed 2026-09-09 as 💬 24 in [roadmap.md](roadmap.md). Added to this section 2026-09-09 — it was the live doc the section did not list. |
 | [../design/provider-switching.md](../design/provider-switching.md) | Split out of the doc above: a model id is provider-local, so every provider switch is a rename, and the selection state machine has no fourth row for it — a deselected profile leaves the agent asking a new endpoint for the old provider's model. | **Design, nothing built.** Four questions, routed 2026-09-09 as 💬 26 in [roadmap.md](roadmap.md). Added to this section 2026-09-09. |
+
+## The 2026-09 sprint — five designs, all built
+
+The sprint that closed on 2026-09-12 built five accepted designs, and **none of them had a row
+here**. That is this index's own rule failing one level up: a row that disagrees with its doc is
+wrong and gets fixed, but a doc with no row cannot be caught disagreeing with anything. Each status
+below is the doc's own header, read 2026-09-12.
+
+Whether each has earned a `system-doc` graduation was assessed the same day, per doc, walked against
+the code rather than against the status line:
+[`doc-triage.md`](doc-triage.md#the-2026-09-12-graduation-assessment--the-five-docs-the-sprint-built).
+**One graduates**; the other four are held, each for a different named reason, and the sequencing is
+that file's [OQ-DT1](doc-triage.md#open-question). No graduation has been performed.
+
+| Doc | What it is | Status |
+|---|---|---|
+| [../design/report-tiers.md](../design/report-tiers.md) | `yolo host apply` stated every fact and never its **result**, so the reader was left adding the lines up. One **verdict line** per run, and a **report tier** on every line beneath it — notch facts, run facts, losses and blockers — where the tier, not the emitter, decides whether a line prints by default, once per run, or only under `--verbose`. A declared dependency that is missing becomes a blocker rather than a line in the middle. | **SHIPPED 2026-09-12** — all eight steps of [§9](../design/report-tiers.md#9-what-i-would-build-in-order) landed and all seven questions are ruled ([§11](../design/report-tiers.md#11-decision-ledger)). Measured after the build: the default report is **30 lines where it was 278**, with the 267-line detail view behind `--verbose`. `AGENTS.md` cites its [OQ-RO3](../design/report-tiers.md#11-decision-ledger) as the standing *a launch has no quiet mode* rule. Its implementation sketch, [../design/report-tiers-plan.md](../design/report-tiers-plan.md), is CONSUMED history — the design wins on any disagreement. **The one of the five that should graduate first.** |
+| [../design/config-ownership-and-promotion.md](../design/config-ownership-and-promotion.md) | Who owns an agent's config file. yolo infers it from the confinement notch, and adopting `yolo host apply` is precisely the act of leaving the world that inference is sound in — so ownership becomes one declared user-scope key (`host_management: none \| assert \| own`), `own` makes the host render like a jail, and `yolo config promote` lifts a captured in-jail edit into the conventional local pack instead of discarding it. | **BUILT 2026-09-12, with one carve-out.** [§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order)'s eight steps landed except one: step 8's **one-time adoption archive does not exist** — no adoption path writes a `config` bucket, and the code records where it would be written ([§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), [OQ-CO7](../design/config-ownership-and-promotion.md#13-decision-ledger)). Every question the design opened is ruled; **one the BUILD opened is live** — [OQ-CO12](../design/config-ownership-and-promotion.md#12-open-questions), whether the `assert` → `own` switch must be byte-invariant or only key-invariant. ⚠ It **reverses four rulings** recorded in [environment-manager-plan.md](environment-manager-plan.md#open-questions-to-resolve-before-their-phase). |
+| [../design/lua-transform-removal.md](../design/lua-transform-removal.md) | Remove the `config.lua` transform slot between the merge and the managed-enforce step: no user, its one worked example now served by the declarative `autonomy` kind, its determinism requirement stated in a doc and enforced by nothing. What makes it a design rather than a `git rm` is that `luahook`'s VM is also the shipped packs' `derive.lua` path — so the cut runs along a seam the doc draws, and carries the managed floor (`Enforce`) out into `internal/agentcfg` where it belonged. | **SHIPPED 2026-09-12** — both questions ruled ([§13](../design/lua-transform-removal.md#13-decision-ledger)) and the removal landed in [§10](../design/lua-transform-removal.md#10-what-i-would-do-in-order)'s order: `internal/agentcfg` no longer links gopher-lua, `internal/packload` still does, and the derive path renders every shipped pack at boot. Two documentation rows of [§5.6](../design/lua-transform-removal.md#56-documentation) are deliberately open. Held from graduation on purpose: a removal doc has no system to describe, and [pack-system.md](../reference/pack-system.md) is already the reference for the half that survived. |
+| [../design/macos-user-home-tiers.md](../design/macos-user-home-tiers.md) | macos-user has one sandbox home, so the machine, workspace and session tiers are the same directory — which content delivery turned from a static leak between workspaces into a **write-write race on the briefing an agent reads as instructions**. `HOME` stays where it is; every directory the container backends bind from `<workspace>/.yolo/home/` becomes a symlink into that same sidecar, and every pack-declared machine-scope directory is mirrored so the credential hook's relative link keeps resolving. | **BUILT 2026-09-12**, with no migration step, as ruled. All four questions are settled ([Decision Ledger](../design/macos-user-home-tiers.md#decision-ledger)). [§10](../design/macos-user-home-tiers.md#10-what-shipped) is written to separate what a test pins from what is reasoned and still owed a Mac — read it before trusting any runtime claim. |
+| [../design/macos-user-provisioning.md](../design/macos-user-provisioning.md) | The other half of the same gap: a container jail gets its tools from an image **floor** and an imperative **stage**, and macos-user had neither, so `mise_tools`, `lsp_servers` and `mcp_presets` render config and install nothing ([§2](../design/macos-user-provisioning.md#2-what-this-costs-today)). Two separable halves in order — a core set for the noncontainer nix profile, then the container's own `setupScript` body run as a new Seatbelt-confined step between the bootstrap and the agent. | **BOTH HALVES BUILT 2026-09-12** ([§9](../design/macos-user-provisioning.md#9-what-shipped-half-one), [§10](../design/macos-user-provisioning.md#10-what-shipped-half-two)); all four questions ruled ([Decision Ledger](../design/macos-user-provisioning.md#decision-ledger)). ⚠ **Every runtime claim is UNMEASURED** — both halves were implemented from a Linux jail, where there is no `sandbox-exec` and no `_yolojail` account. What *is* measured is the nix evaluation and the Go half's unit tests; that the closure builds on a Mac, that the confined stage can reach the network, and what a first launch costs are owed a hardware run ([§10.8](../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle)). |
+
+Both macOS rows are held from graduation for the same structural reason, and it is not editorial:
+every doc in [`../reference/`](../reference) carries a `verified_commit` in its frontmatter, and
+neither of these can carry one until a Mac has actually run what they built.
 
 ## Track M verification runbooks
 
