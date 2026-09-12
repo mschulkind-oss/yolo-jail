@@ -12,6 +12,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -277,9 +278,25 @@ func TestHostApplyGateIsANoOpInAJail(t *testing.T) {
 // never hang on one.
 func TestHostApplyGateExecsWhenTheBudgetExpires(t *testing.T) {
 	gateFixture(t, true)
+
+	// DETERMINISM, not a shorter budget. This test used to set the budget to a nanosecond and
+	// rely on the observe pass being slower than an almost-immediately-ready timer. Both select
+	// cases then go ready and Go chooses at random, so the test was a coin flip weighted by how
+	// warm the machine's page cache was — green here, RED ON CI 2026-09-12, where the survey won.
+	// Blocking the survey outright makes the timeout the only selectable case.
+	release := make(chan struct{})
+	prevSurvey := hostApplyGateSurvey
+	hostApplyGateSurvey = func(_, _ io.Writer, _, _ bool, _ io.Reader, _ *hostApplySurvey) int {
+		<-release
+		return 0
+	}
 	prev := hostApplyGateBudget
-	hostApplyGateBudget = time.Nanosecond
-	t.Cleanup(func() { hostApplyGateBudget = prev })
+	hostApplyGateBudget = 10 * time.Millisecond
+	t.Cleanup(func() {
+		hostApplyGateSurvey = prevSurvey
+		hostApplyGateBudget = prev
+		close(release) // let the abandoned goroutine finish; the gate already moved on
+	})
 
 	var errw bytes.Buffer
 	if !hostApplyGate(&errw, nil, "claude") {

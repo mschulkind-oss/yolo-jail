@@ -83,6 +83,22 @@ const acceptConfigChangesEnv = "YOLO_ACCEPT_CONFIG_CHANGES"
 // a test reassigns it.
 var hostApplyGateBudget = time.Second
 
+// hostApplyGateSurvey is the observe pass, behind a seam, and the seam exists for ONE reason:
+// a budget overrun cannot be provoked deterministically by shrinking the budget.
+//
+// THE RACE, measured on CI 2026-09-12. The select below has two ready-able cases, and Go picks
+// UNIFORMLY AT RANDOM among the ready ones. A test that set the budget to a nanosecond was
+// betting that the survey is slower than a timer that is ready almost immediately — true on a
+// cold developer machine, false on a CI runner whose page cache makes the whole observe pass
+// finish first. It refused instead of execing, and `TestHostApplyGateExecsWhenTheBudgetExpires`
+// failed on main for a race that had been latent since the test was written.
+//
+// Shrinking the budget further cannot fix it: the bet is on a comparison between two durations
+// the test controls only one of. The fix is to control the OTHER one — a test substitutes a
+// survey that does not return, so `done` is never ready and the timeout branch is the only one
+// that can be selected. Production is untouched; this var is only ever reassigned by a test.
+var hostApplyGateSurvey = applyHostSurveyed
+
 // hostGateCanPrompt reports whether this process can put a question to a human.
 //
 // STDIN, not stdout, and the difference is a real case: `claude --print foo > out.txt` has a
@@ -326,7 +342,7 @@ func surveyHostApplyWithinBudget() (*hostApplySurvey, string) {
 	go func() {
 		var sink bytes.Buffer
 		survey := &hostApplySurvey{}
-		rc := applyHostSurveyed(&sink, &sink, false, false, nil, survey)
+		rc := hostApplyGateSurvey(&sink, &sink, false, false, nil, survey)
 		done <- outcome{survey, rc}
 	}()
 	select {
