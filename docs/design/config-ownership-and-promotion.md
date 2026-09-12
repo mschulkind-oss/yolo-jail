@@ -10,9 +10,12 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** in-review, 2026-09-11. Nothing built. Every claim about current
-behavior was verified or measured between 2026-09-09 and 2026-09-11, with its
-evidence inline.
+**Status:** BUILT, 2026-09-12. All eight steps of [§10](#10-what-i-would-build-in-order)
+shipped — the `host_management` key, `own`'s composing render and its capture store,
+`yolo config promote`, and `yolo host apply --revert`. Claims about *current behavior*
+in [§2](#2-what-exists-today-stated-precisely) were verified or measured between
+2026-09-09 and 2026-09-11 and describe the tree the build acted on; the figures
+re-measured after it say so at the point they are stated.
 
 > **In short.** yolo infers who owns `~/.claude/settings.json` from the
 > confinement notch, and adopting `yolo host apply` is precisely the act of
@@ -35,11 +38,11 @@ on 2026-08-01 — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-just
 
 **Start at [§4](#4-declaring-ownership--the-host_management-key)** — the key is what makes every other question answerable.
 
-**Needs your ruling:** **None** — all eleven questions are settled
-([§13](#13-decision-ledger)). Ready to build, in [§10](#10-what-i-would-build-in-order)'s order.
+**Needs your ruling:** [`OQ-CO12`](#12-open-questions) — the one question the BUILD opened.
+All eleven this design opened are settled ([§13](#13-decision-ledger)).
 ⚠ **One thing to carry out of this doc rather than into it:** four rulings in
 [`environment-manager-plan.md`](../plans/environment-manager-plan.md)'s 2026-08-01 ledger are
-reversed here, and that ledger needs the dated reversal rows.
+reversed here; that ledger carries the dated reversal rows as of 2026-09-12.
 
 **Reads with:** [`host-render-target.md`](host-render-target.md) (whose
 [§6.3](host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output)
@@ -108,8 +111,12 @@ Every row here was checked between 2026-09-09 and 2026-09-11.
 Ascending precedence, from [`compose.go`](../../internal/agentcfg/compose.go):
 
 ```text
-defaults → host → workspace → config-overlay:<pack>… → overlay (capture) → computed → transform → managed
+defaults → host → workspace → config-overlay:<pack>… → overlay (capture) → computed → managed
 ```
+
+(A Lua `transform` layer sat between `computed` and `managed` until 2026-09-11,
+when it was removed — [`lua-transform-removal.md`](lua-transform-removal.md).
+Every layer above is still in [`compose.go`](../../internal/agentcfg/compose.go).)
 
 `managed` is a floor: a pack's own asserted keys win everything. `overlay` is the
 capture-diff sidecar — in-jail edits, carried across regeneration. Note that
@@ -593,9 +600,12 @@ deciding.
 `--to workspace` is out of scope **as a decision, not a wait** — but it could not
 have been built here in any case, because three separate pieces are missing: the
 `workspace` layer has no config key (`agent_config` appears nowhere in
-`internal/config`), no producer sets `Inputs.Workspace` anywhere in the tree, and
-`render.Host` leaves it empty *by definition* (stated in `prism.go`'s
-`targetTransformScript`), so the destination could never reach the host at all.
+`internal/config`), no producer sets `Inputs.Workspace` anywhere in the tree
+([`compose.go`](../../internal/agentcfg/compose.go) is its only reader), and
+`render.Host` leaves it empty *by definition* — the docstring that stated so sat
+on `prism.go`'s `targetTransformScript`, which went with the Lua transform on
+2026-09-11 ([`lua-transform-removal.md`](lua-transform-removal.md)) — so the
+destination could never reach the host at all.
 Whoever wires that layer owns one argument this design will not pre-empt: the
 workspace config is **jail-writable**, and a layer an agent can edit sitting above
 the `host` layer must never be given a path to a real home.
@@ -794,9 +804,11 @@ is that yolo declines to read it.
    what the layers produce anyway — and keys that are **dead**: overridden where
    they already sit, so the move cannot help them. The overlay cannot hold a
    `computed` or `managed` key at all ([§5.4](#54-promotion-moves-a-key-down-the-stack)),
-   which leaves one dead class: a key the Lua `transform` rewrites, which
-   `narrowOverlay` does not see — its signature takes only the two owner layers
-   ([`staterender.go`](../../internal/agentcfg/staterender.go)). Redundant
+   and those two are what the shipped drop reads (`agentcfg.DeadOverlayKeys` over
+   `narrowOverlay`, [`promote.go`](../../internal/agentcfg/promote.go)). The one
+   dead class this step used to add — a key the Lua `transform` rewrote, which
+   `narrowOverlay` never saw — went with the transform on 2026-09-11
+   ([`lua-transform-removal.md`](lua-transform-removal.md)). Redundant
    is free and it is most of the noise: **re-measured 2026-09-12**, this
    development jail carries three captured top-level keys across three surfaces —
    `codex/config`'s `mcp_servers`, `mise/config`'s `tools`, `opencode/config`'s
@@ -960,7 +972,8 @@ once declared, and the user would see their value silently revert on the next bo
 having just been told it was promoted.
 
 **The class is much smaller than that framing suggests, and for the default
-destination it is empty.** Three facts:
+destination it is empty.** Three facts, of which the Lua removal has since made
+the second moot:
 
 1. **The overlay cannot hold a `computed` or `managed` leaf.** `narrowOverlay`
    strips both from the *accumulated* overlay on every boot, on both branches —
@@ -968,10 +981,10 @@ destination it is empty.** Three facts:
    [`staterender.go`](../../internal/agentcfg/staterender.go) —
    so a key promote reads from the overlay is, by construction, not one those
    layers claim.
-2. **A `transform`-overridden key never won at `overlay` either.** The Lua hook
-   runs after the whole fold, at both positions, so such a key is *dead* where it
-   sits, not *demoted* by the move — [§5.2](#52-what-it-does-in-order) step 2
-   drops it as dead before precedence is ever asked.
+2. ~~**A `transform`-overridden key never won at `overlay` either.**~~ **Moot
+   since 2026-09-11**, when the Lua transform was removed
+   ([`lua-transform-removal.md`](lua-transform-removal.md)): there is no such key
+   any more, and the argument rests on the fact either side of it.
 3. **What is left is another pack's `config-overlay` on the same key, ordered
    later** — and the conventional local pack folds **last**
    ([`config/packs.go`](../../internal/config/packs.go)), so for
@@ -999,8 +1012,8 @@ managed LAYER"* — it folds at the single `config-overlay` slot
 the local pack nor any `pack:<name>` that is not the surface's owner can write a
 managed block, and every shipped surface's owner is an embedded pack promote
 refuses to edit. For a surface a *user's own* pack declares, the block is writable
-by hand and stays that way: a one-keystroke path to outranking `computed` and
-`transform` would be used for exactly the reasons those layers exist.
+by hand and stays that way: a one-keystroke path to outranking `computed` would
+be used for exactly the reason that layer exists.
 
 ### 5.5 Where promote may run
 
@@ -1008,10 +1021,11 @@ The capture sidecar is at `<workspace>/.yolo/prism/`, which is a host directory 
 so the **host** can read a jail's captures without any channel. The destinations,
 however, are host-side files a jail cannot **write**. Stated precisely: the jail
 *reads* the local pack as a staged `:ro` copy at `/ctx/packs/local/` like any other
-pack ([`assemble.go`](../../internal/cli/run/assemble.go)), and the host's
-`config.lua` plus a filtered `config.jsonc` snapshot also cross
-([`inheritscope.go`](../../internal/cli/run/inheritscope.go),
-[`inheritscope.go`](../../internal/cli/run/inheritscope.go)); what no jail can do is write
+pack ([`assemble.go`](../../internal/cli/run/assemble.go)), and a filtered
+`config.jsonc` snapshot also crosses
+([`inheritscope.go`](../../internal/cli/run/inheritscope.go)) — the host's
+`config.lua` crossed here too until the Lua transform was removed on 2026-09-11
+([`lua-transform-removal.md`](lua-transform-removal.md)); what no jail can do is write
 anything under the host's `~/.config/yolo-jail/`, which is the boundary promote
 needs — a manifest is an input to composition, and an agent that could rewrite one
 in-jail could grant its own pack a host file on the next boot.
@@ -1339,12 +1353,12 @@ drop so there is nothing for a guard to catch; until then the archive
    jail, and relocating it to the host does not repair it).
 3. **The class is empty today and only a pack can populate it.** `host_management`
    governs the **host notch**, and `RenderHostPack` walks a pack's *own* surfaces
-   (`internal/entrypoint/hostrender.go:175`). A user's `host_files` entries are not
+   (`internal/entrypoint/hostrender.go`). A user's `host_files` entries are not
    pack surfaces — they are a user config key rendered **in the jail**
    (`internal/entrypoint/hostfiles.go`), yolo never writes the host's copy, and so
    there is no host-notch ownership question for them at all. `raw` is reachable
    (it is the default codec for any `host_files` entry whose destination is not
-   `.json`/`.toml`, `hostFileCodecFor`, `internal/config/hostfiles.go:205-211`),
+   `.json`/`.toml`, `hostFileCodecFor`, `internal/config/hostfiles.go`),
    but jail-side delivery is its job. No shipped pack declares a `raw`/`lines`
    surface.
 
@@ -1373,7 +1387,7 @@ prompt is structurally blind to.
 > **The one-way-door gate cannot see the most destructive case available.**
 > `confirmHostLosses` reads `EntryLosses`, defined as *"the NAMED-ENTRY casualties
 > of this render: an entry in a table like `mcpServers`"*
-> (`internal/entrypoint/hostrender.go:84-97`). A **keyless surface has no tables
+> (`HostRenderResult.EntryLosses`, `internal/entrypoint/hostrender.go`). A **keyless surface has no tables
 > and no named entries**, so `EntryLosses` is always empty for one,
 > `confirmHostLosses` returns *"nothing would be lost — no prompt"*, and the render
 > replaces the whole file **silently**. The gate is entry-shaped and a whole-file
@@ -1408,7 +1422,10 @@ After adoption, a removal is ordinary and reported, exactly as it is in a jail.
 ## 7. What this does not propose
 
 - **No change to the jail's precedence stack.** `defaults → host → workspace →
-  config-overlay → capture → computed → transform → managed` stays as it is.
+  config-overlay → capture → computed → managed` stays as it is (the Lua
+  `transform` layer this line also named was removed on 2026-09-11, by
+  [`lua-transform-removal.md`](lua-transform-removal.md) rather than by anything
+  here).
   [§5.4](#54-promotion-moves-a-key-down-the-stack) works *around* it deliberately
   rather than reordering it.
 - **No sealing-by-default.** Whether `apply --sealed` is a flag or the default is
@@ -1704,7 +1721,7 @@ the last three on 2026-09-11.
 | [`OQ-CO3`](#13-decision-ledger) | **Yes, host-side capture under `own` only** — and it is a precondition of adoption, not an added capability: capture-then-regenerate is what makes the first owned render reproduce the file. The refusal stays for `none` and `assert`. Reverses env-manager plan [`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)/[`OQ-5`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) — see [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications). | 2026-09-10 | [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to), [§6.3.1](#631-adoption-is-capture-then-regenerate) |
 | [`OQ-CO4`](#13-decision-ledger) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` (`internal/config/snapshot.go:81`) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) |
 | [`OQ-CO5`](#13-decision-ledger) | **Refuse-with-instructions in v1.** Design the jail→host request channel but do not build it until promote has been used enough to know which keys people actually promote — the transport is free, the consent prompt is what needs the evidence. | 2026-09-11 | [§5.5](#55-where-promote-may-run) |
-| [`OQ-CO6`](#13-decision-ledger) | **Refuse only, everywhere** — promote never offers the pack's `managed` block to a key that would lose precedence. For shipped surfaces nothing else is expressible (`managed` is owner-only and every owner is an embedded pack). For a user's own surface the friction is the point: a one-keystroke path to outranking `computed`/`transform` would be used for exactly the reasons those layers exist, so the managed block stays a hand edit. | 2026-09-11 | [§5.4](#54-promotion-moves-a-key-down-the-stack) |
+| [`OQ-CO6`](#13-decision-ledger) | **Refuse only, everywhere** — promote never offers the pack's `managed` block to a key that would lose precedence. For shipped surfaces nothing else is expressible (`managed` is owner-only and every owner is an embedded pack). For a user's own surface the friction is the point: a one-keystroke path to outranking `computed` would be used for exactly the reason that layer exists, so the managed block stays a hand edit. | 2026-09-11 | [§5.4](#54-promotion-moves-a-key-down-the-stack) |
 | [`OQ-CO7`](#13-decision-ledger) | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) |
 | [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) |
@@ -1716,6 +1733,6 @@ confirmation ([`OQ-CO3`](#13-decision-ledger)) — and in each case the replacem
 `assert` default, and `ComposeStateful`'s first-migration adoption.
 [§10](#10-what-i-would-build-in-order)'s step 1 is smaller for it, and its `own`
 step gains the host capture store it now depends on.
-| [OQ-CO9](#12-open-questions) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) |
-| [OQ-CO10](#12-open-questions) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) |
-| [OQ-CO11](#12-open-questions) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§12](#12-open-questions) |
+| [`OQ-CO9`](#13-decision-ledger) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) |
+| [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) |
+| [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§12](#12-open-questions) |

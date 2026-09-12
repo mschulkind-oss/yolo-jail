@@ -10,10 +10,12 @@ vantage:
 
 # One report, three readers — why `yolo host apply` says everything and tells you nothing
 
-**Status:** in-review, 2026-09-11. Nothing built. The line-by-line measurements were taken in
-this development jail at `48f47e56` on 2026-09-10, by running `yolo apply --at host` in its
-default dry run (it writes nothing) and reading the code behind each line; every claim about
-dependency handling was verified against the tree on 2026-09-11.
+**Status:** SHIPPED, 2026-09-12. All eight steps of [§9](#9-what-i-would-build-in-order) landed and
+all seven questions are ruled ([§11](#11-decision-ledger)). **Measured after the build, in this jail:
+the default report is 30 lines where it was 278**, and `--verbose` carries the 267-line detail view.
+The line-by-line measurements in [§2](#2-what-exists-today-measured) and [§3](#3-the-diagnosis) were
+taken at `48f47e56` on 2026-09-10 and describe the report the change ACTED ON, not today's; every
+claim about dependency handling was verified against the tree on 2026-09-11.
 
 > **In short.** The report states every fact and never states its **result**, so the reader is
 > left adding the lines up — and a missing dependency, the one finding that makes the rest of the
@@ -52,10 +54,11 @@ and [§4.8](#48-machine-consumers) extends its boundary from *verb* to *posture*
 [§2](#2-what-exists-today-measured) and [§3](#3-the-diagnosis) are the evidence that they are the
 right cut.
 
-**Needs your ruling:** [OQ-RO7](#11-decision-ledger).
+**Needs your ruling:** **None** — [`OQ-RO7`](#11-decision-ledger) closed 2026-09-11 and was the
+last of the seven ([§10](#10-open-questions)).
 
-**Reads with:** [`report-tiers-plan.md`](report-tiers-plan.md) (the implementation sketch —
-incomplete, and not a hand-off while it says SKETCH), [`perf-logging.md`](../reference/perf-logging.md) (D14,
+**Reads with:** [`report-tiers-plan.md`](report-tiers-plan.md) (the implementation sketch the build
+consumed), [`perf-logging.md`](../reference/perf-logging.md) (D14,
 the reservation this doc spends, and D12, whose typed-vs-inherited distinction it inherits),
 [`information-at-the-point-of-need.md`](../reference/information-at-the-point-of-need.md) (the
 principle [§4.6](#46-the-report-vocabulary-and-where-the-rationale-goes) applies in reverse).
