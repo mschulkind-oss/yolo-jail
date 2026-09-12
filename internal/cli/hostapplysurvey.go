@@ -124,10 +124,16 @@ type hostApplySurvey struct {
 	droppedFrom    map[string]bool
 	// skills is every skill this run touches, keyed by NAME (see skillFate).
 	skills map[string]skillFate
-	// deps is every declared dependency's state keyed by BINARY, plus a count of the
-	// contributions that named no binary at all — those cannot be deduplicated by one, and
-	// they are not missing either: they were never probed (§4.9 point 6).
-	deps        map[string]hostDepState
+	// commentSurfaces are the surfaces whose comments a canonical re-emit would drop — the
+	// one §4.4 loss class with no remedy possible, and the one the verdict used to be silent
+	// about while configResultTier was already counting it as a loss.
+	commentSurfaces map[string]bool
+	// deps is every declared dependency's FINDING keyed by BINARY — the probed state and,
+	// for a missing one, the remedy the tier-3 group states once (§4.4 groups a blocker by
+	// its remedy key, and for a dependency that key is the binary, across packs). depsNoBin
+	// counts the contributions that named no binary at all: those cannot be deduplicated by
+	// one, and they are not missing either — they were never probed (§4.9 point 6).
+	deps        map[string]hostDepFinding
 	depsNoBin   int
 	firstApply  bool
 	failedPacks []string
@@ -171,6 +177,13 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 	for _, e := range r.EntryLosses {
 		s.mark(&s.droppedEntries, entryLossName(e))
 		s.mark(&s.droppedFrom, r.Surface)
+	}
+	if len(r.Formatting) > 0 {
+		// The SURFACE is the unit §4.4 groups comment loss by, and the strings are not
+		// recorded: a comment is the user's prose, and §4.4's first forbidden thing is
+		// printing the user's own content back at them (a terminal transcript gets pasted
+		// into bug reports). The count and the file are the whole fact.
+		s.mark(&s.commentSurfaces, r.Surface)
 	}
 }
 
@@ -225,10 +238,15 @@ func (s *hostApplySurvey) noteSkill(name string, fate skillFate) {
 	}
 }
 
-// noteDep records one declared dependency's probed state, keyed by binary so two packs
-// declaring `rg` are one dependency on one host. A contribution naming no binary is counted
-// separately: it has no key to deduplicate by, and it is NOT missing — nothing probed it.
-func (s *hostApplySurvey) noteDep(state hostDepState, bin string) {
+// noteDep records one declared dependency's finding, keyed by binary so two packs declaring
+// `rg` are one dependency on one host with one remedy. A contribution naming no binary is
+// counted separately: it has no key to deduplicate by, and it is NOT missing — nothing probed
+// it.
+//
+// The WORSE state wins, and at equal states the finding that carries a remedy does: two packs
+// can declare one binary with different install hints, and a group that states "no remedy"
+// while a selected pack declares one would send the reader to fix a manifest that is fine.
+func (s *hostApplySurvey) noteDep(bin string, f hostDepFinding) {
 	if s == nil {
 		return
 	}
@@ -237,10 +255,14 @@ func (s *hostApplySurvey) noteDep(state hostDepState, bin string) {
 		return
 	}
 	if s.deps == nil {
-		s.deps = map[string]hostDepState{}
+		s.deps = map[string]hostDepFinding{}
 	}
-	if cur, seen := s.deps[bin]; !seen || state > cur {
-		s.deps[bin] = state
+	cur, seen := s.deps[bin]
+	switch {
+	case !seen, f.State > cur.State:
+		s.deps[bin] = f
+	case f.State == cur.State && cur.Remedy == "" && f.Remedy != "":
+		s.deps[bin] = f
 	}
 }
 
@@ -329,8 +351,8 @@ func (s *hostApplySurvey) Deps() (present, missing, notProbed int) {
 	if s == nil {
 		return 0, 0, 0
 	}
-	for _, st := range s.deps {
-		switch st {
+	for _, f := range s.deps {
+		switch f.State {
 		case depPresent:
 			present++
 		case depMissing:
@@ -350,10 +372,56 @@ func (s *hostApplySurvey) MissingDeps() []string {
 		return nil
 	}
 	var out []string
-	for bin, st := range s.deps {
-		if st == depMissing {
+	for bin, f := range s.deps {
+		if f.State == depMissing {
 			out = append(out, bin)
 		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// MissingDepFinding returns the finding for one missing binary — the remedy the tier-3 group
+// states once. Looked up by name rather than returned with MissingDeps so the sorted name list
+// stays the one authority on WHICH binaries are missing.
+func (s *hostApplySurvey) MissingDepFinding(bin string) hostDepFinding {
+	if s == nil {
+		return hostDepFinding{}
+	}
+	return s.deps[bin]
+}
+
+// ReplacedKeyNames lists the managed keys that would overwrite a value of the user's, sorted.
+// The NAMES, because §4.4 forbids a default view that drops a name from a loss group — and the
+// user's own VALUES are never printed, at any verbosity, which is that section's other
+// forbidden thing.
+func (s *hostApplySurvey) ReplacedKeyNames() []string { return sortedSet(s, s.replacedKeys) }
+
+// DroppedEntryNames lists the named-table entries that would be dropped, sorted and
+// deduplicated across agents (see entryLossName for why the raw strings cannot be the unit).
+func (s *hostApplySurvey) DroppedEntryNames() []string { return sortedSet(s, s.droppedEntries) }
+
+// DroppedComments is §4.4's comment class: how many surfaces would lose a comment. A loss with
+// no remedy possible, and the one the verdict had no term for.
+func (s *hostApplySurvey) DroppedComments() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.commentSurfaces)
+}
+
+// CommentSurfaces names those surfaces, sorted.
+func (s *hostApplySurvey) CommentSurfaces() []string { return sortedSet(s, s.commentSurfaces) }
+
+// sortedSet is the one nil-safe reader for the survey's name sets: a sorted list is the only
+// form a report can print twice and get the same answer.
+func sortedSet(s *hostApplySurvey, set map[string]bool) []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
 	}
 	sort.Strings(out)
 	return out

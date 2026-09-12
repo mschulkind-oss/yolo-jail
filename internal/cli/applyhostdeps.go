@@ -46,13 +46,6 @@ import (
 // order instead of depcheck's sorted-by-bin order.
 type hostDeps struct {
 	byBin map[string]depcheck.Result
-	// remaining counts the dep contributions not yet reported, and sawMissing whether
-	// any of them was missing. Together they place the "apply installs nothing" note once,
-	// after the LAST dep line: the deferral is a property of the COMMAND, not of a dep,
-	// so repeating it under every missing binary is noise and printing it under the first
-	// one wedges it between two dep lines.
-	remaining  int
-	sawMissing bool
 }
 
 // hostDepState is the three-way answer about one declared dependency, and THREE is the point:
@@ -103,11 +96,6 @@ func isDepKind(k packdecl.Kind) bool {
 // packs that declare no host dep at all.
 func resolveHostDeps(p *packload.Pack) *hostDeps {
 	h := &hostDeps{byBin: map[string]depcheck.Result{}}
-	for _, c := range p.Decl.Contributions() {
-		if isDepKind(c.Kind) {
-			h.remaining++
-		}
-	}
 	reqs := packDepRequirements(p)
 	if len(reqs) == 0 {
 		return h
@@ -136,32 +124,64 @@ func packDepRequirements(p *packload.Pack) []depcheck.Requirement {
 	return reqs
 }
 
-// lines returns the `yolo host apply` report line(s) for one program/requires contribution: its
-// resolved present/missing state, plus — on the pack's LAST dep contribution, if any were
-// missing — the note that apply only reports them. Always at least one line, including
-// for the malformed cases: a declared kind that produces no output at all is the G1 failure
-// mode the caller's census loop exists to prevent.
-func (h *hostDeps) lines(c packdecl.Contribution) []string {
-	h.remaining--
-	out := h.depLines(c)
-	// The note belongs to the whole dep block, so it trails the last line of it — and
-	// only when there is a deferred install to talk about.
-	if h.remaining <= 0 && h.sawMissing {
-		out = append(out, "    [dim]host apply reports host deps; it installs nothing. The "+
-			"confirm-gated install is env-manager plan Phase 4.3.[/dim]")
-	}
-	return out
+// hostDepFinding is everything one declared binary contributes to the report: the probed
+// state, and — for a missing one — the REMEDY, which is now the tier-3 group's to state
+// (docs/design/report-tiers.md §4.4, §9 step 4) rather than this line's.
+//
+// The split is the step. §4.4 groups a blocker by its remedy key, and for a dependency the key
+// is the BINARY, across packs: two packs declaring `rg` are one missing dependency on one host
+// with one install command, and printing the command under each declaration is the same
+// remedy-per-emitter repetition the MCP line had three copies of. So the per-contribution line
+// keeps what varies per contribution — which kind asked, which binary, present or missing —
+// and the command, its package-manager alternative, and the reason there is none travel to the
+// group through this struct.
+type hostDepFinding struct {
+	// State is the three-way answer (see hostDepState).
+	State hostDepState
+	// Remedy is the install command depcheck resolved for the detected manager, or "" when
+	// nothing covers it. Empty for a present or unprobed dep, which need no remedy.
+	Remedy string
+	// Alt is the package-manager alternative, present only when Remedy is the tool's OWN
+	// installer. Second rather than first because a first-party installer carries a
+	// first-party updater while a distro package pins whatever that repo has.
+	Alt string
+	// NoRemedy is why a missing binary has none, when Remedy is empty. §4.4: a loss with no
+	// remedy says so rather than borrowing a `⚠` it cannot cash.
+	NoRemedy string
 }
 
-// depLines is the verdict for one dep contribution, and it always produces at least one
-// line: the malformed cases report why they could not be probed rather than going quiet. A
-// second line appears only for the package-manager alternative to a pack's own installer.
+// finding resolves one dep contribution into the struct above. It is the ONE place the probe's
+// answer becomes report material, so the line, the survey's counts and the group's remedy are
+// three renderings of one fact rather than three readings of the probe.
+func (h *hostDeps) finding(c packdecl.Contribution) hostDepFinding {
+	f := hostDepFinding{State: h.state(c)}
+	if f.State != depMissing {
+		return f
+	}
+	r := h.byBin[c.Bin]
+	if r.Remedy == "" {
+		// Missing with no remedy is still missing. Reporting only the deps yolo can fix would
+		// silently cap the list at whatever the pack declared hints for — the same
+		// no-silent-skip rule the kind census enforces one level up.
+		f.NoRemedy = noRemedyReason(c, r.Manager)
+		return f
+	}
+	f.Remedy = r.Remedy
+	if r.Fallback != "" {
+		f.Alt = fmt.Sprintf("or via %s: %s", r.Manager, r.Fallback)
+	}
+	return f
+}
+
+// depLine is the per-contribution line for one dep, and there is always exactly one: the
+// malformed cases report why they could not be probed rather than going quiet, which is the G1
+// failure mode the caller's kind census exists to prevent.
 //
 // The kind is printed from the contribution rather than hardcoded, because `program` and
 // `requires` share this reporting path and the difference matters to the reader: one means
 // "yolo would install this into a jail", the other "this must already exist". Same probe,
 // different claim.
-func (h *hostDeps) depLines(c packdecl.Contribution) []string {
+func (h *hostDeps) depLine(c packdecl.Contribution) string {
 	label := string(c.Kind)
 	r := h.byBin[c.Bin]
 	switch h.state(c) {
@@ -169,35 +189,19 @@ func (h *hostDeps) depLines(c packdecl.Contribution) []string {
 		if c.Bin == "" {
 			// `bin` is required for both kinds, so there is nothing to probe — but "your
 			// manifest is broken" is a better answer than silence.
-			return []string{fmt.Sprintf("  [yellow]%-10s[/yellow] declares no \"bin\" — nothing to "+
-				"probe; `yolo pack lint` explains why", label)}
+			return fmt.Sprintf("  [yellow]%-10s[/yellow] declares no \"bin\" — nothing to "+
+				"probe; `yolo pack lint` explains why", label)
 		}
 		// Defensive: DepRequirements returns every program/requires carrying a Bin, so this
 		// is unreachable unless the two diverge. Report it rather than dropping the line.
-		return []string{fmt.Sprintf("  [yellow]%-10s[/yellow] [yellow]?[/yellow] %-16s not probed",
-			label, c.Bin)}
+		return fmt.Sprintf("  [yellow]%-10s[/yellow] [yellow]?[/yellow] %-16s not probed",
+			label, c.Bin)
 	case depPresent:
-		return []string{fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s present at %s",
-			label, r.Bin, r.Path)}
+		return fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s present at %s",
+			label, r.Bin, r.Path)
 	}
-	h.sawMissing = true
-	if r.Remedy != "" {
-		out := []string{fmt.Sprintf("  [yellow]%-10s[/yellow] [red]✗[/red] %-16s MISSING → %s",
-			label, r.Bin, r.Remedy)}
-		// The package-manager alternative, when the primary remedy is the tool's OWN
-		// installer. Second, not first: a first-party installer carries a first-party
-		// updater, while a distro package pins whatever that repo has (github-copilot-cli
-		// was 16 nixpkgs releases behind when this was measured).
-		if r.Fallback != "" {
-			out = append(out, fmt.Sprintf("    [dim]or via %s: %s[/dim]", r.Manager, r.Fallback))
-		}
-		return out
-	}
-	// Missing with no remedy is still missing. Reporting only the deps yolo can fix would
-	// silently cap the list at whatever the pack declared hints for — the same no-silent-skip
-	// rule the caller's kind census enforces one level up.
-	return []string{fmt.Sprintf("  [yellow]%-10s[/yellow] [yellow]?[/yellow] %-16s MISSING, %s",
-		label, r.Bin, noRemedyReason(c, r.Manager))}
+	// MISSING, and nothing else: the remedy is the tier-3 group's, stated once per binary.
+	return fmt.Sprintf("  [yellow]%-10s[/yellow] [red]✗[/red] %-16s MISSING", label, c.Bin)
 }
 
 // noRemedyReason explains WHY a missing bin has no install line, which is two different

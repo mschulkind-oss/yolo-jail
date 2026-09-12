@@ -244,6 +244,18 @@ func hostApplyCounts(s *hostApplySurvey, write bool) []string {
 		}
 		cost = append(cost, dep)
 	}
+	if n := s.DroppedComments(); n > 0 {
+		// §4.4's other no-remedy class, and the one the verdict was silent about: a dropped
+		// comment already counted as a tier-3 loss (configResultTier) with no term anywhere
+		// in this block, so the one class whose loss cannot be undone was the one a reader
+		// of the last line could miss entirely.
+		verb := "would lose"
+		if write {
+			verb = "lost"
+		}
+		cost = append(cost, fmt.Sprintf("%d %s %s comments of yours", n,
+			plural(n, "surface", "surfaces"), verb))
+	}
 	if s.FirstApply() {
 		// The flag, not a count: it is what turns every loss above into a confirmation
 		// prompt on --assert, so a reader seeing losses needs to know which side of the

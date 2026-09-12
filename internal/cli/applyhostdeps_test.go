@@ -96,8 +96,16 @@ func TestApplyHostPrefersThePacksOwnInstaller(t *testing.T) {
 		`{"kind":"program","bin":"curltool","via":"installer","url":"https://example/i.sh"}`)
 
 	// The npm program: its own `npm install -g` leads; the apt hint trails as an alternative.
-	if !strings.Contains(report, "MISSING → npm install -g @org/npmtool") {
-		t.Errorf("an npm program's remedy should be its OWN npm install:\n%s", report)
+	//
+	// ONCE, not merely present. The remedy left the per-contribution line for the tier-3
+	// group when report-tiers.md §9 step 4 landed — §4.4 groups a blocker by its remedy key,
+	// and for a dependency the key is the BINARY across packs, so the command is stated once
+	// however many packs declare it. Counting is what keeps that true: the assertion this
+	// replaced was a Contains on "MISSING → <cmd>", which passed just as well when every
+	// declaration carried its own copy.
+	if n := strings.Count(report, "npm install -g @org/npmtool"); n != 1 {
+		t.Errorf("an npm program's remedy should be its OWN npm install, stated once; got %d:\n%s",
+			n, report)
 	}
 	if !strings.Contains(report, "or via apt: sudo apt install -y npmtool-apt") {
 		t.Errorf("the package-manager hint should remain as a secondary line:\n%s", report)
@@ -110,8 +118,9 @@ func TestApplyHostPrefersThePacksOwnInstaller(t *testing.T) {
 	// The installer program: the curl-to-shell command, printed as a suggestion the USER
 	// runs. yolo must not run it — that is env-manager Phase 4.3's confirm-gated territory,
 	// and the report says as much.
-	if !strings.Contains(report, "MISSING → curl -fsSL https://example/i.sh | sh") {
-		t.Errorf("an installer program's remedy should be its own curl-to-shell line:\n%s", report)
+	if n := strings.Count(report, "curl -fsSL https://example/i.sh | sh"); n != 1 {
+		t.Errorf("an installer program's remedy should be its own curl-to-shell line, stated "+
+			"once; got %d:\n%s", n, report)
 	}
 	if !strings.Contains(report, "installs nothing") {
 		t.Errorf("the report must still say yolo runs none of these:\n%s", report)

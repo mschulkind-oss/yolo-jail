@@ -202,6 +202,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		if wrc := applyHostWrappers(pr, errw, home, nil, write, survey); wrc != 0 {
 			rc = wrc
 		}
+		// THE TIER-3 GROUPS, HERE TOO. This branch can retire content, and §4.4's rule is
+		// that no default view omits a loss — a branch that cannot currently produce one
+		// must still be a caller, or the first loss it learns to produce is silent.
+		printRemedyGroups(pr, hostApplyRemedyGroups(survey, home, write))
 		// THE VERDICT, HERE TOO. This branch returns before the tail below, so an empty
 		// `packs` ended with no count, no verdict and no "nothing written" line at all
 		// (§5's first hole, verified 2026-09-11) — the one posture in which the reader has
@@ -377,8 +381,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// See confirmHostLosses for the three properties that make it not-noise.
 	if write && !confirmHostLosses(pr, out, stdin, loaded, home, overlays) {
 		pr.Printf("[bold red]host apply: not confirmed — nothing was written.[/bold red]")
-		pr.Printf("[dim]Re-run and answer `y`, or declare the entries above in your config " +
-			"(`mcp_servers`, reaching every agent) so nothing is lost.[/dim]")
+		// ONE remedy string, read here and at the two other places this sentence used to be
+		// written out (the per-surface loss line and confirmHostLosses' own trailer). The
+		// three had drifted — see hostapplyremedy.go.
+		pr.Printf("[dim]Re-run and answer `y`, or keep them: %s.[/dim]", mcpEntryRemedy(home))
 		return 1
 	}
 
@@ -409,19 +415,19 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			if !isDepKind(c.Kind) || !hostFields.Honors(c.Kind) {
 				continue
 			}
-			// The probe's answer reaches the VERDICT, not just this line. A missing declared
-			// dependency is the finding that makes the rest of the apply pointless (§4.9), and
-			// until this call it changed neither the exit code nor the roll-up — it was a line
-			// in the middle of 277 of them.
-			survey.noteDep(deps.state(c), c.Bin)
+			// The probe's answer reaches the VERDICT and the tier-3 group, not just this line.
+			// A missing declared dependency is the finding that makes the rest of the apply
+			// pointless (§4.9), and until this call it changed neither the exit code nor the
+			// roll-up — it was a line in the middle of 277 of them. The REMEDY rides along
+			// because §4.4 groups a blocker by its remedy key, and for a dependency that key
+			// is the binary: two packs declaring `rg` are one missing dependency with one
+			// install command, stated once below.
+			survey.noteDep(c.Bin, deps.finding(c))
 			// program AND requires: resolved dep state, not a static "confirm-gated" line —
-			// which bin, present or missing, and the install command
-			// (pack-host-management-plan.md Phase 8). Running it is still Phase 4.3's.
-			// `requires` shares this path because below the jail notch the two kinds ask the
-			// host the same question; the line names which kind asked.
-			for _, l := range deps.lines(c) {
-				pr.Printf("%s", l)
-			}
+			// which kind asked, which bin, present or missing
+			// (pack-host-management-plan.md Phase 8). `requires` shares this path because
+			// below the jail notch the two kinds ask the host the same question.
+			pr.Printf("%s", deps.depLine(c))
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
 			rc = frc
@@ -479,8 +485,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 				if write {
 					verb = "damaged"
 				}
-				pr.Printf("    [bold yellow]⚠ %s your existing entry: %s[/bold yellow] [dim]"+
-					"(yolo owns this table; declare the entry under `mcp_servers` to keep it)[/dim]",
+				// The REMEDY is not here any more: this line fires once per surface, and the
+				// same three servers dropped from three agents produced three copies of one
+				// fix (§3.3). The fix is stated once, for every entry that shares it, in the
+				// tier-3 group below (hostapplyremedy.go). What stays is the fact that is
+				// true of THIS surface — yolo owns this table, so an undeclared entry goes.
+				pr.Printf("    [bold yellow]⚠ %s your existing entry: %s[/bold yellow] "+
+					"[dim](yolo owns this table)[/dim]",
 					verb, strings.Join(r.EntryLosses, ", "))
 			}
 			// The ${workspace}-keyed keys this render DROPPED, by name. A pruned key is a
@@ -547,6 +558,16 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	if wrc := applyHostWrappers(pr, errw, home, loaded, write, survey); wrc != 0 {
 		rc = wrc
 	}
+
+	// THE TIER-3 GROUPS (report-tiers.md §4.4, §9 step 4): every loss and blocker this run
+	// found, grouped by the FIX rather than by the emitter that noticed it, each group stating
+	// its remedy once and every group represented in the verdict below. See
+	// hostapplyremedy.go.
+	//
+	// After every stage that can produce one — the render loop, skills, briefings, the retire
+	// passes — because a group is a property of the whole run: three surfaces dropping one
+	// server is one fix, and nothing can say so until the third surface has been visited.
+	printRemedyGroups(pr, hostApplyRemedyGroups(survey, home, write))
 
 	if !write {
 		// THE DESTINATION ROLL-UP, and it is the point of the change predicate at this surface:
@@ -643,9 +664,9 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			pr.Printf("    [yellow]%s[/yellow]", k)
 		}
 	}
-	pr.Printf("[dim]yolo regenerates the keys it manages wholesale, so anything above that " +
-		"is not in your config is dropped. To KEEP an entry, declare it (an MCP server goes " +
-		"under `mcp_servers`, reaching every agent) and re-run.[/dim]")
+	pr.Printf("[dim]yolo regenerates the keys it manages wholesale, so anything above that "+
+		"is not in your config is dropped. To KEEP them: %s — then re-run.[/dim]",
+		mcpEntryRemedy(home))
 	return promptYesNo(out, stdin, "  Proceed and replace the values above? [y/N] ")
 }
 
