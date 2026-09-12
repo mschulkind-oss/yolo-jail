@@ -11,10 +11,22 @@ package agentcfg
 // skips capture. B1 inverted it — it now ADOPTS the on-disk file — and the
 // docstrings below describe the body as it stands, not as §3.2 wrote it.
 //
-// It stays PURE — no file I/O, no container. The callers (internal/entrypoint's
-// boot path and internal/cli's `config diff`) read the two sidecars and the
-// current surface file, hand their bytes here, and write back what
-// StatefulOutput says to write.
+// It stays PURE — no file I/O, no container. Each caller reads the two sidecars
+// and the current surface file, hands their bytes here, and writes back the part
+// of StatefulOutput its job needs:
+//
+//   - internal/entrypoint's boot path (prism.go) is the full one — surface file,
+//     last_render and overlay, three writes every boot.
+//   - internal/cli's CAPTURE path (captureSurfaceAt, configdiff.go — behind
+//     `yolo config capture` and the capture-on-terminate fold in
+//     configcapture.go) writes ONLY the overlay sidecar. It is here to reuse the
+//     engine's capture diff rather than grow a second one that could disagree
+//     with the boot render; the surface file and last_render stay the boot's to
+//     write.
+//
+// `yolo config diff` is NOT a caller: it reports the overlay sidecar's own content
+// and deliberately does not re-compose (configDiff's docstring says why).
+//
 // Keeping the state machine here means the hard parts — first-migration
 // detection, the §3.3 defensive handling of dangling/corrupt sidecars, and the
 // diff/accumulate/render loop — are unit-tested with zero filesystem, and it
@@ -110,9 +122,10 @@ type StatefulInputs struct {
 }
 
 // StatefulOutput is the render plus the two sidecar values the caller must
-// persist. The caller writes Result.Encoded to the surface path,
+// persist. The BOOT caller writes Result.Encoded to the surface path,
 // LastRenderBytes to the last_render sidecar, and OverlayJSON to the overlay
-// sidecar — three writes, unconditionally, every boot.
+// sidecar — three writes, unconditionally, every boot. The capture path writes
+// OverlayJSON alone (see the file header).
 type StatefulOutput struct {
 	// Result is the composed surface (compose.go Result): Config, Encoded bytes,
 	// Excluded stage globs, Provenance.
@@ -216,11 +229,13 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 				curMap, _ := current.(map[string]any)
 				residue := dropNullLeaves(mergeDiff(pm, curMap))
 				// Narrowing the residue takes TWO passes at DIFFERENT GRANULARITIES,
-				// and the order is load-bearing.
+				// and neither subsumes the other.
 				//
 				// (a) WHOLESALE, here: a top-level key the COMPUTED layer holds as an
-				// object is a table yolo regenerates in full, so nothing on disk under
-				// it is agent state (dropComputedTables).
+				// object is a table yolo regenerates in full, so what sits under it on
+				// disk is taken to be yolo's own previous output rather than a captured
+				// edit (dropComputedTables — read its docstring for where that reading is
+				// too coarse, and what it costs).
 				//
 				// (b) LEAF-LEVEL, after this branch: the SHARED narrowing both branches
 				// run (narrowOverlay), which is the exact dual of the merge each owning
@@ -309,8 +324,11 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		return nil, err
 	}
 
-	// The overlay sidecar to persist. Marshal deterministically; on a first
-	// migration this is the empty object so steady-state capture starts clean.
+	// The overlay sidecar to persist. Marshal deterministically. On a first
+	// migration this is the ADOPTED residue, not `{}` — that was the pre-B1 rule,
+	// and the whole point of B1 is that the residue is the only surviving record of
+	// the agent-owned keys the file held (StatefulOutput.OverlayJSON). It is `{}`
+	// only when the file held nothing beyond what yolo already asserts.
 	overlayJSON, err := marshalOverlay(overlay)
 	if err != nil {
 		return nil, fmt.Errorf("agentcfg: surface %s/%s: marshal overlay: %w",
@@ -350,10 +368,22 @@ func decodeKind(c codec.Codec, kind codec.Kind, data []byte) (any, bool) {
 
 // dropComputedTables removes from an adopted first-migration residue every
 // top-level key the COMPUTED layer holds as an OBJECT — a table yolo regenerates
-// in full every boot. Nothing on disk under such a key is agent state: it is
-// yolo's own output from a previous boot, and on a first migration this is the
-// only signal that says so, because last_render — which normally disambiguates
-// them — is exactly what is missing.
+// in full every boot. The bet it makes is that such a key is yolo's own output
+// from a previous boot rather than agent state, and on a first migration the
+// computed layer's SHAPE is the only signal available to make it: last_render —
+// which normally disambiguates the two — is exactly what is missing.
+//
+// THE BET IS KEY-LEVEL AND THE COMPUTED LAYER IS NOT, so it over-drops whenever a
+// derive returns an object it only partly fills in. ⚠ claude/settings is the live
+// case, measured against the shipped pack: packs/claude/derive.lua returns `env`
+// and `enabledPlugins` as objects while asserting only its own leaves inside them
+// (ENABLE_LSP_TOOL, the three LSP plugin ids), so an adopting boot drops the
+// agent's OTHER env vars and the user's OTHER enabled plugins wholesale — the same
+// two-branches-disagree loss the `permissions` fix below closed, one key over on
+// the same file. It is PRE-EXISTING, not a regression: the blanket pure-render drop
+// this replaced took both keys too. Closing it needs a leaf-level signal this
+// function does not have (which leaves under a computed table the derive actually
+// asserted), so the boundary is stated here rather than papered over.
 //
 // Without it, adoption resurrects dropped yolo-owned entries and breaks §2
 // principle 1 ("regenerate, don't reconcile"): an MCP server removed from config

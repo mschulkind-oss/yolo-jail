@@ -564,9 +564,15 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 //   - ONLY WHEN SOMETHING IS ACTUALLY LOST. Gated on FirstApply && EntryLosses — a clean
 //     home, or any home yolo has asserted before, prompts not at all. A confirmation that
 //     fires on every run trains people to hit `y` without reading, which is worse than no
-//     gate. NOT `Overwrites`, which is the WIDER field beside it: an overwrite is a scalar
-//     whose value changes, so gating on it would fire the prompt on every scalar flip —
-//     exactly the every-run confirmation this property refuses. See the loop below, and
+//     gate. NOT `Overwrites` — and the relation is not containment either way, because the
+//     two read DIFFERENT LAYERS (hostrender.go): `Overwrites` walks the MANAGED and OVERLAY
+//     layers against the existing file key by key, `EntryLosses` walks the wholesale TABLE
+//     layer against it entry by entry, and the managed half has the table keys stripped out
+//     of it before it is walked. So swapping the gate would be wrong in both directions at
+//     once. It would fire on every scalar flip — exactly the every-run confirmation this
+//     property refuses — AND it would miss the one-way door it exists for: an `mcpServers`
+//     entry dropped for not being declared is asserted by no layer `Overwrites` reads, so
+//     `EntryLosses` is the only field that names it. See the loop below, and
 //     HostRenderResult.EntryLosses for why the two are split.
 //   - OBSERVE NEVER REACHES HERE (the caller checks `write`). A dry-run writes nothing, so
 //     there is nothing to confirm; it just reports the same collisions as ⚠ lines, which is
