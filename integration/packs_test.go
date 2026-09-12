@@ -286,6 +286,24 @@ func packHome(t *testing.T, userConfig string) {
 	isolateHome(t, userConfig)
 }
 
+// stubHostBins prepends a temp dir holding an executable stub per name to the PATH this test
+// process — and so every host `yolo` it spawns — resolves against.
+//
+// PREPENDED rather than replacing PATH: the host CLI still has to find podman, nix and a shell.
+// Its unit-test twin is internal/cli's stubDeclaredBins, and it exists for the same reason
+// stated there: a host dependency now decides an exit code, so a fixture that leaves it to the
+// machine passes in a development jail and fails on CI.
+func stubHostBins(t *testing.T, names ...string) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, n := range names {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 // ambientHome is the ESCAPE HATCH: it hands HOME back to the machine's own, for a test
 // that genuinely wants whatever ~/.config/yolo-jail/config.jsonc the machine has.
 //
@@ -445,6 +463,12 @@ func TestHostComposedBriefingIsNotDeliveredTwice(t *testing.T) {
 
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
+	// The claude pack declares `program claude`, and since the dependency gate landed a
+	// declared binary that is MISSING refuses a writing host apply outright
+	// (docs/design/report-tiers.md §4.9). Whether the machine running the suite has an agent
+	// CLI installed is not this test's subject and must not decide its result: a developer
+	// jail has all six and a CI runner has none.
+	stubHostBins(t, "claude")
 
 	// The host notch first: this is what makes ~/.claude/CLAUDE.md yolo's own output rather
 	// than the user's file, and it is the precondition the bug needs.
