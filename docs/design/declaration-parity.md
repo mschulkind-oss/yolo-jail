@@ -3,16 +3,18 @@ title: "One declaration, many mechanisms — and the four inputs that decide whi
 date: 2026-09-12
 status: in-review
 tags: [confinement, notches, backends, macos-user, guest, parity, silent-drop]
-summary: "The maintainer's principle already holds where it is built: `packages:` ships three mechanisms behind one key. But it quantifies over a composed primitive vector, not over a backend, and that vector has FOUR inputs — notch, mechanism, platform, and entry point — of which the tree names one. This is the catalog of every declaration a site accepts and does not honor, sorted into four dispositions, with the six questions that settle most of it."
+summary: "The maintainer's principle already holds where it is built: `packages:` ships three mechanisms behind one key. But it quantifies over a composed primitive vector, not over a backend, and that vector has FOUR inputs — notch, mechanism, platform, and which verb is running — of which two are now named, one is a plain word, and one is deliberately nameless. This is the catalog of every declaration a site accepts and does not honor, sorted into four dispositions. Four of its six questions were ruled in review on 2026-09-12; two remain live."
 vantage:
   status-chip: true
 ---
 
 # One declaration, many mechanisms — and the four inputs that decide which one runs
 
-**Status:** DESIGN + CATALOG, 2026-09-12. Nothing built. Every code claim below was
-re-verified against the tree on 2026-09-12 at `55a77e79`, by symbol; three sweep rows
-that the tree contradicts are corrected in [§9](#9-where-the-sweep-was-wrong).
+**Status:** DESIGN + CATALOG, amended 2026-09-12 after review. Nothing built.
+[OQ-DP1](#decision-ledger) through [OQ-DP4](#decision-ledger) are ruled and compacted; two
+questions remain live. Every code claim below was re-verified against the tree on 2026-09-12 at
+`55a77e79`, by symbol; three sweep rows that the tree contradicts are corrected in
+[§9](#9-where-the-sweep-was-wrong).
 
 > **In short.** The principle holds, and the tree proves it — but it quantifies over a
 > composed **primitive vector**, not over a backend, and that vector is computed from
@@ -28,22 +30,23 @@ merely omit: they make the agent's own briefing assert the opposite of what ran.
 ([§3](#3-the-four-dispositions-and-how-to-walk-the-catalog)), and a catalog keyed on
 `(declaration × site)` rather than on a backend.
 
-**Cost.** Six rulings. Two are one-call-site edits, one is roughly ten lines, one is a
-delivery mechanism that does not exist, and two decide the vocabulary and the disclosure
-shape for everything else. Nothing here builds the `guest` notch.
+**Cost.** Of the four rulings landed on 2026-09-12: one is free (vocabulary), one is a
+threading change, one is roughly ten lines, and one is a delivery mechanism that does not
+exist. The two live questions decide the disclosure shape for everything else and one
+host-exec call. Nothing here builds the `guest` notch.
 
 **Start at [§5](#5-silently-broken)** — the bucket that is a defect whichever way the
 principle is settled.
 
-**Needs your ruling:** [OQ-DP1](#OQ-DP1), [OQ-DP2](#OQ-DP2), [OQ-DP3](#OQ-DP3),
-[OQ-DP4](#OQ-DP4), [OQ-DP5](#OQ-DP5), [OQ-DP6](#OQ-DP6).
+**Needs your ruling:** [OQ-DP5](#OQ-DP5), [OQ-DP6](#OQ-DP6). The other four were ruled on
+2026-09-12 and live in the [Decision Ledger](#decision-ledger).
 
 **Reads with:** [`backend-parity.md`](backend-parity.md) (the same idea on ONE input; it owns
 the backend census and its own questions, which this doc does not re-open),
 [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) (the authority
 for every macos-user row), [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (its
-[§5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one) contradicts
-`render.refusalReasons` — that is [OQ-DP4](#OQ-DP4)),
+[§5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one) contradicted
+`render.refusalReasons`, and [OQ-DP4](#decision-ledger) ruled in its favour),
 [`environment-manager-plan.md`](../plans/environment-manager-plan.md) (Phase 7, the only
 unbuilt phase), [`host-render-target.md`](host-render-target.md) (`render.FieldSet`, the
 per-notch census this generalises).
@@ -53,8 +56,9 @@ per-notch census this generalises).
 > maintainer asked for — are catalogued exhaustively. Apple Container appears only as
 > PRECEDENT or CONTRAST, because [`backend-parity.md`](backend-parity.md) owns it; podman and
 > the `host` notch appear where they are load-bearing. *"Mechanism"* in the title is the
-> maintainer's own word from the principle below, not this doc's answer to
-> [OQ-DP1](#OQ-DP1) — though [§2.6](#26-what-to-call-the-second-input) does have one.
+> maintainer's own word from the principle below, and since [OQ-DP1](#decision-ledger) it is
+> this doc's word for the second input too
+> ([§2.6](#26-the-two-words-and-why-the-pair-is-not-named)).
 
 ---
 
@@ -116,10 +120,10 @@ clause of the principle, not an exception to it.
 | Term | Status | What it is, and what it is not |
 | :--- | :--- | :--- |
 | **notch** | existing | `jail` / `guest` / `host` — the confinement dial. `render.Kind`, `config.Confinement`. NOT a runtime. |
-| **mechanism** | **promoted here** | `podman` / `container` (Apple Container) / `macos-user`. Already the parameter name in `cli.confinementProfile`; this doc promotes it from a parameter to the term. Elsewhere in the tree it is spelled "backend" or "runtime". NOT settled — see [OQ-DP1](#OQ-DP1). |
-| **primitive vector** | **promoted here** | the composed set a notch and mechanism yield: `PrimNamespaces`, `PrimVM`, `PrimSeatbelt`, `PrimLandlock`, `PrimSeparateUser`, `PrimBakedImage` (`render.PrimitiveOrder`). It is what P1 quantifies over. NOT a config surface — only the three named presets are selectable. |
-| **entry point** | *(coined here)* | which verb is running: `yolo -- cmd`, `yolo apply`, `yolo host -- cmd`, `yolo config diff`. It has no name in the tree today and it is a real axis ([§2](#2-four-inputs-not-two-axes)). |
-| **site** | *(coined here)* | one combination of the four inputs — the thing a declaration is honored or not honored AT. `(declaration × site)` is the catalog's key. NOT a synonym for "backend": `yolo apply` at `guest` and `yolo -- cmd` at `guest` are two sites. |
+| **mechanism** | existing, promoted | `podman` / `container` (Apple Container) / `macos-user`. Already the parameter name in `cli.confinementProfile`; [OQ-DP1](#decision-ledger) ruled it one of this doc's two words. Elsewhere in the tree it is spelled "backend" or "runtime" and those spellings are not being chased. NOT a container: `macos-user` runs no runtime. |
+| **primitive vector** | **existing — never this doc's to promote** | the composed set the inputs yield: `PrimNamespaces`, `PrimVM`, `PrimSeatbelt`, `PrimLandlock`, `PrimSeparateUser`, `PrimBakedImage` — the contents of a `render.Profile`, ordered by `render.PrimitiveOrder`. ⚠ The phrase is already written in three packages (`render/confinement.go`, `cli/describe.go`, `jailcontent/briefing.go`), so an earlier draft of this table marking it "promoted here" was wrong. It names what the composition OUTPUTS, never the pair of inputs, which is exactly why it is not the umbrella [OQ-DP1](#decision-ledger) refused. It is what [P1](#1-the-principle-and-what-it-does-not-say) quantifies over. NOT a config surface — only the three named presets are selectable. |
+| **entry point** | **not a term — plain words** | which verb is running: `yolo -- cmd`, `yolo apply`, `yolo host -- cmd`, `yolo config diff`. A real input ([§2](#2-four-inputs-not-two-axes)) that [OQ-DP1](#decision-ledger) ruled stays unnamed; the doc says "which verb is running" and means nothing more by it. |
+| **site** | *(coined here — a table key, not an axis)* | one combination of the four inputs: the thing a declaration is honored or not honored AT, and the catalog's row key. It names a CELL, which is why it survives [OQ-DP1](#decision-ledger)'s refusal to name the notch-and-mechanism PAIR; if it ever reads as architecture rather than bookkeeping, delete it and write "one row". NOT a synonym for "backend": `yolo apply` at `guest` and `yolo -- cmd` at `guest` are two sites. |
 | **carve-out** | *(this doc's sense)* | a site that accepts a declaration and does not deliver its effect. ⚠ NOT `AGENTS.md`'s sense, where a CARVE-OUT is a structural blindness of an *instrument* ("a nested jail cannot see the rootless class"). Both senses appear in this repo; this doc always means the first. |
 
 ---
@@ -156,7 +160,7 @@ primitive is a property of the backend, not of the machine reading the config."*
 | **Notch** | jail / guest / host | `render.Kind`, `config.Confinement` | `render.ProfileFor`, `render.Target.Fields`, `render.modeCensus` |
 | **Mechanism** | podman / container / macos-user | `runtime`, "backend" | `paths.SupportedRuntimes` vs `paths.NativeRuntimes` |
 | **Platform** | linux / darwin | `o.IsMacOS`, `paths.IsMacOS` | `hostcas.CodeMacOS`, `run.kvmArgs`, `run.gpuHostAvailable` |
-| **Entry point** | `yolo -- cmd` / `yolo apply` / `yolo host -- cmd` / `yolo config diff` | *unnamed* | none — [§2.4](#24-the-entry-point-is-an-axis-and-it-has-no-name) is the evidence it exists |
+| **Entry point** | `yolo -- cmd` / `yolo apply` / `yolo host -- cmd` / `yolo config diff` | *unnamed, and ruled to stay that way* | none — [§2.4](#24-the-entry-point-is-an-axis-and-it-has-no-name) is the evidence it exists |
 
 ### 2.1 The platform is a separate input, and one decider already spells it that way
 
@@ -214,7 +218,11 @@ parameter — as are the two `host` calls.
 
 These are rows [DP-B17](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target),
 [DP-B18](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target) and
-[DP-B19](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target).
+[DP-B19](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target), and they are
+settled. **[OQ-DP2](#decision-ledger) ruled MECHANISM FIRST on 2026-09-12**, exactly as
+`cli.confinementProfile` already decides it, *and* ruled that the mechanism be threaded into the
+briefing so both printing surfaces read one function. `run.prepare` already computes the
+mechanism — it is what sets `NoContainer` — so this is a threading change, not a new input.
 
 ### 2.4 The entry point is an axis, and it has no name
 
@@ -251,16 +259,53 @@ write-deny primitive) and *not* honorable on Apple Container (a VM primitive giv
 read-only) — an inversion of the intuition that carve-outs track isolation strength, and one
 no `(notch, backend)` table can express.
 
-### 2.6 What to call the second input
+### 2.6 The two words, and why the pair is not named
 
-The maintainer said *"whatever we call them"* about containment methods, and that is a live
-vocabulary gap rather than a throwaway. My recommendation, and its cost, are
-[OQ-DP1](#OQ-DP1). The short version: **keep `notch`, promote `mechanism`, promote
-`primitive vector`, and name the entry point** — four words, three of which the tree already
-owns. I did not coin an umbrella word for notch+mechanism, because a carve-out on the notch
-costs Phase 7 and a carve-out on the mechanism costs a delivery primitive, and one word makes
-those look like one decision. This doc's filename follows from that: the brief's default named
-"containment", which is the flattening word.
+**RULED 2026-09-12, and the ruling goes further than I proposed.** I argued for four words and
+no umbrella. The answer was two words and no coinages at all:
+
+> Do we need to name it? It seems like some things are going to be decided based on the notch.
+> Some things are going to be decided based on the confinement profile. I'm not sure things will
+> be decided based on both of them … this is kind of like architecture and operating system. And
+> we don't have a name for those two combined.
+
+The analogy is the argument, and it holds up when pushed on. Nobody names (architecture, OS);
+what *does* get a name is what the pair YIELDS — a target, a platform. **The tree already has
+that word, and I had not noticed I was re-coining it.** *Primitive vector* is written in
+`render/confinement.go`, `cli/describe.go` and `jailcontent/briefing.go`; the maintainer's own
+*"confinement profile"* is `render.Profile`, the value `cli.confinementProfile` returns. So the
+vocabulary settles by subtraction rather than by invention:
+
+| What it is | What we call it | Where the word comes from |
+| :--- | :--- | :--- |
+| the confinement dial | **notch** | `render.Kind`, `config.Confinement` |
+| what actually runs | **mechanism** | `cli.confinementProfile`'s own parameter name |
+| the machine | *platform* — a plain word, nothing to decide | — |
+| which verb is running | *nothing, deliberately* | — |
+| what those compose to | **primitive vector**, i.e. a `render.Profile` | already written in three packages |
+| the notch and mechanism as a pair | **nothing** | ruled — the evidence is below |
+
+**The premise is falsifiable, so I checked it against my own catalog before accepting it.** The
+maintainer's load-bearing clause is *"I'm not sure things will be decided based on both of
+them."* Three rows in this catalog look like `(notch × mechanism)` cells —
+[DP-B17](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target),
+[DP-B19](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target), and the
+macos-user-at-`jail` statement in [§8](#8-the-guest-notch-is-not-a-backend) — and **all three are
+the same function**: `jailcontent.confinementHeader(confinement, noContainer)`, the only one in
+the tree that takes both inputs. It is also the one that is WRONG, which is what
+[OQ-DP2](#decision-ledger) deletes.
+
+The function that is right resolves them by **precedence, never as a cell.**
+`cli.confinementProfile`'s four arms are decided by the host notch, then by a native mechanism,
+then by the guest notch, then by a mechanism sub-choice — **every arm reads one input, and the
+other only breaks the tie.** Two things follow, and the second is why this is not a vocabulary
+quibble: the premise holds on the data, and a word for the pair would have had exactly one
+referent in the whole tree — a defect.
+
+What the no-umbrella rule buys is unchanged from the leaning: a carve-out on the notch costs
+Phase 7 and a carve-out on the mechanism costs a delivery primitive, and one word makes those
+look like one decision. This doc's filename follows from the same place — the brief's default
+named "containment", which is the flattening word.
 
 ---
 
@@ -318,7 +363,7 @@ rather than about.
 | **DP-A9** | `network.mode` — every mechanism | `run.appliedNetMode` is ONE predicate answering for the argv, the human warning, the agent briefing and the port gate, so they cannot disagree. Its doc comment records that they previously did, in both directions, in four spellings. |
 | **DP-A10** | `render.KindGuest` has no constructor | The three constructors are `render.Jail`, `render.Preview`, `render.Host`. The notch is **unconstructible** rather than silently inheriting the jail's shape. **[Phase 7]** |
 | **DP-A11** | `writable_home_dirs` — Apple Container, macos-user | Vacuously satisfied: the declared OUTCOME (the path is writable) is already true, so silence is correct. Keep this row so it is not "fixed". |
-| **DP-A12** | `confinement: guest` — `yolo apply` | Refuses with rc 1: *"apply at the guest notch is not built yet (env-manager plan Phase 7 — the LSM-confined backend)."* The sentence [OQ-DP3](#OQ-DP3) wants to reuse already exists. **[Phase 7]** |
+| **DP-A12** | `confinement: guest` — `yolo apply` | Refuses with rc 1: *"apply at the guest notch is not built yet (env-manager plan Phase 7 — the LSM-confined backend)."* The sentence [OQ-DP3](#decision-ledger) ruled to reuse verbatim already exists. **[Phase 7]** |
 | **DP-A13** | pack `loophole` — host notch | `render.refusalReasons[KindLoophole]` is a hand-written INVERSE reason: the counterparty is missing, not the mechanism. The bar for what a refusal message should read like. |
 
 ---
@@ -342,9 +387,9 @@ source-bearing `host_files`. **Everything below is in neither list.**
 
 | id | Declaration | What actually happens | Evidence, by symbol |
 | :--- | :--- | :--- | :--- |
-| **DP-B1** | config `mounts` | No `/ctx` mount, no line — **⚠ asserts the opposite**: the briefing lists the `/ctx` paths as existing. | `run.appliedCtxMounts` filters only on `roBindsUnsupported(rt) != ""`, which is `""` for macos-user, so `mountDescriptions` passes through `run.refreshJailBriefings` into `jailcontent.BriefingContent`'s `## Additional Context Mounts (read-only)` section. The predicate's own doc comment describes the exact defect it exists to prevent, and then keys on `container` alone. |
+| **DP-B1** | config `mounts` | No `/ctx` mount, no line — **⚠ asserts the opposite**: the briefing lists the `/ctx` paths as existing. | `run.appliedCtxMounts` filters only on `roBindsUnsupported(rt) != ""`, which is `""` for macos-user, so `mountDescriptions` passes through `run.refreshJailBriefings` into `jailcontent.BriefingContent`'s `## Additional Context Mounts (read-only)` section. The predicate's own doc comment describes the exact defect it exists to prevent, and then keys on `container` alone. ⚠ **Two briefing sites, not one**: the `## Limitations` bullet *"No sudo/root; context mounts under `/ctx/` are read-only"* (`jailcontent/briefing.go:457`) is unconditional, so a macos-user jail with NO `mounts` configured at all is still told `/ctx/` exists and is read-only. `internal/cli/config_ref.txt`'s `mounts` entry DOES carry the line (*"macos-user has no bind mounts at all."*) — the gap is the launch and the briefing, not the reference. Fix: [DP-L1](#6-alignable-with-the-mechanism-and-its-cost) + [DP-L7](#6-alignable-with-the-mechanism-and-its-cost). |
 | **DP-B2** | pack `mount` grants | Same path, same silence. The sharper half: a human approved this grant against the word *read-only* at `pack install`, and gets neither the bytes nor a notice. | `run.hostMountArgs` is reached only from the container assembler. The Apple Container half of this exact row was given a warning on 2026-08-24 ([`backend-parity.md` §5](backend-parity.md#5-what-is-already-fixed-2026-08-24), defects 11-12); nothing states why this half was not. |
-| **DP-B3** | `network.ports`, `network.forward_host_ports` | Nothing published, nothing forwarded, no line — **⚠ asserts the opposite**: the briefing says bridge mode and *"Reach the host at `host.containers.internal` (169.254.1.2)"*. | `run.sharesLauncherNetns` returns false for anything that is not `network.mode: "host"` or podman-in-podman, so `run.appliedNetMode` returns the configured mode and `run.briefingPortsFor` renders both lists. A native process CAN bind a port, so "publish these" has a meaning here that nothing delivers. Fix: [DP-L2](#6-alignable-with-the-mechanism-and-its-cost). |
+| **DP-B3** | `network.ports`, `network.forward_host_ports`, and `network.mode` with them | Nothing published, nothing forwarded, no line — **⚠ asserts the opposite four ways**: bridge mode, *"Reach the host at `host.containers.internal` (169.254.1.2)"*, a port map that is false, and the caveat *"a `127.0.0.1` listener in here is not publishable"* exactly inverted (here a loopback listener IS the host's). | `run.sharesLauncherNetns` returns false for anything that is not `network.mode: "host"` or podman-in-podman, so `run.appliedNetMode` returns the configured mode and `run.briefingPortsFor` renders both lists. ⚠ This row used to read *"a native process CAN bind a port, so 'publish these' has a meaning here that nothing delivers"* — **half right, and the wrong half is the half that decides the disposition**: [§5.1.1](#511-dp-b3-by-entry-form-and-why-the-remedy-is-not-refusal). Fix: [DP-L2](#6-alignable-with-the-mechanism-and-its-cost). |
 | **DP-B4** | `devices`, `gpu`, `kvm` | Silent — not even the "not supported on macOS" warning the container path prints. | `run.deviceArgs`, `run.kvmArgs`, `run.gpuArgs` are all invoked only from `run.assembleRunCmd`, below the `rt == "macos-user"` return in `run.Run`. ⚠ [`macos.md`](../guides/macos.md) asserts the opposite for all three — [DP-B36](#55-doc-drift-the-same-failure-in-a-different-file). |
 | **DP-B5** | `ephemeral_storage` | No reader anywhere in `internal/macosuser`; no reference sentence for this backend either. | `run.ScratchMountArgs` is called only from the podman arm of `run.assembleRunCmd`. The key names container scratch backing and there is no container, so the fix is one reference sentence, not a mechanism. |
 | **DP-B6** | `resources`, the AGENT half | The human is warned that the caps are ignored; the agent is told they are kernel-enforced — **⚠ asserts the opposite**, in the same launch. | `run.briefedResourceLimits` returns the configured values for any `rt != "container"`, and `run.refreshJailBriefings` runs on the macos-user arm before dispatch; `jailcontent.BriefingContent` renders *"Resource limits (kernel-enforced)"* and points the agent at `yolo-cglimit`, which has no delegate to talk to here. Fix: [DP-L8](#6-alignable-with-the-mechanism-and-its-cost). |
@@ -353,6 +398,94 @@ source-bearing `host_files`. **Everything below is in neither list.**
 | **DP-B9** | `_.python.venv` in `mise.toml` | No pre-created venv, and no message. The container path's `~/.yolo-venv-precreate.sh` is deliberately not generated here because its body would find neither `/workspace/mise.toml`'s python nor `/bin/python3` — but the omission is exactly the silent skip [`OQ-P1`](macos-user-provisioning.md#decision-ledger) ruled against. | `macosuser.ProvisionSetup` runs four of the container's six steps; the reason is written down in [`macos-user-provisioning.md` §10.1](macos-user-provisioning.md). |
 | **DP-B10** | `lsp_servers`, on removal of the LAST entry | The uninstall loop never runs, so the npm package stays in the workspace prefix. Bounded and stated, never collected. | `macosuser.ProvisionNeeded` is a pure function of the config by deliberate choice (the dry-run plan must not touch disk), so removing the final entry flips it false and the loop that reads the sentinel never runs. |
 | **DP-B11** | the agent briefing's macos-user home line | **⚠ asserts the opposite**, and a TEST asserts the stale claim. The line says the `scope: workspace` state dirs are *"SHARED by every workspace on this machine"*; since `entrypoint.InstallDarwinHomeLayout` they are symlinked into `<workspace>/.yolo/home`. | `run.backendLimits` builds the line from `packload.WritableDirs` (the workspace tier) where the machine tier is `packload.SharedDirs`. Pinned by `TestBackendLimitsTellTheAgentWhatStderrTellsTheHuman`, whose fixture declares `{Kind: KindState, Scope: "workspace"}`. Latent only because of [DP-B21](#54-the-host-notch-and-the-entry-point). A milder second instance sits in `jailcontent.confinementHeader`'s macos-user arm (*"every workspace on this machine shares it"*), which remains true of the account home itself and is no longer true of the state dirs a pack declares at `scope: workspace` (`entrypoint.DeriveDarwinHomeLayout` links those into the sidecar; only `packload.SharedDirs` stay in the home). |
+
+#### 5.1.1 DP-B3 by entry form, and why the remedy is not refusal
+
+The comment on this row asked whether macos-user should **reject anything that is not
+`network.mode: host`**. The premise's *fact* is right; its *remedy* is not — and the row's own
+old sentence was half wrong, which is what hid the difference.
+
+**The fact, confirmed.** Neither profile yolo emits contains a single `network*` operation —
+`(allow default)` covers it, and `macosuser.SeatbeltCaptureProfile`'s doc comment says so in as
+many words. Nothing in `internal/macosuser` touches a port, a bind or a listener. A macos-user
+sandbox is **always** on the launcher's own stack. The third state is representable in SBPL and
+unreachable in yolo: `config.validateNetwork` accepts exactly `{"bridge","host"}` and
+hard-errors otherwise (`config.network.mode: expected 'bridge' or 'host'`), so no key selects a
+deny-network profile and no code emits one.
+
+| Declaration | On macos-user |
+| :--- | :--- |
+| `forward_host_ports: [5432]` / `"5432"` / `"5432:5432"` | **Vacuously satisfied.** The process is on the host's stack, so `localhost:5432` in the sandbox *is* the host's 5432 — there is no hop to deliver. |
+| `forward_host_ports: ["8080:9090"]` | **Not satisfiable** — the rewrite needs a second loopback to land on. |
+| `ports: ["3000:3000"]` | **Vacuously satisfied** in the reachability direction: binding *is* publishing. |
+| `ports: ["8000:3000"]` | **Not satisfiable**, and the briefing states the false mapping verbatim. |
+| `ports` read as an ENUMERATION, or `IP:HOST:JAIL` | **Void, and not vacuously.** On the container backends `-p` is the whole exposure surface and `127.0.0.1:8000:8000` pins the bind address; here every port the agent binds lands on the host's real interfaces, listed or not, and nothing pins anything. |
+
+So this is a **briefing-truth row, not a refusal row**: on this backend the three network keys
+have exactly one consumer and it is the briefing. `assembleRunCmd`'s `-p` and
+`run.hostForwardPorts` both sit below the `rt == "macos-user"` return, so no socat is spawned
+and no port is published today either way.
+
+**Disposition, decided by the tree rather than by preference.**
+
+1. **`network.mode` is never refused, at any value — it is APPLIED as host.** That is
+   [DP-L2](#6-alignable-with-the-mechanism-and-its-cost) unchanged, and the comment's own
+   reasoning is why: if `host` is the only mode that is true here, `host` is the right *applied*
+   answer, not a precondition to demand of the user. Refusing instead fails three ways.
+   `run.NewDefaultOptions` is `Options{Network: "bridge", …}`, so a launch that never mentioned
+   networking would be refused. Narrowed to an explicitly-written mode it is barely better: the
+   only writable non-host value IS `bridge`, so it would reject a config equivalent in effect to
+   the empty one. And the Apple Container arm of `run.assembleRunCmd` already ruled this shape —
+   *"Only an EXPLICIT host is warned: bridge is genuinely honored on this backend … so warning
+   on the default would be noise on every launch"* — whose logic here forbids even the warning,
+   because the unhonorable value is the default.
+   [`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger) settled the general case in
+   the same direction: on macos-user an unsupported mechanism reports `unsupported` and is not
+   refused (`run.(*Options).noteMacosUserHostByteGaps`: *"a launch is not refused for what the
+   backend cannot do"*).
+2. **`ports` and `forward_host_ports` are refused as KEYS, never as a launch, and only when
+   non-empty.** Exact condition: `rt == "macos-user" && len(entries) > 0`, evaluated per key
+   beside `run.(*Options).noteMacosUserContentGaps`, one stderr line each; the briefing half
+   comes free with [DP-L2](#6-alignable-with-the-mechanism-and-its-cost). Neither key has a
+   default, so the notice cannot fire on a launch that never mentioned networking — which is
+   what makes it safe where a `mode` refusal is not. `run.roBindsUnsupported` is the right
+   shape (refuse the *declaration*, print the reason, continue the launch), but its force does
+   not carry: refusing an Apple Container `:ro` mount removes an exposure, whereas refusing
+   `ports` here removes nothing, because the agent binds host ports regardless. **The message is
+   the whole deliverable.**
+3. **One sentence neither network paragraph says today**: that the sandbox's listeners sit on
+   the host's real interfaces rather than in a namespace. The host paragraph's *"No port mapping
+   needed"* is true and incomplete. Its natural home is `run.backendLimits`, which has no
+   production writer ([DP-B21](#54-the-host-notch-and-the-entry-point)) — so it ships with
+   [DP-L9](#6-alignable-with-the-mechanism-and-its-cost), or as a macos-user variant of the host
+   paragraph.
+
+> [!WARNING]
+> **Two source comments assert the opposite of the tree, and one of them sits inside the
+> function it denies.** `run.appliedNetMode`'s doc comment: *"macos-user is deliberately absent:
+> Run() returns before runContainer, so neither caller ever sees that runtime."* And the "WHAT
+> IS LEFT" block in `run.refreshJailBriefings`' own body (`internal/cli/run/prepare.go`):
+> *"macos-user reaches none of this … that backend gets no briefing at all (OQ-BP-2), which is a
+> delivery gap rather than a false sentence."* Both were true until the B-0 content fix put
+> `refreshJailBriefings` on the macos-user arm of `run.Run` (`internal/cli/run/run.go:413`). The
+> second is now exactly inverted — it **is** a false sentence — and it contradicts
+> [DP-B6](#51-macos-user-read-by-nobody-warned-by-nobody), which is the correct one. This is the
+> inverse of `AGENTS.md`'s *"the test asserts the sentence a comment makes"* class: a comment
+> asserting a call site does not exist when it does, sitting exactly where a reader goes to
+> decide whether this row is real.
+
+> [!WARNING]
+> **The call-site pin for this cannot represent the one backend it is wrong about.**
+> `TestBriefingAndArgvAgreeOnTheAppliedNetMode` has four rows — podman bridge, podman host,
+> podman-in-podman, Apple Container — and no macos-user row, and structurally cannot have one:
+> it asserts through `appliedArgv` → `assembleRunCmd`, which this backend never reaches. A
+> [DP-L2](#6-alignable-with-the-mechanism-and-its-cost) test must therefore be shaped as
+> `run.briefingPortsFor` + `jailcontent.BriefingContent` composition, not argv comparison.
+
+**Not settleable from here:** whether a macOS listener is reachable *in practice* from off-box —
+the application firewall, `_yolojail`'s own posture, codesigning prompts. What yolo does is
+settled by reading: it applies no network restriction on this backend and emits no port argv.
+Any claim about real exposure needs a Mac.
 
 ### 5.2 Apple Container: what the backend census has no word for
 
@@ -371,10 +504,10 @@ vocabulary has no word for.
 
 | id | Declaration | What actually happens | Evidence, by symbol |
 | :--- | :--- | :--- | :--- |
-| **DP-B16** | `confinement: guest` or `host`, at LAUNCH | Accepted, validated, never dispatched on — a container starts anyway — and **⚠ asserts the opposite**: the briefing tells the agent *"a restricted account on the real machine, NOT a disposable container … your home is real and persists."* Every sentence is false of what ran. | `config.ResolveConfinement`'s only run-pipeline caller is `run.prepare`'s `BriefingInput.Confinement`; `run.Run` branches on `rt` alone. `yolo apply` refuses the identical value with rc 1 ([DP-A12](#4-aligned-and-why-the-catalog-leads-with-it)). Settled by [OQ-DP3](#OQ-DP3). **[Phase 7]** |
-| **DP-B17** | the mechanism input, in the briefing | `NoContainer` is accepted as a parameter and acted on in one of five arms. MEASURED: `confinementHeader("guest", true)` and `("guest", false)` are byte-identical; same for `host`. | `jailcontent.confinementHeader`. The field's own doc says the two are *"separate axes"*; only one branch acts on it. Settled by [OQ-DP2](#OQ-DP2). |
-| **DP-B18** | the `guest` primitive vector, in the briefing | Always the LINUX spelling — *"namespaces"*, *"Landlock"* — regardless of platform, sourced from the one table whose doc comment forbids it for a printed vector. | `jailcontent.enforcementLines(render.ProfileFor(notch))`. `cli.confinementProfile` is the platform-aware twin and honors the instruction; the briefing does not. Settled by [OQ-DP2](#OQ-DP2). **[Phase 7]** |
-| **DP-B19** | the `jail` notch on macos-user | **⚠ asserts the opposite** inside one paragraph: *"not by a container"*, then *"Enforced by: namespaces … a baked image"*, and the "Jail tooling" line printed twice. MEASURED — see [§2.3](#23-nocontainer-is-the-mechanism-input-smuggled-into-a-notch-shaped-function). | `jailcontent.confinementHeader`'s `noContainer` arm plus `jailcontent.enforcementLines`. Settled by [OQ-DP2](#OQ-DP2). |
+| **DP-B16** | `confinement: guest` or `host`, at LAUNCH | Accepted, validated, never dispatched on — a container starts anyway — and **⚠ asserts the opposite**: the briefing tells the agent *"a restricted account on the real machine, NOT a disposable container … your home is real and persists."* Every sentence is false of what ran. | `config.ResolveConfinement`'s only run-pipeline caller is `run.prepare`'s `BriefingInput.Confinement`; `run.Run` branches on `rt` alone. `yolo apply` refuses the identical value with rc 1 ([DP-A12](#4-aligned-and-why-the-catalog-leads-with-it)). Ruled by [OQ-DP3](#decision-ledger): refuse. **[Phase 7]** |
+| **DP-B17** | the mechanism input, in the briefing | `NoContainer` is accepted as a parameter and acted on in one of five arms. MEASURED: `confinementHeader("guest", true)` and `("guest", false)` are byte-identical; same for `host`. | `jailcontent.confinementHeader`. The field's own doc says the two are *"separate axes"*; only one branch acts on it. Ruled by [OQ-DP2](#decision-ledger): mechanism first. |
+| **DP-B18** | the `guest` primitive vector, in the briefing | Always the LINUX spelling — *"namespaces"*, *"Landlock"* — regardless of platform, sourced from the one table whose doc comment forbids it for a printed vector. | `jailcontent.enforcementLines(render.ProfileFor(notch))`. `cli.confinementProfile` is the platform-aware twin and honors the instruction; the briefing does not. Ruled by [OQ-DP2](#decision-ledger): mechanism first. **[Phase 7]** |
+| **DP-B19** | the `jail` notch on macos-user | **⚠ asserts the opposite** inside one paragraph: *"not by a container"*, then *"Enforced by: namespaces … a baked image"*, and the "Jail tooling" line printed twice. MEASURED — see [§2.3](#23-nocontainer-is-the-mechanism-input-smuggled-into-a-notch-shaped-function). | `jailcontent.confinementHeader`'s `noContainer` arm plus `jailcontent.enforcementLines`. Ruled by [OQ-DP2](#decision-ledger): mechanism first. |
 | **DP-B20** | `autonomy`, at `confinement: host` | Two halves of one boot state opposite policies, with nothing comparing them. The briefing says *"Agent autonomy is **OFF** … Do not try to disable them"* while the same boot renders every pack's AUTONOMOUS posture into that agent's config files. | `entrypoint.ConfigurePackSurfaces` takes `e.renderTarget().Profile().AgentAutonomy`, and `(*Env).renderTarget` returns `render.Jail(…)` for every non-`hostTarget` Env → `render.JailProfile(false)` → `AgentAutonomy: true`, unconditionally. The briefing's line comes from `jailcontent.enforcementLines(render.ProfileFor(notch))` with the notch parsed from the config string. |
 | **DP-B34** | the guest FieldSet | `render.Target.Fields()` has **no production caller** — `cli.applyHostSurveyed` calls `render.HostFields()` directly — so the guest census is inert today. Separately, its `Refuse("mount")` text (*"unavailable without a container"*) is contradicted by `render.GuestProfileLinux()`, which composes `PrimNamespaces`. `render.refusalReasons` is a `map[Kind]string` with no notch dimension. | `render.Target.Fields`, `render.refusalReasons`, `render.GuestProfileLinux`. **[Phase 7]** for the inertness; the reason TEXT is fixable now. |
 
@@ -383,9 +516,9 @@ vocabulary has no word for.
 | id | Declaration | What actually happens | Evidence, by symbol |
 | :--- | :--- | :--- | :--- |
 | **DP-B21** | every macos-user disclosure the AGENT would read | `run.backendLimits` has **no production call site**. The briefing section it feeds — *"What this environment does NOT do for you"* — has never rendered. | The sole production `jailcontent.BriefingInput{…}` literal, in `run.refreshJailBriefings`, does not set `BackendLimits`. **This is a stated precondition of a shipped ruling**: `run.noteMacosUserHostByteGaps` says the no-refusal carve-out *"is only defensible while the deficiency is SAID — here, and in the agent's own briefing (backendLimits) — so this line is load-bearing rather than a courtesy."* Half of that precondition does not execute. |
-| **DP-B22** | `yolo --at guest -- <cmd>` (and `--at jail`) | Does not select a notch, does not refuse — **corrupts the argv**. A jail starts, then fails with "command not found" on a token the user typed as a flag. | `cli.stripHostNotch` keeps non-host notches; `cli.parseRunArgs` has no `--at` case, so its `default:` arm treats `--at` as the start of the command. The existing test asserts `RewriteArgv`'s output only and never runs `parseRunArgs` — the callee pinned, the call site not. Settled by [OQ-DP3](#OQ-DP3). |
-| **DP-B23** | the guarded launch-flag posture | `packload.LaunchFlagsFor(packs, false)` — the documented path by which `--dangerously-skip-permissions` *"vanishes at the host notch"* — has no production caller. Both production callers hardcode `true`. The claim is true of the function and false of the system. | `packload.InjectLaunchFlags` and `entrypoint.writeShellAliases`-side code both pass `true`; the only `false` in the tree is `packload/autonomy_test.go`. Settled by [OQ-DP6](#OQ-DP6). |
-| **DP-B24** | pack `launch` contributions at `yolo host -- <cmd>` | Silently absent, with a misdirecting remedy: the host-apply refusal for that kind names *"`yolo host -- <program>` is the notch that does the launching"*, and that verb execs the user's argv unmodified. | `cli.hostExec` builds `argv` and calls `syscall.Exec`; `packload.InjectLaunchFlags`'s only production call site is `run.Run`. Contrast the sibling kinds, which ARE delivered there: `env` through `launch.environ()`, `provider` through `launch.credentialGaps`. Settled by [OQ-DP6](#OQ-DP6). |
+| **DP-B22** | `yolo --at guest -- <cmd>` (and `--at jail`) | Does not select a notch, does not refuse — **corrupts the argv**. A jail starts, then fails with "command not found" on a token the user typed as a flag. | `cli.stripHostNotch` keeps non-host notches; `cli.parseRunArgs` has no `--at` case, so its `default:` arm treats `--at` as the start of the command. The existing test asserts `RewriteArgv`'s output only and never runs `parseRunArgs` — the callee pinned, the call site not. Ruled by [OQ-DP3](#decision-ledger): refuse. |
+| **DP-B23** | the guarded launch-flag posture | `packload.LaunchFlagsFor(packs, false)` — the documented path by which `--dangerously-skip-permissions` *"vanishes at the host notch"* — has no production caller. Both production callers hardcode `true`. The claim is true of the function and false of the system. | `packload.InjectLaunchFlags` and `entrypoint.writeShellAliases`-side code both pass `true`; the only `false` in the tree is `packload/autonomy_test.go`. Settled by [OQ-DP6](#OQ-DP6), still live. |
+| **DP-B24** | pack `launch` contributions at `yolo host -- <cmd>` | Silently absent, with a misdirecting remedy: the host-apply refusal for that kind names *"`yolo host -- <program>` is the notch that does the launching"*, and that verb execs the user's argv unmodified. | `cli.hostExec` builds `argv` and calls `syscall.Exec`; `packload.InjectLaunchFlags`'s only production call site is `run.Run`. Contrast the sibling kinds, which ARE delivered there: `env` through `launch.environ()`, `provider` through `launch.credentialGaps`. Settled by [OQ-DP6](#OQ-DP6), still live. |
 | **DP-B25** | the autonomy posture, in the config reporters | `packload.(*Pack).Surfaces()` hardcodes `SurfacesFor(true)`. `cli.packSurfacesForAgent` calls it with no posture, while its caller `cli.overlayContributionRows` — in the same function — resolves the notch and passes `render.ProfileFor(notch).AgentAutonomy` to `packoverlay.Collect`. One report folds surfaces at the autonomous posture beside an overlay set collected at the guarded one. | `packload.(*Pack).Surfaces`, `cli.packSurfacesForAgent`, `cli.overlayContributionRows`. Half of a migration: `entrypoint.ConfigurePackSurfaces` was converted to read the Target and `Surfaces()` kept the literal for fingerprint stability. |
 | **DP-B26** | a `briefing` contribution's `after: "host:<path>"` | Silently ignored at the host notch. The declaration validates, `yolo pack footprint` reports it, and nothing happens — the kind is honored and one FIELD of it is not, which is one level finer than the no-silent-skip net catches. | `packdecl.Contribution.After`'s only BEHAVIOURAL readers are on the jail path (`run.briefingDestinations`, `run.briefingHostOverlay`); the third, `packdecl`'s manifest transform, only surfaces it as `packdecl.Mount.HostOverlay` for `packload.footprint` to print. The kind is not in `render.hostUnimplemented`, so `cli.notchInapplicable` reports nothing either. The RULING is sound (a host briefing destination is generated wholesale, so there is no user file to prepend); the mechanism is the worst available. |
 | **DP-B27** | pack `service` and `blocked-tool` at the host notch | Refused by name, with a reason that says nothing: *"<kind> is not applicable at this confinement level."* The real reasons exist only in a hand-written manual. | `render.refusalReasons` contains exactly five entries — program, mount, reads-host, state, loophole. `internal/cli/config_ref.txt`'s "AT THE HOST NOTCH" list carries both real reasons and is kept alive by `TestEveryHostNotchInapplicableKindHasItsReasonDocumented`, which makes the reason READABLE without making it true of what the code decides by. Fix: [DP-L6](#6-alignable-with-the-mechanism-and-its-cost). |
@@ -399,7 +532,9 @@ vocabulary has no word for.
 ### 5.5 Doc drift: the same failure in a different file
 
 A doc that asserts a behaviour the code does not have is the same defect as a briefing that
-does, with a slower feedback loop. All four were re-checked against the tree on 2026-09-12.
+does, with a slower feedback loop. Every row here was checked against the tree on 2026-09-12;
+the last two were added in review, from the [DP-B3](#51-macos-user-read-by-nobody-warned-by-nobody)
+investigation.
 
 | id | Where | The claim, and what contradicts it |
 | :--- | :--- | :--- |
@@ -408,6 +543,8 @@ does, with a slower feedback loop. All four were re-checked against the tree on 
 | **DP-B37** | `internal/cli/config_ref.txt`, the `cache_relocations` entry | *"'macos-user' has no container and no bind mounts, so a plain host symlink already does the job there."* ⚠ The launch warning in `macosuser.buildPlan` says in as many words that it does not, because `macosuser.SeatbeltProfile` denies writes outside the workspace, the sandbox home, `/tmp` and `/var/folders`. **This is shipped user-facing text telling a user to do something that leaves a large cold cache on the boot volume — the one outcome the feature exists to prevent.** |
 | **DP-B38** | [`cache-relocation.md`](../plans/cache-relocation.md) | Carries a dated retraction of that exact sentence (*"⚠ Retracted 2026-08-24: 'a plain host symlink already works there' is FALSE"*) and then **repeats the claim** ~230 lines later in its Q&A section. A retraction applied to one instance of a sentence that had three. |
 | **DP-B39** | `internal/cli/config_ref.txt`, the `resources` entry | `cpus` *"Default: no limit."* False on Apple Container, which applies half the host's CPUs (min 2) when the key is unset (`run.appliedResourceLimits`, `limitBackendDefault`). |
+| **DP-B40** | [`macos.md`](../guides/macos.md), the backend matrix and the prose beneath it | `network.mode` on macos-user is listed *"❌ not read at all"*, `network.ports` / `forward_host_ports` as *"❌ not wired"*, and the prose says it a third time (*"`macos-user` reads none of the network or scratch-storage keys at all"*). ⚠ **False in the direction that matters.** The keys ARE read — `resolveNetMode` → `run.appliedNetMode` → the briefing — and what they are wired to is the agent's own briefing, which is why [DP-B3](#51-macos-user-read-by-nobody-warned-by-nobody) is a lie rather than an absence. A matrix saying "not read" invites exactly the wrong fix. [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s "Networking, devices, GPU" is again the careful version and is correct. |
+| **DP-B41** | [`macos.md`](../guides/macos.md), twice in the ✅ list and once as an Apple Container row | Advertises a `network.mode: "none"` — *"Network modes (bridge, host, none) on Podman"*, the matrix's *"✅ all three"*, and a dedicated *"`network.mode: "none"` … not honored, silently"* row. ⚠ **`"none"` is a hard config error**: `config.validateNetwork` accepts `{"bridge","host"}` and emits `config.network.mode: expected 'bridge' or 'host'`. The shipped vocabulary is two values; the guide documents three. It matters here because *"reject anything that is not host"* presumes a mode vocabulary, and half of the documented one does not exist. |
 
 ---
 
@@ -422,11 +559,11 @@ Ordered by rows-closed per unit of work.
 
 | id | Declaration and site | Mechanism | Cost | Closes |
 | :--- | :--- | :--- | :--- | :--- |
-| **DP-L1** | macos-user: pack `reads-host`, source-bearing `host_files`, config `mounts`, pack `mount` grants, host nvim config | **One host-side materialize step into the sandbox home** — the shape `run.acMaterialize` already uses on Apple Container — plus a `readonlyDenies`-style Seatbelt deny for the `:ro` half | A delivery mechanism, not a flag. ⚠ It must run in the host CLI, not in the pure plan builder: the source-bearing read IS the credential boundary (`config.HostFileStaging`) | **Five cells, one mechanism.** [DP-B1](#51-macos-user-read-by-nobody-warned-by-nobody), [DP-B2](#51-macos-user-read-by-nobody-warned-by-nobody), and the two host-byte rows that are today merely warned. Ruled by [OQ-DP4](#OQ-DP4) |
-| **DP-L2** | `run.sharesLauncherNetns("macos-user") → true` | Makes `run.appliedNetMode` answer `"host"`, which already suppresses both port sections in `jailcontent.BriefingContent` and swaps the bridge paragraph for *"`localhost` / `127.0.0.1` resolves directly to the host"* | One predicate, plus one wording fix: that line currently opens *"the container shares the host network stack"*, and there is no container here | **Three keys at once** — `mode`, `ports` and `forward_host_ports`: [DP-B3](#51-macos-user-read-by-nobody-warned-by-nobody) |
+| **DP-L1** | macos-user: pack `reads-host`, source-bearing `host_files`, config `mounts`, pack `mount` grants, host nvim config | **One host-side COPY into a root-owned staged tree** — `macosuser.StagePackCommands`' shape, sited one leaf over at `/var/yolo-jail/ctx/<cname>/<name>`, named to the jail by an env var and by the briefing. **Not a symlink, and Seatbelt was never the blocker** ([§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)) | **Lower than this row claimed before review.** The `:ro` half is FREE for the four `/ctx`-shaped cells: the profile is already deny-writes-everywhere plus an enumerated allow, and `/var/yolo-jail` is outside that set. A `readonlyDenies`-style deny is needed only for the skills-and-briefings cell, which lands inside the sandbox home. ⚠ The copy must run in the host CLI, never in the pure plan builder: the source-bearing read IS the credential boundary (`config.HostFileStaging`) | **Five cells, one mechanism.** [DP-B1](#51-macos-user-read-by-nobody-warned-by-nobody), [DP-B2](#51-macos-user-read-by-nobody-warned-by-nobody), and the two host-byte rows that are today merely warned. **[OQ-DP4](#decision-ledger): build it** |
+| **DP-L2** | `run.sharesLauncherNetns("macos-user") → true`, plus a per-key notice for non-empty `ports` / `forward_host_ports` | Makes `run.appliedNetMode` answer `"host"`, which already suppresses both port sections in `jailcontent.BriefingContent` and swaps the bridge paragraph for *"`localhost` / `127.0.0.1` resolves directly to the host"* | One predicate, one wording fix (that line opens *"the container shares the host network stack"* and there is no container), and one stderr line per non-empty port key. ⚠ **Safety proof, since `sharesLauncherNetns`' doc comment reads as an objection to widening it** (*"it has two readers and they must never disagree"*): it has THREE — `advertiseHostFor`, `assembleRunCmd`, and `appliedNetMode`, which the comment does not list — and only the unlisted one is live on this backend. `advertiseHostFor` is reached only from `startLoopholes`, which the macos-user arm returns above (`run/run.go:273` vs `:1065`, and that arm calls `notePackLoopholesInert` directly for exactly this reason); `assembleRunCmd`'s `paths.HostLoopbackShared` is below the same return. So the widening cannot move an advertise address or a reachability disposition. ⚠ Test shape: `briefingPortsFor` + `BriefingContent`, never argv ([§5.1.1](#511-dp-b3-by-entry-form-and-why-the-remedy-is-not-refusal)) | **Three keys at once** — `mode`, `ports` and `forward_host_ports`: [DP-B3](#51-macos-user-read-by-nobody-warned-by-nobody) |
 | **DP-L3** | macos-user pack `service` `jail_daemon` | Hoist `run.serviceJailDaemons` above the backend dispatch and have `macosuser.buildBootstrapEnv` set `YOLO_JAIL_DAEMONS` — a native process can run a jail daemon as an ordinary child | Small. The same hoist `stagePacks` and pack-`launch` injection already made | [DP-B7](#51-macos-user-read-by-nobody-warned-by-nobody) |
 | **DP-L4** | macos-user's staged `yolo` | Put the staged prefix on `macosuser.SandboxPath`, or teach the two shell functions its absolute path | Two lines | [DP-B8](#51-macos-user-read-by-nobody-warned-by-nobody), and the materialize half of install-capture |
-| **DP-L5** | pack `launch` at `yolo host -- <cmd>` | `cli.hostExec` calls `packload.InjectLaunchFlags` with the HOST posture (`false`), not the hardcoded `true` | One call plus threading one bool | **Two rows together**: [DP-B24](#54-the-host-notch-and-the-entry-point) and [DP-B23](#54-the-host-notch-and-the-entry-point) — giving `hostExec` the injection is what makes the `false` branch live. Ruled by [OQ-DP6](#OQ-DP6) |
+| **DP-L5** | pack `launch` at `yolo host -- <cmd>` | `cli.hostExec` calls `packload.InjectLaunchFlags` at the HOST posture, not the hardcoded `true` | **One call, and no new bool.** `cli.hostComposition` already carries `packs`, and the host notch's autonomy policy is already decided *and pinned*: `render.HostProfile()` returns `AgentAutonomy: false`, asserted in `render/confinement_test.go`. So this reads an existing policy bit rather than threading a parameter | **Two rows together**: [DP-B24](#54-the-host-notch-and-the-entry-point) and [DP-B23](#54-the-host-notch-and-the-entry-point) — giving `hostExec` the injection is what makes the `false` branch live. Ruled by [OQ-DP6](#OQ-DP6) |
 | **DP-L6** | `service` and `blocked-tool` host refusals | Two entries in `render.refusalReasons`, copied verbatim from the manual rows that already exist in `internal/cli/config_ref.txt` | **The cheapest fix in this catalog** | [DP-B27](#54-the-host-notch-and-the-entry-point) |
 | **DP-L7** | `run.appliedCtxMounts` | One `macos-user` arm returning nil | One line | [DP-B1](#51-macos-user-read-by-nobody-warned-by-nobody)'s briefing half — stops handing an agent a file-path map of a filesystem that does not exist |
 | **DP-L8** | `run.briefedResourceLimits` | One `macos-user` arm returning nil, like its `container` sibling | One arm | [DP-B6](#51-macos-user-read-by-nobody-warned-by-nobody) |
@@ -438,6 +575,125 @@ Ordered by rows-closed per unit of work.
 | **DP-L14** | `cli.applySealed`'s remedy string | Name `yolo config promote`, which ships | One string | [DP-B33](#54-the-host-notch-and-the-entry-point) |
 | **DP-L15** | Apple Container `cache_relocations` | The nesting is already proven — `run.appleContainerBaseMounts` binds `paths.GlobalCache()` at the same depth two lines below the skip | **One Mac session.** The stated reason is absence of MEASUREMENT, not capability | The one Apple Container row whose blocker is an instrument, not a mechanism |
 | **DP-L16** | `packages:` at the host notch | `darwinpkg.MaterializeAt` already has two consumers; what is missing is a caller and a census entry | Needs [OQ-DP5](#OQ-DP5) answered first — `packages` is not a pack kind, so `render.FieldSet` cannot see it | [DP-B31](#54-the-host-notch-and-the-entry-point) |
+
+### 6.1 DP-L1: the mechanism is a copy, and what nobody has measured
+
+[OQ-DP4](#decision-ledger) ruled *"yes, build, however we can make it work"* and deliberately
+did **not** prescribe the mechanism. So this section is the candidate set and its verdict, not a
+second ruling. The comment that opened it asked whether **symlinks + Seatbelt** could do the
+job; the answer is that the combination which reproduces the declaration is **a copy plus the
+write policy the profile already has**, and that Seatbelt was never the blocker.
+
+**Where it lands: `/var/yolo-jail/ctx/<cname>/<name>`, and NOT in the home tiers.**
+
+- **Not at `/ctx`.** A new top-level directory on macOS needs `/etc/synthetic.conf` and a
+  reboot — the repo already knows this for `/nix` (`check.checkNixStore`'s hint,
+  `internal/cli/check/sections_macos_platform.go`). Per-machine root-dir creation is off the
+  table.
+- **The analogue ships.** `macosuser.StagedPackRoot` → `/var/yolo-jail/packs/<cname>`, staged by
+  `macosuser.StagePackCommands` (root-owned copy, `a+rX`, replace-by-rename) and named to the
+  jail as `YOLO_PACK_ROOT`. Its own doc comment says what it is: *"the macos-user analogue of the
+  container's `:ro` /ctx/packs mount, and it is root-owned for the same reason that mount is
+  read-only."* `macosuser.StagedHomeOverlay` is the sibling; a context tree is one more leaf.
+- ⚠ **The home-tier design is the wrong home for this, and the row should say so.**
+  [`macos-user-home-tiers.md`](macos-user-home-tiers.md) resolves the per-workspace tier to
+  `<workspace>/.yolo/home`, which is inside `(subpath ws)` and therefore **agent-writable**.
+  Delivering a context mount there hands out a writable "read-only" mount — precisely the
+  failure `run.roBindsUnsupported` refuses on Apple Container. The tier that fits is the
+  root-owned state dir, which is not one of the home tiers.
+- **The destination must be NAMED, never assumed.** `entrypoint.CapturesDirEnv` and
+  `YOLO_PACK_ROOT` are the established pattern (*"the destination is not a constant the jail side
+  may assume"*), so this needs an env var **and** a briefing that prints the staged path rather
+  than the config's `/ctx` half.
+
+**Why the `:ro` half costs nothing here.** `macosuser.SeatbeltProfile` is `(allow default)` with
+targeted denies, last match wins, and its write policy is `(deny file-write* (subpath "/"))`
+followed by an **enumerated** allow — workspace, sandbox home, `/tmp`, `/private/tmp`,
+`/var/folders`, `/private/var/folders`, `/dev`. Anything outside that set is already
+kernel-unwritable, and `/var/yolo-jail` is outside it. Reads land on `(allow default)`; writes
+land on the root deny with no re-allow. Both halves of `:ro`, with **zero new SBPL** — which is
+also *stronger* than the container backends' `host_files readonly`, whose own reference text
+concedes *"0444 is DAC, not kernel enforcement."* A `macosuser.readonlyDenies`-shaped rule is
+needed only for a delivery that lands **inside** the writable set, which is the
+skills-and-briefings cell and none of the `/ctx`-shaped ones.
+
+> [!WARNING]
+> **The symlink half fails twice, and neither failure is Seatbelt's.** A link staged under
+> `/var/yolo-jail` pointing at a host source is judged **at the target**, under
+> `(deny file-read* (subpath "/Users"))` whose only re-allows are the literals `/Users` and
+> `/Users/Shared`, the workspace's ancestor literals, and the workspace and sandbox-home
+> subpaths. That MAC half is *fixable* — the launcher resolves every source at
+> profile-generation time and could emit an allow, as the profile already does twice. **The DAC
+> half is not fixable by any profile**: the sandbox runs as a foreign uid
+> (`macosuser.SandboxUser` = `_yolojail`, via `macosuser.LaunchArgv`'s `sudo -u`), and a macOS
+> home is not required to be world-traversable. `macosuser.StagedPackRoot`'s doc comment already
+> ruled this exact question for the neighbouring feature — *"pointing the sandbox at one is a
+> permission failure waiting to read as 'packs silently did nothing', which is the exact defect
+> this whole path exists to end"* — and the runbook's measured `/Users/<host>/.ssh` **EACCES**
+> is the same layer, *"the POSIX layer refusing before the profile was ever consulted."*
+
+**The residue, stated rather than hidden.** A copy is a snapshot, and that is not uniformly
+equivalent:
+
+- For `host_files` and pack `reads-host` it genuinely is — `readonly` entries are re-rendered at
+  boot on the container backends too, which is
+  [`macos-user-home-tiers.md` §5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one)'s
+  own refutation of the staleness claim, and it survives.
+- For config `mounts` and a pack `mount` of a **live** tree it is a real degradation, and this
+  repo's own example is one: `/workspace/yolo-jail.jsonc` mounts a *growing* log directory.
+  Under [P1](#1-the-principle-and-what-it-does-not-say) and
+  [P3](#1-the-principle-and-what-it-does-not-say) that is *honored with a delta*, and **the delta
+  gets a launch line** — silence about it would re-create the defect one level down.
+
+**The live-bytes alternative, considered and declined for v1: an ACL, which already ships.** The
+workspace itself is reached exactly this way — host-user-owned, read *and* write from the
+sandbox, via `chmod +a` ACEs (`macosuser.WorkspaceACLAces`,
+`macosuser.SharedRootProvisionCommands`) plus the profile's `(subpath ws)`. Extending it to a
+`mounts` source needs a read-only ACE (the shipped rights grant write, delete and chown), a
+per-source read allow, **no symlink at all** (hand the jail the host path, as `run.capturesArgs`
+already does on Apple Container), and **a new consent surface** — `chmod +a` outside the
+workspace is the launcher mutating the user's own directories. The siting policy in force cuts
+against it: `macosuser.PlanInvariants` refuses a launch whose workspace sits inside any
+`/Users/<name>` but `Shared` — *"the macos-user backend shares only neutral ground"* — and a
+`mounts` source under the invoking user's home is the same shape. Add
+`macosuser.WorkspaceGrantedScript`'s measured fragility (inheritance applies at CREATE time only
+and an ACE names a UUID, so a teardown-and-setup cycle voids every grant while `ls` still shows
+it) and a delivery mechanism resting on it reproduces DP-L1's own silent-failure class.
+**Verdict: copy first. Revisit only if the snapshot delta proves intolerable for a live
+`mount`.**
+
+> [!CAUTION]
+> **NOT MEASURED, anywhere: that Seatbelt evaluates the TARGET rather than the link.** Three
+> in-tree statements agree and none of them is an observation —
+> [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s *"Any doc
+> that says otherwise about this backend is wrong; this one is the authority"*, the shipped
+> `cache_relocations` warning in `macosuser.buildPlan`, and
+> [`macos-user-home-tiers.md` §5.3](macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely)'s
+> *"resolution happens in the VFS before the policy is consulted"*. No test in this repo executes
+> `sandbox-exec` at all (`capture_test.go` asserts only that the argv contains it), and it cannot
+> be run from Linux. **Three probes settle it on a Mac, two of them needing no yolo:**
+>
+> 1. **The crux.** `sandbox-exec` a profile denying reads under one directory, then `cat` a
+>    symlink in an allowed directory that points into it. `Operation not permitted` → target
+>    evaluation, the three statements stand, the symlink half is dead. Success → **this whole
+>    section inverts**, a staged symlink becomes legitimate, and both `cache_relocations`
+>    warnings plus
+>    [`macos-user-home-tiers.md` §5.3](macos-user-home-tiers.md#53-what-the-credential-tier-then-needs-precisely)'s
+>    VFS claim need retracting.
+> 2. **The canonicalization twin**, which also pins a latent bug: deny `file-write*` under
+>    `(subpath "/tmp")`, then `touch /tmp/canary`. A *success* means the kernel canonicalized to
+>    `/private/tmp` and the deny never matched — which means `SeatbeltProfile`'s `(subpath
+>    <workspace>)` must be symlink-resolved, and today it is not: `macosuser.BuildRunPlan` passes
+>    `workspace` raw into `SeatbeltProfile` (`runplan.go:221`) while `YOLO_HOST_DIR` a few lines
+>    down gets `resolvePathAbs(workspace)` (`:277`). Latent only because `HomeContaining` pushes
+>    workspaces onto the shared root, which is normally not a symlink.
+> 3. **The read this mechanism actually needs, which nobody has ever made.** `sandbox-exec` the
+>    SESSION profile over the staged `/var/yolo-jail` tree: read a file, then touch one. Expect
+>    read OK, write `Operation not permitted`. The existing PASS does not cover it —
+>    `macosuser.DarwinBootstrapArgv` carries **no** `sandbox-exec` (unlike
+>    `macosuser.LaunchArgv` and `macosuser.ProvisionArgv`), so the staged tree has only ever been
+>    read *unsandboxed*, and the "free `:ro`" claim above is predicted from the profile text
+>    rather than observed.
 
 ---
 
@@ -459,7 +715,7 @@ These hold. They are here so the maintainer can walk past them quickly, and so n
 | **DP-D9** | `mcp_presets` — macos-user | Skipped, not ported. A darwin variant would have to find a browser, a node and a fontconfig on a machine yolo did not provision. *"An absent wrapper that says so beats a present one that lies."* Open Decision #4, resolved 2026-09-03. ⚠ The DISCLOSURE is misaligned independently: the warning comes from inside the bootstrap, so the one mechanism with a `--dry-run` is the one whose dry run cannot show it. |
 | **DP-D10** | GNU userland on the darwin floor — macos-user | *"Your Mac, confined"*; an agent whose `sed -i` behaves unlike the human's is the costlier surprise ([`OQ-P2`](macos-user-provisioning.md#decision-ledger)). ⚠ Enforced only by `darwinpkg.FloorExcludedPolicy` and a mutation-tested unit gate — the honest oracle is a nix evaluation a Go test cannot perform, so adding a name to the image core still needs a human to ask. |
 | **DP-D11** | a `packages:` entry with no darwin build — macos-user | **FATAL**, naming every unbuildable package, the resolved system double, the typo hypothesis and the `platforms: ["linux"]` escape hatch. Warn-and-skip masked a typo and a genuine absence with one message for a year. Cite this beside [DP-A4](#4-aligned-and-why-the-catalog-leads-with-it) as the pattern. |
-| **DP-D12** | pack `mount`, `reads-host`, `state` — off-container | *"Must be refused rather than emulated (a copy goes silently stale)."* ⚠ **This is the row I would re-open, and it is [OQ-DP4](#OQ-DP4)** — see below. |
+| **DP-D12** | pack `mount`, `reads-host`, `state` — off-container | *"Must be refused rather than emulated (a copy goes silently stale)."* ⚠ **RE-OPENED AND OVERTURNED for macos-user** ([OQ-DP4](#decision-ledger), 2026-09-12): [`macos-user-home-tiers.md` §5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one) wins, the mechanism is [DP-L1](#6-alignable-with-the-mechanism-and-its-cost), and `render.refusalReasons`' sentence needs to stop being the reason there. The staleness claim survives for one case only — a **live** `mount` — where it is honored as a stated delta rather than a refusal ([§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)). |
 | **DP-D13** | `--dry-run` — every mechanism except macos-user | Refuses, naming the runtime that supports it. An inverted carve-out: the capability is macos-user's and the container backends refuse. |
 | **DP-D14** | a macos-user jail launching another | Seatbelt's own equality constraint in `sandbox_apply`, not a yolo policy. The macos-user twin of `AGENTS.md`'s nested-jail blind spots, and why every macos-user row here is hardware-gated rather than CI-gated. |
 | **DP-D15** | a per-workspace `HOME` — macos-user | Refused on PARITY ([`OQ-HT4`](macos-user-home-tiers.md#decision-ledger)): no other mechanism puts a project's agent state under the account home. ⚠ The reason originally given — *"the single home IS this backend's shared-credentials mechanism"* — is RETRACTED in three places; the mechanism is the `shared_credentials` hook, identical everywhere. A carve-out whose stated reason was wrong survived for months because the reason sounded structural. |
@@ -471,15 +727,19 @@ These hold. They are here so the maintainer can walk past them quickly, and so n
 Three, of which only the first has a row in the table above — the other two are entirely
 push-back, so the argument IS the entry.
 
-**DP-D12 — refuse rather than emulate, off-container.** `render.refusalReasons` says a copy
-goes silently stale. [`macos-user-home-tiers.md`](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one)
-argues the opposite for the shipped guest-shaped backend, on three grounds: a `:ro` bind does two
-separable things (make a file appear, make it unwritable); the launcher runs outside the
-sandbox so it can do the first by copying; and Seatbelt does the second natively. It also
-refutes the staleness claim for `host_files` specifically — `readonly` entries are re-rendered
-at boot on the container backends too, so the two are equivalent there. **One of those two
-in-tree documents is wrong.** That is [OQ-DP4](#OQ-DP4), and it should reach the maintainer as
-a contradiction rather than as a cost estimate.
+**DP-D12 — refuse rather than emulate, off-container. RULED 2026-09-12: build it.**
+`render.refusalReasons` said a copy goes silently stale;
+[`macos-user-home-tiers.md` §5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one)
+argued the opposite for the shipped guest-shaped backend on three grounds — a `:ro` bind does two
+separable things (make a file appear, make it unwritable); the launcher runs outside the sandbox
+so it can do the first by copying; and Seatbelt does the second natively — and refuted the
+staleness claim for `host_files` specifically, since `readonly` entries are re-rendered at boot
+on the container backends too. **Two in-tree documents contradicted each other, which is how it
+reached the maintainer, and
+[§5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one) won.** The ruling named no mechanism on purpose (*"seatbelt and
+symlinks, syncing daemon, whatever, let's make it work"*); the candidate set, the verdict and the
+one constraint the ruling does not override — the copy runs in the host CLI, never in the pure
+plan builder — are [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured).
 
 **DP-D18 — `network.mode: "host"` silently voids `network.ports` on podman.** The argument is
 *"that is the user's own declaration."* It is weaker than it looks: `mode` and `ports` are two
@@ -529,8 +789,10 @@ ordering risk this phase now carries."* Nobody closed the door the config left o
 > (`macosuser.EndpointGrantCommands`: *"GuestProfileMacOS() carries PrimSeparateUser and
 > macos-user runs the sandbox as SandboxUser"*). Any census keyed on
 > `(notch, backend)` will file this backend under `jail` and be wrong about every primitive it
-> composes. It is the clearest evidence for [OQ-DP1](#OQ-DP1) and it is what
-> [OQ-DP2](#OQ-DP2) settles.
+> composes. It is the third of the three `(notch × mechanism)`-looking cells
+> [§2.6](#26-the-two-words-and-why-the-pair-is-not-named) walks — all three of them
+> `jailcontent.confinementHeader`'s hand-composition, which is what
+> [OQ-DP2](#decision-ledger) deletes.
 
 ---
 
@@ -584,13 +846,13 @@ is missing `service` and `blocked-tool`; `cli.registry` really does map `"stop"`
   are divergences that should survive.
 - **Not a refusal of config keys a mechanism has always tolerated.** A shared config is
   legitimately used on a Linux box and a Mac, and refusing `gpu` on macOS would break that.
-  ⚠ [OQ-DP3](#OQ-DP3) is the deliberate exception and the distinction is load-bearing:
-  `confinement` is not a mechanism-varying key. It resolves to the same value on every
-  platform and is enforced by nothing anywhere, so refusing it costs no shared config
-  anything. If that distinction fails to hold, [OQ-DP3](#OQ-DP3) should be answered "briefing
-  only" instead.
+  ⚠ The refusal [OQ-DP3](#decision-ledger) ruled is the one deliberate exception, and the
+  distinction it rests on is load-bearing: `confinement` is not a mechanism-varying key. It
+  resolves to the same value on every platform and is enforced by nothing anywhere, so refusing
+  it costs no shared config anything. The weaker alternative — briefing-only, leaving `yolo --
+  cmd` and `yolo apply` disagreeing about one value — was on the table and was not taken.
 - **Not Phase 7.** Nothing here builds the `guest` notch, on either platform. What
-  [OQ-DP3](#OQ-DP3) proposes is that the notch stop *looking* built.
+  [OQ-DP3](#decision-ledger) ruled is that the notch stop *looking* built.
 - **Not a replacement for the backend census.** [OQ-BP-1](backend-parity.md#open-questions) is
   live and owned there; this doc adds the second input and the entry-point input, and would
   feed the same table. If the census is built, most of [§5](#5-silently-broken) becomes
@@ -623,17 +885,21 @@ three. So the briefing fixes land together or not at all.
    [DP-L8](#6-alignable-with-the-mechanism-and-its-cost),
    [DP-L9](#6-alignable-with-the-mechanism-and-its-cost), the
    [DP-B11](#51-macos-user-read-by-nobody-warned-by-nobody) narrowing
-   (`packload.WritableDirs` → `packload.SharedDirs`, and flip its test), and — if
-   [OQ-DP2](#OQ-DP2) rules mechanism-first — threading the mechanism into
-   `jailcontent.enforcementLines`. Closes [DP-B3](#51-macos-user-read-by-nobody-warned-by-nobody),
+   (`packload.WritableDirs` → `packload.SharedDirs`, and flip its test), and — per
+   [OQ-DP2](#decision-ledger), mechanism first — threading the mechanism into
+   `jailcontent.enforcementLines` so it and `cli.confinementProfile` are one function. The
+   DP-L2 half also carries the per-key notice for non-empty `ports` / `forward_host_ports`
+   ([§5.1.1](#511-dp-b3-by-entry-form-and-why-the-remedy-is-not-refusal)). Closes [DP-B3](#51-macos-user-read-by-nobody-warned-by-nobody),
    [DP-B6](#51-macos-user-read-by-nobody-warned-by-nobody),
    [DP-B11](#51-macos-user-read-by-nobody-warned-by-nobody),
    [DP-B17](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target),
    [DP-B18](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target),
    [DP-B19](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target),
    [DP-B21](#54-the-host-notch-and-the-entry-point).
-2. **The notch gate**, if [OQ-DP3](#OQ-DP3) says refuse: one gate in `run.Run` reusing
-   `cli.applyMain`'s existing sentence, plus an `--at` case in `cli.parseRunArgs`. Closes
+2. **The notch gate** ([OQ-DP3](#decision-ledger): refuse). One gate in `run.Run` reusing
+   `cli.applyMain`'s Phase 7 sentence **verbatim**, plus an `--at` case in `cli.parseRunArgs`
+   so the flag is consumed rather than swallowed into the command. ~10 lines; the alternative
+   (honor the notch) IS Phase 7. Closes
    [DP-B16](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target) and
    [DP-B22](#54-the-host-notch-and-the-entry-point).
 3. **The free ones, in any order.** [DP-L6](#6-alignable-with-the-mechanism-and-its-cost),
@@ -643,9 +909,11 @@ three. So the briefing fixes land together or not at all.
    deletions.
 4. **The host exec batch**, if [OQ-DP6](#OQ-DP6) says yes:
    [DP-L5](#6-alignable-with-the-mechanism-and-its-cost), which closes two rows with one edit.
-5. **The materialize mechanism**, if [OQ-DP4](#OQ-DP4) rules for it:
-   [DP-L1](#6-alignable-with-the-mechanism-and-its-cost). Five cells, and the largest single
-   piece of work in this catalog.
+5. **The materialize mechanism** ([OQ-DP4](#decision-ledger): build it).
+   [DP-L1](#6-alignable-with-the-mechanism-and-its-cost) — five cells, and the largest single
+   piece of work in this catalog. Read [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)
+   first: the mechanism is a copy under `/var/yolo-jail`, the `:ro` half is free for four of the
+   five cells, and probe 3 there is the measurement that has never been made.
 6. **Everything gated on an instrument** — [DP-L15](#6-alignable-with-the-mechanism-and-its-cost)
    and every macos-user row — waits for a Mac.
 
@@ -665,154 +933,95 @@ three. So the briefing fixes land together or not at all.
 
 ## Open Questions
 
-Six, ranked by rows-closed per decision. Everything else in the catalog is an approval, not a
+Two. The review of 2026-09-12 ruled four; those are compacted into the
+[Decision Ledger](#decision-ledger). Everything else in this catalog is an approval, not a
 decision — see [§3](#3-the-four-dispositions-and-how-to-walk-the-catalog).
 
-1. 💬 **OQ-DP1: What do we call the second input, and does the entry point get a name?**
-   The maintainer said *"whatever we call them"* about containment methods, and the tree is
-   already ambivalent: `internal/cli/config_ref.txt` says of `runtime` that *"under the
-   confinement dial this is the `guest` notch by another name; `runtime` stays for
-   compatibility and as the in-jail mechanism hint."* This decides how every later row is
-   filed, and whether an umbrella word for notch+mechanism exists at all.
+1. 💬 **OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
+   A warning is the obvious answer, and the tree has already ruled against it:
+   [OQ-BP-3](backend-parity.md#open-questions) is live and says *"a warning people learn to skip
+   is worse than none."* Every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost)
+   collides with that. **Three better shapes already ship in this repo, so the menu is not
+   hypothetical:**
 
-   <!-- vantage: oq id=OQ-DP1 leaning="Keep `notch`, promote `mechanism` and `primitive vector`, name the `entry point`, and coin NO umbrella word for notch+mechanism — one word makes a Phase 7 cost and a delivery-primitive cost look like one decision." -->
+   | | Shape | What already ships it |
+   | :--- | :--- | :--- |
+   | **(a)** | a coded decline with ONE disclosure line, which can never refuse a launch | `internal/hostcas` — every decline carries a code, a reason string, a banner line (`run.noteHostCASAlias`) and a `yolo stores` row |
+   | **(b)** | a user-declarable EXPECTED absence, so yolo stops guessing | `platforms: ["linux"]` on a `packages:` entry — the user says "absent here is correct", validated as a closed set, everything else fatal |
+   | **(c)** | a third disposition between honored and refused, held as DATA | `render.hostUnimplemented`, whose own comment says *"an empty map is the end state"* and which loses one entry per phase |
 
-   _Leaning:_ Four words, three of which the tree already owns: **notch** (`render.Kind`),
-   **mechanism** (already the parameter name in `cli.confinementProfile`, and better than
-   "backend" or "runtime" because it does not imply a container), **primitive vector**
-   (`render.PrimitiveOrder` — what [P1](#1-the-principle-and-what-it-does-not-say) actually
-   quantifies over), and **entry point**, which is new and has no home in the code. **No
-   umbrella word for notch+mechanism**: a carve-out on the notch costs Phase 7 and one on the
-   mechanism costs a delivery primitive, and a single word makes those look like one decision.
-   Rejected alternatives: *"containment method"* as the umbrella (cheapest, and what was said,
-   but it is exactly the flattening this doc exists to stop, and nothing would return one);
-   renaming `backend` → `runtime` everywhere (defensible, but `macos-user` runs no runtime);
-   keeping "backend" and naming nothing new (viable, and it costs the
-   [§2.4](#24-the-entry-point-is-an-axis-and-it-has-no-name) class its vocabulary — four of the
-   worst rows live there).
+   **The second half is not separable from the first.**
+   [DP-B31](#54-the-host-notch-and-the-entry-point) shows that the machinery built to guarantee
+   *"nothing a pack declares is silently absent"* is keyed on `packdecl.Kind`, so it is blind to
+   every CONFIG KEY — `packages`, `mounts`, `network`, `resources`. **Does the census vocabulary
+   extend past pack kinds?** Until that is answered,
+   [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not expressible at all.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **What it decides:** the shape of every fix in
+   [§6](#6-alignable-with-the-mechanism-and-its-cost) — including the three lines
+   [§5.1.1](#511-dp-b3-by-entry-form-and-why-the-remedy-is-not-refusal) and
+   [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) each want to print,
+   which are the first fixes this ruling reaches.
 
-2. 💬 **OQ-DP2: When the notch and the mechanism disagree, which wins?**
-   `cli.confinementProfile` has already answered — **mechanism first**, with the reason in its
-   doc comment — and it has one caller, `yolo describe`. `jailcontent.enforcementLines`
-   answers the opposite way, by reading `render.ProfileFor(notch)`, the table whose own doc
-   comment forbids that use for a printed vector. Those are the only two surfaces that print a
-   primitive vector and they contradict each other today. **Closes
-   [DP-B17](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target),
-   [DP-B18](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target),
-   [DP-B19](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target), and the
-   macos-user jail/guest vocabulary row in [§8](#8-the-guest-notch-is-not-a-backend).**
+   <!-- vantage: oq id=OQ-DP5 leaning="Prefer the three shapes that already ship over a warning: (a) a coded decline with one banner line for what yolo decides, (b) a user-declarable expected absence wherever the user can decide it, (c) a third disposition held as data for anything genuinely unbuilt. And yes — extend the census vocabulary to config keys, on internal/config/inherit.go's shape." -->
 
-   <!-- vantage: oq id=OQ-DP2 leaning="Mechanism first, as `cli.confinementProfile` already rules — and thread the mechanism into the briefing so both printing surfaces read one function. `run.prepare` already computes it, to set NoContainer." -->
-
-   _Leaning:_ Mechanism first, and make the briefing read the same logic `describe` does.
-   `run.prepare` already has `rt` in hand — it sets `NoContainer` from it — so this is a
-   threading change, not a new input. It also forces [OQ-DP1](#OQ-DP1) into the open, because
-   `NoContainer` is today the mechanism input smuggled into a notch-shaped function under a
-   name that describes neither.
+   _Leaning:_ **(a) for what yolo decides, (b) wherever the USER can decide it, (c) for anything
+   genuinely unbuilt.** (c) has the best track record of the three: four of its five entries were
+   found by the no-silent-skip test rather than by a human. On the second half, **yes, extend to
+   config keys** — `internal/config/inherit.go` already maintains a per-key classification table
+   with a drift test, which is the shape to copy.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-DP3: Does a launch REFUSE a notch it cannot enforce?**
-   `confinement: guest` is accepted by `run.Run`, which then starts an ordinary container jail
-   and writes a briefing telling the agent it is not in one. `yolo apply` refuses the identical
-   value with rc 1 naming Phase 7. One declaration, two entry points, and one of them lies.
-   ⚠ This is the one place this doc proposes a refusal, against
-   [`backend-parity.md` §7](backend-parity.md#7-what-this-does-not-propose)'s *"no backend
-   should start refusing a config key it has always tolerated"* — the distinction being that
-   `confinement` is not a mechanism-varying key ([§10](#10-what-this-does-not-propose)).
-   **Closes [DP-B16](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target) and
-   [DP-B22](#54-the-host-notch-and-the-entry-point), and stops every downstream briefing row
-   at source.**
-
-   <!-- vantage: oq id=OQ-DP3 leaning="Yes — refuse, reusing cli.applyMain's existing Phase 7 sentence verbatim, and consume `--at` in parseRunArgs. ~10 lines; the alternative (honor the notch) IS Phase 7." -->
-
-   _Leaning:_ Yes, refuse — and reuse the sentence that already exists rather than writing a
-   new one. The weaker option is briefing-only (stop `jailcontent.confinementHeader` asserting
-   a notch the launch did not apply), which fixes the lie but leaves `yolo -- cmd` and
-   `yolo apply` disagreeing about the same value. `--at jail` should be accepted as a no-op in
-   either case; today it corrupts the argv.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-DP4: Is one host-side materialize step worth building for macos-user — and which of
-   the two in-tree documents is wrong?**
-   Not primarily a cost question. `render.refusalReasons` says `mount` / `reads-host` / `state`
-   *"must be refused rather than emulated (a copy goes silently stale)"*;
-   [`macos-user-home-tiers.md`](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one)
-   says the launcher runs outside
-   the sandbox so it can copy, Seatbelt supplies the `:ro` half natively, and the staleness
-   claim is false for `host_files` because `readonly` entries are re-rendered at boot on the
-   container backends too. **Both are in-tree and they contradict each other.** The mechanism
-   is proven (`run.acMaterialize`) and so is the deny half (`macosuser.SeatbeltProfile`'s
-   `readonlyRels`). **Closes five cells with one mechanism:
-   [DP-L1](#6-alignable-with-the-mechanism-and-its-cost).**
-
-   <!-- vantage: oq id=OQ-DP4 leaning="Build it — §5.4's argument is the better one, and the `reads-host` half is the row where a shipped ruling's stated precondition (the agent is TOLD) currently does not execute. The copy must happen in the host CLI, not the plan builder." -->
-
-   _Leaning:_ Build it, and record that [§5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one) wins. The `reads-host` half is the sharpest
-   argument: today the agent gets *a working config file that is not the user's*, and nothing
-   about the result looks wrong — and the ruling that permits that carve-out says it is
-   *"only defensible while the deficiency is SAID"*, in two places, one of which does not
-   execute ([DP-B21](#54-the-host-notch-and-the-entry-point)). ⚠ The copy must run in the host
-   CLI, never in the pure plan builder: the source-bearing read IS the credential boundary.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-DP5: Is a warning still the disclosure mechanism — and does the census vocabulary
-   extend past pack kinds?**
-   Two halves of one question, because the second is unanswerable without the first.
-   [OQ-BP-3](backend-parity.md#open-questions) is live and says *"a warning people learn to
-   skip is worse than none"*, which every "add a line" recommendation in
-   [§6](#6-alignable-with-the-mechanism-and-its-cost) collides with. And
-   [DP-B31](#54-the-host-notch-and-the-entry-point) shows the deeper problem: the machinery
-   built to guarantee *"nothing a pack declares is silently absent"* is keyed on
-   `packdecl.Kind`, so it has a blind spot for every CONFIG KEY — `packages`, `mounts`,
-   `network`, `resources`. **Decides the shape of every fix in
-   [§6](#6-alignable-with-the-mechanism-and-its-cost), and whether
-   [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is even expressible.**
-
-   <!-- vantage: oq id=OQ-DP5 leaning="Prefer the three shapes that already ship over a warning: a coded decline with one banner line (hostcas), a user-declarable expected absence (`platforms`), and a third disposition between honored and refused (render.hostUnimplemented). Extend the census vocabulary to config keys." -->
-
-   _Leaning:_ Three shapes already ship here and all three beat a warning, so the menu is not
-   hypothetical. **(a) A coded decline with one disclosure line** — `internal/hostcas` gives
-   every decline a code, a reason string, a banner line and a `yolo stores` row, and none can
-   refuse a launch. **(b) A user-declarable expected absence** — `platforms: ["linux"]` lets
-   the USER say "absent here is correct", validated as a closed set, with everything else
-   fatal; generalize this and yolo stops having to guess. **(c) A third disposition between
-   honored and refused** — `render.hostUnimplemented` as DATA, with *"an empty map is the end
-   state"* and one entry deleted per phase; its own history is the argument, since four of its
-   five entries were found by the no-silent-skip test rather than by a human. On the second
-   half: yes, extend to config keys — `internal/config/inherit.go` already maintains a per-key
-   classification table with a drift test, which is the shape to copy.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-DP6: Does `yolo host -- <cmd>` honor pack `launch`, and is the entry point therefore
-   a first-class input?**
+2. 💬 **OQ-DP6: Does `yolo host -- <cmd>` honor pack `launch` contributions?**
    The host-apply refusal for `packdecl.KindLaunch` names `yolo host -- <program>` as the
-   remedy; that verb shipped, and it does not inject launch flags. Meanwhile the guarded
-   posture `packload.LaunchFlagsFor(packs, false)` — the documented path by which
-   `--dangerously-skip-permissions` *"vanishes at the host notch"* — has no production caller
-   at all, which reads as harmless only because no host path injects flags. `env` and
-   `provider` already cross at that verb through `launch.environ()` and
-   `launch.credentialGaps`, so `launch` is the odd one out rather than the rule. **Closes
+   remedy; that verb shipped, and `cli.hostExec` execs the user's argv unmodified. Meanwhile the
+   guarded posture `packload.LaunchFlagsFor(packs, false)` — the documented path by which
+   `--dangerously-skip-permissions` *"vanishes at the host notch"* — has **no production caller
+   at all**, which reads as harmless only because no host path injects flags. `env` and
+   `provider` already cross at that verb, through `launch.environ()` and `launch.credentialGaps`,
+   so `launch` is the odd one out rather than the rule. **Closes
    [DP-B23](#54-the-host-notch-and-the-entry-point) and
    [DP-B24](#54-the-host-notch-and-the-entry-point) with one edit.**
 
-   <!-- vantage: oq id=OQ-DP6 leaning="Yes — `cli.hostExec` calls packload.InjectLaunchFlags with the HOST posture (false). One call plus one bool, and it makes the guarded-posture branch live for the first time." -->
+   ⚠ **The obvious retirement does not apply — and I checked, because it should have.** There
+   IS a shipped host-shim ruling:
+   [`host-agent-environment.md`](../reference/host-agent-environment.md)'s
+   [`HE-P2`](../reference/host-agent-environment.md#he-p2) (keep wrappers, as a three-line `exec`
+   into `yolo host`) and [`OQ-5`](../reference/host-agent-environment.md#oq-5) (every host program
+   a selected pack installs gets one, **unconditionally**), built as `internal/hostwrap`,
+   `config.HostWrappersEnabled`, `paths.WrapDir`, the `yolo host wrappers` verbs and
+   `check.sectionHostWrappers`. **But what a wrapper injects is ENVIRONMENT, not flags.**
+   `hostwrap.Body` is literally `exec yolo host -- <bin> "$@"`, and that doc's sentence *"no
+   wrapper injects anything, for any pack"* sits inside the argument for why every program gets a
+   wrapper: it is about where LOGIC lives — one env-composition implementation, no per-pack logic
+   in a generated file — **not** a ruling that the host notch delivers no flags.
 
-   _Leaning:_ Yes. It is one call site plus threading `false`, and it is the only edit that
-   makes the guarded posture live — which matters more than the feature, because
-   `--dangerously-skip-permissions` reaching a real host is the exact leak Phase 9 was built
-   to close. Naming the entry-point input is then free and bounded: it is a fourth input to
-   the same composition, not a fourth product.
+   **The shim ruling makes this question more load-bearing, not less.** With `host_wrappers`
+   enabled, `yolo host -- claude` is the path a **bare `claude`** takes. Before wrappers that
+   verb was something you typed deliberately; now it is the default front door for every wrapped
+   program, so what `hostExec` fails to inject is what a bare `claude` gets. The host-apply
+   refusal already anticipates the crossing — `yolo --at host -- <cmd>` *"would
+   make **both** renderable at the host notch too, because then yolo is the one spawning the
+   process and can carry an argv and an environment"* (`render.hostUnimplemented`'s own doc
+   comment) — and `env` took that crossing while `launch` did not.
+
+   <!-- vantage: oq id=OQ-DP6 leaning="Yes — cli.hostExec calls packload.InjectLaunchFlags at the host posture. One call and NO new bool: hostComposition already carries `packs`, and render.HostProfile() already answers AgentAutonomy=false, pinned in render/confinement_test.go." -->
+
+   _Leaning:_ Yes — and it is cheaper than [DP-L5](#6-alignable-with-the-mechanism-and-its-cost)
+   first claimed. `cli.hostComposition` already carries `packs`, and the host notch's autonomy
+   policy is already decided *and pinned*: `render.HostProfile()` returns `AgentAutonomy: false`,
+   asserted in `render/confinement_test.go`. So nothing new is threaded — one call reads an
+   existing policy bit. It is also the only edit that makes the guarded posture live, which
+   matters more than the feature itself: `--dangerously-skip-permissions` reaching a real host is
+   the exact leak Phase 9 was built to close.
+   ⚠ **NOT MEASURED.** Read entirely from source — `check.sectionHostWrappers` returns early
+   in-jail and `config.HostWrappersEnabled` reads the real user config, so *"a wrapped bare
+   `claude` reaches the host with no `--dangerously-skip-permissions`"* is inferred from
+   `hostwrap.Body` plus `hostExec`'s argv construction and has never been observed on a host.
+   The measurement is one line on a Mac or any host with `host_wrappers` enabled: generate a
+   wrapper, run the wrapped name, and read the child's argv.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -823,4 +1032,7 @@ decision — see [§3](#3-the-four-dispositions-and-how-to-walk-the-catalog).
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| — | *(nothing settled yet — every question above is live)* | — | — |
+| OQ-DP1 | **Name nothing new.** `notch` and `mechanism` are the two words; no umbrella for the pair, and the fourth input stays "which verb is running". *"We don't have a name for architecture and operating system combined."* ⚠ `primitive vector` is NOT this doc's coinage — it is already written in `render/confinement.go`, `cli/describe.go` and `jailcontent/briefing.go`, and it names the composition's OUTPUT, never the pair. Confirmed against the catalog: the only rows that look like `(notch × mechanism)` cells are all one function, and the function that is right resolves by precedence. | 2026-09-12 | [§2.6](#26-the-two-words-and-why-the-pair-is-not-named), [Defined terms](#defined-terms) |
+| OQ-DP2 | **Mechanism first**, as `cli.confinementProfile` already rules — and thread the mechanism into the briefing so both printing surfaces read one function. `run.prepare` already computes it, to set `NoContainer`. | 2026-09-12 | [§2.3](#23-nocontainer-is-the-mechanism-input-smuggled-into-a-notch-shaped-function), [§11](#11-what-i-would-build-in-order) step 1 |
+| OQ-DP3 | **Refuse**, reusing `cli.applyMain`'s existing Phase 7 sentence verbatim, and consume `--at` in `cli.parseRunArgs`. ~10 lines; the alternative (honor the notch) IS Phase 7. Briefing-only was the weaker option and was not taken. | 2026-09-12 | [§10](#10-what-this-does-not-propose), [§11](#11-what-i-would-build-in-order) step 2 |
+| OQ-DP4 | **Build the delivery** — *"yes, build, however we can make it work … let's make it work."* Mechanism is the implementer's; [`macos-user-home-tiers.md` §5.4](macos-user-home-tiers.md#54-seatbelt-can-replace-more-mounts-than-this-one) wins over `render.refusalReasons`' *"a copy goes silently stale"*, which survives only for a LIVE `mount` and is honored there as a stated delta. ⚠ The copy must run in the host CLI, never in the pure plan builder — a credential-boundary constraint the ruling does not override. | 2026-09-12 | [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured), [DP-L1](#6-alignable-with-the-mechanism-and-its-cost), [DP-D12](#7-ruled-divergent-and-the-ones-i-would-re-open) |
