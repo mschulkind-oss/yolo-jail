@@ -109,6 +109,7 @@ var FloorExcludedPolicy = []string{
 	"gnupatch",
 	"diffutils",
 	"gnutar",
+	"which",
 }
 
 // FloorNames returns the floor: the image core minus both kinds of exclusion, in
@@ -156,8 +157,13 @@ func FloorNames() []string {
 //     IS GNU gzip and macOS ships a NetBSD one, so it is the closest call on
 //     this list; OQ-P2's own table does not name it, and widening a maintainer's
 //     ruling is not this file's job. Flagged rather than decided.
-//   - `which`, `procps` — on darwin nixpkgs resolves both through `unixtools`,
-//     i.e. thin wrappers around the Mac's own binaries.
+//   - `procps` — on darwin nixpkgs resolves that attr through `unixtools`
+//     (`procps-1003.1-2008`), i.e. a thin wrapper around the Mac's own
+//     binaries. ⚠ `which` was named here too, and that half was FALSE:
+//     measured 2026-09-12 against this flake's locked darwin nixpkgs,
+//     `pkgs.which` is GNU `which-2.25` and is not an attr of `pkgs.unixtools`
+//     at all. It is now on the map below and on FloorExcludedPolicy, which is
+//     what OQ-P2 asks for — macOS's own /usr/bin/which is on the sandbox PATH.
 //
 // Adding a name here is how you extend the policy; adding one to
 // FloorExcludedPolicy is how you act on it. The tests require both.
@@ -169,6 +175,7 @@ var gnuUserlandAttrs = map[string]struct{}{
 	"diffutils":      {}, // diff, cmp
 	"binutils":       {}, // ar, nm, strip — shadows Apple's cctools
 	"inetutils":      {}, // ftp, telnet, hostname
+	"which":          {}, // GNU which; macOS ships its own /usr/bin/which
 }
 
 // IsGNUUserland reports whether a nixpkgs attr name is GNU userland for the
@@ -178,7 +185,16 @@ var gnuUserlandAttrs = map[string]struct{}{
 // Two halves, and the first is why this is a predicate instead of a list. A name
 // nixpkgs prefixes with `gnu` announces itself, so `gnumake`, `gnutar` and a
 // package added next year are all caught without anyone editing this function.
-// The second half names the GNU userland attrs that carry no such prefix.
+// The second half names GNU userland attrs that carry no such prefix.
+//
+// ⚠ THAT SECOND HALF IS A KNOWN-INCOMPLETE SUPPLEMENT, not an enumeration. It
+// cannot be complete: nixpkgs has no predicate for "this is GNU", and the honest
+// oracle — `meta.homepage` containing gnu.org — is a nix evaluation a Go test
+// cannot perform. Measured 2026-09-12: adding `cpio` (GNU cpio 2.15) or `ed`
+// (GNU ed 1.22.5) to ImageCoreNames passes the policy gate green, and `m4`,
+// `nano`, `bc`, `time`, `texinfo`, `groff` and `wget` are the same shape. This
+// half shrinks the hole; it does not close it, so adding a name to
+// ImageCoreNames still needs a human to ask the question.
 //
 // The prefix half over-reaches on purpose: `gnupg` and `gnuplot` would be
 // flagged, and neither shadows a macOS tool. That is a false positive costing

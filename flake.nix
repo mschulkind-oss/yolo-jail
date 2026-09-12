@@ -592,6 +592,16 @@
           "gnupatch"
           "diffutils"       # diff, cmp
           "gnutar"
+          # ⚠ `which` is GNU which, and every doc here said otherwise.  Measured
+          # 2026-09-12 against this flake's own locked darwin nixpkgs
+          # (c043004d, aarch64-darwin): `pkgs.which` is `which-2.25` with
+          # homepage https://www.gnu.org/software/which/, and `which` is NOT an
+          # attr of `pkgs.unixtools` (35 attrs, checked).  `procps` really does
+          # resolve through unixtools; the two were asserted together and only
+          # one of them was true.  macOS ships its own /usr/bin/which, which is
+          # on the sandbox PATH (macosuser.SandboxPath), so excluding it is what
+          # OQ-P2 asks for rather than a tool removed.
+          "which"
         ];
         noncontainerFloorExcluded =
           noncontainerFloorUnbuildable ++ noncontainerFloorPolicy;
