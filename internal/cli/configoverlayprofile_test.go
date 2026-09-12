@@ -52,6 +52,9 @@ func TestApplyHostRendersGatedOverlayWhenProfileSelected(t *testing.T) {
 		"acme":     acmeOwnerPackJSON,
 		"acme-zai": acmeGatedPackJSON,
 	})
+	// R3's contribution line is the --verbose view's since §4.5 (see TestApplyHostNamesThe
+	// ContributingPack); the KEY landing in the file is asserted on the file itself below.
+	verboseReport(t)
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {

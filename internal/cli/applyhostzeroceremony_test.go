@@ -74,6 +74,12 @@ func TestApplyHostZeroCeremonyPackDelivers(t *testing.T) {
 // no answer in the output that produced it.
 func TestApplyHostZeroCeremonyNamesTheInferredDestination(t *testing.T) {
 	zeroCeremonyFixture(t, `"claude"`)
+	// The inferred-destination line is the --verbose view's since §4.5: "yolo is about to write
+	// into a directory the pack never named" is the diagnoser's answer to "why is there a skill
+	// in ~/.claude/skills?", and it prints for a destination that resolved CORRECTLY. The
+	// ORPHAN lines — content that reached nothing — are tier 3 and print at every verbosity,
+	// which the sibling tests in this file assert.
+	verboseReport(t)
 
 	rc, report := applyWith(t, false, nil) // observe: the preview must say it too
 	if rc != 0 {
@@ -92,6 +98,9 @@ func TestApplyHostZeroCeremonyNamesTheInferredDestination(t *testing.T) {
 // them, without a manifest.
 func TestApplyHostZeroCeremonyReachesEveryAgentPack(t *testing.T) {
 	home, _ := zeroCeremonyFixture(t, `"claude","pi","codex"`)
+	// The report half of this test reads the per-entry skills lines, which §4.5 moved behind
+	// the flag; the PATHS half — the parallel list that IS the assertion — reads the home.
+	verboseReport(t)
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {

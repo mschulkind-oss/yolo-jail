@@ -268,6 +268,12 @@ func runApplyHostForDeps(t *testing.T, contributions ...string) string {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// THE PER-CONTRIBUTION DEP LINES ARE THE --verbose VIEW's (§4.5): the default view counts
+	// every probed dependency in the verdict and itemizes a MISSING one as a tier-3 group with
+	// its remedy, so the line naming which kind asked and where the binary resolved is the
+	// auditor's third copy. Every assertion in this file is about that line's CONTENT, which
+	// did not change — only the view carrying it did.
+	verboseReport(t)
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {

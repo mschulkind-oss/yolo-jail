@@ -80,6 +80,10 @@ func TestApplyHostDeliversTheLocalPack(t *testing.T) {
 // symmetry of this list IS the assertion.
 func TestApplyHostLocalPackReachesEveryAgentPackUnderOneName(t *testing.T) {
 	home := localPackFixture(t, `"claude","pi","codex"`, "mine", "Personal body.")
+	// The `invoke as /mine` half is read off the per-entry skills lines, which §4.5 moved
+	// behind the flag. The PATHS half above it is the primary assertion and is unaffected —
+	// the report is the second witness, not the only one.
+	verboseReport(t)
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
@@ -163,6 +167,10 @@ func TestApplyHostLocalPackRendersLast(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
+	// The per-entry skills lines are the --verbose view's since §4.5 (the default view states
+	// them as counts and, for an adoption, as one named group). ORDER is what this test reads
+	// off them, which only the itemization can show.
+	verboseReport(t)
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)

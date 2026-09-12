@@ -452,8 +452,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			//
 			// The SURVEY is not fed here any more: the pre-flight above records every finding,
 			// because the gate needs the merged answer before this loop runs at all. What is
-			// left here is the line.
-			pr.Printf("%s", packDeps.depLine(c))
+			// left here is the line — and the line is DETAIL (§4.5): the verdict counts every
+			// probed dependency, a missing one is itemized by its tier-3 group with its
+			// remedy, and this per-contribution rendering is the auditor's third copy.
+			detail(pr, "%s", packDeps.depLine(c))
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
 			rc = frc
@@ -473,13 +475,18 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// counts: they are facts about the same render, and splitting them at the call
 			// site is how one of them comes to be forgotten at the next one.
 			survey.noteConfig(r)
-			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+			// THE ONE TIER-2 LINE THE DEFAULT VIEW KEEPS (§4.1's tier-2 row, §4.2): a config
+			// surface that would change is itemized — there are few of them and they are what
+			// the auditor came for — while one that is unchanged, skipped or refused is a
+			// settled run fact the verdict counts and `--verbose` lists.
+			reportDestination(pr, configResultTier(r), r.WouldChange,
+				"  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 			// Which packs contributed config-overlay keys to this surface (ruling R3). An
 			// overlay folds BELOW the owner's managed layer, so it leaves no trace in the
 			// resulting file — without this line the only answer to "which pack set that
 			// key?" is a sidecar the host render does not even write.
 			if len(r.Overlays) > 0 {
-				pr.Printf("    [magenta]config-overlay keys from: %s[/magenta] [dim](below this "+
+				detail(pr, "    [magenta]config-overlay keys from: %s[/magenta] [dim](below this "+
 					"surface's own managed layer, which still wins a conflict)[/dim]",
 					strings.Join(r.Overlays, ", "))
 			}
@@ -525,7 +532,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// line for the same reason a refusal does — the surface rendering is not a licence
 			// for part of it to vanish quietly.
 			if len(r.Pruned) > 0 {
-				pr.Printf("    [dim]skipped ${workspace}-keyed (no host referent): %s[/dim]",
+				detail(pr, "    [dim]skipped ${workspace}-keyed (no host referent): %s[/dim]",
 					strings.Join(r.Pruned, ", "))
 			}
 			// What the canonical re-emit costs beyond values — a TOML file's comments. Not an
@@ -600,11 +607,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// an observe pass over an already-applied home used to end in N identical `would render`
 		// lines with nothing saying they were all no-ops (§10 step 1). It counts DESTINATIONS,
 		// which is the launch gate's question and not the reader's (report-tiers.md §3.4), so it
-		// sits above the verdict as the detail it is — and it is a tier-2 itemization, which is
-		// what moves behind --verbose in §9 step 6.
-		pr.Printf("[bold]%s[/bold]", survey.Summary())
+		// sits above the verdict as the detail it is — and it IS detail now: a tier-2
+		// itemization, moved behind --verbose by §9 step 6, which is what this block's own
+		// comment predicted one step ago. 70 of the measured home's 76 lines were fourteen
+		// skills counted once per agent directory.
+		detail(pr, "[bold]%s[/bold]", survey.Summary())
 		for _, c := range survey.Changed {
-			pr.Printf("  [yellow]would change[/yellow] [cyan]%-10s %s[/cyan] [dim]%s[/dim]",
+			detail(pr, "  [yellow]would change[/yellow] [cyan]%-10s %s[/cyan] [dim]%s[/dim]",
 				c.Kind, c.Surface, c.Path)
 		}
 	}
@@ -747,7 +756,11 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 		if len(a.Into) == 0 {
 			continue // R1 — reported by the orphan branch below, which carries the severity
 		}
-		pr.Printf("  [dim]%-10s %s addresses %s — %s reaches %s, and nothing else[/dim]",
+		// DETAIL (§4.5): "where did this land, and why there" is the auditor's and the
+		// diagnoser's question about a destination that resolved correctly. The ORPHAN
+		// branches below are not this — they report content that reached NOTHING, which is a
+		// tier-3 fact and prints at every verbosity.
+		detail(pr, "  [dim]%-10s %s addresses %s — %s reaches %s, and nothing else[/dim]",
 			string(a.Kind), d.Pack.Name, strings.Join(a.Agents, ", "),
 			addressedSourceLabel(a.From), strings.Join(a.Into, ", "))
 	}
@@ -764,7 +777,7 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 		byKind[c.Kind] = append(byKind[c.Kind], c.Into)
 	}
 	for _, kind := range order {
-		pr.Printf("  [dim]%-10s %s declares no destination — merging into the ones your packs "+
+		detail(pr, "  [dim]%-10s %s declares no destination — merging into the ones your packs "+
 			"name: %s[/dim]", string(kind), d.Pack.Name, strings.Join(byKind[kind], ", "))
 	}
 	// R1, AND THE PART Orphaned CANNOT SAY. An audience that matched nothing is reported by

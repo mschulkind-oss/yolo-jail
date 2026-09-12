@@ -24,6 +24,11 @@ import (
 
 func TestHostApplyProbesEveryPackBeforeTheFirstReportLine(t *testing.T) {
 	shippedPacksFixture(t)
+	// THE MEASUREMENT NEEDS THE LINES. The observation here is TIMING — no report line may
+	// precede any probe — and §4.5 moved the per-contribution dep lines behind `--verbose`, so
+	// the compressed view has nothing for a probe to land between. The property under test is
+	// the probe's POSITION, which no verbosity changes.
+	verboseReport(t)
 
 	var out, errw bytes.Buffer
 	// Each probe records the report SO FAR. A pre-flight takes them all at one point in the

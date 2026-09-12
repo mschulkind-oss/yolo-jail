@@ -46,6 +46,13 @@ func TestApplyHostAccountsForEveryDeclaredKind(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
+	// THE CENSUS IS OVER THE FULL REPORT, which since §4.5's split is the --verbose view: the
+	// default view states run facts as COUNTS, and a count cannot name the kind that produced
+	// it. The invariant is unchanged — nothing a pack declares is silently absent — and P5's
+	// "appearing once is appearing" is what the default view keeps for the kinds that do not
+	// apply here, which it still names in one line.
+	verboseReport(t)
+
 	var out, errw bytes.Buffer
 	// Observe posture (write=false) — this test is about the census, not about writing.
 	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {

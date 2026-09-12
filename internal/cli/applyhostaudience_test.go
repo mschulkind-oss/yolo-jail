@@ -81,6 +81,11 @@ func TestApplyHostDeliversAddressedProseOnlyToItsAudience(t *testing.T) {
 // and it makes a working selector indistinguishable from a typo.
 func TestApplyHostReportNamesAnAddressedContributionsAudience(t *testing.T) {
 	audienceFixture(t, `"alphacli"`)
+	// The line is the destination-resolution detail §4.5 moved behind the flag: "where did this
+	// land, and why there" is the auditor's question about a contribution that resolved
+	// CORRECTLY. The orphan line the second half of this test asserts the absence of is tier 3
+	// and prints at every verbosity, which is the distinction the split had to keep.
+	verboseReport(t)
 
 	rc, report := applyWith(t, false, strings.NewReader(""))
 	if rc != 0 {

@@ -55,8 +55,16 @@ See ` + "`yolo config-ref`" + `.
 apply flags:
   --assert        Write. Without it apply OBSERVES and writes nothing.
   --dry-run       Force observe, even alongside --assert.
+  --verbose, -v   List every destination the report otherwise counts: each settled
+                  surface, every dependency probe, every skill by destination.
   --shell-init    Append the PATH line for the wrapper dir to your shell rc.
                   yolo otherwise only PRINTS that line — the rc is your file.
+
+The report ends in one sentence saying how the run went, with the counts beneath it.
+A missing declared dependency STOPS an --assert: yolo shows the install command each
+pack declares and offers to run it, and a NO refuses the run with nothing written.
+` + "`yolo pack --help`" + ` says what each contribution kind is, and ` + "`yolo config-ref`" + ` says why
+some of them do not apply at this notch.
 
 env flags:
   --format <fmt>  export (default) or json.

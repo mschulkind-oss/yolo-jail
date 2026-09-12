@@ -96,6 +96,10 @@ func TestApplyHostSkillsRefusesMissingDeclaredFrom(t *testing.T) {
 // cannot promise a delivery the write does not make (or the reverse).
 func TestApplyHostSkillsObserveNamesCustomFrom(t *testing.T) {
 	home := hostSkillsFixture(t, "my-skills", "my-skills")
+	// The per-entry line naming the delivered skill is the --verbose view's since §4.5 — a
+	// COMPOSED skill is a tier-2 run fact the verdict counts. What the test measures (observe
+	// names what it would deliver, and writes nothing) is unchanged.
+	verboseReport(t)
 
 	rc, report := applyWith(t, false, nil)
 	if rc != 0 {

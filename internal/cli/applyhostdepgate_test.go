@@ -205,11 +205,20 @@ func TestApplyHostAssertInstallsAnOfferedProgramAndCarriesOn(t *testing.T) {
 	// verdict — a report still calling the binary missing after installing it would contradict
 	// the sentence it ends with. Exactly ONE `MISSING` survives, and it is the blocker the
 	// prompt was about, printed before the install ran.
-	if !strings.Contains(report, "present at "+filepath.Join(binDir, "gatebin")) {
-		t.Errorf("the installed dep must report present, with its resolved path:\n%s", report)
-	}
 	if n := strings.Count(report, "MISSING"); n != 1 {
 		t.Errorf("`MISSING` appears %d times, want the blocker line only:\n%s", n, report)
+	}
+	// The per-contribution line says present too, with the path the re-probe resolved — it is
+	// the --verbose view's now (§4.5), which is why this half asks for that view.
+	verboseReport(t)
+	var vout, verrw bytes.Buffer
+	if rc := applyHost(&vout, &verrw, false, true, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("the second apply must be a settled no-op; rc=%d\n%s%s",
+			rc, vout.String(), verrw.String())
+	}
+	if v := vout.String() + verrw.String(); !strings.Contains(v,
+		"present at "+filepath.Join(binDir, "gatebin")) {
+		t.Errorf("the installed dep must report present, with its resolved path:\n%s", v)
 	}
 	if !strings.Contains(report, "1 declared dependency present") ||
 		strings.Contains(report, "missing (") {

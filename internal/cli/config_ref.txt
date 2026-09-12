@@ -1141,6 +1141,45 @@
                     name-keyed).  In this build the jail daemon runs under the existing
                     supervisor and the host_daemon half is declared and carried, not yet
                     executed (wire-bridge.md §2.1; the wire bridge is the first service).
+    AT THE HOST NOTCH (`yolo host apply`) THE KINDS BELOW DO NOT APPLY, and this is
+    where the reason lives.  The report names them in one line and stops, because a
+    reason is for the person changing a rule and not the person meeting it; what
+    follows is that reason, per kind, once.  "Does not apply" means the kind has no meaning off-container
+    — it is never a refusal of your apply, which stops nothing and writes your other
+    surfaces normally.
+      blocked-tool  a blocker is a shim at the head of a JAIL's PATH.  Off-container yolo
+                    owns no PATH entry to put one in, and editing your shell rc to take
+                    one over is a far larger claim than a pack's contribution makes.
+      state         state names a jail-writable home subtree — off-container the home
+                    simply is writable, so there is nothing to declare.
+      reads-host    reads-host carries a host file INTO a jail.  With no jail the file is
+                    already where the reader is.
+      mount         a mount needs a mount namespace, which is unavailable without a
+                    container.
+      env           env vars apply to a process yolo starts, and `yolo host apply` only
+                    configures your tools — it never runs them.  Setting them for your
+                    whole session would mean editing your shell rc.  `yolo host --
+                    <program>` delivers them at launch instead, to that process only.
+      launch        launch flags apply to a process yolo starts, and this command starts
+                    none, so there is no argv to inject them into.  `yolo host --
+                    <program>` is the notch that does the launching.
+      hook          the shipped hooks are jail provisioning steps — credential symlinks,
+                    per-jail history, plugin reconciliation.  Off-container each is
+                    either meaningless or a mutation of real user state that no pack
+                    should perform unprompted, so this command runs none of them.
+      profile       a profile is a NAMED SELECTION over a provider, made at launch (-p).
+                    This command selects none, so it writes your packs' base surfaces
+                    only.  Launch a jail with `-p <name>` to apply the variant.
+      provider      a shipped provider's facts feed the derives at LAUNCH.  A host apply
+                    renders config files and nothing in those files is a provider, so
+                    there is no derive to feed.
+      loophole      a loophole is a host daemon whose only client is a container: with no
+                    jail there is no client, no --add-host, no YOLO_JAIL_DAEMONS, and
+                    nothing for its endpoint file to be mounted into.  Launch a jail to
+                    run it.
+      service       a service is a daemon pair plus an endpoint file under the jail's
+                    /run.  With no jail there is nothing to supervise the jail half and
+                    nothing to read the endpoint.
     NOTE (shipped behavior): two packs declaring a skills `into` at the SAME path fail
     the jail at boot.  (This note also said a jail ignored `briefing.from` and read a
     root AGENTS.md regardless.  That was fixed 2026-08-04 — both notches resolve

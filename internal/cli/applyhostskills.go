@@ -195,7 +195,15 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		if !write {
 			// OBSERVE reports the adoption and the migration WITHOUT prompting — which is how the
 			// user learns what the write would take over before any prompt exists.
-			reportSkillAdoptions(pr, adoptions, req.LocalPackSkills)
+			//
+			// UNDER --verbose ONLY (§4.5). The measured home spent 72 lines here — a header,
+			// seventy paths and a sixty-word explanation — to state one fact the tier-3 group
+			// now states by name with its remedy (hostapplyremedy.go's adoptedSkillGroup). The
+			// PROMPT's copy of this block is untouched: a confirmation must show what it is
+			// about, whatever the verbosity.
+			if reportVerbose() {
+				reportSkillAdoptions(pr, adoptions, req.LocalPackSkills)
+			}
 			mres, _ := hostskills.MigrateHostSkills(adoptions, req, true)
 			for _, r := range mres {
 				printSkillResult(pr, survey, r)
@@ -385,7 +393,21 @@ func printSkillResult(pr richtext.Printer, survey *hostApplySurvey, r hostskills
 		hostskills.ActionUnioned, hostskills.ActionWouldUnion:
 		color = "cyan"
 	}
-	pr.Printf("  ["+color+"]skills[/"+color+"]     %-24s %s  [dim]%s[/dim]",
+	// THE PER-ENTRY LINE IS DETAIL (§4.5), with ONE exception. Every other outcome reaches the
+	// default view already: a composed, retired or already-yours entry is in the verdict's
+	// counts, and an ADOPTED one is named in its tier-3 group with the remedy — which is the
+	// whole point of grouping by name rather than by destination, since fourteen skills in five
+	// agent dirs are seventy of these lines and fourteen facts (§3.3).
+	//
+	// The exception is a REFUSAL, which no count and no group states: yolo declined to deliver
+	// this entry, and a reader who never sees the line never learns it. A loss with no other
+	// representation is not compressible (§4.4).
+	if r.Action == hostskills.ActionRefused {
+		pr.Printf("  ["+color+"]skills[/"+color+"]     %-24s %s  [dim]%s[/dim]",
+			r.Name, r.Action, r.Detail)
+		return
+	}
+	detail(pr, "  ["+color+"]skills[/"+color+"]     %-24s %s  [dim]%s[/dim]",
 		r.Name, r.Action, r.Detail)
 }
 
@@ -450,7 +472,10 @@ func reportSkillCollisions(pr richtext.Printer, dests []hostskills.Destination) 
 // being composed, not by any one entry's line.
 func reportSkillDestinations(pr richtext.Printer, dests []hostskills.Destination) {
 	for _, d := range dests {
-		pr.Printf("  [dim]skills     %s composed from: %s[/dim]", d.Dir,
+		// DETAIL (§4.5's tier-2 list names the composed-from lines by name): it answers "which
+		// packs is this directory a function of", which is the diagnoser's question and not the
+		// operator's, and it is one line per destination on every run.
+		detail(pr, "  [dim]skills     %s composed from: %s[/dim]", d.Dir,
 			strings.Join(d.Packs(), ", "))
 	}
 }

@@ -56,8 +56,11 @@ func printHostApplyVerdict(pr richtext.Printer, s *hostApplySurvey, home string,
 			"run.[/dim]", home)
 		return
 	}
-	pr.Printf("[dim]dry run — nothing was written into %s. Re-run with --assert to "+
-		"apply.[/dim]", home)
+	// The footer names the DETAIL FLAG as well as the writing posture (§4.2): the default
+	// view counts what it does not itemize, so the reader who wants the destinations has to
+	// be told the one word that produces them.
+	pr.Printf("[dim]dry run — nothing was written into %s. `--assert` applies; `--verbose` "+
+		"lists every destination.[/dim]", home)
 }
 
 // hostApplyVerdict is §4.3's verdict line: one sentence, in every posture, on every path,

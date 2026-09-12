@@ -59,6 +59,10 @@ func hostMCPFixture(t *testing.T, contributorJSON string) string {
 // ~/.claude.json, and the pruned projects.${workspace}.* keys are NAMED in the output.
 func TestApplyHostInstallsMCPServerAndNamesPrunedKeys(t *testing.T) {
 	home := hostMCPFixture(t, mcpURLPackJSON)
+	// The PRUNED-KEY line sits under its surface as a tier-2 fact and is the --verbose view's
+	// since §4.5. The no-silent-drop rule it enforces is unchanged: the key is still named, in
+	// the view that itemizes a destination's keys at all.
+	verboseReport(t)
 
 	var out, errw bytes.Buffer
 	// stdin nil: a clean home loses nothing, so no confirmation is needed and fail-closed

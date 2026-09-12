@@ -95,6 +95,10 @@ func TestApplyHostDoesNotReportAWinningOverlayKeyAsIgnored(t *testing.T) {
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON, // contributes fileSuggestion, which acme does not manage
 	})
+	// R3's contribution line ("config-overlay keys from: …") is a tier-2 fact under its
+	// surface, so §4.5 moved it behind the flag; the IGNORED half this test also asserts the
+	// absence of is a LOSS and prints at every verbosity.
+	verboseReport(t)
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {

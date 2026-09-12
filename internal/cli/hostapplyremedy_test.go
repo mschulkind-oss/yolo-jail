@@ -161,10 +161,22 @@ func TestHostApplyGroupsOneMissingBinaryAcrossPacks(t *testing.T) {
 
 	survey, report := surveyApply(t)
 
-	if got := strings.Count(report, "MISSING"); got < 2 {
-		t.Fatalf("fixture bug: %d per-contribution MISSING lines, want one per declaring "+
-			"pack\n%s", got, report)
-	}
+	// THE FIXTURE'S OWN EVIDENCE — two declarations of one binary — is read off the
+	// per-contribution lines, which §4.5 moved behind the flag. So it is measured in the
+	// verbose view and everything below is measured in the DEFAULT one: the whole claim is
+	// that two lines up there become one group down here, and reading both from the compressed
+	// view would leave the "two" unproven.
+	func() {
+		verboseReport(t)
+		var out, errw bytes.Buffer
+		if rc := applyHostSurveyed(&out, &errw, false, false, nil, &hostApplySurvey{}); rc != 0 {
+			t.Fatalf("verbose observe rc=%d\n%s%s", rc, out.String(), errw.String())
+		}
+		if got := strings.Count(out.String()+errw.String(), "MISSING"); got < 2 {
+			t.Fatalf("fixture bug: %d per-contribution MISSING lines, want one per declaring "+
+				"pack\n%s", got, out.String()+errw.String())
+		}
+	}()
 	groups := groupsWithKey(hostApplyRemedyGroups(survey, home, false), "sharedbin")
 	if len(groups) != 1 {
 		t.Fatalf("two packs declaring one binary are ONE blocker on ONE host; got %d "+

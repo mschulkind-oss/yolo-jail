@@ -26,11 +26,11 @@ package cli
 // your home or it is not. Collapsing only one of the two maps would have collapsed eleven of
 // the nineteen lines and left the rest.
 //
-// WHAT LEAVES ALTOGETHER IS THE RATIONALE (P8, §4.6): the ~40-word reasons stay in
-// internal/render — they are still what the code decides by — and no terminal view prints
-// them. §4.6 rules them the manual's, reachable from `yolo pack --help`, and moving them
-// there under the kind-doc drift gate is §9 step 6's; this file names the kinds and points
-// at that manual, which is the part that is true today.
+// WHAT LEFT ALTOGETHER IS THE RATIONALE (P8, §4.6): the ~40-word reasons stay in
+// internal/render — they are still what the code decides by — and NO TERMINAL VIEW PRINTS
+// THEM, at any verbosity. They live in the manual now, as list entries in config_ref.txt's
+// host-notch section under a drift gate that reads both of render's maps (§9 step 6). This
+// line names the kinds and points there.
 //
 // THE WORD IS `does not apply`, NEVER `refused` (§4.6's closed vocabulary). `refused` belongs
 // to an apply that STOPPED — a doubly-owned surface, an `agents` selector naming nobody — and
@@ -103,8 +103,10 @@ func notchInapplicable(fields render.FieldSet, k packdecl.Kind) bool {
 // set's size.
 //
 // Both lines point somewhere rather than explaining themselves (P3/P8). The kinds line names
-// `yolo pack --help`, which already carries a list entry per kind under a drift gate
-// (TestEveryKindIsDocumented); the autonomy line names what it did to the surfaces, because
+// `yolo config-ref`, which is where §4.6 moved the REASONS — as list entries under a drift gate
+// of their own (TestEveryHostNotchInapplicableKindHasItsReasonDocumented, which reads BOTH of
+// render's maps, so a refused kind and an honored-but-unbuilt one are covered alike); the
+// autonomy line names what it did to the surfaces, because
 // "did my jail-bypass keys reach my real home?" is the single most consequential question this
 // command answers and the answer is one word.
 func printNotchFacts(pr richtext.Printer, f notchFacts) {
@@ -113,8 +115,8 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 		for i, k := range f.Inapplicable {
 			names[i] = string(k)
 		}
-		pr.Printf("  [dim]%d %s %s at the host notch: %s (`yolo pack --help` says what each "+
-			"kind is)[/dim]", len(names), plural(len(names), "kind", "kinds"),
+		pr.Printf("  [dim]%d %s %s at the host notch: %s (`yolo config-ref` says why)[/dim]",
+			len(names), plural(len(names), "kind", "kinds"),
 			plural(len(names), "does not apply", "do not apply"), strings.Join(names, ", "))
 	}
 	if f.Autonomy {

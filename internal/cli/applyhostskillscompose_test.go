@@ -144,6 +144,11 @@ func bodiesUnder(t *testing.T, root string) map[string]bool {
 // sources, and every skill reaches every agent.
 func TestApplyHostSkillsMigratesAndComposesEverywhere(t *testing.T) {
 	home := userSkillsFixture(t)
+	// The per-entry skills lines this test counts are the --verbose view's since §4.5: the
+	// default view names every ADOPTED skill once, in its tier-3 group with the remedy, rather
+	// than once per destination. The PROMPT is untouched by the split (a confirmation shows
+	// what it is about at every verbosity), and this test asserts on both.
+	verboseReport(t)
 
 	rc, report := applyWith(t, true, strings.NewReader("y\ny\n"))
 	if rc != 0 {
@@ -323,6 +328,11 @@ func TestApplyHostSkillsDeclineLeavesEverything(t *testing.T) {
 func TestApplyHostSkillsObserveWritesNothing(t *testing.T) {
 	home := userSkillsFixture(t)
 	before := linkAwareHashes(t, home)
+	// The PREVIEW LINES this test counts are the --verbose view's since §4.5 (see
+	// TestApplyHostSkillsMigratesAndComposesEverywhere); "observe writes nothing" and "observe
+	// does not prompt" are properties of both views, and are asserted on the home and on the
+	// absence of `[y/N]` rather than on a line count.
+	verboseReport(t)
 
 	rc, report := applyWith(t, false, nil)
 	if rc != 0 {

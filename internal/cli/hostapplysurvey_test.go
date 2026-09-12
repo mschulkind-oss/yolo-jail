@@ -41,6 +41,10 @@ func surveyApply(t *testing.T) (*hostApplySurvey, string) {
 // `would render` unconditionally, so this assertion could not be made at all.
 func TestHostApplySurveySeesNothingToChangeAfterAnAssert(t *testing.T) {
 	shippedPacksFixture(t)
+	// The DESTINATION ROLL-UP the second half of this test reads off the report is the
+	// --verbose view's since §4.5: it counts what a loop visited, which is the launch gate's
+	// question and not the operator's (§3.4). The survey it verifies is unchanged.
+	verboseReport(t)
 
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("assert apply rc=%d\n%s", rc, report)
@@ -177,6 +181,9 @@ func TestHostApplySurveyCoversBriefingAndFiles(t *testing.T) {
 		}
 	}
 
+	// The per-destination lines this test reads as its fixture check are the --verbose view's
+	// since §4.5 — a settled destination is a run fact the verdict counts.
+	verboseReport(t)
 	survey, report := surveyApply(t)
 	if survey.Changes() {
 		t.Errorf("a settled home must report no pending change for the briefing or files kinds "+

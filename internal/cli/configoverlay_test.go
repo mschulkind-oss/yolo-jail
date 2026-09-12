@@ -94,6 +94,10 @@ func TestApplyHostNamesTheContributingPack(t *testing.T) {
 		"acme":     acmeOwnerPackJSON,
 		"acme-fzf": acmeFzfPackJSON,
 	})
+	// R3's line is a tier-2 fact under the surface it folds into, so §4.5 moved it behind the
+	// flag. R3 itself is unchanged — an overlay leaves no trace in the resulting file, so the
+	// report is the only place the contributing pack can be named, and it still is.
+	verboseReport(t)
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {

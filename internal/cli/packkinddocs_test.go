@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // TestEveryKindIsDocumented asserts each kind in the closed set has its own LIST ENTRY in
@@ -205,4 +206,127 @@ func sortedByPosition(pos map[string]int) []string {
 	}
 	sort.Slice(names, func(i, j int) bool { return pos[names[i]] < pos[names[j]] })
 	return names
+}
+
+// hostNotchDocMarker is the header of config_ref.txt's host-notch list — the section
+// docs/design/report-tiers.md §4.6 moved the kind-refusal RATIONALE into when P8 took it out of
+// the report ("the report states facts, not rationale"). The tests below are the condition that
+// move was made on.
+const hostNotchDocMarker = "AT THE HOST NOTCH"
+
+// TestEveryHostNotchInapplicableKindHasItsReasonDocumented is the DRIFT GATE on that move, and
+// it is the only reason moving prose out of a mechanism and into a hand-written doc is safe
+// here: retyped text drifts from the thing it describes, so §4.6 made the move conditional on
+// this test existing.
+//
+// ⚠ IT READS BOTH MAPS IN internal/render, through notchInapplicable — the same predicate the
+// report's tier-1 line is built from. §4.6's own wording names only the FieldSet's refusals,
+// and stopping there would have covered five kinds and silently dropped the other six: `env`,
+// `launch`, `hook`, `profile` and `provider` are HONORED by the host FieldSet and unbuilt
+// (render.HostUnimplemented), and `service`/`blocked-tool` fall to the generic refusal with no
+// entry in refusalReasons at all. A reader meeting any of them gets the one-line report and
+// then this list; a gate over half the set would leave the other half undocumented and green.
+//
+// WHAT IT ASSERTS IS AN ENTRY, NOT THE TEXT. The strings stay in internal/render because they
+// are what the code decides by, but the manual wraps and rephrases them for a reader, so
+// comparing bytes would fail on the first line break. "The kind has a row in the list a reader
+// scans" is the property, exactly as TestEveryKindIsDocumented's is.
+func TestEveryHostNotchInapplicableKindHasItsReasonDocumented(t *testing.T) {
+	section := hostNotchDocSection(t, configRefContent)
+	fields := render.HostFields()
+	documented := 0
+	for _, kind := range packdecl.KnownKinds() {
+		if !notchInapplicable(fields, kind) {
+			continue
+		}
+		documented++
+		if !hasKindListEntry(section, string(kind)) {
+			t.Errorf("kind %q does not apply at the host notch and has NO ROW in config_ref's "+
+				"%q list — `yolo host apply` names it in one line and points here for the "+
+				"reason, so without the row the reason exists nowhere a user can read.\n"+
+				"(The strings in internal/render are what the code decides by, not what a "+
+				"user sees: no terminal view prints them at any verbosity.)",
+				kind, hostNotchDocMarker)
+		}
+	}
+	if documented < 2 {
+		t.Fatalf("only %d kind(s) were checked — notchInapplicable is answering `false` for "+
+			"nearly everything, so this gate is enforcing nothing", documented)
+	}
+}
+
+// TestHostNotchDocGateIsNotVacuous is the CONTROL, and it exists for the reason its sibling
+// control exists: the first version of the kind-doc gate reported ok while enforcing nothing
+// for 13 of 15 kinds, because a match ANYWHERE in the file counted.
+//
+// The failure mode HERE is different and sharper: every kind already has a row in the MAIN kind
+// list, so a gate pointed at the whole document would pass for all eleven without a word of the
+// rationale ever being written. The section extraction is therefore the gate, and these are its
+// assertions.
+func TestHostNotchDocGateIsNotVacuous(t *testing.T) {
+	section := hostNotchDocSection(t, configRefContent)
+
+	// 1. THE SECTION IS NOT THE DOCUMENT. If it were, the main kind list would satisfy the
+	//    gate for every kind and nothing would be enforced.
+	if len(section) >= len(configRefContent)/2 {
+		t.Errorf("the host-notch section is %d of %d bytes — that is not a section, and a gate "+
+			"over it would be satisfied by the main kind list", len(section), len(configRefContent))
+	}
+	// 2. A KIND THAT DOES APPLY HAS NO ROW IN IT. `config` and `skills` are the host notch's
+	//    whole point, and both have rows in the main list a few hundred lines above — so
+	//    finding either one here means the extraction ran off the end of the section.
+	for _, applies := range []string{"config", "skills", "briefing"} {
+		if hasKindListEntry(section, applies) {
+			t.Errorf("%q has a row in the host-notch list, but it APPLIES here — the section "+
+				"extraction is reaching into the main kind list", applies)
+		}
+	}
+	// 3. PROSE IS NOT A ROW, which is the original control's property, re-asserted against this
+	//    section's own text rather than assumed to carry over.
+	if hasKindListEntry("    the loophole's endpoint file is mounted into the jail\n", "loophole") {
+		t.Error("prose naming a kind was accepted as a documented reason")
+	}
+}
+
+// hostNotchDocSection returns config_ref's host-notch list: the marker's paragraph, then the
+// indented rows under it, ending when the text returns to the marker's own indentation.
+//
+// INDENTATION RATHER THAN AN END-MARKER, because an end-marker is a thing to forget: the rows
+// are indented six spaces and their continuations twenty, while the section that follows
+// resumes at four. The one subtlety is that the marker's own paragraph WRAPS at the marker's
+// indentation, so the scan cannot stop at the first line back at that level — it stops at the
+// first one AFTER the rows have started. A list that grows a row keeps working; a list someone
+// moves out of its block fails the control above rather than silently widening.
+func hostNotchDocSection(t *testing.T, doc string) string {
+	t.Helper()
+	lines := strings.Split(doc, "\n")
+	start := -1
+	for i, line := range lines {
+		if strings.Contains(line, hostNotchDocMarker) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("config_ref.txt has no %q section at all — the host notch's kind reasons "+
+			"live nowhere a user can read them (docs/design/report-tiers.md §4.6)",
+			hostNotchDocMarker)
+	}
+	indent := len(lines[start]) - len(strings.TrimLeft(lines[start], " "))
+	out := []string{lines[start]}
+	inRows := false
+	for _, line := range lines[start+1:] {
+		if strings.TrimSpace(line) == "" {
+			out = append(out, line)
+			continue
+		}
+		deeper := len(line)-len(strings.TrimLeft(line, " ")) > indent
+		if deeper {
+			inRows = true
+		} else if inRows {
+			break
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

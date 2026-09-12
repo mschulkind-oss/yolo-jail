@@ -160,7 +160,11 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	bres, berr := entrypoint.RenderHostBriefings(loaded, home, req, !write)
 	for _, r := range bres {
 		survey.note(tierRun, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
-		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+		// A settled destination is DETAIL (§4.5): the verdict counts briefing destinations,
+		// and a reader who wants each one by name asks for it. A destination that WOULD
+		// change still prints — reportDestination is the one place that rule lives.
+		reportDestination(pr, tierRun, r.WouldChange,
+			"  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if berr != nil {
 		pr.Printf("  [red]briefing   refused[/red] — %v", berr)
@@ -176,7 +180,8 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// (§6a), so archiving it takes nothing of the user's — their prose is in the local
 		// pack, which does not stop existing when a pack is dropped.
 		survey.note(tierRun, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
-		pr.Printf("  [yellow]%-20s %s[/yellow]  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
+		reportDestination(pr, tierRun, r.WouldChange,
+			"  [yellow]%-20s %s[/yellow]  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if perr != nil {
 		pr.Printf("  [red]briefing prune refused[/red] — %v", perr)
