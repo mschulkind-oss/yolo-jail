@@ -42,6 +42,7 @@ package entrypoint
 //     workspace — so Workspace is empty and a ${workspace} surface is skipped.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -124,6 +125,20 @@ type HostRenderResult struct {
 	// deliberately-unbuilt work — and a user whose config.toml is half explanatory comments
 	// deserves to know they will not survive, in observe, before the write. Empty for every
 	// JSON surface (JSON has no comments) and for an uncommented TOML one.
+	//
+	// PER MECHANISM, and the two answers are not the same shape. Under `assert` the write is
+	// rmw, which REATTACHES comments, so this names the few it could not place. Under `own`
+	// there is no reattachment at all — the file is composed through codec.TOML, which has no
+	// comment channel — so every comment goes and this says so once, for the whole file.
+	//
+	// ⚠ UNDER `own` IT IS THE ONLY DISCLOSURE THIS LOSS HAS, which is why the branch is
+	// load-bearing rather than a nicety. §11's criterion has been KEYS AND VALUES since
+	// OQ-CO12 and a comment is neither, so comment destruction is CONFORMANT and no criterion
+	// test fails for it; `WouldChange` reports a byte moved in the same word it uses for a
+	// re-sorted key; and `Archived` is written on the WRITE, never in the dry run that is
+	// supposed to precede the one-way door. Computing the rmw answer for an `own` render —
+	// which is what this did until 2026-09-12 — therefore reported approximately nothing on
+	// the one render that drops every comment in the file.
 	Formatting []string
 	// WouldChange is THE CHANGE PREDICATE (docs/reference/host-apply-staleness.md §3.4, coined
 	// there): would an `--assert` alter this destination's CONTENT, as it stands on disk right
@@ -336,7 +351,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 		// Non-value losses from the canonical re-emit (a TOML file's comments). Computed in
 		// both postures for the same reason the overwrites are: the point is to see it before
 		// the write.
-		formatting := hostFormattingLosses(e, s, path, tableLayer, surfaceOverlays)
+		formatting := hostFormattingLosses(e, mechanism, s, path, tableLayer, surfaceOverlays)
 		// THE CHANGE PREDICATE, computed before the write for both postures — see
 		// HostRenderResult.WouldChange for what it means, and the two functions below it for
 		// how each mechanism answers. Both run the WRITER'S OWN fold over a scratch copy, so
@@ -640,8 +655,8 @@ func hostSurfaceWouldChange(e *Env, s manifest.Surface, path string, computed ma
 // JSON surfaces yield nothing (JSON has no comment syntax, so there is nothing to lose), and
 // so does a TOML file whose comments all survive — the line only appears when there is a
 // real loss.
-func hostFormattingLosses(e *Env, s manifest.Surface, path string, computed map[string]any,
-	overlays []agentcfg.Overlay) []string {
+func hostFormattingLosses(e *Env, mechanism string, s manifest.Surface, path string,
+	computed map[string]any, overlays []agentcfg.Overlay) []string {
 	if s.Codec != "toml" {
 		return nil
 	}
@@ -649,6 +664,42 @@ func hostFormattingLosses(e *Env, s manifest.Surface, path string, computed map[
 	orig, obj, before, err := readRMWSource(s, path)
 	if err != nil || len(orig) == 0 {
 		return nil
+	}
+	// PER MECHANISM, exactly as the change predicate beside this one is, and for the same
+	// reason: the rest of this function SIMULATES AN RMW WRITE, and an `own` surface does not
+	// get one. `own` composes the whole file through codec.TOML.Encode, which has no comment
+	// channel at all — reattachTOMLComments is reached only from the rmw encoder — so EVERY
+	// comment goes, plus the generated header arrives. Running the rmw simulation anyway
+	// answered with the comments RMW would have dropped, which is approximately none, on the
+	// one render that drops all of them.
+	//
+	// ⚠ THAT SILENCE IS WHAT MAKES THE LOSS LAUNDERABLE, which is why this is not cosmetic.
+	// §11's criterion is KEYS AND VALUES since OQ-CO12, and a comment is neither — so
+	// comment destruction is CONFORMANT and no test will ever fail for it again. What §11
+	// offers in exchange is that the switch "is never silent on any axis", and the only
+	// thing left holding that up for comments is this field: `WouldChange` says a byte
+	// changed, in the same undifferentiated word it uses for a re-sorted key, and `Archived`
+	// names the copy only AFTER the write (a dry run makes none, deliberately). A user whose
+	// config.toml is half explanatory prose has to be told in OBSERVE, before the one-way
+	// door — which is what Formatting's own docstring already promised and this had stopped
+	// delivering.
+	if mechanism == manifest.ModeStateful {
+		// ⚠ ASK IT OF THE FILE MINUS YOLO'S OWN HEADER, not of the file. The header IS
+		// comments, and the owned render writes it — so "does this file hold a comment?" is
+		// true of every file an owned render has ever touched, and answering that would
+		// report a loss on every apply forever for a file with nothing left to lose. It
+		// would also be a lie in the direction that costs the most: configResultTier reads
+		// this field to decide a destination loses something of the user's, so a steady-state
+		// owned home would sit at tierLoss permanently and the signal would stop meaning
+		// anything. The render reproduces the header exactly, so what is AT RISK is the
+		// comments beside it.
+		if !tomlHasComments(bytes.TrimPrefix(orig, []byte(generatedHeader(s)))) {
+			return nil
+		}
+		return []string{"comments in this file are NOT preserved — `own` composes the whole " +
+			"file from the decoded values, so every comment is dropped and yolo's generated " +
+			"header is added (every value survives; the comments do not). The file as it " +
+			"stands is archived once, before the first owned render"}
 	}
 	applyRMWLayers(e, s, obj, computed, overlays)
 	_, losses, err := encodeSurfaceObjectReporting(s, obj, orig, before)

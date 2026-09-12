@@ -1947,7 +1947,31 @@ Observable outcomes that mean this was built as designed:
   > ([`hostStatefulWouldChange`](../../internal/entrypoint/hostrender.go)) — so a
   > conformant reformat is still announced as a pending change, and the adoption
   > archive still holds the file as yolo found it
-  > ([§6.3.3](#633-what-survives-as-a-guard)). While the two deletions stood, what
+  > ([§6.3.3](#633-what-survives-as-a-guard)).
+  >
+  > ⚠ **"Not silent" is thinner than it looks for COMMENTS, and it is the one axis
+  > worth checking rather than assuming.** `WouldChange` reports that a byte moved
+  > in the same undifferentiated word it uses for a re-sorted key, so it cannot say
+  > that prose was destroyed; and `Archived` names the copy only on the WRITE — a
+  > dry run makes none, deliberately — so it is not a warning that precedes the
+  > one-way door. What is left is `Formatting`, whose whole job is to say the
+  > comments will not survive, in observe, before the write. It was computed from
+  > an RMW SIMULATION for every mechanism, and rmw *reattaches* comments — so on an
+  > `own` render it answered with the handful rmw would have dropped, which is
+  > approximately none, on the one render that drops all of them. Measured and
+  > fixed 2026-09-12 (`hostFormattingLosses` now branches on mechanism, as
+  > `hostMechanismWouldChange` beside it already did);
+  > `TestSwitchingToOwnDisclosesThatCommentsWillNotSurvive`
+  > ([`hostownedformattingloss_test.go`](../../internal/entrypoint/hostownedformattingloss_test.go))
+  > is the standing measurement, with `TestASteadyStateOwnedTOMLFileReportsNoCommentLoss`
+  > beside it because yolo's own generated header is itself comments — a probe that
+  > cannot tell the header from the user's prose reports a loss on every apply
+  > forever, and `configResultTier` reads this field.
+  >
+  > **The general form, worth stating once:** relaxing a criterion moves the burden
+  > of an axis it frees onto whatever ELSE reports that axis. Freeing comments was
+  > ruled, and is right; leaving the only field that names them answering for a
+  > different mechanism is what would have turned the ruling into a silent loss. While the two deletions stood, what
   > they defeated was the LOSS GATE rather than the announcement: neither
   > `EntryLosses` nor `Formatting` names a dropped `null`- or `{}`-valued key, so
   > `yolo host apply` never prompted for one. Nothing was added to those fields to
