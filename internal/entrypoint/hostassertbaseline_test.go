@@ -145,8 +145,8 @@ func TestHostAssertIsAFixedPoint(t *testing.T) {
 // then that the render left rmw's own signature rather than stateful's.
 //
 // What makes it a pin rather than a restatement: if HostModes is ever changed to run
-// `stateful` — which is what `own` does (docs/design/config-ownership-and-promotion.md §10
-// step 6) — the first assertion fails, and its author has to come here and decide what the
+// `stateful` — which is what `own` does (docs/design/config-ownership-and-promotion.md §10's
+// `own` step) — the first assertion fails, and its author has to come here and decide what the
 // host entry should then do. That is the forcing function the census exists to be; a dispatch
 // that hardcoded rmw would have gone on rendering rmw with the census saying otherwise and
 // nothing failing anywhere.

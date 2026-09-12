@@ -250,7 +250,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		case mechanism != manifest.ModeRMW:
 			// The census names a mechanism this entry has no arm for. Today unreachable at
 			// every notch RenderHostPack can be pointed at; it becomes reachable the moment a
-			// host census runs `stateful` (config-ownership-and-promotion.md §10 step 6), and
+			// host census runs `stateful` (config-ownership-and-promotion.md §10's `own` step), and
 			// the second arm belongs THERE, with the capture store and host-side reset that
 			// step lands together. Refusing is the fail-closed answer in the meantime: the
 			// file is left exactly as the agent wrote it.

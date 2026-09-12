@@ -24,8 +24,8 @@ const (
 	// state (§4.3).
 	HostManagementAssert HostManagement = "assert"
 	// HostManagementOwn: yolo owns the file; it is derived output. Host surfaces compose
-	// whole-file and capture edits, exactly as a jail's do. NOT WIRED YET — step 6 of
-	// §10's build order. Parsing and validation accept it so the contract is expressible
+	// whole-file and capture edits, exactly as a jail's do. NOT WIRED YET — the `own` step
+	// of §10's build order, which is its last. Parsing and validation accept it so the contract is expressible
 	// before the render engine can honor it; the host apply refuses it meanwhile, rather
 	// than silently behaving as `assert`.
 	HostManagementOwn HostManagement = "own"

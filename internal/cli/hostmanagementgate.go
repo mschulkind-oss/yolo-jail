@@ -21,7 +21,7 @@ package cli
 //
 // # `own` refuses too, and that is honest rather than strict
 //
-// `own` is §10's step 6 — the only step that can lose data, and the last to be built. Until
+// `own` is §10's last build step — the only one that can lose data. Until
 // it is, a host apply under `own` refuses. The alternative is worse than a refusal: silently
 // rendering `rmw` would tell a user who declared their file DERIVED that it is derived while
 // it still holds bytes existing nowhere else, which is the exact inference P1 exists to end.

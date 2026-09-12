@@ -844,6 +844,21 @@ and makes the judgement part answerable three ways.
 > config verbs matches `sensitive`, `deny-list` or `redact` (grepped 2026-09-11).
 > Both the list and the per-surface marking are new work, owned by
 > [§10](#10-what-i-would-build-in-order) step 4.
+>
+> ⚠ ***"a key on a deny-list"* reads as reuse, and there is nothing to reuse.**
+> The bullet above is phrased as a lookup against a list yolo has, and that
+> sentence is false in both halves: no sensitivity deny-list exists anywhere in
+> the tree — not in capture, not in the pack vocabulary, not in the config verbs
+> — and no surface can be marked sensitive. Anyone sequencing this step should
+> cost it as **new classification**, not as wiring. Half of it shipped with
+> promote on 2026-09-12 (`internal/cli/configpromotesensitive.go`): a name-token
+> list, matched as whole tokens rather than substrings, walked to the leaves
+> because the measured case is `mcp.tavily.environment.TAVILY_API_KEY` four
+> levels below a top-level `mcp` that carries no signal. The per-surface
+> `sensitive` marking is still unbuilt, and the capture-time guard
+> [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to) wants is a
+> third thing again — this one refuses at export, after capture has already
+> written the bytes to disk.
 
 **Needs judgement, and no heuristic should pretend otherwise:**
 
@@ -1002,16 +1017,90 @@ file is derived.
 Under `assert` the host stays `rmw` and today's behavior is unchanged. Under
 `none` the host renders nothing.
 
+**Which mechanisms a notch runs is written down in the mode census, and `own` is
+an edit to that statement.** The **mode census** — `render.ModeSet`, one entry
+per notch in [`internal/render/modes.go`](../../internal/render/modes.go), asked
+through `Target.Modes()` — is the per-notch table of which engine mechanisms
+(`stateful`, `computed`, `rmw`, `unrendered`) a target actually runs and which of
+those keep a provenance record. It is not the *declaration* a pack writes on a
+surface: a surface declares one mode, and the census says what the notch does
+with that declaration. `HostModes()` today says the host runs `rmw` alone, runs
+it for surfaces declaring `stateful` or `computed` too, and records it — so
+`own`'s first edit is to that function, and the capture store
+[§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to) specifies is
+what the added `stateful` then needs.
+
+> [!WARNING]
+> **Until this paragraph the document named neither the census nor its type**
+> — zero occurrences of `census`, `ModeSet` or `Modes()` (grepped 2026-09-12) —
+> while [§10](#10-what-i-would-build-in-order)'s `own` step depends on both. And
+> the census was only **half wired** when that step was written: `Records()` had
+> exactly one production consumer, the rmw writer's provenance gate
+> ([`prism.go:573`](../../internal/entrypoint/prism.go#L573)), while `Runs()`,
+> `Excludes()` and `Undecided()` had none — and the host's *"every surface is
+> read-modify-written"* was not enforced by the census at all: `hostrender.go`
+> called the rmw writer unconditionally.
+>
+> **The two agreed, and that is the hazard rather than the reassurance.** An
+> unconditional call goes on agreeing with itself whatever `HostModes()` is
+> changed to say, so **`own` could have shipped with `Modes()` untouched, leaving
+> `HostModes()` a false statement** about the notch it is the authority for —
+> `stateful` in the census, `rmw` in the only code that renders. Wired on
+> 2026-09-12 (`67b649ac`): the host entry asks `ModeSet.Mechanism` per surface
+> and refuses in `Excludes()`'s own words, and `Mechanism` reads `Runs()` and
+> `Undecided()`. The `own` step inherits that seam, and must keep it — its
+> `stateful` arm is reached by the census answering `stateful`, never by a second
+> `if` beside it.
+
 ### 6.2 Host capture, and the privacy ruling it has to answer to
 
 Host capture is currently refused on the grounds that it would copy a credential
 out of the real file into a **workspace** sidecar — which crosses into a jail and
 plausibly into git. Under `own` that hazard does not arise in the same shape: the
 host capture store sits beside the existing host provenance record, at
-`<home>/.local/share/yolo-jail/host-capture/`, mode `0600`, and never crosses a
-boundary. The key that *exports* anything — promote — refuses sensitive keys
-independently ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)).
+`<home>/.local/share/yolo-jail/host-capture/`, and never crosses a boundary. The
+key that *exports* anything — promote — refuses sensitive keys independently
+([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)).
 The refusal stays under `none` and `assert`.
+
+**What the store holds: the three capture files, per surface, and nothing else.**
+They are the same three a jail keeps under `<workspace>/.yolo/prism/`, with the
+same names — `<agent>-<name>.last_render`, `<agent>-<name>.overlay.json`,
+`<agent>-<name>.selection.json` — because they are what `stateful` composition
+needs and `own` is that composition at the host notch: the baseline a capture
+diffs against, the captured edits themselves, and the recorded selection.
+
+**The provenance record does not move, and it is not one of them.** It stays at
+`<home>/.local/share/yolo-jail/host-provenance/<agent>-<name>.provenance`, where
+`Target.ProvenanceDir()` already puts it
+([`target.go:284`](../../internal/render/target.go#L284)) and where `--revert`
+already reads it ([§10](#10-what-i-would-build-in-order) step 3). Two directories
+because they have two lifetimes: provenance is per-key attribution, written at
+**every** host apply including under `assert`, and it is what `--revert` consumes;
+capture is `own`-only state that a host-side `yolo config reset` is entitled to
+delete. Folding the record into the capture store would make reverting an
+`assert` home depend on a directory only `own` creates.
+
+**The directory is RESOLVED, never hand-built.** `render.Target.SidecarDir()`
+is what must answer it for `KindHost` — today that method answers `""` for every
+notch but jail and preview
+([`target.go:243`](../../internal/render/target.go#L243)) — and both the writer
+and every reader ask it there rather than joining the path themselves. The precedent is `hostProvenancePath`,
+which resolves through `render.Host(paths.Home(), nil).ProvenancePath` precisely
+so one definition serves the entrypoint that writes and the CLI that reads. Its
+docstring calls two hand-copied path builders — *"how the CLI's own prism\* twins
+already work"* — *"a standing hazard"*
+([`configls.go:288-301`](../../internal/cli/configls.go#L288-L301)), and a
+hand-built capture-store path would be the next pair.
+
+> [!WARNING]
+> **`0600` is a file mode, and the store is a directory.** An earlier draft of
+> this section put `0600` on the directory itself, which would make it unusable:
+> the execute bit on a directory is the right to *resolve a name inside it*, so
+> without it even the owner gets `EACCES` opening any file in the store, while
+> `ls` still lists the names. Measured 2026-09-12 as an unprivileged uid — `open`
+> failed `[Errno 13] Permission denied` at `0600` and succeeded at `0700`, with
+> `listdir` working in both. **The store is `0700`, holding `0600` files.**
 
 > [!IMPORTANT]
 > **Host capture under `own` is not a convenience — it is what makes adoption
@@ -1034,8 +1123,11 @@ The refusal stays under `none` and `assert`.
 > *is* in a workspace and *can* reach git is the one that captures freely. By
 > [P5](#1-the-verdict-and-the-principles-it-rests-on) the guard belongs to capture
 > at every notch — a capture-time deny-list, a sidecar mode — and the `0600`
-> proposed for the host store is a parity gap against the jail's `0644` until both
-> move. Neither is this document's to rule; both are listed for the roadmap.
+> proposed for the host store's **files** is a parity gap against the jail's
+> `0644` until both move. Promote's own name-token list is not that guard: it
+> refuses at *export*, and these bytes are already on disk before it runs
+> ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)).
+> Neither is this document's to rule; both are listed for the roadmap.
 
 ### 6.3 The one asymmetry that survives: deletion
 
@@ -1091,10 +1183,10 @@ a loss path:
 
 - `rmw` **deep-merges** a declared object — `applyRMWLayer` recurses *"so a
   sibling key the agent owns under the same parent survives"*
-  ([`prism.go:1093`](../../internal/entrypoint/prism.go#L1093)). A user's
+  ([`prism.go:1002`](../../internal/entrypoint/prism.go#L1002)). A user's
   `permissions.ask` beside yolo's managed `permissions.defaultMode` lives on under
   `assert`. Only object-valued **`computed`** tables are replaced wholesale
-  (`regenerateManagedTables`, [`prism.go:980`](../../internal/entrypoint/prism.go#L980)).
+  (`regenerateManagedTables`, [`prism.go:889`](../../internal/entrypoint/prism.go#L889)).
 - Adoption drops **every top-level key the pure render holds as an object**,
   whole — `dropYoloOwnedSubtrees`
   ([`staterender.go:320-338`](../../internal/agentcfg/staterender.go#L320-L338)) —
@@ -1355,7 +1447,40 @@ already has.
    first.
 5. **Promote's write path** to `local` and `pack:<name>`, with the atomic
    write-and-reset and the `--accept-promotion` confirmation.
-6. **`own`:** the host notch renders `stateful`, **with the host capture store
+   ⚠ **Written against today's binding, deliberately.** `--to host` is refused for
+   a surface with no host layer ([`OQ-CO10`](#13-decision-ledger)), and the
+   predicate promote asks is `Surface.HasHostLayer()` — which, until step 6, is
+   `HostSource != ""`: a `/ctx` path populated across a seam by a basename match
+   ([§5.1.1](#511-why-only-two-surfaces-have-a-host-layer)). Promote binds to the
+   **predicate**, never to what currently populates it, so step 6 is invisible
+   here. The two alternatives are both worse: waiting for the restructure blocks
+   a self-contained verb behind a refactor, and reading the `reads-host`
+   contribution directly would give the basename match a second caller to be
+   removed from.
+6. **The `reads-host` restructure, part 1 — the declaration moves onto the
+   surface.** A config surface declares its own host layer as a boolean field;
+   `HasHostLayer()` becomes that field, and the `/ctx` destination is derived
+   from the surface's own path by ONE expression that the launcher (which mounts
+   it) and the jail (which opens it) both evaluate, so there is no state where
+   the declaration is present and the binding is not. The contribution kind
+   **stays** — the user's `host_files` entries carry arbitrary host files with no
+   mirrored twin and genuinely need a declared path — and a pack's `reads-host`
+   naming its own surface is refused with the migration on the authoring and host
+   paths only, because that is a version-skew fact and a jail must boot across
+   the boundary ([§5.1.1](#511-why-only-two-surfaces-have-a-host-layer)).
+7. **The `reads-host` restructure, part 2 — the read fails closed.** The launcher
+   reports what it delivered, in `YOLO_HOST_LOOPBACK`'s shape and for its reasons:
+   emitted on every launch, so an absent report means *"launcher older than the
+   variable"* and never *"nothing was delivered"*; severity is the disposition's
+   alone. The jail is then a **witness** rather than a second decider — a
+   destination the launcher says it delivered and the jail cannot read is a
+   refusal, a file the user simply does not have composes without the host layer,
+   and a backend with no delivery mechanism (`macos-user`) reports `unsupported`
+   and is **not** refused for what it cannot do. This is what ends the fail-open
+   read that already shipped a wrong composition and the `macos-user` silent drop
+   ([§5.1.1](#511-why-only-two-surfaces-have-a-host-layer)); it is worth doing
+   whether or not `own` ever is.
+8. **`own`:** the host notch renders `stateful`, **with the host capture store
    ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)) and
    host-side `reset` in the same commit** — adoption is unsafe without either
    ([§6.3.3](#633-what-survives-as-a-guard)) — plus the one-time archive, the
@@ -1370,7 +1495,17 @@ already has.
    both there.
 
 Steps 1–3 are worth doing even if [§5](#5-promotion--the-way-out-of-capture) is
-never built; step 4 is worth doing even if step 5 is not.
+never built; step 4 is worth doing even if step 5 is not; and steps 6–7 fix two
+live defects on their own, so they survive `own` being dropped entirely.
+
+**Why the restructure is scheduled after the verb that needs it, rather than
+before.** Step 5 is the step that asks "does this surface have a host layer?",
+which is the question the basename match answers badly — so the intuitive order
+puts steps 6–7 first. It is the wrong order twice over: promote is a new verb
+that can be written against the predicate and re-verified for free once the
+binding changes, while the restructure touches the boot render on every backend
+and carries a skew refusal, so pulling it forward puts the riskier change ahead
+of the one whose output tells you whether the design works at all.
 
 ---
 
@@ -1472,8 +1607,8 @@ work out of this design rather than into it.** Two of the rulings above removed 
 mechanism this doc had proposed — a migration prompt ([`OQ-CO2`](#13-decision-ledger)) and an adoption
 confirmation ([`OQ-CO3`](#13-decision-ledger)) — and in each case the replacement was already shipped: the
 `assert` default, and `ComposeStateful`'s first-migration adoption.
-[§10](#10-what-i-would-build-in-order)'s step 1 is smaller for it, and step 6
-gains the host capture store it now depends on.
+[§10](#10-what-i-would-build-in-order)'s step 1 is smaller for it, and its `own`
+step gains the host capture store it now depends on.
 | [OQ-CO9](#12-open-questions) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) |
 | [OQ-CO10](#12-open-questions) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) |
 | [OQ-CO11](#12-open-questions) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§12](#12-open-questions) |
