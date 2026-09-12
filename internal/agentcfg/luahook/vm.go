@@ -40,20 +40,20 @@ const DefaultTimeout = 5 * time.Second
 // extraStrippedGlobals are names not in ForbiddenGlobals that the base library
 // still installs and that could weaken the sandbox (function-environment
 // manipulation, the module loader, the debug-ish proxy). Removed alongside
-// ForbiddenGlobals so the environment matches AllowedGlobals.
+// ForbiddenGlobals, so the two lists together are the whole subtraction.
 var extraStrippedGlobals = []string{
 	"require", "module", // loadlib entries planted in _G by OpenBase
 	"getfenv", "setfenv", // reassign a function's environment → escape
 	"newproxy",   // hidden proxy/userdata builder
 	"_printregs", // gopher-lua debug hook
-	"print",      // side-effecting I/O; a pure transform has no console
+	"print",      // side-effecting I/O; a pure producer has no console
 	"dostring",   // belt-and-suspenders (not a stock name, but listed forbidden)
 }
 
-// openSandboxLibs opens only the safe libraries (base, string, table, math)
-// and then strips every forbidden global, realizing the AllowedGlobals surface
-// by subtraction. Base must load before the others (gopher-lua requires base/
-// load first) and is where the dangerous names live, so it is opened then
+// openSandboxLibs opens only the safe libraries (base, string, table, math) and
+// then strips every forbidden global, so the surface a script sees is what is
+// left by subtraction. Base must load before the others (gopher-lua requires
+// base/load first) and is where the dangerous names live, so it is opened then
 // pruned.
 func openSandboxLibs(L *lua.LState) error {
 	// Order matters: base first. package/os/io/debug/coroutine/channel are
