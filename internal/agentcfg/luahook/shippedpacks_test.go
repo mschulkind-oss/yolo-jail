@@ -15,14 +15,22 @@ package luahook
 // jail never calls (host-side only, packload/deriveenv.go), so nothing else here would
 // notice it breaking.
 //
-// WHAT IT ACTUALLY CATCHES, measured by mutation on 2026-09-11 rather than asserted:
-// dropping `providers` from knownDeriveSources FAILS here (pi and opencode read it) and
-// nothing else in the suite notices; removing Lua's `table` lib from openSandboxLibs
-// FAILS here (pi's model loop calls table.insert) and nothing else notices either.
-// Removing `string` or `math` does NOT fail here — no shipped derive calls them past its
-// guard — and that is derivesandbox_test.go's TestDeriveSandbox_SafeLibsAvailable's job,
-// not this test's. The two are complementary: that one pins the sandbox SURFACE, this one
-// pins that the scripts yolo actually ships still run on it.
+// WHAT IT CATCHES, measured by mutation on 2026-09-12 rather than asserted. Removing
+// Lua's `table` lib from openSandboxLibs fails this test at the `pi` subtest (its model
+// loop calls table.insert); dropping `providers` from knownDeriveSources fails it at
+// `claude` and `copilot`, through the Env leg. Removing `string` or `math` does NOT fail
+// this test — no shipped derive calls them past its guard — and catching those is
+// derivesandbox_test.go's TestDeriveSandbox_SafeLibsAvailable's job, not this one's. The
+// two are complementary: that one pins the sandbox SURFACE, this one pins that the
+// scripts yolo actually ships still run on it.
+//
+// It is NOT the only thing that notices either mutation, and was described that way
+// until the claim was re-measured: both are also caught outside this package (the
+// `providers` cut reddens provider-selection tests in cli, cli/run, entrypoint and
+// packload; the `table` cut reddens TestGoToLuaIterationOrderIsDeterministic here and
+// tests in entrypoint). What is uniquely this test's is the INPUT — every other test in
+// the package drives a fixture script, so a mis-cut that breaks only a construct the real
+// packs use, in a pack whose surfaces no other test renders, lands here first and alone.
 //
 // It reads the packs off disk by relative path rather than through packload, which
 // imports this package.
