@@ -1901,10 +1901,34 @@ Observable outcomes that mean this was built as designed:
   >   a patch is carried **outside** it: `Inputs.LiteralNulls`
   >   ([`literalnull.go`](../../internal/agentcfg/literalnull.go)) is a keypath
   >   skeleton read off the DECODED FILE — where a null is unambiguous, a decoded
-  >   file holding no tombstones — and re-asserted after the fold, only where no
-  >   layer spoke for the path. A layer always wins, including when what it says is
-  >   *deleted*: a `computed` tombstone removes a key on purpose, and putting it
-  >   back as null would undo a decision yolo made that boot.
+  >   file holding no tombstones — and re-asserted after the fold, wherever no layer
+  >   that OUTRANKS THE CAPTURE OVERLAY spoke for the path.
+  >
+  >   **Outside the stack is a statement about the CHANNEL, not about precedence**,
+  >   and conflating the two shipped a second value-loss for one day (2026-09-12). A
+  >   literal null folds at the capture overlay's OWN precedence, because that is
+  >   what it is — a captured value, carried beside the stack only because no merge
+  >   patch can spell one. `computed` and `managed` sit above the overlay and beat
+  >   it: a `computed` tombstone removes a key on purpose, and putting it back as
+  >   null would undo a decision yolo made that boot. `defaults`, `host`,
+  >   `workspace` and every `config-overlay:<pack>` sit below it and LOSE to it,
+  >   exactly as they lose to a non-null captured value. The rule read *"a layer
+  >   always wins"* — every layer, at every precedence — which made the null the one
+  >   captured value in this engine a LOWER layer could overwrite: a file holding
+  >   `"theme": null` against a pack whose `defaults` says `"system"` keeps the null
+  >   under `assert` (rmw fills a default only where the key is ABSENT, and a
+  >   null-valued key is present) and took the default under `own`. A value changing
+  >   across the switch is this section's criterion broken, in the form [`OQ-CO12`](#13-decision-ledger)
+  >   ruled it — the relaxation freed FORMATTING, not values. The control settles
+  >   the direction rather than leaving it to taste: the same file holding
+  >   `"theme": "dark"` keeps `"dark"`. Measured by
+  >   `TestSwitchingToOwnKeepsANullThatALowerLayerDeclares`
+  >   ([`hostownednullprecedence_test.go`](../../internal/entrypoint/hostownednullprecedence_test.go)),
+  >   which asserts BOTH halves of the disagreement — that `assert` fills an absent
+  >   default and leaves a null one — so it cannot be satisfied by changing `assert`,
+  >   and by `TestLiteralNullsLoseOnlyToLayersAboveTheFile`
+  >   ([`literalnullprecedence_test.go`](../../internal/agentcfg/literalnullprecedence_test.go))
+  >   one layer at a time.
   >
   > ⚠ **With ONE layer excluded, and only a real jail boot found it: the capture
   > overlay is not evidence.** It is a record OF the file, so letting it outrank the

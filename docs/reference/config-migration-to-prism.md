@@ -241,9 +241,26 @@ The fix does not give `null` a second meaning anywhere. `ComposeStateful` reads 
 keypaths off the **decoded current file** — where a null is unambiguous, because a decoded file
 holds no tombstones — and hands them to `Compose` as `agentcfg.Inputs.LiteralNulls`, a keypath
 skeleton that never merges. After the fold and after the managed enforce, each marked path is
-set to a literal null **only where the composed config has no value there and no layer mentioned
-it**. A layer always wins, including when what it says is *deleted*: a `computed` tombstone
-removes a key deliberately, and reinstating it would undo a decision that boot just made.
+set to a literal null **wherever no layer that OUTRANKS THE CAPTURE OVERLAY mentioned it**.
+
+A literal null folds at **the capture overlay's own precedence**, because that is what it is — a
+captured value, carried beside the stack only because no merge patch can spell one. So the layers
+above the overlay beat it and the layers below it lose:
+
+| `defaults` · `host` · `workspace` · `config-overlay:<pack>` | `overlay` | `computed` · `managed` |
+| :--- | :---: | :--- |
+| lose to the file's null | where the null folds | beat the file's null |
+
+`computed` and `managed` winning is the case that matters *for them*: a `computed` tombstone
+removes a key deliberately, and reinstating it would undo a decision that boot just made. The
+losing half is the case that matters for the user, and it shipped backwards for one day
+(2026-09-12): a file holding `"theme": null` against a pack whose `defaults` says `"system"` kept
+the null under `assert` — rmw fills a default only where the key is **absent**, and a null-valued
+key is present — and took the default under `own`. That is a value changing across a switch that
+[§11](../design/config-ownership-and-promotion.md#11-success-criteria) says keeps every value.
+The control settles the direction: the same file holding `"theme": "dark"` keeps `"dark"`, because
+the capture overlay outranks `defaults`. A null has to fold where a non-null does, or the two
+disagree for no reason except which of them the sidecar happens to be able to hold.
 
 > [!IMPORTANT]
 > **The capture overlay is the one layer that does not count as evidence, and the reason is
@@ -333,7 +350,7 @@ sidecars plus a truncation, per surface.
 | **Keyless surfaces are not adopted** | "The existing file wins outright" defeats the host layer permanently, and there is no partial residue to take. |
 | **`yolo config reset` truncates the surface as well as removing both sidecars** | Adoption makes "no baseline" mean "adopt what is there", so a reset that only deleted sidecars would re-capture the discarded edits. It also makes reset visible immediately rather than after the next boot. |
 | **Accumulation preserves `null` tombstones** | RFC-7386 `deepMerge` drops a tombstone for an absent key, so a captured deletion would not survive two boots. |
-| **A literal `null` VALUE travels outside the layer stack** | Having spent `null` on the tombstone, a patch has no token left for the value — so the file's own nulls are read off the decoded file and re-asserted after the fold, where no layer spoke. |
+| **A literal `null` VALUE travels outside the layer stack, at the capture overlay's precedence** | Having spent `null` on the tombstone, a patch has no token left for the value — so the file's own nulls are read off the decoded file and re-asserted after the fold, wherever no layer ABOVE the overlay spoke. Outside the stack is a statement about the CHANNEL, never about precedence: a captured null outranks `defaults`/`host`/`workspace`/`config-overlay` exactly as a captured non-null value does. |
 | **A pure-overwrite sibling renders through the stateless path** | Sending it through the stateful path would begin capturing edits into an overlay and silently turn an intentional overwrite into an edit-preserving surface. |
 | **Orphan retirement is declared per surface, not held as a central table** | The pack that obsoleted the file is the thing that knows its name, and the retirement then rides the same first-migration signal that makes it a one-time act. |
 

@@ -405,21 +405,42 @@ func Compose(in Inputs) (*Result, error) {
 	// The object layers actually folded, kept past the branch: the literal-null
 	// pass below has to ask which layers SPOKE for a key, and these are the lists.
 	//
-	// TWO lists, because the CAPTURE OVERLAY IS NOT EVIDENCE about a literal null and
-	// every other layer is. The overlay is a record OF the file, so letting it outrank
-	// the file is circular — and it is circular in the one direction that loses the key:
-	// `mergeDiff` cannot tell a key the user ADDED with a null value from a key the user
-	// DELETED (both are `k: null` in the patch), so a file gaining `"k": null` puts a
-	// TOMBSTONE in the overlay, which then deletes the key it was meant to record.
-	// MEASURED on a real jail boot 2026-09-12, and invisible to the host-notch tests,
-	// which only ever exercise the adoption branch.
+	// TWO lists, because A LITERAL NULL FOLDS AT THE CAPTURE OVERLAY'S PRECEDENCE — it
+	// IS a captured value, the one shape the sidecar cannot hold — so the layers that
+	// may overrule it are exactly the layers that OUTRANK the overlay, and `overlayIdx`
+	// below is where that line falls. Two separate reasons put the cut there:
 	//
-	// Excluding it costs nothing the `present` check does not already cover: an overlay
-	// holding a real VALUE at the key makes the composed config hold one too, and
-	// reinstateAt declines on that. So the only case this changes is the stale tombstone,
-	// where the file is both newer and unambiguous. It also self-heals an overlay an
-	// older yolo already polluted, which is why the tombstone is left in the sidecar
-	// rather than swept: inert, and removing durable state deserves its own argument.
+	//   - ABOVE the overlay (`computed`, and `managed` which the caller appends): a
+	//     computed tombstone removes a key on purpose (§2 principle 1,
+	//     regenerate-don't-reconcile) and a managed floor is a floor. Putting the key
+	//     back as null would undo a decision yolo made this boot. They win.
+	//   - BELOW it (`defaults`, `host`, `workspace`, every `config-overlay:<pack>`):
+	//     these lose to any captured value, and a null is one. MEASURED 2026-09-12: a
+	//     file holding `"theme": null` against a pack whose `defaults` says
+	//     `theme: "system"` keeps the null under `assert` — rmw fills a default only
+	//     where the key is ABSENT, and a null-valued key is present — and became
+	//     `"system"` under `own`. That is a VALUE changing across the switch, which
+	//     §11's criterion forbids in the form OQ-CO12 ruled it. The control settles
+	//     it: the same file holding `"theme": "dark"` keeps "dark", because the capture
+	//     overlay outranks `defaults`. A null must fold where a non-null does or the
+	//     two disagree for no reason but the sidecar's inability to spell one.
+	//
+	// ⚠ THE CAPTURE OVERLAY ITSELF IS IN NEITHER CAMP: it is a record OF the file, so
+	// letting it outrank the file is circular — and circular in the one direction that
+	// loses the key. `mergeDiff` cannot tell a key the user ADDED with a null value
+	// from a key the user DELETED (both are `k: null` in the patch), so a file gaining
+	// `"k": null` puts a TOMBSTONE in the overlay, which then deletes the key it was
+	// meant to record. MEASURED on a real jail boot 2026-09-12, and invisible to the
+	// host-notch tests, which only ever exercise the adoption branch. It also self-heals
+	// an overlay an older yolo already polluted, which is why the tombstone is left in
+	// the sidecar rather than swept: inert, and removing durable state deserves its own
+	// argument.
+	overlayIdx := -1
+	for i, l := range preLayers {
+		if l.name == layerOverlay {
+			overlayIdx = i
+		}
+	}
 	var orderedLayers []map[string]any
 	var nullEvidence []map[string]any
 
@@ -427,7 +448,7 @@ func Compose(in Inputs) (*Result, error) {
 	if kind == codec.KindObject {
 		// Object surfaces: the §3.1 deep-merge fold, with per-key provenance.
 		orderedLayers = make([]map[string]any, 0, len(preLayers))
-		for _, l := range preLayers {
+		for i, l := range preLayers {
 			if layerAbsent(l.data) {
 				continue
 			}
@@ -437,7 +458,7 @@ func Compose(in Inputs) (*Result, error) {
 					in.Surface.Agent, in.Surface.Name, l.name, l.data)
 			}
 			orderedLayers = append(orderedLayers, m)
-			if l.name != layerOverlay {
+			if i > overlayIdx {
 				nullEvidence = append(nullEvidence, m)
 			}
 			for k := range m {

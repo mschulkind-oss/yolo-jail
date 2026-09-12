@@ -66,18 +66,18 @@ func literalNullSkeleton(m map[string]any) map[string]any {
 }
 
 // reinstateLiteralNulls sets each marked keypath of skeleton to a literal nil in
-// cfg, and returns the TOP-LEVEL keys it created (for provenance). It mutates cfg.
+// cfg, and returns the TOP-LEVEL keys it claimed (for provenance). It mutates cfg.
 //
-// layers is every object layer that took part in the fold EXCEPT the capture
-// overlay, plus managed — the evidence for "did anything else speak for this key?".
-// THE RULE IS THAT A LAYER ALWAYS WINS, including when what it says is "deleted": a
-// computed tombstone removes a key deliberately (§2 principle 1,
-// regenerate-don't-reconcile), and a pass that put it back as null would undo a
-// decision yolo made this boot. So this can only ever ADD a key no layer spoke for
-// at that path, never override one.
+// layers is the evidence for "did anything that OUTRANKS THE FILE speak for this
+// key?" — every object layer above the capture overlay in the fold, plus managed.
+// Compose builds it and says why the line falls there; the short form is that a
+// literal null is a CAPTURED VALUE carried outside the sidecar, so it folds at the
+// overlay's precedence: `computed` and `managed` beat it, `defaults`, `host`,
+// `workspace` and every `config-overlay` lose to it, exactly as they lose to a
+// non-null value the capture overlay does carry.
 //
-// ⚠ The capture overlay is excluded by its caller and must stay excluded — it is a
-// record OF the file, so it cannot be evidence AGAINST it. Compose says why in full.
+// ⚠ THE CAPTURE OVERLAY IS NOT IN THAT LIST and must stay out — it is a record OF
+// the file, so it cannot be evidence AGAINST it. Compose says why in full.
 func reinstateLiteralNulls(cfg, skeleton map[string]any, layers []map[string]any) []string {
 	var created []string
 	for k, marked := range skeleton {
@@ -98,7 +98,18 @@ func reinstateAt(cfg map[string]any, k string, marked any, layers []map[string]a
 	sub, markedIsObject := marked.(map[string]any)
 	if !markedIsObject {
 		// A marked LEAF: the file holds `k: null` right here.
-		if present || spoken {
+		//
+		// ⚠ `present` IS NOT A VETO, and it was until 2026-09-12. cfg[k] is present
+		// precisely when some layer supplied a value there, and `spoken` has already
+		// asked whether any layer that OUTRANKS THE FILE did. So a value still
+		// standing here came from BELOW the overlay — a `defaults`, `host`,
+		// `workspace` or `config-overlay` value — and those lose to a captured value
+		// (Compose's overlayIdx comment measures the case: `"theme": null` against a
+		// `defaults` of `"system"` kept the null under `assert` and took the default
+		// under `own`, which is §11's criterion broken). Declining on `present` made
+		// the null the ONLY captured value in the engine that a lower layer could
+		// overwrite.
+		if spoken {
 			return false
 		}
 		cfg[k] = nil

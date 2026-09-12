@@ -61,10 +61,16 @@ func TestLiteralNullsReinstateWhereNoLayerSpeaks(t *testing.T) {
 	}
 }
 
-// A LAYER ALWAYS WINS, and the case that matters is the one where what it says is "DELETED".
-// A computed tombstone removes a key on purpose (regenerate-don't-reconcile); putting it back
-// as null would undo a decision yolo made this boot, and the file would then hold a key the
-// live config no longer has.
+// A LAYER THAT OUTRANKS THE FILE WINS, and the case that matters is the one where what it
+// says is "DELETED". A computed tombstone removes a key on purpose
+// (regenerate-don't-reconcile); putting it back as null would undo a decision yolo made this
+// boot, and the file would then hold a key the live config no longer has.
+//
+// ⚠ "OUTRANKS THE FILE", not "any layer", and the difference is a shipped bug: a literal null
+// folds at the CAPTURE OVERLAY's precedence because that is what it is — a captured value the
+// sidecar cannot spell — so `defaults`, `host`, `workspace` and `config-overlay` lose to it
+// just as they lose to a non-null captured value. TestLiteralNullsLoseOnlyToLayersAboveTheFile
+// (literalnullprecedence_test.go) is the other half of this pair and holds the losing cases.
 func TestLiteralNullsNeverOverrideALayer(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -82,12 +88,18 @@ func TestLiteralNullsNeverOverrideALayer(t *testing.T) {
 			want: map[string]any{},
 		},
 		{
-			name: "an ordinary layer value wins",
+			// ⚠ NOT "an ordinary layer value wins", which is what this case asserted
+			// until 2026-09-12 and is the bug: `computed` sits ABOVE the capture
+			// overlay in the fold and a null cannot outrank it, which is a statement
+			// about PRECEDENCE and not about layers in general. Measured with
+			// `defaults` in the losing half — see literalnullprecedence_test.go.
+			name: "a computed VALUE wins too, not only a tombstone",
 			in: Inputs{
-				Surface:      manifest.Surface{Agent: "acme", Name: "settings", Codec: "json", Defaults: map[string]any{"theme": "system"}},
+				Surface:      manifest.Surface{Agent: "acme", Name: "settings", Codec: "json"},
+				Computed:     map[string]any{"theme": "computed-this-boot"},
 				LiteralNulls: map[string]any{"theme": nil},
 			},
-			want: map[string]any{"theme": "system"},
+			want: map[string]any{"theme": "computed-this-boot"},
 		},
 		{
 			name: "the managed floor wins",
