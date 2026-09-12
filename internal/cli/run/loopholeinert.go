@@ -251,23 +251,16 @@ func inertLineFor(pack string, note loopholes.InertNote) string {
 	return pack + ": " + note.Line()
 }
 
-// noteMachineWideWorkspaceState prints one line naming the pack `state` dirs that are
-// per-workspace on every other backend and machine-wide on macos-user, because that
-// backend's home is a constant.
+// noteMachineWideWorkspaceState is GONE, and its absence is the record that the defect it
+// described was fixed rather than forgotten.
 //
-// One line for the whole set, matching the inert-loophole report beside it rather than
-// one line per dir: this prints on every launch, and five dirs of noise trains a reader
-// to skip the line that matters.
-func (o *Options) noteMachineWideWorkspaceState(packs []*packload.Pack) {
-	dirs := packload.WritableDirs(packs)
-	if len(dirs) == 0 {
-		return
-	}
-	o.pr(o.Stderr).print("[yellow]Note: these are shared across ALL workspaces on macos-user[/yellow] — " +
-		strings.Join(dirs, ", ") + ". Every other backend gives each workspace its own copy; " +
-		"this backend has one home (/Users/_yolojail) and no mounts, so a session's history " +
-		"and state are visible to every other workspace you launch.")
-}
+// It named every pack `state` dir at scope:workspace and said they were shared by every
+// workspace on the machine, because SandboxHome() is a constant. They are not, since the
+// home-tier layout: each one is a symlink into <workspace>/.yolo/home, the same sidecar the
+// container backends bind from (entrypoint.DeriveDarwinHomeLayout,
+// docs/design/macos-user-home-tiers.md). A warning that describes a closed gap is worse than
+// no warning — it teaches the reader to distrust the ones that are still true — which is the
+// rule noteMacosUserContentGaps below was already rewritten under.
 
 // noteMacosUserContentGaps names the two content pipelines that never reach this
 // backend. Both are host-side steps inside runContainer, which the macos-user arm
@@ -277,10 +270,13 @@ func (o *Options) noteMachineWideWorkspaceState(packs []*packload.Pack) {
 // SKILLS AND BRIEFINGS ARE NOW DELIVERED (2026-09-03), by composing the same trees the
 // container path composes and copying them over the sandbox home instead of mounting
 // them (macoshomeoverlay.go). What survives is a DIFFERENT and smaller statement, and
-// this function now makes it: the copy is writable where a bind is `:ro`, and the
-// destination home is machine-wide, so a second workspace launching concurrently
-// overwrites the first's briefings while its agent is mid-session. Both are consequences
-// of the single sandbox home, which docs/design/macos-user-home-tiers.md exists to fix.
+// this function now makes it: the copy is writable where a bind is `:ro`.
+//
+// It shrank AGAIN with the home-tier layout. The second half — "a concurrent second
+// workspace replaces what this one delivered" — was true of one machine-wide home and is
+// not true of a destination that is a symlink into <workspace>/.yolo/home. What is left is
+// the one difference the layout cannot close, because it is about the enforcement primitive
+// rather than the location: a copy is writable and a bind is not.
 //
 // The text this replaced said the agent "starts with no AGENTS.md/CLAUDE.md and no
 // skills". Leaving it would be the worse failure of the two available: a warning that
@@ -290,9 +286,7 @@ func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.Or
 	if len(packs) > 0 {
 		o.pr(o.Stderr).print("[yellow]Note: briefings and skills are delivered by COPY on macos-user[/yellow] — " +
 			"every other backend mounts them read-only, so here the agent can edit its own " +
-			"skills and briefing (the next launch overwrites them), and because this backend " +
-			"has ONE home, a second workspace launched while this one runs replaces them with " +
-			"its own.")
+			"skills and briefing, and the next launch overwrites them again.")
 	}
 	// mise_tools has the SAME defect as lsp_servers below and, until 2026-09-04, none
 	// of the same warning — so a config declaring tools got silence and a jail without

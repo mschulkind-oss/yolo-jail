@@ -60,11 +60,15 @@ func acNetOutput(t *testing.T, mode string) string {
 	return out.String()
 }
 
-// The macos-user tier collapse is #39's mirror image: that backend's home is a constant,
-// so every pack `state` dir at scope:workspace is shared by every workspace. Warned,
-// not fixed — splitting the home would break the machine tier to repair the workspace
-// tier, since the single home IS the shared-credentials mechanism there.
-func TestMacosUserNotesMachineWideWorkspaceState(t *testing.T) {
+// The macos-user tier collapse was #39's mirror image, and it is FIXED: every pack `state`
+// dir at scope:workspace is a symlink into <workspace>/.yolo/home now
+// (entrypoint.InstallDarwinHomeLayout, pinned in internal/entrypoint against a real boot).
+//
+// So what a launch must no longer say is that those dirs are machine-wide. This is the
+// negative half of the rule the content-gaps test below states positively: a warning that
+// describes a closed gap teaches the reader to distrust the ones that are still true, and
+// this one would be read by someone deciding whether to keep two projects apart.
+func TestMacosUserNoLongerClaimsMachineWideWorkspaceState(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
@@ -78,11 +82,9 @@ func TestMacosUserNotesMachineWideWorkspaceState(t *testing.T) {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
 	}
 	got := stdout.String() + stderr.String()
-	if !strings.Contains(got, "shared across ALL workspaces") || !strings.Contains(got, ".claude") {
-		t.Errorf("a macos-user launch did not say that pack state dirs are machine-wide.\n"+
-			"The sandbox denies reading a sibling workspace's files and then leaks the same\n"+
-			"content through ~/.claude/projects/<other>/*.jsonl, which is worth one line.\n"+
-			"output:\n%s", got)
+	if strings.Contains(got, "shared across ALL workspaces") {
+		t.Errorf("a macos-user launch still reports pack state dirs as machine-wide, which "+
+			"they have not been since the home-tier layout:\n%s", got)
 	}
 }
 
@@ -109,13 +111,13 @@ func TestMacosUserNotesContentGaps(t *testing.T) {
 	// This asserted "briefings and skills are NOT delivered" until 2026-09-03, when
 	// they started being delivered (by copy rather than by mount). The claim that
 	// survives is about the DIFFERENCE from every other backend, not about absence:
-	// the copy is writable where a bind is `:ro`, and the one machine-wide home means
-	// a concurrent second workspace replaces what this one delivered.
+	// the copy is writable where a bind is `:ro`. Its second half — a concurrent second
+	// workspace replacing what this one delivered — went with the home-tier layout, which
+	// gave the destination a per-workspace one.
 	if !strings.Contains(got, "delivered by COPY on macos-user") {
 		t.Errorf("a macos-user launch did not say how content is delivered here.\n"+
-			"Every other backend mounts it read-only; this one copies into a home it "+
-			"shares with every other workspace, and both differences change what the "+
-			"agent can rely on.\noutput:\n%s", got)
+			"Every other backend mounts it read-only; this one copies, so the agent can "+
+			"edit what it was given, which changes what it can rely on.\noutput:\n%s", got)
 	}
 	// And it must not still claim the gap it no longer has: a warning describing a
 	// closed gap teaches the reader to distrust the ones that are still true.

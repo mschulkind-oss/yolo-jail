@@ -261,8 +261,14 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	mcpPresetsJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyList(cfg, "mcp_presets"))
 	bootstrapEnv.Set("YOLO_MCP_PRESETS", mcpPresetsJSON)
 	// The `agent_updates` policy. macos-user is the backend where missing this hides
-	// least — it bakes no image, so the launchers ARE the delivery — and the one whose
-	// single machine-wide home makes the install-prefix lock they carry reachable.
+	// least: it bakes no image, so the launchers ARE the delivery.
+	//
+	// ⚠ It used to add "and the one whose single machine-wide home makes the install-prefix
+	// lock they carry reachable". Since the home-tier layout the install prefixes
+	// (~/.npm-global, ~/.local) are symlinks into <workspace>/.yolo/home, so the lock is
+	// per-workspace here exactly as it is on every other backend — which is not a loss: two
+	// workspaces now update two different installs, so there is nothing left for a
+	// machine-wide lock to serialise.
 	bootstrapEnv.Set(entrypoint.AgentUpdatesEnv, config.AgentUpdatesWire())
 	// git identity rides verbatim (the subcommand's Env.Vars carries it into
 	// configureGit).

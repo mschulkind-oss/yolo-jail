@@ -10,8 +10,9 @@
 // container backends this problem is absent by construction").
 //
 // macos-user has no ephemeral home to capture into: its home is one persistent, machine-constant
-// /Users/_yolojail shared by every workspace and session, and splitting it is a refused design
-// point (the shared-home reasoning on the macos-user branch of Run). So a capture there runs against a THROWAWAY STAGING
+// /Users/_yolojail, and it stays that way by design — the home-tier layout gives that backend a
+// per-workspace tier by SYMLINKING directories out of the account home rather than by moving
+// HOME (docs/design/macos-user-home-tiers.md, alternative A′). So a capture there runs against a THROWAWAY STAGING
 // HOME under a narrowed Seatbelt profile (internal/macosuser.SeatbeltCaptureProfile) and the
 // staging path is not the final home path. Every absolute reference the installer embedded now
 // names a directory that will not exist — claude's ~/.local/bin/claude is an absolute symlink

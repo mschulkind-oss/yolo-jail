@@ -326,22 +326,19 @@ func Run(opts Options) (rc int) {
 		// beside warnIfNoPacks is the honest placement — both answer "what will this
 		// launch not do for you", which is the only question this backend can raise.
 		o.notePackLoopholesInert(rt, staged.packs, cfg)
-		// AND THE OTHER TIER COLLAPSE, which is #39's mirror image. Apple Container made
-		// the MACHINE-wide tier per-workspace; this backend makes the PER-WORKSPACE tier
-		// machine-wide, because SandboxHome() is a constant — /Users/_yolojail — with no
-		// workspace component. Every pack `state` dir at scope:workspace (.claude, .codex,
-		// .pi, .copilot, .gemini) is therefore shared by every workspace on the machine.
+		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and
+		// is fixed rather than reported: the bootstrap now symlinks every scope:workspace
+		// state dir into <workspace>/.yolo/home, the sidecar the container backends bind
+		// from (entrypoint.InstallDarwinHomeLayout, docs/design/macos-user-home-tiers.md).
+		// What the warning said was that the Seatbelt profile enforces a boundary the home
+		// then leaked — a sibling workspace's transcripts unreadable under /Users and
+		// readable at ~/.claude/projects/<other>/ — which the layout closes with no profile
+		// change, because the sidecar is under the workspace the profile already isolates.
 		//
-		// The sharp part is not the sharing, it is that the sandbox ENFORCES the boundary
-		// one layer down and leaks it here: the Seatbelt profile denies reading a sibling
-		// workspace's files, and then ~/.claude/projects/<other-workspace>/*.jsonl is
-		// readable because it lives in the shared home.
-		//
-		// WARN rather than fix, deliberately. Splitting the home would break the MACHINE
-		// tier to repair the workspace tier — the single home IS the shared-credentials
-		// mechanism on this backend — so a fix has to restore both tiers explicitly, which
-		// is a design change and not a launch-time patch.
-		o.noteMachineWideWorkspaceState(staged.packs)
+		// ⚠ The claim that stood here until then, "the single home IS the shared-credentials
+		// mechanism", is RETRACTED (§3). The mechanism is the `shared_credentials` HOOK,
+		// which runs here unchanged; colocation only ever supplied the backing of the dir
+		// the pack declared at scope:machine. That directory has not moved.
 		o.noteMacosUserContentGaps(staged.packs, cfg)
 		// WHERE THE PROFILE SELECTIONS LANDED, on this arm too. Until the channel hoist
 		// this line had no honest form here — the launch line prints what a launch

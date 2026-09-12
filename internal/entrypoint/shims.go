@@ -687,14 +687,13 @@ _stamp_mtime() {
 // `packs.lock.json`, which already exists and is empty — arrives with the fifth step, where
 // obeying starts. Nothing here is consulted by an install.
 //
-// THAT ATTRIBUTION IS KNOWN-COARSE ON macos-user, and the divergence is the backend's rather
-// than a bug to fix here: there is one sandbox home for the whole machine
-// (`macosuser.SandboxHome()` = /Users/_yolojail), so ~/.npm-global and ~/.local/bin are
-// shared by every workspace that jail ever runs. A receipt filed under the workspace that
-// happened to trigger the install still names real bytes, but a SECOND workspace's launcher
-// will find that program already installed, write nothing, and leave its own file silent
-// about a program it uses. Read the macos-user files as "this workspace caused it", never as
-// "this workspace has it".
+// THAT ATTRIBUTION WAS KNOWN-COARSE ON macos-user UNTIL THE HOME-TIER LAYOUT, and is not any
+// more. The paragraph here said there is one sandbox home for the whole machine, so
+// ~/.npm-global and ~/.local/bin are shared by every workspace and a second workspace's
+// launcher would find a program already installed and write nothing about it. Both install
+// prefixes are now symlinks into <workspace>/.yolo/home
+// (entrypoint.DeriveDarwinHomeLayout), so each workspace installs into its own and the
+// receipt means on this backend what it means everywhere else: this workspace has it.
 //
 // IT IS BAKED AT GENERATION TIME, not read from the environment by the generated script,
 // and neither runtime leaves that a choice: YOLO_WORKSPACE is a HOST-side launcher input

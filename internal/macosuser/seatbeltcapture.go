@@ -8,9 +8,17 @@ package macosuser
 // On the container backends a capture is an ephemeral jail whose per-workspace home binds start
 // empty, so "the bind-dir contents ARE the delta" and no new containment is needed. macos-user
 // has no binds and no ephemeral home: its home is one persistent, machine-constant
-// /Users/_yolojail shared by every workspace and every session (SandboxHome), deliberately,
-// because that single home IS this backend's shared-credentials mechanism and splitting it is a
-// refused design point (internal/cli/run/run.go:235-250).
+// /Users/_yolojail (SandboxHome), and it stays that way deliberately — the home-tier layout
+// symlinks the per-workspace directories out of it into <workspace>/.yolo/home rather than
+// moving HOME, so a capture still faces one shared account home holding the machine tier
+// (docs/design/macos-user-home-tiers.md, alternative A′; a per-workspace HOME is alternative
+// A and is the recorded runner-up).
+//
+// ⚠ The earlier claim here, that the single home IS this backend's shared-credentials
+// mechanism, is RETRACTED (§3). The mechanism is the `shared_credentials` hook, which runs
+// on every backend; the home supplies only the backing of the pack-declared scope:machine
+// directory. What follows is unchanged either way: that directory holds the credentials a
+// capture must not reach.
 //
 // A capture must not touch it. What it needs instead is a FRESH, ENUMERABLE, KERNEL-BOUNDED
 // write surface, and this backend already has the control point for one: the Seatbelt profile
