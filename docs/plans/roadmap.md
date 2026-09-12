@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 17 needing you · 1 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
+**Status: 17 needing you · 0 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-12**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -13,7 +13,11 @@ Last updated **2026-09-12**. Counts are tallied from this file's contents, not a
 > it, **filed and built the same day**, so *Ready* ends at zero. *Waiting* gained ONE row — the six
 > never-run Mac runbook items the macos-user pair
 > added, which had been recorded inside an ✅ bullet where no count could see them, the same failure
-> the C4/C5 row was promoted out of a preamble to fix. *Needs you* did not move, and that is the
+> the C4/C5 row was promoted out of a preamble to fix. ⚠ **The status line above still read
+> `1 ready` until it was recomputed on 2026-09-12** — the 📦 row became an ✅ record in the same
+> commit that built it, and the tally was not re-run. That is the drift the counting rule at the
+> top of this file exists to make cheap to catch, caught by running it.
+> *Needs you* did not move, and that is the
 > honest result rather than an oversight: **nothing that shipped closed a question**. 💬 **25**
 > shipped and kept one question the BUILD opened; 💬 **31** never shipped at all and still holds
 > thirteen. The previous note recorded a one-day drift in *waiting* caused by `36bee3e8`; it is
@@ -688,6 +692,11 @@ sites in code, comment-only; the build replaced those comments with one call in 
 writer. It matters most where the guard is weakest: `confirmHostLosses` reads `EntryLosses` and fires
 only on first apply, so the `assert` → `own` switch — the exact transition that drops a deep-merged
 leaf — is unprompted, and the jail's own first-migration half has no TTY for a prompt at all.
+⚠ **Four gaps the net does not reach were measured after it shipped, and are open residue** —
+[§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard) lists them and
+the ✅ record under [*Up next*](#-up-next) summarises them. They are not new questions for you: each
+is unfixed because its fix would reverse a ruling, which is a call to make when one of them costs
+somebody something.
 
 **[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) was six steps when it was written, and the build needed
 eight.** Steps 6 and 7 — the
@@ -1066,6 +1075,19 @@ C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
   idempotency is the archive's own existence (a second adoption would otherwise overwrite the user's
   original with yolo's output); and a copy that cannot be written REFUSES the adoption, leaving the
   file untouched, rather than warning past it.
+
+  ⚠ **It shipped with four measured gaps, and they are recorded rather than closed over.**
+  Verification after the build found that `yolo config reset` spends the one-per-surface slot on
+  yolo's own output; that deleting a surface's overlay sidecar while keeping `last_render` drops the
+  adopted keys with no archive, no loss line and no prompt; that an existing-but-UNREADABLE file
+  reaches the gate as zero bytes and is replaced wholesale; and that an adopting render is still
+  filed as *in sync* in `yolo host apply`'s verdict. None is a regression — each is a loss that
+  predates the archive — and none is fixed, because every candidate fix reverses a ruling, so each
+  is yours to call. They live in
+  [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), beside the
+  ruling they qualify. **This row stays ✅:** the step is built, and a ✅ that quietly meant
+  "complete" is what [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s own
+  history is the case study for.
 
   ✅ **The design's ledger now has a Built column** — added by the same sweep that filed this row,
   which is what made the gap recoverable from the doc at all.

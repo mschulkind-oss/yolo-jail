@@ -307,7 +307,7 @@ that route them keep resolving. That is the precedent, and it is what
 | Doc | Fully built? | Verifiable here? | Verdict |
 | :--- | :--- | :--- | :--- |
 | [`report-tiers.md`](../design/report-tiers.md) | **Yes** — all eight steps | **Yes, and measured with a control** | ✅ **Graduate first** |
-| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **No** — one named hole | Yes | ⏸ Graduate second, after the hole closes |
+| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **Yes** — the named hole closed 2026-09-12 | Yes | ⏸ Graduate second, and no longer on the hole: on [§11](../design/config-ownership-and-promotion.md#11-success-criteria)'s criterion |
 | [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Yes** | Yes | ↩ **Do not graduate — archive.** There is no system to describe |
 | [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
 | [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
@@ -360,7 +360,7 @@ in the roadmap row being closed, not in the reference.
 [`report-tiers-plan.md`](../design/report-tiers-plan.md) — self-declared **CONSUMED** — archives
 alongside it. It is an `implementation-plan` artifact, and its whole subject shipped.
 
-### 2. `config-ownership-and-promotion.md` — graduable, but not yet, and the blocker is named in the code
+### 2. `config-ownership-and-promotion.md` — the named hole is closed, and the harder blocker is not
 
 Steps 1–7 of [§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) are
 built and verifiable: `HostManagement` / `KnownHostManagements` / `HostManagementDeclared` in
@@ -384,6 +384,17 @@ tense**, and must be dropped or become a roadmap item **by name** rather than ev
 design doc. That is what happened — [`roadmap.md`](roadmap.md) carried it as a 📦 row for one day —
 so this blocker is spent and the graduation no longer waits on it.
 
+⚠ **It closed with residue, and the residue is now graduation content rather than a footnote.**
+Verification after the build measured **four gaps the archive does not reach** — a different four
+from the criterion's four axes below, and unrelated to them — `yolo config reset`
+spending the one-per-surface slot on yolo's own output, a deleted overlay sidecar dropping keys with
+no archive and no loss line, an existing-but-unreadable file counted as absent, and an adopting
+render still filed as *in sync* in the verdict. They are recorded in
+[§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), unfixed, because
+each candidate fix reverses a ruling. In a design doc that sits honestly as live residue. **In a
+reference it becomes present tense** — *here is what the net does and does not catch* — which is the
+same kind of re-statement the criterion below needs, and it is the second thing the rewrite owes.
+
 ⚠ **The subtler blocker, and the more dangerous one.** The design's own success criterion —
 *switching to `own` on a home already applying under `assert` changes zero bytes* — is **PARTLY
 MET**, on four axes measured 2026-09-12: a top-level `null` and a top-level `{}` are **deleted**,
@@ -396,8 +407,8 @@ in this graduation and it should be done deliberately, not as a side effect of m
 
 **Where it would live:** `docs/reference/config-ownership.md`, holding the ownership axis (the
 notch does not decide who owns a file; a declared key does), the three modes and their surface
-postures, promotion as the way out of capture including the precedence refusal, and the deletion
-asymmetry. Eight `OQ-CO` ids are cited from Go (`CO1`, `CO2`, `CO4`, `CO5`, `CO7`, `CO8`, `CO9`,
+postures, promotion as the way out of capture including the precedence refusal, the deletion
+asymmetry, and what the one-time adoption archive does and does not catch. Eight `OQ-CO` ids are cited from Go (`CO1`, `CO2`, `CO4`, `CO5`, `CO7`, `CO8`, `CO9`,
 `CO10`).
 
 ### 3. `lua-transform-removal.md` — fully built, and that is why it must not graduate
@@ -549,8 +560,12 @@ not after it.
    [`report-tiers-plan.md`](../design/report-tiers-plan.md) in the same commit.
 3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**.
    [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive **is built**
-   (2026-09-12), so what remains is the zero-bytes criterion, rewritten as a stated contract rather
-   than a partly-met goal — the ⚠ blocker below, which is the one that was always the harder half.
+   (2026-09-12), so what remains is two re-statements, not one: the zero-bytes criterion as a stated
+   contract rather than a partly-met goal, and the archive's four measured gaps as present-tense
+   behavior. The first is still gated on a live ruling
+   ([`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions)), which under
+   [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s precedent means a stub
+   at the original filename rather than a reason to wait.
 4. **Fold [`lua-transform-removal.md`](../design/lua-transform-removal.md) into
    [`../reference/pack-system.md`](../reference/pack-system.md) and archive it.** Do not mint a
    second reference for one subsystem.
