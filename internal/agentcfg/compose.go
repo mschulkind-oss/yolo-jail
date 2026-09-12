@@ -78,6 +78,39 @@ type Inputs struct {
 	// RFC-7386 tombstone (deletes the key), so a dynamic entry that is gone this
 	// boot simply is not emitted — no sidecar memory needed. nil = absent.
 	Computed any
+
+	// LiteralNulls marks the keypaths whose composed value must be a literal
+	// `null` — the ONE shape the layer stack cannot express, carried beside it
+	// rather than inside it. nil/empty = none, which is every caller that does
+	// not read a file (see below).
+	//
+	// It is a SKELETON, not a layer: a map mirroring the marked paths, where a
+	// `nil` leaf marks "null here" and an object value means "something below
+	// this key is marked". It never merges. After the fold and after
+	// enforceManaged, each marked path is set to nil ONLY where the composed
+	// config has no value there and no layer mentions it at that path — so a
+	// managed floor, a computed tombstone and an ordinary layer value all
+	// outrank it, and it can only ever ADD a key no layer spoke for.
+	//
+	// WHY IT CANNOT BE A LAYER, which is the whole reason this field exists.
+	// Every layer folds through RFC 7386, where a null under a key DELETES that
+	// key (mergeValue) — the semantics the capture overlay depends on for a
+	// tombstone to survive a boot (§3.4). So a layer carrying `k: null` removes
+	// k; it can never produce it. A file the user wrote holding `"k": null`
+	// therefore had no representation at all, and switching a home to `own`
+	// silently deleted the key (docs/design/config-ownership-and-promotion.md
+	// §11, OQ-CO12). The two meanings genuinely collide inside a merge patch, so
+	// the value that is not a patch is carried outside it.
+	//
+	// WHO FILLS IT: ComposeStateful, from the DECODED CURRENT FILE, on every
+	// branch — where a null is unambiguous, because a decoded file holds no
+	// tombstones. That also makes it self-sustaining: the render writes the null
+	// back, the next boot reads it again, and the overlay sidecar stays a clean
+	// merge patch with no second meaning for null. `yolo config render` leaves it
+	// empty, which is the same omission it already declares for the captured
+	// overlay (renderSurface): both are per-workspace state this preview does not
+	// read, and `yolo config diff` is the command for them.
+	LiteralNulls map[string]any
 }
 
 // WholeFileKey is the Provenance key used for a KEYLESS surface (raw/lines):
@@ -369,10 +402,14 @@ func Compose(in Inputs) (*Result, error) {
 		}{layerComputed, in.Computed},
 	)
 
+	// The object layers actually folded, kept past the branch: the literal-null
+	// pass below has to ask which layers SPOKE for a key, and this is that list.
+	var orderedLayers []map[string]any
+
 	var merged any
 	if kind == codec.KindObject {
 		// Object surfaces: the §3.1 deep-merge fold, with per-key provenance.
-		orderedLayers := make([]map[string]any, 0, len(preLayers))
+		orderedLayers = make([]map[string]any, 0, len(preLayers))
 		for _, l := range preLayers {
 			if layerAbsent(l.data) {
 				continue
@@ -435,6 +472,31 @@ func Compose(in Inputs) (*Result, error) {
 		}
 	} else if in.Surface.Managed != nil {
 		prov[WholeFileKey] = layerManaged
+	}
+
+	// The one value the fold cannot carry, put back last (Inputs.LiteralNulls).
+	// AFTER enforceManaged rather than before, because managed is not in the fold
+	// above — a key only `managed` declares is absent until the enforce runs, and
+	// reinstating before it would hand the floor to the file for exactly those
+	// keys. Object surfaces only: a keyless file has no keypath to mark.
+	if kind == codec.KindObject && len(in.LiteralNulls) > 0 {
+		if cfgMap, cfgIsObj := config.(map[string]any); cfgIsObj {
+			layers := orderedLayers
+			if mm := in.Surface.ManagedMap(); mm != nil {
+				layers = append(append([]map[string]any{}, orderedLayers...), mm)
+			}
+			for _, k := range reinstateLiteralNulls(cfgMap, in.LiteralNulls, layers) {
+				// The FILE put it there, and `overlay` is this vocabulary's name
+				// for "a key of yours that survived regeneration". It is not in
+				// the overlay SIDECAR — nothing can put it there — so `yolo
+				// config promote` will refuse it as not in the capture, which is
+				// the honest answer: a pack's `config-overlay` is a merge patch
+				// too and could not express it either. LayerAsserted("overlay")
+				// is false, so every reader asking "did yolo write this?" still
+				// correctly answers no.
+				prov[k] = layerOverlay
+			}
+		}
 	}
 
 	encoded, eerr := c.Encode(config)

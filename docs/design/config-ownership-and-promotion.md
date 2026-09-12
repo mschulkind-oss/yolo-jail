@@ -1320,10 +1320,12 @@ owner survives the switch, measured as a byte golden in
 `internal/entrypoint/hostassertbaseline_test.go` and its `own` twin.
 
 **It is not the whole of [§11](#11-success-criteria)'s criterion, and the rest is
-recorded there** rather than here: the leaf case passes, and so — since
-[`OQ-CO12`](#13-decision-ledger) relaxed the criterion to keys and values — do the
-two reformatting axes, which that comparator does not reach. The two that remain
-are key DELETIONS, and [§11](#11-success-criteria) names them as bugs.
+recorded there** rather than here: the leaf case passes, the two reformatting axes
+are conformant under the criterion [`OQ-CO12`](#13-decision-ledger) ruled, and the
+two key DELETIONS beside them were fixed as bugs on 2026-09-12 — one by teaching
+`dropNullLeaves` to keep an object the user wrote empty, one by carrying a literal
+`null` outside the layer stack, which is the only place a merge patch leaves for
+it.
 
 ### 6.3.2 The three classes adoption does not cover
 
@@ -1854,17 +1856,18 @@ Observable outcomes that mean this was built as designed:
 
   > [!IMPORTANT]
   > **This criterion was BYTE invariance until [`OQ-CO12`](#13-decision-ledger)
-  > relaxed it (2026-09-12), and two of the four axes that relaxation was measured
-  > against are NOT conformant — they are bugs.** Keeping them named here is the
-  > point: a criterion that moves must not launder into conformance the defects
-  > that prompted it.
+  > relaxed it (2026-09-12).** Two of the four axes that relaxation was measured
+  > against were NOT conformant — they were key deletions — and they were **fixed
+  > as bugs on the same day** rather than absorbed. Keeping the table is the point:
+  > a criterion that moves must not launder into conformance the defects that
+  > prompted it.
   >
-  > | Axis measured 2026-09-12 | Under `assert` | Under `own` | Verdict |
-  > | :--- | :--- | :--- | :--- |
-  > | A key valued `null`, at any depth | kept | **deleted** | **bug** — a key, and it is gone |
-  > | A key valued `{}`, at any depth | kept | **deleted** | **bug** — a key, and it is gone |
-  > | JSON key order, at every depth | the file's own order | sorted | conformant |
-  > | A TOML surface's user comments | reattached in place | destroyed, and a three-line generated header prepended | conformant |
+  > | Axis, measured 2026-09-12 | Under `assert` | Under `own`, then | Verdict | Now |
+  > | :--- | :--- | :--- | :--- | :--- |
+  > | A key valued `null`, at any depth | kept | **deleted** | **bug** — a key, and it was gone | kept |
+  > | A key valued `{}`, at any depth | kept | **deleted** | **bug** — a key, and it was gone | kept |
+  > | JSON key order, at every depth | the file's own order | sorted | conformant | sorted |
+  > | A TOML surface's user comments | reattached in place | destroyed, and a three-line generated header prepended | conformant | unchanged |
   >
   > **Why the last two are conformant rather than tolerated.** A composing
   > renderer that sorts keys is the contract `own` *states* — the file is derived,
@@ -1876,21 +1879,54 @@ Observable outcomes that mean this was built as designed:
   > because *that* is its contract; `own` composes the whole file through the
   > surface's codec.
   >
+  > ⚠ **The two deletions looked like one defect and were two**, which is worth
+  > recording because the first reading — *"a `null` leaf is dropped by name on the
+  > adoption path, and an empty object diffs to nothing, so neither reaches the
+  > overlay"* — is right about `{}` and incomplete about `null`.
+  >
+  > - **`{}` really is one drop, in one function.** `dropNullLeaves` strips the
+  >   RFC-7386 tombstones out of an adopted residue and drops any object its own
+  >   recursion empties, so it could not tell an object the user WROTE empty from
+  >   its own leavings. The two are distinguishable there without a heuristic: a
+  >   patch never carries an empty object for any other reason, because `diffValue`
+  >   copies an added key's subtree verbatim and records nothing at all for a key
+  >   whose recursion found no difference. An already-empty object on the way IN is
+  >   always the user's. Fixed by keeping it.
+  > - **`null` has a SECOND deleter downstream, and it is structural.** Even
+  >   carried into the overlay, a null is deleted by the fold: every layer merges
+  >   through RFC 7386, where a null under a key DELETES that key — the semantics
+  >   the capture overlay *needs*, so a deletion made in-jail survives a boot
+  >   ([`config-migration-to-prism.md`](../reference/config-migration-to-prism.md#the-accumulation-step-preserves-tombstones)).
+  >   Inside a merge patch the two meanings are one token. So the value that is not
+  >   a patch is carried **outside** it: `Inputs.LiteralNulls`
+  >   ([`literalnull.go`](../../internal/agentcfg/literalnull.go)) is a keypath
+  >   skeleton read off the DECODED FILE — where a null is unambiguous, a decoded
+  >   file holding no tombstones — and re-asserted after the fold, only where no
+  >   layer spoke for the path. A layer always wins, including when what it says is
+  >   *deleted*: a `computed` tombstone removes a key on purpose, and putting it
+  >   back as null would undo a decision yolo made that boot.
+  >
   > **The switch is never silent on any axis.** `WouldChange` compares BYTES —
   > deliberately stricter than this criterion
   > ([`hostStatefulWouldChange`](../../internal/entrypoint/hostrender.go)) — so a
   > conformant reformat is still announced as a pending change, and the adoption
   > archive still holds the file as yolo found it
-  > ([§6.3.3](#633-what-survives-as-a-guard)). What the two bugs defeat is the
-  > LOSS GATE, not the announcement: neither `EntryLosses` nor `Formatting` names
-  > a dropped `null`- or `{}`-valued key, so `yolo host apply` does not prompt for
-  > it.
+  > ([§6.3.3](#633-what-survives-as-a-guard)). While the two deletions stood, what
+  > they defeated was the LOSS GATE rather than the announcement: neither
+  > `EntryLosses` nor `Formatting` names a dropped `null`- or `{}`-valued key, so
+  > `yolo host apply` never prompted for one. Nothing was added to those fields to
+  > close it — the keys survive, so there is no loss left for a gate to name.
   >
   > Measured by `TestSwitchingToOwnPreservesKeysAndValues`
   > ([`hostownedkeysandvalues_test.go`](../../internal/entrypoint/hostownedkeysandvalues_test.go)),
   > whose fixtures are deliberately non-canonical — unsorted JSON, a commented TOML
   > file — so each case asserts both that the bytes DIFFER and that the values do
-  > not. `TestSwitchingToOwnKeepsACanonicalFileByteIdentical`
+  > not, and renders twice so the FIXED POINT is measured too. That last part is
+  > load-bearing for the nulls: a literal null is the one value no sidecar can
+  > hold, so it is re-read from the file on every render rather than replayed from
+  > the overlay, and a fix applied to the adoption branch alone would put the key
+  > back once and drop it on the next apply.
+  > `TestSwitchingToOwnKeepsACanonicalFileByteIdentical`
   > ([`hostownedadoption_test.go`](../../internal/entrypoint/hostownedadoption_test.go))
   > keeps the stricter byte comparison for the one fixture that is canonical on
   > every freed axis, where it is the sharper instrument rather than a stale one.
@@ -1968,7 +2004,7 @@ is complete.
 | [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) | ✅ `resolvePromoteDest` refuses `--to workspace` by naming this ruling, rather than folding it into "unknown destination" |
 | [`OQ-CO9`](#13-decision-ledger) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) | ✅ `render.HostOwnedModes` refuses the coercion and `entrypoint.hostStatefulRefusal` refuses the surface, leaving the user's file untouched |
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; `macos-user` reports `unsupported` and is not refused |
-| [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change |
+| [`OQ-CO12`](#13-decision-ledger) | **Keys-and-values, not bytes** — and the two silent deletions are BUGS, fixed on their own rather than absorbed. A composing renderer that sorts keys is the contract `own` states, and matching `rmw`'s byte layout would make the capture path carry formatting it has no reason to know about. So JSON key order and a TOML surface's comments and generated header are CONFORMANT; a key valued `null` or `{}` disappearing is not, at any depth. The comparator is the surface codec's own decode, defined in [§11](#11-success-criteria). | 2026-09-12 | [§11](#11-success-criteria), [§6.3.1](#631-adoption-is-capture-then-regenerate) | ✅ `TestSwitchingToOwnPreservesKeysAndValues` states the criterion over deliberately non-canonical fixtures — asserting both that the bytes differ and that the values do not — and `TestSwitchingToOwnKeepsACanonicalFileByteIdentical` keeps the stricter byte comparison where it is still the sharper instrument. Both deletions are FIXED (2026-09-12): `dropNullLeaves` keeps an object the user wrote empty, and `agentcfg.Inputs.LiteralNulls` carries a literal `null` beside the layer stack because no merge patch can hold one. ⚠ `hostStatefulWouldChange` stays a BYTE comparison deliberately, so a conformant reformat is still disclosed as a pending change |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
 | — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |

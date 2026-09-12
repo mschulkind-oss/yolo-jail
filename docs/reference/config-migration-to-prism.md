@@ -227,6 +227,36 @@ value. Accumulation is replacement — the newest edit is the overlay. Nothing e
 differs, which is why raw files get edit-survives-regeneration for free rather than needing a
 parallel mechanism.
 
+### And therefore a literal `null` travels beside the overlay, not in it
+
+A tombstone costs something, and this is the bill. Inside a merge patch `null` has exactly one
+meaning — *delete this key* — so a config file the user wrote holding `"apiKeyHelper": null` has
+**no representation in the layer stack at all**: put it in the overlay and the fold deletes the
+key instead of producing it. `mergeDiff`'s docstring has said so since it was written. The cost
+went unnoticed until a whole-file composing notch existed to pay it: under
+[`host_management: own`](../design/config-ownership-and-promotion.md#11-success-criteria) the
+composed file simply lacked the key, and no loss field named the deletion.
+
+The fix does not give `null` a second meaning anywhere. `ComposeStateful` reads the marked
+keypaths off the **decoded current file** — where a null is unambiguous, because a decoded file
+holds no tombstones — and hands them to `Compose` as `agentcfg.Inputs.LiteralNulls`, a keypath
+skeleton that never merges. After the fold and after the managed enforce, each marked path is
+set to a literal null **only where the composed config has no value there and no layer mentioned
+it**. A layer always wins, including when what it says is *deleted*: a `computed` tombstone
+removes a key deliberately, and reinstating it would undo a decision that boot just made.
+
+Three properties follow, and the first is what keeps the sidecars honest:
+
+- **The overlay is untouched and stays a pure merge patch.** Adoption goes on stripping every
+  null out of its residue, which is still right — a residue is a patch.
+- **It is self-sustaining rather than durable.** The render writes the null back, so the next
+  boot reads the same mark off the same file; both the adoption and the steady-state branch read
+  it, or the second render would drop what the first restored. Delete the key and the mark goes
+  with it; `yolo config reset` truncates to the pure render and takes it too.
+- **A literal null cannot be promoted.** A pack's `config-overlay` is a merge patch as well, so
+  no destination could hold one — `yolo config promote` refuses it as not in the capture, which
+  is the right answer rather than a gap.
+
 ## What the boot caller owns
 
 The state machine is pure. Everything environment-dependent stays in the boot path:
@@ -293,6 +323,7 @@ sidecars plus a truncation, per surface.
 | **Keyless surfaces are not adopted** | "The existing file wins outright" defeats the host layer permanently, and there is no partial residue to take. |
 | **`yolo config reset` truncates the surface as well as removing both sidecars** | Adoption makes "no baseline" mean "adopt what is there", so a reset that only deleted sidecars would re-capture the discarded edits. It also makes reset visible immediately rather than after the next boot. |
 | **Accumulation preserves `null` tombstones** | RFC-7386 `deepMerge` drops a tombstone for an absent key, so a captured deletion would not survive two boots. |
+| **A literal `null` VALUE travels outside the layer stack** | Having spent `null` on the tombstone, a patch has no token left for the value — so the file's own nulls are read off the decoded file and re-asserted after the fold, where no layer spoke. |
 | **A pure-overwrite sibling renders through the stateless path** | Sending it through the stateful path would begin capturing edits into an overlay and silently turn an intentional overwrite into an edit-preserving surface. |
 | **Orphan retirement is declared per surface, not held as a central table** | The pack that obsoleted the file is the thing that knows its name, and the retirement then rides the same first-migration signal that makes it a one-time act. |
 

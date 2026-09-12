@@ -405,9 +405,12 @@ a TOML surface's user comments **destroyed**.
 [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) ruled on 2026-09-12
 that the criterion is **keys and values**, which makes the last two axes conformant and states
 the contract the reference needs — *`own` composes through the surface's codec* — in the design
-doc rather than leaving it for the move. The first two stay **bugs**, named as such under
-[§11](../design/config-ownership-and-promotion.md#11-success-criteria)'s callout. So the rewrite this graduation owes is now a re-filing of a STATED contract plus whatever
-is still open about the two deletions, rather than a rewrite of the claim itself.
+doc rather than leaving it for the move. The first two were **fixed as bugs the same day** —
+`dropNullLeaves` keeps an object the user wrote empty, and a literal `null` now travels beside
+the layer stack because no merge patch can hold one
+([`config-migration-to-prism.md`](../reference/config-migration-to-prism.md#and-therefore-a-literal-null-travels-beside-the-overlay-not-in-it)).
+So this blocker is **gone**: the criterion is stated, met and measured, and the rewrite this
+graduation owes is an ordinary re-filing rather than a rewrite of the claim itself.
 
 **Where it would live:** `docs/reference/config-ownership.md`, holding the ownership axis (the
 notch does not decide who owns a file; a declared key does), the three modes and their surface
@@ -566,9 +569,10 @@ not after it.
    [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive **is built**
    (2026-09-12), so what remains is two re-statements, not one: the keys-and-values criterion as a
    stated contract rather than a partly-met goal, and the archive's two remaining gaps as
-   present-tense behavior. The first is **no longer gated on a ruling** —
-   [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) settled it on
-   2026-09-12 — so both are ordinary rewriting now, and
+   present-tense behavior. **Neither is gated any more** —
+   [`OQ-CO12`](../design/config-ownership-and-promotion.md#13-decision-ledger) settled the
+   criterion on 2026-09-12 and the two deletions it measured were fixed the same day — so both
+   are ordinary rewriting, and
    [`composed-file-permissions.md`](../design/composed-file-permissions.md)'s stub-at-the-original-
    filename precedent is no longer needed for this one.
 4. **Fold [`lua-transform-removal.md`](../design/lua-transform-removal.md) into

@@ -135,6 +135,60 @@ func TestSwitchingToOwnPreservesKeysAndValues(t *testing.T) {
 `,
 		},
 		{
+			name:  "a null-valued key, at every depth",
+			codec: "json",
+			rel:   ".acme/settings.json",
+			axis: "JSON key order (the fixture is unsorted so the case measures the switch, " +
+				"not a no-op)",
+			// OQ-CO12's FIRST bug. A decoded file's null is a value the user wrote;
+			// the overlay is a merge patch, where a null DELETES. `onlyNulls` is the
+			// sharp one: its whole content is a null, so the residue has nothing to
+			// carry and the key can only come back from the file itself.
+			seed: `{
+  "zebra": "unsorted on purpose",
+  "apiKeyHelper": null,
+  "nested": {
+    "kept": 1,
+    "innerNull": null
+  },
+  "onlyNulls": {
+    "gone": null
+  },
+  "permissions": {
+    "ask": [
+      "Bash(rm:*)"
+    ]
+  }
+}
+`,
+		},
+		{
+			name:  "an empty object, at every depth",
+			codec: "json",
+			rel:   ".acme/settings.json",
+			axis: "JSON key order (the fixture is unsorted so the case measures the switch, " +
+				"not a no-op)",
+			// OQ-CO12's SECOND bug, and a DIFFERENT mechanism from the one above
+			// despite sitting beside it in §11's table: `{}` reaches the overlay and
+			// folds through perfectly well — it was dropNullLeaves that ate it, unable
+			// to tell an object the user wrote empty from one its own recursion had
+			// emptied.
+			seed: `{
+  "zebra": "unsorted on purpose",
+  "mcpServers": {},
+  "nested": {
+    "kept": 1,
+    "innerEmpty": {}
+  },
+  "permissions": {
+    "ask": [
+      "Bash(rm:*)"
+    ]
+  }
+}
+`,
+		},
+		{
 			name:  "toml comments and the generated header",
 			codec: "toml",
 			rel:   ".acme/settings.toml",
@@ -177,6 +231,25 @@ ask = ["Bash(rm:*)"]
 					"layer declares, the first-migration adoption branch is not running — "+
 					"check that the host capture store resolves (render.Target.SidecarDir) "+
 					"rather than leaving last_render present.", asserted, owned)
+			}
+
+			// AND IT IS A FIXED POINT. Load-bearing for the null cases and cheap for
+			// the rest: a literal null is the one value no sidecar can hold, so it is
+			// re-read from the file on every render rather than replayed from the
+			// overlay. If that re-read runs only on the adoption branch, THIS is what
+			// goes red — the first owned render puts the key back and the second, on the
+			// steady-state branch, drops it again.
+			if _, err := RenderHostPack(criterionPack(t, tc.codec, "~/"+tc.rel), home,
+				render.OwnershipOwn, false, nil); err != nil {
+				t.Fatalf("second `own` apply: %v", err)
+			}
+			again, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(owned) {
+				t.Errorf("a second `own` apply changed the file — adoption and steady state "+
+					"disagree:\nfirst:\n%s\nsecond:\n%s", owned, again)
 			}
 
 			// AND THE FIXTURE STILL EXERCISES THE AXIS. Without this the case could be

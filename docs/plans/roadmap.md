@@ -738,6 +738,10 @@ generated header are conformant — a composing renderer that sorts keys is the 
 states — while a key valued `null` or `{}` disappearing is not, at any depth.
 [§11](../design/config-ownership-and-promotion.md#11-success-criteria) carries the comparator
 (decode with the surface's own codec; a key valued `null` is a key) and the measurements.
+**Both deletions are fixed**, the same day: `dropNullLeaves` keeps an object the user wrote
+empty, and a literal `null` travels beside the layer stack in `agentcfg.Inputs.LiteralNulls`,
+because a merge patch spent `null` on the tombstone and has no token left for the value
+([`config-migration-to-prism.md`](../reference/config-migration-to-prism.md#and-therefore-a-literal-null-travels-beside-the-overlay-not-in-it)).
 **Nothing in this row needs you now.**
 
 ⚠ **Review round 0 landed 2026-09-10 and this row is smaller than it was.** Two of the seven are

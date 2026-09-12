@@ -206,6 +206,12 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	lastRender, lastOK := decodeKind(c, kind, in.LastRenderBytes)
 	firstMigration := !in.LastRenderPresent || !lastOK
 
+	// The current file, decoded ONCE for the three readers below: the adoption
+	// residue, the steady-state capture diff, and the literal-null skeleton. It was
+	// decoded separately inside each branch until the third reader arrived and
+	// needed it on both.
+	current, curOK := decodeKind(c, kind, in.CurrentBytes)
+
 	// The layers-alone render, kept for StatefulOutput.PureBytes when the adoption branch
 	// below computes one. Declared here rather than returned from that branch because only
 	// one of the two branches has one at all, and nil is the answer for the other.
@@ -251,7 +257,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// string is a real assertion that the file is empty and would win the
 		// fold, blanking the render. nil means "this layer says nothing".
 		overlay = emptyOverlay(kind)
-		if current, curOK := decodeKind(c, kind, in.CurrentBytes); curOK {
+		if curOK {
 			if kind == codec.KindObject {
 				// Subtract what a pure render would produce; keep the rest.
 				pure, perr := Compose(in.Base)
@@ -307,7 +313,7 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// Steady state. Start from the persisted overlay ({} if absent — §3.3
 		// case 3), then accumulate this boot's captured delta.
 		overlay = parseOverlayKind(kind, in.OverlayJSON)
-		if current, curOK := decodeKind(c, kind, in.CurrentBytes); curOK {
+		if curOK {
 			// §5: diff the on-disk file against the trusted baseline and fold the
 			// delta into the durable overlay.
 			//
@@ -354,6 +360,22 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// and is the exact engine `yolo config render` uses (§6).
 	base := in.Base
 	base.Overlay = overlay
+	// THE ONE VALUE THE OVERLAY CANNOT CARRY, read off the file instead
+	// (literalnull.go; docs/design/config-ownership-and-promotion.md §11, OQ-CO12).
+	// Read on BOTH branches, not only on adoption: the mark lives in the file
+	// rather than in a sidecar, so every render has to re-read it or the second
+	// one drops what the first put back.
+	//
+	// ⚠ It is set on `base`, AFTER the adoption branch above computed its own
+	// Compose(in.Base). That pure render must stay layers-alone — it is what
+	// StatefulOutput.PureBytes reports and what entrypoint.archiveAdoption compares
+	// against to ask "is this file anything other than yolo's own output?" — and a
+	// null of the user's is precisely something other.
+	if kind == codec.KindObject && curOK {
+		if curMap, ok := current.(map[string]any); ok {
+			base.LiteralNulls = literalNullSkeleton(curMap)
+		}
+	}
 	res, err := Compose(base)
 	if err != nil {
 		return nil, err
@@ -575,8 +597,23 @@ func dropOverriddenKeys(m, owner map[string]any) map[string]any {
 // dropNullLeaves returns m without any null-valued entry, recursively. Used to
 // strip RFC-7386 tombstones out of an adopted first-migration overlay: the overlay
 // must add the agent's own keys without deleting the ones yolo asserts. A nested
-// object that becomes empty after stripping is itself dropped, so an
-// all-tombstones subtree does not survive as a meaningless {}.
+// object that BECOMES empty after stripping is itself dropped, so an all-tombstones
+// subtree does not survive as a meaningless {}.
+//
+// ⚠ AN OBJECT THAT WAS ALREADY EMPTY IS KEPT, and the difference is the whole of
+// §11's first measured bug (docs/design/config-ownership-and-promotion.md §11,
+// OQ-CO12): `{}` on the way IN is a value the user wrote — `"mcpServers": {}` is
+// "explicitly none", which an absent key does not say — while `{}` on the way OUT
+// is this function's own residue. Conflating them deleted the user's key on every
+// `assert` -> `own` switch, and no loss field named it.
+//
+// THE TWO ARE DISTINGUISHABLE HERE WITHOUT A HEURISTIC, which is why the fix is a
+// length check and not a guess. m is mergeDiff's patch, and a patch cannot hold an
+// empty object for any other reason: diffValue emits an ADDED key's whole subtree
+// verbatim (so `{}` in means `{}` in the file), and for a key BOTH sides hold it
+// emits nothing at all when the recursion finds no difference — `changed` is
+// `len(patch) > 0`, so an empty sub-patch is never recorded. An empty object
+// arriving here is therefore always the user's own value.
 func dropNullLeaves(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
@@ -584,6 +621,10 @@ func dropNullLeaves(m map[string]any) map[string]any {
 		case nil:
 			continue
 		case map[string]any:
+			if len(t) == 0 {
+				out[k] = t // the user's own `{}` — see above
+				continue
+			}
 			if inner := dropNullLeaves(t); len(inner) > 0 {
 				out[k] = inner
 			}
