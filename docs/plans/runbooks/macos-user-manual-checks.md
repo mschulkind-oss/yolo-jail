@@ -177,6 +177,46 @@ passwordless host the other six need, and items 1, 2 and 4 could share one launc
   derivation to build. The only one of the four with a cost beyond the launch.
 - **4** — a launch with a pack selected, then `~/.claude/skills` and the briefing's first line.
 
+### 0.6 The FIRST run is different, and the section above does not apply to it
+
+> [!IMPORTANT]
+> **Nothing in items 5-10 has ever executed.** They were written on Linux, in a jail that cannot
+> run this backend, against a backend no CI job has ever exercised. [§0.4](#04-reading-a-red-job)
+> shape 2 says a failing test is "a real finding" — **that is true from the second run onward.**
+> On the first, a red is at least as likely to be a defect in the TEST as in the product.
+
+Read the first run with that prior, or you will spend it "fixing" working code.
+
+**The darwin classes to suspect first**, in order of how often this repo has actually been bitten:
+
+| Class | Why it passes on Linux | The tell |
+| :--- | :--- | :--- |
+| **`/var/folders` symlink** | `t.TempDir()` returns `/var/folders/…`, which **is a symlink** to `/private/var/folders/…`. Any assertion comparing a fixture path against code that resolves symlinks (`filepath.EvalSymlinks`, and everything built on it) passes on Linux and fails here. | A path mismatch where the two sides differ only by a `/private` prefix. **Cost three tests across two packages on 2026-09-09**; `AGENTS.md` reproduces it on Linux in one line. |
+| **Wording** | Every assertion on a message was written against the string in the tree, not against a run. A reworded remedy or a different error verb fails the test while the behavior is correct. | The test names a substring the output plainly does not contain, and the output looks *right*. |
+| **Path shape** | The account home, the workspace sidecar and the store are three different trees here, and a test can assert the wrong one without Linux ever noticing. | An assertion about `/Users/_yolojail/...` failing where the real thing sits under `<ws>/.yolo/home`, or vice versa. |
+| **Timing** | Nothing about the 30-minute per-launch ceiling was measured. A `mise install` or a darwin derivation may simply need longer. | A deadline, not an assertion, is what failed. |
+
+**Telling a test bug from a product bug.** The question is not "is the assertion false" — it is
+**"would a human running this item by hand call the observed behavior wrong?"** Every item below
+states its manual procedure and its pass condition; run the item by hand once, and let the hand
+result decide which side is broken. When the hand run agrees with the code, fix the test. When it
+agrees with the test, you have found the thing this suite exists to find.
+
+⚠ **Fix a wrong test by correcting the assertion, never by deleting it or loosening it to
+tautology.** A test relaxed until it passes is worse than the manual item it replaced, because the
+item at least told you it had never been run. If an assertion turns out to rest on something that
+cannot be checked here, say so in the test and leave the item manual.
+
+⚠ **Do not "fix" a product behavior to match a test written by someone who never ran it.** Items
+6-9 are a dependency chain and items 5 and 10 assert layout rules that
+[`macos-user-home-tiers.md`](../../design/macos-user-home-tiers.md) rules deliberately — a change
+there needs the design consulted, not just a green job.
+
+**What a clean first run would prove**, so the bar is explicit: `executed=N` with `N` matching the
+number of `TestMacosUser…` tests, no failures, and the per-item observations in items 5-10 matching
+what each says it expects. That would be the first time any runtime claim in either macos-user
+design has been measured at all.
+
 ---
 
 ## 1. The privilege transition
