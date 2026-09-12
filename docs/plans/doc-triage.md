@@ -371,17 +371,18 @@ the provenance record; the `reads-host` restructure landed on both halves —
 independent readers, and the jail is a witness through `packload.ParseHostLayerReport` on the
 `YOLO_HOST_LOOPBACK` pattern.
 
-**Step 8 shipped with a hole, and the hole is the reason to wait.** The `own` mode, its capture
-store and host-side `reset` all ship; the **one-time adoption archive does not exist**. This is not
-an inference — [`hostrender.go`](../../internal/entrypoint/hostrender.go) says so in the arm that
-would need it, naming [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger), and records that the design's own risk table *"names a net that
-does not exist"*.
+**Step 8 shipped with a hole, and the hole is CLOSED as of 2026-09-12.** The `own` mode, its
+capture store and host-side `reset` shipped on 2026-09-11; the **one-time adoption archive** landed
+the next day — [`adoptionarchive.go`](../../internal/entrypoint/adoptionarchive.go), one call from
+the stateful writer both notches share, with
+[`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s ledger row and
+[§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard) rewritten to what
+was built. `hostrender.go` and `staterender.go` no longer carry the ⚠ comments that recorded the gap.
 
 `system-doc`'s rule for this is explicit: anything specified-but-absent **does not appear in present
 tense**, and must be dropped or become a roadmap item **by name** rather than evaporating with the
-design doc. It is already tracked — [`roadmap.md`](roadmap.md) carries [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger) as the question the
-build opened — so the graduation is cheap once the maintainer rules: build the archive, or drop it
-and say what guards adoption instead.
+design doc. That is what happened — [`roadmap.md`](roadmap.md) carried it as a 📦 row for one day —
+so this blocker is spent and the graduation no longer waits on it.
 
 ⚠ **The subtler blocker, and the more dangerous one.** The design's own success criterion —
 *switching to `own` on a home already applying under `assert` changes zero bytes* — is **PARTLY
@@ -546,9 +547,10 @@ not after it.
    five whose behavior was reproduced with a control, its principles are already cited as law from
    [`AGENTS.md`](../../AGENTS.md), and it carries no unbuilt step. Archive
    [`report-tiers-plan.md`](../design/report-tiers-plan.md) in the same commit.
-3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**, once
-   [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive is built or explicitly dropped, and with the zero-bytes criterion rewritten as
-   a stated contract rather than a partly-met goal.
+3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**.
+   [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive **is built**
+   (2026-09-12), so what remains is the zero-bytes criterion, rewritten as a stated contract rather
+   than a partly-met goal — the ⚠ blocker below, which is the one that was always the harder half.
 4. **Fold [`lua-transform-removal.md`](../design/lua-transform-removal.md) into
    [`../reference/pack-system.md`](../reference/pack-system.md) and archive it.** Do not mint a
    second reference for one subsystem.

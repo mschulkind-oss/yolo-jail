@@ -8,9 +8,10 @@ Last updated **2026-09-12**. Counts are tallied from this file's contents, not a
 > [!NOTE]
 > **Reconciled 2026-09-12 against a 138-commit sprint, and the tally moved on three axes.** It was
 > **17 · 2 · 0 · 6 · 0 · 3**. *Ready* lost both its rows — ✅ **29** (report tiers) and ✅ **30**
-> (the Lua transform) — and gained one: [OQ-CO7](../design/config-ownership-and-promotion.md#13-decision-ledger)'s
-> adoption archive, the single ruling of the five shipped designs' thirty-one that has no code
-> behind it. *Waiting* gained ONE row — the six never-run Mac runbook items the macos-user pair
+> (the Lua transform) — and briefly gained one: [OQ-CO7](../design/config-ownership-and-promotion.md#13-decision-ledger)'s
+> adoption archive, the single ruling of the five shipped designs' thirty-one with no code behind
+> it, **filed and built the same day**, so *Ready* ends at zero. *Waiting* gained ONE row — the six
+> never-run Mac runbook items the macos-user pair
 > added, which had been recorded inside an ✅ bullet where no count could see them, the same failure
 > the C4/C5 row was promoted out of a preamble to fix. *Needs you* did not move, and that is the
 > honest result rather than an oversight: **nothing that shipped closed a question**. 💬 **25**
@@ -677,16 +678,16 @@ carve-out.** The key and its fail-closed read (`6012ff9e`); `none`/`assert` wire
 capture store and host-side `reset` in the same commit (`c2c4873e`). `assert` remains the undeclared
 default, so nothing moved for a user who set nothing.
 
-⚠ **THE ONE-TIME ADOPTION ARCHIVE DID NOT SHIP, and this row said it did.** Step 8 lists it as
-landing in `own`'s commit and [§9](../design/config-ownership-and-promotion.md#9-risks)'s risk table
-names it as the mitigation for two data-loss rows — **no adoption path writes a `config` bucket**,
-and every root `hostArchiveRoot` mints comes from the render's own replace/retire passes. That makes
-[`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger) the **single ruling of the
-five shipped designs' thirty-one with no code behind it**, and it is the 📦 row in *Up next*. It
-matters most where the guard is weakest: `confirmHostLosses` reads `EntryLosses` and fires only on
-first apply, so the `assert` → `own` switch — the exact transition that drops a deep-merged leaf — is
-unprompted, and the jail's own first-migration half has no TTY for a prompt at all. Recorded at both
-adoption sites in code by `86c4ad0e`, which is comment-only.
+✅ **THE ONE-TIME ADOPTION ARCHIVE DID NOT SHIP WITH `own`; it shipped a day later, 2026-09-12.**
+Step 8 listed it as landing in `own`'s commit and
+[§9](../design/config-ownership-and-promotion.md#9-risks)'s risk table named it as the mitigation for
+two data-loss rows, while no adoption path wrote a `config` bucket — which made
+[`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger) the single ruling of the
+five shipped designs' thirty-one with no code behind it. `86c4ad0e` recorded that at both adoption
+sites in code, comment-only; the build replaced those comments with one call in the shared stateful
+writer. It matters most where the guard is weakest: `confirmHostLosses` reads `EntryLosses` and fires
+only on first apply, so the `assert` → `own` switch — the exact transition that drops a deep-merged
+leaf — is unprompted, and the jail's own first-migration half has no TTY for a prompt at all.
 
 **[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) was six steps when it was written, and the build needed
 eight.** Steps 6 and 7 — the
@@ -699,8 +700,9 @@ populates it, while the restructure touches the boot render on every backend (`3
 
 > [!NOTE]
 > "Never scheduled" here means **absent from the plan, not absent from the tree** — two readers in a
-> row took it the other way. Unplanned-and-shipped and ruled-and-unbuilt are different states, and
-> only the second ([`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger), above) is work still owed.
+> row took it the other way. Unplanned-and-shipped and ruled-and-unbuilt are different states; the
+> second had one inhabitant ([`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger), above) and it is
+> now built, so this row owes nothing.
 
 ✅ **Two defects the build fixed that nobody had filed** — distinct from the two the audit
 surfaced below, and worth naming because neither was in scope and the first was live for every user:
@@ -975,10 +977,10 @@ fixed above.
 
 # 📦 Up next
 
-**One live row.** All three filed here on 2026-09-09 out of the disk/image sprint's rulings have
-shipped; only layer-aware delivery's ✅ record is still parked below, for the measurements and the
-two carve-outs it left in `AGENTS.md`. What is live is a ruling the 2026-09-11/12 sprint did NOT
-build. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
+**No live rows.** All three filed here on 2026-09-09 out of the disk/image sprint's rulings have
+shipped, and so has the one the 2026-09-11/12 sprint left unbuilt — filed and closed on 2026-09-12.
+Both ✅ records are parked below, for the measurements and the carve-outs they left in `AGENTS.md`.
+C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
 
 - ✅ **1. Layer-aware image delivery — SHIPPED 2026-09-09** (`04e39353`), and it left this section
   the day its gate cleared. 📄 [`layer-aware-image-delivery.md`](../design/layer-aware-image-delivery.md) ·
@@ -1041,28 +1043,35 @@ build. C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 r
   warm). `publish.yml` and `just cachix-push` push it — an optimization only, with nothing wired to
   a cache miss ([`OQ-LI1`](../design/layer-aware-image-delivery.md#91-decision-ledger)).
 
-- 📦 **2. The one-time adoption archive — [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger),
-  ruled and NOT built.** 📄 [`config-ownership-and-promotion.md`
+- ✅ **2. The one-time adoption archive — [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger),
+  SHIPPED 2026-09-12.** 📄 [`config-ownership-and-promotion.md`
   §10 step 8](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) ·
-  [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard). **Filed here
-  2026-09-12 by the ruled-but-unbuilt sweep**, which walked all thirty-one ledger rows of the five
-  designs that shipped this sprint: **this is the one with no code behind it**, and until `86c4ad0e`
-  nothing in the tree recorded that. `own` ships its capture store and its host-side `reset`; what is
-  missing is the single archive of the pre-existing file **at adoption**, as a `config` bucket in the
-  archive subsystem that already exists.
+  [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard). Filed here the
+  same day by the ruled-but-unbuilt sweep — it was the one ledger row of the five shipped designs'
+  thirty-one with no code behind it — and closed the same day. `entrypoint.archiveAdoption`, called
+  from `persistStatefulSurface`, copies the pre-existing file once before an adopting render composes
+  over it; `render.Target.ArchivePath` says where, at both notches.
 
-  **It needs no ruling and it is small.** What makes it worth a row rather than a backlog line is
-  where the gap sits: `confirmHostLosses` reads `EntryLosses` and fires only on first apply, so the
-  `assert` → `own` switch is unprompted — and it is the exact transition that drops a deep-merged
-  leaf. The jail's own first-migration half cannot have a prompt at all, because an unattended boot
-  has no TTY. The archive is the only net the design offers either one.
+  **ONE call site, both notches, which is the part worth remembering.** The host's `own` adoption and
+  a jail's `firstMigration` go through the same stateful writer, so they cannot end up with different
+  nets — or with one silently missing, which is how the gap survived the sprint that ruled it. It
+  matters most where the guard is weakest: `confirmHostLosses` reads `EntryLosses` and fires only on
+  first apply, so the `assert` → `own` switch is unprompted — the exact transition that drops a
+  deep-merged leaf — and an unattended boot has no TTY for a prompt at all.
 
-  ⚠ **The design's ledger has no Built column**, which is why this was unrecoverable from the doc
-  and had to be found by walking the tree.
+  **Three things the ruling left open, decided at build time** and recorded in
+  [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard) plus a ledger row: the bucket is keyed by
+  SURFACE rather than by the `<stamp>/` generation the other buckets use (under the stamped layout
+  `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few);
+  idempotency is the archive's own existence (a second adoption would otherwise overwrite the user's
+  original with yolo's output); and a copy that cannot be written REFUSES the adoption, leaving the
+  file untouched, rather than warning past it.
+
+  ✅ **The design's ledger now has a Built column** — added by the same sweep that filed this row,
+  which is what made the gap recoverable from the doc at all.
   [`the-load-sentinel-is-not-a-liveness-oracle.md`](../design/the-load-sentinel-is-not-a-liveness-oracle.md)
-  and [`disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md) both carry one and are
-  the models — the latter's header says *"nine of ten rulings built"* without anyone having to check.
-  Worth adding to this ledger and to [`report-tiers.md`](../design/report-tiers.md)'s.
+  and [`disk-levers-and-backfill.md`](../design/disk-levers-and-backfill.md) were the models. Still
+  worth adding to [`report-tiers.md`](../design/report-tiers.md)'s.
 
 ### 💬 31 — Which package manager an environment actually has, and who picks it
 

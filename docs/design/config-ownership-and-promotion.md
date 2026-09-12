@@ -10,13 +10,12 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** BUILT, 2026-09-12 — [§10](#10-what-i-would-build-in-order)'s eight steps landed
-with **one carve-out**: the `host_management` key, `own`'s composing render and its capture
-store, host-side `reset`, `yolo config promote` and `yolo host apply --revert` all ship, but
-step 8's **one-time adoption archive does not exist** ([§6.3.3](#633-what-survives-as-a-guard),
-[`OQ-CO7`](#13-decision-ledger)) — no adoption path writes a `config` bucket, and the code
-records that where it would be written
-([`hostrender.go`](../../internal/entrypoint/hostrender.go)).
+**Status:** BUILT, 2026-09-12 — [§10](#10-what-i-would-build-in-order)'s eight steps all
+landed: the `host_management` key, `own`'s composing render and its capture store, host-side
+`reset`, `yolo config promote`, `yolo host apply --revert`, and — last, on 2026-09-12 —
+step 8's **one-time adoption archive** ([§6.3.3](#633-what-survives-as-a-guard),
+[`OQ-CO7`](#13-decision-ledger)), written at BOTH notches by one call in the shared stateful
+writer ([`entrypoint.archiveAdoption`](../../internal/entrypoint/adoptionarchive.go)).
 [§13](#13-decision-ledger)'s **Built** column carries the same answer ruling by ruling, so
 "settled" and "shipped" can be read apart rather than inferred from each other.
 Claims about *current behavior*
@@ -1330,8 +1329,9 @@ against it.
 gates rows 1 and 2 **only on a first apply** (`FirstApply && EntryLosses`,
 [§4.4](#44-what-the-key-does-not-do)) — so on a home already on `assert` the prompt
 does not fire at the exact transition that loses the leaf. The fix is to narrow the
-drop so there is nothing for a guard to catch; until then the archive
-([§6.3.3](#633-what-survives-as-a-guard)) is the only net.
+drop so there is nothing for a guard to catch; behind it the archive
+([§6.3.3](#633-what-survives-as-a-guard)) is the only net, and it is what the transition
+gets instead of a prompt.
 
 > [!NOTE]
 > **Row 2's rule is not adoption-scoped, and the competing semantic was rejected
@@ -1378,13 +1378,13 @@ What to do about row 3 is [OQ-CO9](#13-decision-ledger).
 
 ### 6.3.3 What survives as a guard
 
-> [!WARNING]
-> **NOT BUILT as of 2026-09-12, and this section is the net two other places assume exists.**
-> `own` shipped without it: no adoption path writes a `config` bucket, and
-> [§9](#9-risks)'s row for the `assert`→`own` leaf and [§10](#10-what-i-would-build-in-order)'s
-> step 8 both name the archive as the mitigation. The gap is recorded at the adoption arm in
-> [`hostrender.go`](../../internal/entrypoint/hostrender.go). The paragraphs below are the
-> design, unchanged.
+> [!NOTE]
+> **BUILT 2026-09-12.** One call in the shared stateful writer
+> ([`entrypoint.archiveAdoption`](../../internal/entrypoint/adoptionarchive.go), from
+> `persistStatefulSurface`) serves both notches, so the host's `own` adoption and a jail's
+> `firstMigration` cannot end up with different nets — or with one of them silently missing,
+> which is how the gap survived the sprint that ruled it. The paragraphs below are the design;
+> the four sub-headings after them are what the build had to decide and did.
 
 **One archive at adoption.** The pre-existing file is copied once to the state dir
 before the first owned render — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on),
@@ -1395,13 +1395,82 @@ what having the pack in git is for, which is the whole arrangement `own` is
 recommending.
 
 **It is cheaper than it looks, and it covers a known loss rather than a
-speculative one.** The archive root, the one-generation-per-apply layout and
-`yolo prune`'s reclamation already ship for skills, files and briefings
-(`~/.local/share/yolo-jail/archive/<bucket>/<stamp>/`,
+speculative one.** The archive root and `yolo prune`'s sweep of it already ship for skills,
+files and briefings (`~/.local/share/yolo-jail/archive/<bucket>/`,
 [`applyhostskills.go`](../../internal/cli/applyhostskills.go)); a config
 bucket is a new *bucket*, not a new *surface*. And the loss it covers is
 [§6.3.1](#631-adoption-is-capture-then-regenerate)'s deep-merged leaf, which the
 prompt is structurally blind to.
+
+#### Where each copy lands
+
+`render.Target.ArchivePath` resolves it, beside `SidecarDir` and `ProvenanceDir`, so the two
+notches have one definition rather than two hand-copied joins:
+
+| Notch | Path |
+| :--- | :--- |
+| host (`own`) | `<home>/.local/share/yolo-jail/archive/config/<agent>-<name>/<basename>` |
+| jail / preview | `<workspace>/.yolo/archive/config/<agent>-<name>/<basename>` |
+
+The jail's anchor is the **workspace**, which is the same anchor the capture sidecars already
+use — and that is why this is not the problem
+[`lspSentinelExpr`](../../internal/entrypoint/shell.go) solves. That function needs two
+spellings because the per-workspace file it names lives inside the **home**, which podman
+reaches by a bind mount and `macos-user` cannot reach at all (one account home, every
+workspace). A path in the workspace is one both backends name directly — `Env.WorkspaceDir`
+honors `YOLO_WORKSPACE` and `macos-user` passes the real path. One anchor, no backend switch.
+
+> [!WARNING]
+> The jail's copy inherits the capture overlay's exposure, because it sits in the same tree:
+> `<workspace>/.yolo/` crosses into a container and plausibly into git. That is the exposure
+> [§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to) already accepts for
+> the overlay at this notch and refuses at the host, where the archive goes under the state
+> dir instead. The surface that would have carried a credential into it — `copilot/config`
+> — is `rmw`, which adopts nothing and is therefore archived never.
+
+#### Keyed by surface, not by stamp — and why prune must not reclaim it
+
+The other buckets are `archive/<bucket>/<stamp>/`, and `yolo prune` keeps the newest three
+generations in each. **This bucket deliberately has no stamp layer.** Those buckets hold
+content yolo REPLACED and can regenerate, so keep-newest-N is right for them: what a user
+wants back is "the last few applies". This holds the user's own pre-yolo file, which nothing
+regenerates, and there is exactly one per surface ever. Under the stamped layout a home that
+adopted a dozen surfaces on a dozen days would have nine originals swept — by yolo's own
+reaper, for a retention policy nobody chose, out of the one directory that exists to prevent
+exactly that loss. Prune needs no exemption for this: its own rule is that a directory whose
+name it cannot parse as a stamp is left alone, so the layout is already covered
+([`PruneHostArchive`](../../internal/prune/hostarchive.go)).
+
+#### One archive — one per what
+
+**One per surface, per home, for the life of that home**, and what makes it idempotent is the
+archive's own existence: the writer copies only when the destination path does not exist. No
+sentinel, no record to keep in sync. A second adoption of the same surface is reachable —
+`yolo config reset`, a deleted or corrupt `last_render`, a restored workspace — and the
+decisive reason not to re-archive is not tidiness: by then the file on disk is **yolo's own
+output**, so a second copy would overwrite the user's original with the very thing it exists
+to be compared against. The net would perform the deletion it exists to prevent. A
+steady-state render archives nothing at all, which is what keeps this true across every boot
+of a jail rather than only across host applies.
+
+#### When the copy cannot be made, and the degenerate inputs
+
+**A failed archive REFUSES the adoption; the file is left exactly as the agent wrote it.** The
+alternative — warn and adopt anyway — is a net that can silently not exist, which is worth
+less than one that says so: it takes the one-way door without the thing that makes it
+survivable and reports a successful render. Refusing is also what the surrounding code already
+does with comparable failures (every other write in the adopting path returns its error) and
+what the host dispatch already knows how to present: a per-surface `refused:` line, the file
+untouched, the remaining surfaces still rendered. Nothing is persisted, so the next render
+still sees a first migration and retries the whole adoption from the same file.
+
+The degenerate inputs, each with the reason rather than just the answer:
+
+| The pre-existing file is… | Archived? | Why |
+| :--- | :--- | :--- |
+| absent | no | Nothing to lose. This is every surface of every fresh jail home, and it is what keeps the archive from existing at all for most surfaces |
+| empty | no | Restoring "absent" and restoring "zero bytes" leave the user in the same place; a zero-byte archive is not a net, it is a directory entry saying yolo ran |
+| unparseable | **yes** | The sharpest case, and the reason the gate keys on BYTES rather than on the file parsing. At the host `own` refuses such a surface outright ([`OQ-CO9`](#13-decision-ledger)); at a jail it does not — adoption skips capture and the render replaces the file wholesale, with an empty residue, so the archive is the only record the file ever existed |
 
 > [!WARNING]
 > **The one-way-door gate cannot see the most destructive case available.**
@@ -1517,7 +1586,7 @@ already has.
 | Risk | Mitigation |
 |---|---|
 | A user picks `own`, and yolo deletes settings they cared about | Adoption is capture-then-regenerate, so the first owned render reproduces the file's undeclared keys ([§6.3.1](#631-adoption-is-capture-then-regenerate)); the classes it does not cover are in [§6.3.2](#632-the-three-classes-adoption-does-not-cover), plus the one-time archive |
-| A user on `assert` switches to `own` and silently loses a leaf under a managed object (`permissions.ask`) | Adoption must drop at `rmw`'s granularity ([§6.3.1](#631-adoption-is-capture-then-regenerate)) — **shipped 2026-09-12**, so the leaf survives. ⚠ The fallback this row named is not there: the archive was never built ([§6.3.3](#633-what-survives-as-a-guard)), so for any class adoption still drops there is **no net at all**, `confirmHostLosses` being off once provenance exists |
+| A user on `assert` switches to `own` and silently loses a leaf under a managed object (`permissions.ask`) | Adoption must drop at `rmw`'s granularity ([§6.3.1](#631-adoption-is-capture-then-regenerate)) — **shipped 2026-09-12**, so the leaf survives. The fallback this row named is there too, **shipped the same day**: the one-time archive ([§6.3.3](#633-what-survives-as-a-guard)) holds the file as yolo found it, for any class adoption still drops — which matters precisely because `confirmHostLosses` is off once provenance exists |
 | Promotion silently demotes a key that then reverts | Precedence check is a **refusal**, not a warning ([§5.4](#54-promotion-moves-a-key-down-the-stack)) — and the class is empty for `--to local`; the check protects `--to pack:<name>` |
 | A credential is promoted into a pack, and the pack is pushed — or already sits in a sidecar | Promote's deny-list ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot), new work); `--force` is per-key and named in output; the sidecar half is a capture-time question at every notch ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)), listed for the roadmap |
 | The local pack becomes an unreviewable pile of promoted keys | Every promotion is an ordinary edit to a readable `pack.json`; `yolo pack lint` and `footprint` already report its claims |
@@ -1585,8 +1654,8 @@ already has.
 8. **`own`:** the host notch renders `stateful`, **with the host capture store
    ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)) and
    host-side `reset` in the same commit** — adoption is unsafe without either
-   ([§6.3.3](#633-what-survives-as-a-guard)) — plus the one-time archive (⚠ **the one part of
-   this step that did NOT ship**; see [§6.3.3](#633-what-survives-as-a-guard)), the
+   ([§6.3.3](#633-what-survives-as-a-guard)) — plus the one-time archive
+   ([§6.3.3](#633-what-survives-as-a-guard)), the
    keyless carve-out [OQ-CO9](#13-decision-ledger) rules, and **adoption narrowed to `rmw`'s
    granularity** ([§6.3.1](#631-adoption-is-capture-then-regenerate)), without
    which `own` is not zero-bytes on an `assert` home. Last because it is the only
@@ -1727,8 +1796,8 @@ the last three on 2026-09-11.
 **Settled and built are two axes, and the second does not follow from the first.** Each `Built`
 cell names the symbol that carries the ruling, read off the tree on 2026-09-12 rather than off
 the sprint's commit messages; `n/a` marks a row that rules no mechanism of its own. **Every
-ruling here has code behind it except [`OQ-CO7`](#13-decision-ledger)**, whose one-time adoption
-archive nothing writes.
+ruling here now has code behind it**; [`OQ-CO7`](#13-decision-ledger) was the last without, and
+its one-time adoption archive shipped on 2026-09-12.
 
 > [!IMPORTANT]
 > **This design reverses four rulings from [`environment-manager-plan.md`](../plans/environment-manager-plan.md)'s
@@ -1749,11 +1818,12 @@ archive nothing writes.
 | [`OQ-CO4`](#13-decision-ledger) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` (`internal/config/snapshot.go:81`) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) | ✅ `--accept-promotion` in `parsePromoteArgs`; `local` is `resolvePromoteDest`'s default |
 | [`OQ-CO5`](#13-decision-ledger) | **Refuse-with-instructions in v1.** Design the jail→host request channel but do not build it until promote has been used enough to know which keys people actually promote — the transport is free, the consent prompt is what needs the evidence. | 2026-09-11 | [§5.5](#55-where-promote-may-run) | ✅ `refuseInJailPromote` names the host command. The jail→host request channel is designed and unbuilt, which is the ruling |
 | [`OQ-CO6`](#13-decision-ledger) | **Refuse only, everywhere** — promote never offers the pack's `managed` block to a key that would lose precedence. For shipped surfaces nothing else is expressible (`managed` is owner-only and every owner is an embedded pack). For a user's own surface the friction is the point: a one-keystroke path to outranking `computed` would be used for exactly the reason that layer exists, so the managed block stays a hand edit. | 2026-09-11 | [§5.4](#54-promotion-moves-a-key-down-the-stack) | ✅ `classifyPromoteKey`'s `promotionOutranked` disposition; no path writes a `managed` block |
-| [`OQ-CO7`](#13-decision-ledger) | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) | ❌ **NOT BUILT** — the one ruling here with no code behind it. Nothing writes a `config` bucket, and the gap is recorded at both sites it was owed: `entrypoint.RenderHostPack` and `agentcfg.ComposeStateful`, each naming this question |
+| [`OQ-CO7`](#13-decision-ledger) | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `entrypoint.archiveAdoption`, called from `persistStatefulSurface` — the ONE writer both notches share, so the host's `own` adoption and a jail's `firstMigration` get the copy from the same line rather than from two implementations. `render.Target.ArchivePath` resolves where it lands at each notch; `HostRenderResult.Archived` reports it |
 | [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) | ✅ `resolvePromoteDest` refuses `--to workspace` by naming this ruling, rather than folding it into "unknown destination" |
 | [`OQ-CO9`](#13-decision-ledger) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) | ✅ `render.HostOwnedModes` refuses the coercion and `entrypoint.hostStatefulRefusal` refuses the surface, leaving the user's file untouched |
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; `macos-user` reports `unsupported` and is not refused |
 | [`OQ-CO11`](#13-decision-ledger) | **The read-in `host` layer stays — decided by [`OQ-CO10`](#13-decision-ledger), not separately.** Ruling a mechanism's binding, failure direction and coverage decides that it exists; asking in the same breath whether to delete it is incoherent. Supersedes env-manager plan [`OQ-3`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase). | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer), [§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications) | n/a — a ruling to KEEP. The layer stands, restructured by [`OQ-CO10`](#13-decision-ledger) rather than removed |
+| — | **The adoption archive's layout and failure policy, decided at build time** because [`OQ-CO7`](#13-decision-ledger) left them open and one of them contradicts what that ruling assumed. Keyed by SURFACE, not by the `<stamp>/` generation the other buckets use — under the stamped layout `yolo prune`'s keep-newest-3 would sweep the originals of every surface but the newest few, which is the loss this bucket exists to prevent performed by yolo's own reaper. Idempotent on the archive's own existence, so a second adoption cannot overwrite the user's original with yolo's output. A copy that cannot be written REFUSES the adoption rather than warning past it. Not an OQ; recorded because the first of them departs from [§6.3.3](#633-what-survives-as-a-guard)'s original text. | 2026-09-12 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `render.Target.ArchivePath` (layout), `entrypoint.archiveAdoption` (idempotency, refusal); `TestPruneLeavesTheAdoptionArchiveAlone` pins the reaper half across the two packages that each know only their own half |
 | — | **Terminology: the absent key is the *unset* state, never the "undeclared" one** — *undeclared* is reserved for the input-closure tier ([§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running)'s note). Not an OQ; recorded because renaming it later costs four anchors. | 2026-09-10 | [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running) | n/a — terminology |
 
 **One consequence worth recording where a reader will hit it, because it moved
