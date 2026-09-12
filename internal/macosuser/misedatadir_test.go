@@ -1,10 +1,13 @@
 package macosuser
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // misedatadir_test.go pins the machine tier of the mise store on this backend
@@ -22,10 +25,7 @@ import (
 func TestMiseDataDirIsMachineWideEverywhereItAppears(t *testing.T) {
 	home := SandboxHome()
 	want := SandboxMiseData(home)
-	if strings.Contains(want, "/.local/") {
-		t.Fatalf("the mise data dir %q is under ~/.local, which the layout symlinks into the "+
-			"workspace sidecar — it would be per-workspace, which no other backend is", want)
-	}
+	assertOutsideTheWorkspaceTier(t, home, want)
 
 	// 1. PATH: the shims dir must be the one inside that store.
 	path := SandboxPath(home, nil)
@@ -73,5 +73,34 @@ func TestMiseDataDirFollowsTheHomeItIsGiven(t *testing.T) {
 	staging := "/Users/Shared/yolo-captures/claude/home"
 	if got := SandboxMiseData(staging); !strings.HasPrefix(got, staging+"/") {
 		t.Errorf("SandboxMiseData(%q) = %q, want it under that home", staging, got)
+	}
+}
+
+// assertOutsideTheWorkspaceTier fails if `path` resolves through any link the home-tier
+// layout lays — i.e. if it is per-workspace.
+//
+// ⚠ THIS REPLACED AN ASSERTION ABOUT A SENTENCE. The guard above used to read
+// `strings.Contains(want, "/.local/")`, which pins the ~/.local spelling the comment
+// happens to mention rather than the property the comment is ABOUT. Measured 2026-09-12:
+// changing SandboxMiseData to ~/.config/mise-store, or to ~/go/mise, put the machine-wide
+// store back inside the per-workspace sidecar with `go test -short ./...` byte-identically
+// green, because `.config` and `go` are links in DeriveDarwinHomeLayout too. That is the
+// class AGENTS.md's Testing section names — "the test asserts the SENTENCE a comment makes
+// rather than the system" — so the question is asked of the layout itself, which is the
+// only thing that knows which paths are per-workspace, and which grows new links without
+// this file being edited.
+func assertOutsideTheWorkspaceTier(t *testing.T, home, path string) {
+	t.Helper()
+	layout := entrypoint.DeriveDarwinHomeLayout(home, "/Users/Shared/yolo/proj/.yolo/home",
+		packload.EmbeddedWritableDirs(), packload.EmbeddedSharedDirs())
+	if len(layout.Links) == 0 {
+		t.Fatal("the layout derived no links — this assertion would pass vacuously")
+	}
+	for _, l := range layout.Links {
+		if path == l.Path || strings.HasPrefix(path, l.Path+string(filepath.Separator)) {
+			t.Fatalf("%q resolves through the workspace-tier link %s -> %s, so it is "+
+				"PER-WORKSPACE — which no other backend is, and which is the silent "+
+				"failure this file exists to prevent", path, l.Path, l.Target)
+		}
 	}
 }

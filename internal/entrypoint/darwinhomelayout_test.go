@@ -241,8 +241,14 @@ func writeTreeFile(t *testing.T, path, body string) {
 // failure names the missing surface.
 func TestDeriveDarwinHomeLayoutMirrorsTheContainerBindTable(t *testing.T) {
 	home, sidecar := "/Users/_yolojail", "/Users/Shared/yolo/proj/.yolo/home"
+	// TWO of each, deliberately. The writable half was already pinned for multiplicity
+	// (the len check below); the SHARED half was pinned with a one-element list, so
+	// `if len(sharedDirs) > 1 { sharedDirs = sharedDirs[:1] }` before the mirror loop
+	// passed the whole short suite — measured 2026-09-12. packs/agy declares a second
+	// machine-scope dir (.gemini-shared-credentials), so `packs: ["claude","agy"]` on
+	// this backend is exactly the case that gap covered.
 	l := DeriveDarwinHomeLayout(home, sidecar, []string{".claude", ".codex"},
-		[]string{".claude-shared-credentials"})
+		[]string{".claude-shared-credentials", ".gemini-shared-credentials"})
 
 	got := map[string]string{}
 	for _, ln := range l.Links {
@@ -265,10 +271,20 @@ func TestDeriveDarwinHomeLayoutMirrorsTheContainerBindTable(t *testing.T) {
 		t.Errorf("the layout links %d paths, want the 5 the podman argv binds plus the 2 "+
 			"pack-declared state dirs: %v", len(l.Links), l.Links)
 	}
-	// The machine tier never moves — it is mirrored INTO the sidecar, pointing home.
-	if len(l.Mirrors) != 1 || l.Mirrors[0].Path != sidecar+"/.claude-shared-credentials" ||
-		l.Mirrors[0].Target != home+"/.claude-shared-credentials" {
-		t.Errorf("mirrors = %v, want the machine-scope dir mirrored into the sidecar", l.Mirrors)
+	// The machine tier never moves — it is mirrored INTO the sidecar, pointing home, and
+	// EVERY machine-scope dir is, not just the first one.
+	gotMirror := map[string]string{}
+	for _, m := range l.Mirrors {
+		gotMirror[m.Path] = m.Target
+	}
+	for _, dir := range []string{".claude-shared-credentials", ".gemini-shared-credentials"} {
+		if gotMirror[sidecar+"/"+dir] != home+"/"+dir {
+			t.Errorf("%s is not mirrored into the sidecar (mirrors = %v)", dir, l.Mirrors)
+		}
+	}
+	if len(l.Mirrors) != 2 {
+		t.Errorf("the layout mirrors %d paths, want one per machine-scope dir: %v",
+			len(l.Mirrors), l.Mirrors)
 	}
 	// Every link target is a directory the apply creates FIRST: a link to a missing dir
 	// dangles, and MkdirAll through a dangling symlink fails — which is how the first
@@ -282,8 +298,10 @@ func TestDeriveDarwinHomeLayoutMirrorsTheContainerBindTable(t *testing.T) {
 			t.Errorf("%s is linked but never created", ln.Target)
 		}
 	}
-	if !dirs[home+"/.claude-shared-credentials"] {
-		t.Error("the machine-scope dir the mirror points at is never created")
+	for _, dir := range []string{".claude-shared-credentials", ".gemini-shared-credentials"} {
+		if !dirs[home+"/"+dir] {
+			t.Errorf("%s, the machine-scope dir a mirror points at, is never created", dir)
+		}
 	}
 }
 
@@ -384,5 +402,75 @@ func TestInstallDarwinHomeLayoutWithoutASidecarWritesNothing(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("a bootstrap with no sidecar laid %d paths: %v", len(entries), entries)
+	}
+}
+
+// THE SOURCING, which is a design constraint rather than an implementation detail and was
+// not pinned by anything. §6 P2 of the design doc says the tier of a path is THE PACK'S
+// DECLARATION on this backend too, and the file header above repeats it — but every test
+// here passes its tier lists in by hand or stages the one shipped pack whose dirs any
+// hardcoded list would also name. Measured 2026-09-12: replacing
+// `packload.WritableDirs(packs), packload.SharedDirs(packs)` in InstallDarwinHomeLayout
+// with literal slices of the six shipped workspace dirs and the one shared dir left
+// `go test -short ./...` fully green. The consequence is that a pack added tomorrow gets
+// no link and no mirror, silently.
+//
+// This test uses a pack whose declared dirs no hardcoded list could contain.
+func TestTheHomeLayoutsTiersComeFromThePackDeclaration(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sourcing-probe")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+	  "name": "sourcing-probe",
+	  "contributes": [
+	    {"kind": "state", "at": ".probe-workspace-state", "scope": "workspace"},
+	    {"kind": "state", "at": ".probe-machine-state", "scope": "machine",
+	     "because": "pins that the machine tier is read from here"}
+	  ]
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	base := t.TempDir()
+	home, sidecar := filepath.Join(base, "home"), filepath.Join(base, "ws", ".yolo", "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := DarwinEnvFrom(map[string]string{
+		"HOME":               home,
+		"YOLO_PACK_ROOT":     root,
+		DarwinHomeSidecarEnv: sidecar,
+	}, home)
+	packs, err := LoadJailPacks(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packs) != 1 {
+		t.Fatalf("staged 1 pack, loaded %d", len(packs))
+	}
+	if err := InstallDarwinHomeLayout(e, packs); err != nil {
+		t.Fatal(err)
+	}
+
+	// scope: workspace → a link in the account home pointing into the sidecar.
+	got, err := os.Readlink(filepath.Join(home, ".probe-workspace-state"))
+	if err != nil {
+		t.Fatalf("the pack's scope:workspace dir got no link, so the tier lists are not "+
+			"coming from the pack declaration: %v", err)
+	}
+	if want := filepath.Join(sidecar, "probe-workspace-state"); got != want {
+		t.Errorf("~/.probe-workspace-state -> %q, want %q", got, want)
+	}
+	// scope: machine → stays in the account home, mirrored back into the sidecar.
+	got, err = os.Readlink(filepath.Join(sidecar, ".probe-machine-state"))
+	if err != nil {
+		t.Fatalf("the pack's scope:machine dir got no mirror, so the machine tier is not "+
+			"coming from the pack declaration either: %v", err)
+	}
+	if want := filepath.Join(home, ".probe-machine-state"); got != want {
+		t.Errorf("mirror -> %q, want %q", got, want)
 	}
 }
