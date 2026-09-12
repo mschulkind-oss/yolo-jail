@@ -136,6 +136,40 @@ func TestDarwinBootstrapLaysTheTierAndTheCredentialResolvesThroughIt(t *testing.
 	}
 }
 
+// THE ORDERING ASSERTION. Every generator has to write THROUGH the layout, which is only
+// true if the layout was laid before the first of them — and ~/.yolo/bin is the case that
+// forces "above genStep #1" rather than "before the pack hooks", because GenerateShims is
+// genStep #1 and writes into it.
+//
+// So this checks the OUTPUT of four different generators, each in the sidecar rather than the
+// account home: the blocker anchor (generate_shims), the mise config (generate_mise_config),
+// the pack's config surfaces (ConfigurePackSurfaces), and ~/.claude.json, which reaches the
+// sidecar only through the home-root file redirect the container keeps for the same reason.
+func TestDarwinBootstrapGeneratorsWriteThroughTheLayout(t *testing.T) {
+	home, ws := darwinBootstrapHome(t, nil)
+	sidecar := filepath.Join(ws, ".yolo", "home")
+
+	for _, rel := range []string{
+		filepath.Join("yolo-bin", "block"),       // genStep #1 wrote through ~/.yolo/bin
+		filepath.Join("config", "mise"),          // ~/.config/mise/config.toml
+		filepath.Join("claude", "settings.json"), // a pack config surface
+		filepath.Join("claude", "claude.json"),   // via the ~/.claude.json redirect
+	} {
+		if _, err := os.Stat(filepath.Join(sidecar, rel)); err != nil {
+			t.Errorf("%s is not in the workspace sidecar: %v", rel, err)
+		}
+	}
+	// And none of it is a real path in the shared account home — which is what it would be
+	// if the layout ran after the generator that wrote it.
+	for _, rel := range []string{".yolo/bin", ".config", ".claude"} {
+		fi, err := os.Lstat(filepath.Join(home, rel))
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("~/%s is a real path in the account home (err %v) — a generator got "+
+				"there first, which is what laying the layout above genStep #1 prevents", rel, err)
+		}
+	}
+}
+
 // The content overlay is delivered LAST and used to RemoveAll its top-level entry, which
 // for a skills destination of `.claude/skills` is the whole of ~/.claude — the credential
 // symlink the hooks had just written, the transcripts, and (under this layout) the sidecar
