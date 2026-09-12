@@ -246,20 +246,48 @@ func TestModesIsAFunctionOfTheNotchAlone(t *testing.T) {
 	}
 	// AND THE OWNERSHIP FIELD IS LOAD-BEARING AT THE HOST: the three contracts answer three
 	// different things, so a census that dropped the field would fail here rather than
-	// silently give every host target one policy. Stated as the mechanism each names for a
-	// `stateful`-declaring surface, because that is the answer a render entry dispatches on.
-	wantMechanism := map[HostOwnership]string{
-		OwnershipNone:   "",                    // nothing composes; not decided
-		OwnershipAssert: manifest.ModeRMW,      // coerced, today's behavior
-		OwnershipOwn:    manifest.ModeStateful, // whole-file composition at a real home
+	// silently give every host target one policy. Stated as the mechanism each names for
+	// every DECLARED mode, because that is the answer a render entry dispatches on.
+	//
+	// ⚠ EVERY MODE, not just `stateful`. This asked only about a `stateful`-declaring surface
+	// until 2026-09-12, and a one-column question pins only the DISPATCH — that the three
+	// contracts differ — while leaving each row's CONTENTS unpinned. Measured: deleting `rmw`
+	// from HostOwnedModes()'s runs and records left the whole short suite green while
+	// reversing two of the three decisions that function's own doc comment enumerates. `own`
+	// then had a sole composing mechanism, so Mechanism's fallback coerced BOTH `rmw` and
+	// `computed` to `stateful` — and a credential-shaped `rmw` surface composed into the host
+	// capture store, which is the §6.2 privacy harm bullet one refuses in as many words.
+	wantMechanism := map[HostOwnership]map[string]string{
+		// `none` composes nothing: undecided for every WRITING mode. `unrendered` is honored
+		// at every notch — honoring it IS writing nothing — so it answers as itself
+		// everywhere, which is why it is the one row all three contracts share.
+		OwnershipNone: {manifest.ModeUnrendered: manifest.ModeUnrendered},
+		// `assert` has ONE composing mechanism, so its fallback coerces everything to it.
+		// That coercion is the contract: today's behavior, unchanged.
+		OwnershipAssert: {
+			manifest.ModeStateful:   manifest.ModeRMW,
+			manifest.ModeRMW:        manifest.ModeRMW,
+			manifest.ModeComputed:   manifest.ModeRMW,
+			manifest.ModeUnrendered: manifest.ModeUnrendered,
+		},
+		// `own` has TWO, so it coerces nothing: each declaration runs as itself, and
+		// `computed` — which has no adoption path — is refused rather than coerced (OQ-CO9).
+		OwnershipOwn: {
+			manifest.ModeStateful:   manifest.ModeStateful,
+			manifest.ModeRMW:        manifest.ModeRMW,
+			manifest.ModeUnrendered: manifest.ModeUnrendered,
+		},
 	}
 	for ownership, want := range wantMechanism {
-		got, decided := Host("/home/me", nil, ownership).Modes().Mechanism(manifest.ModeStateful)
-		if decided != (want != "") || got != want {
-			t.Errorf("host under %q renders a `stateful` surface through %q (decided=%v), want "+
-				"%q — the declared contract is what picks the mechanism, and a census that "+
-				"ignored render.Target's ownership field would give all three one answer",
-				ownership, got, decided, want)
+		for _, declared := range censusModes {
+			got, decided := Host("/home/me", nil, ownership).Modes().Mechanism(declared)
+			if decided != (want[declared] != "") || got != want[declared] {
+				t.Errorf("host under %q renders a %q surface through %q (decided=%v), want "+
+					"%q — the declared contract is what picks the mechanism, and a census "+
+					"that ignored render.Target's ownership field, or whose row lost a mode, "+
+					"would answer this differently",
+					ownership, declared, got, decided, want[declared])
+			}
 		}
 	}
 	// The same field is inert everywhere else: ownership is the HOST's contract, so setting it
