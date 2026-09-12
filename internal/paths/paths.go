@@ -443,6 +443,33 @@ func HomeSurfaces() []HomeSurface {
 	}
 }
 
+// HomeFileRedirect is a home-ROOT file that is a symlink into a per-workspace directory:
+// the name in the home, and the target relative to it.
+//
+// The three exist because the file has to be at the home root (the tool looks for it there)
+// while its BYTES are one workspace's — `~/.claude.json` carries a `projects.<workspace>`
+// map, `~/.config/bashrc` this launch's PATH, `~/.config/git/config` the composed identity.
+// A relative target, spelled from the home, so it resolves through whatever backs the
+// per-workspace directory: a bind mount on the container backends, a symlink on macos-user.
+type HomeFileRedirect struct {
+	Name   string
+	Target string
+}
+
+// HomeFileRedirects returns those three. ONE list, two consumers that must agree about it:
+// storage.EnsureGlobalStorage writes them into the container's GlobalHome base, and the
+// macos-user home layout writes the same three into the sandbox account home
+// (entrypoint.DeriveDarwinHomeLayout). A fourth file redirected on one backend and not the
+// other is a per-backend answer to "where does my agent's state live", which is the drift
+// docs/design/macos-user-home-tiers.md §5.0 rules out.
+func HomeFileRedirects() []HomeFileRedirect {
+	return []HomeFileRedirect{
+		{Name: ".claude.json", Target: filepath.Join(".claude", "claude.json")},
+		{Name: ".gitconfig", Target: filepath.Join(".config", "git", "config")},
+		{Name: ".bashrc", Target: filepath.Join(".config", "bashrc")},
+	}
+}
+
 // GeneratedBinDir returns $HOME/.local/share/yolo-jail/bin — the parent of every
 // directory of yolo-GENERATED executables. It is a gathering point in the FILESYSTEM
 // only, and nothing may ever put this parent on PATH.

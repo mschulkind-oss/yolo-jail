@@ -242,7 +242,7 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	// bootstrap's copy at a directory that is not there. Absence is the honest input, the
 	// same way "" means no packs above.
 	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, opts.SandboxEnv,
-		packRoot, "", stagingHome, darwinPrefix, opts.BlockedTools)
+		packRoot, "", "", stagingHome, darwinPrefix, opts.BlockedTools)
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(stagingRoot, "")
 

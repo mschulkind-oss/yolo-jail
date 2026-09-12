@@ -7,6 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -179,8 +180,13 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	if hostHomeOverlay != "" {
 		homeOverlay = StagedHomeOverlay(cname, "")
 	}
+	// THE WORKSPACE SIDECAR — <workspace>/.yolo/home, the same directory the podman argv
+	// binds the jail home's per-workspace dirs from (paths.WorkspaceHomeState, one spelling
+	// for both backends). Naming it is what turns the tier collapse off: the bootstrap
+	// symlinks the account home's per-workspace dirs into it
+	// (entrypoint.InstallDarwinHomeLayout). A capture passes none — see the parameter.
 	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
-		homeOverlay, SandboxHome(), darwinPrefix, blockedTools)
+		homeOverlay, paths.WorkspaceHomeState(workspace), SandboxHome(), darwinPrefix, blockedTools)
 
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(workspace, "")
@@ -229,12 +235,18 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 // that kind. They are resolved by the caller rather than here because the caller is also what
 // emits the commands that stage them, and the two must not be able to disagree.
 //
+// `homeSidecar` is <workspace>/.yolo/home, the per-workspace tier the bootstrap symlinks the
+// account home into. "" means LAY NO LAYOUT, and the caller that passes it is the install
+// capture: its home is a throwaway staging tree whose whole contract is that everything an
+// installer writes lands under it, and its delta walk does not follow symlinks. A launch
+// always names it.
+//
 // `blockedTools` are the selected packs' blocked-tool declarations. They are a PARAMETER
 // because core blocks nothing by default since the guardrails pack took the rules over — the
 // config's security section alone would render an empty YOLO_BLOCK_CONFIG and the generated
 // home would carry no blockers at all.
 func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.OrderedMap,
-	packRoot, homeOverlay, home string, darwinPrefix []string,
+	packRoot, homeOverlay, homeSidecar, home string, darwinPrefix []string,
 	blockedTools []packload.BlockedTool) *jsonx.OrderedMap {
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
@@ -315,6 +327,16 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	// it is one recursive copy and the bootstrap needs no table to interpret.
 	if homeOverlay != "" {
 		bootstrapEnv.Set("YOLO_DARWIN_HOME_OVERLAY", homeOverlay)
+	}
+
+	// YOLO_DARWIN_HOME_SIDECAR — the per-workspace tier's location, and the switch that
+	// decides whether the bootstrap lays the home layout at all. Absence is meaningful here
+	// in a way it is not above: the two vars above say "there is nothing staged to install",
+	// this one says "this home is not a workspace's" (the capture staging home), and a
+	// launch that dropped it would fall silently back to the shared account home — the tier
+	// collapse, restored by an omission.
+	if homeSidecar != "" {
+		bootstrapEnv.Set(entrypoint.DarwinHomeSidecarEnv, homeSidecar)
 	}
 
 	// THE TWO PROVIDER/PROFILE WIRE TABLES, relayed from the launch env into the
@@ -426,6 +448,19 @@ func PlanInvariants(plan RunPlan) []string {
 					"LoadJailPacks would find no packs and every surface/hook loop would "+
 					"iterate an empty list")
 		}
+	}
+
+	// THE WORKSPACE TIER crosses as exactly one env var, and nothing downstream reports its
+	// absence: a bootstrap that is not told the sidecar lays no layout, every pack `state`
+	// dir stays in the shared account home, and the launch looks perfectly healthy — which
+	// is the defect docs/design/macos-user-home-tiers.md exists to end, reachable again by
+	// deleting one line in BuildRunPlan. Checked against the workspace's own sidecar path
+	// rather than "some value", because a layout pointed at another workspace's sidecar is
+	// the collapse with extra steps.
+	if want := entrypoint.DarwinHomeSidecarEnv + "=" + paths.WorkspaceHomeState(plan.Workspace); !containsArg(plan.BootstrapArgv, want) {
+		problems = append(problems,
+			want+" is not baked into the bootstrap env; the sandbox home would keep every "+
+				"workspace's agent state in one place (/Users/_yolojail)")
 	}
 
 	// The two provider/profile wire tables must reach BOTH the launch env and the

@@ -98,15 +98,15 @@ func EnsureGlobalStorage(migrate func()) error {
 		}
 	}
 
-	// Atomic-write files that must be symlinks into writable overlay dirs.
-	if err := EnsureSymlink(filepath.Join(globalHome, ".claude.json"), filepath.Join(".claude", "claude.json")); err != nil {
-		return err
-	}
-	if err := EnsureSymlink(filepath.Join(globalHome, ".gitconfig"), filepath.Join(".config", "git", "config")); err != nil {
-		return err
-	}
-	if err := EnsureSymlink(filepath.Join(globalHome, ".bashrc"), filepath.Join(".config", "bashrc")); err != nil {
-		return err
+	// Atomic-write files that must be symlinks into writable overlay dirs. The list is
+	// paths.HomeFileRedirects because macos-user lays the SAME three into its sandbox
+	// account home (entrypoint.DeriveDarwinHomeLayout) — where the per-workspace directory
+	// they point into is a symlink rather than a mount. Two spellings of it would be a
+	// file that is per-workspace on one backend and machine-wide on the other.
+	for _, r := range paths.HomeFileRedirects() {
+		if err := EnsureSymlink(filepath.Join(globalHome, r.Name), r.Target); err != nil {
+			return err
+		}
 	}
 
 	if migrate != nil {

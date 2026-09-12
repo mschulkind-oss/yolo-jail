@@ -74,6 +74,22 @@ func DarwinEnvFrom(vars map[string]string, home string) *Env {
 // entirely) and its caller used to print "bootstrap ok" unconditionally. Every
 // step still runs, so one invocation reports every problem; see genStep.
 func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
+	// THE HOME LAYOUT, ABOVE EVERY GENERATOR — the workspace tier this backend otherwise
+	// has no way to express (docs/design/macos-user-home-tiers.md, alternative A′).
+	//
+	// ABOVE genStep #1 AND NOT MERELY "BEFORE THE PACK HOOKS", because ~/.yolo/bin is
+	// itself one of the links and GenerateShims writes THROUGH it: a shim generated into
+	// the account home before the link was laid would be a blocker in the wrong tier, and
+	// a link laid over the directory it had just created would refuse (the layout never
+	// removes a real directory — OQ-HT2).
+	//
+	// The packs are loaded HERE rather than at their old position below, because the two
+	// pack-declared tier lists ARE the layout: scope:workspace dirs become the links,
+	// scope:machine dirs become the mirrors the shared_credentials hook's relative link
+	// resolves through. A failure to load them is still reported at its old place, so the
+	// boot log reads in the same order it always has.
+	jailPacks, packErr := LoadJailPacks(e)
+	genStep(e, "darwin_home_layout", func() error { return InstallDarwinHomeLayout(e, jailPacks) })
 	genStep(e, "generate_shims", func() error { return GenerateShims(e) })
 	genStep(e, "generate_agent_launchers", func() error { return GenerateAgentLaunchers(e) })
 	genStep(e, "generate_package_manager_launchers", func() error { return GeneratePackageManagerLaunchers(e) })
@@ -104,7 +120,6 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 			"it here.")
 	}
 	configureGit(e)
-	jailPacks, packErr := LoadJailPacks(e)
 	if packErr != nil {
 		genStep(e, "load_packs", func() error { return packErr })
 	}
@@ -160,8 +175,7 @@ func InstallHomeOverlay(e *Env) error {
 	if src == "" {
 		return nil
 	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
+	if _, err := os.Stat(src); err != nil {
 		if os.IsNotExist(err) {
 			// Staged tree missing is not a boot failure: the launch may have raced a
 			// teardown, and the agent is better off starting with no skills than not
@@ -171,10 +185,46 @@ func InstallHomeOverlay(e *Env) error {
 		}
 		return err
 	}
+	return installOverlayTree(src, e.Home)
+}
+
+// installOverlayTree copies one level of the overlay into dst and recurses.
+//
+// ⚠ IT DESCENDS THROUGH A SYMLINK AND REPLACES AT A REAL DIRECTORY, and that one rule is
+// what makes the delivery land at the granularity a bind mount has.
+//
+// The container mounts each staged tree AT ITS DESTINATION — <staging>/skills-claude over
+// /home/agent/.claude/skills — and leaves the parent alone. This used to RemoveAll the
+// overlay's TOP-level entry, which for a skills dest of `.claude/skills` is `~/.claude`:
+// the whole state dir, including the credential symlink the pack hooks had written minutes
+// earlier and the transcripts under projects/. Under the home-tier layout that same
+// RemoveAll unlinks the sidecar symlink and puts a real directory in its place, so the next
+// boot's layout refuses (OQ-HT2 never deletes one) — a backend that bricks itself after one
+// launch.
+//
+// A symlink in the home is a LAYOUT link: it marks a path the home merely passes through on
+// its way to a destination, so descending through it is exactly right. The first real
+// directory is the destination itself, and replacing it wholesale is what makes a skills
+// dir a pack stopped shipping DISAPPEAR rather than linger forever.
+//
+// The one shape it reads differently from a bind: an overlay destination that IS a layout
+// link (a pack declaring skills into `.claude` itself, which no pack does) would be merged
+// into rather than replaced. Stale files in a state dir, never a destroyed one.
+func installOverlayTree(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
 	for _, ent := range entries {
 		from := filepath.Join(src, ent.Name())
-		to := filepath.Join(e.Home, ent.Name())
+		to := filepath.Join(dst, ent.Name())
 		if ent.IsDir() {
+			if isSymlinkPath(to) {
+				if err := installOverlayTree(from, to); err != nil {
+					return err
+				}
+				continue
+			}
 			// Replace the destination subtree wholesale — see OVERWRITE above.
 			if err := os.RemoveAll(to); err != nil {
 				return err
@@ -196,6 +246,12 @@ func InstallHomeOverlay(e *Env) error {
 		}
 	}
 	return nil
+}
+
+// isSymlinkPath reports whether path is a symlink (not whether what it points at exists).
+func isSymlinkPath(path string) bool {
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
 // InstallYoloLog writes the yolo-log helper to ~/.local/bin/yolo-log (0755) —
