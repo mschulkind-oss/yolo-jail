@@ -24,7 +24,8 @@ type MaterializeError struct{ msg string }
 
 func (e *MaterializeError) Error() string { return e.msg }
 
-// Materialize realizes the buildEnv profile natively via nix and returns its
+// Materialize realizes THE WHOLE TOOL CLOSURE for a notch with no baked image —
+// the FLOOR plus the declared `packages:` (FloorProfileAttr) — and returns its
 // PATH prefix + env + skip list. IMPURE (runs nix). It streams the build's
 // stderr (`--print-build-logs` progress) straight to the process stderr so a
 // from-source build is VISIBLE, while capturing stdout (the store out-path) and
@@ -37,6 +38,17 @@ func (e *MaterializeError) Error() string { return e.msg }
 // the build's out-link, so a failure to create it is a failed build. That is the
 // right polarity for a notch with no baked image: an unrooted tool closure the
 // agent then executes from is the exact failure the root exists to prevent.
+//
+// IT IS THE FLOOR PROFILE, NOT THE DECLARED PACKAGES ALONE, and that is the
+// difference between this and MaterializeAt below. This function's only caller is
+// the macos-user launch, which has no image: mise, node, git and ripgrep reach
+// the agent here or nowhere (docs/design/macos-user-provisioning.md, OQ-P1).
+// MaterializeAt's caller is a CONTAINER whose image already bakes the core, so it
+// takes ProfileAttr.
+//
+// The skip list is unaffected by the split — `yoloUnavailablePackages` reports on
+// the DECLARED packages only, because a floor entry with no build for this system
+// is a fatal in the flake rather than a skip.
 //
 // repoRoot is the nix build cwd (the repo ROOT — parent of src). system ""
 // defaults to NativeSystem(). errStderr defaults to os.Stderr (injectable for
@@ -143,7 +155,7 @@ func materializeWithArgv(repoRoot string, packages []any, system string, argv []
 // That is the whole value here: the argv is the contract, and one line of indirection makes
 // the contract assertable instead of merely written down.
 func materializeArgv(system, home string) []string {
-	return BuildProfileArgv(system, ProfileRootLink(home))
+	return BuildFloorProfileArgv(system, ProfileRootLink(home))
 }
 
 // ProfilePathsFromStdout is the PURE tail of materialize: pick the last

@@ -28,7 +28,9 @@ func TestRunAbortsOnAPackageWithNoDarwinBuild(t *testing.T) {
 	d := mockDeps(&rec)
 	d.Out = &buf
 	d.MaterializeDarwin = func(string, []any) (*Darwin, bool, error) {
-		return &Darwin{System: "aarch64-darwin", Skipped: []string{"strace", "ripgrpe"}}, true, nil
+		d := mockDarwin()
+		d.Skipped = []string{"strace", "ripgrpe"}
+		return d, true, nil
 	}
 
 	rc := RunMacosUser(d, pkgOpts("/Users/Shared/yolo/proj", []any{"strace", "ripgrpe"}))
@@ -74,7 +76,9 @@ func TestRunLaunchesWithALinuxOnlyPackage(t *testing.T) {
 	var sawPackages []any
 	d.MaterializeDarwin = func(_ string, pkgs []any) (*Darwin, bool, error) {
 		sawPackages = pkgs
-		return &Darwin{System: "aarch64-darwin"}, true, nil
+		d := mockDarwin()
+		d.System = "aarch64-darwin"
+		return d, true, nil
 	}
 
 	linuxOnly := jsonx.NewOrderedMap()

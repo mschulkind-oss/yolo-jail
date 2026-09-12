@@ -500,6 +500,46 @@ func PlanInvariants(plan RunPlan) []string {
 		}
 	}
 
+	// AND THE BOOTSTRAP'S OWN COPY OF THAT PATH, which is a different reader with a
+	// different failure. $YOLO_DARWIN_LOGIN_PATH is what entrypoint.agentPath
+	// returns, and three generators ask it "will the agent have this binary?"
+	// before writing anything:
+	//
+	//   • GenerateShims — a blocked tool declaring a `replacement` is only blocked
+	//     when the replacement is on that PATH, so a floor missing from it silently
+	//     UN-BLOCKS `grep` and `find` instead of failing;
+	//   • launchercollision's imageProbePath — a pack's `program` launcher is
+	//     suppressed for a name the environment already provides, so a floor
+	//     missing from it lets a pack shadow git or node;
+	//   • AssertRequiredBins — a pack's `requires` entry warns as absent.
+	//
+	// All three answer WRONG rather than failing, and all three run in the
+	// bootstrap, which the launch argv's PATH never reaches. So the launch guard
+	// above cannot see this: a plan can put the store on the agent's PATH and still
+	// generate the agent's environment as if the store were not there.
+	for _, storeBin := range plan.DarwinPathPrefix {
+		if !strings.Contains(bootStr, storeBin) {
+			problems = append(problems,
+				"darwin package bin dir "+storeBin+" did not reach "+
+					entrypoint.DarwinLoginPathEnv+" in the bootstrap env — the "+
+					"generators would decide what to write against a PATH that "+
+					"does not have the floor on it")
+		}
+	}
+
+	// A LAUNCH THAT MATERIALIZED MUST HAVE SOMETHING TO SHOW FOR IT. Since the
+	// floor landed there is no such thing as an empty native closure: even with an
+	// empty `packages:` the profile holds mise, node, git and the rest, so an empty
+	// prefix means the build returned a store path nothing derived a bin dir from.
+	// Without this the two loops above are vacuously true in exactly that case —
+	// they iterate an empty list and report a healthy plan.
+	if plan.DarwinMaterialized && len(plan.DarwinPathPrefix) == 0 {
+		problems = append(problems,
+			"the native package closure was materialized but contributed no bin dir "+
+				"to PATH; the floor (mise, node, git, ripgrep, …) would be absent "+
+				"from the sandbox — see docs/design/macos-user-provisioning.md")
+	}
+
 	return problems
 }
 

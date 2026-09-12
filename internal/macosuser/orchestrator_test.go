@@ -45,11 +45,27 @@ func mockDeps(rec *[]string) Deps {
 			}
 			return true
 		},
-		MaterializeDarwin: func(string, []any) (*Darwin, bool, error) { return nil, true, nil },
+		// A REALISTIC materialize result, not nil. Since the floor landed, every
+		// macos-user launch builds a closure and every closure contributes a bin
+		// dir; a mock returning nil describes a launch that cannot happen, and the
+		// orchestrator now refuses it.
+		MaterializeDarwin: func(string, []any) (*Darwin, bool, error) {
+			return mockDarwin(), true, nil
+		},
 		TakenIDs:          func() map[int]struct{} { return map[int]struct{}{} },
 		SetRandomPassword: func() bool { return true },
 		PathIsDir:         func(string) bool { return true },
 		PathExists:        func(string) bool { return true },
+	}
+}
+
+// mockDarwin is the materialize result a real launch produces: the floor profile's
+// single bin dir. The exact store path is fake; what matters is that it is
+// non-empty, because that is what the plan invariants and the generators read.
+func mockDarwin() *Darwin {
+	return &Darwin{
+		PathPrefix: []string{"/nix/store/000mock-yolo-noncontainer-profile/bin"},
+		System:     "aarch64-darwin",
 	}
 }
 

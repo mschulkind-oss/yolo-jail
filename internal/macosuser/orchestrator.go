@@ -339,64 +339,96 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
-	// Materialize `packages:` as native darwin nix for THIS Mac's arch (the
-	// acceptance bar). Runs nix on the HOST user before any sandbox; on failure
-	// abort.
+	// Materialize the native tool closure for THIS Mac's arch (the acceptance
+	// bar): the FLOOR plus `packages:`. Runs nix on the HOST user before any
+	// sandbox; on failure abort.
+	//
+	// UNCONDITIONAL SINCE THE FLOOR LANDED, and the change is not a refactor.
+	// Until 2026-09-12 this was `if len(pkgs) > 0`, which was right when the
+	// closure held nothing but what the user declared: an empty `packages:` meant
+	// an empty profile, so there was nothing to build and nothing to put on PATH.
+	// The floor makes an empty `packages:` the COMMON case that most needs the
+	// build — a launch that skipped it is exactly the jail with no mise, no node
+	// and no git that docs/design/macos-user-provisioning.md §1 is about.
+	//
+	// The cost is real and is the one OQ-P1 accepted: every macos-user launch now
+	// needs a repo root and a nix that can evaluate this flake, where a bare
+	// `yolo -- bash` with no config previously needed neither. run.Run's gate
+	// moved with it, so the refusal still lands host-side with an actionable
+	// message rather than three layers down in nix.
 	var darwin *Darwin
 	pkgs := config.EffectivePackages(opts.Config, config.PlatformDarwin)
-	if len(pkgs) > 0 {
-		// The nix build runs from the repo ROOT (the flake dir).
-		d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, pkgs)
-		if !ok {
-			out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
-				"[dim]Fix the package, or use the Apple Container runtime "+
-				"(runtime: \"container\") which builds them in a Linux VM.[/dim]", errStr(err))
-			return 1
+	// The nix build runs from the repo ROOT (the flake dir).
+	d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, pkgs)
+	if !ok {
+		out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
+			"[dim]Fix the package, or use the Apple Container runtime "+
+			"(runtime: \"container\") which builds them in a Linux VM.[/dim]", errStr(err))
+		return 1
+	}
+	darwin = d
+	// A SUCCESSFUL BUILD THAT CONTRIBUTES NO bin DIR IS ALSO FATAL, and it became
+	// possible only when the floor made the closure unconditional. Before that an
+	// empty profile was the honest answer to an empty `packages:`; now it means the
+	// build returned something nothing could derive a PATH entry from, and
+	// launching on it produces a sandbox with no mise, no node and no git — the
+	// state this whole change exists to end, reached through a success path.
+	//
+	// PlanInvariants carries the same rule for the non-nil case. This one covers
+	// the nil, which no invariant can see: a nil *Darwin reads as "not
+	// materialized" and every store-bin loop over it is vacuously true.
+	if darwin == nil || len(darwin.PathPrefix) == 0 {
+		out.print("[bold red]The native package build reported success but produced no " +
+			"tool directory.[/bold red]\n" +
+			"Every macos-user launch builds a FLOOR — mise, node, git, ripgrep and the " +
+			"rest of\nwhat the container image bakes — so an empty result is not a " +
+			"launchable sandbox.\n\n" +
+			"[dim]This is a yolo bug rather than a config error; `yolo run --dry-run` " +
+			"prints the plan.[/dim]")
+		return 1
+	}
+	// A DECLARED PACKAGE THAT DID NOT BUILD IS FATAL (A2 piece 1, shipped
+	// 2026-09-04 — the ruling was made 2026-07-23 and the tree warn-and-skipped
+	// for a year).
+	//
+	// The old behaviour printed the skipped names and launched anyway, which
+	// masks the two cases that matter and are indistinguishable from the
+	// message: a TYPO ("ripgrpe" is not an attr, so it is "skipped"), and a
+	// package that genuinely has no darwin build. Either way the user asked for
+	// a tool, the jail started without it, and the failure surfaced later as a
+	// command that mysteriously does not exist.
+	//
+	// The eval still does NOT abort — the flake filters via
+	// yoloUnavailablePackages and builds only the available set, which was the
+	// original in-code objection to erroring. The error is raised HERE, host-side,
+	// AFTER the eval, from the returned skip list. That ordering is the whole
+	// trick: nix stays green, the CLI decides.
+	//
+	// EXPECTED-ABSENT entries are already gone: EffectivePackages dropped every
+	// `platforms` entry excluding darwin before the build, so nix never saw them
+	// and they cannot appear here. What remains is, by construction, a package the
+	// user declared for THIS platform and did not get. PackagesExcludedOn supplies
+	// the names only to explain the escape hatch in the message.
+	if darwin != nil && len(darwin.Skipped) > 0 {
+		sys := darwinSystemLabel(darwin)
+		msg := "[bold red]These packages have no " + sys + " build:[/bold red] " +
+			strings.Join(darwin.Skipped, ", ") + "\n\n" +
+			"The jail did not start, because a package you declared would have been " +
+			"silently missing inside it.\nThree ways forward:\n" +
+			"  • a TYPO is the most common cause — an unknown attribute name is " +
+			"indistinguishable from\n    a package with no build for this platform, " +
+			"so check the spelling first;\n" +
+			"  • mark it Linux-only and it becomes expected-absent here, still " +
+			"installed in a container:\n" +
+			"      {\"name\": \"<pkg>\", \"platforms\": [\"linux\"]}\n" +
+			"  • or use the Apple Container runtime (runtime: \"container\"), which " +
+			"builds them in a Linux VM."
+		if excluded := config.PackagesExcludedOn(opts.Config, config.PlatformDarwin); len(excluded) > 0 {
+			msg += "\n\n[dim]Already marked Linux-only and skipped without complaint: " +
+				strings.Join(excluded, ", ") + ".[/dim]"
 		}
-		darwin = d
-		// A DECLARED PACKAGE THAT DID NOT BUILD IS FATAL (A2 piece 1, shipped
-		// 2026-09-04 — the ruling was made 2026-07-23 and the tree warn-and-skipped
-		// for a year).
-		//
-		// The old behaviour printed the skipped names and launched anyway, which
-		// masks the two cases that matter and are indistinguishable from the
-		// message: a TYPO ("ripgrpe" is not an attr, so it is "skipped"), and a
-		// package that genuinely has no darwin build. Either way the user asked for
-		// a tool, the jail started without it, and the failure surfaced later as a
-		// command that mysteriously does not exist.
-		//
-		// The eval still does NOT abort — the flake filters via
-		// yoloUnavailablePackages and builds only the available set, which was the
-		// original in-code objection to erroring. The error is raised HERE, host-side,
-		// AFTER the eval, from the returned skip list. That ordering is the whole
-		// trick: nix stays green, the CLI decides.
-		//
-		// EXPECTED-ABSENT entries are already gone: EffectivePackages dropped every
-		// `platforms` entry excluding darwin before the build, so nix never saw them
-		// and they cannot appear here. What remains is, by construction, a package the
-		// user declared for THIS platform and did not get. PackagesExcludedOn supplies
-		// the names only to explain the escape hatch in the message.
-		if darwin != nil && len(darwin.Skipped) > 0 {
-			sys := darwinSystemLabel(darwin)
-			msg := "[bold red]These packages have no " + sys + " build:[/bold red] " +
-				strings.Join(darwin.Skipped, ", ") + "\n\n" +
-				"The jail did not start, because a package you declared would have been " +
-				"silently missing inside it.\nThree ways forward:\n" +
-				"  • a TYPO is the most common cause — an unknown attribute name is " +
-				"indistinguishable from\n    a package with no build for this platform, " +
-				"so check the spelling first;\n" +
-				"  • mark it Linux-only and it becomes expected-absent here, still " +
-				"installed in a container:\n" +
-				"      {\"name\": \"<pkg>\", \"platforms\": [\"linux\"]}\n" +
-				"  • or use the Apple Container runtime (runtime: \"container\"), which " +
-				"builds them in a Linux VM."
-			if excluded := config.PackagesExcludedOn(opts.Config, config.PlatformDarwin); len(excluded) > 0 {
-				msg += "\n\n[dim]Already marked Linux-only and skipped without complaint: " +
-					strings.Join(excluded, ", ") + ".[/dim]"
-			}
-			out.print(msg)
-			return 1
-		}
+		out.print(msg)
+		return 1
 	}
 
 	plan := buildPlan(deps, opts, darwin)
