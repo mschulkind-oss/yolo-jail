@@ -1143,7 +1143,15 @@
                     installs first, else on ANY bin — the second pass is what lets a
                     pack that installs no CLI (a provider pack) still deliver a
                     profile's environment.
-      launch        {bin, flags, aliases} — inject flags after a binary
+      launch        {bin, flags, aliases} — inject flags after a binary.  `aliases`
+                    maps a flag to other spellings of the SAME switch, and a flag whose
+                    alias the user already typed is not injected beside it.  The alias
+                    table is read whatever the flag's SOURCE, so a contribution with
+                    `aliases` and no `flags` at all is how you give an `autonomy`
+                    posture's flag an alias — a posture's {bin, flags} has nowhere to
+                    put one.  copilot declares exactly that, and it is the shipped
+                    instance of this kind: `-y` → `--yolo`, with `--yolo` itself
+                    declared under `autonomy` so the confinement notch governs it.
       hook          {hook:"shared_credentials"|"per_jail_history"|"claude_plugins"}
       autonomy      {autonomous:{...}, guarded:{...}} — the agent's two permission
                     postures; the confinement notch selects one (autonomous at
