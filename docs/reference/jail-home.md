@@ -568,8 +568,13 @@ separately.
 
 **macos-user** has no mounts at all. Its home is a staging directory the launch **copies**
 into, its sandbox profile allows writes to the whole sandbox home, and it therefore carries
-only the source-less half of `host_files`. See
-[`macos-user-nix-and-features.md`](macos-user-nix-and-features.md).
+only the source-less half of `host_files`. It reaches the same two tiers by a different
+primitive: every directory the podman argv binds from `<workspace>/.yolo/home` is a SYMLINK
+from the sandbox account home into that same sidecar, and each pack-declared `scope: machine`
+directory stays in the account home and is mirrored back into the sidecar so the relative
+credential link above still resolves. See
+[`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) and
+[`../design/macos-user-home-tiers.md`](../design/macos-user-home-tiers.md).
 
 > [!WARNING]
 > **The `EROFS`-on-nested-mountpoint mechanism is version-dependent, not a cross-runtime

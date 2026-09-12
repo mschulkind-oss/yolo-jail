@@ -1,17 +1,16 @@
 ---
 title: "The macos-user Home: One Account, Three Tiers That Collapsed Into It"
 date: 2026-09-03
-status: accepted
+status: accepted # BUILT 2026-09-12; see "What shipped" below
 tags: [macos-user, jail-home, backend-parity, design]
 summary: "macos-user has one sandbox home, /Users/_yolojail, so the machine tier, the workspace tier and the session tier are the same directory. The machine tier is right; the other two collapsing into it is the defect, and since content delivery landed it is a write-write race. The fix keeps HOME where it is and symlinks every directory the container backends bind from <workspace>/.yolo/home/ into that same sidecar — the credential-sharing mechanism already runs here unchanged, and needs only its shared dir mirrored so its relative link resolves."
 ---
 
 # The macos-user home: one account, three tiers that collapsed into it
 
-**Status:** DESIGN, 2026-09-11 (DESIGN SKETCH 2026-09-03). Nothing built. Audited
-against the tree at `61c26c18` on 2026-09-11; three of its four questions are settled
-and compacted into the [Decision Ledger](#decision-ledger). **[`OQ-HT2`](#decision-ledger) is the
-one that still needs a ruling**, and it is the maintainer's.
+**Status:** BUILT, 2026-09-12 (design 2026-09-11; sketch 2026-09-03). All four questions are
+settled and compacted into the [Decision Ledger](#decision-ledger). What landed, and what of it
+is still unmeasured, is [§10](#10-what-shipped).
 
 > **In short.** The machine tier is **not** colocation: the `shared_credentials` hook
 > already makes `~/.claude/.credentials.json` a relative symlink into a pack-declared
@@ -36,7 +35,7 @@ every workspace at once, so it has no single destination — [`OQ-HT2`](#decisio
 **Start at [§5](#5-the-proposal)**, then [§3](#3-why-it-has-not-been-fixed-by-simply-splitting)
 for the trap the first draft mis-stated.
 
-**Needs your ruling:** **None** — all four closed ([Decision Ledger](#decision-ledger)), the last on 2026-09-11. Ready to build, and it needs no migration step.
+**Needs your ruling:** **None** — all four closed ([Decision Ledger](#decision-ledger)), the last on 2026-09-11. Built 2026-09-12 with no migration step, as ruled ([§10](#10-what-shipped)).
 
 > [!NOTE]
 > **Terms coined here.** A **tier** is a scope at which jail state is kept
@@ -92,12 +91,14 @@ The other two rows are the defect.
 
 ## 2. What the collapse actually costs
 
-Three symptoms, in increasing order of how much they matter.
+Three symptoms, in increasing order of how much they matter. **All three were the state of
+the tree until 2026-09-12** ([§10](#10-what-shipped)); this section is kept in the present
+tense because it is the argument the ruling was made on.
 
 1. **Pack `state` dirs are machine-wide.** `.claude`, `.codex`, `.gemini`, `.pi`
    are per-workspace on every other backend. Reported at launch by
-   `noteMachineWideWorkspaceState` (`internal/cli/run/loopholeinert.go:261`, called
-   from the macos-user arm at `run.go:327`). ⚠ **One file in that set is already
+   `noteMachineWideWorkspaceState`, which the fix retired along with the defect.
+   ⚠ **One file in that set is already
    per-workspace here**: the `per_jail_history` hook keys on `YOLO_HOST_DIR`
    (`internal/entrypoint/packhooks.go:169-193`), which this backend sets
    (`internal/macosuser/runplan.go:240`), so `~/.claude/history.jsonl` is already a
@@ -162,7 +163,8 @@ local login on the next boot (`internal/entrypoint/claude.go:59`, rule "the shar
 file always wins").
 
 That is a design change and not a launch-time patch — which is exactly why
-`noteMachineWideWorkspaceState` warns instead of fixing.
+`noteMachineWideWorkspaceState` warned instead of fixing, until the design was built and
+took the warning with it.
 
 ## 4. What forced this
 
@@ -556,6 +558,59 @@ reason: that is where the container puts it.
 - **A new list of "which dirs are per-workspace".** The list is the podman mount
   table, and adding a directory to one without the other is the drift this
   proposal exists to end.
+
+## 10. What shipped
+
+Built 2026-09-12, on Linux, for a backend that cannot run here — so this section separates
+what is **pinned by a test** from what is **reasoned and still owed a Mac**.
+
+**The layout.** `entrypoint.DeriveDarwinHomeLayout` is the pure deriver and
+`InstallDarwinHomeLayout` the boot-path entry; `internal/paths` gained
+`HomeFileRedirects()`, the three home-root files (`.claude.json`, `.gitconfig`, `.bashrc`)
+that the container's own `GlobalHome` keeps as symlinks into a per-workspace directory, so
+both backends read one list. The launcher names the sidecar in `YOLO_DARWIN_HOME_SIDECAR`,
+and `PlanInvariants` refuses a launch whose bootstrap argv does not carry it for *this*
+workspace — the tier crosses as one variable, and nothing else would report its absence.
+
+**The order, and what enforces each step.**
+
+| Rule | Enforced by |
+| :--- | :--- |
+| The layout applies **above genStep #1**, not merely before the hooks | its call site is the first statement in `RunDarwinBootstrap`; `~/.yolo/bin` is one of the links and `GenerateShims` writes through it |
+| **Sidecar directories before symlinks** | `DarwinHomeLayout.Dirs` is applied before `.Links`; `MkdirAll` through a dangling symlink fails (`Stat` misses, `Mkdir` hits `EEXIST`, `Lstat` says "not a directory") |
+| The **`SharedDirs` mirror before `RunPackHooks`** | `.Mirrors` is applied in the same step, above every generator — a dangling shared path is not inert, it is `linkThroughShared` copying a login somewhere the machine tier never reads |
+| `MISE_DATA_DIR` no later than the mirror | shipped first, as `macosuser.SandboxMiseData` — named in the launch env, the bootstrap env and the PATH's shims dir, all from one function |
+| `InstallHomeOverlay` must not destroy the layout | it descends through a symlink and replaces at the first real directory, in the same commit as the mirror |
+
+**The mirror's test, and its call-site proof.** [§6](#6-the-principles-this-rests-on)'s warning
+is honoured: `TestDarwinBootstrapLaysTheTierAndTheCredentialResolvesThroughIt` drives
+`RunDarwinBootstrap` itself against a real filesystem with the REAL claude manifest staged as
+its pack root, then writes a credential into the account home's `scope: machine` directory and
+reads it back **through** `~/.claude`. Deleting the mirror loop fails it (the relative `..`
+lands in the sidecar); deleting the layout step fails it too, on the assertion that `~/.claude`
+is a symlink at all — which is the assertion the credential half cannot stand without, since
+without a layout `..` resolves in the account home and the credential is reachable with no
+layout at all. Both mutations were run.
+
+**Beyond the ruled scope**, because A′ is not finished without them: the login rc files stopped
+baking a PATH (they sit in the shared `$HOME` and carried one workspace's `packages:` store
+dirs into the next workspace's login shell — [§5](#5-the-proposal)'s stated residual), and the
+launch warning that said pack `state` dirs are machine-wide was retired along with four in-code
+claims that went stale with it, including two more repetitions of the retracted
+*"the single home IS the shared-credentials mechanism"*.
+
+> [!WARNING]
+> **NOT MEASURED — every one of these needs the Mac.** The sandbox uid creating
+> `<workspace>/.yolo/home` through the shared-group ACL (the launcher does not pre-create it;
+> a failure surfaces as the boot's existing `yolo macos-fix-permissions` hint). The refusal a
+> pre-A′ account gets on its first launch, which is [`OQ-HT2`](#decision-ledger) as code: a real
+> directory where a link belongs is never removed, renamed or copied — the launch names every
+> offender and the `rm -rf`. `MISE_DATA_DIR` actually holding a mise store. The login rc
+> re-prepend still winning after `path_helper` now that its value arrives by variable. And the
+> whole layout under a loaded Seatbelt profile — resolution happens in the VFS before the policy
+> is consulted, so a profile can only deny an access that resolves, never make one resolve
+> ([§5.3](#53-what-the-credential-tier-then-needs-precisely)), but that is an argument and not a
+> measurement.
 
 ## Open Questions
 

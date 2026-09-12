@@ -55,7 +55,12 @@ bind mounts of any kind**.
   than a mount. It must be **neutral ground** — never inside any user's home; a plan
   invariant rejects a home-directory workspace and names the shared root to move it under.
 - "Home" is the **real** `/Users/_yolojail`, and it is a constant with no workspace
-  component — so it is **machine-wide**, shared by every workspace on the machine.
+  component — so the account home is the **machine** tier. The **workspace** tier is there
+  too, as symlinks: every directory the container backends bind from `<workspace>/.yolo/home`
+  is a symlink from the account home into that same sidecar, so a project's agent state lives
+  where every other backend puts it
+  ([`../design/macos-user-home-tiers.md`](../design/macos-user-home-tiers.md), alternative A′).
+  What the layout does **not** link stays machine-wide: credentials, `~/.cache`, the mise store.
 - Nix produces a `buildEnv` profile on the host, not an image.
 
 ## Three states, and never blur them
@@ -219,7 +224,10 @@ Two properties are **permanent differences, not pending gaps**:
 - **The delivered files are WRITABLE**, where a container's bind is `:ro`. An agent here can
   edit its own skills, and the next launch overwrites them again. That is recorded in the
   launch warning rather than papered over.
-- **The home is machine-wide**, so the delivered content is shared by every workspace.
+- **The destination is per-workspace**, and used to be the second permanent difference. It
+  is not one any more: skills and briefings land under `<workspace>/.yolo/home` through the
+  layout symlinks, so a second workspace launching concurrently no longer replaces what this
+  one delivered.
 
 > [!WARNING]
 > **The overlay overwrites per destination subtree; it must not merge.** The overlay is
@@ -275,11 +283,12 @@ A whole class of container features has no attachment point.
   gap rather than an impossibility: the Seatbelt profile is a write deny-list with re-allows,
   so the policy is expressed there. This is a behaviour change for anyone who set the key on
   this backend and had been writing to the workspace.
-- **pack `state` at `scope: workspace`** — **machine-wide here, and warned.** Every other
-  backend gives each workspace its own copy by mounting a per-workspace host directory at each
-  path. The home here is a constant with no workspace component, so the whole per-workspace
-  tier collapses into one directory shared by every workspace. This is the mirror image of a
-  known Apple Container defect, where the *machine* tier collapsed into the per-workspace one.
+- **pack `state` at `scope: workspace`** — **fixed.** Every other backend gives each workspace
+  its own copy by mounting a per-workspace host directory at each path; here each one is a
+  **symlink** into `<workspace>/.yolo/home`, the same host directory podman binds from. It was
+  machine-wide and warned about — the mirror image of a known Apple Container defect, where the
+  *machine* tier collapsed into the per-workspace one — until the home layout landed, and the
+  warning went with it.
 
 > [!WARNING]
 > **"Just symlink the cache yourself" does not work here.** The session Seatbelt profile
@@ -290,14 +299,15 @@ A whole class of container features has no attachment point.
 > volume, the one outcome the feature exists to prevent. Any doc that says otherwise about this
 > backend is wrong; this one is the authority.
 
-> [!WARNING]
-> **The sandbox enforces workspace isolation one layer down and then leaks it through the
-> shared home.** The profile denies reads under the users root and re-allows the workspace's own
-> subpath plus each *intermediate* directory as a bare literal — chosen precisely so a sibling
-> checkout beside the workspace stays denied. So the agent cannot read another workspace's
-> files by path — and **can** read that same workspace's agent session transcripts under the
-> sandbox home, which the profile allows wholesale. The denial and the leak are the same content
-> reached two ways.
+> [!NOTE]
+> **The sandbox used to enforce workspace isolation one layer down and leak it through the
+> shared home, and that hole is closed — with no profile change.** The profile denies reads
+> under the users root and re-allows the workspace's own subpath plus each *intermediate*
+> directory as a bare literal, chosen precisely so a sibling checkout beside the workspace
+> stays denied. The leak was that the same content was reachable a second way: another
+> workspace's session transcripts sat under the sandbox home, which the profile allows
+> wholesale. They now sit under **their own workspace**, which the literal-ancestor rule
+> already denies — so the layout enforced the boundary the profile was already drawing.
 
 ### No cgroups, and no VM to size
 
@@ -406,10 +416,16 @@ contributions and one package manager. So the warning names the configured keys 
 
 ## What this does not license
 
-- **Not** a per-workspace home. The single home *is* this backend's shared-credentials
-  mechanism, so splitting it would break the machine tier to repair the workspace tier. A fix
-  has to restore both tiers explicitly, which is a design change and not a launch-time patch.
-  Refused, with a warning attached.
+- **Not** a per-workspace home. `HOME` is `/Users/_yolojail` on every launch, and the
+  per-workspace tier is reached by symlinking directories out of it rather than by moving it
+  ([`../design/macos-user-home-tiers.md`](../design/macos-user-home-tiers.md), A′ — A is the
+  recorded runner-up). ⚠ The reason given here until the split landed — *"the single home IS
+  this backend's shared-credentials mechanism"* — is **retracted**: the mechanism is the
+  `shared_credentials` hook, which runs on every backend, and the home only ever supplied the
+  backing of the directory a pack declared at `scope: machine`. What actually refuses a
+  per-workspace home is parity: no other backend puts a project's agent state under the
+  account home, and a home that reached credentials some other way would make "where are my
+  credentials" a question every pack had to feature-detect.
 - **Not** `resources` via rlimits. See the warning above; the semantics do not match the keys.
 - **Not** a relocatable shared root. `/Users/Shared` exists on every stock macOS and is the
   OS-blessed neutral location for cross-user data, so the default satisfies the real
@@ -456,6 +472,6 @@ drifts from its owner is worse than no mirror.
 | `A1` | The config-change approval prompt is called on the macos-user arm itself, not hoisted above the dispatch | This is the backend where the nix build runs **unconfined as the invoking user**, so it is the worst place to lose that gate. The arm is the right call site because the container arm gates the fresh-launch path only, and this backend has no attach. |
 | `A2` | A declared package with no darwin build is **fatal**, raised host-side after a green eval | The old warn-and-skip masked a typo and a genuinely-unavailable package with one message, and either way the jail started without a tool the user declared. Erroring inside the eval was the objection; erroring after it keeps nix green and lets the CLI decide. |
 | `A3` | The relocatable-shared-root config key is **not implemented**, and the plan-invariant message no longer advertises it | The default is the OS-blessed neutral location and satisfies the requirement. A knob that names nothing is worse than no knob, and implementing it needs agreement at two separate places. |
-| `#39` mirror | Per-workspace homes on macos-user are **refused** | The single home is this backend's shared-credentials mechanism. Splitting it repairs the workspace tier by breaking the machine tier; a real fix restores both explicitly and is a design change. |
+| `#39` mirror | Per-workspace **homes** are refused; the per-workspace **tier** is a symlink layout ([`OQ-HT4`](../design/macos-user-home-tiers.md#decision-ledger)) | `HOME` never moves, so the declared `scope: machine` directory never moves either and the `shared_credentials` hook's output is byte-identical here. Each `scope: workspace` directory is a symlink into `<workspace>/.yolo/home` — the same sidecar podman binds — so both tiers are restored explicitly, which is what the refusal always asked for. |
 | [`OQ-BP-2`](../design/backend-parity.md#decision-ledger) | Briefings and skills **are delivered**, composed above the dispatch and copied into the sandbox home | Answered by code. The part of the leaning that did **not** hold is the hardware half: it asked to land with a Mac session, and it landed without one — so the ruling is answered and the verification is still owed. |
 | [`OQ-BP-3`](../design/backend-parity.md#decision-ledger) | Whether a warned disposition needs suppressing is owned there, not here | Several launch warnings exist now, most of them on this backend. A warning people learn to skip is worse than none, which is why the question is real — and why answering it per-backend rather than per-key would be the wrong shape. |

@@ -457,9 +457,9 @@ are the whole list.
 | `network.ports` / `forward_host_ports` | ✅ | ✅ under `bridge` | ❌ not wired |
 | `workspace_readonly` | ✅ | ❌ ignored (`:ro` is a no-op) | ✅ as Seatbelt deny rules |
 | `per_side_paths` | ✅ | ✅ | ❌ warns |
-| Pack briefings + skills | ✅ | ✅ | ❌ not delivered |
+| Pack briefings + skills | ✅ | ✅ | ⚠️ delivered by copy, and writable |
 | Pack `state`, `scope: machine` | ✅ | ✅ *(since 2026-08-24)* | ✅ |
-| Pack `state`, `scope: workspace` | ✅ | ✅ | ⚠️ shared machine-wide |
+| Pack `state`, `scope: workspace` | ✅ | ✅ | ✅ *(symlinked into the workspace's own `.yolo/home`)* |
 
 Each ❌ and ⚠️ is explained in the two tables below. `macos-user` reads none of
 the network or scratch-storage keys at all — it is a native process on your own
@@ -544,11 +544,11 @@ It is the fastest backend and the one that delivers the least.
 | `per_side_paths` | not enforced — **warns**. Per-side shadowing needs a mount namespace; Seatbelt filters permissions and cannot fork a path | `macosuser/orchestrator.go` → `buildPlan` |
 | `resources` | not enforced — **warns**. No cgroups, and no VM to size | `macosuser/orchestrator.go` → `buildPlan` |
 | `workspace_readonly` | **enforced**, as Seatbelt deny rules | `macosuser/seatbelt.go` → `readonlyDenies` |
-| Pack briefings and skills | **not delivered** — **warns**. They are composed host-side and delivered by mounting the staged tree, which this backend cannot do, so the agent starts with no `AGENTS.md`/`CLAUDE.md` and no skills (built-in ones included) — while the blocked-tool shims *are* generated, so a blocked command exits 127 with nothing explaining it | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
+| Pack briefings and skills | **delivered by COPY** — **warns**, because a copy is writable where every other backend's bind is `:ro`: the agent can edit its own skills and briefing, and the next launch overwrites them again. They were *not delivered at all* until 2026-09-03, which was the sharper gap — the blocked-tool shims are generated either way, so a blocked command exited 127 with nothing explaining it | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
 | `lsp_servers` | config renders, binaries are **not installed** — **warns**. Install them yourself or add them to `packages` | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
 | Pack `reads-host` grants | **do not cross** — **warns** (since 2026-08-24). The bytes arrive on a `/ctx` mount and there is none, so each surface renders from its *defaults* layer instead. The agent gets a working config file that is not yours — the more dangerous of the two host-byte gaps, because nothing about the result looks wrong | `run/loopholeinert.go` → `noteMacosUserHostByteGaps` |
 | `host_files` entries with a `source` | **dropped from the launch entirely** — **warns** (since 2026-08-24). No file appears at those paths. Filtering them out is deliberate: rendering them would serve the entry's defaults in place of the host file you named. Entries with `content`/`defaults` and no `source` are unaffected | `macosuser/runplan.go` → `sourceLessHostFilesWire` |
-| Pack `state` at `scope: workspace` | **shared across every workspace on the machine** — **warns**. The sandbox home is a constant (`/Users/_yolojail`) with no workspace component, so one session's history and state are visible to every other workspace you launch | `run/loopholeinert.go` → `noteMachineWideWorkspaceState` |
+| Pack `state` at `scope: workspace` | **per-workspace**, as everywhere else. The sandbox home is still the constant `/Users/_yolojail`, but each state dir in it is a **symlink** into `<workspace>/.yolo/home` — the same host directory podman binds from. It was shared across every workspace on the machine, and warned about, until the home layout landed | `entrypoint/darwinhomelayout.go` → `DeriveDarwinHomeLayout` |
 | cgroups / resource limits | unavailable (no cgroups on macOS) | as [Cgroup Delegation](#cgroup-delegation-resource-limits) below |
 
 The `mounts` row is the sharp one: it fails **silently**, so a config that
@@ -571,12 +571,17 @@ so SBPL last-match-wins makes them stick. Absolute or escaping entries are
 dropped rather than emitted.
 
 > [!NOTE]
-> **The two backends collapse the state tiers in opposite directions.** Apple
-> Container used to make the *machine-wide* tier per-workspace (fixed
-> 2026-08-24); `macos-user` makes the *per-workspace* tier machine-wide, and that
-> one is not fixed — splitting the sandbox home would break the machine tier to
-> repair the workspace tier, since the single home *is* that backend's
-> shared-credentials mechanism. It warns instead.
+> **The two backends used to collapse the state tiers in opposite directions, and
+> both are fixed now.** Apple Container made the *machine-wide* tier per-workspace
+> (fixed 2026-08-24); `macos-user` made the *per-workspace* tier machine-wide,
+> because its home is one constant directory. The fix there keeps `HOME` exactly
+> where it is and symlinks each `scope: workspace` directory into
+> `<workspace>/.yolo/home`, so the declared `scope: machine` directory never moves
+> and credential sharing works by the same hook it uses everywhere
+> ([`../design/macos-user-home-tiers.md`](../design/macos-user-home-tiers.md)).
+> ⚠ The reason this note gave for leaving it — *"the single home is that backend's
+> shared-credentials mechanism"* — is retracted; colocation only supplied that
+> directory's backing.
 
 ### Cgroup Delegation (Resource Limits)
 

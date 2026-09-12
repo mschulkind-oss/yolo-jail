@@ -28,9 +28,11 @@ at the moment the agent is invoked** ([§2](#2-what-this-costs-today)).
 runs the container's `setupScript` body as a **new, Seatbelt-confined step** between
 the bootstrap and the agent ([§4](#4-the-proposed-shape)).
 
-**Cost.** A native darwin closure for the floor, built once per machine; and the
-stage cannot ship before the home split lands the per-workspace surfaces it writes
-into ([`OQ-P3`](#decision-ledger)).
+**Cost.** A native darwin closure for the floor, built once per machine. The stage could not
+ship before the home split landed the per-workspace surfaces it writes into
+([`OQ-P3`](#decision-ledger)); the split is **built** as of 2026-09-12
+([`macos-user-home-tiers.md` §10](macos-user-home-tiers.md#10-what-shipped)), so that
+dependency is discharged.
 
 **Start at [§6](#6-alternatives)** — "the same as everywhere else" has a cost on this
 backend it does not have in an image, and the ruling turns on whether it is worth
@@ -53,8 +55,7 @@ paying.
 (what nix produces for each backend, and why the image is a floor),
 [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the home split, whose
 [§5](macos-user-home-tiers.md#5-the-proposal) supplies [`OQ-P3`](#decision-ledger)'s answer and
-whose [`OQ-HT2`](macos-user-home-tiers.md#decision-ledger) is the one ruling still between
-this doc's half two and buildable), and
+which shipped on 2026-09-12, unblocking this doc's half two), and
 [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md) (the backend).
 
 ---
@@ -281,7 +282,7 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 
 | State | Container | macos-user, after the home split |
 | :--- | :--- | :--- |
-| mise data (`installs/`, `shims/`) | machine-wide: `MISE_DATA_DIR=/mise`, a store dir or named volume (`assemble.go:814`, `assemble_parts.go:172-176`) | machine-wide: `MISE_DATA_DIR` set **explicitly** to a path in the account home outside `~/.local` — the unset default `$HOME/.local/share/mise` (`internal/entrypoint/env.go:161-165`) would fall inside the per-workspace `~/.local` symlink |
+| mise data (`installs/`, `shims/`) | machine-wide: `MISE_DATA_DIR=/mise`, a store dir or named volume (`assemble.go:814`, `assemble_parts.go:172-176`) | machine-wide, **shipped 2026-09-12**: `macosuser.SandboxMiseData` names `<home>/.yolo/mise` in the launch env, the bootstrap env and the PATH's shims dir, because the unset default `$HOME/.local/share/mise` (`internal/entrypoint/env.go`) falls inside the per-workspace `~/.local` symlink |
 | mise config (`~/.config/mise/config.toml`) | per-workspace: `config` bind (`assemble_parts.go:119`) | per-workspace: the `config` sidecar symlink |
 | npm prefix (`~/.npm-global`) | per-workspace: `npm-global` bind (`:108`) | per-workspace: sidecar symlink |
 | agent CLI installs (`~/.local`) | per-workspace: `local` bind (`:109`) | per-workspace: sidecar symlink |
@@ -340,9 +341,9 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 
 Ship the unwarned agent-launcher case first — it is independent of every question
 below and it is the one failure that lands on a user's first real command. Then
-half one, gated on [`OQ-P1`](#decision-ledger) and [`OQ-P2`](#decision-ledger). Then half two, gated on
-the home split's one open ruling ([`OQ-HT2`](macos-user-home-tiers.md#decision-ledger)) — its
-own [`OQ-P3`](#decision-ledger) is settled. Half two is worth nothing before half one, so there
+half one, gated on [`OQ-P1`](#decision-ledger) and [`OQ-P2`](#decision-ledger). Then half two, whose dependency on the home
+split is **discharged**: the split is built ([`macos-user-home-tiers.md` §10](macos-user-home-tiers.md#10-what-shipped)),
+and [`OQ-P3`](#decision-ledger)'s `MISE_DATA_DIR` half shipped with it. Half two is worth nothing before half one, so there
 is no partial-credit ordering to be clever about.
 
 **Does the stated dependency hold?** Checked 2026-09-11: **yes, narrowed.** Half two

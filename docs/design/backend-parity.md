@@ -302,9 +302,14 @@ an agent plans around it.
   A shared config is legitimately used on a Linux box and a Mac — the reasoning
   `internal/config/inherit.go` already applies to `runtime`. `Refused` exists in the
   vocabulary for completeness and has no members today.
-- **Not per-workspace homes on macos-user.** The single shared home is load-bearing: it *is*
-  that backend's shared-credentials mechanism. Splitting it breaks the machine tier to fix
-  the workspace tier, and would have to restore both explicitly.
+- **Not per-workspace homes on macos-user.** `HOME` stays `/Users/_yolojail`; the
+  per-workspace tier arrives as SYMLINKS out of it into `<workspace>/.yolo/home`
+  ([`macos-user-home-tiers.md`](macos-user-home-tiers.md), [`OQ-HT4`](macos-user-home-tiers.md#decision-ledger)).
+  ⚠ The reason stated here before — that the single home *is* that backend's
+  shared-credentials mechanism — is **retracted**: the mechanism is the `shared_credentials`
+  hook, identical on every backend, and the home supplied only the backing of the directory
+  a pack declared at `scope: machine`. The refusal stands on parity instead, which is this
+  document's own argument: no other backend puts a project's state under the account home.
 - **Not enforcing `resources` on macos-user.** `RLIMIT_AS` is not what `--memory` means and
   `RLIMIT_NPROC` is per-user, so it would collide across concurrent sessions on the shared
   account. A cap a user believes in but that does not hold is worse than a documented
@@ -358,14 +363,13 @@ an agent plans around it.
 
    > [!WARNING]
    > **A smaller statement survives, and it is not "never delivered" — do not read the launch
-   > note as the old gap.** Two things are still true and still warned about. (1) The copy is
-   > WRITABLE where every other backend's bind is `:ro`, so an agent here can edit its own skills
-   > and briefing and the next launch overwrites them. (2) The destination home is machine-wide,
-   > so a second workspace launching while this one runs replaces them mid-session. Both are
-   > consequences of the single sandbox home, which
-   > [`macos-user-home-tiers.md`](macos-user-home-tiers.md) exists to fix, and both are what
-   > `noteMacosUserContentGaps` ([`loopholeinert.go`](../../internal/cli/run/loopholeinert.go))
-   > now says instead of the old text. Separately, `InstallHomeOverlay` warns rather than failing
+   > note as the old gap.** ONE thing is still true and still warned about: the copy is WRITABLE
+   > where every other backend's bind is `:ro`, so an agent here can edit its own skills and
+   > briefing and the next launch overwrites them. The second half — the destination home being
+   > machine-wide, so a second workspace launching while this one runs replaces them mid-session
+   > — went when [`macos-user-home-tiers.md`](macos-user-home-tiers.md)'s layout shipped: the
+   > destination is a symlink into that workspace's own sidecar now. `noteMacosUserContentGaps`
+   > ([`loopholeinert.go`](../../internal/cli/run/loopholeinert.go)) says the surviving half. Separately, `InstallHomeOverlay` warns rather than failing
    > the boot when the staged tree is missing — an agent is better off starting with no skills
    > than not starting. This is the narrow surviving warning
    > [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)'s 2026-09-09 amendment

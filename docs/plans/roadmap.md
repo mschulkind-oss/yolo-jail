@@ -1214,7 +1214,18 @@ wrong.
   unblocked.
 
 - ✅ **The macos-user home has one tier where it needs two, and content delivery just made it
-  bite.** 📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **[`OQ-HT2`](../design/macos-user-home-tiers.md#decision-ledger) is the only one left**;
+  bite — RULED, and BUILT 2026-09-12
+  ([§10](../design/macos-user-home-tiers.md#10-what-shipped)).** The layout lands above genStep
+  #1 in `RunDarwinBootstrap`, the `SharedDirs` mirror with it, and the content overlay stopped
+  `RemoveAll`-ing `~/.claude` to deliver `.claude/skills`. Three things shipped **beyond** the
+  four rulings because A′ is not finished without them: `MISE_DATA_DIR` named
+  (`macosuser.SandboxMiseData`, which is also [`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger)'s
+  answer), the login rc files stopped baking one workspace's PATH into a shared `$HOME`, and
+  the machine-wide-state warning was retired along with four stale in-code claims. ⚠ **Every
+  runtime claim is NOT MEASURED** — the sandbox uid creating the sidecar through the ACL, the
+  refusal a pre-A′ account gets, `path_helper` after the rc indirection — and the four manual
+  Mac checks below are owed a re-run for it.
+  📄 [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) — **[`OQ-HT2`](../design/macos-user-home-tiers.md#decision-ledger) was the only one left**;
   [`OQ-HT1`](../design/macos-user-home-tiers.md#decision-ledger), [`OQ-HT3`](../design/macos-user-home-tiers.md#decision-ledger) and
   [`OQ-HT4`](../design/macos-user-home-tiers.md#decision-ledger) were **answered and compacted 2026-09-11**.
   `SandboxHome()` is the constant `/Users/_yolojail`, so the machine tier
@@ -1254,7 +1265,7 @@ wrong.
   migration. What that gives up (the workspace tier's agent history) is affordable because the
   backend's only session was the 2026-09-11 hardware run, whose content is yolo-generated.
   **[`macos-user-provisioning.md`](../design/macos-user-provisioning.md)'s half two is no longer
-  blocked by the home split.**
+  blocked by the home split** — which is now built rather than merely unblocking.
 
 - ✅ **The four manual Mac checks are RUN, and all four PASSED.** 📄
   [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md). Everything that
@@ -1274,7 +1285,12 @@ wrong.
   have won had the login-rc re-prepend lost to `path_helper`, **which answers [`OQ-1`](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)**. And all
   fourteen built-in skills plus the native-backend briefing landed in the sandbox home.
 
-  **This closes the Mac-gated column; it does not retire the runbook** — none of the four is
+  ⚠ **A FIFTH item was added 2026-09-12 and has never been run** — the per-workspace home
+  layout, whose every runtime claim is unmeasured, and which makes item 3 (`packages:` beating
+  `path_helper`) worth re-running because the login rc now re-prepends a variable rather than a
+  baked PATH.
+
+  **This closed the Mac-gated column as it stood; it does not retire the runbook** — none of the four is
   pinned by a test, so a change to the privilege transition, the Seatbelt profile, the native
   nix chain or content staging needs them run again. The measurement also corrected the runbook
   twice: the two refusals do NOT print the same message (`EACCES` for the home path, `EPERM` for
