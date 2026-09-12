@@ -253,3 +253,67 @@ func hasProblem(problems []string, sub string) bool {
 	}
 	return false
 }
+
+// THE LOCK IS HELD ACROSS THE PRIVILEGED STEPS AND RELEASED BEFORE THE AGENT, and both
+// halves are the test. Two launches in one workspace really do run two provisioning
+// stages here — this backend has no attach — against one npm prefix and one mise store;
+// the container serialises the same window with the same lock and then attaches to
+// whichever jail won.
+//
+// The release half matters as much: holding it across the agent would make a second
+// terminal in the same workspace block until the first session ENDED, which is a
+// serialisation no backend has and which would read as a hang.
+func TestTheWorkspaceLockCoversTheStageAndNotTheAgent(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	var buf bytes.Buffer
+	d.Out = &buf
+	d.LockWorkspace = func(ws, cname string) func() {
+		rec = append(rec, "lock:"+ws+" "+cname)
+		return func() { rec = append(rec, "unlock") }
+	}
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.Config = provisionCfg()
+	if rc := RunMacosUser(d, opts); rc != 42 {
+		t.Fatalf("rc = %d, want 42\n%s", rc, buf.String())
+	}
+
+	lock, stage, unlock, launch := -1, -1, -1, -1
+	for i, line := range rec {
+		switch {
+		case strings.HasPrefix(line, "lock:"):
+			lock = i
+		case strings.HasPrefix(line, "run:") && strings.Contains(line, "sandbox-exec"):
+			stage = i
+		case line == "unlock" && unlock < 0:
+			unlock = i
+		case strings.HasPrefix(line, "proxy:"):
+			launch = i
+		}
+	}
+	if lock < 0 {
+		t.Fatalf("the launch never took the workspace lock:\n%s", strings.Join(rec, "\n"))
+	}
+	if !(lock < stage && stage < unlock && unlock < launch) {
+		t.Errorf("lock=%d stage=%d unlock=%d launch=%d — the lock must be taken before the "+
+			"privileged steps, cover the stage, and be released before the agent\n%s",
+			lock, stage, unlock, launch, strings.Join(rec, "\n"))
+	}
+}
+
+// A machine that cannot lock still launches. A workspace lock is a courtesy against a
+// self-inflicted race, not a safety property worth refusing over — the same choice the
+// container's own acquire makes, and the reason the seam may return nil.
+func TestAnUnavailableLockDoesNotRefuseTheLaunch(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	var buf bytes.Buffer
+	d.Out = &buf
+	d.LockWorkspace = func(string, string) func() { return nil }
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.Config = provisionCfg()
+	if rc := RunMacosUser(d, opts); rc != 42 {
+		t.Fatalf("rc = %d, want 42 — a lock that could not be taken refused the launch\n%s",
+			rc, buf.String())
+	}
+}

@@ -51,6 +51,16 @@ type Deps struct {
 	// a non-empty err aborts the run (DarwinPackagesError). A nil result with
 	// ok=true means "no packages" (materialize not called).
 	MaterializeDarwin func(repoRoot string, packages []any) (*Darwin, bool, error)
+	// LockWorkspace takes the per-workspace launch lock and returns the release
+	// (idempotent, never nil). nil means "no lock available", which degrades the launch
+	// rather than refusing it — the same choice the container's own acquire makes.
+	//
+	// A SEAM because the implementation lives in internal/cli/run, which imports this
+	// package: the front door wires it to run.AcquireWorkspaceLockFor. The lock is what
+	// keeps two launches in one workspace from running two provisioning stages against
+	// one npm prefix and one mise store; the container serialises the same window and
+	// then attaches to the jail that won, which this backend cannot do.
+	LockWorkspace func(workspace, cname string) func()
 	// TakenIDs returns the union of existing UIDs+GIDs (macos_setup).
 	TakenIDs func() map[int]struct{}
 	// SetRandomPassword sets a random password on the sandbox account.
@@ -443,6 +453,24 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
+	// THE PER-WORKSPACE LAUNCH LOCK, held across the three privileged steps below and
+	// released before the agent — never across the agent itself, which would make a
+	// second terminal in the same workspace block until the first session ended, a
+	// serialisation no backend has.
+	//
+	// Taken HERE, above the first side effect, and not merely around the stage: the
+	// bootstrap generates the very script the stage execs, into the same per-workspace
+	// sidecar, so a second launch bootstrapping between our bootstrap and our stage would
+	// have us exec its script. The window the lock has to cover is bootstrap-through-stage
+	// or it covers the wrong half.
+	release := func() {}
+	if deps.LockWorkspace != nil {
+		if r := deps.LockWorkspace(opts.Workspace, plan.Cname); r != nil {
+			release = r
+		}
+	}
+	defer release()
+
 	out.print("[dim]Setting up the sandbox (Seatbelt profile + bootstrap) — sudo may " +
 		"prompt for your password once.[/dim]")
 
@@ -490,7 +518,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 	}
 
-	// 4. Launch under the TTY proxy.
+	// 4. Launch under the TTY proxy — OUTSIDE the lock. Everything that writes the
+	// per-workspace tier has happened; the agent's own writes are the same ones two
+	// sessions on one workspace already share on every backend.
+	release()
 	return deps.RunWithProxy(plan.LaunchArgv)
 }
 

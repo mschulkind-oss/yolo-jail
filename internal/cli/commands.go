@@ -968,19 +968,60 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 	// interactive front door, gated on a real TTY. The dry-run plan render
 	// forces color OFF internally (byte-pinned goldens), so this only affects
 	// the live setup/teardown chatter.
-	deps := macosuser.RealDeps(runProxy, materialize, isTTYStdout())
-	return macosuser.RunMacosUser(deps, macosuser.Options{
-		Workspace:       workspace,
-		Config:          cfg,
-		Agents:          agents,
-		AgentArgv:       agentArgv,
-		RepoRoot:        repoRoot,
-		HostPackRoot:    packRoot,
-		HostHomeOverlay: homeOverlay,
-		BlockedTools:    blocked,
-		PackEnv:         packEnv,
-		DryRun:          dryRun,
-	})
+	return macosuser.RunMacosUser(macosLaunchDeps(runProxy, materialize, isTTYStdout()),
+		macosuser.Options{
+			Workspace:       workspace,
+			Config:          cfg,
+			Agents:          agents,
+			AgentArgv:       agentArgv,
+			RepoRoot:        repoRoot,
+			HostPackRoot:    packRoot,
+			HostHomeOverlay: homeOverlay,
+			BlockedTools:    blocked,
+			PackEnv:         packEnv,
+			DryRun:          dryRun,
+		})
+}
+
+// workspaceLockSeam is the macos-user backend's per-workspace launch lock, wired only on
+// the LAUNCH path — the four `yolo macos-*` commands build their Deps without it, because
+// none of them provisions anything and a setup command blocking on a running jail's launch
+// would be a new way to look hung.
+//
+// The backend holds it across its three privileged steps and releases it before the agent
+// (macosuser.RunMacosUser). It is wired HERE rather than inside that package because the
+// implementation lives in internal/cli/run, which imports macosuser — see
+// run.AcquireWorkspaceLockFor for why the call moves and the implementation does not.
+//
+// A NAMED FUNCTION rather than a closure at the assignment, for launchRunPipeline's reason
+// (see that var): the thing worth pinning is the wiring, and a test can only reach a
+// closure written inline by running the whole launch. TestWorkspaceLockSeamReallyLocks
+// invokes this one and reads the lock file it takes.
+func workspaceLockSeam(ws, cname string) func() {
+	return run.AcquireWorkspaceLockFor(ws, cname,
+		func(msg string) { fmt.Fprintln(os.Stderr, "Warning: "+msg) },
+		func(msg string) { fmt.Fprintln(os.Stdout, msg) })
+}
+
+// macosLaunchDeps assembles the macos-user backend's Deps for a LAUNCH: RealDeps plus the
+// per-workspace lock the four `yolo macos-*` commands deliberately do not get.
+//
+// IT IS A FUNCTION SO THE WIRING CAN FAIL A TEST. Assigned inline at the call site, the
+// lock seam could be deleted with the whole suite green — the backend degrades to an
+// unlocked launch, which looks identical until two terminals provision one workspace at
+// once. That is the exact shape AGENTS.md says this repo has shipped five times, and it
+// was measured here: deleting the assignment broke nothing.
+//
+// The non-nil check TestMacosLaunchDepsWiresTheWorkspaceLock makes is weak on its own and
+// is not on its own: the only value it can hold is workspaceLockSeam, and
+// TestWorkspaceLockSeamReallyLocks proves THAT takes a real flock. The pair is what makes
+// "wired" mean something.
+func macosLaunchDeps(runProxy func(argv []string) int,
+	materialize func(repoRoot string, packages []any) (*macosuser.Darwin, bool, error),
+	color bool) macosuser.Deps {
+	deps := macosuser.RealDeps(runProxy, materialize, color)
+	deps.LockWorkspace = workspaceLockSeam
+	return deps
 }
 
 const checkUsage = `Usage: yolo check [flags]

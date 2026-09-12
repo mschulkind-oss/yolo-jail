@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // workspaceLock is a held exclusive flock on a lock file (the per-workspace race
@@ -104,4 +106,37 @@ func (l *workspaceLock) Close() {
 	}
 	l.closed = true
 	_ = l.f.Close() // closing the fd releases the flock
+}
+
+// AcquireWorkspaceLockFor is the exported front door: take the per-workspace launch lock
+// and return the release, which is idempotent and never nil.
+//
+// It exists for ONE caller outside this package — the macos-user backend, whose
+// provisioning stage writes the same per-workspace npm prefix and mise store a
+// concurrent launch's stage would (docs/design/macos-user-provisioning.md §4,
+// "Concurrency"). That backend has no attach, so two launches on one workspace really do
+// run two stages; the container serialises the same window with the same lock and then
+// attaches instead.
+//
+// THE CALL MOVES, THE IMPLEMENTATION DOES NOT. internal/macosuser cannot import this
+// package (this one imports it), so the backend takes the lock through a Deps seam the
+// front door wires to this function. A second flock implementation over there would be
+// the third hand-rolled copy in the tree and the one nothing compares to the others.
+//
+// The failure mode is the same one acquireWorkspaceLock already chose: a lock that cannot
+// be taken WARNS and returns a no-op release, because a workspace lock is a courtesy
+// against a self-inflicted race and not a safety property worth refusing a launch over.
+func AcquireWorkspaceLockFor(workspace, cname string, warn, waiting func(string)) func() {
+	lockDir := filepath.Join(paths.GlobalStorage(), "locks")
+	_ = os.MkdirAll(lockDir, 0o755)
+	lock, err := acquireWorkspaceLock(filepath.Join(lockDir, cname+".lock"), workspace,
+		lockNotices{warn: warn, waiting: waiting})
+	if err != nil {
+		if warn != nil {
+			warn("could not open the workspace lock (" + err.Error() +
+				"); concurrent launches in this workspace are not serialised")
+		}
+		return func() {}
+	}
+	return lock.Close
 }
