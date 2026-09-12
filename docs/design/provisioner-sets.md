@@ -183,7 +183,7 @@ row.
 | # | Provisioner | Underlying tool | Declared by | jail | guest (`macos-user`) | host | Record |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 1 | **nix image** — the baked floor plus `packages:` | nix (`nix build .#ociImage`) | `packages:` (config key, not a pack kind) | **drives** | absent — no image | absent | `flake.lock`, load sentinel, image GC root |
-| 2 | **nix profile** — `yoloNoncontainerPackages` buildEnv, `darwinpkg.Materialize` (`internal/darwinpkg/materialize.go:44`) | nix | `packages:` | **drives**, opt-in only: `YOLO_STORE_PACKAGES=1` on podman + Linux + a nix daemon (`internal/cli/run/storepackages.go:314`) | **drives** — the one mechanism that works there (`internal/macosuser/orchestrator.go:347-349`) | **absent — no caller.** `yolo host apply` has no `packages` path, honoured or refused ([§6.1](#61-what-is-already-solved-stated-precisely)) | `--out-link` GC root |
+| 2 | **nix profile** — a buildEnv realized by `darwinpkg.Materialize`/`MaterializeAt`. ⚠ **Two attrs since 2026-09-12**: `yoloNoncontainerProfile` (the FLOOR plus `packages:`) for a notch with no image, `yoloNoncontainerPackages` (declared alone) for a container that already has one | nix | the floor, plus `packages:` | **drives**, opt-in only: `YOLO_STORE_PACKAGES=1` on podman + Linux + a nix daemon (`internal/cli/run/storepackages.go:314`) — declared packages ONLY, never the floor | **drives** — and no longer "the one mechanism that works there", since the floor arrives the same way | **absent — no caller.** `yolo host apply` has no `packages` path, honoured or refused ([§6.1](#61-what-is-already-solved-stated-precisely)) | `--out-link` GC root |
 | 3 | **mise** | mise | `mise_tools` (config key) | **drives** — `mise install` in `setupScript` (`internal/cli/run/command.go:25-26`) | absent, **warned** (`internal/cli/run/loopholeinert.go:309-315`); the config is still written | absent | `mise.lock` honoured, never written by yolo |
 | 4 | **npm / go, for servers** — LSP and MCP presets | `npm install -g`, `go install` | `lsp_servers`, `mcp_presets` | **drives** — bootstrap script (`internal/entrypoint/shell.go:204`) plus the evergreen refresh (`internal/entrypoint/serverrefresh.go`) | absent, **warned** — the bootstrap script is never generated on this path; ⚠ the refresh is baked into every launcher and **silently no-ops** ([§3.1](#31-five-findings-the-table-forces), F5) | absent | `~/.yolo-installed-lsps` sentinel; receipts |
 | 5 | **npm, for programs** — `program via: npm` | `npm install -g` | pack `program` | **drives** — lazy launcher, hourly update (`internal/entrypoint/shims.go:342`) | **driven but unprovisioned** — the launcher is generated (`internal/entrypoint/darwin.go:78`) and second on `SandboxPath` (`internal/macosuser/macosuser.go:461`), and nothing supplies `npm`; it fails on the first invocation — **MEASURED 2026-09-11** ([§15](#15-what-a-mac-session-should-measure), M1): `npm: command not found` then `⚠ <bin> not available`, exit 1, so *warned* after all | **hints** — present/missing plus a remedy; a `yolo host -- <bin>` wrapper is written (`internal/hostwrap/hostwrap.go:58`) and exits 127 when the binary is absent (`internal/cli/host.go:214-218`) | receipt `kind:"npm"` |
@@ -202,9 +202,11 @@ auto-capture. The rest of that column is still READ FROM CODE only.
 
 **F1 — The nix asymmetry: the host is the only notch where yolo owns no provisioner.** The jail
 gets nix as an image (row 1) or, opted in, as a profile (row 2); the guest gets nix as a profile
-(row 2). The same flake attribute serves both — `yoloNoncontainerPackages` has two consumers,
-`macos-user` and the Linux store farm (`internal/cli/run/storepackages.go:327` calls
-`darwinpkg.MaterializeAt`) — and **zero at the host**. So the host is not merely "the notch with
+(row 2). The same MECHANISM serves both — two consumers, `macos-user` and the Linux store farm
+(`internal/cli/run/storepackages.go:327` calls `darwinpkg.MaterializeAt`) — and **zero at the
+host**. ⚠ It was the same flake ATTRIBUTE until 2026-09-12, and it is now two: the floor belongs
+in the notch with no image and must stay out of the store farm, whose directory outranks `/bin`
+([`macos-user-provisioning.md`](macos-user-provisioning.md)). So the host is not merely "the notch with
 the fewest provisioners"; it is the notch with none yolo drives. That, and not anything about
 the kinds, is why `program` degenerates there: with nothing to drive, every declaration reduces
 to *is it on PATH, and what would install it* — which is the whole of `requires`. The merged

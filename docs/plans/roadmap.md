@@ -1175,7 +1175,8 @@ wrong.
   rule, which was the explicit instruction.
 
 - ✅ **macos-user has no package floor and no provisioning stage, so four config keys render and
-  install nothing.** 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
+  install nothing.** — **HALF ONE (the floor) SHIPPED 2026-09-12; half two (the confined stage) is
+  designed and unbuilt.** 📄 [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) —
   **[`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger) · [`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger)** — [`OQ-P3`](../design/macos-user-provisioning.md#decision-ledger) and
   [`OQ-P4`](../design/macos-user-provisioning.md#decision-ledger) were **answered and compacted 2026-09-11**. A container jail
   gets tools two ways: an image floor of **36** baked packages (git, node, mise, ripgrep, fd…) and
@@ -1202,16 +1203,27 @@ wrong.
   already sandboxed; it is not — the argv is `sudo --user=… env -i … darwin-bootstrap` with no
   `sandbox-exec` (`internal/macosuser/runplan.go:103-110`, verified 2026-09-11).
 
-  ⚠ **BOTH RULED 2026-09-11 — this row is done and the design is `status: accepted`.**
+  ⚠ **BOTH RULED 2026-09-11, and HALF ONE IS BUILT 2026-09-12
+  ([§9](../design/macos-user-provisioning.md#9-what-shipped-half-one)).**
   [`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger) went **against** its leaning: the floor is **everything the
   container image bakes, minus an EXPLICIT darwin exclusion list** — *"I'd rather pain than
   something silently skipped… if we have a fatal error, then we have the opportunity to fix it."*
   [`OQ-P2`](../design/macos-user-provisioning.md#decision-ledger) ruled **no GNU userland**, which populates the first entries of
-  that list. ⚠ **The two compose with a gap worth knowing:** an unbuildable package (`iptables`) is
-  caught by the fatal, but a GNU one **builds fine and ships silently**, so the policy exclusions
-  need their own assertion rather than a hand-maintained list. Deriving the unbuildable set needs no
-  Mac — `nix eval` is cross-platform. **The home-split dependency is also gone**, so half two is
-  unblocked.
+  that list. ⚠ **The two compose with a gap:** an unbuildable package is caught by the fatal, but a
+  GNU one **builds fine and ships silently**, so the policy exclusions got their own assertion —
+  `internal/darwinpkg/floor_policy_test.go`, a predicate over the DERIVED floor, which catches a GNU
+  package added to the image core with no list edit at all.
+
+  **What the eval said, derived from this Linux jail rather than a Mac:** the exclusion list is
+  **9 of 36** and the floor is **27**. ⚠ **`procps` is NOT Linux-only**, though this row and the
+  design's own risk table both said so — on darwin nixpkgs resolves that attr to
+  `unixtools.procps`, a wrapper around the Mac's own BSD `ps`/`pgrep`. `iptables` is the only
+  unbuildable entry, on both `aarch64-darwin` and `x86_64-darwin`. Two costs shipped with it and
+  were accepted, not overlooked: **every macos-user launch now needs the repo root** (the
+  empty-`packages:` exemption is gone; `--dry-run` still exempt), and the first launch on a machine
+  builds a 27-package native closure — ⚠ **NOT MEASURED**, like every other runtime claim about
+  this change, which was implemented where macOS cannot run. **The home-split dependency is also
+  gone**, so half two is unblocked and is all that remains.
 
 - ✅ **The macos-user home has one tier where it needs two, and content delivery just made it
   bite — RULED, and BUILT 2026-09-12

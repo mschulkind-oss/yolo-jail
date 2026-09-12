@@ -8,10 +8,18 @@ summary: "Almost every imperative provisioning step the container path runs — 
 
 # macos-user has no floor and no provisioning stage
 
-**Status:** DESIGN, 2026-09-11 (DESIGN SKETCH 2026-09-04). Nothing built. Audited
-against the tree at `61c26c18` on 2026-09-11; two of its four questions are settled and
-compacted into the [Decision Ledger](#decision-ledger). **[`OQ-P1`](#decision-ledger) and
-[`OQ-P2`](#decision-ledger) need a ruling**, and both are the maintainer's.
+**Status:** **HALF ONE BUILT, 2026-09-12** ([§9](#9-what-shipped-half-one)); half two
+designed and unbuilt. DESIGN 2026-09-11, DESIGN SKETCH 2026-09-04. All four questions are
+ruled and compacted into the [Decision Ledger](#decision-ledger).
+
+> [!WARNING]
+> **Every runtime claim about half one is NOT MEASURED.** It was implemented from a Linux
+> jail, where there is no `sandbox-exec`, no `_yolojail` account, and `RunMacosUser` fails
+> closed on `!deps.IsMacOS()`. What IS measured is the nix evaluation — the floor's
+> composition and the fatal, both read with `nix eval` for `aarch64-darwin` and
+> `x86_64-darwin` from Linux ([§9](#9-what-shipped-half-one)) — and the Go half, unit-tested
+> with fake homes. That the closure BUILDS on a Mac, that the sandbox gets the PATH, and
+> what the first launch costs are all owed a hardware run.
 
 > **In short.** A container jail gets its tools from an image **floor** and an
 > imperative **stage**; macos-user has neither, so four config keys render and install
@@ -38,7 +46,7 @@ dependency is discharged.
 backend it does not have in an image, and the ruling turns on whether it is worth
 paying.
 
-**Needs your ruling:** **None** — both closed 2026-09-11 ([Decision Ledger](#decision-ledger)). Ready to build; the home-split dependency is gone too.
+**Needs your ruling:** **None** — both closed 2026-09-11 ([Decision Ledger](#decision-ledger)). Half one is built ([§9](#9-what-shipped-half-one)); half two is ready to build, with the home-split dependency gone.
 
 > [!NOTE]
 > **Terms coined here.** The **floor** is the set of packages present in a jail
@@ -330,11 +338,11 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 
 | Risk | Mitigation |
 | :--- | :--- |
-| A core package has no native darwin build | It is the same `yoloUnavailablePackages` mechanism `packages:` uses — but for a CORE package a skip must be **fatal**, not warned: a floor with a hole in it is not a floor. ⚠ At least two of the image's 36 are Linux-only by nature (`iptables`, `procps`), so "the whole image core" is not even an option here without a native eval per entry — see [`OQ-P1`](#decision-ledger). |
+| A core package has no native darwin build | Handled, and it is **fatal** rather than the warn-and-skip `packages:` gets: a floor with a hole in it is not a floor ([§9](#9-what-shipped-half-one)). ⚠ **This row's own example was wrong.** It said "at least two of the image's 36 are Linux-only by nature (`iptables`, `procps`)". The eval says **one**: on darwin nixpkgs resolves `procps` to `unixtools.procps` (name `procps-1003.1-2008`), a wrapper around the Mac's own BSD `ps`/`pgrep` — which is also what [`OQ-P2`](#decision-ledger) wants. Guessing would have cost a working tool, which is the argument for deriving the list rather than writing it. |
 | First launch builds a large closure natively | One-off per machine; nix caches. Cachix already applies (`--accept-flake-config`). Measure before assuming it is a problem. |
 | The stage's state lands in the shared home | Settled: the container's partition ([§4](#4-the-proposed-shape), [`OQ-P3`](#decision-ledger)). The residual risk is the **inverted default** — `MISE_DATA_DIR` unset once `~/.local` is a sidecar symlink — and it is closed by setting the variable explicitly. |
 | The mise *config* collision ships today, without any stage | Real and already live ([§1](#1-the-two-missing-halves)); fixed by the same `config` sidecar symlink, which is why half two waits for the split rather than the other way round. |
-| GNU-vs-BSD userland surprise | [`OQ-P2`](#decision-ledger). |
+| GNU-vs-BSD userland surprise | [`OQ-P2`](#decision-ledger), and its exclusions have their own assertion rather than a maintainer: `internal/darwinpkg/floor_policy_test.go` tests the DERIVED floor against a predicate, so a GNU package added to the image core tomorrow fails without anyone editing a list ([§9](#9-what-shipped-half-one)). |
 | The stage runs vendor postinstall scripts | Confined under the same profile as the agent (P4). |
 
 ## 8. Sequencing
@@ -353,6 +361,141 @@ the stage writes per-workspace content into the shared home and reproduces the r
 the split exists to end. The machine-wide half (mise data) does not depend on the
 split at all — it depends on setting `MISE_DATA_DIR`, which the split makes
 *necessary* rather than optional.
+
+## 9. What shipped (half one)
+
+**Built 2026-09-12**, in four commits, on a Linux jail — so read the warning at the top of
+this document before treating any runtime sentence here as measured.
+
+### 9.1 The floor's composition, and how it was derived
+
+`flake.nix`'s image core became a list of nixpkgs attr NAMES (`coreFloorNames`), because two
+consumers now need the same 36 names resolved against two different package sets:
+`corePackagesFromNixpkgs` maps them over `imagePkgs` for the image, and
+`noncontainerFloorPackages` maps them over `pkgs` for this flake's own `system`. **The image's
+package set did not move** — `imageClosureRoot.drvPath`, which is the nixpkgs half alone, is
+byte-identical across the change.
+
+**The unbuildable set was DERIVED, not guessed.** `nix eval` is cross-platform, so all 36
+names were read for `meta.platforms` / `meta.available` against **both** darwin systems this
+flake locks — nixpkgs `c043004d` for `aarch64-darwin`, `nixpkgs-26.05-darwin` `c19db427` for
+`x86_64-darwin` — from a Linux jail, in about a second. Exactly **one** came back unavailable
+on either:
+
+| Attr | Result | Evidence |
+| :--- | :--- | :--- |
+| `iptables` | **unavailable on both** | `meta.unsupported = true`; `meta.platforms` lists 24 entries, none of them darwin |
+| `procps` | **available** | no `meta.platforms` at all — on darwin the attr resolves to `unixtools.procps`, `name = procps-1003.1-2008`, a wrapper around the Mac's own BSD `ps`/`pgrep`/`pkill` |
+| the other 34 | available | `availableOn` and `meta.available` both true on both systems |
+
+⚠ **`procps` is the reason to derive rather than guess.** This document's own
+[§7](#7-risks) and the roadmap row both said it was Linux-only "by nature". It is not, and
+excluding it on that belief would have removed a working tool from every Mac jail for a
+reason nobody would have re-checked.
+
+So the exclusion list is **9 of 36** — one by necessity, eight by policy — and the floor is
+**27**:
+
+```console
+$ nix eval --impure --json .#yoloNoncontainerFloorNames.aarch64-darwin
+["bashInteractive","git","ripgrep","fd","curl","cacert","mise","which","nodejs_24",
+ "python3","go","neovim","gh","gzip","bzip2","xz","unzip","zip","zlib","procps",
+ "overmind","jq","uv","socat","sox","openssl","tzdata"]
+```
+
+### 9.2 The fatal, measured
+
+Removing `iptables` from `noncontainerFloorUnbuildable` and evaluating the darwin profile
+from this Linux jail:
+
+```
+error: yolo: the non-container package FLOOR has a hole in it: "iptables" has no
+       aarch64-darwin build.
+       …
+       Fix it in flake.nix, in one of two ways:
+         • add "iptables" to `noncontainerFloorUnbuildable`, with the reason it cannot build; or
+         • drop it from `coreFloorNames` if the image does not need it either.
+```
+
+That is [`OQ-P1`](#decision-ledger) working: the eval dies naming the package, rather than
+the launch succeeding with a hole in it.
+
+### 9.3 The policy assertion, which is the part nix cannot do
+
+The fatal covers necessity and **cannot cover policy** — a GNU-userland package left off the
+list builds fine and ships silently. `internal/darwinpkg/floor_policy_test.go` closes that,
+and the shape is what matters:
+
+- it reads the **derived floor**, not the exclusion list, so it examines names added after it
+  was written;
+- `IsGNUUserland` is a **predicate**, not a list: the `gnu`-prefix half catches a package
+  nobody thought to exclude, and it over-reaches on purpose (`gnupg`, `gnuplot` would be
+  flagged) because a false positive costs one deliberate decision where a false negative
+  costs a silent shipment;
+- a **mutation cell** re-derives the floor with each policy exclusion put back and asserts
+  the gate fires, so the predicate cannot become vacuous;
+- `floor_drift_test.go` parses `flake.nix`'s three lists and fails when the Go copy
+  disagrees — without it the assertion above would pass about a list that no longer describes
+  the jail.
+
+Measured three ways round: dropping `gnused` from both policy lists trips it; adding
+`gnumake` to the image core trips it **with no list edit at all**; deleting
+`noncontainerFloorPackages` from the profile's `paths` trips the call-site gate.
+
+⚠ **One judgement call is flagged rather than made.** `gzip` is GNU gzip and macOS ships a
+NetBSD one, so it is the closest call on the floor — and [`OQ-P2`](#decision-ledger)'s own
+table does not name it. It is on the floor today, and the predicate deliberately does not
+claim it; widening a ruling is not an implementer's call. `bashInteractive` is deliberately
+not claimed either, for a stated reason: macOS's own `/bin/bash` **is** GNU bash, frozen at
+3.2 by a licence change, so a modern bash is not a BSD-vs-GNU surprise.
+
+### 9.4 Two profile attrs, and why that is not a spelling choice
+
+`yoloNoncontainerPackages` **kept** its meaning — the declared `packages:` alone — and the
+floor went into a new `yoloNoncontainerProfile`. The reason is a consumer this document had
+not considered: the container path's store delivery (`YOLO_STORE_PACKAGES=1`) realizes the
+same attr into `/run/yolo/packages/bin`, a directory that sits **ahead of `/bin`** on PATH.
+Putting the floor there would have silently rerouted 27 names the image already bakes through
+a boot-written farm, on a backend this design is not about.
+
+### 9.5 What the floor changed by arriving, with no code change of its own
+
+`$YOLO_DARWIN_LOGIN_PATH` is what `entrypoint.agentPath` returns, and **three generators** ask
+it *"will the agent have this binary?"* before writing anything. Widening it flips all three:
+
+| Generator | Before the floor | After |
+| :--- | :--- | :--- |
+| `GenerateShims` | the `guardrails` pack's `grep`/`find` rules were **dropped**, because a blocker is only written when its declared replacement is on PATH and `rg`/`fd` were not there | both blockers are generated |
+| `launchercollision` | a pack declaring `program git` got a lazy launcher, ahead of everything | no launcher — the environment provides it |
+| `AssertRequiredBins` | a pack's `requires: rg` warned | satisfied |
+
+All three are pinned in both directions in `internal/entrypoint/darwinfloor_test.go`. ⚠ Its
+system dirs are deliberately **fake**: that suite runs inside the yolo-jail image, where
+`/bin/rg` exists, so the real ones would make the floorless cells pass on a Mac and fail in
+CI for a reason unrelated to the code.
+
+### 9.6 The cost this bought, stated
+
+Two things a user will notice, both accepted by [`OQ-P1`](#decision-ledger) rather than
+overlooked:
+
+- **Every macos-user launch now needs the repo root**, where a bare `yolo -- bash` with an
+  empty `packages:` previously needed none. The exemption in `run.Run` is gone and its
+  message rewritten to say the backend builds its core set from the flake whether or not you
+  declare anything. `--dry-run` is still exempt: it materializes nothing.
+- **The first launch on a machine builds or substitutes a 27-package native closure.** ⚠ NOT
+  MEASURED — the design's own [§7](#7-risks) says *"measure before assuming it is a
+  problem"*, and that measurement is still owed. Cachix applies
+  (`--accept-flake-config` is on every call).
+
+### 9.7 What is left
+
+Half two — the confined provisioning stage — is unchanged and unbuilt
+([§4](#4-the-proposed-shape)). Its dependency on the home split is discharged
+([§8](#8-sequencing)). The `via: npm` agent-launcher failure is *no longer* the loud-but-late
+case [§2](#2-what-this-costs-today) describes, because the floor supplies node and npm — but
+that claim is NOT MEASURED and is exactly the sort of thing a hardware run should check
+first.
 
 ## Open Questions
 

@@ -105,9 +105,17 @@ inside the jail delegates to the host daemon. Without it, in-jail nix fails with
 ## How the macos-user path works
 
 `darwinpkg.Materialize` runs `nix build --impure` on
-`.#packages.<system>.yoloNoncontainerPackages` with the same `YOLO_EXTRA_PACKAGES`
+`.#packages.<system>.yoloNoncontainerProfile` with the same `YOLO_EXTRA_PACKAGES`
 contract. `<system>` is derived from the running `GOOS`/`GOARCH`, never hardcoded —
 an Intel Mac resolves `x86_64-darwin` and the messages say so.
+
+**Two attrs, and which one you want depends on whether the notch already has a
+floor.** `yoloNoncontainerProfile` is the **floor plus** the declared `packages:`,
+and it is what a notch with no baked image realizes. `yoloNoncontainerPackages` is
+the declared packages **alone**, and its only consumer is the container path's
+store delivery (`YOLO_STORE_PACKAGES=1`), which runs in a jail whose image bakes
+the core already — putting the floor there would write 27 duplicate names into
+`/run/yolo/packages/bin`, a directory that sits *ahead of* `/bin` on PATH.
 
 **The product is a buildEnv, deliberately not a devShell.** A devShell's
 `print-dev-env` would dump an entire stdenv toolchain — clang, GNU coreutils, sed,
@@ -160,29 +168,44 @@ tolerated absences to maintain.
 
 | | Container | macos-user |
 | :--- | :--- | :--- |
-| Baked image | yes | **no** — nothing is baked; a tool comes from `packages:` or the host userland |
+| Baked image | yes | **no** — but there is a FLOOR: the same core set, realized natively (see below) |
 | `/lib` farm + `LD_LIBRARY_PATH` | yes | **no** — no composed filesystem to farm into |
 | Nix usable *inside* the jail | yes, via the daemon socket | **no** — the sandbox has no daemon socket mount |
 | Rebuild/reload cost model | store-path diff, reload on change | none — build every launch, nix short-circuits |
 | Needs a Linux builder on macOS | yes | **no** — native builds all the way down |
 
-The most consequential row is the first. On the container backends the image is a
-floor: `git`, `rg`, `fd`, node and the rest are present whether or not anyone
-configured them. On macos-user there is no floor, so a tool the config does not
-name is present only if the Mac's own `/usr/bin` has it. Anything that assumes the
-image — a blocked-tool rule pointing at a replacement, a pack's `requires`, an MCP
-wrapper with an absolute path — is making an assumption that holds on one backend
-and not the other.
+The most consequential row is the first, and ⚠ **its second cell changed on
+2026-09-12**. On the container backends the image is a **floor**: `git`, `rg`,
+`fd`, node and the rest are present whether or not anyone configured them. Until
+half one of
+[`macos-user-provisioning.md`](../design/macos-user-provisioning.md) landed,
+macos-user had no floor at all — a tool the config did not name was present only
+if the Mac's own `/usr/bin` had it, and a blocked-tool rule pointing at `rg`, a
+pack's `requires`, or an MCP wrapper with an absolute path all quietly meant
+something different there.
+
+It has one now, and it is **the same list**: the image's own
+`coreFloorNames`, minus an explicit darwin exclusion list. The exclusion list has
+two kinds of entry — `iptables`, which has no darwin build (derived by `nix eval`,
+not guessed), and the GNU userland, which is excluded by POLICY because this
+backend's proposition is *"your Mac, confined"*. A package that is neither
+buildable nor excluded is a **fatal** in the flake, never a silent skip.
+
+What still differs is the delivery, not the contents: the floor is a nix profile
+on PATH rather than a composed filesystem, so `/bin/<tool>` is not a path that
+resolves there and an absolute-path assumption still breaks.
 
 ## Current values
 
-Verified at `ef5945e3`. The prose above says what each of these is for; this table
+Verified at `2cacd435`. The prose above says what each of these is for; this table
 is the only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Declared-package env contract | `YOLO_EXTRA_PACKAGES` (compact JSON) | `darwinpkg.BuildEnv`, `flake.nix` |
-| Native profile attr | `packages.<system>.yoloNoncontainerPackages` | `darwinpkg.ProfileAttr` |
+| Native profile attr, floor + declared (macos-user) | `packages.<system>.yoloNoncontainerProfile` | `darwinpkg.FloorProfileAttr` |
+| Native profile attr, declared alone (container store delivery) | `packages.<system>.yoloNoncontainerPackages` | `darwinpkg.ProfileAttr` |
+| The floor's composition | image core minus `noncontainerFloorUnbuildable` + `noncontainerFloorPolicy` | `flake.nix`, mirrored in `internal/darwinpkg/floor.go` |
 | Skip-list attr | `yoloUnavailablePackages.<system>` | `darwinpkg.UnavailableAttr` |
 | Native profile GC root | `<global storage>/build/package-roots/packages` | `darwinpkg.ProfileRootLink` |
 | Image reload sentinel | `<build dir>/last-load-<runtime>` | `internal/image` |
