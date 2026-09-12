@@ -193,7 +193,7 @@ only place the values themselves are stated.
 > replay on `macos-user`** (measured 2026-09-11). `entrypoint.configureGit`
 > (`internal/entrypoint/identity.go:22`) reads it and points `core.excludesFile` at
 > it; **nothing in the tree writes it.** `MacosSandboxEnv`
-> (`internal/macosuser/orchestrator.go:144`) forwards exactly two pairs —
+> (`internal/macosuser/orchestrator.go`) forwards exactly two pairs —
 > `YOLO_GIT_NAME`/`user.name` and `YOLO_GIT_EMAIL`/`user.email` — and the container
 > backends do not use the env route at all: `Options.gitIdentityMountArgs` replaced
 > it with a composed gitconfig plus a `:ro` mount of the gitignore, precisely so a

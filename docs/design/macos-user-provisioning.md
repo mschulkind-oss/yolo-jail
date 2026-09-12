@@ -93,12 +93,12 @@ the `YOLO_EXTRA_PACKAGES` config list). There is no core.
 > attribute names above are the anchors now; a line number in a 1,600-line flake is the
 > kind of claim that is wrong within weeks.
 
-**The stage.** `setupScript` (`internal/cli/run/command.go:19-30`) runs, inside the
+**The stage.** `setupScript` (`internal/cli/run/command.go`) runs, inside the
 jail, on every container launch: a store prune, `mise install --quiet`, then
 `~/.yolo-bootstrap.sh` (the generated script that npm-installs LSP servers and MCP
 presets) and `~/.yolo-venv-precreate.sh`. It is part of the **container command
 wrapper**. On macos-user, `RunMacosUser` runs exactly two things after staging
-(`internal/macosuser/orchestrator.go:432-440`): the darwin bootstrap, then the agent.
+(`internal/macosuser/orchestrator.go`): the darwin bootstrap, then the agent.
 Neither is a stage:
 
 - **The bootstrap** is `sudo --user=_yolojail /usr/bin/env -i … <stagedYolo> internal
@@ -108,7 +108,7 @@ Neither is a stage:
   call site on this path (its only production caller is the container boot loop,
   `internal/entrypoint/boot.go:536` — verified 2026-09-11).
 - **The launch** is `sudo --login --set-home --user=_yolojail env -i … sandbox-exec -f
-  <profile> -- /bin/zsh -c 'cd <ws> && exec <agent>'` (`macosuser.go:482-516`) —
+  <profile> -- /bin/zsh -c 'cd <ws> && exec <agent>'` (`LaunchArgv`, `macosuser.go`) —
   straight to the agent.
 
 > ⚠ **Retracted (2026-09-11):** the first draft said the launch goes to `zsh -l`; it is
@@ -166,7 +166,7 @@ binary exists on any path the sandbox can read — the host's is at `/opt/homebr
 which is not on `SandboxPath` and whose state lives under `/Users`, which the profile
 denies. No mise *data* dir exists (nothing creates one). ⚠ **But "no mise config" was
 wrong**: `RunDarwinBootstrap` runs `ConfigureMisePrism` on every launch
-(`internal/entrypoint/darwin.go:85`), and it always emits a `[tools]` table
+(`internal/entrypoint/darwin.go`), and it always emits a `[tools]` table
 (`internal/entrypoint/prism_mise.go:65-82`), so `~/.config/mise/config.toml` *is*
 written — into the shared home, carrying this workspace's `mise_tools`. The step has been
 on the darwin path since 2026-07-21 (`731dbe56`), so the 2026-09-04 listing missed it or
@@ -177,9 +177,9 @@ directory listing again.
 
 | Config key | Container | macos-user | Told? |
 | :--- | :--- | :--- | :--- |
-| `mise_tools` | installed by the stage | nothing; shims dir on PATH so it *looks* provisioned; `~/.config/mise/config.toml` written to the shared home | warns, host-side (`internal/cli/run/loopholeinert.go:309-315`, since 2026-09-04) |
-| `lsp_servers` | npm-installed by the stage | config renders, binaries absent | warns, host-side (`loopholeinert.go:316-321`) |
-| `mcp_presets` | npm-installed by the stage | wrappers skipped | warns — **in the bootstrap only** (`darwin.go:100-105`), so `--dry-run` never shows it |
+| `mise_tools` | installed by the stage | nothing; shims dir on PATH so it *looks* provisioned; `~/.config/mise/config.toml` written to the shared home | warns, host-side (`noteMacosUserHostByteGaps`'s caller in `internal/cli/run/loopholeinert.go`, since 2026-09-04) |
+| `lsp_servers` | npm-installed by the stage | config renders, binaries absent | warns, host-side (`loopholeinert.go`) |
+| `mcp_presets` | npm-installed by the stage | wrappers skipped | warns — **in the bootstrap only** (`RunDarwinBootstrap`, `darwin.go`), so `--dry-run` never shows it |
 | agent CLIs (lazy launchers), `via: installer` | launcher execs the vendor installer | **works** — `curl` and `bash` are at `/usr/bin`; MEASURED 2026-09-11, three of three packs, two installing from scratch | n/a — nothing to tell |
 | agent CLIs (lazy launchers), `via: npm` | launcher execs `npm install -g` | fails — no node, no npm | **loud, at run time**: `npm: command not found` then `⚠ <bin> not available`, exit 1 (MEASURED 2026-09-11). `GenerateAgentLaunchers` still has no *generation*-time precondition (`internal/entrypoint/shims.go`, verified 2026-09-11), so nothing warns at launch |
 | `packages:` | baked into the image | realized natively | works |
@@ -254,9 +254,10 @@ native system. Minimum viable core is whatever the stage needs to run: `mise` an
 [§10](#10-what-shipped-half-two) records what it actually became, including the two places
 this proposal was wrong: where the generated script goes, and the `sudo --login` forwarding
 it had to route around.)* The macos-user launch grows a
-**third** step between the bootstrap and the agent (`orchestrator.go:432-440`): the
+**third** step between the bootstrap and the agent (`runProvisionStage`, `orchestrator.go`): the
 same `setupScript` body, run as the sandbox user **under `sandbox-exec -f <profile>`**
-— the profile is already installed before the bootstrap (`orchestrator.go:417`), so
+— the profile is already installed before the bootstrap (`deps.InstallRootFile` on
+`plan.ProfilePath`, `orchestrator.go`), so
 nothing new has to exist for the stage to be confined, and a separately-launched
 `sandbox-exec` process is not the nested-profile case `sandbox_apply` refuses
 ([`macos-revival-and-distribution-plan.md`](../plans/macos-revival-and-distribution-plan.md),
@@ -277,13 +278,13 @@ needs `npm`. Half two without half one is a script that fails on its first line.
 - **Failure: a failing stage must not abort the launch.** The container path tees to
   `<workspace>/.yolo/startup.log` and marks `PROVISIONING FAILED`, which the briefing
   then reports — and **the reader half is already wired on this arm**:
-  `refreshJailBriefings` runs on the macos-user branch (`run.go:397`) and fills
+  `refreshJailBriefings` runs on the macos-user branch (`run.go`) and fills
   `ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace)`
   (`internal/cli/run/prepare.go:147`). Only the emitter is missing, and it needs one
   seam: the `startupLog` constant is rooted at the container's fixed `/workspace` bind
-  (`command.go:32`) and must be rebound to the real workspace's `.yolo/` sidecar here,
+  (`command.go`) and must be rebound to the real workspace's `.yolo/` sidecar here,
   the way `YOLO_DARWIN_WORKSPACE` already rebinds the workspace for the generators
-  (`darwin.go:59-61`).
+  (`darwin.go`).
 - **Degenerate input:** no `mise_tools`, no `lsp_servers`, no `mcp_presets` and no agent
   packs → the stage is skipped entirely, so a bare `yolo -- bash` pays nothing.
 - **Concurrency:** two launches on one workspace run two stages against one sidecar; the
@@ -296,7 +297,7 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 
 | State | Container | macos-user, after the home split |
 | :--- | :--- | :--- |
-| mise data (`installs/`, `shims/`) | machine-wide: `MISE_DATA_DIR=/mise`, a store dir or named volume (`assemble.go:814`, `assemble_parts.go:172-176`) | machine-wide, **shipped 2026-09-12**: `macosuser.SandboxMiseData` names `<home>/.yolo/mise` in the launch env, the bootstrap env and the PATH's shims dir, because the unset default `$HOME/.local/share/mise` (`internal/entrypoint/env.go`) falls inside the per-workspace `~/.local` symlink |
+| mise data (`installs/`, `shims/`) | machine-wide: `MISE_DATA_DIR=/mise`, a store dir or named volume (`assemble.go`, `assemble_parts.go:172-176`) | machine-wide, **shipped 2026-09-12**: `macosuser.SandboxMiseData` names `<home>/.yolo/mise` in the launch env, the bootstrap env and the PATH's shims dir, because the unset default `$HOME/.local/share/mise` (`internal/entrypoint/env.go`) falls inside the per-workspace `~/.local` symlink |
 | mise config (`~/.config/mise/config.toml`) | per-workspace: `config` bind (`assemble_parts.go:119`) | per-workspace: the `config` sidecar symlink |
 | npm prefix (`~/.npm-global`) | per-workspace: `npm-global` bind (`:108`) | per-workspace: sidecar symlink |
 | agent CLI installs (`~/.local`) | per-workspace: `local` bind (`:109`) | per-workspace: sidecar symlink |
@@ -304,7 +305,7 @@ container's own partition, verified 2026-09-11 in `internal/cli/run/assemble_par
 > [!WARNING]
 > **Sharing mise's DATA dir between workspaces is not a collision, and the fear that it
 > was is refuted** (checked 2026-09-11). `installs/<tool>/<version>` is keyed by tool and
-> version (`internal/cli/run/command.go:21`), so two workspaces asking for different
+> version (`setupScript`'s comment, `internal/cli/run/command.go`), so two workspaces asking for different
 > tools *add* to the store rather than reshape it — which is why every container backend
 > shares it machine-wide to begin with. The collision that is real is mise's **config**,
 > and it is already live today with no stage at all ([§1](#1-the-two-missing-halves)).
