@@ -94,8 +94,7 @@ func SharedRootDefault() string { return "/Users/Shared/yolo" }
 func CreateUserCommands(uid, gid int, hostUser string) [][]string {
 	user := SandboxUser
 	group := SandboxGroup
-	home := SandboxHome()
-	return [][]string{
+	cmds := [][]string{
 		// Group
 		{"dscl", ".", "-create", "/Groups/" + group},
 		{"dscl", ".", "-create", "/Groups/" + group, "PrimaryGroupID", itoa(gid)},
@@ -105,7 +104,7 @@ func CreateUserCommands(uid, gid int, hostUser string) [][]string {
 		{"dscl", ".", "-create", "/Users/" + user, "UniqueID", itoa(uid)},
 		{"dscl", ".", "-create", "/Users/" + user, "PrimaryGroupID", itoa(gid)},
 		{"dscl", ".", "-create", "/Users/" + user, "RealName", "YOLO Jail"},
-		{"dscl", ".", "-create", "/Users/" + user, "NFSHomeDirectory", home},
+		{"dscl", ".", "-create", "/Users/" + user, "NFSHomeDirectory", SandboxHome()},
 		{"dscl", ".", "-create", "/Users/" + user, "UserShell", "/bin/zsh"},
 		// Hidden from the login window
 		{"dscl", ".", "-create", "/Users/" + user, "IsHidden", "1"},
@@ -114,9 +113,27 @@ func CreateUserCommands(uid, gid int, hostUser string) [][]string {
 		// Shared group membership (host user + sandbox user) for the ACL
 		{"dseditgroup", "-o", "edit", "-a", user, "-t", "user", group},
 		{"dseditgroup", "-o", "edit", "-a", hostUser, "-t", "user", group},
-		// Provision the home dir with correct ownership + 0750.
-		{"createhomedir", "-c", "-u", user},
-		{"chown", "-R", user + ":" + group, home},
+	}
+	// Provision the home dir with correct ownership + 0750.
+	return append(cmds, ProvisionHomeCommands()...)
+}
+
+// ProvisionHomeCommands returns the argv that make the account home exist with the
+// ownership and mode the backend needs: `createhomedir`, then `chown -R` + `chmod 750`.
+// Run under sudo.
+//
+// SEPARATE FROM CreateUserCommands (which ends with exactly these) because the ACCOUNT and
+// its HOME are two facts that can be true independently, and only one of them was ever
+// checked. `sudo rm -rf /Users/_yolojail` leaves the dscl record and takes the directory —
+// which is what the runbook prescribes for an account predating the home-tier layout — and
+// the sandbox uid cannot repair that itself, since /Users is root-owned 0755. So setup
+// calls this list on its own for a home that went missing under an account that did not,
+// and CreateUserCommands appends it rather than spelling it a second time.
+func ProvisionHomeCommands() [][]string {
+	home := SandboxHome()
+	return [][]string{
+		{"createhomedir", "-c", "-u", SandboxUser},
+		{"chown", "-R", SandboxUser + ":" + SandboxGroup, home},
 		{"chmod", "750", home},
 	}
 }

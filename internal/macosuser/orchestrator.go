@@ -330,6 +330,25 @@ func RunMacosUser(deps Deps, opts Options) int {
 			"`docs/reference/macos-no-vm-direction.md`).", SandboxUser)
 		return 1
 	}
+	// THE HOME IS A SEPARATE FACT FROM THE ACCOUNT, and this check used to make only the
+	// one above. A DELETED home — what `sudo rm -rf /Users/_yolojail` leaves, which the
+	// runbook prescribes for an account predating the home-tier layout — is unrepairable
+	// from inside: /Users is root-owned 0755, so the sandbox uid cannot create it. The
+	// launch therefore ran the entire native nix build and then died in the bootstrap with
+	// twenty `mkdir /Users/_yolojail: permission denied` generator failures, under a
+	// diagnosis that blamed the WORKSPACE ACL and prescribed `macos-fix-permissions`, a
+	// remedy that cannot reach this path. Same rule the sidecar-mirror refusal was fixed
+	// for: name the remedy that reaches the path it names. Measured on hardware
+	// 2026-09-12, and cheap here — one stat, before the build.
+	if !deps.PathIsDir(SandboxHome()) {
+		out.printf("[bold red]Sandbox home '%s' is missing.[/bold red]\n"+
+			"The account '%s' exists, so this is a home that was DELETED rather than a "+
+			"machine that\nwas never set up — and the sandbox user cannot recreate it "+
+			"itself (/Users is root-owned).\n\n"+
+			"Reprovision it — idempotent, and it leaves the account record alone:\n"+
+			"  [bold]yolo macos-setup[/bold]", SandboxHome(), SandboxUser)
+		return 1
+	}
 	// THE WORKSPACE MUST BE SHARED WITH THE SANDBOX, and this is the cheapest place
 	// to learn it is not. `macos-setup` shares everything under the shared root, and
 	// anything CREATED there afterwards inherits the grant — so by the time a launch

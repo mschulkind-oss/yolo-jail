@@ -20,6 +20,34 @@ func MacosSetup(deps Deps) int {
 	// 1. Account — create if missing, otherwise reuse (idempotent).
 	if deps.SandboxUserExists() {
 		out.printf("• Sandbox user [bold]%s[/bold] already exists.", SandboxUser)
+
+		// 1a. THE HOME, CHECKED INDEPENDENTLY OF THE ACCOUNT. Every home step lives in
+		// the creation branch below, so an account whose home had been DELETED got none
+		// of them and this command still finished with "✓ macos-user backend ready …
+		// preconditions pass". Nothing else repairs it either: /Users is root-owned
+		// 0755, so the sandbox uid cannot create its own home, and a launch in that
+		// state fails twenty config generators deep on `mkdir /Users/_yolojail:
+		// permission denied`.
+		//
+		// NOT A HYPOTHETICAL STATE — it is what the runbook's own remedy leaves behind
+		// (`sudo rm -rf /Users/_yolojail && yolo macos-setup`, prescribed for an account
+		// predating the home-tier layout), so the one command told to repair the machine
+		// was the one that could not. Measured on hardware 2026-09-12.
+		//
+		// Gated on the home being absent rather than run unconditionally: `chown -R`
+		// over a populated account home is O(files) and buys nothing on a re-run.
+		if !deps.PathIsDir(SandboxHome()) {
+			out.printf("• Sandbox home [bold]%s[/bold] is missing — reprovisioning it "+
+				"(the account record itself is left alone).", SandboxHome())
+			for _, cmd := range ProvisionHomeCommands() {
+				if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
+					out.printf("[bold red]✗ setup step failed:[/bold red] %s",
+						strings.Join(cmd, " "))
+					return 1
+				}
+			}
+			out.printf("  [green]reprovisioned[/green] %s.", SandboxHome())
+		}
 	} else {
 		hostUser := deps.HostUser()
 		uid := NextFreeID(deps.TakenIDs(), sandboxMinID)

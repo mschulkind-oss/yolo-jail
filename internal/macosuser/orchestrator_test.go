@@ -269,6 +269,116 @@ func TestMacosSetupCreatesWhenMissing(t *testing.T) {
 	}
 }
 
+// TestMacosSetupReprovisionsAMissingHome pins the repair for a state THE RUNBOOK'S OWN
+// REMEDY CREATES. `sudo rm -rf /Users/_yolojail && yolo macos-setup` — prescribed by
+// docs/plans/runbooks/macos-user-manual-checks.md item 5 for an account predating the
+// home-tier layout — takes the HOME and leaves the ACCOUNT. Every home step lived in the
+// account-creation branch, so that state got none of them, and setup still reported
+// "✓ macos-user backend ready … preconditions pass" over a machine that cannot launch:
+// /Users is root-owned 0755, so the sandbox uid cannot create its own home.
+//
+// MEASURED ON HARDWARE 2026-09-12 (macOS 26.5, arm64), following item 5 as written: the
+// next launch built the whole native closure and then failed twenty config generators at
+// once with `mkdir /Users/_yolojail: permission denied`.
+func TestMacosSetupReprovisionsAMissingHome(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	d.SandboxUserExists = func() bool { return true }
+	d.PathIsDir = func(p string) bool { return p != SandboxHome() }
+	var buf bytes.Buffer
+	d.Out = &buf
+	if rc := MacosSetup(d); rc != 0 {
+		t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
+	}
+	joined := strings.Join(rec, "\n")
+	for _, want := range []string{
+		"run:sudo createhomedir -c -u _yolojail",
+		"run:sudo chown -R _yolojail:_yolojail /Users/_yolojail",
+		"run:sudo chmod 750 /Users/_yolojail",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q:\n%s", want, joined)
+		}
+	}
+	// The ACCOUNT is not the thing that went missing, and recreating it would assign a
+	// fresh UUID that silently voids every inherited ACL under the shared root.
+	if strings.Contains(joined, "dscl . -create /Users/_yolojail") {
+		t.Errorf("recreated an account that already exists:\n%s", joined)
+	}
+	if !strings.Contains(buf.String(), "is missing") {
+		t.Errorf("the repair is silent; setup should say what it reprovisioned:\n%s", buf.String())
+	}
+}
+
+// TestMacosSetupLeavesAnExistingHomeAlone is the other half: `chown -R` over a populated
+// account home is O(files) and buys nothing on the common re-run, so the repair above must
+// be gated on the home actually being absent rather than run unconditionally.
+func TestMacosSetupLeavesAnExistingHomeAlone(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec) // SandboxUserExists and PathIsDir both true
+	var buf bytes.Buffer
+	d.Out = &buf
+	if rc := MacosSetup(d); rc != 0 {
+		t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
+	}
+	if joined := strings.Join(rec, "\n"); strings.Contains(joined, "createhomedir") ||
+		strings.Contains(joined, "chown -R") {
+		t.Errorf("reprovisioned a home that was already there:\n%s", joined)
+	}
+}
+
+// TestMacosSetupAbortsWhenTheHomeCannotBeReprovisioned: a failed repair must not be
+// followed by the "✓ ready … preconditions pass" verdict, which is exactly what the
+// unrepaired state used to get.
+func TestMacosSetupAbortsWhenTheHomeCannotBeReprovisioned(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	d.SandboxUserExists = func() bool { return true }
+	d.PathIsDir = func(p string) bool { return p != SandboxHome() }
+	d.Run = func(argv []string) int {
+		rec = append(rec, "run:"+strings.Join(argv, " "))
+		if strings.Contains(strings.Join(argv, " "), "createhomedir") {
+			return 1
+		}
+		return 0
+	}
+	var buf bytes.Buffer
+	d.Out = &buf
+	if rc := MacosSetup(d); rc != 1 {
+		t.Errorf("rc = %d, want 1 (a failed home repair aborts setup)", rc)
+	}
+	if strings.Contains(buf.String(), "backend ready") {
+		t.Errorf("reported ready after a failed home repair:\n%s", buf.String())
+	}
+}
+
+// TestRunRefusesWhenTheSandboxHomeIsMissing is the launch half of the same defect. The
+// launch checked that the ACCOUNT exists and never that its HOME does, so a deleted home
+// was diagnosed at the far end of the boot — after the full nix build — by a message that
+// blamed the WORKSPACE ACL and prescribed `yolo macos-fix-permissions <workspace>`, which
+// cannot reach /Users/_yolojail. Same rule item 10's fix applied: the remedy has to reach
+// the path it names.
+func TestRunRefusesWhenTheSandboxHomeIsMissing(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	d.PathIsDir = func(p string) bool { return p != SandboxHome() }
+	var buf bytes.Buffer
+	d.Out = &buf
+	if rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/proj")); rc != 1 {
+		t.Errorf("rc = %d, want 1\n%s", rc, buf.String())
+	}
+	if joined := strings.Join(rec, "\n"); strings.Contains(joined, "proxy:") {
+		t.Errorf("launched anyway:\n%s", joined)
+	}
+	out := buf.String()
+	if !strings.Contains(out, SandboxHome()) || !strings.Contains(out, "yolo macos-setup") {
+		t.Errorf("refusal must name the missing home and the remedy that reaches it:\n%s", out)
+	}
+	if strings.Contains(out, "macos-fix-permissions") {
+		t.Errorf("refusal prescribes the remedy that cannot reach the home:\n%s", out)
+	}
+}
+
 // TestMacosSetupAbortsOnPasswordFailure is the finding-6 fix: a failed
 // SetRandomPassword must abort setup loudly (was silently dropped, leaving the
 // account potentially password-less).
