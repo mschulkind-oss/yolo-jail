@@ -15,6 +15,7 @@ package cli
 // prints fails the count in both.
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -144,4 +145,58 @@ func inapplicableKindsInConfig(t *testing.T) (kinds []packdecl.Kind, contributio
 		}
 	}
 	return kinds, contributions
+}
+
+// THE AUTONOMY LINE MUST NOT PROMISE A FOLD THAT DOES NOT HAPPEN.
+//
+// The line ends "folded into the config surfaces below", and `f.Autonomy` was "any pack
+// declares the kind" — the same answer for a pack whose GUARDED posture patches a settings key
+// and for one that has no guarded posture at all. copilot is the second kind and became so on
+// the day `--yolo` moved under `kind: "autonomy"`: its autonomy is a launch flag, a flag has no
+// persistence, and not selecting it IS the tightening, so there is no guarded posture and
+// nothing to fold. Before that move copilot declared no autonomy kind, so a copilot-only apply
+// printed no line at all — the false promise arrived with the fix.
+//
+// The posture is still STATED, because "did my jail-bypass keys reach my real home?" is the
+// question this command exists to answer and "no, and there were none" is an answer. What
+// changes is the second clause.
+func TestHostApplyAutonomyLineDoesNotPromiseAnAbsentFold(t *testing.T) {
+	home := t.TempDir()
+	selectPacks(t, home, `"copilot"`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	_, report := surveyApply(t)
+
+	// Fixture guard: the whole test is vacuous if copilot ever grows a guarded posture.
+	for _, p := range loadedPacksForTest(t) {
+		if p.Name != "copilot" {
+			continue
+		}
+		if posture := p.Decl.PostureFor(render.ProfileFor(render.KindHost).AgentAutonomy); posture != nil {
+			t.Fatalf("fixture bug: copilot now HAS a guarded posture, so this notch does fold " +
+				"something and the test below asserts the wrong half")
+		}
+	}
+
+	if !strings.Contains(report, "guarded posture") {
+		t.Errorf("the posture is still the answer to the question this command exists for, so "+
+			"the line must print:\n%s", report)
+	}
+	if strings.Contains(report, "folded into the config surfaces below") {
+		t.Errorf("no pack's guarded posture patches a surface in this run, so the report points "+
+			"at surfaces that carry no patch:\n%s", report)
+	}
+}
+
+// The other direction, so the clause is not simply deleted: a pack set whose guarded posture
+// DOES patch a surface still says where the patch landed.
+func TestHostApplyAutonomyLineNamesTheFoldWhenThereIsOne(t *testing.T) {
+	shippedPacksFixture(t)
+	_, report := surveyApply(t)
+
+	if !strings.Contains(report, "folded into the config surfaces below") {
+		t.Errorf("claude, codex, agy, opencode and pi all patch a settings key in their guarded "+
+			"posture, so the fold is real and the line must say where it went:\n%s", report)
+	}
 }

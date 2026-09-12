@@ -60,6 +60,13 @@ type notchFacts struct {
 	// cannot differ between packs in one run — render.Host(...).Profile().AgentAutonomy
 	// resolves to guarded here — so the only per-run question is whether to say it.
 	Autonomy bool
+	// AutonomyFolds is whether the SELECTED posture actually patches a config surface, which
+	// is a different question from whether the kind is declared and became a different ANSWER
+	// the day copilot shipped an autonomy contribution whose autonomous posture is a launch
+	// flag and whose guarded posture is absent (a flag has no persistence, so not selecting it
+	// IS the tightening). The line below promises the fold "in the config surfaces below", and
+	// for a pack set like that one there is nothing below to point at.
+	AutonomyFolds bool
 }
 
 // surveyNotchFacts walks every contribution the resolved pack set declares and collects the
@@ -71,7 +78,14 @@ type notchFacts struct {
 func surveyNotchFacts(loaded []*packload.Pack, fields render.FieldSet) notchFacts {
 	var f notchFacts
 	seen := map[packdecl.Kind]bool{}
+	// The posture this notch selects, read off render's ONE notch->preset table rather than
+	// spelled `false` here: the survey must fold what the render folds, and a literal is how
+	// the two come apart.
+	hostAutonomy := render.ProfileFor(render.KindHost).AgentAutonomy
 	for _, p := range loaded {
+		if posture := p.Decl.PostureFor(hostAutonomy); posture != nil && len(posture.Config) > 0 {
+			f.AutonomyFolds = true
+		}
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind == packdecl.KindAutonomy {
 				f.Autonomy = true
@@ -120,7 +134,14 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 			plural(len(names), "does not apply", "do not apply"), strings.Join(names, ", "))
 	}
 	if f.Autonomy {
-		pr.Printf("  [cyan]autonomy[/cyan]   guarded posture — permission prompts stay ON; " +
-			"folded into the config surfaces below")
+		where := "folded into the config surfaces below"
+		if !f.AutonomyFolds {
+			// SAY SO rather than dropping the line. The posture is still the answer to "did my
+			// jail-bypass keys reach my real home?" — for a pack whose autonomy is a launch
+			// flag alone the answer is no, and there was nothing to fold — but pointing at
+			// surfaces that carry no patch would be a promise the report below does not keep.
+			where = "no selected pack's guarded posture patches a config surface here"
+		}
+		pr.Printf("  [cyan]autonomy[/cyan]   guarded posture — permission prompts stay ON; %s", where)
 	}
 }
