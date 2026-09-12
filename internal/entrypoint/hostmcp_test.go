@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // embeddedPlaceholderSurface is a surface whose managed layer uses the placeholder as a
@@ -70,7 +71,7 @@ func hostRenderClaude(t *testing.T, home string, observe bool, contributors ...*
 		t.Fatalf("embedded claude: %v", err)
 	}
 	overlays := packoverlay.Collect(append([]*packload.Pack{claude}, contributors...), false, nil)
-	results, err := RenderHostPack(claude, home, observe, overlays)
+	results, err := RenderHostPack(claude, home, render.OwnershipAssert, observe, overlays)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -542,7 +543,7 @@ func TestHostScalarOverwriteIsNotAnEntryLoss(t *testing.T) {
 // might be assumed to mirror.
 func TestPruneWorkspaceKeyedHandlesEmbeddedPlaceholder(t *testing.T) {
 	s := embeddedPlaceholderSurface()
-	pruned, keys := pruneWorkspaceKeyed(s)
+	pruned, keys := PruneWorkspaceKeyed(s)
 	if got := strings.Join(keys, ","); !strings.Contains(got, "${workspace}/sub") {
 		t.Errorf("a key CONTAINING the placeholder must be pruned; got %v", keys)
 	}
@@ -562,7 +563,7 @@ func TestPruneWorkspaceKeyedKeepsDeclaredEmptyObject(t *testing.T) {
 	s := embeddedPlaceholderSurface()
 	m, _ := s.Managed.(map[string]any)
 	m["emptyOnPurpose"] = map[string]any{}
-	pruned, keys := pruneWorkspaceKeyed(s)
+	pruned, keys := PruneWorkspaceKeyed(s)
 	for _, k := range keys {
 		if strings.Contains(k, "emptyOnPurpose") {
 			t.Errorf("a declared-empty object was not pruned by anything: %v", keys)

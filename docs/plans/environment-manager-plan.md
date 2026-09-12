@@ -356,6 +356,10 @@ the confirm-gated-install detail ([OQ-6](#open-questions-to-resolve-before-their
   leaves every key the agent wrote untouched — no whole-file compose, no capture overlay.
   A yolo-managed key the agent edits is overwritten on the next `apply` (yolo owns it,
   [OQ-1](#open-questions-to-resolve-before-their-phase)). `${workspace}`-using surfaces are refused (no referent).
+  ⚠ **As shipped this is the `host_management: assert` contract, not the whole notch**
+  (2026-09-12): the reversal below made the mechanism a function of a declared key, so under
+  `own` the same surfaces render `stateful` with a capture store. `assert` is the default and
+  the unset state, so the sentence above still describes what an unconfigured machine does.
 - **4.3** `program` (install) below `jail` is **confirm-gated, not refused** ([§4.1](../design/yolo-as-environment-manager.md#41-the-escape-valve-which-is-the-actual-user-story), the
   reviewed position): TTY-only, permission-bounded. Per [OQ-6](#open-questions-to-resolve-before-their-phase) the confirm shows the resolved
   **URL only** (not the fetched script); per [OQ-7](#open-questions-to-resolve-before-their-phase)/[OQ-9](#open-questions-to-resolve-before-their-phase) confirmations are **batched by
@@ -707,7 +711,7 @@ implementing any phase.
 > | :--- | :--- | :--- |
 > | **[OQ-1](#open-questions-to-resolve-before-their-phase)** — no `--revert` on the host target | [§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) step 3 | `--revert` under `assert`, consuming the provenance record that now exists |
 > | **[OQ-3](#open-questions-to-resolve-before-their-phase)** — retire the `reads-host` read-*in* layer | [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) | The layer STAYS. Ruling its binding, failure direction and coverage decided that it exists |
-> | **[OQ-4](#open-questions-to-resolve-before-their-phase) / [OQ-5](#open-questions-to-resolve-before-their-phase)** — pure `rmw`; whole-file `stateful`+capture rejected, "capture buys nothing" | [`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger) | `own` renders `stateful` with a host capture store, which is what makes adoption byte-identical |
+> | **[OQ-4](#open-questions-to-resolve-before-their-phase) / [OQ-5](#open-questions-to-resolve-before-their-phase)** — pure `rmw`; whole-file `stateful`+capture rejected, "capture buys nothing" | [`OQ-CO3`](../design/config-ownership-and-promotion.md#13-decision-ledger) | `own` renders `stateful` with a host capture store, which is what makes adoption byte-identical. **SHIPPED 2026-09-12**: the store is `<home>/.local/share/yolo-jail/host-capture/`, and [OQ-5](#open-questions-to-resolve-before-their-phase) is its answer |
 >
 > **The lesson this pair leaves behind, worth more than the rows:** before opening a question,
 > search sibling ledgers for a prior ruling on the same subject. A cross-document ledger

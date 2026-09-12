@@ -1082,11 +1082,12 @@ delete. Folding the record into the capture store would make reverting an
 `assert` home depend on a directory only `own` creates.
 
 **The directory is RESOLVED, never hand-built.** `render.Target.SidecarDir()`
-is what must answer it for `KindHost` — today that method answers `""` for every
-notch but jail and preview
-([`target.go:243`](../../internal/render/target.go#L243)) — and both the writer
-and every reader ask it there rather than joining the path themselves. The precedent is `hostProvenancePath`,
-which resolves through `render.Host(paths.Home(), nil).ProvenancePath` precisely
+answers it for `KindHost` under `own`, and `""` under the other two contracts —
+which keeps "an empty answer means this target keeps no capture state" true at
+every notch. Both the writer and every reader ask it there rather than joining
+the path themselves, and the three capture-file names moved onto the `Target`
+beside `ProvenancePath` for the same reason. The precedent is `hostProvenancePath`,
+which resolves through `render.Host(…).ProvenancePath` precisely
 so one definition serves the entrypoint that writes and the CLI that reads. Its
 docstring calls two hand-copied path builders — *"how the CLI's own prism\* twins
 already work"* — *"a standing hazard"*

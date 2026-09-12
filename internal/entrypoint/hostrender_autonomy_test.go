@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"encoding/json"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ func TestHostRenderClaudeDropsBypass(t *testing.T) {
 	home := t.TempDir()
 
 	// write=true (assert) so the file actually lands, then inspect it.
-	results, rerr := RenderHostPack(claude, home, false, nil)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -100,7 +101,7 @@ func TestHostRenderAllAgentsGuarded(t *testing.T) {
 			t.Fatalf("embedded %s: %v", agentName, err)
 		}
 		home := t.TempDir()
-		if _, rerr := RenderHostPack(p, home, false, nil); rerr != nil {
+		if _, rerr := RenderHostPack(p, home, render.OwnershipAssert, false, nil); rerr != nil {
 			t.Fatalf("RenderHostPack %s: %v", agentName, rerr)
 		}
 		data, err := os.ReadFile(filepath.Join(home, rel))
@@ -136,7 +137,7 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 		t.Fatalf("embedded claude: %v", err)
 	}
 	// Observe: must report the overwrite BEFORE writing anything.
-	results, rerr := RenderHostPack(claude, home, true, nil)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, true, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack observe: %v", rerr)
 	}
@@ -169,7 +170,7 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 			`"skipDangerousModePermissionPrompt":false}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	results, _ = RenderHostPack(claude, home, true, nil)
+	results, _ = RenderHostPack(claude, home, render.OwnershipAssert, true, nil)
 	for _, r := range results {
 		if r.Surface == "claude/settings" && len(r.Overwrites) > 0 {
 			t.Errorf("an identical value must not be reported as an overwrite: %v", r.Overwrites)

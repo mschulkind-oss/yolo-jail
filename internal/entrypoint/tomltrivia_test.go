@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
 
@@ -60,7 +61,7 @@ func renderCopilotConfigHost(t *testing.T, home string) HostRenderResult {
 	if err != nil {
 		t.Fatalf("embedded copilot: %v", err)
 	}
-	results, rerr := RenderHostPack(copilot, home, false, nil)
+	results, rerr := RenderHostPack(copilot, home, render.OwnershipAssert, false, nil)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}

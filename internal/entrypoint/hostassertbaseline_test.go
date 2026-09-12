@@ -76,7 +76,7 @@ func assertBaselineHome(t *testing.T) (home, path string) {
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil); err != nil {
 		t.Fatalf("first --assert apply: %v", err)
 	}
 	return home, path
@@ -126,7 +126,7 @@ func TestHostAssertIsAFixedPoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read after first apply: %v", err)
 	}
-	if _, err := RenderHostPack(adoptionBaselinePack(t), home, false, nil); err != nil {
+	if _, err := RenderHostPack(adoptionBaselinePack(t), home, render.OwnershipAssert, false, nil); err != nil {
 		t.Fatalf("second --assert apply: %v", err)
 	}
 	second, err := os.ReadFile(path)
@@ -154,7 +154,7 @@ func TestHostRenderRunsTheMechanismTheCensusNames(t *testing.T) {
 	home, path := assertBaselineHome(t)
 
 	// The fixture surface declares no mode, i.e. `stateful`.
-	mechanism, decided := render.Host(home, nil).Modes().Mechanism(manifest.ModeStateful)
+	mechanism, decided := render.Host(home, nil, render.OwnershipAssert).Modes().Mechanism(manifest.ModeStateful)
 	if !decided || mechanism != manifest.ModeRMW {
 		t.Fatalf("the host census names %q (decided=%v) for a `stateful` surface, not %q. The "+
 			"render below is still doing rmw — decide what RenderHostPack should run now, and "+

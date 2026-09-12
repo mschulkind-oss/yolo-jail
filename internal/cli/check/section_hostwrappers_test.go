@@ -218,34 +218,64 @@ func TestHostWrappersWarnsOnEmptyDir(t *testing.T) {
 //
 // It pins the CALL SITE. Deleting `hostManagementRow(r)` from sectionHostWrappers leaves
 // hostManagementRow itself perfectly testable and this test red.
+//
+// ⚠ `own` WAS IN THIS LOOP and is deliberately not any more: it warned only because the apply
+// refused while whole-file host composition was unbuilt, and it is built now
+// (docs/design/config-ownership-and-promotion.md §10's last step). Its replacement is
+// TestHostManagementRowPassesUnderOwn — the same fixture asserting the opposite outcome, so
+// "own no longer warns" is something a test says rather than a row that quietly vanished.
 func TestHostManagementRowWarnsWhenTheApplyCannotRun(t *testing.T) {
-	for _, mode := range []string{"none", "own"} {
-		t.Run(mode, func(t *testing.T) {
-			o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
-			cfg := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
-			if err := os.WriteFile(cfg,
-				[]byte(`{"host_wrappers": true, "host_management": "`+mode+`"}`), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			o.sectionHostWrappers(r)
-			out := buf.String()
-			if !strings.Contains(out, `host_management is "`+mode+`"`) {
-				t.Errorf("the section never names the declared ownership contract:\n%s", out)
-			}
-			// TWO warns: this row, and the pre-existing not-on-PATH one. The count is the
-			// assertion that the row is summary-COUNTED rather than prose nobody tallies.
-			if r.warned != 2 {
-				t.Errorf("warned = %d, want 2 (host_management + not-on-PATH):\n%s", r.warned, out)
-			}
-			if !strings.Contains(out, "refuses") {
-				t.Errorf("the row must say the apply refuses, which is what makes the "+
-					"wrappers inert:\n%s", out)
-			}
-			if !strings.Contains(out, filepath.Join(".config", "yolo-jail")) {
-				t.Errorf("the row must name the USER config — the only scope the key is "+
-					"read from:\n%s", out)
-			}
-		})
+	const mode = "none"
+	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
+	cfg := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+	if err := os.WriteFile(cfg,
+		[]byte(`{"host_wrappers": true, "host_management": "`+mode+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, `host_management is "`+mode+`"`) {
+		t.Errorf("the section never names the declared ownership contract:\n%s", out)
+	}
+	// TWO warns: this row, and the pre-existing not-on-PATH one. The count is the
+	// assertion that the row is summary-COUNTED rather than prose nobody tallies.
+	if r.warned != 2 {
+		t.Errorf("warned = %d, want 2 (host_management + not-on-PATH):\n%s", r.warned, out)
+	}
+	if !strings.Contains(out, "refuses") {
+		t.Errorf("the row must say the apply refuses, which is what makes the "+
+			"wrappers inert:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join(".config", "yolo-jail")) {
+		t.Errorf("the row must name the USER config — the only scope the key is "+
+			"read from:\n%s", out)
+	}
+}
+
+// TestHostManagementRowPassesUnderOwn: `own` renders, so the wrappers this section is about do
+// get regenerated and there is nothing inert to warn about. The row still SPEAKS — a contract
+// under which yolo composes the user's real config files whole is exactly the thing a reader
+// should see stated — it just says so as a [PASS], which is this section's criterion: warn for
+// configuration that is not in effect, report configuration that is.
+func TestHostManagementRowPassesUnderOwn(t *testing.T) {
+	o, r, buf := hostWrappersFixture(t, true, []string{"claude"}, "/bin")
+	cfg := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+	if err := os.WriteFile(cfg,
+		[]byte(`{"host_wrappers": true, "host_management": "own"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o.sectionHostWrappers(r)
+	out := buf.String()
+	if !strings.Contains(out, `host_management is "own"`) {
+		t.Errorf("the section never names the declared ownership contract:\n%s", out)
+	}
+	// ONE warn: the pre-existing not-on-PATH row alone.
+	if r.warned != 1 {
+		t.Errorf("warned = %d, want 1 (the not-on-PATH row only) — `own` renders, so nothing "+
+			"about it makes the wrappers inert:\n%s", r.warned, out)
+	}
+	if strings.Contains(out, "not built yet") {
+		t.Errorf("the row still says whole-file host composition is unbuilt:\n%s", out)
 	}
 }
 

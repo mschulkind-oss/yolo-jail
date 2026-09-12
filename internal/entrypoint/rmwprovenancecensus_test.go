@@ -35,8 +35,11 @@ func TestRMWProvenanceFollowsTheTargetsModeCensus(t *testing.T) {
 		Managed: map[string]any{"telemetry": false},
 	}
 
-	// HOST: rmw is the only mode, so it records.
-	eh := &Env{Home: t.TempDir(), Vars: map[string]string{}, hostTarget: true}
+	// HOST under `assert`: rmw is the only mode, so it records. The contract is STATED here
+	// because the census is a function of it — a host Env assembled without one is undecided
+	// and writes nothing, which is the fail-closed answer and not this test's subject.
+	eh := &Env{Home: t.TempDir(), Vars: map[string]string{},
+		hostTarget: true, hostOwnership: render.OwnershipAssert}
 	if err := renderSurfaceRMWSurface(eh, surface, nil, nil); err != nil {
 		t.Fatalf("host render: %v", err)
 	}
@@ -64,7 +67,7 @@ func TestRMWProvenanceFollowsTheTargetsModeCensus(t *testing.T) {
 	// fourth notch: if the writer went back to comparing against render.KindHost these two
 	// would still agree today and diverge the moment a notch's census said something its Kind
 	// equality could not express.
-	if !render.Host(eh.Home, nil).Modes().Records(manifest.ModeRMW) {
+	if !render.Host(eh.Home, nil, render.OwnershipAssert).Modes().Records(manifest.ModeRMW) {
 		t.Error("the host census no longer says rmw records — the writer's behavior above and " +
 			"the census it reads have come apart")
 	}
@@ -84,7 +87,7 @@ func TestHostCensusIsWhatKeepsADroppedPacksKeyAttributable(t *testing.T) {
 	dropme := overlayContributorPack(t, "dropme", map[string]any{"fileSuggestion": "run-fzf"})
 
 	overlays := packoverlay.Collect([]*packload.Pack{owner, dropme}, false, nil)
-	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
 	first, found := hostProvenance(t, home, "acme", "settings")

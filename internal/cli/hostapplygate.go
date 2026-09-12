@@ -117,15 +117,20 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	}
 	// NOTHING TO CHECK WITHOUT A RENDER. Under `host_management: none` yolo writes no host
 	// surface, so there is no staleness for this gate to find and the check is a NO-OP rather
-	// than a nag (config-ownership-and-promotion.md §4.1). `own` is the same answer for a
-	// different reason: the apply it would offer to run refuses today (hostmanagementgate.go),
-	// so prompting about a render nothing can perform would stop launches over a question with
-	// no yes. The two keys are orthogonal and both are read — this one says HOW the host
-	// renders, host_apply_on_launch says WHEN a re-render is checked (§4.4).
+	// than a nag (config-ownership-and-promotion.md §4.1). The two keys are orthogonal and both
+	// are read — this one says HOW the host renders, host_apply_on_launch says WHEN a re-render
+	// is checked (§4.4).
+	//
+	// ⚠ `own` USED TO SHARE THIS EXIT and no longer does. While whole-file composition was
+	// unbuilt the apply this gate offers to run refused, so prompting would have stopped
+	// launches over a question with no yes; now it renders, so an owned home goes stale exactly
+	// the way an asserted one does — and MORE consequentially, since under `own` the file is
+	// derived output and a stale render is a file that disagrees with its own definition.
+	// Whatever renders is what this checks.
 	//
 	// Ordered after the opt-in, not before it, so the overwhelmingly common case (the key off)
 	// still reads the user config exactly once.
-	if config.HostManagementMode() != config.HostManagementAssert {
+	if config.HostManagementMode() == config.HostManagementNone {
 		return true
 	}
 

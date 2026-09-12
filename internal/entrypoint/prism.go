@@ -35,9 +35,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// prismSidecarDir is the per-workspace directory holding the §5 capture-diff
-// sidecars (last_render + overlay). It lives under the workspace's gitignored
-// .yolo/ — the overlay is per-workspace scope (§4) and the agent never sees it.
+// prismSidecarDir is the directory holding the §5 capture-diff sidecars (last_render,
+// overlay, selection) for THIS target. In a jail that is the workspace's gitignored .yolo/ —
+// the overlay is per-workspace scope (§4) and the agent never sees it; at the host notch
+// under `host_management: own` it is the state-dir capture store
+// (docs/design/config-ownership-and-promotion.md §6.2). EMPTY at a target that keeps no
+// capture state, which every caller here already treats as "do not write one".
+//
+// Target-resolved, never hand-built: the three paths below are the file-NAMING half, and the
+// Target owns both halves so the CLI's readers and this writer cannot disagree about either.
 func prismSidecarDir(e *Env) string {
 	return e.renderTarget().SidecarDir()
 }
@@ -45,7 +51,7 @@ func prismSidecarDir(e *Env) string {
 // prismLastRenderPath is the last_render sidecar for one surface: the exact
 // surface-codec bytes yolo wrote last boot (§5).
 func prismLastRenderPath(e *Env, agent, name string) string {
-	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".last_render")
+	return e.renderTarget().LastRenderPath(agent, name)
 }
 
 // prismSelectionRecordPath is the selection record for one surface: the value
@@ -63,7 +69,28 @@ func prismLastRenderPath(e *Env, agent, name string) string {
 // when the surface writes a selection — a surface whose derive emits no selection
 // gets no file at all.
 func prismSelectionRecordPath(e *Env, agent, name string) string {
-	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".selection.json")
+	return e.renderTarget().SelectionPath(agent, name)
+}
+
+// writeSidecar writes one capture sidecar at the mode its target's store requires, and then
+// ENFORCES that mode rather than trusting the create.
+//
+// The chmod is not belt-and-braces. WriteInPlace truncates an existing inode (it must — a
+// sidecar can be bind-mount-visible), and os.WriteFile's perm argument applies at CREATION
+// only, so a store whose files predate a mode change would keep the old one forever. The host
+// store's 0600 is a claim about what other accounts in a real home can read, and a claim that
+// holds only for files yolo happened to create today is not one.
+func writeSidecar(t render.Target, path, content string) error {
+	if path == "" {
+		// A target with no capture store. Callers check before composing, so this is the
+		// belt: writing a bare relative name into the process's cwd is the failure
+		// render.Target.sidecarPath returns "" to prevent.
+		return fmt.Errorf("entrypoint: no capture sidecar store at this target")
+	}
+	if err := WriteStringInPlace(path, content, t.SidecarFileMode()); err != nil {
+		return err
+	}
+	return os.Chmod(path, t.SidecarFileMode())
 }
 
 // readSelectionRecord loads the selection record a previous boot left, or nil when
@@ -99,7 +126,8 @@ func writeSelectionRecord(e *Env, agent, name string, record map[string]any) {
 			": " + err.Error())
 		return
 	}
-	if err := writeInPlaceString(prismSelectionRecordPath(e, agent, name), string(data)+"\n"); err != nil {
+	if err := writeSidecar(e.renderTarget(), prismSelectionRecordPath(e, agent, name),
+		string(data)+"\n"); err != nil {
 		e.warn("warning: could not write the selection record for " + agent + "/" + name +
 			": " + err.Error())
 	}
@@ -175,7 +203,7 @@ func provenanceLines(provenance map[string]string) []string {
 // prismOverlayPath is the overlay sidecar for one surface: the accumulated
 // in-jail edits, always JSON (the one codec that round-trips null tombstones).
 func prismOverlayPath(e *Env, agent, name string) string {
-	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".overlay.json")
+	return e.renderTarget().OverlayPath(agent, name)
 }
 
 // renderSurfaceStateful runs the §5/§3.2 stateful render for one builtin surface
@@ -227,6 +255,46 @@ func renderSurfaceStateful(e *Env, agent, name string, hostBytes []byte, compute
 // none, the universal case today). They fold BELOW the capture overlay, so a user's
 // in-jail edit still wins over another pack's contribution.
 func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*agentcfg.StatefulOutput, error) {
+	r, err := composeStatefulSurface(e, surface, hostBytes, computed, overlays)
+	if err != nil {
+		return nil, err
+	}
+	if err := persistStatefulSurface(e, r); err != nil {
+		return nil, err
+	}
+	return r.out, nil
+}
+
+// statefulRender is one composed stateful surface and everything persisting it needs: the
+// render, the file it goes to, and the selection record decided alongside it.
+//
+// It exists because the HOST notch has an OBSERVE posture the boot path does not — `yolo host
+// apply` without --assert must report what an apply would do while writing nothing — and the
+// honest way to answer "would this change the file?" is to run the render the writer runs and
+// compare its bytes. Splitting compose from persist is what lets both postures share ONE
+// render; re-deriving the answer from the layers would be a second model of the write, which
+// is exactly the drift hostSurfaceWouldChange's docstring refuses for the rmw half.
+type statefulRender struct {
+	surface manifest.Surface // after ${workspace} substitution — what actually composed
+	path    string           // the destination, home-expanded for this target
+	current []byte           // the file's bytes BEFORE this render (nil when absent)
+	out     *agentcfg.StatefulOutput
+	// selection is the record this render decided, persisted only if it writes. A dry run
+	// must not advance it: the record is yolo's memory of which values are its own, and
+	// moving it without writing the file would leave the next real render reading a
+	// baseline that never reached disk.
+	selection map[string]any
+}
+
+// text is the exact file content this render produces — the same expression persist writes,
+// so a caller comparing it against r.current is comparing against what would land.
+func (r *statefulRender) text() string {
+	return generatedHeader(r.surface) + surfaceText(r.surface, r.out.Result.Encoded)
+}
+
+// composeStatefulSurface is the PURE half of the stateful render: read the sidecars and the
+// current file, decide the selection, compose. It writes nothing.
+func composeStatefulSurface(e *Env, surface manifest.Surface, hostBytes []byte, computed map[string]any, overlays []agentcfg.Overlay) (*statefulRender, error) {
 	// A11: resolve ${workspace} in the surface's layer DATA before composing. The
 	// workspace root is not always "/workspace" (YOLO_WORKSPACE; macos-user has no
 	// /workspace), so a literal in the manifest would assert keys under a path the
@@ -283,15 +351,23 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 		return nil, err
 	}
 
-	// Persist the render to the jail surface path.
-	if IsMountPoint(surfacePath) {
-		return out, nil
+	return &statefulRender{surface: surface, path: surfacePath, current: current,
+		out: out, selection: selectionRecord}, nil
+}
+
+// persistStatefulSurface writes what composeStatefulSurface decided: the surface file, the
+// three capture sidecars, and the provenance record.
+func persistStatefulSurface(e *Env, r *statefulRender) error {
+	surface, out := r.surface, r.out
+	// Persist the render to the surface path.
+	if IsMountPoint(r.path) {
+		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
-		return nil, err
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+		return err
 	}
-	if err := writeInPlaceString(surfacePath, generatedHeader(surface)+surfaceText(surface, out.Result.Encoded)); err != nil {
-		return nil, err
+	if err := writeInPlaceString(r.path, r.text()); err != nil {
+		return err
 	}
 
 	// Persist the two sidecars (last_render matches the surface bytes exactly, so
@@ -299,20 +375,29 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	// must be the SAME bytes written to the surface — so it goes through the same
 	// surfaceText codec-aware terminator, or the next boot's diff sees a spurious
 	// change on a keyless surface.
-	if err := os.MkdirAll(prismSidecarDir(e), 0o755); err != nil {
-		return nil, err
+	//
+	// THE STORE'S OWN MODES, from the Target. The host capture store is 0700/0600 — it sits
+	// in a real home and the overlay holds whatever the user's file held that yolo's layers do
+	// not, a credential included — while the jail's workspace tree stays 0755/0644. ⚠ 0600 is
+	// a FILE mode: a directory without its execute bit cannot be traversed, so even the owner
+	// would get EACCES opening anything in it (§6.2, measured).
+	target := e.renderTarget()
+	if err := os.MkdirAll(prismSidecarDir(e), target.SidecarDirMode()); err != nil {
+		return err
 	}
-	if err := writeInPlaceString(lastRenderPath, surfaceText(surface, out.LastRenderBytes)); err != nil {
-		return nil, err
+	if err := writeSidecar(target, prismLastRenderPath(e, surface.Agent, surface.Name),
+		surfaceText(surface, out.LastRenderBytes)); err != nil {
+		return err
 	}
 	// The selection record, if this surface carries a selection at all: what yolo's
 	// selection mechanism wrote THIS boot, so the next boot can tell its own values
 	// from the user's. Beside the last_render write for the reason
 	// writeSelectionRecord gives; skipped on the mount-point early return above,
 	// where no render reached the file.
-	writeSelectionRecord(e, surface.Agent, surface.Name, selectionRecord)
-	if err := writeInPlaceString(prismOverlayPath(e, surface.Agent, surface.Name), string(out.OverlayJSON)+"\n"); err != nil {
-		return nil, err
+	writeSelectionRecord(e, surface.Agent, surface.Name, r.selection)
+	if err := writeSidecar(target, prismOverlayPath(e, surface.Agent, surface.Name),
+		string(out.OverlayJSON)+"\n"); err != nil {
+		return err
 	}
 	// Provenance record: the per-key winning layer Compose already computed. Additive,
 	// best-effort, and empty-is-written — see writeProvenanceRecord for why each of the
@@ -321,7 +406,7 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 		writeProvenanceRecord(e, surface.Agent, surface.Name, out.Result.Provenance)
 	}
 	noteCapturedOverlay(e, surface, out)
-	return out, nil
+	return nil
 }
 
 // noteCapturedOverlay prints a one-line boot notice when a surface renders with a

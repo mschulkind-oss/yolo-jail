@@ -113,6 +113,7 @@ func PruneHostOverlayKeys(candidates []*packload.Pack, active map[string]bool,
 	}
 	// hostTarget: the same projection RenderHostPack uses, so the provenance path and the
 	// surface path resolve against THIS home rather than a jail's tree. See Env.hostTarget.
+	// No `host_management` contract — see RevertHostRender for why this walk needs none.
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 
 	var out []HostOverlayOrphan

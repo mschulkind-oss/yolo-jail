@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // overlayOwnerPack is the Layout C OWNER: a pack declaring one surface, with a managed
@@ -329,7 +330,7 @@ func TestHostRenderAppliesOverlayFromAnotherPack(t *testing.T) {
 	// autonomy=false, matching applyHost: the host notch renders the guarded posture.
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	results, err := RenderHostPack(owner, home, false, overlays)
+	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -356,7 +357,7 @@ func TestHostRenderOwnersManagedBeatsOverlay(t *testing.T) {
 	pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
 
-	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 	got := readRenderedJSON(t, home, ".acme/settings.json")
@@ -381,7 +382,7 @@ func TestHostRenderOrphanOverlayWritesNothing(t *testing.T) {
 		t.Fatalf("want the overlay reported as orphaned, got %+v", overlays.Orphans)
 	}
 	// Rendering the CONTRIBUTOR writes nothing: it declares no surface of its own.
-	results, err := RenderHostPack(contributor, home, false, overlays)
+	results, err := RenderHostPack(contributor, home, render.OwnershipAssert, false, overlays)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -411,7 +412,7 @@ func TestHostRenderWarnsWhenAnOverlayClobbersAUserValue(t *testing.T) {
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	// observe=true: the warning must appear BEFORE anything is written (finding D2).
-	results, err := RenderHostPack(owner, home, true, overlays)
+	results, err := RenderHostPack(owner, home, render.OwnershipAssert, true, overlays)
 	if err != nil {
 		t.Fatalf("RenderHostPack observe: %v", err)
 	}
@@ -435,7 +436,7 @@ func TestHostRenderWarnsWhenAnOverlayClobbersAUserValue(t *testing.T) {
 // as before this wiring existed.
 func TestHostRenderWithNilOverlaySetIsUnchanged(t *testing.T) {
 	home := t.TempDir()
-	if _, err := RenderHostPack(overlayOwnerPack(t, ""), home, false, nil); err != nil {
+	if _, err := RenderHostPack(overlayOwnerPack(t, ""), home, render.OwnershipAssert, false, nil); err != nil {
 		t.Fatalf("RenderHostPack with a nil overlay set: %v", err)
 	}
 	got := readRenderedJSON(t, home, ".acme/settings.json")
@@ -548,7 +549,7 @@ func TestHostRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false,
 		map[string]string{"acme": "zai"})
 
-	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 	got := readRenderedJSON(t, home, ".acme/settings.json")

@@ -100,9 +100,15 @@ type HostRevert struct {
 // are eligible.
 func RevertHostRender(candidates []*packload.Pack, homeDir string, observe bool) (HostRevert, error) {
 	// hostTarget: the same projection RenderHostPack and PruneHostOverlayKeys use, so the
-	// record this reads is the one the render WROTE. prismProvenancePath is
-	// render.Host(home, nil).ProvenancePath(agent, name) — one definition, shared by the
-	// writer and this reader, rather than a second path derivation free to drift.
+	// record this reads is the one the render WROTE. prismProvenancePath resolves through
+	// render.Host(...).ProvenancePath — one definition, shared by the writer and this reader,
+	// rather than a second path derivation free to drift.
+	//
+	// NO `host_management` CONTRACT, deliberately: nothing on this walk asks the mode census,
+	// and the provenance record's location does not depend on the contract (both `assert` and
+	// `own` keep it under host-provenance/, §6.2). A revert is an rmw-shaped operation — it
+	// exists because rmw cannot express removal — so under `own` the render withdraws a
+	// dropped pack's keys by regenerating without them, and this verb has nothing to add.
 	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
 
 	var out HostRevert

@@ -19,13 +19,21 @@ package cli
 // with the key unset, which is §11's non-regression criterion and is pinned by
 // TestHostManagementAssertIsByteIdenticalToUnset.
 //
-// # `own` refuses too, and that is honest rather than strict
+// # `own` no longer refuses, and the refusal it replaced said why
 //
-// `own` is §10's last build step — the only one that can lose data. Until
-// it is, a host apply under `own` refuses. The alternative is worse than a refusal: silently
-// rendering `rmw` would tell a user who declared their file DERIVED that it is derived while
-// it still holds bytes existing nowhere else, which is the exact inference P1 exists to end.
-// A refusal that names the value is a fact the user can act on; a silent downgrade is not.
+// Until §10's last build step landed, `own` refused here: whole-file composition at the host
+// notch did not exist, and silently rendering `rmw` instead would have told a user who
+// declared their file DERIVED that it is derived while it still held bytes existing nowhere
+// else — the exact inference P1 exists to end. It is built now (render.HostOwnedModes, and
+// the `stateful` arm in entrypoint.RenderHostPack), so this file's job for `own` is the
+// TRANSLATION below rather than a refusal.
+//
+// # The translation is the other half, and it must not be a second reading of the key
+//
+// `hostOwnership` turns the declared contract into the primitive the render notch is keyed on
+// (render.HostOwnership). Every host entry takes it as a PARAMETER from here — none of them
+// reads the user config itself — so one invocation cannot render under two contracts, and a
+// test renders the contract it names rather than the invoking user's.
 
 import (
 	"fmt"
@@ -33,7 +41,25 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
+
+// hostOwnership resolves the declared `host_management` contract into the render notch's
+// ownership primitive.
+//
+// It FAILS CLOSED on a value render cannot name, and that branch is unreachable by
+// construction rather than by hope: render.TestHostOwnershipNamesMatchTheConfigVocabulary
+// pins config.KnownHostManagements against render.DeclarableOwnerships in both directions, so
+// a value added to one table alone fails a test instead of quietly landing every host target
+// on OwnershipUnstated — which renders nothing. Keeping the branch anyway is what makes that
+// outcome a refusal-shaped no-op rather than an inherited contract.
+func hostOwnership() render.HostOwnership {
+	o, ok := render.HostOwnershipFor(string(config.HostManagementMode()))
+	if !ok {
+		return render.OwnershipUnstated
+	}
+	return o
+}
 
 // hostManagementRefusal is the message for a mode that cannot render, or "" when the apply
 // may proceed. Split from the writer below so the check section and the tests read the same
@@ -46,12 +72,6 @@ func hostManagementRefusal(mode config.HostManagement) string {
 			"render into your home and nothing was written.\n" +
 			"  Set it to \"assert\" to have yolo own the keys your packs declare (and only " +
 			"those); `yolo config-ref` says what each value means."
-	case config.HostManagementOwn:
-		return "`host_management` is \"own\" in " + paths.UserConfigPath() + ", and whole-file " +
-			"composition at the host notch is not built yet.\n" +
-			"  yolo refuses rather than quietly rendering as \"assert\": that would leave you " +
-			"believing the file is derived output while it still holds bytes that exist " +
-			"nowhere else. Set it to \"assert\" to apply today."
 	}
 	return ""
 }

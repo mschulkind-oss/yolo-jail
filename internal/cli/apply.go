@@ -484,7 +484,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// could only agree by inspection. The profile table is the host notch's own (see
 	// overlayGateProfiles): a `profile`-gated overlay renders here only while its name is
 	// active at the surface's agent.
-	overlays := packoverlay.Collect(loaded, render.Host(home, nil).Profile().AgentAutonomy,
+	overlays := packoverlay.Collect(loaded, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
 		overlayGateProfiles(render.KindHost))
 	for _, prob := range overlays.Problems {
 		pr.Printf("  [red]config-overlay refused[/red] — %s", prob)
@@ -586,7 +586,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
 			rc = frc
 		}
-		results, rerr := entrypoint.RenderHostPack(p, home, !write, overlays)
+		// THE DECLARED CONTRACT, read once per invocation and passed down: it is what selects
+		// the mechanism each surface renders through (render.HostOwnership).
+		results, rerr := entrypoint.RenderHostPack(p, home, hostOwnership(), !write, overlays)
 		if rerr != nil {
 			fmt.Fprintf(errw, "yolo host apply: %s: %v\n", p.Name, rerr)
 			// A §4.1 BLOCKER, and it has to reach the verdict: this pack's surfaces are
@@ -805,7 +807,7 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	}
 	var losses []loss
 	for _, p := range loaded {
-		results, err := entrypoint.RenderHostPack(p, home, true, overlays)
+		results, err := entrypoint.RenderHostPack(p, home, hostOwnership(), true, overlays)
 		if err != nil {
 			// A preflight that cannot answer must not be read as "nothing to lose". The real
 			// render below will report the same error properly; here, fail closed by treating

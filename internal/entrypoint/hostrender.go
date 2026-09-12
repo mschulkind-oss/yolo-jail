@@ -7,14 +7,15 @@ package entrypoint
 //
 // The resolved decisions this encodes (env-manager plan OQ-1..4, host-render-target.md
 // §6.3, §6.6):
-//   - PURE RMW. Every surface is read-modify-written: yolo regenerates only the keys it
-//     declares (managed + dynamic tables) and leaves every key the agent wrote. No
-//     whole-file compose, so no capture overlay (OQ-4).
-//     ⚠ THAT IS THE CENSUS'S STATEMENT, NOT THIS FILE'S. render.HostModes is where the host
-//     notch declares it runs `rmw` alone, and the loop below ASKS — ModeSet.Mechanism, per
-//     surface — instead of calling the rmw writer unconditionally as it once did. The two
-//     agree today, which is exactly why the hardcoded version was unsafe: it would have gone
-//     on agreeing with itself after the census said something else.
+//   - THE MECHANISM IS THE DECLARED CONTRACT'S, not this file's. `host_management` selects
+//     it (config-ownership-and-promotion.md §4.1) and render's census states it per contract;
+//     the loop below ASKS — ModeSet.Mechanism, per surface — rather than calling one writer
+//     unconditionally as it once did. Under `assert` that is PURE RMW: yolo regenerates only
+//     the keys it declares (managed + dynamic tables) and leaves every key the agent wrote,
+//     with no whole-file compose and so no capture overlay (OQ-4). Under `own` it is
+//     `stateful` — whole-file composition with the capture store §6.2 specifies — and under
+//     `none` nothing composes at all. The hardcoded call was unsafe precisely because it
+//     would have gone on doing rmw after the census said one of the other two.
 //     ⚠ "So no --revert" USED TO FOLLOW HERE, and it does not: that inference was the
 //     resolved OQ-1, REVERSED on 2026-09-11 (docs/design/config-ownership-and-promotion.md
 //     §10 step 3). A revert needs to know which keys are yolo's, not a capture overlay, and
@@ -29,9 +30,10 @@ package entrypoint
 //     goes under the rendered home's STATE dir, not a workspace and not the user's config
 //     dir — see render.Target.ProvenanceDir. Assert only: recording a winner in observe
 //     posture would document a write that never happened.
-//   - NO computed layer. The live MCP/LSP tables embed jail-absolute paths, so a host
-//     render passes an empty computed map — a ${workspace}-derived value has no referent
-//     off-container (OQ-2/§6.6) and such a surface is refused, not bound.
+//   - NO JAIL-DERIVED computed layer, at either mechanism. The live MCP/LSP tables embed
+//     jail-absolute paths, so a host render passes only the wholesale table layer built from
+//     the pack's DECLARED content (hostTableLayer) — a ${workspace}-derived value has no
+//     referent off-container (OQ-2/§6.6) and such a branch is pruned, not bound.
 //   - Config kinds only. The FieldSet census: only config surfaces are target-
 //     independent; mount/reads-host/state/files are refused by name upstream (the caller
 //     reports them). This entry renders the surfaces; the confinement gate is the
@@ -47,10 +49,12 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // HostRenderResult reports, per surface, what a host render did (or would do, in
@@ -88,7 +92,7 @@ type HostRenderResult struct {
 	// Pruned lists the dotted ${workspace}-keyed paths this host render DROPPED from the
 	// surface's layers, in sorted order. Non-empty means the surface carried per-jail
 	// content that has no host referent; the surface itself may still have rendered (see
-	// pruneWorkspaceKeyed for why the two are now independent). Reported by name, never
+	// PruneWorkspaceKeyed for why the two are now independent). Reported by name, never
 	// silently — a pruned key is a declaration the user made that yolo chose not to honor.
 	Pruned []string
 	// EntryLosses reports the NAMED-ENTRY casualties of this render: an entry in a table
@@ -141,7 +145,7 @@ type HostRenderResult struct {
 	//	            Nothing the user configured changes, so a launch gate reading this field
 	//	            would prompt forever on a config they are perfectly happy with.
 	//	Pruned      a ${workspace}-keyed key with no host referent is dropped from the layers
-	//	            on EVERY render, by design (pruneWorkspaceKeyed). It is a declaration yolo
+	//	            on EVERY render, by design (PruneWorkspaceKeyed). It is a declaration yolo
 	//	            never honors at this notch, so it is never a pending change.
 	//
 	// Populated in both postures, from the file as it stands BEFORE any write, so the observe
@@ -164,12 +168,19 @@ type HostRenderResult struct {
 // this function sees ONE pack, and an overlay in pack B targets a surface pack A owns, so
 // a per-pack derivation would find none of the overlays the kind exists to carry. Pass nil
 // for a caller that has no other packs in view.
-func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *packoverlay.OverlaySet) ([]HostRenderResult, error) {
+func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwnership,
+	observe bool, overlays *packoverlay.OverlaySet) ([]HostRenderResult, error) {
 	// hostTarget: this Env drives render.Host, not render.Jail. Load-bearing for every
 	// Target-keyed path the writers resolve — without it an empty Workspace reads as the
 	// container default "/workspace" (WorkspaceDir()), so a host apply would write its
 	// provenance into some jail's .yolo/prism tree. See Env.hostTarget.
-	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true}
+	//
+	// ownership is the user's DECLARED `host_management` contract, and it is a PARAMETER for
+	// render.Host's reason: the CLI resolves the declaration from the user config, this
+	// package renders what it is told, and a test renders the contract it names rather than
+	// the invoking user's. An unresolved contract leaves the census undecided, so every
+	// surface is refused and nothing is written.
+	e := &Env{Home: homeDir, Vars: map[string]string{}, hostTarget: true, hostOwnership: ownership}
 	// The §4.2 autonomy policy comes from the TARGET's confinement profile, not from a
 	// literal chosen here (plan §6c step 1). At the host notch that resolves to autonomy OFF
 	// — the guarded posture, so a pack's jail-bypass permission keys do NOT reach the real
@@ -212,10 +223,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 			continue // declared but never written, at any target
 		}
 		// PRUNE the ${workspace}-keyed branches rather than refusing the surface (see
-		// pruneWorkspaceKeyed). What remains is target-independent and renders; what was
+		// PruneWorkspaceKeyed). What remains is target-independent and renders; what was
 		// dropped is named, either in the surface's own result line or — when nothing
 		// survives — in the skip reason.
-		s, pruned := pruneWorkspaceKeyed(s)
+		s, pruned := PruneWorkspaceKeyed(s)
 		surfaceOverlays := overlays.For(s.Agent, s.Name)
 		if len(pruned) > 0 && layerIsEmpty(s.Managed) && layerIsEmpty(s.Defaults) &&
 			len(surfaceOverlays) == 0 {
@@ -224,38 +235,36 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 			continue
 		}
 		// WHICH MECHANISM RENDERS THIS SURFACE — asked of the census (render.ModeSet), not
-		// assumed. The host notch runs `rmw` alone and renders a surface declaring `stateful`
-		// or `computed` THROUGH it, which is what render.HostModes' two exclusions say; this
-		// entry used to say the same thing by calling renderSurfaceRMWSurface unconditionally.
-		// Both spellings agree — and that is the problem the census exists to end (render/
-		// modes.go): the hardcoded call stays "correct" no matter what HostModes is changed to,
-		// so `own` could be built with the census untouched and HostModes left a false
-		// statement. Behavior here is unchanged, deliberately: at this notch Mechanism names
-		// `rmw` for all three writing modes, and TestHostAssertLeavesTheAdoptionBaseline holds
-		// the bytes that say so.
+		// assumed. The answer is the DECLARED CONTRACT's: under `assert` the notch runs `rmw`
+		// alone and renders a surface declaring `stateful` or `computed` THROUGH it, under
+		// `own` it runs `stateful` and `rmw` and coerces nothing, under `none` it composes
+		// nothing at all. This entry used to say the first of those by calling
+		// renderSurfaceRMWSurface unconditionally, which agreed with the census and would have
+		// gone on agreeing after the census said one of the other two — the rot render/modes.go
+		// exists to end.
 		//
-		// IN BOTH POSTURES, and ahead of the rmw-specific probe below, because observe's job is
-		// to report what an --assert would do: a mechanism this notch cannot run is a refusal a
-		// dry run has to print, not one discovered at the write.
+		// IN BOTH POSTURES, and ahead of the mechanism-specific probes below, because observe's
+		// job is to report what an --assert would do: a mechanism this notch cannot run is a
+		// refusal a dry run has to print, not one discovered at the write.
 		modes := e.renderTarget().Modes()
 		mechanism, decided := modes.Mechanism(s.ResolvedMode())
 		switch {
 		case !decided:
-			// An unstated notch (render.KindGuest today) reaches no writer at all. The reason
-			// is the CENSUS'S, so the line names which notch has not answered rather than
-			// reporting a generic refusal in this entry's vocabulary.
+			// A notch with no stated policy (render.KindGuest), a host target whose caller
+			// never resolved `host_management`, or a declaration this contract refuses — a
+			// `computed` surface under `own`, which has no capture overlay and therefore no
+			// adoption path. The reason is the CENSUS'S, so the line names the contract that
+			// declined rather than a generic refusal in this entry's vocabulary.
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 				Action: "refused: " + modes.Excludes(s.ResolvedMode())})
 			continue
-		case mechanism != manifest.ModeRMW:
-			// The census names a mechanism this entry has no arm for. Today unreachable at
-			// every notch RenderHostPack can be pointed at; it becomes reachable the moment a
-			// host census runs `stateful` (config-ownership-and-promotion.md §10's `own` step), and
-			// the second arm belongs THERE, with the capture store and host-side reset that
-			// step lands together. Refusing is the fail-closed answer in the meantime: the
-			// file is left exactly as the agent wrote it.
+		case mechanism != manifest.ModeRMW && mechanism != manifest.ModeStateful:
+			// The census names a mechanism this entry has no arm for. Unreachable at every
+			// contract today — the two arms below cover every mode the three host censuses run
+			// — and this stays as the fail-closed answer for the next one: the file is left
+			// exactly as the agent wrote it rather than written by whichever arm looks closest.
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
-				Action: "refused: this notch's census renders a surface declaring " +
+				Action: "refused: this contract's census renders a surface declaring " +
 					s.ResolvedMode() + " through " + mechanism + ", which `yolo host apply` " +
 					"does not implement"})
 			continue
@@ -281,13 +290,13 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// means rmwProvenance still sees which pack contributed the key, which is R3's
 		// "an override must stay legible".
 		//
-		// REFUSAL PROBE, before anything else is computed and in BOTH postures. A host render
-		// is pure RMW, so a surface whose codec cannot round-trip through RMW — or whose
-		// existing file yolo cannot parse — must not be written; and observe's job is to say
-		// so BEFORE an --assert reaches the file. Probing here rather than only at the write
-		// is what makes `--dry-run` an honest preview of a refusal instead of promising a
-		// render that will not happen.
-		if refusal := hostRMWRefusal(s, path); refusal != nil {
+		// REFUSAL PROBE, before anything else is computed and in BOTH postures. Each mechanism
+		// has conditions under which it must not touch a real file — a codec rmw cannot express,
+		// a keyless surface `own` cannot adopt, an existing file yolo cannot parse — and
+		// observe's job is to say so BEFORE an --assert reaches the file. Probing here rather
+		// than only at the write is what makes `--dry-run` an honest preview of a refusal
+		// instead of promising a render that will not happen.
+		if refusal := hostMechanismRefusal(mechanism, s, path); refusal != nil {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 				Action: "refused: " + refusal.Reason()})
 			continue
@@ -317,8 +326,10 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// the write.
 		formatting := hostFormattingLosses(e, s, path, tableLayer, surfaceOverlays)
 		// THE CHANGE PREDICATE, computed before the write for both postures — see
-		// HostRenderResult.WouldChange for what it means and hostSurfaceWouldChange for how.
-		wouldChange := hostSurfaceWouldChange(e, s, path, tableLayer, surfaceOverlays)
+		// HostRenderResult.WouldChange for what it means, and the two functions below it for
+		// how each mechanism answers. Both run the WRITER'S OWN fold over a scratch copy, so
+		// neither is a second model of the write.
+		wouldChange := hostMechanismWouldChange(e, mechanism, s, path, tableLayer, surfaceOverlays)
 		if observe {
 			// `in sync` rather than `would render` when nothing would change. The unconditional
 			// "would render" was the honest report of a render that could not tell the two apart;
@@ -336,10 +347,12 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 				FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange})
 			continue
 		}
-		// Pure RMW into the real home. The `computed` slot carries ONLY the wholesale table
-		// layer built from the pack's DECLARED content above — not a jail-derived one, whose
-		// values embed jail-absolute paths and have no host referent (OQ-4/§6.6). That
-		// distinction is the whole reason hostTableLayer exists.
+		// INTO THE REAL HOME, through the mechanism the census named. The `computed` slot
+		// carries ONLY the wholesale table layer built from the pack's DECLARED content above —
+		// not a jail-derived one, whose values embed jail-absolute paths and have no host
+		// referent (OQ-4/§6.6). That distinction is the whole reason hostTableLayer exists, and
+		// it holds for both arms: under `own` the same layer is what makes `mcpServers` a table
+		// yolo regenerates rather than one adoption freezes at whatever the file held.
 		//
 		// A REFUSAL here is a per-surface result, not a pack-level error. The probe above has
 		// already caught every refusal this render can predict; one arriving at the write is a
@@ -348,16 +361,40 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// remaining surfaces still rendered. Returning an error would abort the pack over a
 		// file yolo deliberately left alone.
 		//
-		// THE MECHANISM RESOLVED ABOVE. The switch there has already refused everything that
-		// is not `rmw`, so this call is the census's answer being executed rather than this
-		// entry's assumption — and a second mechanism is added at that switch, not here.
-		if err := renderSurfaceRMWSurface(e, s, tableLayer, surfaceOverlays); err != nil {
-			if refusal, isRefusal := asRMWRefusal(err); isRefusal {
+		// THE MECHANISM RESOLVED ABOVE, executed rather than assumed: the switch there has
+		// already refused everything neither arm handles, and a third mechanism is added at
+		// that switch and here together.
+		var werr error
+		switch mechanism {
+		case manifest.ModeStateful:
+			// `host_management: own`. Whole-file composition into a real home, with the capture
+			// store render.Target.SidecarDir resolves for this notch — the SAME writer the boot
+			// path runs, which is what makes "the host is a notch like any other" (P5) a fact
+			// about the code rather than an aspiration.
+			//
+			// ADOPTION IS THE FIRST RENDER'S OWN BEHAVIOUR and needs nothing here.
+			// ComposeStateful reads "no trusted last_render" as a first migration and seeds the
+			// overlay from the file it finds, so the first owned render reproduces every key the
+			// file holds that yolo does not declare (§6.3.1). That branch exists because seeding
+			// an EMPTY overlay was a shipped data-loss bug; it is why this arm can be reached on
+			// a home full of hand-written config without a guard of its own.
+			//
+			// hostBytes is nil, and that is not the host LAYER going missing: at this notch the
+			// surface's own file IS what a `host` layer would have carried, and it arrives
+			// through adoption. Passing the same bytes as a layer too would fold them in BELOW
+			// the declared layers, so a key the user owns and a pack also declares would flip to
+			// the pack's value while adoption says it should not.
+			_, werr = renderSurfaceStatefulSurface(e, s, nil, tableLayer, surfaceOverlays)
+		default:
+			werr = renderSurfaceRMWSurface(e, s, tableLayer, surfaceOverlays)
+		}
+		if werr != nil {
+			if refusal, isRefusal := asRMWRefusal(werr); isRefusal {
 				out = append(out, HostRenderResult{Surface: id, Path: path, Pruned: pruned,
 					Action: "refused: " + refusal.Reason()})
 				continue
 			}
-			return out, fmt.Errorf("%s: %w", id, err)
+			return out, fmt.Errorf("%s: %w", id, werr)
 		}
 		out = append(out, HostRenderResult{Surface: id, Path: path, Action: "rendered",
 			Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
@@ -365,6 +402,92 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 			FirstApply: firstApply, Formatting: formatting, WouldChange: wouldChange})
 	}
 	return out, nil
+}
+
+// hostMechanismRefusal reports why this surface must not be written into this home through
+// the named mechanism, or nil when it may be. It is the dispatch's own probe, one arm per
+// mechanism, so a mechanism added at the switch above has to answer here too rather than
+// inheriting the other's conditions — which would be exactly wrong in both directions (rmw's
+// codec gate says nothing about adoption; `own`'s keyless refusal would wrongly block a
+// surface rmw never composes at all).
+func hostMechanismRefusal(mechanism string, s manifest.Surface, path string) *rmwRefusedError {
+	if mechanism == manifest.ModeStateful {
+		return hostStatefulRefusal(s, path)
+	}
+	return hostRMWRefusal(s, path)
+}
+
+// hostStatefulRefusal reports why a `host_management: own` render must not compose this
+// surface into a real home, or nil when it may. Two conditions, and both are data loss that
+// would otherwise be silent:
+//
+//   - A KEYLESS SURFACE (raw/lines) — OQ-CO9's ruling, refuse until a real example exists. Such
+//     a surface has one "key", the whole file, so adoption cannot take a partial residue: the
+//     first owned render replaces the file wholesale from the declared layers, and
+//     confirmHostLosses is structurally blind to it (EntryLosses is defined over NAMED ENTRIES
+//     in a table, and a keyless surface has none). The class is empty today — no shipped pack
+//     declares one — so the cheap answer is the honest one.
+//   - AN EXISTING FILE YOLO CANNOT PARSE. ComposeStateful treats an undecodable current file
+//     as "skip capture", which in a jail self-heals: the next boot re-renders from layers. At a
+//     real home it means adoption takes NOTHING and the render replaces the user's file with
+//     the pure render — the copilot-OAuth-wipe shape (B1), one notch over. Refusing leaves the
+//     file exactly as it is, which is what `assert` already does for the same condition
+//     (decodeSurfaceObject's own refusal, reused here so the two notches give one answer).
+//
+// The carrier type is *rmwRefusedError because it is the surface-refusal carrier this package
+// already has — named for the mechanism that first needed one. Its reader is Reason(), which
+// says nothing about rmw, and the dispatch above prints it identically for both arms.
+func hostStatefulRefusal(s manifest.Surface, path string) *rmwRefusedError {
+	if s.Kind() != codec.KindObject {
+		return refuseRMW(s, "`host_management: own` composes the whole file, and a "+
+			"%s surface has no keys to adopt — the first owned render would replace %s "+
+			"outright rather than keeping what it holds (OQ-CO9). Set `host_management: "+
+			"assert` for this home, or leave this surface to the jail; the file is untouched",
+			s.Codec, path)
+	}
+	if _, err := decodeSurfaceObject(s, path); err != nil {
+		if refusal, isRefusal := asRMWRefusal(err); isRefusal {
+			return refusal
+		}
+	}
+	return nil
+}
+
+// hostMechanismWouldChange is the change predicate, per mechanism. See
+// HostRenderResult.WouldChange for what the answer is used for.
+func hostMechanismWouldChange(e *Env, mechanism string, s manifest.Surface, path string,
+	computed map[string]any, overlays []agentcfg.Overlay) bool {
+	if mechanism == manifest.ModeStateful {
+		return hostStatefulWouldChange(e, s, computed, overlays)
+	}
+	return hostSurfaceWouldChange(e, s, path, computed, overlays)
+}
+
+// hostStatefulWouldChange is the `own` half of the change predicate: would an --assert alter
+// the file? It runs THE RENDER — composeStatefulSurface, the same call the writer makes — and
+// compares the bytes it would write against the bytes that are there.
+//
+// No carve-outs are needed and none are possible, which is the difference from the rmw half.
+// That one compares encode(folded) against encode(unfolded) so a purely canonical re-emit
+// cancels; here the render IS the file's content by definition — `own` means yolo composes the
+// whole thing — so any difference in the bytes is a difference the user would see. The first
+// owned render on an adopted home is the case that matters, and it answers "no change"
+// precisely when adoption reproduced the file, which is §11's zero-bytes criterion computed
+// rather than asserted.
+//
+// EVERY FAILURE ANSWERS "no change", as the rmw half does: a surface this cannot compose is
+// one the render REFUSES (hostStatefulRefusal, which the caller runs first), and a refusal is
+// not a pending change.
+//
+// It writes nothing — not the sidecars, not the selection record — which is what makes it safe
+// to run in the observe posture and, for confirmHostLosses, twice.
+func hostStatefulWouldChange(e *Env, s manifest.Surface, computed map[string]any,
+	overlays []agentcfg.Overlay) bool {
+	r, err := composeStatefulSurface(e, s, nil, computed, overlays)
+	if err != nil {
+		return false
+	}
+	return r.text() != string(r.current)
 }
 
 // hostRMWRefusal reports why this surface cannot be read-modify-written in this home, or nil
@@ -1036,8 +1159,13 @@ func sameJSON(a, b any) bool {
 	return string(ab) == string(bb)
 }
 
-// pruneWorkspaceKeyed returns s with every ${workspace}-KEYED branch removed from its
+// PruneWorkspaceKeyed returns s with every ${workspace}-KEYED branch removed from its
 // Defaults and Managed layers, plus the sorted dotted paths it dropped.
+//
+// EXPORTED for one caller outside this package: the CLI's `config reset`, which under
+// `host_management: own` must truncate a surface to the same pure render this entry writes.
+// Two derivations of "what the host render omits" would be two things to drift; there is one,
+// and it is this.
 //
 // This replaced a surface-level boolean (usesWorkspacePlaceholder) that refused the WHOLE
 // surface when any part of it mentioned the placeholder. The granularity was the bug: the
@@ -1066,7 +1194,7 @@ func sameJSON(a, b any) bool {
 //     prune is dropped with it (one that was declared empty is not, since nothing pruned it).
 //   - LEAVES ARE REPORTED, not branch roots. "projects.${workspace}.hasTrustDialogAccepted"
 //     says which declaration was not honored; "projects" would not.
-func pruneWorkspaceKeyed(s manifest.Surface) (manifest.Surface, []string) {
+func PruneWorkspaceKeyed(s manifest.Surface) (manifest.Surface, []string) {
 	var pruned []string
 	s.Defaults = pruneWorkspaceValue(s.Defaults, "", &pruned)
 	s.Managed = pruneWorkspaceValue(s.Managed, "", &pruned)

@@ -25,9 +25,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -78,11 +80,36 @@ func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface
 // resolve `~` against the INVOKING human's real home (expandHome → paths.Home()) and
 // write it — reset truncates a real dotfile to its (often empty) pure render; capture
 // copies real host config into the workspace sidecar tree. Both are destructive on a
-// file yolo does not own in that context. surfacesAreLocal() is true only in the jail
+// file yolo does not own IN THAT CONTEXT. surfacesAreLocal() is true only in the jail
 // that owns /workspace; anywhere else (host-side, or a different workspace's surfaces)
 // a write is refused unless --force. Returns true when the caller must abort.
+//
+// # `host_management: own` answers the premise for RESET, and that is why reset is exempt
+//
+// The guard's whole argument is the clause above — a file yolo does not own. Under `own` the
+// user has declared that yolo DOES own these files: they are derived output, the host render
+// composes them whole, and truncating one to its pure render is not data loss but the
+// operation working (docs/design/config-ownership-and-promotion.md §6.1).
+//
+// It is LOAD-BEARING rather than parity. ComposeStateful's adoption is safe against reset
+// ONLY because reset also truncates the surface to its pure render: without that, reset →
+// no baseline → adopt would resurrect the very edits the user asked to discard, making reset
+// a silent no-op (the engine's own comment says the two halves are one change). So an owned
+// host whose reset refused would have an adoption path with nothing to discard against.
+//
+// CAPTURE IS NOT EXEMPT, and the asymmetry is deliberate rather than an oversight. Its
+// premise is the G2 PRIVACY defect — a credential copied out of a real file into the
+// workspace sidecar tree, which crosses into a jail and plausibly into git — and while `own`
+// does relocate that destination to the state-dir store (§6.2), `yolo config capture`
+// host-side buys only VISIBILITY: it folds edits early that the next host apply would fold
+// anyway (see configCapture, "for observability, not correctness"). Nothing depends on it the
+// way adoption depends on reset, and leaving it refused keeps the new store with exactly two
+// writers — the render, and the reset that discards. --force still reaches it.
 func refuseHostSideWrite(cmd string, force bool, errw io.Writer) bool {
 	if surfacesAreLocal() || force {
+		return false
+	}
+	if cmd == "reset" && hostOwnsSurfaces() {
 		return false
 	}
 	fmt.Fprintf(errw, "yolo config %s: refusing — these surfaces resolve against a real "+
@@ -90,6 +117,44 @@ func refuseHostSideWrite(cmd string, force bool, errw io.Writer) bool {
 		"is meant to run inside the jail that owns the workspace. Re-run with --force if you "+
 		"really mean to write the host's files.\n", cmd)
 	return true
+}
+
+// hostOwnsSurfaces reports whether THIS invocation's surfaces are ones yolo owns at the host
+// notch — i.e. host-side, under `host_management: own`. It is the predicate the reset guard
+// and the reset paths both read, so "which store does reset operate on" and "may reset run
+// at all" cannot answer differently.
+//
+// Spelled as "does the host target keep a capture store?" rather than as a comparison against
+// the config value, so it is the same render.Target answer the WRITER acted on. A contract
+// that composes nothing keeps no store and gets no reset.
+func hostOwnsSurfaces() bool {
+	return !surfacesAreLocal() && hostCaptureDir() != ""
+}
+
+// hostCaptureDir is the host notch's capture store for this invocation, or "" when this
+// contract keeps none. Resolved through render.Target.SidecarDir, never joined by hand — the
+// hazard hostProvenancePath's docstring names, one directory over.
+//
+// A var for hostProvenancePath's reason: tests point it at a temp state dir rather than
+// setting a real $HOME.
+var hostCaptureDir = func() string {
+	return render.Host(paths.Home(), nil, hostOwnership()).SidecarDir()
+}
+
+// resetCapturePaths is where `reset` finds one surface's two discardable sidecars: the
+// workspace prism tree in the jail that owns it, or the host capture store under `own`.
+//
+// The two are resolved through the notch's own Target rather than by the CLI's workspace-
+// keyed prism* twins, which stay what they are: `config diff`, `config ls` and `config
+// promote` read the WORKSPACE tree host-side on purpose — promote's whole job is lifting a
+// JAIL's captured keys into a pack (§5.2 step 1), and retargeting it at the host store would
+// silently make it a different verb.
+func resetCapturePaths(agent, name string) (overlay, lastRender string) {
+	if hostOwnsSurfaces() {
+		t := render.Host(paths.Home(), nil, hostOwnership())
+		return t.OverlayPath(agent, name), t.LastRenderPath(agent, name)
+	}
+	return prismOverlayPath(agent, name), prismLastRenderPath(agent, name)
 }
 
 // capturedSurfaces returns the (agent, name) pairs that can carry a capture
@@ -738,10 +803,10 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	cleared := 0
 	for _, s := range surfaces {
-		overlayPath := prismOverlayPath(s.Agent, s.Name)
-		had := overlayKeyCount(s.Agent, s.Name)
+		overlayPath, lastRenderPath := resetCapturePaths(s.Agent, s.Name)
+		had := overlayKeyCountAt(overlayPath)
 		removedAny := false
-		for _, p := range []string{overlayPath, prismLastRenderPath(s.Agent, s.Name)} {
+		for _, p := range []string{overlayPath, lastRenderPath} {
 			if err := os.Remove(p); err == nil {
 				removedAny = true
 			} else if !os.IsNotExist(err) {
@@ -780,7 +845,15 @@ func configReset(args []string, out, errw io.Writer, color bool) int {
 		pr.Printf("[dim]Nothing to reset for %s%s.[/dim]", agent, surfaceSuffix(surface))
 		return 0
 	}
-	pr.Printf("[dim]The next jail launch re-renders these surfaces from their layers.[/dim]")
+	// WHICH COMMAND RE-RENDERS depends on the notch this reset ran at, and naming the wrong
+	// one sends a host-side user to relaunch a jail that has nothing to do with the file they
+	// just truncated.
+	if hostOwnsSurfaces() {
+		pr.Printf("[dim]The next `yolo host apply --assert` re-renders these surfaces from " +
+			"their layers.[/dim]")
+	} else {
+		pr.Printf("[dim]The next jail launch re-renders these surfaces from their layers.[/dim]")
+	}
 	return 0
 }
 
@@ -884,6 +957,23 @@ func sortedKeys(m *jsonx.OrderedMap) []string {
 // renderSurface). The next boot recomputes it, so the only cost is that a
 // computed-layer key is briefly missing from the file between reset and restart,
 // which is strictly better than leaving a discarded edit in place.
+//
+// # It has two notches, because "the pure render" is the NOTCH's, not the surface's
+//
+// In a jail it is the jail's: ${workspace} resolves to the container workspace, and a
+// surface with a host layer re-reads its own file for those bytes. Host-side under
+// `host_management: own` BOTH of those are wrong, and each in a way that would defeat the
+// reset it is performing:
+//
+//   - ${workspace} HAS NO HOST REFERENT. Substituting the container's literal would write
+//     "/workspace"-keyed entries into the user's real home — keys their agent never looks at.
+//     The host render prunes those branches instead (entrypoint.PruneWorkspaceKeyed), and this
+//     calls the SAME function so the truncation lands on the bytes the next apply would write.
+//   - THERE IS NO SEPARATE HOST LAYER TO RE-READ. At this notch the surface's own file IS
+//     what a `host` layer carries elsewhere, and it reaches the render through ADOPTION, not
+//     as a layer (see the `stateful` arm of entrypoint.RenderHostPack). Feeding it back here
+//     would preserve exactly the keys the user asked to discard — reset as a no-op, which is
+//     the failure the truncation exists to prevent.
 func truncateSurfaceToPureRender(s manifest.Surface) error {
 	path := expandHome(s.Path)
 	if _, err := os.Stat(path); err != nil {
@@ -891,6 +981,9 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 			return nil
 		}
 		return err
+	}
+	if hostOwnsSurfaces() {
+		return truncateHostSurfaceToPureRender(s, path)
 	}
 	sub := agentcfg.SubstituteWorkspace(s, containerWorkspace)
 	// Surface.HasHostLayer, not a table beside this file: the surfaces the boot render
@@ -911,6 +1004,25 @@ func truncateSurfaceToPureRender(s manifest.Surface) error {
 		text += "\n"
 	}
 	// Truncate in place: the file may be a bind-mount target whose inode matters.
+	return os.WriteFile(path, []byte(text), 0o644)
+}
+
+// truncateHostSurfaceToPureRender is truncateSurfaceToPureRender at the host notch under
+// `host_management: own`: compose from the DECLARED layers alone — no ${workspace} referent,
+// no host layer, no overlay — and write that. See its caller for why each of those three is
+// a deliberate difference rather than an omission.
+func truncateHostSurfaceToPureRender(s manifest.Surface, path string) error {
+	sub, _ := entrypoint.PruneWorkspaceKeyed(s)
+	res, err := agentcfg.Compose(agentcfg.Inputs{Surface: sub})
+	if err != nil {
+		return err
+	}
+	text := string(res.Encoded)
+	if sub.Kind() == codec.KindObject {
+		text += "\n"
+	}
+	// 0644 and truncate-in-place, as the jail twin does: this is the agent's own file, not a
+	// sidecar, and its inode may be one something else is holding.
 	return os.WriteFile(path, []byte(text), 0o644)
 }
 

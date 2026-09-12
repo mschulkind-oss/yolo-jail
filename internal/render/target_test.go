@@ -17,11 +17,11 @@ func TestTargetKinds(t *testing.T) {
 	if got := Preview("/tmp/x").KindOf(); got != KindPreview {
 		t.Errorf("Preview().KindOf() = %d, want KindPreview", got)
 	}
-	if got := Host("/home/me", nil).KindOf(); got != KindHost {
+	if got := Host("/home/me", nil, OwnershipAssert).KindOf(); got != KindHost {
 		t.Errorf("Host().KindOf() = %d, want KindHost", got)
 	}
 	// A host target has no workspace referent — that is what refuses ${workspace}.
-	if Host("/home/me", nil).Workspace != "" {
+	if Host("/home/me", nil, OwnershipAssert).Workspace != "" {
 		t.Error("Host target must have empty Workspace (no ${workspace} referent)")
 	}
 }
@@ -37,7 +37,7 @@ func TestExplicitKindMatchesTheOldShapeInference(t *testing.T) {
 	}{
 		{"jail", Jail("/home/agent", "/workspace", nil)},
 		{"preview", Preview("/tmp/scratch")},
-		{"host", Host("/home/me", nil)},
+		{"host", Host("/home/me", nil, OwnershipAssert)},
 	} {
 		if got, want := c.target.KindOf(), inferKindFromShape(c.target); got != want {
 			t.Errorf("%s: stated Kind = %d but the pre-Q1 shape inference said %d — the "+
@@ -107,7 +107,7 @@ func TestTargetPathsAreNeverRelative(t *testing.T) {
 	}{
 		{"jail", Jail("/home/agent", "/workspace", nil)},
 		{"preview", Preview("/tmp/scratch")},
-		{"host", Host("/home/me", nil)},
+		{"host", Host("/home/me", nil, OwnershipAssert)},
 	} {
 		for label, got := range map[string]string{
 			"SidecarDir":     tc.target.SidecarDir(),
@@ -124,14 +124,15 @@ func TestTargetPathsAreNeverRelative(t *testing.T) {
 	}
 }
 
-// The host target keeps a PROVENANCE record but no capture sidecars, and the split is the
-// resolved model rather than an omission: a host render is pure RMW (OQ-4), so there is no
-// last_render baseline and no captured edit to replay — but it still knows which layer won
-// each key, and without that record `config diff` has nothing to measure.
+// The host target under `assert` keeps a PROVENANCE record but no capture sidecars, and the
+// split is the resolved model rather than an omission: a host render is pure RMW there
+// (OQ-4), so there is no last_render baseline and no captured edit to replay — but it still
+// knows which layer won each key, and without that record `config diff` has nothing to
+// measure. Under `own` it keeps both; see TestHostCaptureStoreIsOwnOnly.
 func TestHostTargetKeepsProvenanceButNoCaptureSidecars(t *testing.T) {
-	host := Host("/home/me", nil)
+	host := Host("/home/me", nil, OwnershipAssert)
 	if got := host.SidecarDir(); got != "" {
-		t.Errorf("a host target has no capture sidecars; SidecarDir = %q", got)
+		t.Errorf("a host target under `assert` has no capture sidecars; SidecarDir = %q", got)
 	}
 	got := host.ProvenancePath("claude", "settings")
 	if got == "" {
@@ -150,8 +151,8 @@ func TestHostTargetKeepsProvenanceButNoCaptureSidecars(t *testing.T) {
 // must not share a record — otherwise a render into a temp home (every test, and any
 // non-default home) writes into the invoking user's real state dir.
 func TestHostProvenanceIsKeyedOnTheTargetHome(t *testing.T) {
-	a := Host("/home/alice", nil).ProvenancePath("claude", "settings")
-	b := Host("/home/bob", nil).ProvenancePath("claude", "settings")
+	a := Host("/home/alice", nil, OwnershipAssert).ProvenancePath("claude", "settings")
+	b := Host("/home/bob", nil, OwnershipAssert).ProvenancePath("claude", "settings")
 	if a == b {
 		t.Fatalf("two host targets share one provenance path (%q) — the record must follow the "+
 			"home being rendered into, not the process environment", a)
@@ -201,7 +202,7 @@ func TestFieldSetCensus(t *testing.T) {
 		}
 	}
 
-	host := Host("/home/me", nil).Fields()
+	host := Host("/home/me", nil, OwnershipAssert).Fields()
 	// The portable, target-independent kinds. autonomy is honored on host because that
 	// is how the GUARDED posture reaches the real home (§4.2) — refusing it would leave
 	// the host with no way to render prompts-on.
@@ -256,7 +257,7 @@ func TestFieldSetCensus(t *testing.T) {
 // would be the single most confusing sentence in the command. The honest reason is the
 // inverse: with no jail there is no CLIENT for the daemon.
 func TestLoopholeRefusalNamesTheMissingCounterparty(t *testing.T) {
-	host := Host("/home/me", nil).Fields()
+	host := Host("/home/me", nil, OwnershipAssert).Fields()
 	reason := host.Refuse(packdecl.KindLoophole)
 	if reason == "" {
 		t.Fatal("host.Refuse(loophole) is empty — the kind must be refused BY NAME")

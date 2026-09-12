@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // outrankedFor returns the Outranked lines for one surface, joined for substring assertions.
@@ -52,7 +53,7 @@ func TestHostRenderNamesOutrankedAutonomyKey(t *testing.T) {
 	// autonomy=false, matching applyHost: the host notch renders the guarded posture.
 	overlays := packoverlay.Collect([]*packload.Pack{claude, p1, p2}, false, nil)
 
-	results, rerr := RenderHostPack(claude, home, false, overlays)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, false, overlays)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -104,7 +105,7 @@ func TestHostRenderDoesNotBlameAnOutrankedOverlayForTheOverwrite(t *testing.T) {
 	overlays := packoverlay.Collect([]*packload.Pack{claude, pushy}, false, nil)
 
 	// Observe: the report must be honest BEFORE anything is written.
-	results, rerr := RenderHostPack(claude, home, true, overlays)
+	results, rerr := RenderHostPack(claude, home, render.OwnershipAssert, true, overlays)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack observe: %v", rerr)
 	}
@@ -145,7 +146,7 @@ func TestHostRenderDoesNotCallAWinningOverlayKeyIgnored(t *testing.T) {
 	})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	results, err := RenderHostPack(owner, home, false, overlays)
+	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestHostRenderRedundantOverlayKeyIsNotReportedAsIgnored(t *testing.T) {
 	agreeable := overlayContributorPack(t, "agreeable", map[string]any{"telemetry": false})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, agreeable}, false, nil)
 
-	results, err := RenderHostPack(owner, home, false, overlays)
+	results, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestHostRenderOutrankedIsPerLeafNotPerBranch(t *testing.T) {
 	})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
-	results, rerr := RenderHostPack(owner, home, false, overlays)
+	results, rerr := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays)
 	if rerr != nil {
 		t.Fatalf("RenderHostPack: %v", rerr)
 	}
@@ -233,7 +234,7 @@ func TestHostRenderOutrankedIsPerLeafNotPerBranch(t *testing.T) {
 // traded away for this line.
 func TestHostRenderWithNoOverlaysReportsNothingOutranked(t *testing.T) {
 	home := t.TempDir()
-	results, err := RenderHostPack(overlayOwnerPack(t, ""), home, false, nil)
+	results, err := RenderHostPack(overlayOwnerPack(t, ""), home, render.OwnershipAssert, false, nil)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}

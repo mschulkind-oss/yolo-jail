@@ -14,21 +14,49 @@ import (
 // thing to one.
 var allKinds = []Kind{KindUnset, KindJail, KindGuest, KindHost, KindPreview}
 
-// EVERY Kind HAS A STATED CENSUS. This is the whole point of Q8: a notch must answer "which
+// allNotches is every census KEY the table owes an answer for — the same forcing function one
+// axis wider, since `own` made the mode policy a function of (Kind, HostOwnership) rather than
+// of Kind alone. The host's three rows are the declared contracts; every other kind carries
+// the zero ownership, which is what censusNotch normalizes to.
+//
+// The HOST-WITHOUT-A-CONTRACT pair is deliberately absent, and TestHostWithNoContractIsUndecided
+// is why: it must reach Modes()' fail-closed default rather than a stated policy.
+var allNotches = []notch{
+	{kind: KindUnset}, {kind: KindJail}, {kind: KindGuest}, {kind: KindPreview},
+	{kind: KindHost, ownership: OwnershipNone},
+	{kind: KindHost, ownership: OwnershipAssert},
+	{kind: KindHost, ownership: OwnershipOwn},
+}
+
+// target builds the Target for one census key. In-package, because a notch is exactly the two
+// unexported fields — which is the property that makes ownership a thing only a constructor
+// can state (see Target.ownership).
+func (n notch) target() Target {
+	return Target{kind: n.kind, ownership: n.ownership, Home: "/home/x"}
+}
+
+// EVERY NOTCH HAS A STATED CENSUS. This is the whole point of Q8: a notch must answer "which
 // mechanisms do you run, and which of them record?" rather than inherit the answer from
 // whichever branch of a runtime `if` its Kind fell on. "Undecided" is a legitimate answer
 // (guest gives it) — silence is not.
-func TestEveryKindHasAModeCensus(t *testing.T) {
+func TestEveryNotchHasAModeCensus(t *testing.T) {
 	if got, want := len(allKinds), 5; got != want {
 		t.Fatalf("allKinds has %d entries, want %d — a Kind was added or removed without "+
 			"updating this list, so the census coverage below is no longer exhaustive", got, want)
 	}
-	for _, k := range allKinds {
-		if _, stated := modeCensus[k]; !stated {
-			t.Errorf("Kind %d has no modeCensus entry. Add one: either a real policy (which "+
+	// One row per non-host kind, plus one per DECLARABLE contract at the host. Computed rather
+	// than written as "7", so adding a fourth `host_management` value fails here by arithmetic
+	// instead of passing because someone updated a literal without adding the row.
+	if got, want := len(allNotches), len(allKinds)-1+len(DeclarableOwnerships()); got != want {
+		t.Fatalf("allNotches has %d entries, want %d — a Kind or a HostOwnership was added "+
+			"without a census key, so the coverage below is no longer exhaustive", got, want)
+	}
+	for _, n := range allNotches {
+		if _, stated := modeCensus[n]; !stated {
+			t.Errorf("notch %v has no modeCensus entry. Add one: either a real policy (which "+
 				"modes it runs, which record) or UndecidedModes(reason) if the notch is not "+
 				"built yet. Modes() defaults to undecided so the gap is safe, not silent — but "+
-				"it must be WRITTEN DOWN", k)
+				"it must be WRITTEN DOWN", n)
 		}
 	}
 }
@@ -37,12 +65,12 @@ func TestEveryKindHasAModeCensus(t *testing.T) {
 // on their own, and the combination is meaningless: a provenance record for a render that
 // never happens.
 func TestRecordsIsAlwaysASubsetOfRuns(t *testing.T) {
-	for _, k := range allKinds {
-		m := (Target{kind: k}).Modes()
+	for _, n := range allNotches {
+		m := n.target().Modes()
 		for mode := range m.records {
 			if !m.runs[mode] {
-				t.Errorf("Kind %d records %q but does not run it — a record for a render that "+
-					"never happens", k, mode)
+				t.Errorf("notch %v records %q but does not run it — a record for a render that "+
+					"never happens", n, mode)
 			}
 		}
 	}
@@ -52,23 +80,23 @@ func TestRecordsIsAlwaysASubsetOfRuns(t *testing.T) {
 // FieldSet.Refuse makes: the message has to say why, not just that. A bare "not applicable"
 // sends a reader looking for a bug where there is a decision.
 func TestExcludedModesCarryAReason(t *testing.T) {
-	for _, k := range allKinds {
-		m := (Target{kind: k}).Modes()
+	for _, n := range allNotches {
+		m := n.target().Modes()
 		for _, mode := range censusModes {
 			why := m.Excludes(mode)
 			if m.Runs(mode) && m.Records(mode) {
 				if why != "" {
-					t.Errorf("Kind %d runs and records %q but Excludes() gave a reason: %q",
-						k, mode, why)
+					t.Errorf("notch %v runs and records %q but Excludes() gave a reason: %q",
+						n, mode, why)
 				}
 				continue
 			}
 			if why == "" {
-				t.Errorf("Kind %d excludes %q with no reason", k, mode)
+				t.Errorf("notch %v excludes %q with no reason", n, mode)
 			}
 			if _, stated := m.excluded[mode]; !stated {
-				t.Errorf("Kind %d falls back to the generic sentence for %q — the census owes "+
-					"this mode its own reason", k, mode)
+				t.Errorf("notch %v falls back to the generic sentence for %q — the census owes "+
+					"this mode its own reason", n, mode)
 			}
 		}
 	}
@@ -102,7 +130,7 @@ func TestCensusModesMatchTheManifestTaxonomy(t *testing.T) {
 // no sidecar" message, and the host losing one relaunders a dropped pack's keys into "the
 // user set this" on the very next apply.
 func TestRMWRecordsAtTheHostAndNotInAJail(t *testing.T) {
-	if !Host("/home/me", nil).Modes().Records(manifest.ModeRMW) {
+	if !Host("/home/me", nil, OwnershipAssert).Modes().Records(manifest.ModeRMW) {
 		t.Error("the HOST notch must record an rmw render: rmw is its only mode, so \"rmw " +
 			"records nothing\" would mean \"the host records nothing\" — and a key a dropped " +
 			"pack contributed would come back as `host` instead of retired")
@@ -113,7 +141,7 @@ func TestRMWRecordsAtTheHostAndNotInAJail(t *testing.T) {
 	}
 	// The mode set proper, which is the other half of the census: the host coerces every
 	// composing surface to rmw, so `stateful` and `computed` do not run there.
-	host := Host("/home/me", nil).Modes()
+	host := Host("/home/me", nil, OwnershipAssert).Modes()
 	for _, mode := range []string{manifest.ModeStateful, manifest.ModeComputed} {
 		if host.Runs(mode) {
 			t.Errorf("the host notch must not run %q — a host render is pure RMW (OQ-4)", mode)
@@ -198,17 +226,134 @@ func TestUnsetTargetRunsNoMode(t *testing.T) {
 }
 
 // The census is the ONE table, the way ProfileFor and Fields are — so a Target's Modes()
-// answer is a function of its Kind alone and cannot drift per call site. Pinned because the
+// answer is a function of its NOTCH alone and cannot drift per call site. Pinned because the
 // failure mode it replaces was exactly a per-call-site answer (an `if` in the writer).
-func TestModesIsAFunctionOfKindAlone(t *testing.T) {
-	for _, k := range allKinds {
-		a := (Target{kind: k, Home: "/a", Workspace: "/ws-a"}).Modes()
-		b := (Target{kind: k, Home: "/b"}).Modes()
+//
+// ⚠ IT VARIES THE OWNERSHIP FIELD TOO, and that is not decoration. It varied only Home and
+// Workspace until `own`, so a Target grown a new field at its zero value sat OUTSIDE the
+// assertion entirely: a census that ignored ownership — or one call site fabricating its own
+// — would have landed with this test green, which is the silence the census exists to end.
+// Every future field the notch is a function of belongs in this loop on the same reasoning.
+func TestModesIsAFunctionOfTheNotchAlone(t *testing.T) {
+	for _, n := range allNotches {
+		a := Target{kind: n.kind, ownership: n.ownership, Home: "/a", Workspace: "/ws-a"}.Modes()
+		b := Target{kind: n.kind, ownership: n.ownership, Home: "/b"}.Modes()
 		for _, mode := range censusModes {
 			if a.Runs(mode) != b.Runs(mode) || a.Records(mode) != b.Records(mode) {
-				t.Errorf("Kind %d: Modes() varies with the target's other fields for %q", k, mode)
+				t.Errorf("notch %v: Modes() varies with the target's other fields for %q", n, mode)
 			}
 		}
+	}
+	// AND THE OWNERSHIP FIELD IS LOAD-BEARING AT THE HOST: the three contracts answer three
+	// different things, so a census that dropped the field would fail here rather than
+	// silently give every host target one policy. Stated as the mechanism each names for a
+	// `stateful`-declaring surface, because that is the answer a render entry dispatches on.
+	wantMechanism := map[HostOwnership]string{
+		OwnershipNone:   "",                    // nothing composes; not decided
+		OwnershipAssert: manifest.ModeRMW,      // coerced, today's behavior
+		OwnershipOwn:    manifest.ModeStateful, // whole-file composition at a real home
+	}
+	for ownership, want := range wantMechanism {
+		got, decided := Host("/home/me", nil, ownership).Modes().Mechanism(manifest.ModeStateful)
+		if decided != (want != "") || got != want {
+			t.Errorf("host under %q renders a `stateful` surface through %q (decided=%v), want "+
+				"%q — the declared contract is what picks the mechanism, and a census that "+
+				"ignored render.Target's ownership field would give all three one answer",
+				ownership, got, decided, want)
+		}
+	}
+	// The same field is inert everywhere else: ownership is the HOST's contract, so setting it
+	// on a jail target must not move that notch's census (Target.censusNotch drops it).
+	plain := Jail("/home/agent", "/workspace", nil).Modes()
+	stray := Target{kind: KindJail, Home: "/home/agent", Workspace: "/workspace",
+		ownership: OwnershipOwn}.Modes()
+	for _, mode := range censusModes {
+		if plain.Runs(mode) != stray.Runs(mode) || plain.Records(mode) != stray.Records(mode) {
+			t.Errorf("a jail target's census moved when ownership was set, for %q — "+
+				"`host_management` has no referent at a notch yolo provisions", mode)
+		}
+	}
+}
+
+// A HOST TARGET WITH NO CONTRACT RESOLVED IS UNDECIDED — the fail-closed default, and the one
+// case OwnershipUnstated exists for. It is NOT the "unset key" state: config resolves an
+// absent `host_management` to `assert` and an unreadable user config to `none`, so reaching
+// this means a caller built a host target without asking the boundary at all, and such a
+// target must write nothing rather than inherit whichever contract looks likeliest.
+func TestHostWithNoContractIsUndecided(t *testing.T) {
+	m := Host("/home/me", nil, OwnershipUnstated).Modes()
+	if !m.Undecided() {
+		t.Fatal("a host target with no resolved `host_management` contract must be undecided")
+	}
+	for _, mode := range censusModes {
+		if m.Runs(mode) || m.Records(mode) {
+			t.Errorf("an unresolved host target must neither run nor record %q", mode)
+		}
+	}
+	if why := m.Excludes(manifest.ModeStateful); !strings.Contains(why, "host_management") {
+		t.Errorf("the reason must name the contract that was not resolved; got %q", why)
+	}
+}
+
+// THE OWNED HOST KEEPS A CAPTURE STORE, and the other two contracts keep none — the
+// directory half of the same declaration the census is the mechanism half of
+// (config-ownership-and-promotion.md §6.2). Resolved through the Target so the writer and
+// every reader have one definition; asserted here so a hand-built path elsewhere has
+// something to disagree with.
+func TestHostCaptureStoreIsOwnOnly(t *testing.T) {
+	owned := Host("/home/me", nil, OwnershipOwn)
+	if got, want := owned.SidecarDir(), "/home/me/.local/share/yolo-jail/host-capture"; got != want {
+		t.Errorf("owned host capture store is %q, want %q", got, want)
+	}
+	// The provenance record does NOT move into it: two directories, two lifetimes (§6.2).
+	if got, want := owned.ProvenanceDir(),
+		"/home/me/.local/share/yolo-jail/host-provenance"; got != want {
+		t.Errorf("owned host provenance dir is %q, want %q — the record stays where `assert` "+
+			"writes it, or reverting an `assert` home would depend on a dir only `own` creates",
+			got, want)
+	}
+	for _, ownership := range []HostOwnership{OwnershipUnstated, OwnershipNone, OwnershipAssert} {
+		if dir := Host("/home/me", nil, ownership).SidecarDir(); dir != "" {
+			t.Errorf("host under %q keeps a capture store at %q — it composes no whole file, "+
+				"so there is no baseline to diff against and no edits to capture",
+				ownership, dir)
+		}
+	}
+	// The three capture files, named the same way a jail names them, and "" wherever there is
+	// no store — so a caller that skipped the check gets an unwritable path, not a relative one.
+	for _, got := range []string{
+		owned.OverlayPath("acme", "settings"),
+		owned.LastRenderPath("acme", "settings"),
+		owned.SelectionPath("acme", "settings"),
+	} {
+		if !strings.HasPrefix(got, owned.SidecarDir()+"/acme-settings.") {
+			t.Errorf("capture sidecar %q is not under the store with the jail's own naming", got)
+		}
+	}
+	if p := Host("/home/me", nil, OwnershipAssert).OverlayPath("acme", "settings"); p != "" {
+		t.Errorf("a contract with no store answered %q for a capture sidecar path", p)
+	}
+}
+
+// THE STORE'S MODES, and the measured reason the directory is not 0600. A directory's execute
+// bit is the right to resolve a name inside it, so 0600 leaves even the owner unable to open
+// any file in the store while `ls` still works — the failure this assertion exists to keep
+// out (config-ownership-and-promotion.md §6.2).
+func TestHostCaptureStoreIsTraversableAndPrivate(t *testing.T) {
+	owned := Host("/home/me", nil, OwnershipOwn)
+	if got := owned.SidecarDirMode(); got != 0o700 {
+		t.Errorf("the host capture store's directory mode is %O, want 0700 — without the "+
+			"execute bit the owner cannot open a single file in it", got)
+	}
+	if got := owned.SidecarFileMode(); got != 0o600 {
+		t.Errorf("the host capture store's file mode is %O, want 0600 — the overlay holds "+
+			"whatever the user's real config held that yolo does not declare", got)
+	}
+	jail := Jail("/home/agent", "/workspace", nil)
+	if jail.SidecarDirMode() != 0o755 || jail.SidecarFileMode() != 0o644 {
+		t.Errorf("the jail's sidecar modes moved (%O/%O) — tightening them is a separate "+
+			"ruling (§6.2 lists it for the roadmap), not a side effect of the host store",
+			jail.SidecarDirMode(), jail.SidecarFileMode())
 	}
 }
 
@@ -226,7 +371,7 @@ func contains(haystack []string, needle string) bool {
 // and the `stateful`/`computed` exclusions both end "is rendered through `rmw` here" — and
 // this is the machine-readable form of those sentences.
 func TestHostMechanismCoercesEveryWritingModeToRMW(t *testing.T) {
-	host := Host("/home/me", nil).Modes()
+	host := Host("/home/me", nil, OwnershipAssert).Modes()
 	for _, declared := range []string{manifest.ModeStateful, manifest.ModeComputed, manifest.ModeRMW} {
 		got, decided := host.Mechanism(declared)
 		if !decided || got != manifest.ModeRMW {

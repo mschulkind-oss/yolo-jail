@@ -24,6 +24,7 @@ package render
 
 import (
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 
@@ -61,6 +62,99 @@ type Target struct {
 	// this package cannot claim one, and gets KindUnset — the guarded answer — instead of
 	// whichever notch its shape happens to resemble.
 	kind Kind
+
+	// ownership is the user's DECLARED host-management contract (config `host_management`,
+	// docs/design/config-ownership-and-promotion.md §4), set by render.Host and meaningless
+	// at every other notch. It is the second half of this target's notch: Modes() is a
+	// function of the PAIR, because "which mechanisms does the host run?" has three answers
+	// and the user picks one.
+	//
+	// A FIELD, not a Modes(ownership) parameter, and not a fifth Kind. The parameter is the
+	// shape the compiler would force, and it is the wrong one: ownership would become a
+	// call-site argument any site could fabricate, which is the per-call-site answer
+	// TestModesIsAFunctionOfTheNotchAlone exists to prevent. A fifth Kind is worse — every
+	// switch over Kind in this file would need a case for it, and the one that matters
+	// (ProvenanceDir) would fall into its `default:` and return "", leaving an owned host
+	// with no provenance record at all, which is what §6.3's adoption story reads.
+	// Unexported for the reason `kind` is: a struct literal assembled outside this package
+	// cannot claim a contract, and gets OwnershipUnstated — the guarded answer.
+	ownership HostOwnership
+}
+
+// HostOwnership is the declared ownership contract for the files yolo renders into a real
+// home — config's `host_management` key, at the render boundary
+// (docs/design/config-ownership-and-promotion.md §4.1). It answers "who owns this file",
+// which is a DIFFERENT axis from Kind's "how is this target confined" (P2): collapsing the
+// two is what made "the host is different" look arbitrary, since the host is differently
+// CONFINED, which says nothing about who owns its files.
+//
+// It is meaningful at KindHost alone. Every other notch renders a home yolo provisions, so
+// the question does not arise there and the census key drops it (see Target.censusNotch).
+type HostOwnership int
+
+const (
+	// OwnershipUnstated is the zero value, and — like KindUnset — it is deliberately NOT a
+	// contract. A Target whose constructor was given no ownership has not been told one, and
+	// the census answers `undecided` for it: nothing runs, nothing records.
+	//
+	// It is NOT the "unset key" state. config.HostManagementMode resolves an ABSENT
+	// `host_management` to `assert` (OQ-CO2, the default that carries the whole migration)
+	// and an UNREADABLE user config to `none`, so it never hands this value out. Reaching it
+	// here means a caller built a host Target without resolving the contract at all, which
+	// is the one case that must write nothing.
+	OwnershipUnstated HostOwnership = iota
+	// OwnershipNone: the user owns their files entirely. The host notch renders nothing.
+	OwnershipNone
+	// OwnershipAssert: shared ownership — yolo owns the keys its packs declare and the user
+	// owns the rest. The host notch is pure read-modify-write. Today's shipped behavior, and
+	// what an absent `host_management` resolves to.
+	OwnershipAssert
+	// OwnershipOwn: yolo owns the file; it is derived output. The host notch composes
+	// whole-file and captures edits — the jail's own mechanism, at a real home.
+	OwnershipOwn
+)
+
+// ownershipNames is the ownership half of the config boundary kindNames is the notch half
+// of: config.KnownHostManagements holds the vocabulary and parses it, and this table turns a
+// name into the primitive on the way in (HostOwnershipFor) and back into a label on the way
+// out (String). Between those edges nothing compares a name.
+//
+// notchnames_test.go pins the two together, so a value added to one and not the other fails
+// a test rather than silently resolving to the guarded answer.
+var ownershipNames = map[HostOwnership]string{
+	OwnershipUnstated: "unstated",
+	OwnershipNone:     "none",
+	OwnershipAssert:   "assert",
+	OwnershipOwn:      "own",
+}
+
+// String is the contract's name, for OUTPUT and for HostOwnershipFor's reverse lookup —
+// never for a decision. An unlabelled value prints its number rather than a blank.
+func (o HostOwnership) String() string {
+	if n, ok := ownershipNames[o]; ok {
+		return n
+	}
+	return "HostOwnership(" + strconv.Itoa(int(o)) + ")"
+}
+
+// DeclarableOwnerships is the set a user can write in `host_management`, in the order the
+// three are explained — least yolo involvement first. OwnershipUnstated is absent because it
+// is the ABSENCE of a declaration, not a value anyone may select.
+func DeclarableOwnerships() []HostOwnership {
+	return []HostOwnership{OwnershipNone, OwnershipAssert, OwnershipOwn}
+}
+
+// HostOwnershipFor resolves a `host_management` VALUE to its primitive — the inbound half of
+// the boundary, and the one call a caller holding a config value makes before it stops
+// thinking in names. ok is false for anything that is not a declarable contract, including
+// "unstated": a caller that has not resolved one must not be handed a notch that writes.
+func HostOwnershipFor(name string) (HostOwnership, bool) {
+	for _, o := range DeclarableOwnerships() {
+		if ownershipNames[o] == name {
+			return o, true
+		}
+	}
+	return OwnershipUnstated, false
 }
 
 // Kind names which target a Target is, for the small number of decisions that legitimately
@@ -178,8 +272,14 @@ func Preview(dir string) Target {
 
 // Host builds the host-render Target: the real home, no workspace referent (a
 // ${workspace} surface is refused, not bound), notices to the given stderr.
-func Host(home string, stderr io.Writer) Target {
-	return Target{Home: home, Workspace: "", Stderr: stderr, kind: KindHost}
+//
+// ownership is the user's DECLARED `host_management` contract, and it is a PARAMETER
+// because there is nowhere else it could honestly come from: this package must not read the
+// user's config (it is the renderer, not the boundary), and inferring it from the home's
+// shape is exactly the P1 violation the key exists to end. A caller that has not resolved
+// one passes OwnershipUnstated and gets a target that renders nothing — see that constant.
+func Host(home string, stderr io.Writer, ownership HostOwnership) Target {
+	return Target{Home: home, Workspace: "", Stderr: stderr, kind: KindHost, ownership: ownership}
 }
 
 // KindOf reports which notch this target renders at — the field its constructor set, not a
@@ -190,6 +290,14 @@ func Host(home string, stderr io.Writer) Target {
 // A Target with no constructor behind it reads KindUnset, which is neither jail nor host and
 // is handled as the most restricted answer wherever it can reach (see Fields, SidecarDir).
 func (t Target) KindOf() Kind { return t.kind }
+
+// Ownership reports the declared host-management contract this target renders under — the
+// field its constructor was given. OwnershipUnstated at every notch but the host, where the
+// question does not arise, and at a host target nobody resolved a contract for.
+//
+// An accessor rather than an exported field, for KindOf's reason: the contract can only be
+// STATED, by a constructor, from a value the config boundary resolved.
+func (t Target) Ownership() HostOwnership { return t.ownership }
 
 // Profile is the confinement preset this target renders under, and therefore the single
 // source of the §4.2 AgentAutonomy policy for every render path (plan §6c step 1). A caller
@@ -216,41 +324,139 @@ func inferKindFromShape(t Target) Kind {
 }
 
 // hostProvenanceLeaf is the state-dir leaf holding host-render provenance records. Named
-// for its CONTENT rather than mirroring the jail's "prism", because it will never hold the
-// jail's other two sidecars: the host notch is pure RMW by resolved decision (OQ-4,
-// host-render-target.md §6.3), so there is no last_render baseline and no capture overlay
-// to keep. A dir called "host-prism" would promise a tree that does not exist.
+// for its CONTENT rather than mirroring the jail's "prism", and that naming is now
+// load-bearing rather than merely tidy: since `own`, the host DOES keep capture sidecars —
+// in a directory of their own (hostCaptureLeaf) — and a dir called "host-prism" would have
+// had to hold both or lie about one.
+//
+// IT DOES NOT MOVE, and the two dirs are separate because they have two LIFETIMES
+// (config-ownership-and-promotion.md §6.2). Provenance is per-key attribution, written at
+// EVERY host apply including under `assert`, and it is what `yolo host apply --revert`
+// consumes; capture is `own`-only state a host-side `yolo config reset` is entitled to
+// delete. Folding the record into the capture store would make reverting an `assert` home
+// depend on a directory only `own` ever creates.
 const hostProvenanceLeaf = "host-provenance"
 
-// SidecarDir is where the §5 capture sidecars (last_render + overlay) for this target
-// live: under the target's workspace, in the gitignored .yolo/. EMPTY at the host target,
-// and that is the honest answer rather than a gap — a host render is pure RMW, so it keeps
-// no baseline and captures no edits, and there is no per-workspace referent to put them
-// under anyway.
+// hostCaptureLeaf is the state-dir leaf holding the host notch's CAPTURE sidecars under
+// `host_management: own` — the same three files a jail keeps under <workspace>/.yolo/prism/,
+// with the same names, because they are what `stateful` composition needs and `own` is that
+// composition at the host notch (config-ownership-and-promotion.md §6.2): the baseline a
+// capture diffs against (last_render), the captured edits themselves (overlay.json), and the
+// recorded selection (selection.json).
 //
-// Never relative. That is the load-bearing property: only the two kinds that HAVE a
-// workspace join one, so the join always has an absolute root, and every other kind returns
-// "" instead of a bare ".yolo/prism" that would resolve against whatever directory the
-// process happens to be sitting in. `yolo host apply` runs from anywhere.
+// Under the STATE dir rather than the workspace, which is what answers the privacy ruling
+// that refuses host capture under the other two values: the jail's overlay lives in
+// <workspace>/.yolo/prism/, which crosses into a container and plausibly into git, and a
+// captured credential there is a leak. This store never crosses a boundary.
+const hostCaptureLeaf = "host-capture"
+
+// SidecarDir is where the capture sidecars (last_render, overlay, selection) for this
+// target live, and it is the ONE definition of that directory — the writer (the boot and
+// host renders) and every reader (the `yolo config` verbs) ask it here rather than joining
+// the path themselves. The precedent is ProvenanceDir, and the hazard it avoids is the one
+// the CLI's own prism* twins already are: two hand-copied path builders that agree only by
+// inspection.
+//
+// Three answers, and the third is the one `own` added:
+//
+//   - jail / preview: <workspace>/.yolo/prism/, gitignored, per workspace.
+//   - host under `own`: <home>/.local/share/yolo-jail/host-capture/. Whole-file composition
+//     at a real home needs exactly the state a jail's does, so the host keeps it — beside
+//     the provenance record, never inside it (see hostCaptureLeaf and hostProvenanceLeaf).
+//   - everything else, host included: "". Under `assert` the host render is pure
+//     read-modify-write, which keeps no baseline and captures no edits; under `none` it
+//     writes nothing at all; guest has not stated where its sidecars live, and an unset
+//     target is not a notch. "" is the honest answer in each case, and a caller reads it as
+//     "this target keeps no capture state".
+//
+// Never relative. That is the load-bearing property: only the kinds that HAVE a root to join
+// — a workspace, or a home — join one, so the join always has an absolute base, and every
+// other kind returns "" instead of a bare ".yolo/prism" that would resolve against whatever
+// directory the process happens to be sitting in. `yolo host apply` runs from anywhere.
 //
 // A SWITCH rather than the old `if KindOf() == KindHost` (Q1). While the notch was inferred
 // the two spellings were the same statement — Workspace=="" was the DEFINITION of host — so
 // "not host" implied "has a workspace" and the join was safe. With Kind stated, they part
 // company: a Target whose kind nobody set has no workspace either, and the old `if` would
-// have handed it the relative path this function exists to prevent. So the kinds that
-// produce a sidecar tree are named, and everything else — guest until Phase 7 states where
-// its sidecars live, and any unset target — gets "".
+// have handed it the relative path this function exists to prevent.
 func (t Target) SidecarDir() string {
 	switch t.KindOf() {
 	case KindJail, KindPreview:
 		return filepath.Join(t.Workspace, ".yolo", "prism")
+	case KindHost:
+		// The CONTRACT decides, not the notch: `assert` and `none` keep no capture state, so
+		// they get the same "" a guest does, and the answer changes the moment the user
+		// declares `own` rather than when some caller decides the host is special today.
+		if t.ownership != OwnershipOwn || t.Home == "" {
+			return ""
+		}
+		return filepath.Join(paths.GlobalStorageUnder(t.Home), hostCaptureLeaf)
 	default:
 		return ""
 	}
 }
 
-// ProvenanceDir is where THIS target's per-key "which layer set this key" records go. It
-// is the one sidecar every constructed target keeps:
+// SidecarDirMode is the permission the capture-sidecar DIRECTORY is created with.
+//
+// ⚠ 0600 IS A FILE MODE AND WOULD MAKE THE STORE UNUSABLE. The execute bit on a directory is
+// the right to resolve a name inside it, so at 0600 even the owner gets EACCES opening any
+// file in the store while `ls` still lists the names (measured 2026-09-12 as an unprivileged
+// uid: `open` failed with EACCES at 0600 and succeeded at 0700, `listdir` worked at both).
+// The host store is 0700, holding 0600 files.
+//
+// The jail's tree stays 0755/0644, which is not an oversight: it lives in the workspace, is
+// read by the human on the host side, and is the notch whose capture mode
+// config-ownership-and-promotion.md §6.2 lists for the roadmap rather than changes here.
+func (t Target) SidecarDirMode() os.FileMode {
+	if t.KindOf() == KindHost {
+		return 0o700
+	}
+	return 0o755
+}
+
+// SidecarFileMode is the permission a capture sidecar FILE is written with. 0600 at the
+// host, because the overlay holds whatever the user's real config held that yolo's layers do
+// not — a credential included — and it sits in a real home other accounts may read.
+func (t Target) SidecarFileMode() os.FileMode {
+	if t.KindOf() == KindHost {
+		return 0o600
+	}
+	return 0o644
+}
+
+// OverlayPath, LastRenderPath and SelectionPath are the three capture sidecars for one
+// surface under this target, or "" when the target keeps none. They are here, beside
+// ProvenancePath, so the file-naming convention has ONE definition across both notches
+// rather than the hand-copied joins it had at six call sites.
+func (t Target) OverlayPath(agent, name string) string {
+	return t.sidecarPath(agent, name, ".overlay.json")
+}
+
+// LastRenderPath is the baseline sidecar: the exact surface-codec bytes yolo wrote last.
+func (t Target) LastRenderPath(agent, name string) string {
+	return t.sidecarPath(agent, name, ".last_render")
+}
+
+// SelectionPath is the selection record: the values yolo's SELECTION mechanism last wrote.
+func (t Target) SelectionPath(agent, name string) string {
+	return t.sidecarPath(agent, name, ".selection.json")
+}
+
+// sidecarPath joins one capture-sidecar leaf onto this target's store, or returns "" when
+// there is no store — so a caller that forgets to check gets a path it cannot write rather
+// than a relative one it can.
+func (t Target) sidecarPath(agent, name, suffix string) string {
+	dir := t.SidecarDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, agent+"-"+name+suffix)
+}
+
+// ProvenanceDir is where THIS target's per-key "which layer set this key" records go. It is
+// the one sidecar every constructed target keeps — including the two host contracts that
+// keep no capture state at all, which is why it is resolved separately from SidecarDir
+// rather than as a file inside it:
 //
 //   - jail / preview: beside the other sidecars, under <workspace>/.yolo/prism/.
 //   - host: under the STATE dir of the home being rendered into,

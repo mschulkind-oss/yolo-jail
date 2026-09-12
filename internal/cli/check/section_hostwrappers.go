@@ -109,12 +109,8 @@ func hostManagementRow(r *reporter) {
 				"Set host_management to \"assert\" in "+paths.UserConfigPath()+" to have "+
 				"yolo own the keys your packs declare, or turn host_wrappers off.")
 	case config.HostManagementOwn:
-		r.warn("host_management is \"own\" — whole-file host composition is not built yet, "+
-			"so `yolo host apply` refuses",
-			"yolo refuses rather than rendering as \"assert\", which would leave you "+
-				"believing the file is derived output while it still holds bytes that exist "+
-				"nowhere else.\nSet it to \"assert\" in "+paths.UserConfigPath()+" to apply "+
-				"today.")
+		r.ok("host_management is \"own\" — yolo composes these files whole and captures your " +
+			"edits, so they are derived output: delete one and the next apply reproduces it")
 	default:
 		r.ok("host_management is \"assert\" — yolo owns the keys your packs declare and " +
 			"rewrites only those; every other key in those files is yours and is left alone")

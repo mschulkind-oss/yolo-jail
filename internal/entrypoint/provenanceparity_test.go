@@ -57,6 +57,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // parityCase is one corpus entry: a surface's declared layers plus the outside layers, and
@@ -326,7 +327,8 @@ func parityRecords(t *testing.T, tc parityCase) (jail, host map[string]string) {
 	jail = readProvenanceFile(t, prismProvenancePath(ej, "parity", "settings"))
 
 	// ── The HOST derivation: replayed write order.
-	eh := &Env{Home: t.TempDir(), Vars: map[string]string{}, hostTarget: true}
+	eh := &Env{Home: t.TempDir(), Vars: map[string]string{},
+		hostTarget: true, hostOwnership: render.OwnershipAssert}
 	surfacePath := filepath.Join(eh.Home, ".parity", "settings.json")
 	if hostBytes != nil {
 		if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {

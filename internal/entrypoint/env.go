@@ -69,6 +69,17 @@ type Env struct {
 	// that matters gets skimmed past.
 	LogOnly io.Writer
 
+	// hostOwnership is the user's DECLARED `host_management` contract, carried here so
+	// renderTarget() can hand it to render.Host — the host notch's mode census is a function
+	// of it (docs/design/config-ownership-and-promotion.md §4.1, render.HostOwnership).
+	//
+	// Meaningful only alongside hostTarget. It is NOT read from config here: this package
+	// renders, the CLI resolves the user's declaration, and every host entry takes it as a
+	// parameter so a test renders the contract it names rather than the invoking user's.
+	// The zero value is render.OwnershipUnstated, which composes nothing — so a host Env
+	// assembled without one writes no file rather than inheriting a contract.
+	hostOwnership render.HostOwnership
+
 	// hostTarget marks this Env as driving the HOST render (`yolo host apply`) rather
 	// than the in-jail boot, so renderTarget() projects it onto render.Host instead of
 	// render.Jail.
@@ -214,7 +225,7 @@ func (e *Env) renderTarget() render.Target {
 		// per-workspace referent, which is why a ${workspace} surface is refused there
 		// rather than bound to an arbitrary dir. So this must NOT pass WorkspaceDir(),
 		// which would hand it the container default and make KindOf() call it a jail.
-		return render.Host(e.Home, e.Stderr)
+		return render.Host(e.Home, e.Stderr, e.hostOwnership)
 	}
 	return render.Jail(e.Home, e.WorkspaceDir(), e.Stderr)
 }

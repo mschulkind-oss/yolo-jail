@@ -115,8 +115,15 @@ func TestHostManagementAssertIsByteIdenticalToUnset(t *testing.T) {
 // refuseHostManagement line leaves the other spelling refusing and this test red, which is
 // the point: `yolo host apply` and `yolo apply --at host` are one operation (OQ-7), so a key
 // that stopped one and not the other would be a contract with a way around it.
+//
+// `own` WAS IN THIS LOOP and is deliberately not any more: it refused only because whole-file
+// composition at the host notch was unbuilt, and it is built
+// (docs/design/config-ownership-and-promotion.md §10's last step). What replaces its row here
+// is TestHostManagementOwnApplies, one function down — the same fixture, asserting the
+// opposite outcome, so "own no longer refuses" is a statement something checks rather than a
+// row that quietly disappeared.
 func TestHostManagementNoneRefusesBothSpellings(t *testing.T) {
-	for _, mode := range []string{"none", "own"} {
+	for _, mode := range []string{"none"} {
 		t.Run(mode, func(t *testing.T) {
 			_, surface := hostManagementFixture(t, mode)
 			before, err := os.ReadFile(surface)
@@ -206,6 +213,46 @@ func TestHostManagementAssertStillApplies(t *testing.T) {
 	}
 }
 
+// TestHostManagementOwnApplies is the row `own` moved to when it stopped refusing: the same
+// fixture the refusal test uses, applying rather than being declined, through BOTH spellings.
+//
+// It is the CLI half of the `own` step — entrypoint's tests measure the bytes; this measures
+// that the command reaches them. The fixture's surface declares `rmw`, which the `own` census
+// runs unchanged (a pack declaring `rmw` is saying the file holds live agent state, and the
+// user's ownership contract does not overrule that) — so the assertion is that yolo's declared
+// key lands and the user's undeclared one survives, exactly as under `assert`.
+func TestHostManagementOwnApplies(t *testing.T) {
+	for _, argv := range [][]string{{"--at", "host", "--assert"}, {"--at", "host"}} {
+		hostManagementFixture(t, "own")
+		var out, errw bytes.Buffer
+		if rc := applyMain(argv, &out, &errw, false, nil); rc != 0 {
+			t.Fatalf("apply %v under \"own\": rc=%d, want 0\n%s%s",
+				argv, rc, out.String(), errw.String())
+		}
+		if strings.Contains(errw.String(), "host_management") {
+			t.Errorf("apply %v under \"own\" still names the key as a refusal:\n%s",
+				argv, errw.String())
+		}
+	}
+	// And the --assert spelling actually wrote: a command that "succeeded" by doing nothing
+	// would pass every assertion above.
+	_, surface := hostManagementFixture(t, "own")
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("host apply --assert under \"own\": rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	data, err := os.ReadFile(surface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"telemetry": false`) {
+		t.Errorf("`own` did not render the pack's managed key:\n%s", data)
+	}
+	if !strings.Contains(string(data), `"myOwnKey": "keep"`) {
+		t.Errorf("`own` lost the user's undeclared key:\n%s", data)
+	}
+}
+
 // TestHostApplyGateIsANoOpUnderHostManagementNone is §4.1's consequence: under `none` there
 // is no rendered host surface, so `host_apply_on_launch` has nothing to check and the launch
 // check becomes a NO-OP rather than a nag.
@@ -215,29 +262,39 @@ func TestHostManagementAssertStillApplies(t *testing.T) {
 // prints a remedy naming a command that itself refuses. So this fails if the branch in
 // hostApplyGate is deleted, and it fails loudly: `false` means a `none` user's `claude` stops
 // booting.
+//
+// ⚠ `own` IS NOT IN THIS LOOP, and the second half below is why: it shared the exit only while
+// the apply it offers to run refused. Now that `own` renders, a stale owned home is MORE worth
+// reporting than an asserted one — the file is derived output, so stale means it disagrees with
+// its own definition.
 func TestHostApplyGateIsANoOpUnderHostManagementNone(t *testing.T) {
-	for _, mode := range []string{"none", "own"} {
-		t.Run(mode, func(t *testing.T) {
-			home := gateFixture(t, true)
-			writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-				`{"packs":["claude"],"host_apply_on_launch":true,"host_management":"`+mode+`"}`)
+	home := gateFixture(t, true)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["claude"],"host_apply_on_launch":true,"host_management":"none"}`)
 
-			var errw bytes.Buffer
-			if !hostApplyGate(&errw, nil, "claude") {
-				t.Errorf("the gate stopped a launch under host_management %q — there is no "+
-					"render for it to find stale:\n%s", mode, errw.String())
-			}
-			if errw.Len() != 0 {
-				t.Errorf("the gate nagged under host_management %q:\n%s", mode, errw.String())
-			}
-		})
-	}
-	// The control: the SAME unapplied home with the key at "assert" does refuse, so the test
-	// above is measuring the branch rather than a home that had nothing to report.
-	gateFixture(t, true)
 	var errw bytes.Buffer
-	if hostApplyGate(&errw, nil, "claude") {
-		t.Fatalf("control: an unapplied home under \"assert\" passed the gate, so the none/own "+
-			"assertions above prove nothing:\n%s", errw.String())
+	if !hostApplyGate(&errw, nil, "claude") {
+		t.Errorf("the gate stopped a launch under host_management \"none\" — there is no "+
+			"render for it to find stale:\n%s", errw.String())
+	}
+	if errw.Len() != 0 {
+		t.Errorf("the gate nagged under host_management \"none\":\n%s", errw.String())
+	}
+
+	// The control, and the `own` assertion in one: the SAME unapplied home refuses under both
+	// contracts that DO render. Without the control the `none` assertion above could pass on a
+	// home that simply had nothing to report; without `own` in it, the branch could be widened
+	// back to "anything but assert" with everything still green.
+	for _, mode := range []string{"", "own"} {
+		h := gateFixture(t, true)
+		if mode != "" {
+			writeFile(t, filepath.Join(h, ".config", "yolo-jail", "config.jsonc"),
+				`{"packs":["claude"],"host_apply_on_launch":true,"host_management":"`+mode+`"}`)
+		}
+		var errw bytes.Buffer
+		if hostApplyGate(&errw, nil, "claude") {
+			t.Errorf("an unapplied home under host_management %q passed the gate — whatever "+
+				"renders is what this gate checks:\n%s", mode, errw.String())
+		}
 	}
 }

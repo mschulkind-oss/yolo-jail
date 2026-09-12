@@ -37,7 +37,7 @@ import (
 func applyToHome(t *testing.T, home string, owner *packload.Pack, contributors ...*packload.Pack) {
 	t.Helper()
 	overlays := packoverlay.Collect(append([]*packload.Pack{owner}, contributors...), false, nil)
-	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
+	if _, err := RenderHostPack(owner, home, render.OwnershipAssert, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
 }
@@ -221,7 +221,7 @@ func TestCorruptPreviousRecordCannotClaimAKey(t *testing.T) {
 			home := t.TempDir()
 			seedSurfaceFile(t, home, ".acme/settings.json", map[string]any{"mine": "user value"})
 			// Plant the corrupt record where the writer's own re-read will find it.
-			path := render.Host(home, nil).ProvenancePath("acme", "settings")
+			path := render.Host(home, nil, render.OwnershipAssert).ProvenancePath("acme", "settings")
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -250,7 +250,7 @@ func TestCorruptPreviousRecordCannotClaimAKey(t *testing.T) {
 func TestUnreadablePreviousRecordProvesNothing(t *testing.T) {
 	home := t.TempDir()
 	seedSurfaceFile(t, home, ".acme/settings.json", map[string]any{"mine": "user value"})
-	path := render.Host(home, nil).ProvenancePath("acme", "settings")
+	path := render.Host(home, nil, render.OwnershipAssert).ProvenancePath("acme", "settings")
 	if err := os.MkdirAll(path, 0o755); err != nil { // a DIR where the record file belongs
 		t.Fatal(err)
 	}

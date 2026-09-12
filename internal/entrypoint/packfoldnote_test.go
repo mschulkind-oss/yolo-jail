@@ -22,6 +22,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // gatedOverlayPack is a pack that installs `claude`, declares ONE surface, and carries the
@@ -119,7 +120,7 @@ func TestHostRenderReportsPatchNamingNoSurface(t *testing.T) {
 		{false, false, "a patch that folds"},
 	} {
 		p := posturePatchPack(t, c.typo)
-		results, err := RenderHostPack(p, t.TempDir(), true, nil)
+		results, err := RenderHostPack(p, t.TempDir(), render.OwnershipAssert, true, nil)
 		if err != nil {
 			t.Fatalf("%s: RenderHostPack: %v", c.label, err)
 		}

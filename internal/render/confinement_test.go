@@ -102,7 +102,7 @@ func TestTargetProfileFollowsKind(t *testing.T) {
 	if !Jail("/home/agent", "/workspace", nil).Profile().AgentAutonomy {
 		t.Error("a jail target must render the AUTONOMOUS posture — a jail without it loses YOLO mode")
 	}
-	if Host("/home/me", nil).Profile().AgentAutonomy {
+	if Host("/home/me", nil, OwnershipAssert).Profile().AgentAutonomy {
 		t.Error("a host target must render the GUARDED posture — autonomy here leaks an " +
 			"agent's permission bypass onto a real machine (§4.2)")
 	}

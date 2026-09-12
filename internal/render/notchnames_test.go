@@ -84,3 +84,55 @@ func TestKindForNotchRejectsAnUnknownName(t *testing.T) {
 			"would grant a pack's permission bypass")
 	}
 }
+
+// THE SECOND VOCABULARY, pinned for the first table's reasons. `host_management` is parsed by
+// config.KnownHostManagements and reasoned about here as render.HostOwnership, so the same
+// two-tables-one-vocabulary claim needs the same check: a value added to config alone would
+// parse and then resolve to no ownership, landing every host target on the fail-closed
+// undecided census; added to render alone it would be unreachable from any config a user can
+// write.
+func TestHostOwnershipNamesMatchTheConfigVocabulary(t *testing.T) {
+	if len(config.KnownHostManagements) != len(DeclarableOwnerships()) {
+		t.Fatalf("config knows %d host_management values, render has %d declarable ownerships "+
+			"— one of the two tables gained a value without the other "+
+			"(config.KnownHostManagements, render.DeclarableOwnerships)",
+			len(config.KnownHostManagements), len(DeclarableOwnerships()))
+	}
+	seen := map[HostOwnership]string{}
+	for _, h := range config.KnownHostManagements {
+		o, ok := HostOwnershipFor(string(h))
+		if !ok {
+			t.Errorf("host_management %q is a config value with no render.HostOwnership — a "+
+				"user could declare it and every host target would render nothing; add it to "+
+				"render.ownershipNames and DeclarableOwnerships", h)
+			continue
+		}
+		if prev, dup := seen[o]; dup {
+			t.Errorf("host_management %q and %q both resolve to %s — two contracts sharing one "+
+				"ownership means one silently inherits the other's mode census", h, prev, o)
+		}
+		seen[o] = string(h)
+		if o.String() != string(h) {
+			t.Errorf("HostOwnership %d labels itself %q but its config value is %q", o, o, h)
+		}
+	}
+}
+
+// The unstated contract is NOT declarable, and an unknown name fails closed onto it. Both
+// halves matter: `host_management: "unstated"` would be a fourth value the design does not
+// have (the absent key is the unset state, and config resolves it to `assert`), and a caller
+// that ignores ok must get the ownership that runs nothing rather than one that writes.
+func TestHostOwnershipForRejectsAnythingUndeclarable(t *testing.T) {
+	for _, name := range []string{"unstated", "manage", "true", ""} {
+		if o, ok := HostOwnershipFor(name); ok {
+			t.Errorf("%q resolved to the declarable contract %s — it is not one", name, o)
+		} else if o != OwnershipUnstated {
+			t.Errorf("a rejected lookup must return OwnershipUnstated (the fail-closed value), "+
+				"got %s", o)
+		}
+	}
+	if !Host("/home/me", nil, OwnershipUnstated).Modes().Undecided() {
+		t.Error("the fail-closed ownership must leave the host census undecided — otherwise a " +
+			"misread contract picks a mechanism and writes the user's real home")
+	}
+}

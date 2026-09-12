@@ -21,6 +21,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // autonomyPack declares BOTH postures over one surface it owns: the autonomous side asserts
@@ -98,7 +99,8 @@ func TestBootRenderUsesTheJailProfilesAutonomy(t *testing.T) {
 // target, so the test has to be able to change the target without changing the loop.
 func TestBootRenderAtAHostTargetRendersTheGuardedPosture(t *testing.T) {
 	var errw bytes.Buffer
-	e := &Env{Home: t.TempDir(), Vars: map[string]string{}, Stderr: &errw, hostTarget: true}
+	e := &Env{Home: t.TempDir(), Vars: map[string]string{}, Stderr: &errw,
+		hostTarget: true, hostOwnership: render.OwnershipAssert}
 	withCtxRoot(t, t.TempDir(), "acme")
 
 	ConfigurePackSurfaces(e, []*packload.Pack{autonomyPack(t)})

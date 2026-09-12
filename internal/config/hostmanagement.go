@@ -24,10 +24,9 @@ const (
 	// state (§4.3).
 	HostManagementAssert HostManagement = "assert"
 	// HostManagementOwn: yolo owns the file; it is derived output. Host surfaces compose
-	// whole-file and capture edits, exactly as a jail's do. NOT WIRED YET — the `own` step
-	// of §10's build order, which is its last. Parsing and validation accept it so the contract is expressible
-	// before the render engine can honor it; the host apply refuses it meanwhile, rather
-	// than silently behaving as `assert`.
+	// whole-file and capture edits, exactly as a jail's do — the render keeps its capture
+	// sidecars in the state-dir store render.Target.SidecarDir resolves for the host notch,
+	// and host-side `yolo config reset` discards against it.
 	HostManagementOwn HostManagement = "own"
 )
 

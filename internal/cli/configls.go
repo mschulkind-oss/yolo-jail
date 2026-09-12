@@ -298,7 +298,10 @@ func prismProvenancePath(agent, name string) string {
 // A var so tests can point it at a temp state dir without setting a real $HOME — the same
 // seam, and for the same reason, as prismSidecarDir.
 var hostProvenancePath = func(agent, name string) string {
-	return render.Host(paths.Home(), nil).ProvenancePath(agent, name)
+	// The declared contract does not move this record — `assert` and `own` both keep it under
+	// host-provenance/ (§6.2) — but it is passed rather than faked, so this reader and the
+	// render that wrote it construct the same target from the same source.
+	return render.Host(paths.Home(), nil, hostOwnership()).ProvenancePath(agent, name)
 }
 
 // prismSidecarDir is the per-workspace sidecar directory. A var so tests can
