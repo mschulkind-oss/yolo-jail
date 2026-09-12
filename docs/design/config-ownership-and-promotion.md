@@ -64,7 +64,7 @@ cite them:
 
 - **P1 — Ownership is declared, never inferred.** A file yolo writes is owned by
   yolo, by the user, or shared, and which one it is comes from the user's config.
-  Today it comes from `render.Kind` ([`target.go`](../../internal/render/target.go#L86-L104)),
+  Today it comes from `render.Kind` ([`target.go`](../../internal/render/target.go)),
   which is a confinement fact wearing an ownership hat.
 - **P2 — The notch selects confinement; it must not silently also select the
   ownership model.** These are independent axes. Collapsing them is what makes
@@ -78,7 +78,7 @@ cite them:
 - **P4 — Promotion is the only non-destructive exit from capture.** Today the
   only shipped exit is `yolo config reset`, which discards. One shipped message
   advises "promote" as English prose for a verb that does not exist
-  ([`apply.go:818`](../../internal/cli/apply.go#L818)).
+  ([`apply.go`](../../internal/cli/apply.go)).
 - **P5 — The host is a notch like any other, except where a real home forbids
   it.** Same modes, same verbs, same sidecars. The single legitimate asymmetry
   is *deletion* — see [§6.3](#63-the-one-asymmetry-that-survives-deletion). This
@@ -105,7 +105,7 @@ Every row here was checked between 2026-09-09 and 2026-09-11.
 
 ### 2.1 The layer stack
 
-Ascending precedence, from [`compose.go:352-379`](../../internal/agentcfg/compose.go#L352-L379):
+Ascending precedence, from [`compose.go`](../../internal/agentcfg/compose.go):
 
 ```text
 defaults → host → workspace → config-overlay:<pack>… → overlay (capture) → computed → transform → managed
@@ -118,7 +118,7 @@ capture-diff sidecar — in-jail edits, carried across regeneration. Note that
 
 ### 2.2 The four surface modes
 
-From [`manifest.go:158-171`](../../internal/agentcfg/manifest/manifest.go#L158-L171):
+From [`manifest.go`](../../internal/agentcfg/manifest/manifest.go):
 
 | Mode | What it does | Capture? |
 |---|---|---|
@@ -129,7 +129,7 @@ From [`manifest.go:158-171`](../../internal/agentcfg/manifest/manifest.go#L158-L
 
 ### 2.3 The notches, and what each keeps on disk
 
-From [`target.go`](../../internal/render/target.go#L243-L296):
+From [`target.go`](../../internal/render/target.go):
 
 | Notch | Sidecars | Provenance record |
 |---|---|---|
@@ -158,13 +158,13 @@ and for whole-file composition on the host is on disk today.
 > is tempting to read "nothing uses it" off the fact that no revert exists; four
 > readers already do. `PruneHostOverlayKeys` removes keys from the user's real
 > file — *"THE PROVENANCE RECORD IS THE AUTHORITY, and it has to be"*
-> ([`hostoverlayprune.go:12`](../../internal/entrypoint/hostoverlayprune.go#L12));
+> ([`hostoverlayprune.go`](../../internal/entrypoint/hostoverlayprune.go));
 > `hostProvenanceExists` decides `FirstApply`
-> ([`hostrender.go:253`](../../internal/entrypoint/hostrender.go#L253));
+> ([`hostrender.go`](../../internal/entrypoint/hostrender.go));
 > `retireUnclaimed` carries attributions forward past a pack drop
-> ([`prism.go:946`](../../internal/entrypoint/prism.go#L946)); and
+> ([`prism.go`](../../internal/entrypoint/prism.go)); and
 > `yolo config diff` annotates from it
-> ([`configdiff.go:349`](../../internal/cli/configdiff.go#L349)). What no reader
+> ([`configdiff.go`](../../internal/cli/configdiff.go)). What no reader
 > does is the two things this design wants — a revert, and a jail-side filter.
 
 ### 2.4 The verbs that exist, and the ones that do not
@@ -173,24 +173,24 @@ and for whole-file composition on the host is on disk today.
 ([`config.go`](../../internal/cli/config.go)). There is no `promote`.
 `yolo host apply` takes `--assert`, `--dry-run`, `--shell-init`; it is the
 ergonomic spelling of `yolo apply --at host`, both ship, and only the first carries
-`--shell-init` ([`hostapply.go:17`](../../internal/cli/hostapply.go#L17)).
+`--shell-init` ([`hostapply.go`](../../internal/cli/hostapply.go)).
 
 **There is no `--revert`, and its absence is a ruling rather than a gap.**
 [`host-render-target.md`](host-render-target.md) shows one as an example and names
 the missing memory as the reason, but env-manager plan
 [`OQ-1`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
 resolved *no `--revert` on the host target* on 2026-08-01, and
-[`apply.go:125`](../../internal/cli/apply.go#L125) records it — *"no --revert —
+[`apply.go`](../../internal/cli/apply.go) records it — *"no --revert —
 the resolved [`OQ-1`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)–[`OQ-4`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
 model"*. [§10](#10-what-i-would-build-in-order) step 3 reverses it deliberately.
 
 **Host-side `capture` and `reset` refuse unless `--force`** (`refuseHostSideWrite`,
-[`configdiff.go:84-90`](../../internal/cli/configdiff.go#L84-L90)). **Two reasons,
+[`configdiff.go`](../../internal/cli/configdiff.go)). **Two reasons,
 one guard**, and quoting only the second is easy to do: the docstring calls itself
 *"the Phase-0 data-loss guard"* — reset truncates a real dotfile to its often-empty
 pure render, capture copies real host config into the workspace sidecar tree, and
 *"both are destructive on a file yolo does not own in that context"*
-([`configdiff.go:77`](../../internal/cli/configdiff.go#L77)); the user-facing text
+([`configdiff.go`](../../internal/cli/configdiff.go)); the user-facing text
 says *"could clobber your own config"*. The **privacy** reason — a credential
 copied into a workspace sidecar — is
 [`host-render-target.md`](host-render-target.md)'s ledger row 9.3, which records
@@ -200,7 +200,7 @@ that the same refusal *also* closes the leak path.
 
 `host_files`, `host_wrappers` and `host_apply_on_launch` share one **scope**
 construction ([`hostapplyonlaunch.go`](../../internal/config/hostapplyonlaunch.go),
-[`inherit.go:205-220`](../../internal/config/inherit.go#L205-L220)): read from the
+[`inherit.go`](../../internal/config/inherit.go)): read from the
 **user** config rather than the merged config, so workspace scope is
 *inexpressible* rather than merely refused, and refused for inheritance into a
 nested jail. That construction is the security boundary for any key that licenses
@@ -211,13 +211,13 @@ new key joins it rather than inventing a fourth shape.
 > **The construction is a scope boundary, not a fail direction.** Reading "user
 > scope" as "therefore fails closed" is the available mistake, and one shipped key
 > does the opposite. The shared helper `UserScopeConfigOrEmpty`
-> ([`hostwrappers.go:72`](../../internal/config/hostwrappers.go#L72)) has five
+> ([`hostwrappers.go`](../../internal/config/hostwrappers.go)) has five
 > callers: `agent_updates` deliberately fails **open** through it because it is an
 > opt-*out* — *"absent, empty or unreadable means TRUE"*
-> ([`agentupdates.go:43`](../../internal/config/agentupdates.go#L43));
+> ([`agentupdates.go`](../../internal/config/agentupdates.go));
 > `host_wrappers`, `host_apply_on_launch` and `perf_logging` fail closed; and
 > `host_files` does not use the helper at all — it loads user scope strictly and
-> returns an *error* ([`hostfiles.go:264`](../../internal/config/hostfiles.go#L264)).
+> returns an *error* ([`hostfiles.go`](../../internal/config/hostfiles.go)).
 > So the direction is a per-key choice each key must state, which is how
 > [§4.2](#42-scope-defaults-and-failure-direction) states it for the new key.
 
@@ -306,7 +306,7 @@ narrower and more interesting set than "anything the user typed":
 compose+capture the file is a pure function of its inputs (and the *delete the
 file* row is measured, not hoped: an absent current file **skips capture** rather
 than tombstoning every key — *"we bias toward under-capture rather than freezing a
-spurious delta"*, [`staterender.go:247`](../../internal/agentcfg/staterender.go#L247)
+spurious delta"*, [`staterender.go`](../../internal/agentcfg/staterender.go)
 — so the next boot renders `layers + overlay` and reproduces it); under `rmw` the
 file *is* the state, because `rmw`'s defining property — never touch what you do
 not own — means the file holds bytes that exist nowhere else. That is not a missing
@@ -391,9 +391,9 @@ one asymmetry, and they do not compose into a story.
 > `firstMigration` keys on jail-side. Those are two signals of one *shape* (each is
 > "no sidecar for this surface yet") and **not two names for one concept**: they
 > differ in sidecar, trigger and consequence. `FirstApply` is *no provenance record*
-> and gates a **consent prompt** ([`hostrender.go:98`](../../internal/entrypoint/hostrender.go#L98));
+> and gates a **consent prompt** ([`hostrender.go`](../../internal/entrypoint/hostrender.go));
 > `firstMigration` is *no trusted `last_render`* and triggers **adoption**
-> ([`staterender.go:160`](../../internal/agentcfg/staterender.go#L160)). The
+> ([`staterender.go`](../../internal/agentcfg/staterender.go)). The
 > difference bites: on a home already on `assert`, provenance exists, so `FirstApply`
 > is **false** at the very transition to `own`, and the prompt cannot fire there
 > ([§6.3.1](#631-adoption-is-capture-then-regenerate)). The residual host-only fact
@@ -452,7 +452,7 @@ Consequences worth stating because users act on them:
   *inexpressible*, and a workspace-scope occurrence is a validation error as
   defense in depth.
 - **Not inherited into a nested jail**, joining the three entries in
-  [`inherit.go`](../../internal/config/inherit.go#L205-L220) for the same reason
+  [`inherit.go`](../../internal/config/inherit.go) for the same reason
   they are there: in a jail the key's referent rebinds to a disposable home.
 - **Unreadable or unparseable user config yields `none`.** Fail closed: a config
   nobody could read has granted no write claim. Stated here per key, because the
@@ -486,7 +486,7 @@ needs no ceremony of its own — **the default carries the whole migration.**
    value the user typed on purpose.
 3. `yolo apply --sealed` **refuses** while the key is unset, listing it beside
    the two *undeclared inputs* (closure sense) it already refuses for
-   ([`apply.go:795-825`](../../internal/cli/apply.go#L795-L825)). An environment
+   ([`apply.go`](../../internal/cli/apply.go)). An environment
    whose host-ownership contract is unstated is not sealed. **This is the one
    place an unset key bites**, and it bites where the user asked a question
    about declaredness rather than where they asked for an apply.
@@ -505,7 +505,7 @@ three classes it does not cover.
 It does **not** grant approval for any individual write. That distinction is
 `host_apply_on_launch`'s hard-won ruling — "THE KEY ENABLES THE MECHANISM. IT
 DOES NOT GRANT THE APPROVAL"
-([`hostapplyonlaunch.go:24`](../../internal/config/hostapplyonlaunch.go#L24)) —
+([`hostapplyonlaunch.go`](../../internal/config/hostapplyonlaunch.go)) —
 and it holds here identically: `host_management: own` selects the mode, it does
 not pre-authorize the writes that mode performs. The two keys are orthogonal and
 both are read: `host_management` says *how* the host renders,
@@ -521,16 +521,16 @@ both are read: `host_management` says *how* the host renders,
 >   put it as an invariant, not a default: *"A freshly-applied home must prompt
 >   **not at all, ever**, until something actually changes."*
 > - **A change that changes nothing the user has ⇒ still silent.** The host apply
->   gate is `confirmHostLosses` ([`apply.go:577`](../../internal/cli/apply.go#L577),
->   wired on the writing path at [`apply.go:369`](../../internal/cli/apply.go#L369)),
+>   gate is `confirmHostLosses` ([`apply.go`](../../internal/cli/apply.go),
+>   wired on the writing path at [`apply.go`](../../internal/cli/apply.go)),
 >   and its first stated property is *ONLY WHEN SOMETHING IS ACTUALLY LOST* —
 >   gated on `FirstApply && EntryLosses`
->   ([`apply.go:595`](../../internal/cli/apply.go#L595)), so a home yolo has
+>   ([`apply.go`](../../internal/cli/apply.go)), so a home yolo has
 >   asserted before "prompts not at all". A scalar whose value merely changes is
 >   reported as an ordinary `⚠` and does not prompt.
 >
 > ⚠ Its docstring still says `Overwrites` where the code reads `EntryLosses`
-> ([`apply.go:564`](../../internal/cli/apply.go#L564)) — a drift to know before
+> ([`apply.go`](../../internal/cli/apply.go)) — a drift to know before
 > quoting it.
 >
 > So an owned host in steady state is silent, and the prompt that remains is the
@@ -561,9 +561,9 @@ distribution mechanism; it needs a destination.
 
 **And that destination folds last.** The conventional local pack is appended after
 every configured entry — *"ORDER IS LOAD-BEARING, AND IT IS LAST"*
-([`config/packs.go:274`](../../internal/config/packs.go#L274)) — and
+([`config/packs.go`](../../internal/config/packs.go)) — and
 `config-overlay` layers fold in pack order, later wins
-([`compose.go:362`](../../internal/agentcfg/compose.go#L362)), so a `local`
+([`compose.go`](../../internal/agentcfg/compose.go)), so a `local`
 promotion outranks every other pack's overlay on the same key.
 [§5.4](#54-promotion-moves-a-key-down-the-stack) rests on this (verified
 2026-09-11).
@@ -671,10 +671,10 @@ refuse.
 > 2026-09-11; the sibling `HonoredInstalls` still has one real consumer, so the
 > claim is about the host-file half of the family, not all of it). Two guard tests go red if
 > a refusal source reappears: `TestNoFetchedPackHostAccessGateExists`
-> ([`hostaccessgates_test.go:82`](../../internal/packload/hostaccessgates_test.go#L82))
+> ([`hostaccessgates_test.go`](../../internal/packload/hostaccessgates_test.go))
 > and `TestFetchedPackHostClaimsAreHonoredWithNoApproval`
-> ([`packnohostgate_test.go:101`](../../internal/cli/run/packnohostgate_test.go#L101)).
-> ⚠ The docstring at [`packload.go:435`](../../internal/packload/packload.go#L435)
+> ([`packnohostgate_test.go`](../../internal/cli/run/packnohostgate_test.go)).
+> ⚠ The docstring at [`packload.go`](../../internal/packload/packload.go)
 > miscounts the call sites and names a `TestNoPackHostAccessGate` that does not
 > exist — check the tree, not the comment.
 >
@@ -750,14 +750,14 @@ consequences, none of them chosen:
 4. **On `macos-user` it fails on every launch, by construction** (verified
    2026-09-11). That backend has no bind mounts and no `/ctx`; `YOLO_CTX_ROOT`, the
    seam that relocates the read, is set for Apple Container only
-   ([`assemble.go:700`](../../internal/cli/run/assemble.go#L700));
-   [`runplan.go:262`](../../internal/macosuser/runplan.go#L262) filters the *user's*
+   ([`assemble.go`](../../internal/cli/run/assemble.go));
+   [`runplan.go`](../../internal/macosuser/runplan.go) filters the *user's*
    source-bearing `host_files` out as an *"accepted deficiency"*, but a **pack's**
    `reads-host` grant is neither mounted nor filtered — so `hostSurfaceBytes` finds
    nothing and `claude/settings` composes **without the user's settings**, silently,
    on that backend alone. The fail-open docstring names the case and folds it into
    "no such host file": *"or this is macos-user, with no /ctx at all"*
-   ([`packsurfaces.go:455`](../../internal/entrypoint/packsurfaces.go#L455)).
+   ([`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)).
    **That is a user feature-detecting the backend to learn whether their settings
    arrived** — the failure [P5](#1-the-verdict-and-the-principles-it-rests-on)
    exists to forbid — and it counts for both [OQ-CO10](#13-decision-ledger) (fail closed) and
@@ -796,7 +796,7 @@ is that yolo declines to read it.
    `computed` or `managed` key at all ([§5.4](#54-promotion-moves-a-key-down-the-stack)),
    which leaves one dead class: a key the Lua `transform` rewrites, which
    `narrowOverlay` does not see — its signature takes only the two owner layers
-   ([`staterender.go:387`](../../internal/agentcfg/staterender.go#L387)). Redundant
+   ([`staterender.go`](../../internal/agentcfg/staterender.go)). Redundant
    is free and it is most of the noise: **re-measured 2026-09-12**, this
    development jail carries three captured top-level keys across three surfaces —
    `codex/config`'s `mcp_servers`, `mise/config`'s `tools`, `opencode/config`'s
@@ -965,7 +965,7 @@ destination it is empty.** Three facts:
 1. **The overlay cannot hold a `computed` or `managed` leaf.** `narrowOverlay`
    strips both from the *accumulated* overlay on every boot, on both branches —
    *"ONE RULE, BOTH BRANCHES"*,
-   [`staterender.go:252-264`](../../internal/agentcfg/staterender.go#L252-L264) —
+   [`staterender.go`](../../internal/agentcfg/staterender.go) —
    so a key promote reads from the overlay is, by construction, not one those
    layers claim.
 2. **A `transform`-overridden key never won at `overlay` either.** The Lua hook
@@ -974,14 +974,14 @@ destination it is empty.** Three facts:
    drops it as dead before precedence is ever asked.
 3. **What is left is another pack's `config-overlay` on the same key, ordered
    later** — and the conventional local pack folds **last**
-   ([`config/packs.go:274`](../../internal/config/packs.go#L274)), so for
+   ([`config/packs.go`](../../internal/config/packs.go)), so for
    `--to local` nothing outranks the promoted key except the overlay it just left.
    The residue is `--to pack:<name>` for a pack ordered before another overlay on
    the same key — which is BACKLOG's bare
    [`OQ-CO`](../plans/BACKLOG.md#-oq-co--two-packs-writing-one-config-overlay-key-is-silent-last-one-wins),
    silent last-one-wins between overlays, seen from the promote side. One latent
    exception: a pack pulled in through `needs` is appended *after* local
-   ([`cli/run/packs.go:293`](../../internal/cli/run/packs.go#L293)); no such pack
+   ([`cli/run/packs.go`](../../internal/cli/run/packs.go)); no such pack
    declares a `config-overlay` today.
 
 So the precedence check stays — it is a pure function of the layer set, it is
@@ -992,10 +992,10 @@ losing layer**, never promoted with a warning.
 **Promote never offers the pack's `managed` block as an escape**, at any
 destination. For every shipped surface it is not expressible: `Surface.Managed` is
 populated only from the owning pack's own `config` contribution plus its autonomy
-posture ([`packload.go:144-164`](../../internal/packload/packload.go#L144-L164)),
+posture ([`packload.go`](../../internal/packload/packload.go)),
 and a `config-overlay` body's field *named* `managed` is *"NOT a claim about the
 managed LAYER"* — it folds at the single `config-overlay` slot
-([`overlay.go:33`](../../internal/agentcfg/manifest/overlay.go#L33)). So neither
+([`overlay.go`](../../internal/agentcfg/manifest/overlay.go)). So neither
 the local pack nor any `pack:<name>` that is not the surface's owner can write a
 managed block, and every shipped surface's owner is an embedded pack promote
 refuses to edit. For a surface a *user's own* pack declares, the block is writable
@@ -1008,10 +1008,10 @@ The capture sidecar is at `<workspace>/.yolo/prism/`, which is a host directory 
 so the **host** can read a jail's captures without any channel. The destinations,
 however, are host-side files a jail cannot **write**. Stated precisely: the jail
 *reads* the local pack as a staged `:ro` copy at `/ctx/packs/local/` like any other
-pack ([`assemble.go:645`](../../internal/cli/run/assemble.go#L645)), and the host's
+pack ([`assemble.go`](../../internal/cli/run/assemble.go)), and the host's
 `config.lua` plus a filtered `config.jsonc` snapshot also cross
-([`inheritscope.go:51`](../../internal/cli/run/inheritscope.go#L51),
-[`:149`](../../internal/cli/run/inheritscope.go#L149)); what no jail can do is write
+([`inheritscope.go`](../../internal/cli/run/inheritscope.go),
+[`inheritscope.go`](../../internal/cli/run/inheritscope.go)); what no jail can do is write
 anything under the host's `~/.config/yolo-jail/`, which is the boundary promote
 needs — a manifest is an input to composition, and an agent that could rewrite one
 in-jail could grant its own pack a host file on the next boot.
@@ -1025,7 +1025,7 @@ that has just made a good config change is exactly who should promote it, and th
 transport is free: the host already reads `<workspace>/.yolo/` on every launch, so
 a request would be one more file there, in the shape the `.yolo/handover.md`
 host→jail handoff established (there is no jail→host handoff today of any kind —
-[`prepare.go:509-537`](../../internal/cli/run/prepare.go#L509-L537) is host→jail
+[`prepare.go`](../../internal/cli/run/prepare.go) is host→jail
 only, verified 2026-09-11). What is *not* free is the consent surface: a request is
 written by an agent and read by a human, pointed at the user's home, so the prompt
 has to say something specific. It waits until promote has been used enough to know
@@ -1100,7 +1100,7 @@ what the added `stateful` then needs.
 > while [§10](#10-what-i-would-build-in-order)'s `own` step depends on both. And
 > the census was only **half wired** when that step was written: `Records()` had
 > exactly one production consumer, the rmw writer's provenance gate
-> ([`prism.go:573`](../../internal/entrypoint/prism.go#L573)), while `Runs()`,
+> ([`prism.go`](../../internal/entrypoint/prism.go)), while `Runs()`,
 > `Excludes()` and `Undecided()` had none — and the host's *"every surface is
 > read-modify-written"* was not enforced by the census at all: `hostrender.go`
 > called the rmw writer unconditionally.
@@ -1137,7 +1137,7 @@ diffs against, the captured edits themselves, and the recorded selection.
 **The provenance record does not move, and it is not one of them.** It stays at
 `<home>/.local/share/yolo-jail/host-provenance/<agent>-<name>.provenance`, where
 `Target.ProvenanceDir()` already puts it
-([`target.go:284`](../../internal/render/target.go#L284)) and where `--revert`
+([`target.go`](../../internal/render/target.go)) and where `--revert`
 already reads it ([§10](#10-what-i-would-build-in-order) step 3). Two directories
 because they have two lifetimes: provenance is per-key attribution, written at
 **every** host apply including under `assert`, and it is what `--revert` consumes;
@@ -1155,7 +1155,7 @@ which resolves through `render.Host(…).ProvenancePath` precisely
 so one definition serves the entrypoint that writes and the CLI that reads. Its
 docstring calls two hand-copied path builders — *"how the CLI's own prism\* twins
 already work"* — *"a standing hazard"*
-([`configls.go:288-301`](../../internal/cli/configls.go#L288-L301)), and a
+([`configls.go`](../../internal/cli/configls.go)), and a
 hand-built capture-store path would be the next pair.
 
 > [!WARNING]
@@ -1180,8 +1180,8 @@ hand-built capture-store path would be the next pair.
 > **The credential hazard belongs to CAPTURE, not to the host notch — and the jail
 > already has it.** The jail's overlay sits in `<workspace>/.yolo/prism/` at mode
 > `0644`, in a directory yolo *assumes* is gitignored
-> ([`target.go:226`](../../internal/render/target.go#L226),
-> [`prism.go:41`](../../internal/entrypoint/prism.go#L41)) but never adds to any
+> ([`target.go`](../../internal/render/target.go),
+> [`prism.go`](../../internal/entrypoint/prism.go)) but never adds to any
 > `.gitignore` — this repository's own `.gitignore` line 6 does it by hand — and it
 > holds a captured API key today ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot)).
 > So the shipped asymmetry is inverted on its own axis: the notch whose sidecar
@@ -1206,7 +1206,7 @@ key the file holds that yolo does not itself declare, and it does so *by
 construction* rather than by a guard this design adds. Two edges to state, because
 "byte-identical" is a claim with them: adoption also **adds** yolo's declared keys
 the file lacked (`dropNullLeaves` strips the tombstones `mergeDiff` records for
-them, [`staterender.go:198`](../../internal/agentcfg/staterender.go#L198)) — which
+them, [`staterender.go`](../../internal/agentcfg/staterender.go)) — which
 a first `assert` apply adds too — and it drops the classes
 [§6.3.2](#632-the-three-classes-adoption-does-not-cover) names, one of which is
 **not** empty on a home already on `assert`.
@@ -1215,9 +1215,9 @@ a first `assert` apply adds too — and it drops the classes
 
 `ComposeStateful` treats "no trusted `last_render` for this surface" as a
 **first migration** and, on that branch, seeds the overlay from the file it
-finds: `residue = mergeDiff(pureRender, current)`
-([`staterender.go:174`](../../internal/agentcfg/staterender.go#L174) is the prose,
-[`:198`](../../internal/agentcfg/staterender.go#L198) the code). The next line of
+finds: `residue = mergeDiff(pureRender, current)` (`ComposeStateful`'s docstring
+in [`staterender.go`](../../internal/agentcfg/staterender.go) is the prose, its
+first-migration branch the code). The next line of
 the render is then `declared layers + that residue`, which reproduces the file's
 undeclared keys exactly. Switching a host surface to `own` is precisely that
 branch — there is no host `last_render` yet — so **capture happens before the
@@ -1226,7 +1226,7 @@ first owned write, and the write puts back what capture just took**.
 This is not a hopeful reading of the mechanism. That branch exists *because*
 seeding an empty overlay was a shipped data-loss bug (`copilot/config` collapsed
 to `{"yolo": true}` and logged the user out); the comment above it is labelled
-`B1 (⚠ DATA LOSS FIX)` ([`staterender.go:164`](../../internal/agentcfg/staterender.go#L164)).
+`B1 (⚠ DATA LOSS FIX)` ([`staterender.go`](../../internal/agentcfg/staterender.go)).
 The engine's answer to "adopt a file I did not write" is already the one a
 confirmation prompt would have been built to provide.
 
@@ -1237,7 +1237,7 @@ confirmation prompt would have been built to provide.
 > truthful baseline with an empty overlay and skips capture"*, *"{} on a first
 > migration"*, *"render = Compose(overlay=∅)"* — so a reader who checks the
 > docstring finds the opposite of this section. The body at
-> [`staterender.go:164-215`](../../internal/agentcfg/staterender.go#L164-L215) is
+> [`staterender.go`](../../internal/agentcfg/staterender.go) is
 > the authority (noted 2026-09-11; the docstrings are listed for the roadmap).
 
 **For a home already on `assert` the diff is empty for MOST keys for a second
@@ -1248,42 +1248,42 @@ a loss path:
 
 - `rmw` **deep-merges** a declared object — `applyRMWLayer` recurses *"so a
   sibling key the agent owns under the same parent survives"*
-  ([`prism.go:1002`](../../internal/entrypoint/prism.go#L1002)). A user's
+  ([`prism.go`](../../internal/entrypoint/prism.go)). A user's
   `permissions.ask` beside yolo's managed `permissions.defaultMode` lives on under
   `assert`. Only object-valued **`computed`** tables are replaced wholesale
-  (`regenerateManagedTables`, [`prism.go:889`](../../internal/entrypoint/prism.go#L889)).
-- Adoption drops **every top-level key the pure render holds as an object**,
-  whole — `dropYoloOwnedSubtrees`
-  ([`staterender.go:320-338`](../../internal/agentcfg/staterender.go#L320-L338)) —
-  and the comment above the call says why that reaches managed: *"a managed
-  object key is always one of those because Enforce puts it there"*
-  ([`:204`](../../internal/agentcfg/staterender.go#L204)). So at the first owned
-  render `permissions.ask` — and every other leaf under `permissions`, `env` or
-  any declared object that yolo does not itself pin — is **not adopted**, and the
-  render omits it.
+  (`regenerateManagedTables`, [`prism.go`](../../internal/entrypoint/prism.go)).
+- Adoption **used to** drop every top-level key the pure render holds as an
+  object, whole. So at the first owned render `permissions.ask` — and every other
+  leaf under `permissions`, `env` or any declared object that yolo does not itself
+  pin — was **not adopted**, and the render omitted it.
 
 > [!WARNING]
-> **`dropYoloOwnedSubtrees` is coarser than `dropOverriddenKeys`, and the engine
-> already knows the coarse rule is wrong.** Three functions further down, the
-> steady-state rule says a blanket top-level drop *"would be simpler and wrong — it
-> would discard the agent's permission list on every boot"*
-> ([`staterender.go:410-414`](../../internal/agentcfg/staterender.go#L410-L414)).
-> Two rules in one file disagree, and adoption took the wrong one.
->
-> **This is a shipped defect, not only a design hole.** It loses a leaf silently at
-> `assert → own`, and in **any jail that loses its `last_render`** — B1's own
-> trigger — because that is the same branch. Nothing catches it: `FirstApply` is
-> *false* once a provenance record exists
+> **The coarse rule was a shipped defect, not only a design hole**, and it is
+> recorded because the shape recurs. The blanket drop was coarser than
+> `dropOverriddenKeys`, the steady-state rule three functions further down in the
+> same file, which says a blanket top-level drop *"would be simpler and wrong — it
+> would discard the agent's permission list on every boot"*. Two rules in one file
+> disagreed, and adoption took the wrong one. It lost a leaf silently at
+> `assert → own` and in **any jail that lost its `last_render`** — B1's own trigger
+> — because that is the same branch, and nothing caught it: `FirstApply` is *false*
+> once a provenance record exists
 > ([§3](#3-the-diagnosis--one-asymmetry-three-unrelated-justifications)), and
 > `EntryLosses` is defined over table entries.
 
 **The design therefore requires adoption to drop at the granularity `rmw` writes
 at**: leaf-level against deep-merged owners (`managed`, `defaults`,
 `config-overlay`), wholesale only against `computed` tables — which is exactly
-`dropOverriddenKeys`' existing rule applied to the pure render. Until that lands,
-`own` is not zero-bytes on an `assert` home, and
-[§11](#11-success-criteria)'s *"zero bytes"* criterion fails for every user with
-such a leaf.
+`dropOverriddenKeys`' existing rule applied to the pure render.
+
+**That landed.** Adoption now narrows its residue in two passes at two
+granularities: `dropComputedTables` wholesale against the computed layer, then the
+shared leaf-level `narrowOverlay` both branches run. A leaf under a deep-merged
+owner survives the switch, measured as a byte golden in
+`internal/entrypoint/hostassertbaseline_test.go` and its `own` twin.
+
+**It is not the whole of [§11](#11-success-criteria)'s criterion, and the gap is
+recorded there** rather than here: the leaf case passes, and four other axes of
+the same switch do not.
 
 ### 6.3.2 The three classes adoption does not cover
 
@@ -1292,7 +1292,7 @@ deliberate line in the engine rather than an oversight:
 
 | Class | What happens | Why |
 | :--- | :--- | :--- |
-| A key nested inside **any** top-level object the pure render holds — a `computed` table like `mcpServers`, *and* a deep-merged `managed`/`defaults` object like `permissions` | **not adopted** | `dropYoloOwnedSubtrees` ([`staterender.go:338`](../../internal/agentcfg/staterender.go#L338)) — right for the table (adopting would resurrect a dropped entry and break *regenerate, don't reconcile*); **wrong for the deep-merged object**, where `rmw` would have kept the leaf ([§6.3.1](#631-adoption-is-capture-then-regenerate)) |
+| A key nested inside a top-level object the **`computed`** layer holds — a table like `mcpServers` or claude's `env` | **not adopted** | `dropComputedTables` — right for a table yolo regenerates in full, where adopting would resurrect a dropped entry and break *regenerate, don't reconcile*. A user's own sibling under such a table is the residue that reading leaves, stated at that function |
 | A key a higher layer re-asserts — `managed`, or the per-boot `computed` layer | **never captured, in either branch** | `narrowOverlay` — both fold above the capture overlay and win unconditionally, so a captured copy could only sit in the sidecar as noise `yolo config diff` would report as a phantom edit |
 | A **keyless** surface (`raw`, `lines`) | **not adopted at all** | one "key" is the whole file, so adoption would mean "the file wins outright", freezing a host-mirrored file at stale content forever ([`staterender.go`](../../internal/agentcfg/staterender.go)) |
 
@@ -1364,7 +1364,7 @@ recommending.
 speculative one.** The archive root, the one-generation-per-apply layout and
 `yolo prune`'s reclamation already ship for skills, files and briefings
 (`~/.local/share/yolo-jail/archive/<bucket>/<stamp>/`,
-[`applyhostskills.go:76`](../../internal/cli/applyhostskills.go#L76)); a config
+[`applyhostskills.go`](../../internal/cli/applyhostskills.go)); a config
 bucket is a new *bucket*, not a new *surface*. And the loss it covers is
 [§6.3.1](#631-adoption-is-capture-then-regenerate)'s deep-merged leaf, which the
 prompt is structurally blind to.
@@ -1385,9 +1385,9 @@ prompt is structurally blind to.
 **And the net cannot be the same primitive at both notches, which
 [P5](#1-the-verdict-and-the-principles-it-rests-on) permits.** "Confirm like an
 `EntryLoss`" needs a human: the host apply is interactive and its stdin exists for
-exactly that prompt ([`apply.go:38`](../../internal/cli/apply.go#L38)), but a
+exactly that prompt ([`apply.go`](../../internal/cli/apply.go)), but a
 jail's `firstMigration` runs at an unattended boot — in-jail `yolo apply` is a
-report, not a provision ([`apply.go:111`](../../internal/cli/apply.go#L111)). So
+report, not a provision ([`apply.go`](../../internal/cli/apply.go)). So
 the RULE is uniform and the NET splits by the primitive available: a prompt where
 there is a TTY, the archive where there is not. That is what makes the archive
 load-bearing rather than optional.
@@ -1593,13 +1593,42 @@ Observable outcomes that mean this was built as designed:
   instead.
 - Switching to `own` on a home already applying under `assert` changes **zero
   bytes** — the measurable form of
-  [§6.3.1](#631-adoption-is-capture-then-regenerate), and the criterion to write
-  the test for first. The shipped adoption rule does **not** satisfy it for a leaf
-  under a managed object, so the first test to write is the one with
-  `permissions.ask` in the file. Switching on a home that never applied loses only
-  what a first `assert` apply would have lost, prompts for it through the gate
-  that already exists, and leaves the pre-existing file recoverable from the
-  archive.
+  [§6.3.1](#631-adoption-is-capture-then-regenerate). Switching on a home that
+  never applied loses only what a first `assert` apply would have lost, prompts
+  for it through the gate that already exists, and leaves the pre-existing file
+  recoverable from the archive.
+
+  > [!WARNING]
+  > **PARTLY MET, AND THE REST IS OPEN.** The case this criterion was written for
+  > — a leaf such as `permissions.ask` under a declared object — passes, pinned as
+  > a byte golden across the switch. The criterion as STATED does not hold, on
+  > four axes measured 2026-09-12 against a fixture home, each of which changes
+  > bytes between the two contracts:
+  >
+  > | Axis | Under `assert` | Under `own` |
+  > | :--- | :--- | :--- |
+  > | A top-level key valued `null` | kept | **deleted** |
+  > | A top-level key valued `{}` | kept | **deleted** |
+  > | JSON key order, at every depth | the file's own order | sorted |
+  > | A TOML surface's user comments | reattached in place | **destroyed**, and a three-line generated header prepended |
+  >
+  > The first two are silent key deletion: neither `EntryLosses` nor `Formatting`
+  > names them, so `yolo host apply`'s loss gate does not prompt. `WouldChange` is
+  > true in every case above, so the switch is not wholly silent.
+  >
+  > The cause is one sentence: the two contracts compose through **different
+  > encoders**. `assert` writes through the read-modify-write path, which preserves
+  > insertion order and reattaches comments because that is its contract; `own`
+  > composes the whole file through the surface's codec, which sorts keys and
+  > emits the generated header. A `null` leaf is dropped by name on the adoption
+  > path, and an empty object diffs to nothing, so neither reaches the overlay.
+  >
+  > **What this means for the key:** `own` is safe to offer, and it is the
+  > contract's stated shape — a derived file contains what the definition says.
+  > It is not yet a byte-invariant migration, so the criterion is not evidence
+  > that a home can be switched and back with nothing observed. The shipped test
+  > (`TestSwitchingToOwnChangesZeroBytes`) is green on a fixture that is already
+  > key-sorted JSON; that is its scope, and it is stated at the fixture.
 - A `yolo host apply --assert` under `assert` still leaves an undeclared key
   byte-identical — the property measured on 2026-09-09 and the one thing this
   design must not regress.
@@ -1616,13 +1645,26 @@ Observable outcomes that mean this was built as designed:
 > BACKLOG's is [§5.4](#54-promotion-moves-a-key-down-the-stack)'s residual
 > precedence case seen from the pack side.
 
-Three live questions. [OQ-CO11](#13-decision-ledger) is upstream of
-[OQ-CO10](#13-decision-ledger): if the 2026-08-01 ruling stands, CO10 dissolves for config
-surfaces rather than being answered. Settled questions are in
-[§13](#13-decision-ledger).
-**None — every question this design opened is settled.** The last three were ruled on
-2026-09-11 and are in [§13](#13-decision-ledger); the rulings themselves live in the
-sections they govern.
+Every question this design OPENED is settled — the last three were ruled on 2026-09-11 and
+are in [§13](#13-decision-ledger), with the rulings themselves living in the sections they
+govern. One question the BUILD opened is live, below.
+
+1. 💬 **OQ-CO12: is the `assert` → `own` switch required to be byte-invariant, or only
+   key-invariant?** [§11](#11-success-criteria) states zero bytes; the shipped switch is zero
+   bytes for the case it was written for and changes bytes on four other axes — JSON key
+   order, a `null`- or `{}`-valued top-level key, and a TOML surface's comments and generated
+   header — because the two contracts compose through different encoders. Two of those are
+   silent key deletion that no loss field names. The stakes are which half moves: tightening
+   `own`'s encoder to preserve order and comments is a change to the composing path every
+   notch shares, while relaxing the criterion to keys-and-values makes the two silent
+   deletions bugs to fix on their own and the rest expected.
+
+   <!-- vantage: oq id=OQ-CO12 leaning="Relax the criterion to keys-and-values, and fix the two silent deletions as bugs — a composing renderer that sorts keys is the contract `own` states, and matching rmw's byte layout would make the capture path carry formatting it has no reason to know about." -->
+
+   _Leaning:_ Relax the criterion to keys-and-values, and fix the two deletions separately.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 **One consequence is large enough to state here rather than leave in a ledger row.**
 [`OQ-CO10`](#13-decision-ledger) decided the *shape* of the read-in `host` layer — the

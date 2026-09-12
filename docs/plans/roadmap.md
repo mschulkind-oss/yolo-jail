@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 16 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 17 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
-Last updated **2026-09-11**. Counts are tallied from this file's contents, not asserted — one per
+Last updated **2026-09-12**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
 
 > [!NOTE]
@@ -645,17 +645,29 @@ shape the schema; [`OQ-BR4`](../design/bedrock-plumbing.md#13-open-questions) is
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 📦 25 — Who owns the config file, and the `promote` verb one message already advises
+### 💬 25 — Who owns the config file: SHIPPED, with one question the build opened
 
 📄 [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) —
 **[`OQ-CO9`](../design/config-ownership-and-promotion.md#13-decision-ledger) · [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) · [`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger)** — CO1–CO8 are settled and compacted into the [Decision Ledger](../design/config-ownership-and-promotion.md#13-decision-ledger) · written 2026-09-09, **routed here the same day**
 
-yolo infers config-file ownership from the confinement notch rather than asking, and the inference
-is wrong for anyone who adopted `yolo host apply`. **Nothing is built** (verified 2026-09-09: no
-`host_management` key in `internal/config`, and `config promote` is absent from
-`internal/cli/config.go`'s verb list). This row takes over the *promote* half of 💬 7's user-stories
-Q1, which reports the same missing subcommand from the capture side — Q1 asks whether capture
-should become a staging area, this doc designs the drain.
+yolo inferred config-file ownership from the confinement notch rather than asking, and the
+inference was wrong for anyone who adopted `yolo host apply`. This row took over the *promote* half
+of 💬 7's user-stories Q1, which reports the same missing subcommand from the capture side — Q1
+asks whether capture should become a staging area, this doc designs the drain.
+
+✅ **BUILT 2026-09-11/12 — all eight steps of
+[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order)'s order.** The key and its
+fail-closed read; `none`/`assert` wired; `--revert`; `promote --plan` and its write path; both
+halves of the `reads-host` restructure; and `own` — the host notch composing `stateful`, with the
+capture store, host-side `reset` and the one-time archive in the same commit. `assert` remains the
+undeclared default, so nothing moved for a user who set nothing.
+
+💬 **What still needs you is one question the BUILD opened, not one the design left:**
+[`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions) — is the `assert` → `own` switch required to be
+byte-invariant, or only key-invariant? [§11](../design/config-ownership-and-promotion.md#11-success-criteria)
+says zero bytes; measured, the switch is zero bytes for the leaf case the criterion was written
+for and changes bytes on four other axes, two of them silent key deletion. The section carries
+the measurements and the leaning.
 
 ⚠ **Review round 0 landed 2026-09-10 and this row is smaller than it was.** Two of the seven are
 ruled and one is new, so the gating sentence this row used to carry is retired:
@@ -701,8 +713,8 @@ Two consequences, and the first needs you before anything else here moves:
   existed. **If [`OQ-3`](environment-manager-plan.md#resolved) stands, CO11 and [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) both dissolve and this doc gets
   materially smaller.**
 
-**ALL ELEVEN QUESTIONS ARE SETTLED** (2026-09-11) and the doc is `status: accepted` — it moved to
-📦 the moment [`OQ-CO9`](../design/config-ownership-and-promotion.md#13-decision-ledger), [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) and [`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger) were ruled. CO11 was
+**ALL ELEVEN QUESTIONS THE DESIGN OPENED ARE SETTLED** (2026-09-11) and the doc is
+`status: accepted` — it moved to 📦 the moment [`OQ-CO9`](../design/config-ownership-and-promotion.md#13-decision-ledger), [`OQ-CO10`](../design/config-ownership-and-promotion.md#13-decision-ledger) and [`OQ-CO11`](../design/config-ownership-and-promotion.md#13-decision-ledger) were ruled. CO11 was
 decided *by* CO10 rather than separately: ruling a mechanism's binding, failure direction and
 coverage decides that it exists, so asking in the same breath whether to delete it was incoherent.
 
@@ -713,17 +725,19 @@ because their absence is what let this design re-argue settled ground for four r
 is worth more than the rows: **before opening a question, search sibling ledgers** — a cross-document
 collision is invisible by construction.
 
-⚠ **Two code defects the audit surfaced, neither of which needs a ruling:**
-`dropYoloOwnedSubtrees` drops every object-valued key while `dropOverriddenKeys` — three
-functions later — calls that same blanket approach *"simpler and wrong"*, so `permissions.ask`-
-shaped leaves are **silently lost at `assert→own`** and in any jail that loses its `last_render`.
-And the `host` layer **silently drops on `macos-user`** (no `/ctx`, pack grants neither mounted
-nor filtered while `host_files` are, and the read is fail-open) — a user feature-detecting the
-backend, which is the parity defect stated in
-[`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend).
+✅ **Two code defects the audit surfaced, neither of which needed a ruling — both closed by the
+build.** Adoption dropped every object-valued key wholesale while `dropOverriddenKeys` — three
+functions later — called that same blanket approach *"simpler and wrong"*, so `permissions.ask`-
+shaped leaves were **silently lost at `assert→own`** and in any jail that lost its `last_render`;
+adoption now narrows in two passes and the leaf survives, pinned as a byte golden across the
+switch. And the `host` layer **silently dropped on `macos-user`** (no `/ctx`, pack grants neither
+mounted nor filtered while `host_files` are, and the read was fail-open) — the parity defect stated
+in [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md#50-the-constraint-that-outranks-the-layout-choice-one-mechanism-every-backend);
+[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) step 7 made the read fail closed with the launcher reporting what it delivered, and
+`macos-user` reports `unsupported` rather than being refused for what it cannot do.
 
 **Answer:**
-> _(empty — fill in when decided; the first move is reconciling the 2026-08-01 ledger in [`environment-manager-plan.md`](environment-manager-plan.md#resolved))_
+> _(empty — fill in when decided; the live question is now [`OQ-CO12`](../design/config-ownership-and-promotion.md#12-open-questions), above. The 2026-08-01 ledger in [`environment-manager-plan.md`](environment-manager-plan.md#resolved) carries its dated reversal rows.)_
 
 ### 💬 26 — The same model has a different name in every provider, and switching leaves the old one behind
 

@@ -6,13 +6,19 @@ package entrypoint
 // path FIRST so the baseline exists before anything renders `own`.
 //
 // Why a byte golden rather than key assertions. §11's criterion is a claim about the FILE, and
-// the class it has to catch is the one §6.3.1 already measured on the shipped engine: adoption
-// (`ComposeStateful`'s first-migration branch) drops every leaf under a top-level object the
-// pure render holds — `dropYoloOwnedSubtrees` — while `rmw` DEEP-MERGES the same object and
-// keeps it (`applyRMWLayer`). So a user's `permissions.ask` sitting beside yolo's managed
-// `permissions.defaultMode` survives here and would not survive an owned render built on
-// today's adoption rule. A test asserting "permissions is present" passes in both worlds; only
-// the bytes tell them apart, and the bytes are what the criterion says.
+// the class it has to catch is the one §6.3.1 measured on the engine as it then stood: adoption
+// (`ComposeStateful`'s first-migration branch) dropped every leaf under a top-level object the
+// pure render holds, wholesale, while `rmw` DEEP-MERGES the same object and keeps it
+// (`applyRMWLayer`). So a user's `permissions.ask` sitting beside yolo's managed
+// `permissions.defaultMode` survives here and would not have survived an owned render built on
+// that rule. A test asserting "permissions is present" passes in both worlds; only the bytes
+// tell them apart, and the bytes are what the criterion says.
+//
+// The blanket drop is GONE — adoption now narrows in two passes, `dropComputedTables` then the
+// shared leaf-level `narrowOverlay` — so this golden and its `own` twin agree. What the golden
+// does NOT establish is the criterion in general: it is one JSON fixture whose keys are already
+// in the order a composing encoder emits, and §11 records the axes on which a home that is not
+// changes anyway.
 //
 // The fixture surface declares NO mode, i.e. `stateful` (manifest.Surface.ResolvedMode's
 // default), because that is the coercion case: at the host notch the census runs `rmw` alone
@@ -163,9 +169,11 @@ func TestHostRenderRunsTheMechanismTheCensusNames(t *testing.T) {
 	}
 
 	// rmw's signature: the deep merge kept a leaf under a declared object. `applyRMWLayer`
-	// recurses so a sibling key the agent owns under the same parent survives; a stateful
-	// render of the same surface adopts through dropYoloOwnedSubtrees, which drops that whole
-	// subtree (§6.3.1). So this key is where the two mechanisms visibly disagree.
+	// recurses so a sibling key the agent owns under the same parent survives. This is where
+	// the two mechanisms USED to visibly disagree — a stateful render adopted by dropping every
+	// top-level subtree the pure render holds, taking this leaf with it (§6.3.1) — and the
+	// assertion is kept now that adoption narrows instead, because it is what would notice the
+	// coarse rule coming back.
 	var got map[string]any
 	data, err := os.ReadFile(path)
 	if err != nil {
