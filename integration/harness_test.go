@@ -63,13 +63,28 @@ var (
 	repoRoot string
 )
 
-// TestMain builds the CLI under test once and, when running inside a nested
-// jail, ensures the image is loaded — then runs the suite. Under -short it does
-// none of that (only the non-container fast tests run).
+// THE SUITE HAS EXACTLY ONE EXIT, and it goes through macosUserExitCode — which turns
+// a run that DECLARED itself the macos-user job and then executed none of those tests
+// into a non-zero status (macosusergate_test.go). The guard lives in TestMain rather
+// than in a summary test because only TestMain is immune to a -run filter and to test
+// ordering, the two things a vacuity guard must survive to mean anything.
+//
+// The single exit is what makes ONE test able to pin it. runSuite's short path and its
+// container path used to return through two separate os.Exit calls, and a guard on two
+// call sites is a guard that can be deleted from the one nothing exercises — here, the
+// container path, which no cheap test can drive.
 func TestMain(m *testing.M) {
 	flag.Parse()
+	os.Exit(macosUserExitCode(runSuite(m), os.Stderr))
+}
+
+// runSuite is TestMain's body: it builds the CLI under test once and, when running
+// inside a nested jail, ensures the image is loaded — then runs the suite and returns
+// its exit code. Under -short it does none of that (only the non-container fast tests
+// run).
+func runSuite(m *testing.M) int {
 	if testing.Short() {
-		os.Exit(m.Run())
+		return m.Run()
 	}
 
 	ensureNixInPath()
@@ -97,7 +112,7 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 	os.RemoveAll(binDir)
-	os.Exit(code)
+	return code
 }
 
 // warmJail pays the suite's ONE-TIME container costs here, where nothing is being

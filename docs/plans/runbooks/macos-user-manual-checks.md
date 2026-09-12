@@ -220,6 +220,16 @@ ruling is true of the shipped article and not just of the exclusion list.
 **If `mise` or `npm` is MISSING**, stop: nothing below can pass, and this is the bug to file,
 with the output of `yolo --dry-run` (which names the profile path the launch built).
 
+> [!NOTE]
+> **This item now has an automated twin**: `integration/TestMacosUserFloorReachesTheSandboxPath`
+> launches a real sandbox and makes the same two assertions (every floor binary resolves, and
+> resolves into the store; `which` does not). It runs only on a Mac that has `sudo -n` and the
+> `_yolojail` account, and SKIPS everywhere else — countably, through the gate in
+> `integration/macosusergate_test.go`, so a job that was scheduled to run it and skipped it
+> fails instead of passing green. Running it does not retire this entry: the runbook is still
+> the spec, and a human re-running it is still the instrument for everything the gate cannot
+> reach.
+
 ---
 
 ## 7. The provisioning stage runs, and is confined — NEW 2026-09-12, NEVER RUN
