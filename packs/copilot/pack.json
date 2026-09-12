@@ -77,11 +77,20 @@
         ]
       },
       "bin": "copilot",
-      "flags": [
-        "--yolo",
-        "--no-auto-update"
-      ],
       "kind": "launch"
+    },
+    {
+      "autonomous": {
+        "launch": [
+          {
+            "bin": "copilot",
+            "flags": [
+              "--yolo"
+            ]
+          }
+        ]
+      },
+      "kind": "autonomy"
     }
   ],
   "name": "copilot",

@@ -11,10 +11,16 @@ import (
 
 // LAUNCH FLAGS REACH macos-user. packload.InjectLaunchFlags used to be called inside
 // runContainer, which this arm returns before reaching, so a `launch` contribution did
-// nothing at all natively. copilot's `--yolo --no-auto-update` is a plain launch
-// contribution with no autonomy config half to fall back on — a 100% drop — and the
-// comment at the old call site said the in-jail launcher would reapply them, which is
-// false: both templates end `exec "$REAL_BIN" "$@"` and never read the contributions.
+// nothing at all natively. copilot's `--yolo` was a 100% drop — it was a plain launch
+// contribution then, with no config half to fall back on — and the comment at the old call
+// site said the in-jail launcher would reapply them, which is false: both templates end
+// `exec "$REAL_BIN" "$@"` and never read the contributions.
+//
+// `--yolo` is an AUTONOMY contribution now (packs/copilot/pack.json), so this also pins that
+// the hoisted injection folds the AUTONOMOUS POSTURE and not plain flags only — a macos-user
+// jail is a jail, and the posture it renders is the jail's. WHERE the flag is declared is
+// pinned in internal/packload (TestCopilotYoloIsDeclaredUnderAutonomyNotAsAPlainLaunchFlag);
+// this file only asks whether it arrives.
 //
 // Asserted at the SEAM the backend actually receives, not on the injector: the argv
 // handed to MacosUserRun is what the sandbox execs, so this fails if the hoist is

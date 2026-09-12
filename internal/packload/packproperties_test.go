@@ -203,12 +203,22 @@ func TestEveryShippedPacksHostFilesAreHonored(t *testing.T) {
 // DECLARATION, which is the half that can silently rot. The alias entry is the case worth
 // pinning: `-y` and `--yolo` are the same switch, so a user who typed `-y` must not also get
 // `--yolo`, and that only works if the copilot pack still declares the alias alongside the
-// flags. A pack that dropped flagAliases would keep passing a synthetic-fixture test.
+// flag. A pack that dropped flagAliases would keep passing a synthetic-fixture test.
+//
+// THE ALIAS IS WHY THE `launch` CONTRIBUTION SURVIVES its own flags. `--yolo` moved into the
+// autonomy contribution's autonomous posture, and `AutonomyLaunch` is {bin, flags} with
+// nowhere to put an alias — so the pack keeps a `launch` entry carrying `aliases` and no
+// `flags`, and the two halves meet in InjectLaunchFlags. Delete the flagless launch entry and
+// this test fails on the `-y` case, not on the first one.
+//
+// The exact-match `want` is also what pins `--no-auto-update` GONE: the flag is dropped, so a
+// jail's copilot polls for its own updates again (docs/plans/native-installer-migration.md,
+// the Blockers bullet's option A).
 func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 	packs := loadAll(t)
 
 	got := packload.InjectLaunchFlags(packs, []string{"copilot", "sub"})
-	want := "copilot --yolo --no-auto-update sub"
+	want := "copilot --yolo sub"
 	if strings.Join(got, " ") != want {
 		t.Errorf("got %q, want %q", strings.Join(got, " "), want)
 	}

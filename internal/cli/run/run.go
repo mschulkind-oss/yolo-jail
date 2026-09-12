@@ -218,9 +218,10 @@ func Run(opts Options) (rc int) {
 	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
 	// the same reason. The injection used to sit inside runContainer, which the
 	// macos-user arm returns before reaching, so on that backend a `launch`
-	// contribution did nothing at all. copilot's `--yolo --no-auto-update` is a plain
-	// launch contribution with NO autonomy config half to fall back on, so it was a
-	// 100% drop; claude's `--dangerously-skip-permissions` fell back to
+	// contribution did nothing at all. copilot's `--yolo` was a 100% drop — a plain
+	// launch contribution, with no config half to fall back on (it is an autonomy
+	// contribution now, which changes where it is declared and not whether it is
+	// injected); claude's `--dangerously-skip-permissions` fell back to
 	// defaultMode: acceptEdits, which auto-accepts EDITS and not Bash or WebFetch.
 	//
 	// THE STAGED SET, and the EFFECTIVE PROFILE TABLE with it — both read off staging,

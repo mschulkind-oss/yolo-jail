@@ -19,9 +19,16 @@ import (
 // two spellings now agree by construction rather than by both folding the same table.
 //
 // DERIVED rather than declared. It used to be an AgentSpec.Alias string holding a whole
-// command line ("copilot --yolo --no-auto-update"), which duplicated the launchFlags the
-// same spec already carried — two places to change, and a pack shipping only one of them
-// would get a shell alias silently disagreeing with the launcher.
+// command line, which duplicated the launchFlags the same spec already carried — two places
+// to change, and a pack shipping only one of them would get a shell alias silently
+// disagreeing with the launcher.
+//
+// THE `true` IS THE NOTCH, not a default: an interactive shell only exists inside the jail,
+// so the AUTONOMOUS posture is the right one to fold, and a pack's permission-bypass flag
+// (claude's --dangerously-skip-permissions, copilot's --yolo) reaches the alias for the same
+// reason it reaches `yolo -- <bin>`. Nothing here may grow a host spelling: the host notch
+// injects no flags at all, and an alias written from this function would be the one path that
+// did.
 func packAliases(e *Env) string {
 	packs, err := LoadJailPacks(e)
 	if err != nil {
@@ -182,10 +189,11 @@ alias ls='ls --color=auto'
 alias ll='ls -alF'
 `
 
-const bashrcPart4 = `# Agent YOLO flags: copilot gets a --yolo alias above (when selected);
-# claude gets --dangerously-skip-permissions injected by the CLI (with
-# IS_SANDBOX=1 to bypass the root check); opencode/pi auto-approve via their
-# own config files.
+const bashrcPart4 = `# Agent YOLO flags: the aliases above carry each selected pack's
+# autonomous-posture launch flags — copilot's --yolo, claude's
+# --dangerously-skip-permissions (the CLI adds IS_SANDBOX=1 to bypass the root
+# check) — and "yolo -- <agent>" injects the same ones; opencode/pi auto-approve
+# via their own config files.
 alias vi='nvim'
 alias vim='nvim'
 alias bat='bat --style=plain --paging=never'

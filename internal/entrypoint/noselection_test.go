@@ -85,6 +85,12 @@ func TestConfigurePackSurfacesWithNoPacksWritesNothing(t *testing.T) {
 // pack. The alias used to be its own AgentSpec.Alias string duplicating the same flags —
 // two places to change, so a pack updating one would get a shell alias that silently
 // disagreed with the launcher.
+//
+// It is also the interactive half of the notch pin: packAliases folds the AUTONOMOUS posture
+// (LaunchFlagsFor(packs, true)), which is where copilot's `--yolo` now lives, so an
+// interactive shell in the jail gets the same permission bypass `yolo -- copilot` does. The
+// pack declares no other launch flag — `--no-auto-update` was dropped — so the whole alias is
+// the one flag.
 func TestPackAliasesDerivesFromLaunchFlags(t *testing.T) {
 	home := t.TempDir()
 	root := t.TempDir()
@@ -107,7 +113,7 @@ func TestPackAliasesDerivesFromLaunchFlags(t *testing.T) {
 
 	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": root})
 	got := packAliases(e)
-	want := "alias copilot='copilot --yolo --no-auto-update'"
+	want := "alias copilot='copilot --yolo'"
 	if got != want {
 		t.Errorf("packAliases = %q, want %q", got, want)
 	}

@@ -769,6 +769,18 @@
     update` still refreshes them on demand -- it is the only thing that ignores
     this key, because it is an act you performed.
 
+    IT GOVERNS YOLO'S UPDATER, NOT THE AGENT'S OWN.  An agent that ships a
+    self-updater runs it on its own terms, and yolo no longer suppresses one: as
+    of 2026-09-12 the copilot pack dropped `--no-auto-update`, so a jail's copilot
+    checks for its own new version at startup and says so in-session.  On the npm
+    build yolo installs it can only SAY so -- the download-and-replace half is
+    gated on copilot's single-file build (measured, @github/copilot 1.0.48:
+    `isSea()` false logs "Update not supported when running js directly" and then
+    notifies) -- which is the same poll-and-notify shape this key's launcher half
+    keeps.  To silence it, set COPILOT_AUTO_UPDATE=false in the jail, or copilot's
+    own `autoUpdate: false` setting; `agent_updates: false` will not, because that
+    updater is not yolo's.
+
     The map's keys are PACK names, not binary names: one pack may install more
     than one program, and the pack is the thing you selected.  A specific key
     beats "*"; "*" beats absence.  A pack cannot opt itself out -- it declares HOW
@@ -1139,7 +1151,13 @@
                     your real home via `yolo host apply`.  Each posture takes
                     {config:[surface...]} patching the managed layer of a surface THIS
                     pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
-                    empty (a permissive-by-default tool only needs `guarded`).
+                    empty, in both directions: a permissive-by-default tool only needs
+                    `guarded`, and a pack whose autonomy is a LAUNCH FLAG ALONE only
+                    needs `autonomous` — a flag has no persistence, so not selecting it
+                    IS the guarded posture (copilot's `--yolo` is the shipped instance).
+                    Note that a posture entry REPLACES that binary's plain `launch`
+                    flags rather than adding to them, so an empty `guarded.launch` for a
+                    bin strips its ordinary flags at the host notch too.
       profile       {name, provider} — a NAMED SELECTION OVER A PROVIDER, and that is the
                     whole body.  `name` is the selector `use_profiles` or `-p <name>`
                     sets; `provider` is the `providers` entry it selects and is
