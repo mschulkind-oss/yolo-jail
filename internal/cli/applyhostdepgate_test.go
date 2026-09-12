@@ -21,31 +21,75 @@ import (
 	"testing"
 )
 
+// gateConfigJSON is the fixture's CONFIG surface — the destination the render LOOP writes.
+const gateConfigJSON = `{"kind":"config","config":[{"agent":"gp","name":"settings",` +
+	`"codec":"json","path":"~/.gp/settings.json","mode":"rmw",` +
+	`"managed":{"gateKey":"gateValue"}}]}`
+
 // depGateFixture builds a throwaway $HOME whose only pack declares the given contributions plus
-// a briefing, and returns the home with the path that briefing would write.
+// a config surface and a briefing, and returns the home with the two paths they would write.
 //
-// THE BRIEFING IS THE INSTRUMENT. A refusal that says "nothing was written" is checkable only
-// against a run that would otherwise have written something, so every fixture here has one
-// destination whose presence or absence answers the question the report merely claims.
+// THE WRITTEN DESTINATIONS ARE THE INSTRUMENT. A refusal that says "nothing was written" is
+// checkable only against a run that would otherwise have written something, so every fixture
+// here has destinations whose presence or absence answers the question the report merely claims.
+//
+// TWO OF THEM, EITHER SIDE OF THE RENDER LOOP, and that is the point rather than thoroughness.
+// The briefing alone was the instrument until 2026-09-11, and applyHostBriefings runs AFTER the
+// config render loop — so the gate could be moved from its pre-flight position to just above
+// the prune pass, below the loop, and the whole package stayed green while a real config file
+// landed in the home under a report that said "Nothing was written" (measured by mutation). The
+// gate's claim is about the LOOP, so the instrument has to be something the loop writes.
 //
 // PATH holds `apt` and nothing else the deps resolve to, so the remedy in the report is the
 // detected manager's and the declared binaries are deterministically missing — on this machine
 // and on CI (see hostdepstub_test.go for why that sentence has to be true of both).
 func depGateFixture(t *testing.T, contributions ...string) (home, briefing, binDir string) {
 	t.Helper()
+	home, briefing, _, binDir = depGateFixtureWithConfig(t, contributions...)
+	return home, briefing, binDir
+}
+
+// depGateFixtureWithConfig is depGateFixture, also handing back the config destination — the
+// one a test needs when it is asserting on the RENDER LOOP rather than on the tail.
+func depGateFixtureWithConfig(t *testing.T, contributions ...string) (home, briefing, cfgDest, binDir string) {
+	t.Helper()
 	binDir = fakeBinDir(t, "apt")
 	home = t.TempDir()
 	packDir := filepath.Join(t.TempDir(), "gatepack")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"gatepack","description":"g","contributes":[`+
-			strings.Join(contributions, ",")+`,`+
+			strings.Join(contributions, ",")+`,`+gateConfigJSON+`,`+
 			`{"kind":"briefing","from":"AGENTS.md","into":".gate/AGENTS.md"}]}`)
 	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Gate prose.\n")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"packs":[{"source":"file://`+packDir+`","name":"gatepack"}]}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	return home, filepath.Join(home, ".gate", "AGENTS.md"), binDir
+	return home, filepath.Join(home, ".gate", "AGENTS.md"),
+		filepath.Join(home, ".gp", "settings.json"), binDir
+}
+
+// wroteNothing is what "Nothing was written" MEANS, checked against the home rather than
+// against the sentence — on both sides of the render loop.
+//
+// cfgDest is the load-bearing half. It is written INSIDE apply.go's config render loop, which
+// the gate's pre-flight position is a claim about; briefing is written after that loop, so an
+// assertion on it alone survives moving the gate down past the loop entirely.
+func wroteNothing(t *testing.T, home, briefing, cfgDest, report string) {
+	t.Helper()
+	if _, err := os.Stat(cfgDest); !os.IsNotExist(err) {
+		t.Errorf("%s exists — a config surface was RENDERED before the run refused, so "+
+			"\"Nothing was written\" is not what the refusal means:\n%s", cfgDest, report)
+	}
+	if _, err := os.Stat(briefing); !os.IsNotExist(err) {
+		t.Errorf("%s exists — the run wrote before it refused, so \"nothing was written\" is "+
+			"not what the refusal means:\n%s", briefing, report)
+	}
+	for _, dir := range []string{filepath.Join(home, ".gate"), filepath.Join(home, ".gp")} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("the apply created the destination directory %s before refusing", dir)
+		}
+	}
 }
 
 // watchInstalls replaces the install runner with one that records what it was asked to run and
@@ -74,7 +118,7 @@ func watchInstalls(t *testing.T, then func(cmd string) error) *[]string {
 // the apply never touched. An end-of-run refusal would pass every assertion about the exit code
 // and fail this one.
 func TestApplyHostAssertRefusesADeclinedInstall(t *testing.T) {
-	home, briefing, _ := depGateFixture(t,
+	home, briefing, cfgDest, _ := depGateFixtureWithConfig(t,
 		`{"kind":"program","bin":"gatebin","via":"npm","package":"gatebin"}`)
 	ran := watchInstalls(t, nil)
 
@@ -99,33 +143,27 @@ func TestApplyHostAssertRefusesADeclinedInstall(t *testing.T) {
 	if !strings.Contains(report, "npm install -g gatebin") {
 		t.Errorf("the exact install command must be shown before the prompt:\n%s", report)
 	}
-	if _, err := os.Stat(briefing); !os.IsNotExist(err) {
-		t.Errorf("%s exists — the run wrote before it refused, so \"nothing was written\" is "+
-			"not what the refusal means", briefing)
-	}
-	if _, err := os.Stat(filepath.Join(home, ".gate")); !os.IsNotExist(err) {
-		t.Errorf("the apply created a destination directory before refusing")
-	}
+	wroteNothing(t, home, briefing, cfgDest, report)
 }
 
 // SILENCE IS NO (§4.9 point 4). promptYesNo reads a nil stdin as NO, so an unattended --assert
 // — CI, a script, a cron — refuses rather than installing a package on a machine nobody is
 // watching.
 func TestApplyHostAssertRefusesAnUnattendedInstall(t *testing.T) {
-	_, briefing, _ := depGateFixture(t,
+	home, briefing, cfgDest, _ := depGateFixtureWithConfig(t,
 		`{"kind":"program","bin":"gatebin","via":"npm","package":"gatebin"}`)
 	ran := watchInstalls(t, nil)
 
 	var out, errw bytes.Buffer
-	if rc := applyHost(&out, &errw, false, true, nil); rc != 1 {
-		t.Fatalf("an unattended --assert must refuse; rc=%d\n%s%s", rc, out.String(), errw.String())
+	rc := applyHost(&out, &errw, false, true, nil)
+	report := out.String() + errw.String()
+	if rc != 1 {
+		t.Fatalf("an unattended --assert must refuse; rc=%d\n%s", rc, report)
 	}
 	if len(*ran) != 0 {
 		t.Errorf("nobody answered and yolo installed anyway: %v", *ran)
 	}
-	if _, err := os.Stat(briefing); !os.IsNotExist(err) {
-		t.Error("an unattended refusal wrote into the home")
-	}
+	wroteNothing(t, home, briefing, cfgDest, report)
 }
 
 // A MISSING `requires` IS FATAL AND IS NEVER OFFERED AN INSTALL — OQ-RO7, the one place the two
@@ -135,7 +173,7 @@ func TestApplyHostAssertRefusesAnUnattendedInstall(t *testing.T) {
 // that offered the install would consume it and run something, and the kind's definition says
 // yolo never installs a `requires`. The remedy is still NAMED — the user is the actor.
 func TestApplyHostAssertRefusesAMissingRequiresWithoutOfferingAnInstall(t *testing.T) {
-	_, briefing, _ := depGateFixture(t,
+	home, briefing, cfgDest, _ := depGateFixtureWithConfig(t,
 		`{"kind":"requires","bin":"reqbin","install_hints":{"apt":"reqbin-pkg"}}`)
 	ran := watchInstalls(t, nil)
 
@@ -160,9 +198,7 @@ func TestApplyHostAssertRefusesAMissingRequiresWithoutOfferingAnInstall(t *testi
 	if !strings.Contains(report, "sudo apt install -y reqbin-pkg") {
 		t.Errorf("a `requires` blocker must still name its remedy:\n%s", report)
 	}
-	if _, err := os.Stat(briefing); !os.IsNotExist(err) {
-		t.Error("the refused run wrote into the home")
-	}
+	wroteNothing(t, home, briefing, cfgDest, report)
 }
 
 // A MISSING `program` IS OFFERED, AND A YES INSTALLS IT AND CONTINUES — the other half of
@@ -172,7 +208,7 @@ func TestApplyHostAssertRefusesAMissingRequiresWithoutOfferingAnInstall(t *testi
 // contract and §4.9 rules that none is added here, so a scripted `y` installs. That is the
 // ruling being pinned, not an accident of the fixture.
 func TestApplyHostAssertInstallsAnOfferedProgramAndCarriesOn(t *testing.T) {
-	_, briefing, binDir := depGateFixture(t,
+	_, briefing, cfgDest, binDir := depGateFixtureWithConfig(t,
 		`{"kind":"program","bin":"gatebin","via":"npm","package":"gatebin"}`)
 	// The stub "install" writes into the fixture's own PATH dir: the re-probe has to find the
 	// binary through the same PATH the run is using, which is what makes this a test of the
@@ -200,6 +236,13 @@ func TestApplyHostAssertInstallsAnOfferedProgramAndCarriesOn(t *testing.T) {
 	// output with.
 	if _, err := os.Stat(briefing); err != nil {
 		t.Errorf("the apply did not write after installing: %v\n%s", err, report)
+	}
+	// THE CONTROL for every wroteNothing() above: the config surface really is written by the
+	// render loop on a run that gets that far, so its absence in a refusal is evidence rather
+	// than a fixture that never had a config destination to lose.
+	if _, err := os.Stat(cfgDest); err != nil {
+		t.Errorf("the config render loop never wrote %s, so the refusal tests' assertion "+
+			"that it is absent proves nothing: %v\n%s", cfgDest, err, report)
 	}
 	// The re-probe's answer reaches the per-contribution LINE and the COUNTS, not only the
 	// verdict — a report still calling the binary missing after installing it would contradict
@@ -230,7 +273,7 @@ func TestApplyHostAssertInstallsAnOfferedProgramAndCarriesOn(t *testing.T) {
 // exit code is not the evidence — an installer that exits 0 and delivers nothing leaves the
 // environment exactly as unready as one that failed loudly — so the RE-PROBE decides.
 func TestApplyHostAssertRefusesWhenTheInstallProducesNothing(t *testing.T) {
-	_, briefing, _ := depGateFixture(t,
+	home, briefing, cfgDest, _ := depGateFixtureWithConfig(t,
 		`{"kind":"program","bin":"gatebin","via":"npm","package":"gatebin"}`)
 	ran := watchInstalls(t, func(string) error { return nil }) // "succeeds", installs nothing
 
@@ -247,9 +290,7 @@ func TestApplyHostAssertRefusesWhenTheInstallProducesNothing(t *testing.T) {
 	if !strings.Contains(report, "did not produce it") {
 		t.Errorf("the refusal must say the install did not produce the binary:\n%s", report)
 	}
-	if _, err := os.Stat(briefing); !os.IsNotExist(err) {
-		t.Error("the refused run wrote into the home")
-	}
+	wroteNothing(t, home, briefing, cfgDest, report)
 }
 
 // THE DRY RUN IS UNCHANGED: it reports the same blocker, never prompts, never installs, and
