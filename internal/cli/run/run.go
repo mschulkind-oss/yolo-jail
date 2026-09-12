@@ -24,7 +24,10 @@ import (
 // an existing container or launches a fresh one. Returns the process exit code.
 // The whole flow is driven off the
 // injected seams so the probe + argv-assembly paths are unit-testable.
-func Run(opts Options) int {
+// The result is NAMED so the deferred launch-log trailer records the code this
+// function actually returns, from any of its many exits, rather than the one the
+// happy path was about to produce.
+func Run(opts Options) (rc int) {
 	fillDefaults(&opts)
 	o := &opts
 
@@ -43,6 +46,20 @@ func Run(opts Options) int {
 			"YOLO_ALLOW_LIVE_WORKSPACE=1 if you truly mean it.[/dim]")
 		return 1
 	}
+
+	// PERSIST THE LAUNCHER'S HALF (report-tiers.md §4.7). Everything this process
+	// prints from here on is teed into <workspace>/.yolo/launch.log, beside the
+	// entrypoint's boot.log, so the half of a launch that used to vanish when the
+	// terminal scrolled is readable afterwards — including after a launch that
+	// refused, where there is no jail left to read anything from.
+	//
+	// AFTER the live-overlay guard and before everything else: that refusal is the
+	// launch's first act precisely because it happens before any side effect, and
+	// creating a file under the workspace it is refusing to touch would be one.
+	// Everything below it is fair game, and a failure here is silent by design
+	// (launchlog.go).
+	launchLog := attachLaunchLog(o)
+	defer func() { launchLog.finish(rc) }()
 
 	// THIS LAUNCH'S PACK RECORDS ARE ITS OWN. stagePacks records the pack-shipped
 	// loophole modules, the `supersedes` claims and the pack skills sources

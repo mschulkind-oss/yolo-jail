@@ -47,7 +47,7 @@ func FileSink(path, cname string, errw io.Writer, now time.Time) Sink {
 		warnOnce(errw, path, err)
 		return func(Event) {}
 	}
-	trimToLastRuns(path, MaxRuns-1)
+	TrimRunsInFile(path, runPrefix, MaxRuns-1)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		warnOnce(errw, path, err)
@@ -79,19 +79,26 @@ func formatLine(e Event) string {
 	}
 }
 
-// trimToLastRuns keeps the newest n run blocks of path. Read-modify-rewrite,
+// TrimRunsInFile keeps the newest n run blocks of path, a run block being
+// everything from one occurrence of prefix to the next. Read-modify-rewrite,
 // exactly once per run, at open — never at exit. Failures are silent: the
-// worst case is a file that grows past MaxRuns, which the next open trims.
-func trimToLastRuns(path string, n int) {
+// worst case is a file that grows past its bound, which the next open trims.
+//
+// It is EXPORTED because it is the retention idiom every per-workspace
+// diagnostic file in <workspace>/.yolo shares, and "the same retention the perf
+// log has" has to mean the same code or it means whatever the second copy drifts
+// into. The launch log (internal/cli/run/launchlog.go) is the second caller;
+// MaxRuns is the bound both of them pass.
+func TrimRunsInFile(path, prefix string, n int) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	runs := strings.Split(string(content), runPrefix)
+	runs := strings.Split(string(content), prefix)
 	if len(runs) <= n {
 		return
 	}
-	trimmed := runPrefix + strings.Join(runs[len(runs)-n:], runPrefix)
+	trimmed := prefix + strings.Join(runs[len(runs)-n:], prefix)
 	_ = os.WriteFile(path, []byte(trimmed), 0o644)
 }
 
