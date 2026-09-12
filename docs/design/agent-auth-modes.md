@@ -1,14 +1,41 @@
 ---
 title: "Auth modes and cloud provider swapping — declarative profiles across agents"
 date: 2026-08-29
-status: accepted
-tags: [auth, providers, config, prism, agents]
-summary: "A unified design for declarative cloud provider switching (Anthropic Teams vs Bedrock, GLM, OpenAI) across agent packs via YOLO config and CLI flags, selective capability augmentation (Tavily), and in-jail YOLO permission parity."
+status: superseded
+tags: [auth, providers, config, prism, agents, superseded]
+summary: "SUPERSEDED IN PART 2026-09-12. The provider/profile half (§4, §5) shipped and is described by reference/providers.md — cite that, not this. The body is kept, not stubbed, because four of its arguments were never absorbed by that successor: the measured evidence that a mode is a bundle (§2-§3), capability resolution and web-search suppression (§6, half of it still unbuilt), the deferred-failover ruling plus the measured subscription-bearer leak (§8), and the credential traps (§9). OQ-9 is still open."
 ---
 
 # Auth modes and cloud provider swapping — declarative profiles across agents
 
-**Status:** ACCEPTED (2026-08-29), expanded from the 2026-08-05 sketch.
+**Status:** SUPERSEDED IN PART (2026-09-12) — accepted 2026-08-29, expanded from the 2026-08-05
+sketch, and half of it replaced by a shipped reference. Read the banner before the body.
+
+> [!IMPORTANT]
+> **The half this doc is named after is superseded; the rest is the argument its successor never
+> absorbed.** [`../reference/providers.md`](../reference/providers.md) is the design of record for
+> everything [§4](#4-declarative-provider-profiles-in-yolo-config) and
+> [§5](#5-projection-via-prism-derivelua-and-core) propose — the `providers` catalog, profile
+> declaration, selection, and per-agent delivery through each pack's derive. It is `status:
+> current` with a `covers:` perimeter over exactly that code. **Where this body disagrees with it,
+> it is right and this is history: do not cite this doc for how providers work.**
+>
+> It is not reduced to a stub — the way
+> [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) was when *all* of its
+> content moved — because that successor's perimeter is the provider and profile code and nothing
+> else. It carries no capability resolution, no failover reasoning, no credential traps, and
+> **the sections below are still cited by live anchor from the plans, research and design trees
+> alike, and by name from Go** — retiring those anchors would dangle the citations, not tidy them.
+
+| Section | Where it stands |
+| :--- | :--- |
+| [§2](#2-measured-state--bedrock-teams-and-the-manual-switch), [§3](#3-core-principle-a-mode-is-a-bundle) — the measured Bedrock→Teams switch; *a mode is a bundle* | **Kept here, the only record.** The successor describes the mechanism; this is the evidence that forced it — a two-of-three manual switch that moved the credential and the env and left the model pin Bedrock-shaped. [§3](#3-core-principle-a-mode-is-a-bundle) is cited from `internal/oauthbroker`'s entitlement test. |
+| [§4](#4-declarative-provider-profiles-in-yolo-config), [§5](#5-projection-via-prism-derivelua-and-core) — schema, CLI, projection | **SUPERSEDED.** Read [`providers.md`](../reference/providers.md). What is below is the 2026-08-29 proposal, in spellings the tree now refuses; the vocabulary note under this table says which. [§4.3](#43-pre-existing-jails--re-entry-behavior) alone is still cited as the *intent* a shipped mechanism met (`internal/cli/run/userenv.go`, [`RELEASE-NOTES.md`](../RELEASE-NOTES.md)). |
+| [§6](#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern) — capability resolution, web-search suppression | **Kept here: still the only design for it, and one half is UNBUILT.** [OQ-CAP1](#12-decision-ledger)'s collision refusal shipped (`internal/config`'s `mcp_servers` validation refuses two servers declaring one `provides`), and the suppression itself lives in `packs/claude/derive.lua` and `packs/agy/derive.lua`. [OQ-CAP2](#12-decision-ledger)'s fatal refusal for an unmet `required_capabilities` did **not**: the key validates and reaches the jail as `YOLO_REQUIRED_CAPABILITIES`, and nothing checks it. `internal/cli/config_ref.txt` says so *by citing this doc's [`OQ-CAP2`](#12-decision-ledger)*. Retiring that id would leave the shipped config reference pointing at nothing. |
+| [§7](#7-in-jail-vs-host-cli-parity-cleaning-up-auto-yolo-mode) — in-jail vs host-CLI auto-YOLO parity | **Fixed; kept as the diagnosis.** [§7.2](#72-the-fix) step 1 **shipped** — `packAliases` (`internal/entrypoint/shell.go`) calls `packload.LaunchFlagsFor(packs, true)`, so the `.bashrc` alias and `yolo -- claude` now agree. **Step 2 did not:** `LaunchFlagsFor`'s only callers are that alias generator and `packload`'s host-side injection, and the generated lazy launcher still `exec`s the real binary bare — so a non-aliased subshell is the one remaining spelling with no flags. |
+| [§8](#8-dynamic-overflow-what-is-reachable-and-what-is-not) — why dynamic failover is deferred; [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) — the measured subscription bearer | **Kept here, and cited from outside.** [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) is the measurement that a subscription OAuth bearer follows `ANTHROPIC_BASE_URL` unconditionally — cited by [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md) and [`roadmap.md`](../plans/roadmap.md), and the fact under [`boundary-broker.md`](boundary-broker.md)'s B2. [OQ-1](#12-decision-ledger) is [`boundary-broker.md`](boundary-broker.md)'s delegated `OQ-D`. |
+| [§9](#9-traps-and-failure-modes) — blank `ANTHROPIC_API_KEY`, single-use refresh tokens, scope isolation, wire-API mismatch | **Kept here.** [`providers.md`](../reference/providers.md) states the scope rule as a ruling ([OQ-CS5](../reference/providers.md#why-its-this-way)) and carries none of the other three. |
+| [§11](#11-open-questions) [OQ-9](#11-open-questions) — AWS's two-part credential has no declarative home | **STILL OPEN**, and carried by [`roadmap.md`](../plans/roadmap.md) under this id. |
 
 > [!NOTE]
 > **Vocabulary drift (2026-09-02).** This doc's spellings are the 2026-08-29 design as accepted;
@@ -18,9 +45,12 @@ summary: "A unified design for declarative cloud provider switching (Anthropic T
 >
 > - `agent_profiles` → `pack_profiles` (2026-08-31) → **`use_profiles`** (2026-09-02, `43d24e9e`);
 >   the first two spellings are refused by name.
-> - `--claude-auth` / `--auth` / `--agent-profile` were built and then **deleted** (`4f589610`);
->   the surviving spellings are `-p`/`--profile` (name-only since `886a9191`, [OQ-PT5](../reference/providers.md#why-its-this-way)) and
->   `--pack-profile agent=profile,…`.
+> - `--claude-auth` / `--auth` / `--agent-profile` were built and then **deleted** (`4f589610`),
+>   and `--pack-profile` followed on 2026-09-03 — it never shipped in a release. **One spelling
+>   survives**, `-p`/`--profile`, and it now carries both grammars: a bare declared profile name,
+>   or a comma-separated `<cli>=<name>` pair list. The value never keys on the command after `--`
+>   ([OQ-PT5](../reference/providers.md#why-its-this-way), `886a9191`); the grammar dispatches on
+>   whether the token contains `=` (`internal/cli`'s `parseRunArgs`).
 > - `api_key_env` → **`api_key_env_name`** (`8b24a67a`).
 > - The `wire_api` values in [§4.1](#41-configuration-schema--examples) (`openai_completions`, `anthropic_bedrock`) were never members of
 >   the shipped enum, which is canonical and closed: `anthropic`, `openai-chat-completions`,
@@ -29,7 +59,7 @@ summary: "A unified design for declarative cloud provider switching (Anthropic T
 >   `kind: "provider"` + `kind: "profile"` pair inside `packs/claude/pack.json` (`4f589610`), and
 >   model IDs are pinned in the **user's** `providers.bedrock.models`, never in a pack.
 
-**The short version.** yolo-jail manages the agent development environment so users never have to hand-edit disparate native agent config files (`~/.pi/agent/models.json`, `~/.claude/settings.json`, `~/.codex/config.toml`, `.opencode.json`). A provider or auth mode is an atomic **bundle** ($$\text{credentials} + \text{endpoint} + \text{wire format} + \text{model IDs} + \text{env vars}$$). This doc specifies declarative cloud provider configuration in `yolo-jail.jsonc`, transient CLI swapping (`yolo --claude-auth=bedrock`, `yolo --agent-profile pi=glm`), projection via Prism (`derive.lua`), selective capability augmentation (e.g. Tavily search for agents lacking native search), and fixing in-jail vs. host-CLI auto-YOLO permission parity.
+**The short version.** yolo-jail manages the agent development environment so users never have to hand-edit disparate native agent config files (`~/.pi/agent/models.json`, `~/.claude/settings.json`, `~/.codex/config.toml`, `.opencode.json`). A provider or auth mode is an atomic **bundle** ($$\text{credentials} + \text{endpoint} + \text{wire format} + \text{model IDs} + \text{env vars}$$). This doc specifies declarative cloud provider configuration in `yolo-jail.jsonc`, transient CLI swapping (proposed here as `yolo --claude-auth=bedrock` / `yolo --agent-profile pi=glm`; **shipped as `yolo -p claude=bedrock`, `yolo -p pi=glm`** — both of the proposed flags were built and deleted), projection via Prism (`derive.lua`), selective capability augmentation (e.g. Tavily search for agents lacking native search), and fixing in-jail vs. host-CLI auto-YOLO permission parity.
 
 **Reads with:** [`agent-credentials.md`](../reference/agent-credentials.md) (boundary credential crossing), [`pack-system.md`](../reference/pack-system.md) (the layer model, `config-overlay`, and `derive.lua`), [`pack-config-collaboration.md`](../reference/pack-system.md#config-surfaces-and-the-compose-engine) (surface sharing), [`../research/local-model-endpoints.md`](../research/local-model-endpoints.md) (per-agent wire formats and BYOK surfaces), [`../plans/roadmap.md`](../plans/roadmap.md) (**💬 3**).
 
@@ -37,7 +67,13 @@ summary: "A unified design for declarative cloud provider switching (Anthropic T
 
 ## 1. The shape of the gap, in one sentence
 
-**yolo models one credential channel per agent and lacks a first-class way to declare and swap cloud providers or auth modes from YOLO config or the CLI — forcing users to hand-edit heterogeneous agent configuration files in different dialects.**
+> [!NOTE]
+> **This gap is CLOSED, and the sentence below is kept as the 2026-08-29 problem statement rather
+> than as a description of yolo.** `providers`, `profiles` and `use_profiles` are user-config keys
+> (`internal/config`), each agent pack projects the resolved table through its own derive, and
+> `-p`/`--profile` swaps at launch. [`providers.md`](../reference/providers.md) is what closed it.
+
+**As of 2026-08-29: yolo models one credential channel per agent and lacks a first-class way to declare and swap cloud providers or auth modes from YOLO config or the CLI — forcing users to hand-edit heterogeneous agent configuration files in different dialects.**
 
 A mode switch is never just an API key: it is a credential *plus* an endpoint, a wire API dialect, model aliases, and environment variables that only make sense together. See [§3](#3-core-principle-a-mode-is-a-bundle).
 
@@ -162,9 +198,11 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
 > `anthropic`, `openai-chat-completions`, `openai-responses` — three names chosen to be
 > **nobody's dialect** (defined: a name that names a protocol, never a value an agent's config
 > file reads), so a value cannot pass through and work by accident
-> ([`providers.md`](../reference/providers.md) §3.0a, [OQ-PT1](../reference/providers.md#why-its-this-way)). Translation, not
+> ([the canonical `wire_api` vocabulary](../reference/providers.md#the-canonical-wire_api-vocabulary),
+> [OQ-PT1](../reference/providers.md#why-its-this-way)). Translation, not
 > pass-through, is the contract: each derive maps canonical → its own agent's spelling and emits
-> nothing for a protocol that agent cannot speak (§3.4) — which is also why the Codex row of [§5.1](#51-per-agent-projection-mechanisms)
+> nothing for a protocol that agent cannot speak
+> ([*Derives: the delivery mechanism*](../reference/providers.md#derives-the-delivery-mechanism)) — which is also why the Codex row of [§5.1](#51-per-agent-projection-mechanisms)
 > still says `responses`: that is codex's own dialect, the derive's output, not yolo's input.
 >
 > Two other keys in this example are stale and left as written, since renaming them is not this
@@ -191,6 +229,13 @@ yolo --agent-profile pi=glm,claude=bedrock
 ```
 
 CLI flags override `yolo-jail.jsonc` values for that launch only.
+
+> [!WARNING]
+> **Three of the four spellings above do not exist.** `--auth`, `--agent-profile` and the
+> `--profile glm-dev` compound were built and deleted; what shipped is `-p`/`--profile` alone,
+> taking either a bare declared profile name or a `<cli>=<name>` pair list — so the real
+> equivalents of this block are `yolo -p glm -- pi` and `yolo -p pi=glm,claude=bedrock`. Kept
+> unedited as the record of the proposal; see the vocabulary note at the top.
 
 ### 4.3 Pre-existing Jails & Re-entry Behavior
 
@@ -408,7 +453,7 @@ dropped it without answering it (the roadmap and sibling docs cited it as [`auth
 | **OQ-4** | **Support both compound profiles and concise per-agent CLI overrides.** `yolo -p glm -- pi` applies `glm` directly to `pi` without redundant `pi=glm` syntax. | 2026-08-29 | [§4.2](#42-launch-time-cli-swapping--ergonomics) |
 | **OQ-CAP1** | **Fatal refusal on multiple MCP capability collision.** If two MCP servers declare the same `provides`, core refuses launch. | 2026-08-29 | [§6.2](#62-capability-resolution-rules) |
 | **OQ-CAP2** | **Fatal refusal on unmet `required_capabilities`.** `web_search` is opt-in; if required and unsatisfied, launch refuses. | 2026-08-29 | [§6.2](#62-capability-resolution-rules) |
-| **OQ-5** | **NO pack→pack composition.** `requires_pack` and `conflicts` retired — flat `packs` list is whole story. | 2026-08-13 | §11.1, [`retired-decisions.md`](../plans/retired-decisions.md) Thread A |
+| **OQ-5** | **NO pack→pack composition.** `requires_pack` and `conflicts` retired — flat `packs` list is whole story. | 2026-08-13 | [`retired-decisions.md`](../plans/retired-decisions.md) Thread A |
 | **OQ-8** | **Generalize transport into loophole framework.** `loopback-tls` becomes the framework's only transport; unix-socket retired. | 2026-08-13 | [`loophole-transport.md`](../reference/loophole-transport.md) [§7.3](../reference/loophole-transport.md#why-its-this-way)–[§7.4](../reference/loophole-transport.md#oq-t9) |
 | **OQ-K1** | **Declarations are authoritative.** Core validates pack-declared settings offline. | 2026-08-18 | [`pack-config-keys.md`](../reference/pack-system.md#a-packs-own-config-keys) [§2.2](../reference/pack-system.md#a-packs-own-config-keys) |
 | **OQ-K3** | **Freeze `host_processes.visible`.** Require restart for config changes. | 2026-08-18 | [`pack-config-keys.md`](../reference/pack-system.md#a-packs-own-config-keys) [§5.1](../reference/pack-system.md#a-packs-own-config-keys) |
