@@ -23,8 +23,12 @@ package cli
 // What it deliberately does NOT do is install. Running the remedies is env-manager plan
 // Phase 4.3, whose batched, elevation-class-grouped confirm UX (OQ-6/7/9) is its own
 // increment; the report says so once so a reader does not mistake "reported" for "done".
-// A missing host dep therefore does not fail `yolo host apply` either — the report is
-// informational, and `yolo check-deps` is the verb that exits non-zero for a CI to gate on.
+// A missing host dep does not fail `yolo host apply` YET, and `yolo check-deps` is still the
+// verb that exits non-zero for a CI to gate on — but it is no longer merely informational:
+// since the verdict block landed it reaches `state`, which the apply's survey counts and the
+// verdict names, so a dry run says in one sentence that an --assert would not complete
+// (docs/design/report-tiers.md §4.9). The exit code follows in that section's build step 5,
+// with the install prompt and the fatal decline; OQ-RO7 scopes which kinds it covers.
 
 import (
 	"fmt"
