@@ -195,14 +195,14 @@ that dir is a stale Python-build artifact (untracked, not shipped).
 
 | Surviving doc (link source) | Currently points to (archived) | Repoint to |
 |---|---|---|
-| `../reference/macos-no-vm-direction.md` (×3) | `plans/macos-backend-direction.md`, `plans/macos-nix-shell-backend-proposal.md` | `plans/macos-revival-and-distribution-plan.md` [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate) (the standing decision), drop the "reads with" line for the excised doc |
+| [`../reference/macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md) (×3) | `plans/macos-backend-direction.md`, `plans/macos-nix-shell-backend-proposal.md` | `plans/macos-revival-and-distribution-plan.md` [§0](macos-revival-and-distribution-plan.md#0-standing-decisions--do-not-relitigate) (the standing decision), drop the "reads with" line for the excised doc |
 | `docs/plans/macos-revival-and-distribution-plan.md` (Inputs header) | `handoff-macos-post-ejection.md`, `macos-nix-shell-backend-proposal.md` | reword to "(archived — see git history)"; the plan already contains their conclusions |
 | `docs/research/macos-support-matrix.md` | `handoff-macos-user-revive-plan.md` | repointed to the revival plan |
 | `docs/research/macos-linux-builder-explained.md` (×2) | `handoff-macos-ondemand-builder.md` | `research/macos-container-builder-exploration.md` (the live builder direction) |
-| `../reference/mise-node-dynamic-linking.md` | `handoff-macos-ondemand-builder.md` | same as above |
+| [`../reference/mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md) | `handoff-macos-ondemand-builder.md` | same as above |
 | `docs/research/claude-token-logouts.md`, `claude-oauth-refresh-mechanics.md` (×3) | `plans/claude-oauth-mitm-proxy-plan.md` | `bundled_loopholes/claude-oauth-broker/README.md` (live broker architecture) |
 | `docs/guides/loopholes.md` | `plans/claude-oauth-mitm-proxy-plan.md` | same broker README |
-| `docs/guides/macos.md` | `plans/macos-backend-direction.md` | `../reference/macos-no-vm-direction.md` |
+| `docs/guides/macos.md` | `plans/macos-backend-direction.md` | [`../reference/macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md) |
 | `docs/research/rocm-gpu-jail-findings.md`, `docs/reference/rocm-passthrough.md` | `rocm-memlock-handoff.md` | keep the *design* doc's own [§7.2](../reference/rocm-passthrough.md#the-memlock-clamp) (the handoff's durable content); demote the handoff link to "(resolved; see git history)" |
 | `docs/qa/macos-user-review-findings.md` | `handoff-macos-user-revive-plan.md` | this doc is itself being archived, so no repoint needed |
 
@@ -248,3 +248,317 @@ to archived docs repointed. They no longer read as in-flight work.
 - [9721660] Proposed + executed the reorg: docs/plans/ is the single active home, moved handoff-cachix-cache there, removed the empty docs/implementation/, added docs/plans/README.md index; research builder-exploration stays put.
 - [5eb1643] Archived the 12 done/obsolete docs via git rm (repo precedent 2c229fb), not a docs/archive/ move.
 - [5eb1643] De-hybridized both flagged docs (jail-state-separation-design, mise-host-jail-path-mismatch): rewritten as Reference/incident records, not "plan/decision surface" framing.
+
+---
+
+## The 2026-09-12 graduation assessment — the five docs the sprint built
+
+> [!IMPORTANT]
+> **ASSESSMENT ONLY. No graduation was performed.** Graduating five docs is its own body of work
+> and the maintainer chooses whether and when ([`OQ-DT1`](#open-question)). What follows is a
+> per-doc verdict, walked against the code rather than against the status lines — which is what
+> [the lesson for the next run](#the-lesson-for-the-next-run) asked of this one.
+
+A 138-commit sprint built five accepted designs: [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md),
+[`report-tiers.md`](../design/report-tiers.md), [`lua-transform-removal.md`](../design/lua-transform-removal.md),
+[`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) and
+[`macos-user-provisioning.md`](../design/macos-user-provisioning.md). The `design-doc` genre's
+last phase says a built design *graduates* into a `system-doc`; this run asks, for each, whether
+it has earned that.
+
+### Why this run asks a different question from the last two
+
+The 2026-07-03 run **deleted**. The 2026-09-09 run **routed**. Neither could ask this question,
+because the docs were not built yet. The question now is narrower and has a sharper failure mode
+than either: a premature graduation does not merely misfile a doc, it **converts a proposal into
+an assertion**. A design doc that describes unmeasured behavior reads as an argument, which is
+honest. The same sentences under a `status: current` header with a `verified:` stamp read as a
+measurement, which is a lie the reader has no way to detect.
+
+### The bar — and the local one, which is stricter
+
+The genre bar is `system-doc`'s: present tense, no sequencing, no Open Questions, claims anchored
+to symbols rather than line numbers, rulings surviving only where a maintainer would otherwise
+undo them.
+
+The **local** bar is what decides the two macOS docs, and it is mechanical rather than a
+judgement call: **all 41 docs in `docs/reference/` carry a `verified_commit:`**, measured
+2026-09-12 —
+
+```console
+$ cd docs/reference && ls *.md | wc -l ; grep -l '^verified_commit:' *.md | wc -l
+41
+41
+```
+
+A `verified:` stamp is a claim about work somebody did. It is the line `system-doc` calls the most
+valuable in the file, because it tells the reader how far to trust everything above it. A doc that
+cannot honestly carry one cannot enter that tree without devaluing the other forty.
+
+The local **shape** of a graduation is already set too, by
+[`composed-file-permissions.md`](../design/composed-file-permissions.md) on 2026-09-09: the settled
+body moved to [`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md)
+and a **stub stayed at the original filename** carrying the live questions, so the roadmap rows
+that route them keep resolving. That is the precedent, and it is what
+[the rule about live questions](#what-the-disposition-is-not-allowed-to-do) requires.
+
+### Verdicts
+
+| Doc | Fully built? | Verifiable here? | Verdict |
+| :--- | :--- | :--- | :--- |
+| [`report-tiers.md`](../design/report-tiers.md) | **Yes** — all eight steps | **Yes, and measured with a control** | ✅ **Graduate first** |
+| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | **No** — one named hole | Yes | ⏸ Graduate second, after the hole closes |
+| [`lua-transform-removal.md`](../design/lua-transform-removal.md) | **Yes** | Yes | ↩ **Do not graduate — archive.** There is no system to describe |
+| [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
+| [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | Code yes, behavior unrun | **No** | ⛔ Blocked on a Mac |
+
+---
+
+### 1. `report-tiers.md` — graduate first, and it is not close
+
+All eight steps of [§9](../design/report-tiers.md#9-what-i-would-build-in-order) are in the tree.
+Walked by symbol: the tier vocabulary (`reportTier`, `tierRun`, `tierLoss`) and the survey that
+carries it in `internal/cli`; `printHostApplyVerdict` and `hostApplyVerdict`; the grouped remedies;
+the default/detail split; the dependency pre-flight and its gate (`hostDepBlockers`, `gateHostDeps`);
+`hostApplyDoc` with the `--assert` refusal of `--format json`; `launchLog` and `LaunchLogName` in
+`internal/cli/run`; `catalogPrefix` in `internal/entrypoint`.
+
+**What makes this one different is that its central claim is reproducible in this jail, with a
+control.** The jail's baked `/bin/yolo` is 150 commits behind `HEAD` — it predates the entire
+sprint — so it is a free before-image. Against the same home, measured 2026-09-12:
+
+| Binary | Default report | Verdict line | `--verbose` |
+| :--- | :--- | :--- | :--- |
+| Baked `/bin/yolo` (pre-sprint) | **278 lines** | none — closes `observe only — nothing written` | inert, still 278 |
+| Fresh `dist-go` build at `HEAD` | **30 lines** | `An --assert would complete.` | **267 lines** |
+
+That is [the doc's own claim](../design/report-tiers.md) — *"the default report is 30 lines where
+it was 278, and `--verbose` carries the 267-line detail view"* — reproduced exactly, including the
+`--assert --format json` refusal. **No other doc of the five offers a measurement like this**, and
+it is the difference between a reference that asserts behavior and one that has watched it.
+
+Its principles are already load-bearing outside the doc: [`AGENTS.md`](../../AGENTS.md) cites
+`P4` and [`OQ-RO3`](../design/report-tiers.md#11-decision-ledger) as the rule that *a launch has no quiet mode*, and `TestTheLaunchHasNoQuietFlag`
+in `internal/cli` pins it. Those are exactly the near-immortal lines a reference exists to hold —
+and they currently resolve into the planning tree.
+
+**Where it would live:** `docs/reference/report-tiers.md`. It would say: the four report tiers and
+what each class of line is for; the verdict-line contract (every run ends stating its own result,
+on every branch); the default/`--verbose` split and why the rationale moved to the manual; the rule
+that a declared-but-missing dependency is a **blocker**, so the dry run reports it and `--assert`
+refuses over it; the launch stream under the same tiers, carrying `P4` and the disclosure boundary
+verbatim; and the machine-consumer boundary — `--format json` belongs to the dry run, and an acting
+verb refuses it rather than growing a second output mode. Six `OQ-RO` ids are cited from Go
+(`RO1`, `RO2`, `RO3`, `RO4`, `RO5`, `RO7`) and must survive in a `## Why it's this way` appendix.
+
+⚠ **The one real editorial cost:** [§2](../design/report-tiers.md#2-what-exists-today-measured)
+and [§3](../design/report-tiers.md#3-the-diagnosis) are a line-by-line measurement of a report that
+no longer exists. They are the best evidence in the doc and they are precisely what `system-doc`
+says to cut as *the before-and-after framing*. The 278 → 30 pair belongs in the commit message and
+in the roadmap row being closed, not in the reference.
+
+[`report-tiers-plan.md`](../design/report-tiers-plan.md) — self-declared **CONSUMED** — archives
+alongside it. It is an `implementation-plan` artifact, and its whole subject shipped.
+
+### 2. `config-ownership-and-promotion.md` — graduable, but not yet, and the blocker is named in the code
+
+Steps 1–7 of [§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) are
+built and verifiable: `HostManagement` / `KnownHostManagements` / `HostManagementDeclared` in
+`internal/config` with `validateHostManagement` behind them; `yolo config promote` across three
+files in `internal/cli` including the sensitivity deny-list; `yolo host apply --revert` consuming
+the provenance record; the `reads-host` restructure landed on both halves —
+`manifest.Surface.ReadsHost` is the declaration and `HasHostLayer()` is the predicate, with five
+independent readers, and the jail is a witness through `packload.ParseHostLayerReport` on the
+`YOLO_HOST_LOOPBACK` pattern.
+
+**Step 8 shipped with a hole, and the hole is the reason to wait.** The `own` mode, its capture
+store and host-side `reset` all ship; the **one-time adoption archive does not exist**. This is not
+an inference — [`hostrender.go`](../../internal/entrypoint/hostrender.go) says so in the arm that
+would need it, naming [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger), and records that the design's own risk table *"names a net that
+does not exist"*.
+
+`system-doc`'s rule for this is explicit: anything specified-but-absent **does not appear in present
+tense**, and must be dropped or become a roadmap item **by name** rather than evaporating with the
+design doc. It is already tracked — [`roadmap.md`](roadmap.md) carries [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger) as the question the
+build opened — so the graduation is cheap once the maintainer rules: build the archive, or drop it
+and say what guards adoption instead.
+
+⚠ **The subtler blocker, and the more dangerous one.** The design's own success criterion —
+*switching to `own` on a home already applying under `assert` changes zero bytes* — is **PARTLY
+MET**, on four axes measured 2026-09-12: a top-level `null` and a top-level `{}` are **deleted**,
+JSON key order is **sorted** at every depth, and a TOML surface's user comments are **destroyed**.
+The first two are silent key deletion that no loss gate prompts for. In a design doc this sits
+honestly as a failed criterion under a `> [!WARNING]`. In a reference it would have to be
+re-stated as **the contract** — *`own` composes through the surface's codec, and here is what that
+costs you* — which is a rewrite of the claim, not a re-filing of it. That rewrite is the real work
+in this graduation and it should be done deliberately, not as a side effect of moving a file.
+
+**Where it would live:** `docs/reference/config-ownership.md`, holding the ownership axis (the
+notch does not decide who owns a file; a declared key does), the three modes and their surface
+postures, promotion as the way out of capture including the precedence refusal, and the deletion
+asymmetry. Eight `OQ-CO` ids are cited from Go (`CO1`, `CO2`, `CO4`, `CO5`, `CO7`, `CO8`, `CO9`,
+`CO10`).
+
+### 3. `lua-transform-removal.md` — fully built, and that is why it must not graduate
+
+The removal is complete, and it is the cleanest verification of the five because every instrument
+is local:
+
+```console
+$ go list -deps ./internal/agentcfg | grep -c gopher-lua
+0
+$ go list -deps ./internal/packload | grep -c gopher-lua
+4
+```
+
+The seam held exactly as [§4](../design/lua-transform-removal.md#4-the-boundary--what-goes-what-stays-what-moves)
+drew it. `internal/luahook` no longer exists at the top level; the surviving package is
+`internal/agentcfg/luahook` and its entire exported surface is the derive sandbox — `GopherLuaVM`,
+`DeriveCtx`, `DeriveVM`, `Derive`, `DeriveRegistration`, `DeriveRegistrations`. `Transform` and
+`Result.Excluded` have zero non-test referents. `Enforce` lives in `internal/agentcfg` as the
+pipeline's own step. The three surviving mentions of `LuaVM`, `ValidateSandbox` and `AllowedGlobals`
+are all comments explaining what was removed, which is correct.
+
+**But a removal doc has no system to graduate into.** What survived the cut is the pack derive
+sandbox — and [`../reference/pack-system.md`](../reference/pack-system.md) is *already* its
+reference: it names `internal/agentcfg/luahook` (`DeriveCtx`) in its components table, owns
+[the derive slot](../reference/pack-system.md#the-derive-slot), and its layer stack already reads
+`defaults < host < workspace < config-overlay < capture-overlay < computed(derive) < managed`, with
+no transform in it. Graduating this doc would mint a **second authority for one subsystem** — which
+is the failure [this file's own 2026-09-09 run](#where-the-work-was-hardest-and-why) named as the
+shape that actually causes drift: *one fact, four copies, three of them wrong*.
+
+So the disposition is **C, archive** — but not freely. [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) is cited from Go, and there are 20
+Go references and 32 doc references to the path. Per
+[the Rule-IDs-are-an-API warning](#what-the-disposition-is-not-allowed-to-do), the cheap correct
+move is to fold the seam rule and [`OQ-LT1`](../design/lua-transform-removal.md#13-decision-ledger) into `pack-system.md`'s why-appendix — one paragraph
+saying *the VM is the derive path's alone, the transform half is gone, and `Enforce` is the
+pipeline's not the VM's* — and then archive.
+
+⚠ **One stale line to fix whatever is decided.** The doc's status says two rows of
+[§5.6](../design/lua-transform-removal.md#56-documentation) are *"deliberately still open"*:
+[`roadmap.md`](roadmap.md) and [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md).
+**Both closed.** The ownership doc describes the transform in the past tense throughout, and the
+roadmap's row 30 is ✅ with the doc sweeps recorded as closing 2026-09-12. The status line is
+stale in the maintainer's favour, which is the direction nobody checks.
+
+### 4 & 5. The two macOS docs — blocked, and the block is structural rather than editorial
+
+Both are genuinely built in Go. `DeriveDarwinHomeLayout`, `InstallDarwinHomeLayout`,
+`HomeFileRedirects` and `SandboxMiseData` all exist with real call sites; so do `internal/darwinpkg`
+(the floor, with its drift and policy tests), `internal/provision`, `ReadProvisioningFailed` and the
+`PROVISIONING FAILED` marker. The short suite is green.
+
+**And not one runtime claim about either has been observed.**
+[`macos-user-provisioning.md`](../design/macos-user-provisioning.md) says so in a `> [!WARNING]`
+at the top: both halves were implemented from a Linux jail, where there is no `sandbox-exec`, no
+`_yolojail` account, and `RunMacosUser` fails closed. What *is* measured is the nix evaluation and
+the Go half against fake homes.
+[`macos-user-home-tiers.md` §10](../design/macos-user-home-tiers.md#10-what-shipped) is built the
+same way — it explicitly separates *"pinned by a test"* from *"reasoned and still owed a Mac"*, and
+it names **two defects it does not fix**, both runtime behavior on a backend CI cannot run.
+
+[The runbook](runbooks/macos-user-manual-checks.md) is unambiguous: items 5–9 are new as of
+2026-09-12 and **none has ever been run**; they are a dependency chain, not a list. Items 1–4 did
+pass on hardware 2026-09-10 — but those cover the pre-existing bootstrap, not this sprint's work.
+And an agent cannot close the gap: `sudo -n true` reports that a password is required, and every
+`macos-user` argv leads with `sudo --user=_yolojail`.
+
+So the local bar decides it without any judgement call. The only honest `verified:` stamp these two
+could carry would cover the unit tests and the nix eval — **not the backend's behavior, which is
+the entire subject of both documents**. That is `system-doc`'s failure mode 1, *the doc that reads
+authoritative and is wrong*, purchased deliberately.
+
+> [!NOTE]
+> **This is the one place where the design doc is the better artifact, not merely the older one.**
+> Its genre frames unmeasured claims as argument, and both docs use that framing well — the
+> corrections dated 2026-09-12 inside them (the mirror-ordering row that overstated its own rule,
+> the `MISE_DATA_DIR` guard that tested a spelling instead of a property, the stage-abort inversion)
+> are the visible result of it working. Graduating would strip exactly the framing that makes those
+> claims safe to read. **What unblocks them is runbook items 6–10 on a Mac, and nothing else.**
+
+---
+
+### The inverse: one doc whose prose still reads as a proposal
+
+Every one of the five carries an accurate build stamp — the sprint's doc-reconciliation commits did
+their job. Sweeping the whole of `docs/design/` for the opposite failure turns up **exactly one**
+instance, and it is not from this sprint:
+
+**[`agent-auth-modes.md`](../design/agent-auth-modes.md)** is the only doc in the tree whose status
+line asserts neither a build nor *"nothing built"*. It reads `ACCEPTED (2026-08-29)`, and beneath it:
+
+- [§1](../design/agent-auth-modes.md#1-the-shape-of-the-gap-in-one-sentence) states the gap in the
+  present tense — *"yolo models one credential channel per agent and **lacks** a first-class way to
+  declare and swap cloud providers or auth modes from YOLO config or the CLI"*. That gap is closed.
+- Its abstract still advertises `yolo --claude-auth=bedrock` and `yolo --agent-profile pi=glm` —
+  flags that were built and then **deleted**, as the doc's own drift note records.
+- **Its successor reference already exists.** [`../reference/providers.md`](../reference/providers.md)
+  is `status: current`, stamped `verified_commit: 582ae850`, with a `covers:` perimeter over exactly
+  the provider and profile code. `use_profiles` is live in `internal/config`, and the two earlier
+  spellings are refused by name.
+
+The doc survives only because a 2026-09-02 `> [!NOTE]` warns *"when the body below disagrees with
+the code, the code is right"* — a patch over a status line that should read **SUPERSEDED**. It is
+therefore not a graduation candidate at all: it is a **C-bucket archive whose replacement shipped
+three weeks ago and is still filed as an accepted design.**
+
+Re-stamping it is a one-line fix, independent of every graduation below, and worth doing first
+because it is the only doc in the tree actively misrepresenting its own status.
+
+### What a graduation would cost
+
+Inbound references, counted 2026-09-12. Doc references need a path and a live anchor; **Go
+references are invisible to `vantage-check`** and are the ones that go silently dangling.
+
+| Doc | Doc refs | Go refs | `OQ` ids cited from Go |
+| :--- | ---: | ---: | :--- |
+| [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) | 57 | 47 | 8 |
+| [`macos-user-provisioning.md`](../design/macos-user-provisioning.md) | 53 | 27 | 3 |
+| [`report-tiers.md`](../design/report-tiers.md) | 36 | 50 | 6 |
+| [`macos-user-home-tiers.md`](../design/macos-user-home-tiers.md) | 34 | 17 | 1 |
+| [`lua-transform-removal.md`](../design/lua-transform-removal.md) | 32 | 20 | 1 |
+
+[`AGENTS.md`](../../AGENTS.md) itself cites `report-tiers.md` three times with anchors, for the
+no-quiet-mode rule. That is an inbound reference a `docs/`-scoped grep misses, and so is
+[`roadmap.md`](roadmap.md) — whose rows for this work close in the same commit as any graduation,
+not after it.
+
+### Recommendation
+
+1. **Re-stamp [`agent-auth-modes.md`](../design/agent-auth-modes.md) as superseded** by
+   [`../reference/providers.md`](../reference/providers.md). One line, no dependencies, and it stops
+   the only doc in the tree that lies about its own status.
+2. **Graduate [`report-tiers.md`](../design/report-tiers.md), alone.** It is the only one of the
+   five whose behavior was reproduced with a control, its principles are already cited as law from
+   [`AGENTS.md`](../../AGENTS.md), and it carries no unbuilt step. Archive
+   [`report-tiers-plan.md`](../design/report-tiers-plan.md) in the same commit.
+3. **Then [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md)**, once
+   [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s archive is built or explicitly dropped, and with the zero-bytes criterion rewritten as
+   a stated contract rather than a partly-met goal.
+4. **Fold [`lua-transform-removal.md`](../design/lua-transform-removal.md) into
+   [`../reference/pack-system.md`](../reference/pack-system.md) and archive it.** Do not mint a
+   second reference for one subsystem.
+5. **Leave the macOS pair in `docs/design/` until a Mac runs
+   [the runbook](runbooks/macos-user-manual-checks.md) items 6–10.** They are not late; they are
+   correctly filed.
+
+**Graduate one at a time.** Each move rewrites content, re-points dozens of references and closes a
+roadmap row, and batching them is how an anchor gets missed — the failure this file has now recorded
+in both directions across three runs.
+
+### Open question
+
+1. 💬 **OQ-DT1: Graduate now, or hold the whole set until the macOS pair can move with them?**
+
+   <!-- vantage: oq id=OQ-DT1 leaning="Graduate report-tiers alone and now; the pair may wait months for a Mac and there is no benefit to coupling them." -->
+
+   _Leaning:_ Graduate [`report-tiers.md`](../design/report-tiers.md) alone, now. The macOS pair is
+   blocked on hardware nobody can schedule, and holding a finished reference hostage to it keeps a
+   shipped system described in the planning tree for months. The counter-argument is real but
+   weaker: five graduations done together share one re-pointing sweep, and
+   [`AGENTS.md`](../../AGENTS.md)'s *Where things live* table would be edited once instead of three
+   times.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
