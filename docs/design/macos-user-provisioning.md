@@ -732,6 +732,24 @@ Their test inverted with them. ⚠ **The absence of a warning is not evidence of
 the positive half lives where it can be observed: a test that drives the orchestrator and
 fails if the stage's call site is deleted.
 
+> [!WARNING]
+> **ONE OF THE TWO RETIREMENTS WAS WRONG, measured on hardware 2026-09-12.** `mise_tools` is
+> correct — two declared tools installed from scratch into the machine-tier store. `lsp_servers`
+> is not: the stage execs the generated script, but the script installs from
+> `$YOLO_LSP_NPM_INSTALL` / `$YOLO_LSP_GO_INSTALL`, and the **only producer of either in the
+> tree** is the container's podman `-e` lines (`internal/cli/run/assemble.go:866-867`). This
+> backend sets `YOLO_LSP_SERVERS` — the table that RENDERS config — and neither install
+> variable, so the list is empty and the stage **exits 0 having installed nothing**.
+> `integration/TestMacosUserDeclaredToolsArrive/lsp_servers` is red on hardware and is the
+> witness; its three sibling subtests pass.
+>
+> **So the rule this section states cuts the other way for that half:** the warning described a
+> gap that was NOT closed, and retiring it left a launch that silently provisions nothing where
+> it used to say so. **The maintainer's choice, unmade:** wire both variables into the stage env
+> AND the bootstrap env (the readers live in two processes, so one is a half-fix), or restore the
+> `lsp_servers` warning. Collected with the rest of the session's open threads in
+> [the handoff](../plans/handoff-macos-user-open-threads.md#1-lsp_servers-installs-nothing-on-this-backend--confirmed-and-three-published-claims-ride-on-it).
+
 ### 10.7 The failure policy the code did not implement
 
 ⚠ **Added 2026-09-12, after the build.** [§4](#4-the-proposed-shape) states in bold that *a

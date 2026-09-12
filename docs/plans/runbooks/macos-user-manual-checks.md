@@ -43,6 +43,14 @@ What remains needs either root, a kernel, or a human at a password prompt.
 > | 2 | the launch mangled every forwarded command (`sudo --login`): newlines dropped, `$vars` expanded away, silently and with exit 0 | item 6's probe printing **nine blank lines** |
 > | 3 | a stale layout link from a DELETED workspace bricked every later launch whose packs did not declare that path | the twins' first run |
 >
+> **THE TWIN SUITE IS GREEN ON HARDWARE**, re-run after the three fixes: `executed=6 skipped=0`,
+> every twin passing, and **one** subtest red —
+> `TestMacosUserDeclaredToolsArrive/lsp_servers`, which item 9's ⚠ predicted from a source
+> reading and this run confirms. That is
+> [§0.4](#04-reading-a-red-job) shape 3, not a Mac problem. Its three siblings pass. The open
+> threads it leaves — that ruling included — are collected in
+> [`../handoff-macos-user-open-threads.md`](../handoff-macos-user-open-threads.md).
+>
 > ⚠ **Defect 2 is why "single-line is immune" was wrong** (it was published in
 > `provisioner-sets.md` [§15](../../design/provisioner-sets.md#15-what-a-mac-session-should-measure)): single-line survives the newline half only. Any forwarded command
 > containing a shell variable was silently rewritten. Item 6 could not be measured at all until

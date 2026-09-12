@@ -1584,8 +1584,18 @@ left to decide now sits. The thirteen do not block equally, and
   `sudo -n true` reports `a password is required` and every macos-user argv leads with
   `sudo --user=_yolojail`, so an agent attempting the launch hangs on the prompt.
 
-- 🔒 **Runbook items 5-10 have NEVER BEEN RUN, and every runtime claim the macos-user pair
-  shipped on 2026-09-12 rests on them.** 📄
+- ✅ **RUN 2026-09-12 — all ten runbook items measured on hardware, and three defects found and
+  fixed the same day.** *(Was 🔒 "items 5-10 have NEVER BEEN RUN", filed hours earlier the same
+  day.)* Items 3, 5, 6, 7 and 9 PASS, the six automated twins run `executed=6 skipped=0` with one
+  predicted subtest red, and [`OQ-P1`](../design/macos-user-provisioning.md#decision-ledger)'s floor
+  claim is settled. The three defects: `macos-setup` did not reprovision a DELETED account home
+  (so the runbook's own item-5 remedy bricked the Mac and setup still reported "✓ ready");
+  the launch mangled every forwarded command; and a stale layout link from a deleted workspace
+  bricked every later launch whose packs did not declare that path. `2a4ac34e`, `28caa116`,
+  `92244306`. **What is left is collected in
+  [`handoff-macos-user-open-threads.md`](handoff-macos-user-open-threads.md)** — one confirmed
+  product defect (`lsp_servers` installs nothing here), the twin suite's self-poisoning on a
+  persistent Mac, and the four automation gaps. Original entry follows, for the record. 📄
   [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md) items 5-10. **Filed
   as its own row 2026-09-12**, out of the ✅ bullet above, because a never-run check recorded inside
   a closed item is invisible to this file's counts — the same reason C4/C5 was promoted from a
@@ -1665,8 +1675,19 @@ left to decide now sits. The thirteen do not block equally, and
   appends a PATH export to four rc files, inverting the block/launch precedence B2 fixed on Linux
   until the next launch rewrites them.
 
-- 🔒 **A `macos-user` launch does not forward the command it was given — a live defect, and 🔒
-  rather than 🛑 only because every instrument for a fix is on that Mac.** 📄
+- ✅ **FIXED 2026-09-12 (`28caa116`) — a forwarded command now reaches the sandbox verbatim.**
+  *(Was 🔒 "a live defect … every instrument for a fix is on that Mac", and that was right: the fix
+  was written and measured on the Mac in the session that ran the runbook.)* `--login` is gone from
+  the launch argv and `PlanInvariants` refuses it on both argvs. **The "obvious fix is wrong"
+  reasoning below was itself wrong**, and the measurement says why: `--login` was never
+  load-bearing for
+  [`OQ-1`](runbooks/mac-go-port-verification.md#2-macos-user-backend--real-launch-oq-1-the-load-bearing-unknown)
+  — `env -i` discards the outer login shell's rc work, and the re-prepend that question measures happens in
+  the user's own downstream `bash -lc` inside the sandbox. `fzf` still resolves into the store
+  profile ahead of Homebrew's, measured after the change. ⚠ **And it cost a measurement first:**
+  runbook item 6 could not be run at all until its probe was rewritten without shell variables (the
+  `$b` form printed nine blank lines), which also makes the published *"single-line is immune"*
+  claim wrong — immune to the newline half only. Original entry follows, for the record. 📄
   [`macos-user-provisioning.md` §1.1](../design/macos-user-provisioning.md#11-the-forwarded-command-is-not-passed-through-faithfully).
   Found while running the list above, and it invalidated that run's first attempt: `sudo --login`
   concatenates the command *"separated by spaces, after escaping each character (including white
