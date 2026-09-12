@@ -668,3 +668,61 @@ func TestHostApplyVerdictNamesAPackThatFailedToRender(t *testing.T) {
 		t.Errorf("a failed render cannot report a clean outcome\n%s", report)
 	}
 }
+
+// TestHostApplyHeaderSaysTheApplyInPlainWords pins §4.3 item 1 and §4.6 together: the report's
+// FIRST line names the posture in words the reader already has, and the word `observe` — the
+// posture's name at the call site and in the design doc — never reaches the user at all.
+//
+// The header read `host apply  home <path>  posture observe (dry-run)`, which is the exact
+// string §4.3 item 1 names as the thing not to print, and it printed BOTH of the two words
+// §4.6 rules down to one. The footer had already been rewritten to say `dry run`; the header
+// it sits opposite had not, so the two ends of the same report disagreed about what a reader
+// should call the posture they had just run.
+//
+// The home path is asserted PRESENT, not incidentally: §4.3 item 1 keeps it deliberately,
+// because it is the fact an in-jail reader needs — this command renders into *this* jail's
+// home when it is run from inside one.
+func TestHostApplyHeaderSaysTheApplyInPlainWords(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write bool
+		want  string
+	}{
+		{"dry run", false, "host apply — dry run into "},
+		{"assert", true, "host apply — applying into "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := shippedPacksFixture(t)
+			stubDeclaredBins(t)
+			rc, report := applyAt(t, tc.write)
+			if rc != 0 {
+				t.Fatalf("rc=%d\n%s", rc, report)
+			}
+			first, _, _ := strings.Cut(report, "\n")
+			if !strings.HasPrefix(first, tc.want+home) {
+				t.Errorf("the first line must name the posture in plain words and keep the "+
+					"home (§4.3 item 1); want a prefix of %q, got %q", tc.want+home, first)
+			}
+			// §4.6: `observe` stays in the code and the design; ONE word reaches the user.
+			if strings.Contains(report, "observe") || strings.Contains(report, "OBSERVE") {
+				t.Errorf("the word `observe` reached the user — §4.6 rules the posture's "+
+					"user-facing name down to one word, `dry run`:\n%s", report)
+			}
+		})
+	}
+}
+
+// TestHostApplyHelpSaysDryRunNotObserve carries §4.6 into the HELP, which is where a reader
+// meets the vocabulary before they ever run the command. A report that says `dry run` while
+// `--help` says the command "OBSERVES" is still two words reaching one user.
+func TestHostApplyHelpSaysDryRunNotObserve(t *testing.T) {
+	for name, usage := range map[string]string{"yolo host": hostUsage, "yolo apply": applyUsage} {
+		if strings.Contains(usage, "OBSERVE") || strings.Contains(usage, "observe") {
+			t.Errorf("%s --help still calls the posture `observe`; §4.6's user-facing word "+
+				"is `dry run`:\n%s", name, usage)
+		}
+		if !strings.Contains(usage, "dry run") && !strings.Contains(usage, "DRY RUN") {
+			t.Errorf("%s --help never says `dry run`:\n%s", name, usage)
+		}
+	}
+}

@@ -53,8 +53,8 @@ read from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this laun
 See ` + "`yolo config-ref`" + `.
 
 apply flags:
-  --assert        Write. Without it apply OBSERVES and writes nothing.
-  --dry-run       Force observe, even alongside --assert.
+  --assert        Write. Without it apply is a DRY RUN and writes nothing.
+  --dry-run       Force the dry run, even alongside --assert.
   --verbose, -v   List every destination the report otherwise counts: each settled
                   surface, every dependency probe, every skill by destination.
   --shell-init    Append the PATH line for the wrapper dir to your shell rc.

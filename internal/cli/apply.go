@@ -306,11 +306,17 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// directory and the user can undo a whole apply rather than hunting per-file.
 	stamp := time.Now().UTC().Format("20060102-150405")
 
-	posture := "observe (dry-run)"
+	// THE HEADER SAYS IT IN PLAIN WORDS (§4.3 item 1, §4.6). It used to read
+	// `host apply  home <path>  posture observe (dry-run)` — `posture` is a word the reader
+	// has never met, and `observe (dry-run)` is the two-word spelling §4.6 rules against:
+	// `observe` is the posture's name at the CALL SITE and in the design, and exactly one
+	// word reaches the user. The home path stays — it is the fact an in-jail reader needs,
+	// because this command renders into *this* jail's home when run from inside one.
+	posture := fmt.Sprintf("dry run into %s; nothing is written", home)
 	if write {
-		posture = "assert (writing)"
+		posture = fmt.Sprintf("applying into %s", home)
 	}
-	pr.Printf("[bold]host apply[/bold]  home [cyan]%s[/cyan]  posture [cyan]%s[/cyan]", home, posture)
+	pr.Printf("[bold]host apply[/bold] — %s", posture)
 
 	hostFields := render.HostFields()
 	rc := 0
@@ -1021,7 +1027,7 @@ const applyUsage = `yolo apply — make this environment match its description, 
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
   yolo apply --at host      render your config into your real home
                             (yolo host apply is the same thing, more typeable)
-                            (default OBSERVE/dry-run — prints what would change, writes nothing)
+                            (a DRY RUN by default — prints what would change, writes nothing)
   yolo apply --at host --assert  actually write: regenerate only the keys yolo manages (pure
                             rmw), leaving your own keys; non-config kinds refused by name
   yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
