@@ -744,3 +744,35 @@ func TestProfileNameRefusesThePairSeparator(t *testing.T) {
 		t.Fatalf("problems = %v, want the = refusal", problems)
 	}
 }
+
+// TestFlagAliasesMergeAcrossEveryLaunchContribution: a pack declaring TWO `launch`
+// contributions — legal, since the kind is sole-owned by BIN and two bins are two owners —
+// gets BOTH alias maps, not whichever one the contributes[] list happens to put first.
+//
+// The projection used to `return c.Aliases` on the first launch contribution carrying any,
+// so the second bin's aliases were accepted by the schema and then read by nobody. That is
+// worse than dropping them: InjectLaunchFlags skips a flag whose declared alias the user
+// already typed, so a lost alias means `beta -b` gets `--beta-yolo` injected BESIDE the `-b`
+// that means the same thing — the exact double-switch the alias table exists to prevent.
+//
+// WHY IT MATTERS NOW rather than in the abstract: since `--yolo` moved under the autonomy
+// notch, `aliases` is the ONLY content any shipped `launch` contribution carries (copilot's,
+// which declares a bin and an alias map and no flags at all). The half of this kind that
+// still ships is the half this projection was silently truncating.
+func TestFlagAliasesMergeAcrossEveryLaunchContribution(t *testing.T) {
+	m := &Manifest{Contributes: []Contribution{
+		{Kind: KindLaunch, Bin: "alpha", Flags: []string{"--alpha-yolo"},
+			Aliases: map[string][]string{"--alpha-yolo": {"-a"}}},
+		// No flags, exactly like the shipped copilot entry: the aliases are the contribution.
+		{Kind: KindLaunch, Bin: "beta", Aliases: map[string][]string{"--beta-yolo": {"-b"}}},
+	}}
+
+	got := m.FlagAliasContributions()
+	if len(got["--alpha-yolo"]) != 1 || got["--alpha-yolo"][0] != "-a" {
+		t.Errorf("the FIRST launch contribution's aliases were dropped: %+v", got)
+	}
+	if len(got["--beta-yolo"]) != 1 || got["--beta-yolo"][0] != "-b" {
+		t.Errorf("a SECOND launch contribution's aliases are accepted by the schema and then "+
+			"read by nobody — `beta -b` would get `--beta-yolo` injected beside it: %+v", got)
+	}
+}

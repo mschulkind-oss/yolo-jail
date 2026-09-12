@@ -1267,8 +1267,8 @@ func (m *Manifest) stateDirs(scope string) []string {
 	return out
 }
 
-// LaunchFlagContributions / FlagAliasContributions return the launch contributions
-// as the legacy per-bin maps.
+// LaunchFlagContributions returns the launch contributions as the legacy per-bin map,
+// later entries winning a repeated bin.
 func (m *Manifest) LaunchFlagContributions() map[string][]string {
 	out := map[string][]string{}
 	for _, c := range m.Contributions() {
@@ -1282,13 +1282,29 @@ func (m *Manifest) LaunchFlagContributions() map[string][]string {
 	return out
 }
 
+// FlagAliasContributions MERGES every launch contribution's alias map, later entries
+// winning a repeated flag — the same rule the per-bin projection above uses, and the one
+// packload.FlagAliases already applies ACROSS packs.
+//
+// It returned the FIRST contribution's map until 2026-09-12, which truncated a legal
+// manifest: the kind is sole-owned by BIN, so two bins are two contributions, and the
+// second one's aliases were accepted by the schema and then read by nobody. A dropped
+// alias is not inert — InjectLaunchFlags skips a flag whose alias the user already typed,
+// so losing one means the user gets both spellings of one switch.
 func (m *Manifest) FlagAliasContributions() map[string][]string {
+	out := map[string][]string{}
 	for _, c := range m.Contributions() {
-		if c.Kind == KindLaunch && len(c.Aliases) > 0 {
-			return c.Aliases
+		if c.Kind != KindLaunch {
+			continue
+		}
+		for flag, aliases := range c.Aliases {
+			out[flag] = aliases
 		}
 	}
-	return nil
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // HookContributions returns the hook contributions as legacy Hooks.
