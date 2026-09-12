@@ -8,8 +8,9 @@ package agentcfg
 // §4.2 lifted it here unchanged. Nothing about it is Lua: it is the last step of
 // the §3.1 pipeline (… → enforce(managed) → encode), so it belongs to the
 // pipeline's own package. The move preserved three semantics that a tidier
-// rewrite would each silently change — every one of them is pinned by a test in
-// enforce_test.go, and each pin names which:
+// rewrite would each silently change. Items 1 and 3 are pinned by tests in
+// enforce_test.go that name them; item 2 is STRUCTURAL at HEAD rather than
+// testable, and says below why it no longer has a pin:
 //
 //  1. THIS IS NOT RFC 7386. engine.go's mergeValue deletes a key whose patch
 //     value is null; enforceValue ASSIGNS it. The two are one `if` apart and
@@ -19,7 +20,12 @@ package agentcfg
 //  2. THE INPUT IS THE ORIGINAL managed layer, not a defensive copy of it. It
 //     is the surface's own declared layer, read once and never rewritten, so
 //     the floor cannot be moved by anything the fold did. Compose passes
-//     in.Surface.Managed directly.
+//     in.Surface.Managed directly (compose.go). This had a pin while a
+//     transform could hand the floor a REWRITTEN managed table; that test went
+//     with the Lua VM it needed, and there is now no second managed value in
+//     the pipeline for this to read by mistake — the property holds because
+//     nothing can express its violation, which is why re-adding a test for it
+//     would assert the type system rather than the behaviour.
 //  3. THE CONFIG MAP IS MUTATED IN PLACE when both sides are objects, and the
 //     same map is returned. A pure copying rewrite would change aliasing for any
 //     caller still holding the merged map.

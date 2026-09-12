@@ -120,7 +120,8 @@ func TestEnforceManagedSharesNoStructureWithManaged(t *testing.T) {
 	}
 
 	// The whole-value branch copies too (a keyless surface whose managed layer
-	// is a table, and the reason newCtx copies through deepCopyValue).
+	// is a table, and the reason that branch returns deepCopyValue rather than
+	// the managed value itself).
 	wholeManaged := map[string]any{"nested": []any{"a"}}
 	whole := enforceManaged("host bytes", wholeManaged).(map[string]any)
 	whole["nested"].([]any)[0] = "rewritten"
