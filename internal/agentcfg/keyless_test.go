@@ -336,23 +336,33 @@ func TestComposeJSONHostArrayFailsClosed(t *testing.T) {
 // TestComposeRawManagedReplacesWholeFile: `managed` on a keyless surface can
 // only mean "this file is exactly these bytes" — there are no keys to enforce
 // individually. Coarse, but it is what enforce means without keys, and it must
-// beat every other layer including the transform.
+// beat every layer below it.
+//
+// REWRITTEN WITHOUT A TRANSFORM (docs/design/lua-transform-removal.md §4.2 item
+// 2, risk R3). This was the ONLY test of the keyless leg of the managed floor,
+// and it drove it through a Lua script — so deleting the transform would have
+// taken the proof with it and left the floor's whole-value-replacement branch
+// unasserted at exactly the moment it is lifted into internal/agentcfg. Managed
+// is not one of the merged layers (it is applied only by Enforce, after the
+// fold), so a host layer alone is enough to exercise it: the host value is what
+// the floor has to beat.
 func TestComposeRawManagedReplacesWholeFile(t *testing.T) {
 	surface := rawSurface()
 	surface.Managed = "yolo owns this file\n"
-	script := `yolo.transform("user", function(ctx) ctx.config = "transform tried\n" end)`
 
 	res, err := Compose(Inputs{
 		Surface:   surface,
 		HostBytes: []byte("host content\n"),
-		Script:    script,
-		VM:        &luahook.GopherLuaVM{},
+		Workspace: "workspace tried\n", // the highest MERGED layer, still below the floor
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
 	if res.Config != "yolo owns this file\n" {
-		t.Errorf("Config = %q, want the managed value (managed wins after the transform)", res.Config)
+		t.Errorf("Config = %q, want the managed value (the floor replaces the whole file)", res.Config)
+	}
+	if string(res.Encoded) != "yolo owns this file\n" {
+		t.Errorf("Encoded = %q, want the managed bytes", res.Encoded)
 	}
 	if res.Provenance[WholeFileKey] != layerManaged {
 		t.Errorf("Provenance[%s] = %q, want %q", WholeFileKey,

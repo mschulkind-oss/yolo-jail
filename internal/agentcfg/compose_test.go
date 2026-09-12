@@ -213,6 +213,42 @@ end)
 	}
 }
 
+// TestComposeManagedWinsOverComputed is the managed-beats-computed half of
+// TestComposeComputedBelowManagedAndTransform, asserted WITHOUT a transform.
+//
+// That test proved two things at once: a transform can reshape a computed value
+// (which dies with the transform — docs/design/lua-transform-removal.md §5.5),
+// and managed still stomps a computed attempt to loosen a managed key (which is
+// the hard floor and must outlive it). No other test in this file pins the
+// second against the computed layer specifically: TestComposeComputedLayer only
+// ranks computed against overlay, and the *EnforcesManaged suite feeds host
+// bytes. Written here first so the transform test can be deleted whole.
+func TestComposeManagedWinsOverComputed(t *testing.T) {
+	res, err := Compose(Inputs{
+		Surface:  piSurface(),
+		Computed: map[string]any{"defaultModel": "computed", "defaultProjectTrust": "never"},
+	})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	// The computed layer lands where nothing above it objects...
+	if res.ConfigMap()["defaultModel"] != "computed" {
+		t.Errorf("computed key should survive: got %v", res.ConfigMap()["defaultModel"])
+	}
+	if res.Provenance["defaultModel"] != layerComputed {
+		t.Errorf("provenance defaultModel = %q, want %q", res.Provenance["defaultModel"], layerComputed)
+	}
+	// ...but managed is the floor: a computed attempt to loosen the enforced key
+	// is stomped by Enforce, which runs after every merged layer.
+	if res.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("managed must win over computed: got %v", res.ConfigMap()["defaultProjectTrust"])
+	}
+	if res.Provenance["defaultProjectTrust"] != layerManaged {
+		t.Errorf("provenance defaultProjectTrust = %q, want %q",
+			res.Provenance["defaultProjectTrust"], layerManaged)
+	}
+}
+
 // TestComposeComputedTombstone: a null in the computed layer deletes the key
 // from the render (RFC-7386), so a computed layer can prune a key an earlier
 // layer set — e.g. removing an LSP plugin that is no longer configured. This is
@@ -354,6 +390,60 @@ func TestComposeDeepEnforcePreservesHostSibling(t *testing.T) {
 	// ...but the host sibling with no managed counterpart survives (the fix).
 	if !reflect.DeepEqual(perms["ask"], []any{"Bash(git push)"}) {
 		t.Errorf("host sibling permissions.ask should survive deep Enforce, got %#v", perms["ask"])
+	}
+}
+
+// TestComposeManagedNilValueIsAssignedNotDeleted pins the ONE case where the
+// managed floor and the merge fold disagree, so the floor can be moved out of
+// luahook without changing meaning (docs/design/lua-transform-removal.md §4.2
+// item 1, risk R1).
+//
+// engine.go's mergeValue is RFC 7386: a null under a key DELETES the key. The
+// floor's enforceValue is not — a non-object managed value, nil included, is
+// ASSIGNED by deep copy. So a managed key whose value is null survives into the
+// render as an explicit null rather than removing what the host set. The two are
+// one `if` apart and look interchangeable; reusing mergeValue during the move
+// would silently flip this, and nothing else in the suite would notice.
+//
+// Also pinned: provenance still attributes the key to the layer that last SET
+// it, because Compose's managed-provenance loop skips nil values on purpose (a
+// null is not a value the managed layer is claiming). Asserting what the code
+// does today, not what it ought to do — the move must be a no-op.
+func TestComposeManagedNilValueIsAssignedNotDeleted(t *testing.T) {
+	s := piSurface()
+	s.Managed = map[string]any{"defaultProjectTrust": "always", "nulled": nil}
+
+	res, err := Compose(Inputs{
+		Surface:   s,
+		HostBytes: []byte(`{"nulled": "host set this", "theme": "dark"}`),
+	})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	v, present := res.ConfigMap()["nulled"]
+	if !present {
+		t.Fatal("a nil-valued managed key must ASSIGN null, not delete the key — " +
+			"enforceValue is not RFC 7386 (§4.2 item 1)")
+	}
+	if v != nil {
+		t.Errorf("nulled = %#v, want an explicit nil assigned over the host value", v)
+	}
+	// It reaches the bytes as a literal null, which is the observable difference
+	// from the fold's tombstone behaviour.
+	if !contains(string(res.Encoded), `"nulled": null`) {
+		t.Errorf("encoded lacks the explicit null:\n%s", res.Encoded)
+	}
+	// Siblings and the ordinary managed key are unaffected.
+	if res.ConfigMap()["theme"] != "dark" {
+		t.Errorf("host sibling clobbered: %#v", res.ConfigMap())
+	}
+	if res.ConfigMap()["defaultProjectTrust"] != "always" {
+		t.Errorf("non-nil managed key = %v, want always", res.ConfigMap()["defaultProjectTrust"])
+	}
+	// Provenance does NOT claim the nulled key for managed (the loop skips nils).
+	if got := res.Provenance["nulled"]; got != layerHost {
+		t.Errorf("provenance nulled = %q, want %q (the managed loop skips nil values)",
+			got, layerHost)
 	}
 }
 
