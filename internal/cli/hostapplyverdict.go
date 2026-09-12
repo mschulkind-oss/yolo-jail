@@ -21,7 +21,11 @@ package cli
 //     only after the verdict has said the latter.
 //   - EVERY TIER-3 CLASS IS REPRESENTED IN IT (§4.4). A loss contributes a count, a blocker
 //     contributes its NAME — grouping may compress the lines above the verdict, it may never
-//     leave the verdict silent about a class.
+//     leave the verdict silent about a class. ADOPTION is the class that was missing (OQ-CO7
+//     D3): it reproduces the file's bytes on the `assert` -> `own` switch, so it reaches here
+//     as a destination that would not change and it used to contribute nothing at all, under
+//     an unsuppressible line naming the copy the run had just taken. Two surfaces disagreeing
+//     about one run is what this block exists to make impossible.
 //
 // WHAT IT DELIBERATELY DOES NOT COVER: the early refusals (an `agents` selector naming nobody,
 // a doubly-owned surface, a name claimed twice, a declined loss confirmation). Each already
@@ -86,7 +90,13 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 		return outcomeIncomplete
 	case !write && len(s.MissingDeps()) > 0:
 		return outcomeBlocked
-	case !s.Changes():
+	case !s.Changes() && s.Adoptions() == 0:
+		// THE ADOPTION HALF IS NOT REDUNDANT WITH Changes(), which is the whole of OQ-CO7's
+		// D3: an adoption composes the file out of what it already holds, so the canonical
+		// one reproduces the bytes, reports WouldChange=false and leaves Changed empty —
+		// while having copied the user's file into a slot there is one of, forever. A run
+		// that walked through a one-way door is not a run with nothing to do, in either
+		// posture's spelling of the sentence.
 		return outcomeNothingToDo
 	case write:
 		return outcomeApplied
@@ -223,6 +233,24 @@ func hostApplyWorkItems(s *hostApplySurvey, wrote bool) []workItem {
 		}
 	}
 	add(s.ChangedOfKind("config"), "config file", "config files")
+	if n := s.Adoptions(); n > 0 {
+		// PAST TENSE IN BOTH POSTURES, and that is not an oversight in the one class that
+		// skips `add`'s changed/would-change pair. This count comes from
+		// HostRenderResult.Archived, which names a copy that was MADE — assert-only by that
+		// field's own ruling, because reporting a path a dry run did not write is the one lie
+		// a net cannot afford. The other classes need both spellings because they describe a
+		// prediction in one posture and an act in the other; this one never describes a
+		// prediction, so a second spelling would be an unreachable branch asserting the
+		// opposite of the field's contract.
+		//
+		// SURFACES, not files, and not "config files" either: the adopted destination is
+		// already counted by the line above whenever the render also moved it, and repeating
+		// the noun there would read as a second file. The unit is the one the per-surface
+		// line and the archive disclosure under it both use.
+		phrase := fmt.Sprintf("%d %s adopted (archived first)", n,
+			plural(n, "surface", "surfaces"))
+		out = append(out, workItem{short: phrase, full: phrase})
+	}
 	if n := len(s.SkillNames(skillAdopted)); n > 0 {
 		verb := "would move"
 		if wrote {

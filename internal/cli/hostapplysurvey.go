@@ -128,6 +128,12 @@ type hostApplySurvey struct {
 	// one §4.4 loss class with no remedy possible, and the one the verdict used to be silent
 	// about while configResultTier was already counting it as a loss.
 	commentSurfaces map[string]bool
+	// adoptedSurfaces are the surfaces THIS RUN ADOPTED — composed wholesale out of what the
+	// file already held, with the pre-existing file copied into the one-time archive
+	// (entrypoint.HostRenderResult.Archived, OQ-CO7). Keyed by surface for the reason every
+	// set above is: a surface adopts once per home, so the surface is the fact and the count
+	// is one per file rather than one per write the adoption performed.
+	adoptedSurfaces map[string]bool
 	// deps is every declared dependency's FINDING keyed by BINARY — the probed state and,
 	// for a missing one, the remedy the tier-3 group states once (§4.4 groups a blocker by
 	// its remedy key, and for a dependency that key is the binary, across packs). depsNoBin
@@ -261,6 +267,16 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 		// into bug reports). The count and the file are the whole fact.
 		s.mark(&s.commentSurfaces, r.Surface)
 	}
+	if r.Archived != "" {
+		// THE ADOPTION ITSELF, which is none of the three losses above and is the one fact
+		// in this method that can be the ONLY thing a run did. OQ-CO7's zero-bytes
+		// criterion says the `assert` -> `own` switch reproduces the file exactly, so the
+		// destination reports WouldChange=false and files as in-sync — and with nothing
+		// recorded here the run closed on "Nothing to apply — this home is up to date",
+		// directly under the unsuppressible line naming the copy it had just taken
+		// (OQ-CO7 D3, measured on the built binary 2026-09-12).
+		s.mark(&s.adoptedSurfaces, r.Surface)
+	}
 }
 
 // configResultTier is §4.1 applied to one config surface: tier 3 when this render would take
@@ -283,7 +299,11 @@ func (s *hostApplySurvey) noteConfig(r entrypoint.HostRenderResult) {
 // — this home is up to date". The tier is what puts the surface's own line back above it.
 //
 // It changes no COUNT: hostApplySurvey.note reads the predicate first and files a
-// !wouldChange destination as in-sync without consulting the tier at all.
+// !wouldChange destination as in-sync without consulting the tier at all. So the tier fixed
+// the HEADING and left the VERDICT saying the opposite of the line under it — OQ-CO7's D3,
+// which is `adoptedSurfaces` above and the `Adoptions()` half of hostApplyOutcome's
+// nothing-to-do case. A tier decides how a destination's own line renders; only a count
+// reaches the sentence the run ends on.
 func configResultTier(r entrypoint.HostRenderResult) reportTier {
 	if len(r.Overwrites) > 0 || len(r.EntryLosses) > 0 || len(r.Formatting) > 0 ||
 		r.Archived != "" {
@@ -546,6 +566,26 @@ func (s *hostApplySurvey) DroppedComments() int {
 
 // CommentSurfaces names those surfaces, sorted.
 func (s *hostApplySurvey) CommentSurfaces() []string { return sortedSet(s, s.commentSurfaces) }
+
+// Adoptions is how many surfaces this run ADOPTED: §4.4's one-way door, and the one tier-3
+// class the verdict block had no term for at all (OQ-CO7 D3). It is the count the verdict
+// needs to stop reporting an adopting run as a run that did nothing.
+//
+// IT IS NOT A SECOND SPELLING OF Changes(), and the two are kept apart deliberately
+// (report-tiers.md §6: the survey grows fields, it does not change what Changes() means). The
+// launch gate reads Changes() to decide whether a home needs an apply; an adoption is
+// something a completed apply DID, so folding it in would make a settled home look pending to
+// the gate forever.
+//
+// ASSERT-ONLY, which is why the dry run's machine document carries no field for it: a render
+// that writes nothing archives nothing (see HostRenderResult.Archived's own docstring), so a
+// number here in a dry run could only ever be zero, and a field that is a constant is not data.
+func (s *hostApplySurvey) Adoptions() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.adoptedSurfaces)
+}
 
 // sortedSet is the one nil-safe reader for the survey's name sets: a sorted list is the only
 // form a report can print twice and get the same answer.

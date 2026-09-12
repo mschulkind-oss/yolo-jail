@@ -16,11 +16,11 @@ landed: the `host_management` key, `own`'s composing render and its capture stor
 step 8's **one-time adoption archive** ([§6.3.3](#633-what-survives-as-a-guard),
 [`OQ-CO7`](#13-decision-ledger)), written at BOTH notches by one call in the shared stateful
 writer ([`entrypoint.archiveAdoption`](../../internal/entrypoint/adoptionarchive.go)).
-Verification after it landed measured **four gaps it did not reach**; **two were closed on the
-same day** (the gate could not tell yolo's own output from the user's file, and could not tell
-an absent file from an unreadable one) and **two remain**, recorded as live residue in
-[§6.3.3](#633-what-survives-as-a-guard) rather than closed over — neither a regression, each a
-loss a reader of this doc would expect the copy to net.
+Verification after it landed measured **four gaps**; **three are closed** (the gate could not
+tell yolo's own output from the user's file, nor an absent file from an unreadable one, and the
+verdict closed an adopting run as a run with nothing to do) and **one remains**, recorded as live
+residue in [§6.3.3](#633-what-survives-as-a-guard) rather than closed over — not a regression, but
+a loss a reader of this doc would expect the copy to net.
 [§13](#13-decision-ledger)'s **Built** column carries the same answer ruling by ruling, so
 "settled" and "shipped" can be read apart rather than inferred from each other.
 Claims about *current behavior*
@@ -1513,11 +1513,12 @@ The degenerate inputs, each with the reason rather than just the answer:
 > [!CAUTION]
 > **A ✅ over a known hole is the exact failure this ruling is the case study for**, so what the
 > post-build verification found is recorded here rather than in a commit message. **Four in
-> total, two of them now closed:** the two the GATE could not see are fixed and stated with the
-> degenerate inputs above (an unreadable file, and yolo's own output); the two below are not.
-> Neither is a regression — each is a loss that predates the archive and that the archive does
-> not reach — and neither is fixed, because every candidate fix reverses something ruled above.
-> They are the maintainer's to rule, not the next builder's to assume.
+> total, three of them now closed:** the two the GATE could not see are fixed and stated with the
+> degenerate inputs above (an unreadable file, and yolo's own output), and the third was the
+> REPORT rather than the net — a run that adopted a file still ended on *"nothing to apply"*.
+> The one below is not. It is not a regression — it is a loss that predates the archive and that
+> the archive does not reach — and it is not fixed, because every candidate fix reverses
+> something ruled above. It is the maintainer's to rule, not the next builder's to assume.
 
 > [!NOTE]
 > **Closed 2026-09-12, and recorded rather than deleted because the shape is the lesson.** The
@@ -1546,40 +1547,53 @@ The degenerate inputs, each with the reason rather than just the answer:
 > not fire on it. That sweep is keyed to a surface's FIRST render into a home, which a reset is
 > not.
 
-1. **A lost overlay sidecar is a silent, unnetted, unannounced loss — and the gate's first
-   condition used to say the opposite.** `archiveAdoption` argued that a steady-state render
-   *"has a trusted baseline … and loses nothing this could net"*; that sentence is GONE (the
-   docstring states the boundary instead), but the loss it denied is still here. Measured
-   2026-09-12 at the host notch: on an adopted home, deleting ONLY
-   `<agent>-<name>.overlay.json` and keeping
-   `last_render` leaves the next render in steady state — the delta against `last_render` is
-   empty because nothing moved on disk, and the absent overlay reads as empty — so the render
-   collapses to the pure layers and both `apiKeyHelper` and `permissions.ask` disappear.
-   `FirstMigration` is false, so no archive; `Overwrites` and `EntryLosses` are both empty, so
-   no loss line and no prompt. A surface whose keys arrived AFTER a fresh-home first render has
-   no earlier archive to fall back on, and the loss is total.
+**A lost overlay sidecar is a silent, unnetted, unannounced loss — and the gate's first
+condition used to say the opposite.** `archiveAdoption` argued that a steady-state render
+*"has a trusted baseline … and loses nothing this could net"*; that sentence is GONE (the
+docstring states the boundary instead), but the loss it denied is still here. Measured
+2026-09-12 at the host notch: on an adopted home, deleting ONLY `<agent>-<name>.overlay.json` and
+keeping `last_render` leaves the next render in steady state — the delta against `last_render` is
+empty because nothing moved on disk, and the absent overlay reads as empty — so the render
+collapses to the pure layers and both `apiKeyHelper` and `permissions.ask` disappear.
+`FirstMigration` is false, so no archive; `Overwrites` and `EntryLosses` are both empty, so
+no loss line and no prompt. A surface whose keys arrived AFTER a fresh-home first render has
+no earlier archive to fall back on, and the loss is total.
 
-   *Why it is not just fixed:* widening the trigger past `FirstMigration` — or treating a
-   missing or corrupt overlay as an adoption event of its own — changes which renders adopt at
-   all, which is scope [`OQ-CO7`](#13-decision-ledger) did not grant; and a one-per-surface slot
-   is the wrong shape for a sidecar that can be lost more than once, which is what makes this a
-   different feature rather than a wider gate. One fact for whoever rules it: the state is
-   DETECTABLE without widening anything — no render leaves a `last_render` without an overlay
-   beside it (`persistStatefulSurface` writes both, `{}` included), so "baseline present,
-   overlay absent" is an anomaly yolo could report even if it cannot net it.
+*Why it is not just fixed:* widening the trigger past `FirstMigration` — or treating a
+missing or corrupt overlay as an adoption event of its own — changes which renders adopt at
+all, which is scope [`OQ-CO7`](#13-decision-ledger) did not grant; and a one-per-surface slot
+is the wrong shape for a sidecar that can be lost more than once, which is what makes this a
+different feature rather than a wider gate. One fact for whoever rules it: the state is
+DETECTABLE without widening anything — no render leaves a `last_render` without an overlay
+beside it (`persistStatefulSurface` writes both, `{}` included), so "baseline present,
+overlay absent" is an anomaly yolo could report even if it cannot net it.
 
-2. **An adopting render still counts as *in sync* in the verdict.** The surface's own line and
-   the archive disclosure both print — `configResultTier` makes a non-empty `Archived` a loss
-   tier, which is what stopped the disclosure attaching itself to an unrelated line — but
-   `hostApplySurvey.note` files any `!wouldChange` destination as `InSync` without consulting
-   the tier, and [§11](#11-success-criteria)'s criterion is precisely that this transition
-   changes no bytes. So a `yolo host apply` that adopted a file and archived it still closes
-   with *"Nothing to apply — this home is up to date"*.
-
-   *Why it is not just fixed:* that survey feeds the `host_apply_on_launch` gate as well as the
-   report — an apply in observe posture reads the same counts — so moving an adopting surface
-   out of `InSync` changes when a LAUNCH stops to ask. That is a decision about the gate, not a
-   report tweak.
+> [!NOTE]
+> **Closed 2026-09-12 — and by leaving alone the thing this entry said could not be moved.** A run
+> that adopted a file printed the surface's own line, printed the unsuppressible archive
+> disclosure under it, and then closed on *"Nothing to apply — this home is up to date"*: two
+> surfaces disagreeing about one run, which is the defect
+> [`report-tiers.md`](report-tiers.md) exists to prevent, over the one line
+> [`OQ-RO3`](report-tiers.md#11-decision-ledger) forbids hiding. Measured on the BUILT binary —
+> the baked `yolo` on PATH is many commits behind and shows the old report.
+>
+> **The obstacle recorded here was real and is untouched.** `hostApplySurvey.InSync` still counts
+> an adopting destination, `Changes()` still means exactly what it meant, and the
+> `host_apply_on_launch` gate therefore still stops for the homes it stopped for before
+> ([`hostapplygate.go`](../../internal/cli/hostapplygate.go) reads `Changes()` and nothing else) —
+> which is also [`report-tiers.md` §6](report-tiers.md#6-what-this-does-not-propose)'s rule that
+> the survey grows fields rather than changing what `Changes()` means. What closed it is a count
+> the gate does not read: `hostApplySurvey.Adoptions()`, marked from `HostRenderResult.Archived`
+> in `noteConfig`, which makes an adoption a class of its own in
+> [§4.3](report-tiers.md#43-the-verdict-block)'s verdict block. The run now ends on
+> *"Applied: 1 surface adopted (archived first)"*, and a home with nothing to adopt still ends on
+> *"Nothing to apply"*.
+>
+> The lesson is the same shape as the one above it: a TIER decides how a destination's own line
+> renders, and only a COUNT reaches the sentence the run ends on. `configResultTier` gave the
+> archive disclosure its heading back that morning and left the verdict under it saying the
+> opposite, because the two are different mechanisms and the fix for one is not the fix for the
+> other.
 
 **And one latent defect, one refusal away from real.** `RenderHostPack`'s refusal branch builds
 its `HostRenderResult` without `Archived`, so a surface refused AFTER a successful archive would
@@ -1703,7 +1717,7 @@ already has.
 | Risk | Mitigation |
 |---|---|
 | A user picks `own`, and yolo deletes settings they cared about | Adoption is capture-then-regenerate, so the first owned render reproduces the file's undeclared keys ([§6.3.1](#631-adoption-is-capture-then-regenerate)); the classes it does not cover are in [§6.3.2](#632-the-three-classes-adoption-does-not-cover), plus the one-time archive |
-| A user on `assert` switches to `own` and silently loses a leaf under a managed object (`permissions.ask`) | Adoption must drop at `rmw`'s granularity ([§6.3.1](#631-adoption-is-capture-then-regenerate)) — **shipped 2026-09-12**, so the leaf survives. The fallback this row named is there too, **shipped the same day**: the one-time archive ([§6.3.3](#633-what-survives-as-a-guard)) holds the file as yolo found it, for any class adoption still drops — which matters precisely because `confirmHostLosses` is off once provenance exists. ⚠ It does not cover everything a reader of this row would assume: two gaps remain recorded as live residue in the same section |
+| A user on `assert` switches to `own` and silently loses a leaf under a managed object (`permissions.ask`) | Adoption must drop at `rmw`'s granularity ([§6.3.1](#631-adoption-is-capture-then-regenerate)) — **shipped 2026-09-12**, so the leaf survives. The fallback this row named is there too, **shipped the same day**: the one-time archive ([§6.3.3](#633-what-survives-as-a-guard)) holds the file as yolo found it, for any class adoption still drops — which matters precisely because `confirmHostLosses` is off once provenance exists. ⚠ It does not cover everything a reader of this row would assume: one gap remains recorded as live residue in the same section |
 | Promotion silently demotes a key that then reverts | Precedence check is a **refusal**, not a warning ([§5.4](#54-promotion-moves-a-key-down-the-stack)) — and the class is empty for `--to local`; the check protects `--to pack:<name>` |
 | A credential is promoted into a pack, and the pack is pushed — or already sits in a sidecar | Promote's deny-list ([§5.3](#53-classification--what-a-machine-can-decide-and-what-it-cannot), new work); `--force` is per-key and named in output; the sidecar half is a capture-time question at every notch ([§6.2](#62-host-capture-and-the-privacy-ruling-it-has-to-answer-to)), listed for the roadmap |
 | The local pack becomes an unreviewable pile of promoted keys | Every promotion is an ordinary edit to a readable `pack.json`; `yolo pack lint` and `footprint` already report its claims |
@@ -1914,8 +1928,8 @@ the last three on 2026-09-11.
 cell names the symbol that carries the ruling, read off the tree on 2026-09-12 rather than off
 the sprint's commit messages; `n/a` marks a row that rules no mechanism of its own. **Every
 ruling here now has code behind it**; [`OQ-CO7`](#13-decision-ledger) was the last without, and
-its one-time adoption archive shipped on 2026-09-12 — **with four measured gaps, two closed the
-same day and two left as open residue rather than open questions**
+its one-time adoption archive shipped on 2026-09-12 — **with four measured gaps, three closed
+the same day and one left as open residue rather than an open question**
 ([§6.3.3](#633-what-survives-as-a-guard)): a `Built` cell says a mechanism exists, never that it
 is complete.
 
@@ -1938,7 +1952,7 @@ is complete.
 | [`OQ-CO4`](#13-decision-ledger) | **Keep `local` as the default; the guard is the confirmation, not the flag.** Promote lists the selected keys and asks; `--accept-promotion` is the only way past it. **Not `--yes`** — this repo has already declined the generic form: `config.AcceptConfigChangesFlag` (`internal/config/snapshot.go:81`) is `--accept-config-changes`, and its docstring rules that an approval must be a flag naming what is approved, never an env var a child process inherits. `--force` stays free for overriding a *refusal*. | 2026-09-10 | [§5.1](#51-surface), [§5.7](#57-forbidden-behavior) | ✅ `--accept-promotion` in `parsePromoteArgs`; `local` is `resolvePromoteDest`'s default |
 | [`OQ-CO5`](#13-decision-ledger) | **Refuse-with-instructions in v1.** Design the jail→host request channel but do not build it until promote has been used enough to know which keys people actually promote — the transport is free, the consent prompt is what needs the evidence. | 2026-09-11 | [§5.5](#55-where-promote-may-run) | ✅ `refuseInJailPromote` names the host command. The jail→host request channel is designed and unbuilt, which is the ruling |
 | [`OQ-CO6`](#13-decision-ledger) | **Refuse only, everywhere** — promote never offers the pack's `managed` block to a key that would lose precedence. For shipped surfaces nothing else is expressible (`managed` is owner-only and every owner is an embedded pack). For a user's own surface the friction is the point: a one-keystroke path to outranking `computed` would be used for exactly the reason that layer exists, so the managed block stays a hand edit. | 2026-09-11 | [§5.4](#54-promotion-moves-a-key-down-the-stack) | ✅ `classifyPromoteKey`'s `promotionOutranked` disposition; no path writes a `managed` block |
-| [`OQ-CO7`](#13-decision-ledger) | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `entrypoint.archiveAdoption`, called from `persistStatefulSurface` — the ONE writer both notches share, so the host's `own` adoption and a jail's `firstMigration` get the copy from the same line rather than from two implementations. `render.Target.ArchivePath` resolves where it lands at each notch; `HostRenderResult.Archived` reports it. ⚠ Built is not complete: [§6.3.3](#633-what-survives-as-a-guard) records four gaps measured after it shipped — the two the gate itself could not see are closed (an unreadable file, and yolo's own output); the two the net does not reach are left for a ruling |
+| [`OQ-CO7`](#13-decision-ledger) | **One archive at adoption**, as a `config` bucket in the archive subsystem that already ships — and, by [P5](#1-the-verdict-and-the-principles-it-rests-on), at a jail's `firstMigration` too. It covers a KNOWN loss path (the deep-merged-leaf drop) the prompt cannot see; the later-regression case is what git on the pack is for. Not per-apply snapshots. | 2026-09-11 | [§6.3.3](#633-what-survives-as-a-guard) | ✅ `entrypoint.archiveAdoption`, called from `persistStatefulSurface` — the ONE writer both notches share, so the host's `own` adoption and a jail's `firstMigration` get the copy from the same line rather than from two implementations. `render.Target.ArchivePath` resolves where it lands at each notch; `HostRenderResult.Archived` reports it. ⚠ Built is not complete: [§6.3.3](#633-what-survives-as-a-guard) records four gaps measured after it shipped — three are closed (an unreadable file, yolo's own output, and a verdict that closed an adopting run as a run with nothing to do); the one the net does not reach is left for a ruling |
 | [`OQ-CO8`](#13-decision-ledger) | **`--to workspace` is out of scope for this design** — a decision, not a wait. It could not have been built here regardless: the `workspace` layer has no config key, no producer sets `Inputs.Workspace`, and `render.Host` leaves it empty by definition. Whoever wires that layer also owns the argument that a jail-writable layer must not reach a real home. | 2026-09-11 | [§5.1](#51-surface), [§7](#7-what-this-does-not-propose) | ✅ `resolvePromoteDest` refuses `--to workspace` by naming this ruling, rather than folding it into "unknown destination" |
 | [`OQ-CO9`](#13-decision-ledger) | **Refuse `own` for a keyless surface, until a real example exists.** The guard-growing alternative was the author's leaning, not something evidence forced, and the class is empty today — so the cheap answer is the honest one. Revisit when a pack has a reason to want a keyless surface host-rendered. | 2026-09-11 | [§6.3.2](#632-the-three-classes-adoption-does-not-cover) | ✅ `render.HostOwnedModes` refuses the coercion and `entrypoint.hostStatefulRefusal` refuses the surface, leaving the user's file untouched |
 | [`OQ-CO10`](#13-decision-ledger) | **The declaration moves ONTO the surface** so the binding is structural instead of a `path.Base` match, and **the read fails CLOSED** — which turns the `macos-user` silent drop into a refusal that names the backend. The disclosure survives (it comes from the declaration being present and enumerable, not from a separate kind), and the `reads-host` kind stays for `host_files`, whose entries have no mirrored twin. Coverage becomes a visible per-surface yes/no, making `mise/config` a deliberate **no**. Promote refuses `--to host` on a surface with no host layer. | 2026-09-11 | [§5.1.1](#511-why-only-two-surfaces-have-a-host-layer) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path both halves evaluate, and `packload.HostLayerReport` makes the read fail closed; `macos-user` reports `unsupported` and is not refused |

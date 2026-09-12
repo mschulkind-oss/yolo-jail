@@ -537,6 +537,7 @@ Four rules keep it a result rather than a second summary:
 | Count | Unit | Source | Why this and not the loop count |
 | :--- | :--- | :--- | :--- |
 | config files that would change | files | the survey's `config` changes | six, not 76 |
+| surfaces adopted | surfaces | `HostRenderResult.Archived` | the one-way door the run walked through, and no other count here can represent it: the canonical adoption reproduces the file's bytes, so the destination reports no change ([`OQ-CO7`](config-ownership-and-promotion.md#13-decision-ledger)) |
 | skills that would move / union / archive | skills, not destinations | the skills results, deduplicated by name | fourteen, not seventy |
 | destinations compared and unchanged | destinations | `WouldChange == false` **and** the render compared content | "in sync" today includes six skipped surfaces; the skipped are named separately on demand |
 | values of yours replaced | keys, with the file count | `HostRenderResult.Overwrites` | the operator's first question |

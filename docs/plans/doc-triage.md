@@ -385,14 +385,15 @@ design doc. That is what happened — [`roadmap.md`](roadmap.md) carried it as a
 so this blocker is spent and the graduation no longer waits on it.
 
 ⚠ **It closed with residue, and the residue is now graduation content rather than a footnote.**
-Verification after the build measured **four gaps the archive did not reach** — a different four
-from the criterion's four axes below, and unrelated to them. **Two were fixed on 2026-09-12**, both
-of them things the GATE could not tell apart: yolo's own output from the user's file (which is what
-let `yolo config reset` spend the one-per-surface slot), and an absent file from an
-existing-but-unreadable one. **Two remain** — a deleted overlay sidecar dropping keys with no
-archive and no loss line, and an adopting render still filed as *in sync* in the verdict — recorded
+Verification after the build measured **four gaps** — a different four
+from the criterion's four axes below, and unrelated to them. **Three were fixed on 2026-09-12**:
+two of them things the GATE could not tell apart — yolo's own output from the user's file (which is
+what let `yolo config reset` spend the one-per-surface slot), and an absent file from an
+existing-but-unreadable one — and the third the REPORT rather than the net, a verdict that closed
+an adopting run as *"nothing to apply"* over the archive disclosure printed above it. **One
+remains** — a deleted overlay sidecar dropping keys with no archive and no loss line — recorded
 in [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), unfixed,
-because each candidate fix reverses a ruling. In a design doc that sits honestly as live residue.
+because every candidate fix reverses a ruling. In a design doc that sits honestly as live residue.
 **In a reference it becomes present tense** — *here is what the net does and does not catch* — which is the
 same kind of re-statement the criterion below needs, and it is the second thing the rewrite owes.
 

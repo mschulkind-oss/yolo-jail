@@ -692,11 +692,11 @@ sites in code, comment-only; the build replaced those comments with one call in 
 writer. It matters most where the guard is weakest: `confirmHostLosses` reads `EntryLosses` and fires
 only on first apply, so the `assert` → `own` switch — the exact transition that drops a deep-merged
 leaf — is unprompted, and the jail's own first-migration half has no TTY for a prompt at all.
-⚠ **Four gaps the net does not reach were measured after it shipped, and are open residue** —
+⚠ **Four gaps were measured after it shipped; three are closed and one is open residue** —
 [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard) lists them and
-the ✅ record under [*Up next*](#-up-next) summarises them. They are not new questions for you: each
-is unfixed because its fix would reverse a ruling, which is a call to make when one of them costs
-somebody something.
+the ✅ record under [*Up next*](#-up-next) summarises them. The one that remains is not a new
+question for you: it is unfixed because its fix would reverse a ruling, which is a call to make
+when it costs somebody something.
 
 **[§10](../design/config-ownership-and-promotion.md#10-what-i-would-build-in-order) was six steps when it was written, and the build needed
 eight.** Steps 6 and 7 — the
@@ -1076,15 +1076,18 @@ C4 and C5 are deliberately NOT here: their go/no-go is an explicit 🧊 row.
   original with yolo's output); and a copy that cannot be written REFUSES the adoption, leaving the
   file untouched, rather than warning past it.
 
-  ⚠ **It shipped with four measured gaps; two are now closed and two are yours to call.**
+  ⚠ **It shipped with four measured gaps; three are now closed and one is yours to call.**
   Verification after the build found that `yolo config reset` spends the one-per-surface slot on
   yolo's own output; that deleting a surface's overlay sidecar while keeping `last_render` drops the
   adopted keys with no archive, no loss line and no prompt; that an existing-but-UNREADABLE file
-  reaches the gate as zero bytes and is replaced wholesale; and that an adopting render is still
-  filed as *in sync* in `yolo host apply`'s verdict. **The first and third are fixed (2026-09-12)**
-  — they were one defect wearing two faces, a gate that could not tell "there are bytes here" from
-  "these bytes are mine", and an absent file from an unreadable one. The other two are UNFIXED,
-  because each candidate fix reverses a ruling. None was a regression. They live in
+  reaches the gate as zero bytes and is replaced wholesale; and that a run which adopted a file
+  still closed on *"Nothing to apply — this home is up to date"*, contradicting the archive
+  disclosure printed above it. **The first, third and fourth are fixed (2026-09-12).** The first
+  and third were one defect wearing two faces, a gate that could not tell "there are bytes here"
+  from "these bytes are mine", and an absent file from an unreadable one; the fourth was the
+  REPORT rather than the net, and closed without touching `InSync` or `Changes()` — an adoption is
+  now a class of its own in the verdict block, counted by something the launch gate does not read.
+  The second is UNFIXED, because every candidate fix reverses a ruling. None was a regression. They live in
   [§6.3.3](../design/config-ownership-and-promotion.md#633-what-survives-as-a-guard), beside the
   ruling they qualify. **This row stays ✅:** the step is built, and a ✅ that quietly meant
   "complete" is what [`OQ-CO7`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s own
