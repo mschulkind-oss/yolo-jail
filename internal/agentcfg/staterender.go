@@ -213,6 +213,15 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 		// reset → no baseline → adopt would resurrect the very edits the user asked
 		// to discard, making reset a no-op. The two halves are one change.
 		//
+		// ⚠ THE ONE-TIME ARCHIVE THIS BRANCH IS OWED IS NOT BUILT.
+		// docs/design/config-ownership-and-promotion.md's OQ-CO7 rules one archive at
+		// adoption at BOTH notches — the host's, and this one, into the workspace's own
+		// .yolo/ tree — and the reason it is not host-only is the reason it matters most
+		// here: the net has to differ by the primitive available, and a boot has no TTY to
+		// prompt on, so a copy is the only net this path can have. The narrowing below
+		// keeps the residue honest; it is not a record of what the file held before. If a
+		// pass ever drops a key it should have kept, there is nothing to read it back from.
+		//
 		// "Empty" is nil for a keyless surface, NOT the zero value: an empty
 		// string is a real assertion that the file is empty and would win the
 		// fold, blanking the render. nil means "this layer says nothing".

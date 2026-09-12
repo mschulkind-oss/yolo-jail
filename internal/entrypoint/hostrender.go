@@ -372,12 +372,25 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 			// path runs, which is what makes "the host is a notch like any other" (P5) a fact
 			// about the code rather than an aspiration.
 			//
-			// ADOPTION IS THE FIRST RENDER'S OWN BEHAVIOUR and needs nothing here.
+			// ADOPTION IS THE FIRST RENDER'S OWN BEHAVIOUR and needs no SEEDING here.
 			// ComposeStateful reads "no trusted last_render" as a first migration and seeds the
 			// overlay from the file it finds, so the first owned render reproduces every key the
 			// file holds that yolo does not declare (§6.3.1). That branch exists because seeding
 			// an EMPTY overlay was a shipped data-loss bug; it is why this arm can be reached on
 			// a home full of hand-written config without a guard of its own.
+			//
+			// ⚠ IT IS OWED ONE GUARD THAT IS NOT BUILT, and the sentence above used to read
+			// "needs nothing here", which is how the gap stayed invisible. OQ-CO7 rules ONE
+			// ARCHIVE AT ADOPTION — the pre-existing file copied once into the archive
+			// subsystem, as a `config` bucket beside the ones that already ship (§6.3.3). It
+			// covers the deep-merged leaf adoption drops, which `confirmHostLosses` is
+			// structurally blind to: that gate reads EntryLosses and fires only on a first
+			// apply, so the `assert` -> `own` switch — the exact transition that loses the leaf
+			// — is unprompted. Nothing writes such a bucket: every root internal/cli's
+			// hostArchiveRoot mints is written by the render's own replace/retire passes, none
+			// by adoption. So the design's §9 risk table names a net that does not exist, and
+			// its §10 step 8 lists the archive as shipping in this arm's commit. Recorded, not
+			// fixed — building it is not a comment's job.
 			//
 			// hostBytes is nil, and that is not the host LAYER going missing: at this notch the
 			// surface's own file IS what a `host` layer would have carried, and it arrives
