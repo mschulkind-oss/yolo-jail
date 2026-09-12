@@ -172,7 +172,7 @@ func TestApplyHostAssertRefusesAMissingRequiresWithoutOfferingAnInstall(t *testi
 // contract and §4.9 rules that none is added here, so a scripted `y` installs. That is the
 // ruling being pinned, not an accident of the fixture.
 func TestApplyHostAssertInstallsAnOfferedProgramAndCarriesOn(t *testing.T) {
-	home, briefing, binDir := depGateFixture(t,
+	_, briefing, binDir := depGateFixture(t,
 		`{"kind":"program","bin":"gatebin","via":"npm","package":"gatebin"}`)
 	// The stub "install" writes into the fixture's own PATH dir: the re-probe has to find the
 	// binary through the same PATH the run is using, which is what makes this a test of the
@@ -224,7 +224,6 @@ func TestApplyHostAssertInstallsAnOfferedProgramAndCarriesOn(t *testing.T) {
 		strings.Contains(report, "missing (") {
 		t.Errorf("the counts must say present, with no missing clause:\n%s", report)
 	}
-	_ = home
 }
 
 // AN INSTALL THAT RUNS AND LEAVES THE BINARY MISSING IS A DECLINE (§4.9 point 5). The command's
