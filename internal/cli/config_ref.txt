@@ -692,6 +692,48 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "host_apply_on_launch": true
 
+  [bold]host_management[/bold] ("none" | "assert" | "own"): Who owns the config files
+    yolo renders into your REAL home.  Default [bold]"assert"[/bold] -- today's behavior, so an
+    upgrade changes nothing until you write the key.
+
+    Ownership is DECLARED here, never inferred from where a file happens to live.
+    The value selects the surface mode the host notch renders in:
+
+      "none"    yolo writes nothing; the files are entirely yours.
+      "assert"  shared: yolo owns the keys your packs declare and rewrites only
+                those; every other key in the file is yours and is left byte for
+                byte.  This is what `yolo host apply` has always done.
+      "own"     yolo owns the file -- it is derived output, composed whole from
+                your packs and reproducible by deleting it and applying again.
+
+    [bold yellow]Declared, not yet acted on.[/bold yellow]  Today the key is PARSED and VALIDATED and the
+    contract is expressible; `yolo host apply` still behaves as "assert" whatever
+    you write here.  The values are wired next, "none" and "assert" first and "own"
+    last, because "own" is the only one that can lose data.
+
+    [bold yellow]The key enables the mechanism.  It does not grant the approval.[/bold yellow]  Same ruling
+    as [bold]host_apply_on_launch[/bold] above: it selects HOW the host renders, and every
+    individual write still goes through the confirmation it always did.
+
+    Under "assert", keeping ~/.claude/settings.json in a dotfiles repo is coherent
+    but mixes two authorships; the apply is idempotent, so the diff is stable after
+    the first one.  Under "own" the file is derived and belongs in .gitignore --
+    what goes in the dotfiles repo is the pack.
+
+    An UNSET key is the default, not a fourth value, and it bites in exactly one
+    place: `yolo apply --sealed` refuses while it is unset, beside the undeclared
+    inputs it already refuses for.  An environment whose host-ownership contract is
+    unstated is not sealed.
+
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc).  The key decides
+    whether yolo may write your real home at all, and a workspace config travels
+    with the repo and is agent-editable, so it must never make that claim for you.
+    A workspace value is a `yolo check` error, and is never read.  A user config
+    that cannot be READ yields "none" -- a declaration nobody could read has granted
+    nothing -- while an absent key yields "assert".
+    Example (~/.config/yolo-jail/config.jsonc):
+      "host_management": "assert"
+
   [bold]agent_updates[/bold] (boolean, or object of pack name -> boolean): Keep agent CLIs
     current.  Default TRUE -- absent means on.
     An AGENT dependency is a program yolo installs so a coding agent can run: the

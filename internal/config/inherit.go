@@ -218,6 +218,15 @@ var inheritCensus = map[string]keyDisposition{
 	// standing licence to write a home the key was never about.
 	"host_apply_on_launch": {reason: "gates a re-render of the HOST's real home at a wrapped " +
 		"host launch — a jail has neither the home nor the launch"},
+	// `host_management`: the same class as the three above, and it is the one whose words
+	// survive the boundary most convincingly — which is exactly why it must not be inherited.
+	// "Who owns the config files in the home yolo renders into" is a sentence a jail can read
+	// without complaint, but paths.Home() in here is /home/agent, so the REFERENT rebinds to
+	// the container's own disposable home — the misread grant host_files' entry names, one
+	// declaration further out. An inner launcher inheriting `own` would hand a throwaway home
+	// an ownership contract the human declared about their laptop.
+	"host_management": {reason: "declares ownership of the HOST's real home; in a jail the " +
+		"referent rebinds to the container's own disposable home"},
 	// `programs`: NEITHER, and unusually it is neither a false-error class nor a misread
 	// grant — it is a key with no in-jail READER at all. `programs.autoprune` is read on
 	// the host out of the user file directly (ProgramsAutoprune; workspace scope is

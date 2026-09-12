@@ -102,6 +102,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostFiles(config, workspace, errs)
 	validateHostWrappers(config, workspace, errs)
 	validateHostApplyOnLaunch(config, workspace, errs)
+	validateHostManagement(config, workspace, errs)
 	validateAgentUpdates(config, workspace, errs)
 	validatePerfLogging(config, workspace, errs)
 	validatePacks(workspace, errs)
@@ -548,6 +549,43 @@ func validateHostApplyOnLaunch(config *jsonx.OrderedMap, workspace string, errs 
 	if wsValue, atWorkspace := wsCfg.Get(hostApplyOnLaunchKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+hostApplyOnLaunchKey+": user-scope only — it lets a wrapped agent "+
 			"launch write into your real home, so it is read from "+paths.UserConfigPath()+
+			" and a workspace value has no effect. Move it there, or remove it.")
+	}
+}
+
+// validateHostManagement shape-checks the `host_management` ownership declaration
+// (docs/design/config-ownership-and-promotion.md §4.2).
+//
+// NOT a boolean, unlike its two neighbours, and the difference is the ruling rather than a
+// style choice: OQ-CO1 kept THREE values because `assert` is shipped behavior with real
+// users, so collapsing the key to on/off would be either a regression or a forced escalation
+// to `own`. The accepted set comes from KnownHostManagements, so the schema and the message
+// cannot drift.
+//
+// The scope half is the same defense-in-depth `host_apply_on_launch` takes, and the claim it
+// guards is the largest of the four: the key decides whether yolo may write the real $HOME at
+// all, and at `own` whether the user's hand-written keys become derived output. A workspace
+// value that merely LOOKED accepted would be indistinguishable from a cloned repository
+// successfully declaring itself the owner of its user's home.
+func validateHostManagement(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(hostManagementKey)
+	if !present {
+		// Every workspace key survives into the merged map, so an absent key here proves the
+		// workspace config has none either — no re-read needed.
+		return
+	}
+	if v != nil {
+		if prob := hostManagementProblem(v); prob != "" {
+			add(errs, "config."+hostManagementKey+": "+prob)
+		}
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(hostManagementKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+hostManagementKey+": user-scope only — it declares who owns the "+
+			"config files in your real home, so it is read from "+paths.UserConfigPath()+
 			" and a workspace value has no effect. Move it there, or remove it.")
 	}
 }

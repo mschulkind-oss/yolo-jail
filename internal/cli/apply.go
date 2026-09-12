@@ -30,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -989,11 +990,25 @@ func embeddedPacksForPrune() []*packload.Pack { return packload.Embedded() }
 // applySealed enumerates the input closure (env-manager design §3.3) and refuses if any
 // UNDECLARED input shaped the environment. Sealing does not mean "no host reads" — a
 // named-but-impure input (the user config, a pack's reads-host) is declared, nix's
-// fixed-output derivation. It means no input that NOTHING names. The two undeclared
-// inputs today are:
+// fixed-output derivation. It means no input that NOTHING names. The three refusals today:
 //   - yolo-jail.local.jsonc: auto-merged, gitignored, needs no include entry.
 //   - an outstanding capture overlay: in-jail edits that outrank every declared layer,
 //     yet nothing declares them (they are a staging area to promote, §3.3).
+//   - an UNSET `host_management`: the host-ownership contract is unstated
+//     (docs/design/config-ownership-and-promotion.md §4.3 item 3).
+//
+// ⚠ THE THIRD IS A DIFFERENT SENSE OF "UNDECLARED", and the two are four lines apart. The
+// first two are the input-closure tier: a VALUE inside an agent's config file that shapes
+// the environment while nothing names it, whose remedy is to promote it or discard it. The
+// third is the ordinary word UNSET: a yolo config key with no value at all, whose remedy is
+// to write it. §4.3's note reserves "undeclared" for the closure sense on purpose, so the
+// refusal below says "unset" and the ones above say "declares".
+//
+// It belongs here rather than in the apply because this is where the user asked the question
+// about declaredness. An unset key changes NO apply — §4.3 rules the default carries the
+// whole migration, silently — so `--sealed` is the one place it bites, and a `--sealed` that
+// passed while the ownership contract was unstated would be answering a narrower question
+// than the one it was asked.
 func applySealed(out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	ws := workspaceRoot()
@@ -1015,6 +1030,15 @@ func applySealed(out, errw io.Writer, color bool) int {
 					"promote them into a pack or `yolo config reset %s --surface %s` to discard.",
 				s.Agent, s.Name, n, s.Agent, s.Name))
 		}
+	}
+
+	// (3) the host-ownership contract, unstated.
+	if _, declared := config.HostManagementDeclared(); !declared {
+		refusals = append(refusals,
+			"`host_management` is unset, so who owns the config files in your real home is "+
+				"undeclared (it behaves as \"assert\"). Write one of \"none\", \"assert\" or "+
+				"\"own\" into "+paths.UserConfigPath()+" to seal; `yolo config-ref` says what "+
+				"each one means.")
 	}
 
 	if len(refusals) > 0 {

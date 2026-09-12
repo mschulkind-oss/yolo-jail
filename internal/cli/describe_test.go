@@ -264,10 +264,15 @@ func TestApplyVerbRouting(t *testing.T) {
 // of them. Runs in a scratch workspace so workspaceRoot() resolves there (not this
 // repo's /workspace, which has real sidecars).
 func TestApplySealedClosure(t *testing.T) {
-	_, repo := withHomeAndCwd(t)
+	home, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
 	// A .yolo dir so workspaceRoot() anchors on this repo.
 	writeFile(t, filepath.Join(repo, ".yolo", "keep"), "x")
+	// The host-ownership contract, DECLARED — otherwise the third refusal fires and this
+	// test can no longer tell its own two refusals apart (see
+	// TestApplySealedRefusesAnUnsetHostManagement, which owns that one).
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"host_management":"assert"}`)
 
 	// Clean: no local.jsonc, no capture sidecars → sealed (rc 0).
 	var out, errw bytes.Buffer
