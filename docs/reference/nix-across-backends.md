@@ -114,7 +114,7 @@ floor.** `yoloNoncontainerProfile` is the **floor plus** the declared `packages:
 and it is what a notch with no baked image realizes. `yoloNoncontainerPackages` is
 the declared packages **alone**, and its only consumer is the container path's
 store delivery (`YOLO_STORE_PACKAGES=1`), which runs in a jail whose image bakes
-the core already — putting the floor there would write 27 duplicate names into
+the core already — putting the floor there would write every floor name into
 `/run/yolo/packages/bin`, a directory that sits *ahead of* `/bin` on PATH.
 
 **The product is a buildEnv, deliberately not a devShell.** A devShell's

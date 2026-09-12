@@ -20,8 +20,10 @@ import (
 // generators, installing nothing) and then the agent, so `mise_tools` and `lsp_servers`
 // rendered config and installed nothing at all.
 //
-// CONFINED: the bootstrap runs OUTSIDE Seatbelt — measured 2026-09-11, its argv is
-// `sudo --user=… /usr/bin/env -i … darwin-bootstrap` with no sandbox-exec — and that is
+// CONFINED: the bootstrap runs OUTSIDE Seatbelt — READ OFF ITS ARGV, which is
+// `sudo --user=… /usr/bin/env -i … darwin-bootstrap` with no sandbox-exec
+// (macosuser/runplan.go); this used to be dated as a 2026-09-11 measurement, and it is a
+// source reading, available from Linux and never run on a Mac — and that is
 // tolerable only because it executes yolo's own code against a root-owned staged tree
 // (the design's principle P4). THE STAGE RUNS VENDOR CODE: `npm install` postinstall
 // hooks and mise plugins. The container runs that inside the jail, so running it

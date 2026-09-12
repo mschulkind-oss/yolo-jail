@@ -534,7 +534,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 //
 // But `deps.Run` returns non-zero for a second, entirely different reason: THE STAGE
 // NEVER RAN. sudo refusing authorization, sandbox-exec rejecting the profile, /bin/bash
-// missing — each is an exec-layer failure nobody chose, and each is on §10.7's list of
+// missing — each is an exec-layer failure nobody chose, and each is on the design doc's "what a Mac has to settle" list of
 // things only a Mac can settle. This code used to state as fact that "the exit code says
 // only whether the human asked it to" and return 1 on every non-zero, so on those paths a
 // workspace that merely DECLARES mise_tools could not launch at all, and the message

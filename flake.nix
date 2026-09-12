@@ -1786,7 +1786,7 @@
         #     consumer is the container path's store delivery (C4/C5,
         #     YOLO_STORE_PACKAGES=1, internal/cli/run/storepackages.go), which
         #     runs in a jail whose IMAGE already bakes the core.  Adding the
-        #     floor there would write 27 duplicate names into
+        #     floor there would write every floor name a second time into
         #     /run/yolo/packages/bin — a directory that sits AHEAD of /bin on
         #     PATH, so every one of them would silently start resolving through
         #     the farm instead of the image (AGENTS.md, "the 'a boot-written dir
@@ -1807,9 +1807,18 @@
         yoloUnavailablePackages = noncontainerSkippedNames;
 
         # ── Floor diagnostics, read by `nix eval` and by nothing that builds ──
-        # These exist so the floor's composition is inspectable — and, more to
-        # the point, so internal/darwinpkg's drift gate has something to compare
-        # its Go constants against without parsing this file's syntax.
+        # These exist so the floor's composition is INSPECTABLE from outside nix —
+        # `nix eval --json .#yoloNoncontainerFloorNames.aarch64-darwin` is what a
+        # macOS session reads to see what a notch will actually get, and it is
+        # the one thing that answers that question without building anything.
+        #
+        # ⚠ THEY ARE NOT WHAT THE DRIFT GATE READS, though this comment used to
+        # say so.  internal/darwinpkg/floor_drift_test.go parses this file
+        # TEXTUALLY and says why ("`go test` cannot evaluate a flake"), and what
+        # it parses is the three INTERNAL lists — coreFloorNames,
+        # noncontainerFloorUnbuildable, noncontainerFloorPolicy — not these
+        # attrs.  Renaming an attr below therefore breaks no test; renaming an
+        # internal list does.
         #
         # None of them force noncontainerFloorPackages, so they stay readable on
         # a system where the floor would throw; that is what lets a diagnostic

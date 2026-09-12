@@ -17,9 +17,15 @@ What remains needs either root or a kernel, and is a handful of facts rather tha
 mechanism.
 
 > [!IMPORTANT]
-> **Item 5 is NEW (2026-09-12) and has never been run.** The per-workspace home layout shipped
-> that day and every runtime claim about it is unmeasured; item 3 is worth re-running with it,
-> for the reason that item states.
+> **Items 5-9 are NEW (2026-09-12) and none has ever been run.** Three things shipped that day
+> — the per-workspace home layout, the non-container package FLOOR, and the confined
+> provisioning STAGE — and every runtime claim about all three is unmeasured. Item 3 is worth
+> re-running with them, for the reason that item states.
+>
+> **Read items 6-9 in order and stop at the first failure.** They are a dependency chain, not
+> a list: no floor means no `mise` and no `npm`, which means the stage's first line fails,
+> which means `mise_tools` and `lsp_servers` install nothing. A failure at item 6 explains
+> every later one, and reporting them as four bugs would be reporting one.
 
 > [!NOTE]
 > **ITEMS 1-4 ALL PASSED on 2026-09-10** — one session on the maintainer's Apple Silicon
@@ -192,14 +198,147 @@ the login rc files re-prepend `$YOLO_DARWIN_LOGIN_PATH` instead of a baked PATH,
 
 ---
 
+## 6. The floor is on the sandbox's PATH — NEW 2026-09-12, NEVER RUN
+
+**This is the root of the chain. If it fails, items 7-9 cannot pass and need no separate
+report.**
+
+```console
+$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'for b in mise node npm git rg fd jq gh curl; do printf "%-6s %s\n" "$b" "$(command -v $b || echo MISSING)"; done; which --version 2>&1 | head -1'
+```
+
+**Expect:** every name resolves, and each of the first nine resolves into a `/nix/store/…`
+profile rather than `/usr/bin`. `which --version` must print **nothing useful** — macOS's own
+`/usr/bin/which` has no `--version` — because GNU `which` was removed from the floor on
+2026-09-12 and its presence would mean the policy exclusion did not take effect.
+
+**Settles:** that [`OQ-P1`](../../design/macos-user-provisioning.md#decision-ledger)'s floor
+actually reaches the sandbox — the single largest unmeasured claim of the whole pair — and
+that [`OQ-P2`](../../design/macos-user-provisioning.md#decision-ledger)'s no-GNU-userland
+ruling is true of the shipped article and not just of the exclusion list.
+
+**If `mise` or `npm` is MISSING**, stop: nothing below can pass, and this is the bug to file,
+with the output of `yolo --dry-run` (which names the profile path the launch built).
+
+---
+
+## 7. The provisioning stage runs, and is confined — NEW 2026-09-12, NEVER RUN
+
+Use a workspace whose config declares one cheap tool, e.g. `{"mise_tools": {"jq": "latest"}}`.
+
+```console
+$ YOLO_RUNTIME=macos-user yolo -- true
+$ cat <workspace>/.yolo/startup.log
+```
+
+**Expect:** the launch prints the provisioning banner and pauses before the agent; the log
+exists, is **truncated to this launch** (its first line is `=== yolo provisioning <date> ===`),
+and records `mise install` running. No `PROVISIONING FAILED` line.
+
+**Settles:** [§10.8](../../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle)
+items 1, 2, 3 and 4 at once — that `sandbox-exec` accepts the stage process, that the confined
+stage reaches the network, that it can write into the sidecar symlinks, and that
+`sudo --user=… env -i … sandbox-exec …` forwards the script **verbatim** rather than mangling
+it the way `sudo --login` does. Item 4 is the one to watch: a mangled script does not error,
+it provisions nothing and exits 0, so the evidence is the LOG's content, never the exit code.
+
+⚠ **Also time it** ([§10.8](../../design/macos-user-provisioning.md#108-what-a-mac-has-to-settle)
+item 5): `time` the first launch of an LSP-configured workspace. Every `mise install` plus one
+`npm install -g` per server runs in series before the agent starts, and nobody knows what that
+costs.
+
+⚠ **And note the working directory** (item 9). Run `yolo` once from **outside** the workspace
+tree. The stage argv sets no cwd and `sudo` without `--login` does not change directory, so a
+workspace-local `mise.toml` may go unread there — the container runs the same body under
+`--workdir /workspace`.
+
+---
+
+## 8. A stage that cannot START does not kill the launch — NEW 2026-09-12, NEVER RUN
+
+```console
+$ sudo chmod 000 /usr/bin/sandbox-exec     # or point the profile path at a missing file
+$ YOLO_RUNTIME=macos-user yolo -- true ; echo "rc=$?"
+$ sudo chmod 755 /usr/bin/sandbox-exec     # PUT IT BACK
+```
+
+**Expect:** the launch prints *"The provisioning stage could not be started … Launching
+anyway"* and **the agent still runs**. It must NOT print *"Provisioning was aborted"*, and
+`rc` must not be 1 on account of the stage.
+
+**Settles:** [§4](../../design/macos-user-provisioning.md#4-the-proposed-shape)'s bolded rule
+— *a failing stage must not abort the launch* — which the code inverted until 2026-09-12 for
+exactly this class (see
+[§10.7](../../design/macos-user-provisioning.md#107-the-failure-policy-the-code-did-not-implement)).
+The complementary half is the veto: make a declared tool fail to install (a `mise_tools`
+version that does not exist), answer **n** at the prompt, and confirm the launch DOES stop.
+
+⚠ **Pick a reversible way to break it.** The `chmod` above is one; restore it in the same
+session. Nothing in yolo needs modifying to run this check.
+
+---
+
+## 9. `mise_tools` and `lsp_servers` actually arrive — NEW 2026-09-12, NEVER RUN
+
+```console
+$ YOLO_RUNTIME=macos-user yolo -- bash -lc 'mise ls --installed; ls ~/.yolo/mise/installs; ls ~/.npm-global/bin'
+```
+
+**Expect:** the declared tools are installed; the mise store is under **`~/.yolo/mise`**, in
+the ACCOUNT home; and `~/.npm-global` (a symlink into `<workspace>/.yolo/home`) holds the LSP
+binaries.
+
+**Settles:** the two launch warnings retired on 2026-09-12 — which were removed on the
+strength of code that had never run. If either tool is absent, that retirement was premature
+and both warnings should come back
+([§10.6](../../design/macos-user-provisioning.md#106-two-warnings-retired-and-the-rule-that-retired-them)).
+
+⚠ **Check the TIER while you are here**, because it is the one thing a later launch cannot
+undo: `~/.yolo/mise` must be a real directory in `/Users/_yolojail`, **not** a symlink into any
+workspace. A per-workspace mise store is the inverse of every other backend, and a second
+workspace's launch is what would reveal it.
+
+---
+
+## 10. The two layout defects a mutation pass found — NEW 2026-09-12, NEVER RUN
+
+Both are REFUSAL-message quality rather than data loss, and both were found by reasoning
+rather than measurement, so a Mac is what decides whether they are worth fixing.
+
+```console
+$ mkdir -p <workspace>/.yolo/home/.claude-shared-credentials   # occupy a MIRROR path
+$ YOLO_RUNTIME=macos-user yolo -- true
+```
+
+**Expect (today):** the launch refuses, names that path, and prescribes
+`sudo rm -rf /Users/_yolojail` — **a command that does not touch the offending path**, so
+following it leaves the launch refusing forever. The fix is to remove the directory under the
+workspace instead.
+
+**Why it is reachable:** `run/prepare.go`'s `migrateOldOverlay` COPIES every
+`packload.SharedDirs` entry into `<ws>/.yolo/home` and never deletes, so any workspace that
+ever ran a container launch on this machine may already hold one.
+
+**The second, which needs no command:** if `LoadJailPacks` ever fails transiently (a corrupt
+or half-written pack root), the bootstrap continues anyway (A12) with an EMPTY link set, so
+`install_home_overlay` writes a REAL `~/.claude` — and every later launch refuses forever,
+with the same remedy, which here destroys the machine tier the shared-credentials hook exists
+to preserve. If you ever see that refusal on an account you did not touch, this is the likely
+route.
+
+---
+
 ## Known-absent, do not report as bugs
 
 - **`mcp_presets`** are not delivered here — the wrappers hardcode Linux paths this
   backend never provisions. The launch says so.
-- **`mise_tools` are not installed.** The shims dir is on PATH so it looks
-  provisioned, but nothing provides a `mise` binary the sandbox can reach and nothing
-  runs `mise install` — that step is in the container provisioning script this backend
-  does not run. Declare the tool in `packages:` instead, which IS materialized here.
+- ~~**`mise_tools` are not installed.**~~ ~~**`lsp_servers` are not installed.**~~
+  **BOTH FIXED 2026-09-12, and unverified on hardware** — see items 6 and 7. All three
+  grounds this entry gave are now false: the floor puts `mise` on the sandbox's PATH,
+  `MISE_DATA_DIR` names a real machine-wide store, and the confined provisioning stage
+  runs `mise install` and the generated bootstrap script before the agent starts. Until a
+  Mac says otherwise, treat an absence here as a bug WORTH reporting, with the contents of
+  `<workspace>/.yolo/startup.log`.
 - **`per_side_paths`, `resources`, `cache_relocations`** are read and ignored, each
   for a structural reason (no mount namespace, no cgroups, no binds). Each warns.
 - ~~**One home for every workspace.**~~ **FIXED 2026-09-12, and unverified on hardware** —

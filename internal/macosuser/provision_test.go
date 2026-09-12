@@ -325,7 +325,7 @@ func TestAnUnavailableLockDoesNotRefuseTheLaunch(t *testing.T) {
 //
 // It does not. `deps.Run` is also non-zero when the stage NEVER RAN: sudo refusing
 // authorization, sandbox-exec rejecting the profile, /bin/bash missing — every one of them
-// on §10.7's list of things only a Mac can settle. On those paths a workspace that merely
+// on the design doc's "what a Mac has to settle" list. On those paths a workspace that merely
 // DECLARES mise_tools could not launch at all, and the message blamed the user.
 //
 // The two tests below are the two branches, and they are written against the marker rather

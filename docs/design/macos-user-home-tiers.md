@@ -578,8 +578,8 @@ workspace — the tier crosses as one variable, and nothing else would report it
 | :--- | :--- |
 | The layout applies **above genStep #1**, not merely before the hooks | its call site is the first statement in `RunDarwinBootstrap`; `~/.yolo/bin` is one of the links and `GenerateShims` writes through it |
 | **Sidecar directories before symlinks** | `DarwinHomeLayout.Dirs` is applied before `.Links`; `MkdirAll` through a dangling symlink fails (`Stat` misses, `Mkdir` hits `EEXIST`, `Lstat` says "not a directory") |
-| The **`SharedDirs` mirror before `RunPackHooks`** | `.Mirrors` is applied in the same step, above every generator — a dangling shared path is not inert, it is `linkThroughShared` copying a login somewhere the machine tier never reads |
-| `MISE_DATA_DIR` no later than the mirror | shipped first, as `macosuser.SandboxMiseData` — named in the launch env, the bootstrap env and the PATH's shims dir, all from one function |
+| The **`SharedDirs` mirror before anything RESOLVES one** — the agent, in practice | `.Mirrors` is applied in the same step as the links, above every generator. ⚠ **Corrected 2026-09-12:** this row said *before `RunPackHooks`*, and named the hook as what loses the login. It is not. `linkSharedCredential` builds the shared path as `filepath.Join(e.Home, sharedDir, base)` — ABSOLUTE — and every write in `linkThroughShared` targets that path, so the hook lands its bytes correctly with no mirror at all. What dangles is the relative link it leaves behind, and the loss happens later, through the agent. Applying the mirror with the links satisfies both readings, which is why the overstatement was invisible; the ordering itself has no test, and adding one would have to reach past the boot into a session |
+| `MISE_DATA_DIR` names a path OUTSIDE the workspace tier | `macosuser.SandboxMiseData` is the one function the launch env, the bootstrap env and the PATH's shims dir all read. ⚠ **Strengthened 2026-09-12:** the guard was `strings.Contains(want, "/.local/")` — the spelling its own comment mentions, not the property. Pointing the store at `~/.config/mise-store` or `~/go/mise` put it back inside the sidecar with the whole short suite green, since `.config` and `go` are links too. It now asks `DeriveDarwinHomeLayout` whether the path resolves through ANY workspace-tier link |
 | `InstallHomeOverlay` must not destroy the layout | it descends through a symlink and replaces at the first real directory, in the same commit as the mirror |
 
 **The mirror's test, and its call-site proof.** [§6](#6-the-principles-this-rests-on)'s warning
@@ -591,6 +591,36 @@ lands in the sidecar); deleting the layout step fails it too, on the assertion t
 is a symlink at all — which is the assertion the credential half cannot stand without, since
 without a layout `..` resolves in the account home and the credential is reachable with no
 layout at all. Both mutations were run.
+
+**What a mutation pass found that this table did not** (2026-09-12, all on Linux against the
+real boot entry). Three of the five rules above are genuinely enforced — reordering each turns
+a test red with the message the rule predicts. The other two were not, and both are now:
+
+- **The mirror loop's MULTIPLICITY** was unpinned. Truncating it to its first entry passed
+  the whole short suite, because both mirror tests used a one-element list — and `packs/agy`
+  declares a second machine-scope dir, so `packs: ["claude","agy"]` was exactly the untested
+  case. The bind-table test now passes two of each.
+- **The tier lists' SOURCING** — [§6 P2](#6-the-principles-this-rests-on)'s constraint that
+  the tier of a path is the PACK's declaration on this backend too — was unpinned.
+  Substituting literal slices for `packload.WritableDirs`/`SharedDirs` in
+  `InstallDarwinHomeLayout` left the suite fully green, so a pack added tomorrow would get no
+  link and no mirror, silently. A new test drives the real boot entry with a synthetic pack
+  whose declared dirs no hardcoded list could contain.
+
+⚠ **And two defects the pass surfaced that are NOT fixed here**, because neither leaves the
+tree red and both are runtime behaviour on a backend that cannot run in CI — see
+[the runbook](../plans/runbooks/macos-user-manual-checks.md) for how a Mac settles them:
+
+1. **A transient pack-load failure permanently poisons the account home.** The link set is
+   derived from the loaded packs, but a `LoadJailPacks` error does not abort the bootstrap
+   (A12: every step still runs), so `install_home_overlay` creates a REAL `~/.claude` and
+   every later launch refuses forever — with a remedy (`sudo rm -rf <home>`) that destroys
+   the machine tier the shared-credentials hook exists to preserve.
+2. **An occupied MIRROR path prints a remedy that cannot fix it.** `Apply`'s refusal always
+   names `rm -rf` of the account home, but a mirror's path is in the WORKSPACE SIDECAR, which
+   that command does not touch — and `run/prepare.go`'s `migrateOldOverlay` copies (never
+   deletes) every `packload.SharedDirs` entry into `<ws>/.yolo/home`, so any workspace that
+   ever ran a pre-A′ container launch already holds a real one.
 
 **Beyond the ruled scope**, because A′ is not finished without them: the login rc files stopped
 baking a PATH (they sit in the shared `$HOME` and carried one workspace's `packages:` store

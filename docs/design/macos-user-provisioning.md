@@ -22,7 +22,7 @@ summary: "Almost every imperative provisioning step the container path runs — 
 > with fake homes. That the closure BUILDS on a Mac, that the sandbox gets the PATH, that
 > the confined stage can reach the network and write the prefixes it installs into, and what
 > the first launch costs are all owed a hardware run
-> ([§10.7](#107-what-a-mac-has-to-settle)).
+> ([§10.8](#108-what-a-mac-has-to-settle)).
 
 > **In short.** A container jail gets its tools from an image **floor** and an
 > imperative **stage**; macos-user has neither, so four config keys render and install
@@ -49,7 +49,7 @@ dependency is discharged.
 backend it does not have in an image, and the ruling turns on whether it is worth
 paying.
 
-**Needs your ruling:** **None** — both closed 2026-09-11 ([Decision Ledger](#decision-ledger)). Both halves are built ([§9](#9-what-shipped-half-one), [§10](#10-what-shipped-half-two)); what is left is a hardware run ([§10.7](#107-what-a-mac-has-to-settle)).
+**Needs your ruling:** **None** — both closed 2026-09-11 ([Decision Ledger](#decision-ledger)). Both halves are built ([§9](#9-what-shipped-half-one), [§10](#10-what-shipped-half-two)); what is left is a hardware run ([§10.8](#108-what-a-mac-has-to-settle)).
 
 > [!NOTE]
 > **Terms coined here.** The **floor** is the set of packages present in a jail
@@ -407,15 +407,35 @@ on either:
 excluding it on that belief would have removed a working tool from every Mac jail for a
 reason nobody would have re-checked.
 
-So the exclusion list is **9 of 36** — one by necessity, eight by policy — and the floor is
-**27**:
+So the exclusion list is one name by necessity and nine by policy, and the floor is what is
+left:
 
 ```console
 $ nix eval --impure --json .#yoloNoncontainerFloorNames.aarch64-darwin
-["bashInteractive","git","ripgrep","fd","curl","cacert","mise","which","nodejs_24",
- "python3","go","neovim","gh","gzip","bzip2","xz","unzip","zip","zlib","procps",
- "overmind","jq","uv","socat","sox","openssl","tzdata"]
+["bashInteractive","git","ripgrep","fd","curl","cacert","mise","nodejs_24","python3",
+ "go","neovim","gh","gzip","bzip2","xz","unzip","zip","zlib","procps","overmind",
+ "jq","uv","socat","sox","openssl","tzdata"]
 ```
+
+> [!WARNING]
+> **`which` was on that list until 2026-09-12, and it should not have been.** The Go
+> comment keeping it off the policy exclusions said *"`which`, `procps` — on darwin
+> nixpkgs resolves both through `unixtools`"*. Re-measured against the same locked inputs:
+> `pkgs.which` is **`which-2.25`**, `meta.homepage = https://www.gnu.org/software/which/`,
+> and `which` is **not** one of the 35 attrs of `pkgs.unixtools`. `procps` really does
+> resolve there; the two were asserted together and only one was true. So GNU `which`
+> shipped on a floor whose governing ruling is *no GNU userland*, with the policy gate
+> green — the exact silent shipment [`OQ-P2`](#decision-ledger) exists to prevent. It is
+> now excluded, and macOS's own `/usr/bin/which` serves instead (`/usr/bin` is on
+> `macosuser.SandboxPath`).
+>
+> **The general lesson, and it is the one [§9.3](#93-the-policy-assertion-which-is-the-part-nix-cannot-do)
+> should be read with:** the policy predicate's unprefixed half is a known-incomplete
+> SUPPLEMENT, not an enumeration. Measured the same day, adding `cpio` (GNU cpio 2.15) or
+> `ed` (GNU ed 1.22.5) to `coreFloorNames` passes the gate green, and `m4`, `nano`, `bc`,
+> `time`, `texinfo`, `groff` and `wget` are the same shape. The honest oracle is
+> `meta.homepage`, which is a nix evaluation a Go test cannot perform — so adding a name to
+> the image core still needs a human to ask the question.
 
 ### 9.2 The fatal, measured
 
@@ -469,7 +489,7 @@ not claimed either, for a stated reason: macOS's own `/bin/bash` **is** GNU bash
 floor went into a new `yoloNoncontainerProfile`. The reason is a consumer this document had
 not considered: the container path's store delivery (`YOLO_STORE_PACKAGES=1`) realizes the
 same attr into `/run/yolo/packages/bin`, a directory that sits **ahead of `/bin`** on PATH.
-Putting the floor there would have silently rerouted 27 names the image already bakes through
+Putting the floor there would have silently rerouted every floor name the image already bakes through
 a boot-written farm, on a backend this design is not about.
 
 ### 9.5 What the floor changed by arriving, with no code change of its own
@@ -497,7 +517,7 @@ overlooked:
   empty `packages:` previously needed none. The exemption in `run.Run` is gone and its
   message rewritten to say the backend builds its core set from the flake whether or not you
   declare anything. `--dry-run` is still exempt: it materializes nothing.
-- **The first launch on a machine builds or substitutes a 27-package native closure.** ⚠ NOT
+- **The first launch on a machine builds or substitutes the whole floor as a native closure.** ⚠ NOT
   MEASURED — the design's own [§7](#7-risks) says *"measure before assuming it is a
   problem"*, and that measurement is still owed. Cachix applies
   (`--accept-flake-config` is on every call).
@@ -671,14 +691,49 @@ Their test inverted with them. ⚠ **The absence of a warning is not evidence of
 the positive half lives where it can be observed: a test that drives the orchestrator and
 fails if the stage's call site is deleted.
 
-### 10.7 What a Mac has to settle
+### 10.7 The failure policy the code did not implement
 
-Nothing below has been run. The list is ordered by what would invalidate the most.
+⚠ **Added 2026-09-12, after the build.** [§4](#4-the-proposed-shape) states in bold that *a
+failing stage must not abort the launch*, and the orchestrator did the opposite on every
+path where the stage could not START. Its comment asserted as fact that the stage's *"exit
+code here says only whether the human asked it to"*, and returned 1 whenever it was
+non-zero.
 
-1. **That the stage runs at all** — `sandbox-exec` accepting a separately-launched process
-   under a profile already loaded for this session. The argument that it works is
-   [§4](#4-the-proposed-shape)'s (it is not the nested-profile case), and an argument is not a
-   measurement.
+That is true of the SCRIPT, which completes with status 0 on every failure it survives and
+propagates only an explicit `n`. It is not true of the PROCESS: `sudo` refusing
+authorization, `sandbox-exec` rejecting the profile and a missing `/bin/bash` are all
+non-zero for reasons nobody chose — and they are items 1 and 4 of
+[§10.8](#108-what-a-mac-has-to-settle), i.e. the two most likely things to go wrong on the
+first hardware run. On those paths a workspace that merely *declared* `mise_tools` could not
+launch at all, and the message blamed the user for it. The test that existed pinned the
+script's text, not the argv.
+
+**The marker is the discriminator**, because the script writes it and it therefore exists if
+and only if the script ran: non-zero with `PROVISIONING FAILED` in this launch's log is a
+deliberate veto and still aborts; non-zero without it means the stage never ran, and the
+launch warns and continues. The log is cleared first so *"this launch's log"* is a fact, and
+an unreadable log is treated as a veto — honoring a veto that was not given is recoverable,
+ignoring one that was is not. The shared `provision.Script` is untouched, so the container's
+bytes are unchanged; the ambiguity is this backend's alone, since the container splices the
+script into an already-running shell where no exec can fail.
+
+### 10.8 What a Mac has to settle
+
+Nothing below has been run. The list is ordered by what would invalidate the most, and every
+item is now a RUNBOOK ENTRY — with the command, the expected result and the claim it settles —
+in [`macos-user-manual-checks.md`](../plans/runbooks/macos-user-manual-checks.md), items 6-10.
+That is the instrument; this is the argument.
+
+1. **That the stage runs at all** — `sandbox-exec` accepting the stage process under this
+   session's profile. The argument that it works is [§4](#4-the-proposed-shape)'s (it is not
+   the nested-profile case), and an argument is not a measurement. ⚠ **Corrected
+   2026-09-12:** this said *"a profile already loaded for this session"*, and nothing has
+   loaded one when the stage runs — the orchestrator runs it at step 3.5, BEFORE the agent
+   launch, so the stage is the first process under that profile, not a second. The shape it
+   uses (`sudo … env -i … sandbox-exec -f <profile>`) is the bootstrap's, which
+   [the runbook](../plans/runbooks/macos-user-manual-checks.md) records as PASSED on
+   hardware 2026-09-10. That makes this item *less* likely to fail than it was written to
+   be, and it stays on the list because likely is not measured.
 2. **That the confined stage can reach the network.** `npm install` and `mise install` both
    download. The profile is `(allow default)` with targeted denies and none of them names the
    network, so this should hold — and "should hold" is the phrasing that has been wrong twice
@@ -698,6 +753,27 @@ Nothing below has been run. The list is ordered by what would invalidate the mos
 7. **The `via: npm` agent launchers**, still owed from [§9.7](#97-what-is-left) — the floor
    supplies node and npm, so the loud-but-late failure in [§2](#2-what-this-costs-today)
    should be gone.
+8. **Which `bash` parses the stage script.** The Go test parses it with whatever `bash` is
+   on the test machine's PATH (this jail's is 5.3), while the stage argv hands it to
+   `/bin/bash`, which on macOS is Apple's **3.2**. The bodies were read for 4+-only
+   constructs and none was found — `${PIPESTATUS[0]}`, `${v//pat/}`, `local` and `<<<` are
+   all 3.2-safe — so the risk is low and the gap is that the claim covers more than the
+   instrument does.
+9. **What working directory the stage runs in.** Its argv sets none, and `sudo` without
+   `--login` does not change directory, so `mise install` runs in whatever directory the
+   human typed `yolo` from — where the container's equivalent runs under
+   `--workdir /workspace`. Usually harmless (the workspace is normally the cwd, and
+   `MISE_TRUSTED_CONFIG_PATHS` names the real workspace), so this is a list item rather
+   than a bug report: it is only wrong when `yolo` is invoked from outside the tree.
+10. **That a stage which cannot START is now survivable**, which is the half the code was
+    wrong about until 2026-09-12. The orchestrator treated EVERY non-zero status as a
+    human's `n` and aborted the launch — inverting this section's own rule
+    ([§4](#4-the-proposed-shape): *a failing stage must not abort the launch*) for exactly
+    items 1 and 4 above, since sudo refusing or `sandbox-exec` rejecting the profile is a
+    non-zero nobody chose. It now discriminates on the `PROVISIONING FAILED` marker, which
+    exists if and only if the script ran. The Mac question is whether a real
+    `sandbox-exec` rejection takes the continue branch and says so, rather than killing
+    the launch with a message blaming the user.
 
 ## Open Questions
 
@@ -711,8 +787,6 @@ folded into [§4](#4-the-proposed-shape).
 | :--- | :--- | :--- | :--- |
 | OQ-P1 | **The floor is EVERYTHING the container image bakes, minus an EXPLICIT darwin exclusion list.** Never a silent skip: *"I'd rather pain than something silently skipped […] if something's not available on Darwin we need to explicitly exclude it rather than silently skip it, because that will lead to sadness. And if we have a fatal error, then we have the opportunity to fix it."* A package that is neither buildable on darwin nor on the exclusion list is a **fatal**, not an omission. Ruled *against* the leaning's minimum-plus-`git`. | 2026-09-11 | [§4](#4-the-proposed-shape) |
 | OQ-P2 | **No GNU userland.** This backend's proposition is *"your Mac, confined"* — an agent whose `sed -i` behaves differently from the human's is a surprise in the direction that costs more, and yolo's own darwin shims already speak BSD (`GNUStat=false`). Revisit if a pack turns out to depend on GNU behavior. | 2026-09-11 | [§4](#4-the-proposed-shape) |
-| OQ-P1 | **Still open** — how much floor. Rule [`OQ-P2`](#decision-ledger) first; it decides nine of the 36. | — | [Open Questions](#open-questions) |
-| OQ-P2 | **Still open** — GNU userland or the Mac's own. | — | [Open Questions](#open-questions) |
 | OQ-P3 | The container's own partition: mise **data** machine-wide with `MISE_DATA_DIR` set **explicitly**, because the unset default would land inside the per-workspace `~/.local` symlink; mise config, the npm prefix and `~/.local` per-workspace through the home split's sidecar symlinks. A per-workspace `MISE_DATA_DIR` is rejected twice over. | 2026-09-11 | [§4](#4-the-proposed-shape), [§5](#5-what-this-does-not-propose) |
 | OQ-P4 | Unconditional, before the agent, matching the container. [§4](#4-the-proposed-shape)'s own skip rule already delivers on-demand's only benefit, and on-demand would be a second dialect of "when are my tools there". | 2026-09-11 | [§4](#4-the-proposed-shape), [§6 row E](#6-alternatives) |
 

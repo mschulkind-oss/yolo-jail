@@ -30,11 +30,22 @@ import (
 // DESIGN, so it resolves through whichever mount backs the agent's state dir. The kernel
 // resolves `..` PHYSICALLY — measured on Linux and confirmed on macOS 26.5 — so through a
 // bare ~/.claude → <ws>/.yolo/home/claude link, `../.claude-shared-credentials/…` lands in
-// the SIDECAR, not the account home, and dangles. A dangling shared path is not inert:
-// linkThroughShared's "the shared file always wins" rule then copies the local credential
-// into the dangling location and the machine tier never sees it again. So every
-// `sharedDirs` entry is mirrored back into the sidecar as a symlink to the account home's
-// real directory, and the hook's output stays byte-identical on every backend.
+// the SIDECAR, not the account home, and dangles. So every `sharedDirs` entry is mirrored
+// back into the sidecar as a symlink to the account home's real directory, and the hook's
+// output stays byte-identical on every backend.
+//
+// ⚠ WHO LOSES THE CREDENTIAL, corrected 2026-09-12. This comment used to say the loss
+// happens IN THE HOOK — that linkThroughShared's "the shared file always wins" rule copies
+// the local credential into the dangling location. It does not, and the correction matters
+// because it is what the ordering constraint is actually about. `linkSharedCredential`
+// builds `shared` as filepath.Join(e.Home, sharedDir, base) — ABSOLUTE (packhooks.go) —
+// and every write in linkThroughShared targets that path, never the relative one
+// (claude.go). The hook therefore lands its bytes correctly with no mirror at all. What
+// dangles is the LINK IT LEAVES BEHIND, and the loss happens later, when the AGENT reads
+// or writes through it. So the constraint is "the mirror exists before anything resolves
+// through the link", i.e. before the agent — not "before RunPackHooks". It is applied with
+// the Links anyway, which satisfies both readings and is why the overstatement was
+// invisible.
 //
 // NO MIGRATION (OQ-HT2). A real directory where a link belongs is not migrated, copied or
 // renamed — the launch refuses and names the path. `sudo rm -rf /Users/_yolojail` before
@@ -85,7 +96,9 @@ type DarwinHomeLayout struct {
 	Links []DarwinHomeLink
 	// Mirrors are the machine tier as the SIDECAR sees it: <sidecar>/<sharedDir> pointing
 	// back at the account home's real directory, so the hook's relative link resolves.
-	// They must exist before RunPackHooks — see the file header for what happens if not.
+	// They must exist before anything RESOLVES one — the agent, in practice — which is why
+	// they are applied with the Links, above every generator. See the file header for the
+	// correction: it is not the pack hook that loses the credential.
 	Mirrors []DarwinHomeLink
 	// FileRedirects are the home-root FILES the container keeps as symlinks into a
 	// per-workspace directory (storage.EnsureGlobalStorage writes the same three into
