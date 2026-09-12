@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 17 needing you · 0 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
+**Status: 20 needing you · 0 ready · 0 in progress · 7 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-12**. Counts are tallied from this file's contents, not asserted — one per
 `### 💬` heading, one per top-level bullet elsewhere, and each bullet's glyph matches its section.
@@ -1781,6 +1781,83 @@ left to decide now sits. The thirteen do not block equally, and
   not measured there**. Genuinely awaiting your go/no-go; queueing it before that call would be
   queueing a question. *(Promoted from a preamble paragraph to a row on 2026-09-02 so it stops
   being invisible to the counts.)*
+
+### 💬 32 — Every declaration a site accepts and then does not honor
+
+📄 [`declaration-parity.md`](../design/declaration-parity.md) — **six questions, 85 catalogued rows** ·
+**new 2026-09-12**, from a five-lens sweep of the guest notch and the macos-user backend
+
+Your principle — *implementations may vary, the declaration should be the same, and it should apply
+equally across every containment method* — turns out to quantify over a **composed primitive vector
+of four inputs** (notch, mechanism, platform, entry point), not over a backend. The catalog sorts
+into aligned (13), ruled-divergent (20), alignable (16) and **silently broken (39)**. That last
+bucket is a defect list regardless of how any question is ruled: a declaration accepted at launch
+and then not honored, with nothing said.
+
+- **[`OQ-DP1`](../design/declaration-parity.md#open-questions) — what the axis is called.** The repo has `notch` and `backend`; you reached for
+  "containment method" because neither fit. *Leaning: keep `notch`, promote `mechanism` and
+  `primitive vector`, and coin NO umbrella word — one word for notch+mechanism is what would let a
+  Phase 7 gap hide inside a backend gap.*
+- **[`OQ-DP3`](../design/declaration-parity.md#open-questions) — does a launch refuse a declaration it cannot honor?** `confinement: guest` is
+  accepted at launch while `yolo apply` refuses it. *Leaning: refuse, reusing the existing Phase 7
+  sentence verbatim — ~10 lines, and it does NOT need Phase 7 built.* Closes two rows directly and
+  every downstream row that rests on them.
+- The other four ([`OQ-DP2`](../design/declaration-parity.md#open-questions) precedence, [`OQ-DP4`](../design/declaration-parity.md#open-questions) the materialize step, [`OQ-DP5`](../design/declaration-parity.md#open-questions) disclosure shape,
+  [`OQ-DP6`](../design/declaration-parity.md#open-questions) host-exec injection) each name the rows they close. **Interaction: 💬 15's census and
+  💬 27's `guest` field census are both inputs here; rule them together.**
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 33 — `mcp_presets` dissolves: two hardcoded names, seven places
+
+📄 [`mcp-presets-removal.md`](../design/mcp-presets-removal.md) · [`mcp-presets-removal-plan.md`](../design/mcp-presets-removal-plan.md) (sketch) —
+**six questions** · **new 2026-09-12**, ruled in conversation: `sequential-thinking` is **deleted
+with no replacement**, `chrome-devtools` **becomes a builtin pack**
+
+The consumption side is already pack-ized — `mcp_servers` is a core-owned source table every agent
+pack's `derive.lua` reads — and `providers` is the precedent for the production side: user entries
+composed over every selected pack's `kind: "provider"` facts. What is left is the hairy half.
+
+- **[`OQ-MP3`](../design/mcp-presets-removal.md#15-open-questions) — a new `kind: "mcp"`, a per-agent `config-overlay`, or an `mcp` block on
+  `program`?** Everything else is downstream of this one. *Leaning: a new kind, on the `provider`
+  precedent.* The registry is closed at nineteen kinds and none fits.
+- **[`OQ-MP7`](../design/mcp-presets-removal.md#15-open-questions) — accept the scope demotion?** `mcp_presets` reads the MERGED config; `packs` is
+  user-scope by construction, so a repo loses the ability to commit *"this project needs a
+  browser."* *Leaning: accept — every workaround is `packs` under a second name.*
+- ⚠ **Found while writing, and it is step 0:** `chrome-devtools-mcp-wrapper` is generated into every
+  jail on every boot and **nothing spawns it** — the wired preset uses `--executablePath` via
+  `mcp-wrappers/node`, the orphan wrapper uses `--browser-url`. So the preset is **already broken on
+  a `YOLO_STORE_PACKAGES=1` launch**, and the fix has been sitting unreachable in the same package.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 34 — The macOS nightly has been red for six runs, and neither ruling is wrong
+
+📄 [`darwin-image-provenance.md`](../design/darwin-image-provenance.md) — **three questions** ·
+**new 2026-09-12**
+
+Not an infrastructure flake. `imageIdentity` is a `pkgs.runCommand` inside `eachDefaultSystem`, so
+its store path carries the evaluating host's system while its content — a copy of `flake.nix` and
+`flake.lock` — does not. A darwin host therefore cannot vouch for a Linux-built image, every launch
+demands a rebuild, the rebuild offloads to a Linux builder the runner cannot start, and the harness
+correctly refuses to report a result from an image it could not verify. The workflow already tried
+`YOLO_ALLOW_STALE_IMAGE` and it cannot work: the marker prints on both report branches.
+
+- **[`OQ-IP1`](../design/darwin-image-provenance.md#7-open-questions) — is cross-system identity invariance a requirement or an accident?**
+  *Leaning: a requirement. An identity only its own builder can compute is a local cache key wearing
+  one.* Content-addressing it breaks the first link and weakens neither safety ruling.
+- **[`OQ-IP2`](../design/darwin-image-provenance.md#7-open-questions)** (fix the Linux builder too, or file it separately) and
+  **[`OQ-IP3`](../design/darwin-image-provenance.md#7-open-questions)** (the one-time rebuild every loaded image pays) are both cheap.
+- ⚠ **Changes a premise this file states elsewhere:** the nightly runs `YOLO_RUNTIME: podman`, so it
+  exercises the **container backend on macOS and never `macos-user`**. Wherever this roadmap says
+  macOS claims are unmeasured *pending CI*, no CI job exercises that backend at all — a green
+  nightly would not move them. A macos-user suite is being built separately and is immune to this
+  chain, because that backend never loads an image.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 ---
 
