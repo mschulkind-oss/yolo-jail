@@ -10,8 +10,8 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-14. **47 rows**: 5 to rule first, 18 needing a decision,
-15 ready to build, 7 waiting, 2 iced.
+**Status:** CURRENT — 2026-09-14. **45 rows**: 4 to rule first, 18 needing a decision,
+14 ready to build, 7 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
 the doc that holds it and what a ruling releases. It is **not a record of what happened** —
