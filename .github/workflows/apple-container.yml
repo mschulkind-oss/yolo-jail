@@ -183,10 +183,20 @@ jobs:
       #
       # "A darwin eval and a Linux eval produce identical .drv paths" holds only WITHIN ONE
       # ARCHITECTURE. This runner is an arm64 Mac, so it evaluates and needs **aarch64-linux**
-      # derivations. The nightly's `build-image` job runs on `ubuntu-latest`, which is x86_64,
-      # so what it pushes to Cachix is **x86_64-linux**. The cache is therefore
-      # ARCHITECTURALLY INCAPABLE of serving this machine — not stale, not missing a commit,
-      # just a different closure. Run 34868855087, verbatim:
+      # derivations.
+      #
+      # ⚠ THE PARAGRAPH THAT STOOD HERE SAID THE CACHE WAS "ARCHITECTURALLY INCAPABLE of
+      # serving this machine", AND THAT IS NO LONGER TRUE — nor was it ever the whole truth.
+      # `publish.yml`'s `push-image-cache` has matrixed `[ubuntu-latest, ubuntu-24.04-arm]`
+      # since `e8b48a98` and pushes `.#ociImage`, `.#ociImageMinimal` and `.#imageCopier`, so
+      # an aarch64-linux closure HAS been published — but only on a release tag, which left the
+      # cache holding the last tag's arm closure and nothing since. That is staleness, not an
+      # architectural gap, and it is the same staleness `1006fe6d` un-gated the x86 push to
+      # fix. As of the `push-arm-image-cache` job in nightly-macos.yml the arm closure is
+      # published on the nightly cadence too, so this route is expected to work; the builder
+      # path below is the fallback rather than the plan.
+      #
+      # Run 34868855087, the failure that was read as architectural, verbatim:
       #
       #   required (system, features): (aarch64-linux, [])
       #   cannot build on 'ssh-ng://builder@linux-builder': failed to start SSH connection
@@ -224,9 +234,11 @@ jobs:
       # spec's 8th field instead. Passing `--builders` also OVERRIDES the dead
       # linux-builder above without touching /etc, which is what keeps this sudo-free.
       #
-      # The artifact route remains a distant second and its own flaw is now known: on an
-      # arm64 runner the uploading job would have to build for aarch64-linux, which
-      # `ubuntu-latest` cannot do either — so it needs an arm64 Linux runner.
+      # The artifact route remains a distant second, and the objection to it has expired:
+      # it needed an arm64 Linux runner to build the uploading side, and `ubuntu-24.04-arm`
+      # is one — free on this public repo, and already used by ci.yml, publish.yml and
+      # nightly-macos.yml's `push-arm-image-cache`. It stays second because substituting a
+      # published closure beats shipping a tar, not because it cannot be built.
       - name: Realize the jail image (building through the Apple Container builder)
         run: |
           set -euo pipefail
@@ -245,7 +257,7 @@ jobs:
           printf 'NIX_CONFIG=builders = %s\n' "$SPEC" >> "$GITHUB_ENV"
           if ! nix build --impure --accept-flake-config --no-link --print-out-paths \
                  .#ociImage --builders "$SPEC"; then
-            echo "::error::could not realize .#ociImage through the Apple Container Linux builder. Five-ish derivations must be BUILT on this arch (nodejs, nix-ld, bin-path-links, yolo-jail-prefix-links, yolo-jail-root) and Cachix cannot supply them: the nightly pushes x86_64-linux from ubuntu-latest, this host needs aarch64-linux. Check \`container logs yolo-ac-builder\` for sshd, and docs/plans/runbooks/mac-ac-container-builder.md for the procedure this automates."
+            echo "::error::could not realize .#ociImage through the Apple Container Linux builder. Five-ish derivations must be BUILT on this arch (nodejs, nix-ld, bin-path-links, yolo-jail-prefix-links, yolo-jail-root) and Cachix did not supply them. It CAN: nightly-macos.yml's \`push-arm-image-cache\` publishes the aarch64-linux closure on \`ubuntu-24.04-arm\`, so a miss here means that job has not run for this commit's flake.nix/flake.lock yet, or CACHIX_AUTH_TOKEN is unset. Check that job first — building through the builder is the fallback, not the plan. Then \`container logs yolo-ac-builder\` for sshd, and docs/plans/runbooks/mac-ac-container-builder.md for the procedure this automates."
             exit 1
           fi
 
