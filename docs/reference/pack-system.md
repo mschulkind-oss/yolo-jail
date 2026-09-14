@@ -1412,7 +1412,7 @@ other two ([`OQ-RO3`](report-tiers.md#why-its-this-way): a launch has no quiet m
 > **A wrapped plugin's `hooks` and `mcpServers` are reported under the `skills` kind, which the
 > banner's filter classifies as skip.** They therefore show in `yolo pack footprint` and in **no
 > launch banner**, while the agent runs the hook at every tool call. Tracked as
-> [`OQ-TP10`](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) in [`../design/trust-paths.md`](../design/trust-paths.md), and pinned where the behaviour
+> [`OQ-TP10`](../design/trust-paths.md#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) in [`../design/trust-paths.md`](../design/trust-paths.md), and pinned where the behaviour
 > actually is by `run.TestWrappedPluginHooksAreDeliveredAndDisclosed`, whose doc comment names
 > the banner as the gap.
 

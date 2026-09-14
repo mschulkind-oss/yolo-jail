@@ -3,14 +3,15 @@ title: "Every path by which someone else's content runs in your jail"
 date: 2026-09-06
 status: in-review
 tags: [trust, packs, security, inventory]
-summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. Nine of ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre — and one is open: a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner."
+summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack."
 ---
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** DESIGN, 2026-08-17 — an inventory; **compacted 2026-09-06.** Ten questions filed, **nine settled**
-(six ruled, three retired) and **one open** —
-[`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).
+**Status:** DESIGN, 2026-08-17 — an inventory; **compacted 2026-09-06.** Ten questions filed and **all
+ten settled** (seven ruled, three retired) — the last,
+[`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner),
+on 2026-09-14.
 Every code anchor below was re-checked against the tree on 2026-09-06: the ones that had drifted are
 repinned, and the ones that named code the 2026-09-04 rulings deleted are rewritten to say so (the
 compacting commit lists both). Beyond the rulings, **everything here is inventory** — traced in the
@@ -59,7 +60,8 @@ against exactly one threat, the silent update.
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. ⚠ **Its subject was deleted 2026-09-04** by [`OQ-TP9`](#decision-ledger): nothing produces a refusal any more, so the rule stands with nothing to apply to, and binds any future refusal source | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 | **OQ-TP7** | **RETIRED, not answered — [`OQ-TP9`](#decision-ledger) deleted its subject.** *"`yolo check` reports PASS on a config the launch refuses, and the refusal's APPROVE option needs a tty and a network."* Every refusal source gated on the deleted `MayAccessHost`, so there is no refusal to predict and no approve path to be unreachable — both gaps dissolved rather than closed. **Preserved:** the third-gate trap — a preflight that predicts a launch refusal must SHARE the gate, never copy it; the test that pinned *two* gates by name could be satisfied vacuously by a third, and now pins *zero* | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) (the third-gate warning) |
 | **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` runs with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate failed a parity check: the same command folds each pack's **static** `kind: "env"` keys into the process environment one step EARLIER, ungated, so the derive computes a field the manifest can already state literally — gating the computed path while the literal one is open is theatre. The disclosure is the commit pin ([`OQ-LP8`](../reference/loophole-system.md#oq-lp8)), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§2](#2-the-inventory), [the pack-Lua section](#pack-shipped-lua-is-ungated-on-both-sides-and-that-is-the-ruling) |
-| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refused an actor who had already passed a stronger one — [`gate-placement-principle.md`](../reference/gate-placement-principle.md) [Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it), already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house ([`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§2](../reference/pack-system.md#why-there-is-no-approval-gate)). **Kept:** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner, onto which [`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§6](../reference/pack-system.md#why-there-is-no-approval-gate) is retargeted. **Corrected same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on was [`OQ-LP8`](../reference/loophole-system.md#oq-lp8)'s two documentation requirements (delivered 2026-09-04), not enforcement; the lockfile is write-only at launch, and G2b is moot. Retires [`OQ-TP7`](#decision-ledger); opens [`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP10** | **(a) — plugin claims get their own disclosure class,** so a wrapped plugin's `hooks` and `mcpServers` render on the launch banner beside mounts and host reads. TP9's argument was about AUTHORITY and says nothing about VISIBILITY; disclosure is the half TP9 kept precisely because it is not consent, so a hole in it is the shape this census exists to catch. **The rendering is not invented here — [`../reference/report-tiers.md`](../reference/report-tiers.md) already decides it**: [P5](../reference/report-tiers.md#principles) (*named, not itemized — "appearing once is appearing"*), [P6](../reference/report-tiers.md#principles) (*count what the reader cares about — hooks and servers, not files*) and [P1](../reference/report-tiers.md#principles) (*a property of the pack set is stated once per set*) together make it ONE line per pack naming counts by kind, with the itemization landing in `boot.log` through the same tee the boot catalog uses. So (a) costs one line, not one per hook — which is what makes it compatible with the startup-density work rather than in tension with it. [P4](../reference/report-tiers.md#principles) then forbids gating that line, which is the same sentence that keeps the host-access banner. **Covers `jail_daemon` too** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)): it is a claim-free crossing to supervised in-jail execution, which is the same disclosure question with no claim to hang it on, and a class that renders counts can carry a zero-claim crossing by name | 2026-09-14 | [the launch stream](../reference/report-tiers.md#the-launch-stream) |
+| **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refused an actor who had already passed a stronger one — [`gate-placement-principle.md`](../reference/gate-placement-principle.md) [Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it), already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house ([`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§2](../reference/pack-system.md#why-there-is-no-approval-gate)). **Kept:** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner, onto which [`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§6](../reference/pack-system.md#why-there-is-no-approval-gate) is retargeted. **Corrected same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on was [`OQ-LP8`](../reference/loophole-system.md#oq-lp8)'s two documentation requirements (delivered 2026-09-04), not enforcement; the lockfile is write-only at launch, and G2b is moot. Retires [`OQ-TP7`](#decision-ledger); opens [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 
 > [!WARNING]
 > **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
@@ -91,7 +93,7 @@ against exactly one threat, the silent update.
 > [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04),
 > [`OQ-TP8`](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04),
 > [`OQ-TP9`](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) and
-> [`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
+> [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
 > are linked by slug from seven other docs (counted 2026-09-06), which is why the three settled
 > ones survive below as pointers rather than being deleted. Renumber or rename only with a grep in
 > hand.
@@ -220,7 +222,7 @@ now retired — kept because they remain true of the lockfile and constrain anyt
    > script and the string a user saw is byte-identical. Compare a loophole's `command`, which at
    > least names a path: that one is uncovered because the path's *contents* move, where this one
    > has no path in it at all. (Whether that string appears on any launch banner at all is
-   > [`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).)
+   > [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).)
 3. **Editing `?ref=` in config without reinstalling.** The mirror already holds every branch and tag,
    so a config-only edit resolves offline at the next launch and delivers new content with **no
    install, no network and no prompt**. `pack status` calls this drift; nothing on the launch path
@@ -345,7 +347,7 @@ pre-spawn block for host execution, `yolo pack footprint` on demand.
 | 18 | fetched pack — `env` | in-jail exec in practice (no key allowlist, so `LD_PRELOAD` etc.) | **never**, explicitly; disclosed on the banner every launch | yes; the banner shows the value, nothing compares it |
 | 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — and it produces **no claim at all**, so no footprint line and no launch line ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)) | yes trivially; nobody is told it exists |
 | 20 | **fetched pack — `program via installer`** | in-jail exec as UID 0 | **never, since 2026-09-04** ([`OQ-TP9`](#decision-ledger)) — honored like an embedded pack's, disclosed on the banner as a review-worthy host read | yes — unpinned URL, plus the declared update verb at the user's invocation |
-| 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | **never, since 2026-09-04** — and **no launch disclosure**: the claim is filed under `KindSkills`, which is `disclosureSkip` ([`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)) | **yes — the weakest claim string in the system**, a constant with no path or digest, and shown nowhere at launch |
+| 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | **never, since 2026-09-04** — and **no launch disclosure**: the claim is filed under `KindSkills`, which is `disclosureSkip` ([`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)) | **yes — the weakest claim string in the system**, a constant with no path or digest, and shown nowhere at launch |
 | 22 | fetched pack — `reads-host` / `mount` / host-prepending `briefing` | host read | **never, since 2026-09-04**; disclosed on the banner every launch | yes — a moved ref changes the bytes under an unchanged banner line |
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | **never, since 2026-09-04**; disclosed at the spawn boundary, BEFORE the daemon starts (`startLoopholesDisclosed`) | yes — the line pins the argv, not the file ([`OQ-LP8`](../reference/loophole-system.md#oq-lp8)) |
 | 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
@@ -558,7 +560,7 @@ per-contribution disclosure: each crossing is its own line.
    skills tree with the refusal computed nowhere on that path. [`OQ-TP6`](#decision-ledger) put it in
    the fatal; [`OQ-TP9`](#decision-ledger) removed the fatal; the hooks now arrive with **no launch
    line at all** — which is
-   [`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).
+   [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).
 3. **No escape hatch, deliberately.** Every other fatal in this system has one
    (`YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_ALLOW_STALE_IMAGE`) because the user may be unable to
    repair the cause from where they are standing. A fourth choice here would have been the partial
@@ -585,7 +587,7 @@ jail daemon. Verified end to end 2026-08-17; re-checked 2026-09-06. Under the ol
 the grant-on-empty branch fired and the daemon was emitted with no prompt. With the gate gone the
 shape is starker: **no claim means no footprint line and no launch line**, for a supervised,
 restart-policied process running as UID 0 in the jail. This is the same disclosure shape
-[`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
+[`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
 is open on — in-jail code that arrives with nothing said — with one difference worth a ruling's
 attention: TP10's hooks *have* a claim in the wrong class, where this crossing has none to classify.
 
@@ -654,12 +656,17 @@ code" — but it is worth building in the three places of [§1](#1-the-verdict) 
 ## Open Questions
 
 > [!NOTE]
-> **One question is open.** The nine settled ones live in the [Decision Ledger](#decision-ledger) and
-> in the body sections it points at. Three of them keep a heading below — a pointer, not the
-> question — because seven other docs link to those headings by slug (counted 2026-09-06); delete a
-> heading only after relinking them.
+> **No question is open.** All ten live in the [Decision Ledger](#decision-ledger) and in the body
+> sections it points at. Some keep a heading below — a pointer, not the question — because other
+> docs link to those headings by slug; delete a heading only after relinking them.
 
-### 💬 [`OQ-TP10`](#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
+### [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
+
+> [!IMPORTANT]
+> **RULED (a) on 2026-09-14** — see the [Decision Ledger](#decision-ledger) for the ruling and for the
+> rendering [`../reference/report-tiers.md`](../reference/report-tiers.md) already prescribes for it. The
+> section below is kept as the argument that produced it, because the facts it records are what a
+> reader needs to build the class. **Nothing here is still being asked.**
 
 Opened 2026-09-04 by the [`OQ-TP9`](#decision-ledger) build, which found it while deleting the gate.
 **This punctures a claim TP9's own answer makes**, so it is filed rather than absorbed.
@@ -690,13 +697,39 @@ the same shape with no claim at all, which a ruling here should say it does or d
 | **(b)** | Qualify the claim — say the banner covers host crossings, and point at `yolo pack footprint` for in-jail code | Free, and dishonest in the way TP9 objected to elsewhere: it leaves the compensating disclosure not compensating |
 | **(c)** | Reclassify `KindSkills` off `disclosureSkip` wholesale | Cheapest to write, worst to read — a pack's skills tree is prose an agent reads, and announcing every skill file would bury the hooks in the noise that made `disclosureSkip` right in the first place |
 
-<!-- vantage: oq id=OQ-TP10 leaning="(a) — give plugin claims their own disclosure class, so hooks and `mcpServers` render on the banner beside mounts and host reads. TP9's argument was about authority, not visibility; keeping the banner as the compensating disclosure while leaving a hole in it is the shape this census exists to catch. (c) is the tempting cheap version and destroys the signal; (b) is acceptable only if (a) turns out to have no honest rendering." -->
+_Ruled:_ **(a), 2026-09-14.** TP9's argument was that the gate withheld nothing the user had not
+already granted — true of *authority*, and silent about *visibility*. Disclosure was the half TP9
+kept precisely because it is not consent; keeping it while leaving a hole in it is the shape this
+census exists to catch. (c) was the tempting cheap version and destroys the signal; (b) was reserved
+for the case where (a) had no honest rendering, and that case did not arise.
 
-_Leaning:_ **(a).** TP9's argument was that the gate withheld nothing the user had not already granted
-— which is true of *authority* and says nothing about *visibility*. Disclosure was the half TP9 kept
-precisely because it is not consent; keeping it while leaving a hole in it is the shape this census
-exists to catch. (c) is the tempting cheap version and it destroys the signal. (b) is only acceptable
-if (a) turns out to have no honest rendering, which should be discovered rather than assumed.
+**What the ruling added to the leaning: the rendering, which was the open half.** The objection to
+(a) has always been volume — a class that prints a line per hook is how a launch stream becomes
+unreadable, and that is a live concern rather than a hypothetical one.
+[`../reference/report-tiers.md`](../reference/report-tiers.md) answers it, and it answers it as a
+*requirement* rather than as permission:
+
+| Principle | What it settles here |
+| :--- | :--- |
+| [P5](../reference/report-tiers.md#principles) | *"The census invariant is named, not itemized … appearing once is appearing."* One line discharges the disclosure; an enumeration is not owed |
+| [P6](../reference/report-tiers.md#principles) | *"Counts count what the reader cares about."* Its own examples are files, keys, **servers**, **skills** — so hooks and `mcpServers` are counted, and the files carrying them are not |
+| [P1](../reference/report-tiers.md#principles) | A property of the pack SET is stated once per set, so the line does not repeat per destination |
+| [P4](../reference/report-tiers.md#principles) | The line may never be gated — the same sentence that keeps the host-access banner. Compression is available to progress and provenance; **suppression is available to nothing** |
+
+The precedent is already in the launch-stream table: the boot catalog renders as **one line plus a
+list in `boot.log`**, through the tee both halves of a launch already write to. A plugin-claims class
+takes that shape. So (a) costs **one line per pack**, not one per hook — which is why the
+startup-density direction and this ruling point the same way rather than against each other.
+
+> [!WARNING]
+> **Compression is not suppression, and the distinction is P4's whole content.** A reader who takes
+> "one line" as licence to make the line conditional — on a flag, on a tty, on a verbosity level —
+> has reinstated the quiet mode `TestTheLaunchHasNoQuietFlag` exists to refuse. The count is
+> compressed; the *decision it reports* appears on every launch.
+
+**`jail_daemon` is covered** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)), which the question asked a ruling to say either way. It is the same
+disclosure question with no claim to hang the line on — and a class that reports COUNTS can name a
+zero-claim crossing, where a class that reported claims could not.
 
 **Answer:**
 > _(empty — fill in when decided)_
