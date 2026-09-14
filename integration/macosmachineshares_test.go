@@ -391,3 +391,278 @@ var (
 func podmanMachineInits(code string) int {
 	return len(machineInitCmdRe.FindAllString(code, -1))
 }
+
+// A CACHIX CACHE IS PER-SYSTEM, AND FOR MOST OF THIS REPO'S LIFE ONLY ONE SYSTEM WAS
+// EVER PUSHED ON A SCHEDULE.
+//
+// A darwin host cannot BUILD a Linux closure, so every derivation of the jail image has
+// to come from a substituter. `nightly-macos.yml`'s `build-image` job is what makes that
+// possible — it realizes the image under `cachix-action`, which pushes every path it
+// realizes — and it ran only on `ubuntu-latest`, which is x86_64. An arm64 Mac asks for
+// aarch64-linux derivations, and nothing had ever put those in the cache.
+//
+// MEASURED 2026-09-14, the first real run of apple-container.yml on the maintainer's
+// arm64 Mac (34868855087):
+//
+//	required (system, features): (aarch64-linux, [])
+//	Failed to find a machine for remote build!
+//
+// Hundreds of paths substituted from cache.nixos.org in that run; the few this repo
+// builds itself were the ones missing, and for those the arch is the whole story.
+//
+// WHY A TEST AND NOT A COMMENT. Losing this cache costs TIME, never function — so the
+// failure is not an error anywhere. It is a Mac quietly taking minutes to build a
+// closure it could have downloaded, reported by nothing, which is how the x86-only push
+// went unnoticed from the day it was written until a second architecture appeared.
+// publish.yml already pushes both arches and is release-gated, so it cannot be the
+// instrument either: between two tags the cache holds nothing newer than the last one.
+
+// nightlyImageAttr is the flake attr a darwin launch has to obtain and cannot build. A
+// job that realizes it under an active `cachix-action` is a job that publishes it.
+//
+// Matched with a right-hand boundary on purpose: `.#ociImageMinimal` and
+// `.#ociImageLean` are DIFFERENT derivations with overlapping-but-unequal closures, so
+// a job building one of those publishes only part of what a Mac asks for. ci.yml's arm
+// cell builds `.#ociImageMinimal` on every push and is deliberately not counted here.
+const nightlyImageAttr = ".#ociImage"
+
+var nightlyImageAttrRe = regexp.MustCompile(`\.#ociImage(?:[^A-Za-z0-9_]|$)`)
+
+// nixBuildRe captures one `nix build` COMMAND with its backslash continuations — the
+// same anchoring machineInitRe uses, and here for the same reason. Every mention of
+// `.#ociImage` in this workflow that is not a build is inside a comment explaining one
+// (11 mentions, 4 of them commands, counted 2026-09-14), so a plain Contains cannot
+// tell a realization from prose about one.
+var nixBuildRe = regexp.MustCompile(`(?m)^[ \t]*nix build\b((?:[^\n]*\\\n)*[^\n]*)`)
+
+// cachixActionRe matches the step that does the pushing, in a `uses:` position.
+var cachixActionRe = regexp.MustCompile(`(?m)^[ \t]*(?:-[ \t]+)?uses:[ \t]*cachix/cachix-action@`)
+
+// linuxRunnerArch maps the GitHub-hosted Linux runner labels this repo uses to the nix
+// system their builds produce. A label missing here fails the test that reads it rather
+// than being skipped: an unclassifiable runner is exactly the case where nobody can say
+// which arches are covered.
+var linuxRunnerArch = map[string]string{
+	"ubuntu-latest":    "x86_64-linux",
+	"ubuntu-24.04":     "x86_64-linux",
+	"ubuntu-22.04":     "x86_64-linux",
+	"ubuntu-24.04-arm": "aarch64-linux",
+	"ubuntu-22.04-arm": "aarch64-linux",
+}
+
+// TestTheNightlyPushesBothLinuxArchesToCachix pins the property the arm64-Mac fast path
+// rests on: this workflow realizes the full image on BOTH Linux arches, and every job
+// that realizes it also pushes it.
+//
+// Both halves are load-bearing and each fails on its own. Delete the arm job and the
+// aarch64 half is uncovered; point it at `.#ociImageMinimal` and it stops counting, for
+// the reason nightlyImageAttrRe states; drop its `cachix-action` and it builds a closure
+// nobody can substitute.
+func TestTheNightlyPushesBothLinuxArchesToCachix(t *testing.T) {
+	jobs := workflowJobs(t, readWorkflow(t, nightlyWorkflow))
+
+	publishers := map[string][]string{}
+	realizers := 0
+	for _, name := range sortedKeys(jobs) {
+		body := jobs[name]
+		if !realizesFullImage(body) {
+			continue
+		}
+		realizers++
+		for _, label := range jobRunners(t, name, body) {
+			system, ok := linuxRunnerArch[label]
+			if !ok {
+				t.Errorf("%s: job %q realizes %s on runner %q, which this test cannot "+
+					"classify as a nix system. Add it to linuxRunnerArch — an unclassified "+
+					"runner leaves nobody able to say which arches the cache covers.",
+					nightlyWorkflow, name, nightlyImageAttr, label)
+				continue
+			}
+			publishers[system] = append(publishers[system], name)
+		}
+		if !cachixActionRe.MatchString(uncommentedYAML(body)) {
+			t.Errorf("%s: job %q realizes %s but has no `uses: cachix/cachix-action@` "+
+				"step, so nothing publishes what it builds.\n\nA darwin host cannot build "+
+				"a Linux closure at all; it can only substitute one. A build here that is "+
+				"not pushed is a build that leaves the Mac with no way to get it.",
+				nightlyWorkflow, name, nightlyImageAttr)
+		}
+		if !strings.Contains(uncommentedYAML(body), "secrets.CACHIX_AUTH_TOKEN") {
+			t.Errorf("%s: job %q pushes to Cachix without referencing "+
+				"secrets.CACHIX_AUTH_TOKEN. The push must be gated on that token ALONE "+
+				"(the cache NAME is not a secret), so a fork without it skips the push and "+
+				"still builds — losing this cache must cost TIME only, never function.",
+				nightlyWorkflow, name)
+		}
+	}
+
+	if realizers == 0 {
+		t.Fatalf("%s no longer realizes %s in any job; this test has lost its subject "+
+			"and would pass by finding nothing.", nightlyWorkflow, nightlyImageAttr)
+	}
+	for _, system := range []string{"x86_64-linux", "aarch64-linux"} {
+		if len(publishers[system]) > 0 {
+			continue
+		}
+		t.Errorf("%s realizes %s on no runner producing %s, so nothing pushes that "+
+			"system's closure to Cachix.\n\nA Cachix cache is PER-SYSTEM. Measured "+
+			"2026-09-14 on an arm64 Mac (run 34868855087): with only x86_64-linux "+
+			"published, `required (system, features): (aarch64-linux, [])` had no "+
+			"substituter and the closure had to be built through a Linux builder "+
+			"container. publish.yml covers both arches but is release-gated, so it holds "+
+			"nothing newer than the last tag.\n\nCovered here: %v",
+			nightlyWorkflow, nightlyImageAttr, system, publishers)
+	}
+}
+
+// TestTheMacosShardsDoNotDependOnAnArmImageBuild is why the aarch64 push is a SEPARATE
+// JOB rather than a second cell of `build-image`'s matrix, which is the shape
+// publish.yml uses and the obvious simplification to reach for.
+//
+// `needs` waits on EVERY cell of a matrixed job and SKIPS the dependent job when any one
+// cell fails. The eight macOS shards are `macos-26-intel` — x86_64 — and load the tar the
+// x86_64 build uploads; they have no use for an aarch64 closure. Folding the arm build
+// into a job they depend on would let an aarch64 failure delete the entire macOS
+// integration report, which is the one thing this workflow exists to produce.
+func TestTheMacosShardsDoNotDependOnAnArmImageBuild(t *testing.T) {
+	jobs := workflowJobs(t, readWorkflow(t, nightlyWorkflow))
+
+	shards, ok := jobs["integration-macos"]
+	if !ok {
+		t.Fatalf("%s has no `integration-macos` job; this test has lost its subject.",
+			nightlyWorkflow)
+	}
+	needs := jobNeeds(shards)
+	if len(needs) == 0 {
+		t.Fatalf("%s: `integration-macos` declares no `needs`, so it cannot be reading "+
+			"the image artifact a build job uploads.", nightlyWorkflow)
+	}
+
+	for _, dep := range needs {
+		body, ok := jobs[dep]
+		if !ok {
+			t.Errorf("%s: `integration-macos` needs job %q, which this workflow does not "+
+				"define.", nightlyWorkflow, dep)
+			continue
+		}
+		for _, label := range jobRunners(t, dep, body) {
+			if linuxRunnerArch[label] != "aarch64-linux" {
+				continue
+			}
+			t.Errorf("%s: `integration-macos` needs job %q, which runs on %q "+
+				"(aarch64-linux).\n\n`needs` waits on every matrix cell and SKIPS the "+
+				"dependent job when any one fails, so an aarch64 build failure would take "+
+				"all eight macOS shards with it — and those shards are `macos-26-intel`, "+
+				"x86_64, which load the tar the x86_64 build uploads and have no use for "+
+				"an aarch64 closure. Publish that arch from a job nothing needs.",
+				nightlyWorkflow, dep, label)
+		}
+	}
+}
+
+// realizesFullImage reports whether a job body runs `nix build` on nightlyImageAttr in a
+// COMMAND position. Comments are stripped first: this workflow explains the attr far more
+// often than it builds it.
+func realizesFullImage(job string) bool {
+	for _, m := range nixBuildRe.FindAllStringSubmatch(uncommentedYAML(job), -1) {
+		if nightlyImageAttrRe.MatchString(m[1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// jobsKeyRe finds the `jobs:` mapping, which is where job names start being meaningful —
+// `on:` and `env:` above it have their own two-space-indented keys.
+var jobsKeyRe = regexp.MustCompile(`(?m)^jobs:[ \t]*$`)
+
+// jobNameRe matches a job name: a bare key at exactly two spaces of indentation. Every
+// key INSIDE a job sits at four or more, and a `run:` script sits deeper still.
+var jobNameRe = regexp.MustCompile(`^  ([A-Za-z0-9_-]+):[ \t]*$`)
+
+// workflowJobs splits a workflow into its jobs, name → body.
+//
+// Comments are stripped BEFORE splitting, so a comment introducing the next job cannot
+// land in the previous one's body and so no assertion can be answered by prose. Job
+// boundaries survive that: a name is a non-comment line by construction.
+func workflowJobs(t *testing.T, body string) map[string]string {
+	t.Helper()
+	loc := jobsKeyRe.FindStringIndex(body)
+	if loc == nil {
+		t.Fatalf("workflow has no `jobs:` mapping; nothing here can be read as a job.")
+	}
+	jobs := map[string]string{}
+	name := ""
+	var cur []string
+	flush := func() {
+		if name != "" {
+			jobs[name] = strings.Join(cur, "\n")
+		}
+	}
+	for _, line := range strings.Split(uncommentedYAML(body[loc[1]:]), "\n") {
+		if m := jobNameRe.FindStringSubmatch(line); m != nil {
+			flush()
+			name, cur = m[1], nil
+			continue
+		}
+		cur = append(cur, line)
+	}
+	flush()
+	if len(jobs) == 0 {
+		t.Fatalf("workflow defines no jobs at two-space indentation; the splitter has " +
+			"lost its subject.")
+	}
+	return jobs
+}
+
+var (
+	runsOnRe    = regexp.MustCompile(`(?m)^[ \t]+runs-on:[ \t]*(.+?)[ \t]*$`)
+	needsRe     = regexp.MustCompile(`(?m)^[ \t]+needs:[ \t]*(.+?)[ \t]*$`)
+	matrixRefRe = regexp.MustCompile(`matrix\.([A-Za-z0-9_-]+)`)
+)
+
+// jobRunners returns the runner labels a job can run on, expanding a
+// `runs-on: ${{ matrix.<key> }}` through that job's own `<key>: [a, b]` list.
+//
+// The expansion is the point: `runs-on` alone says `${{ matrix.os }}`, which classifies
+// as no architecture at all — and a test that cannot see through it would report a
+// matrixed job as covering neither arch or, worse, be written to skip it.
+func jobRunners(t *testing.T, name, job string) []string {
+	t.Helper()
+	m := runsOnRe.FindStringSubmatch(job)
+	if m == nil {
+		t.Fatalf("job %q declares no `runs-on`; this test cannot say what it runs on.", name)
+	}
+	value := m[1]
+	if ref := matrixRefRe.FindStringSubmatch(value); ref != nil {
+		listRe := regexp.MustCompile(`(?m)^[ \t]+` + regexp.QuoteMeta(ref[1]) + `:[ \t]*\[(.*)\][ \t]*$`)
+		list := listRe.FindStringSubmatch(job)
+		if list == nil {
+			t.Fatalf("job %q runs on %q but declares no `%s: [...]` matrix list, so its "+
+				"runners cannot be resolved.", name, value, ref[1])
+		}
+		return splitYAMLList(list[1])
+	}
+	return splitYAMLList(strings.Trim(value, "[]"))
+}
+
+// jobNeeds returns the job names a job declares `needs` on, in either YAML spelling.
+func jobNeeds(job string) []string {
+	m := needsRe.FindStringSubmatch(job)
+	if m == nil {
+		return nil
+	}
+	return splitYAMLList(strings.Trim(m[1], "[]"))
+}
+
+// splitYAMLList splits a flow-style YAML list body into trimmed, unquoted entries.
+func splitYAMLList(s string) []string {
+	var out []string
+	for _, f := range strings.Split(s, ",") {
+		f = strings.Trim(strings.TrimSpace(f), `"'`)
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}

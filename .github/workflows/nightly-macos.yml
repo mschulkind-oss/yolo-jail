@@ -127,6 +127,130 @@ jobs:
           path: /tmp/jail-image.tar
           retention-days: 1
 
+  # THE aarch64-linux HALF OF THAT CACHE, WHICH NOTHING HAS EVER PUSHED ON A SCHEDULE.
+  #
+  # `build-image` above is `ubuntu-latest`, which is x86_64 — so every path it pushes is
+  # x86_64-linux, and a Cachix cache is PER-SYSTEM. An arm64 Mac evaluating this flake
+  # asks for aarch64-linux derivations, which no substituter anywhere has ever been
+  # given. MEASURED 2026-09-14 on the maintainer's arm64 Mac, apple-container.yml's
+  # first real run (34868855087), verbatim:
+  #
+  #   required (system, features): (aarch64-linux, [])
+  #   Failed to find a machine for remote build!
+  #
+  # Hundreds of paths substituted fine from cache.nixos.org that run; the handful this
+  # repo builds itself is what was missing, and for those the arch is the whole story.
+  #
+  # publish.yml's `push-image-cache` job ALREADY matrixes both arches and already pushes
+  # `.#ociImage` — but it is RELEASE-GATED (`on: push: tags: v*`), so the cache holds
+  # whatever the last tag built and nothing since. That is the same staleness the push
+  # in `build-image` was un-gated to fix on 2026-09-13 (`1006fe6d`); this is the other
+  # arch of the same fix, on the same nightly cadence and for the same reason — the
+  # image's whole input set is flake.nix + flake.lock, so the closure moves only when
+  # one of those does and a per-run push re-pushes nothing almost every time.
+  #
+  # ⚠ WHY A SEPARATE JOB RATHER THAN A MATRIX CELL OF `build-image`, which is the shape
+  # publish.yml uses. `integration-macos` below declares `needs: build-image`, and
+  # `needs` waits on EVERY cell of a matrixed job and SKIPS the dependent job when any
+  # one cell fails. Folding this in would therefore let an aarch64 build failure delete
+  # all eight macOS shards — the report this whole workflow exists to produce — over an
+  # arch those shards do not use (they are `macos-26-intel`, x86_64). Nothing declares
+  # `needs` on this job, so nothing can be taken down by it.
+  #
+  # The duplicated Cachix gate is the price of that, and it is pinned rather than
+  # trusted: integration/macosmachineshares_test.go asserts that every job in this file
+  # realizing `.#ociImage` also pushes it under the token gate, and that the jobs
+  # between them cover both Linux arches.
+  push-arm-image-cache:
+    # ci.yml's build-image and integration matrices both run on this label already, so
+    # it is proven on this repo rather than assumed.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # ci.yml runs this same block on this same label, and its own note records that
+      # the x86-toolchain paths no-op harmlessly on the arm runner image. NOT measured
+      # here, and it is insurance rather than a fix for anything observed: the job above
+      # builds the same `.#ociImage` and writes a multi-GB archive on top of it with no
+      # such step, so this one needs strictly less disk than a job that already fits.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # GATED ON THE TOKEN ALONE, like `build-image` above and publish.yml: the cache
+      # NAME is not a secret. A fork without the secret pushes nothing and still builds
+      # — losing this cache must cost TIME only, never function.
+      #
+      # The name is resolved through the `vars` CONTEXT, which is publish.yml's spelling
+      # and not `build-image`'s. `${CACHIX_CACHE:-…}` is a shell expansion of an
+      # environment variable, and a repository variable is NOT exported into a `run:`
+      # block — this workflow's only `env:` is FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 — so
+      # that form can never see one and always takes the default.
+      - name: Check Cachix is configured
+        id: cachix
+        run: |
+          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "cache=${{ vars.CACHIX_CACHE || 'yolo-jail' }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Cachix not configured (no CACHIX_AUTH_TOKEN). Skipping the push."
+          fi
+
+      - name: Set up Cachix
+        if: steps.cachix.outputs.enabled == 'true'
+        uses: cachix/cachix-action@v17
+        with:
+          name: ${{ steps.cachix.outputs.cache }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Realize the aarch64-linux image closure
+        # EXACTLY THE TWO ATTRS A DARWIN LAUNCH REALIZES, and no archive.
+        #
+        #  * `.#ociImage` — what apple-container.yml realizes, and what a darwin
+        #    `yolo run` asks for whenever the stock tag does not already answer the
+        #    question. Deliberately NOT `.#ociImageMinimal`: ci.yml's arm cell builds
+        #    that variant on every push, and its closure only PARTLY overlaps this one,
+        #    so pushing the minimal one would leave the difference to be built on a Mac
+        #    that cannot build Linux at all.
+        #  * `.#imageCopier` — the one attr here that is a SOURCE BUILD (nix2container's
+        #    `nix:` transport is a fetchpatch2 over nixpkgs' skopeo, so cache.nixos.org
+        #    has never seen it), and a darwin launch needs it to write the archive its
+        #    runtime loads (internal/image/autoload.go, resolveCopier).
+        #
+        # NO skopeo copy and NO artifact upload. The macOS shards are `macos-26-intel`
+        # and load the x86_64 tar `build-image` uploads; the Apple Container job
+        # SUBSTITUTES this closure and never streams a tar. Writing a multi-GB archive
+        # nothing downloads would be pure cost, and an artifact name that collides with
+        # `jail-image` would be worse than that.
+        #
+        # `build-image`'s two `YOLO_EXTRA_PACKAGES` variants are deliberately NOT
+        # repeated. They serve the three `packages:` tests in
+        # integration/packages_test.go, which run on the x86_64 shards. The only
+        # aarch64 consumer today is apple-container.yml's `^TestAppleContainer` subset,
+        # and none of those five tests declares `packages:`. Add them here when one does.
+        #
+        # --accept-flake-config: honor the flake's own yolo-jail.cachix.org substituter,
+        # which nix otherwise DISCARDS with a warning — so this job would build from
+        # source every path a previous run already pushed.
+        run: |
+          nix build --impure --accept-flake-config --print-out-paths \
+            .#ociImage .#imageCopier
+
   integration-macos:
     # macOS Intel runners support nested virtualization via Podman Machine;
     # GitHub's Apple Silicon runners do not, so stay on an -intel label.
