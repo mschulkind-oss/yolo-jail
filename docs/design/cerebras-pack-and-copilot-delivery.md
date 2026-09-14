@@ -183,18 +183,27 @@ record; for what the derive emits when the endpoint *is* present, see
 > finds no `endpoints.anthropic`, and it composes the token alone. Do not close this question on the
 > evidence that the shipped packs are safe.
 
-**What the answer decides:** whether "no anthropic endpoint" means *refuse*, *drop the token*, or
-*first-party on purpose* — and the third case is why this is a ruling rather than a bug fix. All
-three provider shapes are representable (`endpoints` and `api_key_env_name` are both optional,
-[`contributes.go`](../../internal/packdecl/contributes.go)), and they do not want the same treatment:
-a provider with `endpoints.openai` and a key is the defect, while a provider with NO endpoints and a
-real Anthropic key is a deliberate first-party BYO-key launch that the naive gate would break.
+**The question, stated against the shapes it is about.** `endpoints` and `api_key_env_name` are
+both optional ([`contributes.go`](../../internal/packdecl/contributes.go)), so a provider carrying an
+Anthropic key can declare its endpoints three ways — and **`ANTHROPIC_AUTH_TOKEN` is emitted for all
+three today**. The question is which of them that is wrong for:
 
-_Leaning:_ **drop the token in the middle case only** — emit `ANTHROPIC_AUTH_TOKEN` when the provider
-names the anthropic protocol, or names no protocol at all; suppress it when the provider names
-`openai` and not `anthropic`, because that provider has told yolo where it lives and it is not
-Anthropic. That is narrower than the table's "gate the token on the URL", which would also break the
-endpointless first-party case.
+| | The provider declares | Emitting the token is | Because |
+| :--- | :--- | :--- | :--- |
+| **A** | `endpoints.anthropic` | **correct** | the key and the endpoint agree; this is the ordinary routed case |
+| **B** | `endpoints.openai`, and no `anthropic` | **THE DEFECT** | the provider has said where it lives and it is not Anthropic, so an Anthropic key is being handed to a non-Anthropic endpoint |
+| **C** | no `endpoints` at all | **correct** | a deliberate first-party BYO-key launch against Anthropic's own API — nothing was repointed |
+
+**Why this is a ruling and not a bug fix: C is indistinguishable from B by URL alone.** A gate that
+asks "is there an anthropic endpoint?" answers *no* for both, so it fixes B by breaking C. The
+answer has to key on what the provider SAID, not on what is missing.
+
+⚠ **No shipped pack reaches B** (see the warning above) — the live trigger is a user-declared
+provider, which is exactly what the single-protocol `base_url` shorthand produces.
+
+_Leaning:_ **suppress the token for shape B only.** Emit when the provider names the `anthropic`
+protocol (A) or names no protocol at all (C); suppress when it names `openai` and not `anthropic`
+(B). That is narrower than the table's *"gate the token on the URL"*, which would also break C.
 
 **Answer:**
 > _(empty — fill in when decided)_
