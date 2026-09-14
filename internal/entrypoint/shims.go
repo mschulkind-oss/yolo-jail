@@ -1273,15 +1273,24 @@ const InstallOnlyEnv = "YOLO_INSTALL_ONLY"
 // the run pipeline beside the `:ro` bind that puts it there (`internal/cli/run/assemble.go`).
 //
 // It is a host↔jail contract in the same class as YOLO_PACK_ROOT: the host decides where the
-// store lands (a `/ctx` path under podman, the host path itself under Apple Container, which
-// cannot nest the bind) and tells the jail, because the jail cannot derive it — paths.CapturesDir()
-// inside a jail resolves to the JAIL's home, which is a per-workspace bind and is not the
-// machine-wide store at all.
+// store lands (a `/ctx` path, which only podman mounts) and tells the jail, because the jail
+// cannot derive it — paths.CapturesDir() inside a jail resolves to the JAIL's home, which is a
+// per-workspace bind and is not the machine-wide store at all.
 //
-// ABSENT MEANS "NO STORE", and three separate things produce that: a host yolo older than this
-// variable, the macos-user backend (which has no mount to make and no capture support yet), and
-// the CAPTURE JAIL ITSELF — `yolo capture` suppresses the mount on purpose, so that the installer
-// it runs cannot be satisfied by the very store it is filling (see internal/cli/capturehost.go).
+// ⚠ It is in that class in the OTHER sense too. This comment said the host emits "the host path
+// itself under Apple Container, which cannot nest the bind", and both halves were false — the
+// same false premise, on the same backend, that left it with no packs at all (issue #44). AC
+// nests binds fine (appleContainerBaseMounts nests GlobalCache), and a bare host path is not in
+// the jail to begin with. What is actually in the way is `:ro`, which that backend ignores, and
+// a WRITABLE machine-wide store is cross-jail injection rather than a degradation anyone may
+// accept: see internal/cli/run/captures.go, which now emits nothing there.
+//
+// ABSENT MEANS "NO STORE", and four separate things produce that: a host yolo older than this
+// variable, the macos-user backend (which has no mount to make and no capture support yet),
+// APPLE CONTAINER (per the above — and it always effectively had none, because the host path it
+// used to be handed failed the launcher's `[ -d "$CAPTURES_DIR" ]` test), and the CAPTURE JAIL
+// ITSELF — `yolo capture` suppresses the mount on purpose, so that the installer it runs cannot
+// be satisfied by the very store it is filling (see internal/cli/capturehost.go).
 const CapturesDirEnv = "YOLO_CAPTURES_DIR"
 
 // nativeLauncherTemplate is the native agent launcher body. Same splice contract as
