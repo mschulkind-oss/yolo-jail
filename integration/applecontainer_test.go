@@ -1,12 +1,18 @@
 package integration
 
 import (
+	"context"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // THE APPLE CONTAINER PARITY SUITE — the smallest set of facts that, if they hold, means
@@ -32,9 +38,16 @@ import (
 // will legitimately fail or skip here — Apple Container has no loophole host services,
 // ignores `:ro`, takes no `--net` selector, and `--add-host` is unsupported
 // (apple/container#673). A parity job that is red on day one is a job nobody reads, and this
-// repo has the nine-day nightly to prove it. Four tests that MUST pass is a signal; forty
-// that mostly fail is not. Grow it one test at a time, each added only once it has passed on
-// hardware.
+// repo has the nine-day nightly to prove it. A handful of tests that MUST pass is a signal;
+// forty that mostly fail is not. Grow it one test at a time, each added only once it has
+// passed on hardware.
+//
+// ⚠ ONE TEST HERE IS AN EXPERIMENT RATHER THAN A CHECK, and it is the one exception to the
+// sentence above: TestAppleContainerReachesHostLoopback landed UNRUN, because it exists to
+// produce a first measurement rather than to re-check a known fact, and no Linux machine and
+// no nested jail can produce it. Its header states the rule it keeps instead — both of its
+// possible answers PASS, and only a run that failed to conduct the experiment is red — which
+// is how a new test can arrive here without the "green on day one" property being a lie.
 //
 // THE NAMING IS PART OF THE GATE, exactly as it is for macos-user
 // (integration/macosusergate_test.go): every test here is called TestAppleContainer…, so the
@@ -428,6 +441,891 @@ func TestAppleContainerHonorsReadOnlyBinds(t *testing.T) {
 			"and the host never received is a third behaviour, and every rule in "+
 			"backendcaps.go assumes there are only two.",
 			strings.TrimSpace(got), map[bool]string{true: "DOES", false: "does NOT"}[landed])
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// OQ-BP-4's GATE: does an Apple Container container reach a HOST loopback listener?
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+// TestAppleContainerReachesHostLoopback IS THE MEASUREMENT THE LOOPHOLE RULING WAITS ON, and
+// the only question in this file that neither a Linux test nor a nested jail can approximate.
+//
+// WHAT IT IS FOR. docs/design/backend-parity.md's OQ-BP-4 ruled 2026-09-14 that loopholes
+// should be supported as fully as possible on EVERY backend, and that the blanket Apple
+// Container skip in `startLoopholes` (loopholesruntime.go, *"no socket bind-mount there"*)
+// describes the unix-socket era: FOUR of the six shipped loopholes declare
+// `transport: loopback-tls` — claude-oauth-broker, host-processes, journal, serial — and
+// reach the host over the NETWORK, learning their endpoint from a 0600 file in a bind-mounted
+// DIRECTORY, which this backend mounts fine. So the stated reason covers none of them.
+// What nobody has ever measured is the premise underneath: whether a container here can reach
+// a listener bound to the Mac's own 127.0.0.1 at all. `advertiseHostFor` excludes Apple
+// Container before it even reads the network mode, so the tree has no answer to "what address
+// does an AC container reach the host on" — this test's job is to produce one.
+//
+// THE SEQUENCING IS PART OF THE RULING, which is why this lands ALONE and changes no
+// production code. The in-jail reachability witness is FATAL (internal/entrypoint/
+// reachability.go, since 2026-08-18): an enabled jail-facing service the jail cannot use
+// REFUSES the launch. Enabling a loopback-tls loophole here on an unmeasured assumption would
+// therefore convert a currently-working Apple Container launch into a refusing one.
+//
+// IT DOES NOT GO THROUGH yolo, for TestAppleContainerHonorsReadOnlyBinds' reasons: the
+// question is about the RUNTIME, so asking the runtime directly is the shorter evidence chain
+// (AGENTS.md's reachability carve-out reaches for a bare `podman run` for the same reason),
+// and the subject is a listener this test process owns rather than any host service.
+//
+// # Both answers PASS. Only a run that failed to conduct the experiment is red
+//
+// This is a MEASUREMENT, and its two possible results are both successful runs of it, so
+// neither is a failure:
+//
+//   - The tree asserts NOTHING here today. Unlike its two siblings — where one branch means
+//     yolo is doing something wrong (handing out a writable mount the user granted `:ro`) —
+//     no branch of this test contradicts shipped behaviour, because the backend is skipped
+//     wholesale and nothing publishes an address for it.
+//   - The safety asymmetry runs the OTHER way. "Unreachable" is the outcome under which the
+//     current skip is CORRECT and nothing must change; failing on it would redden the job
+//     exactly when yolo is behaving properly, for a fact about Apple's runtime that no yolo
+//     commit can fix. That is this file's documented failure mode — *"a parity job that is red
+//     on day one is a job nobody reads"* — and the workflow says the same of the whole subset.
+//   - A logged verdict IS legible here: `.github/workflows/apple-container.yml`'s test step
+//     runs `go test -v`, so every t.Logf line below lands in the job log verbatim. Every line
+//     this test emits is prefixed `AC-HOST-REACH` so one grep recovers the whole record.
+//
+// What DOES fail: the experiment not happening (no listener, no container, a dial script that
+// did not complete, a candidate/listener pair with no result line) and an INCOHERENT result
+// (something answered our port without sending our token). That is the distinction this suite
+// exists for — a skip, or a silently vacuous run, must never read as a pass.
+//
+// # The candidates, and why a control listener is bound as well
+//
+// The report has to say WHICH address works, not just whether one does, so every candidate is
+// dialled and recorded: three host/gateway DNS names, the container's own loopback, and the
+// numeric gateway DISCOVERED from the container's own routing table (upstream warns AC's vmnet
+// subnet varies by machine, so it is derived, never assumed — see acHostCandidates).
+//
+// ⚠ AND EACH IS DIALLED AGAINST UP TO THREE LISTENERS, because "no candidate reached the
+// loopback listener" is ambiguous on its own: it cannot distinguish *"the host's loopback is
+// not forwarded"* from *"the container cannot reach this Mac at all"*, and those have opposite
+// consequences for the follow-up work. So a wildcard (0.0.0.0) listener and, when the bridge
+// address is known, a listener bound to just that address are bound alongside the 127.0.0.1
+// SUBJECT. A hit on a control with a miss on the subject is the third outcome, and it is the
+// most actionable one: it says a jail-facing service could be reached here, but only by
+// binding wider than svcendpoint does today, and it prices that change (bridge address only,
+// versus the LAN).
+//
+// ⚠ The wildcard bind is the one thing here a reader should know touches the MACHINE: on a Mac
+// with the application firewall set to block incoming connections, binding 0.0.0.0 in a test
+// process can be refused or prompted. It is best-effort for exactly that reason — a failed
+// control is logged, never fatal — and the all-miss verdict names the firewall as a thing to
+// rule out before believing the result.
+//
+// # WHAT HAS RUN, AND WHAT HAS NOT
+//
+// This test reached the repository UNRUN against its subject, which the header of this file
+// otherwise forbids; it is the exception because it exists to produce a first measurement, and
+// no machine without this hardware can produce it. What that leaves unverified is exactly two
+// things: the `container` argv in acRunProbe (identical in shape to the sibling probes above,
+// which are green on this hardware) and the ANSWER.
+//
+// The INSTRUMENT is not among them. Every portable half — acNetFactsScript, the candidate
+// derivation, the dial script's shell, the listeners, the token round-trip, the parser and the
+// classification — was exercised end to end against a real container before this landed, using
+// podman in this repo's own Linux jail (2026-09-14, podman 5.8.6, `--network=pasta`): the
+// `ip`-absent branch was taken, the gateway was decoded out of /proc/net/route, the
+// bridge-bind failure path was taken and logged, all ten PROBE lines parsed, and the run
+// produced the THIRD verdict — the wildcard listener hit at `host.containers.internal` while
+// the 127.0.0.1 listener was missed by every candidate. So the branch that is hardest to
+// believe has already been produced once, by a stack that behaves the way this backend might.
+func TestAppleContainerReachesHostLoopback(t *testing.T) {
+	requireAppleContainer(t)
+	requireJail(t)
+
+	ref := imageExists("container")
+	if ref == "" {
+		t.Skip("no jail image is loaded into Apple Container yet, and this probe needs one " +
+			"to run anything at all; the launching tests above are what load it")
+	}
+	ver, _ := exec.Command("container", "--version").Output()
+	version := strings.TrimSpace(string(ver))
+
+	// PHASE 1 — ASK THE CONTAINER WHAT ITS NETWORK IS. First, because the bridge-address
+	// control below cannot be bound until the bridge address is known.
+	facts := acRunProbe(t, ref, "network discovery", acNetFactsScript)
+	t.Logf("AC-HOST-REACH FACTS (`container` %s) — the container's own view of its network:\n%s",
+		version, facts)
+
+	cands := acHostCandidates(facts)
+	if len(cands) == 0 {
+		t.Fatalf("AC-HOST-REACH: no candidate host addresses were derived, so nothing would be "+
+			"dialled and nothing measured. acHostCandidates always yields the DNS names plus a "+
+			"documented fallback, so an empty list means that function changed and this test is "+
+			"now vacuous.\nfacts:\n%s", facts)
+	}
+	var list strings.Builder
+	for _, c := range cands {
+		fmt.Fprintf(&list, "  %-28s %s\n", c.addr, c.why)
+	}
+	t.Logf("AC-HOST-REACH CANDIDATES (%d):\n%s", len(cands), list.String())
+
+	// PHASE 2 — BIND THE HOST SIDE. The 127.0.0.1 listener is the SUBJECT: it is bound
+	// exactly as internal/svcendpoint's Listen binds a real jail-facing service.
+	nonce := strconv.FormatInt(time.Now().UnixNano(), 36)
+	subject, err := startACHostListener("loopback", "127.0.0.1", nonce)
+	if err != nil {
+		t.Fatalf("AC-HOST-REACH: could not bind this Mac's own 127.0.0.1, so the experiment "+
+			"could not be conducted at all: %v\n\n"+
+			"This is a host-side fault, not an answer about Apple Container. Nothing about the "+
+			"loophole skip may be concluded from this run.", err)
+	}
+	t.Cleanup(subject.close)
+	lns := []*acHostListener{subject}
+
+	// The controls are best-effort by design — see the header's firewall note.
+	if wild, err := startACHostListener("wildcard", "0.0.0.0", nonce); err != nil {
+		t.Logf("AC-HOST-REACH CONTROL: could not bind 0.0.0.0 (%v). The run continues, but an "+
+			"all-miss result below is then AMBIGUOUS: with no reachable-at-all control there is "+
+			"nothing to separate \"the host's loopback is not forwarded\" from \"the container "+
+			"cannot reach this Mac\".", err)
+	} else {
+		t.Cleanup(wild.close)
+		lns = append(lns, wild)
+	}
+	if gw := acFirstNumericCandidate(cands); gw != "" {
+		if bridge, err := startACHostListener("bridge", gw, nonce); err != nil {
+			t.Logf("AC-HOST-REACH CONTROL: %s is the address the container routes through but "+
+				"is not bindable on this Mac (%v). That is itself worth knowing: the cheapest "+
+				"remedy for an unreachable loopback — bind the vmnet bridge address only — is "+
+				"not available if that address is not local here.", gw, err)
+		} else {
+			t.Cleanup(bridge.close)
+			lns = append(lns, bridge)
+		}
+	}
+
+	// PHASE 3 — DIAL EVERY CANDIDATE AT EVERY LISTENER, from inside a container.
+	dialOut := acRunProbe(t, ref, "host dial", acDialScript(cands, lns))
+	t.Logf("AC-HOST-REACH PROBES:\n%s", dialOut)
+	for _, l := range lns {
+		t.Logf("AC-HOST-REACH PEERS at the %s listener (%s:%s): %v",
+			l.label, l.bind, l.port, l.peers())
+	}
+
+	if fault := acSelftestFault(dialOut); fault != "" {
+		t.Fatalf("AC-HOST-REACH: the in-container dialer failed its own self-test — %s\n\n"+
+			"NOTHING WAS MEASURED. With a broken dialer every candidate misses, so an "+
+			"\"unreachable\" verdict here would have been manufactured by this image rather than "+
+			"observed on this backend — which is the one wrong answer this test is built to make "+
+			"impossible.\ndial output:\n%s", fault, dialOut)
+	}
+
+	probes := acParseProbes(dialOut)
+	want := len(cands) * len(lns)
+	if !strings.Contains(dialOut, "DIALS-DONE") || len(probes) != want {
+		t.Fatalf("AC-HOST-REACH: the dial script did not complete — %d result lines for %d "+
+			"candidate×listener pairs, DIALS-DONE %s.\n\n"+
+			"The experiment is INCOMPLETE, so neither verdict may be read off it. A partial run "+
+			"is the shape that would otherwise pass while measuring less than it claims.",
+			len(probes), want,
+			map[bool]string{true: "present", false: "ABSENT"}[strings.Contains(dialOut, "DIALS-DONE")])
+	}
+
+	byPort := map[string]*acHostListener{}
+	for _, l := range lns {
+		byPort[l.port] = l
+	}
+	hits := map[string][]string{}
+	var strangers []string
+	for _, p := range probes {
+		l := byPort[p.port]
+		switch {
+		case l == nil:
+			strangers = append(strangers, fmt.Sprintf("%s:%s (port belongs to no listener) rc=%s out=%q",
+				p.addr, p.port, p.rc, p.out))
+		case strings.Contains(p.out, l.token):
+			hits[l.label] = append(hits[l.label], p.addr)
+		case strings.Contains(p.out, "CONNECTED"):
+			strangers = append(strangers, fmt.Sprintf("%s → %s:%s rc=%s out=%q",
+				l.label, p.addr, p.port, p.rc, p.out))
+		}
+	}
+
+	if len(strangers) > 0 {
+		t.Errorf("AC-HOST-REACH: a dial CONNECTED but our listener's token never arrived: %v\n\n"+
+			"Do not fold this into either verdict. Two readings, and rc tells them apart: rc=124 "+
+			"is a connection that was accepted and sent nothing within %ds (a forwarder in the "+
+			"path, or a listener that never wrote); any other rc means something on this Mac "+
+			"other than this test answered an ephemeral port the kernel had just assigned to it, "+
+			"which taints the whole table above. Re-run before concluding anything.",
+			strangers, acDialTimeoutSecs)
+	}
+
+	// THE VERDICT. Every branch is a successful measurement; see the header for why none of
+	// them is an assertion failure.
+	wildcardBound := acListenerBound(lns, "wildcard")
+	switch {
+	case len(hits["loopback"]) > 0:
+		t.Logf("AC-HOST-REACH VERDICT: REACHABLE. An Apple Container container reached a "+
+			"listener bound to THIS MAC's 127.0.0.1, at %v (`container` %s).\n\n"+
+			"What follows for OQ-BP-4: the transport half of the loophole skip is dead — a "+
+			"loopback-tls service CAN be dialled from a container here.\n"+
+			"  • If `host.containers.internal` is among the addresses above, nothing needs to "+
+			"change to advertise it: svcendpoint.DefaultAdvertiseHost already publishes exactly "+
+			"that name.\n"+
+			"  • If ONLY a numeric address worked, `advertiseHostFor` (internal/cli/run/"+
+			"loopholesruntime.go) needs an Apple Container arm that publishes it — and it must "+
+			"be DISCOVERED per launch, never hardcoded: upstream reports the vmnet subnet varies "+
+			"by machine.\n"+
+			"  • What is still blocked is per-LOOPHOLE, not per-backend: `--add-host` is "+
+			"unsupported here (apple/container#673), so an INTERCEPTING loophole (the "+
+			"claude-oauth-broker) stays off for that reason rather than this one.",
+			hits["loopback"], version)
+	case len(hits) > 0:
+		t.Logf("AC-HOST-REACH VERDICT: THE HOST IS REACHABLE, A LOOPBACK-BOUND LISTENER IS NOT "+
+			"(`container` %s).\n\nhits by listener: %v\n\n"+
+			"Every candidate missed the 127.0.0.1 listener while at least one reached this Mac "+
+			"on a wider bind. So Apple Container does NOT forward the host's loopback the way "+
+			"rootless podman does with pasta's --map-host-loopback: a jail-facing service would "+
+			"have to bind an address the container can route to, which internal/svcendpoint "+
+			"deliberately does not do (Listen binds 127.0.0.1, and its cert plus per-jail token "+
+			"are the only authentication a wider bind would then be relying on).\n\n"+
+			"Priced, cheapest first: a `bridge` hit means binding the vmnet bridge address alone "+
+			"is enough, exposing the service to containers on that subnet only; a `wildcard`-only "+
+			"hit means the LAN. Until that bind changes, the skip in loopholesruntime.go must "+
+			"stay — enabling a loopback-tls loophole here would turn a working Apple Container "+
+			"launch into a refusing one, because the in-jail witness is fatal.",
+			version, hits)
+	default:
+		amb := ""
+		if !wildcardBound {
+			amb = "\n\n⚠ THE WILDCARD CONTROL DID NOT BIND on this run (see the CONTROL line " +
+				"above), so this result cannot separate \"loopback is not forwarded\" from \"the " +
+				"container cannot reach this Mac at all\". Fix the control before reading it as " +
+				"the former."
+		}
+		t.Logf("AC-HOST-REACH VERDICT: NOT REACHABLE BY ANY CANDIDATE (`container` %s).\n\n"+
+			"No candidate reached ANY listener, including the wildcard control — so this run says "+
+			"the container could not reach this Mac at all, which is a stronger and less specific "+
+			"statement than anything about loopback.%s\n\n"+
+			"Rule out the host-side explanations before recording it as a fact about Apple "+
+			"Container:\n"+
+			"  • the macOS application firewall blocking incoming connections to this test "+
+			"process — `/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate`;\n"+
+			"  • a competing default route: a VPN or a Tailscale exit node breaks the vmnet "+
+			"subnet route on the host and does not self-heal (apple/container#1881);\n"+
+			"  • the FACTS block above, which shows whether the container was given a default "+
+			"route and a resolver at all.\n\n"+
+			"Either way the conclusion for OQ-BP-4 is the same: the skip in loopholesruntime.go "+
+			"stays, and no loopback-tls loophole may be enabled on this backend.", version, amb)
+	}
+}
+
+// acDialTimeoutSecs bounds ONE dial from inside the container. It is the whole reason this
+// test cannot hang: a dropped SYN would otherwise sit in Linux's connect retry for over a
+// minute per candidate, and a refusal or an unresolvable name costs nothing at all.
+//
+// The worst case is every pair timing out, at candidates × listeners × this — well inside
+// acRunProbe's jailTimeout() budget (300s by default) for a candidate list this size. That
+// product is the arithmetic to redo before adding candidates: overrun it and this stops
+// reporting an answer and starts failing on a deadline.
+const acDialTimeoutSecs = 5
+
+// acDocumentedVmnetGateway is the gateway upstream issues name for Apple Container's default
+// vmnet network: apple/container#989 gives the network as 192.168.64.0/24, and #402 shows
+// 192.168.64.1 acting as both the container's gateway and its resolver.
+//
+// IT IS A LAST RESORT AND NOT A DEFAULT, deliberately: the address is DISCOVERED from the
+// container's own routing table when the container has one, because the subnet varies between
+// machines. This literal is dialled only when discovery came back empty — which is itself
+// worth a dial, since a hit would then mean the routing table was unreadable rather than that
+// the network was absent.
+const acDocumentedVmnetGateway = "192.168.64.1"
+
+// acNetFactsScript dumps the container's own view of its network.
+//
+// Everything read with `cat` is guaranteed present in any jail image — procfs, plus the files
+// vminitd writes at boot. `ip` and `getent` are NOT: they come from the image's full package
+// set (iproute2, glibc.bin), so they are probed for rather than assumed. A discovery step that
+// died on a missing tool would take the measurement with it, which is the whole failure this
+// file is about.
+const acNetFactsScript = `
+set -u
+echo "--- container-ip"
+{ command -v ip >/dev/null 2>&1 && ip -o -4 addr show; } 2>&1 || echo "(no ip binary in this image)"
+echo "--- proc-net-route"
+cat /proc/net/route 2>&1 || true
+echo "--- etc-hosts"
+cat /etc/hosts 2>&1 || true
+echo "--- etc-resolv-conf"
+cat /etc/resolv.conf 2>&1 || true
+echo "--- ip-route"
+{ command -v ip >/dev/null 2>&1 && ip route show; } 2>&1 || echo "(no ip binary in this image)"
+echo "--- end"
+exit 0
+`
+
+// acDialPreamble is the in-container half of the dial. %d is acDialTimeoutSecs.
+//
+// ONE dial reports TWO facts, and keeping them in one probe is what makes an odd result
+// readable: `echo CONNECTED` fires when the TCP handshake succeeded, and the bytes after it
+// are whatever the peer sent. A connect with no token is therefore distinguishable from no
+// connect at all — the difference between "something else is on that port" and "nothing
+// answered", which the verdict treats as opposite outcomes.
+//
+// `set -o pipefail` is load-bearing: rc is read after a pipeline, so without it rc would be
+// `tr`'s status, which is always 0, and every dial would look like it succeeded.
+//
+// ⚠ THE SELFTEST LINE GUARDS THE ONE FALSE ANSWER THIS DESIGN CAN PRODUCE. If the dialer
+// itself is broken in the image — no `timeout`, or a bash built without net redirections —
+// then every probe fails, and "no candidate reached anything" is reported as a MEASUREMENT
+// when the truth is that nothing was measured. So the image is asked to prove it can dial:
+// `timeout` must resolve, and a dial at the container's own port 1 must come back REFUSED
+// (a bash with no `/dev/tcp` says "No such file or directory" instead, which the caller
+// treats as fatal). The subshell parens are not optional — a redirection failure in `exec`
+// is fatal to a non-interactive shell, so an inline dial here would kill the script.
+const acDialPreamble = `
+set -u
+set -o pipefail
+probe() {
+  addr="$1"; port="$2"; tag="$3"
+  out=$(timeout %d /bin/bash -c "exec 3<>/dev/tcp/$addr/$port && echo CONNECTED && head -c 120 <&3" 2>&1 | tr -d '\r' | tr '\n' ' ')
+  rc=$?
+  echo "PROBE tag=$tag addr=$addr port=$port rc=$rc out=[$out]"
+}
+selftest() {
+  echo "SELFTEST timeout=[$(command -v timeout || echo MISSING)] dialer=[$( (exec 3<>/dev/tcp/127.0.0.1/1) 2>&1 | tr '\n' ' ' )]"
+}
+resolve() {
+  if command -v getent >/dev/null 2>&1; then
+    r=$(getent hosts "$1" 2>&1 | tr '\n' ' ')
+  else
+    r="(no getent in this image)"
+  fi
+  echo "RESOLVE name=$1 out=[$r]"
+}
+`
+
+// acHostCandidate is one address a container might reach the host on, and the reason it is
+// being dialled. The reason travels with the address because the log is the deliverable here:
+// a bare list of addresses tells the next reader nothing about what a hit would MEAN.
+type acHostCandidate struct {
+	addr string
+	why  string
+}
+
+// acHostCandidates derives every address worth dialling from the container's own network
+// facts, ordered names-first, deduplicated with the reasons merged.
+//
+// PURE, and unit-tested from Linux (TestACHostCandidatesFromFacts), because it is the one
+// place this test can silently measure less than it claims: a candidate list that quietly
+// loses its numeric entries — a changed procfs format, a section marker that stopped
+// matching — would still produce a green "not reachable by any candidate" verdict having
+// never dialled the address that works.
+func acHostCandidates(facts string) []acHostCandidate {
+	var out []acHostCandidate
+	add := func(addr, why string) {
+		if addr == "" {
+			return
+		}
+		for i := range out {
+			if out[i].addr == addr {
+				out[i].why += "; also " + why
+				return
+			}
+		}
+		out = append(out, acHostCandidate{addr: addr, why: why})
+	}
+
+	add("host.containers.internal", "svcendpoint.DefaultAdvertiseHost — the name EVERY endpoint "+
+		"file yolo publishes carries today, so a hit here means no advertise change is needed")
+	add("host.docker.internal", "Docker Desktop's documented name for the host; tried because a "+
+		"runtime aiming at Docker compatibility often aliases it — podman answers it, measured "+
+		"in this repo's own jail")
+	add("gateway.docker.internal", "Docker Desktop's documented name for the host's GATEWAY, "+
+		"which is a different address from the host itself on some stacks; one dial settles "+
+		"whether this runtime answers it (podman does not — measured)")
+	add("127.0.0.1", "the container's OWN loopback — what advertiseHostFor publishes when the "+
+		"jail shares the launcher's netns. It cannot cross a VM boundary, and is dialled so "+
+		"that negative is measured rather than assumed")
+
+	gateways, onLink := acRoutedHostGuesses(acFactsSection(facts, "proc-net-route"))
+	for _, gw := range gateways {
+		add(gw, "a gateway named by a route in the container's own /proc/net/route — on this "+
+			"backend that is the host's vmnet bridge address")
+	}
+	for _, g := range onLink {
+		add(g, "the first address of a subnet the container is on-link with, which is the "+
+			"conventional gateway; dialled in case no default route was installed")
+	}
+	if len(gateways) == 0 && len(onLink) == 0 {
+		add(acDocumentedVmnetGateway, "the DOCUMENTED default for Apple Container's vmnet "+
+			"network, dialled ONLY because the container reported no usable route at all. A hit "+
+			"here says the routing table was unreadable, not that this address may be hardcoded")
+	}
+	return out
+}
+
+// acRoutedHostGuesses reads a Linux /proc/net/route and returns every gateway any route in it
+// names — the default route's is the one that matters, and taking the others costs one dial
+// each — and, separately, the first address of each on-link subnet.
+//
+// THE FORMAT IS HEX AND LITTLE-ENDIAN, which is the whole reason this is a function with a
+// test rather than an awk one-liner in the script: `0140A8C0` is 192.168.64.1, not
+// 1.64.168.192, and getting it backwards would produce plausible-looking addresses that
+// nothing answers — an unreachable verdict manufactured by a parse bug.
+//
+// IPv4 only, which is all the file holds; Apple Container's vmnet network is IPv4.
+func acRoutedHostGuesses(procNetRoute string) (gateways, onLink []string) {
+	seen := map[string]bool{}
+	keep := func(dst *[]string, ip string) {
+		if ip == "" || seen[ip] {
+			return
+		}
+		seen[ip] = true
+		*dst = append(*dst, ip)
+	}
+	for _, line := range strings.Split(procNetRoute, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[0] == "Iface" || f[0] == "lo" {
+			continue
+		}
+		dest, gw := f[1], f[2]
+		if gw != "00000000" {
+			keep(&gateways, acHexLEIPv4(gw))
+			continue
+		}
+		// An on-link route: no gateway, so the subnet base is all this row gives. `.1` is a
+		// GUESS by convention, which is why it is returned separately from a fact.
+		base := acHexLEIPv4(dest)
+		if ip := net.ParseIP(base); ip != nil && ip.To4() != nil && ip.To4()[3] == 0 {
+			four := ip.To4()
+			keep(&onLink, net.IPv4(four[0], four[1], four[2], 1).String())
+		}
+	}
+	return gateways, onLink
+}
+
+// acHexLEIPv4 converts one /proc/net/route address field to dotted quad, or "" if it is not
+// one. Little-endian: the lowest byte is the FIRST octet.
+func acHexLEIPv4(field string) string {
+	v, err := strconv.ParseUint(field, 16, 32)
+	if err != nil || v == 0 {
+		return ""
+	}
+	return net.IPv4(byte(v), byte(v>>8), byte(v>>16), byte(v>>24)).String()
+}
+
+// acFactsSection returns the lines of one `--- <name>` section of acNetFactsScript's output.
+func acFactsSection(facts, name string) string {
+	var b strings.Builder
+	in := false
+	for _, line := range strings.Split(facts, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "--- "); ok {
+			in = rest == name
+			continue
+		}
+		if in {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// acFirstNumericCandidate returns the first non-loopback IP literal among the candidates —
+// the address the bridge-bound control listener tries to bind.
+func acFirstNumericCandidate(cands []acHostCandidate) string {
+	for _, c := range cands {
+		if ip := net.ParseIP(c.addr); ip != nil && !ip.IsLoopback() {
+			return c.addr
+		}
+	}
+	return ""
+}
+
+// acHostListener is one host-side TCP listener the container tries to reach. It answers every
+// connection with a per-run token and remembers who called.
+//
+// THE TOKEN IS WHAT MAKES A HIT EVIDENCE. A bare successful connect proves only that
+// SOMETHING accepted on that address and port; reading back a nonce this process minted
+// proves it was this listener, on this Mac, on this run.
+//
+// The PEERS are recorded for the reader rather than for an assertion: the source address a
+// container appears as says whether the runtime NATs it, which is the next question anybody
+// wiring a real service here will ask.
+type acHostListener struct {
+	label string // the tag the in-container script prints, and the listener's role
+	bind  string // the address passed to net.Listen
+	port  string
+	token string
+	ln    net.Listener
+
+	mu        sync.Mutex
+	seenPeers []string
+}
+
+// startACHostListener binds an ephemeral port on bind and serves the token. The caller
+// decides whether a failure is fatal: it is for the 127.0.0.1 subject, and never for a
+// control.
+func startACHostListener(label, bind, nonce string) (*acHostListener, error) {
+	ln, err := net.Listen("tcp", net.JoinHostPort(bind, "0"))
+	if err != nil {
+		return nil, err
+	}
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		ln.Close()
+		return nil, err
+	}
+	l := &acHostListener{
+		label: label,
+		bind:  bind,
+		port:  port,
+		token: "YOLO-AC-HOST-REACH-" + strings.ToUpper(label) + "-" + nonce,
+		ln:    ln,
+	}
+	go l.serve()
+	return l, nil
+}
+
+func (l *acHostListener) serve() {
+	for {
+		c, err := l.ln.Accept()
+		if err != nil {
+			return // the listener was closed by the test's cleanup
+		}
+		l.mu.Lock()
+		l.seenPeers = append(l.seenPeers, c.RemoteAddr().String())
+		l.mu.Unlock()
+		_ = c.SetWriteDeadline(time.Now().Add(acDialTimeoutSecs * time.Second))
+		_, _ = c.Write([]byte(l.token + "\n"))
+		_ = c.Close()
+	}
+}
+
+func (l *acHostListener) peers() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.seenPeers...)
+}
+
+func (l *acHostListener) close() { _ = l.ln.Close() }
+
+// acListenerBound reports whether a listener with this role was bound at all — the wildcard
+// control's absence is what makes an all-miss result ambiguous, and the verdict says so.
+func acListenerBound(lns []*acHostListener, label string) bool {
+	for _, l := range lns {
+		if l.label == label {
+			return true
+		}
+	}
+	return false
+}
+
+// acDialScript emits one `resolve` line per DNS-name candidate and one `probe` line per
+// candidate × listener pair, then a DIALS-DONE sentinel.
+//
+// THE SENTINEL AND THE PAIR COUNT ARE THE VACUITY GUARD. The caller requires both, so a
+// script that died halfway — a missing `timeout`, a shell that rejected the function
+// definitions — is a FAILURE rather than a table with fewer rows than it should have.
+func acDialScript(cands []acHostCandidate, lns []*acHostListener) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, acDialPreamble, acDialTimeoutSecs)
+	b.WriteString("selftest\n")
+	for _, c := range cands {
+		if net.ParseIP(c.addr) == nil {
+			fmt.Fprintf(&b, "resolve %s\n", c.addr)
+		}
+	}
+	for _, l := range lns {
+		for _, c := range cands {
+			fmt.Fprintf(&b, "probe %s %s %s\n", c.addr, l.port, l.label)
+		}
+	}
+	b.WriteString("echo DIALS-DONE\nexit 0\n")
+	return b.String()
+}
+
+// acProbe is one parsed PROBE line.
+type acProbe struct{ tag, addr, port, rc, out string }
+
+// acParseProbes reads the PROBE lines out of a dial run's combined output. Anything else the
+// runtime printed is ignored rather than parsed, so a chatty `container run` cannot break the
+// measurement.
+func acParseProbes(dialOut string) []acProbe {
+	var out []acProbe
+	for _, line := range strings.Split(dialOut, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "PROBE ") {
+			continue
+		}
+		out = append(out, acProbe{
+			tag:  acProbeField(line, "tag"),
+			addr: acProbeField(line, "addr"),
+			port: acProbeField(line, "port"),
+			rc:   acProbeField(line, "rc"),
+			out:  acProbeField(line, "out"),
+		})
+	}
+	return out
+}
+
+// acProbeField pulls one `key=value` (or `key=[value with spaces]`) field out of a PROBE
+// line. Bracketed because the peer's answer is arbitrary text — including bash's own error
+// messages, which contain spaces — and a plain split on whitespace would silently truncate
+// the one field the verdict reads.
+func acProbeField(line, key string) string {
+	var rest string
+	switch {
+	case strings.HasPrefix(line, key+"="):
+		rest = line[len(key)+1:]
+	default:
+		i := strings.Index(line, " "+key+"=")
+		if i < 0 {
+			return ""
+		}
+		rest = line[i+1+len(key)+1:]
+	}
+	if after, ok := strings.CutPrefix(rest, "["); ok {
+		if j := strings.Index(after, "]"); j >= 0 {
+			return after[:j]
+		}
+		return after
+	}
+	if j := strings.IndexByte(rest, ' '); j >= 0 {
+		return rest[:j]
+	}
+	return rest
+}
+
+// acSelftestFault reads the dial script's SELFTEST line and describes anything that makes the
+// whole run meaningless, or returns "" when the image proved it can dial.
+//
+// IT GUARDS THE ONE WRONG ANSWER THIS DESIGN CAN PRODUCE, which is why it is a named function
+// with a test rather than an inline check: a dialer that cannot dial fails every probe, and
+// every probe failing is exactly what "not reachable by any candidate" looks like. That
+// verdict would then be a fact about the image, published as a fact about Apple Container, in
+// a log nobody has reason to doubt.
+func acSelftestFault(dialOut string) string {
+	line := ""
+	for _, l := range strings.Split(dialOut, "\n") {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, "SELFTEST ") {
+			line = l
+		}
+	}
+	if line == "" {
+		return "the dial script printed no SELFTEST line, so the image was never asked whether " +
+			"it can dial at all (an older script, or a shell that rejected the preamble)"
+	}
+	if tmo := acProbeField(line, "timeout"); tmo == "" || strings.Contains(tmo, "MISSING") {
+		return "`timeout` does not resolve in this image, so no dial was bounded and none can be " +
+			"believed: " + line
+	}
+	if d := acProbeField(line, "dialer"); strings.Contains(d, "No such file") {
+		return "this image's bash reports /dev/tcp as a missing FILE, which is what a bash built " +
+			"without net redirections says — every probe then fails for a reason that has nothing " +
+			"to do with the host: " + line
+	}
+	return ""
+}
+
+// acRunProbe runs one script in a throwaway Apple Container container and returns its
+// combined output.
+//
+// A DEADLINE, unlike this file's older `exec.Command` probes: the suite runs under
+// `-timeout 0`, so a hanging container would hang the whole job until CI's wall clock killed
+// it, with no output — and this runtime has upstream reports of `container exec` and
+// `container stop` hanging indefinitely after a host restart (apple/container#1321).
+// jailTimeout() is the same per-command budget every run* helper in this harness honours
+// (YOLO_TEST_JAIL_TIMEOUT, 300s by default).
+//
+// `/bin/bash` ABSOLUTELY, where this file's older probes say `sh`: the scripts above need
+// bash (`/dev/tcp`, `pipefail`), the image bakes that exact symlink, and naming it in full
+// leaves no question about how the runtime resolves argv[0] against the image's PATH.
+//
+// A failure is FATAL because it means the experiment did not happen. That is the one class
+// this test refuses to report as an answer.
+func acRunProbe(t *testing.T, ref, what, script string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "container", "run", "--rm", ref, "/bin/bash", "-c", script).
+		CombinedOutput()
+	if err != nil {
+		t.Fatalf("AC-HOST-REACH: the %s container could not run (%v), so nothing was measured. "+
+			"Read this as a fault in the runtime or the image, NOT as an answer about host "+
+			"reachability.\nimage: %s\noutput:\n%s\nscript:\n%s", what, err, ref, out, script)
+	}
+	return string(out)
+}
+
+// TestACHostCandidatesFromFacts pins the candidate derivation from Linux, which is the only
+// half of this measurement a machine without a Mac can verify at all.
+//
+// IT IS DELIBERATELY NOT NAMED TestAppleContainer…, unlike everything gated on hardware
+// above. The Mac job selects that prefix as "facts only this hardware can produce", and this
+// test needs no hardware — it runs on every push, inside `just test-fast`, which is exactly
+// where a parse regression should be caught. Padding the hardware subset with tests that
+// cannot fail there would dilute the one signal that job carries (and inflate the count its
+// own step prints).
+//
+// The fixture is a real /proc/net/route from a Linux guest on Apple Container's default
+// network: eth0 with a default route via 192.168.64.1 and the on-link 192.168.64.0/24.
+func TestACHostCandidatesFromFacts(t *testing.T) {
+	facts := "--- container-ip\n" +
+		"1: lo    inet 127.0.0.1/8 scope host lo\n" +
+		"2: eth0    inet 192.168.64.3/24 scope global eth0\n" +
+		"--- proc-net-route\n" +
+		"Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +
+		"eth0\t00000000\t0140A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n" +
+		"eth0\t0040A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n" +
+		"--- etc-hosts\n127.0.0.1 localhost\n--- end\n"
+
+	got := acHostCandidates(facts)
+	var addrs []string
+	for _, c := range got {
+		addrs = append(addrs, c.addr)
+		if c.why == "" {
+			t.Errorf("candidate %s carries no reason; the log is this test's deliverable and an "+
+				"address with no stated meaning tells the next reader nothing", c.addr)
+		}
+	}
+
+	// The gateway is the load-bearing one: it is the address the advertise decision would
+	// have to publish, and it is derived from a hex little-endian field.
+	if !acHasAddr(got, "192.168.64.1") {
+		t.Errorf("the default route's gateway was not derived from /proc/net/route: got %v.\n\n"+
+			"0140A8C0 is 192.168.64.1 — little-endian, lowest byte first. A parse that misses "+
+			"it makes TestAppleContainerReachesHostLoopback report \"not reachable by any "+
+			"candidate\" without ever having dialled the host.", addrs)
+	}
+	// The name every endpoint file already carries. If it stops being dialled, a green
+	// unreachable verdict would say nothing about the transport yolo actually uses.
+	if !acHasAddr(got, "host.containers.internal") {
+		t.Errorf("svcendpoint.DefaultAdvertiseHost is not among the candidates: %v", addrs)
+	}
+	if !acHasAddr(got, "127.0.0.1") {
+		t.Errorf("the container's own loopback is not among the candidates: %v", addrs)
+	}
+	// The documented literal is a LAST RESORT: with a real routing table it must not appear
+	// as a separate candidate, or a machine on another subnet gets a dial that means nothing.
+	// Here it coincides with the discovered gateway, so what is asserted is the count.
+	if n := acCountAddr(got, "192.168.64.1"); n != 1 {
+		t.Errorf("192.168.64.1 appears %d times; candidates must be deduplicated, with the "+
+			"reasons merged: %v", n, addrs)
+	}
+
+	// No routing table at all — a lean image, a container with no network, a changed procfs
+	// format. The list must still be non-empty and must still include a numeric address to
+	// bind the bridge control to, or the run silently measures less than it reports.
+	bare := acHostCandidates("--- proc-net-route\n--- end\n")
+	if !acHasAddr(bare, acDocumentedVmnetGateway) {
+		t.Errorf("with no usable route the documented fallback %s must still be dialled, so the "+
+			"run can tell an unreadable routing table from an absent network: %v",
+			acDocumentedVmnetGateway, bare)
+	}
+	if acFirstNumericCandidate(bare) == "" {
+		t.Error("with no usable route there is no numeric candidate, so no bridge-bound control " +
+			"listener can be started and an all-miss verdict loses its cheapest remedy")
+	}
+	if acFirstNumericCandidate(got) != "192.168.64.1" {
+		t.Errorf("the bridge control would bind %q rather than the discovered gateway",
+			acFirstNumericCandidate(got))
+	}
+}
+
+func acHasAddr(cands []acHostCandidate, addr string) bool { return acCountAddr(cands, addr) > 0 }
+
+func acCountAddr(cands []acHostCandidate, addr string) int {
+	n := 0
+	for _, c := range cands {
+		if c.addr == addr {
+			n++
+		}
+	}
+	return n
+}
+
+// TestACProbeLineParsing pins the two halves of the dial protocol that a Mac cannot help
+// with: the script says one probe per pair, and the parser reads back what the script said.
+//
+// The `out=[…]` case is the one that matters. A dial's answer is arbitrary text — bash prints
+// `bash: connect: Connection refused`, spaces and all — and the verdict decides between
+// "reached us", "something else answered" and "nothing answered" by looking inside that
+// field. A parser that truncated it at the first space would turn every miss into a miss and
+// every stranger into a miss too, which is the failure that reads as a clean answer.
+func TestACProbeLineParsing(t *testing.T) {
+	lines := "container: some runtime chatter\n" +
+		"PROBE tag=loopback addr=host.containers.internal port=54321 rc=1 out=[bash: connect: Connection refused ]\n" +
+		"PROBE tag=wildcard addr=192.168.64.1 port=54322 rc=0 out=[CONNECTED YOLO-AC-HOST-REACH-WILDCARD-abc ]\n" +
+		"DIALS-DONE\n"
+
+	probes := acParseProbes(lines)
+	if len(probes) != 2 {
+		t.Fatalf("parsed %d PROBE lines, want 2: %+v", len(probes), probes)
+	}
+	if probes[0].tag != "loopback" || probes[0].addr != "host.containers.internal" ||
+		probes[0].port != "54321" || probes[0].rc != "1" {
+		t.Errorf("first probe parsed as %+v", probes[0])
+	}
+	if !strings.Contains(probes[0].out, "Connection refused") {
+		t.Errorf("the answer field was truncated: %q — the verdict reads this field to tell a "+
+			"refusal from a hit, so a truncation here makes every outcome look identical",
+			probes[0].out)
+	}
+	if !strings.Contains(probes[1].out, "YOLO-AC-HOST-REACH-WILDCARD-abc") {
+		t.Errorf("the token did not survive parsing: %q", probes[1].out)
+	}
+
+	// The script half: one probe per candidate × listener, and every candidate present. An
+	// off-by-one that dropped the 127.0.0.1 subject or a whole listener would otherwise leave
+	// the caller's pair-count guard asserting against an already-wrong expectation.
+	cands := []acHostCandidate{{addr: "host.containers.internal", why: "x"}, {addr: "192.168.64.1", why: "y"}}
+	lns := []*acHostListener{{label: "loopback", port: "1111"}, {label: "wildcard", port: "2222"}}
+	script := acDialScript(cands, lns)
+	for _, want := range []string{
+		"probe host.containers.internal 1111 loopback",
+		"probe 192.168.64.1 1111 loopback",
+		"probe host.containers.internal 2222 wildcard",
+		"probe 192.168.64.1 2222 wildcard",
+		"resolve host.containers.internal",
+		"DIALS-DONE",
+		"timeout " + strconv.Itoa(acDialTimeoutSecs),
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the dial script is missing %q:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, "resolve 192.168.64.1") {
+		t.Error("an IP literal was sent to `resolve`, which asks the resolver about an address " +
+			"it cannot answer for and prints a confusing line in the log")
+	}
+	if !strings.Contains(script, "\nselftest\n") {
+		t.Errorf("the dial script never calls selftest, so a broken dialer would produce a full "+
+			"table of misses and be reported as \"not reachable by any candidate\":\n%s", script)
+	}
+
+	// The self-test verdict, in all four states. A run whose dialer is broken must be FATAL
+	// rather than unreachable: the two are indistinguishable in the probe table, and only this
+	// line tells them apart.
+	for _, tc := range []struct {
+		name, dialOut string
+		wantFault     bool
+	}{
+		{"a working dialer", "SELFTEST timeout=[/bin/timeout] dialer=[bash: connect: Connection refused ]", false},
+		{"no timeout in the image", "SELFTEST timeout=[MISSING] dialer=[bash: connect: Connection refused ]", true},
+		{"a bash with no /dev/tcp", "SELFTEST timeout=[/bin/timeout] dialer=[bash: /dev/tcp/127.0.0.1/1: No such file or directory ]", true},
+		{"no self-test line at all", "PROBE tag=loopback addr=127.0.0.1 port=1 rc=1 out=[]\nDIALS-DONE", true},
+	} {
+		fault := acSelftestFault(tc.dialOut)
+		if (fault != "") != tc.wantFault {
+			t.Errorf("%s: acSelftestFault = %q, want fault=%v", tc.name, fault, tc.wantFault)
+		}
+	}
+	if n := strings.Count(script, "\nprobe "); n != len(cands)*len(lns) {
+		t.Errorf("the script has %d probe lines for %d pairs; the caller FAILS on a mismatch, "+
+			"so this drift would be reported as an incomplete experiment rather than as a bug "+
+			"here", n, len(cands)*len(lns))
 	}
 }
 
