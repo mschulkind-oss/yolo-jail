@@ -112,7 +112,16 @@ func runCheckOverConfig(t *testing.T, cfgJSON string, isMacOS bool) string {
 	opts.RepoRoot = func() (reporoot.Resolution, bool) {
 		return reporoot.Resolution{Root: repo, Source: reporoot.FromEnv}, true
 	}
+	// ⚠ `/nix` IS STUBBED, NOT STATTED, and that is the whole reason this fixture exists.
+	// A real os.Stat made this suite pass in a jail (which bind-mounts /nix) and FAIL on a
+	// GitHub runner (which has none) — CI run 34901094907, `[FAIL] Nix store: /nix not
+	// found`, on a test whose subject is the packages-profile REPORT and not whether the
+	// host has nix. LookPath is stubbed here for exactly the same reason; PathExists was
+	// left real by oversight.
 	opts.PathExists = func(p string) bool {
+		if p == "/nix" || strings.HasPrefix(p, "/nix/") {
+			return true // CI-condition probe
+		}
 		_, err := os.Stat(p)
 		return err == nil
 	}
