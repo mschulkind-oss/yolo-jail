@@ -588,7 +588,8 @@ there is no sync step.
   `fullPackages`, no chromium half of the `/lib` farm, nested-podman config **kept** — it is NOT
   `ociImageMinimal`) and gets those from `.#yoloImageExtras`, appended *behind* the workspace's own
   `packages:` since the farm is first-wins. Two consequences worth knowing: `chromium` is no longer
-  at `/usr/bin/chromium` on such a jail (the MCP wrapper resolves it), and `/etc/fonts` is gone, so
+  at `/usr/bin/chromium` on such a jail (`entrypoint.chromiumExecutablePath` resolves it through
+  `imageProbePath`, which counts the farm), and `/etc/fonts` is gone, so
   the boot writes a `fonts.conf` on `/run` pointing at the profile. And the "a boot-written dir
   cannot shadow the image" invariant genuinely inverts for every name that leaves `/bin` — what
   keeps `fzf` safe is that `imageProbePath` counts the farm; the ⚠ above still holds, because
