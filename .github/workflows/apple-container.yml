@@ -1,0 +1,283 @@
+name: Apple Container parity
+
+# THE BACKEND NO CI JOB HAS EVER RUN.
+#
+# Every job in this repo that sets YOLO_RUNTIME sets `podman` — ci.yml, nightly-macos.yml
+# and packs.yml twice — and macos-user.yml deliberately sets none because that backend
+# starts no container. So Apple Container, which the README recommends for macOS, is exercised by
+# nothing. Both defects in that class were found by a human on hardware, eight months
+# apart: #39 (pack SharedDirs never mounted) and #44 (the staged pack tree never mounted,
+# so no agent reached the jail at all).
+#
+# ⚠ THIS JOB IS THE SMALLER HALF OF THE ANSWER, and it is worth being clear about that
+# before reading further. Both defects were ARGV-LEVEL — a mount that was never emitted —
+# and an argv is built on Linux, on every push, with no Mac anywhere near it. The guards
+# that actually stop the class live in `internal/cli/run/*_test.go`
+# (hostpathenv_test.go, acbindsources_test.go, machinetierparity_test.go,
+# hosthometier_test.go, and the census in backendparity_test.go). Hardware was needed to
+# NOTICE those bugs; it was never needed to CATCH them. What this job adds is the residue
+# an argv cannot see: whether `:ro` is really ignored, whether the OCI archive converts,
+# whether a path that IS mounted is really readable.
+#
+# ─── WHY SELF-HOSTED, AND WHY THAT IS NOT A PREFERENCE ───
+#
+# GitHub-hosted runners cannot run this backend, and the reason is a vice:
+#
+#   * Apple Container gives every container its own Virtualization.framework VM
+#     (docs/guides/macos.md). It needs virtualization on the machine it runs on.
+#   * GitHub's Apple Silicon macOS runners do not support nested virtualization — which is
+#     exactly why nightly-macos.yml's podman job sits on `macos-26-intel` and says so.
+#   * Every Apple Container hardware result this repo has is arm64
+#     (docs/research/macos-support-matrix.md: the one hardware proof is macOS 26.5 arm64,
+#     Apple Container 0.12.3).
+#
+# So the arch that can run the backend lacks the virtualization, and the arch with the
+# virtualization is the wrong one. There is no hosted path; a Mac the maintainer owns is
+# the only instrument.
+#
+# ─── ⚠ FORK SAFETY: THE TRIGGERS ARE THE WHOLE PROTECTION ───
+#
+# THIS REPOSITORY IS PUBLIC AND FORKABLE, AND A SELF-HOSTED RUNNER EXECUTES WHATEVER THE
+# WORKFLOW TELLS IT TO ON A PERSONAL MACHINE. GitHub's own guidance is that self-hosted
+# runners belong on private repositories only, because a fork's pull request can otherwise
+# run arbitrary code on your hardware.
+#
+# What keeps that from happening here is the trigger list below and nothing else:
+# `schedule` and `workflow_dispatch` both run the workflow file from the BASE branch, and
+# neither can be caused by a fork. There is no `pull_request`, no `pull_request_target`,
+# no `push`.
+#
+# **Do not add a trigger to this file.** If a change here needs testing before it merges,
+# dispatch it by hand from its branch — `workflow_dispatch` takes a ref and is restricted
+# to people with write access. Adding `pull_request` would hand every forker a shell on
+# the maintainer's Mac, and it would look like an ordinary convenience commit.
+
+on:
+  # EVERY TWO HOURS, AND IT DECIDES IMMEDIATELY. The Mac is a personal machine that is off
+  # most of the time, so this is a POLL, not a queue: the preflight job below asks whether
+  # the runner is up and the real job is `if:`-gated on the answer. Mac off → job skipped,
+  # run green, nothing queued, no notification.
+  #
+  # ⚠ NOT GitHub's own queueing, which is the obvious alternative and the wrong one: a job
+  # whose runner never appears sits pending for up to 24 hours and then fails. A run that
+  # is amber all day is a signal nobody reads — this repo has a nine-day-stale nightly to
+  # prove what happens to one of those.
+  #
+  # Offset to :17 so this is not contending with every other cron in the world on the hour.
+  schedule:
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# See ci.yml for the full rationale (pinned JS actions that still bundle Node 20).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # THE POLL. A tiny hosted job whose only output is "is the Mac up right now".
+  #
+  # It runs on ubuntu-latest, never on the self-hosted runner, so a scheduled run costs the
+  # maintainer's machine nothing when it is off — which is most of the time.
+  runner-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      available: ${{ steps.probe.outputs.available }}
+      why: ${{ steps.probe.outputs.why }}
+    steps:
+      - name: Is the Apple Container runner online?
+        id: probe
+        env:
+          # ⚠ A FINE-GRAINED PAT IS REQUIRED HERE AND THE BUILT-IN TOKEN CANNOT SUBSTITUTE.
+          #
+          # `GET /repos/{owner}/{repo}/actions/runners` requires ADMIN access to the
+          # repository, which means `administration: read` on a fine-grained token (or
+          # `repo` on a classic one). `administration` is NOT one of the scopes the
+          # `permissions:` key can grant to GITHUB_TOKEN — verified against GitHub's
+          # workflow-syntax reference on 2026-09-14, whose complete list is actions,
+          # artifact-metadata, attestations, checks, code-quality, contents, deployments,
+          # discussions, id-token, issues, packages, pages, pull-requests, security-events,
+          # statuses, vulnerability-alerts. There is no way to ask for it.
+          #
+          # SETUP, once: create a fine-grained PAT scoped to this repository with
+          # Administration: Read-only, and store it as the repository secret
+          # YOLO_RUNNER_PROBE_TOKEN.
+          #
+          # Until that exists this workflow runs, answers "cannot ask", skips, and stays
+          # green — see the tri-state below.
+          GH_TOKEN: ${{ secrets.YOLO_RUNNER_PROBE_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+
+          say() { echo "available=$1" >> "$GITHUB_OUTPUT"; echo "why=$2" >> "$GITHUB_OUTPUT"; echo "$2"; }
+
+          # THE ANSWER IS TRI-STATE, AND TWO OF THE THREE STATES SKIP.
+          #
+          # "no runner" and "I could not ask" are DIFFERENT facts and the same decision, and
+          # collapsing them would be the bug: a probe that cannot ask must decline rather
+          # than assume, because assuming "yes" queues a job onto a machine that may be off
+          # and assuming a failure turns a missing secret into a red workflow forever. This
+          # is the stance the repo already takes wherever it cannot interrogate a runtime
+          # (AGENTS.md: a reaper that cannot ask declines rather than sweeping).
+          if [ -z "${GH_TOKEN:-}" ]; then
+            say false "no YOLO_RUNNER_PROBE_TOKEN secret — cannot ask whether the Mac is up, so declining. See the comment above this step for the one-time setup."
+            exit 0
+          fi
+
+          if ! json=$(gh api "repos/$REPO/actions/runners" --paginate 2>&1); then
+            say false "the runners API refused: ${json%%$'\n'*} — declining rather than guessing. The token needs Administration: Read-only on this repository."
+            exit 0
+          fi
+
+          # The label is what selects the machine, so it is what the probe asks about. It
+          # must match the `runs-on` list below; they are two spellings of one fact and
+          # there is no way to derive one from the other inside YAML.
+          if echo "$json" | jq -e '
+                [.runners[]
+                 | select(any(.labels[]; .name == "apple-container"))
+                 | select(.status == "online" and (.busy | not))]
+                | length > 0' >/dev/null; then
+            say true "an apple-container runner is online and idle"
+          else
+            echo "$json" | jq -r '.runners[] | "runner: \(.name) status=\(.status) busy=\(.busy) labels=\([.labels[].name] | join(","))"' || true
+            say false "no idle online runner carries the apple-container label — the Mac is off, or busy. Skipping; the next poll is in two hours."
+          fi
+
+  apple-container:
+    needs: runner-check
+    # THREE CONDITIONS, AND EACH ONE ALONE WOULD BE ENOUGH TO MATTER.
+    #
+    #   * the runner is up — otherwise this would queue for 24h and fail amber;
+    #   * this is the upstream repository — a fork that somehow scheduled this must not
+    #     try to reach the maintainer's machine;
+    #   * (implicitly) the trigger, which the `on:` block above restricts to two that no
+    #     fork can cause.
+    if: >-
+      needs.runner-check.outputs.available == 'true' &&
+      github.repository == 'mschulkind-oss/yolo-jail'
+    runs-on: [self-hosted, macOS, ARM64, apple-container]
+    name: Apple Container (self-hosted arm64 Mac)
+    # A CEILING ON WASTE rather than an estimate — the subset below is four tests and
+    # nobody has timed them on this backend. The first green run is the measurement.
+    # Sized so one wedged launch still leaves room for the others to report.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The CLI under test is built by the harness with a plain `go build`, so it
+          # carries no version stamp and reports a LIVE `git describe` of this checkout
+          # instead (internal/version). Depth 1 has no tags to describe.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # INFORMATIONAL, and deliberately not a precondition check: the gate in
+      # integration/applecontainer_test.go is the one authority on what this backend needs,
+      # and restating its conditions here would be a second copy of them in a language with
+      # no test coverage. What this buys is a correlation handle — the `container` version
+      # is the variable that decides half of what this job measures (the `:ro` question
+      # especially), and a future break wants to know which release it was on.
+      - name: Runner facts
+        run: |
+          sw_vers
+          uname -m
+          container --version || echo "container: NOT ON PATH"
+          container system status || echo "container system: NOT RUNNING"
+
+      # THE IMAGE, AND THE ONE STEP MOST LIKELY TO BE WRONG ON THE FIRST RUN.
+      #
+      # A darwin machine cannot BUILD the Linux image — there is no Linux builder here —
+      # so it must SUBSTITUTE the whole closure. That became possible on 2026-09-13
+      # (`1006fe6d`, "push to Cachix on every run"): the image's entire input set is
+      # flake.nix + flake.lock, so a darwin eval and a Linux eval produce identical .drv
+      # paths and the Mac can fetch what the ubuntu nightly pushed.
+      #
+      # ⚠ UNVERIFIED ON HARDWARE. That commit is a day old and this route has never run on
+      # a Mac. Realizing it HERE, as its own step, is what makes a Cachix miss say so once
+      # — instead of failing four tests in a row forty minutes later with a nix error, which
+      # is exactly how the macOS nightly lost nine days (docs/design/darwin-image-provenance.md).
+      #
+      # IF THIS STEP IS THE ONE THAT FAILS, the fallback is already written down: copy
+      # nightly-macos.yml's shape — an ubuntu `build-image` job that uploads the tar, a
+      # download step here, and `container image load -i` (internal/image/image.go is the
+      # authority on that argv). It is more moving parts, which is why it is the fallback
+      # and not the first attempt.
+      - name: Realize the jail image (substituting from Cachix)
+        run: |
+          set -euo pipefail
+          if ! nix build --impure --accept-flake-config --no-link --print-out-paths .#ociImage; then
+            echo "::error::could not realize .#ociImage on this Mac. It cannot BUILD a Linux closure (no Linux builder), so every derivation must come from a substituter — and one of them did not. Check that the macOS nightly has pushed this commit's flake.nix/flake.lock closure to yolo-jail.cachix.org; if it has not, this job needs nightly-macos.yml's build-image + artifact route instead."
+            exit 1
+          fi
+
+      # THE PATTERN IS COMPUTED, NOT WRITTEN DOWN — the same rule the macOS nightly's shards
+      # follow, for the same reason: a hand-written `-run` regex rots the first time somebody
+      # adds a test, and it rots SILENTLY, because the unselected test simply never runs and
+      # the job stays green.
+      #
+      # AND A ZERO-LENGTH SELECTION FAILS. That is the one hole the in-binary gate cannot
+      # cover: requireAppleContainer turns "scheduled but the backend is absent" into a red
+      # test, but a `-run` pattern matching NOTHING never reaches a test at all and `go test`
+      # exits 0 having done nothing. This check is what closes it, and it is why the prefix
+      # `TestAppleContainer` is enforced by the gate itself rather than by convention.
+      - name: Select the Apple Container parity subset
+        id: subset
+        run: |
+          set -euo pipefail
+          go test -list '^TestAppleContainer' ./integration | grep -E '^TestAppleContainer' | sort > /tmp/ac-tests
+          count=$(wc -l < /tmp/ac-tests | tr -d ' ')
+          echo "selected $count Apple Container parity tests:"
+          cat /tmp/ac-tests
+          if [ "$count" -eq 0 ]; then
+            echo "::error::the listing selected 0 tests named TestAppleContainer… — refusing to pass vacuously. Either the suite was renamed out from under this filter, or ./integration does not compile."
+            exit 1
+          fi
+          echo "pattern=^($(paste -sd'|' /tmp/ac-tests))$" >> "$GITHUB_OUTPUT"
+
+      # DELIBERATELY NOT THE WHOLE SUITE, and that is the difference between a signal and a
+      # job nobody reads.
+      #
+      # Most of ./integration will legitimately fail or skip on this backend: there are no
+      # loophole host services, `:ro` is ignored, no `--net` selector is taken, `--add-host`
+      # is unsupported (apple/container#673). Pointing the full suite at it on day one would
+      # produce dozens of red tests describing known absences, and a job that is red for
+      # known reasons teaches nobody anything about the unknown ones.
+      #
+      # So the subset is four facts that MUST hold, each one a question a Linux test cannot
+      # answer, two of them the two shipped issues asked on the hardware that had them.
+      # applecontainer_test.go's header states the rule for growing it: one test at a time,
+      # each added only after it has passed here.
+      - name: Apple Container parity tests
+        run: go test -count=1 -timeout 0 -v -run '${{ steps.subset.outputs.pattern }}' ./integration
+        env:
+          # THE DECLARATION. Set, a test that cannot reach this backend FAILS instead of
+          # skipping — because a suite that skips is indistinguishable from a suite that
+          # passes, and this one skips on every other machine in the world. Only the step
+          # that scheduled the work can say which it is, which is why the declaration lives
+          # here and not in the test binary (integration/applecontainer_test.go, and
+          # integration/macosusergate_test.go for the fuller version of the argument).
+          YOLO_TEST_APPLE_CONTAINER: "1"
+          # NOT set job-wide, and not set here either: each test passes YOLO_RUNTIME per
+          # LAUNCH (appleContainerEnv), which is the spelling a job-level variable cannot
+          # shadow and which keeps a hand-run of one test on this Mac behaving identically.
+
+      # THE RUNNER IS NOT EPHEMERAL, which is the one way this job differs from every other
+      # macOS job in this repo — those run on a fresh VM that is thrown away. Here a leaked
+      # container, or a workspace the harness could not unlink, persists on somebody's
+      # actual laptop until the next run trips over it.
+      #
+      # Reporting rather than reaping, on purpose: the test fixtures already remove their
+      # own containers and workspaces (writeProject's cleanup, forceRemoveContainer), so
+      # anything still standing here is EVIDENCE of a fixture that failed to clean up, and
+      # a step that silently deleted it would remove the only trace. `|| true` so a
+      # post-mortem never turns a green run red.
+      - name: Leftovers (report only)
+        if: always()
+        run: |
+          echo "--- containers still present ---"
+          container ls --all || true
