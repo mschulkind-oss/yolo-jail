@@ -1,12 +1,8 @@
 package check
 
 import (
-	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // sandboxUser is the dedicated macOS sandbox account.
@@ -22,8 +18,14 @@ func (o *Options) sandboxUserExists() bool {
 }
 
 // checkMacosUserBackend probes readiness of the
-// native macos-user backend (OS, Seatbelt, sandbox account, nix + flake.lock,
-// and the resolved `packages:` profile). Never runs inside a jail.
+// native macos-user backend (OS, Seatbelt, sandbox account, nix + flake.lock).
+// Never runs inside a jail.
+//
+// IT NO LONGER REPORTS THE `packages:` PROFILE. That report is
+// sectionPackageProfile's, gated on the notch composing no `render.PrimBakedImage`
+// rather than on this section running, because the platform was the wrong predicate
+// for it: the mechanism is (see section_packageprofile.go, provisioner-sets.md §9
+// step 2). This section keeps the probes that really are macOS-only.
 //
 // NO INTERPRETER PROBE. It had one until this comment was written, hard-FAILing
 // a python3-less Mac — and it had been dead since J2 swapped the launch path to
@@ -80,40 +82,4 @@ func (o *Options) checkMacosUserBackend(r *reporter) {
 			"Native packages resolve against the repo's pinned "+
 				"nixpkgs; without the lock they can't be pinned.")
 	}
-	o.checkPackageProfile(r)
-}
-
-// checkPackageProfile reports the RESOLVED `packages:` nix profile and its GC root — the
-// two facts that make a non-container notch's tool closure inspectable (N2's fourth
-// sub-item; docs/design/provisioner-sets.md §10 alternative H, formerly
-// noncontainer-nix-environment.md's Option 1).
-//
-// Read from the GC-ROOT SYMLINK, never by invoking nix: check already owns the one place a
-// real build is allowed (the --build-gated image section), and resolving a profile here
-// would be a second surprise build. The root is also the exactly-right oracle — it is what
-// the last materialization pointed at, so it answers "which closure would a launch use".
-//
-// PASS/WARN split by what the user can act on. A root that resolves is the healthy state
-// worth naming; an ABSENT root is a WARN rather than a FAIL because it is also the normal
-// pre-first-run state — a launch creates it — and the remedy is the same either way. The
-// one genuinely bad state, a root pointing at a store path that is GONE, gets its own FAIL:
-// that means a GC collected the closure despite the root, which is the defect N1 fixed and
-// therefore the thing worth reporting loudly if it ever recurs.
-func (o *Options) checkPackageProfile(r *reporter) {
-	link := darwinpkg.ProfileRootLink(paths.Home())
-	target, err := os.Readlink(link)
-	if err != nil {
-		r.warn("No `packages:` nix profile resolved yet",
-			"A run materializes it and GC-roots it at "+link+".  Nothing is "+
-				"wrong if you have not launched this backend yet.")
-		return
-	}
-	if !o.PathExists(target) {
-		r.fail("The `packages:` GC root points at a store path that no longer exists",
-			"Root: "+link+"\nTarget: "+target+"\nA nix GC collected a ROOTED "+
-				"closure, which should be impossible — the next run rebuilds it, "+
-				"but please report this.")
-		return
-	}
-	r.ok("`packages:` profile resolved and GC-rooted: " + target)
 }

@@ -496,9 +496,9 @@ verified 2026-08-23; the flake line numbers re-resolved 2026-09-11 (**the merged
 | Pinning to yolo's `flake.lock` rather than the user's channel | **SHIPPED** (structural — it *is* the flake) | `flake.lock`, plus a second `nixpkgs-x86-darwin` input ([§6.7](#67-macos-vs-linux-coverage-freshness-and-the-traps)) |
 | A target system that follows the machine instead of a constant | **SHIPPED 2026-08-05** | `darwinpkg.NativeSystem()`, `internal/darwinpkg/darwinpkg.go:46-76` |
 | A **gcroot** on the realized profile | **SHIPPED 2026-08-05** — the root *is* the build's `--out-link`, so it cannot be skipped | `internal/darwinpkg/gcroot.go`, `darwinpkg.go:117-141` |
-| The resolved profile **reported** to a human | **SHIPPED 2026-08-05** for `describe` (gated on `PrimBakedImage` being absent) and for `check`'s macos-user section | `internal/cli/describe.go:161-190`, `internal/cli/check/sections_macos.go:103-134` |
+| The resolved profile **reported** to a human | **SHIPPED 2026-08-05** for `describe`, and **2026-09-14** for `check` — both now gated on `PrimBakedImage` being absent ([§9](#9-what-i-would-build-in-order) step 2) | `printPackageProfile` (`internal/cli/describe.go`), `sectionPackageProfile` (`internal/cli/check/section_packageprofile.go`) |
 | `yolo check` verifying nix + `/nix` + trusted-user **on macOS** | **SHIPPED** | `cli/check/section_nix_probe.go`, `sections_macos_platform.go` |
-| The same, on **Linux** | **NOT WIRED** — `IsMacOS`-gated | `section_nix_probe.go:28-31`, `check.go:77-78` ([`OQ-NX9`](#OQ-NX9)) |
+| The same, on **Linux** | **NOT WIRED** — `IsMacOS`-gated | the `o.IsMacOS && hasNix` branch in `section_nix_probe.go`, and `sectionMacOSPlatform`'s call in `check.go` ([`OQ-NX9`](#OQ-NX9)) |
 | A **caller** for the profile at the `host` notch | **DOES NOT EXIST** | `yolo host apply` never touches nix (`cli/apply.go`: no `packages` handling) |
 | `packages:` reported by `yolo host apply` / `check --at host` | **DOES NOT EXIST** — `packages` is not a pack *kind*, so the `FieldSet` census never sees it | `render/fieldset.go`, `cli/apply.go` ([`OQ-NX8`](#OQ-NX8)) |
 
@@ -1138,9 +1138,15 @@ these are independent of every open question and should not wait on one.
    `yolo` on `SandboxPath` or stop baking a server list into a launcher that cannot use it, and
    make the npm launcher's missing `npm` a launch-time warning rather than a first-invocation
    failure.
-2. **Split the profile report out of the macos-user `check` section** and run it wherever
+2. ~~**Split the profile report out of the macos-user `check` section** and run it wherever
    `PrimBakedImage` is absent — the predicate `describe` already uses
-   ([`OQ-NX9`](#OQ-NX9)'s narrow half). One predicate, already written, used twice.
+   ([`OQ-NX9`](#OQ-NX9)'s narrow half). One predicate, already written, used twice.~~
+   **SHIPPED 2026-09-14** as `check`'s own `sectionPackageProfile`, with one thing the step
+   did not anticipate: the absent-root WARN's note (*"a run materializes it"*) is a fact about
+   the **macos-user backend**, so at a notch with no provisioner it would have been a remedy
+   the reader cannot run. That cell states the inertness instead. The rest of
+   [`OQ-NX9`](#OQ-NX9) — the nix daemon probes — is untouched and still waits on
+   [`OQ-PS1`](#OQ-PS1).
 3. **Make `yolo host apply` say what `describe` says about `packages:`**
    ([`OQ-NX8`](#OQ-NX8)'s narrow half). Two yolo commands currently disagree about whether the
    host manages packages; that is worth closing even if every policy question stays open.
@@ -1944,21 +1950,25 @@ recommendation the doc rests on.
     retired doc's [`OQ-9`](#decision-ledger) — **note the collision this prefix resolves**:
     env-manager's own [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)
     is cited several times in this doc and is a different question.) Re-verified 2026-08-23:
-    `nixDaemonStoreCheck` and the extra-platforms block are still `IsMacOS`-gated
-    (`internal/cli/check/section_nix_probe.go:28-31`), and so is the whole platform section
-    (`check.go:77-78`). The profile report is **also** macOS-only — it lives inside
-    `checkMacosUserBackend` (`sections_macos.go`), which returns early both in a jail and off
-    macOS. **What it decides:** whether a Linux user of a non-container notch gets any diagnosis
-    when their daemon is broken or their profile root is dangling. Sharper than when written: the
+    `nixDaemonStoreCheck` and the extra-platforms block are still `IsMacOS`-gated (both are
+    called from one `o.IsMacOS && hasNix` branch in `internal/cli/check/section_nix_probe.go`),
+    and so is the whole platform section (`sectionMacOSPlatform`'s call in `check.go`). **What
+    it decides:** whether a Linux user of a non-container notch gets any diagnosis when their
+    daemon is broken or their profile root is dangling. Sharper than when written: the
     *mechanism* is per-system, so a platform gate on its *diagnostics* is no longer symmetric with
     the thing it diagnoses.
 
-    _Leaning:_ **Split the profile report out of the macos-user section and run it wherever
-    `PrimBakedImage` is absent** — the same predicate `describe` already uses
-    ([§9](#9-what-i-would-build-in-order) step 2). The daemon probes are a larger question and can
-    wait for [`OQ-PS1`](#OQ-PS1).
+    **THE PROFILE-REPORT HALF IS ANSWERED AND SHIPPED (2026-09-14)**, so only the daemon probes
+    are still open here. It was macOS-only because it lived inside `checkMacosUserBackend`; it is
+    now `check`'s own `sectionPackageProfile`, gated on `PrimBakedImage` being absent
+    ([§9](#9-what-i-would-build-in-order) step 2). A `confinement: guest` or `host` workspace gets
+    the report on any platform, and a jail gets none.
 
-    <!-- vantage: oq id=OQ-NX9 leaning="Split the profile report out of the macos-user check section and run it wherever PrimBakedImage is absent — the predicate describe already uses. The daemon probes are larger and can wait for OQ-PS1." -->
+    _Leaning:_ the daemon probes are a larger question and can wait for [`OQ-PS1`](#OQ-PS1): they
+    diagnose a nix installation, not a notch, and `check` has no notch-shaped reason to run them
+    on a Linux host that is about to launch a container.
+
+    <!-- vantage: oq id=OQ-NX9 leaning="The profile-report half shipped 2026-09-14 as sectionPackageProfile, gated on PrimBakedImage being absent. Only the nix daemon probes are still open, and they can wait for OQ-PS1 — they diagnose an installation, not a notch." -->
 
     **Answer:**
     > _(empty — fill in when decided)_

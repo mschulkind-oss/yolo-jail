@@ -184,6 +184,13 @@ func Check(opts Options) int {
 		r.blank()
 	}
 
+	// --- Declared packages (any notch with no baked image) ---
+	// NOT under the macos-user block, and that is the point: the tool closure is a
+	// question about the PROVISIONING mechanism, so the gate is `PrimBakedImage` being
+	// absent — the predicate `describe` already uses — rather than this host being a Mac
+	// (provisioner-sets.md §9 step 2). It prints nothing when the notch has an image.
+	o.sectionPackageProfile(r, merged, runtimeSel)
+
 	// --- GPU (NVIDIA) ---
 	o.sectionGPUNvidia(r, merged)
 	// --- GPU (AMD / ROCm) ---
