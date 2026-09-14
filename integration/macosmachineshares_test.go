@@ -515,6 +515,57 @@ func TestTheNightlyPushesBothLinuxArchesToCachix(t *testing.T) {
 	}
 }
 
+// shellCachixCacheRe matches the spelling that CANNOT work: a shell expansion of an
+// environment variable, in a `run:` block, for a value GitHub only exposes through the
+// `vars` context.
+var shellCachixCacheRe = regexp.MustCompile(`\$\{CACHIX_CACHE\b`)
+
+// TestTheNightlyResolvesTheCacheNameThroughTheVarsContext pins the half of the Cachix
+// gate that is not the token.
+//
+// `build-image` read `${CACHIX_CACHE:-yolo-jail}` from 2026-09-13 (`1006fe6d`) until
+// 2026-09-14. That is a SHELL expansion, and a repository variable is not exported into
+// a `run:` block — this workflow's only `env:` is FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 —
+// so it always took the default. publish.yml, whose gate this one was copied from,
+// documents `CACHIX_CACHE` as the override "e.g. for a fork pushing to its own cache",
+// and spells it `${{ vars.CACHIX_CACHE || 'yolo-jail' }}`.
+//
+// WHY A TEST. Both spellings resolve to `yolo-jail` on THIS repository, which is the
+// only place either has ever run — so the wrong one is invisible here and wrong only for
+// the fork the override exists for, which then presents its own token to a cache it does
+// not own. Nothing about that reports back to this repo, and the two forms differ by
+// punctuation.
+func TestTheNightlyResolvesTheCacheNameThroughTheVarsContext(t *testing.T) {
+	jobs := workflowJobs(t, readWorkflow(t, nightlyWorkflow))
+
+	gates := 0
+	for _, name := range sortedKeys(jobs) {
+		body := uncommentedYAML(jobs[name])
+		if !cachixActionRe.MatchString(body) {
+			continue
+		}
+		gates++
+		if loc := shellCachixCacheRe.FindString(body); loc != "" {
+			t.Errorf("%s: job %q resolves the Cachix cache name with %q — a shell "+
+				"expansion of an environment variable that nothing sets.\n\nA repository "+
+				"variable reaches a workflow only through the `vars` CONTEXT, never as an "+
+				"env var in a `run:` block, so this form always takes the default and the "+
+				"override publish.yml documents cannot work. Spell it "+
+				"`${{ vars.CACHIX_CACHE || 'yolo-jail' }}`.", nightlyWorkflow, name, loc)
+		}
+		if !strings.Contains(body, "vars.CACHIX_CACHE") {
+			t.Errorf("%s: job %q pushes to Cachix but never reads vars.CACHIX_CACHE, so "+
+				"the cache name cannot be overridden at all.\n\nThat override is what lets "+
+				"a fork push to its OWN cache. Without it a fork with a token gets a push "+
+				"aimed at `yolo-jail`, which it does not own.", nightlyWorkflow, name)
+		}
+	}
+	if gates == 0 {
+		t.Fatalf("%s has no `uses: cachix/cachix-action@` step in any job; this test has "+
+			"lost its subject and would pass by finding nothing.", nightlyWorkflow)
+	}
+}
+
 // TestTheMacosShardsDoNotDependOnAnArmImageBuild is why the aarch64 push is a SEPARATE
 // JOB rather than a second cell of `build-image`'s matrix, which is the shape
 // publish.yml uses and the obvious simplification to reach for.

@@ -59,12 +59,20 @@ jobs:
       # GATED ON THE TOKEN ALONE, like publish.yml: the cache NAME is not a secret.
       # A fork without the secret skips the push and builds normally — losing this
       # cache must cost TIME only, never function.
+      #
+      # THE NAME COMES FROM THE `vars` CONTEXT, and it did not until 2026-09-14. This
+      # read `${CACHIX_CACHE:-yolo-jail}` — a SHELL expansion of an environment
+      # variable, and a repository variable is not exported into a `run:` block (this
+      # workflow's only `env:` is FORCE_JAVASCRIPT_ACTIONS_TO_NODE24). So it could
+      # never see the override publish.yml documents, and a fork that set
+      # `CACHIX_CACHE` to its own cache would silently present its token to
+      # `yolo-jail` instead. Pinned by integration/macosmachineshares_test.go.
       - name: Check Cachix is configured
         id: cachix
         run: |
           if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "cache=${CACHIX_CACHE:-yolo-jail}" >> "$GITHUB_OUTPUT"
+            echo "cache=${{ vars.CACHIX_CACHE || 'yolo-jail' }}" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Cachix not configured (no CACHIX_AUTH_TOKEN). Skipping the push."
@@ -193,13 +201,8 @@ jobs:
 
       # GATED ON THE TOKEN ALONE, like `build-image` above and publish.yml: the cache
       # NAME is not a secret. A fork without the secret pushes nothing and still builds
-      # — losing this cache must cost TIME only, never function.
-      #
-      # The name is resolved through the `vars` CONTEXT, which is publish.yml's spelling
-      # and not `build-image`'s. `${CACHIX_CACHE:-…}` is a shell expansion of an
-      # environment variable, and a repository variable is NOT exported into a `run:`
-      # block — this workflow's only `env:` is FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 — so
-      # that form can never see one and always takes the default.
+      # — losing this cache must cost TIME only, never function. The name resolves
+      # through the `vars` context for the reason `build-image` now states.
       - name: Check Cachix is configured
         id: cachix
         run: |
