@@ -51,6 +51,13 @@ func cfgWithPackages(t *testing.T, body string) *jsonx.OrderedMap {
 // fast path can be refused. Each is a real constraint, not a policy: Apple Container
 // cannot bind-mount the host store at all, a macOS podman VM shares no store, and without
 // the socket + store there is nothing to resolve a store path against.
+//
+// ⚠ ONE CONSUMER OUTSIDE THIS PACKAGE RESTS ON THE "macos podman" ROW.
+// integration/packages_test.go's TestExtraPackagesFromMountedStore skips on `GOOS != linux`
+// BEFORE launching, because on darwin the row below says it can only ever reach its own
+// skip — and reaching it cost 567 seconds of a 50-minute job cap on the macOS nightly. If
+// that row ever flips to eligible, this test fails first; the integration skip is the other
+// thing to fix, and it will not announce itself.
 func TestStorePackagesEligibility(t *testing.T) {
 	cases := []struct {
 		name        string

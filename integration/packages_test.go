@@ -1,6 +1,7 @@
 package integration
 
 import (
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -183,6 +184,23 @@ func TestDevPackageLinksRuntimeLib(t *testing.T) {
 // misattribution this file's header was written about.
 func TestExtraPackagesFromMountedStore(t *testing.T) {
 	requireJail(t)
+	// SKIP BEFORE LAUNCHING on the half that is knowable without one. Store delivery needs a
+	// LINUX host (run.storePackagesEligible refuses every other), so on darwin this test can
+	// only ever reach the skip below — after paying for a full launch that bakes `zbar` into
+	// a fresh image to get there.
+	//
+	// MEASURED on the macOS nightly (run 34862784409, shard 6): `--- SKIP:
+	// TestExtraPackagesFromMountedStore (567.29s)`. Nine and a half minutes of a
+	// fifty-minute job cap, spent computing an answer `runtime.GOOS` already had, on every
+	// macOS shard that holds this test — while two other shards in the same run were
+	// cancelled for hitting that cap.
+	//
+	// The output-based skip below STAYS and is not redundant: it covers the half that a
+	// constant cannot see — a Linux host with no podman, or no running nix daemon.
+	if goruntime.GOOS != "linux" {
+		t.Skipf("%s: store delivery is Linux-only, so this can only reach the skip below — "+
+			"and reaching it costs a full image bake", goruntime.GOOS)
+	}
 	dir := writeProject(t, `{"network": {"mode": "bridge"}, "packages": ["zbar"]}`)
 	r := runYolo(t, dir, strings.Join([]string{
 		`echo "=== WHICH ==="; command -v zbarimg || true`,
