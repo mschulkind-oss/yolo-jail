@@ -79,7 +79,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 			mountDescriptions = append(mountDescriptions, resolved+":"+containerPath)
 		}
 	}
-	mountDescriptions = appliedCtxMounts(rt, mountDescriptions)
+	mountDescriptions = o.appliedCtxMounts(rt, mountDescriptions)
 
 	// ACTIVE loopholes (name, description) — census site 1, through the converged set.
 	//

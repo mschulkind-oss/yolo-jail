@@ -56,7 +56,7 @@ func (o *Options) capturesArgs(rt, dir string) []string {
 	if dir == "" || !o.PathExists(dir) {
 		return nil
 	}
-	if rt == "container" { // parity: Dropped — AC ignores :ro and a writable machine-wide store is cross-jail injection; silent because absence is already the contract every reader implements
+	if rt == "container" { // parity: Dropped — AC ignored :ro below acROBindsFloor and a writable machine-wide store is cross-jail injection; silent because absence is already the contract every reader implements
 		// APPLE CONTAINER GETS NO STORE, and this is the honest spelling of what it already
 		// had rather than a capability being withdrawn.
 		//

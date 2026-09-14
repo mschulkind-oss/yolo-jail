@@ -54,7 +54,7 @@ type assembleInput struct {
 	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees the entrypoint
 	// renders from, so it sees the same declarations the host read. Delivered :ro at
 	// /ctx/packs on podman and as a per-launch COPY under ws_state on Apple Container,
-	// which ignores :ro; either way the jail is TOLD where by YOLO_PACK_ROOT.
+	// which ignored :ro below acROBindsFloor; either way the jail is TOLD where by YOLO_PACK_ROOT.
 	packStaging string
 	// capturesDir is the machine-wide install-capture store (paths.CapturesDir), bound
 	// :ro so an in-jail launcher can materialize an entry instead of downloading it.
@@ -286,7 +286,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- Extra mounts (config.mounts → -v host:container:ro) ---
 	var mountArgs []string
-	ctxMountsUnsafe := roBindsUnsupported(rt)
+	ctxMountsUnsafe := o.roBindsUnsupported(rt)
 	for _, mountAny := range cfgList(cfg, "mounts") {
 		mount, ok := mountAny.(string)
 		if !ok {
@@ -580,12 +580,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// --- host nvim config ---
 	// Read once at boot (entrypoint copies /ctx/host-nvim-config into the jail's
 	// ~/.config/nvim) — but the mount stays for the whole session, so on a backend that
-	// ignores :ro it is a live write channel into the user's real editor config. Refuse
+	// ignores :ro (below acROBindsFloor) it is a live write channel into the user's real editor config. Refuse
 	// rather than downgrade, and say so: the visible symptom is nvim coming up
 	// unconfigured, which is otherwise an odd thing to have to explain to yourself.
 	hostNvim := filepath.Join(homeDir(), ".config", "nvim")
 	if isDir(hostNvim) {
-		if reason := roBindsUnsupported(rt); reason != "" {
+		if reason := o.roBindsUnsupported(rt); reason != "" {
 			out.print("[yellow]Skipping host nvim config (~/.config/nvim): " + reason + "[/yellow]")
 		} else {
 			runCmd = append(runCmd, "-v", hostNvim+":/ctx/host-nvim-config:ro")
@@ -692,7 +692,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// pack a host file on the next boot.
 	//
 	// ⚠ THE `:ro` HALF DOES NOT SURVIVE ON APPLE CONTAINER, and the arm below says what
-	// replaces it. That backend accepts `-v src:dest:ro` and IGNORES the suffix
+	// replaces it. Below acROBindsFloor that backend accepts `-v src:dest:ro` and IGNORES the suffix
 	// (roBindsUnsupported), so there is no read-only bind to fall back to — a bind would
 	// hand the jail WRITE access to the launcher's own AGENTS_DIR/<cname>/packs, which is
 	// the tree the HOST reads next launch, which is the escalation above happening rather

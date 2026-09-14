@@ -235,7 +235,7 @@ func TestAppleContainerMachineWideTierArrives(t *testing.T) {
 // sourced from a nix store path or the user's own home, and a probe that WROTE to one to
 // find out would be modifying the maintainer's machine to answer a question about it. A
 // throwaway temp directory is the only safe subject.
-func TestAppleContainerIgnoresReadOnlyBinds(t *testing.T) {
+func TestAppleContainerHonorsReadOnlyBinds(t *testing.T) {
 	requireAppleContainer(t)
 	requireJail(t)
 
@@ -265,21 +265,32 @@ func TestAppleContainerIgnoresReadOnlyBinds(t *testing.T) {
 	_, hostErr := os.Stat(filepath.Join(dir, "written"))
 	landed := hostErr == nil
 
+	// The version, for the message. Read here rather than assumed because the answer is a
+	// property of the RELEASE, and a failure that does not name it sends the next reader
+	// looking in yolo.
+	ver, _ := exec.Command("container", "--version").Output()
+
 	switch {
-	case strings.Contains(got, "RO-IGNORED") && landed:
-		t.Logf("MEASURED: Apple Container ignores :ro — the write reached the host. "+
-			"roBindsUnsupported's premise holds and the four refusals resting on it are "+
-			"justified.\n%s", out)
 	case strings.Contains(got, "RO-HONORED") && !landed:
-		t.Errorf("MEASURED: Apple Container HONORED a :ro bind.\n\n"+
-			"This is not a regression, it is news. roBindsUnsupported "+
-			"(internal/cli/run/backendcaps.go) refuses config `mounts`, pack `mount` grants, "+
-			"the host nvim config and the capture store on this backend SOLELY because the "+
-			"suffix was believed to be ignored. If it is honored, those four capabilities "+
-			"are withheld for no reason and the rule should be narrowed or deleted.\n\n"+
-			"Record the macOS and `container` versions from this run's Runner facts step "+
-			"before changing anything — the answer is a property of that release, not of "+
-			"yolo.\n%s", out)
+		t.Logf("MEASURED: Apple Container HONORS :ro — the write was refused and nothing "+
+			"reached the host. This is what roBindsUnsupported's version floor "+
+			"(acROBindsFloor, internal/cli/run/backendcaps.go) now allows.\n%s\n%s",
+			strings.TrimSpace(string(ver)), out)
+	case strings.Contains(got, "RO-IGNORED") && landed:
+		t.Errorf("MEASURED: Apple Container IGNORED a :ro bind — the write reached the "+
+			"host.\n\nversion: %s\n\n"+
+			"THIS INVERTS THE MEASUREMENT THIS TEST WAS REWRITTEN FOR. Until 2026-09-14 the "+
+			"tree believed the suffix was always ignored (apple/container#889, observed on "+
+			"0.12.3) and refused four capabilities on that basis; the first run that could "+
+			"actually check reported HONORED on 1.1.0, and `roBindsUnsupported` became a "+
+			"version floor at that release.\n\n"+
+			"So one of two things is true, and the version above says which:\n"+
+			"  • this machine is BELOW the floor — then yolo is already refusing correctly "+
+			"and only this test is wrong to run here;\n"+
+			"  • this machine is AT OR ABOVE the floor — then the floor is wrong and yolo is "+
+			"handing out WRITABLE mounts the user granted read-only, which is the dangerous "+
+			"direction and wants fixing first.\n%s",
+			strings.TrimSpace(string(ver)), out)
 	default:
 		t.Errorf("the probe and the host disagree, which is the answer nobody predicted: "+
 			"container said %q and the host %s see the file.\n\n"+

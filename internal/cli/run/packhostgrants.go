@@ -172,7 +172,7 @@ func (o *Options) hostMountArgs(in *assembleInput) []string {
 		for _, mt := range granted {
 			src := filepath.Join(homeDir(), filepath.FromSlash(mt.From))
 			dest := "/ctx/" + strings.TrimPrefix(mt.To, "/")
-			if reason := roBindsUnsupported(in.rt); reason != "" && (isDir(src) || isFile(src)) {
+			if reason := o.roBindsUnsupported(in.rt); reason != "" && (isDir(src) || isFile(src)) {
 				o.pr(o.Stdout).print("[yellow]Skipping pack " + p.Name + " mount ~/" +
 					mt.From + " → " + dest + ": " + reason + "[/yellow]")
 				continue

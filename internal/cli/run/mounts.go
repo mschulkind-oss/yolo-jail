@@ -23,12 +23,16 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 		return nil
 	}
 	out := o.pr(o.Stdout)
-	if rt == "container" {
-		out.print("[bold yellow]Warning: workspace_readonly is NOT enforced on Apple " +
-			"Container[/bold yellow] — it ignores read-only bind mounts " +
-			"(apple/container#889), so these paths stay writable inside the " +
-			"jail. Use `YOLO_RUNTIME=podman` to actually protect host-executed " +
-			"source: " + strings.Join(entries, ", "))
+	// THE SAME ANSWER THE ARGV AND THE BRIEFING USE, not a second `rt == "container"`.
+	// This branch was unconditional, so it warned on EVERY Apple Container launch that
+	// these paths "stay writable" — which stopped being true at acROBindsFloor
+	// (backendcaps.go: measured HONORED on 1.1.0, 2026-09-14). A warning that is false is
+	// worse than none here, because the user's response to it is to stop relying on a
+	// protection they actually have.
+	if reason := o.roBindsUnsupported(rt); reason != "" {
+		out.print("[bold yellow]Warning: workspace_readonly is NOT enforced on this " +
+			"runtime[/bold yellow] — " + reason + " These paths stay writable inside the " +
+			"jail: " + strings.Join(entries, ", "))
 	}
 
 	var args []string

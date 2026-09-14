@@ -139,7 +139,6 @@ var parityBacklog = map[string]int{
 	"inheritscope.go":        2,
 	"lifecycle.go":           7,
 	"loopholesruntime.go":    4,
-	"mounts.go":              1,
 	"packfiles.go":           1,
 	"packhostgrants.go":      1,
 	"perfevents.go":          1,

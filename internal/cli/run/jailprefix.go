@@ -207,7 +207,7 @@ func resolveSymlinks(p string) string {
 
 // jailPrefixMountArgs emits the two `-v` pairs. Read-only on purpose: nothing in
 // the jail writes to its own install prefix, and Apple Container silently
-// ignores `:ro` (apple/container#889) exactly as it does for every other mount
+// ignored `:ro` below acROBindsFloor (apple/container#889) exactly as it did for every other mount
 // here — the flag states the intent for the backends that honor it rather than
 // pretending the guarantee is universal.
 func jailPrefixMountArgs(p jailPrefix) []string {

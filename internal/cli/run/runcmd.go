@@ -184,6 +184,11 @@ type Options struct {
 	// with extra env entries ("KEY=VALUE", appended to the parent env). nil =>
 	// real. Used for git identity, lsusb, runtime version/liveness probes.
 	Exec func(argv []string, dir string, env []string, timeout time.Duration) ExecResult
+
+	// acVersion memoizes the `container --version` probe for this launch. Unexported
+	// and nil-by-default so every hand-built Options in a test starts unprobed; see
+	// appleContainerVersion for why the answer must be shared rather than re-asked.
+	acVersion *acVersionProbe
 	// Stdout/Stderr receive the human output (console.print goes to stderr in
 	// rich by default for status; run() uses console (stdout) for most lines).
 	// nil => os.Stdout / os.Stderr.

@@ -1,7 +1,10 @@
 package run
 
 import (
+	"regexp"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -30,24 +33,121 @@ import (
 // than a jail missing a capability because an agent plans around it. Both consumers now
 // read one answer, so the divergence is unrepresentable rather than fixed case by case.
 
+// acROBindsFloor is the Apple Container version from which `:ro` is HONORED, and it is a
+// measurement rather than a changelog reading.
+//
+// ⚠ THIS BELIEF WAS INVERTED BY THE FIRST CI RUN THAT COULD TEST IT (2026-09-14, macOS
+// 26.5 arm64, `container` 1.1.0). The tree said, in this file and three others, that
+// Apple Container "accepts `-v src:dest:ro` and IGNORES the suffix" — apple/container#889,
+// last observed on 0.12.3. TestAppleContainerIgnoresReadOnlyBinds had never once executed
+// (its `imageExists("container")` helper could not speak that CLI, so it skipped every
+// run); the moment it did, it reported `MEASURED: Apple Container HONORED a :ro bind.`
+//
+// A VERSION FLOOR RATHER THAN A FLIP, and the asymmetry is the whole argument. Getting
+// this wrong in the "supported" direction hands an agent WRITE access to a host directory
+// the user granted read-only — silently, because the mount succeeds either way. Getting it
+// wrong in the "unsupported" direction costs a feature and says so. So an unparseable
+// version, an absent CLI, or anything below the floor stays refused: this is the same
+// stance the repo takes wherever it cannot interrogate a runtime — decline rather than
+// assume.
+//
+// The floor is 1.1.0 because that is what was measured. The release that actually fixed
+// #889 is somewhere in (0.12.3, 1.1.0] and nobody here knows which; a lower floor would be
+// a guess in the dangerous direction.
+const acROBindsFloor = "1.1.0"
+
 // roBindsUnsupported reports why a backend cannot honor a read-only bind mount,
 // or "" when it can.
 //
-// Apple Container accepts `-v src:dest:ro` and IGNORES the suffix, which is the
-// dangerous failure mode rather than the annoying one: the mount succeeds, so nothing
-// looks wrong, and the agent holds write access to a host directory the user granted
-// as read-only. Both callers therefore refuse the mount rather than downgrade it —
-// there is no read-only bind to fall back to, and handing over a writable one on a
-// backend the user picked for isolation is not a degradation anyone consented to.
+// Apple Container BELOW acROBindsFloor accepts `-v src:dest:ro` and ignores the suffix,
+// which is the dangerous failure mode rather than the annoying one: the mount succeeds, so
+// nothing looks wrong, and the agent holds write access to a host directory the user
+// granted as read-only. Both callers therefore refuse the mount rather than downgrade it —
+// there is no read-only bind to fall back to, and handing over a writable one on a backend
+// the user picked for isolation is not a degradation anyone consented to.
 //
 // macos-user is deliberately absent: it has no bind mounts at all, so a `:ro` question
 // does not arise there. Its gaps are reported by noteMacosUserContentGaps.
-func roBindsUnsupported(rt string) string {
-	if rt == "container" { // parity: Refused — AC ignores :ro, so both callers skip rather than hand over write access
-		return "Apple Container ignores read-only (:ro), so it would be writable. " +
-			"Use `YOLO_RUNTIME=podman` for read-only context mounts."
+func (o *Options) roBindsUnsupported(rt string) string {
+	if rt != "container" { // parity: NotApplicable — only AC ever ignored :ro; podman honors it and macos-user has no binds
+		return ""
 	}
-	return ""
+	v, ok := o.appleContainerVersion()
+	if ok && versionAtLeast(v, acROBindsFloor) {
+		return ""
+	}
+	detail := "this version ignores read-only (:ro), so it would be writable"
+	if !ok {
+		detail = "yolo could not read `container --version`, so it cannot tell whether " +
+			"this version honors read-only (:ro) — declining rather than risking a " +
+			"writable mount"
+	} else {
+		detail = "Apple Container " + v + " ignores read-only (:ro), so it would be " +
+			"writable (honored from " + acROBindsFloor + ")"
+	}
+	return detail + ". Use `YOLO_RUNTIME=podman` for read-only context mounts."
+}
+
+// appleContainerVersion returns the `container` CLI's version, memoized for this launch.
+//
+// MEMOIZED because four call sites ask (the argv twice, the host-mount grants, and the
+// BRIEFING), and they must agree — a briefing composed from a different answer than the
+// argv applied is backend-parity.md §6's defect, a jail told something untrue. One probe,
+// one answer, whatever order they run in.
+func (o *Options) appleContainerVersion() (string, bool) {
+	if o.acVersion != nil {
+		return o.acVersion.v, o.acVersion.ok
+	}
+	v, ok := "", false
+	if bin, found := o.LookPath("container"); found {
+		res := o.Exec([]string{bin, "--version"}, "", nil, 5*time.Second)
+		if res.Ran && !res.Timeout && res.RC == 0 {
+			v, ok = parseAppleContainerVersion(res.Stdout), true
+			ok = v != ""
+		}
+	}
+	o.acVersion = &acVersionProbe{v: v, ok: ok}
+	return v, ok
+}
+
+// acVersionProbe caches appleContainerVersion's answer, including a FAILED one — a probe
+// that could not answer must not be retried three more times per launch and must not read
+// as a different answer the second time.
+type acVersionProbe struct {
+	v  string
+	ok bool
+}
+
+// acVersionRe pulls the dotted version out of `container CLI version 1.1.0 (build: …)`.
+var acVersionRe = regexp.MustCompile(`([0-9]+(?:\.[0-9]+){1,2})`)
+
+// parseAppleContainerVersion extracts the version, or "" when the line does not carry one.
+func parseAppleContainerVersion(out string) string {
+	return acVersionRe.FindString(strings.TrimSpace(out))
+}
+
+// versionAtLeast compares dotted numeric versions, shorter treated as zero-padded.
+// Non-numeric components make it answer false, which is the fail-closed direction.
+func versionAtLeast(have, floor string) bool {
+	hp, fp := strings.Split(have, "."), strings.Split(floor, ".")
+	for i := 0; i < len(hp) || i < len(fp); i++ {
+		h, f := 0, 0
+		var err error
+		if i < len(hp) {
+			if h, err = strconv.Atoi(hp[i]); err != nil {
+				return false
+			}
+		}
+		if i < len(fp) {
+			if f, err = strconv.Atoi(fp[i]); err != nil {
+				return false
+			}
+		}
+		if h != f {
+			return h > f
+		}
+	}
+	return true
 }
 
 // appliedNetMode reports the network mode this launch actually RUNS under, which is not
@@ -102,8 +202,8 @@ func appliedNetMode(rt, netMode string, inContainer bool) string {
 // Container refuses a `:ro` bind it would otherwise make, and macos-user makes no bind at
 // all — it has no container to mount anything into. Folding it into the `:ro` predicate
 // would have that predicate answer a question nobody asked it (DP-B1 / DP-L7).
-func appliedCtxMounts(rt string, descriptions []string) []string {
-	if roBindsUnsupported(rt) != "" {
+func (o *Options) appliedCtxMounts(rt string, descriptions []string) []string {
+	if o.roBindsUnsupported(rt) != "" {
 		return nil
 	}
 	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user binds nothing, and a directory-shaped ctx delivery is named rather than copied (DP-D15)
