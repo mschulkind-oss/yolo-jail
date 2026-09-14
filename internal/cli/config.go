@@ -32,7 +32,8 @@ docs/plans/agent-settings-composition.md.
 Subcommands:
   ls [--all]               List every composed surface — path, codec, mode,
                            contributing layers, and whether captured in-jail
-                           edits are outranking its host layer.
+                           edits are outranking every layer but computed
+                           and managed.
   render <agent> [flags]   Run the composition pipeline and print what it would
                            write, for every surface of <agent> (no writes).
   diff <agent> [flags]     Show the captured in-jail edits (the capture overlay)

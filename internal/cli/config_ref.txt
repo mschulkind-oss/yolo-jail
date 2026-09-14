@@ -562,7 +562,9 @@
       copy      overwritten every boot; in-jail edits are discarded.  Implied
                 for a directory entry.
       capture   re-rendered every boot AND in-jail edits captured into a sidecar
-                that outranks the host layer.  [bold yellow]Never a default — always
+                that outranks the host layer — and every layer below it, but NOT
+                a `computed` or `managed` key, which are re-asserted above the
+                capture on every render.  [bold yellow]Never a default — always
                 explicit[/bold yellow], because a captured edit wins over the host file
                 FOREVER (the sidecar never ages out), so implicit capture would
                 silently fork a host-mirrored file the first time a tool
