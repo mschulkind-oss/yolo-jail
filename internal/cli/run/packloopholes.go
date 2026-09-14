@@ -104,7 +104,34 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// but the disclosure line answers "what does this launch reach on your machine", and
 	// the answer here is nothing. A blocked tool that the agent then discovers is blocked
 	// announces itself, by refusing, at the moment it matters.
-	packdecl.KindBlockedTool:   disclosureSkip,
+	packdecl.KindBlockedTool: disclosureSkip,
+	// skills: a prose tree an agent reads, which is squarely what disclosureSkip is for.
+	//
+	// ⚠ AND IT IS THE KNOWN HOLE IN THIS TABLE — trust-paths.md OQ-TP10, RULED (a) on
+	// 2026-09-14 and NOT YET BUILT. A wrapped plugin's `hooks` and `mcpServers` are
+	// reported under this kind (packload/footprint.go, the Plugins loop), because what they
+	// declare lives in the plugin's own manifest rather than in pack.json — so code that
+	// runs on the agent's lifecycle inherits `skills`'s classification and reaches no
+	// banner. TP9 deleted the approval gate while KEEPING this banner as the compensating
+	// disclosure; that is the sentence the hole falsifies.
+	//
+	// Reclassifying THIS LINE is not the fix and the ruling says so: it would announce
+	// every skill file and bury the hooks in the noise that made disclosureSkip right here
+	// (option (c), rejected). The fix is a claim kind of its own, which packload already
+	// has the shape for — SupersedesClaimKind and ExecutablesClaimKind are display-only
+	// kinds outside packdecl's closed set.
+	//
+	// ⚠ WHAT THE RULING DID NOT SETTLE, so whoever builds this decides it: WHICH CLASS.
+	// All three below are axes of HOST crossing, and disclosureSkip's own definition calls
+	// a jail-internal effect "what the jail IS". A plugin hook runs in the JAIL. So this
+	// needs a fourth class, or a changed definition of the first — the ruling settled the
+	// RENDERING (one counted line per pack, itemization to boot.log, ungateable per
+	// report-tiers P4) and left the class open. Do not default it; the fail-closed default
+	// is disclosureExec, which would print "runs code on the host" about code that does not.
+	//
+	// Pinned meanwhile by TestWrappedPluginHooksAreDeliveredAndDisclosed
+	// (packnohostgate_test.go), which asserts the footprint claim and states the gap rather
+	// than papering over it.
 	packdecl.KindSkills:        disclosureSkip,
 	packdecl.KindFiles:         disclosureSkip,
 	packdecl.KindConfig:        disclosureSkip,
