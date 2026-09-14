@@ -72,7 +72,7 @@ func TestPrebuiltBundleIsMountedWithoutBuilding(t *testing.T) {
 		return "", nil
 	})
 
-	p, ok := o.resolveJailPrefix(root)
+	p, ok := o.resolveJailPrefix(root, "podman")
 	if !ok {
 		t.Fatal("resolveJailPrefix refused a bundle that ships binaries")
 	}
@@ -104,7 +104,7 @@ func TestLiveCheckoutBuildsThePrefix(t *testing.T) {
 		return store, nil
 	})
 
-	p, ok := o.resolveJailPrefix(root)
+	p, ok := o.resolveJailPrefix(root, "podman")
 	if !ok {
 		t.Fatal("resolveJailPrefix refused a checkout whose build succeeded")
 	}
@@ -146,7 +146,7 @@ func TestBinDirWithoutTheEntrypointIsNotUsed(t *testing.T) {
 	store := t.TempDir()
 	o, calls := prefixOptions(t, func(string) (string, []string) { return store, nil })
 
-	if _, ok := o.resolveJailPrefix(root); !ok {
+	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
 		t.Fatal("resolveJailPrefix refused")
 	}
 	if *calls != 1 {
@@ -166,7 +166,7 @@ func TestFailedPrefixBuildRefusesTheLaunch(t *testing.T) {
 	})
 	o.Stderr = &stderr
 
-	if _, ok := o.resolveJailPrefix(root); ok {
+	if _, ok := o.resolveJailPrefix(root, "podman"); ok {
 		t.Fatal("a failed prefix build let the launch continue — the jail would have no yolo-entrypoint")
 	}
 	if !strings.Contains(stderr.String(), "installPrefix") {
@@ -330,7 +330,7 @@ func TestPrebuiltBinDirIsAlwaysTheLinuxArchDir(t *testing.T) {
 // suite would catch it (nothing boots), but only after a full image build.
 func TestRunNormalResolvesAndThreadsTheJailPrefix(t *testing.T) {
 	src := runSource(t)
-	if !strings.Contains(src, "jailPrefix, prefixOK := o.resolveJailPrefix(repoRoot)") {
+	if !strings.Contains(src, "jailPrefix, prefixOK := o.resolveJailPrefix(repoRoot, rt)") {
 		t.Error("runNormal no longer resolves the jail prefix. The install prefix is " +
 			"MOUNTED, not baked, so nothing else produces the binaries the container argv names")
 	}
@@ -438,7 +438,7 @@ func TestPrefixBuildNoticeGoesToStderr(t *testing.T) {
 	}
 	fillDefaults(o)
 
-	if _, ok := o.resolveJailPrefix(root); !ok {
+	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
 		t.Fatal("resolveJailPrefix refused a checkout whose build succeeded")
 	}
 	if stdout.Len() != 0 {
@@ -466,7 +466,7 @@ func TestPrefixBuildNoticeGoesToStderr(t *testing.T) {
 		},
 	}
 	fillDefaults(q)
-	if _, ok := q.resolveJailPrefix(stageBundle(t, true)); !ok {
+	if _, ok := q.resolveJailPrefix(stageBundle(t, true), "podman"); !ok {
 		t.Fatal("resolveJailPrefix refused a prebuilt bundle")
 	}
 	if quietOut.Len() != 0 || quietErr.Len() != 0 {
@@ -512,28 +512,47 @@ func TestPrefixUnreachableFromVMTable(t *testing.T) {
 	cases := []struct {
 		name    string
 		p       jailPrefix
+		rt      string
 		isMacOS bool
 		optIn   string
 		refuse  bool
 	}{
-		{"linux never refuses — /nix is right there", store, false, "", false},
-		{"darwin + a store prefix is the measured outage", store, true, "", true},
-		{"darwin + the operator says the VM shares /nix", store, true, "1", false},
-		{"darwin + a bundle under $HOME is what the VM does share", home, true, "", false},
+		{"linux never refuses — /nix is right there", store, "podman", false, "", false},
+		{"darwin + a store prefix is the measured outage", store, "podman", true, "", true},
+		{"darwin + the operator says the VM shares /nix", store, "podman", true, "1", false},
+		{"darwin + a bundle under $HOME is what the VM does share", home, "podman", true, "", false},
 		{"darwin + only the SHARE half in the store still refuses",
-			jailPrefix{binDir: home.binDir, shareDir: store.shareDir}, true, "", true},
+			jailPrefix{binDir: home.binDir, shareDir: store.shareDir}, "podman", true, "", true},
 		{"darwin + only the BIN half in the store still refuses",
-			jailPrefix{binDir: store.binDir, shareDir: home.shareDir}, true, "", true},
+			jailPrefix{binDir: store.binDir, shareDir: home.shareDir}, "podman", true, "", true},
 		// A directory whose NAME starts with the store's is not inside it. The
 		// segment test exists for this case, so it is asserted rather than trusted.
 		{"darwin + a sibling of /nix/store is not in it", jailPrefix{
 			binDir:   hostNixStore + "-of-my-own/bin",
 			shareDir: hostNixStore + "-of-my-own/share/yolo-jail",
-		}, true, "", false},
+		}, "podman", true, "", false},
+
+		// ⚠ APPLE CONTAINER IS EXEMPT, AND THIS ROW IS THE GUARD ON A MEASURED FIX.
+		//
+		// The rule is about podman's machine VM and its one init-time share set. Apple
+		// Container has no machine: each container gets its own VM and binds the host
+		// paths the launch names, so a /nix/store source is just a host path.
+		//
+		// Refusing it anyway blocked EVERY Apple Container launch from a live checkout —
+		// three parity tests on run 34871200672, 2026-09-14, the first CI run ever to
+		// exercise this backend — and offered a `podman machine init` remedy that means
+		// nothing there. Disproved on hardware: with the refusal bypassed, a launch whose
+		// prefix WAS a store path ran its command and exited 0.
+		//
+		// Delete the `rt == "container"` arm and this row fails alone.
+		{"apple container binds arbitrary host paths, so a store prefix is fine",
+			store, "container", true, "", false},
+		{"apple container is exempt on the SHARE half too",
+			jailPrefix{binDir: home.binDir, shareDir: store.shareDir}, "container", true, "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := prefixUnreachableFromVM(tc.p, tc.isMacOS, tc.optIn)
+			msg := prefixUnreachableFromVM(tc.p, tc.rt, tc.isMacOS, tc.optIn)
 			if tc.refuse != (msg != "") {
 				t.Fatalf("refuse=%v, want %v (message: %q)", msg != "", tc.refuse, msg)
 			}
@@ -565,7 +584,7 @@ func TestDarwinRefusesAStorePrefix(t *testing.T) {
 	var buf bytes.Buffer
 	o.Stderr = &buf
 
-	if _, ok := o.resolveJailPrefix(root); ok {
+	if _, ok := o.resolveJailPrefix(root, "podman"); ok {
 		t.Fatal("a darwin launch accepted a /nix/store prefix its VM cannot see — " +
 			"podman fails that with `statfs …: no such file or directory` and rc 125, " +
 			"which is the 2026-09-07 nightly (run 34117863296) in full")
@@ -591,7 +610,7 @@ func TestDarwinAcceptsAPrefixTheVMCanSee(t *testing.T) {
 	})
 	o.IsMacOS = true
 
-	if _, ok := o.resolveJailPrefix(root); !ok {
+	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
 		t.Fatal("a darwin launch refused a prefix under $HOME (a t.TempDir(), which is " +
 			"not in the nix store) — the gate is meant to catch the store, not macOS")
 	}

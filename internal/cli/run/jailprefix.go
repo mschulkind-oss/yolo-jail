@@ -119,7 +119,7 @@ func prebuiltBinDir(root string) string {
 // empty or half-staged bin/linux-<arch> is the failure mode that would otherwise
 // mount cleanly and die at exec, and yolo-entrypoint is the one member whose
 // absence is fatal rather than degrading.
-func (o *Options) resolveJailPrefix(root string) (jailPrefix, bool) {
+func (o *Options) resolveJailPrefix(root, rt string) (jailPrefix, bool) {
 	p, ok := o.jailPrefixSource(root)
 	if !ok {
 		return jailPrefix{}, false
@@ -127,7 +127,7 @@ func (o *Options) resolveJailPrefix(root string) (jailPrefix, bool) {
 	// The darwin VM-visibility gate goes HERE, on the RESULT, and not inside
 	// either arm: the one mount whose absence means "no pid1" must not be
 	// reachable-or-not depending on which arm produced it. Inert off darwin.
-	if msg := prefixUnreachableFromVM(p, o.IsMacOS, o.Getenv("YOLO_NIX_HOST_DAEMON")); msg != "" {
+	if msg := prefixUnreachableFromVM(p, rt, o.IsMacOS, o.Getenv("YOLO_NIX_HOST_DAEMON")); msg != "" {
 		o.pr(o.Stderr).print(msg)
 		return jailPrefix{}, false
 	}
@@ -276,8 +276,28 @@ func describeJailPrefix(p jailPrefix) string {
 // closure, which a Mac's darwin store generally does not. The delegation half now
 // takes its own claim (hostprobes.go, YOLO_NIX_HOST_STORE_LINUX); the reachability
 // half read here is unchanged, and is still the only thing this refusal asks about.
-func prefixUnreachableFromVM(p jailPrefix, isMacOS bool, nixOptIn string) string {
+func prefixUnreachableFromVM(p jailPrefix, rt string, isMacOS bool, nixOptIn string) string {
 	if !isMacOS {
+		return ""
+	}
+	// ⚠ APPLE CONTAINER IS NOT SUBJECT TO THIS, AND REFUSING IT WAS A MEASURED DEFECT.
+	//
+	// The rule is about podman's machine VM, which has ONE share set fixed at
+	// `podman machine init` and does not include /nix. Apple Container has no such
+	// machine: it gives every container its own VM and binds the host paths that launch
+	// names, so a /nix/store source is just another host path to it.
+	//
+	// Refusing here anyway blocked EVERY Apple Container launch from a live checkout —
+	// which is every launch the parity job makes — and the refusal even offered a
+	// `podman machine init` remedy that means nothing on this backend. Found by the first
+	// CI run that ever exercised it (2026-09-14, run 34871200672, three tests) and
+	// disproved directly: with the refusal bypassed, a launch whose prefix was
+	// /nix/store/…-yolo-jail-install-prefix/opt/yolo-jail/bin ran its command and exited 0.
+	//
+	// So the gate is on the RUNTIME as well as the platform, and the message below is now
+	// only ever read by a podman launch — which is what makes its podman-specific advice
+	// correct rather than confusing.
+	if rt == "container" { // parity: NotApplicable — AC has no machine VM with a fixed share set; it binds arbitrary host paths, so a store prefix is reachable (measured 2026-09-14)
 		return ""
 	}
 	if envTruthy(nixOptIn) {

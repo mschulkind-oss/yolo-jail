@@ -832,7 +832,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// mount whose absence means the container has no pid1 to exec — a launch that
 	// cannot produce it must refuse before it starts making a container at all.
 	sp = o.Perf.Span("launch.resolve_jail_prefix")
-	jailPrefix, prefixOK := o.resolveJailPrefix(repoRoot)
+	jailPrefix, prefixOK := o.resolveJailPrefix(repoRoot, rt)
 	sp.End()
 	if !prefixOK {
 		lock.Close()

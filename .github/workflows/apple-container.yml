@@ -235,11 +235,56 @@ jobs:
           # only the spec; its diagnostics are on stderr, so this substitution is safe.
           SPEC="$(scripts/mac-ac-linux-builder.sh)"
           echo "builders: $SPEC"
+          # ALSO EXPORTED for the test step, as insurance rather than necessity. The
+          # bundle staged below produces the SAME image store path as this checkout
+          # (measured 2026-09-14: both give az2ywp6rf…-image-yolo-jail.json, because the
+          # image's input set is flake.nix + flake.lock and the bundle copies both), so a
+          # launch finds it already realized and builds nothing. If that ever stops being
+          # true, a launch would run `nix build` with NO builders and fail on the dead
+          # linux-builder stub — this makes it succeed instead.
+          printf 'NIX_CONFIG=builders = %s\n' "$SPEC" >> "$GITHUB_ENV"
           if ! nix build --impure --accept-flake-config --no-link --print-out-paths \
                  .#ociImage --builders "$SPEC"; then
             echo "::error::could not realize .#ociImage through the Apple Container Linux builder. Five-ish derivations must be BUILT on this arch (nodejs, nix-ld, bin-path-links, yolo-jail-prefix-links, yolo-jail-root) and Cachix cannot supply them: the nightly pushes x86_64-linux from ubuntu-latest, this host needs aarch64-linux. Check \`container logs yolo-ac-builder\` for sshd, and docs/plans/runbooks/mac-ac-container-builder.md for the procedure this automates."
             exit 1
           fi
+
+      # THE PREFIX MUST NOT LIVE IN /nix/store, AND ON THIS BACKEND THAT IS FATAL RATHER
+      # THAN SLOW.
+      #
+      # Measured 2026-09-14 (run 34871200672): every launching test failed with
+      #
+      #   Cannot start jail: the install prefix is in the nix store, which this Mac's
+      #   runtime VM does not share.
+      #
+      # yolo's own binaries are bind-mounted into the jail rather than baked into the image,
+      # and a LIVE CHECKOUT has to build them — which puts them in /nix/store, the one tree
+      # a macOS runtime VM does not share (`prefixUnreachableFromVM`,
+      # internal/cli/run/jailprefix.go). So Apple Container plus a live checkout cannot
+      # launch AT ALL on darwin, and no amount of image work fixes it.
+      #
+      # THE FIX IS THE SECOND OPTION THAT REFUSAL ALREADY NAMES: launch from a BUNDLE, whose
+      # prebuilt `bin/linux-<arch>/` is under $HOME and needs no build. Staged from THIS
+      # CHECKOUT rather than reusing whatever `just install` last left, so the entrypoint the
+      # tests run is the one this commit describes — the property AGENTS.md wants from the
+      # mounted prefix ("the suite's yolo and the yolo-entrypoint it runs come from one
+      # tree"), preserved on a backend that cannot get it the usual way.
+      #
+      # Verified end to end before this landed: with YOLO_REPO_ROOT pointed at such a bundle,
+      # `yolo run -- echo` on Apple Container printed its output and exited 0.
+      - name: Stage a flake bundle from this checkout
+        id: bundle
+        run: |
+          set -euo pipefail
+          BUNDLE="$RUNNER_TEMP/yolo-flake-bundle"
+          # The script cross-compiles the Linux binaries it needs, so this is the only
+          # command required. ~122 MB, both arches.
+          scripts/stage-source-bundle.sh "$BUNDLE"
+          test -x "$BUNDLE/bin/linux-$(go env GOARCH)/yolo-entrypoint" || {
+            echo "::error::the staged bundle has no yolo-entrypoint for linux-$(go env GOARCH). That is the ONE member whose absence is fatal — the container argv names it absolutely, so the jail would die at exec with no mention of the cause."
+            exit 1
+          }
+          echo "path=$BUNDLE" >> "$GITHUB_OUTPUT"
 
       # THE PATTERN IS COMPUTED, NOT WRITTEN DOWN — the same rule the macOS nightly's shards
       # follow, for the same reason: a hand-written `-run` regex rots the first time somebody
@@ -281,6 +326,10 @@ jobs:
       - name: Apple Container parity tests
         run: go test -count=1 -timeout 0 -v -run '${{ steps.subset.outputs.pattern }}' ./integration
         env:
+          # THE BUNDLE, not this checkout — see the staging step above. The harness only
+          # sets its own YOLO_REPO_ROOT when the environment carries none
+          # (childRepoRootEnv), so naming it here is what takes effect.
+          YOLO_REPO_ROOT: ${{ steps.bundle.outputs.path }}
           # THE DECLARATION. Set, a test that cannot reach this backend FAILS instead of
           # skipping — because a suite that skips is indistinguishable from a suite that
           # passes, and this one skips on every other machine in the world. Only the step

@@ -528,15 +528,23 @@ func jailTimeout() time.Duration {
 
 // childRepoRootEnv tells the spawned CLI where the yolo-jail repo is.
 //
-// The CLI needs the repo root for nix image builds, and resolves it by walking
-// UP from its working directory looking for a dir with both flake.nix and
-// go.mod. This harness deliberately defeats that walk: the binary is built into
-// an os.MkdirTemp dir and every test runs it with cmd.Dir set to a t.TempDir()
-// workspace, so the walk finds nothing and the CLI dies with "Cannot find
-// yolo-jail repo root" — which is what took out the entire Linux integration
-// job (not just the nix-building tests: `yolo check` reports it as a failed
-// check too). The Python suite never hit this because it invoked the CLI from
-// the repo.
+// The CLI needs a flake source for nix image builds, and this harness gives it one
+// explicitly because it can satisfy none of the CLI's own three sources by accident:
+// the binary is built into an os.MkdirTemp dir (so no `share/yolo-jail` bundle sits
+// beside it) and a developer's `just install` bundle, if any, is not this checkout.
+//
+// ⚠ THE ORIGINAL REASON HERE WAS THE cwd WALK, AND THAT WALK NO LONGER EXISTS.
+// This comment used to say the CLI "resolves it by walking UP from its working
+// directory looking for a dir with both flake.nix and go.mod", and that the harness
+// "deliberately defeats that walk" by running from a t.TempDir() — which is how the
+// entire Linux integration job once died on "Cannot find yolo-jail repo root"
+// (`yolo check` reported it as a failed check too; the Python suite never hit it
+// because it invoked the CLI from the repo). The cwd stopped selecting the flake on
+// 2026-08-31 precisely because it made one binary build from a live checkout in one
+// directory and from a staged snapshot in the next. So the DEFECT is gone; setting
+// this is now about NAMING which flake the child should use, not about defeating a
+// search — and it is still required, because without it the CLI would resolve a
+// bundle that has nothing to do with this test run.
 //
 // TestMain already knows the answer — moduleRoot() derives it from
 // runtime.Caller, independent of any cwd — so hand it to the child. A real
