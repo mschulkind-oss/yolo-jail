@@ -59,6 +59,23 @@ done_ok() { say "$*"; exit 0; }
 command -v gh >/dev/null 2>&1 || done_ok "gh is not on PATH — cannot dispatch. \
 Install it, or set PATH in the plist."
 
+# ⚠ A SHADOWING TOKEN IS THE FAILURE THIS UNSETS, AND IT IS MEASURED (2026-09-14).
+#
+# `gh` prefers $GH_TOKEN / $GITHUB_TOKEN over its own stored login, silently. The
+# maintainer's repo checkout carries a `.env` with a fine-grained GH_TOKEN that has
+# no `actions: write`, and with it exported the dispatch fails as
+#
+#   HTTP 403: Resource not accessible by personal access token
+#
+# while the keychain login (classic, `repo` scope) does it fine. A launchd agent does
+# not inherit a shell environment, so this is belt-and-braces here — but the same
+# script hand-run from a shell that sourced .env would take the 403 branch and log a
+# permissions error that has nothing to do with permissions.
+#
+# Unset rather than honored: this script's job is to dispatch as the human who owns
+# the runner, which is exactly what `gh auth` already holds.
+unset GH_TOKEN GITHUB_TOKEN
+
 # ─── THE LOCAL HALF OF THE OLD PROBE ───
 #
 # Checked because a dispatch onto a machine whose runner is NOT listening is the

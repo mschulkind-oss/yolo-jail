@@ -43,14 +43,19 @@ name: Apple Container parity
 # run arbitrary code on your hardware.
 #
 # What keeps that from happening here is the trigger list below and nothing else:
-# `schedule` and `workflow_dispatch` both run the workflow file from the BASE branch, and
-# neither can be caused by a fork. There is no `pull_request`, no `pull_request_target`,
-# no `push`.
+# `workflow_dispatch` runs the workflow file from the ref it is given and is restricted to
+# people with WRITE ACCESS, so a fork cannot cause it. There is no `pull_request`, no
+# `pull_request_target`, and no `push`. (There is no `schedule` either, but that is a
+# scheduling choice rather than a safety one — see the `on:` block.)
 #
 # **Do not add a trigger to this file.** If a change here needs testing before it merges,
-# dispatch it by hand from its branch — `workflow_dispatch` takes a ref and is restricted
-# to people with write access. Adding `pull_request` would hand every forker a shell on
-# the maintainer's Mac, and it would look like an ordinary convenience commit.
+# dispatch it by hand from its branch — `workflow_dispatch` takes a ref. Adding
+# `pull_request` would hand every forker a shell on the maintainer's Mac, and it would look
+# like an ordinary convenience commit.
+#
+# THAT RULE IS ENFORCED, NOT TRUSTED: integration/selfhostedtriggers_test.go fails on any
+# fork-causable trigger in any workflow targeting a `self-hosted` runner, and on any such
+# workflow missing the `github.repository ==` guard. It runs under `-short`, every push.
 
 on:
   # DISPATCH ONLY, AND THE SCHEDULING LIVES ON THE MAC. There is no `schedule:` here
@@ -173,21 +178,51 @@ jobs:
       # flake.nix + flake.lock, so a darwin eval and a Linux eval produce identical .drv
       # paths and the Mac can fetch what the ubuntu nightly pushed.
       #
-      # ⚠ UNVERIFIED ON HARDWARE. That commit is a day old and this route has never run on
-      # a Mac. Realizing it HERE, as its own step, is what makes a Cachix miss say so once
-      # — instead of failing four tests in a row forty minutes later with a nix error, which
-      # is exactly how the macOS nightly lost nine days (docs/design/darwin-image-provenance.md).
+      # ⚠⚠ MEASURED 2026-09-14 ON THE FIRST REAL RUN, AND THE PARAGRAPH ABOVE IS WRONG FOR
+      # THIS RUNNER. It is kept because the correction needs something to point at.
       #
-      # IF THIS STEP IS THE ONE THAT FAILS, the fallback is already written down: copy
+      # "A darwin eval and a Linux eval produce identical .drv paths" holds only WITHIN ONE
+      # ARCHITECTURE. This runner is an arm64 Mac, so it evaluates and needs **aarch64-linux**
+      # derivations. The nightly's `build-image` job runs on `ubuntu-latest`, which is x86_64,
+      # so what it pushes to Cachix is **x86_64-linux**. The cache is therefore
+      # ARCHITECTURALLY INCAPABLE of serving this machine — not stale, not missing a commit,
+      # just a different closure. Run 34868855087, verbatim:
+      #
+      #   required (system, features): (aarch64-linux, [])
+      #   cannot build on 'ssh-ng://builder@linux-builder': failed to start SSH connection
+      #   Failed to find a machine for remote build!
+      #
+      # Substitution otherwise worked fine — hundreds of paths came from cache.nixos.org.
+      # Exactly five derivations have to be BUILT: nodejs, nix-ld, bin-path-links,
+      # yolo-jail-prefix-links and yolo-jail-root.
+      #
+      # ⚠ AND THIS MAC ALREADY DECLARES A BUILDER THAT CANNOT WORK, which is why the error
+      # named SSH rather than the cache. `/etc/nix/nix.custom.conf` carries
+      # `builders = ssh-ng://builder@linux-builder aarch64-linux …` and
+      # `/etc/ssh/ssh_config.d/100-linux-builder.conf` points it at localhost:31022 — the
+      # nix-darwin convention — but nix-darwin is NOT installed here (`/run/current-system`
+      # does not exist), so the `/Library/LaunchDaemons/org.yolo-jail.linux-builder.plist`
+      # that would start the VM execs a `create-builder` that is absent, and has never once
+      # run (no /var/log/yolo-linux-builder.log). A dead stub from 2026-07-16.
+      #
+      # THE FIX IS THE ONE THIS REPO ALREADY PROVED, one day after that stub was written:
+      # docs/plans/runbooks/mac-ac-container-builder.md stands up a Linux builder INSIDE
+      # Apple Container, zero sudo, and was verified on this exact hardware 2026-07-17
+      # (macOS 26.5 arm64) with the host nix reporting `Trusted: 1` and a proof build
+      # returning AC-CONTAINER-BUILDER-WORKS. It removes the Cachix dependency rather than
+      # working around it, and it is arch-correct by construction: the builder is aarch64.
+      #
+      # The other fallback still stands and is now the SECOND choice: copy
       # nightly-macos.yml's shape — an ubuntu `build-image` job that uploads the tar, a
       # download step here, and `container image load -i` (internal/image/image.go is the
-      # authority on that argv). It is more moving parts, which is why it is the fallback
-      # and not the first attempt.
+      # authority on that argv). ⚠ On an arm64 runner that job would have to build the image
+      # for aarch64-linux, which `ubuntu-latest` cannot do either — so it needs an arm64
+      # Linux runner, which is the moving part that makes it second.
       - name: Realize the jail image (substituting from Cachix)
         run: |
           set -euo pipefail
           if ! nix build --impure --accept-flake-config --no-link --print-out-paths .#ociImage; then
-            echo "::error::could not realize .#ociImage on this Mac. It cannot BUILD a Linux closure (no Linux builder), so every derivation must come from a substituter — and one of them did not. Check that the macOS nightly has pushed this commit's flake.nix/flake.lock closure to yolo-jail.cachix.org; if it has not, this job needs nightly-macos.yml's build-image + artifact route instead."
+            echo "::error::could not realize .#ociImage on this Mac. Five derivations must be BUILT (nodejs, nix-ld, bin-path-links, yolo-jail-prefix-links, yolo-jail-root) and this machine has no working Linux builder. ⚠ On an ARM Mac, Cachix cannot help: the nightly pushes x86_64-linux from ubuntu-latest and this host needs aarch64-linux — a different closure, not a stale one. Stand up the Apple Container Linux builder (docs/plans/runbooks/mac-ac-container-builder.md, proven on this hardware 2026-07-17). Note /etc/nix/nix.custom.conf may already declare a linux-builder whose VM cannot start, which is why nix reports an SSH failure rather than a cache miss."
             exit 1
           fi
 
