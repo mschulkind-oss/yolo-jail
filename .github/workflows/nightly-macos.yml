@@ -231,7 +231,23 @@ jobs:
           # 6.x (Tier 3 on Tahoe Intel → "no bottle available"), and podman
           # v6 dropped Intel macOS builds upstream. v5.8.x is the last line
           # with podman-installer-macos-amd64.pkg, so pin its latest.
-          curl -fsSL -o /tmp/podman.pkg \
+          # RETRIED, because this is a third-party CDN hop and it has already cost a
+          # nightly. MEASURED 2026-09-14: three of eight shards died on
+          # `curl: (22) The requested URL returned error: 504` from the releases
+          # CDN, before a line of yolo ran — a run that then says nothing about any
+          # of the code it was scheduled to measure.
+          #
+          # The repo already learned this one file over: ci.yml wraps its `just`
+          # download in a 3-attempt loop after a bare 403 took the whole quality
+          # gate down on 2026-09-06, and release.yml passes --retry 3. This was the
+          # last bare fetch of the three.
+          #
+          # curl's own --retry covers exactly this class (it retries 408/429 and
+          # 5xx, 504 included); --retry-all-errors widens it to the connection
+          # failures a CDN also produces, and -f is what turns an HTTP error into a
+          # retryable failure rather than a saved error page.
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+            --retry-max-time 180 -o /tmp/podman.pkg \
             "https://github.com/containers/podman/releases/download/v5.8.4/podman-installer-macos-amd64.pkg"
           sudo installer -pkg /tmp/podman.pkg -target /
           echo "/opt/podman/bin" >> "$GITHUB_PATH"
