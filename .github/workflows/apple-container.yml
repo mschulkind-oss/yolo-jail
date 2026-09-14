@@ -60,7 +60,7 @@ name: Apple Container parity
 on:
   # DISPATCH ONLY, AND THE SCHEDULING LIVES ON THE MAC. There is no `schedule:` here
   # deliberately — `scripts/mac-runner-dispatch.sh`, a launchd agent on the runner itself,
-  # is what fires this hourly.
+  # is what fires this, every five minutes while the Mac is awake.
   #
   # ⚠ THIS REPLACED A CRON PLUS A HOSTED POLL JOB, and the reason is worth keeping because
   # the poll was not wrong, it was BACKWARDS.

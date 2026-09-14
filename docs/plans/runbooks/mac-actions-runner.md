@@ -65,7 +65,7 @@ is what they already run locally as themselves.
 > `-short`, on every push.
 >
 > Two residual differences from "pull and run it myself", worth knowing rather than fixing.
-> The dispatcher in [§5](#5-optional--let-the-mac-dispatch-itself) is **unattended** if you install it — it fires on wake and hourly,
+> The dispatcher in [§5](#5-optional--let-the-mac-dispatch-itself) is **unattended** if you install it — it fires on wake and every five minutes,
 > including on commits an agent pushed — and the actions are on **mutable tags**
 > (`actions/checkout@v7`, `actions/setup-go@v7`) rather than pinned SHAs. Skipping [§5](#5-optional--let-the-mac-dispatch-itself) removes
 > the first one entirely: without it nothing runs that you did not type.
@@ -254,7 +254,7 @@ Three properties worth knowing, each a deliberate choice in the script:
 - **It checks the runner locally before dispatching.** A dispatch onto a machine whose runner
   is not listening queues — the exact failure the poll existed to prevent — and the Mac being
   awake is necessary but not sufficient (`svc.sh install` may never have run).
-- **It dispatches a commit at most once.** It records the SHA it dispatched, so an hourly
+- **It dispatches a commit at most once.** It records the SHA it dispatched, so a five-minute
   agent does not re-run an unchanged `main` and spin the fans to re-prove a green result. A
   deliberate re-run is `gh workflow run` by hand, which is where a flake decision belongs.
 - **Every outcome exits 0 and is logged.** launchd has no terminal, so an unlogged message is

@@ -94,7 +94,8 @@ fi
 # ─── DISPATCH ONLY WHAT IS NEW ───
 #
 # Without this the agent re-runs the SAME commit every interval, which on a
-# personal machine is a fan spinning up hourly to re-prove a green result. The SHA
+# personal machine is a fan spinning up every five minutes to re-prove a green result — which
+# is what makes the plist's interval a free choice rather than a trade. The SHA
 # is read from the remote rather than from a local checkout on purpose: this script
 # is about what is on `$REF` upstream, and the Mac may have no clone at all.
 #
