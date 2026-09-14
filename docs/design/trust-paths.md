@@ -8,10 +8,16 @@ summary: "Twenty-six paths, enumerated from the code, each with when trust is ex
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** DESIGN, 2026-08-17 — an inventory; **compacted 2026-09-06.** Ten questions filed and **all
-ten settled** (seven ruled, three retired) — the last,
-[`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner),
-on 2026-09-14.
+**Status:** DESIGN, 2026-08-17 — an inventory; **compacted 2026-09-06 and again 2026-09-14.** Ten
+questions filed and **all ten settled** (seven ruled, three retired).
+
+> [!IMPORTANT]
+> **ONE THING IS OUTSTANDING, and it is the only one:**
+> [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)'s
+> ruling is made and **unbuilt** — plugin claims need a disclosure class of their own, or a wrapped
+> plugin's `hooks` keep running on the agent's lifecycle with nothing on the banner. Everything else
+> here is settled record. [Outstanding work](#outstanding-work) has what a builder needs, including
+> the one sub-decision the ruling deliberately left open.
 Every code anchor below was re-checked against the tree on 2026-09-06: the ones that had drifted are
 repinned, and the ones that named code the 2026-09-04 rulings deleted are rewritten to say so (the
 compacting commit lists both). Beyond the rulings, **everything here is inventory** — traced in the
@@ -89,14 +95,19 @@ against exactly one threat, the silent update.
 > cited from `internal/cli/packupdate.go`, `internal/cli/pack.go`, `internal/entrypoint/shims.go`,
 > `internal/entrypoint/npmspec.go` and two tests (`packupdate_test.go`, `npmlauncher_test.go`);
 > [`§3.1`](#31-a-refused-contribution-refuses-the-launch-) from [`RELEASE-NOTES.md`](../RELEASE-NOTES.md)
-> and three sibling docs (the code that cited it, `run/packrefusal.go`, is deleted). The headings of
-> [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04),
-> [`OQ-TP8`](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04),
-> [`OQ-TP9`](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) and
+> and three sibling docs (the code that cited it, `run/packrefusal.go`, is deleted).
+>
+> ⚠ **The question HEADINGS are not an API, and believing they were is what kept this document
+> long.** This note said they were "linked by slug from seven other docs (counted 2026-09-06)",
+> which is why three settled questions survived below as heading stubs. **Re-measured 2026-09-14
+> and it is false:** of 47 inbound anchor links, every single one reaches
+> [`#decision-ledger`](#decision-ledger) — [`OQ-TP7`](#decision-ledger), [`OQ-TP8`](#decision-ledger)
+> and [`OQ-TP9`](#decision-ledger) are cited by ID with
+> that fragment, never by their own slug. The stubs are deleted.
 > [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)
-> are linked by slug from seven other docs (counted 2026-09-06), which is why the three settled
-> ones survive below as pointers rather than being deleted. Renumber or rename only with a grep in
-> hand.
+> keeps its heading because it is the one thing still outstanding, not because something links it.
+> Renumber or rename only with a grep in hand — and check which fragment the links actually use
+> before concluding a heading is load-bearing.
 
 ## 1. The verdict
 
@@ -653,108 +664,57 @@ code" — but it is worth building in the three places of [§1](#1-the-verdict) 
 
 ---
 
-## Open Questions
+## Outstanding work
 
 > [!NOTE]
-> **No question is open.** All ten live in the [Decision Ledger](#decision-ledger) and in the body
-> sections it points at. Some keep a heading below — a pointer, not the question — because other
-> docs link to those headings by slug; delete a heading only after relinking them.
+> **No question is open — all ten are ruled or retired ([Decision Ledger](#decision-ledger)).** This
+> section used to hold four heading stubs kept "because other docs link to those headings by slug".
+> That was measured false on 2026-09-14: all 47 inbound links reach
+> [`#decision-ledger`](#decision-ledger) and not one reaches a per-question slug, so the stubs were
+> deleted and the ledger is the record. Do not re-add a stub without checking the same way.
+
+**One thing is ruled and unbuilt**, and it is the only outstanding item in this document.
 
 ### [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
 
-> [!IMPORTANT]
-> **RULED (a) on 2026-09-14** — see the [Decision Ledger](#decision-ledger) for the ruling and for the
-> rendering [`../reference/report-tiers.md`](../reference/report-tiers.md) already prescribes for it. The
-> section below is kept as the argument that produced it, because the facts it records are what a
-> reader needs to build the class. **Nothing here is still being asked.**
+**Ruled (a) 2026-09-14** — plugin claims get a disclosure class of their own. The argument is in the
+[Decision Ledger](#decision-ledger); what follows is only what someone building it needs.
 
-Opened 2026-09-04 by the [`OQ-TP9`](#decision-ledger) build, which found it while deleting the gate.
-**This punctures a claim TP9's own answer makes**, so it is filed rather than absorbed.
+**The facts.** A wrapped plugin's `hooks` and `mcpServers` are reported under `KindSkills`
+([`footprint.go`](../../internal/packload/footprint.go), the `Plugins()` loop), because what they
+declare lives in the plugin's own manifest rather than in `pack.json`.
+[`packloopholes.go`](../../internal/cli/run/packloopholes.go) classifies that kind `disclosureSkip`
+— correctly, for a prose tree — so code that runs on the agent's lifecycle inherits it and reaches
+no banner. Pinned by `TestWrappedPluginHooksAreDeliveredAndDisclosed`
+([`packnohostgate_test.go`](../../internal/cli/run/packnohostgate_test.go)), which asserts the
+footprint claim and states the gap rather than papering over it.
 
-**The facts (re-checked 2026-09-06).** A wrapped plugin's `hooks` and `mcpServers` are reported under
-`KindSkills` ([`footprint.go`](../../internal/packload/footprint.go#L488-L497)), and
-[`packloopholes.go`](../../internal/cli/run/packloopholes.go#L108) classifies that kind
-`disclosureSkip`. So they appear in `yolo pack footprint` — an on-demand report nobody runs — and in
-**no launch banner at all**. Pinned by `TestWrappedPluginHooksAreDeliveredAndDisclosed` in
-[`packnohostgate_test.go`](../../internal/cli/run/packnohostgate_test.go), which asserts the footprint
-claim and states the gap in its doc rather than papering over it.
+**Why it matters:** [`OQ-TP9`](#decision-ledger) deleted the approval gate while KEEPING this banner
+as the compensating disclosure — *"the only place a user sees what a pack reaches."* That sentence is
+false for exactly the contribution that runs code.
 
-**Why TP9 makes it matter, when it did not before.** Under the old gate a *fetched* pack's
-code-running plugin components were refused outright — there was nothing to disclose because nothing
-crossed — and an *embedded* pack's were nobody's concern. TP9 removed the refusal on the correct
-reasoning that selecting a pack already exceeds what the gate withheld. But TP9 also **kept the
-startup banner as the compensating disclosure**, in those words: *"the only place a user sees what a
-pack reaches."* That sentence is now false for exactly the contribution that runs code on the agent's
-lifecycle events. This is row 21 reopening on the disclosure side — and
-[§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)'s `jail_daemon` is
-the same shape with no claim at all, which a ruling here should say it does or does not cover.
+**Do not reclassify `KindSkills`** (that was candidate (c), rejected): it would announce every skill
+file and bury the hooks in the noise that makes `disclosureSkip` right there. Give the claim its own
+kind — `packload` already has the shape, in `SupersedesClaimKind` and `ExecutablesClaimKind`, both
+display-only kinds outside `packdecl`'s closed set.
 
-**What it decides:** whether the banner's coverage is completed, or its claim is narrowed.
-
-| | Candidate | Cost |
-| :--- | :--- | :--- |
-| **(a)** | Give plugin claims their own disclosure class, so hooks and `mcpServers` render on the banner beside mounts and host reads | The honest completion of TP9's kept half. Costs a class and a rendering decision — a hook body is not a path, so "what is touched, which direction, whose machine" needs a spelling for it |
-| **(b)** | Qualify the claim — say the banner covers host crossings, and point at `yolo pack footprint` for in-jail code | Free, and dishonest in the way TP9 objected to elsewhere: it leaves the compensating disclosure not compensating |
-| **(c)** | Reclassify `KindSkills` off `disclosureSkip` wholesale | Cheapest to write, worst to read — a pack's skills tree is prose an agent reads, and announcing every skill file would bury the hooks in the noise that made `disclosureSkip` right in the first place |
-
-_Ruled:_ **(a), 2026-09-14.** TP9's argument was that the gate withheld nothing the user had not
-already granted — true of *authority*, and silent about *visibility*. Disclosure was the half TP9
-kept precisely because it is not consent; keeping it while leaving a hole in it is the shape this
-census exists to catch. (c) was the tempting cheap version and destroys the signal; (b) was reserved
-for the case where (a) had no honest rendering, and that case did not arise.
-
-**What the ruling added to the leaning: the rendering, which was the open half.** The objection to
-(a) has always been volume — a class that prints a line per hook is how a launch stream becomes
-unreadable, and that is a live concern rather than a hypothetical one.
-[`../reference/report-tiers.md`](../reference/report-tiers.md) answers it, and it answers it as a
-*requirement* rather than as permission:
-
-| Principle | What it settles here |
-| :--- | :--- |
-| [P5](../reference/report-tiers.md#principles) | *"The census invariant is named, not itemized … appearing once is appearing."* One line discharges the disclosure; an enumeration is not owed |
-| [P6](../reference/report-tiers.md#principles) | *"Counts count what the reader cares about."* Its own examples are files, keys, **servers**, **skills** — so hooks and `mcpServers` are counted, and the files carrying them are not |
-| [P1](../reference/report-tiers.md#principles) | A property of the pack SET is stated once per set, so the line does not repeat per destination |
-| [P4](../reference/report-tiers.md#principles) | The line may never be gated — the same sentence that keeps the host-access banner. Compression is available to progress and provenance; **suppression is available to nothing** |
-
-The precedent is already in the launch-stream table: the boot catalog renders as **one line plus a
-list in `boot.log`**, through the tee both halves of a launch already write to. A plugin-claims class
-takes that shape. So (a) costs **one line per pack**, not one per hook — which is why the
-startup-density direction and this ruling point the same way rather than against each other.
+**The rendering is decided.** [`../reference/report-tiers.md`](../reference/report-tiers.md)'s
+[P5](../reference/report-tiers.md#principles) (*named, not itemized — "appearing once is
+appearing"*), [P6](../reference/report-tiers.md#principles) (*count what the reader cares about; its
+own examples are files, keys, **servers**, **skills***) and
+[P1](../reference/report-tiers.md#principles) (*a property of the pack set is stated once per set*)
+make it **one counted line per pack**, with the itemization landing in `boot.log` through the tee the
+boot catalog already uses. So it costs one line, not one per hook.
+[P4](../reference/report-tiers.md#principles) then forbids gating that line.
 
 > [!WARNING]
-> **Compression is not suppression, and the distinction is P4's whole content.** A reader who takes
-> "one line" as licence to make the line conditional — on a flag, on a tty, on a verbosity level —
-> has reinstated the quiet mode `TestTheLaunchHasNoQuietFlag` exists to refuse. The count is
-> compressed; the *decision it reports* appears on every launch.
+> **What the ruling did NOT settle: which class.** All three of `disclosureSkip` / `disclosureRead` /
+> `disclosureExec` are axes of **host** crossing, and `disclosureSkip`'s own definition calls a
+> jail-internal effect *"what the jail IS"*. A plugin hook runs in the **jail**. So this needs a
+> fourth class, or a changed definition of the first — a decision, not a lookup. **Do not let it
+> default:** the fail-closed default is `disclosureExec`, which would announce "runs code on the
+> host" about code that does not.
 
-**`jail_daemon` is covered** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)), which the question asked a ruling to say either way. It is the same
-disclosure question with no claim to hang the line on — and a class that reports COUNTS can name a
-zero-claim crossing, where a class that reported claims could not.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### ⛔ [`OQ-TP7`](#-oq-tp7--yolo-check-cannot-predict-the-fatal-refusal-and-the-refusal-names-a-fix-that-needs-a-tty-and-a-network--retired-2026-09-04) — `yolo check` cannot predict the fatal refusal, and the refusal names a fix that needs a tty and a network — RETIRED (2026-09-04)
-
-**Retired, not answered — compacted 2026-09-06.** [`OQ-TP9`](#decision-ledger) deleted the refusal
-this question was about, so both of its measured gaps dissolved. The ruling is the
-[ledger row](#decision-ledger); the part that outlives it — the **third-gate trap**, and the shape
-to check any future fatal against — is the last warning in
-[§3.1](#31-a-refused-contribution-refuses-the-launch-). *("The preflight" in the old text meant the
-`yolo check` command, not `stagePacks`' mechanical pre-flights on the launch path.)*
-
-### ✅ [`OQ-TP9`](#-oq-tp9--is-the-fetched-pack-approval-prompt-a-gate-or-theatre--resolved-2026-09-04) — is the fetched-pack approval prompt a gate, or theatre? — RESOLVED (2026-09-04)
-
-**Theatre — deleted; compacted 2026-09-06.** The ruling and its same-day correction are the
-[ledger row](#decision-ledger); the argument (Test 1, the refuted containment rationale, the prior
-art, what was kept) is [§3.1](#31-a-refused-contribution-refuses-the-launch-); the lockfile
-correction (content is frozen between installs; the follow-on was documentation, not enforcement) is
-[§1](#1-the-verdict). Built in `3d6ae7be`.
-
-### ✅ [`OQ-TP8`](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident--resolved-2026-09-04) — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident? — RESOLVED (2026-09-04)
-
-**A ruling — ungated, both halves; compacted 2026-09-06.** The ruling is the
-[ledger row](#decision-ledger); the facts are [row 26](#2-the-inventory); the parity check that
-overturned the leaning's host-half gate, and what would reopen the question, are
-[the pack-Lua section](#pack-shipped-lua-is-ungated-on-both-sides-and-that-is-the-ruling) under
-[§2](#2-the-inventory).
+**`jail_daemon` is covered** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)) — the same disclosure question with no claim to
+hang a line on, and a class reporting COUNTS can name a zero-claim crossing where one reporting
+claims could not.
