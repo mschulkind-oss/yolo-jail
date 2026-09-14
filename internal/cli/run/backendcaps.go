@@ -43,7 +43,7 @@ import (
 // macos-user is deliberately absent: it has no bind mounts at all, so a `:ro` question
 // does not arise there. Its gaps are reported by noteMacosUserContentGaps.
 func roBindsUnsupported(rt string) string {
-	if rt == "container" {
+	if rt == "container" { // parity: Refused — AC ignores :ro, so both callers skip rather than hand over write access
 		return "Apple Container ignores read-only (:ro), so it would be writable. " +
 			"Use `YOLO_RUNTIME=podman` for read-only context mounts."
 	}
@@ -78,7 +78,7 @@ func roBindsUnsupported(rt string) string {
 // That backend shares the launcher's stack by construction (sharesLauncherNetns), so this
 // answers "host" for it and both port sections fall away with the bridge paragraph.
 func appliedNetMode(rt, netMode string, inContainer bool) string {
-	if rt == "container" {
+	if rt == "container" { // parity: Warned — AC takes no --net selector; an explicit `network.mode: host` warns
 		return "bridge"
 	}
 	if sharesLauncherNetns(rt, netMode, inContainer) {
@@ -106,7 +106,7 @@ func appliedCtxMounts(rt string, descriptions []string) []string {
 	if roBindsUnsupported(rt) != "" {
 		return nil
 	}
-	if inStrSlice(paths.NativeRuntimes, rt) {
+	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user binds nothing, and a directory-shaped ctx delivery is named rather than copied (DP-D15)
 		return nil
 	}
 	return descriptions
@@ -167,7 +167,7 @@ func appliedResourceLimits(rt string, resCfg *jsonx.OrderedMap, acDefaultMemory 
 		}
 	}
 
-	if rt == "container" {
+	if rt == "container" { // parity: HonoredBy — AC caps by its own host-derived defaults, so "unconfigured" is not "uncapped"
 		if !haveCPUs {
 			hostCPUs := numCPU()
 			half := hostCPUs / 2
@@ -191,7 +191,7 @@ func appliedResourceLimits(rt string, resCfg *jsonx.OrderedMap, acDefaultMemory 
 	if haveCPUs {
 		out = append(out, resourceLimit{flag: "--cpus", key: "cpus", value: cpus, source: cpusSrc})
 	}
-	if rt != "container" {
+	if rt != "container" { // parity: Dropped — AC passes no pids limit; backend-parity.md §5.1 rules the sub-key warning out as noise
 		pids, pidsSrc := "32768", limitPipelineDefault
 		if resCfg != nil {
 			if v := mapGet(resCfg, "pids_limit"); v != nil {
@@ -226,7 +226,7 @@ func briefedResourceLimits(rt string, resCfg *jsonx.OrderedMap) map[string]any {
 	// one launch. The argv-side appliedResourceLimits is deliberately left alone — it is
 	// never reached on this backend, and a briefing-only defect is fixed in the
 	// briefing's own projection.
-	if inStrSlice(paths.NativeRuntimes, rt) {
+	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user enforces no limit at all, and the launch warns the human
 		return nil
 	}
 	out := map[string]any{}
