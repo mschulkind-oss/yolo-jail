@@ -77,7 +77,13 @@ func TestTheLinuxBuilderOffloadLineNixActuallyBuildsThrough(t *testing.T) {
 	// nix to offer another. (That is not hypothetical — it is what this test did on its
 	// first run, and nix answered `Permission denied (publickey)`.) requireJail has
 	// already redirected HOME, so BuilderKeyDir() is inside this test's own tree.
-	dir := t.TempDir()
+	// resolvedTempDir, NOT t.TempDir(): this becomes `nix --store <dir>/store` below, and
+	// nix walks the parents of a store path and REFUSES a symlink among them. On macOS
+	// t.TempDir() is under /var/folders and /var is a symlink to /private/var, so the raw
+	// path fails with `error: the path "/var" is a symlink; this is not allowed for the Nix
+	// store and its parent directories` — after the ten-minute timeout below, which is what
+	// made it look like a hung builder rather than a rejected path.
+	dir := resolvedTempDir(t)
 	key := containerbuilder.BuilderKey()
 	if err := os.MkdirAll(containerbuilder.BuilderKeyDir(), 0o700); err != nil {
 		t.Fatal(err)

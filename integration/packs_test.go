@@ -267,20 +267,20 @@ func isolateHome(t *testing.T, userConfig string) {
 		hostHome = os.Getenv("HOME")
 		t.Cleanup(func() { hostHome = "" })
 	}
-	// RESOLVED WHERE IT IS MINTED, which is the rule AGENTS.md states for this class:
-	// on macOS `t.TempDir()` returns `/var/folders/…` and `/var` IS a symlink to
-	// `/private/var`. Anything that resolves symlinks — or refuses them — then sees a
-	// different path than the fixture handed out, and it passes on Linux either way.
+	// RESOLVED WHERE IT IS MINTED (resolvedTempDir states the rule and carries the test).
+	// MEASURED 2026-09-14: the macOS nightly's only remaining failure was nix refusing
+	// `error: the path "/var" is a symlink; this is not allowed for the Nix store and its
+	// parent directories`, because the builder's ssh key lives under this HOME and its
+	// path goes into a `--builders` line.
 	//
-	// MEASURED 2026-09-14: nix refuses outright. The macOS nightly's only remaining
-	// failure was `error: the path "/var" is a symlink; this is not allowed for the Nix
-	// store and its parent directories`, because the builder's ssh key lives under this
-	// HOME and its path goes into a `--builders` line. Resolving here fixes every test
-	// that isolates a home, rather than the one that happened to notice.
-	home, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	// ⚠ THE CLAIM THAT USED TO END THIS COMMENT — "resolving here fixes every test that
+	// isolates a home, rather than the one that happened to notice" — was true and not
+	// enough, and the same nightly said so six hours later. The offload test isolates a
+	// home AND mints a SECOND directory for `nix --store`; only the first went through
+	// here, so the run failed on the identical error at the other path. Per-fixture is the
+	// granularity, not per-test: every place a path is minted needs the rule, and that is
+	// why it is one function now.
+	home := resolvedTempDir(t)
 	if err := seedPackHome(home, hostHome, userConfig); err != nil {
 		t.Fatal(err)
 	}
