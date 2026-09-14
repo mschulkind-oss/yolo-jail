@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Periodic dispatch of the Apple Container CI workflow from the Mac that runs it.
+
+  INSTALL (as the user the runner runs as, and REPLACE __HOME__):
+
+      sed "s|__HOME__|$HOME|g" scripts/com.yolo-jail.mac-runner-dispatch.plist \
+        > ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
+      launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
+
+  UNINSTALL:
+
+      launchctl bootout gui/$(id -u)/com.yolo-jail.mac-runner-dispatch
+      rm ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
+
+  A LaunchAgent, not a LaunchDaemon, and it has to be: it runs as the human whose
+  `gh` credentials and whose actions-runner agent both live in that user's domain.
+  A session-less account has no launchd domain at all, which is why this pattern
+  cannot use the hidden service account the rest of this repo uses for _yolojail
+  (docs/plans/runbooks/mac-actions-runner.md §0).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.yolo-jail.mac-runner-dispatch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HOME__/.local/bin/mac-runner-dispatch.sh</string>
+  </array>
+
+  <!-- AT LOAD, so waking the Mac up is itself the trigger — which is the whole
+       point of inverting the poll. Without this the first run waits a full
+       interval after login for a machine that is demonstrably available now. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- HOURLY. StartInterval rather than StartCalendarInterval because the
+       question is "has anything landed since I last looked", which has no
+       preferred minute — and unlike a cron, launchd coalesces a missed interval
+       into one run at wake instead of firing every one it slept through.
+
+       The script itself is idempotent per commit (it records the dispatched SHA),
+       so a shorter interval costs API calls, not CI runs. -->
+  <key>StartInterval</key>
+  <integer>3600</integer>
+
+  <!-- The script logs every outcome to
+       ~/.local/state/yolo-jail/mac-runner-dispatch.log itself. These two catch
+       what it cannot: a bash syntax error, or a plist that names a path that does
+       not exist — the failures where the script never starts and would otherwise
+       be silent. -->
+  <key>StandardOutPath</key>
+  <string>__HOME__/.local/state/yolo-jail/mac-runner-dispatch.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.local/state/yolo-jail/mac-runner-dispatch.launchd.log</string>
+
+  <!-- Deliberately NOT setting a PATH here. The script exports its own, so there
+       is one copy of that list and a hand-run behaves identically to this one. -->
+</dict>
+</plist>

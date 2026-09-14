@@ -3,7 +3,7 @@ title: "RUNBOOK — turn a Mac into the Apple Container CI runner"
 status: current
 date: 2026-09-14
 tags: [ci, macos, apple-container, self-hosted, runbook]
-summary: "The one-time procedure for registering a maintainer's Mac as the self-hosted runner apple-container.yml has been waiting for. Covers the fine-grained PAT the poll job needs, the runner registration and its four labels, Apple Container's per-user apiserver, and the account decision — including the launchd constraint that rules out the hidden service account pattern the rest of this repo uses."
+summary: "The one-time procedure for registering a maintainer's Mac as the self-hosted runner apple-container.yml has been waiting for: the runner registration and its four labels, Apple Container's per-user apiserver, the optional launchd dispatcher that replaced a cron plus an admin PAT, and the account decision — including the launchd constraint that rules out the hidden service account pattern the rest of this repo uses. It needs no repository secret: a runner is an outbound client, so the Mac can answer 'am I online' locally for free."
 ---
 
 # RUNBOOK — turn a Mac into the Apple Container CI runner
@@ -12,15 +12,16 @@ summary: "The one-time procedure for registering a maintainer's Mac as the self-
 GitHub's UI. **Needs:** admin on the Mac, admin on the repository.
 
 **What it buys.** [`apple-container.yml`](../../../.github/workflows/apple-container.yml) is
-written, merged and inert: it polls every two hours for a runner that does not exist, finds
-none, and skips green. This procedure is the missing half. Apple Container is **the backend
+written, merged and **inert** — it is dispatch-only, and there is no runner to dispatch it
+onto. This procedure is the missing half. Apple Container is **the backend
 no CI job has ever run** — the README recommends it for macOS, and both defects ever found
 in it (#39, #44) were found by a human on hardware, eight months apart.
 
 > [!IMPORTANT]
 > **Read the workflow's own header before this file.** It states the design — why
-> self-hosted is forced rather than preferred, why the poll is a poll and not a queue, and
-> the fork-safety rule. This runbook does not restate any of it; it is the *procedure*.
+> self-hosted is forced rather than preferred, why the scheduling lives on the Mac instead of
+> in a cron, and the fork-safety rule. This runbook does not restate any of it; it is the
+> *procedure*.
 
 ## 0. The account decision, and the constraint that drives it
 
@@ -50,9 +51,9 @@ out, and the trade is isolation against friction:
 | The maintainer's own account | Yes | Zero setup — nix trust, apiserver, Go and PATH all already work. A job runs with full read access to that home. |
 
 **The maintainer's own account was chosen (2026-09-14), and the reasoning is recorded
-because it is only valid while its premise holds:** the triggers are `schedule` and
-`workflow_dispatch`, neither of which a fork can cause, and `workflow_dispatch` needs write
-access — which one person has. So the code that executes is code that person merged, which
+because it is only valid while its premise holds:** the only trigger is
+`workflow_dispatch`, which a fork cannot cause and which needs write access — held by one
+person. So the code that executes is code that person merged, which
 is what they already run locally as themselves.
 
 > [!WARNING]
@@ -63,38 +64,37 @@ is what they already run locally as themselves.
 > filename, so a workflow added later is covered without anybody remembering. It runs under
 > `-short`, on every push.
 >
-> Two residual differences from "pull and run it myself", worth knowing rather than fixing:
-> a scheduled run is **unattended** (including on commits an agent pushed), and the actions
-> are on **mutable tags** (`actions/checkout@v7`, `actions/setup-go@v7`) rather than pinned
-> SHAs.
+> Two residual differences from "pull and run it myself", worth knowing rather than fixing.
+> The dispatcher in [§5](#5-optional--let-the-mac-dispatch-itself) is **unattended** if you install it — it fires on wake and hourly,
+> including on commits an agent pushed — and the actions are on **mutable tags**
+> (`actions/checkout@v7`, `actions/setup-go@v7`) rather than pinned SHAs. Skipping [§5](#5-optional--let-the-mac-dispatch-itself) removes
+> the first one entirely: without it nothing runs that you did not type.
 
-## 1. The probe token (do this first — the job is inert without it)
+## 1. Nothing to do — the token is gone
 
-The poll job asks `GET /repos/{owner}/{repo}/actions/runners`, which requires **admin**
-access. `administration` is not a scope `permissions:` can grant to `GITHUB_TOKEN`, so a PAT
-is required and the built-in token cannot substitute.
+**Earlier drafts of this runbook started with a fine-grained PAT
+(`Administration: Read-only`) stored as the secret `YOLO_RUNNER_PROBE_TOKEN`.** It is no
+longer needed and the secret should not be created.
 
-⚠ An existing PAT will not do unless it carries this permission. Verified 2026-09-14: the
-maintainer's working `GH_TOKEN` returns `403 Resource not accessible by personal access
-token` on that endpoint — the same answer the workflow's probe would report as "cannot ask",
-and it then declines and skips **green**. A missing permission looks exactly like a Mac that
-is switched off.
+Why it existed, and why it does not: the workflow used to carry a `schedule:` plus a hosted
+`runner-check` job that asked `GET /repos/{owner}/{repo}/actions/runners` whether this Mac
+was online, so a run could be *skipped green* rather than queued for 24 hours against an
+absent runner. That endpoint needs admin access, and `administration` is not a scope
+`permissions:` can grant to `GITHUB_TOKEN` — hence a PAT.
 
-1. GitHub → Settings → Developer settings → **Fine-grained tokens** → Generate new token.
-2. Repository access: **only `mschulkind-oss/yolo-jail`**.
-3. Repository permissions: **Administration: Read-only**. Nothing else.
-4. Repo → Settings → Secrets and variables → Actions → New repository secret:
-   name **`YOLO_RUNNER_PROBE_TOKEN`**, value the token.
-
-Check it before going further:
+**But a runner is an outbound long-poll client.** It dials GitHub and holds the connection
+open; that is why a self-hosted runner needs no inbound ports and works behind NAT. GitHub
+knew the Mac was online *only because the Mac had told it*. So the question could be answered
+on the Mac, for free:
 
 ```console
-$ GH_TOKEN=<the new token> gh api repos/mschulkind-oss/yolo-jail/actions/runners -q .total_count
-0
+$ launchctl list | grep 'actions\.runner\.'
 ```
 
-`0` is the correct answer here — the runner does not exist yet. A `403` means step 3 did not
-take.
+The schedule and the poll job are therefore both deleted, and the Mac dispatches instead
+([§5](#5-optional--let-the-mac-dispatch-itself)). Verified 2026-09-14: the maintainer's existing `gh` login already carries the
+`repo` scope, which is all `gh workflow run` needs — so this route adds **no credential at
+all**.
 
 ## 2. Apple Container's apiserver
 
@@ -120,11 +120,15 @@ rather than discovering it inside a CI step that has no terminal.
 
 ## 3. Register the runner
 
-The labels are the contract. `apple-container.yml` selects
-`runs-on: [self-hosted, macOS, ARM64, apple-container]`, **and the poll job separately greps
-for the `apple-container` label** — two spellings of one fact that YAML cannot derive from
-each other. Get one wrong and the job either never selects the machine or the poll never sees
-it.
+The labels are the contract: `apple-container.yml` selects
+`runs-on: [self-hosted, macOS, ARM64, apple-container]`, and a runner missing any one of them
+is never chosen. GitHub does not report that as an error — the run simply sits waiting for a
+runner matching the labels, which reads like a machine that is off.
+
+(An earlier design had the label written **twice** — once here and once in a hosted poll job's
+`jq` — with no way for YAML to derive one from the other. Deleting the poll deleted that
+duplication too; the dispatcher matches on the `actions.runner.` launchd label prefix, which
+the runner installs itself and nobody has to keep in sync.)
 
 1. Repo → Settings → Actions → Runners → **New self-hosted runner** → macOS / arm64.
 2. Run the commands it gives you (they carry a short-lived registration token). Install into
@@ -155,22 +159,31 @@ $ ./svc.sh status
 
 ## 4. Verify
 
+Check the runner locally — this is the same question the deleted poll job asked GitHub, and
+it needs no credentials:
+
 ```console
-$ GH_TOKEN=<probe token> gh api repos/mschulkind-oss/yolo-jail/actions/runners \
-    -q '.runners[] | "\(.name) status=\(.status) busy=\(.busy) labels=\([.labels[].name]|join(","))"'
-<this-mac> status=online busy=false labels=self-hosted,macOS,ARM64,apple-container
+$ launchctl list | grep 'actions\.runner\.'
+-   0   actions.runner.mschulkind-oss-yolo-jail.<this-mac>
 ```
 
-All four labels must appear. Then drive it by hand rather than waiting for the poll:
+Then confirm GitHub agrees, and that all four labels are present. The **Settings → Actions →
+Runners** page shows this without a token; `gh` can only answer it with an admin PAT, which is
+exactly the credential this design removed:
+
+> Idle · `self-hosted` `macOS` `ARM64` `apple-container`
+
+Now drive a run:
 
 ```console
 $ gh workflow run apple-container.yml --repo mschulkind-oss/yolo-jail --ref main
 $ gh run watch
 ```
 
-**Expect the `runner-check` job to say `an apple-container runner is online and idle`.** If it
-says *"no YOLO_RUNNER_PROBE_TOKEN secret"* go back to [§1](#1-the-probe-token-do-this-first--the-job-is-inert-without-it); if it says *"no idle online runner
-carries the apple-container label"* the labels are wrong, not the Mac.
+**Expect the job to start within seconds, not to sit queued.** Queued means the runner is not
+connected — check the `launchctl` line above — and **"waiting for a runner matching the
+labels"** means a label is missing rather than the Mac being down, which is the failure
+[§3](#3-register-the-runner) exists to prevent.
 
 ### The step most likely to fail first, and it is not the runner
 
@@ -203,7 +216,50 @@ shape — an ubuntu `build-image` job that uploads the tar, a download here, and
 > problem on this exact machine. Heavier than substituting, lighter than the artifact route,
 > and it removes the Cachix dependency entirely.
 
-## 5. Housekeeping this runner needs and a hosted one does not
+## 5. Optional — let the Mac dispatch itself
+
+Everything above gives a runner you drive by hand. This makes it automatic, and it is the
+half that replaced the cron plus the admin PAT.
+
+The workflow has **no `schedule:`** — the scheduling lives here instead, because the Mac is
+the only party that knows whether it is up. Two files, both committed:
+
+```console
+$ install -m 755 scripts/mac-runner-dispatch.sh ~/.local/bin/mac-runner-dispatch.sh
+$ sed "s|__HOME__|$HOME|g" scripts/com.yolo-jail.mac-runner-dispatch.plist \
+    > ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
+$ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
+```
+
+`RunAtLoad` plus `StartInterval 3600`, so it fires when the Mac **wakes** and hourly after —
+which a cron on GitHub's side could not do. Watch it:
+
+```console
+$ tail -f ~/.local/state/yolo-jail/mac-runner-dispatch.log
+2026-09-14T11:55:51-0400  no actions.runner launchd agent is loaded, so a dispatch would
+                          queue instead of running. Start it with: (cd ~/actions-runner && ./svc.sh start)
+```
+
+Three properties worth knowing, each a deliberate choice in the script:
+
+- **It checks the runner locally before dispatching.** A dispatch onto a machine whose runner
+  is not listening queues — the exact failure the poll existed to prevent — and the Mac being
+  awake is necessary but not sufficient (`svc.sh install` may never have run).
+- **It dispatches a commit at most once.** It records the SHA it dispatched, so an hourly
+  agent does not re-run an unchanged `main` and spin the fans to re-prove a green result. A
+  deliberate re-run is `gh workflow run` by hand, which is where a flake decision belongs.
+- **Every outcome exits 0 and is logged.** launchd has no terminal, so an unlogged message is
+  lost, and a non-zero exit from a periodic agent buys only noise in the system log.
+  "Runner not running" and "nothing new" are ordinary states, not failures.
+
+Uninstall:
+
+```console
+$ launchctl bootout gui/$(id -u)/com.yolo-jail.mac-runner-dispatch
+$ rm ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
+```
+
+## 6. Housekeeping this runner needs and a hosted one does not
 
 **The runner is not ephemeral.** Every other macOS job in this repo runs on a fresh VM that
 is discarded; here a leaked container or an unremovable workspace persists on an actual
