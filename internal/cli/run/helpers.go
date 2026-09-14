@@ -99,9 +99,23 @@ func hostServiceEndpointPath(serviceName string) string {
 	return paths.JailHostServicesDir + "/" + serviceName + paths.ServiceEndpointExt
 }
 
-// acMaterialize copies src into
-// ws_state/target_rel for Apple Container (single-file mounts trip
-// apple/container#1089). is_dir=false here (all callers pass files).
+// acMaterialize copies src into ws_state/target_rel for Apple Container. is_dir=false here
+// (all callers pass files).
+//
+// ⚠ THE COPY IS NOW A CHOICE, NOT A NECESSITY, and the citation it used to carry was false.
+// This said "single-file mounts trip apple/container#1089". MEASURED 2026-09-14 on macOS 26.5
+// arm64, `container` 1.1.0: a single REGULAR-FILE bind arrives intact, propagates writes to
+// the host, and honors `:ro` (integration/applecontainer_test.go,
+// TestAppleContainerBindsASingleFile). So #1089 does not hold on that release.
+//
+// The copy is KEPT anyway, deliberately. It works on EVERY version with no version gate to
+// get wrong, and the failure mode of guessing wrong in the other direction is the one this
+// codebase keeps paying for: a bind that does not arrive does not ERROR, so the surface
+// composes from its defaults layer and the user's own file silently vanishes from the
+// composition while the disclosure still says it was read. Every consumer here reads its file
+// at BOOT, so a snapshot is as good as a bind — which is what makes retaining the copy cheap
+// rather than a compromise. Revisit only with a measured version floor, the way
+// acROBindsFloor is done (internal/cli/run/backendcaps.go).
 func acMaterialize(src, targetRel, wsState string) {
 	dst := filepath.Join(wsState, targetRel)
 	_ = os.MkdirAll(filepath.Dir(dst), 0o755)

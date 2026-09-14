@@ -63,7 +63,7 @@ func TestPackMountFileSourceIsReportedNotSilentlyDroppedOnAppleContainer(t *test
 	argv, printed := assembleMountPack(t, "container", pack)
 	for _, a := range argv {
 		if strings.Contains(a, "/ctx/acme.toml") {
-			t.Errorf("Apple Container cannot bind a single file, yet argv carries %q", a)
+			t.Errorf("Apple Container is given a COPY, not a single-file bind (#1089 is refuted on 1.1.0; the copy is kept because it needs no version floor), yet argv carries %q", a)
 		}
 	}
 	if !strings.Contains(printed, "acme.toml") {

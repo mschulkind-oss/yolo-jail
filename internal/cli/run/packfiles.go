@@ -87,7 +87,8 @@ func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 //
 // Two cases the emitter has to split on, both of them "or it vanishes silently":
 //
-//   - Apple Container cannot bind a single FILE (apple/container#1089) — the same limit
+//   - Apple Container is handed a COPY rather than a single-FILE bind (apple/container#1089
+//     is false on 1.1.0, measured; the copy needs no version gate) — the same treatment
 //     that already routes yolo-user-env.sh and every briefing through acMaterialize. A
 //     `files` contribution naming one file is therefore COPIED into ws_state (which AC
 //     mounts wholesale at /home/agent) instead of mounted. A directory needs no such

@@ -215,7 +215,116 @@ func TestAppleContainerMachineWideTierArrives(t *testing.T) {
 	}
 }
 
-// TestAppleContainerIgnoresReadOnlyBinds MEASURES THE PREMISE the whole refusal rule rests
+// TestAppleContainerBindsASingleFile IS THE SECOND UNMEASURED BELIEF, ASKED THE SAME WAY THE
+// FIRST ONE FINALLY WAS.
+//
+// `apple/container#1089` — "Apple Container cannot bind a single FILE" — is cited in seven Go
+// files and five docs, and it drives real behaviour: six `acMaterialize` call sites copy
+// instead of binding, and the two `/dev/null` shadow binds are SKIPPED outright with no
+// fallback at all (shadowbinds_test.go). Until this test nothing measured it — which is
+// exactly the shape `#889` had when it inverted on the first run that could check it.
+//
+// ⚠ THE TWO SHAPES HAVE DIFFERENT ANSWERS, and folding them together is how this stays
+// wrong. A REGULAR FILE binds correctly on 1.1.0. A CHARACTER DEVICE — which is what
+// `/dev/null` is, and the shadows are the only site that binds one — arrives as a node with
+// the WRONG major:minor and is unreadable. So "cannot bind a single file" is false, while the
+// shadow skip that cites it is still right, for a reason nobody had written down.
+//
+// Measured 2026-09-14, macOS 26.5 arm64, `container` 1.1.0.
+//
+// IT DOES NOT GO THROUGH yolo, for the reasons TestAppleContainerHonorsReadOnlyBinds gives:
+// the question is about the RUNTIME, and a throwaway temp dir is the only safe subject.
+func TestAppleContainerBindsASingleFile(t *testing.T) {
+	requireAppleContainer(t)
+	requireJail(t)
+
+	ref := imageExists("container")
+	if ref == "" {
+		t.Skip("no jail image is loaded into Apple Container yet, and this probe needs one " +
+			"to run anything at all; the launching tests above are what load it")
+	}
+	ver, _ := exec.Command("container", "--version").Output()
+	version := strings.TrimSpace(string(ver))
+
+	dir := t.TempDir()
+	reg := filepath.Join(dir, "regular.txt")
+	if err := os.WriteFile(reg, []byte("ARRIVED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A regular file, read-only: the shape every acMaterialize site would bind.
+	out, err := exec.Command("container", "run", "--rm",
+		"-v", reg+":/probe/regular.txt:ro", ref,
+		"sh", "-c", "cat /probe/regular.txt 2>&1",
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("the single-file probe could not run: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "ARRIVED") {
+		t.Errorf("MEASURED: Apple Container did NOT deliver a single-file bind.\n\n"+
+			"version: %s\noutput: %s\n\n"+
+			"That is apple/container#1089 holding, and the six acMaterialize copies plus the "+
+			"/dev/null shadow skip resting on it are justified. If this machine is BELOW the "+
+			"version where it was measured working (1.1.0) then only this test is wrong to "+
+			"run here; at or above it, the belief has re-inverted.", version, out)
+	} else {
+		t.Logf("MEASURED: Apple Container DELIVERS a single-file bind (regular file, :ro).\n"+
+			"version: %s\n\nSo apple/container#1089 does NOT hold here. The six acMaterialize "+
+			"copies are a CHOICE now (a copy works on every version and needs no version "+
+			"gate), not a necessity — see internal/cli/run/helpers.go.", version)
+	}
+
+	// A CHARACTER DEVICE: the /dev/null shadow, and the one site with no fallback.
+	//
+	// Asked separately because it is a DIFFERENT capability with a different answer, and
+	// because this is the site that currently loses a feature: the shadow is skipped, and
+	// shadowbinds_test.go records why the obvious alternative (write an empty file in-jail)
+	// is a data-loss bug — /workspace is bound read-write, so that truncates the real file.
+	shadowed := filepath.Join(dir, "shadowed.json")
+	if err := os.WriteFile(shadowed, []byte("REAL USER CONTENT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = exec.Command("container", "run", "--rm",
+		"-v", dir+":/ws", "-v", "/dev/null:/ws/shadowed.json", ref,
+		"sh", "-c", `echo "type=$(stat -c %F /ws/shadowed.json 2>&1)"; `+
+			`echo "dev=$(stat -c %t:%T /ws/shadowed.json 2>&1)"; `+
+			`echo "realdev=$(stat -c %t:%T /dev/null)"; `+
+			`echo "read=[$(cat /ws/shadowed.json 2>&1)]"`,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("the shadow probe could not run: %v\n%s", err, out)
+	}
+	got := string(out)
+
+	// The shadow's PURPOSE is "reads as empty". Anything else means the agent does not get an
+	// empty file, so the skip stays correct — but the REASON has to match reality.
+	switch {
+	case strings.Contains(got, "read=[]") && strings.Contains(got, "type=character special file"):
+		t.Errorf("MEASURED: the /dev/null shadow WORKS on Apple Container.\n\n"+
+			"version: %s\n%s\n\n"+
+			"This is news, not a regression: both shadows are currently SKIPPED on this "+
+			"backend (assemble.go, guarded by TestTheDevNullShadowsAreSkippedOnAppleContainer), "+
+			"so an agent there reads the user's real .vscode/mcp.json and .overmind.sock. If a "+
+			"char-device bind now reads as empty, that skip is withheld for no reason.",
+			version, got)
+	case !strings.Contains(got, "character special file"):
+		t.Errorf("MEASURED: the /dev/null shadow does not arrive AT ALL on Apple Container "+
+			"(no device node at the destination).\n\nversion: %s\n%s\n\n"+
+			"That is what shadowbinds_test.go's comment claims, and it would make this the "+
+			"first measurement of it. Record this output there rather than leaving a bare "+
+			"citation.", version, got)
+	default:
+		t.Logf("MEASURED: the /dev/null shadow arrives as a NON-FUNCTIONAL device node.\n"+
+			"version: %s\n%s\n\n"+
+			"The node is created with the wrong major:minor — compare `dev` to `realdev` "+
+			"above, and note the container's own /dev/null reads fine. So reads fail with "+
+			"ENXIO rather than returning empty. The skip in assemble.go is therefore still "+
+			"CORRECT, but its stated reason (\"a bind whose HOST side is not a directory does "+
+			"not arrive\") is not what happens: it arrives and does not work.", version, got)
+	}
+}
+
+// TestAppleContainerHonorsReadOnlyBinds MEASURES THE PREMISE the whole refusal rule rests
 // on, and it is the one test here that is valuable whichever way it comes out.
 //
 // roBindsUnsupported refuses four different host grants on this backend — config `mounts`, a

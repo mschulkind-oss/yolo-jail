@@ -550,7 +550,8 @@ func hostSurfaceBytes(e *Env, surface manifest.Surface) ([]byte, error) {
 // what hostClaudeDir/hostPiDir used to be for.
 //
 // YOLO_CTX_ROOT PROMOTES THAT SEAM TO A PRODUCTION ONE, for Apple Container. That
-// backend cannot bind a single file (apple/container#1089) and every host-file grant is
+// backend was believed not to bind a single file (apple/container#1089 — false on 1.1.0,
+// measured; the copy is retained by choice, see run.acMaterialize) and every host-file grant is
 // exactly one file, so the CLI copies them into the home and names the directory here
 // instead. Absent — every other backend — this is the /ctx mount and remapCtx is a no-op,
 // so the common path is unchanged.

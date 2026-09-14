@@ -59,8 +59,10 @@ func TestReadsHostGrantsAreMaterializedOnAppleContainer(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(wsState, acCtxDirRel, "host-claude", "settings.json"))
 	if err != nil {
 		t.Fatalf("the host settings grant was not materialized for Apple Container: %v\n"+
-			"That backend cannot bind a single file, so a -v of one arrives as nothing and the "+
-			"surface silently composes without the user's host layer.", err)
+			"That backend is handed a COPY rather than a single-file bind — the citation "+
+			"apple/container#1089 is refuted on 1.1.0, but the copy is kept because it "+
+			"needs no version floor — so without it the surface silently composes "+
+			"without the user's host layer.", err)
 	}
 	if string(got) != `{"model":"from-host"}` {
 		t.Errorf("materialized content = %q, want the host file's bytes", got)

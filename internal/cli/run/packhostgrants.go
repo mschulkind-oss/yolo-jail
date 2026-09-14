@@ -71,9 +71,14 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 			// the host stages a configured pack under config.PackEntry.Slug, so a name
 			// carrying anything outside [A-Za-z0-9.-] mounted here and was read there.
 			dest := packload.CtxPath(p.StagedSlug(), hf)
-			// APPLE CONTAINER CANNOT BIND A SINGLE FILE (apple/container#1089), and this
-			// grant is always exactly one file. Left as a bind it does not error — it
-			// silently does not arrive, and the surface then composes from its defaults
+			// APPLE CONTAINER IS GIVEN A COPY RATHER THAN A SINGLE-FILE BIND, and this grant
+			// is always exactly one file. The reason used to be stated as
+			// apple/container#1089 ("cannot bind a single file"), which is FALSE on 1.1.0 —
+			// measured, a regular-file bind arrives and honors :ro. The copy is retained
+			// because it needs no version gate; see acMaterialize for the full reasoning.
+			//
+			// What has not changed is the failure it avoids. Left as a bind on a version
+			// where it does NOT arrive, nothing errors — the surface composes from its defaults
 			// layer because the entrypoint reads the host layer fail-open
 			// (packsurfaces.go hostSurfaceBytes). The user's whole ~/.claude/settings.json
 			// disappears from the composition with nothing in the launch to say so —

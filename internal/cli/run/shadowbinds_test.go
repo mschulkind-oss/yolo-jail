@@ -15,9 +15,24 @@ import (
 // socket it cannot use (OVERMIND_SOCKET points at /tmp/overmind.sock instead). Binding
 // /dev/null over each makes them read as empty.
 //
-// Why Apple Container cannot have them: a bind whose HOST side is not a directory does not
-// arrive there, so the shadow silently is not applied and the agent reads the real file —
-// the failure this whole class produces, in its mildest form.
+// Why Apple Container cannot have them — and the stated reason was WRONG, which matters
+// because it is the reason a reader would use to decide whether the skip still applies.
+//
+// It said "a bind whose HOST side is not a directory does not arrive there". MEASURED
+// 2026-09-14 (macOS 26.5 arm64, `container` 1.1.0,
+// integration/applecontainer_test.go's TestAppleContainerBindsASingleFile): it DOES arrive.
+// A regular-file bind works completely — content, write-through, `:ro`. And the /dev/null
+// bind arrives too, as a `character special file`. What it does not do is WORK:
+//
+//	dev=0:3002        the node the bind created
+//	realdev=1:3       the container's own /dev/null, which reads fine
+//	read=[cat: /ws/shadowed.json: No such device or address]
+//
+// Apple Container synthesises the node through virtiofs with the wrong major:minor, so a
+// read fails ENXIO instead of returning empty. The shadow's whole purpose is "reads as
+// empty", and an I/O error is not that — an agent gets a broken file rather than an absent
+// config. So the SKIP IS STILL CORRECT and this test still guards the right thing; only the
+// explanation moves, from "does not arrive" to "arrives and does not work".
 //
 // ⚠ AND WHY THE OBVIOUS FIX IS A DATA-LOSS BUG. acbindsources_test.go used to propose
 // "have the entrypoint write the empty file in-jail, which works on every backend and needs

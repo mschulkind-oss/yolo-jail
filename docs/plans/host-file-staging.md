@@ -146,7 +146,7 @@ design of record for the `host_files` key itself and is **closed** to new scope.
 | **`managed`/`defaults` array-append pinning** | Object merge only; an array in `managed` replaces rather than appends. Shape-checked at config time, so no surprise at render. | #3 |
 | **`readonly` as a kernel-enforced `:ro` mount** | It is `0o444` DAC. Documented in config-ref as "a strong signal and a speed bump, not a sandbox", with the root-bypass called out. | #3 |
 | **A directory `source` on `macos-user`** | Skipped and NAMED in a warning: a copy does not scale to an arbitrary user tree, and this backend has no bind mount to use instead. A FILE `source` is delivered by copy since 2026-09-13 — see the postscript. | accepted deficiency |
-| **Single-file `:ro` on Apple Container** | apple/container#1089; source-less entries compose fine. | accepted deficiency |
+| **Single-file `:ro` on Apple Container** | ~~apple/container#1089~~ — **refuted 2026-09-14** on `container` 1.1.0: a regular-file bind arrives, propagates writes and honors `:ro` (`TestAppleContainerBindsASingleFile`). The copy is retained by choice — it needs no version floor and every consumer reads at boot. Source-less entries compose fine either way. | no longer a deficiency; a deliberate mechanism |
 | **Arbitrary host→container paths** | Destinations are `$HOME`-relative; an absolute path is a `yolo check` error pointing at `mounts`. | won't do (by design) |
 
 ### The one gap that needed closing to hold the line

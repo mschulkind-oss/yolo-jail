@@ -252,8 +252,10 @@ a missing binary by name, and generates nothing that could shadow anything.
 ### 5.3 `kind: "files"` will carry a script, with two sharp edges
 
 A `files` contribution is bind-mounted `:ro` into the jail at `/home/agent/<into>`, one mount per
-contribution, and Apple Container cannot bind a single file so a one-file contribution is copied
-into the workspace state dir instead. Two consequences for a wrapper script: the executable bit
+contribution, and Apple Container is handed a COPY rather than a single-file bind, so a one-file contribution
+lands in the workspace state dir instead. (That was attributed to apple/container#1089;
+refuted on `container` 1.1.0, measured 2026-09-14 — the copy is retained because it needs no
+version floor.) Two consequences for a wrapper script: the executable bit
 has to survive staging, and the script must resolve `$HOME`, `$NPM_CONFIG_PREFIX` and the chromium
 path **at run time**, because a read-only file cannot be rendered per jail. The existing wrapper
 already resolves all three that way, which is evidence the shape works — it is written in terms of

@@ -369,7 +369,7 @@ twice:
   > equivalent rather than degraded; a mounted directory is not, and stays refused.
 - **The one place yolo does copy, it copies into something still bind-mounted.**
   `acMaterialize` (`cli/run/helpers.go`) exists only because Apple Container trips on
-  *single-file* mounts (apple/container#1089); it writes into `ws_state`, which is itself a
+  *single-file* mounts (apple/container#1089 — refuted on 1.1.0, measured 2026-09-14; the copy is kept because it needs no version floor); it writes into `ws_state`, which is itself a
   live bind. So the file is still shared, not snapshotted. That is a mount-shape workaround,
   not a copy semantic.
 
