@@ -446,7 +446,7 @@ an agent plans around it.
    > Mac.** So the ruling is answered and the hardware verification is not; they were separate
    > questions all along.
 
-3. 💬 **OQ-BP-4: Is the Apple Container loophole skip still justified, or is its reason stale?**
+3. ✅ **OQ-BP-4: Is the Apple Container loophole skip still justified, or is its reason stale?** — **RULED 2026-09-14**, see the [Decision Ledger](#decision-ledger).
    This is the maintainer's own question — *"shouldn't the broker be in use here?"* — generalised,
    and the stakes are real: with no `claude-oauth-broker` on that backend there is **no OAuth
    refresh serialization**, so concurrent jails on a Mac each refresh their own single-use token.
@@ -477,8 +477,10 @@ an agent plans around it.
    listener at all is exactly the class AGENTS.md's nested-jail carve-out says gets a free green
    from podman-in-podman.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer: STALE — support loopholes as fully as possible on every backend.** The maintainer's
+   direction, 2026-09-14. The leaning above is adopted whole; the [Decision Ledger](#decision-ledger)
+   carries the per-loophole census that says how far "as fully as possible" reaches, and the
+   measurement that has to come first.
 
 4. 💬 **OQ-BP-3: Does a `Warned` disposition need to be suppressible?**
 Fourteen new launch lines exist as of today — the number was ten when this question was
@@ -503,4 +505,5 @@ Fourteen new launch lines exist as of today — the number was ten when this que
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-BP-4 | **The reason is STALE; the goal is loopholes as fully as possible on EVERY backend** (maintainer's direction). The blanket skip is justified in `loopholeinert.go` by *"no socket bind-mount there"*, and that is true of almost nothing shipped: **four of six shipped loopholes declare `transport: loopback-tls`** — `claude-oauth-broker`, `host-processes`, `journal`, `serial` — which reach the host over the NETWORK and learn their endpoint from a 0600 file in a bind-mounted DIRECTORY, which Apple Container mounts fine. The other two (`audio`, `cgroup-delegate`) declare `transport: none`, so there is no socket to mount for them either. The socket-era reason survives for **zero** of the six. ⚠ **macos-user's reason is different and only half wrong:** *"a native process already reaches the host directly, so the whole mechanism is bypassed"* answers REACHABILITY and is silent on SERIALIZATION — the broker exists to serialise refreshes of a single-use OAuth token across concurrent jails, which reaching the host directly does not do, so that race is live on macos-user too. **The real limits are per-LOOPHOLE, not per-backend:** `--add-host` is unsupported on AC (apple/container#673), which blocks an *intercepting* loophole only; `cgroup-delegate` is Linux + cgroup-v2 and AF_UNIX + SO_PEERCRED, hence NotApplicable on both macOS backends; `audio`'s sockets do not exist on macOS. **Sequencing is part of the ruling:** whether an AC container reaches a host loopback listener is the one thing no Linux test can answer, and it must be MEASURED before the skip is lifted — the in-jail reachability witness is FATAL, so enabling an unreachable service converts a working AC launch into a refusing one. Measure first, then split | 2026-09-14 | the OQ above; [§7](#7-what-this-does-not-propose) |
 | OQ-BP-2 | **Deliver them, and they are delivered** — ANSWERED BY CODE. The host composes skills + briefings by destination (`buildMacosHomeOverlay`), the launch stages the tree as `YOLO_DARWIN_HOME_OVERLAY`, the boot copies it over the sandbox home (`InstallHomeOverlay`). Disposition moves `Warned` → `HonoredBy`; [§5](#5-what-is-already-fixed-2026-08-24)'s fourteen is unchanged. What survives is smaller: the copy is writable where a bind is `:ro`, and the home is machine-wide | shipped 2026-09-03 (`ef0282ab`), noticed here 2026-09-09 | [Open Questions](#open-questions) item 2 |
