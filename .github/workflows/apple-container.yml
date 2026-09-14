@@ -170,16 +170,16 @@ jobs:
           container --version || echo "container: NOT ON PATH"
           container system status || echo "container system: NOT RUNNING"
 
-      # THE IMAGE, AND THE ONE STEP MOST LIKELY TO BE WRONG ON THE FIRST RUN.
+      # THE IMAGE. This step was the first thing to fail on the first real run, and the
+      # answer was not the one the file predicted.
       #
-      # A darwin machine cannot BUILD the Linux image — there is no Linux builder here —
-      # so it must SUBSTITUTE the whole closure. That became possible on 2026-09-13
-      # (`1006fe6d`, "push to Cachix on every run"): the image's entire input set is
-      # flake.nix + flake.lock, so a darwin eval and a Linux eval produce identical .drv
-      # paths and the Mac can fetch what the ubuntu nightly pushed.
+      # WHAT WAS BELIEVED: "a darwin machine cannot BUILD the Linux image, so it must
+      # SUBSTITUTE the whole closure — which became possible on 2026-09-13 (`1006fe6d`,
+      # push to Cachix on every run), because the image's entire input set is flake.nix +
+      # flake.lock, so a darwin eval and a Linux eval produce identical .drv paths."
       #
-      # ⚠⚠ MEASURED 2026-09-14 ON THE FIRST REAL RUN, AND THE PARAGRAPH ABOVE IS WRONG FOR
-      # THIS RUNNER. It is kept because the correction needs something to point at.
+      # ⚠⚠ MEASURED 2026-09-14 (run 34868855087) — TRUE ONLY WITHIN ONE ARCHITECTURE, so
+      # FALSE for this runner. Kept because the correction needs something to point at.
       #
       # "A darwin eval and a Linux eval produce identical .drv paths" holds only WITHIN ONE
       # ARCHITECTURE. This runner is an arm64 Mac, so it evaluates and needs **aarch64-linux**
@@ -205,24 +205,39 @@ jobs:
       # that would start the VM execs a `create-builder` that is absent, and has never once
       # run (no /var/log/yolo-linux-builder.log). A dead stub from 2026-07-16.
       #
-      # THE FIX IS THE ONE THIS REPO ALREADY PROVED, one day after that stub was written:
-      # docs/plans/runbooks/mac-ac-container-builder.md stands up a Linux builder INSIDE
-      # Apple Container, zero sudo, and was verified on this exact hardware 2026-07-17
-      # (macOS 26.5 arm64) with the host nix reporting `Trusted: 1` and a proof build
-      # returning AC-CONTAINER-BUILDER-WORKS. It removes the Cachix dependency rather than
-      # working around it, and it is arch-correct by construction: the builder is aarch64.
+      # ✅ FIXED, AND MEASURED END TO END 2026-09-14. The answer was already in this repo,
+      # written one day after that dead stub: mac-ac-container-builder.md stands up a Linux
+      # builder INSIDE Apple Container, zero sudo. `scripts/mac-ac-linux-builder.sh` is that
+      # runbook made repeatable, and this step calls it.
       #
-      # The other fallback still stands and is now the SECOND choice: copy
-      # nightly-macos.yml's shape — an ubuntu `build-image` job that uploads the tar, a
-      # download step here, and `container image load -i` (internal/image/image.go is the
-      # authority on that argv). ⚠ On an arm64 runner that job would have to build the image
-      # for aarch64-linux, which `ubuntu-latest` cannot do either — so it needs an arm64
-      # Linux runner, which is the moving part that makes it second.
-      - name: Realize the jail image (substituting from Cachix)
+      # Re-verified on Apple Container 1.1.0 (the runbook proved 0.12.3): GHCR pull works,
+      # `nix store info` reports `Trusted: 1`, and the proof build returns
+      # AC-CONTAINER-BUILDER-WORKS. Then the real thing — `.#ociImage` built through it in
+      # ~3 minutes, 12 derivations on the remote including nodejs, producing
+      # /nix/store/az2ywp6rfwmhwq7i3gl0cyhgp1wbm43q-image-yolo-jail.json, which is
+      # BYTE-FOR-BYTE the path run 34868855087 died trying to realize.
+      #
+      # Two things the script handles that a nix.conf line could not, both measured:
+      # the container's IP CHANGES between starts (192.168.64.2 then .3, minutes apart), and
+      # a remote build is performed by the nix DAEMON as root — so NIX_SSHOPTS and this
+      # user's known_hosts are invisible to it, and the host key has to be pinned in the
+      # spec's 8th field instead. Passing `--builders` also OVERRIDES the dead
+      # linux-builder above without touching /etc, which is what keeps this sudo-free.
+      #
+      # The artifact route remains a distant second and its own flaw is now known: on an
+      # arm64 runner the uploading job would have to build for aarch64-linux, which
+      # `ubuntu-latest` cannot do either — so it needs an arm64 Linux runner.
+      - name: Realize the jail image (building through the Apple Container builder)
         run: |
           set -euo pipefail
-          if ! nix build --impure --accept-flake-config --no-link --print-out-paths .#ociImage; then
-            echo "::error::could not realize .#ociImage on this Mac. Five derivations must be BUILT (nodejs, nix-ld, bin-path-links, yolo-jail-prefix-links, yolo-jail-root) and this machine has no working Linux builder. ⚠ On an ARM Mac, Cachix cannot help: the nightly pushes x86_64-linux from ubuntu-latest and this host needs aarch64-linux — a different closure, not a stale one. Stand up the Apple Container Linux builder (docs/plans/runbooks/mac-ac-container-builder.md, proven on this hardware 2026-07-17). Note /etc/nix/nix.custom.conf may already declare a linux-builder whose VM cannot start, which is why nix reports an SSH failure rather than a cache miss."
+          # The script starts the builder if it is not up, discovers its address (which
+          # CHANGES between starts), pins its host key, and prints the spec. Its stdout is
+          # only the spec; its diagnostics are on stderr, so this substitution is safe.
+          SPEC="$(scripts/mac-ac-linux-builder.sh)"
+          echo "builders: $SPEC"
+          if ! nix build --impure --accept-flake-config --no-link --print-out-paths \
+                 .#ociImage --builders "$SPEC"; then
+            echo "::error::could not realize .#ociImage through the Apple Container Linux builder. Five-ish derivations must be BUILT on this arch (nodejs, nix-ld, bin-path-links, yolo-jail-prefix-links, yolo-jail-root) and Cachix cannot supply them: the nightly pushes x86_64-linux from ubuntu-latest, this host needs aarch64-linux. Check \`container logs yolo-ac-builder\` for sshd, and docs/plans/runbooks/mac-ac-container-builder.md for the procedure this automates."
             exit 1
           fi
 

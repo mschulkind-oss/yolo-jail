@@ -3,6 +3,32 @@
 **Status:** CURRENT — the repeatable procedure, with the fixes found on the proving run applied
 inline.
 
+> [!IMPORTANT]
+> **THIS IS NO LONGER ONLY A PROOF — it is automated and wired into CI (2026-09-14).**
+> [`scripts/mac-ac-linux-builder.sh`](../../../scripts/mac-ac-linux-builder.sh) performs [§1](#1-generate-a-throwaway-builder-keypair-the-host-daemon-side), [the GHCR pull](#2a-preferred--pull-from-ghcr--live--public-verified-2026-07-17)
+> and [§5](#5-run-it--and-capture-the-addressport-the-ac-specific-unknown) non-interactively and prints the `--builders` spec;
+> [`.github/workflows/apple-container.yml`](../../../.github/workflows/apple-container.yml)'s
+> image step calls it. Read this file for WHY; run the script to DO it.
+>
+> **Re-proven on Apple Container 1.1.0** (this file proved 0.12.3), macOS 26.5 arm64, nix
+> 2.34.7: GHCR pull works, `Trusted: 1`, and the proof build returns
+> `AC-CONTAINER-BUILDER-WORKS`. Then the real measurement this runbook never took — the
+> actual jail image built through it in ~3 minutes, **12 derivations on the remote including
+> `nodejs`**, producing the exact store path a failing CI run had died trying to realize.
+>
+> **Two things the proof procedure does not cover, both found by automating it:**
+>
+> 1. **The container's IP changes between starts** — `192.168.64.2`, then `192.168.64.3`
+>    minutes later. Anything that records the address (a `builders =` line in `nix.conf`) is
+>    wrong by the next restart, which is why the script prints a spec instead.
+> 2. **A remote build is run by the nix DAEMON, as root** — so `NIX_SSHOPTS`, your
+>    `~/.ssh/config` and your `known_hosts` are all invisible to it. [§6](#6--the-gating-test--host-nix-builds-through-the-ac-container) works because it uses
+>    `--store` from *your* shell; `--builders` does not. The host key has to be pinned in the
+>    spec's 8th field (base64), which is also what keeps the whole path sudo-free.
+>
+> ⚠ **`container ls`'s IP is column 6 on AC 1.1.0, not column 5** as [§5](#5-run-it--and-capture-the-addressport-the-ac-specific-unknown) below assumes. The
+> script reads `$6`.
+
 > **PROVEN 2026-07-17: ✅ PROVEN on real hardware — this test PASSED.**
 > Run on macOS 26.5 arm64, AC 0.12.3, nix 2.34.7. §[2a](#2a-preferred--pull-from-ghcr--live--public-verified-2026-07-17) pull from GHCR worked
 > (no build/scp). AC ran the container with an internal-network IP
@@ -87,7 +113,7 @@ podman used `--network=host`; AC has **no `--net=host`** and networks each
 container in its own VM. So we must discover how the host reaches the
 container's sshd. Try, in order, and REPORT which works:
 ```
-# IMG = whatever §2 gave you: "$REPO:latest" (2a pull) or yolo-jail-builder:latest (2b load)
+# IMG = whatever [§2](#2-get-the-builder-image-onto-the-mac) gave you: "$REPO:latest" (2a pull) or yolo-jail-builder:latest (2b load)
 IMG="${REPO:-}:latest"; [ "$IMG" = ":latest" ] && IMG="yolo-jail-builder:latest"
 
 # (a) AC gives each container an IP on its internal network — VERIFIED path:
@@ -134,6 +160,12 @@ If 6a says `Trusted: 1` and 6b prints `AC-CONTAINER-BUILDER-WORKS`, **the AC
 container-builder cell goes ✅** — same result I got on podman in the Linux jail.
 
 ## 7. Cleanup (no residue)
+
+> [!WARNING]
+> **Do not run [§7](#7-cleanup-no-residue) on a machine that serves CI.** The keypair and the pulled image are exactly
+> what `scripts/mac-ac-linux-builder.sh` reuses across runs — deleting them costs a 400 MB
+> pull and a container restart on the next job. [§7](#7-cleanup-no-residue) is for a one-off proving session, which is
+> what this file originally was.
 ```
 container rm -f "$CID" 2>/dev/null
 container image rm yolo-jail-builder:latest 2>/dev/null
