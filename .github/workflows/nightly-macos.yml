@@ -226,6 +226,20 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Podman
+        # CAPPED, because a `podman machine start` that hangs is indistinguishable from a
+        # slow one until the JOB deadline fires — and then it reports as `cancelled` with no
+        # step named, which is the least useful failure this workflow can produce.
+        #
+        # MEASURED 2026-09-14 (run 34862784409): this step took 4m22s, 4m28s and 5m30s on the
+        # shards where it worked, and 49m12s and 46m+ on two where the VM never came up —
+        # eating the whole `timeout-minutes: 50` job budget, so nothing after it ever ran and
+        # the run said only that two shards were cancelled.
+        #
+        # 15 is ~2.7x the slowest healthy run, the same basis integration/packages_test.go
+        # states for nixBuildJailTimeout. Raise it if a legitimate boot is ever measured past
+        # it; do not remove it, because an uncapped hang costs the whole shard and names
+        # nothing. Pinned by integration/macosmachineshares_test.go.
+        timeout-minutes: 15
         run: |
           # No brew here: Homebrew ships no x86_64 macOS bottles for podman
           # 6.x (Tier 3 on Tahoe Intel → "no bottle available"), and podman

@@ -247,3 +247,66 @@ func isUnderOrEqualPath(child, base string) bool {
 	base = strings.TrimSuffix(base, "/")
 	return child == base || strings.HasPrefix(child, base+"/")
 }
+
+// A HANG IN THIS STEP COSTS THE WHOLE SHARD AND NAMES NOTHING, which is why the step-level
+// cap is pinned rather than trusted to stay.
+//
+// `podman machine init` + `podman machine start` boot a VM, and when that does not come up
+// the step does not fail — it waits. Without a step cap the JOB deadline is what eventually
+// fires, and GitHub reports that as a `cancelled` job with no step attributed, so the run
+// says "two shards were cancelled" and nothing about why. Every later step is skipped, so
+// the shard's tests contribute nothing either.
+//
+// MEASURED 2026-09-14 (run 34862784409): 4m22s / 4m28s / 5m30s where the VM came up, against
+// 49m12s and 46m+ on two shards where it did not — the entire `timeout-minutes: 50` budget,
+// twice, for no information.
+//
+// This asserts only that SOME cap exists on the step that boots the machine, not what it is:
+// the number is a measurement and will move, while "uncapped" is the defect and does not.
+func TestTheNightlyCapsTheStepThatBootsThePodmanMachine(t *testing.T) {
+	body := readWorkflow(t, nightlyWorkflow)
+
+	step, ok := stepContaining(body, "podman machine start")
+	if !ok {
+		t.Fatalf("%s no longer has a step running `podman machine start` — this test has "+
+			"lost its subject and would pass by finding nothing.", nightlyWorkflow)
+	}
+	// COMMENTS STRIPPED FIRST, and that is not fussiness. The step's own comment explains the
+	// measurement by quoting `timeout-minutes: 50` — so a plain Contains matched its own prose
+	// and the check passed with the real key deleted. Verified by deleting it.
+	if !strings.Contains(uncommentedYAML(step), "timeout-minutes:") {
+		t.Errorf("%s: the step that runs `podman machine start` has no `timeout-minutes`.\n\n"+
+			"A VM that never boots then runs until the JOB deadline, which GitHub reports as a "+
+			"cancelled job with NO step named — measured twice in run 34862784409, at 49 and 46 "+
+			"minutes against a 50-minute cap, with every later step skipped.\n\n"+
+			"The step:\n%s", nightlyWorkflow, step)
+	}
+}
+
+// stepContaining returns the `- name:` block of the workflow step whose body contains needle.
+// Blocks are delimited by the `      - name:` indentation this file's steps all use; a step
+// list that stops matching it fails the caller above rather than silently returning nothing.
+func stepContaining(body, needle string) (string, bool) {
+	const marker = "\n      - name:"
+	parts := strings.Split(body, marker)
+	for _, p := range parts[1:] {
+		if strings.Contains(p, needle) {
+			return marker[1:] + p, true
+		}
+	}
+	return "", false
+}
+
+// uncommentedYAML drops every whole-line YAML comment, so a check for a KEY cannot be
+// answered by prose that mentions it. Only full-line comments: a `#` inside a shell `run:`
+// block is script, and a trailing one after a value is rare enough here to leave alone.
+func uncommentedYAML(body string) string {
+	var keep []string
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		keep = append(keep, line)
+	}
+	return strings.Join(keep, "\n")
+}
