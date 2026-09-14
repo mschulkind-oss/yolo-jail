@@ -6,11 +6,25 @@ package cli
 // It exists because the composition engine grew enough moving parts (five layers,
 // four host_files modes, per-surface codecs, an optional capture overlay) that
 // file construction stopped being answerable by reading docs. More pointedly: the
-// §5 capture overlay outranks the host layer PERMANENTLY and had no user-facing
+// §5 capture overlay outranks every layer below it PERMANENTLY and had no user-facing
 // view at all, so a surface could silently diverge from what its layers would
 // produce with the divergence recorded only in a sidecar the user has never heard
 // of (docs/reference/composed-file-permissions.md §5). This is the missing half of a
 // mechanism already in production, not new-feature polish.
+//
+// ⚠ THE CEILING IS PART OF THE FACT, and this file said "outranks the host layer"
+// — here and in the ⚠ footer below — until 2026-09-14. The fold is ascending
+// `defaults < host < workspace < config-overlay:<pack> < overlay (capture) < computed
+// < managed` (internal/agentcfg/compose.go builds `preLayers` in that order, then
+// enforceManaged applies the floor), so a capture outranks `defaults`, `host`, a
+// host_files `content` layer (same slot as `host`), `workspace` and every
+// `config-overlay`, and LOSES to `computed` and `managed`. Naming the host layer alone
+// was wrong twice over for mise/config — the surface the launch banner flags most
+// often — which declares NO host layer at all and whose only yolo-owned layer is the
+// `computed` [tools] table that BEATS the capture (internal/agentcfg/builtin.go,
+// miseConfig + CoreComputedSurfaces). Which layers a listed surface actually has is
+// the LAYERS column, which is why the footer names the two exceptions by their column
+// spelling rather than restating the stack.
 
 import (
 	"fmt"
@@ -430,7 +444,7 @@ func writeSurfaceTable(out io.Writer, rows []surfaceRow, color bool) {
 
 	if diverged > 0 {
 		pr.Printf("")
-		pr.Printf("[yellow]⚠ %d %s captured in-jail edits that outrank the host layer.[/yellow]",
+		pr.Printf("[yellow]⚠ %d %s captured in-jail edits that outrank every layer but `computed` and `managed`.[/yellow]",
 			diverged, plural(diverged, "surface has", "surfaces have"))
 		pr.Printf("  Inspect: [cyan]yolo config diff <agent> --surface <name>[/cyan]")
 		pr.Printf("  Discard: [cyan]yolo config reset <agent> --surface <name>[/cyan]")

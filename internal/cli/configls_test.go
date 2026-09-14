@@ -70,8 +70,9 @@ func writeSidecar(t *testing.T, dir, agent, name, overlayJSON, lastRenderJSON st
 }
 
 // TestConfigLsListsSurfacesAndFlagsOverlay: the listing must show every surface's
-// construction AND flag the ones carrying captured edits — the whole point, since
-// an overlay outranks the host layer with no other user-facing view.
+// construction AND flag the ones carrying captured edits — the whole point, since an
+// overlay outranks every layer but `computed` and `managed` with no other user-facing
+// view. captureprecedence_test.go pins the footer's wording and that ceiling.
 func TestConfigLsListsSurfacesAndFlagsOverlay(t *testing.T) {
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark","model":null}`, `{"theme":"light"}`)

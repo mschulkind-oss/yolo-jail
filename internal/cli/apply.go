@@ -1039,8 +1039,10 @@ func embeddedPacksForPrune() []*packload.Pack { return packload.Embedded() }
 // named-but-impure input (the user config, a pack's reads-host) is declared, nix's
 // fixed-output derivation. It means no input that NOTHING names. The three refusals today:
 //   - yolo-jail.local.jsonc: auto-merged, gitignored, needs no include entry.
-//   - an outstanding capture overlay: in-jail edits that outrank every declared layer,
-//     yet nothing declares them (they are a staging area to promote, §3.3).
+//   - an outstanding capture overlay: in-jail edits that outrank every layer but
+//     `computed` and `managed` (the fold is stated in configls.go's header; `managed` is
+//     itself declared, which is why this is not "every declared layer"), yet nothing
+//     declares them (they are a staging area to promote, §3.3).
 //   - an UNSET `host_management`: the host-ownership contract is unstated
 //     (docs/design/config-ownership-and-promotion.md §4.3 item 3).
 //
@@ -1079,7 +1081,8 @@ func applySealed(out, errw io.Writer, color bool) int {
 			// docs/design/declaration-parity.md DP-B33 / DP-L14; §9 records the sweep
 			// row that claimed the verb did not exist.
 			refusals = append(refusals, fmt.Sprintf(
-				"%s/%s has %d captured in-jail edit(s) outranking the definition — "+
+				"%s/%s has %d captured in-jail edit(s) outranking every layer but "+
+					"`computed` and `managed` — "+
 					"`yolo config promote %s --surface %s` to declare them, or "+
 					"`yolo config reset %s --surface %s` to discard.",
 				s.Agent, s.Name, n, s.Agent, s.Name, s.Agent, s.Name))

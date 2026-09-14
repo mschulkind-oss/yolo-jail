@@ -4,9 +4,10 @@ package cli
 // inspect-and-undo half of the capture overlay.
 //
 // `mode: capture` is only defensible if divergence is visible AND reversible: a
-// captured edit outranks the host layer forever, so without these two commands the
-// only cure is knowing to delete a file in <workspace>/.yolo/prism/ by hand
-// (docs/reference/composed-file-permissions.md §5).
+// captured edit outranks every layer but `computed` and `managed` forever — configls.go's
+// header states the fold and what naming the host layer alone got wrong — so without
+// these two commands the only cure is knowing to delete a file in
+// <workspace>/.yolo/prism/ by hand (docs/reference/composed-file-permissions.md §5).
 //
 // `diff` carries a SECOND kind of divergence for the same reason: a pack's
 // `config-overlay` contributions to a surface another pack owns (ruling R3,
@@ -270,7 +271,7 @@ func configDiff(args []string, out, errw io.Writer, color bool) int {
 		pr.Printf("[dim]No captured in-jail edits for %s%s.[/dim]", agent, surfaceSuffix(surface))
 		return 0
 	}
-	pr.Printf("[dim]These values were captured from in-jail edits and outrank the host layer.[/dim]")
+	pr.Printf("[dim]These values were captured from in-jail edits and outrank every layer but `computed` and `managed`.[/dim]")
 	pr.Printf("[dim]Discard them with: yolo config reset %s[/dim]", agent)
 	return 0
 }

@@ -267,9 +267,10 @@ func TestApplyVerbRouting(t *testing.T) {
 
 // apply --sealed refuses when an UNDECLARED input is present — BOTH of them: the
 // yolo-jail.local.jsonc that merges into the config, and an outstanding capture
-// overlay that outranks every declared layer — and passes when the workspace is clean
-// of them. Runs in a scratch workspace so workspaceRoot() resolves there (not this
-// repo's /workspace, which has real sidecars).
+// overlay that outranks every layer but `computed` and `managed` (`managed` is itself
+// declared, which is why the refusal no longer says "every declared layer") — and passes
+// when the workspace is clean of them. Runs in a scratch workspace so workspaceRoot()
+// resolves there (not this repo's /workspace, which has real sidecars).
 func TestApplySealedClosure(t *testing.T) {
 	home, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
