@@ -95,6 +95,27 @@ func requireAppleContainer(t *testing.T) {
 		}
 	}
 	if why == "" {
+		// THE BACKEND IS HERE, AND FROM THIS POINT A SKIP IS A DEFECT — on a declared run.
+		//
+		// ⚠ THIS IS THE GAP THAT HID THE `:ro` MEASUREMENT FOR MONTHS. The check above
+		// answers one question — is Apple Container reachable — and it answered it
+		// correctly the whole time. What it cannot see is a SECOND skip from inside a test
+		// body, where a helper cannot answer and calls t.Skip on its own: that is what
+		// TestAppleContainerIgnoresReadOnlyBinds did on every run until `e38e8432`, because
+		// its image probe could not speak this CLI. Its three siblings passed, so the suite
+		// was never vacuous, so nothing was ever red, and a test asserting a platform
+		// behaviour reported nothing for months while looking exactly like coverage.
+		//
+		// The rule is narrow on purpose: once the runtime is confirmed present AND the job
+		// declared itself, no legitimate reason to skip remains. An undeclared run — every
+		// developer machine, and this repo's own Linux jail — is untouched.
+		if v, fail := lateSkipVerdict(declared, true); fail {
+			t.Cleanup(func() {
+				if t.Skipped() {
+					t.Error(v)
+				}
+			})
+		}
 		return
 	}
 	if declared {
@@ -407,5 +428,108 @@ func TestAppleContainerHonorsReadOnlyBinds(t *testing.T) {
 			"and the host never received is a third behaviour, and every rule in "+
 			"backendcaps.go assumes there are only two.",
 			strings.TrimSpace(got), map[bool]string{true: "DOES", false: "does NOT"}[landed])
+	}
+}
+
+// lateSkipVerdict decides whether a skip that happens AFTER requireAppleContainer has
+// confirmed the backend should turn into a failure, and says what to print.
+//
+// PURE — no globals, no env, no clock — for exactly the reason macosUserVacuityVerdict is
+// pure: a guard that cannot be tested on the machine that develops it is a guard nobody
+// re-checks. This repo has now twice shipped a belief that a test was measuring and was not,
+// and both times the test was green-by-skipping on a machine no one could run.
+//
+// `skipped` is a parameter rather than a read of t.Skipped() so the decision can be exercised
+// in both directions from Linux; the caller supplies the live value.
+func lateSkipVerdict(declared, skipped bool) (string, bool) {
+	if !declared || !skipped {
+		return "", false
+	}
+	return "this test SKIPPED after requireAppleContainer confirmed the backend, on a run " +
+		"that declared itself the Apple Container job (" + appleContainerDeclareEnv + " is " +
+		"set).\n\n" +
+		"That is not a legitimate skip: the runtime is present, so something inside the " +
+		"test could not answer and skipped on its own — a probe that cannot speak this " +
+		"CLI, a fixture that gave up. The skip reason is printed above this line.\n\n" +
+		"It is reported because the suite-level gate cannot see it. " +
+		"TestAppleContainerIgnoresReadOnlyBinds skipped this way on every run for months " +
+		"while its siblings passed, so the job was never vacuous and never red — and the " +
+		"`:ro` belief it was supposed to be measuring stayed wrong in four Go files and " +
+		"five docs until 2026-09-14.", true
+}
+
+// TestLateSkipVerdict pins the rule in both directions, from Linux, which is the whole
+// reason it is a pure function.
+//
+// The asymmetry is the content: an UNDECLARED run must stay silent, because that is every
+// developer machine and this repo's own jail, where skipping is the correct outcome and
+// making it loud would train everyone to ignore it. A DECLARED run that skips after the
+// backend was confirmed has no innocent reading left.
+func TestLateSkipVerdict(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		declared, skipped bool
+		wantFail          bool
+	}{
+		{"declared and skipped — the defect", true, true, true},
+		{"declared and ran — the normal case", true, false, false},
+		{"undeclared and skipped — every dev machine", false, true, false},
+		{"undeclared and ran — a Mac without the job var", false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, fail := lateSkipVerdict(tc.declared, tc.skipped)
+			if fail != tc.wantFail {
+				t.Fatalf("lateSkipVerdict(%v, %v) fail = %v, want %v",
+					tc.declared, tc.skipped, fail, tc.wantFail)
+			}
+			if fail && msg == "" {
+				t.Error("a failing verdict with no message: the reader is told a test failed " +
+					"and not what to look at, which is the failure this whole file is about")
+			}
+			if !fail && msg != "" {
+				t.Errorf("a passing verdict that still says something: %q", msg)
+			}
+		})
+	}
+}
+
+// TestRequireAppleContainerInstallsTheLateSkipGuard is the CALL-SITE half, and it reads the
+// source to get it.
+//
+// WHY NOT JUST CALL THE GATE. requireAppleContainer's first act is to fatal on a test whose
+// name lacks the `TestAppleContainer` prefix — correct, because the CI step selects the suite
+// with `-run '^TestAppleContainer'` and a differently-named test would silently never run. So
+// a prober must take that name, and a test with that name is selected by the Mac job, where it
+// would sit permanently skipped inside the very suite this guard exists to keep honest.
+//
+// So the check is over the SOURCE, which is what backendparity_test.go does for the same class
+// of problem. It exists because lateSkipVerdict's own unit test passes whether or not anything
+// calls it — the shape AGENTS.md names: "does it fail if I delete the call site?" Without this,
+// no.
+func TestRequireAppleContainerInstallsTheLateSkipGuard(t *testing.T) {
+	src, err := os.ReadFile("applecontainer_test.go")
+	if err != nil {
+		t.Fatalf("reading own source: %v", err)
+	}
+	body := string(src)
+	i := strings.Index(body, "func requireAppleContainer(")
+	if i < 0 {
+		t.Fatal("requireAppleContainer is gone; this test has lost its subject")
+	}
+	j := strings.Index(body[i:], "\n}\n")
+	if j < 0 {
+		t.Fatal("could not find the end of requireAppleContainer")
+	}
+	fn := body[i : i+j]
+
+	for _, want := range []string{"lateSkipVerdict(", "t.Cleanup(", "t.Skipped()"} {
+		if !strings.Contains(fn, want) {
+			t.Errorf("requireAppleContainer no longer contains %s.\n\n"+
+				"The late-skip guard is not wired in, so a test that skips from inside its "+
+				"own body — after the backend was confirmed, on a declared run — is silent "+
+				"again. That is how TestAppleContainerIgnoresReadOnlyBinds reported nothing "+
+				"for months while looking like coverage. lateSkipVerdict's own test keeps "+
+				"passing either way, which is why this one reads the call site.", want)
+		}
 	}
 }
