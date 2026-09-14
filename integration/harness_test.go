@@ -336,10 +336,37 @@ func imageExists(rt string) string {
 }
 
 // firstImageInRepo returns the first `<repo>:<tag>` loaded under repo, or "".
-// The positional argument to `images` is a repository filter, which is the only
-// question that survives content-addressed tags.
+// The repository filter is the only question that survives content-addressed tags.
+//
+// ⚠ THE ARGV IS PER-RUNTIME, AND ASSUMING PODMAN'S MADE THIS FUNCTION ALWAYS RETURN
+// "" ON APPLE CONTAINER. Measured 2026-09-14, both halves of the podman spelling are
+// rejected by the `container` CLI:
+//
+//	$ container images
+//	Error: Plugin 'container-images' not found.
+//	$ container image ls --format '{{.Repository}}:{{.Tag}}'
+//	Error: The value '{{.Repository}}:{{.Tag}}' is invalid for '--format <format>'.
+//	Please provide one of 'json', 'table', 'yaml' or 'toml'.
+//
+// AC has no `images` subcommand (it is `image ls`) and no Go-template formatter. So
+// every caller got "" — and the one caller that matters, imageExists("container"),
+// then made TestAppleContainerIgnoresReadOnlyBinds SKIP on every run. It has never
+// executed. That is precisely the failure applecontainer_test.go's own header warns
+// about ("a suite that skips is indistinguishable from a suite that passes"), landing
+// on the single test that was supposed to answer the `:ro` question.
+//
+// `image ls --quiet` prints exactly `<repo>:<tag>` per line on AC, which is what this
+// function wants, so the fix is one argv rather than a JSON parse. It takes no
+// repository filter, so the filter is applied here — the caller's contract is
+// unchanged.
 func firstImageInRepo(rt, repo string) string {
-	out, err := exec.Command(rt, "images", repo, "--format", "{{.Repository}}:{{.Tag}}").Output()
+	argv := []string{"images", repo, "--format", "{{.Repository}}:{{.Tag}}"}
+	filterHere := false
+	if rt == "container" {
+		argv = []string{"image", "ls", "--quiet"}
+		filterHere = true
+	}
+	out, err := exec.Command(rt, argv...).Output()
 	if err != nil {
 		return ""
 	}
@@ -348,6 +375,14 @@ func firstImageInRepo(rt, repo string) string {
 		// podman prints "<none>:<none>" for an untagged (superseded) image; it
 		// cannot be inspected by name, so it is no use to a caller.
 		if ref == "" || strings.Contains(ref, "<none>") {
+			continue
+		}
+		// AC lists every repository, so the filter podman applied server-side is
+		// applied here. Anchored at a segment boundary: `yolo-jail` must not match
+		// `yolo-jail-builder:latest`, which IS loaded on a machine that builds
+		// through the Apple Container Linux builder.
+		if filterHere && !(strings.HasPrefix(ref, repo+":") ||
+			strings.HasPrefix(ref, repo+"/")) {
 			continue
 		}
 		return ref
