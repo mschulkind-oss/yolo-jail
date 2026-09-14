@@ -149,9 +149,26 @@ func TestAppleContainerJailStarts(t *testing.T) {
 // said nothing about it. internal/cli/run/hostpathenv_test.go makes that argv unwritable;
 // this asks whether the path the argv now names is genuinely readable from inside, which is
 // the half a Linux test cannot answer.
+// ⚠ THE TREE IS TWO LEVELS, and this test asserted one until the hardware said so
+// (2026-09-14, run 34873262674). `internal/entrypoint/packsurfaces.go` walks
+// `<root>/_official/<name>` for the SHIPPED packs and `<root>/<slug>` for fetched ones —
+// so `claude`, which ships, can never appear in a non-recursive listing of the root on
+// any backend. The first green this file ever produced was also the first time anything
+// had run these assertions, and a test written against hardware that does not exist yet
+// is exactly where that class of mistake survives.
+//
+// It asks for the RENDERED OUTCOME now, not a directory listing. "The jail boots with no
+// agent" is what issue #44 actually was, and a manifest the entrypoint read and acted on
+// is the only thing that disproves it — a present directory only says the copy happened.
 func TestAppleContainerPackTreeIsReadable(t *testing.T) {
 	dir := appleContainerWorkspace(t)
-	res := runYolo(t, dir, `echo "ROOT=$YOLO_PACK_ROOT"; ls "$YOLO_PACK_ROOT" | head -20`,
+	// Both levels are listed for the diagnosis, and the two assertions below are made
+	// against markers rather than against the listing, so neither can be answered by a
+	// path that merely appears in the other one's output.
+	res := runYolo(t, dir, `echo "ROOT=$YOLO_PACK_ROOT"`+"\n"+
+		`ls "$YOLO_PACK_ROOT" "$YOLO_PACK_ROOT/_official" 2>&1 | head -30`+"\n"+
+		`test -r "$YOLO_PACK_ROOT/_official/claude/pack.json" && echo MANIFEST-READABLE`+"\n"+
+		`test -x "$HOME/.yolo/bin/launch/claude" && echo LAUNCHER-RENDERED`,
 		appleContainerEnv())
 	if res.rc != 0 {
 		t.Fatalf("reading the pack root failed (rc=%d)\nstdout:\n%s\nstderr:\n%s",
@@ -161,12 +178,18 @@ func TestAppleContainerPackTreeIsReadable(t *testing.T) {
 		t.Fatalf("the jail has no YOLO_PACK_ROOT at all — the entrypoint renders nothing, "+
 			"which is issue #44:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stdout, "claude") {
-		t.Errorf("YOLO_PACK_ROOT names a path the jail cannot read, or one with no packs in "+
-			"it. The selected pack is `claude` and it is not there:\n%s\n\n"+
+	if !strings.Contains(res.stdout, "MANIFEST-READABLE") {
+		t.Errorf("the selected pack `claude` has no readable pack.json under YOLO_PACK_ROOT.\n%s\n\n"+
 			"This is issue #44's symptom exactly: the launch believes it delivered the "+
 			"declarations and the jail finds nothing, so it boots with no agent and no "+
 			"guardrails while looking like a working jail.", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "LAUNCHER-RENDERED") {
+		t.Errorf("`claude`'s manifest is readable but the entrypoint rendered no launcher for "+
+			"it at ~/.yolo/bin/launch/claude.\n%s\n\n"+
+			"The delivery half of issue #44 is fixed and the RENDER half is not, which the "+
+			"tree listing alone cannot tell you — that is the whole reason this asserts an "+
+			"outcome rather than a path.", res.stdout)
 	}
 }
 
