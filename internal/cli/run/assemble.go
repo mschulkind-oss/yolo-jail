@@ -610,16 +610,28 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		shadowed = append(shadowed, ".overmind.sock")
 	}
 	if len(shadowed) > 0 {
-		if rt == "container" { // parity: Warned — AC drops a non-directory bind, so the shadow would silently not apply; no materialize escape exists, because a shadow is defined by NOT writing the host file
+		if rt == "container" { // parity: Warned — the /dev/null bind ARRIVES on AC but reads ENXIO, so the shadow cannot do its one job; no materialize escape exists, because a shadow is defined by NOT writing the host file
 			// It was UNGATED until 2026-09-14, which made it the last emitter in this file
 			// to have missed the rule five other sites each discovered by being broken
-			// (acbindsources_test.go). The failure is the mildest in that class — the agent
-			// reads the real file instead of an empty one, rather than the jail coming up
-			// empty — which is exactly why it outlived every louder instance of it.
+			// (acbindsources_test.go).
+			//
+			// ⚠ THE REASON MOVED THE SAME DAY, and the first one was wrong. This said
+			// "Apple Container drops a bind whose host side is not a directory" — the
+			// apple/container#1089 belief, cited here and in six other places and never
+			// measured. MEASURED 2026-09-14 (macOS 26.5 arm64, `container` 1.1.0): the
+			// /dev/null shadow ARRIVES, as a character special file. What it does not do is
+			// WORK — virtiofs synthesises the node with the wrong major:minor (0:3002
+			// against the container's own 1:3), so a read fails
+			// `No such device or address` instead of returning empty.
+			//
+			// The skip is unchanged and the failure it avoids is now worse than the one
+			// first described: not "the agent reads the real file" but "the agent gets an
+			// I/O error from a path the workspace says is a JSON file". A shadow exists to
+			// read as EMPTY, and ENXIO is not empty.
 			out.print("[yellow]Not shadowing " + strings.Join(shadowed, ", ") +
-				": Apple Container drops a bind whose host side is not a directory, so the " +
-				"agent will see the workspace's real file. Use `YOLO_RUNTIME=podman` to " +
-				"shadow it.[/yellow]")
+				": on Apple Container a /dev/null bind arrives with the wrong device node, " +
+				"so reading it fails instead of returning empty. The agent will see the " +
+				"workspace's real file. Use `YOLO_RUNTIME=podman` to shadow it.[/yellow]")
 		} else {
 			for _, rel := range shadowed {
 				runCmd = append(runCmd, "-v", "/dev/null:/workspace/"+rel+":ro")

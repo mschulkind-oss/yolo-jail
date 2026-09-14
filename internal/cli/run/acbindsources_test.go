@@ -10,8 +10,26 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// THE RULE FIVE CALL SITES EACH DISCOVERED SEPARATELY: on Apple Container a bind whose HOST
-// side is not a directory does not arrive.
+// THE RULE FIVE CALL SITES EACH DISCOVERED SEPARATELY: on Apple Container, a bind whose HOST
+// side is not a directory is not emitted — the file is COPIED instead.
+//
+// ⚠ ITS JUSTIFICATION CHANGED ON 2026-09-14 AND THE RULE DID NOT, which is the distinction to
+// keep. Every site reached this by believing apple/container#1089 — "AC cannot bind a single
+// file" — cited in seven Go files and five docs and never measured. MEASURED that day (macOS
+// 26.5 arm64, `container` 1.1.0): a REGULAR file binds fine. The content arrives, a write
+// propagates back to the host, and `:ro` on it is honored. The citation was load-bearing and
+// false.
+//
+// The copy is KEPT anyway, and is now a choice rather than a necessity: it works on every
+// version with no floor to get wrong, every consumer here reads its file at BOOT so a snapshot
+// is equivalent to a bind, and the failure mode of guessing wrong in the other direction is the
+// one this codebase keeps paying for — a bind that does not arrive does not ERROR, so a surface
+// composes from defaults and the user's file silently vanishes while the disclosure still claims
+// it was read.
+//
+// So this test still guards the right argv. It is no longer asserting a platform limit; it is
+// asserting a POLICY, and a future author who measures a reason to bind instead should change
+// this header rather than work around it.
 //
 // It is written down five times in this package, in five different functions' comments —
 // assemble.go on the user-env file ("Apple Container can't do single-file mounts under the
@@ -71,10 +89,10 @@ func TestNoAppleContainerBindHasANonDirectorySource(t *testing.T) {
 		}
 		t.Errorf("Apple Container is given a bind whose host side is not a directory:\n"+
 			"    -v %s:%s\n\n"+
-			"That backend drops a non-directory bind rather than refusing it, so the file "+
-			"simply is not there and the jail behaves as though nothing was configured. Five "+
-			"functions in this package have already found this the hard way and each wrote "+
-			"the rule into its own comment; this is the sixth.\n\n"+
+			"This package COPIES a non-directory source on that backend rather than binding "+
+			"it — see the header for why that is a policy rather than a platform limit, and "+
+			"what was measured on 2026-09-14. Five functions here already reached the rule "+
+			"the hard way and each wrote it into its own comment; this is the sixth.\n\n"+
 			"Three escapes, all already used here: acMaterialize a copy into wsState, which "+
 			"that backend binds whole at /home/agent; bind the containing DIRECTORY instead; "+
 			"or skip it with a printed reason. Emitting it and hoping is the one option that "+
@@ -123,12 +141,13 @@ var knownNonDirectoryACBinds = map[string]string{}
 
 // acBindSources assembles one Apple Container launch and returns dest→src for every `-v`.
 //
-// The fixture plants the two workspace files whose shadow binds are emitted with NO runtime
-// gate at all (`-v /dev/null:/workspace/.vscode/mcp.json:ro` and the .overmind.sock twin).
-// They are the reason this test is not hypothetical: a bind that no `rt ==` branch guards is
-// invisible to backendparity_test.go's census by construction — it is one of the two
-// "absence" shapes that census cannot see — and it is a non-directory source on every
-// backend.
+// The fixture plants the two workspace files whose shadow binds were emitted with NO runtime
+// gate at all until 2026-09-14 (`-v /dev/null:/workspace/.vscode/mcp.json:ro` and the
+// .overmind.sock twin). They are the reason this test is not hypothetical: a bind that no
+// `rt ==` branch guards is invisible to backendparity_test.go's census by construction — it is
+// one of the two "absence" shapes that census cannot see. The fixture keeps planting them
+// because it is the podman argv that must still carry them, and because a gate that is removed
+// should fail here rather than silently.
 func acBindSources(t *testing.T) map[string]string {
 	t.Helper()
 	ws := t.TempDir()
