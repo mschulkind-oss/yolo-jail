@@ -429,10 +429,10 @@ const nightlyImageAttr = ".#ociImage"
 var nightlyImageAttrRe = regexp.MustCompile(`\.#ociImage(?:[^A-Za-z0-9_]|$)`)
 
 // nixBuildRe captures one `nix build` COMMAND with its backslash continuations — the
-// same anchoring machineInitRe uses, and here for the same reason. Every mention of
-// `.#ociImage` in this workflow that is not a build is inside a comment explaining one
-// (11 mentions, 4 of them commands, counted 2026-09-14), so a plain Contains cannot
-// tell a realization from prose about one.
+// same anchoring machineInitRe uses, and here for the same reason. This workflow
+// mentions the attr in prose far more often than it builds it — every job's comment
+// explains which variant it realizes and why — so a plain Contains cannot tell a
+// realization from an explanation of one, and `.#ociImageMinimal` answers it too.
 var nixBuildRe = regexp.MustCompile(`(?m)^[ \t]*nix build\b((?:[^\n]*\\\n)*[^\n]*)`)
 
 // cachixActionRe matches the step that does the pushing, in a `uses:` position.
