@@ -436,6 +436,13 @@ pre-existing gap, unchanged here.
 position, recorded before today and unverified on a Mac by me. If it turns out to *honor* `:ro`,
 these three skips become unnecessary rather than wrong.
 
+> [!NOTE]
+> **It turned out to honor it.** Measured 2026-09-14 on the first self-hosted Mac runner —
+> `container` 1.1.0, macOS 26.5 arm64. The skips are now version-gated rather than
+> unconditional: honored at or above `acROBindsFloor`, still declined below it and when the
+> version cannot be read. The paragraph above stands as written because it named its own
+> uncertainty correctly and called the outcome; only the answer was missing.
+
 ### New notices at launch on `macos-user` and Apple Container — nothing broke
 
 **What changed** (2026-08-24, `35448719`, `8ab03d2e`, `6a53a2a3`). A sweep for capabilities that

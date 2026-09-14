@@ -223,7 +223,7 @@ zero; for one whose agents branch and push it is one convention, not a broken wo
 
 | Control | `podman` | `container` (Apple) | `macos-user` |
 | :--- | :--- | :--- | :--- |
-| `workspace_readonly` | ✅ enforced | ❌ `:ro` is ignored — **warns loudly**, and cannot skip the paths, since they live inside the writable workspace bind | ✅ enforced as Seatbelt denies |
+| `workspace_readonly` | ✅ enforced | ✅ from `container` 1.1.0; below it `:ro` is ignored — **warns loudly**, and cannot skip the paths, since they live inside the writable workspace bind ([`backend-parity.md` §5.3](../design/backend-parity.md#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)) | ✅ enforced as Seatbelt denies |
 | Per-side shadowing | ✅ enforced | ✅ (a mount, not a `:ro` mount) | ❌ **no equivalent exists** — warns |
 | `core.hooksPath` redirect | ✅ | ✅ | ✅ — a git config key, backend-independent |
 | mise `paranoid`, host-side | ✅ | ✅ | ✅ — host-side, backend-independent |

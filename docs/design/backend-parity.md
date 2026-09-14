@@ -214,9 +214,9 @@ it. Call it 2–3 days including the exhaustiveness test.
 | 8 | Briefing advertised loopholes that never started | AC + macos-user | backend gate | `a639394d` |
 | 9 | `resources`, `cache_relocations`, machine-wide workspace state | macos-user | warn | `8ab03d2e` |
 | 10 | Explicit `network.mode: host` silently worse than the default | AC | warn | `8ab03d2e` |
-| 11 | Pack `mount` grants land WRITABLE — a `:ro` the backend ignores, on a grant a human approved as read-only | AC | refuse + reason | `0d7e8f58` |
+| 11 | Pack `mount` grants land WRITABLE — a `:ro` the backend ignored, on a grant a human approved as read-only | AC | refuse + reason | `0d7e8f58` ⚠ [§5.3](#53-the-premise-under-defects-11-and-13-was-measured-and-inverted) |
 | 12 | …and a single-FILE pack `mount` cannot arrive at all, silently | AC | same seam | `0d7e8f58` |
-| 13 | Host nvim config bound `:ro` into `/ctx` — same writable-grant defect, found by the class test rather than the sweep | AC | refuse + reason | `0d7e8f58` |
+| 13 | Host nvim config bound `:ro` into `/ctx` — same writable-grant defect, found by the class test rather than the sweep | AC | refuse + reason | `0d7e8f58` ⚠ [§5.3](#53-the-premise-under-defects-11-and-13-was-measured-and-inverted) |
 | 14 | Pack `reads-host` renders from DEFAULTS and `host_files` sources are dropped from the wire — both silent | macos-user | warn | `4402e33a` |
 
 ### 5.2 The rule that had no home
@@ -257,9 +257,39 @@ absence is invisible to a list you also forgot to update.
 **Its sibling** (`0d7e8f58`, `hosthometier_test.go`) pins the class behind defects 11–13 the
 same way: on Apple Container, no bind may have its source under the user's real host home.
 Two escapes are permitted — materialize a copy, or refuse with a reason — and the third
-option, emitting the bind and trusting a suffix the backend ignores, is the one every
+option, emitting the bind and trusting a suffix the backend ignored, is the one every
 instance of the defect took. It earned its place on the first run: written for the two
 `mount` defects, it immediately failed on a third I had not found.
+
+### 5.3 The premise under defects 11 and 13 was measured, and inverted
+
+**Measured 2026-09-14** — macOS 26.5 arm64, `container` 1.1.0, on the first self-hosted runner
+this project has ever had: *"MEASURED: Apple Container HONORED a `:ro` bind."*
+
+Defects 11 and 13 refused a mount because Apple Container was believed to accept `-v src:dest:ro`
+and ignore the suffix ([apple/container#889](https://github.com/apple/container/issues/889), last
+observed on 0.12.3). That belief was written into this document and into four Go files, and
+`roBindsUnsupported` is now **version-gated** (`acROBindsFloor = "1.1.0"`): honored at or above the
+floor, still refused below it, and **still refused when the version cannot be read at all**, because
+the safe error costs a feature and the unsafe one hands an agent write access to a directory the
+user granted read-only.
+
+> [!WARNING]
+> **The lesson is about this document's method, not about Apple.** [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue 1 says a census
+> *"prevents SILENT; it cannot prevent WRONG"* — and this is residue 1 arriving in the one place
+> nobody was watching for it. Every cell resting on #889 was **correctly classified and factually
+> wrong**, for seven months, because the classification was inherited from an upstream issue number
+> rather than measured. `TestAppleContainerIgnoresReadOnlyBinds` existed the whole time and had
+> **never once executed** — its runtime probe could not speak that CLI, so it skipped every run, and
+> a test that only ever skips is indistinguishable from a test that passes.
+>
+> ⚠ **The same shape is still live.** [apple/container#1089](https://github.com/apple/container/issues/1089) — *a single-file bind cannot arrive* —
+> is cited the same way, drives six `acMaterialize` call sites plus the `/dev/null` shadow skip, and
+> **has never been measured either**. The floor above says nothing about it; they are two different
+> limitations and only one has been tested. Treat every #1089 cell as unverified until a run says
+> otherwise.
+
+---
 
 ### 5.1 Confirmed drops I deliberately did NOT warn about
 

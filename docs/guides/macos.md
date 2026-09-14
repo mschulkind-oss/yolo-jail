@@ -49,7 +49,7 @@ backend.
 | Runtime | What it is | Choose it for |
 |---------|------------|---------------|
 | **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; **full feature parity with Linux hosts** — nothing in [Limitations](#limitations) is skipped for backend reasons |
-| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+). Drops loopholes, context mounts and read-only protection — see [what it does not do](#apple-container-runtime-container--what-it-does-not-do) |
+| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+). Drops loopholes; context mounts and read-only protection arrive from `container` 1.1.0 and are declined below it — see [what it does not do](#apple-container-runtime-container--what-it-does-not-do) |
 | **macos-user** | Native macOS user + Seatbelt, **no VM, no image** | Fastest startup; no container runtime to install; `packages:` via native darwin nix. Weaker isolation than a VM (Seatbelt, no cgroups) — see [Trade-offs](#macos-user-trade-offs) and [what it does not do](#macos-user-native-no-vm--what-it-does-not-do) |
 
 The container runtimes are native arm64 on Apple Silicon. Set the runtime with
@@ -482,7 +482,7 @@ are the whole list.
 | `resources.pids_limit` | ✅ | ❌ not emitted | ❌ warns |
 | `network.mode` | ✅ all three | ⚠️ `bridge` only | ❌ not read at all |
 | `network.ports` / `forward_host_ports` | ✅ | ✅ under `bridge` | ❌ not wired |
-| `workspace_readonly` | ✅ | ❌ ignored (`:ro` is a no-op) | ✅ as Seatbelt deny rules |
+| `workspace_readonly` | ✅ | ✅ from `container` 1.1.0; ❌ below it | ✅ as Seatbelt deny rules |
 | `per_side_paths` | ✅ | ✅ | ❌ warns |
 | Pack briefings + skills | ✅ | ✅ | ⚠️ delivered by copy, and writable |
 | Pack `state`, `scope: machine` | ✅ | ✅ *(since 2026-08-24)* | ✅ |
@@ -506,10 +506,10 @@ Everything below is announced at launch **except** the three rows marked
 |---|---|---|
 | `loopholes` — all of them, from packs and from your own config | **inert.** No host service starts, whatever the loophole declares. One yellow line per loophole at every launch, naming the pack, the loophole and the reason | `run/loopholesruntime.go` → `startLoopholes`; `run/loopholeinert.go` → `backendInertReason` |
 | `claude-oauth-broker` in particular | **not running.** Refreshes of your Claude OAuth token are not serialized between jails — see the warning below | `run/run.go` → `runContainer` (the broker-singleton gate) |
-| `mounts` | **skipped, with a warning.** Apple Container ignores `:ro`, so a context mount would arrive *writable*; yolo declines rather than hand a UID-0 jail a writable window onto your host | `run/backendcaps.go` → `roBindsUnsupported` |
-| Pack `mount` grants | **skipped, with a warning, since 2026-08-24.** Same root cause as `mounts` above, and the same fix — but this one is a grant a human approved at `pack install` against the word *read-only*, so honoring it writably would make the approval untrue. A single-**file** pack `mount` is skipped too: it could not arrive at all here, and used to do so silently | `run/packhostgrants.go` → `hostMountArgs` |
-| Your host `~/.config/nvim` | **skipped, with a warning, since 2026-08-24.** Podman binds it `:ro` at `/ctx/host-nvim-config` and the jail copies it into the agent's home at boot. Here the ignored `:ro` would leave a live write channel into your real editor config for the whole session. The visible symptom is nvim starting unconfigured | `run/assemble.go` → `assembleRunCmd` (nvim block) |
-| `workspace_readonly` | **not enforced, with a loud warning.** Same root cause — `:ro` is ignored — so the paths stay writable inside the jail | `run/mounts.go` → `workspaceReadonlyMountArgs` |
+| `mounts` | **honored from `container` 1.1.0; skipped with a warning below it.** Older versions accepted `:ro` and ignored it, so the mount would arrive *writable* and yolo declined rather than hand a UID-0 jail a writable window onto your host. yolo reads `container --version` once per launch and decides from it — and an unreadable version **declines**, because the safe answer is the one that costs a feature rather than the one that costs the guarantee | `run/backendcaps.go` → `roBindsUnsupported` |
+| Pack `mount` grants | **honored from `container` 1.1.0; skipped with a warning below it.** Same root cause and version gate as `mounts` above — and this one is a grant a human approved at `pack install` against the word *read-only*, so honoring it writably would have made the approval untrue. ⚠ A single-**file** pack `mount` is skipped at **every** version: that is [apple/container#1089](https://github.com/apple/container/issues/1089), a different limitation from the `:ro` one and not covered by the floor | `run/packhostgrants.go` → `hostMountArgs` |
+| Your host `~/.config/nvim` | **honored from `container` 1.1.0.** Podman binds it `:ro` at `/ctx/host-nvim-config` and the jail copies it into the agent's home at boot. Below the floor the ignored `:ro` would leave a live write channel into your real editor config for the whole session, so it was skipped with a warning (2026-08-24 to 2026-09-14); the visible symptom of the skip is nvim starting unconfigured | `run/assemble.go` → `assembleRunCmd` (nvim block) |
+| `workspace_readonly` | **enforced from `container` 1.1.0; not enforced below it, with a loud warning.** Same root cause and same version gate as `mounts` above | `run/mounts.go` → `workspaceReadonlyMountArgs` |
 | `cache_relocations` | **skipped, with a warning.** The cache stays on its original filesystem | `run/assemble_parts.go` → `appleContainerBaseMounts` |
 | `ephemeral_storage` | **not honored, silently.** The scratch dirs (`/tmp`, `/run`, `/dev/shm`, …) are always `--tmpfs` here; the `volume` mode is podman-only | `run/assemble.go` → `assembleRunCmd` (`ScratchMountArgs` is on the podman branch only) |
 | `resources.memory`, `resources.cpus` | **honored** — emitted as native `--memory` / `--cpus`. If you omit them yolo fills in a default (half your RAM, min 4 GB; half your cores, min 2) | `run/assemble_parts.go` → `resourceArgs` |

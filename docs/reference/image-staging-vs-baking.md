@@ -134,8 +134,8 @@ Two mounts rather than one, because no host layout holds the prefix shape: a sta
 `bin/linux-<arch>/` beside its flake files, not `bin/` beside `share/yolo-jail/`. Restaging into
 the prefix shape would copy the binaries on every launch; two `-v` pairs leave the host layout
 alone, and the in-jail result is identical because the resolver only ever looks at
-`<exeDir>/../share/yolo-jail`. Both are emitted `:ro`; Apple Container ignores that flag, as it
-does for every mount.
+`<exeDir>/../share/yolo-jail`. Both are emitted `:ro`, which Apple Container honors from
+`container` 1.1.0 and ignored below it ([`backend-parity.md` §5.3](../design/backend-parity.md#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)).
 
 The prefix is resolved **before** the image build. A live checkout has to compile it, and
 discovering that after streaming a multi-gigabyte image would put the cheap failure behind the

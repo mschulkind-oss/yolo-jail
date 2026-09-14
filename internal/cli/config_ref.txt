@@ -441,10 +441,13 @@
     failure[/bold] — only a host `yolo check` can judge these paths.  For the
     same reason `mounts` is dropped from the in-jail user-config snapshot and
     is not inherited by a nested jail.
-    Runtime support: podman only.  Apple Container ("container") ignores :ro, so
-    rather than hand out a writable context mount yolo SKIPS every `mounts`
-    entry and says so; use YOLO_RUNTIME=podman for read-only context mounts.
-    "macos-user" has no bind mounts at all.
+    Runtime support: podman, and Apple Container ("container") from version
+    1.1.0.  Below that it accepted :ro and ignored it, so rather than hand out a
+    writable context mount yolo SKIPS every `mounts` entry and says so — and it
+    skips for the same reason when it cannot read `container --version` at all,
+    because the safe error is the one that costs a mount rather than the one
+    that costs the guarantee.  Use YOLO_RUNTIME=podman for read-only context
+    mounts on an older `container`.  "macos-user" has no bind mounts at all.
 
   [bold]cache_relocations[/bold] (object): Put a jail cache subdir on other storage.
     Keys are cache SUBDIR NAMES, not paths — a single path segment, no "/",

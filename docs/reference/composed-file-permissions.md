@@ -132,8 +132,12 @@ another. The three honest mechanisms, and what each actually buys:
 | `0o444` chmod | DAC only | **yes** | full | all |
 | read-write + capture | no | n/a | full | all |
 
-Apple Container ignores `:ro` and cannot do single-file binds, so every `:ro` surface degrades to
-a writable materialized copy there. `macos-user` has no bind mounts at all, so `:ro` is
+Apple Container **honors `:ro` from `container` 1.1.0** and ignored it below that
+([apple/container#889](https://github.com/apple/container/issues/889), measured 2026-09-14 — see
+[`backend-parity.md` §5.3](../design/backend-parity.md#53-the-premise-under-defects-11-and-13-was-measured-and-inverted)); yolo reads the version per launch and declines when it
+cannot. ⚠ It still cannot do **single-file** binds, which is a separate limitation
+([apple/container#1089](https://github.com/apple/container/issues/1089)) and is **unmeasured** — so a
+single-file `:ro` surface still degrades to a writable materialized copy there, at every version. `macos-user` has no bind mounts at all, so `:ro` is
 structurally absent and a mount-shaped control has to be re-expressed in its Seatbelt profile —
 see [`host-execution-from-the-workspace.md`](host-execution-from-the-workspace.md), where exactly
 that translation is done for `workspace_readonly`.
