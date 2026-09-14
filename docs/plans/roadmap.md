@@ -10,8 +10,8 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-14. **45 rows**: 5 to rule first, 18 needing a decision,
-13 ready to build, 7 waiting, 2 iced.
+**Status:** CURRENT — 2026-09-14. **46 rows**: 5 to rule first, 18 needing a decision,
+14 ready to build, 7 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
 the doc that holds it and what a ruling releases. It is **not a record of what happened** —
@@ -98,6 +98,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 | 10 | Delete the unreachable `publishes: "endpoint"` enum member | nothing can declare it since `bundled_loopholes/` went; `internal/loopholedecl/enums.go:60` | [§13](../design/broker-as-a-pack.md#13-what-empty-the-channel-actually-required--measured-2026-08-19) |
 | 11 | Give plugin claims their own disclosure class | ruled 2026-09-14 ([`OQ-TP10`](../design/trust-paths.md#decision-ledger)) **with its rendering already decided** — `report-tiers.md` P5/P6/P1 make it ONE counted line per pack, detail to `boot.log`, and P4 forbids gating it; `internal/cli/run/packloopholes.go:108` classes `KindSkills` `disclosureSkip` today | [`trust-paths.md`](../design/trust-paths.md#decision-ledger) · [the launch stream](../reference/report-tiers.md#the-launch-stream) |
 | 12 | Prove a pack-shipped jail binary with a throwaway hello pack | ruled *"do this even if…"*; the path has never executed | [§10](../design/broker-as-a-pack.md#10-sequencing) |
+| 13 | Serialise image copies across launches, with a machine-wide *image-copy* lock (a host flock, **not** the housekeeping lock) around re-inspecting the ref and then copying | no ruling needed. Layer-aware delivery skips only the layers already committed when a copy starts, and nothing serialises copies across workspaces (`internal/image/autoload.go:772`). Measured 2026-09-14: a reboot launched 11 jails, **5 copied one identical 3.45 GB image at once**, and each spent ~4 min in the store write. The comment at `:594` says a lock across the load would *"buy nothing"*, which was true only of the deleted stream; rewrite it in the same change | `internal/image/autoload.go:594` · test: a stubbed `LayerCopy`, two concurrent loads of one ref → exactly one copy. A nested jail is rootful and cannot verify this; use a rootless host |
 
 ## 🔒 Waiting
 
