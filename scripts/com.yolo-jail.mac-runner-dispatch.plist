@@ -36,15 +36,30 @@
   <key>RunAtLoad</key>
   <true/>
 
-  <!-- HOURLY. StartInterval rather than StartCalendarInterval because the
-       question is "has anything landed since I last looked", which has no
-       preferred minute — and unlike a cron, launchd coalesces a missed interval
-       into one run at wake instead of firing every one it slept through.
+  <!-- EVERY 5 MINUTES, and the number is measured rather than picked.
+       StartInterval rather than StartCalendarInterval because the question is "has
+       anything landed since I last looked", which has no preferred minute — and
+       unlike a cron, launchd coalesces a missed interval into one run at wake
+       instead of firing every one it slept through.
 
-       The script itself is idempotent per commit (it records the dispatched SHA),
-       so a shorter interval costs API calls, not CI runs. -->
+       WHAT A TICK ACTUALLY COSTS (measured 2026-09-14 on this Mac):
+
+         local runner check   25 ms wall,  22 ms CPU   (launchctl list | grep)
+         GitHub SHA check    370 ms wall,  70 ms CPU   (mostly network wait)
+
+       So ~0.4 s wall and ~0.1 s CPU per tick. At this interval that is 288 ticks a
+       day — about 29 SECONDS of CPU daily, and 12 API calls an hour against an
+       authenticated limit of 5000 (0.24 % of the budget; measured 0/5000 in use).
+
+       A SHORTER INTERVAL COSTS API CALLS, NOT CI RUNS, and that is what makes it
+       safe: the script records the SHA it dispatched, so an unchanged `main` does
+       nothing at all. The bound on actual jobs is how often you push, not how often
+       this fires. 288 ticks a day still means at most one run per commit.
+
+       It does not wake a sleeping Mac — launchd fires a missed StartInterval once on
+       wake — so this is only ever paid while the machine is already awake. -->
   <key>StartInterval</key>
-  <integer>3600</integer>
+  <integer>300</integer>
 
   <!-- The script logs every outcome to
        ~/.local/state/yolo-jail/mac-runner-dispatch.log itself. These two catch

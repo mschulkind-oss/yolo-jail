@@ -240,8 +240,8 @@ $ sed "s|__HOME__|$HOME|g" scripts/com.yolo-jail.mac-runner-dispatch.plist \
 $ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
 ```
 
-`RunAtLoad` plus `StartInterval 3600`, so it fires when the Mac **wakes** and hourly after —
-which a cron on GitHub's side could not do. Watch it:
+`RunAtLoad` plus `StartInterval 300`, so it fires when the Mac **wakes** and every five
+minutes after — which a cron on GitHub's side could not do. Watch it:
 
 ```console
 $ tail -f ~/.local/state/yolo-jail/mac-runner-dispatch.log
@@ -260,6 +260,14 @@ Three properties worth knowing, each a deliberate choice in the script:
 - **Every outcome exits 0 and is logged.** launchd has no terminal, so an unlogged message is
   lost, and a non-zero exit from a periodic agent buys only noise in the system log.
   "Runner not running" and "nothing new" are ordinary states, not failures.
+
+**Why five minutes is not aggressive**, measured 2026-09-14 on this Mac: a tick is ~0.4 s wall
+and **~0.1 s CPU** (25 ms for the local `launchctl` check, ~370 ms for the GitHub SHA check,
+almost all of it network wait). That is 288 ticks a day — roughly **29 seconds of CPU daily**,
+and 12 API calls an hour against an authenticated limit of 5000. The interval bounds how fast
+a new commit is noticed; it does **not** bound how many jobs run, because the script
+dispatches a given SHA once. And launchd does not wake a sleeping Mac — a missed interval
+fires once on wake — so it is only paid while the machine is already up.
 
 Uninstall:
 
