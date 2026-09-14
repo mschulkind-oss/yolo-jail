@@ -593,11 +593,38 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- shadow .vscode/mcp.json + .overmind.sock ---
+	// Each makes the agent read an EMPTY file where the host has a real one: an agent that
+	// reads `<workspace>/.vscode/mcp.json` tries to start MCP servers this jail does not
+	// have, and `<workspace>/.overmind.sock` is a host socket it cannot use (OVERMIND_SOCKET
+	// points at /tmp/overmind.sock instead).
+	//
+	// ⚠ A SHADOW IS NOT A WRITE, and only the bind can tell them apart. `/workspace` is bound
+	// READ-WRITE — that is the product — so `/workspace/.vscode/mcp.json` IS the user's file
+	// on the host. Emptying it from the entrypoint would not shadow it, it would TRUNCATE it.
+	// Do not "simplify" this into a boot-time write; shadowbinds_test.go states the same.
+	var shadowed []string
 	if fileExists(filepath.Join(o.Workspace, ".vscode", "mcp.json")) {
-		runCmd = append(runCmd, "-v", "/dev/null:/workspace/.vscode/mcp.json:ro")
+		shadowed = append(shadowed, ".vscode/mcp.json")
 	}
 	if fileExists(filepath.Join(o.Workspace, ".overmind.sock")) {
-		runCmd = append(runCmd, "-v", "/dev/null:/workspace/.overmind.sock:ro")
+		shadowed = append(shadowed, ".overmind.sock")
+	}
+	if len(shadowed) > 0 {
+		if rt == "container" { // parity: Warned — AC drops a non-directory bind, so the shadow would silently not apply; no materialize escape exists, because a shadow is defined by NOT writing the host file
+			// It was UNGATED until 2026-09-14, which made it the last emitter in this file
+			// to have missed the rule five other sites each discovered by being broken
+			// (acbindsources_test.go). The failure is the mildest in that class — the agent
+			// reads the real file instead of an empty one, rather than the jail coming up
+			// empty — which is exactly why it outlived every louder instance of it.
+			out.print("[yellow]Not shadowing " + strings.Join(shadowed, ", ") +
+				": Apple Container drops a bind whose host side is not a directory, so the " +
+				"agent will see the workspace's real file. Use `YOLO_RUNTIME=podman` to " +
+				"shadow it.[/yellow]")
+		} else {
+			for _, rel := range shadowed {
+				runCmd = append(runCmd, "-v", "/dev/null:/workspace/"+rel+":ro")
+			}
+		}
 	}
 
 	// --- workspace-readonly overlays ---

@@ -101,26 +101,25 @@ func TestNoAppleContainerBindHasANonDirectorySource(t *testing.T) {
 // knownNonDirectoryACBinds is the DEFECT list, not a waiver list — hostpathenv_test.go's
 // header states the shape and why a row cannot outlive its bug.
 //
-// Both rows are the same site: assemble.go shadows two workspace files with `/dev/null` so
-// the agent does not see the host's MCP config or an overmind socket it cannot use, and it
-// does so with NO runtime gate — the bind is emitted on every backend. On Apple Container a
-// non-directory source does not arrive, so the shadow is not applied and the agent sees the
-// real file. That is the MILDEST member of this class, which is exactly why it survived: it
-// degrades to "the shadow did not happen" rather than to "the jail is empty".
+// IT IS EMPTY, and the loop above is what emptied it: both rows were assemble.go's `/dev/null`
+// shadows of `.vscode/mcp.json` and `.overmind.sock`, emitted on every backend with NO runtime
+// gate, and they are gated and disclosed as of 2026-09-14 (shadowbinds_test.go). Keep the map
+// and the ratchet: the next instance of this class arrives as a test failure either way, and a
+// list that has to be re-created is a list somebody works around instead.
 //
-// ⚠ It is also the measured example of what backendparity_test.go's census structurally
-// cannot see. There is no `rt ==` branch here to leave unclassified — the divergence is an
-// ABSENT gate, and a grep over the source has nothing to match. Only the argv shows it.
+// ⚠ Those two rows were the measured example of what backendparity_test.go's census
+// structurally CANNOT see, and that is why this file exists beside it. There was no `rt ==`
+// branch to leave unclassified — the divergence was an ABSENT gate, and a grep over the source
+// has nothing to match. Only the argv showed it. A census of declared branches and a census of
+// the emitted argv are two different instruments; neither subsumes the other.
 //
-// The fix is not this test's to make and is not obvious: /dev/null cannot be made a
-// directory, and an empty directory bound over a JSON file is not a shadow either. The
-// candidates are to skip the shadow on that backend with a printed reason (the shadow is a
-// convenience, not a boundary), or to have the entrypoint write the empty file in-jail,
-// which works on every backend and needs no bind at all.
-var knownNonDirectoryACBinds = map[string]string{
-	"/workspace/.vscode/mcp.json": "assemble.go's ungated /dev/null shadow bind",
-	"/workspace/.overmind.sock":   "assemble.go's ungated /dev/null shadow bind",
-}
+// ⚠ AND THE OBVIOUS FIX WAS A DATA-LOSS BUG. This comment used to offer "have the entrypoint
+// write the empty file in-jail, which works on every backend and needs no bind at all". It does
+// not work: `/workspace` is bound READ-WRITE, so `/workspace/.vscode/mcp.json` IS the user's
+// file on the host, and writing an empty one truncates it. A shadow and a write are opposites
+// here and only the bind distinguishes them, so the fix taken was the other candidate — skip
+// on that backend and print why.
+var knownNonDirectoryACBinds = map[string]string{}
 
 // acBindSources assembles one Apple Container launch and returns dest→src for every `-v`.
 //
