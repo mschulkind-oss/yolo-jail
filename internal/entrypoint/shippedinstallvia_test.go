@@ -102,6 +102,13 @@ func stageShippedPacks(t *testing.T) string {
 
 // TestShippedAgentLaunchersUseTheDeclaredMechanism is the call-site cell.
 func TestShippedAgentLaunchersUseTheDeclaredMechanism(t *testing.T) {
+	// The collision check would read the HOST's /bin, where an agent CLI installed
+	// system-wide (measured: /usr/bin/codex and /usr/bin/pi) correctly suppresses its
+	// launcher and fails this test for a reason that is not the boot path's.
+	orig := imageProbeBase
+	imageProbeBase = t.TempDir()
+	t.Cleanup(func() { imageProbeBase = orig })
+
 	home := t.TempDir()
 	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": stageShippedPacks(t)})
 

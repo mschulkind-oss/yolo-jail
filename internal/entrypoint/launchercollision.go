@@ -22,6 +22,11 @@ import (
 	"strings"
 )
 
+// imageProbeBase is the image's own bin dirs. A var only so a test that runs the boot path
+// on a HOST can point it away from the host's /bin: a host with codex or pi installed
+// system-wide otherwise suppresses exactly the launchers that test asserts are written.
+var imageProbeBase = "/bin:/usr/bin"
+
 // imageProbePath is the PATH the collision check searches: what the IMAGE provides, with
 // every per-home install prefix removed.
 //
@@ -39,7 +44,7 @@ import (
 // by the same home rule leaves exactly that and drops the sandbox's own prefixes — the same
 // reasoning agentPath uses to decide which PATH a `requires` probe counts.
 func imageProbePath(e *Env) string {
-	base := "/bin:/usr/bin"
+	base := imageProbeBase
 	if p := e.Vars[DarwinLoginPathEnv]; p != "" {
 		base = p
 	}
