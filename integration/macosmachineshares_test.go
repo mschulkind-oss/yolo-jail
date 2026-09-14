@@ -310,3 +310,84 @@ func uncommentedYAML(body string) string {
 	}
 	return strings.Join(keep, "\n")
 }
+
+// A FAILED `podman machine start` TAKES THE WHOLE SHARD, so it is retried — and the retry
+// must never be a second `init`.
+//
+// MEASURED 2026-09-14 (run 34870117573, shard 1): `Error: EOF` at rc 125, 3m34s in, on a
+// machine that had just initialized cleanly. It was the one red shard in a run where every
+// other one passed, and nothing in the shard ran after it.
+//
+// The second assertion is the load-bearing one. `parseMachineInitShares` above reads the
+// FIRST `podman machine init` and only that one, so a retry that re-inits would carry a
+// SECOND copy of the four shares with nothing checking it — and a share list that drifts
+// from the one under test is exactly what cost the 2026-09-13 nightly 47 tests. Retry the
+// start; if a fresh machine is ever genuinely needed, single-source the share list and
+// teach parseMachineInitShares to read it.
+func TestTheNightlyRetriesTheMachineStartWithoutReinitialising(t *testing.T) {
+	body := readWorkflow(t, nightlyWorkflow)
+
+	step, ok := stepContaining(body, "podman machine start")
+	if !ok {
+		t.Fatalf("%s no longer has a step running `podman machine start`.", nightlyWorkflow)
+	}
+	code := uncommentedYAML(step)
+
+	// NOT a count of the string: ONE `start` inside a `for` loop is a retry, and two
+	// unguarded ones in a row are not. What actually decides the shard's fate under
+	// `bash -e` is whether the failure is HANDLED, so that is what this asks.
+	if n := bareMachineStartRe.FindAllString(code, -1); len(n) > 0 {
+		t.Errorf("%s runs `podman machine start` unguarded (%d occurrence(s)).\n\n"+
+			"The step runs under `bash -e`, so the first `Error: EOF` ends it and takes the "+
+			"whole shard — measured in run 34870117573, shard 1, at rc 125 three and a half "+
+			"minutes in. Put it behind `if`/`while` so a transient boot failure can be "+
+			"retried.", nightlyWorkflow, len(n))
+	}
+	if !guardedMachineStartRe.MatchString(code) {
+		t.Errorf("%s no longer runs `podman machine start` in a conditional position; this "+
+			"test cannot say whether a boot failure is handled.", nightlyWorkflow)
+	}
+	// The RECOVERY, not the loop. A `for`/`while` check was written here first and was
+	// worthless: the share probe further down the same step opens its own `for share in …`
+	// loop, so the assertion passed with the retry deleted. `podman machine stop` exists in
+	// this workflow for one reason — clearing a half-started VM between attempts — so its
+	// absence is the honest signal that the retry went with it.
+	//
+	// ⚠ What is deliberately NOT pinned: how MANY times. Nothing here would notice a retry
+	// count of one, and pinning `for attempt in 1 2 3` would pin a spelling rather than a
+	// property. The two assertions above are the load-bearing pair.
+	if !strings.Contains(code, "podman machine stop") {
+		t.Errorf("%s guards `podman machine start` but no longer stops the machine between "+
+			"attempts.\n\nA failed start can leave the VM half-up, and a second start on that "+
+			"state fails identically — so a retry without the stop is a retry that cannot "+
+			"succeed.", nightlyWorkflow)
+	}
+	if n := podmanMachineInits(code); n != 1 {
+		t.Errorf("%s runs `podman machine init` %d times; exactly one is allowed.\n\n"+
+			"parseMachineInitShares reads the FIRST one only, so a second carries a copy of "+
+			"the share list that nothing verifies. `-v` is init-only, and a drifted share "+
+			"list is what took 47 tests down on 2026-09-13. Retry `start`, not `init`.",
+			nightlyWorkflow, n)
+	}
+}
+
+// The three below match `podman machine …` in a COMMAND position: at the start of a line,
+// optionally behind `if`/`while`/`until`. That is the same anchoring machineInitRe above
+// already uses, and it is here for the same reason it is there.
+//
+// ⚠ A PLAIN strings.Count IS WRONG, and this is where that was found. The share probe's own
+// `::error::` message explains the rule by QUOTING `podman machine init` — so counting
+// substrings reported two inits where the file runs one, and the check failed on its own
+// prose. Stripping comments is not enough: that mention is inside a live `echo`. Whenever a
+// test reads a file that talks about the thing it is looking for, it has to say which half
+// it means.
+var (
+	bareMachineStartRe    = regexp.MustCompile(`(?m)^[ \t]*podman machine start\b`)
+	guardedMachineStartRe = regexp.MustCompile(`(?m)^[ \t]*(?:if|while|until)[ \t]+podman machine start\b`)
+	machineInitCmdRe      = regexp.MustCompile(`(?m)^[ \t]*podman machine init\b`)
+)
+
+// podmanMachineInits counts the `podman machine init` COMMANDS in code.
+func podmanMachineInits(code string) int {
+	return len(machineInitCmdRe.FindAllString(code, -1))
+}
