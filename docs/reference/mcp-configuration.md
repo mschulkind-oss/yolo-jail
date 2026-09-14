@@ -177,6 +177,36 @@ The chrome wrapper additionally starts headless chromium if it is not already an
 store has no such symlink and a `chromium` on PATH instead. The baked path is tried first so a
 jail that bakes behaves exactly as it always did.
 
+> [!NOTE]
+> **The chrome wrapper is generated on every container boot and nothing yolo generates spawns
+> it.** No preset's `command` names it; its only other references in the tree are the boot
+> catalog's declared-orphan entry — which is what stops `catalogLocalBinOrphans` reporting it
+> as an unowned file in `~/.local/bin` — and tests. The `chrome-devtools` preset spawns `mcp-wrappers/node`
+> directly and lets the MCP server start chromium itself.
+
+### Where the wired preset finds chromium
+
+Because the preset does not go through the fat wrapper, the resolution the wrapper does has to
+happen again in the argv the preset emits: `chrome-devtools-mcp` is passed
+`--executablePath`, and that value is **resolved when the entry is generated, not written into
+the source**. A baked image answers with its `/usr/bin` symlink; a store-delivered launch
+answers with the `/run/yolo/packages` farm, which is where `.#yoloImageExtras` puts chromium
+once `.#ociImageLean` has stopped baking it. With nothing to resolve the value falls back to
+the baked path, so a jail with no chromium fails the way it always did.
+
+The search is the **launcher-collision check's probe path** (`imageProbePath`) rather than a
+second search order of its own — one answer to *what does this launch provide*, which already
+counts the store farm and excludes the per-home install prefixes. That exclusion is also what
+makes the answer available this early: the farm is built by the **first** generator in the
+boot, while the install prefixes are still being filled in when config is rendered.
+
+> [!WARNING]
+> **Pinning `/usr/bin/chromium` here is a real outage, not a tidiness point.** That symlink is
+> created only inside `mkBinPathLinks`' `withChromium` block, and `.#ociImageLean` — the image
+> a `YOLO_STORE_PACKAGES=1` launch builds — turns that block off. A pinned argv therefore names
+> a path that does not exist on exactly the launches that do have a chromium. See
+> [`image-staging-vs-baking.md`](image-staging-vs-baking.md#store-delivered-packages).
+
 ### The gap: a custom server bypasses the wrapper
 
 Custom `mcp_servers` entries are stored **verbatim**. Whatever `command` the user wrote is what
@@ -211,6 +241,8 @@ change in one place rather than a call-site hunt.
 - **Not** an `LD_LIBRARY_PATH` export in a wrapper, or anywhere else per call site.
 - **Not** a wrapper that shells out to discover a path. Self-contained or it is not robust to
   the case it exists for.
+- **Not** an absolute chromium path written into the `chrome-devtools` argv. Where chromium is
+  depends on how the launch got its packages, so the entry resolves it.
 
 ## Unbuilt
 
@@ -237,6 +269,7 @@ only place the values themselves are stated.
 | What a wrapper exports | `FONTCONFIG_FILE`, `FONTCONFIG_PATH` — and nothing else | `internal/entrypoint/mcp_wrappers.go` |
 | What a wrapper execs | the nix `/bin/node` / `/bin/npx` | `internal/entrypoint/mcp_wrappers.go` |
 | Chrome debug endpoint defaults | overridable by `CHROME_DEBUG_PORT` / `CHROME_DEBUG_ADDR` | `chromeWrapper` |
+| Where the wired `chrome-devtools` argv gets chromium | resolved against what the launch provides, falling back to the baked `/usr/bin` path | `chromiumExecutablePath` |
 | Retired sidecar name | `yolo-managed-mcp-servers.json`, deleted on first composed render | each pack's `retireOnFirstRender` |
 | Bootstrap-installed MCP packages | gated on the same preset declaration that builds the table | `Env.LoadMCPPresetNames` |
 

@@ -61,6 +61,54 @@ func LoadLSPServers(e *Env) *jsonx.OrderedMap {
 // over. If a real need for declared secret references appears, the honest form is a LAYER with
 // provenance resolved at launch — not a string substitution during render.
 
+// bakedChromiumPath is the path the IMAGE gives chromium — the /usr/bin symlink
+// mkBinPathLinks lays down. It is created inside that function's `withChromium` block, and
+// `binPathLinksLean = mkBinPathLinks { withChromium = false; }` is what `mkOciImage` picks
+// for `withExtras = false`, so on `.#ociImageLean` this path does not exist (flake.nix).
+const bakedChromiumPath = "/usr/bin/chromium"
+
+// chromiumExecutablePath is where chromium is for THIS launch, and the wired
+// chrome-devtools entry RESOLVES it rather than pinning it because C5 moved the answer.
+//
+// This argv used to carry the literal bakedChromiumPath. A YOLO_STORE_PACKAGES=1 launch
+// builds `.#ociImageLean`, which sets `variantFullPackages = []` and takes the lean
+// bin-path links — so it bakes neither chromium nor the /usr/bin symlink — and delivers
+// `fullPackages` (chromium among them) as the `.#yoloImageExtras` store profile, whose
+// `bin/` the boot links into the /run/yolo/packages farm (storepackages.go;
+// docs/reference/image-staging-vs-baking.md, "Store-delivered packages"). The pinned path
+// is therefore absent on exactly the launches that have a chromium, and the MCP server was
+// handed a path with nothing behind it.
+//
+// THE RESOLUTION IS imageProbePath's, NOT A SECOND SEARCH ORDER, and that is the whole
+// point of reusing it: it is already the one place that knows the farm counts as
+// provision (gated on StoreProfiles, so a launch that bakes is unaffected) while the
+// per-home install prefixes do not. A private search order here is how two answers to
+// "where did this launch's packages come from" start disagreeing.
+//
+// imageProbePath rather than agentPath, and the reason is the ANSWER TIME. This value is
+// baked into a config file by a boot-time generator, and every dir imageProbePath names is
+// already populated when it is asked: the image's own bins were there before PID 1 ran, and
+// generate_store_packages is the FIRST generator in the boot's list precisely so its farm
+// exists before anything stats it. agentPath's extra entries — the install prefixes and the
+// mise shim dir — are the ones the bootstrap has not filled in yet on a cold boot (the same
+// ordering fact declaredMiseBins documents), so asking them here would answer from a
+// filesystem that is still being built. Nothing installs chromium into them anyway.
+//
+// The fat `chrome-devtools-mcp-wrapper` GenerateMCPWrappers writes has resolved chromium
+// this way all along, and nothing yolo generates spawns it — no `command` names it (its
+// only other references are the boot catalog's declared-orphan entry and tests). So this
+// is the same resolution finally reaching the argv that is actually used.
+//
+// The fallback is bakedChromiumPath rather than "" or a dropped flag: when nothing
+// resolves, the entry stays byte-for-byte what it always was, so a jail with no chromium
+// at all fails the way it already failed instead of a new way.
+func chromiumExecutablePath(e *Env) string {
+	if p := lookPathIn(imageProbePath(e), "chromium"); p != "" {
+		return p
+	}
+	return bakedChromiumPath
+}
+
 func (e *Env) chromeDevtoolsArgs() []any {
 	npmBin := e.NpmBin()
 	return []any{
@@ -68,7 +116,7 @@ func (e *Env) chromeDevtoolsArgs() []any {
 		"--headless",
 		"--isolated",
 		"--executablePath",
-		"/usr/bin/chromium",
+		chromiumExecutablePath(e),
 		"--chrome-arg=--no-sandbox",
 		"--chrome-arg=--disable-dev-shm-usage",
 		"--chrome-arg=--disable-setuid-sandbox",
