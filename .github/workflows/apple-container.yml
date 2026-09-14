@@ -114,7 +114,27 @@ jobs:
     # residue of the inversion and is fine: a human who typed the command is present to
     # cancel it, which was never true of a cron.
     if: github.repository == 'mschulkind-oss/yolo-jail'
-    runs-on: [self-hosted, macOS, ARM64, apple-container]
+    # TWO LABELS, NOT FOUR, AND THE TWO THAT WENT WERE THE RISKY ONES.
+    #
+    # This was `[self-hosted, macOS, ARM64, apple-container]` until a real runner existed to
+    # check it against (2026-09-14). `apple-container` is a purpose-built label carried by
+    # exactly one machine, so `macOS` and `ARM64` narrowed the selection by nothing — while
+    # adding two strings that have to match GitHub's auto-label spelling EXACTLY.
+    #
+    # That is a bad trade, because the failure is not an error. A `runs-on` label no runner
+    # carries makes the job sit "waiting for a runner matching the labels" indefinitely —
+    # which looks exactly like a machine that is switched off, and is the same
+    # indistinguishable-failure shape the deleted probe token had.
+    #
+    # And the spelling is genuinely not verifiable from the runner side: its own `_diag`
+    # logs confirm `self-hosted`, `ARM64` and `apple-container`, but for the OS they say
+    # `Darwin` and `OSX` — the internal platform enum — never `macOS`. Reading the label off
+    # the API needs the `administration: read` PAT this design exists to avoid.
+    #
+    # So the job selects on what is confirmed. The OS and arch facts are still REPORTED,
+    # by the `Runner facts` step below (`sw_vers`, `uname -m`), which is where a
+    # correlation handle belongs rather than in a selector that can hang.
+    runs-on: [self-hosted, apple-container]
     name: Apple Container (self-hosted arm64 Mac)
     # A CEILING ON WASTE rather than an estimate — the subset below is four tests and
     # nobody has timed them on this backend. The first green run is the measurement.

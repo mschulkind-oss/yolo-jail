@@ -3,7 +3,7 @@ title: "RUNBOOK — turn a Mac into the Apple Container CI runner"
 status: current
 date: 2026-09-14
 tags: [ci, macos, apple-container, self-hosted, runbook]
-summary: "The one-time procedure for registering a maintainer's Mac as the self-hosted runner apple-container.yml has been waiting for: the runner registration and its four labels, Apple Container's per-user apiserver, the optional launchd dispatcher that replaced a cron plus an admin PAT, and the account decision — including the launchd constraint that rules out the hidden service account pattern the rest of this repo uses. It needs no repository secret: a runner is an outbound client, so the Mac can answer 'am I online' locally for free."
+summary: "The one-time procedure for registering a maintainer's Mac as the self-hosted runner apple-container.yml has been waiting for: the runner registration and the one label it needs, Apple Container's per-user apiserver, the optional launchd dispatcher that replaced a cron plus an admin PAT, and the account decision — including the launchd constraint that rules out the hidden service account pattern the rest of this repo uses. It needs no repository secret: a runner is an outbound client, so the Mac can answer 'am I online' locally for free."
 ---
 
 # RUNBOOK — turn a Mac into the Apple Container CI runner
@@ -120,10 +120,17 @@ rather than discovering it inside a CI step that has no terminal.
 
 ## 3. Register the runner
 
-The labels are the contract: `apple-container.yml` selects
-`runs-on: [self-hosted, macOS, ARM64, apple-container]`, and a runner missing any one of them
-is never chosen. GitHub does not report that as an error — the run simply sits waiting for a
-runner matching the labels, which reads like a machine that is off.
+The label is the contract: `apple-container.yml` selects
+`runs-on: [self-hosted, apple-container]`, and a runner missing either is never chosen.
+GitHub does not report that as an error — the run simply sits waiting for a runner matching
+the labels, which reads like a machine that is off.
+
+**`--labels apple-container` is the only one you pass.** `self-hosted` is added
+automatically, and the OS/arch labels are deliberately NOT selected on: `apple-container` is
+carried by one machine, so they narrowed nothing while adding two strings that must match
+GitHub's spelling exactly. Verified 2026-09-14 that this is not a theoretical worry — the
+runner's own `_diag` logs report `self-hosted`, `ARM64` and `apple-container`, but for the OS
+they say `Darwin` and `OSX`, never `macOS`.
 
 (An earlier design had the label written **twice** — once here and once in a hosted poll job's
 `jq` — with no way for YAML to derive one from the other. Deleting the poll deleted that
@@ -145,9 +152,9 @@ $ ./config.sh --url https://github.com/mschulkind-oss/yolo-jail \
     --work _work
 ```
 
-`self-hosted`, `macOS` and `ARM64` are added by the runner automatically — **`--labels` adds
-`apple-container` on top of them.** Passing all four is harmless; passing
-`--labels self-hosted` *only* is not, because it replaces nothing but reads as if it did.
+`--labels` ADDS to the automatic ones rather than replacing them, so `apple-container` is all
+you need. Add `--unattended` to skip the interactive prompts (runner group, name, work
+folder — every default is fine).
 
 Then install the service:
 
@@ -167,11 +174,13 @@ $ launchctl list | grep 'actions\.runner\.'
 -   0   actions.runner.mschulkind-oss-yolo-jail.<this-mac>
 ```
 
-Then confirm GitHub agrees, and that all four labels are present. The **Settings → Actions →
-Runners** page shows this without a token; `gh` can only answer it with an admin PAT, which is
-exactly the credential this design removed:
+Then confirm GitHub agrees. The **Settings → Actions → Runners** page shows the runner and its
+labels without a token; `gh` can only answer it with an admin PAT, which is exactly the
+credential this design removed:
 
 > Idle · `self-hosted` `macOS` `ARM64` `apple-container`
+
+Extra labels there are fine — the job selects on two of them.
 
 Now drive a run:
 
