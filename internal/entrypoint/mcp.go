@@ -94,10 +94,11 @@ const bakedChromiumPath = "/usr/bin/chromium"
 // ordering fact declaredMiseBins documents), so asking them here would answer from a
 // filesystem that is still being built. Nothing installs chromium into them anyway.
 //
-// The fat `chrome-devtools-mcp-wrapper` GenerateMCPWrappers writes has resolved chromium
-// this way all along, and nothing yolo generates spawns it — no `command` names it (its
-// only other references are the boot catalog's declared-orphan entry and tests). So this
-// is the same resolution finally reaching the argv that is actually used.
+// The fat `chrome-devtools-mcp-wrapper` GenerateMCPWrappers writes has resolved chromium at
+// RUN time all along — in shell, `[ -x /usr/bin/chromium ]` then `command -v chromium` — and
+// nothing yolo generates spawns it: no `command` names it, and its only other references are
+// the boot catalog's declared-orphan entry and tests. So the idea reaching this argv is not a
+// new one; it is the one that has been sitting unreachable in the same package.
 //
 // The fallback is bakedChromiumPath rather than "" or a dropped flag: when nothing
 // resolves, the entry stays byte-for-byte what it always was, so a jail with no chromium
