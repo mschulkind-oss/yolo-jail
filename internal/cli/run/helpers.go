@@ -108,6 +108,44 @@ func acMaterialize(src, targetRel, wsState string) {
 	_ = copyFile2(src, dst)
 }
 
+// acMaterializeTree is acMaterialize's DIRECTORY twin: it copies a whole host tree into
+// ws_state/targetRel, REPLACING whatever the previous launch left there, so Apple
+// Container's single `ws_state:/home/agent` bind carries it into the jail.
+//
+// WHY A COPY AND NOT A BIND, since Apple Container nests directory mounts perfectly well
+// (appleContainerBaseMounts puts GlobalCache at /home/agent/.cache, and packFilesMountArgs
+// binds a `files` directory). Because this backend ACCEPTS `-v src:dest:ro` and IGNORES
+// the suffix (roBindsUnsupported states the measurement). For the staged pack tree that
+// is not a cosmetic downgrade: the tree a bind would expose is the launcher's own
+// AGENTS_DIR/<cname>/packs, which the HOST reads on the next launch to decide host-file
+// grants and mounts — so a writable bind is precisely the "an agent that could rewrite a
+// manifest could grant its own pack a host file on the next boot" escalation that the
+// podman arm's `:ro` exists to prevent. A copy leaves the host's own tree untouched.
+//
+// REPLACE, NEVER MERGE, which is the same rule macosuser.StagePackCommands states for the
+// same content on the other no-mounts backend: a pack the user dropped from `packs` must
+// stop rendering, and a copy over a live directory would leave the union of two launches
+// — the exact bug pruneDroppedPackStaging exists to prevent on the host side.
+//
+// FAIL-CLOSED ON A PARTIAL TREE. copyTree stops at its first error, and a half-copied
+// pack root is the worst of the three outcomes: the jail comes up rendering SOME packs
+// and looking provisioned. The destination is therefore removed again, so the caller's
+// only two states are "the whole tree arrived" and "nothing did, loudly".
+func acMaterializeTree(src, targetRel, wsState string) error {
+	dst := filepath.Join(wsState, targetRel)
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := copyTree(src, dst); err != nil {
+		_ = os.RemoveAll(dst)
+		return err
+	}
+	return nil
+}
+
 func numCPU() int { return runtime.NumCPU() }
 
 // appleContainerDefaultMemory returns the AC default memory:

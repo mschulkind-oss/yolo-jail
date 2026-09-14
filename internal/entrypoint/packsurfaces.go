@@ -40,7 +40,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 )
 
-// LoadJailPacks reads the pack trees mounted at YOLO_PACK_ROOT.
+// LoadJailPacks reads the pack trees the launch delivered at YOLO_PACK_ROOT.
+//
+// DELIVERED, not "mounted": the variable exists because the three backends deliver the
+// same tree three ways — a `:ro` bind at /ctx/packs on podman, a per-launch copy under
+// the jail's own home on Apple Container (which ignores `:ro`), and a root-owned copy
+// under /var on macos-user. This side reads whichever it was handed and cannot tell them
+// apart, which is the point.
 //
 // Every pack found here was already staged ON THE HOST, and the jail's job is to render
 // what it was given. It could not do otherwise: which packs are selected is a fact about

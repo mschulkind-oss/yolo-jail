@@ -24,6 +24,8 @@ import "github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 //
 // # :ro, and what that is and is not
 //
+// It is also why ONE backend gets no store at all — see capturesArgs' Apple Container arm.
+//
 // The store is machine-wide state that every jail on the machine reads and NO jail may write:
 // an entry is admitted by the host act alone (`yolo capture`), its files are frozen at admit,
 // and a jail that could rewrite one would be rewriting bytes every other workspace runs. Same
@@ -35,28 +37,62 @@ import "github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 // Under /ctx with the pack trees and the host-file grants, because it is the same kind of
 // thing: a host directory the jail reads and never owns. The entrypoint finds it through
 // entrypoint.CapturesDirEnv rather than hardcoding it, for the reason packCtxDir gives —
-// Apple Container cannot nest this bind and reads the host path instead, so the destination
-// is not a constant the jail side may assume.
+// the destination differs per backend, so it is not a constant the jail side may assume.
+// On Apple Container there is no destination at all; the branch below says why.
 const capturesCtxDir = "/ctx/captures"
 
 // capturesArgs emits the store bind plus the env var naming it, or nothing.
 //
-// NOTHING is a real and expected answer, three ways: a launch whose Options.CapturesDir seam
+// NOTHING is a real and expected answer, FOUR ways: a launch whose Options.CapturesDir seam
 // returns "" (the capture jail — see Options.CapturesDir), a store path that does not exist
 // (nothing has ever been captured on this machine, and podman would otherwise CREATE the
 // bind source as an empty directory, which is a store that answers every lookup with a miss
-// while looking like a store), and the macos-user backend, which never reaches this code.
-// The launcher's branch is written to treat all three as "no capture", so the jail degrades
-// to today's download rather than failing.
+// while looking like a store), the macos-user backend, which never reaches this code, and
+// Apple Container, which cannot be given a read-only bind (below). The launcher's branch is
+// written to treat all four as "no capture" — `[ -n "$CAPTURES_DIR" ] || return 1` then
+// `[ -d "$CAPTURES_DIR" ] || return 1`, shims.go — so the jail degrades to today's download
+// rather than failing.
 func (o *Options) capturesArgs(rt, dir string) []string {
 	if dir == "" || !o.PathExists(dir) {
 		return nil
 	}
-	if rt == "container" {
-		// Apple Container puts the whole workspace state at /home/agent in ONE bind and
-		// cannot nest another; it reads host paths directly instead, exactly as the pack
-		// staging tree does. The jail-side path is therefore the HOST path.
-		return []string{"-e", entrypoint.CapturesDirEnv + "=" + dir}
+	if rt == "container" { // parity: Dropped — AC ignores :ro and a writable machine-wide store is cross-jail injection; silent because absence is already the contract every reader implements
+		// APPLE CONTAINER GETS NO STORE, and this is the honest spelling of what it already
+		// had rather than a capability being withdrawn.
+		//
+		// It used to emit `-e YOLO_CAPTURES_DIR=<host path>` under the premise that "Apple
+		// Container puts the whole workspace state at /home/agent in ONE bind and cannot
+		// nest another; it reads host paths directly instead, exactly as the pack staging
+		// tree does". Both halves were false, and the second was false in the same way that
+		// left that backend with no packs at all (issue #44, assemble.go's YOLO_PACK_ROOT
+		// branch): Apple Container exposes only what the launch shares, so the variable named
+		// a path that is not in the jail. NESTING was never the blocker either —
+		// appleContainerBaseMounts nests GlobalCache at /home/agent/.cache, inside the
+		// wsState bind, and packFilesMountArgs nests a `files` directory.
+		//
+		// WHAT IS ACTUALLY IN THE WAY IS `:ro`. That backend accepts the suffix and ignores
+		// it (roBindsUnsupported), and the header above states why a writable store is not a
+		// degradation anyone may accept here: an entry is admitted by the host act alone and
+		// a jail that could rewrite one would be rewriting bytes EVERY OTHER WORKSPACE on
+		// this machine runs. That is cross-jail code injection, which is a strictly larger
+		// crossing than the within-session one the pack tree's copy accepts, and
+		// roBindsUnsupported's rule already covers it: a caller refuses the mount rather
+		// than downgrade it.
+		//
+		// AND THE PACK TREE'S ANSWER — copy into ws_state — DOES NOT TRANSFER, for three
+		// reasons that are all about what a store IS. It is machine-wide, so a per-workspace
+		// copy is N copies of the thing whose whole purpose is to exist once. It is LARGE
+		// (claude's five builds measured 1.2 GB, paths.CapturesDir), so copying it per launch
+		// spends more than the download it saves. And the header's reflink argument dies with
+		// it: the mount is worth having because FICLONE's predicate is the filesystem, so
+		// materialize is a 3 ms clone — a copy into ws_state has already paid the bytes that
+		// buys back.
+		//
+		// So the jail is told nothing, which is a state every reader already handles, and
+		// which is also what it effectively had: the host path failed the launcher's
+		// `[ -d "$CAPTURES_DIR" ]` test, so this backend has always downloaded. The cost is
+		// unchanged and now it is stated rather than implied.
+		return nil
 	}
 	return []string{
 		"-v", dir + ":" + capturesCtxDir + ":ro",

@@ -88,19 +88,41 @@ func TestPodmanBindsTheCaptureStoreReadOnly(t *testing.T) {
 	}
 }
 
-// Apple Container reads the HOST PATH. It puts the whole workspace state at /home/agent in one
-// bind and cannot nest another, which is the same reason the staged pack tree is passed by
-// host path there (assemble.go's YOLO_PACK_ROOT branch).
-func TestAppleContainerNamesTheCaptureStoreByHostPath(t *testing.T) {
+// TestAppleContainerIsToldOfNoCaptureStore replaces a test that asserted the OPPOSITE, and
+// the correction is the point rather than the assertion.
+//
+// It used to read "Apple Container reads the HOST PATH. It puts the whole workspace state at
+// /home/agent in one bind and cannot nest another", and it pinned
+// `YOLO_CAPTURES_DIR=<host store path>` while failing if a bind was emitted. Every clause of
+// that was wrong, and it is the shape AGENTS.md warns about — a test asserting the sentence a
+// comment makes rather than the system, which kept a false premise green.
+//
+//   - "cannot nest another" is contradicted in this very package:
+//     appleContainerBaseMounts nests GlobalCache at /home/agent/.cache INSIDE the wsState
+//     bind, and packFilesMountArgs nests a `files` directory.
+//   - "reads the host path" is the #44 premise. Apple Container exposes only what the launch
+//     shares, so the variable named a path that is not in the jail — which is why this
+//     backend has always downloaded rather than materialized: the launcher's
+//     `[ -d "$CAPTURES_DIR" ]` could never pass.
+//
+// What is really in the way is `:ro`, which that backend ignores (roBindsUnsupported), and a
+// WRITABLE store is bytes every other workspace on this machine executes. So the honest argv
+// says nothing, and this pins BOTH halves of that: no store env (a path the jail cannot open
+// is a promise, not a delivery) and no bind (a writable one would be worse than none).
+func TestAppleContainerIsToldOfNoCaptureStore(t *testing.T) {
 	store := t.TempDir()
 	got := captureAssembleInput(t, "container", store)
 
-	if want := entrypoint.CapturesDirEnv + "=" + store; !slices.Contains(got, want) {
-		t.Errorf("Apple Container must read the store from its host path: no %q\n%s",
-			want, strings.Join(got, " "))
+	for _, a := range got {
+		if strings.HasPrefix(a, entrypoint.CapturesDirEnv+"=") {
+			t.Errorf("Apple Container is told %q, but nothing is at that path in the jail — "+
+				"the launcher's `[ -d $CAPTURES_DIR ]` fails and the store looks broken "+
+				"rather than absent:\n%s", a, strings.Join(got, " "))
+		}
 	}
-	if slices.Contains(got, store+":/ctx/captures:ro") {
-		t.Errorf("Apple Container cannot nest this bind, but the argv emits one:\n%s",
+	if slices.Contains(got, store+":"+capturesCtxDir+":ro") {
+		t.Errorf("Apple Container IGNORES :ro, so this bind hands the jail write access to "+
+			"the machine-wide store every other workspace executes from:\n%s",
 			strings.Join(got, " "))
 	}
 }

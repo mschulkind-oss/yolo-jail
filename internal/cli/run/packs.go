@@ -30,9 +30,32 @@ import (
 )
 
 // packCtxDir is where the staged pack trees are mounted in the jail. The entrypoint
-// finds it via YOLO_PACK_ROOT rather than hardcoding it, because on Apple Container the
-// trees are read from their host path instead (no nested mount).
+// finds it via YOLO_PACK_ROOT rather than hardcoding it, because Apple Container gets a
+// COPY at a different path (acPackRootRel) — and macos-user a third one
+// (macosuser.StagedPackRoot). Three deliveries, one variable, which is why no reader
+// spells a constant.
 const packCtxDir = "/ctx/packs"
+
+// acPackRootRel is where Apple Container's copy of the staged pack tree lands, relative
+// to ws_state — the directory that backend mounts wholesale at /home/agent.
+//
+// IT USED TO BE THE HOST PATH, and the comment that justified that said "the AC host
+// filesystem is visible". It is not: Apple Container exposes only the directories the
+// launch explicitly shares, so $YOLO_PACK_ROOT named a path that does not exist in the
+// jail (issue #44, reproduced four ways on a fresh AC jail — `ls $YOLO_PACK_ROOT`
+// ENOENT, no `packs` under /ctx, nothing in /proc/mounts, and no pack.json anywhere
+// outside the checkout). LoadJailPacks then read an absent root as "no packs", so no
+// pack-declared program installed and no launch flag rendered, while everything that
+// needs no tree — the guardrails shims, the briefings, the managed settings.json — went
+// on rendering. The jail looked provisioned and had no agent in it.
+//
+// A DOT-DIR, beside acCtxDirRel and for its reason: ws_state is the jail's $HOME, and a
+// launch-owned tree at the top of it should not show up in the agent's `ls ~`.
+const acPackRootRel = ".yolo-packs"
+
+// acPackRootInJail is what YOLO_PACK_ROOT names on Apple Container: acPackRootRel as the
+// jail sees it, through the ws_state → /home/agent bind.
+const acPackRootInJail = "/home/agent/" + acPackRootRel
 
 // officialStagingDir is the subdir of the staging root holding the EMBEDDED packs, the
 // one name under it that is never a configured pack's slug (a slug cannot start with '_':

@@ -2,6 +2,8 @@ package run
 
 import (
 	"bytes"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -626,4 +628,258 @@ func claudePackFixture(t *testing.T) []*packload.Pack {
 	}
 	t.Fatal("official claude pack not found")
 	return nil
+}
+
+// --- Apple Container's pack-tree delivery (issue #44) --------------------------------
+
+// acPackInput builds the minimal assembleInput for an Apple Container launch whose
+// staged pack tree is `staging`, and returns it with the options that assemble it.
+//
+// The staged tree is the REAL official claude pack copied through the REAL production
+// copier (copyTree, the one stagePacks uses for an embedded pack), laid out at the
+// `_official/<name>` path stagePacks produces — so what these tests deliver is what a
+// launch delivers, rather than a hand-written pack.json the entrypoint might reject.
+func acPackInput(t *testing.T, ws, home string) (*Options, *assembleInput, string) {
+	t.Helper()
+	emptyLoopholeDirs(t)
+	o := goldenOptions(ws, home)
+	o.IsMacOS = true
+	o.IsLinux = false
+
+	wsState := filepath.Join(ws, ".yolo", "home")
+	if err := os.MkdirAll(wsState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packs := claudePackFixture(t)
+	staging := filepath.Join(t.TempDir(), "packs")
+	if err := copyTree(packs[0].Root, filepath.Join(staging, "_official", "claude")); err != nil {
+		t.Fatalf("staging the fixture pack: %v", err)
+	}
+
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	return o, &assembleInput{
+		cfg:          newConfig("security", sec),
+		rt:           "container",
+		cname:        "yolo-ws-abcd1234",
+		packs:        packs,
+		agentsPath:   filepath.Join(ws, "agents"),
+		packStaging:  staging,
+		wsState:      wsState,
+		miseStore:    "/mise-store",
+		yoloVersion:  "9.9.9-test",
+		mountTargets: map[string]struct{}{},
+	}, wsState
+}
+
+// packRootFromArgv returns the YOLO_PACK_ROOT value the argv names, or "".
+func packRootFromArgv(argv []string) string {
+	for _, a := range argv {
+		if v, ok := strings.CutPrefix(a, "YOLO_PACK_ROOT="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// TestAppleContainerDeliversThePackTreeIntoTheJail is the regression for issue #44, and
+// it is deliberately written as "the jail can open what it was told", not as "the argv
+// contains a string".
+//
+// The bug was a FALSE PREMISE, not a typo: the branch named the launcher's own host path
+// in YOLO_PACK_ROOT on the belief that "the AC host filesystem is visible". Apple
+// Container exposes only what the launch shares, so the variable pointed at nothing, the
+// entrypoint read an absent root as "no packs", and a fresh Mac on the backend the README
+// recommends got a jail with no agent in it — while every surface that needs no pack tree
+// (guardrails shims, briefings, the managed settings.json) kept rendering, so it looked
+// provisioned.
+//
+// A string assertion could not have caught that and cannot protect against its return:
+// the old argv was internally consistent. So this test follows the variable — it maps the
+// in-jail path back through the ws_state → /home/agent bind and hands it to the
+// entrypoint's own LoadJailPacks, which is the reader the launcher is talking to. Delete
+// the materialize call and the variable names an empty tree; delete the whole arm and
+// there is no variable at all. Both fail here.
+func TestAppleContainerDeliversThePackTreeIntoTheJail(t *testing.T) {
+	ws, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	o, in, wsState := acPackInput(t, ws, home)
+
+	got := o.assembleRunCmd(in)
+
+	root := packRootFromArgv(got)
+	if root == "" {
+		t.Fatalf("Apple Container launch names no YOLO_PACK_ROOT at all, so the jail "+
+			"renders no pack:\n%s", strings.Join(got, " "))
+	}
+	if root == in.packStaging {
+		t.Fatalf("issue #44: YOLO_PACK_ROOT=%s is a HOST path, and Apple Container shares "+
+			"only what the launch shares — nothing is at that path in the jail", root)
+	}
+	// The one thing the jail is guaranteed to see on this backend is ws_state, mounted
+	// whole at /home/agent. Resolve the promise the launcher just made through that bind.
+	inJail, ok := strings.CutPrefix(root, "/home/agent/")
+	if !ok {
+		t.Fatalf("YOLO_PACK_ROOT=%s is not under /home/agent, which is the only tree "+
+			"Apple Container's base mounts put in the jail", root)
+	}
+	delivered := filepath.Join(wsState, inJail)
+
+	// WHAT IS AT THAT PATH, file for file. A relative-path-and-bytes comparison against
+	// the staged tree is what catches the layout mistakes a "the directory exists" check
+	// would wave through — a copy that nested the tree one level deeper (the `mv src dst`
+	// trap StagePackCommands names), or one that dropped a pack's nested files. The
+	// entrypoint walks <root>/_official/<name> and <root>/<slug>, so the LAYOUT is the
+	// contract, not the top directory.
+	if diff := treeDiff(t, in.packStaging, delivered); diff != "" {
+		t.Fatalf("the jail's pack root does not hold what the launch staged, so the "+
+			"entrypoint renders something other than what the host read:\n%s", diff)
+	}
+	// And each pack in it still LOADS — the delivered copy is what LoadJailPacks parses,
+	// and a copier that mangled a manifest would pass the byte comparison only by
+	// mangling both sides, which it cannot: the left side is the launcher's own input.
+	officialDir := filepath.Join(delivered, "_official")
+	ents, err := os.ReadDir(officialDir)
+	if err != nil || len(ents) == 0 {
+		t.Fatalf("no embedded pack was delivered under %s (err=%v)", officialDir, err)
+	}
+	for _, e := range ents {
+		p, problems := packload.LoadDir(filepath.Join(officialDir, e.Name()), e.Name())
+		if len(problems) > 0 {
+			t.Fatalf("the delivered copy of pack %s does not load: %v", e.Name(), problems)
+		}
+		if p.Name != e.Name() {
+			t.Fatalf("delivered pack dir %s loads as %q", e.Name(), p.Name)
+		}
+	}
+
+	// And NOT podman's answer: a `-v …:/ctx/packs:ro` on this backend would be a bind
+	// whose `:ro` Apple Container ignores (roBindsUnsupported), handing the jail write
+	// access to the launcher's own staging tree — which is the escalation the podman
+	// arm's `:ro` exists to prevent, not a copy of the protection.
+	if joined := strings.Join(got, " "); strings.Contains(joined, ":"+packCtxDir+":ro") {
+		t.Errorf("Apple Container ignores :ro, so the staged tree must not be bound:\n%s",
+			joined)
+	}
+}
+
+// TestAppleContainerPackTreeReplacesThePreviousLaunchs pins the rm-before-copy half of
+// acMaterializeTree, which is the same rule macosuser.StagePackCommands states for the
+// same content: ws_state PERSISTS across launches, so a merge would keep delivering a
+// pack the user dropped from `packs` forever — the jail-side twin of the bug
+// pruneDroppedPackStaging exists to prevent on the host.
+//
+// It fails if the RemoveAll goes, while the test above stays green: a leftover tree is
+// invisible to "can the jail read what I staged".
+func TestAppleContainerPackTreeReplacesThePreviousLaunchs(t *testing.T) {
+	ws, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	o, in, wsState := acPackInput(t, ws, home)
+
+	// What a previous launch left behind: a pack the config no longer names.
+	dropped := filepath.Join(wsState, acPackRootRel, "_official", "dropped")
+	if err := os.MkdirAll(dropped, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropped, "pack.json"),
+		[]byte(`{"name":"dropped"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	o.assembleRunCmd(in)
+
+	if _, err := os.Stat(dropped); err == nil {
+		t.Errorf("a pack the user dropped from `packs` is still delivered at %s — "+
+			"ws_state persists across launches, so the copy has to REPLACE the tree, "+
+			"not merge into it", dropped)
+	}
+	if _, err := os.Stat(filepath.Join(wsState, acPackRootRel, "_official", "claude",
+		"pack.json")); err != nil {
+		t.Errorf("the replace took the live pack with it: %v", err)
+	}
+}
+
+// TestAppleContainerSaysSoWhenThePackTreeCannotBeStaged pins the NO-SILENT-DROP half.
+//
+// The defect this whole cluster is about was not that packs failed to arrive; it was that
+// nothing said so, and everything that needs no pack tree kept rendering, so the jail
+// looked provisioned. A copy that cannot be made has to reach the terminal, and the argv
+// must NOT then name a root: a half-copied tree renders SOME packs, which is the same
+// lie one pack smaller.
+//
+// The fixture is the failure this repo has actually MEASURED rather than an invented one:
+// the staging root vanishing mid-launch, which a concurrent capture sub-launch's
+// housekeeping sweep really did do on 2026-09-09 (touchAgentStagingDir, and
+// packFilesSkipWarning's second sentence). On podman it kills the container at `statfs`;
+// on Apple Container it is a copy with no source, and this is what the user is told.
+func TestAppleContainerSaysSoWhenThePackTreeCannotBeStaged(t *testing.T) {
+	ws, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	o, in, _ := acPackInput(t, ws, home)
+	// STDERR: assembleRunCmd's notices go there by ruling (its `out` printer says why).
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+
+	if err := os.RemoveAll(in.packStaging); err != nil {
+		t.Fatal(err)
+	}
+
+	got := o.assembleRunCmd(in)
+
+	if root := packRootFromArgv(got); root != "" {
+		t.Errorf("the copy failed but the jail is still told YOLO_PACK_ROOT=%s, so it "+
+			"will render whatever partially arrived", root)
+	}
+	if !strings.Contains(stderr.String(), "NO pack will render") {
+		t.Errorf("a jail with no packs came up with nothing said about it:\n%s", stderr.String())
+	}
+}
+
+// treeDiff returns a human-readable description of every relative path that differs
+// between two trees (present on one side only, or different bytes), or "" when they hold
+// the same files with the same contents. Modes are deliberately NOT compared: copyTree
+// normalizes them to 0644/0755 by design, which is the rule packs.go states.
+func treeDiff(t *testing.T, want, got string) string {
+	t.Helper()
+	read := func(root string) map[string]string {
+		out := map[string]string{}
+		if err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, relErr := filepath.Rel(root, p)
+			if relErr != nil {
+				return relErr
+			}
+			b, readErr := os.ReadFile(p)
+			if readErr != nil {
+				return readErr
+			}
+			out[filepath.ToSlash(rel)] = string(b)
+			return nil
+		}); err != nil {
+			t.Fatalf("walking %s: %v", root, err)
+		}
+		return out
+	}
+	w, g := read(want), read(got)
+	var problems []string
+	for rel, text := range w {
+		switch other, ok := g[rel]; {
+		case !ok:
+			problems = append(problems, "missing from the jail's copy: "+rel)
+		case other != text:
+			problems = append(problems, "different bytes: "+rel)
+		}
+	}
+	for rel := range g {
+		if _, ok := w[rel]; !ok {
+			problems = append(problems, "in the jail's copy but not staged: "+rel)
+		}
+	}
+	slices.Sort(problems)
+	return strings.Join(problems, "\n")
 }

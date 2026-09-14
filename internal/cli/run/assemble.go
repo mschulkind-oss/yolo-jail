@@ -51,8 +51,10 @@ type assembleInput struct {
 	// source; every construction that leaves it empty is a test.
 	jailPrefix jailPrefix
 	agentsPath string // AGENTS_DIR/<cname> (briefings + skills staging)
-	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees, mounted :ro so
-	// the entrypoint renders the same declarations the host read.
+	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees the entrypoint
+	// renders from, so it sees the same declarations the host read. Delivered :ro at
+	// /ctx/packs on podman and as a per-launch COPY under ws_state on Apple Container,
+	// which ignores :ro; either way the jail is TOLD where by YOLO_PACK_ROOT.
 	packStaging string
 	// capturesDir is the machine-wide install-capture store (paths.CapturesDir), bound
 	// :ro so an in-jail launcher can materialize an entry instead of downloading it.
@@ -661,12 +663,46 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// :ro, and that is load-bearing rather than tidiness — a pack manifest is an INPUT
 	// to composition, and an agent that could rewrite one in-jail could grant its own
 	// pack a host file on the next boot.
+	//
+	// ⚠ THE `:ro` HALF DOES NOT SURVIVE ON APPLE CONTAINER, and the arm below says what
+	// replaces it. That backend accepts `-v src:dest:ro` and IGNORES the suffix
+	// (roBindsUnsupported), so there is no read-only bind to fall back to — a bind would
+	// hand the jail WRITE access to the launcher's own AGENTS_DIR/<cname>/packs, which is
+	// the tree the HOST reads next launch, which is the escalation above happening rather
+	// than being prevented. So the tree is COPIED into ws_state instead: the copy is
+	// rebuilt from the host tree on every launch and host-side composition never reads
+	// it, so the next boot's grants are decided from bytes the jail cannot reach. What is
+	// genuinely lost is within-session integrity of the jail's own copy — an agent can
+	// rewrite the manifests it renders its OWN surfaces from, which is a subset of what it
+	// can already do by writing its own home.
+	//
+	// THE SECOND THING A COPY LOSES IS THE ATTACH REFRESH, and it is named rather than
+	// hidden: a bind makes a re-staged tree visible under a LIVE jail, so dropping a pack
+	// from config and re-attaching stops delivering it (pruneDroppedPackStaging's own
+	// comment relies on that). This arm runs only on a fresh launch, so on Apple Container
+	// a live jail keeps the copy it booted with until the next one. Strictly better than
+	// the tree never arriving at all, which is what this branch used to do, and re-staging
+	// under a live jail is the attach path's call to make, not the assembler's.
 	if in.packStaging != "" {
-		if rt == "container" {
-			// Apple Container can't nest this under the ws_state mount; the staged tree
-			// is read straight from the host path instead (the AC host filesystem is
-			// visible), so there is nothing to emit.
-			runCmd = append(runCmd, "-e", "YOLO_PACK_ROOT="+in.packStaging)
+		if rt == "container" { // parity: HonoredBy — the jail still gets the pack tree, as a per-launch ws_state COPY rather than a :ro bind AC would ignore
+			if err := acMaterializeTree(in.packStaging, acPackRootRel, in.wsState); err != nil {
+				// NO SILENT DROP. Saying nothing here is the whole of issue #44: the jail
+				// comes up with guardrails, briefings and a managed settings.json, looks
+				// provisioned, and has no agent in it. An unset YOLO_PACK_ROOT is the
+				// honest state (LoadJailPacks reads it as "no packs" rather than as a
+				// broken mount), so the line has to carry the diagnosis.
+				out.print("[yellow]Warning: could not stage the pack trees for Apple " +
+					"Container (" + err.Error() + ") — NO pack will render in this jail: " +
+					"no pack-declared program will install and no pack launch flag will " +
+					"apply, though shims and briefings still will, so the jail will LOOK " +
+					"provisioned.[/yellow] The source is " + in.packStaging + " and the " +
+					"destination is " + filepath.Join(in.wsState, acPackRootRel) +
+					"; a source that has gone missing means a concurrent launch's " +
+					"housekeeping reaped it (re-run), and a destination that cannot be " +
+					"written usually means a full or read-only disk.")
+			} else {
+				runCmd = append(runCmd, "-e", "YOLO_PACK_ROOT="+acPackRootInJail)
+			}
 		} else {
 			runCmd = append(runCmd, "-v", in.packStaging+":"+packCtxDir+":ro",
 				"-e", "YOLO_PACK_ROOT="+packCtxDir)
