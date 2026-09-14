@@ -526,7 +526,7 @@ Three things follow, and the first is the one to notice:
 - **`preamble` defaults to true**, so no manifest declares anything to keep working. ~~`false` exists for a dumb pipe, of which there are none today.~~ **Half wrong, corrected 2026-08-15:** true of *manifests*, false of the **config** surface. Every `loopholes:` entry in a `yolo-jail.jsonc` that carries a `command` is given `publishes: socket` + loopback-TLS unconditionally (`discover.go:60-73`), and that code's own comment calls such a daemon *"a THIRD-PARTY PROGRAM yolo did not write"*. Those are dumb pipes **by construction** and there are real ones in the tree's own tests. So the default is **off for `Source == SourceConfig`**, with a `preamble` key added to the config spec to opt in — yolo declines to prepend bytes to a program whose protocol it has never seen and whose author never declared anything.
 - **`publishes: "socket"` for every converted loophole**, because the pack-shipped subset requires it (`packshipped.go:371-405`) — the three bundled loopholes predate that rule rather than disproving it ([§11](#11-what-no-bundled-loopholes-additionally-requires)).
 - **A baked client binary is fine for an official pack** — `yolo-ps` does not become a shipped artifact, so [§3.1](#31-what-is-actually-unresolved-here)'s binary work stays off this critical path.
-- ~~**`{endpoint}` survives** for yolo's own non-loophole services (the journal bridge still publishes its own, `journaldcmd.go:75`).~~ **FALSE as of 2026-08-18**: the journal bridge became a pack-shipped loophole, so it had to take `publishes: "socket"` like everything else — `journald.ServeEndpoint` and the `--endpoint` flag are DELETED (the flag refuses, naming `--socket`). `publishes: "endpoint"` now has exactly ONE user left, this document's own subject, which makes the follow-on below smaller than it was rather than moot. Whether the *manifest key* `publishes: "endpoint"` should be retired once its last loophole user is gone is a genuine follow-on — it is not needed to finish the sprint, and [OQ-BP4](#decision-ledger)'s end state makes it a two-line deletion.
+- ~~**`{endpoint}` survives** for yolo's own non-loophole services (the journal bridge still publishes its own, `journaldcmd.go:75`).~~ **FALSE as of 2026-08-18**: the journal bridge became a pack-shipped loophole, so it had to take `publishes: "socket"` like everything else — `journald.ServeEndpoint` and the `--endpoint` flag are DELETED (the flag refuses, naming `--socket`). `publishes: "endpoint"` now has exactly ONE user left, this document's own subject, which makes the follow-on below smaller than it was rather than moot. Whether the *manifest key* `publishes: "endpoint"` should be retired once its last loophole user is gone is a genuine follow-on — it is not needed to finish the sprint, and ~~[OQ-BP4](#decision-ledger)'s end state makes it a two-line deletion~~ — **that last clause is REFUTED, measured 2026-09-14; see [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) item 3.**
 
 ~~**The order to build it in:** change 2 first, while the relay still exists and still stamps. The two coexist without a flag-day because the connection preamble is **additive** — a daemon that has been taught to read it sees `[connection preamble][request]`, and the relay's redundant in-payload `jail_id` is simply ignored rather than conflicting.~~
 
@@ -585,9 +585,25 @@ exempted a bundled module dir (the self-hosting case — yolo's own jail mounted
 `bundled_loopholes/` `:rw`). Both are gone. The placement one needed no replacement: a
 pack's module dir is its STAGED copy under `paths.AgentsDir()`, outside every workspace by
 construction, so the collision is unrepresentable rather than exempted. The publishes one
-leaves **`publishes: "endpoint"` with no possible declarer anywhere** — [§12](#12-host-processes-as-the-proving-ground) called retiring
-the key a "genuine follow-on… not needed to finish the sprint", and that is still true; it
-is now a two-line deletion of an unreachable enum member.
+leaves **`publishes: "endpoint"` undeclarable by any loophole a launch will honor** — [§12](#12-host-processes-as-the-proving-ground) called retiring
+the key a "genuine follow-on… not needed to finish the sprint", and that is still true.
+
+> [!WARNING]
+> **~~It is now a two-line deletion of an unreachable enum member.~~ REFUTED, measured
+> 2026-09-14 at `afa80cfe`.** `PublishesEndpoint` is the DECODER'S DEFAULT for an absent
+> `publishes` (`parseHostDaemon`), not an inert value, and three refusals are expressed
+> THROUGH that default rather than beside it: the pack-shipped subset's refusal of a manifest
+> that says nothing about publication (`packPublishesProblems`, whose own comment calls
+> refusing the default deliberate and is why it needs no declared-versus-defaulted bit), the
+> `scope: "host"` credential rule, and the value the decoded record carries. Deleting the
+> member forces the default to change, and the obvious replacement — defaulting to `socket` —
+> turns all three into silent acceptances: that one-line change fails **ten** tests across
+> `internal/loopholedecl` and `internal/loopholes`, and the classic self-publishing manifest
+> (`cmd` naming `{endpoint}`, `publishes` omitted) flips from the subset's fix-naming refusal
+> to a decoder error telling its author to write `{socket}` — the wrong fix, aimed at exactly
+> the population the retirement is for. "No possible declarer" is also true of the LAUNCH PATH
+> and not of the parser: the value still decodes through both unrestricted reads item 4 names.
+> Retiring the KEY stays open; retiring the enum MEMBER is not the way to do it.
 
 **4. The unrestricted loader survives with exactly one production caller.**
 `LoadLoophole` (tolerant, full vocabulary) is what `run.resolveInertLoophole` uses for the
