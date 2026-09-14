@@ -10,8 +10,8 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-13. **48 rows**: 7 to rule first, 19 needing a decision,
-11 ready to build, 8 waiting, 3 iced.
+**Status:** CURRENT — 2026-09-14. **43 rows**: 6 to rule first, 19 needing a decision,
+11 ready to build, 5 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
 the doc that holds it and what a ruling releases. It is **not a record of what happened** —
@@ -29,17 +29,16 @@ $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs
 
 **The ordering basis, so it is checkable:** a defect live in shipped code outranks blocked
 build work, which outranks a ruling that only closes a doc; ties break toward the smallest
-sitting. All seven below are the first class.
+sitting. All six below are the first class.
 
 | | Rule | Releases | Cost |
 |---|---|---|---|
-| **1** | [`OQ-LM4`](../research/local-model-endpoints.md#oq-lm4) — a scope gate on `forward_host_ports` | **Defect, live today.** `internal/config/validate.go:697` accepts it at workspace scope; `host_management` (`:586`) and `cache_relocations` (`:1686`) refuse one there for this exact reason | one ruling |
-| **2** | [`OQ-2`](../design/cerebras-pack-and-copilot-delivery.md#oq-2) — gate `ANTHROPIC_AUTH_TOKEN` on a declared anthropic endpoint | **Defect, live today.** `packs/claude/derive.lua:61` emits the key from a branch that never reads the `routed` flag set at `:58` | one ruling, three provider shapes |
-| **3** | [`OQ-TP10`](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — complete the launch banner's coverage, or narrow its claim | **Defect, live today.** `internal/cli/run/packloopholes.go:108` classes `KindSkills` `disclosureSkip`, and a wrapped plugin's hooks arrive under it | one ruling |
-| **4** | [`OQ-BP-4`](../design/backend-parity.md#open-questions) — split Apple Container's blanket loophole skip | **Defect, live today.** `internal/cli/run/loopholesruntime.go:149` returns before every loophole, so no jail there serializes the single-use OAuth token | one ruling; hardware only verifies |
-| **5** | [`OQ-3`](../design/broker-ca-and-nested-hosts.md#7-open-questions) — a `[SKIP]` level for `yolo check` | **Defect, live today.** `internal/cli/check/sections_loopholes.go:23` calls `r.ok` on a section it skipped, and `reporter.go:83` counts it as a pass — ten sites | one ruling, ~10 lines |
-| **6** | [`OQ-BR4`](../design/bedrock-plumbing.md#OQ-BR4) — narrow `profile`'s env gate | **Defect, live today.** `internal/packload/packload.go:634` matches a bin *any* selected pack installs, so one agent's profile fires another's env | one ruling |
-| **7** | [`OQ-PS2`](../design/provider-switching.md#OQ-PS2) — clear the model id a deselect orphans | **Defect, live today.** `internal/agentcfg/selection.go:168` only ever lifts, so a dropped profile leaves its model pinned | one ruling |
+| **1** | [`OQ-2`](../design/cerebras-pack-and-copilot-delivery.md#oq-2) — gate `ANTHROPIC_AUTH_TOKEN` on a declared anthropic endpoint | **Defect, live today.** `packs/claude/derive.lua:61` emits the key from a branch that never reads the `routed` flag set at `:58` | one ruling, three provider shapes |
+| **2** | [`OQ-TP10`](../design/trust-paths.md#-oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — complete the launch banner's coverage, or narrow its claim | **Defect, live today.** `internal/cli/run/packloopholes.go:108` classes `KindSkills` `disclosureSkip`, and a wrapped plugin's hooks arrive under it | one ruling |
+| **3** | [`OQ-BP-4`](../design/backend-parity.md#open-questions) — split Apple Container's blanket loophole skip | **Defect, live today.** `internal/cli/run/loopholesruntime.go:149` returns before every loophole, so no jail there serializes the single-use OAuth token | one ruling; hardware only verifies |
+| **4** | [`OQ-3`](../design/broker-ca-and-nested-hosts.md#7-open-questions) — a `[SKIP]` level for `yolo check` | **Defect, live today.** `internal/cli/check/sections_loopholes.go:23` calls `r.ok` on a section it skipped, and `reporter.go:83` counts it as a pass — ten sites | one ruling, ~10 lines |
+| **5** | [`OQ-BR4`](../design/bedrock-plumbing.md#OQ-BR4) — narrow `profile`'s env gate | **Defect, live today.** `internal/packload/packload.go:634` matches a bin *any* selected pack installs, so one agent's profile fires another's env | one ruling |
+| **6** | [`OQ-PS2`](../design/provider-switching.md#OQ-PS2) — clear the model id a deselect orphans | **Defect, live today.** `internal/agentcfg/selection.go:168` only ever lifts, so a dropped profile leaves its model pinned | one ruling |
 
 ## 💬 Needs you
 
@@ -80,7 +79,7 @@ sitting. All seven below are the first class.
 🤷 **Genuinely subjective, wherever they sit:** [`OQ-PS4`](../design/provider-switching.md#OQ-PS4) ·
 [`OQ-RM4`](../design/reference-mismatch-diagnostics.md#OQ-RM4) ·
 [`OQ-WP7`](../design/workspace-path-mirroring.md#OQ-WP7) · [`OQ-WP12`](../design/workspace-path-mirroring.md#OQ-WP12) ·
-[`OQ-LM5`](../research/local-model-endpoints.md#oq-lm5) · [`OQ-BP-3`](../design/backend-parity.md#open-questions) · `OQ-B`.
+[`OQ-BP-3`](../design/backend-parity.md#open-questions) · `OQ-B`.
 
 ## 📦 Ready
 
@@ -88,6 +87,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 
 | | Build | Why it is ready | Where |
 |---|---|---|---|
+| | local inference as a MODE — recipe and source together | all six questions ruled 2026-09-14: a mode not a parallel key, `requires_env` gating, user scope, no `forward_host_ports` gate needed, **both halves at once**, and a two-writers collision is FATAL | [`local-model-endpoints.md`](../research/local-model-endpoints.md) — ⚠ carries one manual smoke test per agent; nothing in it has run against a live server |
 | 1 | Codex reads `env_key`; the derive writes `api_key_env` | ruled *"ship it alone"*; every custom codex provider is credential-less until it lands | `packs/codex/derive.lua:120` · [§12](../design/bedrock-plumbing.md#12-what-i-would-build-in-order) |
 | 2 | Enforce `required_capabilities`, or stop exporting it | ruled a fatal refusal; `internal/cli/run/assemble.go:884` exports `YOLO_REQUIRED_CAPABILITIES` and nothing reads it | [`OQ-CAP2`](../design/agent-auth-modes.md#12-decision-ledger) |
 | 3 | Resolve chromium at run time in the wired MCP entry | `internal/entrypoint/mcp.go:71` pins `/usr/bin/chromium`, which a `YOLO_STORE_PACKAGES=1` launch does not bake | [§13 step 0](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) |
@@ -118,7 +118,6 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 | | The uncertainty | What would thaw it |
 |---|---|---|
 | [`boundary-broker.md`](../design/boundary-broker.md) — a generic approval broker | its own [§5](../design/boundary-broker.md#5-three-tiers-not-two--and-git-wants-the-middle-one) half-undercuts the premise: the motivating GitHub case probably wants a proxy, not a human | a concrete instance the current model blocks |
-| [`local-model-endpoints.md`](../research/local-model-endpoints.md) — local inference as a config surface | [`OQ-LM1`](../research/local-model-endpoints.md#oq-lm1) still asks whether it is a surface at all; nothing here has run against a live server | someone wanting it. The recipe doc is separately ruled *"do this first regardless"*; [`OQ-LM4`](../research/local-model-endpoints.md#oq-lm4) is row 1 of *Rule these first* and does not wait on this |
 | [`cache-relocation.md`](cache-relocation.md) — `yolo cache relocate` | all three questions are HELD by choice: what is undecided is whether we want the feature | ruling [`OQ-CR1`](cache-relocation.md#-oq-cr1--is-cache_relocations-the-right-level-held), which carries CR2 with it |
 
 ## What this file does not cover

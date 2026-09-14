@@ -1084,7 +1084,7 @@ Carry these forward; do not build on them without re-checking.
 > [`OQ-1`](../design/agent-auth-modes.md#12-decision-ledger)…[`OQ-9`](../design/agent-auth-modes.md#12-decision-ledger) in `docs/design/agent-auth-modes.md` — the very doc [OQ-LM1](#oq-lm1) is
 > about. Nothing outside this file cited the old spellings.
 
-1. <a id="oq-lm1"></a>💬 **OQ-LM1: Is `llm_endpoints` the thin version of B3, or a
+1. <a id="oq-lm1"></a>✅ **OQ-LM1: Is `llm_endpoints` the thin version of B3, or a
    competing design?** `docs/design/agent-auth-modes.md:60-72` argues that **a
    mode is a bundle** (credential + env + model IDs) and that splitting them is
    exactly how a real switch silently half-lands — that document was written from
@@ -1099,9 +1099,13 @@ Carry these forward; do not build on them without re-checking.
    rather than a parallel key that will need reconciling later.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **RULED: a MODE, not a parallel key.** Local endpoints reuse the existing framing rather
+   > than adding an `llm_endpoints` surface beside it. A mode is a bundle — credential, env and
+   > model IDs together — and `agent-auth-modes.md` was written from a measured Bedrock→Teams
+   > miss where splitting them let a switch half-land silently. A bare `{base_url, model}` key
+   > re-creates that bug for local models. Every other question here inherits this.
 
-2. <a id="oq-lm2"></a>💬 **OQ-LM2: Where does the API key live?** Options:
+2. <a id="oq-lm2"></a>✅ **OQ-LM2: Where does the API key live?** Options:
    `env_sources` (today's answer — jail-wide, no provenance); an `api_key_env`
    reference the derive emits for the agent to resolve; or a `requires_env`-style
    gate that drops the endpoint when the key is absent (`mcp.go:136-175`). A raw
@@ -1117,9 +1121,13 @@ Carry these forward; do not build on them without re-checking.
    document that local endpoints normally need no key at all.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **RULED: `requires_env`-style gating, matching the MCP precedent** (`mcp.go`) — the
+   > endpoint drops when the key is absent rather than half-configuring. And **document that a
+   > local endpoint normally needs no key at all**: every agent here accepts a dummy against a
+   > local llama-server, so the key path exists for the hosted case, which is the only one where
+   > a real secret is at stake.
 
-3. <a id="oq-lm3"></a>💬 **OQ-LM3: Config scope — can a workspace config repoint
+3. <a id="oq-lm3"></a>✅ **OQ-LM3: Config scope — can a workspace config repoint
    inference?** `mcp_servers` has no scope gate, so an `llm_endpoints` clone would
    be settable from a workspace `yolo-jail.jsonc` — **a file the agent inside the
    jail can rewrite**. Repointing an agent's inference at an attacker-chosen URL
@@ -1135,9 +1143,12 @@ Carry these forward; do not build on them without re-checking.
    total.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **RULED: user-scope only.** A workspace `yolo-jail.jsonc` is a file the agent inside the
+   > jail can rewrite, and repointing an agent's inference at an attacker-chosen URL from a file
+   > that agent controls is the one answer that cannot be revised later without a breaking config
+   > change. Follows `scope: "user"` on journal's `full` setting.
 
-4. <a id="oq-lm4"></a>💬 **OQ-LM4: Is `forward_host_ports` missing a scope gate
+4. <a id="oq-lm4"></a>✅ **OQ-LM4: Is `forward_host_ports` missing a scope gate
    today?** No scope gate was found (`internal/config/validate.go:479-496`), so a
    workspace config can forward an arbitrary host `127.0.0.1` port into the jail.
    This looks like a pre-existing hole **independent of this feature** and may
@@ -1149,9 +1160,24 @@ Carry these forward; do not build on them without re-checking.
    _Leaning:_ file separately; do not couple it to this work.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **RULED: NO scope gate is needed, and this is deliberately NOT treated as a hole.**
+   > *"I think we don't need it, we have the config diff confirmation already and this isn't a
+   > high risk."*
+   >
+   > The control that already covers it is the config-change approval
+   > ([`config-safety.md`](../reference/config-safety.md)): a fresh launch shows a unified diff
+   > of the WORKSPACE config and prompts y/N, refuses outright with no terminal, and takes
+   > `--accept-config-changes` as the one per-launch opt-in. The agent-editable file is exactly
+   > the file that prompt covers, so an agent adding a `forward_host_ports` entry cannot reach a
+   > launch without a human seeing the line.
+   >
+   > ⚠ **This is the one place this doc's framing differs from [OQ-LM3](#oq-lm3), and the
+   > difference is the point.** `llm_endpoints` is user-scope because repointing INFERENCE is
+   > total and silent; forwarding a loopback port is neither — it is visible in the diff and
+   > bounded by what is listening on that port. Scope gating everything that touches the host
+   > would be cheaper to write than to justify, and this one does not clear the bar.
 
-5. <a id="oq-lm5"></a>💬 🤷 **OQ-LM5: Ship order — recipe first, or build the
+5. <a id="oq-lm5"></a>✅ **OQ-LM5: Ship order — recipe first, or build the
    source?** Option 1 is honestly available this afternoon and de-risks Option 2.
    Option 2 is what the prism exists for. They are not mutually exclusive, but
    they compete for the same attention. Blocks nothing technically; it is purely
@@ -1164,9 +1190,12 @@ Carry these forward; do not build on them without re-checking.
    2 once the per-agent configs are proven.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **RULED: both at once**, not Option 1 then Option 2. They were framed as competing for
+   > the same attention and they are not being sequenced. ⚠ The smoke test still applies —
+   > nothing in this doc has been exercised against a live server, so the recipe half carries one
+   > manual run per agent whatever order the build half lands in.
 
-6. <a id="oq-lm6"></a>💬 **OQ-LM6: Who owns five `derive.lua` blocks, and what
+6. <a id="oq-lm6"></a>✅ **OQ-LM6: Who owns five `derive.lua` blocks, and what
    about the path collision?** Each agent pack needs its own projection. Two
    specific snags: config claims are keyed by `agent/name`, **not by path**
    (`internal/packload/footprint.go:231`), and a configured pack's surface path is
@@ -1183,7 +1212,18 @@ Carry these forward; do not build on them without re-checking.
    _Leaning:_ resolve the two-writers question before shipping, not after.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **RULED: a FATAL ERROR, not a merge and not a precedence rule.** *"I don't want weird
+   > recursive loops or anything in our resolution. I don't see a use case for this."*
+   >
+   > Two writers for one path is refused at the point the collision is detectable, rather than
+   > resolved. There is no use case for a pack surface and a `host_files` entry owning the same
+   > destination, so the config is wrong and says so instead of picking a winner quietly.
+   >
+   > ⚠ This makes the unreserved path a REFUSAL rather than a silent second writer — config
+   > claims are keyed by `agent/name` and not by path (`packload/footprint.go`), which is why the
+   > collision is representable at all. The maintainer's own machine already has
+   > `~/.pi/agent/models.json` pack-managed and mounted `:ro`, so this ruling is what stops that
+   > working config being corrupted.
 
 ---
 
