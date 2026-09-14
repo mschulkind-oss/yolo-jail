@@ -340,16 +340,18 @@ named "containment", which is the flattening word.
 | **Alignable** | not delivered; a mechanism and its cost are both named | Yes — approve or decline the cost |
 | **Silently broken** | accepted, then not delivered, with nothing said | **Not a design decision** — these are defects however the principle is settled. Approve the fix, or say why not |
 
-These answer *what does the maintainer do about it*. They are **not** the four in
-[`backend-parity.md` §3](backend-parity.md#3-the-four-dispositions--the-most-important-section)
-(Honored / HonoredBy / Warned / Refused), which answer *what does this site do*. The mapping:
+These answer *what does the maintainer do about it*. They are **not**
+[`backend-parity.md` §3](backend-parity.md#3-the-dispositions--the-most-important-section)'s,
+which answer *what does this site do*. The mapping:
 
 | backend-parity says | this doc says | when |
 | :--- | :--- | :--- |
 | Honored, HonoredBy | Aligned | always |
 | Warned | Ruled divergent, or Alignable | depending on whether the reason is terminal |
 | Refused | Aligned | a refusal that names the declaration IS P1 satisfied |
-| *(silent absence — not in that vocabulary)* | Silently broken, or Aligned | Aligned only where the declared OUTCOME is already true |
+| Dropped | Ruled divergent | the silence is the ruling — a `Dropped` cell whose reason does not survive scrutiny is an `Alignable` |
+| NotApplicable | — | no declaration was made; nothing to align |
+| *(silent absence with no cell at all)* | Silently broken, or Aligned | Aligned only where the declared OUTCOME is already true |
 
 **How to walk this.** Rows carry stable ids: `DP-A#` aligned, `DP-D#` ruled divergent, `DP-L#`
 alignable, `DP-B#` silently broken. Read [§5](#5-silently-broken) first and rule the rows;
@@ -509,11 +511,13 @@ the application firewall, `_yolojail`'s own posture, codesigning prompts. What y
 settled by reading: it applies no network restriction on this backend and emits no port argv.
 Any claim about real exposure needs a Mac.
 
-### 5.2 Apple Container: what the backend census has no word for
+### 5.2 Apple Container: the silent absences nobody chose
 
-Included because each one is a *silent* absence, which is the state
-[`backend-parity.md` §3](backend-parity.md#3-the-four-dispositions--the-most-important-section)'s
-vocabulary has no word for.
+Included because each one is a *silent* absence **that was never decided on**, which is the
+state [`backend-parity.md` §3](backend-parity.md#3-the-dispositions--the-most-important-section)'s vocabulary cannot hold.
+Its `Dropped` — added after this section was written — is for a silence someone chose and can
+defend; the rows below have no cell at all, which is the condition the census exists to make
+unrepresentable rather than a disposition it can express.
 
 | id | Declaration | What actually happens | Evidence, by symbol |
 | :--- | :--- | :--- | :--- |

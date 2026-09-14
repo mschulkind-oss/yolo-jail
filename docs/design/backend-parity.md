@@ -20,7 +20,7 @@ unless dated otherwise.
 > survives. **Three questions remain live** — [OQ-BP-1](#open-questions) (the census), [OQ-BP-3](#open-questions) (suppressible
 > warnings) and [OQ-BP-4](#open-questions) (the Apple Container loophole skip). The census in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is
 > untouched by this: the fix moved one cell from `Warned` to `HonoredBy`, which is the
-> [§3](#3-the-four-dispositions--the-most-important-section) vocabulary doing exactly what [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) argues it is for.
+> [§3](#3-the-dispositions--the-most-important-section) vocabulary doing exactly what [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) argues it is for.
 
 **The short version.** yolo has three backends. `podman` and `container` (Apple Container)
 share `runContainer`; `macos-user` returns from `Run()` before it and re-implements a
@@ -30,7 +30,7 @@ with no error, no warning, and — in the worst cases — a launch line or brief
 asserting it worked. Issue #39 (pack shared dirs never mounted on Apple Container) is one
 instance; a sweep found sixteen more.
 
-**The most important section is [§3](#3-the-four-dispositions--the-most-important-section)** — the four dispositions. A boolean "does this backend
+**The most important section is [§3](#3-the-dispositions--the-most-important-section)** — the dispositions. A boolean "does this backend
 support X" cannot express the case that made half this audit worth doing: *achieved, but by
 a different mechanism*. Get that wrong and the census either flags working code or hides
 broken code.
@@ -98,19 +98,46 @@ call site — which is precisely why #39 shipped.
 > `paths.GlobalHome()` → it does not, because that is a different directory and no bind on
 > that backend reaches it. `appleContainerBaseMounts` had reasoned this out correctly for
 > per-workspace dirs and never asked the question about the machine-wide ones.
-
+>
+> ⚠ **Ask the same of every `-e` that carries a path** — that is issue #44, and it is the
+> harder half, because a `-v` puts both sides of the question on one line and an `-e` puts
+> the container side on one line and the host side nowhere. `YOLO_PACK_ROOT` named a tree the
+> podman path bind-mounts and the AC path never materialized, so the entrypoint resolved an
+> absolute path into an empty directory and rendered zero pack surfaces, silently. An env var
+> holding a container path is a mount the argv does not show you; the fix (`d6e7684f`) was to
+> put the tree on the side the single AC bind already reaches. Every `-e` whose value starts
+> with `/` is one of these until someone has asked.
 ---
 
-## 3. The four dispositions — the most important section
+## 3. The dispositions — the most important section
 
-A mechanism on a backend is in exactly one of these states. **Three is not enough.**
+A mechanism on a backend is in exactly one of these states. **Three is not enough**, and the
+last two were added by the thing that had to use the vocabulary rather than describe it — see
+below.
 
 | Disposition | Meaning | Example |
 | :--- | :--- | :--- |
 | **Honored** | works, by the same mechanism | `network.ports` on Apple Container |
 | **HonoredBy** | works, by a *different* mechanism — which must be named | pack `state` scope:workspace on AC: the single wsState bind already puts it in the per-workspace tier |
 | **Warned** | absent, and the launch says so | `cache_relocations` on Apple Container |
-| **Refused** | the launch refuses and names the key | *(none today — see [§7](#7-what-this-does-not-propose))* |
+| **Dropped** | absent, silently, **and deliberately so** | [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about)'s rows — `resources.pids_limit` on AC, pack `env` on macos-user |
+| **Refused** | **the launch** refuses and names the key | *(none today — see [§7](#7-what-this-does-not-propose))* |
+| **NotApplicable** | the capability question does not arise on the other backends | `canNest(rt)` is a fact about podman-in-podman, not a gap in Apple Container |
+
+> [!WARNING]
+> **`Refused` is about the LAUNCH, and [§5.2](#52-the-rule-that-had-no-home) uses the word for something else.** There, *"refuse
+> rather than downgrade"* refuses the **mount** and prints a skip line — which is a `Warned`
+> cell, not a `Refused` one. Nothing in this repo refuses a launch over a parity gap today, and
+> [§7](#7-what-this-does-not-propose) argues nothing should.
+
+**Why the last two exist.** `Dropped` and `NotApplicable` are not refinements of the original
+four; they are what the first *executable* census
+(`internal/cli/run/backendparity_test.go`, which requires every runtime-identity branch in the
+run pipeline to carry a disposition) could not express without them. The four above classify a
+mechanism **a user asked for**, and every one of those is in one of four states. A code SITE is
+a smaller thing, and many sites answer no user-facing question at all. Without the two, both
+would have to be spelled `Honored` — and `Honored` would then mean two different things, which
+is the exact defect `HonoredBy` exists to prevent one level up.
 
 **`HonoredBy` is the load-bearing one.** Of 42 candidate silent drops, **11 were refuted**
 — every one because the backend reached the same outcome another way. A boolean census
@@ -255,9 +282,15 @@ it has always printed a skip line, and as of `0d7e8f58` that line is the shared
 silent when it is not is the same bookkeeping error as the census exists to prevent, one
 level up.
 
-**Every one of these belongs in the census as a `Warned` or `HonoredBy` cell with this reason
-attached** — which is the argument for building it. A table can hold seven quiet rows; a launch
-cannot hold seven quiet lines.
+**Every one of these belongs in the census with this reason attached** — which is the argument
+for building it. A table can hold seven quiet rows; a launch cannot hold seven quiet lines.
+
+> [!NOTE]
+> This paragraph said *"as a `Warned` or `HonoredBy` cell"* until the census was built, and that
+> was wrong in the way this document is about. These rows are neither: the whole point of the
+> table above is that **no launch line exists**, so spelling one `Warned` would make the census
+> assert a disclosure that was deliberately not written. They are [§3](#3-the-dispositions--the-most-important-section)'s `Dropped` — a state the
+> vocabulary did not have until something had to classify these rows rather than describe them.
 
 > [!NOTE]
 > **None of the Apple Container or macos-user fixes are verified on hardware.** Every one is
@@ -358,7 +391,7 @@ an agent plans around it.
 
    **The fourteen in [§5](#5-what-is-already-fixed-2026-08-24) does not move.** This defect was
    already in the fixed-or-warned half as a WARNING (`6a53a2a3`); what changed is its
-   disposition, from `Warned` to `Honored` by a different mechanism — [§3](#3-the-four-dispositions--the-most-important-section)'s `HonoredBy`, which is the
+   disposition, from `Warned` to `Honored` by a different mechanism — [§3](#3-the-dispositions--the-most-important-section)'s `HonoredBy`, which is the
    state this doc exists to argue for, arriving as its own worked example.
 
    > [!WARNING]

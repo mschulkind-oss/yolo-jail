@@ -58,15 +58,15 @@ import (
 // In one sentence: this test makes an UNCLASSIFIED branch impossible, not a WRONG one.
 const parityScope = "."
 
-// The dispositions. Four are docs/design/backend-parity.md §3's, unchanged — the
-// census there is per CONFIG KEY, and these are the same vocabulary applied to a code site.
+// The dispositions, all six of them docs/design/backend-parity.md §3's — the census there is
+// per CONFIG KEY, and these are the same vocabulary applied to a code site.
 //
-// Dropped and NotApplicable are the two this census adds, and neither is in §3 (docs owe it an entry): §3 classifies a
-// mechanism a user asked for, and every one of those is in one of four states. A code site
-// is a smaller thing, and many of them are not answering a user-facing question at all —
-// `canNest(rt string) bool { return rt == "podman" }` is a fact about podman-in-podman, not
-// a capability Apple Container is missing. Without the fifth state those sites would have to
-// be spelled Honored, which would make Honored mean two different things.
+// Dropped and NotApplicable are the two this census DROVE INTO §3, which had four: §3 classifies
+// a mechanism a user asked for, and every one of those is in one of four states. A code site is a
+// smaller thing, and many of them are not answering a user-facing question at all —
+// `canNest(rt string) bool { return rt == "podman" }` is a fact about podman-in-podman, not a
+// capability Apple Container is missing. Without the extra two those sites would have to be
+// spelled Honored, which would make Honored mean two different things.
 var parityDispositions = map[string]string{
 	// Every backend reaches the same outcome; this branch is only the different spelling
 	// (which CLI binary, which flag syntax).
@@ -81,10 +81,10 @@ var parityDispositions = map[string]string{
 	"Refused": "the launch refuses and names the key",
 	// Absent elsewhere, deliberately, and deliberately NOT warned about — §5.1's rows,
 	// whose whole argument is that a warning here would train the reader to skip the ones
-	// that matter. §5 says these "belong in the census as a Warned or HonoredBy cell",
-	// which is the one sentence in that document the code cannot honor: they are neither,
-	// and spelling a silent drop `Warned` would make the census assert a launch line that
-	// does not exist. Docs owe this state an entry too.
+	// that matter. §5.1 used to say these "belong in the census as a Warned or HonoredBy
+	// cell", which was the one sentence in that document the code could not honor: they are
+	// neither, and spelling a silent drop `Warned` would make the census assert a launch
+	// line that does not exist. §5.1 now says `Dropped`, and §3 defines it.
 	"Dropped": "absent elsewhere, silently, on purpose",
 	// The capability question does not arise on the other backends.
 	"NotApplicable": "not a capability question",
@@ -200,7 +200,7 @@ func TestEveryBackendBranchIsClassified(t *testing.T) {
 				"which one, as a trailing comment on the line:\n\n"+
 				"    if rt == \"container\" { // parity: Warned — AC takes no --net selector; "+
 				"assemble prints the skip\n\n"+
-				"Dispositions: %v (docs/design/backend-parity.md §3, plus Dropped and NotApplicable).\n"+
+				"Dispositions: %v (docs/design/backend-parity.md §3).\n"+
 				"If you are not ready to decide, add %q: %d to parityBacklog in this file — that "+
 				"is the honest state, and it is what the ratchet is for.",
 				file, got, siteLines(undeclared[file]), sortedDispositions(), file, got)
