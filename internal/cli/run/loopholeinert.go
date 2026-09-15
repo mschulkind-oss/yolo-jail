@@ -63,8 +63,26 @@ import (
 func backendInertReason(rt string) string {
 	switch rt {
 	case "container":
-		return "inert on this backend — the Apple Container backend starts no loophole host " +
-			"services (no socket bind-mount there), so nothing it declares runs this launch"
+		// ⚠ THE REASON CHANGED ON 2026-09-15 AND THE OLD ONE WAS WRONG. This said "no socket
+		// bind-mount there", which was true of the unix-socket era and of nothing shipped:
+		// four of six shipped loopholes declare `transport: loopback-tls` and reach the host
+		// over the NETWORK, learning their endpoint from a file in a bind-mounted DIRECTORY,
+		// which this backend mounts fine. OQ-BP-4 ruled the reason stale and asked for a
+		// measurement before lifting the skip.
+		//
+		// The measurement CONFIRMED the skip and replaced its reason. On `container` 1.1.0 a
+		// container→host connection completes its handshake and then carries nothing, by two
+		// alternating mechanisms (ENOTCONN on a just-accepted socket; a NAT-answered CONNECT
+		// to a port nothing accepts). No bind address helps — bridge and wildcard die like
+		// 127.0.0.1 — and `host.containers.internal` does not resolve there.
+		// integration/applecontainer_test.go's TestAppleContainerReachesHostLoopback is the
+		// witness, and it is bounded: container→internet works, Mac→container works.
+		//
+		// So this is narrower than it was and it will EXPIRE with an upstream release rather
+		// than standing forever. Re-run that test before believing it still holds.
+		return "inert on this backend — Apple Container carries no container→host connection " +
+			"(measured on 1.1.0: the handshake completes and nothing crosses), so a " +
+			"loopback-tls loophole could not be reached from the jail this launch"
 	case "macos-user":
 		return "inert on this backend — the macos-user backend starts no loophole host " +
 			"services; a native process already reaches the host directly, so the whole " +
