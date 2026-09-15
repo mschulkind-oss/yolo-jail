@@ -96,8 +96,22 @@ true`
 	}
 
 	// WB-D12: the closure joined the pack the user never listed, and said so.
-	if got := r.stderr; !strings.Contains(got, "+ wire-bridge (needed by cerebras: claude selected)") {
-		t.Errorf("the launch stderr must carry the needs cause line:\n%s", got)
+	//
+	// ⚠ THE CAUSING PACK IS DELIBERATELY NOT PINNED, and it used to be. This asserted the
+	// exact string "+ wire-bridge (needed by cerebras: claude selected)" and went red when
+	// `e0d62605` (the OMP / Codex-Claude bridge) gave packs/claude/pack.json its own
+	// unconditional `needs: wire-bridge`. Both edges are now real — claude's unconditional
+	// one and cerebras's `when_bins: [claude, copilot]` — so which one the resolver reports
+	// is a fact about pack topology, not about this behaviour, and it moved once legitimately
+	// already.
+	//
+	// WB-D12's claim is that the closure JOINED a pack the user never listed and SAID WHY.
+	// That is what is checked: the line names wire-bridge and carries a cause. Pinning the
+	// cause's author made a correct launch fail a stale string, which is the drift-prone form
+	// this repo fixes by removing rather than by updating.
+	if got := r.stderr; !strings.Contains(got, "+ wire-bridge (needed by ") {
+		t.Errorf("the launch stderr must carry the needs cause line for wire-bridge — it "+
+			"joined a closure the user never listed, so it has to say why:\n%s", got)
 	}
 
 	// The witness registration crossed, so the endpoint file the listener
