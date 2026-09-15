@@ -717,3 +717,43 @@ func splitYAMLList(s string) []string {
 	}
 	return out
 }
+
+// THE RAISED JOB BUDGET IS ONLY SAFE WHILE THE INNER BOUNDS EXIST, so they are pinned
+// together rather than one at a time.
+//
+// MEASURED on run 34984503308: zero failing tests and three shards CANCELLED at the
+// 50-minute cap, because `Load jail image` costs 15–22 MINUTES ON EVERY SHARD before a test
+// runs, and test time divides across shards while that does not. So the shard count went to
+// 12 and the job cap to 75 — a cap that fires on healthy work reports only that the budget
+// was wrong.
+//
+// ⚠ A BIGGER BUDGET WITHOUT STEP CAPS IS STRICTLY WORSE THAN THE OLD ONE: a genuine hang
+// then burns 75 minutes to report "cancelled" with no step named, which is the least useful
+// failure this workflow can produce and the exact thing the Install Podman cap was added to
+// stop. Both bounds must survive together.
+func TestTheNightlysInnerBoundsSurviveTheRaisedJobBudget(t *testing.T) {
+	body := readWorkflow(t, nightlyWorkflow)
+
+	for _, step := range []string{"podman machine start", "podman load < /tmp/jail-image.tar"} {
+		blk, ok := stepContaining(body, step)
+		if !ok {
+			// The load step is identified by its own command; if that changed, say so rather
+			// than passing because a substring moved.
+			t.Errorf("%s has no step containing %q — this pin has lost that subject and cannot "+
+				"say whether it is still bounded.", nightlyWorkflow, step)
+			continue
+		}
+		if !strings.Contains(uncommentedYAML(blk), "timeout-minutes:") {
+			t.Errorf("the %s step in %s has no `timeout-minutes`.\n\n"+
+				"The job budget is 75 minutes precisely because this step is expensive and "+
+				"variable; without a step cap a hang here reports `cancelled` with no step "+
+				"named, 75 minutes later.", step, nightlyWorkflow)
+		}
+	}
+
+	// And the job cap itself must still be there — an uncapped job loses the runner instead
+	// of failing with a log.
+	if !strings.Contains(uncommentedYAML(body), "timeout-minutes:") {
+		t.Errorf("%s has no timeout-minutes at all", nightlyWorkflow)
+	}
+}

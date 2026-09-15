@@ -307,15 +307,36 @@ jobs:
     # shard that happens to collect several slow tests runs longer. Unmeasured
     # and deliberately so — balancing needs per-test costs this job has never
     # produced, and it does not have to be balanced to stop dying.
+    #
+    # TWELVE SINCE 2026-09-15, and the measurement that set it is worth keeping because it
+    # also says what more shards CANNOT fix. On run 34984503308 there were ZERO test
+    # failures and three shards were CANCELLED at the 50-minute cap:
+    #
+    #   shard 1   50.9m   Load jail image 16.6m   tests 27.3m
+    #   shard 7   50.4m   Load jail image 21.7m   tests 18.1m
+    #   shard 2   25.1m   Load jail image 14.7m   tests  4.5m   (passed)
+    #
+    # Test time DIVIDES across shards, so 8→12 cuts the two overruns to ~42m and ~44m.
+    # `Load jail image` does NOT divide: it is 15–22 MINUTES ON EVERY SHARD, paid before a
+    # single test, and twelve shards pay it twelve times. That is why the cap moved too — a
+    # fixed cost that large, with 7 minutes of run-to-run variance, leaves too little
+    # headroom to absorb a slow test set on top of it.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     # A CAP, so a wedged shard fails with its log instead of losing the runner.
     # The suite itself still runs with `-timeout 0` — its own per-command
     # deadlines (YOLO_TEST_JAIL_TIMEOUT) are the inner bound; this is the outer
     # one, and its only job is to make a hang reportable.
-    timeout-minutes: 50
+    #
+    # 75, up from 50 on 2026-09-15. The cap was being hit by WORK rather than by hangs —
+    # zero failing tests in the run that set this number — and a cap that fires on healthy
+    # work reports nothing except that the budget was wrong. The two inner bounds are what
+    # keep the raise honest: `Install Podman` is capped at 15m below, and `Load jail image`
+    # at 35m, so a genuine hang still fails against its own step rather than burning 75
+    # minutes to say "cancelled" with no step named.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
         with:
@@ -513,6 +534,13 @@ jobs:
           path: /tmp
 
       - name: Load jail image
+        # CAPPED at 35m, comfortably above the 21.7m worst case measured on run
+        # 34984503308 and below the 75m job budget. This is the step that made the raise
+        # necessary — 15-22 minutes on EVERY shard, paid before a single test — so it is also
+        # the step that has to stay bounded, or the larger budget just buys a slower way to
+        # report "cancelled" with no step named. If a load ever legitimately exceeds this,
+        # raise it and say what was measured; do not remove it.
+        timeout-minutes: 35
         # THE STOCK TAG IS WHAT STOPS EVERY LAUNCH REBUILDING THE IMAGE.
         #
         # A darwin `yolo run` used to realise `.#ociImage` unconditionally, and
