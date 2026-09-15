@@ -184,7 +184,25 @@ yolo.derive("pi", "settings", function(ctx)
         "openai-codex/gpt-5.6-sol",
         "openai-codex/gpt-6-astra",
       },
-      selection = { defaultProvider = "openai-codex", defaultModel = model },
+      -- Pi-subagents has its own default, independent of Pi's chat selection.
+      -- Computed output is intentional here: selection can only lift scalar keys,
+      -- while this structured policy must reject legacy explicit workflow models.
+      subagents = {
+        defaultProvider = "openai-codex",
+        defaultModel = "openai-codex/" .. model,
+        modelScope = {
+          enforce = true,
+          strict = true,
+          allow = {
+            "openai-codex/gpt-5.6-*",
+            "openai-codex/gpt-6-*",
+          },
+        },
+      },
+      selection = {
+        defaultProvider = "openai-codex",
+        defaultModel = model,
+      },
     }
   end
   if not piReachable(p) then

@@ -52,6 +52,21 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
 		t.Fatalf("Pi enabledModels = %#v, want only 5.6-or-newer models %#v", settings["enabledModels"], wantEnabled)
 	}
+	wantSubagents := map[string]any{
+		"defaultProvider": "openai-codex",
+		"defaultModel":    "openai-codex/gpt-5.6-terra",
+		"modelScope": map[string]any{
+			"enforce": true,
+			"strict":  true,
+			"allow": []any{
+				"openai-codex/gpt-5.6-*",
+				"openai-codex/gpt-6-*",
+			},
+		},
+	}
+	if got := settings["subagents"]; !reflect.DeepEqual(got, wantSubagents) {
+		t.Fatalf("Pi subagents = %#v, want a strict 5.6-or-newer Codex policy %#v", got, wantSubagents)
+	}
 	models := r.piModels(t)
 	if catalog, _ := models["providers"].(map[string]any); catalog != nil {
 		if _, shadowed := catalog["openai-codex"]; shadowed {
