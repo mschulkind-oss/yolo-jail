@@ -28,7 +28,14 @@ import (
 func gitEnv(t *testing.T) []string {
 	t.Helper()
 	empty := t.TempDir()
-	return append(os.Environ(),
+	var base []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "GIT_") {
+			continue
+		}
+		base = append(base, kv)
+	}
+	return append(base,
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",

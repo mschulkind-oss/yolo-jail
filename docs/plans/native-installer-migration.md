@@ -107,6 +107,14 @@ what the caller asked to be a `--version` probe. `codex` honors
 [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8), with the alternative of giving installers no tty
 at all in core. Worth settling before the pack matrix runs this installer unattended on two arches.
 
+**MEASURED 2026-09-14 — codex's standalone payload is not captured.**
+The installer unpacks the standalone runtime under `${CODEX_HOME:-$HOME/.codex}/packages/standalone`
+and symlinks `~/.local/bin/codex` to it. [`paths.HomeSurfaces()`](../../internal/paths/paths.go#L504)
+walks only `.npm-global`, `.local`, and `go`, so `~/.codex` is omitted entirely. Capture
+`2a8d85fe399399fa` recorded only the symlink and a stray `wire-bridge.log` (1 file, 2880 bytes).
+Materializing in a fresh jail yields a dangling symlink, `[ -x "$REAL_BIN" ]` fails, and the launcher
+falls back to downloading and reinstalling live.
+
 ## Map
 
 | Path | Change |
