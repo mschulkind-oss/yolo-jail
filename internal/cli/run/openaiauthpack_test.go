@@ -159,3 +159,19 @@ func TestShippedOpenAIAuthPackOwnsOneHostSingletonAndAdapter(t *testing.T) {
 			"intercepts=%v ca=%v", lp.Intercepts, lp.HasCA())
 	}
 }
+
+func TestOpenAIAuthLaunchDisclosureShowsResolvedStatePath(t *testing.T) {
+	retireHome(t)
+	var out bytes.Buffer
+	o := &Options{Stderr: &out}
+	o.notePackHostExec([]*packload.Pack{officialPack(t, "openai-auth")})
+
+	got := out.String()
+	want := filepath.Join(loopholes.StateDirFor("openai-auth-broker"), "credentials.json")
+	if !strings.Contains(got, want) {
+		t.Errorf("OpenAI host-exec disclosure does not show canonical state path %q:\n%s", want, got)
+	}
+	if strings.Contains(got, "{state}") {
+		t.Errorf("OpenAI host-exec disclosure still shows the unresolved state token:\n%s", got)
+	}
+}

@@ -21,7 +21,11 @@ package run
 // half that has nothing to do with ordering.
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -272,8 +276,17 @@ func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosure
 			// machine-comparable identity stay visible beside the prose — it is what a
 			// reader matches a banner line to in `yolo pack footprint` and in
 			// `yolo config-ref`'s per-kind reference.
+			sentence := c.DisclosureSentence()
+			// Footprints stay machine-independent and therefore retain manifest
+			// tokens. A launch disclosure describes the argv about to execute on
+			// this machine, so its name-derived state path must match the resolved
+			// daemon and doctor argv rather than printing the literal token.
+			if c.Kind == packdecl.KindLoophole && c.RunsHostCode {
+				sentence = strings.ReplaceAll(sentence, loopholedecl.TokenState,
+					loopholes.StateDirFor(c.Target))
+			}
 			lines = append(lines, disclosureLine{
-				p.Name, c.DisclosureSentence() + "  [" + string(c.Kind) + "]"})
+				p.Name, sentence + "  [" + string(c.Kind) + "]"})
 		}
 	}
 	return lines
