@@ -96,6 +96,12 @@ yolo launch always has a tty to find. The one prompt reachable this way is at `:
 after a successful install; a second at `:925` offers to uninstall a conflicting
 package-manager-managed copy.
 
+**FIXED 2026-09-14.** The Codex pack now sets `CODEX_NON_INTERACTIVE=1`, and install capture
+walks the exact nested payload at `~/.codex/packages/standalone` alongside `~/.local`. The
+captured `~/.local/bin/codex` symlink therefore has its target after materialization. The rest of
+`~/.codex` remains outside capture and hardlink deduplication because it contains mutable auth,
+sessions, histories, and databases.
+
 Two consequences for this plan. **The flip is still right** — the install itself needed no npm and
 no node, which is the whole point of it. But **a `via: installer` flip inherits the vendor's
 prompts**, and `y` at that prompt starts an agent session. That is why this went unseen until a

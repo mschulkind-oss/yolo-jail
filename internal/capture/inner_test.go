@@ -170,7 +170,7 @@ func inodeOf(t *testing.T, path string) uint64 {
 // rather than being copied.
 //
 // This is also the test that pins the SURFACE SET's call site. Delete the
-// `d.surfaces = paths.HomeSurfaces()` default and the driver walks nothing, so the delta is
+// `d.surfaces = paths.InstalledProgramSurfaces()` default and the driver walks nothing, so the delta is
 // empty and this goes red — the surface set is not a constant the code merely agrees with,
 // it is the thing that decides what a capture is.
 func TestRunCapturesTheInstallersDeltaAndNothingElse(t *testing.T) {
@@ -213,8 +213,9 @@ func TestRunCapturesTheInstallersDeltaAndNothingElse(t *testing.T) {
 		}
 	}
 
-	// 4. The surfaces walked are the three prune dedupes, home-relative and in order.
-	if got, want := res.Manifest.Surfaces, []string{".npm-global", ".local", "go"}; !equalStrings(got, want) {
+	// 4. The surfaces walked are the same installed-program subtrees prune dedupes,
+	//    home-relative and in order.
+	if got, want := res.Manifest.Surfaces, []string{".npm-global", ".local", "go", ".codex/packages/standalone"}; !equalStrings(got, want) {
 		t.Errorf("Surfaces = %v, want %v", got, want)
 	}
 
@@ -437,9 +438,9 @@ func TestRunCapturesASurfaceTheInstallerCreatesWithoutMovingItsRoot(t *testing.T
 	}
 }
 
-// The surface set is not the driver's own opinion: it is paths.HomeSurfaces(), the same list
+// The surface set is not the driver's own opinion: it is paths.InstalledProgramSurfaces(), the same list
 // prune dedupes per workspace. A fourth spelling of it is the bug this pins.
-func TestSurfacesAreThePathsHomeSurfaces(t *testing.T) {
+func TestSurfacesAreThePathsInstalledProgramSurfaces(t *testing.T) {
 	home := t.TempDir()
 	out := filepath.Join(t.TempDir(), "staging-1")
 	fixtureHome(t, home)
@@ -447,12 +448,38 @@ func TestSurfacesAreThePathsHomeSurfaces(t *testing.T) {
 	res, err := Run(Options{Home: home, Out: out, Command: writeInstaller(t, "#!/bin/sh\ntrue\n")})
 	must(t, err)
 
-	want := make([]string, 0, len(paths.HomeSurfaces()))
-	for _, s := range paths.HomeSurfaces() {
+	want := make([]string, 0, len(paths.InstalledProgramSurfaces()))
+	for _, s := range paths.InstalledProgramSurfaces() {
 		want = append(want, s.HomeRel)
 	}
 	if !equalStrings(res.Manifest.Surfaces, want) {
-		t.Errorf("Surfaces = %v, want paths.HomeSurfaces() = %v", res.Manifest.Surfaces, want)
+		t.Errorf("Surfaces = %v, want paths.InstalledProgramSurfaces() = %v", res.Manifest.Surfaces, want)
+	}
+}
+
+// Codex's real installer leaves ~/.local/bin/codex pointing into this nested payload. The
+// regression was a successful capture whose materialized launcher was a dangling symlink because
+// the payload sat outside the three top-level surfaces.
+func TestRunCapturesCodexStandalonePayload(t *testing.T) {
+	home := t.TempDir()
+	out := filepath.Join(t.TempDir(), "staging-codex")
+	script := `#!/bin/sh
+set -eu
+mkdir -p "$HOME/.codex/packages/standalone/current/bin" "$HOME/.local/bin"
+printf '#!/bin/sh\n' > "$HOME/.codex/packages/standalone/current/bin/codex"
+chmod +x "$HOME/.codex/packages/standalone/current/bin/codex"
+ln -s "$HOME/.codex/packages/standalone/current/bin/codex" "$HOME/.local/bin/codex"
+`
+
+	res, err := Run(Options{Home: home, Out: out, Command: writeInstaller(t, script)})
+	must(t, err)
+	for _, rel := range []string{
+		".local/bin/codex",
+		".codex/packages/standalone/current/bin/codex",
+	} {
+		if _, err := os.Lstat(filepath.Join(res.Tree, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("captured Codex install is missing %s: %v", rel, err)
+		}
 	}
 }
 

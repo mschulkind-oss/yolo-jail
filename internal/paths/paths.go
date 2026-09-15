@@ -482,31 +482,37 @@ type HomeSurface struct {
 	HomeRel string
 }
 
-// HomeSurfaces returns the three per-workspace home dirs that hold INSTALLED PROGRAMS —
-// the npm prefix, `~/.local` (where `~/.local/bin` and the vendor installers' version dirs
-// land) and `$GOPATH`.
+// HomeSurfaces returns the three top-level per-workspace directories mounted separately into
+// the jail home: the npm prefix, ~/.local, and $GOPATH. InstalledProgramSurfaces adds any
+// install payload nested inside another mount; keeping that distinction prevents a nested
+// surface from becoming a second overlapping bind.
 //
-// This is one list serving two subsystems that must agree about it or be wrong together:
-//
-//   - `prune` hardlink-dedups exactly these three per workspace (`WalkDedupableWorkspaces`),
-//     because they are where the same bytes get downloaded again for every workspace;
-//   - `capture` walks exactly these three for its baseline and its delta
-//     (program-delivery.md §6.3), because they are where an installer's output lands.
-//
-// Those are the same set for the same reason, so a fourth spelling of it is a bug waiting
-// for someone to add a surface to one and not the other. The jail's OTHER per-workspace
+// The jail's OTHER per-workspace
 // binds — `yolo-bin`, `config`, `.cache` — are deliberately absent: they hold GENERATED or
-// CACHED content that is rebuilt or refetched rather than installed, so deduping them buys
-// little and capturing them would file yolo's own output as a vendor's.
+// CACHED content that is rebuilt or refetched.
 //
-// The order is the bind order in the podman argv (`run/assemble_parts.go`), kept so a
-// human reading either list beside the other sees the same sequence.
+// The order is the bind order in the podman argv (`run/assemble_parts.go`).
 func HomeSurfaces() []HomeSurface {
 	return []HomeSurface{
 		{Subtree: "npm-global", HomeRel: ".npm-global"},
 		{Subtree: "local", HomeRel: ".local"},
 		{Subtree: "go", HomeRel: "go"},
 	}
+}
+
+// InstalledProgramSurfaces returns the exact home subtrees capture and prune may treat as
+// installed program bytes. It starts with the separately-mounted HomeSurfaces and adds nested
+// payloads that live inside a pack's state mount.
+//
+// Codex's vendor installer plants a symlink in ~/.local/bin whose target is under
+// ~/.codex/packages/standalone. Capturing only ~/.local records a dangling symlink. Adding all
+// of ~/.codex would capture and dedupe mutable auth, histories, sessions and SQLite databases,
+// so the vendor's standalone payload is the exact boundary.
+func InstalledProgramSurfaces() []HomeSurface {
+	return append(HomeSurfaces(), HomeSurface{
+		Subtree: filepath.Join("codex", "packages", "standalone"),
+		HomeRel: filepath.Join(".codex", "packages", "standalone"),
+	})
 }
 
 // HomeFileRedirect is a home-ROOT file that is a symlink into a per-workspace directory:

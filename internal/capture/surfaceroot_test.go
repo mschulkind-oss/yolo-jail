@@ -144,7 +144,7 @@ func TestSurfaceRootIsTheDoorTheDriverUses(t *testing.T) {
 	if res.Manifest.Home != home {
 		t.Errorf("Manifest.Home = %q, want the capture HOME %q, not the surface root", res.Manifest.Home, home)
 	}
-	if got, want := res.Manifest.Surfaces, []string{".npm-global", ".local", "go"}; !equalStrings(got, want) {
+	if got, want := res.Manifest.Surfaces, []string{".npm-global", ".local", "go", ".codex/packages/standalone"}; !equalStrings(got, want) {
 		t.Errorf("Surfaces = %v, want the home-relative spellings %v", got, want)
 	}
 	wantRef := AbsoluteRef{

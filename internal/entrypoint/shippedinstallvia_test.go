@@ -100,6 +100,22 @@ func stageShippedPacks(t *testing.T) string {
 	return root
 }
 
+// The vendor installer probes /dev/tty after a successful install. A lazy launcher always has
+// that tty during an interactive agent start, so redirecting stdin cannot suppress the prompt;
+// the pack's static environment must reach every invocation before the installer runs.
+func TestShippedCodexInstallerIsNonInteractive(t *testing.T) {
+	pack, problems := packload.LoadDir(filepath.Join(stageShippedPacks(t), "_official", "codex"), "codex")
+	if len(problems) > 0 {
+		t.Fatalf("loading shipped packs: %v", problems)
+	}
+	if pack == nil {
+		t.Fatal("shipped Codex pack not found")
+	}
+	if got := pack.Decl.EnvContributions()["CODEX_NON_INTERACTIVE"]; got != "1" {
+		t.Fatalf("Codex CODEX_NON_INTERACTIVE = %q, want 1", got)
+	}
+}
+
 // TestShippedAgentLaunchersUseTheDeclaredMechanism is the call-site cell.
 func TestShippedAgentLaunchersUseTheDeclaredMechanism(t *testing.T) {
 	// The collision check would read the HOST's /bin, where an agent CLI installed

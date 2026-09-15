@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -71,6 +72,25 @@ func TestLocalPackDirIsBesideTheUserConfig(t *testing.T) {
 	t.Setenv("HOME", "")
 	if got := LocalPackDir(); got[0] != '/' {
 		t.Errorf("LocalPackDir with an empty HOME = %q, want an absolute path", got)
+	}
+}
+
+// Codex's vendor installer splits one installation across ~/.local/bin and a payload under
+// ~/.codex. Capture and prune need the payload, but mounting all of ~/.codex as an installed
+// program surface would also classify mutable auth, sessions, and SQLite state as program bytes.
+func TestInstalledProgramSurfacesIncludeOnlyCodexStandalonePayload(t *testing.T) {
+	got := InstalledProgramSurfaces()
+	want := HomeSurface{Subtree: filepath.Join("codex", "packages", "standalone"), HomeRel: filepath.Join(".codex", "packages", "standalone")}
+	if !slices.Contains(got, want) {
+		t.Fatalf("InstalledProgramSurfaces() = %+v, missing %+v", got, want)
+	}
+	for _, surface := range got {
+		if surface.HomeRel == ".codex" {
+			t.Fatalf("InstalledProgramSurfaces() includes all of mutable .codex: %+v", got)
+		}
+	}
+	if slices.Contains(HomeSurfaces(), want) {
+		t.Fatalf("HomeSurfaces() includes nested Codex payload %+v; it is already inside the pack state mount", want)
 	}
 }
 

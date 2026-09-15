@@ -62,7 +62,7 @@ type Options struct {
 	// to Home — the common case, since the driver is already running in the jail whose
 	// home it is capturing.
 	Env []string
-	// Surfaces are the home-relative roots to walk. Nil is paths.HomeSurfaces(), which is
+	// Surfaces are the home-relative roots to walk. Nil is paths.InstalledProgramSurfaces(), which is
 	// what every caller wants; the field exists so a test can prove the surface set is
 	// what makes the delta what it is.
 	Surfaces []paths.HomeSurface
@@ -223,7 +223,7 @@ func Platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
 // key that says the vendor put it there.
 //
 // It is an EXCLUSION rather than a narrower surface set because the surface set is shared
-// with prune (paths.HomeSurfaces) and means "where installed programs live" — which
+// with prune (paths.InstalledProgramSurfaces) and means "where installed programs live" — which
 // `.local` is, state dir and all. Two subsystems reading one list, one of them subtracting
 // a subtree it owns, is the honest shape.
 func DefaultExcludes() []string { return []string{paths.GlobalStorageRel()} }
@@ -265,7 +265,7 @@ func newDriver(opts Options) (*driver, error) {
 		surfaces: opts.Surfaces,
 	}
 	if d.surfaces == nil {
-		d.surfaces = paths.HomeSurfaces()
+		d.surfaces = paths.InstalledProgramSurfaces()
 	}
 	d.excludes = opts.Excludes
 	if d.excludes == nil {
@@ -323,7 +323,7 @@ func (d *driver) surfaceRels() []string {
 // used, and using both is the point: the Subtree name is the host side of the bind and the
 // HomeRel name is the jail side, so a capture that walks one and reports the other is
 // walking and reporting the same directory only because that pair is written down once
-// (paths.HomeSurfaces).
+// (paths.InstalledProgramSurfaces).
 func (d *driver) surfacePath(s paths.HomeSurface) string {
 	if d.opts.SurfaceRoot != "" {
 		return filepath.Join(d.opts.SurfaceRoot, filepath.FromSlash(s.Subtree))

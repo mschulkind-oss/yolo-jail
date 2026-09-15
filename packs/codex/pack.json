@@ -39,6 +39,12 @@
       "kind": "config"
     },
     {
+      "kind": "env",
+      "vars": {
+        "CODEX_NON_INTERACTIVE": "1"
+      }
+    },
+    {
       "autonomous": {
         "config": [
           {
