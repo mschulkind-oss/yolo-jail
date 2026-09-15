@@ -179,7 +179,14 @@ func TestYoloCheckAvailableInsideJail(t *testing.T) {
 	dir := tempProject(t)
 	r := runYolo(t, dir, "yolo check --no-build")
 	if r.rc != 0 {
-		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
+		// BOTH STREAMS, and stdout FIRST — `yolo check` writes its per-section [FAIL]/[WARN]
+		// findings to STDOUT and only the launch narration to stderr. Dumping stderr alone
+		// (what this did until 2026-09-15) reports the one thing that cannot explain the
+		// failure: on the macOS nightly it printed a full launch log ending at the in-jail
+		// version banner, with not one word about which section refused. A diagnostic that
+		// omits the channel carrying the verdict costs a whole nightly cycle to re-ask.
+		t.Fatalf("expected rc 0, got %d\n--- stdout (yolo check's own findings) ---\n%s\n"+
+			"--- stderr (launch narration) ---\n%s", r.rc, r.stdout, r.stderr)
 	}
 	if !strings.Contains(r.stdout, "YOLO Jail Check") {
 		t.Fatalf("expected 'YOLO Jail Check' banner in stdout, got:\n%s", r.stdout)
