@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -757,64 +756,4 @@ func TestTheNightlysInnerBoundsSurviveTheRaisedJobBudget(t *testing.T) {
 	if !strings.Contains(uncommentedYAML(body), "timeout-minutes:") {
 		t.Errorf("%s has no timeout-minutes at all", nightlyWorkflow)
 	}
-}
-
-// THE ARCHIVE AND THE CACHE PUSH WANT DIFFERENT IMAGE VARIANTS, and the out-link indices
-// that keep them apart are positional — so both halves are pinned here.
-//
-// `build-image` realizes THREE attrs in one `nix build`, which makes the out-links
-// ./result, ./result-1, ./result-2 in argument order. The archive must be copied from the
-// MINIMAL one (its only consumer is the twelve macOS shards, and each pays 15-22 minutes to
-// `podman load` it), while `.#ociImage` must still be realized so this job's cachix-action
-// publishes the closure a darwin `yolo run` actually asks for.
-//
-// ⚠ ADDING AN ATTR AHEAD OF THE COPIER SHIFTS ITS PATH and the step then runs the wrong
-// binary — or worse, copies the wrong image and every shard silently tests a variant nobody
-// ships. Neither failure names itself, which is why this is a test and not a comment.
-func TestTheNightlyArchivesTheMinimalImageAndPublishesTheFullOne(t *testing.T) {
-	body := uncommentedYAML(readWorkflow(t, nightlyWorkflow))
-
-	re := regexp.MustCompile(`(?m)^[ \t]*nix build --impure --accept-flake-config ((?:\.#\S+ ?)+)$`)
-	m := re.FindStringSubmatch(body)
-	if m == nil {
-		t.Fatalf("%s no longer has a linking `nix build` listing image attrs — this test has "+
-			"lost its subject.", nightlyWorkflow)
-	}
-	attrs := strings.Fields(m[1])
-
-	want := map[string]int{".#ociImage": 0, ".#ociImageMinimal": 1, ".#imageCopier": 2}
-	for attr, idx := range want {
-		if got := indexOfAttr(attrs, attr); got != idx {
-			t.Errorf("%s builds %v; %s must be at position %d (out-link %s) and is at %d.\n\n"+
-				"The archive is copied FROM the minimal out-link and BY the copier out-link, so "+
-				"reordering silently changes which image twelve shards load.",
-				nightlyWorkflow, attrs, attr, idx, outLinkFor(idx), got)
-		}
-	}
-	// And the copy must actually name those two out-links, not any others.
-	if !strings.Contains(body, "./result-2/bin/skopeo") {
-		t.Error("the archive step does not run the copier from ./result-2 — the copier is the " +
-			"third attr, so that is where its out-link is")
-	}
-	if !strings.Contains(body, `"nix:$(readlink -f ./result-1)"`) {
-		t.Error("the archive is not copied from ./result-1 (.#ociImageMinimal). If it names " +
-			"./result it is archiving the FULL image, which is what cost three shards the " +
-			"50-minute cap on run 34984503308 with zero failing tests.")
-	}
-}
-
-func indexOfAttr(attrs []string, want string) int {
-	for i, a := range attrs {
-		if a == want {
-			return i
-		}
-	}
-	return -1
-}
-
-func outLinkFor(i int) string {
-	if i == 0 {
-		return "./result"
-	}
-	return fmt.Sprintf("./result-%d", i)
 }

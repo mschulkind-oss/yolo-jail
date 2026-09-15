@@ -94,9 +94,7 @@ jobs:
         # image.json rather than a script whose stdout is a docker-archive
         # (docs/design/layer-aware-image-delivery.md), so the tar this job
         # UPLOADS is produced by a `skopeo copy` into the docker-archive
-        # transport. With three attrs the out-links are ./result (.#ociImage),
-        # ./result-1 (.#ociImageMinimal) and ./result-2 (.#imageCopier) — the copier is the
-        # LAST one, so adding an attr ahead of it moves this path; it
+        # transport. The copier is realized beside the image as `./result-1`; it
         # is a source build over nixpkgs' skopeo that no public cache serves, so
         # this step pays it once per nixpkgs (~2m cold).
         #
@@ -104,33 +102,10 @@ jobs:
         # consuming jobs `podman load < tar` and then look for a name in the
         # yolo-jail repository. That name is a CI convenience only — a real
         # launch never streams a tar and names the image by its content ref.
-        #
-        # ⚠ TWO IMAGE ATTRS, FOR TWO DIFFERENT CONSUMERS, and conflating them costs either
-        # correctness or half an hour per shard:
-        #
-        #  * `.#ociImage` is REALIZED but not archived. It is what a darwin `yolo run` asks
-        #    for, so it is what this job's cachix-action must publish — pushing only the
-        #    minimal closure would leave the difference to be built on a Mac that cannot
-        #    build Linux at all (the same reason the arm cache job below names this attr).
-        #  * `.#ociImageMinimal` is what the ARCHIVE carries, because the archive's only
-        #    consumer is the twelve macOS shards, and every one of them pays to load it.
-        #
-        # MEASURED 2026-09-15 (run 34984503308): `Load jail image` cost 15-22 MINUTES per
-        # shard from a 1123 MB archive of the full image — not network (the download is
-        # 1.4-2.4m) and not a cold cache (each shard inits a FRESH podman machine, so its
-        # store is always empty). It is `podman load` writing layers through the VM
-        # boundary at roughly 1 MB/s, twelve times over, and it is what cancelled three
-        # shards at the 50-minute cap with zero failing tests.
-        #
-        # SAFE BECAUSE ci.yml ALREADY PROVES IT: its integration cells load
-        # `.#ociImageMinimal` and run `go test ./integration` with NO `-run` filter — the
-        # whole suite, on both arches, green on every push. `imageIdentity` is also
-        # invariant across the two variants, so the suite's own staleness check is
-        # unaffected.
         run: |
-          nix build --impure --accept-flake-config .#ociImage .#ociImageMinimal .#imageCopier
-          ./result-2/bin/skopeo --insecure-policy copy \
-            "nix:$(readlink -f ./result-1)" \
+          nix build --impure --accept-flake-config .#ociImage .#imageCopier
+          ./result-1/bin/skopeo --insecure-policy copy \
+            "nix:$(readlink -f ./result)" \
             "docker-archive:/tmp/jail-image.tar:localhost/yolo-jail:latest"
 
           # THE TWO NON-STOCK VARIANTS THE macOS SUITE CANNOT BUILD FOR ITSELF.
