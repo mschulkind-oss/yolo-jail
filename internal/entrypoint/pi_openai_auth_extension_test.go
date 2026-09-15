@@ -60,8 +60,9 @@ func TestShippedPiPackDeliversOpenAIAuthExtension(t *testing.T) {
 
 // Pi's own lock is scoped to one workspace auth.json. The adapter must therefore ask the
 // machine broker on every login and refresh, and must never put its canonical refresh token
-// in that workspace file. This executes the shipped extension with a fake yolo client.
-func TestPiOpenAIAuthExtensionUsesBrokerForLoginAndRefresh(t *testing.T) {
+// in that workspace file. A broker that is already authenticated must not start another
+// browser flow. This executes the shipped extension with a fake yolo client.
+func TestPiOpenAIAuthExtensionReusesBrokerLoginAndRefreshes(t *testing.T) {
 	p := shippedPiPack(t)
 	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-openai-auth.js"))
 	if err != nil {
@@ -75,12 +76,11 @@ func TestPiOpenAIAuthExtensionUsesBrokerForLoginAndRefresh(t *testing.T) {
 	yolo := filepath.Join(dir, "yolo")
 	if err := os.WriteFile(yolo, []byte(`#!/bin/sh
 printf '%s\n' "$*" >> "$CALLS"
-if [ "$3" = "login" ]; then
-  printf 'Open this URL: https://example.test/login\n' >&2
-  printf '{"ok":true}\n'
-  exit 0
-fi
-printf '{"access_token":"access-%s","refresh_token":"must-not-escape","expires_at":4102444800000,"account_id":"acct-1"}\n' "$(wc -l < "$CALLS")"
+case "$3" in
+  status) printf '{"logged_in":true,"login_required":false}\n' ;;
+  login) printf 'unexpected browser login\n' >&2; exit 9 ;;
+  token) printf '{"access_token":"access-%s","refresh_token":"must-not-escape","expires_at":4102444800000,"account_id":"acct-1","generation":4}\n' "$(wc -l < "$CALLS")" ;;
+esac
 `), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ if (registration.name !== "openai-codex") throw new Error("wrong provider: " + r
 const oauth = registration.config.oauth;
 const first = await oauth.login({});
 const second = await oauth.refreshToken(first, new AbortController().signal);
-if (first.refresh !== "yolo-broker" || second.refresh !== "yolo-broker") throw new Error("refresh secret escaped");
+if (first.refresh !== "yolo-broker:4" || second.refresh !== "yolo-broker:4") throw new Error("refresh secret escaped");
 if (first.access !== "access-2" || second.access !== "access-3") throw new Error("broker calls were not sequenced");
 if (first.expires !== 4102444800000 || second.accountId !== "acct-1") throw new Error("view shape lost");
 if (oauth.getApiKey(second) !== "access-3") throw new Error("access token not resolved");
@@ -108,14 +108,64 @@ if (oauth.getApiKey(second) !== "access-3") throw new Error("access token not re
 	if err != nil {
 		t.Fatalf("executing Pi OpenAI extension: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "https://example.test/login") {
-		t.Fatalf("login URL was not forwarded to Pi's stderr: %q", output)
+	if strings.Contains(string(output), "unexpected browser login") {
+		t.Fatalf("an existing broker login started a browser flow: %q", output)
 	}
 	got, err := os.ReadFile(calls)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "internal openai-auth-client login\ninternal openai-auth-client token\ninternal openai-auth-client token\n"
+	want := "internal openai-auth-client status\ninternal openai-auth-client token\ninternal openai-auth-client token\n"
+	if string(got) != want {
+		t.Fatalf("broker calls = %q, want %q", strings.TrimSpace(string(got)), strings.TrimSpace(want))
+	}
+}
+
+func TestPiOpenAIAuthExtensionStartsBrowserOnlyWhenStatusRequiresLogin(t *testing.T) {
+	p := shippedPiPack(t)
+	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-openai-auth.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "extension.mjs"), source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "yolo"), []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$CALLS"
+case "$3" in
+  status) printf '{"logged_in":false}\n' ;;
+  login) printf 'Open this URL: https://example.test/login\n' >&2; printf '{"ok":true}\n' ;;
+  token) printf '{"access_token":"access","expires_at":4102444800000,"generation":1}\n' ;;
+esac
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "harness.mjs"), []byte(`
+import extension from "./extension.mjs";
+let oauth;
+extension({ registerProvider(_name, config) { oauth = config.oauth; } });
+const result = await oauth.login({});
+if (result.access !== "access" || result.refresh !== "yolo-broker:1") throw new Error("bad credentials");
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := filepath.Join(dir, "calls")
+	cmd := exec.Command("node", filepath.Join(dir, "harness.mjs"))
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("executing Pi OpenAI extension: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "https://example.test/login") {
+		t.Fatalf("login URL was not forwarded: %q", output)
+	}
+	got, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "internal openai-auth-client status\ninternal openai-auth-client login\ninternal openai-auth-client token\n"
 	if string(got) != want {
 		t.Fatalf("broker calls = %q, want %q", strings.TrimSpace(string(got)), strings.TrimSpace(want))
 	}

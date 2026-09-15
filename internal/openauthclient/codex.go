@@ -18,6 +18,7 @@ type tokenView struct {
 	RefreshToken string `json:"refresh_token"`
 	ExpiresAtMS  int64  `json:"expires_at"`
 	AccountID    string `json:"account_id,omitempty"`
+	Generation   int64  `json:"generation"`
 }
 
 type codexAuth struct {

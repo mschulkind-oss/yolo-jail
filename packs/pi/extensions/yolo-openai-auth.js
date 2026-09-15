@@ -1,7 +1,5 @@
 import { execFile } from "node:child_process";
 
-const BROKER_MARKER = "yolo-broker";
-
 function brokerCommand(action, signal, showStderr = false) {
 	return new Promise((resolve, reject) => {
 		const child = execFile(
@@ -35,12 +33,15 @@ async function brokerToken(signal) {
 		typeof view.access_token !== "string" ||
 		view.access_token.length === 0 ||
 		typeof view.expires_at !== "number" ||
-		!Number.isFinite(view.expires_at)
+		!Number.isFinite(view.expires_at) ||
+		typeof view.generation !== "number" ||
+		!Number.isSafeInteger(view.generation) ||
+		view.generation <= 0
 	) {
 		throw new Error("OpenAI credential service returned an invalid token view");
 	}
 	return {
-		refresh: BROKER_MARKER,
+		refresh: `yolo-broker:${view.generation}`,
 		access: view.access_token,
 		expires: view.expires_at,
 		...(typeof view.account_id === "string" && view.account_id.length > 0
@@ -49,15 +50,20 @@ async function brokerToken(signal) {
 	};
 }
 
+async function brokerLogin(signal) {
+	const status = await brokerCommand("status", signal);
+	if (status?.logged_in !== true || status?.login_required === true) {
+		await brokerCommand("login", signal, true);
+	}
+	return brokerToken(signal);
+}
+
 export default function registerYoloOpenAIAuth(pi) {
 	pi.registerProvider("openai-codex", {
 		oauth: {
 			name: "OpenAI Codex (yolo shared login)",
 			isSubscription: true,
-			login: async (_callbacks) => {
-				await brokerCommand("login", undefined, true);
-				return brokerToken();
-			},
+			login: (_callbacks) => brokerLogin(),
 			refreshToken: (_credentials, signal) => brokerToken(signal),
 			getApiKey: (credentials) => credentials.access,
 		},

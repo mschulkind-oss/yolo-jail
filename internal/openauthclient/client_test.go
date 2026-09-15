@@ -311,3 +311,78 @@ func shortSocketDir(t *testing.T) string {
 	t.Cleanup(func() { _ = os.RemoveAll(d) })
 	return d
 }
+
+func TestRunTokenMergesPiViewWithoutCanonicalRefreshSecret(t *testing.T) {
+	authPath := filepath.Join(t.TempDir(), ".pi", "agent", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{"anthropic":{"type":"api_key","key":"keep-me"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := clientEndpoint(t, func(s *hostservice.Session) {
+		if _, present := s.Get("view"); present {
+			s.Stderr("Pi must use the access-only view\n")
+			s.Exit(2)
+			return
+		}
+		_ = s.JSON(map[string]any{
+			"access_token": "access-pi", "expires_at": int64(4_102_444_800_000),
+			"account_id": "acct-pi", "generation": int64(7),
+			// A compromised response must not trick the writer into persisting this.
+			"refresh_token": "canonical-must-not-escape",
+		})
+		s.Exit(0)
+	})
+	var stdout, stderr bytes.Buffer
+	rc := Run([]string{"token", "--pi-auth", authPath}, func(name string) string {
+		if name == EndpointEnv {
+			return endpoint
+		}
+		return ""
+	}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	data, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "canonical-must-not-escape") || strings.Contains(stdout.String(), "access-pi") {
+		t.Fatalf("Pi materialization exposed broker response: file=%s stdout=%q", data, stdout.String())
+	}
+	var got map[string]map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	pi := got["openai-codex"]
+	if pi["type"] != "oauth" || pi["access"] != "access-pi" || pi["refresh"] != "yolo-broker:7" ||
+		pi["expires"] != float64(4_102_444_800_000) || pi["accountId"] != "acct-pi" {
+		t.Fatalf("Pi credential = %#v", pi)
+	}
+	if got["anthropic"]["key"] != "keep-me" {
+		t.Fatalf("Pi writer lost existing provider: %s", data)
+	}
+	if info, err := os.Stat(authPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("Pi auth mode = %v, %v; want 0600", info, err)
+	}
+}
+
+func TestWritePiAuthWaitsForPisProperLockfile(t *testing.T) {
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	lockPath := authPath + ".lock"
+	if err := os.Mkdir(lockPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = os.Remove(lockPath)
+	}()
+	response := json.RawMessage(`{"access_token":"access","expires_at":4102444800000,"generation":2}`)
+	if err := WritePiAuth(authPath, response); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("Pi-compatible lock remained: %v", err)
+	}
+}

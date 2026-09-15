@@ -54,6 +54,7 @@
         "CODEX_NON_INTERACTIVE": "1",
         "CODEX_REFRESH_TOKEN_URL_OVERRIDE": "http://127.0.0.1:1460/oauth/token",
         "YOLO_AUTH_PRELAUNCH_BIN": "codex",
+        "YOLO_AUTH_PRELAUNCH_FLAG": "--codex-auth",
         "YOLO_AUTH_PRELAUNCH_PATH": ".codex/auth.json"
       }
     },

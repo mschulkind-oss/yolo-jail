@@ -55,6 +55,7 @@ exit 1
 		"HOME=" + home,
 		"PATH=" + binDir + ":" + os.Getenv("PATH"),
 		"YOLO_AUTH_PRELAUNCH_BIN=probetool",
+		"YOLO_AUTH_PRELAUNCH_FLAG=--codex-auth",
 		"YOLO_AUTH_PRELAUNCH_PATH=.agent/auth.json",
 	}
 	out, err := cmd.CombinedOutput()

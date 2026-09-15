@@ -30,6 +30,15 @@
       "provider": "openai-codex"
     },
     {
+      "kind": "env",
+      "profile": "codex",
+      "vars": {
+        "YOLO_AUTH_PRELAUNCH_BIN": "pi",
+        "YOLO_AUTH_PRELAUNCH_FLAG": "--pi-auth",
+        "YOLO_AUTH_PRELAUNCH_PATH": ".pi/agent/auth.json"
+      }
+    },
+    {
       "from": "extensions/yolo-openai-auth.js",
       "into": ".pi/agent/extensions/yolo-openai-auth.js",
       "kind": "files"
