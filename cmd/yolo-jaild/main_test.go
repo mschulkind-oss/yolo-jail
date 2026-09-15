@@ -17,9 +17,11 @@ import (
 
 func TestDispatchRoutesWireBridge(t *testing.T) {
 	// Hermetic idle: with the composed tables cleared, the daemon deterministically
-	// finds no claude profile and idles WITHOUT binding anything. (Inheriting the
-	// launching jail's real YOLO_* env would make this test's outcome — and what it
-	// binds — depend on the machine it runs on.)
+	// finds no claude profile and idles WITHOUT binding anything. It must also use
+	// a fresh home: the daemon watches the live per-entry channel there, which can
+	// otherwise reintroduce this jail's real selection after the process
+	// environment below is cleared.
+	t.Setenv("JAIL_HOME", t.TempDir())
 	t.Setenv("YOLO_PROVIDERS", "")
 	t.Setenv("YOLO_PROFILES", "")
 	t.Setenv("YOLO_USE_PROFILES", "")
