@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -37,13 +38,19 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
 	r.render(t, `{"pi":"codex"}`)
 	settings := r.piSettings(t)
-	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-5.4" {
-		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-5.4",
+	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-5.6-terra" {
+		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-5.6-terra",
 			settings["defaultProvider"], settings["defaultModel"])
 	}
 	enabled, ok := settings["enabledModels"].([]any)
-	if !ok || len(enabled) != 1 || enabled[0] != "openai-codex/*" {
-		t.Fatalf("Pi enabledModels = %#v, want only openai-codex/*", settings["enabledModels"])
+	wantEnabled := []any{
+		"openai-codex/gpt-5.6-luna",
+		"openai-codex/gpt-5.6-terra",
+		"openai-codex/gpt-5.6-sol",
+		"openai-codex/gpt-6-astra",
+	}
+	if !ok || !reflect.DeepEqual(enabled, wantEnabled) {
+		t.Fatalf("Pi enabledModels = %#v, want only 5.6-or-newer models %#v", settings["enabledModels"], wantEnabled)
 	}
 	models := r.piModels(t)
 	if catalog, _ := models["providers"].(map[string]any); catalog != nil {

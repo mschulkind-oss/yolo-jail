@@ -81,7 +81,7 @@ const auth = JSON.parse(fs.readFileSync(process.env.AUTH_PATH));
 const settings = JSON.parse(fs.readFileSync(process.env.SETTINGS_PATH));
 const c = auth["openai-codex"];
 if (!c || c.type !== "oauth" || c.access !== "fresh-access" || c.refresh !== "yolo-broker:2" || c.expires <= Date.now()) process.exit(11);
-if (settings.defaultProvider !== "openai-codex" || settings.defaultModel !== "gpt-5.4") process.exit(12);
+if (settings.defaultProvider !== "openai-codex" || settings.defaultModel !== "gpt-5.6-terra") process.exit(12);
 '
 echo PI_READY
 `

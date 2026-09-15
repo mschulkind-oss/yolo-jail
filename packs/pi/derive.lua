@@ -173,9 +173,17 @@ yolo.derive("pi", "settings", function(ctx)
   -- row in YOLO_PROVIDERS or models.json. The shipped codex profile selects the stable
   -- default below; a user profile may state another exact Pi model id as `model`.
   if ctx.selected_provider == "openai-codex" then
-    local model = (ctx.profile and ctx.profile.model) or "gpt-5.4"
+    -- The subscription catalog currently exposes these as the supported 5.6-or-newer
+    -- choices. Keep the list explicit: the provider wildcard would also make retired
+    -- models selectable, and a future catalog entry needs an intentional policy decision.
+    local model = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra"
     return {
-      enabledModels = { "openai-codex/*" },
+      enabledModels = {
+        "openai-codex/gpt-5.6-luna",
+        "openai-codex/gpt-5.6-terra",
+        "openai-codex/gpt-5.6-sol",
+        "openai-codex/gpt-6-astra",
+      },
       selection = { defaultProvider = "openai-codex", defaultModel = model },
     }
   end
