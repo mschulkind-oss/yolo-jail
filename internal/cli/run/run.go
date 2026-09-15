@@ -828,9 +828,34 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// Remove any stopped container left from an unclean shutdown.
+	//
+	// ⚠ A REMOVAL THAT FAILS MEANS THE CONTAINER IS NOT STALE, and ignoring that cost the
+	// macOS nightly TestConcurrentLaunchesInOneWorkspace repeatedly (shard 9 of runs
+	// 34995936829 and 35033142943). The return value was discarded here, so the launch went
+	// on to CREATE and the runtime answered:
+	//
+	//	Error: creating container storage: the container name "yolo-002-…" is already in
+	//	use by e1e5de83…
+	//
+	// rc 125, and the second launch never attached.
+	//
+	// THE WINDOW IS BETWEEN `created` AND `running`. The post-lock re-check above asks
+	// findRunningContainer, which is deliberately narrow; a container the other launch has
+	// created but not yet started is invisible to it, visible to findExistingContainer, and
+	// refused by `rm` precisely because it is alive. Locally the first container is running
+	// long before the second launch looks, which is why this passes on an unloaded machine
+	// and fails on a loaded runner — the window is real, just usually too small to hit.
+	//
+	// So a failed removal is treated as what it is — evidence of a live container — and the
+	// launch waits for it to become attachable rather than racing it to a name collision.
 	if stale := o.findExistingContainer(cname, rt); stale != "" {
 		o.pr(o.Stderr).printf("Removing stale container %s...", cname)
-		o.removeStaleContainer(cname, rt)
+		if !o.removeStaleContainer(cname, rt) && !o.NeverAttach {
+			if live := o.waitForRunningContainer(cname, rt); live != "" {
+				lock.Close()
+				return o.attachExisting(cname, rt, targetCmd, cfg, staged, channel, true)
+			}
+		}
 	}
 
 	// Retire jail-made workspace venvs from the old shared-store model.

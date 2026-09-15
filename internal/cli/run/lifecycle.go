@@ -259,3 +259,28 @@ func tableBody(stdout string) []string {
 	}
 	return lines[1:]
 }
+
+// waitForRunningContainer polls for cname to become RUNNING, returning its id or "".
+//
+// It exists for one caller: the launch that found a container it could not remove. That
+// container is alive by definition — `rm` refused it — so it is on its way to running, and
+// the only question is whether this launch is willing to wait a moment rather than create
+// into a name collision (run.go, the stale-removal block).
+//
+// BOUNDED AND SILENT ON TIMEOUT. Giving up returns "" and lets the caller carry on to the
+// create it would have attempted anyway, so this can only ever turn a certain failure into a
+// possible success. The window it covers is the gap between `created` and `running`, which is
+// milliseconds on an idle machine and seconds on a loaded CI runner; five seconds is chosen
+// to cover the latter without making a genuinely wedged container look like a slow one.
+func (o *Options) waitForRunningContainer(cname, rt string) string {
+	deadline := o.Now().Add(5 * time.Second)
+	for {
+		if cid := o.findRunningContainer(cname, rt); cid != "" {
+			return cid
+		}
+		if !o.Now().Before(deadline) {
+			return ""
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
