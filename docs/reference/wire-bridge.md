@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: 38873c0d
+verified: 2026-09-15
+verified_commit: e0d62605
 covers:
   - internal/wirebridge/
   - internal/wirebridged/
@@ -10,16 +10,18 @@ covers:
   - internal/cli/run/packservices.go
   - packs/wire-bridge/
 tags: [packs, providers, services, claude, translation, needs]
-summary: "An in-jail translating reverse proxy that manufactures an Anthropic-Messages endpoint on the jail's loopback for a provider that serves only OpenAI chat-completions — plus the two pieces of vocabulary it landed as: the `service` contribution kind, and `needs`, a conditional pack dependency resolved at selection."
+summary: "An in-jail translating reverse proxy that manufactures an Anthropic-Messages endpoint on the jail's loopback for OpenAI chat-completions providers and Claude's Codex Responses profile — plus the `service` contribution kind and `needs`, a pack dependency resolved at selection."
 ---
 
 # The wire bridge — an Anthropic endpoint on the jail's loopback
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-15, verified against `e0d62605`.
 
 A **wire bridge** *(coined here)* is an in-jail daemon that manufactures, on the jail's own
 loopback, a wire protocol a provider does not natively serve, by translating to one it does.
-Exactly one exists: **Anthropic Messages → OpenAI chat-completions**.
+Two routes exist: **Anthropic Messages → OpenAI chat-completions** for declared
+providers, and the Claude Codex-profile route to OpenAI Responses described in
+[`omp-and-codex-claude-profile.md`](omp-and-codex-claude-profile.md).
 
 It exists because an agent can speak exactly one wire protocol and some providers serve only the
 other one. No amount of configuration closes that gap: yolo's derives translate config *dialects*,
@@ -102,7 +104,8 @@ condition under which the dependency is live:
 - **the condition** is a set of **bins**: the need is live when some *selected* pack installs one
   of them. Core speaks bins, not agents — "claude" here means "a selected pack installs the
   `claude` CLI", which is exactly "claude is in use". Multiple bins are OR'd. No condition means
-  unconditional, which is allowed and unused.
+  unconditional; Claude uses this for its Codex profile's credential service and bridge, which
+  then idle unless that profile is selected.
 
 **Resolution happens host-side, at selection, before staging** — because the mount is the filter,
 so the closure must be computed before anything stages:
