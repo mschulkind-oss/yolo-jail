@@ -33,9 +33,8 @@
       "kind": "env",
       "profile": "codex",
       "vars": {
-        "YOLO_AUTH_PRELAUNCH_BIN": "pi",
-        "YOLO_AUTH_PRELAUNCH_FLAG": "--pi-auth",
-        "YOLO_AUTH_PRELAUNCH_PATH": ".pi/agent/auth.json"
+        "YOLO_AUTH_PRELAUNCH_PI_FLAG": "--pi-auth",
+        "YOLO_AUTH_PRELAUNCH_PI_PATH": ".pi/agent/auth.json"
       }
     },
     {

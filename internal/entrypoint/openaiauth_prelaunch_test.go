@@ -54,9 +54,8 @@ exit 1
 	cmd.Env = []string{
 		"HOME=" + home,
 		"PATH=" + binDir + ":" + os.Getenv("PATH"),
-		"YOLO_AUTH_PRELAUNCH_BIN=probetool",
-		"YOLO_AUTH_PRELAUNCH_FLAG=--codex-auth",
-		"YOLO_AUTH_PRELAUNCH_PATH=.agent/auth.json",
+		"YOLO_AUTH_PRELAUNCH_PROBETOOL_FLAG=--codex-auth",
+		"YOLO_AUTH_PRELAUNCH_PROBETOOL_PATH=.agent/auth.json",
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -93,7 +92,7 @@ func TestNativeLauncherAuthHookIsScopedToDeclaredBinary(t *testing.T) {
 	if strings.Contains(body, `YOLO_AUTH_PRELAUNCH_BIN:-}" = "codex`) {
 		t.Fatal("launcher hardcodes Codex instead of matching the pack-declared binary")
 	}
-	if !strings.Contains(body, `"${YOLO_AUTH_PRELAUNCH_BIN:-}" = "$BIN"`) {
-		t.Fatal("launcher does not scope the auth hook to the declared binary")
+	if !strings.Contains(body, `auth_flag_var="YOLO_AUTH_PRELAUNCH_${auth_suffix}_FLAG"`) {
+		t.Fatal("launcher does not resolve auth settings from the declared binary")
 	}
 }

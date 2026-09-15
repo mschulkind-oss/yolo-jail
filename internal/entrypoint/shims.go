@@ -875,25 +875,25 @@ const agentAuthPrelaunchShellFn = `# --- agent authentication ------------------
 # declarative environment values rather than a hardcoded agent name, so another native
 # agent can adopt the same lifecycle without changing this generator.
 _refresh_agent_auth() {
-    [ "${YOLO_AUTH_PRELAUNCH_BIN:-}" = "$BIN" ] || return 0
+    local auth_suffix auth_flag_var auth_path_var auth_flag auth_path
+    auth_suffix=$(printf '%s' "$BIN" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_' '_')
+    auth_flag_var="YOLO_AUTH_PRELAUNCH_${auth_suffix}_FLAG"
+    auth_path_var="YOLO_AUTH_PRELAUNCH_${auth_suffix}_PATH"
+    auth_flag="${!auth_flag_var:-}"
+    auth_path="${!auth_path_var:-}"
+    [ -n "$auth_flag" ] || return 0
     if ! command -v yolo >/dev/null 2>&1; then
         echo "  ⚠ $BIN: yolo is unavailable; cannot prepare authentication." >&2
         return 1
     fi
-    local auth_path="${YOLO_AUTH_PRELAUNCH_PATH:-}"
     if [ -z "$auth_path" ]; then
-        echo "  ⚠ $BIN: YOLO_AUTH_PRELAUNCH_PATH is empty." >&2
+        echo "  ⚠ $BIN: $auth_path_var is empty." >&2
         return 1
     fi
     case "$auth_path" in
         /*) ;;
         *) auth_path="$HOME/$auth_path" ;;
     esac
-    local auth_flag="${YOLO_AUTH_PRELAUNCH_FLAG:-}"
-    if [ -z "$auth_flag" ]; then
-        echo "  ⚠ $BIN: YOLO_AUTH_PRELAUNCH_FLAG is empty." >&2
-        return 1
-    fi
     if YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token \
         "$auth_flag=$auth_path" >/dev/null; then
         return 0
