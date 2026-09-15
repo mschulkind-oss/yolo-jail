@@ -767,6 +767,24 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "host_management": "assert"
 
+  [bold]promotion_target[/bold] ("local" | "pack:<name>"): Where `yolo config promote`
+    writes when you omit `--to`.  Default [bold]"local"[/bold], the conventional personal
+    pack at ~/.config/yolo-jail/local/.
+
+    Set this when you maintain a named personal pack instead of the conventional
+    local one:
+      "promotion_target": "pack:matt"
+
+    The named pack must be configured and writable when you promote; yolo checks
+    that at the promotion itself.  [bold]--to[/bold] always overrides this default for one
+    command.  `host` cannot be the default: writing real-home settings remains an
+    explicit `--to host` decision every time.
+
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc). Captured
+    settings are personal, and a workspace is writable by the agent running in its
+    jail, so a workspace config cannot redirect their destination. A workspace
+    value is a `yolo check` error and is never read.
+
   [bold]agent_updates[/bold] (boolean, or object of pack name -> boolean): Keep agent CLIs
     current.  Default TRUE -- absent means on.
     An AGENT dependency is a program yolo installs so a coding agent can run: the

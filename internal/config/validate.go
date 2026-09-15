@@ -105,6 +105,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostManagement(config, workspace, errs)
 	validateAgentUpdates(config, workspace, errs)
 	validatePerfLogging(config, workspace, errs)
+	validatePromotionTarget(config, workspace, errs)
 	validatePacks(workspace, errs)
 	validatePrograms(config, workspace, errs)
 
@@ -654,6 +655,30 @@ func validatePerfLogging(config *jsonx.OrderedMap, workspace string, errs *[]str
 			"a launch, before any workspace config is loaded, so a workspace value is "+
 			"never consulted. It is read from "+paths.UserConfigPath()+". Move it there, "+
 			"or remove it. (Per-launch instead: `yolo --timing`, or YOLO_TIMING=1.)")
+	}
+}
+
+// validatePromotionTarget checks the host-side default for `yolo config promote`.
+// A workspace is jail-writable, so it may not redirect a user's captured choices into a
+// pack chosen by that workspace; the reader independently reads user scope only.
+func validatePromotionTarget(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(promotionTargetKey)
+	if !present {
+		return
+	}
+	if v != nil {
+		if problem := promotionTargetProblem(v); problem != "" {
+			add(errs, "config."+promotionTargetKey+": "+problem)
+		}
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(promotionTargetKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+promotionTargetKey+": user-scope only — it selects the pack "+
+			"that receives your captured personal settings, so it is read from "+paths.UserConfigPath()+
+			" and a workspace value has no effect. Move it there, or remove it.")
 	}
 }
 

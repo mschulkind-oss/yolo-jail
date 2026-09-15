@@ -227,6 +227,9 @@ var inheritCensus = map[string]keyDisposition{
 	// an ownership contract the human declared about their laptop.
 	"host_management": {reason: "declares ownership of the HOST's real home; in a jail the " +
 		"referent rebinds to the container's own disposable home"},
+	// `promotion_target`: a host-only choice of which of the user's packs receives captured
+	// settings. Promotion is refused in a jail, so an inherited value has no in-jail reader.
+	"promotion_target": {reason: "selects a host-side promotion destination; promotion is refused in a jail"},
 	// `programs`: NEITHER, and unusually it is neither a false-error class nor a misread
 	// grant — it is a key with no in-jail READER at all. `programs.autoprune` is read on
 	// the host out of the user file directly (ProgramsAutoprune; workspace scope is

@@ -119,6 +119,30 @@ func TestPromoteDeclaresTheKeyLocallyAndClearsOnlyThatKey(t *testing.T) {
 	}
 }
 
+// A user who maintains a named personal pack need not repeat --to on every promotion.
+// The preference is read at invocation time; --to remains the per-command override.
+func TestPromoteUsesUserDefaultTarget(t *testing.T) {
+	w := newPromoteWorld(t, `["claude"]`)
+	entry := w.pack("matt", `{"name":"matt"}`)
+	writeFile(t, filepath.Join(w.home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["claude",`+entry+`],"promotion_target":"pack:matt"}`)
+	w.capture("claude", "settings", `{"autoMemoryEnabled":true}`, `{}`)
+
+	if _, errw, rc := w.run("claude", "--accept-promotion"); rc != 0 {
+		t.Fatalf("rc=%d: %s", rc, errw)
+	}
+	data, err := os.ReadFile(filepath.Join(w.home, "packs", "matt", "pack.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"surface": "claude/settings"`) {
+		t.Errorf("named default pack did not receive promotion:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(w.home, ".config", "yolo-jail", "local")); !os.IsNotExist(err) {
+		t.Errorf("promotion created local pack despite named default (stat err = %v)", err)
+	}
+}
+
 // The consent gate: without --accept-promotion the run is a dry run that WRITES NOTHING and
 // names the flag. It is not --yes; it names what is approved ([OQ-CO4], following
 // config.AcceptConfigChangesFlag).

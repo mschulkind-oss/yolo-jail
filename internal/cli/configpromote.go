@@ -131,7 +131,7 @@ type promoteOptions struct {
 
 // parsePromoteArgs parses `promote <agent> [flags]`. rc >= 0 means the caller returns it.
 func parsePromoteArgs(args []string, out, errw io.Writer) (promoteOptions, int) {
-	o := promoteOptions{dest: promoteDestLocal, forced: map[string]bool{}}
+	o := promoteOptions{dest: config.PromotionTarget(), forced: map[string]bool{}}
 	format, ok := parseOutputFormat("config promote", args, errw)
 	if !ok {
 		return o, 2
