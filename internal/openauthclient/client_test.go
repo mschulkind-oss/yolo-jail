@@ -16,7 +16,7 @@ import (
 
 func clientEndpoint(t *testing.T, handler hostservice.Handler) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := shortSocketDir(t)
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func clientEndpoint(t *testing.T, handler hostservice.Handler) string {
 
 func clientUnixSocket(t *testing.T, handler hostservice.Handler) string {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "broker.sock")
+	socket := filepath.Join(shortSocketDir(t), "broker.sock")
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 	go func() { _ = hostservice.ServeUnix(handler, socket, stop) }()
@@ -283,4 +283,31 @@ func TestWriteCodexAuthRejectsCanonicalRefreshSecret(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("refused credential wrote %s: %v", path, err)
 	}
+}
+
+// shortSocketDir returns a per-test directory short enough to hold an AF_UNIX socket path.
+//
+// darwin's sun_path is 104 bytes including the NUL (Linux's is 108), and t.TempDir() is rooted
+// at TMPDIR — which on macOS is /var/folders/<2>/<26>/T/, ~49 bytes before the test name is
+// appended. This package's sockets overran it.
+//
+// ⚠ THE SYMPTOM IS NOT A BIND ERROR, which is why it cost a CI run to find: the listener is
+// reached through a helper, so an over-long path surfaces as "socket was not published" after a
+// timeout. MEASURED 2026-09-15 — check-macos red on `35bf7b47`; reproduced on Linux by pointing
+// TMPDIR at an 80-byte path, which is stricter than darwin's own ~49.
+//
+// The same helper, with the same comment, exists in internal/oauthbroker and eight other
+// packages take the same MkdirTemp("/tmp", …) approach. It is per-package because a test helper
+// cannot be imported across them.
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	d, err := os.MkdirTemp("/tmp", "yj-openauth-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d)+len("/broker.endpoint") > 103 {
+		t.Fatalf("short socket dir is not short: %s", d)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(d) })
+	return d
 }

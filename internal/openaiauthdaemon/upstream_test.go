@@ -27,7 +27,7 @@ func jwt(payload string) string {
 }
 
 func TestDaemonPublishesPrivateDirectHostSocketAndStreamsErrors(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSocketDir(t)
 	fronted := filepath.Join(dir, "fronted.sock")
 	hostSocket := HostSocketPath(fronted)
 	stop := make(chan struct{})
@@ -229,4 +229,31 @@ func TestCodexViewContainsOpaqueGenerationMarkerNotCanonicalRefreshToken(t *test
 			t.Errorf("parseGenerationMarker(%q) succeeded", malformed)
 		}
 	}
+}
+
+// shortSocketDir returns a per-test directory short enough to hold an AF_UNIX socket path.
+//
+// darwin's sun_path is 104 bytes including the NUL (Linux's is 108), and t.TempDir() is rooted
+// at TMPDIR — which on macOS is /var/folders/<2>/<26>/T/, ~49 bytes before the test name is
+// appended. This package's sockets overran it.
+//
+// ⚠ THE SYMPTOM IS NOT A BIND ERROR, which is why it cost a CI run to find: the listener is
+// reached through a helper, so an over-long path surfaces as "socket was not published" after a
+// timeout. MEASURED 2026-09-15 — check-macos red on `35bf7b47`; reproduced on Linux by pointing
+// TMPDIR at an 80-byte path, which is stricter than darwin's own ~49.
+//
+// The same helper, with the same comment, exists in internal/oauthbroker and eight other
+// packages take the same MkdirTemp("/tmp", …) approach. It is per-package because a test helper
+// cannot be imported across them.
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	d, err := os.MkdirTemp("/tmp", "yj-oaid-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d)+len("/fronted.sock.host") > 103 {
+		t.Fatalf("short socket dir is not short: %s", d)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(d) })
+	return d
 }
