@@ -248,6 +248,57 @@ samples and this is the first. [OQ-DF4](#OQ-DF4) is one sample closer and still 
 run is what unblocks it.
 
 
+### 2.6 The second sample, 2026-09-15 — [OQ-DF4](#OQ-DF4) is unblocked, and the residual has a NAME
+
+Taken 2026-09-15 03:13 UTC on the same host, ~1 day after [§2.5](#25-re-measured-2026-09-14--the-first-yolo-stores-sample-and-a-fourth-ledger). Every `GROWTH` cell is populated, so
+[OQ-DF4](#OQ-DF4)'s blocker is discharged: its own note said *"Rule BF9 first … answerable the run
+after a second sample exists"*, and [OQ-BF9](./disk-levers-and-backfill.md#OQ-BF9) was ruled AND
+built on 2026-09-08 — its ledger is what recorded these samples (`stores/`, 50 recorded, last 30
+kept, self-bounded exactly as ruled).
+
+⚠ **Read the negative cells as PRUNE ARTIFACTS, not trends.** `yolo prune --apply` ran between the
+two samples, so `untagged rows` −6.5 GiB/d, `install prefixes` −5.5 GiB/d, `Go builds` −11.2 GiB/d
+and `flake-bundles` −650 MiB/d record one human act rather than a rate. A one-day delta spanning a
+reclaim is the weakest thing this ledger can produce; the 30-sample bound is what fixes that over
+time. **The positive cells on stores with NO reclaimer are the signal**, because nothing acted on
+them in either direction.
+
+| Store | Size | Growth | Reclaimer |
+| :--- | ---: | ---: | :--- |
+| `mise/` | 2.6 GiB | **+108.2 MiB/d** | none |
+| `cache/staticcheck` | 965.7 MiB | **+85.9 MiB/d** | none |
+| `cache/gh` | 14.9 MiB | +2.1 MiB/d | none |
+| `logs/` | 1.1 MiB | +24.4 KiB/d | none |
+| **total** | **3.6 GiB** | **≈196 MiB/d ≈ 70 GiB/yr** | |
+
+**This is the condition [OQ-DF4](#OQ-DF4)'s leaning held itself open for** — *"a residual that only a
+ceiling catches"* — now observable for the first time. The write path does **not** bound itself.
+
+> [!IMPORTANT]
+> **And the measurement argues AGAINST a ceiling anyway, which is the useful part.** The residual is
+> not diffuse: it is **two named stores**, `mise/` and `cache/staticcheck`, carrying 99% of the
+> unreclaimed growth between them. A byte ceiling is the instrument for residue you cannot attribute;
+> residue with a name and a path wants a **reclaimer**. So the data strengthens *policy, not a
+> number* rather than flipping it — and it converts the open question from "what ceiling?" into
+> "sweep these two, or declare them the human's", which is a smaller decision with a testable answer.
+
+**A second finding, and it is a possible DEFECT rather than a policy input.** `cache/uv` holds
+**30.8 GiB** and grew **+270 MiB/d** across a window in which a purge ran — but its reclaimer is
+`PurgeCacheByAge (older than 30d)`, and 30.8 GiB at that rate is ~114 days of accumulation, roughly
+3.8× what a 30-day cutoff should leave standing. `purgeOldFilesUnder` removes regular files *"whose
+mtime is before"* the cutoff (`internal/prune/cachepurge.go`), so the candidates are: the one-day
+rate is atypical; uv refreshes mtimes on cache hits, so nothing ever ages out; or that subdir is not
+in the purge's list. `cache/go-build` is the control and it is consistent — 40.6 GiB at +2.5 GiB/d is
+~16 days, inside the cutoff. **Not diagnosed here:** it needs an mtime histogram of that subdir on
+the host, which no frame in the jail can take.
+
+⚠ **A coverage gap this inventory cannot see.** Agent worktrees under
+`<workspace>/.claude/worktrees/` measured **985 MB across 20 stale trees** on 2026-09-14, on the same
+device as the state dir — and they appear in no row above, because every frame here is rooted at
+yolo's state dir, the shared cache, the image store or `/nix/store`. Workspace-local bytes are
+outside all four. Whether that belongs to this doc, to [`disk-levers-and-backfill.md`](disk-levers-and-backfill.md), or to nothing is undecided.
+
+
 ## 3. The three ledgers
 
 A single loaded image is stored three times, in three places, with three different owners and three different reclaim stories. This is the structural map everything below argues from.
@@ -801,12 +852,21 @@ entry keeps the argument because the label-versus-ledger distinction is reusable
    > after, confirms the unchanged manual pass would select 9 of them for removal — the number this
    > ruling's math above is priced against, not a hypothetical.
 
-4. 🔒 **[OQ-DF4](#OQ-DF4) — BLOCKED on a measurement that now has a named instrument: does yolo owe the machine a stated number, or only a policy?**
+4. 💬 **[OQ-DF4](#OQ-DF4) — UNBLOCKED 2026-09-15, the measurement is taken ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)): does yolo owe the machine a stated number, or only a policy?**
 
    [§4.1](#41-candidate-invariants-weighed)c adopts a byte ceiling as a *contract* but not as a trigger, which leaves open whether the number is ever written down. **A number** means a user-settable budget (a config key, with validation and an entry in the nested-inheritance table) that `yolo check` and `yolo prune` both report against. **A policy** means no configurable number at all: the write path keeps its own bytes bounded and there is nothing to tune. Worth noting how thin the current surface is — `prune.warn_threshold_gb` is the **only** disk-budgeting config key that exists, and `prune.Run` never reads config at all, so `yolo check` is its sole consumer (verified 2026-08-25: `rg -n "warn_threshold_gb" -g '!*.md'` returns exactly two hits, both in `internal/cli/check/sections_misc.go`).
 
-   > [!NOTE]
-   > **Still blocked, and now blocked on something buildable.** The leaning held itself open "until
+   > [!IMPORTANT]
+   > **NO LONGER BLOCKED — the two samples exist and the rate is computed** ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)).
+   > [OQ-BF9](./disk-levers-and-backfill.md#OQ-BF9)'s ledger was ruled and built 2026-09-08 and is
+   > what recorded them, so the "rule BF9 first" precondition below is satisfied. **The condition the
+   > leaning waited for is met and it argues for the leaning rather than against it:** ~70 GiB/yr
+   > grows with no reclaimer, but 99% of it is two NAMED stores (`mise/`, `cache/staticcheck`), and
+   > named residue wants a sweep rather than a ceiling. The live decision is now the smaller one —
+   > sweep those two, or declare them the human's — and a ceiling is not the instrument either answer
+   > needs. **The note below is kept as the record of what was blocked and why.**
+   >
+   > **Was blocked, and on something buildable.** The leaning held itself open "until
    > after [§10](#10-sequencing--what-i-would-build-in-order)'s re-measurement", and that
    > re-measurement has not happened: [`disk-levers-and-backfill.md`](./disk-levers-and-backfill.md)
    > [§2.1](./disk-levers-and-backfill.md#21-every-store-one-table) re-measured the LEVELS on
