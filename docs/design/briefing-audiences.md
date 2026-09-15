@@ -200,8 +200,8 @@ appends every pack to every path.
 **Read the middle column against the second: every agent pack already writes its own identity
 out by hand, and it already equals its `bin`.** That is [§4.2](#42-where-a-destinations-identity-comes-from--declared-like-every-other-kind)'s whole foundation. The third
 column is the one thing a `briefing` cannot say anything about — it names a path and nothing
-else. The five loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`, `journal`,
-`serial`) declare none of the three.
+else. The six loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`, `journal`,
+`openai-auth`, `serial`) declare none of the three.
 
 ---
 

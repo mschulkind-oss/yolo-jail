@@ -14,8 +14,13 @@ covers:
   - internal/entrypoint/identity.go
   - internal/broker/
   - internal/oauthbroker/
+  - internal/openaiauth/
+  - internal/openaiauthdaemon/
+  - internal/openauthclient/
+  - internal/openaiauthadapter/
   - internal/macosuser/seatbelt.go
   - packs/claude/loopholes/claude-oauth-broker/
+  - packs/openai-auth/
 tags: [credentials, security, boundary, env_sources, host_files, broker, oauth]
 ---
 
@@ -39,6 +44,7 @@ enumeration of those channels and of what each one does and does not carry.
 | Composed agent surfaces, and the boot-time compose | `internal/entrypoint` (`prism.go`), `internal/agentcfg` |
 | Git identity — the two-key allowlist | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint` (`identity.go`) |
 | The Claude OAuth broker daemon and its flock | `internal/broker`, `internal/oauthbroker` (`RefreshLockPath`) |
+| The OpenAI credential service and agent views | `internal/openaiauth`, `internal/openaiauthdaemon`, `internal/openauthclient`, `internal/openaiauthadapter` |
 | The shared-credentials symlink | `internal/entrypoint` (`linkThroughShared`, applied through the `shared_credentials` hook) |
 | The jail-facing hop for a host daemon | `internal/svcendpoint` (`ServeFrontWithOptions`) |
 | The `macos-user` Seatbelt profile | `internal/macosuser` (`seatbelt.go`) |
@@ -105,16 +111,18 @@ enforced by the Seatbelt profile's read denies instead.
   hard error on a source-bearing workspace entry is defense-in-depth against a silent no-op, not
   the boundary itself.
 
-- **A second copy of the OAuth broker daemon *is* the race it exists to prevent.** One daemon per
-  machine, ensured under a host-wide flock, never spawned per jail — see
-  [the broker](#the-claude-oauth-broker).
+- **A second refresh owner *is* the race each OAuth service exists to prevent.** The Claude and
+  OpenAI services each use one host-wide lock and reload their canonical file while holding it;
+  per-jail processes only adapt the agent protocol. See [the Claude broker](#the-claude-oauth-broker)
+  and [the OpenAI service](#the-openai-subscription-credential-service).
 
 - **`host_files` cannot reach a yolo-owned destination.** No entry may target a path yolo owns as
   a single file or symlink, nor any yolo-composed agent surface (`hostFileReservedDests`), so the
   channel cannot be used to overwrite `~/.claude/settings.json` and strip its managed block.
 
-- **Only Claude has a write-back path to the global home.** Every other agent's overlay dir is
-  seeded one-way from the global home and never written back.
+- **Only Claude writes authentication back through an agent overlay into the global home.** The
+  OpenAI credential service shares Codex and Pi authentication through separate canonical state
+  and generated agent views; it never makes either workspace overlay authoritative.
 
 ## The delivery channels
 
@@ -272,6 +280,58 @@ capability with a reason. Under an auth route where no OAuth token is ever refre
 not *exist* rather than being done differently — and this is the only off switch that does not
 require editing a `loopholes:` block.
 
+### The OpenAI subscription credential service
+
+Codex and Pi use one machine-wide OpenAI subscription grant without sharing either agent's whole
+home. The `openai-auth` pack owns a host singleton named `openai-auth-broker`; both agent packs
+depend on that pack, so selecting either agent selects the same service rather than declaring two
+refresh owners.
+
+The canonical file contains the access, identity and refresh tokens, their expiry, the OpenAI
+account id, and a monotonically increasing generation. It lives under the loophole's host state
+directory and never crosses into a jail. Login replacement, logout and refresh all take one
+machine-wide file lock. Refresh reloads the canonical file while holding that lock, returns the
+current generation to a caller holding an older refresh token, and contacts OpenAI at most once
+for the current generation. Updates use an atomic rename of a mode-`0600` file in a mode-`0700`
+directory.
+
+The two agents receive different views:
+
+- Codex gets its native `auth.json` shape in the workspace home. Its native refresh URL points to
+  a jail-local HTTP adapter, which forwards the presented `yolo-broker:<generation>` marker
+  through the authenticated host-service endpoint. Only the host service holds or may redeem the
+  canonical refresh token.
+- Pi's `openai-codex` provider extension asks the service for an access token and expiry. Its
+  workspace record carries the nonsecret marker `yolo-broker` where Pi's schema requires a
+  refresh string. Pi never receives the canonical refresh token, so Pi's per-workspace file lock
+  is no longer responsible for cross-workspace serialization.
+
+The host service checks expiry proactively once per minute and refreshes within five minutes of
+expiry. A permanent upstream refusal preserves the last state for diagnosis, marks login as
+required, and suppresses further unattended redemption attempts. Status output contains token
+fingerprints: eight hexadecimal characters derived from a token's SHA-256 digest. A fingerprint
+helps correlate generations without revealing the token.
+
+Browser login also runs in the host service. It binds host loopback port 1455, falling back to
+1457, prints the authorization URL through the client, validates the OAuth state on the exact
+callback path, exchanges the code with PKCE, and atomically replaces canonical state. Import and
+machine-wide logout are deliberately absent from the jail-facing action protocol: either would
+let any process in a selected jail change host-wide authentication. Directly launched host Codex
+and its credential file remain outside this service.
+
+Managed host launches share the service too. `yolo host -- pi` gives Pi's provider extension the
+private host Unix socket. `yolo host -- codex` writes the native credential view under
+`<global storage>/host-agents/codex`, sets `CODEX_HOME` to that directory, and starts a dynamic
+loopback refresh adapter. Yolo supervises Codex and closes the adapter when Codex exits. The
+generated Codex wrapper delegates to the same command. The managed home links `config.toml`,
+`AGENTS.md`, and `skills` from the ordinary host Codex home when present; its `auth.json`, session
+state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.
+
+> [!WARNING]
+> The OpenAI service is currently a host-service loophole. A backend that skips loopholes also
+> skips this service; the agent pack dependency alone does not create a second credential path.
+> See [the backend table](#per-backend-differences) before claiming parity.
+
 ### Git-identity composition
 
 Git identity is a **two-key allowlist** — `user.name` and `user.email`, plus an in-jail
@@ -305,8 +365,8 @@ format and the reachability requirements are [`loophole-transport.md`](loophole-
 
 ## Where each agent's credentials live
 
-Each agent authenticates **itself inside the jail** — yolo wires config, not auth. The agent packs
-use OAuth through their own login flow; several also accept a provider API key through
+Most agents authenticate **inside the jail**. Codex and Pi can instead use yolo's OpenAI
+credential service, while several agents also accept a provider API key through
 `env_sources`. Each pack's manifest pins that agent's overlay dirs (its `state` contributions) and
 its config surfaces; `packs/*/pack.json` is the enumeration, and
 [`pack-system.md`](pack-system.md) is how to read one.
@@ -318,17 +378,16 @@ Two asymmetries are the load-bearing part, and neither is visible from a per-age
   prepare step seeds it by copying **top-level regular files only** — the auth tokens — from the
   global home, never overwriting (`seedAgentDir`). An agent pack that declares no `state` dir
   rides the per-workspace `.config` overlay instead.
-- **Claude is the one host-shared credential.** Only Claude gets a separate read-write
+- **Claude and OpenAI subscription authentication have different sharing paths.** Claude gets a separate read-write
   shared-credentials mount plus the relative symlink, so a single OAuth identity is shared across
-  every jail on a host, and only Claude has a write-back path that propagates login state to the
-  shared seed. History stays isolated per host workspace even when the home is shared, because the
-  history file is keyed on a hash of the host directory.
+  every jail on a host. Codex and Pi receive generated views from canonical service state and
+  cannot write that state directly. Claude history stays isolated per host workspace even when
+  the home is shared, because the history file is keyed on a hash of the host directory.
 
 > [!WARNING]
-> **Cross-jail credential propagation is a Claude-only property in the code.** Nothing in the run
-> or boot path writes agent tokens *into* the global home except Claude's shared-credentials
-> mechanism, so a login in one jail does not reach another for any other agent. Do not generalize
-> the Claude behavior when reasoning about, or documenting, another agent.
+> **Do not generalize either sharing mechanism.** Claude shares one agent-native file. OpenAI
+> subscription authentication keeps one canonical service file and materializes narrower Codex
+> and Pi views. Other agent overlays are still seeded one-way per workspace.
 
 There is no `gemini` pack and there never was, but the **gemini-shaped paths are real**: `agy`
 occupies a subdirectory of the gemini tree, `Env.GeminiDir` is a live exported method whose
@@ -357,6 +416,7 @@ fully open.
 | User `host_files` | source-bearing: `/ctx/host-user/<slug>` `:ro`; source-less: composed | source-less composes; single-file `:ro` for `/ctx/host-user` unhandled upstream | source-less composes; a **file** `source` is copied into a root-owned `/ctx` tree (2026-09-13); a **directory** `source` is skipped and warned |
 | Claude shared credentials | shared bind + relative symlink | not mounted — one whole-home bind, so creds live in that per-workspace home | free — one real credentials file in the shared home |
 | claude-oauth-broker | active when the `claude` pack is selected | **skipped** — it declares `intercepts`, which need `--add-host` | skipped by default; the shared home is already one creds file |
+| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | **skipped** with all loopholes | **not wired yet**; the backend starts no loophole host service |
 | Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | how the endpoint file crosses into an AC guest is an unmade mount decision | not wired — the loophole runtime lives in the container launch path |
 | Per-workspace cred isolation | per-workspace `.yolo/home` overlay | one whole-home bind per workspace, but the claude dir is shared across workspaces there | **one shared home for all sessions** |
 | Isolation boundary | userns (Linux) / VM (macOS) + read-only root | VM + read-only root | Unix user + Seatbelt — weaker, deliberately |
@@ -430,6 +490,10 @@ place the values themselves are stated.
 | Broker refresh lock | `oauthbroker.RefreshLockPath` | `internal/oauthbroker/refresh.go` |
 | Broker credentials file | the shared-credentials dir under the global home | `internal/storage` (`ensure.go`), `internal/entrypoint/claude.go` |
 | Broker daemon | `yolo internal daemon claude-oauth-broker`, `scope: "host"` | `internal/broker`; `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc` |
+| OpenAI canonical state | `<loophole state>/credentials.json`, mode `0600`; parent and lock are private | `internal/openaiauth`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
+| OpenAI credential daemon | `yolo internal daemon openai-auth-broker`, `scope: "host"` | `internal/openaiauthdaemon`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
+| OpenAI jail endpoint | `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` | `internal/openauthclient` |
+| Codex refresh adapter | `http://127.0.0.1:1460/oauth/token` | `internal/openaiauthadapter`; `packs/codex/pack.json` |
 | Git identity keys carried | `user.name`, `user.email`, plus an in-jail `core.excludesFile` | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint/identity.go` |
 | `macos-user` identity replay vars | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` only — `YOLO_GLOBAL_GITIGNORE` is read by the entrypoint and **set by nothing**, so the global gitignore does not replay on this backend | `internal/macosuser` (`MacosSandboxEnv`), `internal/entrypoint/identity.go` |
 | Config keys in this story | `env_sources`, `host_files`, `host_services`, `loopholes` | `yolo config-ref` |

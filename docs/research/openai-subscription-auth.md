@@ -91,6 +91,26 @@ the same host singleton, publish an authenticated loopback-TLS endpoint in
 sandbox-visible launch state, and let both thin agent adapters call it. No DNS
 override, system trust change, or TLS interception is required.
 
+### 1.5 Pi selects the ChatGPT subscription as the `openai-codex` provider
+
+Pi's current provider identifier for a ChatGPT Plus or Pro subscription is
+`openai-codex`. After starting Pi, `/model` or Ctrl+L opens the model picker;
+choosing any model under that provider makes Pi use the shared subscription.
+The command-line equivalents are:
+
+```bash
+pi --provider openai-codex --model gpt-5.5
+pi --model openai-codex/gpt-5.5
+```
+
+In yolo, the interactive path is `yolo -- pi`, then `/model`. A configured
+Codex profile can make the selection at launch with `yolo -p codex -- pi`.
+Pi's [`README`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md#providers--models)
+documents `/model` and Ctrl+L, and its
+[`CLI reference`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/cli/args.ts)
+defines `--provider` plus both forms of `--model`. Verified from current upstream
+source on 2026-09-14.
+
 ## 2. Prior-art verdicts
 
 | Approach | Verdict | Reason |

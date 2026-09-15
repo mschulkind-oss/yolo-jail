@@ -105,6 +105,12 @@ pack.** The dependency is structural, so selecting the pack *is* the dependency 
 `PATH` probe standing in for it can answer correctly. A separate pack would reinstate the
 selection step this deletes.
 
+The OpenAI credential service is the complementary multi-agent case: one service owns one
+rotating grant for Codex and Pi, so `openai-auth-broker` belongs to the separate `openai-auth`
+pack and both agent packs declare it through `needs`. Selecting either agent therefore joins the
+same dependency automatically; users still do not select an authentication implementation by
+hand, and selecting both does not declare two daemon owners.
+
 Three more principles come from the packaging half.
 
 **A claim-free crossing must be unrepresentable.** Every declaration that reaches the host

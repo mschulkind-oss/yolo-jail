@@ -1,6 +1,6 @@
 # yolo-jail loopholes
 
-**Status:** USER REFERENCE — **verified current 2026-08-23.** The five shipped loopholes below and
+**Status:** USER REFERENCE — **verified current 2026-09-14.** The seven shipped loopholes below and
 their homes match the tree, including the 2026-08-19 move that retired `bundled_loopholes/`. One
 rationale was corrected this pass: the `framed` default for `request_end` is justified by
 length-prefixing being self-delimiting, not by the per-jail broker relay, which no longer exists.
@@ -14,6 +14,8 @@ Examples:
 - [`audio`](../../packs/audio/) — PipeWire/PulseAudio pass-through plus ALSA routing, shipped by the official `audio` pack (transport: `none`, lifecycle: `external`).
 - [`journal`](../../packs/journal/) — the host's systemd journal, read from the jail as `yolo-journalctl`, shipped by the official `journal` pack (transport: `loopback-tls`, lifecycle: `spawned`). It was a **built-in service** with no manifest at all until 2026-08-18, switched by a top-level `journal` config key that is now **refused**; the mode is its own `full` setting, user-scope.
 - [`cgroup-delegate`](../../packs/cgroup-delegate/) — the jail's control over its own cgroup (`yolo-cglimit`), shipped by the official `cgroup-delegate` pack (transport: `none`, lifecycle: `external`). Its manifest declares **no daemon**: the delegate is yolo's own in-process goroutine on an AF_UNIX socket, because its security model is `SO_PEERCRED` and a TCP hop carries no peer credential. What the manifest is, is the *switch* — it was presence-activated (Linux + cgroup v2, no config key anywhere) until 2026-08-18, and **`yolo-cglimit` no longer works out of the box** ([OQ-A4](../reference/loophole-system.md#activation)'s accepted cost).
+- [`serial`](../../packs/serial/) — allowlisted serial-device access through a host daemon and authenticated loopback-TLS front.
+- [`openai-auth-broker`](../../packs/openai-auth/loopholes/openai-auth-broker/) — one host owner for the OpenAI subscription refresh token used by Codex and Pi. Both agent packs join the `openai-auth` pack automatically. The canonical refresh token stays host-side; agent views carry access tokens and opaque generation markers.
 
 **There are no built-in loopholes left.** `paths.BuiltinLoopholeNames` is gone with them, and so is the spawn loop's builtin-name skip — the branch that made a manifest under such a name into *half a loophole*.
 - Hypothetical future: `llm-audit` (logs every inference request), `secret-gate` (scrubs outbound traffic).

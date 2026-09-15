@@ -8,7 +8,10 @@ summary: "A machine-wide OpenAI credential service owns refresh-token rotation a
 
 # One OpenAI refresh owner for Codex, Pi, hosts, and jails
 
-**Status:** DECIDED, 2026-09-14. Nothing built.
+**Status:** IN PROGRESS, 2026-09-14. The canonical transaction, host service,
+container adapters, pack dependency, browser login, managed host launch, status
+and self-check are implemented. Host-only import/logout and final backend
+verification remain.
 
 > **In short.** A yolo host service owns one OpenAI subscription grant and is
 > the only component allowed to refresh it. Codex and Pi receive compatible
@@ -40,19 +43,20 @@ implementation hand-off), [`../research/openai-subscription-auth.md`](../researc
 
 The first Codex or Pi launch without a credential prints one browser URL and
 opens it on the host when a browser opener exists. The callback reaches a
-machine-wide host listener and completes the requesting jail's login. Device
-authorization remains the fallback for SSH-only hosts.
+machine-wide host listener and completes the requesting jail's login. When no
+browser opener exists, the printed URL is the manual path.
 
 One successful login becomes available to Codex and Pi in every workspace on
 that machine. Logout is explicit and machine-wide, and the command must say that
 before deleting the grant. A new login replaces the old grant atomically.
 
 Host sharing is automatic for `yolo host -- codex` and generated host wrappers.
-That environment selects a yolo-managed Codex home, composes the same Codex
-config and skills surfaces into it, and routes refresh through the same service.
+That environment selects a yolo-managed Codex home, links the ordinary host
+configuration and skills into it, and routes refresh through the same service.
 Yolo never rewrites the user's ordinary `~/.codex/auth.json` or silently changes
 a directly launched host Codex. An explicit import can seed the broker from that
 file once; after import the files are independent and the broker owns rotation.
+That explicit import command is not implemented yet.
 
 ## 2. One writer and two views
 
@@ -62,16 +66,16 @@ and logout with one machine-wide lock. The persisted update is an atomic rename
 of a mode-0600 file in a mode-0700 directory.
 
 For a refresh request, the service takes the lock, reloads canonical state, and
-compares the caller's refresh-token fingerprint with the current generation. If
+compares the caller's opaque generation marker with the current generation. If
 the current access token has more than five minutes remaining, or the caller is
 stale, it returns the current generation without contacting OpenAI. Otherwise it
 refreshes exactly once, persists the returned rotation, and then responds.
 
 Codex keeps a workspace `auth.json` view because its native client expects one.
-Its refresh endpoint points at the service. The view may contain the refresh
-token because Codex must submit a native refresh request, but that token is a
-generation identifier at the broker: a stale value cannot consume an upstream
-token.
+Its refresh endpoint points at the service. The view carries
+`yolo-broker:<generation>` in Codex's required refresh-token field, rather than
+the canonical refresh token. A stale marker receives the current generation
+without consuming an upstream token.
 
 Pi receives an access-token view and never receives the canonical refresh token.
 Its provider record contains the current access token and expiry plus a
@@ -135,9 +139,11 @@ state prepared for that launch. It uses the same Codex and Pi adapters. It does
 not run the container-only in-jail daemon, install a CA into the system trust
 store, edit host DNS, or intercept all host traffic for `auth.openai.com`.
 
-`yolo host -- codex` uses the same host singleton and a per-launch endpoint but
-does not cross a jail boundary. Keeping the authenticated front preserves one
-client contract and audit path across host, `macos-user`, and containers.
+`yolo host -- codex` uses the same host singleton through a private mode-`0600`
+Unix socket and starts a dynamic loopback adapter on `127.0.0.1:0`. Yolo remains
+as the Codex parent and closes that adapter as soon as Codex exits. `yolo host --
+pi` and the Pi extension use the private socket directly. Generated wrappers
+delegate to these same host launch paths.
 
 ## 5. Failure and recovery
 
@@ -183,7 +189,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 | ID | Decision | Date |
 | :--- | :--- | :--- |
 | OQ-OA1 | One machine-wide host service is the sole refresh-token writer. | 2026-09-14 |
-| OQ-OA2 | Pi receives an agent-shaped access-token view with a broker marker; Codex uses its native refresh override. | 2026-09-14 |
+| OQ-OA2 | Pi receives an access-token view; Codex uses its native refresh override with an opaque generation marker. Neither receives the canonical refresh token. | 2026-09-14 |
 | OQ-OA3 | `yolo host -- codex` shares the broker through a managed Codex home; direct host Codex remains untouched. | 2026-09-14 |
 | OQ-OA4 | Container browser callbacks use one temporary, state-routed host relay; `macos-user` uses its native loopback. | 2026-09-14 |
 | OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |

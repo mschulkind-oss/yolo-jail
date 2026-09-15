@@ -11,7 +11,18 @@ summary: "Build order and verification for the machine-wide OpenAI credential se
 **Design:** [`openai-auth-broker.md`](openai-auth-broker.md) · Written against
 the repository on 2026-09-14.
 
-**Status:** DECIDED, 2026-09-14 — ready to implement.
+**Status:** IN PROGRESS, 2026-09-14.
+
+Implemented: the canonical transaction and private persistence; the OpenAI
+upstream exchange; host-service actions; Codex's loopback refresh adapter and
+pre-launch credential view; Pi's provider extension; the shared pack dependency;
+host-loopback PKCE login with ports 1455 and 1457; managed host Codex and Pi;
+proactive refresh, status and self-check.
+
+Still required: real rootless-host verification; Apple Container and
+`macos-user` transport; a host-only import and confirmed
+machine-wide logout flow; simultaneous callback routing beyond the two fixed
+loopback ports; and the final operational smoke tests.
 
 **Precedence:** the design wins on behavior, the tree wins on implementation
 facts, and this file is build advice.
@@ -47,8 +58,8 @@ facts, and this file is build advice.
    relay. Pin that no backend intercepts `auth.openai.com` or changes the host
    trust store.
 7. **Managed host use.** Make `yolo host -- codex` and the generated Codex host
-   wrapper select a yolo-managed Codex home, render the same pack-owned config
-   and skills there, and point at the service. Add an explicit one-shot import
+   wrapper select a yolo-managed Codex home, reuse the host-rendered config and
+   skills there, and point at the service. Add an explicit one-shot import
    from the ordinary host Codex credential. Verify direct `codex` and
    `~/.codex/auth.json` remain unchanged.
 8. **Operations.** Add proactive refresh, status, fingerprint-only diagnostics, logout, and a
