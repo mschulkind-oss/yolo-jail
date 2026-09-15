@@ -190,7 +190,8 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 | `POST /v1/messages` (non-streaming) | translate | `POST /chat/completions` |
 | `POST /v1/messages` (SSE) | translate event-for-event | the same, with streaming on |
 | `POST /v1/messages/count_tokens` | **refuse (404)** | no upstream call |
-| `system` (string or block array) | flatten to one system message | a leading system message |
+| top-level `system` (string or block array) | flatten to one system message | a leading system message; on the Codex Responses route, `instructions` |
+| `messages[].role: "system"` (text only) | preserve its conversation position | a system message; on the Codex Responses route, a `developer` input message |
 | text and image blocks | copy; images as base64 data URIs | content parts |
 | `tools[]` with an input schema | rename the schema field; **never request strict mode** | `tools[]` |
 | tool-use / tool-result blocks | bidirectional mapping | tool calls / tool-role messages |

@@ -44,6 +44,11 @@ func TestTranslateRequestRows(t *testing.T) {
 			want: `{"model":"m","messages":[{"role":"system","content":"Part one.\n\nPart two."},{"role":"user","content":"Hello"}],"max_tokens":5}`,
 		},
 		{
+			name: "in-conversation system text preserves its position",
+			in:   `{"model":"m","max_tokens":5,"messages":[{"role":"user","content":"before"},{"role":"system","content":[{"type":"text","text":"Use the repository conventions."}]},{"role":"user","content":"after"}]}`,
+			want: `{"model":"m","messages":[{"role":"user","content":"before"},{"role":"system","content":"Use the repository conventions."},{"role":"user","content":"after"}],"max_tokens":5}`,
+		},
+		{
 			name: "text and image blocks become content parts",
 			in:   `{"model":"m","max_tokens":9,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}},{"type":"text","text":"what is this?"}]}]}`,
 			want: `{"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}},{"type":"text","text":"what is this?"}]}],"max_tokens":9}`,
@@ -178,8 +183,8 @@ func TestTranslateRequestFailClosed(t *testing.T) {
 		},
 		{
 			name:    "unknown message role is named",
-			in:      `{"model":"m","max_tokens":1,"messages":[{"role":"system","content":"x"}]}`,
-			wantErr: `"system"`,
+			in:      `{"model":"m","max_tokens":1,"messages":[{"role":"developer","content":"x"}]}`,
+			wantErr: `"developer"`,
 		},
 		{
 			name:    "malformed JSON names the direction",

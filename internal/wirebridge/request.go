@@ -21,7 +21,9 @@ import (
 //
 // The request is never forwarded with anything this package does not
 // understand: an unrecognized content-block type, tool type, or role fails
-// closed with an error naming it (WB-D5) — the daemon renders that as a 400.
+// closed with an error naming it (WB-D5) — except the text-only system message
+// form Claude Code emits in its conversation, which maps to the equivalent
+// OpenAI role and keeps its position.
 func TranslateRequest(body []byte) ([]byte, error) {
 	var req anthropicRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -208,9 +210,28 @@ func translateMessage(m anthropicMsg) ([]openaiMessage, error) {
 		return translateUserMessage(blocks, plain)
 	case "assistant":
 		return translateAssistantMessage(blocks)
+	case "system":
+		return translateSystemMessage(blocks)
 	default:
-		return nil, fmt.Errorf("wirebridge: unrecognized message role %q (want user or assistant)", m.Role)
+		return nil, fmt.Errorf("wirebridge: unrecognized message role %q (want user, assistant, or system)", m.Role)
 	}
+}
+
+// translateSystemMessage handles Claude Code's in-conversation system
+// reminders. They are distinct from the top-level Anthropic system field:
+// this message must stay in transcript order. OpenAI chat completions accepts
+// a system role directly, while the Responses translator below emits its
+// equivalent developer role. Only text is accepted because tool and image
+// blocks do not have system-message equivalents on either route.
+func translateSystemMessage(blocks []anthropicBlock) ([]openaiMessage, error) {
+	var parts []string
+	for _, b := range blocks {
+		if b.Type != "text" {
+			return nil, fmt.Errorf("wirebridge: unsupported content block type %q in system message (the bridge translates text only)", b.Type)
+		}
+		parts = append(parts, b.Text)
+	}
+	return []openaiMessage{{Role: "system", Content: strings.Join(parts, "\n\n")}}, nil
 }
 
 // decodeContent accepts an anthropic message content — a plain string or an

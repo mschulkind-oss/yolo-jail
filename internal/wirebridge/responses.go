@@ -127,9 +127,27 @@ func translateResponsesMessage(m anthropicMsg) ([]responsesInput, error) {
 		return translateResponsesUser(blocks, plain)
 	case "assistant":
 		return translateResponsesAssistant(blocks)
+	case "system":
+		return translateResponsesSystem(blocks)
 	default:
-		return nil, fmt.Errorf("wirebridge: unrecognized message role %q (want user or assistant)", m.Role)
+		return nil, fmt.Errorf("wirebridge: unrecognized message role %q (want user, assistant, or system)", m.Role)
 	}
+}
+
+// translateResponsesSystem preserves Claude Code's in-conversation system
+// reminders as developer messages. They cannot be folded into instructions:
+// instructions is top-level and would lose their position among conversation
+// turns. The Responses wire accepts text input only for this compatibility
+// case; unsupported blocks stay visible as a 400 rather than being dropped.
+func translateResponsesSystem(blocks []anthropicBlock) ([]responsesInput, error) {
+	parts := make([]responsesInputPart, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type != "text" {
+			return nil, fmt.Errorf("wirebridge: unsupported content block type %q in system message (the Responses route translates text only)", b.Type)
+		}
+		parts = append(parts, responsesInputPart{Type: "input_text", Text: b.Text})
+	}
+	return []responsesInput{{Type: "message", Role: "developer", Content: parts}}, nil
 }
 
 func translateResponsesUser(blocks []anthropicBlock, plain bool) ([]responsesInput, error) {

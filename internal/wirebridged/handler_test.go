@@ -65,7 +65,8 @@ func TestNonStreamRoundTrip(t *testing.T) {
 	srv := httptest.NewServer(NewHandler(upSrv.URL, "test-key-123"))
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(anthropicReq))
+	requestWithSystemReminder := `{"model":"qwen-3.8-27b","max_tokens":64,"system":"be brief","messages":[{"role":"user","content":"hello"},{"role":"system","content":"follow the repository conventions"}]}`
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(requestWithSystemReminder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,10 +102,11 @@ func TestNonStreamRoundTrip(t *testing.T) {
 	if translated.MaxTokens != 64 {
 		t.Errorf("max_tokens must map, got %d", translated.MaxTokens)
 	}
-	if len(translated.Messages) != 2 ||
+	if len(translated.Messages) != 3 ||
 		translated.Messages[0].Role != "system" || translated.Messages[0].Content != "be brief" ||
-		translated.Messages[1].Role != "user" || translated.Messages[1].Content != "hello" {
-		t.Errorf("system must flatten to the leading system message: %+v", translated.Messages)
+		translated.Messages[1].Role != "user" || translated.Messages[1].Content != "hello" ||
+		translated.Messages[2].Role != "system" || translated.Messages[2].Content != "follow the repository conventions" {
+		t.Errorf("system messages must preserve their expected positions: %+v", translated.Messages)
 	}
 	if translated.Stream != nil && *translated.Stream {
 		t.Errorf("a non-stream request must go upstream as non-stream")
@@ -140,7 +142,7 @@ func TestResponsesNonStreamRoundTrip(t *testing.T) {
 	srv := httptest.NewServer(NewResponsesHandler(upSrv.URL, "test-key"))
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"terra","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`))
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"terra","max_tokens":64,"messages":[{"role":"user","content":"hello"},{"role":"system","content":"follow the repository conventions"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,13 +158,18 @@ func TestResponsesNonStreamRoundTrip(t *testing.T) {
 		Model string `json:"model"`
 		Max   int    `json:"max_output_tokens"`
 		Input []struct {
-			Type string `json:"type"`
+			Type    string `json:"type"`
+			Role    string `json:"role"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
 		} `json:"input"`
 	}
 	if err := json.Unmarshal(up.gotBody, &request); err != nil {
 		t.Fatal(err)
 	}
-	if request.Model != "terra" || request.Max != 64 || len(request.Input) != 1 || request.Input[0].Type != "message" {
+	if request.Model != "terra" || request.Max != 64 || len(request.Input) != 2 || request.Input[0].Type != "message" || request.Input[1].Type != "message" || request.Input[1].Role != "developer" || len(request.Input[1].Content) != 1 || request.Input[1].Content[0].Type != "input_text" || request.Input[1].Content[0].Text != "follow the repository conventions" {
 		t.Fatalf("responses request = %s", up.gotBody)
 	}
 	if !strings.Contains(string(body), `"text":"hi from responses"`) {

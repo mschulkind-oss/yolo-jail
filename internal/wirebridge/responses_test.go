@@ -43,6 +43,36 @@ func TestTranslateResponsesRequestPreservesToolConversation(t *testing.T) {
 	}
 }
 
+func TestTranslateResponsesRequestPreservesInConversationSystem(t *testing.T) {
+	out, err := TranslateResponsesRequest([]byte(`{"model":"terra","max_tokens":64,"messages":[{"role":"user","content":"before"},{"role":"system","content":[{"type":"text","text":"Use the repository conventions."}]},{"role":"user","content":"after"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Input []struct {
+			Type    string `json:"type"`
+			Role    string `json:"role"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if len(got.Input) != 3 || got.Input[1].Type != "message" || got.Input[1].Role != "developer" || len(got.Input[1].Content) != 1 || got.Input[1].Content[0].Type != "input_text" || got.Input[1].Content[0].Text != "Use the repository conventions." {
+		t.Fatalf("input = %#v", got.Input)
+	}
+}
+
+func TestTranslateResponsesRequestRejectsNonTextInConversationSystem(t *testing.T) {
+	_, err := TranslateResponsesRequest([]byte(`{"model":"terra","messages":[{"role":"system","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}]}]}`))
+	if err == nil || !strings.Contains(err.Error(), `"image"`) {
+		t.Fatalf("TranslateResponsesRequest error = %v, want named image error", err)
+	}
+}
+
 func TestTranslateResponsesResponsePreservesToolIdentity(t *testing.T) {
 	out, err := TranslateResponsesResponse([]byte(`{"id":"resp_1","model":"terra","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"I will check."}]},{"type":"function_call","call_id":"call_1","name":"ls","arguments":"{\"path\":\".\"}"}],"usage":{"input_tokens":5,"output_tokens":3}}`))
 	if err != nil {
