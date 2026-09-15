@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -43,6 +44,13 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" &&
 		os.Args[3] == "claude-oauth-broker" {
 		os.Exit(oauthbroker.Main(os.Args[4:]))
+	}
+	// OpenAI auth is also host-scoped. macos-user dispatch self-execs this test
+	// binary through the pack's real host-daemon argv, so it needs the same
+	// dispatch as the other host daemons above to bind its test socket.
+	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" &&
+		os.Args[3] == "openai-auth-broker" {
+		os.Exit(openaiauthdaemon.Main(os.Args[4:]))
 	}
 	// `<test-binary> -front-upstream-child <mode> <socket>` is the daemon child
 	// for the publishes:"socket" tests: it binds a REAL AF_UNIX socket, which no
