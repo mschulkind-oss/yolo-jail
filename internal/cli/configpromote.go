@@ -154,14 +154,9 @@ func parsePromoteArgs(args []string, out, errw io.Writer) (promoteOptions, int) 
 		case isHelpToken(a):
 			io.WriteString(out, configUsage+"\n")
 			return o, 0
-		case a == "--surface":
-			if !needsValue(i, a) {
-				return o, 2
-			}
-			i++
-			o.surface = args[i]
-		case strings.HasPrefix(a, "--surface="):
-			o.surface = strings.TrimPrefix(a, "--surface=")
+		case a == "--surface" || strings.HasPrefix(a, "--surface="):
+			fmt.Fprintln(errw, "yolo config promote: --surface was removed; use the canonical positional identity <agent>/<surface> (for example, pi/settings)")
+			return o, 2
 		case a == "--keys":
 			if !needsValue(i, a) {
 				return o, 2
@@ -215,6 +210,11 @@ func parsePromoteArgs(args []string, out, errw io.Writer) (promoteOptions, int) 
 		fmt.Fprintf(errw, "yolo config promote: needs an agent (e.g. 'yolo config promote claude')\n\n%s\n",
 			configUsage)
 		return o, 2
+	}
+	var identityRC int
+	o.agent, o.surface, identityRC = parseSurfaceIdentity("promote", o.agent, errw)
+	if identityRC != 0 {
+		return o, identityRC
 	}
 	if o.plan && o.accept {
 		// They are opposite instructions about the same run, and guessing which one the

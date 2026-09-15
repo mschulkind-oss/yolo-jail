@@ -436,7 +436,7 @@ func TestPromoteMisuse(t *testing.T) {
 		{[]string{"claude", "--force"}, "there is no blanket form"},
 		{[]string{"claude", "--keys", "nosuchkey", "--plan"}, "not captured"},
 		{[]string{"user", "--plan"}, "no surface identity"},
-		{[]string{"claude", "--surface", "config", "--plan"}, "records no captured edits"},
+		{[]string{"claude/config", "--plan"}, "records no captured edits"},
 	}
 	for _, c := range cases {
 		w := newPromoteWorld(t, `["claude"]`)

@@ -398,7 +398,7 @@ read-only.
 
 ```bash
 yolo config render <agent>                 # every surface, to stdout — no writes
-yolo config render claude --surface settings
+yolo config render claude/settings
 yolo config render pi --explain [KEYPATH]  # which layer/hook won each leaf (incl. dropped host keys)
 yolo config render pi --host F --workspace F --overlay F --format json   # hypotheticals / fixtures
 ```

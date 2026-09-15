@@ -34,21 +34,26 @@ Subcommands:
                            contributing layers, and whether captured in-jail
                            edits are outranking every layer but computed
                            and managed.
-  render <agent> [flags]   Run the composition pipeline and print what it would
+  render <agent[/surface]> [flags]
+                           Run the composition pipeline and print what it would
                            write, for every surface of <agent> (no writes).
-  diff <agent> [flags]     Show the captured in-jail edits (the capture overlay)
+  diff <agent[/surface]> [flags]
+                           Show the captured in-jail edits (the capture overlay)
                            for <agent>, key by key, versus yolo's last render —
                            plus which packs contribute keys via config-overlay,
                            and whether each contribution won or the owner did.
-  reset <agent> [flags]    Discard those captured edits, so the surface returns
+  reset <agent[/surface]> [flags]
+                           Discard those captured edits, so the surface returns
                            to what its layers produce on the next launch.
-  promote <agent> [flags]  Turn captured in-jail edits into DECLARED ones: write them
+  promote <agent[/surface]> [flags]
+                           Turn captured in-jail edits into DECLARED ones: write them
                            into a pack (the conventional local pack by default, which
                            renders in every jail and on the host) and clear them from
                            the capture overlay, so the value is declared in one place.
                            HOST-SIDE ONLY — the destinations are under the host's
                            ~/.config/yolo-jail/, which no jail may write.
-  capture <agent> [flags]  Record the CURRENT on-disk edits into the overlay now,
+  capture <agent[/surface]> [flags]
+                           Record the CURRENT on-disk edits into the overlay now,
                            without waiting. Nothing is lost without it — a jail
                            captures on TERMINATE, and the next boot captures again
                            — so this is for reading 'diff' mid-session, while the
@@ -65,8 +70,12 @@ Subcommands:
                            keys) — the effective merged config this jail runs under,
                            the same form the startup config-change diff validates.
 
+Surface selection:
+  Use the canonical identity printed by 'yolo config ls', such as pi/settings.
+  A bare agent name selects all of that agent's surfaces. The removed --surface
+  flag is rejected with a migration hint.
+
 render flags:
-  --surface <name>   Render only the named surface (e.g. settings).
   --explain          Print, per config key, which layer set it
                      (defaults<host<workspace<overlay<managed),
                      instead of the rendered file.
@@ -77,16 +86,12 @@ ls flags:
                      declares every agent's surfaces; a jail composes only the
                      selected agents').
 
-diff/reset flags:
-  --surface <name>   Limit to the named surface.
-
 reset/capture also take:
   --force            reset and capture WRITE files; run host-side (outside the jail
                      that owns the workspace) they resolve against your REAL home and
                      could clobber your own config, so they refuse there unless --force.
 
 promote flags:
-  --surface <name>   Limit to the named surface.
   --keys a,b         Promote only these captured keys (default: all of them).
   --to <dest>        local (default), pack:<name>, or host. "local" is
                      ~/.config/yolo-jail/local — no packs entry needed, folds after
@@ -108,8 +113,8 @@ Only a 'capture'-mode surface accumulates in-jail edits; 'readonly', 'once' and
 Examples:
   yolo config ls                      # every composed file, and what mode it is in
   yolo config render claude           # what a launch would write for claude
-  yolo config diff claude             # what this jail has changed since
-  yolo config reset claude --force    # throw those changes away`
+  yolo config diff claude/settings    # edits captured for one listed surface
+  yolo config reset claude/settings   # discard that surface's captured edits`
 
 // runConfig dispatches `yolo config <subcommand>`. Registered in dispatch.go.
 // Per the dispatch convention (see runBroker), args[0] is the command name
@@ -166,9 +171,9 @@ func colorForWriter(out io.Writer) bool {
 	return ok && isTTY(f)
 }
 
-// configRender implements `yolo config render <agent> [--surface s] [--explain]`.
+// configRender implements `yolo config render <agent[/surface]> [--explain]`.
 func configRender(args []string, out, errw io.Writer, color bool) int {
-	var agent, surface string
+	var identity string
 	var explain bool
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -178,29 +183,27 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 			return 0
 		case a == "--explain":
 			explain = true
-		case a == "--surface":
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo config render: --surface needs a value\n")
-				return 2
-			}
-			i++
-			surface = args[i]
-		case strings.HasPrefix(a, "--surface="):
-			surface = strings.TrimPrefix(a, "--surface=")
+		case a == "--surface" || strings.HasPrefix(a, "--surface="):
+			fmt.Fprintln(errw, "yolo config render: --surface was removed; use the canonical positional identity <agent>/<surface> (for example, pi/settings)")
+			return 2
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(errw, "yolo config render: unknown flag %q\n\n%s\n", a, configUsage)
 			return 2
 		default:
-			if agent != "" {
-				fmt.Fprintf(errw, "yolo config render: unexpected argument %q (agent already %q)\n", a, agent)
+			if identity != "" {
+				fmt.Fprintf(errw, "yolo config render: unexpected argument %q (target already %q)\n", a, identity)
 				return 2
 			}
-			agent = a
+			identity = a
 		}
 	}
-	if agent == "" {
+	if identity == "" {
 		fmt.Fprintf(errw, "yolo config render: needs an agent (e.g. 'yolo config render pi')\n\n%s\n", configUsage)
 		return 2
+	}
+	agent, surface, rc := parseSurfaceIdentity("render", identity, errw)
+	if rc != 0 {
+		return rc
 	}
 
 	m := surfaceManifest()
@@ -217,8 +220,21 @@ func configRender(args []string, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "yolo config render: no surfaces for agent %q (known: %s)\n", agent, strings.Join(names, ", "))
 		return 1
 	}
+	if surface != "" {
+		found := false
+		for _, s := range surfaces {
+			if s.Name == surface {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fmt.Fprintf(errw, "yolo config render: no surface %q for agent %q\n", surface, agent)
+			return 1
+		}
+	}
 
-	rc := 0
+	rc = 0
 	for _, s := range surfaces {
 		if surface != "" && s.Name != surface {
 			continue

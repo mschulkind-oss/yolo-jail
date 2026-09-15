@@ -161,7 +161,8 @@ Highest value, low risk (text stays byte-identical after strip).
 - [ ] **`config --help` / `configUsage`** (config.go L26-44) —
   **Impact: med · Effort: med** (same config.go color path). Headers
   `Usage:`/`Subcommands:`/`render flags:`→bold; `render <agent>` token and each
-  flag (`--surface`, `--explain`, `--help, -h`)→cyan; file paths→cyan or dim.
+  canonical surface identity (`pi/settings`) and flags (`--explain`,
+  `--help, -h`)→cyan; file paths→cyan or dim.
   (Written when `configUsage` named the two `config.lua` files; both are gone
   with the Lua transform — [`lua-transform-removal.md`](../design/lua-transform-removal.md) — so the paths left to
   color are whatever the help text names today.)

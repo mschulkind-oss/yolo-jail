@@ -169,7 +169,7 @@ func TestConfigDiffShowsCapturedKeys(t *testing.T) {
 		`{"theme":"light","effortLevel":"xhigh"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	got := out.String()
@@ -222,7 +222,7 @@ func TestConfigResetDiscardsTheOverlayAndReSeedsTheBaseline(t *testing.T) {
 	writeFile(t, settings, `{"theme":"dark"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configReset rc=%d, stderr=%s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "discarded 1 captured key") {
@@ -261,11 +261,11 @@ func TestConfigResetIsIdempotent(t *testing.T) {
 	dir := withSidecarDir(t)
 	writeSidecar(t, dir, "claude", "settings", `{"a":1}`, `{}`)
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("first reset rc=%d", rc)
 	}
 	out.Reset()
-	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("second reset rc=%d, stderr=%s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "Nothing to reset") {

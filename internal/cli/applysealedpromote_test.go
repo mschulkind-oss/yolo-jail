@@ -13,7 +13,7 @@ import (
 //
 // `apply --sealed`'s refusal for an outstanding capture overlay offered two exits and
 // spelled only one of them as a command: *"promote them into a pack or `yolo config reset
-// … --surface …` to discard"*. `yolo config promote` has shipped since
+// <agent>/<surface>` to discard"*. `yolo config promote` has shipped since
 // config-ownership-and-promotion.md §5 landed (cli.configRunW's `case "promote"`,
 // internal/cli/configpromote.go), so the reader was handed a runnable command for the
 // exit that DESTROYS their edits and English prose for the one that keeps them.
@@ -47,8 +47,8 @@ func TestApplySealedNamesThePromoteVerb(t *testing.T) {
 
 	// BOTH EXITS, both runnable, both scoped to the surface the refusal named — a remedy
 	// the reader has to re-derive the arguments for is a remedy they will not take.
-	promote := "`yolo config promote " + s.Agent + " --surface " + s.Name + "`"
-	reset := "`yolo config reset " + s.Agent + " --surface " + s.Name + "`"
+	promote := "`yolo config promote " + s.Agent + "/" + s.Name + "`"
+	reset := "`yolo config reset " + s.Agent + "/" + s.Name + "`"
 	if !strings.Contains(got, promote) {
 		t.Errorf("the refusal does not name the promote command.\nwant substring: %s\ngot:\n%s",
 			promote, got)

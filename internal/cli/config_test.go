@@ -119,8 +119,8 @@ func TestConfigHelpExitsZero(t *testing.T) {
 		if rc != 0 {
 			t.Errorf("config %v: rc=%d, want 0", args, rc)
 		}
-		if !strings.Contains(out.String(), "render <agent>") {
-			t.Errorf("config %v: help missing 'render <agent>':\n%s", args, out.String())
+		if !strings.Contains(out.String(), "render <agent[/surface]>") {
+			t.Errorf("config %v: help missing 'render <agent[/surface]>':\n%s", args, out.String())
 		}
 	}
 }
@@ -136,6 +136,7 @@ func TestConfigRenderMisuse(t *testing.T) {
 		{[]string{"bogus"}, 2, "unknown subcommand"},
 		{[]string{"render"}, 2, "needs an agent"},
 		{[]string{"render", "nonesuch"}, 1, "no surfaces for agent"},
+		{[]string{"render", "pi/nonesuch"}, 1, "no surface"},
 		{[]string{"render", "pi", "--bogus"}, 2, "unknown flag"},
 	}
 	for _, c := range cases {
@@ -147,6 +148,54 @@ func TestConfigRenderMisuse(t *testing.T) {
 		if !strings.Contains(errw.String(), c.wantErr) {
 			t.Errorf("config %v: stderr %q missing %q", c.args, errw.String(), c.wantErr)
 		}
+	}
+}
+
+func TestConfigCanonicalSurfaceIdentityThroughDispatch(t *testing.T) {
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"render", "pi/settings"}, &out, &errw); rc != 0 {
+		t.Fatalf("config render pi/settings: rc=%d, stderr=%s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "pi/settings") {
+		t.Fatalf("canonical target did not select pi/settings:\n%s", out.String())
+	}
+}
+
+func TestConfigSurfaceIdentityValidationThroughDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"leading slash", []string{"render", "/settings"}, "malformed surface identity"},
+		{"trailing slash", []string{"render", "pi/"}, "malformed surface identity"},
+		{"multiple slashes", []string{"render", "pi/settings/extra"}, "malformed surface identity"},
+		{"removed legacy form", []string{"render", "pi", "--surface", "settings"}, "--surface was removed"},
+		{"removed equals form", []string{"render", "pi", "--surface=settings"}, "--surface was removed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errw bytes.Buffer
+			if rc := configRunW(tc.args, &out, &errw); rc != 2 {
+				t.Fatalf("config %v: rc=%d, want 2; stderr=%s", tc.args, rc, errw.String())
+			}
+			if !strings.Contains(errw.String(), tc.want) {
+				t.Fatalf("config %v: stderr %q missing %q", tc.args, errw.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigRemovedSurfaceFlagHasMigrationHintThroughDispatch(t *testing.T) {
+	for _, cmd := range []string{"render", "diff", "reset", "capture", "promote"} {
+		t.Run(cmd, func(t *testing.T) {
+			var out, errw bytes.Buffer
+			if rc := configRunW([]string{cmd, "pi", "--surface", "settings"}, &out, &errw); rc != 2 {
+				t.Fatalf("config %s: rc=%d, want 2; stderr=%s", cmd, rc, errw.String())
+			}
+			if got := errw.String(); !strings.Contains(got, "--surface was removed") || !strings.Contains(got, "pi/settings") {
+				t.Fatalf("config %s migration error was not actionable: %q", cmd, got)
+			}
+		})
 	}
 }
 

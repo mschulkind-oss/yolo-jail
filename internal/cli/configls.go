@@ -446,8 +446,8 @@ func writeSurfaceTable(out io.Writer, rows []surfaceRow, color bool) {
 		pr.Printf("")
 		pr.Printf("[yellow]⚠ %d %s captured in-jail edits that outrank every layer but `computed` and `managed`.[/yellow]",
 			diverged, plural(diverged, "surface has", "surfaces have"))
-		pr.Printf("  Inspect: [cyan]yolo config diff <agent> --surface <name>[/cyan]")
-		pr.Printf("  Discard: [cyan]yolo config reset <agent> --surface <name>[/cyan]")
+		pr.Printf("  Inspect: [cyan]yolo config diff <agent>/<surface>[/cyan]")
+		pr.Printf("  Discard: [cyan]yolo config reset <agent>/<surface>[/cyan]")
 	}
 }
 

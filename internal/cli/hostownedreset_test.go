@@ -69,7 +69,7 @@ func TestHostSideResetWorksUnderOwn(t *testing.T) {
 	_, store, surfacePath := hostResetFixture(t, "own")
 
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	if _, err := os.Stat(filepath.Join(store, "claude-settings.overlay.json")); !os.IsNotExist(err) {
@@ -131,7 +131,7 @@ func TestHostSideResetRefusesUnderNoneAndAssert(t *testing.T) {
 			}
 
 			var out, errw bytes.Buffer
-			if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 1 {
+			if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 1 {
 				t.Fatalf("reset under %q: rc=%d, want 1\n%s%s", mode, rc, out.String(), errw.String())
 			}
 			if !strings.Contains(errw.String(), "refusing") {
@@ -157,7 +157,7 @@ func TestHostSideResetRefusesUnderNoneAndAssert(t *testing.T) {
 func TestHostSideResetForceStillWorksUnderAssert(t *testing.T) {
 	_, store, _ := hostResetFixture(t, "assert")
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude", "--surface", "settings", "--force"}, &out, &errw, false); rc != 0 {
+	if rc := configReset([]string{"claude/settings", "--force"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("reset --force under `assert`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	// It resolved the WORKSPACE tree, not the host store: --force is the old escape hatch and
@@ -180,7 +180,7 @@ func TestHostSideResetForceStillWorksUnderAssert(t *testing.T) {
 func TestHostSideCaptureStaysRefusedUnderOwn(t *testing.T) {
 	hostResetFixture(t, "own")
 	var out, errw bytes.Buffer
-	if rc := configCapture([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 1 {
+	if rc := configCapture([]string{"claude/settings"}, &out, &errw, false); rc != 1 {
 		t.Fatalf("capture under `own`: rc=%d, want 1 (refused)\n%s%s",
 			rc, out.String(), errw.String())
 	}
@@ -210,7 +210,7 @@ func TestHostSideResetTruncatesToTheGuardedPosture(t *testing.T) {
 	_, _, surfacePath := hostResetFixture(t, "own")
 
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	data, err := os.ReadFile(surfacePath)
@@ -281,7 +281,7 @@ func TestHostSideResetLeavesTheNextApplyNothingToAdopt(t *testing.T) {
 	}
 
 	var out, errw bytes.Buffer
-	if rc := configReset([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configReset([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("reset under `own`: rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	// The command reset's own trailer names, at the notch it named it for.

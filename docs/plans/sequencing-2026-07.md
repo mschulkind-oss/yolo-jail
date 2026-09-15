@@ -521,8 +521,9 @@ Marked here so the "start here" arrow points at the real next item.
   remain (human-gated).
 - ✅ **config-composition Phase A + B** (2026-07-20/21) — engine (`internal/
   agentcfg`) + codecs + real gopher-lua sandbox VM + manifest landed; the
-  exported `Compose` orchestrator + `yolo config render <agent> [--surface|
-  --explain]` CLI cover every agent surface (pi/claude/gemini/copilot/opencode/
+  exported `Compose` orchestrator +
+  `yolo config render <agent[/surface]> [--explain]` CLI cover every agent surface
+  (pi/claude/gemini/copilot/opencode/
   codex) plus MCP/LSP/mise; `mergeAccumulate` tombstone fix.
 - ✅ **config-composition — agent-config surfaces wired + cut over** (2026-07-22) —
   boot (`internal/entrypoint`) and `yolo check` now render the agent-config

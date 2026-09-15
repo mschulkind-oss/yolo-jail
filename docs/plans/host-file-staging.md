@@ -427,8 +427,8 @@ user/mytool          ~/.config/mytool/config.json  json   managed   defaults hos
 mise/config          ~/.config/mise/config.toml    toml   copy      computed                   –
 
 ⚠ 2 surfaces have captured in-jail edits that outrank their host layer.
-  Inspect: yolo config diff claude --surface settings
-  Discard: yolo config reset claude --surface settings
+  Inspect: yolo config diff claude/settings
+  Discard: yolo config reset claude/settings
 ```
 
 The value is that **an overlay can never be invisible**: a file whose content
@@ -440,9 +440,9 @@ already in production:
 
 - **`yolo config ls`** — the table above. `--explain` per surface for per-key
   provenance (extends `render --explain`, which already names the winning layer).
-- **`yolo config diff <agent> [--surface s]`** — captured overlay vs. a
+- **`yolo config diff <agent[/surface]>`** — captured overlay vs. a
   freshly-composed host/defaults render. Raw surfaces get a whole-file diff.
-- **`yolo config reset <agent> [--surface s]`** — discard the overlay sidecar (and
+- **`yolo config reset <agent[/surface]>`** — discard the overlay sidecar (and
   re-seed a `once` file), replacing "know to delete a file in `<workspace>/.yolo/`
   by hand".
 - **Boot-time notice** — any surface rendering with a non-empty overlay prints
@@ -1250,11 +1250,11 @@ surfaces too, which have carried silent capture overlays since the prism cutover
 12. **Boot-time divergence notice** — when a surface renders with a non-empty
     overlay, print `<path>: N keys from captured in-jail edits (yolo config diff)`
     in the startup output.
-13. **`yolo config diff <agent> [--surface s]`** — captured overlay vs. a
+13. **`yolo config diff <agent[/surface]>`** — captured overlay vs. a
     freshly-composed host/defaults render. Extends `render --explain`'s existing
     per-key provenance (which already names `overlay` as a winning layer); raw
     surfaces get a whole-file diff.
-14. **`yolo config reset <agent> [--surface s]`** — discard the overlay sidecar
+14. **`yolo config reset <agent[/surface]>`** — discard the overlay sidecar
     (and re-seed a `once` file), replacing "know to delete a file in
     `<workspace>/.yolo/` by hand".
 

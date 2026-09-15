@@ -194,7 +194,7 @@ func TestResetCaptureRefuseHostSideWithoutForce(t *testing.T) {
 	for _, cmd := range []string{"reset", "capture"} {
 		var out, errw bytes.Buffer
 		// Without --force: refused, and the sidecar is left intact.
-		rc := configRunW([]string{cmd, "claude", "--surface", "settings"}, &out, &errw)
+		rc := configRunW([]string{cmd, "claude/settings"}, &out, &errw)
 		if rc == 0 {
 			t.Errorf("%s host-side without --force should refuse, got rc=0", cmd)
 		}
@@ -208,7 +208,7 @@ func TestResetCaptureRefuseHostSideWithoutForce(t *testing.T) {
 
 	// With --force, reset proceeds (removes the sidecars) — the escape hatch works.
 	var out, errw bytes.Buffer
-	if rc := configRunW([]string{"reset", "claude", "--surface", "settings", "--force"}, &out, &errw); rc != 0 {
+	if rc := configRunW([]string{"reset", "claude/settings", "--force"}, &out, &errw); rc != 0 {
 		t.Fatalf("reset --force host-side should proceed, got rc=%d: %s", rc, errw.String())
 	}
 	if _, err := os.Stat(filepath.Join(dir, "claude-settings.overlay.json")); !os.IsNotExist(err) {
@@ -242,7 +242,7 @@ func diffFixture(t *testing.T, agent, name, lastRender, overlayJSON string) stri
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if rc := configDiff([]string{agent, "--surface", name}, &out, io.Discard, false); rc != 0 {
+	if rc := configDiff([]string{agent + "/" + name}, &out, io.Discard, false); rc != 0 {
 		t.Fatalf("config diff %s rc=%d\n%s", agent, rc, out.String())
 	}
 	return out.String()

@@ -78,7 +78,7 @@ func TestConfigDiffStatesTheCaptureCeiling(t *testing.T) {
 	writeSidecar(t, dir, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
 
 	var out, errw bytes.Buffer
-	if rc := configDiff([]string{"claude", "--surface", "settings"}, &out, &errw, false); rc != 0 {
+	if rc := configDiff([]string{"claude/settings"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("configDiff rc=%d, stderr=%s", rc, errw.String())
 	}
 	assertCaptureCeiling(t, "yolo config diff", out.String())

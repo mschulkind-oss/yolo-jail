@@ -576,10 +576,12 @@
     Note 0444 is DAC, not kernel enforcement: an agent running as root (Claude
     YOLO does) bypasses the mode bits.  It is a strong signal and a speed bump,
     not a sandbox — use `mounts` for a kernel-enforced read-only file.
-    Inspect what any of this produced with [bold]yolo config ls[/bold]; a capture surface's
-    accumulated edits with [bold]yolo config diff[/bold], and discard them with
-    [bold]yolo config reset[/bold].  `diff` and `reset` apply to CAPTURE surfaces only —
-    they are defined over the sidecars, which no other mode writes.
+    Inspect what any of this produced with [bold]yolo config ls[/bold]. Its first column is
+    the canonical surface identity (`agent/surface`): pass that identity to
+    [bold]yolo config render[/bold], [bold]diff[/bold], [bold]reset[/bold], [bold]capture[/bold], or [bold]promote[/bold] to select one
+    surface; pass a bare agent to select all its surfaces. `diff` and `reset`
+    apply to CAPTURE surfaces only — they are defined over the sidecars, which
+    no other mode writes.
 
     [bold yellow]Scope: an entry that names a `source` is read from
     ~/.config/yolo-jail/config.jsonc ONLY[/bold yellow] (plus that file's include_if_found
@@ -1828,4 +1830,3 @@
   • Decisions made and their rationale
   • Key files to examine first
   Your inner-jail self will be a fresh session without your context.
-

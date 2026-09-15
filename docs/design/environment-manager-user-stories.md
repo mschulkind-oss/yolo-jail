@@ -134,7 +134,7 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    one that actually broke her:
 
    ```
-   $ yolo config diff claude --surface settings
+   $ yolo config diff claude/settings
    # claude/settings → ~/.claude/settings.json
      enabledPlugins  {"gopls-lsp@claude-plugins-official": true, "pyright-lsp@claude-plugins-official": true} (was {})
 

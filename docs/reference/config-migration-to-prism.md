@@ -369,4 +369,4 @@ only place the values themselves are stated.
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
 | Codec kinds the machine branches on | object vs keyless | `internal/agentcfg/codec` (`KindObject`) |
 | Orphan retirement declaration | `retireOnFirstRender` on a `config` contribution | `internal/packdecl`, applied by `entrypoint.retireOrphanSidecars` |
-| Discard command | `yolo config reset <agent> [--surface s]` | `internal/cli/configdiff.go` (`configReset`) |
+| Discard command | `yolo config reset <agent[/surface]>` | `internal/cli/configdiff.go` (`configReset`) |

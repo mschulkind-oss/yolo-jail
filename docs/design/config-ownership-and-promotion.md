@@ -613,7 +613,7 @@ promotion outranks every other pack's overlay on the same key.
 ### 5.1 Surface
 
 ```console
-$ yolo config promote <agent> [--surface <name>] [--keys a,b] [--to <dest>]
+$ yolo config promote <agent[/surface]> [--keys a,b] [--to <dest>]
                               [--plan] [--json] [--answers <file>]
                               [--accept-promotion]
 ```

@@ -35,8 +35,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// surfaceArgs parses the shared `<agent> [--surface <name>]` argument shape used
-// by diff and reset. Returns rc=-1 when parsing succeeded.
+// surfaceArgs parses the shared `<agent[/surface]>` argument shape used by diff,
+// reset, and capture. Returns rc=-1 when parsing succeeded.
 func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface string, force bool, rc int) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -44,15 +44,9 @@ func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface
 		case isHelpToken(a):
 			io.WriteString(out, configUsage+"\n")
 			return "", "", false, 0
-		case a == "--surface":
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo config %s: --surface needs a value\n", cmd)
-				return "", "", false, 2
-			}
-			i++
-			surface = args[i]
-		case strings.HasPrefix(a, "--surface="):
-			surface = strings.TrimPrefix(a, "--surface=")
+		case a == "--surface" || strings.HasPrefix(a, "--surface="):
+			fmt.Fprintf(errw, "yolo config %s: --surface was removed; use the canonical positional identity <agent>/<surface> (for example, %s/settings)\n", cmd, firstNonFlag(args))
+			return "", "", false, 2
 		case a == "--force":
 			// The escape hatch for the host-side write guard (below). Only meaningful
 			// when the surfaces are NOT local (host-side or another workspace's jail);
@@ -74,7 +68,34 @@ func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface
 			cmd, cmd, configUsage)
 		return "", "", false, 2
 	}
+	agent, surface, rc = parseSurfaceIdentity(cmd, agent, errw)
+	if rc != 0 {
+		return "", "", false, rc
+	}
 	return agent, surface, force, -1
+}
+
+func firstNonFlag(args []string) string {
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-") && !strings.Contains(arg, "/") {
+			return arg
+		}
+	}
+	return "agent"
+}
+
+// parseSurfaceIdentity splits the canonical identity printed by `config ls`.
+// A bare agent selects all of its surfaces; a single slash selects exactly one.
+func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface string, rc int) {
+	if strings.Count(identity, "/") == 0 {
+		return identity, "", 0
+	}
+	parts := strings.Split(identity, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		fmt.Fprintf(errw, "yolo config %s: malformed surface identity %q; use <agent>/<surface> with exactly one slash and two non-empty names\n", cmd, identity)
+		return "", "", 2
+	}
+	return parts[0], parts[1], 0
 }
 
 // refuseHostSideWrite is the Phase-0 data-loss guard. Host-side `config reset`/`capture`
@@ -213,7 +234,7 @@ func userSidecarSurfaces(surface string) []manifest.Surface {
 	return out
 }
 
-// configDiff implements `yolo config diff <agent> [--surface s]`: what the capture
+// configDiff implements `yolo config diff <agent[/surface]>`: what the capture
 // overlay is contributing, key by key, versus the layers beneath it.
 //
 // It reports the overlay's own content rather than re-composing, deliberately: the
@@ -272,8 +293,15 @@ func configDiff(args []string, out, errw io.Writer, color bool) int {
 		return 0
 	}
 	pr.Printf("[dim]These values were captured from in-jail edits and outrank every layer but `computed` and `managed`.[/dim]")
-	pr.Printf("[dim]Discard them with: yolo config reset %s[/dim]", agent)
+	pr.Printf("[dim]Discard them with: yolo config reset %s[/dim]", surfaceIdentity(agent, surface))
 	return 0
+}
+
+func surfaceIdentity(agent, surface string) string {
+	if surface == "" {
+		return agent
+	}
+	return agent + "/" + surface
 }
 
 // overlayContribution is one surface's config-overlay picture for the diff: who
@@ -778,7 +806,7 @@ func readLastRenderKeys(s manifest.Surface) map[string]string {
 	return baseline
 }
 
-// configReset implements `yolo config reset <agent> [--surface s]`: discard the
+// configReset implements `yolo config reset <agent[/surface]>`: discard the
 // capture overlay so the surface returns to what its layers produce.
 //
 // It removes the overlay sidecar AND the last_render sidecar, then truncates the surface to

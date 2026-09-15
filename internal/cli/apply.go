@@ -1083,8 +1083,8 @@ func applySealed(out, errw io.Writer, color bool) int {
 			refusals = append(refusals, fmt.Sprintf(
 				"%s/%s has %d captured in-jail edit(s) outranking every layer but "+
 					"`computed` and `managed` — "+
-					"`yolo config promote %s --surface %s` to declare them, or "+
-					"`yolo config reset %s --surface %s` to discard.",
+					"`yolo config promote %s/%s` to declare them, or "+
+					"`yolo config reset %s/%s` to discard.",
 				s.Agent, s.Name, n, s.Agent, s.Name, s.Agent, s.Name))
 		}
 	}
