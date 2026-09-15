@@ -51,7 +51,7 @@ jobs:
       # symlinks to them), so no working directory override is needed.
       - name: Update flake.lock
         id: update
-        uses: DeterminateSystems/update-flake-lock@v28
+        uses: DeterminateSystems/update-flake-lock@v29
         with:
           pr-title: "chore(deps): weekly flake.lock bump"
           pr-body: |
