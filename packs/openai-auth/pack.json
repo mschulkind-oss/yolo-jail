@@ -1,0 +1,10 @@
+{
+  "contributes": [
+    {
+      "from": "loopholes/openai-auth-broker",
+      "kind": "loophole"
+    }
+  ],
+  "description": "One machine-wide owner for OpenAI subscription login and refresh-token rotation.",
+  "name": "openai-auth"
+}

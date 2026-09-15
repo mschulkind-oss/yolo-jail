@@ -1,0 +1,48 @@
+// The OpenAI subscription credential service shared by Codex and Pi. Agent
+// packs depend on the containing `openai-auth` pack, so selecting either client
+// is sufficient to start the one machine-wide refresh owner.
+{
+  "name": "openai-auth-broker",
+  "description": "Serializes OpenAI subscription refreshes across agents, workspaces, hosts, and jails.",
+  "version": 1,
+  "default_enabled": true,
+  "serves": ["openai-oauth-refresh"],
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+
+  // The host singleton is the only process allowed to submit the canonical
+  // refresh token to OpenAI. The framework publishes a distinct authenticated
+  // loopback-TLS front for each jail over this host-wide AF_UNIX socket.
+  "host_daemon": {
+    "cmd": [
+      "yolo", "internal", "daemon", "openai-auth-broker",
+      "--socket", "{socket}",
+      "--state-file", "{state}/credentials.json"
+    ],
+    "publishes": "socket",
+    "scope": "host"
+  },
+
+  // Codex can override only its refresh URL, not the transport used to reach a
+  // yolo endpoint file. This adapter exposes the native OAuth token endpoint
+  // shape on jail loopback and forwards it through the authenticated service
+  // front named by YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT.
+  "jail_daemon": {
+    "cmd": [
+      "yolo-jaild", "openai-auth-adapter",
+      "--listen", "127.0.0.1:1460"
+    ],
+    "restart": "on-failure"
+  },
+
+  // An absent or empty list mounts the entire host state directory read-only.
+  // Keep this list nonempty even before the optional sanitized status file is
+  // written, or credentials.json would cross into every jail.
+  "state_files": ["public-status.json"],
+
+  "doctor_cmd": [
+    "yolo", "internal", "daemon", "openai-auth-broker",
+    "--self-check",
+    "--state-file", "{state}/credentials.json"
+  ]
+}

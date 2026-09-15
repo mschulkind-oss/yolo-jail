@@ -35,6 +35,7 @@ var shippedManifestHome = map[string]string{
 	"journal":             "journal",
 	"cgroup-delegate":     "cgroup-delegate",
 	"serial":              "serial",
+	"openai-auth-broker":  "openai-auth",
 }
 
 // TestShippedManifestHomeIsTotal is the forcing function the table above needs to be
@@ -153,6 +154,9 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 	//                         key said otherwise, so this is the same answer written in
 	//                         the new vocabulary. What the conversion adds is the pack
 	//                         selection, not the switch.
+	//   openai-auth-broker    true. Codex and Pi depend on its containing pack;
+	//                         silently disabling their only refresh owner would leave
+	//                         both with an adapter that can never answer.
 	//
 	// A table rather than one blanket assertion because the blanket one — "every
 	// bundled manifest declares enabled:true" — is what this change had to delete, and
@@ -164,9 +168,11 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 		"journal":             false,
 		"cgroup-delegate":     false,
 		"serial":              false,
+		"openai-auth-broker":  true,
 	}
 	for _, name := range []string{
 		"audio", "claude-oauth-broker", "host-processes", "journal", "cgroup-delegate", "serial",
+		"openai-auth-broker",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)

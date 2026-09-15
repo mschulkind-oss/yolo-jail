@@ -46,3 +46,11 @@ func TestUsageStillExits2(t *testing.T) {
 		t.Errorf("run(no-such-daemon) = %d, want 2", rc)
 	}
 }
+
+func TestDispatchRoutesOpenAIAuthAdapter(t *testing.T) {
+	// An invalid listen address reaches adapter startup and returns its runtime
+	// failure code. A missing dispatch row would fall through to usage (2).
+	if rc := run([]string{"openai-auth-adapter", "--listen", "bad address"}); rc != 1 {
+		t.Fatalf("openai-auth-adapter dispatch rc = %d, want adapter failure 1", rc)
+	}
+}

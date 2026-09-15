@@ -16,6 +16,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
 )
@@ -27,7 +29,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|refresh-servers|bundle-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|migrate-host|openai-auth-client|refresh-servers|bundle-dir> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -50,6 +52,8 @@ func runInternal(args []string) int {
 		return runDarwinBootstrap(args[1:])
 	case "migrate-host":
 		return runMigrateHost(args[1:])
+	case "openai-auth-client":
+		return openauthclient.Main(args[1:])
 	case "refresh-servers":
 		// Evergreen's TRANSITIVE half (program-delivery.md §3.5, OQ-PD12a), called by
 		// the GENERATED AGENT LAUNCHERS before they exec the agent. Hidden for
@@ -181,7 +185,7 @@ func firstNonEmptyEnv(keys ...string) string {
 // "unknown daemon", which is the right answer for an argv nothing emits any more.
 func runInternalDaemon(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <claude-oauth-broker|host-processes|journal> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <claude-oauth-broker|host-processes|journal|openai-auth-broker|serial> [args...]")
 		return 2
 	}
 	rest := args[1:]
@@ -192,6 +196,8 @@ func runInternalDaemon(args []string) int {
 		return hostprocesses.Main(rest)
 	case "journal":
 		return journald.Main(rest)
+	case "openai-auth-broker":
+		return openaiauthdaemon.Main(rest)
 	case "serial":
 		return serialdaemon.Main(rest)
 	default:

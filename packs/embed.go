@@ -18,12 +18,13 @@
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
 //
-// NOT EVERY OFFICIAL PACK IS AN AGENT. Fifteen packs are embedded here (counted against
-// `ls packs/` 2026-09-04): six install a CLI and nine do not, in four kinds. Five of
-// those nine — `audio`, `host-processes`, `journal`, `cgroup-delegate` and `serial` —
+// NOT EVERY OFFICIAL PACK IS AN AGENT. Sixteen packs are embedded here (counted against
+// `ls packs/` 2026-09-14): six install a CLI and ten do not, in four kinds. Six of
+// those ten — `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial` and
+// `openai-auth` —
 // ship a LOOPHOLE (one of
 // nineteen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
-// `audio` also contributes an `env` block, the only one of the five that ships anything
+// `audio` also contributes an `env` block, the only one of the six that ships anything
 // beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
 // §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
 // `zai` and `cerebras` ship neither CLI nor loophole: a provider and a profile —
@@ -68,5 +69,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:cerebras all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:cerebras all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth
 var FS embed.FS

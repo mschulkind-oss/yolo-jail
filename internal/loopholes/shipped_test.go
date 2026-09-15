@@ -41,6 +41,7 @@ var shippedLoopholes = []struct{ name, pack string }{
 	{"journal", "journal"},
 	{"cgroup-delegate", "cgroup-delegate"},
 	{"serial", "serial"},
+	{"openai-auth-broker", "openai-auth"},
 }
 
 // shippedLoopholeModule resolves one shipped loophole's on-disk module directory.

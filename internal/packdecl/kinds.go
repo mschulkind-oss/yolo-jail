@@ -208,7 +208,7 @@ const (
 	// in-jail daemon, an endpoint under /run/yolo-services/, the witness — §2.1's
 	// decomposition table is the map); the TRUST is not. A daemon that DOES cross
 	// is a kind "loophole" declaration with the per-crossing review that kind
-	// carries — re-forming the five shipped loophole packs as service + boundary
+	// carries — re-forming the six shipped loophole-only packs as service + boundary
 	// grants is §2.1's named follow-up, not this kind's job.
 	//
 	// Exclusive by service NAME, and the name is the whole identity: the
