@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
@@ -706,9 +707,14 @@ func (o *Options) startHostSingleton(
 	}
 	deps := broker.SingletonDeps(name, cmdArgs)
 	deps.Out = o.Stdout
-	if !broker.BrokerIsAlive(deps) {
-		broker.BrokerSpawn(deps)
-	} else if !broker.SingletonSpeaksPreamble(deps) {
+	if name == openaiauth.LoopholeName {
+		deps.PrepareLocked = prepareLegacyOpenAIAuthState(o.Workspace, deps)
+	}
+	// Always enter BrokerSpawn: it owns the singleton flock and returns quickly
+	// for a healthy daemon, while one-time state migrations must run under that
+	// lock even when the old daemon is still alive.
+	broker.BrokerSpawn(deps)
+	if broker.BrokerIsAlive(deps) && !broker.SingletonSpeaksPreamble(deps) {
 		// ALIVE BUT INCOMPATIBLE — the one state every other surface calls healthy.
 		// A daemon started before this loophole moved behind a front is still
 		// listening at the same path, and it will consume the front's preamble as

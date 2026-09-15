@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -86,6 +87,75 @@ func writePID(t *testing.T, deps Deps, pid int) {
 	t.Helper()
 	if err := os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBrokerSpawnRunsPrepareUnderSingletonLockBeforeAliveReturn(t *testing.T) {
+	st := &fakeState{alive: map[int]bool{42: true}, reachOK: true}
+	deps := newFakeDeps(t, st)
+	writePID(t, deps, 42)
+	if err := os.WriteFile(deps.SocketPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	deps.PrepareLocked = func() (func() error, error) {
+		called = true
+		second, err := os.OpenFile(deps.LockPath, os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		defer second.Close()
+		if err := syscall.Flock(int(second.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			return nil, errors.New("prepare hook ran without the singleton lock held")
+		}
+		return nil, nil
+	}
+
+	BrokerSpawn(deps)
+	if !called {
+		t.Fatal("prepare hook was skipped because the old singleton was already alive")
+	}
+	if len(st.spawnArgv) != 0 {
+		t.Errorf("healthy singleton was respawned: %v", st.spawnArgv)
+	}
+}
+
+func TestBrokerSpawnStopsOldDaemonBeforePreparedMigration(t *testing.T) {
+	st := &fakeState{alive: map[int]bool{42: true}, reachOK: true, spawnPID: 77}
+	deps := newFakeDeps(t, st)
+	writePID(t, deps, 42)
+	if err := os.WriteFile(deps.SocketPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deps.Kill = func(pid int, sig syscall.Signal) error {
+		st.alive[pid] = false
+		return nil
+	}
+	actionRan := false
+	deps.PrepareLocked = func() (func() error, error) {
+		return func() error {
+			actionRan = true
+			if st.alive[42] {
+				return errors.New("migration ran while the old daemon was alive")
+			}
+			second, err := os.OpenFile(deps.LockPath, os.O_WRONLY, 0o600)
+			if err != nil {
+				return err
+			}
+			defer second.Close()
+			if err := syscall.Flock(int(second.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+				return errors.New("migration ran without the singleton lock held")
+			}
+			return nil
+		}, nil
+	}
+
+	BrokerSpawn(deps)
+	if !actionRan {
+		t.Fatal("prepared migration action did not run")
+	}
+	if len(st.spawnArgv) == 0 {
+		t.Fatal("singleton was not respawned after migration")
 	}
 }
 

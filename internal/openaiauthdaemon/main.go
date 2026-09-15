@@ -49,6 +49,10 @@ func Main(argv []string) int {
 	if err := fs.Parse(argv); err != nil {
 		return 2
 	}
+	if !filepath.IsAbs(*statePath) {
+		fmt.Fprintln(os.Stderr, "yolo-openai-auth-host: --state-file must be an absolute path")
+		return 2
+	}
 	if *selfCheckFlag {
 		return selfCheck(*statePath, os.Stdout)
 	}

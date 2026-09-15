@@ -10,7 +10,11 @@ import (
 	"time"
 )
 
-const DefaultRefreshLead = 5 * time.Minute
+const (
+	DefaultRefreshLead = 5 * time.Minute
+	LoopholeName       = "openai-auth-broker"
+	StateFileName      = "credentials.json"
+)
 
 // ErrLoginRequired means OpenAI permanently rejected the canonical grant. The
 // last credential generation remains available for status and stale-view

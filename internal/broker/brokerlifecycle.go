@@ -154,6 +154,14 @@ type Deps struct {
 	// close_fds=True) + proc.poll().
 	Spawn func(argv []string, logPath string) (pid int, exited func() bool, err error)
 
+	// PrepareLocked runs after the singleton flock is acquired and before the
+	// liveness check. A non-nil returned action makes the lifecycle stop an
+	// existing singleton, run the action, and only then continue to the normal
+	// spawn path. It exists for one-time state migrations that must happen after
+	// the daemon using the old path has stopped, with the singleton lock held
+	// across the entire transition.
+	PrepareLocked func() (afterStop func() error, err error)
+
 	// Argv is the singleton's spawn argv, already fully substituted (the running
 	// yolo's own path at argv[0] where the manifest wrote the bare `yolo` token,
 	// and SocketPath in place of `{socket}`).
@@ -358,6 +366,27 @@ func BrokerSpawn(deps Deps) string {
 	defer lockF.Close()
 	if err := syscall.Flock(int(lockF.Fd()), syscall.LOCK_EX); err != nil {
 		return deps.SocketPath
+	}
+	if deps.PrepareLocked != nil {
+		afterStop, prepErr := deps.PrepareLocked()
+		if prepErr != nil {
+			if deps.Out != nil {
+				richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
+					"[yellow]Warning: could not prepare host-wide daemon '" + deps.Name +
+						"': " + prepErr.Error() + "[/yellow]")
+			}
+			return deps.SocketPath
+		} else if afterStop != nil {
+			BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
+			if err := afterStop(); err != nil {
+				if deps.Out != nil {
+					richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
+						"[yellow]Warning: could not migrate state for host-wide daemon '" + deps.Name +
+							"': " + err.Error() + "[/yellow]")
+				}
+				return deps.SocketPath
+			}
+		}
 	}
 
 	if BrokerIsAlive(deps) {

@@ -295,6 +295,15 @@ current generation to a caller holding an older refresh token, and contacts Open
 for the current generation. Updates use an atomic rename of a mode-`0600` file in a mode-`0700`
 directory.
 
+One prerelease build passed the literal relative path `{state}/credentials.json` to the daemon.
+The next launch checks only two bounded locations for that file: the current workspace and, on
+Linux, the recorded singleton process's working directory under `/proc`. While holding the same
+singleton lock used for startup, it validates the file, moves it into the canonical private state
+directory, removes the empty literal `{state}` directory, and replaces the daemon so later writes
+use the canonical path. It never searches other workspaces. If both a legacy and canonical file
+exist, or more than one bounded candidate exists, yolo refuses to choose and prints the paths;
+preserving both for a deliberate manual choice is safer than overwriting a refresh authority.
+
 The two agents receive different views:
 
 - Codex gets its native `auth.json` shape in the workspace home. Its native refresh URL points to
