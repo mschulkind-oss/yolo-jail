@@ -10,7 +10,7 @@ import (
 
 // runWithProxy wraps ttyproxy.RunWithProxy (the in-process TTY proxy) so a
 // host-side ^Z suspends the proxy instead of wedging the agent, SIGWINCH
-// propagates, and window-close/SIGTERM tears the jail down via onTerminate.
+// propagates, and Ctrl-C/window-close/SIGTERM tear the jail down via onTerminate.
 // onStarted releases the workspace lock once the container is visible.
 //
 // The stage hook turns the proxy's own transitions into `child.*` marks on

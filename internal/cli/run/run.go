@@ -1156,7 +1156,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	reclaimConsent := o.maybeOfferReclaim()
 
 	// Launch under the TTY proxy. on_started releases the lock once the
-	// container is visible; on_terminate is the window-close/SIGTERM teardown.
+	// container is visible; on_terminate is the Ctrl-C/window-close/SIGTERM teardown.
 	onStarted := func(_ *os.Process) {
 		for i := 0; i < lockReleasePollAttempts; i++ {
 			if o.findRunningContainer(cname, rt) != "" {

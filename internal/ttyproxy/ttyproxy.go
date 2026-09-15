@@ -2,7 +2,7 @@
 
 // Package ttyproxy is the in-process TTY proxy that wraps `podman run` so ^Z
 // suspends the PROXY (not the container), SIGWINCH resizes propagate, and
-// window-close/SIGTERM tear the jail down cleanly. All signal teardown stays
+// Ctrl-C, window-close, and SIGTERM tear the jail down cleanly. All signal teardown stays
 // in one process.
 //
 // Frozen behavior (from docs/reference/ctrl-z-and-the-tty-proxy.md):
@@ -20,7 +20,9 @@
 //     then a TARGETED SIGWINCH at the child pid — the runtime shares our process
 //     group on the host tty and reads its size from the proxy pty, so without the
 //     poke it can read a stale size and nothing ever corrects it (resyncWinsize).
-//   - SIGHUP/SIGTERM -> restore cooked termios, run onTerminate, exit 128+n.
+//   - Ctrl-C, SIGHUP or SIGTERM -> restore cooked termios, run onTerminate,
+//     exit 130 or 128+n. Raw mode delivers Ctrl-C as a byte, so the proxy turns
+//     it into a TARGETED SIGINT rather than leaking it to the jail.
 //   - stdin EOF -> stop reading stdin, keep pumping the master until child exit
 //     (the decided semantics).
 //
@@ -44,9 +46,14 @@ import (
 )
 
 const (
-	readChunk = 65536
-	suspByte  = 0x1a // ^Z
+	readChunk     = 65536
+	interruptByte = 0x03 // ^C
+	suspByte      = 0x1a // ^Z
 )
+
+// raiseInterrupt is a seam for the pump test. Production always targets this
+// process, keeping Ctrl-C out of the runtime's process group.
+var raiseInterrupt = func() { _ = syscall.Kill(os.Getpid(), syscall.SIGINT) }
 
 // getWinsize reads the terminal window size from fd.
 func getWinsize(fd int) (*unix.Winsize, error) {
@@ -110,7 +117,7 @@ func setWinsize(fd int, ws *unix.Winsize) {
 //   - onStarted (if non-nil) runs on a goroutine after spawn (post-launch
 //     housekeeping, e.g. release a lock) without blocking the pump loop.
 //   - onTerminate (if non-nil) is host-side teardown run when the proxy is
-//     KILLED (SIGHUP window-close / SIGTERM) rather than exiting on its own.
+//     interrupted (Ctrl-C / SIGHUP window-close / SIGTERM) rather than exiting on its own.
 //
 // Non-TTY stdin falls back to a plain spawn (no pty), matching Python.
 func RunWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func()) (int, error) {
@@ -186,9 +193,10 @@ func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate f
 	restoreCooked := func() { _ = unix.IoctlSetTermios(inFd, unix.TCSETS, cooked) }
 
 	// Signal handlers. Note: we DO NOT Notify SIGTSTP (default disposition must
-	// stop us); we handle WINCH/CONT/HUP/TERM.
+	// stop us); we handle WINCH/CONT/INT/HUP/TERM. Ctrl-C arrives as a byte
+	// while the host TTY is raw; proxyLoop raises the targeted SIGINT below.
 	sigCh := make(chan os.Signal, 8)
-	signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGCONT, syscall.SIGHUP, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGCONT, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
 	var termOnce sync.Once
@@ -206,19 +214,14 @@ func RunWithProxyHooked(cmd []string, onStarted func(*os.Process), onTerminate f
 				// size with no further signal coming. Same drift, different
 				// trigger.
 				resyncWinsize(inFd, master, c)
-			case syscall.SIGHUP, syscall.SIGTERM:
+			case syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM:
 				termOnce.Do(func() {
 					restoreCooked()
 					callStage(hook, StageTermiosRestored)
 					if onTerminate != nil {
 						onTerminate()
 					}
-					n := 1
-					if s == syscall.SIGHUP {
-						n = int(syscall.SIGHUP)
-					} else {
-						n = int(syscall.SIGTERM)
-					}
+					n := int(s.(syscall.Signal))
 					os.Exit(128 + n)
 				})
 			}
@@ -320,6 +323,23 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, hook StageHo
 				continue
 			}
 			data := append([]byte(nil), buf[:n]...)
+			// The host TTY is raw, so Ctrl-C is input rather than a kernel SIGINT.
+			// Keep it out of the jail and signal only this proxy. The signal arm
+			// restores the terminal and runs the launcher's normal teardown callback.
+			at := -1
+			for i, b := range data {
+				if b == interruptByte {
+					at = i
+					break
+				}
+			}
+			if at >= 0 {
+				if at > 0 {
+					_, _ = unix.Write(master, data[:at])
+				}
+				raiseInterrupt()
+				continue
+			}
 			if len(pending) > 0 {
 				data = append(pending, data...)
 				pending = nil

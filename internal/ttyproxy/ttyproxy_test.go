@@ -4,6 +4,7 @@ package ttyproxy
 
 import (
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -12,6 +13,62 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// TestCtrlCTerminatesProxy drives the real pump with a real pty. It pins the
+// raw-mode Ctrl-C call site: the byte is consumed by the proxy and triggers a
+// targeted self-interrupt rather than reaching the runtime's pty.
+func TestCtrlCTerminatesProxy(t *testing.T) {
+	hostMaster, hostSlave, err := openPty()
+	if err != nil {
+		t.Skipf("cannot open pty: %v", err)
+	}
+	defer unix.Close(hostMaster)
+	defer unix.Close(hostSlave)
+
+	childMaster, childSlave, err := openPty()
+	if err != nil {
+		t.Skipf("cannot open pty: %v", err)
+	}
+	defer unix.Close(childMaster)
+	child := os.NewFile(uintptr(childSlave), "pty-slave")
+	c := exec.Command("sleep", "10")
+	c.Stdin, c.Stdout, c.Stderr = child, child, child
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Process.Kill() }()
+	unix.Close(childSlave)
+
+	cooked, err := unix.IoctlGetTermios(hostSlave, unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setRaw(hostSlave, cooked)
+
+	interrupted := make(chan struct{}, 1)
+	original := raiseInterrupt
+	raiseInterrupt = func() {
+		interrupted <- struct{}{}
+		_ = c.Process.Kill()
+	}
+	defer func() { raiseInterrupt = original }()
+	done := make(chan int, 1)
+	go func() { done <- proxyLoop(hostSlave, childMaster, c, cooked, nil) }()
+
+	if _, err := unix.Write(hostMaster, []byte{interruptByte}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-interrupted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Ctrl-C did not trigger the proxy interrupt")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy did not return after Ctrl-C interrupted its child")
+	}
+}
 
 // TestNonTTYFallback: with non-TTY stdin, RunWithProxy plain-spawns and returns
 // the child's exit code (no pty), matching the Python fallback.

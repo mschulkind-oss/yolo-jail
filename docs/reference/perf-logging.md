@@ -288,7 +288,7 @@ recorded as a **mark** placed immediately before the call — if the runtime han
 there, that mark is the last line in the file, and the dangling record names
 where the prompt went to die.
 
-**The signal arm.** On SIGHUP (window close) or SIGTERM, the tty proxy's signal
+**The signal arm.** On SIGINT (Ctrl-C), SIGHUP (window close), or SIGTERM, the tty proxy's signal
 goroutine restores cooked termios, runs `onTerminate`, and exits the process with
 `128 + signal`. `onTerminate` runs the `terminate.*` chain: stop the jail
 (the runtime's own graceful stop, bounded), clean up port forwarding, release the
@@ -472,7 +472,7 @@ stderr report still work, and a jail is never refused over its timing log.
 | The runtime hangs in the unbounded liveness check | `shutdown.container_check` is the last line in the file — the dangling record names the step |
 | Any other step hangs | its `start` line is in the file with no `end`; `tail` the file |
 | `podman events` times out, fails, or holds no `die` | one dim reason line beneath the table; the table is unaffected |
-| SIGHUP / SIGTERM to the launcher | `terminate.*` spans reach the file before the process exits; the report prints from inside the signal arm at rc `128 + signal` |
+| Ctrl-C / SIGHUP / SIGTERM to the launcher | `terminate.*` spans reach the file before the process exits; the report prints from inside the signal arm at rc 130 for Ctrl-C and `128 + signal` otherwise |
 | Both teardown arms run (the ordinary signal-path interleaving) | one report, one Window A query — the once-guard |
 | A persistent opt-in with no flag | the file is written — Window A included; one dim line names it; no table and no in-container block |
 | The events query fails on a launch that prints nothing | the failure class reaches the file as a `shutdown.window_a_unattributed.<token>` mark; the prose reason has no reader and is dropped |
