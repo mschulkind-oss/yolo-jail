@@ -7,6 +7,7 @@ package run
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -150,13 +151,75 @@ func TestShippedOpenAIAuthPackOwnsOneHostSingletonAndAdapter(t *testing.T) {
 		lp.JailDaemon.Restart != "on-failure" {
 		t.Errorf("jail daemon = %+v, want adapter %v", lp.JailDaemon, wantJail)
 	}
-	if !reflect.DeepEqual(lp.StateFiles, []string{"public-status.json"}) {
-		t.Errorf("state_files = %v, want only public-status.json; an absent list mounts the "+
+	if !reflect.DeepEqual(lp.StateFiles, []string{".mount-sentinel"}) {
+		t.Errorf("state_files = %v, want only .mount-sentinel; an absent list mounts the "+
 			"whole broker state, including the canonical refresh token, into the jail", lp.StateFiles)
 	}
 	if len(lp.Intercepts) != 0 || lp.HasCA() {
 		t.Errorf("OpenAI auth must use the supported refresh override, not TLS interception: "+
 			"intercepts=%v ca=%v", lp.Intercepts, lp.HasCA())
+	}
+}
+
+// The OpenAI pack needs a nonempty state_files list to keep credentials.json out of
+// the jail. Its one inert marker must exist before RuntimeArgsFor assembles mounts;
+// otherwise every ordinary launch prints a missing-source warning. This exercises the
+// production assembly call site so deleting its preparation call makes the test fail.
+func TestOpenAIAuthAssemblyPreparesOnlySafeStateMount(t *testing.T) {
+	home := retireHome(t)
+	p := officialPack(t, "openai-auth")
+	loopholes.SetPackModules(packLoopholeModules([]*packload.Pack{p}))
+	t.Cleanup(func() { loopholes.SetPackModules(nil) })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStderr := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = oldStderr })
+
+	o := goldenOptions("/ws", home)
+	o.Stderr = w
+	in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
+	in.packs = []*packload.Pack{p}
+	argv := o.assembleRunCmd(in)
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = oldStderr
+	warnings, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+
+	stateDir := loopholes.StateDirFor(openAIAuthBrokerName)
+	sentinel := filepath.Join(stateDir, ".mount-sentinel")
+	wantMount := sentinel + ":/var/lib/yolo-jail/loopholes/openai-auth-broker/.mount-sentinel:ro"
+	joined := strings.Join(argv, "\n")
+	if !strings.Contains(joined, wantMount) {
+		t.Errorf("OpenAI mount sentinel absent from production argv; want %q", wantMount)
+	}
+	if strings.Contains(joined, "credentials.json") {
+		t.Errorf("canonical OpenAI credentials crossed into the jail:\n%s", joined)
+	}
+	if strings.Contains(string(warnings), "skipping state file") {
+		t.Errorf("ordinary OpenAI launch still warns about its state-file marker:\n%s", warnings)
+	}
+	data, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatalf("read mount sentinel: %v", err)
+	}
+	if string(data) != "yolo-openai-auth-mount-v1\n" {
+		t.Errorf("mount sentinel = %q, want fixed token-free content", data)
+	}
+	info, err := os.Stat(sentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mount sentinel mode = %o, want 600", info.Mode().Perm())
 	}
 }
 

@@ -851,6 +851,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// one YOLO_JAIL_DAEMONS payload (packservices.go; wire-bridge.md §2.1) —
 	// one env contract, one writer, so a service daemon can never land on a
 	// second -e of the same name and lose to the runtime's duplicate resolution.
+	// The OpenAI broker's nonempty state_files list is the boundary that prevents
+	// its canonical credentials from crossing. Materialize that list's inert marker
+	// immediately before the loophole runtime resolves bind sources, so a normal
+	// launch neither widens the mount nor warns that its safe source is absent.
+	o.prepareOpenAIAuthMountSentinel(cfg)
 	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt, serviceJailDaemons(in.packs))...)
 
 	// --- jail-facing service endpoint env (the witness's registration) ---

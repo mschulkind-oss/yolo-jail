@@ -36,9 +36,9 @@
   },
 
   // An absent or empty list mounts the entire host state directory read-only.
-  // Keep this list nonempty even before the optional sanitized status file is
-  // written, or credentials.json would cross into every jail.
-  "state_files": ["public-status.json"],
+  // Keep this list nonempty or credentials.json would cross into every jail.
+  // The launcher creates this inert marker before it assembles the mount.
+  "state_files": [".mount-sentinel"],
 
   "doctor_cmd": [
     "yolo", "internal", "daemon", "openai-auth-broker",
