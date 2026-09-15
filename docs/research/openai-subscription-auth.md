@@ -73,11 +73,23 @@ lock, so the two agents can still race at the token endpoint.
 
 Pi's Codex Responses adapter only needs an access-token JWT. It extracts the
 ChatGPT account identifier from the token and sends both in request headers.
-This lets a yolo integration give Pi a current access token without giving it the
-refresh token. Pi's documented `!command` API-key values are cached for the
-process lifetime, so that mechanism alone is too stale for a long session; a
-small provider integration must request a token again when authentication is
-resolved or after an unauthorized response.
+This lets a yolo provider extension give Pi a current access token without
+giving it the canonical refresh token. Pi still requires a `refresh` string in
+its OAuth record; a nonsecret broker marker can satisfy that local schema while
+the extension's refresh method obtains the current generation. Pi's documented
+`!command` API-key values are cached for the process lifetime, so that mechanism
+alone is too stale for a long session.
+
+### 1.4 `macos-user` changes the route, not credential ownership
+
+`macos-user` runs the agent as a sandbox account directly on macOS. Its loopback
+is the host browser's loopback, so browser callbacks already arrive without port
+publication. The existing container loophole launcher skips external services
+on this backend because a native process can reach host services directly. The
+OpenAI service therefore needs an explicit `macos-user` publication path: start
+the same host singleton, publish an authenticated loopback-TLS endpoint in
+sandbox-visible launch state, and let both thin agent adapters call it. No DNS
+override, system trust change, or TLS interception is required.
 
 ## 2. Prior-art verdicts
 

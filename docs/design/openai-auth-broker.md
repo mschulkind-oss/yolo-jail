@@ -19,10 +19,11 @@ single-use refresh token; separate logins avoid the race by making the user
 repeat browser authentication for every workspace and agent.
 
 **The shape.** One canonical credential, one serialized refresh transaction,
-two agent adapters, and one temporary browser-callback relay.
+two thin agent adapters, and a browser-callback relay on container backends.
 
 **Cost.** Host Codex shares this login only when launched through yolo's managed
-environment. An unmanaged host Codex must keep an independent grant.
+environment and therefore uses a yolo-managed Codex home. A directly launched
+host Codex keeps its existing home and, if logged in there, an independent grant.
 
 **Start at [§2](#2-one-writer-and-two-views)** — the ownership rule.
 
@@ -46,10 +47,12 @@ One successful login becomes available to Codex and Pi in every workspace on
 that machine. Logout is explicit and machine-wide, and the command must say that
 before deleting the grant. A new login replaces the old grant atomically.
 
-Host sharing is opt-in through a yolo-managed host environment. That environment
-routes host Codex refresh through the same service. Yolo never rewrites the
-user's ordinary `~/.codex/auth.json` or silently changes a directly launched
-host Codex.
+Host sharing is automatic for `yolo host -- codex` and generated host wrappers.
+That environment selects a yolo-managed Codex home, composes the same Codex
+config and skills surfaces into it, and routes refresh through the same service.
+Yolo never rewrites the user's ordinary `~/.codex/auth.json` or silently changes
+a directly launched host Codex. An explicit import can seed the broker from that
+file once; after import the files are independent and the broker owns rotation.
 
 ## 2. One writer and two views
 
@@ -70,9 +73,30 @@ token because Codex must submit a native refresh request, but that token is a
 generation identifier at the broker: a stale value cannot consume an upstream
 token.
 
-Pi receives an access-token view and never receives the refresh token. Its yolo
-adapter asks again before expiry and once after an unauthorized response. Pi's
-other provider credentials remain in its workspace `auth.json`.
+Pi receives an access-token view and never receives the canonical refresh token.
+Its provider record contains the current access token and expiry plus a
+nonsecret marker in Pi's required `refresh` field. Pi's normal five-minute
+refresh window invokes the yolo provider adapter, which asks the broker for the
+current generation and rewrites that workspace's provider record. Concurrent
+workspaces can all take their own Pi file locks and ask; the broker returns a
+cached generation or performs exactly one upstream refresh under its machine
+lock. After an unauthorized response, the adapter asks once more before failing.
+Pi's other provider credentials remain in its workspace `auth.json`.
+
+The broker also refreshes proactively when the canonical access token enters
+the five-minute window. This is the same availability measure as the Claude
+broker: an idle agent or a sleeping machine can resume with a current access
+token even before an agent initiates its own refresh path.
+
+This deliberately replicates the Claude broker's refresh semantics: a
+machine-wide flock, reload under lock, stale-caller detection, cached-token
+return, one upstream redemption, atomic persistence, proactive refresh, and
+fingerprint-only diagnostics. It does not copy Claude's hostname interception.
+Codex already exposes a refresh URL override, and Pi exposes a provider
+extension API; using those supported seams avoids installing an OpenAI-signing
+CA and intercepting unrelated host traffic. The shared broker engine and client
+protocol should be generalized once, with provider-specific upstream and
+credential-view adapters rather than a second independent implementation.
 
 ## 3. Browser callback relay
 
@@ -88,7 +112,34 @@ listener exits after the final registration expires or completes. Port 1457 is
 the fallback if another host process owns 1455; the authorization URL must use
 the port actually bound.
 
-## 4. Failure and recovery
+On `macos-user`, the agent is a sandboxed native process in the host network
+namespace. Its loopback listener is already the browser's loopback listener, so
+normal Codex and Pi browser callbacks need no relay. The relay exists only for
+container backends where host and jail loopback differ.
+
+## 4. Backend transport
+
+The refresh algorithm is identical on every backend; only the local adapter's
+route to the host service differs.
+
+Container jails use the existing per-jail authenticated loopback-TLS front and
+endpoint file. Codex points its supported refresh URL override at a small
+in-jail HTTP adapter. Pi's provider extension calls the same front. Neither
+requires interception of `auth.openai.com`, so normal authorization-code and
+device login traffic still goes directly to OpenAI.
+
+`macos-user` starts the same host singleton before entering the Seatbelt sandbox.
+The sandboxed account reaches its authenticated loopback-TLS front directly on
+host loopback and reads its endpoint credential from the sandbox-visible yolo
+state prepared for that launch. It uses the same Codex and Pi adapters. It does
+not run the container-only in-jail daemon, install a CA into the system trust
+store, edit host DNS, or intercept all host traffic for `auth.openai.com`.
+
+`yolo host -- codex` uses the same host singleton and a per-launch endpoint but
+does not cross a jail boundary. Keeping the authenticated front preserves one
+client contract and audit path across host, `macos-user`, and containers.
+
+## 5. Failure and recovery
 
 - A transient upstream error leaves canonical credentials unchanged and returns
   a retryable error. There is no automatic second redemption.
@@ -99,10 +150,11 @@ the port actually bound.
   lock.
 - A service restart reloads persisted state and pending callbacks disappear;
   the CLI prints a fresh login URL on retry.
-- A stale Codex view repairs itself on its next brokered refresh. A long-lived Pi
-  process requests a fresh access token after an unauthorized response.
+- A stale Codex view repairs itself on its next brokered refresh. Pi refreshes
+  its workspace view through the broker before expiry or once after an
+  unauthorized response.
 
-## 5. Security and observability
+## 6. Security and observability
 
 The service is available only through the authenticated yolo loophole transport
 and the loopback callback listener. Requests carry the jail identity assigned by
@@ -113,7 +165,7 @@ Status and logs expose token fingerprints, expiry, generation decisions,
 latency, caller identity, and upstream error metadata. They never expose token
 bodies, authorization codes, PKCE verifiers, or callback query strings.
 
-## 6. Completion criteria
+## 7. Completion criteria
 
 - Two Codex processes and two Pi processes can cross one expiry boundary
   concurrently while exactly one upstream refresh occurs.
@@ -123,12 +175,15 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 - Ordinary host Codex state is untouched.
 - Browser login works from a bridged-network jail with two simultaneous pending
   logins and no static per-jail host-port reservation.
+- The same login and expiry crossing work under `macos-user` without DNS or
+  system trust-store changes.
 
-## 7. Decision ledger
+## 8. Decision ledger
 
 | ID | Decision | Date |
 | :--- | :--- | :--- |
 | OQ-OA1 | One machine-wide host service is the sole refresh-token writer. | 2026-09-14 |
-| OQ-OA2 | Pi receives access tokens only; Codex uses its native refresh override. | 2026-09-14 |
-| OQ-OA3 | Host sharing is opt-in and broker-routed; unmanaged host Codex keeps a separate grant. | 2026-09-14 |
-| OQ-OA4 | Browser callbacks use one temporary, state-routed host relay. | 2026-09-14 |
+| OQ-OA2 | Pi receives an agent-shaped access-token view with a broker marker; Codex uses its native refresh override. | 2026-09-14 |
+| OQ-OA3 | `yolo host -- codex` shares the broker through a managed Codex home; direct host Codex remains untouched. | 2026-09-14 |
+| OQ-OA4 | Container browser callbacks use one temporary, state-routed host relay; `macos-user` uses its native loopback. | 2026-09-14 |
+| OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |

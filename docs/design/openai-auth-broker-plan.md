@@ -31,17 +31,27 @@ facts, and this file is build advice.
    `CODEX_REFRESH_TOKEN_URL_OVERRIDE` from the published endpoint. Pin the
    minimum Codex version that supports the variable. Tests must delete or bypass
    the production contribution and fail.
-4. **Pi adapter.** Add a narrow provider extension that obtains access tokens
-   from the service and retries authentication once after an unauthorized
-   response. Do not put the canonical refresh token in Pi's workspace state.
+4. **Pi adapter.** Register a narrow `openai-codex` provider extension whose
+   login and refresh methods obtain an agent-shaped access-token view from the
+   service. Preserve Pi's native expiry scheduling and store a nonsecret broker
+   marker where its schema requires a refresh string. Retry broker resolution
+   once after an unauthorized response. Do not put the canonical refresh token
+   in Pi's workspace state.
 5. **Callback relay and login CLI.** Add state registration, exact-path routing,
    expiry, replay refusal, and 1455/1457 binding. Test with two simultaneous
    fake jail listeners and swapped completion order. Verify bridged-network
    reachability with bare rootless Podman; a nested yolo jail cannot prove it.
-6. **Managed host use.** Add an explicit host environment command that points
-   host Codex at the service without replacing `~/.codex/auth.json`. Verify the
-   direct host command remains unchanged.
-7. **Operations.** Add status, fingerprint-only diagnostics, logout, and a
+6. **Backend transport.** Reuse the authenticated loopback-TLS front on all
+   backends. Container jails get the endpoint file through the existing mount;
+   `macos-user` gets it in sandbox-visible launch state and needs no callback
+   relay. Pin that no backend intercepts `auth.openai.com` or changes the host
+   trust store.
+7. **Managed host use.** Make `yolo host -- codex` and the generated Codex host
+   wrapper select a yolo-managed Codex home, render the same pack-owned config
+   and skills there, and point at the service. Add an explicit one-shot import
+   from the ordinary host Codex credential. Verify direct `codex` and
+   `~/.codex/auth.json` remain unchanged.
+8. **Operations.** Add proactive refresh, status, fingerprint-only diagnostics, logout, and a
    refresh self-check. Update `agent-credentials.md`, config reference, pack
    reference, and loophole listings.
 
@@ -55,6 +65,8 @@ facts, and this file is build advice.
 - Run the callback relay and host-service integration on a real rootless host,
   reporting `podman info --format '{{.Host.Security.Rootless}}'` and
   `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
+- Run browser login and an expiry crossing on a real `macos-user` backend; the
+  nested jail cannot exercise Seatbelt or the sandbox account's loopback access.
 - Manual no-API-call probes may run `codex --version` and `pi --version` only.
 
 ## Traps
@@ -68,3 +80,6 @@ facts, and this file is build advice.
   floor before enabling the contribution.
 - Pi command-backed API keys are cached for a process lifetime and cannot alone
   supply refresh behavior.
+- Pack loopholes are currently skipped on `macos-user`; starting the singleton
+  and publishing its endpoint there must be an explicit supported service path,
+  not an accidental relaxation of every loophole.
