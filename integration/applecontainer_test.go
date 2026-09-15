@@ -608,8 +608,8 @@ func TestAppleContainerReachesHostLoopback(t *testing.T) {
 	dialOut := acRunProbe(t, ref, "host dial", acDialScript(cands, lns))
 	t.Logf("AC-HOST-REACH PROBES:\n%s", dialOut)
 	for _, l := range lns {
-		t.Logf("AC-HOST-REACH PEERS at the %s listener (%s:%s): %v",
-			l.label, l.bind, l.port, l.peers())
+		t.Logf("AC-HOST-REACH PEERS at the %s listener (%s:%s): %v  writes=%v",
+			l.label, l.bind, l.port, l.peers(), l.writeLog())
 	}
 
 	if fault := acSelftestFault(dialOut); fault != "" {
@@ -808,7 +808,7 @@ set -u
 set -o pipefail
 probe() {
   addr="$1"; port="$2"; tag="$3"
-  out=$(timeout %d /bin/bash -c "exec 3<>/dev/tcp/$addr/$port && echo CONNECTED && head -c 120 <&3" 2>&1 | tr -d '\r' | tr '\n' ' ')
+  out=$(timeout %d /bin/bash -c "exec 3<>/dev/tcp/$addr/$port && echo CONNECTED && head -n 1 <&3" 2>&1 | tr -d '\r' | tr '\n' ' ')
   rc=$?
   echo "PROBE tag=$tag addr=$addr port=$port rc=$rc out=[$out]"
 }
@@ -978,7 +978,11 @@ type acHostListener struct {
 	bind  string // the address passed to net.Listen
 	port  string
 	token string
-	ln    net.Listener
+	// writes records each handler's Write outcome, so a failure can say whether THIS side
+	// delivered the token or the network ate it — the question the 2026-09-15 run could not
+	// answer even with the accepted-peer list in hand.
+	writes []string
+	ln     net.Listener
 
 	mu        sync.Mutex
 	seenPeers []string
@@ -1018,7 +1022,10 @@ func (l *acHostListener) serve() {
 		l.seenPeers = append(l.seenPeers, c.RemoteAddr().String())
 		l.mu.Unlock()
 		_ = c.SetWriteDeadline(time.Now().Add(acDialTimeoutSecs * time.Second))
-		_, _ = c.Write([]byte(l.token + "\n"))
+		n, werr := c.Write([]byte(l.token + "\n"))
+		l.mu.Lock()
+		l.writes = append(l.writes, fmt.Sprintf("%d bytes, err=%v", n, werr))
+		l.mu.Unlock()
 		// HALF-CLOSE, THEN DRAIN, THEN CLOSE — a bare Close() here RESETS the peer and cost
 		// this test its first real answer.
 		//
@@ -1045,6 +1052,12 @@ func (l *acHostListener) peers() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]string(nil), l.seenPeers...)
+}
+
+func (l *acHostListener) writeLog() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.writes...)
 }
 
 func (l *acHostListener) close() { _ = l.ln.Close() }
