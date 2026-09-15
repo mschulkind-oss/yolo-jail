@@ -66,7 +66,28 @@ func TestLegacyOpenAIStateIsMovedOutOfTheWorkspace(t *testing.T) {
 }
 
 func TestLivingLegacyOpenAIDaemonIsDetectedBeforeItCanCreateRelativeState(t *testing.T) {
-	cmd := exec.Command("sh", "-c", "sleep 30", "openai-auth-broker", "--state-file", "{state}/credentials.json")
+	// ⚠ THE SCRIPT IS A LIST (`sleep 30; :`) AND THE WAIT BELOW IS NOT OPTIONAL. Both exist
+	// because this test was racing the shell, and check-macos is where it lost (`91de11d1`).
+	//
+	// `sh -c` EXECs a single simple command instead of forking it, replacing its own process
+	// image — so with `sleep 30` the live argv becomes just "sleep 30" and the `{state}` marker
+	// this test exists to detect is GONE. MEASURED on Linux 400ms after Start(): `sleep 30` →
+	// no marker; `sleep 30; :` → the full argv, because a shell cannot exec away a list it
+	// still has to finish. (`while :; do sleep 1; done` also works and respawns a child every
+	// second; a list costs one child.)
+	//
+	// WHY IT PASSED ON LINUX AND FAILED ON DARWIN: the detector reads /proc/<pid>/cmdline and
+	// falls back to `ps` where there is no /proc. Against `sleep 30`, the /proc read takes
+	// microseconds and beat sh's exec; darwin has to fork `ps`, which takes milliseconds and
+	// lost every time. 20/20 green here was winning a race by a wide margin, not determinism.
+	//
+	// AND THE OTHER EDGE, which a list alone does not fix: cmd.Start() returns after the FORK,
+	// before the exec of sh has necessarily landed, so an immediate read can see the go test
+	// binary's own argv. Measured: asserting straight after Start() failed intermittently at
+	// -count=10. So wait for the argv to be observable, then assert — which is also the shape
+	// the sibling tests in these packages use for "published nothing yet".
+	cmd := exec.Command("sh", "-c", "sleep 30; :",
+		"openai-auth-broker", "--state-file", "{state}/credentials.json")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +100,14 @@ func TestLivingLegacyOpenAIDaemonIsDetectedBeforeItCanCreateRelativeState(t *tes
 	if err := os.WriteFile(deps.PIDFilePath, []byte(fmt.Sprint(cmd.Process.Pid)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !singletonUsesLegacyOpenAIStatePath(deps) {
-		t.Fatal("living singleton with literal {state} argv was not detected for replacement")
+	deadline := time.Now().Add(5 * time.Second)
+	for !singletonUsesLegacyOpenAIStatePath(deps) {
+		if time.Now().After(deadline) {
+			t.Fatal("living singleton with literal {state} argv was not detected for " +
+				"replacement within 5s — the detector never saw the marker in this process's " +
+				"argv. On a platform with no /proc it reads `ps`; check that the shell did not " +
+				"exec-optimize the script away (see the comment above).")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
