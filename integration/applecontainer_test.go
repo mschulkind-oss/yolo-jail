@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -695,6 +696,25 @@ func TestAppleContainerReachesHostLoopback(t *testing.T) {
 			"stay — enabling a loopback-tls loophole here would turn a working Apple Container "+
 			"launch into a refusing one, because the in-jail witness is fatal.",
 			version, hits)
+	case len(strangers) > 0:
+		// INCONCLUSIVE, and it must not be spelled as the negative. A dial CONNECTED, so the
+		// container demonstrably reached something on this Mac; what failed is the token
+		// round-trip, which is this test's own instrument rather than a fact about the runtime.
+		//
+		// ⚠ THIS BRANCH EXISTS BECAUSE THE DEFAULT ONE LIED. On 2026-09-15 two probes reported
+		// CONNECTED at 192.168.64.1 and the verdict printed "NOT REACHABLE BY ANY CANDIDATE",
+		// whose own text reads "No candidate reached ANY listener" — flatly contradicted by the
+		// PROBE lines directly above it in the same log. The cause was a listener that Close()d
+		// without a half-close and RESET the peer (see acHostListener.serve); the classification
+		// then had zero token hits and took the only branch left. A verdict that can contradict
+		// the data printed beside it is worse than no verdict, so this case is now reachable
+		// instead.
+		t.Logf("AC-HOST-REACH VERDICT: INCONCLUSIVE — a dial CONNECTED but no token arrived "+
+			"(`container` %s).\n\nconnected without token: %v\n\n"+
+			"DO NOT read this as unreachable: the container reached this Mac. The token is what "+
+			"did not survive, and the Errorf above says which readings that allows. Re-run; if "+
+			"it repeats, suspect this test's listener before suspecting the runtime.",
+			version, strangers)
 	default:
 		amb := ""
 		if !wildcardBound {
@@ -999,6 +1019,24 @@ func (l *acHostListener) serve() {
 		l.mu.Unlock()
 		_ = c.SetWriteDeadline(time.Now().Add(acDialTimeoutSecs * time.Second))
 		_, _ = c.Write([]byte(l.token + "\n"))
+		// HALF-CLOSE, THEN DRAIN, THEN CLOSE — a bare Close() here RESETS the peer and cost
+		// this test its first real answer.
+		//
+		// MEASURED 2026-09-15 on the Mac (run over `container` 1.1.0): two dials CONNECTED at
+		// 192.168.64.1 and both read `head: error reading 'standard input': Connection reset
+		// by peer`, so the token never arrived and the verdict logic — correctly, given what it
+		// was handed — reported NOT REACHABLE while its own PROBE lines said CONNECTED.
+		//
+		// Close() on a socket with data still in flight can send RST rather than FIN, and the
+		// peer then loses the bytes it was about to read. CloseWrite sends FIN, which is what
+		// tells `head` the token is complete; the bounded drain that follows lets the peer's
+		// own close arrive before this side tears the socket down. Both halves are needed —
+		// FIN alone still races if the client has unread data pending.
+		if tc, ok := c.(*net.TCPConn); ok {
+			_ = tc.CloseWrite()
+			_ = tc.SetReadDeadline(time.Now().Add(acDialTimeoutSecs * time.Second))
+			_, _ = io.Copy(io.Discard, tc)
+		}
 		_ = c.Close()
 	}
 }
