@@ -254,8 +254,9 @@ func TestLiteralNullAddedInSteadyStateSurvivesItsOwnTombstone(t *testing.T) {
 	// The in-jail EDIT: two nulls added to the rendered file, one nested.
 	edited := `{"keep":"me","added":null,"sub":{"deep":null}}`
 
-	// Boot 2: steady state. The delta records both as tombstones — which is the shape
-	// this test exists for, so assert it rather than hoping.
+	// Boot 2: steady state. The delta first records both as tombstones, then
+	// canonicalization removes their redundant sidecar entries. The literal-null
+	// channel is self-sustaining from the rendered file, so it keeps the values.
 	second, err := ComposeStateful(StatefulInputs{
 		Base: Inputs{Surface: surface}, CurrentBytes: []byte(edited),
 		LastRenderPresent: true, LastRenderBytes: first.LastRenderBytes,
@@ -271,10 +272,8 @@ func TestLiteralNullAddedInSteadyStateSurvivesItsOwnTombstone(t *testing.T) {
 	if err := json.Unmarshal(second.OverlayJSON, &overlay); err != nil {
 		t.Fatal(err)
 	}
-	if v, ok := overlay["added"]; !ok || v != nil {
-		t.Fatalf("the premise moved: the capture no longer records the added null as a "+
-			"tombstone, so this test is measuring something else now. Overlay: %s",
-			second.OverlayJSON)
+	if _, ok := overlay["added"]; ok {
+		t.Fatalf("overlay retained a redundant literal-null tombstone: %s", second.OverlayJSON)
 	}
 
 	cfg := second.Result.ConfigMap()

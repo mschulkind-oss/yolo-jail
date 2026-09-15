@@ -184,6 +184,7 @@ type StatefulOutput struct {
 //	    overlay = mergeAccumulate(overlay, delta)                   # §3.4 tombstones
 //	then BOTH paths:
 //	    overlay = narrowOverlay(overlay, computed, managed)         # leaf-level
+//	    overlay = retireConvergedOverlay(overlay, layers)           # no-op entries
 //	    render  = Compose(overlay)
 //	    write surface_path, last_render := render, overlay := overlay
 func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
@@ -355,10 +356,28 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// forever. Narrowing after the accumulate makes the store SELF-HEALING — a
 	// sidecar an older yolo wrote is canonicalized on the next boot.
 	overlay = narrowOverlay(kind, overlay, in.Base.Computed, in.Base.Surface.Managed)
+	// A capture preserves a divergence, not a historical choice. When a declared
+	// layer converges with a captured value, retaining that value makes a no-op
+	// sidecar silently become a future override if the declaration moves again.
+	// Canonicalize it away while the engine has both the capture and every lower
+	// layer available; the next render then follows the declaration normally.
+	// The literal-null channel is another capture representation. Include it in
+	// both comparisons below so a self-sustaining literal null is not mistaken
+	// for a redundant sidecar tombstone.
+	base := in.Base
+	if kind == codec.KindObject && curOK {
+		if curMap, ok := current.(map[string]any); ok {
+			base.LiteralNulls = literalNullSkeleton(curMap)
+		}
+	}
+	var err error
+	overlay, err = retireConvergedOverlay(base, kind, overlay)
+	if err != nil {
+		return nil, err
+	}
 
 	// Render with the decided overlay. Compose owns decode/merge/enforce/encode
 	// and is the exact engine `yolo config render` uses (§6).
-	base := in.Base
 	base.Overlay = overlay
 	// THE ONE VALUE THE OVERLAY CANNOT CARRY, read off the file instead
 	// (literalnull.go; docs/design/config-ownership-and-promotion.md §11, OQ-CO12).
@@ -371,11 +390,6 @@ func ComposeStateful(in StatefulInputs) (*StatefulOutput, error) {
 	// StatefulOutput.PureBytes reports and what entrypoint.archiveAdoption compares
 	// against to ask "is this file anything other than yolo's own output?" — and a
 	// null of the user's is precisely something other.
-	if kind == codec.KindObject && curOK {
-		if curMap, ok := current.(map[string]any); ok {
-			base.LiteralNulls = literalNullSkeleton(curMap)
-		}
-	}
 	res, err := Compose(base)
 	if err != nil {
 		return nil, err
@@ -646,6 +660,48 @@ func emptyOverlay(kind codec.Kind) any {
 		return map[string]any{}
 	}
 	return nil
+}
+
+// retireConvergedOverlay removes every captured assertion that produces the
+// same composed configuration as the layers alone. It asks Compose rather than
+// comparing values directly: a nested merge patch can be a no-op even when its
+// top-level value is not byte-for-byte equal to the corresponding lower-layer
+// object.
+func retireConvergedOverlay(base Inputs, kind codec.Kind, overlay any) (any, error) {
+	pure, err := Compose(base)
+	if err != nil {
+		return nil, err
+	}
+	if kind != codec.KindObject {
+		candidate := base
+		candidate.Overlay = overlay
+		withOverlay, err := Compose(candidate)
+		if err != nil {
+			return nil, err
+		}
+		if reflect.DeepEqual(pure.Config, withOverlay.Config) {
+			return emptyOverlay(kind), nil
+		}
+		return overlay, nil
+	}
+
+	entries, ok := overlay.(map[string]any)
+	if !ok || len(entries) == 0 {
+		return overlay, nil
+	}
+	kept := make(map[string]any, len(entries))
+	for key, value := range entries {
+		candidate := base
+		candidate.Overlay = map[string]any{key: value}
+		withEntry, err := Compose(candidate)
+		if err != nil {
+			return nil, err
+		}
+		if !reflect.DeepEqual(pure.Config, withEntry.Config) {
+			kept[key] = value
+		}
+	}
+	return kept, nil
 }
 
 // parseOverlayKind decodes the overlay sidecar JSON for a surface of kind,

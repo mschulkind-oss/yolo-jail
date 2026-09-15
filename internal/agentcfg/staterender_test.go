@@ -158,6 +158,30 @@ func TestComposeStatefulSteadyStateNoEdit(t *testing.T) {
 	}
 }
 
+// TestComposeStatefulRetiresAConvergedCapture makes capture mean a present
+// divergence, not a historical pin. A value once captured from an in-jail edit
+// may later become the value supplied by a pack or another declared layer; it
+// then changes nothing and must disappear from the durable overlay.
+func TestComposeStatefulRetiresAConvergedCapture(t *testing.T) {
+	lastRender := `{"defaultProjectTrust":"always","theme":"system"}`
+	out, err := ComposeStateful(StatefulInputs{
+		Base:              Inputs{Surface: piSurface()},
+		CurrentBytes:      []byte(lastRender),
+		LastRenderPresent: true,
+		LastRenderBytes:   []byte(lastRender),
+		OverlayJSON:       []byte(`{"theme":"system"}`),
+	})
+	if err != nil {
+		t.Fatalf("ComposeStateful error: %v", err)
+	}
+	if got := jsonObj(t, string(out.OverlayJSON)); len(got) != 0 {
+		t.Errorf("overlay = %v, want {} after its value converged with the declared render", got)
+	}
+	if got := out.Result.ConfigMap()["theme"]; got != "system" {
+		t.Errorf("theme = %v, want system after retiring the redundant capture", got)
+	}
+}
+
 // TestComposeStatefulSteadyStateCapturesDeletionTombstone is the §3.4 fix
 // exercised end-to-end: an in-jail DELETION of a host-provided key is captured
 // as a null tombstone in the overlay and, because the overlay outranks host,
@@ -563,10 +587,8 @@ func TestComposeStatefulSteadyStateSelfHealsManagedOverlay(t *testing.T) {
 }
 
 // TestComposeStatefulSteadyStatePreservesNonManagedEdits pins the other side of
-// the narrowing: everything that is NOT managed survives, including a null
-// tombstone (a captured deletion, §3.4). This is the live claude/settings shape —
-// model / enabledPlugins / preferences / autoMemoryEnabled / an `env` tombstone
-// are all real captures that must not be collateral damage.
+// the narrowing: non-managed edits that still diverge survive. A null tombstone
+// for a key no layer now supplies is retired with every other no-op capture.
 func TestComposeStatefulSteadyStatePreservesNonManagedEdits(t *testing.T) {
 	lastRender := `{"skipDangerousModePermissionPrompt":true,"env":{"A":"1"},"model":"old"}`
 	current := `{"skipDangerousModePermissionPrompt":false,"model":"new","autoMemoryEnabled":true}`
@@ -591,11 +613,8 @@ func TestComposeStatefulSteadyStatePreservesNonManagedEdits(t *testing.T) {
 	if got["autoMemoryEnabled"] != true {
 		t.Errorf("overlay = %v, want autoMemoryEnabled captured", got)
 	}
-	// The tombstone is the sharp one: an explicit null must survive the narrowing,
-	// or the next boot resurrects the deleted key.
-	v, present := got["env"]
-	if !present || v != nil {
-		t.Errorf("overlay = %v, want an explicit env:null tombstone preserved", got)
+	if _, present := got["env"]; present {
+		t.Errorf("overlay = %v, want the redundant env:null tombstone retired", got)
 	}
 }
 

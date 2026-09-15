@@ -117,15 +117,12 @@ func TestANullTypedInAfterAnOwnedHostApplySurvivesTheLayerThatDeclaresIt(t *test
 	// The steady-state apply.
 	after := apply("the steady-state apply")
 
-	// THE PREMISE, asserted so the test cannot pass vacuously: the edit really did land in
-	// the overlay as a TOMBSTONE, which is the shape that used to delete the key it records.
+	// The literal-null channel is self-sustaining from the surface file, so the
+	// redundant tombstone created while capturing it must be retired from the
+	// sidecar rather than become a historical no-op.
 	ov := hostCaptureOverlay(t, home)
-	tomb, marked := ov["theme"]
-	if !marked || tomb != nil {
-		t.Fatalf("this test measures a captured edit that records a TOMBSTONE, and the "+
-			"capture no longer has that shape — overlay theme = %#v (present: %v). Without "+
-			"it the case below proves nothing: re-derive the premise before relaxing it.",
-			tomb, marked)
+	if tomb, marked := ov["theme"]; marked {
+		t.Fatalf("literal-null capture retained a redundant theme tombstone: %#v", tomb)
 	}
 
 	// THE PROPERTY. Present, and null.
