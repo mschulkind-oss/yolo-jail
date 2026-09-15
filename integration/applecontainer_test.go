@@ -606,6 +606,22 @@ func TestAppleContainerReachesHostLoopback(t *testing.T) {
 
 	// PHASE 3 — DIAL EVERY CANDIDATE AT EVERY LISTENER, from inside a container.
 	dialOut := acRunProbe(t, ref, "host dial", acDialScript(cands, lns))
+
+	// ⚠ SETTLE BEFORE READING THE HOST SIDE, or this test is FLAKY and flaky in the worst
+	// direction — it fails while printing the correct verdict.
+	//
+	// The dials finish in the container; each listener records its own outcome from a
+	// SEPARATE goroutine on this side. Classification asks `sawTeardown`, which reads that
+	// record, and a listener with a peer but no outcome YET looks like a listener that saw
+	// nothing wrong — so a torn-down connection is classified as a stranger and Errorf's.
+	// Measured 2026-09-15: consecutive runs of this test disagreed on exactly that, one
+	// reporting the right verdict and failing anyway.
+	//
+	// Bounded, and it does not assert: a listener that never records an outcome is a real
+	// state (the loopback one records nothing because nothing reached it), so this waits for
+	// the ones that SAW A PEER and gives up quietly rather than failing on a deadline.
+	acSettleListeners(lns)
+
 	t.Logf("AC-HOST-REACH PROBES:\n%s", dialOut)
 	for _, l := range lns {
 		t.Logf("AC-HOST-REACH PEERS at the %s listener (%s:%s): %v  writes=%v",
@@ -636,7 +652,7 @@ func TestAppleContainerReachesHostLoopback(t *testing.T) {
 		byPort[l.port] = l
 	}
 	hits := map[string][]string{}
-	var strangers []string
+	var strangers, torndown, phantom []string
 	for _, p := range probes {
 		l := byPort[p.port]
 		switch {
@@ -646,13 +662,34 @@ func TestAppleContainerReachesHostLoopback(t *testing.T) {
 		case strings.Contains(p.out, l.token):
 			hits[l.label] = append(hits[l.label], p.addr)
 		case strings.Contains(p.out, "CONNECTED"):
-			strangers = append(strangers, fmt.Sprintf("%s → %s:%s rc=%s out=%q",
-				l.label, p.addr, p.port, p.rc, p.out))
+			// TWO VERY DIFFERENT THINGS LOOK IDENTICAL FROM THE CONTAINER, and only this
+			// side can tell them apart. "CONNECTED, no token" is a tainted instrument if
+			// this listener was fine, and a MEASUREMENT if this listener also watched the
+			// connection die. Asking the host's own write log is what separates them.
+			entry := fmt.Sprintf("%s → %s:%s rc=%s out=%q", l.label, p.addr, p.port, p.rc, p.out)
+			switch {
+			case len(l.peers()) == 0:
+				// A PHANTOM HANDSHAKE. The container completed a TCP connect to a port THIS
+				// TEST HOLDS BOUND for its whole duration, and the accept never happened here
+				// — so nothing else on this Mac could have answered it, and the runtime's own
+				// NAT did. Measured 2026-09-15, and it alternates run to run with the
+				// teardown shape below on the very same address, which is what made this test
+				// flaky while printing the right verdict.
+				//
+				// It is the SAME conclusion by a different mechanism: the connection is not
+				// real. Classified apart from `torndown` only so the evidence stays legible.
+				phantom = append(phantom, entry)
+			case l.sawTeardown():
+				torndown = append(torndown, entry)
+			default:
+				strangers = append(strangers, entry)
+			}
 		}
 	}
 
 	if len(strangers) > 0 {
-		t.Errorf("AC-HOST-REACH: a dial CONNECTED but our listener's token never arrived: %v\n\n"+
+		t.Errorf("AC-HOST-REACH: a dial CONNECTED, our token never arrived, AND this side saw "+
+			"nothing wrong with the connection: %v\n\n"+
 			"Do not fold this into either verdict. Two readings, and rc tells them apart: rc=124 "+
 			"is a connection that was accepted and sent nothing within %ds (a forwarder in the "+
 			"path, or a listener that never wrote); any other rc means something on this Mac "+
@@ -696,6 +733,40 @@ func TestAppleContainerReachesHostLoopback(t *testing.T) {
 			"stay — enabling a loopback-tls loophole here would turn a working Apple Container "+
 			"launch into a refusing one, because the in-jail witness is fatal.",
 			version, hits)
+	case len(torndown) > 0 || len(phantom) > 0:
+		// A MEASURED NEGATIVE, AND THE THIRD READING THIS TEST'S DESIGN ANTICIPATED WITHOUT
+		// NAMING. The container reached this Mac — the handshake completed, `Accept()` returned
+		// a real peer — and the connection then died before either side could move a byte.
+		//
+		// WHY THIS IS THE RUNTIME AND NOT THIS FIXTURE, settled 2026-09-15 with plain tools and
+		// no yolo in the path: a `python3` listener that `sendall`s a banner and HOLDS the
+		// connection open reports `[Errno 32] Broken pipe`, while a bare
+		// `container run … bash -c 'exec 3<>/dev/tcp/192.168.64.1/<port>'` prints CONNECTED and
+		// then reads instant EOF (rc=0, no data). Both ends independently observe the teardown,
+		// which is what `sawTeardown` checks before this branch is taken.
+		//
+		// THE CLAIM IS BOUNDED, measured in the same session:
+		//   container → internet   WORKS (a real HTTP/1.1 response traversed both ways)
+		//   container → this Mac   handshake, then teardown, no data
+		//   this Mac → container   WORKS (every nix build today went through it over ssh)
+		// So it is the container→host direction specifically, not the container's networking.
+		//
+		// WHAT FOLLOWS: the loophole skip in loopholesruntime.go is CONFIRMED rather than
+		// merely inherited. A loopback-tls service cannot be dialled from an Apple Container
+		// jail on this release at any bind address, so enabling one would turn a working launch
+		// into a refusing one — the in-jail reachability witness is fatal. The `bridge` and
+		// `wildcard` rows above are not a cheaper path; they connect and then die too.
+		//
+		// A FUTURE RELEASE THAT FIXES THIS WILL MOVE TO THE `hits` BRANCHES ABOVE, which is
+		// where the pricing for acting on it already lives.
+		t.Logf("AC-HOST-REACH VERDICT: THE HOST IS NOT USABLE FROM A CONTAINER — the handshake "+
+			"completes and the connection is then torn down (`container` %s).\n\n"+
+			"connected, then died: %v\nconnected but never reached this process (the runtime's "+
+			"NAT answered a port we hold bound): %v\n\nhost-side write log per listener: %v\n\n"+
+			"This is a MEASUREMENT, not a fixture problem: both ends saw the teardown "+
+			"independently (see sawTeardown, and the comment on this branch for the "+
+			"plain-tools reproduction outside this suite). It CONFIRMS the loophole skip.",
+			version, torndown, phantom, acListenerWriteLogs(lns))
 	case len(strangers) > 0:
 		// INCONCLUSIVE, and it must not be spelled as the negative. A dial CONNECTED, so the
 		// container demonstrably reached something on this Mac; what failed is the token
@@ -808,7 +879,7 @@ set -u
 set -o pipefail
 probe() {
   addr="$1"; port="$2"; tag="$3"
-  out=$(timeout %d /bin/bash -c "exec 3<>/dev/tcp/$addr/$port && echo CONNECTED && head -n 1 <&3" 2>&1 | tr -d '\r' | tr '\n' ' ')
+  out=$(timeout %d /bin/bash -c "exec 3<>/dev/tcp/$addr/$port && echo CONNECTED && printf 'PROBE\n' >&3 && head -n 1 <&3" 2>&1 | tr -d '\r' | tr '\n' ' ')
   rc=$?
   echo "PROBE tag=$tag addr=$addr port=$port rc=$rc out=[$out]"
 }
@@ -1021,6 +1092,32 @@ func (l *acHostListener) serve() {
 		l.mu.Lock()
 		l.seenPeers = append(l.seenPeers, c.RemoteAddr().String())
 		l.mu.Unlock()
+		// WAIT FOR THE CLIENT'S REQUEST BEFORE WRITING. Without this the two sides raced
+		// and the race had TWO outcomes, both measured in ONE run on 2026-09-15:
+		//
+		//   wildcard  host: `0 bytes, err=… write: broken pipe`   client: rc=0, no token
+		//   bridge    host: `39 bytes, err=<nil>`                 client: Connection reset by peer
+		//
+		// The host wrote the moment it accepted, whether or not the client had reached its
+		// read — and the client printed CONNECTED, read once, and exited on whatever it got.
+		// So "the token did not survive" was a property of the FIXTURE, and the verdict
+		// logic (correctly, given what it was handed) kept reporting INCONCLUSIVE while its
+		// own PROBE lines said CONNECTED.
+		//
+		// A request/response removes both outcomes rather than tuning either: the host
+		// cannot write into a socket nobody is reading, and the client cannot close before
+		// reading, because it has to write first and then block. The CloseWrite/drain/Close
+		// sequence below is still needed and unchanged — it is what makes the FIN arrive
+		// cleanly once the exchange is done.
+		_ = c.SetReadDeadline(time.Now().Add(acDialTimeoutSecs * time.Second))
+		req := make([]byte, 64)
+		if _, rerr := c.Read(req); rerr != nil {
+			l.mu.Lock()
+			l.writes = append(l.writes, fmt.Sprintf("no request arrived: %v", rerr))
+			l.mu.Unlock()
+			_ = c.Close()
+			continue
+		}
 		_ = c.SetWriteDeadline(time.Now().Add(acDialTimeoutSecs * time.Second))
 		n, werr := c.Write([]byte(l.token + "\n"))
 		l.mu.Lock()
@@ -1046,6 +1143,68 @@ func (l *acHostListener) serve() {
 		}
 		_ = c.Close()
 	}
+}
+
+// acTeardownMarkers are the host-side outcomes that mean the PEER's connection was torn
+// down rather than that this listener misbehaved. They are what separates a measurement
+// from a tainted instrument: if the container reports an instant EOF or a reset AND this
+// side independently reports one of these, both ends agree the runtime dropped the
+// connection, and no amount of fixture tuning changes that.
+var acTeardownMarkers = []string{
+	"no request arrived",       // this side never received the probe's request line
+	"socket is not connected",  // ENOTCONN on a socket Accept() had just returned
+	"broken pipe",              // EPIPE: the peer was gone before this side could write
+	"connection reset by peer", // RST observed from this side
+}
+
+// sawTeardown reports whether every recorded exchange on this listener ended in a teardown.
+func (l *acHostListener) sawTeardown() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.writes) == 0 {
+		return false
+	}
+	for _, w := range l.writes {
+		hit := false
+		for _, m := range acTeardownMarkers {
+			if strings.Contains(w, m) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	return true
+}
+
+// acSettleListeners waits, briefly, for every listener that accepted a connection to also
+// record what happened to it. See the call site for why classification cannot run without it.
+func acSettleListeners(lns []*acHostListener) {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		pending := false
+		for _, l := range lns {
+			if len(l.peers()) > 0 && len(l.writeLog()) == 0 {
+				pending = true
+			}
+		}
+		if !pending {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// acListenerWriteLogs renders every listener's host-side outcome, which is the evidence the
+// measured-negative verdict rests on.
+func acListenerWriteLogs(lns []*acHostListener) string {
+	var b strings.Builder
+	for _, l := range lns {
+		fmt.Fprintf(&b, "\n  %s(%s): %v", l.label, l.bind, l.writeLog())
+	}
+	return b.String()
 }
 
 func (l *acHostListener) peers() []string {
