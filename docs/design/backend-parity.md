@@ -386,6 +386,52 @@ an agent plans around it.
 
 ## Open Questions
 
+1. <a id="OQ-BP-5"></a>💬 **[OQ-BP-5](#OQ-BP-5): which uid may read a loophole's endpoint file, once the jail is not root in a container?**
+
+   Opened 2026-09-14 by [`OQ-BP-4`](#decision-ledger)'s ruling — *loopholes as fully as possible on
+   every backend* — which this is the last thing standing between and the **macos-user** half. Filed
+   separately because it is not a parity gap: it is a decision about where a bearer token may go, and
+   answering it wrong is a credential leak rather than a missing feature.
+
+   **What is already settled.** macos-user needs no reachability measurement: `sharesLauncherNetns`
+   returns true for it (`paths.NativeRuntimes`), the jail is a native process so `127.0.0.1` IS the
+   host loopback, and the Seatbelt profile is `(allow default)`, which permits network. The transport
+   works there by construction.
+
+   **The blocker, stated exactly.** `svcendpoint.Publish` writes the **per-jail** endpoint file
+   **0600**, and the type's own doc says why: *"Token IS A SECRET. An Endpoint value must never be
+   logged, formatted into a diagnostic, or written anywhere but the per-jail file Publish writes
+   0600."* `DialLocal` then names the property that mode buys — *"it reads the same 0600 file as the
+   same uid that published it, a property that exists only because the token lives in that file
+   rather than in the jail's environment."*
+
+   **Why the existing backends do not meet it.** On podman and Apple Container the jail is root in a
+   container and the file arrives through a bind mount, so one 0600 file serves one reader. On
+   macos-user the jail runs as `_yolojail` — a different uid from the human who published it — and
+   there is no mount to reshape.
+
+   ⚠ **TWO readers want it, under two uids, and that is what makes this a decision rather than a
+   chmod.** Besides the jail, `yolo check`'s loophole health probe reads the same file as the human
+   (`internal/cli/check/sections_loopholes.go:315` and `:480`, via `DialLocal`). So chowning the file
+   to the sandbox user does not "just work" — it moves the problem to the probe.
+
+   | | Candidate | Cost |
+   | :--- | :--- | :--- |
+   | **(a)** | A shared group (`_yolojail`) and mode 0640 | Smallest change. Widens the token to every process running as that group — and the sandbox account is exactly where untrusted agent code runs, so this grants the token to the population it is meant to be scoped away from |
+   | **(b)** | Publish TWICE — the human's 0600 file, plus a second copy chowned to `_yolojail` 0600 | Each copy is 0600 to its own reader and the probe keeps working. Costs a second write of a secret, and a second thing to remove at teardown; a leaked copy is indistinguishable from the original |
+   | **(c)** | A per-reader TOKEN, not a per-reader file — mint a second token for the sandbox uid | Strongest: revocable independently, and a leak names its holder. Costs a token model the daemon side does not have today |
+   | **(d)** | Decline macos-user, and say so | Free, and leaves the broker's race live on that backend — concurrent jails each refreshing a single-use OAuth token, which is what [`OQ-BP-4`](#decision-ledger) called the reason to act |
+
+   _Leaning:_ **(b), with (c) as the shape to grow into.** (b) preserves the invariant the code
+   states — one 0600 file per reader, never a widened mode — and needs no new token model, so it is
+   buildable now and does not prejudge (c). (a) should be rejected on the record: it hands the token
+   to the account whose isolation is the point. (d) is the honest fallback if (b)'s teardown cannot be
+   made reliable, because a stale copy of a bearer token is worse than an absent feature.
+
+   ⚠ **Whoever rules this should check whether the token is per-jail-per-service or per-jail** —
+   `Publish`'s file is per-jail, but if one file carries several services' tokens then (b) copies more
+   than the sandbox needs and (c) becomes the only clean answer.
+
 1. 💬 **OQ-BP-1: Is the census worth 2–3 days, given it cannot catch the two worst findings?**
    [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset)'s residue is real: the P0s in [§5](#5-what-is-already-fixed-2026-08-24) (`reads-host`, `host_files`) emitted an argv and were
    *wrong*, not silent, and a census marks both Honored. What it buys is that the other
