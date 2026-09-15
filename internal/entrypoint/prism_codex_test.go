@@ -112,6 +112,32 @@ func TestConfigureCodexPrismFirstMigration(t *testing.T) {
 	}
 }
 
+// TestConfigureCodexPrismRepairsLegacyModelAvailabilityNUX removes an obsolete Codex UI
+// counter that older yolo TOML renders could retype from an integer to a float. Codex
+// 0.154.0 requires every value in this table to be u32 and otherwise starts with
+// "invalid type: floating point `2.0`". The table only records whether model-availability
+// onboarding was shown, so dropping it is the safe, forward-compatible repair.
+func TestConfigureCodexPrismRepairsLegacyModelAvailabilityNUX(t *testing.T) {
+	e := codexComputedEnv(t, "")
+	if err := os.MkdirAll(e.CodexDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(e.CodexDir(), "config.toml")
+	broken := "model = \"gpt-6-astra\"\n\n[tui.model_availability_nux]\ngpt-6-astra = 2.0\n"
+	if err := os.WriteFile(configPath, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ConfigurePackByName(e, "codex"); err != nil {
+		t.Fatalf("ConfigureCodexPrism: %v", err)
+	}
+	got := decodeCodexTOML(t, configPath)
+	tui, _ := got["tui"].(map[string]any)
+	if _, present := tui["model_availability_nux"]; present {
+		t.Fatalf("legacy model_availability_nux survived repair: %v", tui)
+	}
+}
+
 // TestConfigureCodexPrismDroppedServerDoesNotResurrect is the load-bearing
 // correctness test: a yolo-owned server DROPPED from config between boots must
 // not resurrect. The last_render sidecar is the "what yolo owned last boot"

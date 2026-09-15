@@ -1147,11 +1147,12 @@ func mergeSurfaceRoot(base, over map[string]any) map[string]any {
 // dry-run starts previewing something the assert does not do.
 func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 	computed map[string]any, overlays []agentcfg.Overlay) {
+	deleteNulls := surface.Codec == "toml"
 	// config-overlay contributions: below everything yolo and the owner assert, above
 	// the file's existing content (see renderSurfaceRMWSurface's doc comment).
 	for _, ov := range overlays {
 		if layer, isMap := ov.Data.(map[string]any); isMap {
-			applyRMWLayer(obj, layer, true)
+			applyRMWLayer(obj, layer, true, deleteNulls)
 		}
 	}
 	// Dynamic managed tables (MCP servers) FIRST, so a managed key nested under the
@@ -1159,23 +1160,28 @@ func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
 	regenerateManagedTables(e, surface, obj, computed)
 	// Managed: yolo owns these outright, so re-assert every boot.
 	if managed, isMap := surface.Managed.(map[string]any); isMap {
-		applyRMWLayer(obj, managed, true)
+		applyRMWLayer(obj, managed, true, deleteNulls)
 	}
 	// Defaults: user-overridable, so fill only where the key is absent.
 	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
-		applyRMWLayer(obj, defaults, false)
+		applyRMWLayer(obj, defaults, false, deleteNulls)
 	}
 }
 
 // applyRMWLayer writes layer into obj. force=true overwrites (managed semantics);
 // force=false only fills absent keys (default semantics). Nested objects recurse so
 // a sibling key the agent owns under the same parent survives — the deep-merge
-// behavior composition's Enforce already provides.
-func applyRMWLayer(obj *jsonx.OrderedMap, layer map[string]any, force bool) {
+// behavior composition's Enforce already provides. deleteNulls is true for TOML,
+// whose value model has no literal null; there a declarative nil is a removal.
+func applyRMWLayer(obj *jsonx.OrderedMap, layer map[string]any, force, deleteNulls bool) {
 	for _, k := range sortedKeys(layer) {
 		v := layer[k]
+		if deleteNulls && v == nil {
+			obj.Delete(k)
+			continue
+		}
 		if sub, isMap := v.(map[string]any); isMap {
-			applyRMWLayer(setDefaultMap(obj, k), sub, force)
+			applyRMWLayer(setDefaultMap(obj, k), sub, force, deleteNulls)
 			continue
 		}
 		if force {

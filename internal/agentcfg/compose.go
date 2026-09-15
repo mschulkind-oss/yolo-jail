@@ -516,7 +516,12 @@ func Compose(in Inputs) (*Result, error) {
 	// Enforce step (§3.1): re-apply the managed layer over the merged value, so
 	// managed keys win over every layer below. On a keyless surface a non-nil
 	// managed layer replaces the whole value (see enforceManaged).
-	config := enforceManaged(merged, in.Surface.Managed)
+	var config any
+	if in.Surface.Codec == "toml" {
+		config = enforceManagedTOML(merged, in.Surface.Managed)
+	} else {
+		config = enforceManaged(merged, in.Surface.Managed)
+	}
 	if mm := in.Surface.ManagedMap(); mm != nil {
 		for k := range mm {
 			if mm[k] == nil {

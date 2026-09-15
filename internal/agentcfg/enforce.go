@@ -12,11 +12,12 @@ package agentcfg
 // enforce_test.go that name them; item 2 is STRUCTURAL at HEAD rather than
 // testable, and says below why it no longer has a pin:
 //
-//  1. THIS IS NOT RFC 7386. engine.go's mergeValue deletes a key whose patch
+//  1. FOR JSON, THIS IS NOT RFC 7386. engine.go's mergeValue deletes a key whose patch
 //     value is null; enforceValue ASSIGNS it. The two are one `if` apart and
 //     look interchangeable. They are not: mergeValue is the fold's merge, this
 //     is the floor's, and a managed null means "this key renders as null", not
-//     "drop whatever the host set".
+//     "drop whatever the host set". TOML has no literal null, so Compose uses
+//     enforceManagedTOML there and a managed null deletes the key instead.
 //  2. THE INPUT IS THE ORIGINAL managed layer, not a defensive copy of it. It
 //     is the surface's own declared layer, read once and never rewritten, so
 //     the floor cannot be moved by anything the fold did. Compose passes
@@ -65,13 +66,47 @@ func enforceManaged(config, managed any) any {
 	return cfgMap
 }
 
+// enforceManagedTOML is the TOML form of the managed floor. TOML has no literal null,
+// so a nil leaf in a declarative managed layer can only mean "delete this key". Treating
+// it like enforceManaged would produce a config the TOML encoder must refuse. Non-nil
+// values retain the same deep-enforcement semantics, including preservation of siblings.
+func enforceManagedTOML(config, managed any) any {
+	cfgMap, cfgIsObj := config.(map[string]any)
+	encMap, encIsObj := managed.(map[string]any)
+	if !cfgIsObj || !encIsObj {
+		return enforceManaged(config, managed)
+	}
+	for k, v := range encMap {
+		if v == nil {
+			delete(cfgMap, k)
+			continue
+		}
+		mMap, mIsObj := v.(map[string]any)
+		cMap, cIsObj := cfgMap[k].(map[string]any)
+		if mIsObj {
+			if !cIsObj {
+				cMap = map[string]any{}
+			}
+			enforced := enforceManagedTOML(cMap, mMap).(map[string]any)
+			if cIsObj || len(enforced) > 0 {
+				cfgMap[k] = enforced
+			} else {
+				delete(cfgMap, k)
+			}
+			continue
+		}
+		cfgMap[k] = deepCopyValue(v)
+	}
+	return cfgMap
+}
+
 // enforceValue merges a managed value over the current one, managed winning.
 // Two objects merge recursively (so siblings survive); anything else — a scalar,
 // an array, a type mismatch, or nil — is replaced by a deep copy of the managed
 // value.
 //
-// The nil case is the one that is NOT mergeValue: see item 1 of the file
-// comment. Do not "unify" the two.
+// The nil case is the one that is NOT mergeValue for formats that represent a literal
+// null: see item 1 of the file comment. Do not "unify" the two.
 func enforceValue(cur, managed any) any {
 	mMap, mIsObj := managed.(map[string]any)
 	cMap, cIsObj := cur.(map[string]any)

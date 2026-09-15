@@ -29,6 +29,11 @@
         {
           "agent": "codex",
           "codec": "toml",
+          "managed": {
+            "tui": {
+              "model_availability_nux": null
+            }
+          },
           "name": "config",
           "path": "~/.codex/config.toml",
           "retireOnFirstRender": [

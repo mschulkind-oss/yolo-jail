@@ -544,6 +544,32 @@ func TestComposeCodexConfigEnforcesManaged(t *testing.T) {
 	}
 }
 
+// TestComposeTOMLManagedNullDeletesOnlyItsKey pins the format-specific meaning of a
+// managed null. TOML cannot encode a literal null, so the declaration removes that key;
+// the ordinary managed floor still preserves sibling keys in the same table. JSON's
+// distinct literal-null behavior remains pinned by TestComposeManagedNilValueIsAssignedNotDeleted.
+func TestComposeTOMLManagedNullDeletesOnlyItsKey(t *testing.T) {
+	s := manifest.Surface{
+		Agent: "codex", Name: "config", Path: "~/.codex/config.toml", Codec: "toml",
+		Managed: map[string]any{"tui": map[string]any{"model_availability_nux": nil}},
+	}
+	host := "[tui]\ntheme = \"dark\"\n\n[tui.model_availability_nux]\ngpt-6-astra = 2.0\n"
+	res, err := Compose(Inputs{Surface: s, HostBytes: []byte(host)})
+	if err != nil {
+		t.Fatalf("Compose error: %v", err)
+	}
+	tui := res.ConfigMap()["tui"].(map[string]any)
+	if _, present := tui["model_availability_nux"]; present {
+		t.Fatalf("managed TOML tombstone survived: %v", tui)
+	}
+	if tui["theme"] != "dark" {
+		t.Fatalf("managed TOML tombstone removed sibling theme: %v", tui)
+	}
+	if _, err := (codec.TOML{}).Decode(res.Encoded); err != nil {
+		t.Fatalf("managed TOML tombstone produced invalid TOML: %v\n%s", err, res.Encoded)
+	}
+}
+
 // TestComposeCodexConfigDefaultsApply proves that with NO host file the managed
 // scalars are exactly what lands (there are no default keys for codex), and the
 // output is valid TOML.
