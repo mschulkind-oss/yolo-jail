@@ -53,7 +53,6 @@ if ! curl -s "$CHROME_URL/json/version" >/dev/null 2>&1; then
         --disable-dev-shm-usage \
         --disable-setuid-sandbox \
         --disable-gpu \
-        --disable-software-rasterizer \
         --disable-blink-features=AutomationControlled \
         --disable-breakpad \
         --noerrdialogs \

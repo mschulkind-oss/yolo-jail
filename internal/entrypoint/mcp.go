@@ -122,7 +122,6 @@ func (e *Env) chromeDevtoolsArgs() []any {
 		"--chrome-arg=--disable-dev-shm-usage",
 		"--chrome-arg=--disable-setuid-sandbox",
 		"--chrome-arg=--disable-gpu",
-		"--chrome-arg=--disable-software-rasterizer",
 	}
 }
 

@@ -211,7 +211,7 @@ This is the section the design exists for. Twelve dependencies, split by who mus
 | 3 | boot-catalog accounting (npm + `~/.local/bin`) | `catalogNpmOrphans`, `catalogLocalBinOrphans` | **Yes** — pack installs are read off `HonoredInstalls` automatically |
 | 4 | the server entry itself (`command` + `args`) | `Env.LoadMCPServers`'s preset map | **No kind exists** — [§6](#6-there-is-no-mcp-contribution-kind) |
 | 5 | `--headless`, `--isolated` | `Env.chromeDevtoolsArgs` | **Yes** — inert data in the manifest |
-| 6 | five `--chrome-arg=` sandbox flags | `Env.chromeDevtoolsArgs` | **Yes** — same; see the callout below |
+| 6 | four `--chrome-arg=` sandbox flags | `Env.chromeDevtoolsArgs` | **Yes** — same; see the callout below |
 | 7 | the chromium **binary** | image: `fullPackages`, or `yoloImageExtras` on a lean launch | **No** — image content, and it must stay so |
 | 8 | the path to that binary | pinned `/usr/bin/chromium` (wired) / resolved (orphan script) | **Must be resolved, not declared** — [OQ-MP5](#OQ-MP5) |
 | 9 | fonts: `/etc/fonts`, `/usr/share/fonts`, `FONTCONFIG_*` | image `withChromium` block; `configureStoreFontconfig` on a lean launch | **No** — image and boot |
@@ -219,12 +219,11 @@ This is the section the design exists for. Twelve dependencies, split by who mus
 | 11 | `curl` (the orphan script's readiness poll) | image core floor | Declarable as `kind: "requires"`, delivered by the image |
 | 12 | the wrapper script itself | `GenerateMCPWrappers` | **Yes** — `kind: "files"`, with caveats below |
 
-### 5.1 The five sandbox flags are the pack's, and they are not tuning
+### 5.1 The four sandbox flags are the pack's, and they are not tuning
 
 ```text
 --chrome-arg=--no-sandbox                    --chrome-arg=--disable-gpu
---chrome-arg=--disable-dev-shm-usage         --chrome-arg=--disable-software-rasterizer
---chrome-arg=--disable-setuid-sandbox
+--chrome-arg=--disable-dev-shm-usage         --chrome-arg=--disable-setuid-sandbox
 ```
 
 Each corresponds to something a jail structurally does not have — a usable user namespace for
@@ -232,6 +231,10 @@ chromium's own sandbox, a large `/dev/shm`, a setuid helper, a GPU. They are fac
 chromium inside a container, which is exactly the kind of fact a pack is supposed to carry so
 nobody has to rediscover it. **Any design that makes the user write these has failed**, and that
 is the whole of [OQ-MP2](#decision-ledger)'s reasoning.
+
+`--disable-software-rasterizer` is deliberately absent. Headless Chromium still needs its
+software renderer when the hardware GPU is disabled; disabling both lets navigation and DOM
+inspection work while `Page.captureScreenshot` fails with an internal protocol error.
 
 ### 5.2 What the image must keep providing, and why the pack cannot take it
 

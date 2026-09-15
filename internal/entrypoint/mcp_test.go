@@ -156,3 +156,26 @@ func TestChromeDevtoolsArgvFallsBackToTheBakedChromiumPath(t *testing.T) {
 			"stay byte-for-byte what it was before it learned to resolve", got, bakedChromiumPath)
 	}
 }
+
+// TestChromeDevtoolsKeepsASoftwareRenderer pins the rendering half of the wired argv.
+// Headless Chromium can run without a hardware GPU, but Page.captureScreenshot still
+// needs SwiftShader (its software rasterizer). Passing --disable-gpu together with
+// --disable-software-rasterizer starts a browser that can navigate and inspect the DOM
+// while every screenshot fails with Page.captureScreenshot: Internal error.
+func TestChromeDevtoolsKeepsASoftwareRenderer(t *testing.T) {
+	v, ok := presetEnv(t, nil).LoadMCPServers().Get("chrome-devtools")
+	if !ok {
+		t.Fatal("LoadMCPServers dropped the chrome-devtools preset")
+	}
+	cfg := v.(*jsonx.OrderedMap)
+	rawArgs, _ := cfg.Get("args")
+	args := rawArgs.([]any)
+	for _, arg := range args {
+		if arg == "--chrome-arg=--disable-software-rasterizer" {
+			t.Fatalf("wired chrome-devtools argv disables Chromium's only renderer: %v", args)
+		}
+	}
+	if strings.Contains(chromeWrapper, "--disable-software-rasterizer") {
+		t.Fatal("chrome-devtools wrapper disables Chromium's only renderer")
+	}
+}
