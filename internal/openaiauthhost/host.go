@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -31,11 +32,12 @@ const BrokerName = "openai-auth-broker"
 type requestFunc func(string, any, io.Writer) (json.RawMessage, error)
 
 type deps struct {
-	ensure  func(io.Writer) (string, error)
-	request requestFunc
-	listen  func(string, string) (net.Listener, error)
-	home    func() string
-	storage func() string
+	ensure    func(io.Writer) (string, error)
+	request   requestFunc
+	listen    func(string, string) (net.Listener, error)
+	home      func() string
+	storage   func() string
+	workspace func() (string, error)
 }
 
 // Launch carries environment overrides and, for Codex, the loopback adapter
@@ -51,6 +53,7 @@ func Prepare(agent string, stderr io.Writer) (*Launch, error) {
 	d := deps{
 		ensure: ensureSingleton, request: openauthclient.RequestUnix,
 		listen: net.Listen, home: paths.Home, storage: paths.GlobalStorage,
+		workspace: os.Getwd,
 	}
 	return prepare(d, filepath.Base(agent), stderr)
 }
@@ -76,7 +79,18 @@ func prepare(d deps, agent string, stderr io.Writer) (*Launch, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := prepareCodexHome(managedHome, filepath.Join(d.home(), ".codex"), response); err != nil {
+	workspace := "."
+	if d.workspace != nil {
+		workspace, err = d.workspace()
+		if err != nil {
+			return nil, fmt.Errorf("resolve managed Codex workspace: %w", err)
+		}
+	}
+	workspace, err = filepath.Abs(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve managed Codex workspace: %w", err)
+	}
+	if err := prepareCodexHome(managedHome, filepath.Join(d.home(), ".codex"), workspace, response); err != nil {
 		return nil, err
 	}
 	listener, err := d.listen("tcp", "127.0.0.1:0")
@@ -122,14 +136,18 @@ func ensureLogin(socket string, request requestFunc, stderr io.Writer) error {
 	return nil
 }
 
-func prepareCodexHome(managed, ordinary string, response json.RawMessage) error {
+func prepareCodexHome(managed, ordinary, workspace string, response json.RawMessage) error {
 	if err := os.MkdirAll(managed, 0o700); err != nil {
 		return fmt.Errorf("create managed Codex home: %w", err)
 	}
 	if err := os.Chmod(managed, 0o700); err != nil {
 		return err
 	}
-	for _, name := range []string{"config.toml", "AGENTS.md", "skills"} {
+	if err := writeManagedCodexConfig(filepath.Join(managed, "config.toml"),
+		filepath.Join(ordinary, "config.toml"), workspace); err != nil {
+		return err
+	}
+	for _, name := range []string{"AGENTS.md", "skills"} {
 		source, destination := filepath.Join(ordinary, name), filepath.Join(managed, name)
 		if _, err := os.Stat(source); err != nil {
 			continue
@@ -147,6 +165,69 @@ func prepareCodexHome(managed, ordinary string, response json.RawMessage) error 
 		}
 	}
 	return openauthclient.WriteCodexAuth(filepath.Join(managed, "auth.json"), response)
+}
+
+// writeManagedCodexConfig copies the ordinary host config into the isolated
+// CODEX_HOME and marks only this launch's absolute workspace trusted. Codex 0.154
+// keys project trust under projects.<absolute-path>.trust_level. The ordinary
+// config remains untouched, and the managed copy is rebuilt on every launch so
+// host config changes still take effect.
+func writeManagedCodexConfig(destination, source, workspace string) error {
+	root := map[string]any{}
+	if data, err := os.ReadFile(source); err == nil {
+		decoded, err := (codec.TOML{}).Decode(data)
+		if err != nil {
+			return fmt.Errorf("decode ordinary Codex config: %w", err)
+		}
+		root = decoded.(map[string]any)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read ordinary Codex config: %w", err)
+	}
+	projects, ok := root["projects"].(map[string]any)
+	if !ok {
+		projects = map[string]any{}
+		root["projects"] = projects
+	}
+	project, ok := projects[workspace].(map[string]any)
+	if !ok {
+		project = map[string]any{}
+		projects[workspace] = project
+	}
+	project["trust_level"] = "trusted"
+	data, err := (codec.TOML{}).Encode(root)
+	if err != nil {
+		return fmt.Errorf("encode managed Codex config: %w", err)
+	}
+	return atomicWritePrivate(destination, data)
+}
+
+func atomicWritePrivate(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".codex-config.*")
+	if err != nil {
+		return fmt.Errorf("create temporary managed Codex config: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace managed Codex config: %w", err)
+	}
+	return nil
 }
 
 // Environ applies this managed launch's overrides to a base environment.

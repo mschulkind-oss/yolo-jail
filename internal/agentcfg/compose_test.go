@@ -571,8 +571,9 @@ func TestComposeTOMLManagedNullDeletesOnlyItsKey(t *testing.T) {
 }
 
 // TestComposeCodexConfigDefaultsApply proves that with NO host file the managed
-// scalars are exactly what lands (there are no default keys for codex), and the
-// output is valid TOML.
+// posture and workspace trust are exactly what land (there are no default keys
+// for codex), and the output is valid TOML. Render-time workspace substitution
+// is tested at the production writer; Compose sees the declared placeholder.
 func TestComposeCodexConfigDefaultsApply(t *testing.T) {
 	s, ok := packManifest(t).Lookup("codex", "config")
 	if !ok {
@@ -584,7 +585,10 @@ func TestComposeCodexConfigDefaultsApply(t *testing.T) {
 	}
 	want := map[string]any{
 		"approval_policy": "never",
-		"sandbox_mode":    "danger-full-access",
+		"projects": map[string]any{
+			WorkspacePlaceholder: map[string]any{"trust_level": "trusted"},
+		},
+		"sandbox_mode": "danger-full-access",
 	}
 	if !reflect.DeepEqual(res.Config, want) {
 		t.Errorf("empty-host codex config mismatch:\n got: %#v\nwant: %#v", res.Config, want)

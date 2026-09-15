@@ -30,6 +30,11 @@
           "agent": "codex",
           "codec": "toml",
           "managed": {
+            "projects": {
+              "${workspace}": {
+                "trust_level": "trusted"
+              }
+            },
             "tui": {
               "model_availability_nux": null
             }

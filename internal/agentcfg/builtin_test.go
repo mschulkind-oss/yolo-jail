@@ -197,10 +197,9 @@ func TestBuiltinOpencodeConfigSurface(t *testing.T) {
 }
 
 // TestBuiltinCodexConfigSurface asserts codex/config (config.toml) is in the
-// manifest with the TOML codec at the right path, and the two static
-// force-managed scalars the bespoke ConfigureCodex asserts
-// (internal/entrypoint/codex.go): approval_policy="never" and
-// sandbox_mode="danger-full-access", both written with .Set (force-managed).
+// manifest with the TOML codec at the right path, the workspace trust entry,
+// and the two static force-managed posture scalars: approval_policy="never"
+// and sandbox_mode="danger-full-access".
 // ConfigureCodex has no setDefault keys, so Defaults must be empty; the dynamic
 // mcp_servers block is a transform and must appear in neither static layer.
 func TestBuiltinCodexConfigSurface(t *testing.T) {
@@ -222,6 +221,11 @@ func TestBuiltinCodexConfigSurface(t *testing.T) {
 	}
 	if s.ManagedMap()["sandbox_mode"] != "danger-full-access" {
 		t.Errorf("codex/config should enforce sandbox_mode=danger-full-access, got %v", s.ManagedMap()["sandbox_mode"])
+	}
+	projects, _ := s.ManagedMap()["projects"].(map[string]any)
+	project, _ := projects[WorkspacePlaceholder].(map[string]any)
+	if project["trust_level"] != "trusted" {
+		t.Errorf("codex/config should trust the render-time workspace, got %v", projects)
 	}
 	// No setDefault keys in ConfigureCodex — Defaults is empty.
 	if len(s.DefaultsMap()) != 0 {

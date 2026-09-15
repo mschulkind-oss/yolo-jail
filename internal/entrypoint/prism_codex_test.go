@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
@@ -20,6 +21,30 @@ func codexComputedEnv(t *testing.T, mcpServersJSON string) *Env {
 		vars["YOLO_MCP_SERVERS"] = mcpServersJSON
 	}
 	return &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: vars}
+}
+
+func TestCodexWorkspaceTrustIsManagedInBothAutonomyPostures(t *testing.T) {
+	p, err := embeddedPack("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, autonomy := range []bool{false, true} {
+		surfaces, problems := p.SurfacesFor(autonomy)
+		if len(problems) != 0 {
+			t.Fatalf("autonomy=%v: %v", autonomy, problems)
+		}
+		var managed map[string]any
+		for _, surface := range surfaces {
+			if surface.Agent == "codex" && surface.Name == "config" {
+				managed = surface.ManagedMap()
+			}
+		}
+		projects, _ := managed["projects"].(map[string]any)
+		project, _ := projects[agentcfg.WorkspacePlaceholder].(map[string]any)
+		if project["trust_level"] != "trusted" {
+			t.Errorf("autonomy=%v: base managed workspace trust missing: %v", autonomy, managed)
+		}
+	}
 }
 
 // decodeCodexTOML reads and TOML-decodes config.toml into a generic object. The
@@ -38,6 +63,41 @@ func decodeCodexTOML(t *testing.T, path string) map[string]any {
 		t.Fatalf("decode %s: %v\n---\n%s", path, err, raw)
 	}
 	return m
+}
+
+// Codex keys project trust by the absolute workspace path. The same pack render
+// serves containers and macos-user, so its ${workspace} key must resolve to the
+// path that backend actually presents and must never leave the other backend's
+// path behind. Both cases drive the production first-boot writer.
+func TestCodexFirstBootTrustsTheBackendWorkspace(t *testing.T) {
+	macWorkspace := filepath.Join(t.TempDir(), "Users", "matt", "code", "project")
+	for _, tc := range []struct {
+		name, workspace, want string
+		wrong                 string
+	}{
+		{name: "container", want: "/workspace", wrong: macWorkspace},
+		{name: "macos-user", workspace: macWorkspace, want: macWorkspace, wrong: "/workspace"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := codexComputedEnv(t, "")
+			e.Workspace = tc.workspace
+			if err := ConfigurePackByName(e, "codex"); err != nil {
+				t.Fatal(err)
+			}
+			got := decodeCodexTOML(t, filepath.Join(e.CodexDir(), "config.toml"))
+			projects, ok := got["projects"].(map[string]any)
+			if !ok {
+				t.Fatalf("projects table missing: %v", got)
+			}
+			project, ok := projects[tc.want].(map[string]any)
+			if !ok || project["trust_level"] != "trusted" {
+				t.Errorf("projects[%q] = %v, want trust_level=trusted", tc.want, projects[tc.want])
+			}
+			if _, exists := projects[tc.wrong]; exists {
+				t.Errorf("wrong backend workspace %q also rendered: %v", tc.wrong, projects)
+			}
+		})
+	}
 }
 
 // TestConfigureCodexPrismFirstMigration is the TOML-codec analogue of the gemini

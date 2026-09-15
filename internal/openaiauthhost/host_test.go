@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
 
 func codexViewFixture() json.RawMessage {
@@ -55,9 +57,10 @@ func TestManagedCodexHomeLeavesOrdinaryAuthUntouchedAndAdapterFollowsAgent(t *te
 			}
 			return codexViewFixture(), nil
 		},
-		listen:  net.Listen,
-		home:    func() string { return filepath.Join(root, "home") },
-		storage: func() string { return managedStore },
+		listen:    net.Listen,
+		home:      func() string { return filepath.Join(root, "home") },
+		storage:   func() string { return managedStore },
+		workspace: func() (string, error) { return filepath.Join(root, "work", "repo"), nil },
 	}
 	launch, err := prepare(d, "codex", io.Discard)
 	if err != nil {
@@ -67,8 +70,23 @@ func TestManagedCodexHomeLeavesOrdinaryAuthUntouchedAndAdapterFollowsAgent(t *te
 	if launch.vars["CODEX_HOME"] != managed {
 		t.Fatalf("CODEX_HOME = %q", launch.vars["CODEX_HOME"])
 	}
-	if target, err := os.Readlink(filepath.Join(managed, "config.toml")); err != nil || target != filepath.Join(ordinary, "config.toml") {
-		t.Fatalf("managed config link = %q, %v", target, err)
+	managedConfig, err := tomlx.DecodeFile(filepath.Join(managed, "config.toml"))
+	if err != nil {
+		t.Fatalf("decode managed config: %v", err)
+	}
+	if managedConfig["model"] != "host" {
+		t.Errorf("managed config lost ordinary host keys: %v", managedConfig)
+	}
+	projects, _ := managedConfig["projects"].(map[string]any)
+	project, _ := projects[filepath.Join(root, "work", "repo")].(map[string]any)
+	if project["trust_level"] != "trusted" {
+		t.Errorf("managed config workspace trust = %v", projects)
+	}
+	if _, wrong := projects["/workspace"]; wrong {
+		t.Errorf("managed host config contains the container workspace: %v", projects)
+	}
+	if got, err := os.ReadFile(filepath.Join(ordinary, "config.toml")); err != nil || string(got) != "model = 'host'\n" {
+		t.Fatalf("ordinary config changed: %q, %v", got, err)
 	}
 	if got, _ := os.ReadFile(filepath.Join(ordinary, "auth.json")); !bytes.Equal(got, ordinaryAuth) {
 		t.Fatalf("ordinary auth changed: %s", got)
