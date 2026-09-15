@@ -10,8 +10,8 @@ vantage:
 
 # OMP and Codex-Claude profile — implementation sketch
 
-**Status:** SKETCH, 2026-09-15 — incomplete, and unstable while the design's
-open questions remain.
+**Status:** SKETCH, 2026-09-15 — incomplete but stable: every design ruling is
+settled, and this is still not a build hand-off.
 
 > **In short.** The feature has two shipping seams: an OMP program/config pack,
 > and a new authenticated Codex Responses route in the existing in-jail wire
@@ -28,19 +28,20 @@ route/lifecycle), and [`openai-auth-broker-plan.md`](openai-auth-broker-plan.md)
 
 ## Evidence to re-check before a real plan
 
-- Identify OMP's supported install channel and the exact config file/schema for
-  the selected version. Blocked on [OQ-OMP1](omp-and-codex-claude-profile.md#OQ-OMP1).
+- Identify OMP's official package-manager distribution and exact config
+  file/schema for the pinned selected version.
 - Probe the current Codex Responses request and streaming-event surface with the
   broker's access-token view; record which Anthropic Messages fields can map
-  without semantic loss. Blocked on [OQ-OMP2](omp-and-codex-claude-profile.md#OQ-OMP2).
+  without semantic loss, including thinking, caching, beta headers, and token
+  counting where Codex Responses exposes equivalents.
 - Locate the pack contribution and derive interfaces that add an OMP program,
   config surface, state root, and profile-aware provider selection without adding
   core knowledge of `omp`.
 - Locate the `wire-bridge` route selector and the OpenAI broker client boundary;
   ensure the route receives a short-lived view rather than a secret-bearing
   config value.
-- Establish the configured Codex alias and its preflight/disclosure behavior.
-  Blocked on [OQ-OMP3](omp-and-codex-claude-profile.md#OQ-OMP3).
+- Establish the `terra` alias's provider mapping and its preflight/disclosure
+  behavior.
 
 ## Expected verification seams
 
@@ -53,4 +54,3 @@ route/lifecycle), and [`openai-auth-broker-plan.md`](openai-auth-broker-plan.md)
 - Pack render test proving OMP gets only its own generated surfaces/state.
 - A nested-jail smoke test for the new in-jail route, plus real-backend checks
   for any host-reachability or backend-specific auth path.
-

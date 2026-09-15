@@ -10,8 +10,8 @@ vantage:
 
 # Roadmap
 
-**Status:** CURRENT — 2026-09-15. **44 rows**: 4 to rule first, 20 needing a decision,
-12 ready to build, 6 waiting, 2 iced.
+**Status:** CURRENT — 2026-09-15. **44 rows**: 4 to rule first, 19 needing a decision,
+13 ready to build, 6 waiting, 2 iced.
 
 This file is a **routing table, not a place to think**: one line per open decision, naming
 the doc that holds it and what a ruling releases. It is **not a record of what happened** —
@@ -23,7 +23,7 @@ derived rather than carried forward; re-derive the live-question totals with che
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**112 live questions across 30 docs**, plus one 🔒 that command cannot see.
+**109 live questions across 29 docs**, plus one 🔒 that command cannot see.
 
 ## Rule these first
 
@@ -61,7 +61,6 @@ sitting. All four below are the first class.
 | 19 | What an attach does with the attacher's pack set | [`agent-config-packs.md`](agent-config-packs.md) · overtaken | 4 | [`OQ-ACP3`](agent-config-packs.md#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **defect** — `internal/cli/run/run.go:766` re-renders before the attach branch at `:774` |
 | 20 | Whether `yolo host apply` is a convenience or the path | [`host-render-target.md`](../design/host-render-target.md) · no frontmatter | 3 | 9.2, [§9](../design/host-render-target.md#9-open-questions--the-discussion-part) | **doc** — product posture; [§8](../design/host-render-target.md#8-what-i-would-actually-do-in-order) step 3 is in 📦 regardless |
 | 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 12 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
-| 22 | OMP packaging, Codex-Claude bridge scope, and default model | [`omp-and-codex-claude-profile.md`](../design/omp-and-codex-claude-profile.md) · in-review | 3 | [`OQ-OMP1`–`OQ-OMP3`](../design/omp-and-codex-claude-profile.md#open-questions) | **build** — an OMP pack and an opt-in Claude profile using the broker-owned Codex subscription |
 
 **Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
 [`OQ-BR3`](../design/bedrock-plumbing.md#OQ-BR3) and [`OQ-PS3`](../design/provider-switching.md#OQ-PS3) are the same decision in two files.
@@ -98,6 +97,7 @@ Ruled, unblocked, and implementable cold — no memory of any conversation requi
 | 8 | Prove a pack-shipped jail binary with a throwaway hello pack | ruled *"do this even if…"*; the path has never executed | [§10](../design/broker-as-a-pack.md#10-sequencing) |
 | 9 | Serialise image copies across launches, with a machine-wide *image-copy* lock (a host flock, **not** the housekeeping lock) around re-inspecting the ref and then copying | no ruling needed. Layer-aware delivery skips only the layers already committed when a copy starts, and nothing serialises copies across workspaces (`internal/image/autoload.go:772`). Measured 2026-09-14: a reboot launched 11 jails, **5 copied one identical 3.45 GB image at once**, and each spent ~4 min in the store write. The comment at `:594` says a lock across the load would *"buy nothing"*, which was true only of the deleted stream; rewrite it in the same change | `internal/image/autoload.go:594` · test: a stubbed `LayerCopy`, two concurrent loads of one ref → exactly one copy. A nested jail is rootful and cannot verify this; use a rootless host |
 | 10 | Finish the OpenAI subscription credential service on `macos-user` and Apple Container, add trusted host-only import/logout, then run the real-host expiry and browser checks | the canonical transaction, podman transport, Codex and Pi adapters, managed host launches, browser login, status and self-check are implemented; nested verification cannot establish rootless reachability or either macOS backend | [`openai-auth-broker.md`](../design/openai-auth-broker.md) · [`openai-auth-broker-plan.md`](../design/openai-auth-broker-plan.md) |
+| 11 | Add OMP and the maximal-fidelity Codex-Claude bridge | all three rulings landed: use OMP's pinned official package-manager distribution, map every current Claude feature Codex Responses can represent, and default the profile to `terra` | [`omp-and-codex-claude-profile.md`](../design/omp-and-codex-claude-profile.md) · [`omp-and-codex-claude-profile-plan.md`](../design/omp-and-codex-claude-profile-plan.md) |
 
 ## 🔒 Waiting
 

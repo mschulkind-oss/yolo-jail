@@ -1,16 +1,16 @@
 ---
 title: "One OMP pack, and a Codex subscription behind a Claude profile"
 date: 2026-09-15
-status: in-review
+status: accepted
 tags: [packs, omp, claude, codex, profiles, translation, authentication]
-summary: "Adds Oh My Pi as an ordinary agent pack and lets an explicit Claude profile consume an OpenAI Codex subscription through a narrow in-jail protocol bridge."
+summary: "Adds Oh My Pi as an ordinary agent pack and lets an explicit Claude profile consume an OpenAI Codex subscription through a maximal-fidelity in-jail protocol bridge."
 vantage:
   status-chip: true
 ---
 
 # One OMP pack, and a Codex subscription behind a Claude profile
 
-**Status:** DESIGN, 2026-09-15. Nothing built. Existing-pack and credential
+**Status:** DECIDED, 2026-09-15. Nothing built. Existing-pack and credential
 claims verified against the tree today; OMP behaviour checked against its upstream
 documentation today.
 
@@ -21,24 +21,23 @@ documentation today.
 > clients share a native protocol or credential format.
 
 **Why it matters.** OMP is useful as a multi-provider coding harness, while a
-> user with a Codex subscription can otherwise only use it through Codex or Pi.
-> A global endpoint override or copied refresh token would instead change normal
-> Claude launches and reintroduce the single-use-refresh race the OpenAI broker
-> exists to prevent.
+user with a Codex subscription can otherwise only use it through Codex or Pi. A
+global endpoint override or copied refresh token would instead change normal
+Claude launches and reintroduce the single-use-refresh race the OpenAI broker
+exists to prevent.
 
 **The shape.** An `omp` program pack; one `claude=codex` profile; the existing
-> OpenAI refresh owner; and a second wire-bridge route that speaks Anthropic
-> Messages inbound and OpenAI Codex Responses outbound.
+OpenAI refresh owner; and a second wire-bridge route that speaks Anthropic
+Messages inbound and OpenAI Codex Responses outbound.
 
-**Cost.** The bridge deliberately supports less than either upstream API and
-> must track both clients' protocol evolution. The selected profile consumes
-> Codex subscription quota rather than Claude quota.
+**Cost.** The bridge must track both clients' protocol evolution and expand with
+Claude Code rather than excluding known features for a smaller first release. The
+selected profile consumes Codex subscription quota rather than Claude quota.
 
 **Start at [§3](#3-the-profile-is-the-boundary)** — profile ownership prevents
-> an accidental global reroute.
+an accidental global reroute.
 
-**Needs your ruling:** [OQ-OMP1](#OQ-OMP1), [OQ-OMP2](#OQ-OMP2),
-> [OQ-OMP3](#OQ-OMP3).
+**Needs your ruling:** **None.**
 
 **Reads with:** [`openai-auth-broker.md`](openai-auth-broker.md) (the canonical
 > credential owner), [`../reference/wire-bridge.md`](../reference/wire-bridge.md)
@@ -46,7 +45,7 @@ documentation today.
 > [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) (profiles select
 > a pack's own variant), and
 > [`omp-and-codex-claude-profile-plan.md`](omp-and-codex-claude-profile-plan.md)
-> (the implementation sketch, incomplete while these rulings are open).
+> (the implementation sketch, not yet a build hand-off).
 
 ---
 
@@ -71,6 +70,10 @@ My verdict is to add both capabilities, but to keep their ownership separate:
    consuming pack's configuration, not a mutation contributed by another pack.
 3. `packs/wire-bridge` owns protocol translation. `packs/openai-auth` remains
    the sole credential and refresh-token owner.
+
+OMP is installed from its official package-manager distribution at a pinned
+package version. Yolo does not vendor OMP or silently float to a new upstream
+release; the supported version is recorded in the pack's diagnostics.
 
 This follows the existing split: the pack system keeps core unaware of individual
 agents; the wire bridge manufactures an endpoint rather than changing derives;
@@ -127,18 +130,29 @@ healthy. It must never fall back to `OPENAI_API_KEY`, a user's ordinary
 `~/.codex/auth.json`, or Claude OAuth: those are distinct authorities whose
 quota, revocation, and lifecycle differ.
 
+The profile's default model alias is `terra`. The bridge resolves `terra` from
+the selected Codex provider's declared model map; launch refuses if that alias is
+absent or unreachable. A user may override the profile's `model` option with
+another declared alias, but an omitted option always means `terra`.
+
 ## 4. Translation contract and failure behaviour
 
-The bridge is intentionally a compatibility shim, not a claim that Claude Code
-and Codex Responses have the same feature set. Its v1 contract is:
+The bridge is a compatibility shim, not a claim that Claude Code and Codex
+Responses are intrinsically identical. Its first release nevertheless targets
+**maximal fidelity for the current Claude Code surface**: it must map every
+known feature for which Codex Responses offers an equivalent, rather than
+excluding thinking, caching, or beta features to reduce initial scope. Its
+contract is:
 
 | Claude-facing input | Bridge result | Rule |
 | :--- | :--- | :--- |
 | Messages, system prompt, text, images, tool definitions/results | Convert to an equivalent Codex Responses request | Preserve order and tool-call identity. |
 | Streaming text and tool calls | Convert response events to Anthropic SSE | Do not buffer the full completion. |
 | Model selection | Map the active profile alias to one declared Codex model | No hidden model fallback. |
-| Usage and stop reason | Translate where semantics match | Omit an unavailable detail rather than invent it. |
-| Thinking, prompt caching, unsupported beta fields, token counting | Refuse with a clear local 4xx response | Never silently discard a requested semantic feature. |
+| Usage, stop reason, and token counting | Translate where semantics match | Never substitute invented values. |
+| Thinking and reasoning controls | Map to the equivalent Codex Responses reasoning mechanism | Preserve the visible stream shape that Claude Code relies on. |
+| Prompt caching and recognized beta fields | Map to the corresponding Responses capability | Retain the request semantics and cache/accounting metadata where exposed. |
+| A field with no Codex Responses equivalent | Refuse with a clear local 4xx response | The refusal identifies the feature; it is never silently stripped. |
 
 Each request obtains an access-token view from the broker. The bridge holds that
 view only in memory until expiry and retries an unauthorized upstream response
@@ -150,8 +164,8 @@ Failures are explicit and bounded:
 
 - **No broker grant / login required:** fail before Claude starts, with the
   broker's login instruction.
-- **Unsupported feature:** return a stable local 4xx response without contacting
-  OpenAI.
+- **No equivalent upstream feature:** return a stable local 4xx response without
+  contacting OpenAI, after the bridge has exhausted documented equivalent forms.
 - **Transient upstream failure:** pass a retryable error through once; the bridge
   makes no second completion request because tool execution may be non-idempotent.
 - **Bridge crash:** the supervised service restarts; an in-flight Claude request
@@ -184,7 +198,8 @@ the standard program-pack install diagnosis.
 - No generic “translate any provider to any provider” gateway.
 - No global `ANTHROPIC_BASE_URL` or replacement of ordinary Claude authentication.
 - No access to a canonical refresh token by OMP, the bridge, or Claude.
-- No attempt to imitate every Claude beta feature or to conceal unsupported ones.
+- No support for undocumented or semantically impossible Claude features; known
+  documented features are implemented where Codex Responses has an equivalent.
 - No coupling between OMP's subagent scheduler and Claude Code's own subagents.
 - No claim that OpenAI subscription use is interchangeable with API-key use;
   availability, model access, quotas, and applicable terms remain upstream policy.
@@ -204,7 +219,7 @@ the standard program-pack install diagnosis.
 
 | Risk | Mitigation |
 | :--- | :--- |
-| Upstream protocol drift | Contract tests replay recorded redacted request/event fixtures for both bridge routes; unsupported fields fail closed. |
+| Upstream protocol drift | Contract tests replay recorded redacted request/event fixtures for every supported Claude feature; unmappable new fields fail closed until implemented. |
 | A token leaks through diagnostics | Token-redaction tests cover broker and bridge logs; only expiry, generation fingerprints, route, and status are observable. |
 | Profile selection changes a normal Claude launch | Test the no-profile path and launch disclosure; only `claude=codex` may inject the bridge endpoint. |
 | OMP's upstream config format changes | Pin and test the supported OMP release; its pack exposes the installed version in diagnostics. |
@@ -218,46 +233,14 @@ Done is observable when:
    the bridge, while `yolo -- claude` retains its normal endpoint.
 3. OMP, Codex, and two concurrent Claude-profile launches cross one expiry
    boundary with one upstream refresh and no credential file copied between them.
-4. An unsupported request fails locally with the documented response and no
-   upstream request is observed.
+4. A known Claude Code feature with a Codex Responses equivalent has a contract
+   fixture and works through the selected profile; a feature with no equivalent
+   fails locally without an upstream request.
 
-## Open Questions
+## Decision Ledger
 
-1. 💬 **OQ-OMP1: Which OMP distribution is the supported pack source?** Should
-   yolo install the upstream npm package, a pinned release artifact, or another
-   upstream-supported channel? This decides upgrade, reproducibility, and whether
-   the pack is viable on every backend.
-
-   <!-- vantage: oq id=OQ-OMP1 leaning="Use OMP's official package-manager distribution, pinned by its package version; yolo should not vendor a moving third-party agent." -->
-
-   _Leaning:_ Use OMP's official package-manager distribution, pinned by package
-   version; yolo should not vendor a moving third-party agent.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-OMP2: What is the v1 Claude feature envelope?** Is v1 limited to
-   text, images, tools, and streaming, refusing thinking/caching/beta features,
-   or must it cover a named wider Claude Code workflow before it ships? This sets
-   whether the bridge is a narrow reliable profile or a broad compatibility bet.
-
-   <!-- vantage: oq id=OQ-OMP2 leaning="Ship the narrow documented envelope first and fail closed for every unsupported semantic feature." -->
-
-   _Leaning:_ Ship the narrow documented envelope first and fail closed for every
-   unsupported semantic feature.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-OMP3: Which Codex model alias is the Claude profile default?** The
-   answer decides quality, quota consumption, and the model used when a user
-   selects `claude=codex` without a `model` option.
-
-   <!-- vantage: oq id=OQ-OMP3 leaning="Require an explicit configured default alias rather than hard-coding a model identifier in the Claude pack." -->
-
-   _Leaning:_ Require an explicit configured default alias rather than
-   hard-coding a model identifier in the Claude pack.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-OMP1 | Use OMP's official package-manager distribution, pinned by package version; do not vendor OMP. | 2026-09-15 | [§1](#1-terms-and-verdict) | — |
+| OQ-OMP2 | Support every current Claude Code feature for which Codex Responses has an equivalent; do not deliberately narrow v1. Refuse only semantically impossible features. | 2026-09-15 | [§4](#4-translation-contract-and-failure-behaviour) | — |
+| OQ-OMP3 | `terra` is the `claude=codex` default model alias; it is resolved through the declared provider model map. | 2026-09-15 | [§3](#3-the-profile-is-the-boundary) | — |
