@@ -366,6 +366,18 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 			profilePath, envFile, workspace, "", "", darwinPrefix)
 	}
 
+	stageCommands := append([][]string{}, StageBinaryCommands(selfExe, "")...)
+	stageCommands = append(stageCommands, StagePackCommands(hostPackRoot, cname, "")...)
+	stageCommands = append(stageCommands, StageHomeOverlayCommands(hostHomeOverlay, cname, "")...)
+	stageCommands = append(stageCommands, StageCtxCommands(hostCtx.Tree, cname, "")...)
+	if sandboxEnv != nil {
+		if value, ok := sandboxEnv.Get("YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT"); ok {
+			if endpoint, ok := value.(string); ok && endpoint != "" {
+				stageCommands = append(stageCommands, EndpointGrantCommands(endpoint, "")...)
+			}
+		}
+	}
+
 	return RunPlan{
 		Workspace:   workspace,
 		Cname:       cname,
@@ -376,10 +388,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		// Binary first, then the pack trees, then the content overlay, then the context
 		// tree: all four are prerequisites of the bootstrap the caller runs immediately
 		// after this list, and the binary is the one that fails most cheaply.
-		StageCommands: append(append(append(StageBinaryCommands(selfExe, ""),
-			StagePackCommands(hostPackRoot, cname, "")...),
-			StageHomeOverlayCommands(hostHomeOverlay, cname, "")...),
-			StageCtxCommands(hostCtx.Tree, cname, "")...),
+		StageCommands:       stageCommands,
 		PackRoot:            packRoot,
 		CtxRoot:             ctxRoot,
 		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),

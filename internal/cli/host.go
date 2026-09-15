@@ -159,12 +159,10 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 	return f, true
 }
 
-// hostExec composes the environment and REPLACES this process with the target.
+// hostExec composes the environment and launches the target.
 //
-// syscall.Exec rather than fork+wait is deliberate: yolo has nothing to do after the
-// agent starts — no teardown hook, no lock, no capture fold, none of what makes
-// `yolo run` supervise a child — so staying resident would only add a process to every
-// launch and put yolo between the agent and its terminal signals.
+// Ordinary launches still use syscall.Exec. Managed Codex stays resident because its
+// dynamic loopback credential adapter must be closed when the agent exits.
 func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int {
 	flags, ok := parseHostExecFlags(flagArgs, errw)
 	if !ok {
@@ -174,8 +172,6 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: nothing to run after `--`\n\n%s\n", hostUsage)
 		return 2
 	}
-	_ = out
-
 	// THE HOST-RENDER GATE, before anything else this function does (hostapplygate.go, and
 	// docs/reference/host-apply-staleness.md §4.1). It is the host notch's answer to the jail's
 	// launch-time config approval, and it sits FIRST for the reason the credential pre-flight
@@ -241,7 +237,19 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
 	argv := append([]string{cmd[0]}, cmd[1:]...)
-	if err := syscall.Exec(target, argv, launch.environ()); err != nil {
+	managed, err := prepareOpenAIAuthHost(cmd[0], errw)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
+		return 1
+	}
+	environ := launch.environ()
+	if managed != nil {
+		environ = managed.Environ(environ)
+		if rc, handled := managed.Run(target, argv, environ, stdin, out, errw); handled {
+			return rc
+		}
+	}
+	if err := syscall.Exec(target, argv, environ); err != nil {
 		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
 		return 126
 	}

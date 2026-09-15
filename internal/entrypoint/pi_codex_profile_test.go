@@ -1,0 +1,56 @@
+package entrypoint
+
+import (
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+)
+
+// This follows the production handoff on both sides: the shipped Pi pack declares and
+// resolves the profile on the host, then ConfigurePackSurfaces consumes those exact wire
+// tables and writes the settings Pi reads. Pi owns openai-codex in its built-in catalog,
+// so yolo selects it without shadowing it in models.json.
+func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
+	pi := shippedPiPack(t)
+	providers, err := packload.ComposeProviders(nil, []*packload.Pack{pi})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles([]*packload.Pack{pi}, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, ok := resolved["codex"]
+	if !ok || profile.Provider != "openai-codex" {
+		t.Fatalf("resolved codex profile = %#v, want openai-codex", profile)
+	}
+
+	providersJSON := `{}`
+	if providers != nil {
+		providersJSON = mustCompactJSON(t, providers)
+	}
+	r := newPioencodeRender(t, providersJSON)
+	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+	r.render(t, `{"pi":"codex"}`)
+	settings := r.piSettings(t)
+	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] != "gpt-5.4" {
+		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-5.4",
+			settings["defaultProvider"], settings["defaultModel"])
+	}
+	models := r.piModels(t)
+	if catalog, _ := models["providers"].(map[string]any); catalog != nil {
+		if _, shadowed := catalog["openai-codex"]; shadowed {
+			t.Fatalf("models.json shadows Pi's built-in openai-codex provider: %#v", catalog)
+		}
+	}
+}
+
+func mustCompactJSON(t *testing.T, value any) string {
+	t.Helper()
+	raw, err := jsonx.DumpsCompact(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}

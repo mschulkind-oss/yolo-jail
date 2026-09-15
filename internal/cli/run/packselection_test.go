@@ -73,11 +73,11 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude", "codex"]`)
 
-	o := &Options{Workspace: t.TempDir()}
+	o := &Options{Workspace: t.TempDir(), Stderr: discardBuf()}
 	if _, loaded, _, err := o.stagePacks("yolo-test-drop"); err != nil {
 		t.Fatalf("stagePacks: %v", err)
-	} else if len(loaded) != 2 {
-		t.Fatalf("first pass: want 2 packs, got %d", len(loaded))
+	} else if len(loaded) != 3 {
+		t.Fatalf("first pass: want claude, codex, and Codex's OpenAI auth dependency; got %d packs", len(loaded))
 	}
 
 	writeUserPacks(t, home, `["claude"]`)

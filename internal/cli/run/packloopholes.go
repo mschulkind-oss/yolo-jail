@@ -332,6 +332,10 @@ func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMa
 	o.notePackHostExec(packs)
 	// The other half of the same honesty: on a backend that starts no host services at all,
 	// say so rather than printing an exec disclosure for a daemon that will never run.
-	o.notePackLoopholesInert(rt, packs, cfg)
+	inertPacks := packs
+	if rt == "container" { // parity: HonoredBy — Apple Container runs only the OpenAI auth loophole
+		inertPacks = withoutOpenAIAuthPack(packs)
+	}
+	o.notePackLoopholesInert(rt, inertPacks, cfg)
 	return o.startLoopholes(cname, rt, cfg)
 }

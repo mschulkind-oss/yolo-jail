@@ -1676,6 +1676,38 @@ if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
     exit 1
 fi
 
+# --- agent authentication -----------------------------------------------------------
+# An agent pack can opt its native launcher into a broker-backed authentication view by
+# naming the launcher binary and the home-relative file to materialize. The hook keys on
+# declarative environment values rather than a hardcoded agent name, so another native
+# agent can adopt the same lifecycle without changing this generator.
+_refresh_agent_auth() {
+    [ "${YOLO_AUTH_PRELAUNCH_BIN:-}" = "$BIN" ] || return 0
+    if ! command -v yolo >/dev/null 2>&1; then
+        echo "  ⚠ $BIN: yolo is unavailable; cannot prepare authentication." >&2
+        return 1
+    fi
+    local auth_path="${YOLO_AUTH_PRELAUNCH_PATH:-}"
+    if [ -z "$auth_path" ]; then
+        echo "  ⚠ $BIN: YOLO_AUTH_PRELAUNCH_PATH is empty." >&2
+        return 1
+    fi
+    case "$auth_path" in
+        /*) ;;
+        *) auth_path="$HOME/$auth_path" ;;
+    esac
+    if YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token \
+        --codex-auth="$auth_path" >/dev/null; then
+        return 0
+    fi
+    echo "  $BIN: OpenAI login is required." >&2
+    YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client login >/dev/null
+    YOLO_BYPASS_SHIMS=1 yolo internal openai-auth-client token \
+        --codex-auth="$auth_path" >/dev/null
+}
+
+_refresh_agent_auth
+
 # --- transitive MCP/LSP refresh (§3.5, OQ-PD12a) ------------------------------------
 # The servers this agent connects to inherit ITS trigger: a server exists only to serve an
 # agent, so there is no boot step and no timer — the refresh happens here, at the moment

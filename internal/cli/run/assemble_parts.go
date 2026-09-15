@@ -444,8 +444,8 @@ func (o *Options) fwdSocketDir(cname string) string {
 	return filepath.Join(base, "yolo-fwd-"+cname)
 }
 
-// hostServicesMountArgs builds the host-services dir mount + the broker relay's
-// endpoint env. The broker singleton ensure + relay spawn are side effects handled
+// hostServicesMountArgs builds the host-services dir mount and active brokers'
+// endpoint env. Singleton ensure + front spawn are side effects handled
 // by the lifecycle phase; here we emit the -v and the env var.
 //
 // THE ENV IS GATED ON THE LOOPHOLE BEING ACTIVE, not on the singleton's socket
@@ -462,7 +462,7 @@ func (o *Options) fwdSocketDir(cname string) string {
 // brokerEndpointIsUnpublishable, and note that it is NOT the socket gate this
 // deliberately replaced.
 func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap) []string {
-	if rt == "container" {
+	if rt == "container" && !openAIAuthLoopholeActive(cfg) {
 		return nil
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
@@ -474,6 +474,10 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 		// is inherited by every child the terminator spawns.
 		args = append(args, "-e",
 			hostServiceEnvVar(broker.BrokerLoopholeName)+"="+hostServiceEndpointPath(broker.BrokerLoopholeName))
+	}
+	if openAIAuthLoopholeActive(cfg) {
+		args = append(args, "-e", hostServiceEnvVar(openAIAuthBrokerName)+"="+
+			hostServiceEndpointPath(openAIAuthBrokerName))
 	}
 	return args
 }

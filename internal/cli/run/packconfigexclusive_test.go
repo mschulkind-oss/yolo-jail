@@ -50,7 +50,7 @@ func TestStagePacksRefusesConfigSurfaceCollision(t *testing.T) {
 	second := configSurfacePackDir(t, "grabby", "acme", "settings", "rmw", `{"fileSuggestion":"x"}`)
 	writeUserPacks(t, home, `["file://`+owner+`", "file://`+second+`"]`)
 
-	o := &Options{Workspace: t.TempDir()}
+	o := &Options{Workspace: t.TempDir(), Stderr: discardBuf()}
 	_, _, _, err := o.stagePacks("yolo-test-config-collide")
 	if err == nil {
 		t.Fatal("two packs declaring one config surface identity must fail the launch — " +
@@ -110,13 +110,13 @@ func TestStagePacksShippedSetStillLoads(t *testing.T) {
 	writeUserPacks(t, home,
 		`["claude", "copilot", "opencode", "pi", "codex", "agy"]`)
 
-	o := &Options{Workspace: t.TempDir()}
+	o := &Options{Workspace: t.TempDir(), Stderr: discardBuf()}
 	_, loaded, _, err := o.stagePacks("yolo-test-shipped-six")
 	if err != nil {
 		t.Fatalf("all six shipped packs together must still launch (the config-exclusivity "+
 			"pre-flight must not fire on them): %v", err)
 	}
-	if len(loaded) != 6 {
-		t.Errorf("loaded %d packs, want all 6 shipped", len(loaded))
+	if len(loaded) != 7 {
+		t.Errorf("loaded %d packs, want 6 agent packs plus their joined OpenAI auth dependency", len(loaded))
 	}
 }

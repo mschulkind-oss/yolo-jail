@@ -335,7 +335,22 @@ func Run(opts Options) (rc int) {
 		// disclosure inseparable from the SPAWN, and nothing spawns here. Disclosing
 		// beside warnIfNoPacks is the honest placement — both answer "what will this
 		// launch not do for you", which is the only question this backend can raise.
-		o.notePackLoopholesInert(rt, staged.packs, cfg)
+		launchEnv := channel.launchEnv()
+		if openAIAuthLoopholeActive(cfg) {
+			socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
+			endpointPath := filepath.Join(socketsDir, openAIAuthBrokerName+paths.ServiceEndpointExt)
+			if !o.DryRun {
+				handles := o.startOpenAIAuth(cname, rt, cfg)
+				if len(handles) != 1 {
+					o.pr(o.Stderr).print("[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]")
+					return 1
+				}
+				endpointPath = handles[0].hostPath
+				defer o.stopLoopholes(handles, socketsDir, "", "")
+			}
+			launchEnv.Set(hostServiceEnvVar(openAIAuthBrokerName), endpointPath)
+		}
+		o.notePackLoopholesInert(rt, withoutOpenAIAuthPack(staged.packs), cfg)
 		// THE OTHER TIER COLLAPSE — #39's mirror image — USED TO BE WARNED ABOUT HERE, and
 		// is fixed rather than reported: the bootstrap now symlinks every scope:workspace
 		// state dir into <workspace>/.yolo/home, the sidecar the container backends bind
@@ -470,7 +485,7 @@ func Run(opts Options) (rc int) {
 		o.noteMacosUserHostByteGaps(ctxDelivery)
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
-			channel.launchEnv(), packload.BlockedTools(staged.packs))
+			launchEnv, packload.BlockedTools(staged.packs))
 	}
 	// AUTO-CAPTURE, the last host-side act before the container arm starts anything
 	// (OQ-PD18, install-capture.md slice 7). Every selected pack's `via: "installer"`

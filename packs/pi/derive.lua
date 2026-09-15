@@ -169,6 +169,13 @@ yolo.derive("pi", "settings", function(ctx)
     return {}
   end
   local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+  -- openai-codex is Pi's built-in subscription provider, so it deliberately has no
+  -- row in YOLO_PROVIDERS or models.json. The shipped codex profile selects the stable
+  -- default below; a user profile may state another exact Pi model id as `model`.
+  if ctx.selected_provider == "openai-codex" then
+    local model = (ctx.profile and ctx.profile.model) or "gpt-5.4"
+    return { selection = { defaultProvider = "openai-codex", defaultModel = model } }
+  end
   if not piReachable(p) then
     return {}
   end

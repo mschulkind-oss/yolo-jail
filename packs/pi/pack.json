@@ -25,6 +25,16 @@
       "kind": "skills"
     },
     {
+      "kind": "profile",
+      "name": "codex",
+      "provider": "openai-codex"
+    },
+    {
+      "from": "extensions/yolo-openai-auth.js",
+      "into": ".pi/agent/extensions/yolo-openai-auth.js",
+      "kind": "files"
+    },
+    {
       "config": [
         {
           "agent": "pi",
@@ -84,5 +94,10 @@
       "scope": "workspace"
     }
   ],
-  "name": "pi"
+  "name": "pi",
+  "needs": [
+    {
+      "pack": "openai-auth"
+    }
+  ]
 }

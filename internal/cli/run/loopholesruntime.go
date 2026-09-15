@@ -128,8 +128,8 @@ func (o *Options) inContainer() bool {
 }
 
 // startLoopholes starts all host services for this jail and returns handles.
-// Apple Container gets none (no socket bind-mount there).
-// Otherwise: the in-process cgroup delegate (Linux + cgroup v2 only, and now only
+// Apple Container starts only OpenAI authentication, whose endpoint directory it
+// mounts explicitly. Otherwise: the in-process cgroup delegate (Linux + cgroup v2 only, and now only
 // when its own loophole says so) and external services from config.loopholes +
 // manifest host_daemon specs. The broker singleton is ensured but returns NO handle
 // (host-wide, not per-jail).
@@ -144,11 +144,19 @@ func (o *Options) inContainer() bool {
 // keeps its in-process start (see startCgroupDelegate for the SO_PEERCRED reason it
 // cannot be a spawned daemon at all) but is GATED on its record like everything else.
 func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
+	allow := func(string) bool { return true }
+	if rt == "container" { // parity: HonoredBy — Apple Container starts only OpenAI authentication
+		allow = func(name string) bool { return name == openAIAuthBrokerName }
+	}
+	return o.startLoopholesMatching(cname, rt, cfg, allow)
+}
+
+// startLoopholesMatching is the shared lifecycle for backends that can carry only a
+// subset of host services. Apple Container admits the OpenAI credential endpoint file,
+// while macos-user starts that same one service without activating unrelated loopholes.
+func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap, allow func(string) bool) []loopholeDaemon {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	mkdirHostServicesDir(socketsDir)
-	if rt == "container" {
-		return nil
-	}
 
 	advertise := o.advertiseHostFor(rt, cfg)
 	var handles []loopholeDaemon
@@ -169,11 +177,18 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	// like in code.
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
 	discovered := set.Enabled()
+	kept := discovered[:0]
+	for _, lp := range discovered {
+		if allow(lp.Name) {
+			kept = append(kept, lp)
+		}
+	}
+	discovered = kept
 
 	// 2. The in-process cgroup delegate, gated on its loophole (Linux + cgroup v2 still
 	//    checked inside, because that is a fact about this kernel rather than a
 	//    declaration anyone can make).
-	if o.cgroupDelegateHonored(set) {
+	if allow(paths.BuiltinCgroupLoopholeName) && o.cgroupDelegateHonored(set) {
 		if h, ok := o.startCgroupDelegate(cname, rt, socketsDir); ok {
 			handles = append(handles, h)
 		}
@@ -211,6 +226,9 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	}
 	if loopCfg := cfgMap(cfg, "loopholes"); loopCfg != nil {
 		for _, name := range loopCfg.Keys() {
+			if !allow(name) {
+				continue
+			}
 			if _, seen := external[name]; seen {
 				continue
 			}
