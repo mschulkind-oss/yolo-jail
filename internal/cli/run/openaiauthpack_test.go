@@ -7,12 +7,15 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 )
 
 const codexRefreshAdapterURL = "http://127.0.0.1:1460/oauth/token"
@@ -44,6 +47,49 @@ func TestStagePacksJoinsOpenAIAuthForCodex(t *testing.T) {
 	}
 	if got := errBuf.String(); !strings.Contains(got, "+ openai-auth (needed by codex)") {
 		t.Errorf("the launch must disclose why the auth pack joined:\n%s", got)
+	}
+}
+
+// THE PRODUCTION CALL SITE must use stagePacks' completed needs closure when deciding
+// whether a loophole owner departed. openai-auth is normally absent from the literal config:
+// Codex and Pi pull it in through `needs`. Comparing the ownership record only with the
+// literal config archived the canonical broker credentials on every later launch.
+func TestStageRunPacksPreservesNeededOpenAIAuthState(t *testing.T) {
+	for _, tc := range []struct{ agent, config string }{
+		{"codex", `["codex"]`},
+		{"pi", `["pi"]`},
+	} {
+		t.Run(tc.agent, func(t *testing.T) {
+			home := retireHome(t)
+			writeUserPacks(t, home, tc.config)
+			rec := &packstage.LoopholeOwners{Owners: map[string]string{
+				"openai-auth-broker": "openai-auth",
+			}}
+			if err := rec.Save(packLoopholeOwnersPath()); err != nil {
+				t.Fatal(err)
+			}
+			stateDir, _ := writeLoopholeState(t, "openai-auth-broker", "CANONICAL CREDENTIALS")
+
+			var out bytes.Buffer
+			o := retireOptions(t, &out)
+			if _, ok := o.stageRunPacks("yolo-openai-auth-needs-" + tc.agent); !ok {
+				t.Fatalf("stageRunPacks failed:\n%s", out.String())
+			}
+			if _, err := os.ReadFile(filepath.Join(stateDir, "ca.key")); err != nil {
+				t.Fatalf("%s's dependency-selected broker state was archived: %v\n%s",
+					tc.agent, err, out.String())
+			}
+			if strings.Contains(out.String(), "ARCHIVED") {
+				t.Errorf("%s launch reported its active broker as retired:\n%s", tc.agent, out.String())
+			}
+			got, err := packstage.LoadLoopholeOwners(packLoopholeOwnersPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Owners["openai-auth-broker"] != "openai-auth" {
+				t.Errorf("broker ownership was lost: %v", got.Owners)
+			}
+		})
 	}
 }
 

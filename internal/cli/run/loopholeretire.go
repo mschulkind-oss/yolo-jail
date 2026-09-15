@@ -142,7 +142,7 @@ func (o *Options) recordAndRetirePackLoopholes(packs []*packload.Pack) {
 			"no loophole state is retired or recorded this launch[/yellow]", err.Error())
 		return
 	}
-	changed := o.retireDepartedLoopholeState(rec)
+	changed := o.retireDepartedLoopholeState(rec, packs)
 	if o.recordPackLoopholeOwners(rec, packs) {
 		changed = true
 	}
@@ -156,17 +156,27 @@ func (o *Options) recordAndRetirePackLoopholes(packs []*packload.Pack) {
 }
 
 // retireDepartedLoopholeState archives the state of every recorded loophole whose owning
-// pack is no longer configured, and forgets each one it successfully archived. Returns
-// whether the record changed.
+// pack is neither configured nor active through the resolved needs closure, and forgets each
+// one it successfully archived. Returns whether the record changed.
 //
 // REFUSES ON AN UNKNOWN CONFIGURED SET, which is the same guard pruneDroppedPackOutput opens
 // with and here it protects a private key: a bug that made the set empty would read as "every
 // pack is gone" and archive every loophole's state on the machine. An unreadable or
 // problem-reporting `packs` list is therefore "retire nothing", not "retire everything".
-func (o *Options) retireDepartedLoopholeState(rec *packstage.LoopholeOwners) bool {
+// The resolved closure is then added because dependencies are ordinary active packs even
+// though they are absent from the literal config.
+func (o *Options) retireDepartedLoopholeState(rec *packstage.LoopholeOwners, packs []*packload.Pack) bool {
 	configured, ok := configuredPackNames()
 	if !ok {
 		return false
+	}
+	// A needs-added pack is active even though the user did not type its name in
+	// `packs`. stagePacks has already computed the complete dependency closure, so
+	// union those loaded names into the configured set before deciding anything
+	// departed. Keep the configured names too: a configured remote pack that could
+	// not resolve this launch must retain its state.
+	for _, p := range packs {
+		configured[p.Name] = true
 	}
 	departed := rec.Departed(configured)
 	if len(departed) == 0 {
