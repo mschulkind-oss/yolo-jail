@@ -201,13 +201,16 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	// loophole's NAME alone, exactly like {state} in ca_cert three lines up. Resolving
 	// it at load means every consumer of a record gets a real path: the spawn list,
 	// `yolo check`'s doctor run, and `yolo loopholes status`, none of which share a
-	// substitution site.
+	// substitution site. {state} follows the same rule in host_daemon.cmd and
+	// doctor_cmd: it is also name-derived and must never reach a child literally.
+	statePath := StateDirFor(m.Name)
 	settingsPath := SettingsFileFor(m.Name)
 
 	var doctorCmd []string
 	if m.DoctorCmdSet {
 		doctorCmd = substituteAll(m.DoctorCmd, loopholedecl.TokenLoopholeDir, hostDir)
 		doctorCmd = substituteAll(doctorCmd, loopholedecl.TokenSettings, settingsPath)
+		doctorCmd = substituteAll(doctorCmd, loopholedecl.TokenState, statePath)
 	}
 
 	// EVERY field, listed. This literal is the same shape as subsetManifest's, and
@@ -226,10 +229,11 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	// rather than by listing what somebody remembered.
 	var hostDaemon *HostDaemon
 	if m.HostDaemon != nil {
+		cmd := substituteAll(m.HostDaemon.Cmd, loopholedecl.TokenLoopholeDir, hostDir)
+		cmd = substituteAll(cmd, loopholedecl.TokenSettings, settingsPath)
+		cmd = substituteAll(cmd, loopholedecl.TokenState, statePath)
 		hostDaemon = &HostDaemon{
-			Cmd: substituteAll(
-				substituteAll(m.HostDaemon.Cmd, loopholedecl.TokenLoopholeDir, hostDir),
-				loopholedecl.TokenSettings, settingsPath),
+			Cmd:        cmd,
 			Env:        m.HostDaemon.Env,
 			Publishes:  m.HostDaemon.Publishes,
 			RequestEnd: m.HostDaemon.RequestEnd,

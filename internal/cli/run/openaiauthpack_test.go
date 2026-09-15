@@ -116,13 +116,34 @@ func TestShippedOpenAIAuthPackOwnsOneHostSingletonAndAdapter(t *testing.T) {
 		t.Errorf("loophole = %q enabled=%v, want openai-auth-broker enabled by pack selection",
 			lp.Name, lp.Enabled)
 	}
+	stateFile := filepath.Join(loopholes.StateDirFor("openai-auth-broker"), "credentials.json")
 	wantHost := []string{
 		"yolo", "internal", "daemon", "openai-auth-broker",
-		"--socket", "{socket}", "--state-file", "{state}/credentials.json",
+		"--socket", "{socket}", "--state-file", stateFile,
 	}
 	if lp.HostDaemon == nil || !reflect.DeepEqual(lp.HostDaemon.Cmd, wantHost) ||
 		lp.HostDaemon.Scope != "host" || lp.HostDaemon.Publishes != "socket" {
 		t.Errorf("host daemon = %+v, want one host-scoped socket publisher %v", lp.HostDaemon, wantHost)
+	}
+	wantDoctor := []string{
+		"yolo", "internal", "daemon", "openai-auth-broker",
+		"--self-check", "--state-file", stateFile,
+	}
+	if !reflect.DeepEqual(lp.DoctorCmd, wantDoctor) {
+		t.Errorf("doctor cmd = %v, want %v", lp.DoctorCmd, wantDoctor)
+	}
+	for label, argv := range map[string][]string{
+		"host daemon": lp.HostDaemon.Cmd,
+		"doctor":      lp.DoctorCmd,
+	} {
+		for _, arg := range argv {
+			if arg != "{socket}" && (strings.Contains(arg, "{") || strings.Contains(arg, "}")) {
+				t.Errorf("%s argv contains unresolved token %q", label, arg)
+			}
+		}
+	}
+	if !filepath.IsAbs(stateFile) {
+		t.Fatalf("resolved broker state file = %q, want an absolute host path", stateFile)
 	}
 	wantJail := []string{"yolo-jaild", "openai-auth-adapter", "--listen", "127.0.0.1:1460"}
 	if lp.JailDaemon == nil || !reflect.DeepEqual(lp.JailDaemon.Cmd, wantJail) ||
