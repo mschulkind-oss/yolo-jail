@@ -107,6 +107,27 @@ func TestBuiltinSkillsEmbedMatchesTree(t *testing.T) {
 	}
 }
 
+// TestBuiltinSkillSuiteIsGeneralPurpose keeps repository-specific developer
+// instructions out of the globally staged built-in suite. Repository guidance
+// belongs in a workspace briefing or a pack, where every workspace can opt in.
+func TestBuiltinSkillSuiteIsGeneralPurpose(t *testing.T) {
+	entries, err := fs.ReadDir(builtinskills.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			got = append(got, entry.Name())
+		}
+	}
+	sort.Strings(got)
+	want := []string{"configuring-the-jail", "diagnosing-the-jail"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("built-in skills = %v, want %v", got, want)
+	}
+}
+
 // maxDescBytes caps each shipped skill description. Descriptions are always-on
 // context (only name+description load until a skill triggers), so this is a CI
 // budget contract, replacing the old self-referential const-byte pin.

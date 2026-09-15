@@ -27,7 +27,7 @@ func TestPrepareSkillsStaging(t *testing.T) {
 	withPackSkillDirs(t, localPack)
 
 	withSkillTargets(t, ".claude/skills")
-	staging, err := PrepareSkills("test-cname", home, []string{"claude"}, false)
+	staging, err := PrepareSkills("test-cname", home, []string{"claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,15 +52,11 @@ func TestPrepareSkillsStaging(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(claudeStaging, "configuring-the-jail", "SKILL.md")); string(data) != string(want) {
 		t.Error("configuring-the-jail SKILL.md content mismatch vs embedded source")
 	}
-	// Every ungated built-in skill lands.
+	// Every built-in skill lands.
 	for _, name := range []string{"configuring-the-jail", "diagnosing-the-jail"} {
 		if _, err := os.Stat(filepath.Join(claudeStaging, name, "SKILL.md")); err != nil {
 			t.Errorf("built-in skill %q missing from staging: %v", name, err)
 		}
-	}
-	// The source-tree-gated skill is absent when includeDev is false.
-	if _, err := os.Stat(filepath.Join(claudeStaging, "developing-yolo-jail", "SKILL.md")); !os.IsNotExist(err) {
-		t.Error("developing-yolo-jail should be gated out when includeDev is false")
 	}
 	// The pack's skill is layered in.
 	if data, _ := os.ReadFile(filepath.Join(claudeStaging, "my-skill", "SKILL.md")); string(data) != "host skill" {
@@ -72,7 +68,7 @@ func TestPrepareSkillsStaging(t *testing.T) {
 	// Drop a stale entry to prove clearing happens inside.
 	must(t, os.WriteFile(filepath.Join(claudeStaging, "STALE"), []byte("x"), 0o644))
 	withSkillTargets(t, ".claude/skills")
-	if _, err := PrepareSkills("test-cname", home, []string{"claude"}, false); err != nil {
+	if _, err := PrepareSkills("test-cname", home, []string{"claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if inodeOf(t, claudeStaging) != ino1 {
@@ -84,23 +80,6 @@ func TestPrepareSkillsStaging(t *testing.T) {
 	// Built-in + pack skill still present after re-stage.
 	if _, err := os.Stat(filepath.Join(claudeStaging, "configuring-the-jail", "SKILL.md")); err != nil {
 		t.Error("configuring-the-jail missing after re-stage")
-	}
-}
-
-// TestPrepareSkillsIncludeDev confirms the source-tree-gated skill is staged
-// only when includeDev is true.
-func TestPrepareSkillsIncludeDev(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	withSkillTargets(t, ".claude/skills")
-	staging, err := PrepareSkills("dev-cname", home, []string{"claude"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := filepath.Join(staging, "skills-claude", "developing-yolo-jail", "SKILL.md")
-	if _, err := os.Stat(p); err != nil {
-		t.Errorf("developing-yolo-jail should be staged when includeDev is true: %v", err)
 	}
 }
 
@@ -120,7 +99,7 @@ func TestPrepareSkillsFollowsSymlinks(t *testing.T) {
 	withPackSkillDirs(t, packSkills)
 
 	withSkillTargets(t, ".claude/skills")
-	staging, err := PrepareSkills("c2", home, []string{"claude"}, false)
+	staging, err := PrepareSkills("c2", home, []string{"claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +158,7 @@ func TestJailDoesNotStageTheDestinationsOwnSkills(t *testing.T) {
 	withPackSkillDirs(t, localPack)
 
 	withSkillTargets(t, ".claude/skills")
-	staging, err := PrepareSkills("s3-cname", home, []string{"claude"}, false)
+	staging, err := PrepareSkills("s3-cname", home, []string{"claude"})
 	must(t, err)
 	staged := filepath.Join(staging, SkillStagingName("claude"))
 
@@ -218,7 +197,7 @@ func TestBuiltinSuiteReachesEveryDeclaredSkillsTarget(t *testing.T) {
 		".gemini/config/skills",
 	} {
 		withSkillTargets(t, dest)
-		staging, err := PrepareSkills("c-target", home, nil, false)
+		staging, err := PrepareSkills("c-target", home, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", dest, err)
 		}
@@ -234,7 +213,7 @@ func TestBuiltinSuiteReachesEveryDeclaredSkillsTarget(t *testing.T) {
 	// With NO declared target, nothing is staged — a jail with no packs gets no skills
 	// dirs rather than an invented one.
 	SetPackSkillTargets(nil)
-	staging, err := PrepareSkills("c-none", home, nil, false)
+	staging, err := PrepareSkills("c-none", home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

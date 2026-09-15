@@ -100,10 +100,6 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		loops = briefingLoopholes(cfgMap(cfg, "loopholes"))
 	}
 
-	// Source-tree gating: staged skills + the briefing's dev section both key
-	// off this. Derived from the stable workspace, so launch and attach agree.
-	isSrc := jailcontent.WorkspaceIsYoloSourceTree(o.Workspace)
-
 	// Pack staging (C3) already ran, ABOVE the backend dispatch, and its ordering
 	// relative to skills is still load-bearing in the same way: stagePacks sets
 	// jailcontent.SetPackSkillDirs as a side effect and PrepareSkills consumes it below.
@@ -114,7 +110,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	jailcontent.SetPackSkillTargets(packSkillTargets(loadedPacks))
 
 	// Skills staging.
-	staging, err := jailcontent.PrepareSkills(cname, homeDir(), nil, isSrc)
+	staging, err := jailcontent.PrepareSkills(cname, homeDir(), nil)
 	if err != nil {
 		return "", err
 	}
@@ -145,7 +141,6 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		ForwardHostPorts:   forwardHostPorts,
 		Loopholes:          loops,
 		Resources:          resources,
-		IsYoloSourceTree:   isSrc,
 		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
 		Confinement:        string(config.ResolveConfinement(cfg)),
 		// THE MECHANISM, which is the second axis of the header and was a boolean until

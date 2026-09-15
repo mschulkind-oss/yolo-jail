@@ -42,7 +42,7 @@ func stagedSkillNames(t *testing.T, targets []SkillTarget, sources []PackSkillSo
 	SetPackSkillDirs(sources)
 	t.Cleanup(func() { SetPackSkillTargets(nil); SetPackSkillDirs(nil) })
 
-	staging, err := PrepareSkills("yolo-test-audience", t.TempDir(), nil, false)
+	staging, err := PrepareSkills("yolo-test-audience", t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("PrepareSkills: %v", err)
 	}

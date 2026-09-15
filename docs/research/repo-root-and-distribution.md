@@ -213,8 +213,8 @@ than inferred. Consequences worth stating plainly:
   with the skew gate still guarding it.
 - **In-jail**, a bare `yolo` resolves the baked `/opt/yolo-jail` bundle rather
   than a self-hosted `/workspace` checkout, so nested-jail verification of a Go
-  or `flake.nix` change must pass `YOLO_REPO_ROOT=/workspace`. `AGENTS.md` and
-  the `developing-yolo-jail` skill carry that in every nested command.
+  or `flake.nix` change must pass `YOLO_REPO_ROOT=/workspace`. The repository's
+  `AGENTS.md` carries that in every nested command.
 
 Pinned by `TestResolveIgnoresCheckoutInCwd` / `TestResolveIgnoresCheckoutAboveCwd`
 (the resolver), `TestResolveRepoRootIgnoresCwd` (run's wrapper), and

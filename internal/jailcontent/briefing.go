@@ -15,7 +15,6 @@ package jailcontent
 // mount depends on.
 
 import (
-	"bytes"
 	"os"
 	"slices"
 	"sort"
@@ -71,7 +70,6 @@ type BriefingInput struct {
 	ForwardHostPorts   []any
 	Loopholes          []Loophole
 	Resources          map[string]any
-	IsYoloSourceTree   bool
 	ProvisioningFailed bool
 	// Confinement is the notch this environment runs at ("jail"|"guest"|"host"),
 	// env-manager plan Phase 8. Empty is treated as "jail" (the default and today's
@@ -620,14 +618,6 @@ func BriefingContent(in BriefingInput) string {
 		"",
 	)
 
-	if in.IsYoloSourceTree {
-		lines = append(lines,
-			"When editing this repo's own Go code (`cmd/`/`internal/`) or `flake.nix`,",
-			"read the **developing-yolo-jail** skill for the build/deploy/verify traps.",
-			"",
-		)
-	}
-
 	return strings.Join(lines, "\n") + "\n"
 }
 
@@ -767,20 +757,6 @@ func loopholeFirst(desc string) string {
 	}
 	s = strings.TrimSpace(s)
 	return strings.TrimRight(s, ".")
-}
-
-// WorkspaceIsYoloSourceTree reports whether workspace is a yolo-jail source
-// checkout: go.mod with the yolo-jail module path AND cmd/yolo/main.go present.
-func WorkspaceIsYoloSourceTree(workspace string) bool {
-	data, err := os.ReadFile(workspace + "/go.mod")
-	if err != nil {
-		return false
-	}
-	if !bytes.Contains(data, []byte("yolo-jail")) {
-		return false
-	}
-	_, err = os.Stat(workspace + "/cmd/yolo/main.go")
-	return err == nil
 }
 
 // PackBriefing is one pack's contribution to an agent briefing (C3).

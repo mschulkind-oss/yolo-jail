@@ -58,7 +58,7 @@ func stageSkillTargets(t *testing.T, cname string) ([]*packload.Pack, []jailcont
 	}
 	targets := packSkillTargets(loaded)
 	jailcontent.SetPackSkillTargets(targets)
-	staging, err := jailcontent.PrepareSkills(cname, os.Getenv("HOME"), nil, false)
+	staging, err := jailcontent.PrepareSkills(cname, os.Getenv("HOME"), nil)
 	if err != nil {
 		t.Fatalf("PrepareSkills: %v", err)
 	}

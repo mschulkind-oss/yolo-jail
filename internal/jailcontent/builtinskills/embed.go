@@ -9,12 +9,9 @@
 // that a NEW skill directory must be added to the directive below;
 // TestBuiltinSkillsEmbedMatchesTree fails the build the moment the on-disk tree
 // and this embed drift, so the sync is test-enforced, not convention-enforced.
-//
-// developing-yolo-jail is embedded like the rest but staged only when the
-// workspace is the yolo-jail source tree (see PrepareSkills' includeDev param).
 package builtinskills
 
 import "embed"
 
-//go:embed all:configuring-the-jail all:diagnosing-the-jail all:developing-yolo-jail
+//go:embed all:configuring-the-jail all:diagnosing-the-jail
 var FS embed.FS

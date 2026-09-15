@@ -63,26 +63,6 @@ func TestWriteBriefingBreaksHardlink(t *testing.T) {
 	}
 }
 
-func TestWorkspaceIsYoloSourceTree(t *testing.T) {
-	// A non-yolo dir.
-	dir := t.TempDir()
-	if WorkspaceIsYoloSourceTree(dir) {
-		t.Error("empty dir is not a yolo source tree")
-	}
-	// The real repo root IS one.
-	root := repoRoot(t)
-	if !WorkspaceIsYoloSourceTree(root) {
-		t.Error("repo root should be recognized as a yolo source tree")
-	}
-	// go.mod present but foreign module path -> false.
-	must(t, os.MkdirAll(filepath.Join(dir, "cmd", "yolo"), 0o755))
-	must(t, os.WriteFile(filepath.Join(dir, "cmd", "yolo", "main.go"), nil, 0o644))
-	must(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/other\n"), 0o644))
-	if WorkspaceIsYoloSourceTree(dir) {
-		t.Error("foreign module path should not match")
-	}
-}
-
 func inodeOf(t *testing.T, path string) uint64 {
 	t.Helper()
 	fi, err := os.Lstat(path)
@@ -92,21 +72,6 @@ func inodeOf(t *testing.T, path string) uint64 {
 		t.Fatal("no syscall.Stat_t")
 	}
 	return st.Ino
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	dir, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
-	}
 }
 
 // C3: pack prose is appended with a provenance header naming the pack. The header

@@ -13,33 +13,16 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
-// gatedSkills are built-in skills staged only when the workspace is the
-// yolo-jail source tree (includeDev). The keys are top-level dir names in
-// builtinskills.FS.
-var gatedSkills = map[string]bool{
-	"developing-yolo-jail": true,
-}
-
-// writeBuiltinSkills copies the embedded built-in skill trees into dst,
-// skipping gated skills unless includeDev is true. dst is an agent's already-
+// writeBuiltinSkills copies the embedded built-in skill trees into dst. dst is an already-
 // cleared skills-staging dir; existing entries are not removed here (the caller
 // clears inside dst first, preserving its inode for the live bind mount).
-//
-// NOTE: returning nil for a directory in fs.WalkDir does NOT prune it — a gated
-// subtree must be skipped with fs.SkipDir.
-func writeBuiltinSkills(dst string, includeDev bool) error {
+func writeBuiltinSkills(dst string) error {
 	return fs.WalkDir(builtinskills.FS, ".", func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if p == "." {
 			return nil
-		}
-		// Top-level dir == a skill name; gate the whole subtree.
-		if d.IsDir() && !filepath.IsAbs(p) && !containsSep(p) {
-			if gatedSkills[p] && !includeDev {
-				return fs.SkipDir
-			}
 		}
 		target := filepath.Join(dst, p)
 		if d.IsDir() {
@@ -51,17 +34,6 @@ func writeBuiltinSkills(dst string, includeDev bool) error {
 		}
 		return os.WriteFile(target, data, 0o644)
 	})
-}
-
-// containsSep reports whether p contains a path separator (embed.FS always uses
-// "/"), i.e. p is nested rather than a top-level skill dir.
-func containsSep(p string) bool {
-	for i := 0; i < len(p); i++ {
-		if p[i] == '/' {
-			return true
-		}
-	}
-	return false
 }
 
 // WriteBriefing writes content to path, truncating in place to preserve the

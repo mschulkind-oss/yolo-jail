@@ -12,9 +12,7 @@ import (
 // Each pack-declared destination's staging dir gets the built-in skill suite
 // (builtinskills.FS) plus every selected pack's skills. Returns the staging
 // directory (AGENTS_DIR/<cname>).
-// includeDev stages the source-tree-only skills (e.g. developing-yolo-jail) —
-// pass WorkspaceIsYoloSourceTree(workspace). CRITICAL: entries are cleared
-// *inside* each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a
+// CRITICAL: entries are cleared *inside* each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a
 // running jail's bind mount captured its inode and a fresh inode would silently
 // detach attach-time refreshes.
 // packSkillDirs are the per-pack `skills/` sources to layer in, in config
@@ -120,7 +118,7 @@ func SkillStagingName(pack string) string { return "skills-" + pack }
 // to locate the host's own ~/.<agent>/skills trees, which S3 removed as a layer (see
 // SkillTarget). The signature is left alone deliberately — five call sites pass them, and
 // churning those would be a bigger diff than the fix, with no behavior in it.
-func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) (string, error) {
+func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 	staging := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return "", err
@@ -136,7 +134,7 @@ func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) 
 			return "", err
 		}
 		// 1. Built-in skill suite (every skills-bearing agent gets it).
-		if err := writeBuiltinSkills(skillsDir, includeDev); err != nil {
+		if err := writeBuiltinSkills(skillsDir); err != nil {
 			return "", err
 		}
 		// 2. PACK skills (C3), in config order — LAST, and that is now the whole of the

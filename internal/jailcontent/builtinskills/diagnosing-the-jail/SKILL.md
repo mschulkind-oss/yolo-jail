@@ -143,10 +143,8 @@ jail, no port mapping was ever going to help.
 
 Config edits refresh on the next `yolo` invocation, but the running container's
 mounts/limits do NOT change until a restart — the briefing text can be ahead of
-reality. And in the yolo-jail source repo, a nested jail reuses the *current*
-baked image, not your freshly built one (see the **developing-yolo-jail** skill
-for the build/load split). Re-run `YOLO_DEBUG=1 <cmd>` for verbose output when a
-command behaves unexpectedly.
+reality. Re-run `YOLO_DEBUG=1 <cmd>` for verbose output when a command behaves
+unexpectedly.
 
 ## 7. Orphans and logs
 
