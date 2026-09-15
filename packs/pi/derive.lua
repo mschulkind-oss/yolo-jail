@@ -174,7 +174,10 @@ yolo.derive("pi", "settings", function(ctx)
   -- default below; a user profile may state another exact Pi model id as `model`.
   if ctx.selected_provider == "openai-codex" then
     local model = (ctx.profile and ctx.profile.model) or "gpt-5.4"
-    return { selection = { defaultProvider = "openai-codex", defaultModel = model } }
+    return {
+      enabledModels = { "openai-codex/*" },
+      selection = { defaultProvider = "openai-codex", defaultModel = model },
+    }
   end
   if not piReachable(p) then
     return {}
@@ -184,5 +187,5 @@ yolo.derive("pi", "settings", function(ctx)
   if type(p) == "table" and type(p.models) == "table" and p.models[alias] then
     sel.defaultModel = p.models[alias]
   end
-  return { selection = sel }
+  return { enabledModels = { ctx.selected_provider .. "/*" }, selection = sel }
 end)

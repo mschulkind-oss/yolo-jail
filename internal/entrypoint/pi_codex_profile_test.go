@@ -1,6 +1,9 @@
 package entrypoint
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -38,11 +41,40 @@ func TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel(t *testing.T) {
 		t.Fatalf("Pi selection = provider %#v model %#v, want openai-codex/gpt-5.4",
 			settings["defaultProvider"], settings["defaultModel"])
 	}
+	enabled, ok := settings["enabledModels"].([]any)
+	if !ok || len(enabled) != 1 || enabled[0] != "openai-codex/*" {
+		t.Fatalf("Pi enabledModels = %#v, want only openai-codex/*", settings["enabledModels"])
+	}
 	models := r.piModels(t)
 	if catalog, _ := models["providers"].(map[string]any); catalog != nil {
 		if _, shadowed := catalog["openai-codex"]; shadowed {
 			t.Fatalf("models.json shadows Pi's built-in openai-codex provider: %#v", catalog)
 		}
+	}
+}
+
+func TestPiExplicitProfileScopesModelsAndNoProfilePreservesUserScope(t *testing.T) {
+	r := newPioencodeRender(t, zaiReachableJSON)
+	r.render(t, `{"pi":"zai"}`)
+	settings := r.piSettings(t)
+	enabled, ok := settings["enabledModels"].([]any)
+	if !ok || len(enabled) != 1 || enabled[0] != "zai/*" {
+		t.Fatalf("zai profile enabledModels = %#v, want only zai/*", settings["enabledModels"])
+	}
+
+	settings["enabledModels"] = []any{"cerebras/*", "zai/*"}
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(r.e.Home, ".pi", "agent", "settings.json")
+	if err := os.WriteFile(settingsPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.render(t, `{}`)
+	preserved, ok := r.piSettings(t)["enabledModels"].([]any)
+	if !ok || len(preserved) != 2 || preserved[0] != "cerebras/*" || preserved[1] != "zai/*" {
+		t.Fatalf("unprofiled Pi changed existing enabledModels: %#v", preserved)
 	}
 }
 
