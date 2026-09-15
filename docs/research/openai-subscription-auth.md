@@ -1,0 +1,136 @@
+---
+title: "OpenAI subscription authentication across Codex, Pi, the host, and jails"
+date: 2026-09-14
+status: accepted
+tags: [authentication, codex, pi, oauth, research]
+summary: "Source-level research into browser login, refresh-token rotation, shared state, and the safe boundary for sharing one ChatGPT subscription grant."
+---
+
+# OpenAI subscription authentication across Codex, Pi, the host, and jails
+
+**Status:** findings gathered 2026-09-14 from Codex 0.154.0, Pi 0.85.1, current
+upstream source, and public issue reports.
+
+> **In short.** Copying either agent's credential file is unsafe because OpenAI
+> rotates refresh tokens. Sharing becomes reliable only when one machine-wide
+> service owns refresh and every consumer, including an opted-in host Codex,
+> obtains current tokens through it.
+
+**Reads with:** [`../design/openai-auth-broker.md`](../design/openai-auth-broker.md)
+(the resulting design), [`../reference/agent-credentials.md`](../reference/agent-credentials.md)
+(the existing credential tiers), and
+[`claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) (the
+same failure class for Claude).
+
+---
+
+## 1. Findings
+
+### 1.1 Codex browser login needs a callback into the jail
+
+Codex's normal login starts an HTTP listener on jail loopback and asks the browser
+to return to `http://localhost:1455/auth/callback`; current upstream can fall back
+to port 1457 when 1455 is occupied. The browser runs on the host, where
+`localhost` is different. `network.forward_host_ports` is the opposite direction
+(jail to host), while a static `network.ports` publication would collide as soon
+as two jails tried to use the same host port.
+
+The useful prior art is a temporary callback relay. Container recipes commonly
+publish port 1455 or carry it through an SSH tunnel, and RFC 8252 recommends a
+loopback redirect for native applications. A yolo relay can improve on a static
+publication: one host listener receives the callback and routes it to the jail
+that registered the OAuth `state` value.
+
+### 1.2 Codex refresh is careful inside one process, not across processes
+
+Current Codex source has a process-local semaphore. Before refreshing it reloads
+`auth.json`; if another writer already changed the credential, it adopts that
+generation. On an unauthorized response it first reloads disk, then refreshes and
+retries. These steps reduce races but do not close one between two processes:
+both can read the same generation before either writes, then redeem the same
+single-use refresh token.
+
+Codex writes `auth.json` by truncating and rewriting it. It has no cross-process
+file lock. Public Codex reports reproduce `refresh_token_reused` when credential
+files are copied or independently refreshed, and OpenAI closed a request for a
+separate shared-auth path as not planned. A symlink keeps one current file and is
+better than copies, but it still does not serialize the authority request.
+
+Current upstream exposes `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, which is the clean
+seam for a broker. Codex can retain its native file and recovery behavior while
+the broker serializes the only operation that consumes a refresh token.
+
+### 1.3 Pi has good locking, within Pi's file format
+
+Pi's `openai-codex` provider uses the same OpenAI client ID and token endpoint as
+Codex. It stores a provider-scoped OAuth record in `~/.pi/agent/auth.json`, then
+refreshes within five minutes of expiry.
+
+Pi uses `proper-lockfile` around a read, refresh, and write transaction, including
+a second credential check after acquiring the lock. That coordinates Pi
+processes sharing one file. Codex uses another file shape and does not take that
+lock, so the two agents can still race at the token endpoint.
+
+Pi's Codex Responses adapter only needs an access-token JWT. It extracts the
+ChatGPT account identifier from the token and sends both in request headers.
+This lets a yolo integration give Pi a current access token without giving it the
+refresh token. Pi's documented `!command` API-key values are cached for the
+process lifetime, so that mechanism alone is too stale for a long session; a
+small provider integration must request a token again when authentication is
+resolved or after an unauthorized response.
+
+## 2. Prior-art verdicts
+
+| Approach | Verdict | Reason |
+| :--- | :--- | :--- |
+| Copy host `auth.json` into each jail | Reject | Each copy eventually holds a consumed refresh token. |
+| Symlink one Codex `auth.json` everywhere | Incomplete | Readers see rotation, but authority refresh and truncate-write remain cross-process races. |
+| Log in independently in every Codex home | Safe but poor experience | Separate grants do not race, but login is repeated and Pi cannot share it. |
+| Publish host port 1455 permanently | Reject | Fixed host-port collisions make concurrent jails mutually exclusive. |
+| Temporary callback relay keyed by OAuth state | Adopt | One host listener can route concurrent callbacks without reserving one host port per jail. |
+| One machine-wide refresh owner | Adopt | It serializes the single-use operation and gives Codex and Pi one current generation. |
+| Share with ordinary, unmanaged host Codex | Reject | A host process that bypasses the broker can consume the broker's refresh token. Host sharing must be opt-in and broker-routed. |
+
+## 3. Debugging requirements
+
+The Claude incident was hard to diagnose because token bodies could not be logged
+and the failing writer was ambiguous. The OpenAI service should record only:
+
+- a one-way fingerprint of the refresh-token generation;
+- expiry and remaining lifetime;
+- caller class (`codex`, `pi`, host, or jail identity);
+- whether a request returned the cached generation, adopted a newer generation,
+  refreshed upstream, or failed;
+- upstream status, OpenAI error code, request ID, and latency;
+- last successful login, refresh, and self-check timestamps.
+
+It must never log tokens, authorization codes, PKCE verifiers, or callback query
+strings. A status command should distinguish “access token still usable” from
+“refresh path proved usable”; only a controlled refresh self-check proves the
+latter.
+
+## 4. Sources and half-life
+
+Primary implementation sources inspected on 2026-09-14:
+
+- [Codex login server](https://github.com/openai/codex/blob/main/codex-rs/login/src/server.rs),
+  [auth manager](https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/manager.rs),
+  and [file storage](https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/storage.rs).
+- [Pi OpenAI OAuth provider](https://github.com/earendil-works/pi/blob/main/packages/ai/src/auth/oauth/openai-codex.ts)
+  and [Pi provider documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md).
+- [RFC 8252, OAuth for native apps](https://www.rfc-editor.org/rfc/rfc8252).
+
+Observed failure reports and deployment prior art:
+
+- [Codex issue #15410](https://github.com/openai/codex/issues/15410) documents
+  copied homes and single-use refresh failures; OpenAI closed separate shared
+  auth as not planned.
+- [Codex issue #15502](https://github.com/openai/codex/issues/15502) reports the
+  documented copied-cache flow remaining unreliable.
+- [Paperclip issue #5707](https://github.com/paperclipai/paperclip/issues/5707)
+  reports multiple agents consuming one Codex refresh token.
+- [hotchpotch/openai-api-server-via-codex](https://github.com/hotchpotch/openai-api-server-via-codex/blob/main/docs/docker.md)
+  demonstrates port publication and SSH tunneling for the callback.
+
+This is fast-moving code. Re-check the Codex override, callback ports, Pi auth
+extension surface, and both file formats immediately before implementation.
