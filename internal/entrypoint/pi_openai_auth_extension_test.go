@@ -73,13 +73,24 @@ func TestPiOpenAIAuthExtensionReusesBrokerLoginAndRefreshes(t *testing.T) {
 	if err := os.WriteFile(extension, source, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// ⚠ `wc -l | tr -d ' '`, AND THE `tr` IS THE WHOLE REASON THIS TEST PASSES ON A MAC.
+	// BSD `wc` right-pads its count to 8 columns; GNU `wc` does not. So the call counter
+	// below interpolated as `access-       2` on darwin and `access-2` on Linux, and the
+	// harness's `first.access !== "access-2"` failed with "broker calls were not sequenced"
+	// — a message that points at sequencing when the fault is whitespace. Measured on macOS
+	// 26.5; it reddened `check-macos` while `check-go` stayed green, which is what made it
+	// read as a macOS behaviour difference in the adapter rather than in the fixture.
+	//
+	// The sibling site in openaiauth_prelaunch_test.go does NOT need this: it feeds the
+	// count to `[ … -gt 1 ]`, and POSIX integer comparison tolerates leading blanks. The
+	// workflows that count test lines already carry the same `tr` for the same reason.
 	yolo := filepath.Join(dir, "yolo")
 	if err := os.WriteFile(yolo, []byte(`#!/bin/sh
 printf '%s\n' "$*" >> "$CALLS"
 case "$3" in
   status) printf '{"logged_in":true,"login_required":false}\n' ;;
   login) printf 'unexpected browser login\n' >&2; exit 9 ;;
-  token) printf '{"access_token":"access-%s","refresh_token":"must-not-escape","expires_at":4102444800000,"account_id":"acct-1","generation":4}\n' "$(wc -l < "$CALLS")" ;;
+  token) printf '{"access_token":"access-%s","refresh_token":"must-not-escape","expires_at":4102444800000,"account_id":"acct-1","generation":4}\n' "$(wc -l < "$CALLS" | tr -d ' ')" ;;
 esac
 `), 0o755); err != nil {
 		t.Fatal(err)
