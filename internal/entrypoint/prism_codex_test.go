@@ -70,13 +70,31 @@ func decodeCodexTOML(t *testing.T, path string) map[string]any {
 // path that backend actually presents and must never leave the other backend's
 // path behind. Both cases drive the production first-boot writer.
 func TestCodexFirstBootTrustsTheBackendWorkspace(t *testing.T) {
+	// ⚠ BOTH CASES CARRY AN EXPLICIT WORKSPACE, and the container one must not be reverted to
+	// leaving it empty. `Env.WorkspaceDir()` maps "" to the literal `/workspace`, so an empty
+	// value drives the production writer into `<workspace>/.yolo/prism` at the FILESYSTEM ROOT.
+	// That is correct in a real container, where /workspace is the bind mount and already
+	// exists — and it is unrunnable anywhere else. It took main red on BOTH gates
+	// (CI 34932826820): `mkdir /workspace: permission denied` on check-go and
+	// `mkdir /workspace: read-only file system` on check-macos.
+	//
+	// The claim this test makes is unaffected, because the claim is not about the literal: its
+	// own header says the writer must trust "the path that backend actually presents" and "never
+	// leave the other backend's path behind". Two distinct paths prove exactly that. The literal
+	// default is asserted separately and without touching a filesystem, below.
+	//
+	// ⚠ It also passed in a yolo jail, where /workspace exists and is writable — so
+	// `just check-ci` in here cannot see this class at all, and it WROTE INTO THE LIVE
+	// WORKSPACE when it ran (artifacts are still in /workspace/.yolo/prism). Second instance of
+	// that class in one day; the first was a fixture that statted the host's real /nix.
+	containerWorkspace := filepath.Join(t.TempDir(), "workspace")
 	macWorkspace := filepath.Join(t.TempDir(), "Users", "matt", "code", "project")
 	for _, tc := range []struct {
 		name, workspace, want string
 		wrong                 string
 	}{
-		{name: "container", want: "/workspace", wrong: macWorkspace},
-		{name: "macos-user", workspace: macWorkspace, want: macWorkspace, wrong: "/workspace"},
+		{name: "container", workspace: containerWorkspace, want: containerWorkspace, wrong: macWorkspace},
+		{name: "macos-user", workspace: macWorkspace, want: macWorkspace, wrong: containerWorkspace},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := codexComputedEnv(t, "")
@@ -97,6 +115,23 @@ func TestCodexFirstBootTrustsTheBackendWorkspace(t *testing.T) {
 				t.Errorf("wrong backend workspace %q also rendered: %v", tc.wrong, projects)
 			}
 		})
+	}
+}
+
+// TestTheContainerWorkspaceDefaultIsTheLiteralBindDest is the half
+// TestCodexFirstBootTrustsTheBackendWorkspace used to prove by writing to it.
+//
+// It is pure on purpose: the fact under test is a constant, and asserting it through the
+// production writer meant creating `/workspace` on whatever machine ran the suite. Keeping it
+// here means a change to that default still fails a test, without any test needing the
+// filesystem root to be writable.
+func TestTheContainerWorkspaceDefaultIsTheLiteralBindDest(t *testing.T) {
+	if got := (&Env{}).WorkspaceDir(); got != "/workspace" {
+		t.Errorf("WorkspaceDir() with no Workspace = %q, want %q — every container backend "+
+			"binds the workspace at that fixed path, and the codex trust entry names it", got, "/workspace")
+	}
+	if got := (&Env{Workspace: "/tmp/elsewhere"}).WorkspaceDir(); got != "/tmp/elsewhere" {
+		t.Errorf("WorkspaceDir() ignored an explicit Workspace: %q", got)
 	}
 }
 
