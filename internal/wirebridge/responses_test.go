@@ -43,6 +43,27 @@ func TestTranslateResponsesRequestPreservesToolConversation(t *testing.T) {
 	}
 }
 
+func TestTranslateResponsesRequestNonBudgetThinkingUsesResponsesDefault(t *testing.T) {
+	for _, thinkingType := range []string{"adaptive", "disabled", "future-mode"} {
+		t.Run(thinkingType, func(t *testing.T) {
+			in := `{"model":"terra","thinking":{"type":"` + thinkingType + `"},"messages":[{"role":"user","content":"hello"}]}`
+			out, err := TranslateResponsesRequest([]byte(in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got struct {
+				Reasoning *responsesReasoning `json:"reasoning"`
+			}
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatalf("output is not JSON: %v\n%s", err, out)
+			}
+			if got.Reasoning != nil {
+				t.Fatalf("%s thinking must leave Responses reasoning at its default, got %#v", thinkingType, got.Reasoning)
+			}
+		})
+	}
+}
+
 func TestTranslateResponsesRequestPreservesInConversationSystem(t *testing.T) {
 	out, err := TranslateResponsesRequest([]byte(`{"model":"terra","max_tokens":64,"messages":[{"role":"user","content":"before"},{"role":"system","content":[{"type":"text","text":"Use the repository conventions."}]},{"role":"user","content":"after"}]}`))
 	if err != nil {

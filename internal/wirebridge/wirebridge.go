@@ -22,8 +22,10 @@
 //     TranslateRequest returns an error naming the type, which the daemon
 //     renders as a 400 (WB-D5) — never a silently-mistranslated request.
 //   - Upstream reasoning content is dropped, never surfaced as thinking
-//     blocks (WB-D5); tools never carry strict (WB-D6); no thinking config
-//     and no reasoning_effort is ever emitted upstream (WB-D15).
+//     blocks (WB-D5); tools never carry strict (WB-D6). The chat-completions
+//     route emits no reasoning option; the Responses route maps an explicit
+//     enabled thinking budget, while every non-budget thinking mode leaves the
+//     provider default intact (WB-D15).
 //   - Unmapped top-level request keys (thinking, top_k, metadata, ...) are
 //     dropped by construction, never forwarded — the same disposition the
 //     table gives top_k: mapped fields pass, unmapped fields vanish.

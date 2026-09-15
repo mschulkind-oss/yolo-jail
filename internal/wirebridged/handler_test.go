@@ -177,6 +177,33 @@ func TestResponsesNonStreamRoundTrip(t *testing.T) {
 	}
 }
 
+func TestResponsesRouteAcceptsAdaptiveThinking(t *testing.T) {
+	up := &stubUpstream{t: t, status: 200, contentType: "application/json", body: `{"id":"resp_1","model":"terra","status":"completed","output":[]}`}
+	upSrv := httptest.NewServer(up.handler())
+	defer upSrv.Close()
+	srv := httptest.NewServer(NewResponsesHandler(upSrv.URL, "test-key"))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"terra","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hello"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	var request struct {
+		Reasoning json.RawMessage `json:"reasoning"`
+	}
+	if err := json.Unmarshal(up.gotBody, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Reasoning != nil {
+		t.Fatalf("adaptive thinking must not pin an OpenAI reasoning effort: %s", up.gotBody)
+	}
+}
+
 func TestResponsesRouteRetriesUnauthorizedOnceWithFreshAccessView(t *testing.T) {
 	calls := 0
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

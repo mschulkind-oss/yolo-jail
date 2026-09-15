@@ -42,9 +42,10 @@ func TranslateResponsesRequest(body []byte) ([]byte, error) {
 		}
 		out.Tools = append(out.Tools, tool)
 	}
-	// Claude's enabled thinking has no token-for-token counterpart.  Responses'
-	// effort is the documented control, so use a conservative stable mapping
-	// rather than silently disabling reasoning.
+	// Claude's enabled thinking has no token-for-token counterpart. Responses'
+	// effort is the documented control, so use a conservative stable mapping.
+	// Adaptive thinking deliberately leaves effort unset: it asks the provider
+	// to choose, and Responses has no adaptive effort value to carry across.
 	var thinking struct {
 		Type         string `json:"type"`
 		BudgetTokens int    `json:"budget_tokens"`
@@ -54,14 +55,18 @@ func TranslateResponsesRequest(body []byte) ([]byte, error) {
 		if err := json.Unmarshal(raw["thinking"], &thinking); err != nil {
 			return nil, fmt.Errorf("wirebridge: thinking: %w", err)
 		}
-		if thinking.Type == "enabled" {
+		switch thinking.Type {
+		case "enabled":
 			effort := "medium"
 			if thinking.BudgetTokens >= 16000 {
 				effort = "high"
 			}
 			out.Reasoning = &responsesReasoning{Effort: effort}
-		} else if thinking.Type != "" && thinking.Type != "disabled" {
-			return nil, fmt.Errorf("wirebridge: unsupported thinking type %q", thinking.Type)
+		default:
+			// Omit reasoning so Responses uses its model default. Thinking modes
+			// without a budget are advisory, and Responses has no equivalent
+			// adaptive mode; accepting them also keeps a new Claude mode from
+			// turning an otherwise valid request into a bridge outage.
 		}
 	}
 	b, err := json.Marshal(out)

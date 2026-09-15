@@ -195,7 +195,7 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 | text and image blocks | copy; images as base64 data URIs | content parts |
 | `tools[]` with an input schema | rename the schema field; **never request strict mode** | `tools[]` |
 | tool-use / tool-result blocks | bidirectional mapping | tool calls / tool-role messages |
-| thinking config and beta headers | **strip** | never sets a reasoning option |
+| thinking config and beta headers | chat-completions route: **strip**; Responses route: translate `enabled` budget to a conservative effort, while every non-budget mode leaves the provider default | documented Responses reasoning option, when explicit |
 | upstream reasoning content | **drop, do not surface** | plain text deltas only |
 | token and stop-sequence limits | map | the upstream's equivalents |
 | stop reasons | map onto the upstream's finish reasons | finish reason |
@@ -224,9 +224,9 @@ provider's key, read once at boot.
 > [!WARNING]
 > **Do not surface upstream reasoning as thinking blocks.** Emitting them obliges the bridge to
 > strip them on replay — agents echo thinking back — which is real complexity for no
-> coding-agent value. And a thinking *request* is translated only where a 1:1 mapping exists:
-> none does today, so nothing is translated and the upstream's own reasoning default stands.
-> Inventing a threshold mapping would be inventing behavior.
+> coding-agent value. The chat-completions route always leaves the upstream reasoning default
+> alone. On the Responses route, an explicit `enabled` budget maps conservatively to `medium`
+> or `high`; every other thinking mode omits the option, so the provider chooses its default.
 
 ## Lifecycle and failure behavior
 
@@ -291,7 +291,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 | <a id="wb-d12"></a>[**WB-D12**](#wb-d12) — every auto-inclusion prints, at launch and in `yolo check` | A silent join is the one forbidden behavior of the closure. |
 | <a id="wb-d13"></a>[**WB-D13**](#wb-d13) — the listen port is fixed and manifest-borne | One writer. A port collision is witness-fatal in a fresh namespace rather than a mystery failure. |
 | <a id="wb-d14"></a>[**WB-D14**](#wb-d14) — `count_tokens` refuses (404) | A zero-stub is measurably worse than a refusal: it poisons the number it answers, where a 404 falls back to the agent's own estimator. |
-| <a id="wb-d15"></a>[**WB-D15**](#wb-d15) — the upstream's reasoning default stands; no provider option, no bridge default | A request naming a thinking level translates only on a 1:1 mapping, and none exists on this wire today, so translating one would be invented behavior. |
+| <a id="wb-d15"></a>[**WB-D15**](#wb-d15) — thinking has a route-specific disposition: chat-completions omits it; Responses maps explicit `enabled` budgets conservatively and lets every non-budget mode use the provider default | Responses exposes documented effort values but no adaptive value. An explicit budget is enough intent to map; every other mode means the provider, not the bridge, chooses. |
 | <a id="wb-d16"></a>[**WB-D16**](#wb-d16) — `kind: "service"` is primary vocabulary; loopholes re-form as service + boundary grants | A daemon with no grants is not a loophole, and naming it one would make the trust model unreadable. The re-forming is a follow-up, not a prerequisite. |
 | <a id="wb-d17"></a>[**WB-D17**](#wb-d17) — more than one agent bin is a bridge consumer, and the serve predicate walks every active profile | Found while building: a derive that *prefers* an anthropic endpoint when a provider declares one makes that agent a consumer too, and a single-bin condition would have shipped those launches a dead URL with no bridge included. |
 
