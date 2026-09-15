@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,9 +117,30 @@ func startYoloBackground(t *testing.T, name, dir, script string) *bgRun {
 // lockIsHeld reports whether some OTHER process holds the workspace flock. The probe
 // takes the lock non-blockingly and drops it again on success, so it never becomes the
 // contention it is watching for.
+//
+// ⚠ "NOT THERE YET" IS NOT AN ERROR HERE, AND TREATING IT AS ONE MADE THIS TEST FAIL ON A
+// SLOW MACHINE. This used to t.Fatalf on any open error — inside a poll loop whose whole
+// purpose is to wait for that path to appear. The lock lives under
+// `<storage>/locks/`, a directory the LAUNCH creates; until the first launch gets that
+// far, O_CREATE cannot make the file because its parent does not exist, and the probe
+// killed the test on the first iteration.
+//
+// Measured on the macOS nightly 2026-09-15, shard 9 of run 34995936829:
+//
+//	opening …/.local/share/yolo-jail/locks/yolo-002-f954046a.lock:
+//	open …: no such file or directory
+//
+// It failed in 0.51s — before the first launch could plausibly have started a container —
+// while the same test passes in ~124s on an unloaded machine, which is why it reads as a
+// concurrency bug and is really a startup race. The caller already has a deadline and a
+// message for "never took the lock"; this returns false so that deadline is what decides.
 func lockIsHeld(t *testing.T, lockPath string) bool {
 	t.Helper()
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY, 0o644)
+	if errors.Is(err, fs.ErrNotExist) {
+		// The launch has not created <storage>/locks/ yet. Not held, and not a failure.
+		return false
+	}
 	if err != nil {
 		t.Fatalf("opening %s: %v", lockPath, err)
 	}
