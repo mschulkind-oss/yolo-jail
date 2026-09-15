@@ -147,8 +147,8 @@ func TestStagePacksJoinsTheBridgeForCerebrasAndClaude(t *testing.T) {
 	if !joined {
 		t.Fatalf("cerebras's live need did not join wire-bridge: loaded = %v", names)
 	}
-	if got := errBuf.String(); !strings.Contains(got, "+ wire-bridge (needed by cerebras: claude selected)") {
-		t.Errorf("the launch stderr must carry the cause line (WB-D12):\n%s", got)
+	if got := errBuf.String(); !strings.Contains(got, "+ wire-bridge (needed by claude)") {
+		t.Errorf("the launch stderr must disclose Claude's selected bridge dependency:\n%s", got)
 	}
 }
 

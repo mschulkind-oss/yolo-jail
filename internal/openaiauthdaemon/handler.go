@@ -39,15 +39,22 @@ func BuildHandler(config HandlerConfig) hostservice.Handler {
 		case "ping":
 			_ = session.JSON(map[string]any{"pong": true, "pid": int64(os.Getpid())})
 		case "token":
+			view := field(session, "view")
+			if view != "" && view != "access" && view != "codex" {
+				session.Stderr("unknown OpenAI credential view: " + view + "\n")
+				session.Exit(2)
+				return
+			}
 			result, err := config.Broker.Refresh(context.Background(), openaiauth.Request{Caller: session.JailID})
 			if err != nil {
 				replyError(session, err)
 				return
 			}
-			if field(session, "view") == "codex" {
-				_ = session.JSON(codexView(result))
-			} else {
+			switch view {
+			case "", "access":
 				_ = session.JSON(accessView(result))
+			case "codex":
+				_ = session.JSON(codexView(result))
 			}
 		case "refresh":
 			generation, err := parseGenerationMarker(field(session, "refresh_token"))

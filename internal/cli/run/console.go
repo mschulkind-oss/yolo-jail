@@ -27,5 +27,12 @@ func (p printer) printf(format string, args ...any) { p.rt.Printf(format, args..
 // requested it (o.Color) AND stdout is a real terminal — never to a pipe/file,
 // so redirected output stays clean.
 func (o *Options) pr(w io.Writer) printer {
+	// Some staging-only callers have no presentation stream: their job is to
+	// collect derived paths, not render launch disclosure. A dependency closure
+	// may still have a truthful line to emit, and a nil writer must mean silent
+	// rather than a nil-interface panic.
+	if w == nil {
+		w = io.Discard
+	}
 	return printer{rt: richtext.Printer{W: w, Color: o.Color && o.IsTTYStdout()}}
 }

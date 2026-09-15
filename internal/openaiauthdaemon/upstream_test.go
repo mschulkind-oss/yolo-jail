@@ -62,6 +62,13 @@ func TestDaemonPublishesPrivateDirectHostSocketAndStreamsErrors(t *testing.T) {
 	if !strings.Contains(diagnostic.String(), "broker_error:") {
 		t.Fatalf("diagnostic = %q, want actionable error code", diagnostic.String())
 	}
+	diagnostic.Reset()
+	if _, err := openauthclient.RequestUnix(hostSocket, map[string]any{"action": "token", "view": "all-secrets"}, &diagnostic); err == nil {
+		t.Fatal("unknown credential view unexpectedly succeeded")
+	}
+	if !strings.Contains(diagnostic.String(), "unknown OpenAI credential view") {
+		t.Fatalf("unknown-view diagnostic = %q", diagnostic.String())
+	}
 	shutdown()
 	if err := <-done; err != nil {
 		t.Fatal(err)

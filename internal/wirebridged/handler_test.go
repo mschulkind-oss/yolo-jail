@@ -16,6 +16,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
 
 // stubUpstream is a chat-completions provider that records what the bridge
@@ -128,6 +130,84 @@ func TestNonStreamRoundTrip(t *testing.T) {
 	}
 	if out.StopReason != "end_turn" {
 		t.Errorf("stop_reason = %q, want end_turn mapped from finish_reason stop", out.StopReason)
+	}
+}
+
+func TestResponsesNonStreamRoundTrip(t *testing.T) {
+	up := &stubUpstream{t: t, status: 200, contentType: "application/json", body: `{"id":"resp_1","model":"terra","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"hi from responses"}]}],"usage":{"input_tokens":3,"output_tokens":2}}`}
+	upSrv := httptest.NewServer(up.handler())
+	defer upSrv.Close()
+	srv := httptest.NewServer(NewResponsesHandler(upSrv.URL, "test-key"))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"terra","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	if up.gotPath != "/responses" || up.gotAuth != "Bearer test-key" {
+		t.Fatalf("upstream route = %s auth = %q", up.gotPath, up.gotAuth)
+	}
+	var request struct {
+		Model string `json:"model"`
+		Max   int    `json:"max_output_tokens"`
+		Input []struct {
+			Type string `json:"type"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(up.gotBody, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Model != "terra" || request.Max != 64 || len(request.Input) != 1 || request.Input[0].Type != "message" {
+		t.Fatalf("responses request = %s", up.gotBody)
+	}
+	if !strings.Contains(string(body), `"text":"hi from responses"`) {
+		t.Fatalf("anthropic response = %s", body)
+	}
+}
+
+func TestResponsesRouteRetriesUnauthorizedOnceWithFreshAccessView(t *testing.T) {
+	calls := 0
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			if got := r.Header.Get("Authorization"); got != "Bearer old" {
+				t.Errorf("first token = %q", got)
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer fresh" {
+			t.Errorf("retried token = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_1","model":"terra","status":"completed","output":[]}`)
+	}))
+	defer up.Close()
+	h := newHandler(up.URL, "/responses", "", wirebridge.TranslateResponsesRequest, wirebridge.TranslateResponsesResponse,
+		func() streamTranslator { return wirebridge.NewResponsesStreamTranslator() }).(*bridgeHandler)
+	views := 0
+	h.accessToken = func() (string, string, error) {
+		views++
+		if views == 1 {
+			return "old", "acct", nil
+		}
+		return "fresh", "acct", nil
+	}
+	h.retryUnauthorized = true
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"terra","messages":[{"role":"user","content":"hello"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || calls != 2 || views != 2 {
+		t.Fatalf("status/calls/views = %d/%d/%d, want 200/2/2", resp.StatusCode, calls, views)
 	}
 }
 

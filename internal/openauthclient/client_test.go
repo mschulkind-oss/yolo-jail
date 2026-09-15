@@ -170,6 +170,44 @@ func TestRunTokenWritesSafeJSON(t *testing.T) {
 	}
 }
 
+func TestRequestAccessTokenUsesTheRestrictedAccessView(t *testing.T) {
+	endpoint := clientEndpoint(t, func(s *hostservice.Session) {
+		view, _ := s.Get("view")
+		if view != "access" {
+			s.Stderr("bridge must request the access-only view\n")
+			s.Exit(2)
+			return
+		}
+		_ = s.JSON(map[string]any{
+			"access_token": "access-bridge", "expires_at": time.Now().Add(time.Hour).UnixMilli(),
+			"account_id": "acct-bridge", "generation": int64(9),
+		})
+		s.Exit(0)
+	})
+
+	view, err := RequestAccessToken(endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Token != "access-bridge" || view.AccountID != "acct-bridge" || view.Generation != 9 {
+		t.Fatalf("access view = %#v", view)
+	}
+	if view.ExpiresAt.Before(time.Now()) {
+		t.Fatalf("access view expiry = %s, want a current token", view.ExpiresAt)
+	}
+}
+
+func TestDecodeAccessTokenViewRejectsCredentialEscalation(t *testing.T) {
+	for _, response := range []json.RawMessage{
+		json.RawMessage(`{"access_token":"access","expires_at":4102444800000,"generation":1,"refresh_token":"canonical-secret"}`),
+		json.RawMessage(`{"access_token":"access","expires_at":4102444800000,"generation":1,"id_token":"id-secret"}`),
+	} {
+		if _, err := decodeAccessTokenView(response, time.Now()); err == nil {
+			t.Fatalf("decodeAccessTokenView(%s) succeeded with a credential outside the access view", response)
+		}
+	}
+}
+
 func TestRunMapsOperationalCommandsToBrokerActions(t *testing.T) {
 	for _, tc := range []struct {
 		name string

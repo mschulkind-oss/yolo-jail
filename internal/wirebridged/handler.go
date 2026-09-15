@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
 
@@ -45,10 +46,52 @@ const upstreamTimeout = 10 * time.Minute
 // daemon's Main is a thin boot (route → key → bind → publish → Serve) around
 // exactly this handler.
 func NewHandler(upstreamBaseURL, apiKey string) http.Handler {
+	return newHandler(upstreamBaseURL, "/chat/completions", apiKey,
+		wirebridge.TranslateRequest, wirebridge.TranslateResponse,
+		func() streamTranslator { return wirebridge.NewStreamTranslator() })
+}
+
+// NewResponsesHandler is the Codex route's equivalent of NewHandler. It has a
+// separate constructor so the upstream path and both translation directions
+// are selected together; a Responses route can never accidentally inherit the
+// chat-completions encoder.
+func NewResponsesHandler(upstreamBaseURL, apiKey string) http.Handler {
+	return newHandler(upstreamBaseURL, "/responses", apiKey,
+		wirebridge.TranslateResponsesRequest, wirebridge.TranslateResponsesResponse,
+		func() streamTranslator { return wirebridge.NewResponsesStreamTranslator() })
+}
+
+// NewCodexResponsesHandler obtains an access-only view for every request from
+// the OpenAI credential service. The callback is intentionally here, at the
+// network boundary: no bridge route ever writes an auth file or receives a
+// refresh token, and a 401 gets exactly one new view before the error is
+// relayed to Claude.
+func NewCodexResponsesHandler(upstreamBaseURL, brokerEndpoint string) http.Handler {
+	h := newHandler(upstreamBaseURL, "/responses", "",
+		wirebridge.TranslateResponsesRequest, wirebridge.TranslateResponsesResponse,
+		func() streamTranslator { return wirebridge.NewResponsesStreamTranslator() }).(*bridgeHandler)
+	h.accessToken = func() (string, string, error) {
+		view, err := openauthclient.RequestAccessToken(brokerEndpoint, io.Discard)
+		if err != nil {
+			return "", "", err
+		}
+		return view.Token, view.AccountID, nil
+	}
+	h.retryUnauthorized = true
+	return h
+}
+
+type streamTranslator interface {
+	Chunk([]byte) ([]wirebridge.Event, error)
+}
+
+func newHandler(upstreamBaseURL, path, apiKey string,
+	translateRequest func([]byte) ([]byte, error),
+	translateResponse func([]byte) ([]byte, error), newStream func() streamTranslator) http.Handler {
 	return &bridgeHandler{
-		upstreamURL: strings.TrimSuffix(upstreamBaseURL, "/") + "/chat/completions",
-		apiKey:      apiKey,
-		client:      &http.Client{Timeout: upstreamTimeout},
+		upstreamURL: strings.TrimSuffix(upstreamBaseURL, "/") + path,
+		apiKey:      apiKey, client: &http.Client{Timeout: upstreamTimeout},
+		translateRequest: translateRequest, translateResponse: translateResponse, newStream: newStream,
 	}
 }
 
@@ -56,9 +99,14 @@ type bridgeHandler struct {
 	// upstreamURL is the full chat-completions URL — the boot-selected base
 	// with /chat/completions appended (§4's row: the bridge POSTes
 	// <openai-base>/chat/completions and dials nothing else, ever).
-	upstreamURL string
-	apiKey      string
-	client      *http.Client
+	upstreamURL       string
+	apiKey            string
+	client            *http.Client
+	translateRequest  func([]byte) ([]byte, error)
+	translateResponse func([]byte) ([]byte, error)
+	newStream         func() streamTranslator
+	accessToken       func() (token, accountID string, err error)
+	retryUnauthorized bool
 }
 
 func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +145,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(body, &probe) // unparseable JSON fails in TranslateRequest with a better error
 
-	translated, err := wirebridge.TranslateRequest(body)
+	translated, err := h.translateRequest(body)
 	if err != nil {
 		// FAIL CLOSED, naming what was not understood (WB-D5) — the 400 is the
 		// design's own failure mode for a shape the table does not map.
@@ -105,30 +153,19 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, h.upstreamURL, bytes.NewReader(translated))
+	resp, err := h.doUpstream(r, translated)
 	if err != nil {
 		writeAnthropicError(rec, http.StatusBadGateway, "api_error",
-			"wire-bridge: building upstream request: "+err.Error())
+			"wire-bridge: upstream unavailable: "+err.Error())
 		return
 	}
-	upReq.Header.Set("Content-Type", "application/json")
-	if h.apiKey != "" {
-		// The outbound credential (§4): read once at boot, riding the request
-		// and never the log. A provider that names no credential variable
-		// legitimately serves without one.
-		upReq.Header.Set("Authorization", "Bearer "+h.apiKey)
-	}
-	if probe.Stream {
-		upReq.Header.Set("Accept", "text/event-stream")
-	}
-
-	resp, err := h.client.Do(upReq)
-	if err != nil {
-		// Unreachable upstream at REQUEST time → 502, one log line (the
-		// status/duration line below is the whole of it — §5 forbids more).
-		writeAnthropicError(rec, http.StatusBadGateway, "api_error",
-			"wire-bridge: upstream unreachable: "+err.Error())
-		return
+	if resp.StatusCode == http.StatusUnauthorized && h.retryUnauthorized {
+		_ = resp.Body.Close()
+		resp, err = h.doUpstream(r, translated)
+		if err != nil {
+			writeAnthropicError(rec, http.StatusBadGateway, "api_error", "wire-bridge: upstream unavailable: "+err.Error())
+			return
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -147,7 +184,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"wire-bridge: reading upstream response: "+err.Error())
 		return
 	}
-	translatedResp, err := wirebridge.TranslateResponse(upBody)
+	translatedResp, err := h.translateResponse(upBody)
 	if err != nil {
 		// A 200 that is not openai-shaped is an upstream fault, not a client
 		// one: the 502 family, anthropic-shaped (§5).
@@ -158,6 +195,40 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec.Header().Set("Content-Type", "application/json")
 	rec.WriteHeader(http.StatusOK)
 	_, _ = rec.Write(translatedResp)
+}
+
+// doUpstream constructs a fresh request for each attempt. Reusing an HTTP
+// request body after a 401 would turn the retry into an empty completion.
+func (h *bridgeHandler) doUpstream(in *http.Request, translated []byte) (*http.Response, error) {
+	key, accountID := h.apiKey, ""
+	if h.accessToken != nil {
+		var err error
+		key, accountID, err = h.accessToken()
+		if err != nil {
+			return nil, fmt.Errorf("obtain OpenAI access-token view: %w", err)
+		}
+	}
+	req, err := http.NewRequestWithContext(in.Context(), http.MethodPost, h.upstreamURL, bytes.NewReader(translated))
+	if err != nil {
+		return nil, fmt.Errorf("build upstream request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	if accountID != "" {
+		// Subscription traffic is charged to the selected ChatGPT account, not
+		// an API-key project. The id comes only from the access-only broker view.
+		req.Header.Set("ChatGPT-Account-Id", accountID)
+	}
+	var probe struct {
+		Stream bool `json:"stream"`
+	}
+	_ = json.Unmarshal(translated, &probe)
+	if probe.Stream {
+		req.Header.Set("Accept", "text/event-stream")
+	}
+	return h.client.Do(req)
 }
 
 // relayUpstreamError maps an upstream failure onto the anthropic error shape
@@ -201,7 +272,7 @@ func (h *bridgeHandler) relayStream(rec *statusRecorder, resp *http.Response) {
 	rec.WriteHeader(http.StatusOK)
 	flusher, _ := rec.ResponseWriter.(http.Flusher)
 
-	tr := wirebridge.NewStreamTranslator()
+	tr := h.newStream()
 	sc := bufio.NewScanner(resp.Body)
 	// Upstream data lines carry whole content deltas — tool-call arguments can
 	// be tens of KB in one chunk — so the token ceiling is raised well past

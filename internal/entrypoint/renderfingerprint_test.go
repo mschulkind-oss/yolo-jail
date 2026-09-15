@@ -118,7 +118,7 @@ func TestRenderFingerprintStable(t *testing.T) {
 	// Every rendered file must live under a known agent config root — a sanity check that
 	// the render wrote where the packs declare and nowhere else.
 	knownRoots := []string{
-		".claude", ".codex", ".config", ".copilot", ".pi", ".gemini",
+		".claude", ".codex", ".config", ".copilot", ".pi", ".gemini", ".oh-omp",
 	}
 	// Top-level home files a pack legitimately owns (not under a config-dir root).
 	knownFiles := map[string]bool{".claude.json": true}

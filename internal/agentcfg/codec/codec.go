@@ -15,6 +15,7 @@
 //     files.
 //   - raw   — passthrough []byte <-> string, the escape hatch for formats yolo
 //     will not structurally round-trip (§3.3).
+//   - yaml  — structured YAML for agents whose native configuration is YAML.
 //
 // Design constraints (per the composition plan and this piece's brief):
 // stdlib + internal/jsonx + internal/tomlx ONLY — no new dependency, so the
@@ -52,13 +53,14 @@ type Codec interface {
 var registry = map[string]Codec{
 	"json":  JSON{},
 	"toml":  TOML{},
+	"yaml":  YAML{},
 	"lines": Lines{},
 	"raw":   Raw{},
 }
 
 // LookupCodec returns the codec registered under name and whether it exists.
 // The names mirror the manifest's `codec` field (§3.3): "json", "toml",
-// "lines", "raw".
+// "yaml", "lines", "raw".
 func LookupCodec(name string) (Codec, bool) {
 	c, ok := registry[name]
 	return c, ok
@@ -162,6 +164,7 @@ func (k Kind) Matches(v any) bool {
 var kinds = map[string]Kind{
 	"json":  KindObject,
 	"toml":  KindObject,
+	"yaml":  KindObject,
 	"lines": KindArray,
 	"raw":   KindScalar,
 }

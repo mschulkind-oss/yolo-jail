@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// TestLookupCodec checks the registry resolves the four documented names and
+// TestLookupCodec checks the registry resolves the documented names and
 // rejects anything else, and that each resolved codec reports its own name.
 func TestLookupCodec(t *testing.T) {
-	for _, name := range []string{"json", "toml", "lines", "raw"} {
+	for _, name := range []string{"json", "toml", "yaml", "lines", "raw"} {
 		c, ok := LookupCodec(name)
 		if !ok {
 			t.Fatalf("LookupCodec(%q): not found", name)
@@ -16,14 +16,6 @@ func TestLookupCodec(t *testing.T) {
 		if c.Name() != name {
 			t.Errorf("LookupCodec(%q).Name() = %q", name, c.Name())
 		}
-	}
-	// "yaml" is not a codec and must not become one implicitly. yolo will not
-	// structurally round-trip YAML (comments, anchors, and multi-document files
-	// have no representation in the engine's value model), so a .yaml surface is
-	// handled as `raw`. internal/agentcfg/manifest once accepted the NAME anyway,
-	// which made codec:yaml validate and then die at render.
-	if _, ok := LookupCodec("yaml"); ok {
-		t.Error("LookupCodec(\"yaml\"): unexpectedly found — YAML surfaces are handled as raw")
 	}
 	if _, ok := LookupCodec(""); ok {
 		t.Error("LookupCodec(\"\"): unexpectedly found")
@@ -35,7 +27,7 @@ func TestLookupCodec(t *testing.T) {
 // LookupCodec — that biconditional is the whole point of deriving it.
 func TestNames(t *testing.T) {
 	got := Names()
-	if want := []string{"json", "lines", "raw", "toml"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"json", "lines", "raw", "toml", "yaml"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Names() = %v, want %v (sorted)", got, want)
 	}
 	for _, n := range got {
@@ -283,6 +275,7 @@ func TestKindOf(t *testing.T) {
 	want := map[string]Kind{
 		"json":  KindObject,
 		"toml":  KindObject,
+		"yaml":  KindObject,
 		"lines": KindArray,
 		"raw":   KindScalar,
 	}
@@ -296,9 +289,6 @@ func TestKindOf(t *testing.T) {
 			t.Errorf("KindOf(%q) = %v, want %v", name, got, want[name])
 		}
 	}
-	if _, ok := KindOf("yaml"); ok {
-		t.Error("KindOf(\"yaml\"): unexpectedly known")
-	}
 	if len(kinds) != len(registry) {
 		t.Errorf("kinds has %d entries, registry has %d — every codec needs a Kind", len(kinds), len(registry))
 	}
@@ -311,6 +301,7 @@ func TestKindDecodeAgreement(t *testing.T) {
 	inputs := map[string]string{
 		"json":  `{"a": 1}`,
 		"toml":  "a = 1\n",
+		"yaml":  "a: 1\n",
 		"lines": "one\ntwo\n",
 		"raw":   "anything at all\n",
 	}

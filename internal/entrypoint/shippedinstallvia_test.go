@@ -67,6 +67,7 @@ var shippedDelivery = map[string]struct {
 	// to wait for a way to say it.
 	"copilot":  {"copilot", "npm", "@github/copilot", ""},
 	"opencode": {"opencode", "npm", "opencode-ai", ""},
+	"oh-omp":   {"omp", "npm", "@oh-labs/oh-omp@0.15.3", ""},
 	// pi's "native installer" IS npm — pi.dev/install.sh runs `npm install -g
 	// @earendil-works/pi-coding-agent` into npm's global prefix — so a flip would change
 	// nothing about delivery and would break the launcher's REAL_BIN.

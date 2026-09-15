@@ -1,0 +1,39 @@
+{
+  "contributes": [
+    {
+      "bin": "oh-omp",
+      "kind": "program",
+      "package": "@oh-labs/oh-omp@0.15.3",
+      "via": "npm"
+    },
+    {
+      "after": "host:.oh-omp/agent/AGENTS.md",
+      "agent": "oh-omp",
+      "into": ".oh-omp/agent/AGENTS.md",
+      "kind": "briefing"
+    },
+    {
+      "agent": "oh-omp",
+      "into": ".oh-omp/agent/skills",
+      "kind": "skills"
+    },
+    {
+      "config": [
+        {
+          "agent": "oh-omp",
+          "codec": "yaml",
+          "mode": "computed",
+          "name": "models",
+          "path": "~/.oh-omp/agent/models.yml"
+        }
+      ],
+      "kind": "config"
+    },
+    {
+      "at": ".oh-omp",
+      "kind": "state",
+      "scope": "workspace"
+    }
+  ],
+  "name": "omp"
+}

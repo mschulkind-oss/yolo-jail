@@ -217,6 +217,10 @@ func TestAgentSurfaceDestinationsAreDistinct(t *testing.T) {
 //     $CODEX_HOME/skills/<name>/SKILL.md BOTH appear in the output, and renaming the
 //     AGENTS.md away removes its marker — the control that makes the first observation
 //     mean something.
+//   - OMP 0.15.3 — its native discovery source sets CONFIG_DIR_NAME = ".oh-omp" and
+//     loads user context from `<home>/.oh-omp/agent/AGENTS.md` plus skills one level
+//     below `<home>/.oh-omp/agent/skills/`; source-verified from the published
+//     @oh-labs/oh-omp package on 2026-09-15.
 //
 // The bar for an entry here is evidence of that kind, never a plausible-looking path.
 // `~/.copilot/AGENTS.md` was plausible for as long as this repo existed.
@@ -228,6 +232,7 @@ func TestAgentSurfacesMatchTheVerifiedPaths(t *testing.T) {
 		"agy":      {".gemini/config/AGENTS.md", ".gemini/config/skills"},
 		"pi":       {".pi/agent/AGENTS.md", ".pi/agent/skills"},
 		"codex":    {".codex/AGENTS.md", ".codex/skills"},
+		"omp":      {".oh-omp/agent/AGENTS.md", ".oh-omp/agent/skills"},
 	}
 	if len(verified) != len(agentPacks(t)) {
 		t.Errorf("%d agent packs but %d verified — an agent pack whose destinations nobody "+

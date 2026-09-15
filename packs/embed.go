@@ -18,8 +18,8 @@
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
 //
-// NOT EVERY OFFICIAL PACK IS AN AGENT. Sixteen packs are embedded here (counted against
-// `ls packs/` 2026-09-14): six install a CLI and ten do not, in four kinds. Six of
+// NOT EVERY OFFICIAL PACK IS AN AGENT. Seventeen packs are embedded here (counted against
+// `ls packs/` 2026-09-15): seven install a CLI and ten do not, in four kinds. Six of
 // those ten — `audio`, `host-processes`, `journal`, `cgroup-delegate`, `serial` and
 // `openai-auth` —
 // ship a LOOPHOLE (one of
@@ -69,5 +69,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:cerebras all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth
 var FS embed.FS

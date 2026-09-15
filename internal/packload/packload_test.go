@@ -26,7 +26,7 @@ func TestEmbeddedOfficialPacksMaterialize(t *testing.T) {
 			t.Errorf("%s: manifest not materialized: %v", p.Name, err)
 		}
 	}
-	for _, want := range []string{"claude", "copilot", "opencode", "pi", "codex", "agy"} {
+	for _, want := range []string{"claude", "copilot", "opencode", "pi", "codex", "agy", "omp"} {
 		if !names[want] {
 			t.Errorf("official pack %q missing from the embed (extend packs/embed.go)", want)
 		}
@@ -46,10 +46,10 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 		}
 		total += len(surfaces)
 	}
-	// The official packs carry 11 surfaces across the agents.
+	// The official packs carry 12 surfaces across the agents.
 	// A drop here means a pack lost a surface in translation.
-	if total != 11 {
-		t.Errorf("official packs declare %d surfaces, want 11", total)
+	if total != 12 {
+		t.Errorf("official packs declare %d surfaces, want 12", total)
 	}
 }
 

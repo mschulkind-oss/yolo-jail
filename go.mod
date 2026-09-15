@@ -8,3 +8,5 @@ require (
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/sys v0.47.0
 )
+
+require gopkg.in/yaml.v3 v3.0.1

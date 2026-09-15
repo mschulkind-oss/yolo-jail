@@ -45,6 +45,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -55,6 +56,17 @@ import (
 // constant is the thing that actually publishes, and the daemon-side file is
 // the authority (there is no host half to disagree with in this build).
 const ServiceName = "wire-bridge"
+
+// CodexResponsesListenAddr is the one fixed jail-local endpoint for the
+// Claude=codex profile. Unlike ordinary bridged providers, openai-codex is a
+// built-in subscription provider and deliberately has no YOLO_PROVIDERS row.
+// The Claude derive and this boot selector share this constant's value as the
+// route contract; it is not a user-configurable listener.
+const CodexResponsesListenAddr = "127.0.0.1:8215"
+
+// CodexResponsesBaseURL is the subscription Responses API base. The handler
+// appends /responses, just as the existing route appends /chat/completions.
+const CodexResponsesBaseURL = "https://chatgpt.com/backend-api/codex"
 
 // EndpointFile is the endpoint file this daemon publishes once its listener is
 // up — /run/yolo-services/wire-bridge.endpoint. Composed from internal/paths
@@ -80,14 +92,30 @@ func Main(rest []string) int {
 		return 0
 	}
 
-	key, keySource := resolveKey(route.KeyEnvName, e.Home)
-	if key == "" {
-		fmt.Fprintf(os.Stderr, "wire-bridge: idling: provider %q names credential variable "+
-			"%s, and it is set neither in %s nor in this process's environment — the bridge "+
-			"never serves unauthenticated upstream traffic (wire-bridge.md §5)\n",
-			route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
-		idleForever()
-		return 0
+	var (
+		key, keySource string
+		handler        http.Handler
+	)
+	if route.CodexAccessToken {
+		endpoint := os.Getenv(openauthclient.EndpointEnv)
+		if endpoint == "" {
+			fmt.Fprintf(os.Stderr, "wire-bridge: idling: Codex route needs %s; no unauthenticated upstream is served\n", openauthclient.EndpointEnv)
+			idleForever()
+			return 0
+		}
+		handler = NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint)
+		keySource = "OpenAI credential service access-token views"
+	} else {
+		key, keySource = resolveKey(route.KeyEnvName, e.Home)
+		if key == "" && route.KeyEnvName != "" {
+			fmt.Fprintf(os.Stderr, "wire-bridge: idling: provider %q names credential variable "+
+				"%s, and it is set neither in %s nor in this process's environment — the bridge "+
+				"never serves unauthenticated upstream traffic (wire-bridge.md §5)\n",
+				route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
+			idleForever()
+			return 0
+		}
+		handler = NewHandler(route.UpstreamBaseURL, key)
 	}
 
 	// BIND BEFORE PUBLISH (§5): the endpoint file's appearance is the promise
@@ -108,11 +136,11 @@ func Main(rest []string) int {
 	}
 
 	fmt.Fprintf(os.Stderr, "wire-bridge: serving provider %q: anthropic on %s → openai %s "+
-		"(endpoint %s, credential $%s from %s)\n",
+		"(endpoint %s, credential %s)\n",
 		route.ProviderName, ln.Addr().String(), route.UpstreamBaseURL, EndpointFile,
-		route.KeyEnvName, keySource)
+		credentialDescription(route, keySource))
 
-	srv := &http.Server{Handler: NewHandler(route.UpstreamBaseURL, key)}
+	srv := &http.Server{Handler: handler}
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "wire-bridge: server stopped: %v\n", err)
 		return 1
@@ -129,10 +157,21 @@ func idleForever() { select {} }
 // read ONCE from the composed table and never again (§5: the upstream is never
 // taken from request content).
 type route struct {
-	ProviderName    string
-	ListenAddr      string
-	UpstreamBaseURL string
-	KeyEnvName      string
+	ProviderName     string
+	ListenAddr       string
+	UpstreamBaseURL  string
+	KeyEnvName       string
+	CodexAccessToken bool
+}
+
+func credentialDescription(route route, source string) string {
+	if route.CodexAccessToken {
+		return source
+	}
+	if route.KeyEnvName == "" {
+		return "none"
+	}
+	return "$" + route.KeyEnvName + " from " + source
 }
 
 // resolveRoute is the boot read of the decision: the same inputs Main loaded
@@ -249,6 +288,14 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			skip = agent + "'s active profile " + profileName +
 				" resolves to no provider in YOLO_PROFILES"
 			continue
+		}
+		// `openai-codex` is Pi/Codex's built-in subscription provider, not a
+		// composed provider fact. The Claude profile is the only consumer that
+		// asks this bridge to translate it; a Pi codex profile must not make an
+		// otherwise unused listener appear.
+		if agent == "claude" && providerName == "openai-codex" {
+			return route{ProviderName: providerName, ListenAddr: CodexResponsesListenAddr,
+				UpstreamBaseURL: CodexResponsesBaseURL, CodexAccessToken: true}, ""
 		}
 
 		v, ok := providers.Get(providerName)

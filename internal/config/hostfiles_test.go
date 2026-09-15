@@ -176,8 +176,12 @@ func TestHostFilesCodecExplicitOverride(t *testing.T) {
 	}
 }
 
-func TestHostFilesCodecUnknownRejected(t *testing.T) {
-	oneProblem(t, `[{"path": "~/.config/x.conf", "content": "", "codec": "yaml"}]`, "no 'yaml' codec")
+func TestHostFilesCodecKnownAndUnknown(t *testing.T) {
+	e := oneEntry(t, `[{"path": "~/.config/x.yml", "content": "", "codec": "yaml"}]`)
+	if e.Codec != "yaml" {
+		t.Fatalf("Codec = %q, want yaml", e.Codec)
+	}
+	oneProblem(t, `[{"path": "~/.config/x.conf", "content": "", "codec": "not-a-codec"}]`, "unknown codec")
 }
 
 // ---- source ⊕ content ----

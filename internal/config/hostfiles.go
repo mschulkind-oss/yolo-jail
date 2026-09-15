@@ -99,7 +99,7 @@ type HostFileEntry struct {
 	// (`"content": ""` is a legitimate way to declare an empty file).
 	HasContent bool `json:"hasContent,omitempty"`
 
-	// Codec is the resolved codec name ("json" | "toml" | "lines" | "raw") — the
+	// Codec is the resolved codec name ("json" | "toml" | "yaml" | "lines" | "raw") — the
 	// explicit `codec` when given, else auto-detected from Path's extension. Empty
 	// for a directory entry (a directory is not a codec).
 	Codec string `json:"codec,omitempty"`
@@ -189,10 +189,10 @@ func (e HostFileEntry) Slug() string {
 // hostFileCodecByExt is the extension→codec auto-detect map. Everything not
 // listed — including no extension at all, .sh, .yaml, .yml, and .jsonc — is raw.
 //
-// .yaml/.yml are raw because there IS no yaml codec: the phantom name was removed
-// from the accepted set (a real one needs a vendored dep + `go mod vendor` + a
-// goSrc fileset update). .jsonc is raw on purpose: routing it through the json
-// codec would sort keys and DROP COMMENTS, silently mangling a hand-written file.
+// .yaml/.yml remain raw until their author explicitly selects the yaml codec,
+// preserving byte-for-byte treatment for files whose formatting matters.
+// .jsonc is raw on purpose: routing it through the json codec would sort keys
+// and DROP COMMENTS, silently mangling a hand-written file.
 var hostFileCodecByExt = map[string]string{
 	".json": "json",
 	".toml": "toml",
@@ -504,10 +504,9 @@ func checkHostFileObject(m *jsonx.OrderedMap, itemPath, scope string, reserved m
 		}
 		// codec.Names() is the registry itself, so an accepted name is one
 		// something can actually decode — the check cannot drift into validating a
-		// name that dies at render (the old phantom 'yaml').
+		// name that dies at render.
 		if _, known := codec.LookupCodec(c); !known {
-			return HostFileEntry{}, fmt.Sprintf("%s.codec: %s: unknown codec (want one of %s); "+
-				"there is no 'yaml' codec — a .yaml file is handled as 'raw' bytes",
+			return HostFileEntry{}, fmt.Sprintf("%s.codec: %s: unknown codec (want one of %s)",
 				itemPath, pytext.Repr(c), strings.Join(codec.Names(), ", "))
 		}
 		entry.Codec = c

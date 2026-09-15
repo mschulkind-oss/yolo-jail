@@ -23,24 +23,24 @@ func TestOnlySelectedEmbeddedPacksAreStaged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	if len(loaded) != 1 || loaded[0].Name != "claude" {
+	if len(loaded) != 3 || loaded[0].Name != "claude" {
 		var names []string
 		for _, p := range loaded {
 			names = append(names, p.Name)
 		}
-		t.Fatalf("loaded = %v, want [claude]", names)
+		t.Fatalf("loaded = %v, want claude plus its declared dependencies", names)
 	}
 	// And nothing else is on disk to be mounted.
 	entries, err := os.ReadDir(filepath.Dir(loaded[0].Root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
+	if len(entries) != 3 {
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		t.Errorf("staged tree holds %v; an unselected pack there would be rendered in-jail",
+		t.Errorf("staged tree holds %v; only selected/dependency packs may be rendered in-jail",
 			names)
 	}
 }
@@ -76,8 +76,8 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	o := &Options{Workspace: t.TempDir(), Stderr: discardBuf()}
 	if _, loaded, _, err := o.stagePacks("yolo-test-drop"); err != nil {
 		t.Fatalf("stagePacks: %v", err)
-	} else if len(loaded) != 3 {
-		t.Fatalf("first pass: want claude, codex, and Codex's OpenAI auth dependency; got %d packs", len(loaded))
+	} else if len(loaded) != 4 {
+		t.Fatalf("first pass: want claude, codex, OpenAI auth, and Claude's wire bridge; got %d packs", len(loaded))
 	}
 
 	writeUserPacks(t, home, `["claude"]`)
@@ -85,8 +85,8 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks after drop: %v", err)
 	}
-	if len(loaded) != 1 || loaded[0].Name != "claude" {
-		t.Fatalf("after dropping codex: want [claude], got %d packs", len(loaded))
+	if len(loaded) != 3 || loaded[0].Name != "claude" {
+		t.Fatalf("after dropping codex: want claude and its dependencies, got %d packs", len(loaded))
 	}
 	entries, err := os.ReadDir(filepath.Dir(loaded[0].Root))
 	if err != nil {

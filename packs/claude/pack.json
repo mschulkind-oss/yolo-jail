@@ -127,6 +127,11 @@
       "provider": "bedrock"
     },
     {
+      "kind": "profile",
+      "name": "codex",
+      "provider": "openai-codex"
+    },
+    {
       "kind": "env",
       "profile": "bedrock",
       "vars": {
@@ -173,5 +178,13 @@
     }
   ],
   "name": "claude",
+  "needs": [
+    {
+      "pack": "openai-auth"
+    },
+    {
+      "pack": "wire-bridge"
+    }
+  ],
   "skills_tier": "namespaced"
 }

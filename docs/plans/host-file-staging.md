@@ -140,7 +140,7 @@ design of record for the `host_files` key itself and is **closed** to new scope.
 
 | Not covered | How a user finds out | Tracked |
 |---|---|---|
-| **`yaml` codec** | `codec: "yaml"` is a `yolo check` **error** naming the four real codecs and saying `.yaml` is handled as `raw`. The phantom name was deleted so it cannot validate-then-die. | won't do (needs a vendored dep) |
+| **`yaml` codec** | `codec: "yaml"` enables structured YAML composition. Auto-detected `.yaml` and `.yml` paths remain `raw`, preserving byte-for-byte treatment unless the author opts in. | implemented (vendored YAML codec) |
 | **Comments preserved on a `json`/`toml` surface** | The only item here that cannot announce itself with an error, so it is **documented in `config-ref` under `codec`** — naming a structured codec on a commented file discards them; `raw` keeps them byte-exact. See [below](#the-one-gap-that-needed-closing-to-hold-the-line). | #3 |
 | **In-jail-added comments captured back** | Never captured, never reverted; documented as one-way host→jail. | #3 |
 | **`managed`/`defaults` array-append pinning** | Object merge only; an array in `managed` replaces rather than appends. Shape-checked at config time, so no surprise at render. | #3 |
@@ -302,7 +302,7 @@ bullets below describe the *old* tree and are kept only for the reasoning:
 | `path` | ⚠ conditional | `~`-relative **jail destination** (e.g. `~/.config/mytool/config.json`). The surface's `Path`. **Optional when `source` is a `~/…` path** — it then defaults to the same home-relative destination, so mirroring a host file needs the path only once. Required for a source-less entry, and for a `source` outside `$HOME` (`/etc/foo.conf` has no unambiguous home-relative counterpart). |
 | `source` | — | host path to seed the `host` layer from. **Its presence makes the entry user-scope only** (a host file crosses). Mutually exclusive with `content`. |
 | `content` | — | inline literal seed (a string). Crosses nothing → legal at any scope. Mutually exclusive with `source`. |
-| `codec` | — | `json` \| `toml` \| `lines` \| `raw` — the four real codecs. Overrides auto-detect. There is no `yaml` codec (the phantom name is removed — see below); a `.yaml` file is handled as `raw`. |
+| `codec` | — | `json` \| `toml` \| `yaml` \| `lines` \| `raw`. Overrides auto-detect. YAML is explicit-only; a `.yaml` file without this field is handled as `raw`. |
 | `managed` | — | object of yolo-asserted keys that **revert on edit** (re-Enforced each render). Structured codecs only. |
 | `defaults` | — | user-overridable base layer. Structured codecs only. |
 | `mode` | — | `readonly` (`0o444`, re-rendered each boot, no sidecar — edits fail loudly) \| `once` (seed if absent, then never touched — edits just persist, no sidecar) \| `copy` (`0o644`, overwritten each boot, no sidecar — edits silently lost) \| `capture` (`0o644`, **the overlay exception** — re-rendered each boot *and* in-jail edits captured into a sidecar that outranks `host`). **Default:** `readonly` for source-bearing, `once` for source-less — never `capture`; it is always explicit. See [below](#overlay-capture-is-the-exception-never-a-default). |
@@ -577,9 +577,8 @@ A small extension→codec map beside `codec.registry`:
 | `.toml` | `toml` |
 | everything else (incl. no ext, `.sh`, `.yaml`, `.yml`, `.jsonc`) | `raw` |
 
-`.yaml`/`.yml` → `raw`: there is no yaml codec and this design does not add one
-(a real one would need a vendored dep + `go mod vendor` + a `goSrc` fileset
-update). `.jsonc` → `raw` on purpose: routing it through the `json` codec would
+`.yaml`/`.yml` → `raw`: auto-detection preserves byte-for-byte treatment; an
+author selects `codec: "yaml"` to opt into structured composition. `.jsonc` → `raw` on purpose: routing it through the `json` codec would
 sort keys and **drop comments**. The object form's explicit `codec` always wins.
 Structured codecs (`json`/`toml`) give key-by-key overlay capture; `raw` gives
 whole-file capture. Both are managed.

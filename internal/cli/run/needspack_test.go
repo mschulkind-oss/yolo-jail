@@ -116,7 +116,11 @@ func TestNeedsJoinedPackCarriesItsEffectsIntoTheArgv(t *testing.T) {
 	needy := writePackManifest(t, "needy",
 		`{"name":"needy","needs":[{"pack":"donor","when_bins":["claude"]}]}`)
 
-	selected := []*packload.Pack{officialPack(t, "claude"), needy}
+	// Use a minimal Claude-bin owner instead of the shipped Claude pack: the
+	// fixture is testing donor closure, not Claude's own dependencies.
+	consumer := writePackManifest(t, "consumer",
+		`{"name":"consumer","contributes":[{"kind":"program","bin":"claude","via":"npm","package":"consumer"}]}`)
+	selected := []*packload.Pack{consumer, needy}
 	added, causes, err := packload.ResolveNeeds(selected, func(name string) (*packload.Pack, bool) {
 		if name == "donor" {
 			return donor, true

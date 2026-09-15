@@ -4,9 +4,10 @@
 yolo.derive("claude", "config", function(ctx)
   local claudeProfile = (ctx.use_profiles and ctx.use_profiles.claude) or "default"
   local isBedrock = (claudeProfile == "bedrock")
+  local isCodex = (claudeProfile == "codex")
   local servers = {}
   for name, cfg in pairs(ctx.mcp_servers or {}) do
-    if type(cfg) == "table" and cfg.provides == "web_search" and not isBedrock then
+    if type(cfg) == "table" and cfg.provides == "web_search" and not isBedrock and not isCodex then
       -- native search is available in 1st-party subscription mode; suppress MCP
     else
       servers[name] = cfg
@@ -50,6 +51,17 @@ end)
 -- wrong host, and an empty token is a credential that gets SENT.
 yolo.env("claude", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
+  -- openai-codex is a broker-backed subscription identity, like Pi's native
+  -- provider. It deliberately has no YOLO_PROVIDERS row: the wire bridge gets
+  -- its short-lived access-token view from openai-auth, never from a generated
+  -- configuration file. `terra` is the profile's explicit default alias.
+  if ctx.selected_provider == "openai-codex" then
+    return {
+      ANTHROPIC_BASE_URL = "http://127.0.0.1:8215",
+      ANTHROPIC_DEFAULT_OPUS_MODEL = (ctx.profile and ctx.profile.model) or "terra",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1",
+    }
+  end
   if not p then return {} end
   local out = {}
   local routed = false -- claude is pointed at a non-first-party Anthropic-wire host

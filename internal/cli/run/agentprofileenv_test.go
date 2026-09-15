@@ -222,3 +222,33 @@ func TestAssembleEmitsNoProfileEnvWithoutBedrock(t *testing.T) {
 		t.Errorf("unprofiled launch carried profile env: %q", got)
 	}
 }
+
+// TestAssembleEmitsCodexBridgeProfileEnv pins the profile-selected route, rather
+// than testing the derive alone: removing the channel's AgentEnv call would make
+// Claude silently retain its first-party endpoint even though `claude=codex` was
+// accepted. openai-codex is broker-backed and deliberately absent from
+// YOLO_PROVIDERS, so this also proves the special provider does not need a fake
+// credential-bearing provider entry merely to compose the local bridge route.
+func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "codex")
+	la := assembleWithConfigAssembled(t, newConfig(
+		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles))
+	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "ANTHROPIC_AUTH_TOKEN")
+	want := []string{
+		"ANTHROPIC_BASE_URL=http://127.0.0.1:8215",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=terra",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("codex profile env = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("codex profile env %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

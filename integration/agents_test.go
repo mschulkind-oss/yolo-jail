@@ -66,7 +66,8 @@ type packCase struct {
 // Markers are the auto-approve settings each pack's surfaces assert (claude acceptEdits,
 // copilot yolo, opencode allow, pi defaultProjectTrust, codex danger-full-access). They
 // come from the pack's `managed`/`defaults` layers — there is no per-agent config generator
-// any more.
+// any more. OMP owns a pure generated provider catalog, so its empty marker asserts only
+// that the YAML surface was rendered before any provider is configured.
 var packMatrix = []packCase{
 	{"claude", "claude", "--version", ".claude/settings.json", "acceptEdits"},
 	{"copilot", "copilot", "--version", ".copilot/config.json", "yolo"},
@@ -74,6 +75,7 @@ var packMatrix = []packCase{
 	{"pi", "pi", "--version", ".pi/agent/settings.json", "defaultProjectTrust"},
 	{"codex", "codex", "--version", ".codex/config.toml", "danger-full-access"},
 	{"agy", "agy", "--version", ".gemini/antigravity-cli/settings.json", "permissionMode"},
+	{"omp", "oh-omp", "--version", ".oh-omp/agent/models.yml", ""},
 }
 
 // TestPackMatrixCoversEveryShippedProgram is the forcing function this file spent its whole

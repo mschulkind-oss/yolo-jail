@@ -74,6 +74,23 @@ func TestResolveRouteServesABridgedProvider(t *testing.T) {
 	}
 }
 
+func TestResolveRouteServesClaudeCodexWithoutProviderTableEntry(t *testing.T) {
+	route, idle := resolveRoute(routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"claude":"codex"}`))
+	if idle != "" {
+		t.Fatalf("Claude codex profile must serve, got idle: %s", idle)
+	}
+	if route.ProviderName != "openai-codex" || route.ListenAddr != CodexResponsesListenAddr || route.UpstreamBaseURL != CodexResponsesBaseURL || !route.CodexAccessToken {
+		t.Fatalf("Codex route = %+v", route)
+	}
+}
+
+func TestResolveRouteDoesNotServePiCodexProfile(t *testing.T) {
+	_, idle := resolveRoute(routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`))
+	if !strings.Contains(idle, "not in the composed table") {
+		t.Fatalf("Pi's built-in provider must not start the Claude bridge, got idle %q", idle)
+	}
+}
+
 // Every idle reason the design names (§3.4), each a HEALTHY no-op. The reasons
 // are asserted by substring so a regression says WHICH absent fact it hit.
 func TestResolveRouteIdles(t *testing.T) {
