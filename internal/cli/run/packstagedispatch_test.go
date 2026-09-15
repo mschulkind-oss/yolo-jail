@@ -2,9 +2,13 @@ package run
 
 import (
 	"bytes"
+	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
@@ -35,6 +39,7 @@ import (
 // explicit YOLO_RUNTIME so no real container daemon is consulted.
 func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr *bytes.Buffer, execRec *[][]string) *Options {
 	t.Helper()
+	reapTestSpawnedOpenAIBroker(t)
 	repoRoot := t.TempDir()
 	o := &Options{
 		Workspace: workspace,
@@ -206,4 +211,57 @@ func TestStagingFailureStopsBeforeAnyContainerWork(t *testing.T) {
 				"staging must gate the dispatch, not follow it", argv)
 		}
 	}
+}
+
+// reapTestSpawnedOpenAIBroker stops the machine-wide OpenAI broker singleton IF this test's
+// own launch spawned it.
+//
+// WHY A TEST NEEDS THIS AT ALL, which is the part worth fixing properly one day:
+// dispatchOptions promises "no real container daemon is consulted" and takes an execRec so
+// Options.Exec can be stubbed — but internal/openaiauthhost/host.go:269 spawns with
+// exec.Command DIRECTLY, bypassing that seam. So any test reaching the macos-user arm with
+// the openai-auth loophole active starts a REAL daemon on the machine-global socket
+// /tmp/yolo-openai-auth-broker.sock, and a singleton is deliberately NOT stopped per launch
+// (h.stop is nil for it — one broker is meant to serve every jail).
+//
+// MEASURED 2026-09-15 in a long-lived jail: 159 leaked daemons from one day of test runs,
+// two per run. The FIRST one owns the socket, so from the second run onward every launch
+// reports "OpenAI credential service did not start" — the leak causes the symptom that
+// produces more leaks.
+//
+// ⚠ INVISIBLE ON CI, AND ONLY THERE. Runners are ephemeral, so the first run always wins and
+// the suite is green. It reproduces on any machine that runs the suite twice.
+//
+// ⚠ IT REAPS ONLY WHAT A TEST SPAWNED. The pid file is machine-global, so a blind kill here
+// would stop a broker a real jail on this machine is using. A test-spawned one is identifiable
+// by its --state-file argument pointing inside a go test temp dir; anything else is left alone.
+func reapTestSpawnedOpenAIBroker(t *testing.T) {
+	t.Helper()
+	reap := func() {
+		raw, err := os.ReadFile(paths.HostSingletonPIDFile("openai-auth-broker"))
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if err != nil || pid <= 1 {
+			return
+		}
+		cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+		if err != nil {
+			return // not this platform's /proc, or already gone: leave it alone
+		}
+		argv := strings.ReplaceAll(string(cmdline), "\x00", " ")
+		if !strings.Contains(argv, "/Test") || !strings.Contains(argv, "openai-auth-broker") {
+			return // not a test's daemon — do not touch a real one
+		}
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+		_ = os.Remove(paths.HostSingletonSocket("openai-auth-broker"))
+		_ = os.Remove(paths.HostSingletonPIDFile("openai-auth-broker"))
+	}
+	// CLEANUP ONLY, NOT SETUP — measured, and the difference is 3 failures versus 14.
+	// Reaping at setup kills a broker an EARLIER test in the same run started, and the
+	// singleton is designed to be SHARED, so every later test then has to start its own.
+	// Reaping only at the end keeps the sharing inside a run and leaves nothing behind
+	// after it.
+	t.Cleanup(reap)
 }
