@@ -45,6 +45,12 @@
           "codec": "json",
           "name": "settings",
           "path": "~/.gemini/antigravity-cli/settings.json"
+        },
+        {
+          "agent": "agy",
+          "codec": "json",
+          "name": "onboarding",
+          "path": "~/.gemini/antigravity-cli/cache/onboarding.json"
         }
       ],
       "kind": "config"
@@ -56,7 +62,10 @@
             "agent": "agy",
             "codec": "json",
             "managed": {
-              "permissionMode": "allow"
+              "permissionMode": "allow",
+              "trustedWorkspaces": [
+                "/workspace"
+              ]
             },
             "name": "settings",
             "path": "~/.gemini/antigravity-cli/settings.json"

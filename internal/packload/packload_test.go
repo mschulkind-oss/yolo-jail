@@ -46,10 +46,10 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 		}
 		total += len(surfaces)
 	}
-	// The official packs carry 12 surfaces across the agents.
+	// The official packs carry 13 surfaces across the agents.
 	// A drop here means a pack lost a surface in translation.
-	if total != 12 {
-		t.Errorf("official packs declare %d surfaces, want 12", total)
+	if total != 13 {
+		t.Errorf("official packs declare %d surfaces, want 13", total)
 	}
 }
 

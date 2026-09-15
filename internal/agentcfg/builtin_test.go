@@ -249,11 +249,10 @@ func TestBuiltinCodexConfigSurface(t *testing.T) {
 }
 
 // TestBuiltinAgySettingsSurface asserts agy/settings (settings.json) is in the
-// manifest with the json codec at agy's antigravity-cli path, and the single
-// force-managed key permissionMode="allow" (the YOLO posture). agy has NO host
-// mount and no bespoke writer — it is born on the prism (docs/plans/
-// antigravity-agy-support.md) — so Defaults is empty and the dynamic
-// mcp_config.json (a separate sibling) must not leak into either static layer.
+// manifest with the json codec at agy's antigravity-cli path, and its two
+// force-managed YOLO-posture keys. Personal choices such as telemetry are
+// captured and may be explicitly promoted into the user's local pack. The
+// dynamic mcp_config.json sibling must not leak into either static layer.
 func TestBuiltinAgySettingsSurface(t *testing.T) {
 	m := packManifest(t)
 	s, ok := m.Lookup("agy", "settings")
@@ -266,9 +265,12 @@ func TestBuiltinAgySettingsSurface(t *testing.T) {
 	if s.Path != "~/.gemini/antigravity-cli/settings.json" {
 		t.Errorf("agy/settings path = %q, want ~/.gemini/antigravity-cli/settings.json", s.Path)
 	}
-	// permissionMode is FORCE-MANAGED (the container is the sandbox).
+	// Permission mode and the jail's stable workspace path are FORCE-MANAGED.
 	if s.ManagedMap()["permissionMode"] != "allow" {
 		t.Errorf("agy/settings should enforce permissionMode=allow, got %v", s.ManagedMap()["permissionMode"])
+	}
+	if got, want := s.ManagedMap()["trustedWorkspaces"], []any{"/workspace"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("agy/settings trustedWorkspaces = %#v, want %#v", got, want)
 	}
 	// No setDefault keys — Defaults is empty (yolo owns the file outright).
 	if len(s.DefaultsMap()) != 0 {
@@ -278,6 +280,14 @@ func TestBuiltinAgySettingsSurface(t *testing.T) {
 	// manifest layer — it must not be baked into settings.
 	if _, present := s.ManagedMap()["mcpServers"]; present {
 		t.Error("agy/settings must NOT bake mcpServers into managed (it is a separate dynamic sibling)")
+	}
+
+	onboarding, ok := m.Lookup("agy", "onboarding")
+	if !ok {
+		t.Fatal("builtin manifest missing agy/onboarding")
+	}
+	if onboarding.Codec != "json" || onboarding.Path != "~/.gemini/antigravity-cli/cache/onboarding.json" {
+		t.Errorf("agy/onboarding = codec %q path %q, want json ~/.gemini/antigravity-cli/cache/onboarding.json", onboarding.Codec, onboarding.Path)
 	}
 }
 
