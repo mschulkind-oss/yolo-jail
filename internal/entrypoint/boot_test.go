@@ -93,6 +93,51 @@ func TestHydrateEnvFromUserEnvFile(t *testing.T) {
 	}
 }
 
+func TestHydrateEntryChannelReplacesFrozenSelection(t *testing.T) {
+	home := t.TempDir()
+	writeTestUserEnv(t, home, `export OTHER=${OTHER:-'default'}
+# --- per-entry channel (rewritten by every yolo launch) ---
+export YOLO_PROVIDERS='{}'
+export YOLO_PROFILES='{"codex":{"provider":"openai-codex"}}'
+export YOLO_USE_PROFILES='{"claude":"codex"}'
+`)
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":         home,
+		"YOLO_PROVIDERS":    `{"stale":true}`,
+		"YOLO_PROFILES":     `{"stale":{"provider":"stale"}}`,
+		"YOLO_USE_PROFILES": `{"pi":"stale"}`,
+	})
+	if !HydrateEntryChannel(e) {
+		t.Fatal("HydrateEntryChannel = false, want complete channel")
+	}
+	if got := e.Getenv("YOLO_USE_PROFILES"); got != `{"claude":"codex"}` {
+		t.Errorf("YOLO_USE_PROFILES = %s", got)
+	}
+	if got := e.Getenv("OTHER"); got != "" {
+		t.Errorf("default outside channel leaked into channel hydration: %q", got)
+	}
+}
+
+func TestHydrateEntryChannelRejectsTornWrite(t *testing.T) {
+	home := t.TempDir()
+	writeTestUserEnv(t, home, "# --- per-entry channel (rewritten by every yolo launch) ---\nexport YOLO_PROVIDERS='{}'\n")
+	e := NewEnv(map[string]string{"JAIL_HOME": home})
+	if HydrateEntryChannel(e) {
+		t.Fatal("HydrateEntryChannel accepted an incomplete channel")
+	}
+}
+
+func writeTestUserEnv(t *testing.T, home, content string) {
+	t.Helper()
+	path := filepath.Join(home, ".config", "yolo-user-env.sh")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The entry-parsing table moved to portforwardtarget_test.go's
 // TestForwardEntryPortsSplitsLocalFromHost when forwardEntryPort widened to
 // return both ports — same cases, plus the host port each one resolves to.

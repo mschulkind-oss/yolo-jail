@@ -8,10 +8,13 @@ package wirebridged
 // in the wire shape of either side fails here rather than in a jail.
 
 import (
+	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -88,6 +91,106 @@ func TestResolveRouteDoesNotServePiCodexProfile(t *testing.T) {
 	_, idle := resolveRoute(routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`))
 	if !strings.Contains(idle, "not in the composed table") {
 		t.Fatalf("Pi's built-in provider must not start the Claude bridge, got idle %q", idle)
+	}
+}
+
+// TestRunWakesForAnAttachedRoute pins the idle-to-serving lifecycle: it starts
+// from Pi's built-in codex selection (which must leave this bridge idle), then
+// requires the production runner to bind and publish after a live channel
+// rewrite selects a local test route.
+func TestRunWakesForAnAttachedRoute(t *testing.T) {
+	home := t.TempDir()
+	endpointFile := filepath.Join(t.TempDir(), "wire-bridge.endpoint")
+	oldEndpointFile := EndpointFile
+	EndpointFile = endpointFile
+	t.Cleanup(func() { EndpointFile = oldEndpointFile })
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	_ = listener.Close()
+	writeChannel(t, home, `{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`)
+	initial := routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`)
+	initial.Vars["JAIL_HOME"] = home
+	initial.Home = home
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- run(ctx, initial, 5*time.Millisecond) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("wire bridge did not stop after cancellation")
+		}
+	})
+
+	if _, err := os.Stat(endpointFile); !os.IsNotExist(err) {
+		t.Fatalf("Pi codex selection published an endpoint: %v", err)
+	}
+	providers := `{"bridge":{"endpoints":{"anthropic":{"base_url":"http://` + addr + `"},"openai":{"base_url":"https://upstream.example/v1"}}}}`
+	writeChannel(t, home, providers, `{"bridge":{"provider":"bridge"}}`, `{"claude":"bridge"}`)
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if data, err := os.ReadFile(endpointFile); err == nil {
+			conn, err := net.DialTimeout("tcp", strings.TrimSpace(string(data)), 100*time.Millisecond)
+			if err != nil {
+				t.Fatalf("published endpoint did not accept connections: %v", err)
+			}
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("bridge stayed idle after the attached channel selected a route")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestWaitForActiveRouteSeesAttachedClaudeCodex(t *testing.T) {
+	home := t.TempDir()
+	writeChannel(t, home, `{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`)
+	initial := routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`)
+	initial.Vars["JAIL_HOME"] = home
+	initial.Home = home
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		route route
+		ok    bool
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		route, _, ok := waitForActiveRoute(ctx, initial, 5*time.Millisecond)
+		resultCh <- result{route, ok}
+	}()
+	writeChannel(t, home, `{}`, `{"codex":{"provider":"openai-codex"}}`, `{"claude":"codex"}`)
+	select {
+	case got := <-resultCh:
+		if !got.ok || !got.route.CodexAccessToken || got.route.ListenAddr != CodexResponsesListenAddr {
+			t.Fatalf("attached Claude codex route = %+v, ok=%v", got.route, got.ok)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("idle bridge did not see the attached Claude codex profile")
+	}
+}
+
+func writeChannel(t *testing.T, home, providers, profiles, useProfiles string) {
+	t.Helper()
+	path := filepath.Join(home, ".config", "yolo-user-env.sh")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := entrypoint.EntryChannelSectionHeader + "\n" +
+		"export YOLO_PROVIDERS='" + providers + "'\n" +
+		"export YOLO_PROFILES='" + profiles + "'\n" +
+		"export YOLO_USE_PROFILES='" + useProfiles + "'\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

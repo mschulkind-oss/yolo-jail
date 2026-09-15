@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -15,7 +16,7 @@ import (
 // authorities and the comment says which is which: the lines above it are
 // env_sources defaults (def-form, overridable), the lines below it are what THIS
 // entry composed and land unconditionally.
-const channelSectionHeader = "# --- per-entry channel (rewritten by every yolo launch) ---"
+const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 
 // writeUserEnvFile writes yolo-user-env.sh. Frozen contract (must not drift —
 // the in-jail entrypoint reads this file back and depends on the exact format).

@@ -152,7 +152,10 @@ being **selection-lazy**.
 At boot the daemon reads the composed provider table and the resolved selection. If some agent's
 active profile names a provider whose `anthropic` endpoint is jail-local — routed *at this
 bridge* — it serves that provider's `openai` endpoint upstream. Otherwise it **idles healthy**:
-binds nothing, publishes nothing, sleeps, and prints one line naming the exact absent fact.
+binds nothing, publishes nothing, and prints one line naming the exact absent fact. While idle,
+it watches the complete per-entry channel for a later attach and wakes when that attach selects
+a routed provider. Once serving, its upstream stays fixed for the daemon lifetime: concurrent
+entries may still use the earlier route, so the latest attach must not redirect their traffic.
 
 Coarse condition + lazy daemon = precise behavior, with vocabulary a manifest can state without
 knowing anything about profiles. The cost is a healthy idle process in launches where the agent

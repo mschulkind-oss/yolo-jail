@@ -105,6 +105,58 @@ var (
 	exportGroupKey  = exportLineRe.SubexpIndex("key")
 )
 
+// EntryChannelSectionHeader marks the per-entry values in yolo-user-env.sh.
+// The launcher rewrites this section for every launch and attach; readers that
+// outlive one entry use it to replace their frozen selection safely.
+const EntryChannelSectionHeader = "# --- per-entry channel (rewritten by every yolo launch) ---"
+
+// HydrateEntryChannel applies the complete per-entry channel to e without
+// changing the process environment. It returns false when the channel is
+// absent or incomplete, including while its writer is truncating and rewriting
+// the file in place. Long-lived services keep their last complete channel in
+// that case rather than briefly acting on a torn selection.
+func HydrateEntryChannel(e *Env) bool {
+	data, err := os.ReadFile(filepath.Join(e.Home, ".config", "yolo-user-env.sh"))
+	if err != nil {
+		return false
+	}
+	values := map[string]string{}
+	inChannel := false
+	for _, line := range splitLines(string(data)) {
+		if line == EntryChannelSectionHeader {
+			inChannel = true
+			continue
+		}
+		if !inChannel {
+			continue
+		}
+		loc := exportLineRe.FindStringSubmatchIndex(line)
+		if loc == nil || groupParticipated(loc, exportGroupDef) {
+			continue
+		}
+		key := groupStr(line, loc, exportGroupKey)
+		var raw string
+		switch {
+		case groupParticipated(loc, exportGroupSq):
+			raw = groupStr(line, loc, exportGroupSq)
+		case groupParticipated(loc, exportGroupDq):
+			raw = groupStr(line, loc, exportGroupDq)
+		default:
+			raw = groupStr(line, loc, exportGroupBare)
+		}
+		values[key] = strings.ReplaceAll(raw, "'\\''", "'")
+	}
+	for _, key := range []string{"YOLO_PROVIDERS", "YOLO_PROFILES", "YOLO_USE_PROFILES"} {
+		if _, ok := values[key]; !ok {
+			return false
+		}
+	}
+	for key, value := range values {
+		e.Vars[key] = value
+	}
+	return true
+}
+
 // ~/.config/yolo-user-env.sh exports into the process env AND e.Vars so the
 // early agent-config writers see the same values bash will. The TWO line
 // grammars are the precedence, read off the line itself: a def-form

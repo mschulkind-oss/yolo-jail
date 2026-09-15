@@ -34,6 +34,7 @@
 package wirebridged
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -42,6 +43,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -68,6 +70,8 @@ const CodexResponsesListenAddr = "127.0.0.1:8215"
 // appends /responses, just as the existing route appends /chat/completions.
 const CodexResponsesBaseURL = "https://chatgpt.com/backend-api/codex"
 
+const entryChannelPollInterval = 200 * time.Millisecond
+
 // EndpointFile is the endpoint file this daemon publishes once its listener is
 // up — /run/yolo-services/wire-bridge.endpoint. Composed from internal/paths
 // rather than spelled out, for the same reason oauthterminator's
@@ -78,30 +82,70 @@ var EndpointFile = paths.JailHostServicesDir + "/" + ServiceName + paths.Service
 // Main is the subcommand body. rest is accepted and ignored — the daemon's
 // whole input is the environment, like `yolo-jaild supervise`'s. Return codes:
 // 1 on a boot failure (a bind or publish error; `restart: on-failure` makes
-// supervise retry with backoff), otherwise no return at all — serving blocks
-// forever and a lazy boot sleeps forever.
+// supervise retry with backoff); healthy idle and serving states block until
+// the jail retires them.
 func Main(rest []string) int {
-	e := entrypoint.EnvFromOS()
-	route, idleReason := resolveRoute(e)
-	if idleReason != "" {
-		// One line, on stderr, forever silent after it. The supervise machinery
-		// treats a live process as healthy, which is exactly the disposition
-		// §3.4 rules for a launch the bridge has nothing to serve.
-		fmt.Fprintf(os.Stderr, "wire-bridge: idling: %s\n", idleReason)
-		idleForever()
+	return run(context.Background(), entrypoint.EnvFromOS(), entryChannelPollInterval)
+}
+
+// run resolves the boot route, then watches the live per-entry channel while
+// idle. An attach runs a new agent entry but does not restart the supervisor,
+// so this is the one path by which a selection-lazy daemon can observe a later
+// selection. Once serving, its upstream remains fixed for the daemon lifetime:
+// a jail may have concurrent entries, and letting the latest attach replace a
+// listener under an earlier entry would redirect that entry's traffic.
+func run(ctx context.Context, initial *entrypoint.Env, pollInterval time.Duration) int {
+	route, e, ok := waitForActiveRoute(ctx, initial, pollInterval)
+	if !ok {
 		return 0
 	}
+	return serve(ctx, route, e)
+}
+
+func waitForActiveRoute(ctx context.Context, initial *entrypoint.Env, pollInterval time.Duration) (route, *entrypoint.Env, bool) {
+	if route, idleReason := resolveRoute(initial); idleReason == "" {
+		return route, initial, true
+	} else {
+		fmt.Fprintf(os.Stderr, "wire-bridge: idling: %s\n", idleReason)
+	}
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return route{}, nil, false
+		case <-ticker.C:
+			candidate := cloneEnv(initial)
+			if !entrypoint.HydrateEntryChannel(candidate) {
+				continue
+			}
+			route, idleReason := resolveRoute(candidate)
+			if idleReason == "" {
+				return route, candidate, true
+			}
+		}
+	}
+}
+
+func cloneEnv(e *entrypoint.Env) *entrypoint.Env {
+	vars := make(map[string]string, len(e.Vars))
+	for key, value := range e.Vars {
+		vars[key] = value
+	}
+	return entrypoint.NewEnv(vars)
+}
+
+func serve(ctx context.Context, route route, e *entrypoint.Env) int {
 
 	var (
 		key, keySource string
 		handler        http.Handler
 	)
 	if route.CodexAccessToken {
-		endpoint := os.Getenv(openauthclient.EndpointEnv)
+		endpoint := e.Getenv(openauthclient.EndpointEnv)
 		if endpoint == "" {
 			fmt.Fprintf(os.Stderr, "wire-bridge: idling: Codex route needs %s; no unauthenticated upstream is served\n", openauthclient.EndpointEnv)
-			idleForever()
-			return 0
+			return idleUntilStopped(ctx)
 		}
 		handler = NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint)
 		keySource = "OpenAI credential service access-token views"
@@ -112,8 +156,7 @@ func Main(rest []string) int {
 				"%s, and it is set neither in %s nor in this process's environment — the bridge "+
 				"never serves unauthenticated upstream traffic (wire-bridge.md §5)\n",
 				route.ProviderName, route.KeyEnvName, userEnvFilePath(e.Home))
-			idleForever()
-			return 0
+			return idleUntilStopped(ctx)
 		}
 		handler = NewHandler(route.UpstreamBaseURL, key)
 	}
@@ -141,17 +184,27 @@ func Main(rest []string) int {
 		credentialDescription(route, keySource))
 
 	srv := &http.Server{Handler: handler}
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintf(os.Stderr, "wire-bridge: server stopped: %v\n", err)
-		return 1
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+	select {
+	case <-ctx.Done():
+		_ = srv.Close()
+		<-errCh
+		_ = os.Remove(EndpointFile)
+		return 0
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(os.Stderr, "wire-bridge: server stopped: %v\n", err)
+			return 1
+		}
+		return 0
 	}
-	return 0
 }
 
-// idleForever blocks for the life of the jail. The supervisor's SIGTERM (its
-// terminate path, 5s grace then kill) is what retires the process; nothing in
-// this daemon needs to intercept it.
-func idleForever() { select {} }
+func idleUntilStopped(ctx context.Context) int {
+	<-ctx.Done()
+	return 0
+}
 
 // route is the boot resolution's output: everything the daemon needs to run,
 // read ONCE from the composed table and never again (§5: the upstream is never
