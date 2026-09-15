@@ -47,11 +47,28 @@ func writeLoopholeState(t *testing.T, loophole, secret string) (stateDir, logPat
 	return stateDir, logPath
 }
 
+// retireOptions wires `out` to STDERR — see the comment inside for why that direction is the
+// guard. A caller that needs this fixture for a STDOUT message must say so by re-pointing
+// o.Stdout itself (useprofiletargets_test.go does).
 func retireOptions(t *testing.T, out *bytes.Buffer) *Options {
 	t.Helper()
 	o := goldenOptions("/ws", t.TempDir())
-	o.Stdout = out
-	o.Stderr = discardBuf()
+	// ⚠ THE BUFFER IS STDERR AND STDOUT IS DISCARDED, AND THAT ORDERING IS THE GUARD.
+	//
+	// It was the other way round until 2026-09-15, which is how retirement's notices shipped
+	// on STDOUT — the jailed command's stream, passed through untouched by `yolo -- <cmd>` and
+	// compared exactly by callers. The retirement warning is normally latent (it fires only on
+	// the launch where a pack leaves `packs`), so nothing noticed until `openai-auth` left and
+	// it became constant, prepending itself to the jailed command's output and breaking
+	// TestHostComposedBriefingIsNotDeliveredTwice and
+	// TestProvidersRenderInTheAgentsOwnVocabulary — the same two integration tests a notice on
+	// stdout had already broken once before (AGENTS.md, the host-loopback note).
+	//
+	// With the streams this way round, every `out.String()` assertion below is also a claim
+	// about the STREAM: move a notice back to stdout and it lands in the discard, so the
+	// assertions that look for it fail. That is why this needs no separate source-grep test.
+	o.Stderr = out
+	o.Stdout = discardBuf()
 	o.Now = func() time.Time { return time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC) }
 	return o
 }

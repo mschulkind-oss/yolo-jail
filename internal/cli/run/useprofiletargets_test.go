@@ -32,6 +32,11 @@ func TestStageRunPacksRefusesAnUnknownUseProfileCLI(t *testing.T) {
 	writeUserPacks(t, home, `[]`)
 	var out bytes.Buffer
 	o := retireOptions(t, &out)
+	// retireOptions points the buffer at STDERR, because that is where retirement's notices
+	// belong and its own tests assert the stream that way. The refusal asserted here is
+	// stageRunPacks', which still writes to stdout (see loopholeretire.go's header on the ~50
+	// sites left alone), so this test names the stream it actually reads.
+	o.Stdout = &out
 	o.UseProfiles = map[string]string{"cloude": "bedrock"}
 	if _, ok := o.stageRunPacks("yolo-profile-target-cli"); ok {
 		t.Fatalf("a --pack-profile naming a CLI no pack installs staged cleanly — " +
@@ -53,6 +58,11 @@ func TestStageRunPacksRefusesAProfileNameKeyedToAnUnknownCommand(t *testing.T) {
 	writeUserPacks(t, home, `[]`)
 	var out bytes.Buffer
 	o := retireOptions(t, &out)
+	// retireOptions points the buffer at STDERR, because that is where retirement's notices
+	// belong and its own tests assert the stream that way. The refusal asserted here is
+	// stageRunPacks', which still writes to stdout (see loopholeretire.go's header on the ~50
+	// sites left alone), so this test names the stream it actually reads.
+	o.Stdout = &out
 	o.ProfileName = "dev"
 	o.Args = []string{"cloude"}
 	if _, ok := o.stageRunPacks("yolo-profile-target-bin"); ok {
@@ -71,6 +81,11 @@ func TestStageRunPacksAcceptsProfileTargetsThePacksInstall(t *testing.T) {
 	writeUserPacks(t, home, `[]`)
 	var out bytes.Buffer
 	o := retireOptions(t, &out)
+	// retireOptions points the buffer at STDERR, because that is where retirement's notices
+	// belong and its own tests assert the stream that way. The refusal asserted here is
+	// stageRunPacks', which still writes to stdout (see loopholeretire.go's header on the ~50
+	// sites left alone), so this test names the stream it actually reads.
+	o.Stdout = &out
 	o.ProfileName = "dev"
 	o.Args = []string{"claude"}
 	o.UseProfiles = map[string]string{"pi": "glm"}

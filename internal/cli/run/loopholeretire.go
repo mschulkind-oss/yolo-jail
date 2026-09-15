@@ -1,5 +1,25 @@
 package run
 
+// ⚠ EVERY NOTICE IN THIS FILE GOES TO STDERR, AND THAT IS A REGRESSION FIX, NOT A STYLE
+// CHOICE. It printed to o.Stdout until 2026-09-15, and stdout belongs to the JAILED COMMAND
+// — `yolo -- <cmd>` passes it through untouched and callers compare it exactly.
+//
+// The retirement warning is normally latent: it fires only on the launch where a pack leaves
+// `packs`. Once `openai-auth` did, it became CONSTANT for any test whose home had previously
+// selected it, and prepended itself to the jailed command's output. Two integration tests
+// broke, and they are the SAME TWO AGENTS.md already names for this class:
+// TestHostComposedBriefingIsNotDeliveredTwice read `rg -c PACKRULE`'s count back as
+// "Warning: pack openai-auth left `packs`… 1" instead of "1", and
+// TestProvidersRenderInTheAgentsOwnVocabulary saw a correct provider env declared wrong. That
+// is the second time those exact two tests have been broken by a notice on stdout — the
+// first was the host-loopback note, 2026-09-04 to 2026-09-06.
+//
+// ⚠ THIS FILE IS NOT THE WHOLE PROBLEM, and the rest is deliberately left alone. ~50 sites in
+// this package still write launch notices to o.Stdout, every one of them latent in the same
+// way, waiting for its condition to become constant. Sweeping them is a real change with a
+// real risk of moving something that IS payload, and it wants its own commit and its own
+// reading of each site. What is fixed here is the one that is firing.
+//
 // loopholeretire.go is the launch-path half of retirement-on-deselect: it RECORDS which pack
 // owns each per-loophole state dir, and DETECTS the moment that pack leaves `packs`
 // (docs/design/loophole-packaging.md §4.5, artifacts one and two of three — the `yolo prune`
@@ -138,7 +158,7 @@ func (o *Options) recordAndRetirePackLoopholes(packs []*packload.Pack) {
 		// A record yolo cannot read proves nothing, so nothing is retired — and it must not
 		// be overwritten either, or an unreadable file would silently become an empty one
 		// and every pre-existing state dir would be orphaned unattributed forever.
-		o.pr(o.Stdout).printf("[yellow]Warning: pack loophole ownership record: %s — "+
+		o.pr(o.Stderr).printf("[yellow]Warning: pack loophole ownership record: %s — "+
 			"no loophole state is retired or recorded this launch[/yellow]", err.Error())
 		return
 	}
@@ -150,7 +170,7 @@ func (o *Options) recordAndRetirePackLoopholes(packs []*packload.Pack) {
 		return
 	}
 	if err := rec.Save(path); err != nil {
-		o.pr(o.Stdout).printf("[yellow]Warning: could not save the pack loophole ownership "+
+		o.pr(o.Stderr).printf("[yellow]Warning: could not save the pack loophole ownership "+
 			"record: %s[/yellow]", err.Error())
 	}
 }
@@ -184,7 +204,7 @@ func (o *Options) retireDepartedLoopholeState(rec *packstage.LoopholeOwners, pac
 	}
 	stamp := packstage.ArchiveStamp(o.Now())
 	changed := false
-	out := o.pr(o.Stdout)
+	out := o.pr(o.Stderr)
 	for _, d := range departed {
 		gen, moved, err := packstage.RetireLoopholeState(packstage.RetireRequest{
 			Loophole:  d.Loophole,
