@@ -91,6 +91,44 @@ func TestCodexDeriveUsesCodexCredentialField(t *testing.T) {
 	}
 }
 
+// TestCodexDeriveSetsModelProviderName pins that every model_providers.<id> table
+// carries a non-empty `name` field (defaulting to the provider key if no display
+// name is set). Codex CLI strictly refuses config.toml with
+// "provider name must not be empty" otherwise.
+func TestCodexDeriveSetsModelProviderName(t *testing.T) {
+	script, s := deriveSurface(t, "codex", "codex/config")
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, map[string]map[string]any{
+		manifest.SourceProviders: {
+			"local": map[string]any{
+				"endpoints": map[string]any{
+					"openai": map[string]any{"base_url": "http://localhost:11434/v1", "wire_api": "openai-responses"},
+				},
+			},
+			"custom": map[string]any{
+				"name": "Custom Provider Name",
+				"endpoints": map[string]any{
+					"openai": map[string]any{"base_url": "http://localhost:8080/v1", "wire_api": "openai-responses"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provs, ok := got["model_providers"].(map[string]any)
+	if !ok {
+		t.Fatalf("model_providers missing: %#v", got)
+	}
+	localEntry := provs["local"].(map[string]any)
+	if localEntry["name"] != "local" {
+		t.Errorf("local.name = %v, want %q (defaulting to provider key so codex does not reject empty name)", localEntry["name"], "local")
+	}
+	customEntry := provs["custom"].(map[string]any)
+	if customEntry["name"] != "Custom Provider Name" {
+		t.Errorf("custom.name = %v, want %q", customEntry["name"], "Custom Provider Name")
+	}
+}
+
 // TestZaiCodingPlanPackCuratesItsThreeModels pins the Coding Plan contract rather
 // than Z.ai's much broader PAYG catalog. The default must be GLM-5.3, whose 1M
 // context window is the provider-level value Claude's derive uses for a selected

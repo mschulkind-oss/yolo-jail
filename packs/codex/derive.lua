@@ -113,7 +113,12 @@ yolo.derive("codex", "config", function(ctx)
     for name, prov in pairs(ctx.providers) do
       local baseUrl, api = codexReachable(prov)
       if baseUrl then
+        local displayName = name
+        if type(prov.name) == "string" and prov.name ~= "" then
+          displayName = prov.name
+        end
         local entry = {
+          name = displayName,
           base_url = baseUrl,
           wire_api = api,
         }
