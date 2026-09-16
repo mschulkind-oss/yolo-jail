@@ -337,15 +337,16 @@ func Run(opts Options) (rc int) {
 		// look installed on a backend that ignores it").
 		//
 		// It is NOT routed through startLoopholesDisclosed, and that wrapper's reason —
-		// disclosure inseparable from the SPAWN — has stopped being free here: this arm DOES
-		// spawn pack-declared host code now (the OpenAI broker's `host_daemon`), while
-		// notePackHostExec has exactly one call site and it is inside that wrapper. ⚠ SO THE
-		// "This launch runs pack code on your machine" LINE DOES NOT PRINT ON macos-user
-		// while the daemon it describes starts. That is an open gap, not a ruling: the READ
-		// half of the boundary is printed by this arm itself (notePackHostAccess, below the
-		// context-tree composition), and the exec half needs the same treatment scoped to the
-		// one pack that spawns — handing notePackHostExec the whole pack set here would
-		// announce daemons this arm leaves inert.
+		// disclosure inseparable from the SPAWN — stopped being free here the moment this arm
+		// began spawning pack-declared host code of its own (the OpenAI broker's
+		// `host_daemon`). ⚠ THIS PARAGRAPH RECORDED AN OPEN GAP UNTIL 2026-09-16: the
+		// "This launch runs pack code on your machine" line did NOT print on macos-user while
+		// the daemon it describes started, because notePackHostExec's one call site was inside
+		// the wrapper this arm returns above. It is CLOSED — the spawn below goes through
+		// startOpenAIAuthDisclosed, the subset path's own boundary, whose disclosure is scoped
+		// to the openai-auth pack for the reason that file gives (announcing the whole set here
+		// would name daemons this arm leaves inert). The READ half is printed by this arm
+		// itself, below the context-tree composition (notePackHostAccess).
 		//
 		// Placing the inert REPORT beside warnIfNoPacks is still the honest choice for it:
 		// both answer "what will this launch not do for you".
@@ -354,7 +355,7 @@ func Run(opts Options) (rc int) {
 			socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 			endpointPath := filepath.Join(socketsDir, openAIAuthBrokerName+paths.ServiceEndpointExt)
 			if !o.DryRun {
-				handles := o.startOpenAIAuth(cname, rt, cfg)
+				handles := o.startOpenAIAuthDisclosed(cname, rt, cfg, staged.packs)
 				if len(handles) != 1 {
 					o.pr(o.Stderr).print("[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]")
 					return 1

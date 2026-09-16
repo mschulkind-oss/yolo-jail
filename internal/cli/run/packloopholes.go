@@ -16,6 +16,14 @@ package run
 //     silent on success, so "a fetched pack's daemon could start on every launch for months
 //     with the only host-side record being a lockfile the user has to go read."
 //
+// THERE ARE TWO SPAWN BOUNDARIES, not one, and this file used to be written as if it held the
+// only one. The SUBSET path — a backend that starts the OpenAI credential service and nothing
+// else — has its own, startOpenAIAuthDisclosed in openaiauthbackend.go, because macos-user
+// returns from Run above the wrapper here and reached the daemon directly. Both call
+// notePackHostExec; the guard that keeps that true for any third path is
+// TestEverySpawnEntryDisclosesHostExecFirst, which asks the AST what encloses each spawn call
+// rather than grepping for one spelling of one of them.
+//
 // The INERT REPORT the wrapper also calls is its own file (loopholeinert.go): it answers a
 // different question ("will this even run here?") on a different axis pair, and it is the one
 // half that has nothing to do with ordering.
@@ -308,9 +316,15 @@ var packHostExecClaims = func(packs []*packload.Pack) []disclosureLine {
 
 // notePackHostExec prints, to stderr, what each loaded pack RUNS ON THE HOST this launch.
 //
-// It must be called before the spawn — see startLoopholesDisclosed, which is the only thing
-// that calls it, so the ordering is a property of one function rather than of statement
-// order in a 700-line pipeline.
+// It must be called before the spawn, and every caller is a WRAPPER around one, so the
+// ordering is a property of a two-line function rather than of statement order in a 700-line
+// pipeline: startLoopholesDisclosed below for the full set, startOpenAIAuthDisclosed for the
+// subset a backend with no container starts.
+//
+// "the only thing that calls it" is what this said until 2026-09-16, and the sentence was true
+// while being the defect: the subset path existed, spawned, and was not a caller — so the
+// macos-user arm ran a pack's host daemon in silence. A single call site is only an invariant
+// while a single path reaches a spawn.
 func (o *Options) notePackHostExec(packs []*packload.Pack) {
 	lines := packHostExecClaims(packs)
 	if len(lines) == 0 {

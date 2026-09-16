@@ -2,6 +2,9 @@ package run
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -269,40 +272,262 @@ func TestHostExecDisclosurePrecedesTheSpawn(t *testing.T) {
 	}
 }
 
-// THE ONE CALL SITE. The ordering is a property of startLoopholesDisclosed, so it survives a
-// refactor only while nothing else calls startLoopholes — otherwise a second path spawns with
-// no disclosure and the invariant silently reverts to the shape it had.
-func TestStartLoopholesHasOneDisclosedCallSite(t *testing.T) {
+// EVERY PATH TO A SPAWN DISCLOSES FIRST. The ordering is a property of the wrapper that
+// spawns, so it survives a refactor only while every route into the spawn goes through one —
+// otherwise a second path spawns with no disclosure and the invariant silently reverts to the
+// shape it had.
+//
+// THIS TEST'S PREDECESSOR IS THE HOLE IT NOW CLOSES. TestStartLoopholesHasOneDisclosedCallSite
+// grepped lines for the literal `o.startLoopholes(` and excused the whole of packloopholes.go,
+// so the SIBLING entrance — startOpenAIAuth, which reaches the same spawn body through
+// startLoopholesMatching and is what the macos-user arm calls — was never a subject. The
+// callee (notePackHostExec) was pinned six ways in this file while one of its two call sites
+// did not exist: the shape AGENTS.md names, inside the guard written to prevent it.
+//
+// So it asks the AST what ENCLOSES each spawn call instead of what a line spells, and it names
+// the spawn ENTRIES rather than one of them. A call is sanctioned when the function around it
+// either is itself a spawn entry (delegation downward — its own callers are policed by this
+// same rule) or discloses first, in that order, in its own body.
+func TestEverySpawnEntryDisclosesHostExecFirst(t *testing.T) {
+	// The functions that reach a real host spawn. startLoopholesMatching holds the loop;
+	// the other two are the per-backend entrances to it.
+	spawnEntries := map[string]bool{
+		"startLoopholes":         true,
+		"startLoopholesMatching": true,
+		"startOpenAIAuth":        true,
+	}
+	const discloser = "notePackHostExec"
+
 	files, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
+	fset := token.NewFileSet()
 	var offenders []string
+	sawEntry := map[string]bool{}
 	for _, f := range files {
 		name := f.Name()
 		if f.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		data, rerr := os.ReadFile(name)
-		if rerr != nil {
-			t.Fatal(rerr)
+		parsed, perr := parser.ParseFile(fset, name, nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", name, perr)
 		}
-		for i, line := range strings.Split(string(data), "\n") {
-			if !strings.Contains(line, "o.startLoopholes(") {
+		for _, d := range parsed.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
 				continue
 			}
-			// The wrapper's own call is the sanctioned one.
-			if name == "packloopholes.go" {
-				continue
+			if spawnEntries[fn.Name.Name] {
+				sawEntry[fn.Name.Name] = true
 			}
-			offenders = append(offenders, name+":"+itoaTest(i+1)+": "+strings.TrimSpace(line))
+			// Where the disclosure happens in this function, if it does at all. The
+			// EARLIEST one: a wrapper may not disclose after spawning and be excused by a
+			// second call further down.
+			disclosedAt := token.NoPos
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if callsMethod(n, discloser) && (disclosedAt == token.NoPos || n.Pos() < disclosedAt) {
+					disclosedAt = n.Pos()
+				}
+				return true
+			})
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, isCall := n.(*ast.CallExpr)
+				if !isCall {
+					return true
+				}
+				sel, isSel := call.Fun.(*ast.SelectorExpr)
+				if !isSel || !spawnEntries[sel.Sel.Name] {
+					return true
+				}
+				where := fset.Position(call.Pos()).String() + " (in " + fn.Name.Name + ")"
+				switch {
+				case spawnEntries[fn.Name.Name]:
+					// A spawn entry delegating to the next one down. Its own callers are
+					// what this test polices.
+				case disclosedAt == token.NoPos:
+					offenders = append(offenders, where+": no "+discloser+" call in this function")
+				case disclosedAt > call.Pos():
+					offenders = append(offenders, where+": "+discloser+
+						" is called AFTER the spawn, which makes it a notification")
+				}
+				return true
+			})
+		}
+	}
+	for entry := range spawnEntries {
+		if !sawEntry[entry] {
+			t.Errorf("this guard names %q as a spawn entry and the package has no such "+
+				"function — it has lost a subject and is now weaker than it reads; repoint "+
+				"it at whatever spawns today", entry)
 		}
 	}
 	if len(offenders) > 0 {
-		t.Errorf("startLoopholes is called outside startLoopholesDisclosed, so that path "+
-			"spawns host code with no disclosure before it (§4.3 G4):\n  %s",
-			strings.Join(offenders, "\n  "))
+		t.Errorf("a host spawn is reached from a function that does not disclose host "+
+			"EXECUTION before it (§4.3 G4; AGENTS.md: the read/exec banners ARE the trust "+
+			"boundary). Wrap it the way startLoopholesDisclosed and startOpenAIAuthDisclosed "+
+			"do:\n  %s", strings.Join(offenders, "\n  "))
 	}
+}
+
+// callsMethod reports whether n is a call to a method of the given name on anything — the
+// receiver is deliberately unconstrained, because pinning it to `o` would let a rename of the
+// Options receiver silently retire the guard above.
+func callsMethod(n ast.Node, name string) bool {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == name
+}
+
+// THE SUBSET PATH DISCLOSES TOO, and it did not: the macos-user arm starts the OpenAI
+// credential service through startOpenAIAuth, which sits below the arm's return from Run and
+// therefore below startLoopholesDisclosed. So a pack's `host_daemon` ran on the user's real
+// machine — the one backend with no container around it — and "This launch runs pack code on
+// your machine" never printed (setup-support-gaps.md §7 F2).
+//
+// Asserted against the SPAWN SIDE'S OWN FIRST SIDE EFFECT for the reason
+// TestHostExecDisclosurePrecedesTheSpawn is: startLoopholesMatching creates the per-jail
+// host-services dir before any daemon, so "does that dir exist yet?" read from inside the
+// disclosure is a direct reading of the ordering, while asserting merely that the line printed
+// would pass under the broken ordering too.
+func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+
+	// The REAL pack name, because that is what the disclosure is scoped on.
+	p := writeRealLoopholePack(t, openAIAuthPackName, openAIAuthBrokerName, `{
+		"name": "`+openAIAuthBrokerName+`",
+		"transport": "loopback-tls",
+		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "openai-auth-broker",
+			"--socket", "{socket}"], "scope": "host"}
+	}`)
+
+	cname := "yolo-subset-disclose-" + t.Name()
+	socketsDir := hostServiceSocketsDir(cname, false)
+	if _, err := os.Lstat(socketsDir); err == nil {
+		t.Fatalf("fixture is not clean: %s already exists", socketsDir)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketsDir) })
+
+	dirExistedAtPrint := true // pessimistic: the assertion must be earned
+	seen := ""
+	var errBuf lineWatcher
+	errBuf.onWrite = func(s string) {
+		if strings.Contains(s, "openai-auth-broker") && seen == "" {
+			seen = s
+			_, err := os.Lstat(socketsDir)
+			dirExistedAtPrint = err == nil
+		}
+	}
+	o := &Options{}
+	fillDefaults(o)
+	o.Stderr = &errBuf
+	o.Stdout = discardBuf()
+	o.PathExists = func(string) bool { return false } // no cgroup delegate
+
+	o.startOpenAIAuthDisclosed(cname, "macos-user", newConfig(), []*packload.Pack{p})
+
+	if seen == "" {
+		t.Fatalf("the subset spawn path disclosed no host execution; it wrote:\n%s", errBuf.all)
+	}
+	if !strings.Contains(errBuf.all, "runs pack code on your machine") {
+		t.Errorf("the exec disclosure did not print its heading:\n%s", errBuf.all)
+	}
+	if dirExistedAtPrint {
+		t.Error("the broker argv printed AFTER the spawn had begun — for an exec claim that " +
+			"is a notification that something already happened, not a disclosure (§4.3 G4)")
+	}
+	if _, err := os.Lstat(socketsDir); err != nil {
+		t.Errorf("the spawn never ran after the disclosure (%v); the ordering assertion "+
+			"would pass vacuously", err)
+	}
+}
+
+// AND IT DISCLOSES ONLY WHAT IT STARTS. The subset path starts one service, so handing the
+// disclosure the whole pack set would announce daemon argvs this backend leaves inert — an
+// overclaim (OQ-10) that the inert report printed on the same arm then contradicts pack for
+// pack. The exec block's value is that every line in it is about to run.
+func TestOpenAIAuthSubsetDisclosureOmitsPacksItLeavesInert(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+
+	broker := writeRealLoopholePack(t, openAIAuthPackName, openAIAuthBrokerName, `{
+		"name": "`+openAIAuthBrokerName+`",
+		"transport": "loopback-tls",
+		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "openai-auth-broker",
+			"--socket", "{socket}"], "scope": "host"}
+	}`)
+	other := writeRealLoopholePack(t, "acme", "acme-proxy", `{
+		"name": "acme-proxy",
+		"transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py"]}
+	}`)
+
+	cname := "yolo-subset-scope-" + t.Name()
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
+	var errBuf bytes.Buffer
+	o := &Options{}
+	fillDefaults(o)
+	o.Stderr = &errBuf
+	o.Stdout = discardBuf()
+	o.PathExists = func(string) bool { return false }
+
+	o.startOpenAIAuthDisclosed(cname, "macos-user", newConfig(),
+		[]*packload.Pack{broker, other})
+
+	if !strings.Contains(errBuf.String(), "openai-auth-broker") {
+		t.Errorf("the one daemon this path DOES start is not disclosed:\n%s", errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "acme-daemon.py") {
+		t.Errorf("a daemon this backend leaves inert is announced as running on the user's "+
+			"machine:\n%s", errBuf.String())
+	}
+}
+
+// The two scopings are COMPLEMENTS, and both print in one launch: the exec disclosure names the
+// pack whose service starts, notePackLoopholesInert names the rest. An overlap says a pack is
+// both running and inert; a gap leaves a pack in neither line.
+func TestOpenAIAuthPackFiltersPartitionThePackSet(t *testing.T) {
+	packs := []*packload.Pack{
+		{Name: "acme", Decl: &packdecl.Manifest{}},
+		{Name: openAIAuthPackName, Decl: &packdecl.Manifest{}},
+		{Name: "zed", Decl: &packdecl.Manifest{}},
+	}
+	spawning, inert := partitionOpenAIAuthPack(packs)
+	if len(spawning)+len(inert) != len(packs) {
+		t.Errorf("the split lost or duplicated a pack: %d spawning + %d inert != %d loaded",
+			len(spawning), len(inert), len(packs))
+	}
+	if len(spawning) != 1 || spawning[0].Name != openAIAuthPackName {
+		t.Errorf("the spawning half is %v, want just %q", names(spawning), openAIAuthPackName)
+	}
+	for _, p := range inert {
+		if p.Name == openAIAuthPackName {
+			t.Error("the openai-auth pack is in BOTH halves, so one launch says its service " +
+				"starts and also that it is inert")
+		}
+	}
+	// withoutOpenAIAuthPack is the inert half by construction, and the pre-existing call
+	// site (notePackLoopholesInert) must keep seeing exactly that set.
+	if got, want := names(withoutOpenAIAuthPack(packs)), names(inert); got != want {
+		t.Errorf("withoutOpenAIAuthPack returned %s, want the inert half %s", got, want)
+	}
+}
+
+func names(packs []*packload.Pack) string {
+	var got []string
+	for _, p := range packs {
+		got = append(got, p.Name)
+	}
+	return strings.Join(got, ",")
 }
 
 // The exec disclosure is SILENT when nothing runs on the host — the ordinary case for every
