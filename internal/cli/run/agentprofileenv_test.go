@@ -262,3 +262,60 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 		}
 	}
 }
+
+// TestAssembleEmitsLocalLLMClaudeEnv pins that local LLM providers without explicit
+// API keys get a dummy token ("local") instead of leaking credentials, that base_url
+// shorthand is supported (with trailing /v1 stripped for Claude's origin requirement),
+// that non-standard context_window sets CLAUDE_CODE_MAX_CONTEXT_TOKENS alongside
+// auto-compact, that timeouts map to CLAUDE_STREAM_IDLE_TIMEOUT_MS, and that ANTHROPIC_MODEL
+// and ANTHROPIC_SMALL_FAST_MODEL are populated.
+func TestAssembleEmitsLocalLLMClaudeEnv(t *testing.T) {
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "local")
+	provs := jsonx.NewOrderedMap()
+	localProv := jsonx.NewOrderedMap()
+	localProv.Set("base_url", "http://host.containers.internal:8080/v1")
+	localProv.Set("models", map[string]any{"default": "qwen3.8-27b"})
+	opts := jsonx.NewOrderedMap()
+	opts.Set("context_window", "180224")
+	opts.Set("api_timeout_ms", "1800000")
+	localProv.Set("options", opts)
+	provs.Set("local", localProv)
+
+	la := assembleWithConfigAssembled(t, newConfig(
+		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles, "providers", provs),
+		func() {
+			writeProfilesAtHome(t, `{"local": {"provider": "local"}}`)
+		})
+	got := la.channelEnv(t,
+		"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+		"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW", "API_TIMEOUT_MS",
+		"CLAUDE_STREAM_IDLE_TIMEOUT_MS", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+	want := []string{
+		"ANTHROPIC_AUTH_TOKEN=local",
+		"ANTHROPIC_BASE_URL=http://host.containers.internal:8080",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=qwen3.8-27b",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=qwen3.8-27b",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.8-27b",
+		"ANTHROPIC_MODEL=qwen3.8-27b",
+		"ANTHROPIC_SMALL_FAST_MODEL=qwen3.8-27b",
+		"API_TIMEOUT_MS=1800000",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW=180224",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS=180224",
+		"CLAUDE_STREAM_IDLE_TIMEOUT_MS=1800000",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("local claude profile env = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("local claude profile env %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

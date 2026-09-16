@@ -109,12 +109,29 @@ yolo.env("claude", function(ctx)
   if not p then return {} end
   local out = {}
   local routed = false -- claude is pointed at a non-first-party Anthropic-wire host
+  local baseUrl = nil
   if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then
-    out.ANTHROPIC_BASE_URL = p.endpoints.anthropic.base_url
+    baseUrl = p.endpoints.anthropic.base_url
+  elseif p.base_url then
+    -- Shorthand base_url fallback (strip trailing /v1 or /v1/ as Claude Code requires the origin)
+    local u = p.base_url
+    if string.sub(u, -3) == "/v1" then
+      u = string.sub(u, 1, -4)
+    elseif string.sub(u, -4) == "/v1/" then
+      u = string.sub(u, 1, -5)
+    end
+    baseUrl = u
+  end
+  if baseUrl then
+    out.ANTHROPIC_BASE_URL = baseUrl
     routed = true
   end
   if p.api_key then
     out.ANTHROPIC_AUTH_TOKEN = p.api_key
+  elseif routed then
+    -- Routed/local endpoint with no explicit API key needs a dummy token so Claude
+    -- does not fail or leak the private claude.ai subscription OAuth token.
+    out.ANTHROPIC_AUTH_TOKEN = "local"
   end
   if p.region then
     out.AWS_REGION = p.region
@@ -124,15 +141,22 @@ yolo.env("claude", function(ctx)
   -- the provider's while the variable names stay claude's:
   --   context_window (tokens) -> the auto-compact threshold, so a 1M-context model
   --     does not compact at claude's default window (verified against claude 2.1.259:
-  --     CLAUDE_CODE_AUTO_COMPACT_WINDOW is read and "takes precedence");
+  --     CLAUDE_CODE_AUTO_COMPACT_WINDOW is read and "takes precedence"), plus
+  --     CLAUDE_CODE_MAX_CONTEXT_TOKENS so Claude Code knows the model's capacity;
   --   api_timeout_ms -> claude's per-request ceiling, for providers whose reasoning
-  --     turns run long.
+  --     turns run long, plus CLAUDE_STREAM_IDLE_TIMEOUT_MS to prevent streaming drops.
   if ctx.profile then
-    if ctx.profile.context_window then
-      out.CLAUDE_CODE_AUTO_COMPACT_WINDOW = ctx.profile.context_window
+    local cw = ctx.profile.context_window or ctx.profile.max_context_tokens
+    if cw then
+      out.CLAUDE_CODE_MAX_CONTEXT_TOKENS = cw
+      out.CLAUDE_CODE_AUTO_COMPACT_WINDOW = cw
     end
     if ctx.profile.api_timeout_ms then
       out.API_TIMEOUT_MS = ctx.profile.api_timeout_ms
+    end
+    local streamTimeout = ctx.profile.stream_idle_timeout_ms or ctx.profile.api_timeout_ms
+    if streamTimeout then
+      out.CLAUDE_STREAM_IDLE_TIMEOUT_MS = streamTimeout
     end
   end
   -- The model ids the provider declares are WIRE-TRUE — every agent's catalog sends
@@ -144,7 +168,7 @@ yolo.env("claude", function(ctx)
   -- claude uses, from the provider's own context_window fact: a provider declaring
   -- a 1,000,000-token window gets the beta requested; anything smaller gets the
   -- bare id.
-  local cw = tonumber((ctx.profile and ctx.profile.context_window) or "")
+  local cw = tonumber((ctx.profile and (ctx.profile.context_window or ctx.profile.max_context_tokens)) or "")
   local suffix = (cw and cw >= 1000000) and "[1m]" or ""
   if routed then
     -- Z.AI's recommended Claude Code config disables claude's nonessential traffic
@@ -165,11 +189,13 @@ yolo.env("claude", function(ctx)
   local alias = (ctx.profile and ctx.profile.model) or "default"
   local selected = m[alias]
   if selected then
+    out.ANTHROPIC_MODEL = selected .. suffix
     out.ANTHROPIC_DEFAULT_OPUS_MODEL = selected .. suffix
     -- A curated provider can publish real picker IDs instead of Claude-tier aliases.
     -- Keep all tiers on the selected model rather than falling back upstream.
     out.ANTHROPIC_DEFAULT_SONNET_MODEL = (m.sonnet or selected) .. suffix
     out.ANTHROPIC_DEFAULT_HAIKU_MODEL = (m.haiku or selected) .. suffix
+    out.ANTHROPIC_SMALL_FAST_MODEL = (m.haiku or selected) .. suffix
   end
   return out
 end)
