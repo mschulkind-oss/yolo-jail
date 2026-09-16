@@ -109,6 +109,13 @@ func TestPodmanBindsTheCaptureStoreReadOnly(t *testing.T) {
 // WRITABLE store is bytes every other workspace on this machine executes. So the honest argv
 // says nothing, and this pins BOTH halves of that: no store env (a path the jail cannot open
 // is a promise, not a delivery) and no bind (a writable one would be worse than none).
+//
+// SINCE 2026-09-16 THIS IS THE BELOW-FLOOR ROW, and it still holds without a change because
+// of what the fixture is: goldenOptions stubs LookPath to false, so `container --version`
+// cannot be read, and roBindsUnsupported fails closed on an unreadable version exactly as it
+// does on 0.12.3. The version-aware behaviour — the store DOES arrive on 1.1.0, where `:ro`
+// is measured to be honored — is capturesacfloor_test.go, which injects the version rather
+// than depending on what is installed on the machine running the suite.
 func TestAppleContainerIsToldOfNoCaptureStore(t *testing.T) {
 	store := t.TempDir()
 	got := captureAssembleInput(t, "container", store)

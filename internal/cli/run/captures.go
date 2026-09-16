@@ -56,9 +56,19 @@ func (o *Options) capturesArgs(rt, dir string) []string {
 	if dir == "" || !o.PathExists(dir) {
 		return nil
 	}
-	if rt == "container" { // parity: Dropped — AC ignored :ro below acROBindsFloor and a writable machine-wide store is cross-jail injection; silent because absence is already the contract every reader implements
-		// APPLE CONTAINER GETS NO STORE, and this is the honest spelling of what it already
-		// had rather than a capability being withdrawn.
+	// THE SAME ANSWER THE ARGV AND THE BRIEFING USE, not a fourth spelling of
+	// `rt == "container"`. This was that bare comparison until 2026-09-16, which made it the
+	// one `:ro` site that did not consult the shared predicate — so it refused the store on
+	// EVERY Apple Container launch, including the versions that honor the suffix. The bar the
+	// long comment below sets ("a writable machine-wide store is cross-jail injection") is
+	// met by a `:ro` that is enforced, and 1.1.0 enforces it: measured 2026-09-16 in an AC
+	// jail, an overwrite of a bound file and a create beside it both fail
+	// `Read-only file system` and the host bytes are unchanged. So the refusal now expires
+	// with the version it is about, exactly as mounts.go's does. G27 in
+	// docs/plans/setup-support-gaps.md.
+	if reason := o.roBindsUnsupported(rt); reason != "" { // parity: Dropped below acROBindsFloor — a writable machine-wide store is cross-jail injection, so the mount is refused rather than downgraded
+		// APPLE CONTAINER BELOW THE FLOOR GETS NO STORE, and this is the honest spelling of
+		// what it already had rather than a capability being withdrawn.
 		//
 		// It used to emit `-e YOLO_CAPTURES_DIR=<host path>` under the premise that "Apple
 		// Container puts the whole workspace state at /home/agent in ONE bind and cannot
@@ -92,6 +102,14 @@ func (o *Options) capturesArgs(rt, dir string) []string {
 		// which is also what it effectively had: the host path failed the launcher's
 		// `[ -d "$CAPTURES_DIR" ]` test, so this backend has always downloaded. The cost is
 		// unchanged and now it is stated rather than implied.
+		//
+		// SAID, not merely implied, since 2026-09-16: silence was defensible while every AC
+		// launch behaved this way, and it is not once the same machine can go either way on a
+		// `container` upgrade. The line names the version reason, in mounts.go's shape, so a
+		// user who wonders why the vendor installer downloads again gets the answer at the
+		// launch instead of from this comment.
+		o.pr(o.Stdout).print("[yellow]Vendor-installer captures are not mounted on this " +
+			"runtime[/yellow] — " + reason + " Installs in the jail download as usual.")
 		return nil
 	}
 	return []string{
