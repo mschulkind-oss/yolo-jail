@@ -206,6 +206,14 @@ func cacheRelocationSubdirs(rels []config.CacheRelocation) string {
 // branches: in-container (share parent userns),
 // GPU-nvidia (runc + identity uidmap), or the normal host branch (fuse + uidmap
 // + caps).
+//
+// THE NESTING BRANCH IS FIRST AND MUST STAY FIRST — a doubly-nested user namespace
+// fails mounting /proc, so `--userns host` is not optional — which means a nested
+// launch can never reach the NVIDIA branch below. That used to leave the two halves of
+// NVIDIA passthrough split across the argv (`--runtime runc` dropped here, the CDI
+// device flags still emitted by gpuArgs); the caller now declines nested NVIDIA before
+// the probe answers, so gpuEnabled is false by the time this is reached and the split
+// is unrepresentable rather than merely unlikely.
 func (o *Options) podmanNestingArgs(inContainer, gpuEnabled bool, gpuVendor string) []string {
 	if inContainer {
 		args := []string{
@@ -458,16 +466,18 @@ func (o *Options) fwdSocketDir(cname string) string {
 // disagree — and a relay that is late is now a clear "relay unreachable" from the
 // terminator rather than a missing variable.
 //
-// THE ONE SHAPE THAT IS EXCEPTED IS A NESTED LAUNCH WITH NO SINGLETON — see
-// brokerEndpointIsUnpublishable, and note that it is NOT the socket gate this
-// deliberately replaced.
+// THE SHAPES THAT ARE EXCEPTED — a nested launch with no singleton, and Apple
+// Container, where two independent halves of the pipeline decline to publish at all —
+// are brokerEndpointIsUnpublishable's, and note that neither is the socket gate this
+// deliberately replaced. (This paragraph named the nested launch as "the one shape"
+// until 2026-09-16; the AC half was the promise nobody had noticed.)
 func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap) []string {
 	if rt == "container" && !openAIAuthLoopholeActive(cfg) {
 		return nil
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	args := []string{"-v", socketsDir + ":" + paths.JailHostServicesDir + ":rw"}
-	if brokerLoopholeActive(cfg) && !o.brokerEndpointIsUnpublishable() {
+	if brokerLoopholeActive(cfg) && !o.brokerEndpointIsUnpublishable(rt) {
 		// A PATH to the 0600 endpoint file. Never an address (the port is
 		// kernel-assigned and can change under a running container) and never a
 		// token — there is no token environment variable, deliberately: an env var
@@ -482,10 +492,16 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 	return args
 }
 
-// brokerEndpointIsUnpublishable reports the one launch shape in which the optimistic
-// emission above is a promise NOTHING ON THIS SIDE CAN EVER KEEP: a launcher that is
-// itself inside a jail, with no broker singleton listening after brokerEnsure has
-// already run and tried to start one (run.go ensures before the argv is built).
+// brokerEndpointIsUnpublishable reports the launch shapes in which the optimistic
+// emission above is a promise NOTHING ON THIS SIDE CAN EVER KEEP. There are two, on
+// different axes: a launcher that is itself inside a jail with no broker singleton
+// listening after brokerEnsure has already run and tried to start one (run.go ensures
+// before the argv is built), and the Apple Container backend, on every launch.
+//
+// It said "the one launch shape" and named only the nested case until 2026-09-16. The
+// AC half is the same unbackable promise one axis over — the backend rather than the
+// launcher's own containment — and it was live from the day the endpoint variable
+// stopped being gated on the socket.
 //
 // # Why a nested launch is different from a host whose broker happens to be down
 //
@@ -521,10 +537,30 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 // Only the nested case, where the wait cannot succeed at any timeout because the daemon
 // is already gone, is narrowed.
 //
+// # Apple Container has no publisher at all, and no timing to wait out
+//
+// This half is not a race the way the nested case is: NOTHING in an AC launch is even
+// asked to write the endpoint file. run.go ensures the host-wide singleton only when
+// `rt != "container"`, and startLoopholes' per-runtime allow list admits
+// `openai-auth-broker` alone on this backend — so both the daemon and the front that
+// would publish for it are absent by construction, not late. The jail nevertheless got
+// a path under JailHostServicesDir whenever the broker loophole was active, which on AC
+// means `packs: ["claude", "codex"]`: codex brings the OpenAI loophole that gets past
+// the early return above, claude brings the broker record. The in-jail terminator then
+// dials a file that never appears, and since the witness became fatal that is
+// faultUnpublished — it can refuse the whole launch (OQ-R4, OQ-R5), for a service this
+// backend was never going to run.
+//
+// Suppressing the variable does not cost AC anything it had: the broker's CA state and
+// its relay are equally absent there, so no jail ever completed a refresh through it.
+//
 // inJail() rather than inContainer(): it is the same YOLO_VERSION signal run.go's other
 // host-only decisions read, and it is injectable, so this is testable without a
 // container.
-func (o *Options) brokerEndpointIsUnpublishable() bool {
+func (o *Options) brokerEndpointIsUnpublishable(rt string) bool {
+	if rt == "container" { // parity: Warned — no publisher exists on AC (no singleton ensure, allow list is openai-auth alone), and notePackLoopholesInert names the loophole at launch
+		return true
+	}
 	return o.inJail() && !o.PathExists(broker.BrokerSingletonSocket)
 }
 

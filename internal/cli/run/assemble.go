@@ -399,9 +399,30 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 	if gpuRequested {
 		var okGPU bool
-		if gpuVendor == "amd" {
+		switch {
+		case gpuVendor == "amd":
 			okGPU, gpuUnavailableReason = o.rocmHostAvailable(rt)
-		} else {
+		case inContainer:
+			// NESTED NVIDIA IS DECLINED HERE RATHER THAN HALF-EMITTED BELOW. The
+			// nesting branch of podmanNestingArgs is chosen FIRST — it has to be, a
+			// doubly-nested user namespace cannot mount /proc — so the NVIDIA branch's
+			// `--runtime runc` never reaches the argv. That flag is not a nicety: it is
+			// the documented workaround for crun's CDI handling (podman#27483), and
+			// without it a jail carrying `--device nvidia.com/gpu=…` dies as
+			// `conmon bytes "": readObjectStart`. The CDI flags gpuArgs emits further
+			// down were the only half of the feature a nested launch ever got.
+			//
+			// The user guide already said nested-with-GPU is unsupported and "not
+			// currently prevented"; this is the prevention, taking the warn-and-skip
+			// path every other unavailable-GPU verdict takes rather than a refusal —
+			// a GPU that cannot be passed through has never been worth a jail.
+			//
+			// AMD is deliberately above this: its device-node path needs neither the
+			// runc workaround nor the identity maps, so nesting drops nothing it
+			// depends on, and declining it would be a claim nobody has measured.
+			gpuUnavailableReason = "this launcher is already inside a jail and nested " +
+				"podman-in-podman cannot carry NVIDIA passthrough"
+		default:
 			okGPU, gpuUnavailableReason = o.gpuHostAvailable(rt)
 		}
 		gpuEnabled = okGPU
