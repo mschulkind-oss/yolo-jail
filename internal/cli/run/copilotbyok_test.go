@@ -127,3 +127,51 @@ func TestCopilotByokComposesNothingForAnEndpointlessProvider(t *testing.T) {
 		t.Errorf("an endpointless provider armed copilot BYOK: %q", got)
 	}
 }
+
+// TestCopilotByokHandlesLocalProviderAndContext pins that copilot BYOK accepts
+// shorthand base_url, defaults API key to local for local endpoints, and passes
+// context_window to COPILOT_PROVIDER_MAX_PROMPT_TOKENS.
+func TestCopilotByokHandlesLocalProviderAndContext(t *testing.T) {
+	provs := jsonx.NewOrderedMap()
+	localProv := jsonx.NewOrderedMap()
+	localProv.Set("base_url", "http://host.containers.internal:8080/v1")
+	localProv.Set("models", map[string]any{"default": "qwen3.8-27b"})
+	opts := jsonx.NewOrderedMap()
+	opts.Set("context_window", "180224")
+	localProv.Set("options", opts)
+	provs.Set("local", localProv)
+
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("copilot", "local")
+
+	cfg := newConfig(
+		"use_profiles", profiles,
+		"providers", provs,
+	)
+
+	packs := []*packload.Pack{officialPack(t, "copilot")}
+	la := zaiLaunchAssembled(t, packs, cfg, emptyEnv(), func(o *Options) {
+		o.ProfileName = "local"
+		writeProfilesAtHome(t, `{"local": {"provider": "local"}}`)
+	})
+
+	got := la.channelEnv(t,
+		"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_WIRE_API",
+		"COPILOT_MODEL", "COPILOT_PROVIDER_API_KEY", "COPILOT_PROVIDER_MAX_PROMPT_TOKENS")
+	want := []string{
+		"COPILOT_MODEL=qwen3.8-27b",
+		"COPILOT_PROVIDER_API_KEY=local",
+		"COPILOT_PROVIDER_BASE_URL=http://host.containers.internal:8080/v1",
+		"COPILOT_PROVIDER_MAX_PROMPT_TOKENS=180224",
+		"COPILOT_PROVIDER_TYPE=openai",
+		"COPILOT_PROVIDER_WIRE_API=completions",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("copilot local BYOK env = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("copilot local BYOK env %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

@@ -51,6 +51,15 @@ end)
 -- arming the base URL without a model would trade a working GitHub-auth copilot for a
 -- copilot-side refusal. GitHub auth is skipped entirely in BYOK mode — selecting a
 -- provider for copilot is a mode switch, not an extra.
+local function isLocalEndpoint(url)
+  if type(url) ~= "string" then return false end
+  return string.find(url, "://localhost") or
+         string.find(url, "://127%.0%.0%.1") or
+         string.find(url, "://host%.containers%.internal") or
+         string.find(url, "://169%.254%.1%.2") or
+         string.find(url, "://0%.0%.0%.0")
+end
+
 yolo.env("copilot", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
   if not p then return {} end
@@ -67,6 +76,17 @@ yolo.env("copilot", function(ctx)
     if p.endpoints.openai.wire_api == "openai-responses" then
       wire = "responses"
     end
+  elseif p.base_url then
+    base = p.base_url
+    if p.wire_api == "anthropic" then
+      ptype = "anthropic"
+    else
+      ptype = "openai"
+      wire = "completions"
+      if p.wire_api == "openai-responses" then
+        wire = "responses"
+      end
+    end
   else
     return {}
   end
@@ -79,6 +99,20 @@ yolo.env("copilot", function(ctx)
     COPILOT_MODEL = m[alias],
   }
   if wire then out.COPILOT_PROVIDER_WIRE_API = wire end
-  if p.api_key then out.COPILOT_PROVIDER_API_KEY = p.api_key end
+  local cw = ctx.profile and (ctx.profile.context_window or ctx.profile.max_context_tokens)
+  if not cw and type(p.options) == "table" then
+    cw = p.options.context_window or p.options.max_context_tokens
+  end
+  if cw then
+    out.COPILOT_PROVIDER_MAX_PROMPT_TOKENS = tostring(cw)
+  end
+  if p.api_key then
+    out.COPILOT_PROVIDER_API_KEY = p.api_key
+  elseif type(p.options) == "table" and p.options.api_key then
+    out.COPILOT_PROVIDER_API_KEY = p.options.api_key
+  elseif isLocalEndpoint(base) then
+    out.COPILOT_PROVIDER_API_KEY = "local"
+  end
   return out
 end)
+
