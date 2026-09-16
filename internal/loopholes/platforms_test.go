@@ -192,9 +192,18 @@ func TestMalformedPlatformsIsRefusedOnTheTolerantPath(t *testing.T) {
 // `requires.command_on_path: journalctl` probe, because a Linux host without systemd
 // should hear "journalctl not found on host" per request rather than watch the
 // loophole vanish from `yolo loopholes list` (R3).
+//
+// `host-processes` joined on 2026-09-16 and is the one row added to FIX A BUG rather
+// than to record a choice. It declared no platform while being GNU procps throughout
+// (`ps -C <comm>`, /proc/<pid>/comm), so on macOS the daemon started, published, and
+// passed the reachability witness — then failed every call. Nothing in
+// internal/hostprocesses branches on GOOS. Measured on macOS 25.5: `ps -C bash` is
+// `ps: illegal argument: bash`. That is what this row buys, and deleting it from the
+// manifest fails here.
 func TestShippedLoopholePlatformDeclarations(t *testing.T) {
 	wantPlatforms := map[string][]string{
 		"audio": {"linux"}, "journal": {"linux"}, "cgroup-delegate": {"linux"},
+		"host-processes": {"linux"},
 	}
 	for _, s := range shippedLoopholes {
 		lp, err := LoadLoophole(shippedLoopholeModule(t, s.name, s.pack))

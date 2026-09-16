@@ -79,9 +79,34 @@
   // daemon on the real machine reading the real process table.  Selecting a pack
   // whose entire content is that daemon is not, on its own, the request to run it.
   "default_enabled": false,
+  // Linux-only, DECLARED rather than probed — the same distinction `journal` and
+  // `audio` state at length: `requires` asks "is the thing I need present" (fix:
+  // install it) and `platforms` asks "does this exist for this machine at all" (no
+  // fix).  The `ps` below is present on every Mac and is the WRONG `ps`.
+  //
+  // WITHOUT THIS KEY THE LOOPHOLE LOOKED HEALTHY ON macOS AND FAILED EVERY CALL.
+  // The daemon starts, the front publishes, the reachability witness passes — and
+  // then `handleList` runs `ps -o … -C <comm>` and `handlePid` reads
+  // /proc/<pid>/comm, both of which are GNU procps and neither of which exists on
+  // darwin (measured on macOS 25.5: `ps -C bash` is `ps: illegal argument: bash`,
+  // and /proc is No such file or directory).  Nothing in internal/hostprocesses
+  // branches on GOOS, so there was no darwin path to find.  A declared platform
+  // turns that into the one `Warned` line `journal` already gets, which is the
+  // whole point of the field: an inert loophole that says so beats a running one
+  // that cannot answer.  Found by the backend gap audit as G15
+  // (docs/plans/setup-support-gaps.md).
+  //
+  // The macOS analog is unified logging, a different thing living in
+  // internal/entrypoint/darwin.go — so this is "nothing to install on darwin",
+  // not "not yet ported".
+  "platforms": [
+    "linux"
+  ],
   // ``ps`` is a POSIX staple on any host that can run yolo-jail, but
   // gating here keeps us honest — if something pathological has it
-  // missing, the loophole goes inactive rather than crashing.
+  // missing, the loophole goes inactive rather than crashing.  It is not the
+  // platform gate: see `platforms` above for why a Mac's own `ps` passing this
+  // probe was the bug rather than the fix.
   "requires": {
     "command_on_path": "ps"
   },
