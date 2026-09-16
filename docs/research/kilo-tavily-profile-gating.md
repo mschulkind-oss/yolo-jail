@@ -58,8 +58,8 @@ uses it before the per-agent MCP surfaces render.
 
 The work is to make authentication-source capability declarations available to
 the common MCP input and apply the rule above there. The representation must
-cover both provider-backed profiles and built-in sources, and the resolver must
-strip its selection metadata before a client receives a server. Existing
+cover both provider-backed profiles and built-in sources; individual MCP
+servers should not carry source-selection metadata. Existing
 `required_capabilities` remains a separate future enforcement path.
 
 ## Acceptance boundary
