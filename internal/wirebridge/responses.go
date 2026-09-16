@@ -114,14 +114,21 @@ type responsesInputPart struct {
 
 type responsesTool struct {
 	Type        string          `json:"type"`
-	Name        string          `json:"name"`
+	Name        string          `json:"name,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
 func translateResponsesTool(t anthropicTool) (responsesTool, error) {
+	// Claude Code enables its native web-search server tool by supplying one of
+	// Anthropic's versioned web_search_* definitions. The Codex Responses API
+	// provides the equivalent hosted capability. It runs server-side in both
+	// APIs, so it has no function name or schema to carry across.
+	if strings.HasPrefix(t.Type, "web_search_") {
+		return responsesTool{Type: "web_search"}, nil
+	}
 	if t.Type != "" && t.Type != "custom" {
-		return responsesTool{}, fmt.Errorf("wirebridge: unrecognized tool type %q (the Responses route translates custom tools only)", t.Type)
+		return responsesTool{}, fmt.Errorf("wirebridge: unrecognized tool type %q (the Responses route translates custom tools and web search only)", t.Type)
 	}
 	return responsesTool{Type: "function", Name: t.Name, Description: t.Description, Parameters: t.InputSchema}, nil
 }
@@ -252,6 +259,12 @@ func TranslateResponsesResponse(body []byte) ([]byte, error) {
 		case "reasoning":
 			// Responses reasoning items are opaque (and may carry encrypted state),
 			// not an Anthropic thinking block Claude can replay safely.
+			continue
+		case "web_search_call":
+			// Responses has already run this hosted tool before producing its
+			// output text. Claude's server-tool transcript is transport-specific;
+			// forwarding it as a client tool call would make Claude wait for a
+			// result that it must not execute. Keep the completed answer instead.
 			continue
 		default:
 			return nil, fmt.Errorf("wirebridge: unsupported Responses output item type %q", item.Type)
@@ -440,7 +453,7 @@ func (t *ResponsesStreamTranslator) Chunk(payload []byte) ([]Event, error) {
 		if err := closeAndStop(e.Response.Status, e.Response.IncompleteDetails, e.Response.Usage); err != nil {
 			return nil, err
 		}
-	case "response.created", "response.in_progress", "response.output_item.done", "response.content_part.added", "response.content_part.done", "response.output_text.done", "response.function_call_arguments.done":
+	case "response.created", "response.in_progress", "response.output_item.done", "response.content_part.added", "response.content_part.done", "response.output_text.done", "response.output_text.annotation.added", "response.output_text.annotation.done", "response.function_call_arguments.done", "response.web_search_call.searching", "response.web_search_call.in_progress", "response.web_search_call.completed":
 		// Lifecycle markers have no Anthropic equivalent; deltas above carry the data.
 	default:
 		return nil, fmt.Errorf("wirebridge: unsupported Responses stream event %q", e.Type)

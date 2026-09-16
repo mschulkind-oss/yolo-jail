@@ -236,12 +236,17 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 	profiles.Set("claude", "codex")
 	la := assembleWithConfigAssembled(t, newConfig(
 		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles))
-	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "ANTHROPIC_AUTH_TOKEN")
+	got := la.channelEnv(t, "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+		"CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+		"ANTHROPIC_AUTH_TOKEN")
 	want := []string{
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:8215",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-5.6-terra",
+		"ANTHROPIC_MODEL=gpt-5.6-terra",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000",
+		"CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("codex profile env = %q, want %q", got, want)

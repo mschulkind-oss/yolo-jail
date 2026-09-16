@@ -65,6 +65,22 @@ func TestTranslateResponsesRequestNonBudgetThinkingUsesResponsesDefault(t *testi
 	}
 }
 
+func TestTranslateResponsesRequestMapsClaudeWebSearchToHostedTool(t *testing.T) {
+	out, err := TranslateResponsesRequest([]byte(`{"model":"terra","tools":[{"type":"web_search_20260318","name":"web_search","max_uses":5}],"messages":[{"role":"user","content":"today's news"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Tools []responsesTool `json:"tools"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if len(got.Tools) != 1 || got.Tools[0].Type != "web_search" || got.Tools[0].Name != "" || len(got.Tools[0].Parameters) != 0 {
+		t.Fatalf("tools = %#v, want one nameless hosted web_search tool", got.Tools)
+	}
+}
+
 func TestTranslateResponsesRequestPreservesInConversationSystem(t *testing.T) {
 	out, err := TranslateResponsesRequest([]byte(`{"model":"terra","max_tokens":64,"messages":[{"role":"user","content":"before"},{"role":"system","content":[{"type":"text","text":"Use the repository conventions."}]},{"role":"user","content":"after"}]}`))
 	if err != nil {
@@ -108,6 +124,16 @@ func TestTranslateResponsesResponsePreservesToolIdentity(t *testing.T) {
 	}
 }
 
+func TestTranslateResponsesResponseSkipsCompletedHostedWebSearch(t *testing.T) {
+	out, err := TranslateResponsesResponse([]byte(`{"id":"resp_1","model":"terra","status":"completed","output":[{"type":"web_search_call","id":"ws_1","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"The answer."}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"text":"The answer."`) {
+		t.Fatalf("response omitted final text after hosted web search: %s", out)
+	}
+}
+
 func TestResponsesStreamTranslatorTextAndTool(t *testing.T) {
 	tr := NewResponsesStreamTranslator()
 	var got string
@@ -127,6 +153,35 @@ func TestResponsesStreamTranslatorTextAndTool(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"event: message_start", `"text":"hello"`, `"id":"call_1"`, `"partial_json":`, `"stop_reason":"tool_use"`, "event: message_stop"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stream missing %s:\n%s", want, got)
+		}
+	}
+}
+
+func TestResponsesStreamTranslatorSkipsHostedWebSearchEvents(t *testing.T) {
+	tr := NewResponsesStreamTranslator()
+	var got string
+	for _, payload := range []string{
+		`{"type":"response.created","response":{"id":"resp_1","model":"terra"}}`,
+		`{"type":"response.output_item.added","item":{"type":"web_search_call","id":"ws_1"}}`,
+		`{"type":"response.web_search_call.searching","item_id":"ws_1"}`,
+		`{"type":"response.web_search_call.in_progress","item_id":"ws_1"}`,
+		`{"type":"response.web_search_call.completed","item_id":"ws_1"}`,
+		`{"type":"response.output_text.delta","delta":"The answer."}`,
+		`{"type":"response.output_text.annotation.added","annotation":{"type":"url_citation"}}`,
+		`{"type":"response.output_text.annotation.done","annotation":{"type":"url_citation"}}`,
+		`{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":2,"output_tokens":4}}}`,
+	} {
+		events, err := tr.Chunk([]byte(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			got += string(event.Format())
+		}
+	}
+	for _, want := range []string{`"text":"The answer."`, "event: message_stop"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("stream missing %s:\n%s", want, got)
 		}

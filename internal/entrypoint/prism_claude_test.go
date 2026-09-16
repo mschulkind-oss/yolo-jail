@@ -230,6 +230,42 @@ func TestConfigureClaudePrismNoLSP(t *testing.T) {
 	}
 }
 
+// TestConfigureClaudePrismCodexModelPicker verifies the actual settings file Claude
+// reads receives the exact subscription model IDs. This is a profile-specific computed
+// surface: deleting the provider context hand-off, or falling back to Claude's built-in
+// picker, makes this test fail at the boot writer rather than only in a Lua unit test.
+func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
+	e, _ := newClaudePrismEnv(t, map[string]string{
+		"YOLO_USE_PROFILES": `{"claude":"codex"}`,
+		"YOLO_PROFILES":     `{"codex":{"provider":"openai-codex"}}`,
+	})
+	if err := ConfigurePackByName(e, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	got := decodeJSONFile(t, filepath.Join(e.ClaudeDir(), "settings.json"))
+	picker, ok := got["modelPicker"].(map[string]any)
+	if !ok {
+		t.Fatalf("modelPicker missing/!object: %v", got["modelPicker"])
+	}
+	if picker["replaceBuiltInOptions"] != true {
+		t.Errorf("replaceBuiltInOptions = %v, want true", picker["replaceBuiltInOptions"])
+	}
+	options, ok := picker["options"].([]any)
+	if !ok {
+		t.Fatalf("modelPicker.options missing/!array: %v", picker["options"])
+	}
+	want := []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"}
+	if len(options) != len(want) {
+		t.Fatalf("modelPicker.options = %v, want %v", options, want)
+	}
+	for i, model := range want {
+		option, ok := options[i].(map[string]any)
+		if !ok || option["model"] != model {
+			t.Errorf("modelPicker.options[%d] = %v, want model %q", i, options[i], model)
+		}
+	}
+}
+
 // TestConfigureClaudePrismUserSettingSurvives proves the §5 overlay loop for
 // claude: a top-level key the agent adds to settings.json in-jail on boot 1 is
 // captured and SURVIVES boot 2's regeneration, while the managed block and the

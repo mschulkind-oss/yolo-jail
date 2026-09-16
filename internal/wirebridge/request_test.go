@@ -168,8 +168,8 @@ func TestTranslateRequestFailClosed(t *testing.T) {
 		},
 		{
 			name:    "unknown tool type is named",
-			in:      `{"model":"m","max_tokens":1,"tools":[{"type":"web_search_20260209","name":"web_search"}],"messages":[{"role":"user","content":"x"}]}`,
-			wantErr: `"web_search_20260209"`,
+			in:      `{"model":"m","max_tokens":1,"tools":[{"type":"server_tool_that_has_no_responses_equivalent","name":"x"}],"messages":[{"role":"user","content":"x"}]}`,
+			wantErr: `"server_tool_that_has_no_responses_equivalent"`,
 		},
 		{
 			name:    "non-base64 image source is named",

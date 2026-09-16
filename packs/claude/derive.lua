@@ -34,11 +34,28 @@ yolo.derive("claude", "settings", function(ctx)
   for lang, id in pairs(plugin) do
     enabled[id] = ctx.lsp_servers[lang] and true or ctx.tombstone
   end
-  return {
+  local out = {
     mcpServers = ctx.tombstone,
     enabledPlugins = enabled,
     env = { ENABLE_LSP_TOOL = next(ctx.lsp_servers) and "1" or ctx.tombstone },
   }
+  -- Claude Code's picker accepts exact gateway model IDs.  The Codex Responses
+  -- bridge likewise sends model IDs unchanged, so expose the subscription
+  -- catalog directly instead of asking users to infer a Claude tier alias.
+  -- Replacing the built-ins prevents retired pre-5.6 choices from leaking into
+  -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
+  if ctx.selected_provider == "openai-codex" then
+    out.modelPicker = {
+      options = {
+        { model = "gpt-5.6-luna",  label = "GPT-5.6 Luna",  description = "Fast" },
+        { model = "gpt-5.6-terra", label = "GPT-5.6 Terra", description = "Balanced" },
+        { model = "gpt-5.6-sol",   label = "GPT-5.6 Sol",   description = "Most capable" },
+        { model = "gpt-6-astra",   label = "GPT-6 Astra",   description = "Frontier" },
+      },
+      replaceBuiltInOptions = true,
+    }
+  end
+  return out
 end)
 
 -- env: the provider environment claude's own process launches with. The variable NAMES
@@ -59,7 +76,16 @@ yolo.env("claude", function(ctx)
   if ctx.selected_provider == "openai-codex" then
     return {
       ANTHROPIC_BASE_URL = "http://127.0.0.1:8215",
-      ANTHROPIC_DEFAULT_OPUS_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
+      -- Pin a fresh Codex-profile chat and every unassigned subagent to the
+      -- stable balanced model. The picker above remains available for an
+      -- intentional per-session choice.
+      ANTHROPIC_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
+      CLAUDE_CODE_SUBAGENT_MODEL = (ctx.profile and ctx.profile.model) or "gpt-5.6-terra",
+      -- These are the Responses models' real 1.05M-token context capacity and
+      -- Claude Code's documented 1M maximum proactive-compaction threshold.
+      -- Stating both is necessary for an unrecognised custom model ID.
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1050000",
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1",
     }
   end

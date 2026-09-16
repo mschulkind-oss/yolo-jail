@@ -194,6 +194,7 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 | `messages[].role: "system"` (text only) | preserve its conversation position | a system message; on the Codex Responses route, a `developer` input message |
 | text and image blocks | copy; images as base64 data URIs | content parts |
 | `tools[]` with an input schema | rename the schema field; **never request strict mode** | `tools[]` |
+| Claude `web_search_*` server tools on the Codex route | translate each versioned Anthropic definition to Responses' hosted `web_search`; discard its provider-only lifecycle records while retaining the final answer | hosted Responses web search |
 | tool-use / tool-result blocks | bidirectional mapping | tool calls / tool-role messages |
 | thinking config and beta headers | chat-completions route: **strip**; Responses route: translate `enabled` budget to a conservative effort, while every non-budget mode leaves the provider default | documented Responses reasoning option, when explicit |
 | response retention and token cap | Codex subscription Responses route: set `store: false` and omit Claude's token cap; other Responses routes preserve their documented cap mapping | ChatGPT subscription endpoint requires no retention and rejects `max_output_tokens` |
@@ -221,6 +222,12 @@ provider's key, read once at boot.
 > **Never request strict-mode tool schemas upstream.** A strict-mode implementation rejects
 > schema keywords that an agent's tool definitions contain freely, so the request fails on
 > something the bridge could have simply not asked for.
+
+> [!NOTE]
+> **Only the compatible hosted server tool crosses the Codex route.** Claude's versioned web
+> search definitions and Responses' hosted web search have the same server-executed contract;
+> the bridge translates them directly. Other Claude server tools remain refused by name rather
+> than being guessed at or misrepresented as client-executed functions.
 
 > [!WARNING]
 > **Do not surface upstream reasoning as thinking blocks.** Emitting them obliges the bridge to

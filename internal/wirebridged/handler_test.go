@@ -238,23 +238,48 @@ func TestCodexResponsesLiveSmoke(t *testing.T) {
 	srv := httptest.NewServer(NewCodexResponsesHandler(CodexResponsesBaseURL, endpoint))
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"gpt-5.6-terra","max_tokens":64,"stream":true,"thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"Reply with OK."}]}`))
-	if err != nil {
-		t.Fatal(err)
+	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"} {
+		t.Run(model, func(t *testing.T) {
+			bodyJSON := `{"model":"` + model + `","max_tokens":64,"stream":true,"thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"Reply with OK."}]}`
+			resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(bodyJSON))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d: %s", resp.StatusCode, body)
+			}
+			if strings.Contains(string(body), "event: error") {
+				t.Fatalf("bridge reported an upstream stream translation error: %s", body)
+			}
+			for _, want := range []string{"event: message_start", "event: message_stop"} {
+				if !strings.Contains(string(body), want) {
+					t.Fatalf("bridge stream is missing %q: %s", want, body)
+				}
+			}
+		})
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d: %s", resp.StatusCode, body)
-	}
-	if strings.Contains(string(body), "event: error") {
-		t.Fatalf("bridge reported an upstream stream translation error: %s", body)
-	}
-	for _, want := range []string{"event: message_start", "event: message_stop"} {
-		if !strings.Contains(string(body), want) {
-			t.Fatalf("bridge stream is missing %q: %s", want, body)
+	t.Run("hosted web search", func(t *testing.T) {
+		bodyJSON := `{"model":"gpt-5.6-terra","max_tokens":64,"stream":true,"tools":[{"type":"web_search_20260318","name":"web_search"}],"messages":[{"role":"user","content":"Search the web for the current UTC offset of New York and answer in one sentence."}]}`
+		resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(bodyJSON))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d: %s", resp.StatusCode, body)
+		}
+		if strings.Contains(string(body), "event: error") {
+			t.Fatalf("bridge reported an upstream hosted-web-search error: %s", body)
+		}
+		for _, want := range []string{"event: message_start", "event: message_stop"} {
+			if !strings.Contains(string(body), want) {
+				t.Fatalf("bridge stream is missing %q: %s", want, body)
+			}
+		}
+	})
 }
 
 func TestResponsesRouteRetriesUnauthorizedOnceWithFreshAccessView(t *testing.T) {
