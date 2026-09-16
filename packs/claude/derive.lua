@@ -45,6 +45,16 @@ yolo.derive("claude", "settings", function(ctx)
   -- Replacing the built-ins prevents retired pre-5.6 choices from leaking into
   -- a Codex-profile launch; `Default` resolves to ANTHROPIC_MODEL below.
   if ctx.selected_provider == "openai-codex" then
+    -- The client retains a hard-coded Default row. Constraining Default makes
+    -- it resolve to the first allowlisted ID (Terra), while modelPicker keeps
+    -- the user-facing choice order below independent of that fallback rule.
+    out.availableModels = {
+      "gpt-5.6-terra",
+      "gpt-6-astra",
+      "gpt-5.6-sol",
+      "gpt-5.6-luna",
+    }
+    out.enforceAvailableModels = true
     out.modelPicker = {
       options = {
         { model = "gpt-6-astra",   label = "GPT-6 Astra",   description = "Frontier" },

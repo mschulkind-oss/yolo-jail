@@ -250,6 +250,13 @@ func TestConfigureClaudePrismCodexModelPicker(t *testing.T) {
 	if picker["replaceBuiltInOptions"] != true {
 		t.Errorf("replaceBuiltInOptions = %v, want true", picker["replaceBuiltInOptions"])
 	}
+	if got["enforceAvailableModels"] != true {
+		t.Errorf("enforceAvailableModels = %v, want true", got["enforceAvailableModels"])
+	}
+	allowed, ok := got["availableModels"].([]any)
+	if !ok || len(allowed) != 4 || allowed[0] != "gpt-5.6-terra" {
+		t.Errorf("availableModels = %v, want Terra first so Default resolves to Terra", got["availableModels"])
+	}
 	options, ok := picker["options"].([]any)
 	if !ok {
 		t.Fatalf("modelPicker.options missing/!array: %v", picker["options"])
