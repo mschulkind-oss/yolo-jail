@@ -1,5 +1,6 @@
--- pi: render ~/.pi/agent/models.json from declared providers, and write the selection
--- pair into ~/.pi/agent/settings.json when a profile is active at pi's CLI name.
+-- pi: render ~/.pi/agent/models.json from declared providers, write the selection
+-- pair into ~/.pi/agent/settings.json when a profile is active at pi's CLI name, and
+-- project canonical mcp_servers into ~/.pi/agent/mcp.json.
 
 -- The DIALECT MAP (docs/reference/providers.md §3.4 / OQ-PT1): yolo's canonical wire_api
 -- → the value pi reads from providers.<id>.api. Every row is a measured fact about pi,
@@ -328,4 +329,10 @@ yolo.derive("pi", "settings", function(ctx)
     table.insert(enabled, ctx.selected_provider .. "/*")
   end
   return { enabledModels = enabled, selection = sel }
+end)
+
+-- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers
+-- in ~/.pi/agent/mcp.json, where pi-mcp-adapter / pi-mcp-extension consumes it.
+yolo.derive("pi", "mcp", function(ctx)
+  return { mcpServers = ctx.mcp_servers }
 end)

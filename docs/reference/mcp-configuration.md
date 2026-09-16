@@ -12,6 +12,7 @@ covers:
   - packs/copilot/derive.lua
   - packs/opencode/derive.lua
   - packs/agy/derive.lua
+  - packs/pi/derive.lua
 tags: [mcp, lsp, packs, prism, config, wrappers]
 summary: "How MCP and LSP server config reaches an agent: one canonical server table built in-jail from config (presets expanded, null removes, requires_env gates, no ${VAR} interpolation), published as a source that each pack's derive.lua projects into its own tool's dialect. Plus the node/npx wrappers, what is left of their job now that nix-ld covers the loader, and the gap where a custom server bypasses them."
 ---
@@ -120,9 +121,8 @@ projection has to get right:
 - One flattens `command` plus `args` into a single argv **array** and renames `env`.
 - One tool's MCP goes in a *different file* from its permissions, so its projection writes two
   surfaces.
-- One agent pack has **no MCP projection at all**, because that agent has no built-in MCP
-  client — it needs a separately-installed adapter extension. That agent therefore receives
-  none of the user's `mcp_servers`. See [Unbuilt](#unbuilt).
+- Pi projects the canonical table into `~/.pi/agent/mcp.json` (`mcpServers`), where adapter
+  extensions like `pi-mcp-adapter` or `pi-mcp-extension` read it.
 
 **Convergence — how a dropped server disappears** — is the composition engine's job, not a
 per-tool one:
@@ -246,13 +246,11 @@ change in one place rather than a call-site hunt.
 
 ## Unbuilt
 
-One agent pack ships **no MCP projection**, because that agent has no built-in MCP client: MCP
-arrives through a separately-installed adapter extension, which then reads a standard
-`mcpServers`-shaped config from the agent's own config dir. The shape is compatible with the
-canonical table, and that agent expands `${VAR}` itself, so the missing piece is a projection
-plus a decision about the adapter: auto-install it at boot, detect-and-hint, or gate it behind
-a config key. None of that is built, and the decision is a human call about that agent's
-deliberately-minimal posture against a boot-time network dependency.
+Auto-installing or bundling an MCP adapter extension for Pi: `packs/pi` projects the canonical
+server table into `~/.pi/agent/mcp.json`, which `pi-mcp-adapter` and `pi-mcp-extension` consume
+natively, but yolo does not auto-install either extension at boot. Deciding whether to bundle
+a standalone extension in `kind: "files"`, auto-install via a hook, or leave it to user
+configuration is a choice about Pi's minimal posture against boot-time network dependencies.
 
 ## Current values
 

@@ -90,7 +90,7 @@ func TestEveryShippedPackDeriveStillRuns(t *testing.T) {
 // else, and the test would pass with the whole body of every derive deleted.
 //
 // Each source below buys specific lines. mcp_servers reaches the MCP projections (agy,
-// claude, codex, copilot, opencode). providers — with an endpoint, a wire_api and a
+// claude, codex, copilot, opencode, pi). providers — with an endpoint, a wire_api and a
 // models map — reaches pi's catalog loop and its `table.insert` over the model aliases,
 // which is the only stdlib call any shipped derive makes past its guard. Measured by
 // mutation: emptying providers takes pi/models from 1 key to 0 and this test stops

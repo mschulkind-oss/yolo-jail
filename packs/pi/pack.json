@@ -63,6 +63,16 @@
           "mode": "computed",
           "name": "models",
           "path": "~/.pi/agent/models.json"
+        },
+        {
+          "agent": "pi",
+          "codec": "json",
+          "defaults": {
+            "mcpServers": {}
+          },
+          "mode": "computed",
+          "name": "mcp",
+          "path": "~/.pi/agent/mcp.json"
         }
       ],
       "kind": "config"

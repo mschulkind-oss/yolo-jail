@@ -145,9 +145,9 @@ func TestConfigRenderExplainNamesTheComputedLayerItOmits(t *testing.T) {
 		t.Fatalf("rc != 0: %s", errw.String())
 	}
 	got := out.String()
-	// One note per rendered pi surface: both register a derive (packs/pi/derive.lua).
-	if n := strings.Count(got, "also has a `computed` layer"); n != 2 {
-		t.Errorf("counted %d computed-layer notes, want 2 (pi/settings and pi/models both "+
+	// One note per rendered pi surface: all three register a derive (packs/pi/derive.lua).
+	if n := strings.Count(got, "also has a `computed` layer"); n != 3 {
+		t.Errorf("counted %d computed-layer notes, want 3 (pi/settings, pi/models and pi/mcp all "+
 			"register a derive):\n%s", n, got)
 	}
 }
