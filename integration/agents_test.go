@@ -2,6 +2,7 @@ package integration
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -59,6 +60,14 @@ type packCase struct {
 	versionArg string
 	configRel  string
 	marker     string
+	// vendorSkipArch is the GOARCH the VENDOR does not publish this program for, with
+	// nothing yolo can do about it. Empty for every pack whose vendor ships both arches.
+	//
+	// It is a field on the row rather than a condition in the test body so the fact lives
+	// beside the pack it is about — and so `TestPackMatrixCoversEveryShippedProgram` still
+	// sees a row here, which is what keeps a skipped pack from quietly leaving the matrix.
+	vendorSkipArch   string
+	vendorSkipReason string
 }
 
 // packMatrix has one row per shipped agent pack; the subtest name is the pack name.
@@ -69,13 +78,27 @@ type packCase struct {
 // any more. OMP owns a pure generated provider catalog, so its empty marker asserts only
 // that the YAML surface was rendered before any provider is configured.
 var packMatrix = []packCase{
-	{"claude", "claude", "--version", ".claude/settings.json", "acceptEdits"},
-	{"copilot", "copilot", "--version", ".copilot/config.json", "yolo"},
-	{"opencode", "opencode", "--version", ".config/opencode/opencode.json", "allow"},
-	{"pi", "pi", "--version", ".pi/agent/settings.json", "defaultProjectTrust"},
-	{"codex", "codex", "--version", ".codex/config.toml", "danger-full-access"},
-	{"agy", "agy", "--version", ".gemini/antigravity-cli/settings.json", "permissionMode"},
-	{"omp", "oh-omp", "--version", ".oh-omp/agent/models.yml", ""},
+	{pack: "claude", binary: "claude", versionArg: "--version",
+		configRel: ".claude/settings.json", marker: "acceptEdits"},
+	{pack: "copilot", binary: "copilot", versionArg: "--version",
+		configRel: ".copilot/config.json", marker: "yolo"},
+	{pack: "opencode", binary: "opencode", versionArg: "--version",
+		configRel: ".config/opencode/opencode.json", marker: "allow"},
+	{pack: "pi", binary: "pi", versionArg: "--version",
+		configRel: ".pi/agent/settings.json", marker: "defaultProjectTrust"},
+	{pack: "codex", binary: "codex", versionArg: "--version",
+		configRel: ".codex/config.toml", marker: "danger-full-access"},
+	{pack: "agy", binary: "agy", versionArg: "--version",
+		configRel: ".gemini/antigravity-cli/settings.json", marker: "permissionMode"},
+	{pack: "omp", binary: "oh-omp", versionArg: "--version",
+		configRel: ".oh-omp/agent/models.yml", marker: "",
+		vendorSkipArch: "arm64",
+		vendorSkipReason: "the npm package refuses to install: `oh-omp: unsupported " +
+			"platform linux-arm64. Supported: darwin-arm64, linux-x64`. Nothing yolo can " +
+			"do — and note the shape of the gap it exposes: a pack `program` cannot " +
+			"DECLARE which platforms its vendor publishes for (only the `service` kind " +
+			"carries `platforms`), so an arm64 Linux jail selecting this pack tries the " +
+			"install and gets the vendor's error instead of yolo declining with a reason"},
 }
 
 // TestPackMatrixCoversEveryShippedProgram is the forcing function this file spent its whole
@@ -142,6 +165,10 @@ func TestPackRendersConfigAndLauncher(t *testing.T) {
 	for _, tc := range packMatrix {
 		t.Run(tc.pack, func(t *testing.T) {
 			requireJail(t)
+			if tc.vendorSkipArch != "" && runtime.GOARCH == tc.vendorSkipArch {
+				t.Skipf("%s is not installable on %s: %s", tc.binary, runtime.GOARCH,
+					tc.vendorSkipReason)
+			}
 			dir := writeProjectWithPacks(t, `{}`, tc.pack)
 			cmd := fmt.Sprintf(
 				"grep -q '%s' \"$HOME/%s\" && test -x \"$HOME/.yolo/bin/launch/%s\"",
@@ -162,6 +189,10 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 	for _, tc := range packMatrix {
 		t.Run(tc.pack, func(t *testing.T) {
 			requireJail(t)
+			if tc.vendorSkipArch != "" && runtime.GOARCH == tc.vendorSkipArch {
+				t.Skipf("%s is not installable on %s: %s", tc.binary, runtime.GOARCH,
+					tc.vendorSkipReason)
+			}
 			dir := writeProjectWithPacks(t, `{}`, tc.pack)
 			stamp := "$HOME/.cache/yolo-agent-stamps/" + tc.binary + ".stamp"
 			cmd := fmt.Sprintf(
